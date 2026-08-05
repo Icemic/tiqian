@@ -1,7 +1,15 @@
 # Android 平台字体行为报告
 
-采集器：`demo/android` 的 `FontDiagnosticsActivity`（安装 Demo APK 后有独立启动图标
-「提椠字体诊断」）。打开即采集，点「分享报告」以文件形式发出。
+采集器：独立模块 `demo/font-diagnostics`，构建产物是一个 2.3MB 的 APK。装上打开即采集，
+点「分享报告」以文件形式发出。
+
+```shell
+./gradlew :demo:font-diagnostics:assembleDebug
+```
+
+它刻意不依赖 `:demo` 或任何引擎模块，UI 也用纯 View 而非 Compose：报告观测的是平台行为，
+引擎一行都用不上；带上引擎会把四套 ABI 的 native 库打进来（实测 154MB），而这个 APK 是要
+发给外部设备的人装的。
 
 报告**只观测 Android 平台自身行为**，不评估提椠的实现——实现要照着这些行为写，因此报告里
 不掺入对某个实现的判断。全程只读：不安装字体、不改设置、不联网，仅向应用私有 cache 写一份

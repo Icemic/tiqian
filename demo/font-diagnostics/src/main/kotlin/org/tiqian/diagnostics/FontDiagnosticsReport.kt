@@ -1,4 +1,4 @@
-package org.tiqian.demo.android
+package org.tiqian.diagnostics
 
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -420,7 +420,18 @@ object FontDiagnosticsReport {
         val fonts = systemFontsOrEmpty()
         appendLine("count: ${fonts.size}（无序集合，不含具名家族归属与 fallback 次序）")
         appendLine()
-        fonts.sortedBy { it.file?.absolutePath ?: "~" }.forEach { font ->
+        // 全序：TTC 的多个 index 共用同一路径，只按路径排会在跨次运行间抖动，
+        // 制造与设备无关的假 diff。
+        fonts.sortedWith(
+            compareBy(
+                { it.file?.absolutePath ?: "~" },
+                { it.ttcIndex },
+                { it.style.weight },
+                { it.style.slant },
+                { runCatching { it.localeList.toLanguageTags() }.getOrDefault("") },
+                { it.axes?.joinToString(",") { axis -> "${axis.tag}=${axis.styleValue}" } ?: "" },
+            ),
+        ).forEach { font ->
             val file = font.file
             appendLine(file?.absolutePath ?: "(no file)")
             appendLine("    ttcIndex=${font.ttcIndex} weight=${font.style.weight} slant=${font.style.slant}" +

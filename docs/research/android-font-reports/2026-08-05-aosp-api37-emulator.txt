@@ -2520,17 +2520,17 @@ count: 207（无序集合，不含具名家族归属与 fallback 次序）
     ttcIndex=0 weight=400 slant=0 readable=true size=4896
     locales=[und-Buhd]
 /system/fonts/NotoSansCJK-Regular.ttc
-    ttcIndex=2 weight=400 slant=0 readable=true size=32355424
-    locales=[zh-Hans-CN]
+    ttcIndex=0 weight=400 slant=0 readable=true size=32355424
+    locales=[ja-Jpan-JP]
 /system/fonts/NotoSansCJK-Regular.ttc
     ttcIndex=1 weight=400 slant=0 readable=true size=32355424
     locales=[ko-Kore-KR]
 /system/fonts/NotoSansCJK-Regular.ttc
+    ttcIndex=2 weight=400 slant=0 readable=true size=32355424
+    locales=[zh-Hans-CN]
+/system/fonts/NotoSansCJK-Regular.ttc
     ttcIndex=3 weight=400 slant=0 readable=true size=32355424
     locales=[zh-Hant-TW,zh-Bopo-TW]
-/system/fonts/NotoSansCJK-Regular.ttc
-    ttcIndex=0 weight=400 slant=0 readable=true size=32355424
-    locales=[ja-Jpan-JP]
 /system/fonts/NotoSansCanadianAboriginal-Regular.ttf
     ttcIndex=0 weight=400 slant=0 readable=true size=62852
     locales=[und-Cans]
@@ -2956,17 +2956,17 @@ count: 207（无序集合，不含具名家族归属与 fallback 次序）
     ttcIndex=0 weight=400 slant=0 readable=true size=292736
     locales=[und-Beng]
 /system/fonts/NotoSerifCJK-Regular.ttc
-    ttcIndex=1 weight=400 slant=0 readable=true size=26273008
-    locales=[ko-Kore-KR]
-/system/fonts/NotoSerifCJK-Regular.ttc
     ttcIndex=0 weight=400 slant=0 readable=true size=26273008
     locales=[ja-Jpan-JP]
 /system/fonts/NotoSerifCJK-Regular.ttc
-    ttcIndex=3 weight=400 slant=0 readable=true size=26273008
-    locales=[zh-Hant-TW,zh-Bopo-TW]
+    ttcIndex=1 weight=400 slant=0 readable=true size=26273008
+    locales=[ko-Kore-KR]
 /system/fonts/NotoSerifCJK-Regular.ttc
     ttcIndex=2 weight=400 slant=0 readable=true size=26273008
     locales=[zh-Hans-CN]
+/system/fonts/NotoSerifCJK-Regular.ttc
+    ttcIndex=3 weight=400 slant=0 readable=true size=26273008
+    locales=[zh-Hant-TW,zh-Bopo-TW]
 /system/fonts/NotoSerifDevanagari-VF.ttf
     ttcIndex=0 weight=400 slant=0 readable=true size=295436
     locales=[und-Deva]
@@ -3038,15 +3038,15 @@ count: 207（无序集合，不含具名家族归属与 fallback 次序）
 /system/fonts/Roboto-Regular.ttf
     ttcIndex=0 weight=400 slant=0 readable=true size=2336500
     locales=[]
+    axes=wdth=100.0
+/system/fonts/Roboto-Regular.ttf
+    ttcIndex=0 weight=400 slant=0 readable=true size=2336500
+    locales=[]
+    axes=wdth=100.0
+/system/fonts/Roboto-Regular.ttf
+    ttcIndex=0 weight=400 slant=0 readable=true size=2336500
+    locales=[]
     axes=wdth=75.0
-/system/fonts/Roboto-Regular.ttf
-    ttcIndex=0 weight=400 slant=0 readable=true size=2336500
-    locales=[]
-    axes=wdth=100.0
-/system/fonts/Roboto-Regular.ttf
-    ttcIndex=0 weight=400 slant=0 readable=true size=2336500
-    locales=[]
-    axes=wdth=100.0
 /system/fonts/RobotoFlex-Regular.ttf
     ttcIndex=0 weight=400 slant=0 readable=true size=1775480
     locales=[]

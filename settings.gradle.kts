@@ -61,6 +61,7 @@ include(
     ":frontend:compose",
     ":demo",
     ":demo:android",
+    ":demo:font-diagnostics",
     ":frontend:android-view",
     ":test-support",
 )
