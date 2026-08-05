@@ -23,6 +23,11 @@ import kotlin.test.Test
  * so the reported improvement is a LOWER BOUND on what a production
  * `ParagraphDynamicProgramming` strategy could recover. Repair penalties are
  * excluded from BOTH sides' scores (structure-only comparison).
+ *
+ * The comparison and benchmark are reporting-only and stay off the default run:
+ * `TIQIAN_RUN_EXPERIMENTS=1 ./gradlew :layout:jvmTest --tests '*ParagraphDpReferenceExperiment*'`.
+ * `productionDpBeatsLookaheadOnCommittedOutput` is the ADR 0041 CatastropheGuard
+ * regression and always runs.
  */
 class ParagraphDpReferenceExperiment {
 
@@ -358,6 +363,10 @@ class ParagraphDpReferenceExperiment {
 
     @Test
     fun compareLookaheadAgainstParagraphDp() {
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("ParagraphDpReferenceExperiment: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         val tally = Tally()
 
         for (fixture in EarlyLayoutFixtures.all) {
@@ -484,6 +493,10 @@ class ParagraphDpReferenceExperiment {
 
     @Test
     fun benchmarkDpAgainstLookahead() {
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("ParagraphDpReferenceExperiment: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         val longText = NARROW_SWEEP_TEXTS.joinToString("") + NARROW_SWEEP_TEXTS.joinToString("")
         data class Bench(val id: String, val text: String, val width: Float)
         val cases = listOf(

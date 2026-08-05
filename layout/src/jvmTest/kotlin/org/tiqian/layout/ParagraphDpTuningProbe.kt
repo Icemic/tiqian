@@ -21,6 +21,9 @@ import kotlin.test.Test
  * Purpose: locate where the v3 model is still mis-tuned against Chinese body
  * typography before any knob is touched. Everything printed here is measured
  * on real AWT advances through the production engine.
+ *
+ * Run: `TIQIAN_RUN_EXPERIMENTS=1 ./gradlew :layout:jvmTest --tests '*ParagraphDpTuningProbe*'`
+ * (output in the test's stdout / build/reports).
  */
 class ParagraphDpTuningProbe {
 
@@ -206,6 +209,10 @@ class ParagraphDpTuningProbe {
 
     @Test
     fun reportPerceptualProfiles() {
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("ParagraphDpTuningProbe: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         data class Case(val id: String, val text: String, val width: Float, val hyphen: Boolean, val pin: Boolean, val lh: Float?, val indent: Float?, val deco: List<org.tiqian.core.DecorationSpan>)
 
         val cases = EarlyLayoutFixtures.all.map {
@@ -256,6 +263,10 @@ class ParagraphDpTuningProbe {
      */
     @Test
     fun sweepCompressionVisibility() {
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("ParagraphDpTuningProbe: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         data class Case(val id: String, val text: String, val width: Float, val hyphen: Boolean, val pin: Boolean, val lh: Float?, val indent: Float?, val deco: List<org.tiqian.core.DecorationSpan>)
 
         val cases = EarlyLayoutFixtures.all.map {
