@@ -27,7 +27,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0013 JVM AWT shaping adapter](0013-jvm-awt-shaping-adapter.md)
 - [0014 Ink-bounds 标点几何校准](0014-ink-bounds-calibrated-punctuation-geometry.md)
 - [0015 Skiko shaping adapter 交叉验证](0015-skiko-shaping-adapter-cross-check.md)
-- [0016 Android TextPaint adapter](0016-android-textpaint-adapter.md)
+- [0016 Android API 23 native 字体后端与平台 shaping oracle](0016-android-textpaint-adapter.md)
 - [0017 Compose Desktop renderer](0017-compose-desktop-renderer.md)
 
 ## 行内与段落排版
@@ -58,6 +58,8 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0038 邻行均摊](0038-neighbor-amortized-adjustment.md)
 - [0039 Web 渲染路径与真实站点接入](0039-web-rendering-path.md)
 - [0040 构建期 Web 字体证据与最大版心快照](0040-build-time-web-font-snapshots.md)
+- [0041 全段动态规划断行](0041-paragraph-dp-line-breaking.md)
+- [0042 Web 框架集成包与无宽度字体证据](0042-framework-web-integrations.md)
 
 ## 早期状态说明
 
@@ -66,9 +68,13 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - 0002 的字体声明度量与 OpenType BASE 后续由 0014、0033、0034 及平台 resolver 落地；
 - 0004、0008、0011 中的 stub / placeholder ink 说明由 0013–0016 的真实 shaping 与
   0014 的 ink-bounds 几何取代；
+- 0016 最初的 API 31 TextPaint 正确性边界已由 2026-08-05 amendment 改为 API 23+
+  HarfBuzz / FreeType 同源后端；平台 glyph API 只保留为 oracle / 可选优化；
 - 0009 的 Insert 模式由 Slice 10 落地；
 - 0021 中的 `firstLineIndentEm` / `blockIndentEm` 命名由 0034 改为 `Ic` 类型的
   `firstLineIndent` / `blockIndent`；
 - 0017 的 Desktop-only 前端由 0035 扩展到 Android，并由 0039 增加 Web 前端。
 - 0039 的客户端实时度量路径由 0040 增加构建期最大版心快照与服务器 shaping / metrics 回放；
   快照失配但证据仍有效时继续走回放，证据不可用时才保留原生正文或回到 0039 的具名降级路径。
+- 0042 把 0040 的字体证据与固定版心几何拆成两个公共输入：字体回放不要求宿主宽度，只有显式快照
+  继续使用 `maxWidthPx`；SvelteKit / Astro 生命周期由同仓库独立 npm adapter 持有。
