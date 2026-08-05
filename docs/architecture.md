@@ -103,8 +103,9 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
 - `shaping/jvm`：AWT 字体与 glyph vector；
 - `shaping/skia`：Skia / Skiko，供 Compose Desktop 与 JVM 渲染；
 - `shaping/native-font`：Android API 23+ HarfBuzz / FreeType 正确性后端，从同一字体字节完成
-  shaping、metrics、ink 与 outline replay；字体身份包含 TTC index 与可变字体轴坐标，系统暴露的
-  400 / 700 等实例不会共享字体默认轮廓；
+  shaping、metrics、ink 与 outline replay；字体身份包含 TTC index 与有效可变字体轴坐标；每个
+  role 使用有序 family fallback，组内先匹配 regular / bold / italic。catalog revision 变化会让
+  Compose 同时重建 shaping、metrics 和 layout cache，旧 face 只为旧 `LayoutResult` 保留；
 - `shaping/android-adapter`：API 31+ Android `TextPaint` / platform glyph data oracle 与可选优化；
 - `shaping/web-adapter`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据。
 
@@ -141,7 +142,11 @@ Compose 前端把 `AnnotatedString` 与 `TextStyle` lowering 成核心输入，�
 `cjkTextCompatibility()` 报告当前无法完整保真的能力。Skia 与 Android renderer 重放
 `LayoutResult` 的 glyph 和 annotation geometry，不自行重新排版。
 Android API 23+ 默认走 native HarfBuzz / FreeType 同源后端；API 29+ 可以使用公开
-`SystemFonts`，API 23–28 的生产宿主应在首次排版前提供 asset、文件或 `ByteArray` 字体 catalog。
+`SystemFonts` 构造明确标注的 approximate 目录，但它不是默认真值。API 31+ 让平台 shape 当前
+请求并读回具体 file / TTC index / variation axes，再用同一实例进入 native pipeline；API 23–30
+读取 `fonts.xml` 的有序声明，保留 `zh-Hans` 兼容 family 与其后续 fallback（包括声明为
+`lang="zh"` 的 MiSansL3 一类补充字库），同时报告无法观察 Minikin 最终运行时/主题选择。宿主也可
+提供 asset、文件或 `ByteArray` 受控 catalog 覆盖默认路径。
 API 31 platform glyph adapter 仅作对照 / 可选优化，capability report 不会把正文路由回 Compose Text。
 可选的
 `CjkSelectionContainer` 把同一份 `LayoutResult` 的 UTF-16 source range、cluster box 与 caret

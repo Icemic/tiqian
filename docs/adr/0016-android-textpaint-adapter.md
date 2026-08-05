@@ -10,6 +10,13 @@
 - Amendment 2026-08-05：API 31 的 `TextRunShaper` / `Canvas.drawGlyphs` 不能继续作为
   Android 正确性的最低边界。Compose artifact、native backend 与验证 app 的 minSdk 改为 23；
   新增 HarfBuzz + FreeType 同源后端，API 31 adapter 只保留为经过几何对照的可选 oracle / 优化。
+- Amendment 2026-08-05（二）：OEM 证据推翻了“可从 `SystemFonts` 枚举恢复系统默认 family”的
+  假设。catalog 改为有序 family fallback、保留实际轴实例并带单调 revision；枚举路径明确降为
+  approximate，Compose 以 revision 使 shaping、metrics 与 layout cache 一起失效。
+- Amendment 2026-08-05（三）：API 31+ 默认路径对每个实际 shaping 请求调用平台
+  `TextRunShaper`，读回具体 file / TTC index / variation axes，再由 native 后端重放该实例；
+  API 23–30 则读取 `fonts.xml` 的有序声明并明确报告无法观察 Minikin 最终运行时选择。语言兼容
+  必须保留 `lang="zh"` 的补充字库，例如 MiSans 主字库之后的 `MiSansL3.otf`。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
@@ -19,24 +26,35 @@ Android API 23+ 的默认正确性路径改为 `shaping/native-font`：
   与结构化 `FontBackendCapabilityReport`。`FontFaceId` 由字体字节 SHA-256、TTC index 与可变字体轴实例
   稳定导出，
   已产生 `LayoutResult` 的 face 在进程内继续保留，catalog 更新不会让旧布局失去重放资源。
-- 宿主通过 `AndroidFontSource.bytes/file/asset` 与 `AndroidFontFaceSpec` 明确声明 family alias、
-  字重、斜体和 fallback role。HarfBuzz 从这份字节产生 cluster、glyph id、advance、placement、
+- 宿主通过 `AndroidFontSource.bytes/file/asset` 与 `AndroidFontFaceSpec` 明确声明 family key / alias、
+  字重、斜体、有效轴实例和 fallback role；`AndroidFontCatalog.fallbackChains` 按 role 给出有序
+  family 链，regular / bold / italic 在同一 family 内先做样式匹配，只有该 family 不覆盖文本时
+  才进入下一 family。HarfBuzz 从这份字节产生 cluster、glyph id、advance、placement、
   `locl` 与调用方要求的 feature；FreeType 从同一 face 取得 raw metrics、ink bounds 和 outline。
   renderer 只按 `LayoutResult` 的 glyph id / origin 重放 outline，不重新断行、重新 shaping 或猜偏移。
-- API 29+ 可以通过公开 `SystemFonts` 构造默认 catalog；API 23–28 没有公开枚举能力，生产宿主应
-  在第一次 `CjkText` 前安装受控 catalog。内建 AOSP 路径仅是具名设备兼容来源，并报告
-  `HostFontCatalogRecommendedBelowApi29`；路径或 role 缺失继续以结构化 issue / 明确异常暴露，
-  不调用 Android 私有 Minikin API，也不静默用另一字体测量或绘制。
+- API 31+ 默认路径以 `AndroidPlatformTextRunOracleApi31` 让平台 shape 当前 selection text，读回
+  实际 `Font` 的 file / TTC index / variation axes，再把同一实例交给 HarfBuzz / FreeType；结果按
+  完整 face request 与实例缓存。它沿用 Android 自己的 OEM、用户主题和 fallback 选择，而不是从
+  文件名反推 family。
+- API 23–30 没有逐 glyph font 读回，默认读取单一可读 `fonts.xml` 根文件的声明顺序：具名
+  `sans-serif`、与简中兼容的语言 family、其后的中立 fallback 分别进入有序链。`zh-Hans` 请求
+  接受 `zh` / `zh-CN` / `zh-SG` / `und-Hani`，因此小米声明为 `lang="zh"` 的 `MiSansL3.otf`
+  会保留在主 MiSans 之后；显式 `zh-Hant` 不混入简中链。该路径报告
+  `RuntimeFontSelectionUnobservableBelowApi31`；发现多个可读配置根时再报告
+  `UnmergedFontConfigOverlays`，不假装复现私有 overlay merge。
+- API 29+ 的公开 `SystemFonts` 只在上述声明目录不可用时构造
+  `ApproximateAndroidPublicSystemFontsApi29` 诊断目录，并报告 `ApproximateSystemFontSelection`；
+  更末级的已知系统路径同样具名报告能力缺口。宿主仍可在第一次 `CjkText` 前安装受控 catalog，
+  以覆盖无法从旧系统公开 API 观察的主题或合成字形行为。所有路径都不调用 Android 私有 Minikin API，
+  也不静默用另一字体测量或绘制。
 - `SystemFonts` 会把同一个可变字体文件和 TTC face 暴露成多组轴坐标。catalog 必须按
   `file / source + TTC index + variation axes` 区分实例，并把坐标交给 FreeType 后再建立
-  HarfBuzz face；不能按文件合并，也不能只把 Android 报告的 400 / 700 写进 descriptor 而让
-  native face 停在字体默认轴值。有些系统家族（例如 Pixel 上的 Roboto）只枚举默认实例，再用
-  Android family alias 请求其余字重；默认 catalog 需要用公开 `Font.Builder` 从该 variable face
-  建立 400 / 700 实例。`SystemFonts.getAvailableFonts()` 是丢失 named-family 归属的无序集合；同一
-  Roboto 文件可能同时以 `wdth=100` 的 `sans-serif` 和 `wdth=75` 的
-  `sans-serif-condensed` 出现。generic sans 的选择必须确定性地优先正常宽度，派生字重时只覆盖
-  `wght` 并保留基准实例其余全部轴坐标。宿主安装可变字体时同样通过
-  `AndroidFontFaceSpec.variationAxes` 声明具体实例。
+  HarfBuzz face；不能按文件合并，也不能把枚举实例改写成猜测的 400 / 700。平台 font override
+  在进入 catalog 时必须 lower 成 `AndroidFontFaceSpec.variationAxes` 的有效坐标；无法保真的
+  fake style 必须形成 capability issue。approximate 枚举路径只保留 API 实际报告的坐标。
+- 每次 `TiqianAndroidFontBackend.install()` 产生新的单调 catalog revision，并通知 Compose 重建
+  `ParagraphMeasurer`；这同时丢弃旧环境的 shaping、metrics 与段落 cache。已产出的
+  `LayoutResult` 仍凭稳定 `FontFaceId` 使用被进程保留的旧 face 重放，两种生命周期不得混为一谈。
 - outline replay 将“有效但无 contour”（例如空格）视为成功的无墨迹 glyph；已注册 face 的 glyph
   若不是可重放 outline，则以 `NativeGlyphReplayUnavailable` 明确失败。它不能落到
   `drawTextRun` / `getTextPath`，因为这会破坏测量与绘制同源。
@@ -52,15 +70,22 @@ native bridge 目前留在提椠内，但公共边界只依赖 replayable font c
 
 ### API 23+ 验证证据
 
-同一构建在 Android emulator 上通过 native instrumentation：API 23、27、30 各 4/4；API 31 与
-当前 API 37 各通过 native 4/4 和 platform adapter 16/16。API 31+ 对照测试从同一字体字节比较
+此前构建在 Android emulator 上通过 native instrumentation：API 23、27、30 各 4/4；API 31 与
+当时 API 37 各通过 native 4/4 和 platform adapter 16/16。API 31+ 对照测试从同一字体字节比较
 glyph id、advance、ink 数量、layout line range 与 visual width。API 23 / 27 / 30 / 31 共享 Demo
 均能启动并生成正文截图，覆盖中西混排、破折号/省略号、标点压缩与双齐、装饰线、ruby / 注音、
 富文本和链接/选择入口。
 
-5040 字、169 行的 debug emulator 探针记录为 API 27 约 15.96 s、API 30 约 14.70 s、API 31
-约 0.54 s；这些数字只证明长文路径完成，不能当作 release 真机性能门槛。native face、coverage、
-shape、metrics 与 outline 均使用有界 cache；正式性能结论仍需 release 包和代表性真机复测。
+有序 family fallback、catalog revision、平台 oracle 与旧系统声明目录完成后，当前工作树在两台
+物理设备上各通过 native instrumentation 8/8：小米 Mi 10s（Android 13 / API 33）命中
+`AndroidPlatformTextRunOracleApi31`，普通汉字由 `MiSansVF` 实例承担，Ext-B 生僻字由
+`MiSansL3.otf` 承担；Galaxy S8+（Android 9 / API 28）命中
+`DeclaredAndroidFontConfigApi23To30`，保留 `SECCJK-Regular.ttc#2` 及其后续声明 fallback。
+
+同一 5040 字 debug 真机探针在 Mi 10s 约 1.29 s、Galaxy S8+ 约 4.43 s，均通过 20 s 门槛。
+此前 Galaxy 的约 85 s 来自 layout 内两处按字体决策反复扫描全文的平方级 range join；改为按
+source range 单调遍历后，layout golden 未变化。数字只证明当前 debug 真机门槛，不等同 release
+整机性能或内存结论。
 
 ## Context
 
@@ -160,15 +185,19 @@ API 29+ 的 catalog 由 `SystemFonts.getAvailableFonts()` 构建，而该 API �
 真值。** `AndroidPositionedGlyphFontRegistry` 已经持有这些 `Font` 对象（当前仅用作 drawGlyphs
 的不透明 key），证据一直在，只是没有被读。
 
-`platformResolvedFacesMatchTheFacesWeSelect` 按此取证：以 `zh-Hans` locale 让平台自由选字，
-读回实际 face 文件，与 catalog 选出的 face 比对。AOSP API 37 上二者一致
-（`/system/fonts/NotoSansCJK-Regular.ttc`），基线成立；OEM 设备上同一断言会把分叉抓成失败。
+原先的 `platformResolvedFacesMatchTheFacesWeSelect` 只在 AOSP API 37 上得到一致，不能把 AOSP
+偶合提升成默认目录契约。2026-08-05 的 8 份逐 glyph OEM 样本已经观测到枚举 heuristic 与平台
+默认 face / 轴实例的系统性分叉，详见
+[`2026-08-05-compose-font-selection-audit.md`](../research/android-font-reports/2026-08-05-compose-font-selection-audit.md)。
+该断言已删除，枚举目录改为自报 approximate；API 31+ 默认路径现在直接消费当前请求的平台读回，
+而不是继续修文件名评分。
 
 范围与未决：
 
 - 该取证要求 API 31（逐 glyph 的 `getFont`）。**API 23–30 没有 glyph 级 font 读回**，
-  只能停在枚举 + 宿主 catalog + 声明缺口，不得声称与平台同源。
+  只能使用有序 `fonts.xml` 声明或宿主 catalog，并报告运行时选择不可观察；不得声称与平台同源。
 - 探针不能复用 glyph 的 `renderFontKey`：Han context 下它按 `NoGlyphReplayInHanContext`
   有意置 null，那是 glyph id 不可重放，不是字体身份不可用。
-- OEM 分叉本身**尚未实测**，手边只有 AOSP 模拟器。真机（如搭载 MiSans 的设备）跑通同一断言
-  之前，上述分叉机制是依据 API 契约的推断，不是观测结论。
+- Android 主题或字体设置改变后，平台没有向第三方排版引擎公开完整的字体图修订通知；当前 request
+  cache 以进程内 catalog revision 为边界。宿主主动安装 catalog 会正确失效，运行中系统主题切换的
+  自动侦测仍需单独契约。

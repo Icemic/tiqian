@@ -1,61 +1,86 @@
-# Android 平台字体行为报告
+# Android 字体行为取证
 
-采集器：独立模块 `demo/font-diagnostics`，构建产物是一个 2.3MB 的 APK。装上打开即采集，
-点「分享报告」以文件形式发出。
+`demo/font-diagnostics` 是独立的 Android 平台字体行为采集器。它不依赖提椠的字体选择或排版
+实现，也不在设备端判断“哪个字体正确”。采集结果用于建立外部事实，之后再据此修正实现。
+
+## 输出
+
+应用生成一个 `tiqian-android-font-evidence-*.zip`：
+
+- `manifest.json`：schema、采集器版本、设备、API 能力以及包内条目的 SHA-256；
+- `observations.jsonl`：每个探针、locale、家族和样式请求的一条独立观测；
+- `font-config.json`：从可读配置解析出的 family、alias、fallback、locale、TTC 与 axis 声明；
+- `system-fonts.json`：公开 `SystemFonts` API 返回的字体集合；
+- `font-directories.json`：应用沙箱可以看到的字体目录元数据；
+- `renders/`：每条成功 shape 请求的实际软件 Bitmap PNG；
+- `raw/font-config/`：可读字体配置的原文；
+- `summary.md`：只说明能力和采集完整性，不生成 OEM 行为结论。
+
+结构化格式见 [schema-v1.md](schema-v1.md)。
+
+## 能力边界
+
+| 能力 | 最低 API | 低版本如何记录 |
+| --- | ---: | --- |
+| `Paint` 宽度、run advance、栅格摘要、`hasGlyph` | 23 | — |
+| `Paint` 可变轴请求 | 26 | `unsupported` |
+| 精确 `Typeface` 字重请求 | 28 | `unsupported`，另采集 legacy normal/bold |
+| `SystemFonts` 枚举 | 29 | `unsupported` |
+| 逐 glyph 字体、位置、glyph id 与 bounds | 31 | `glyphReadback.status=unsupported` |
+| 合成粗斜体与 weight/italic override 读回 | 35 | `styleApplication.status=unsupported` |
+
+`unsupported` 是未知，不是 `false`、相同或没有变化。某一层不可用时，报告仍可保留同次请求里
+确实观测到的宽度、栅格或覆盖信号。
+
+字体配置是声明证据；`SystemFonts` 是无家族关系和 fallback 次序的集合。两者都不能替代 API 31+
+平台 shaping 后逐 glyph 读回的实际字体。
+
+## 采集
 
 ```shell
 ./gradlew :demo:font-diagnostics:assembleDebug
 ```
 
-它刻意不依赖 `:demo` 或任何引擎模块，UI 也用纯 View 而非 Compose：报告观测的是平台行为，
-引擎一行都用不上；带上引擎会把四套 ABI 的 native 库打进来（实测 154MB），而这个 APK 是要
-发给外部设备的人装的。
+安装并打开 APK，等待采集完成后点“分享证据包”。应用不联网、不修改系统；证据包会包含设备
+build fingerprint、字体文件路径和哈希、可读字体配置原文以及字体栅格摘要，分享前应让设备所有者
+知情。
 
-报告**只观测 Android 平台自身行为**，不评估提椠的实现——实现要照着这些行为写，因此报告里
-不掺入对某个实现的判断。全程只读：不安装字体、不改设置、不联网，仅向应用私有 cache 写一份
-报告文件供分享。
+旧版 `report-version: 3` 文本报告已移除。它在 API 不支持逐 glyph 读回时仍以空列表比较并生成
+“未变化”“相同”等结论，因此不能作为 AOSP 或 OEM 基线。Git 历史中的旧文件也不应继续引用。
 
-## 怎么读
+新的 AOSP/OEM 样本只有经过 schema 校验和语义审阅后才进入本目录；不再对整份文本或原始 XML
+做直接行 diff。
 
-第 0 节是设备上算好的结论（F1–F8），先读它，约 60 行就能回答：正文 face 是谁、跨 locale
-是否换字形、`Typeface.DEFAULT` 有没有被主题替换、哪些具名家族解析出独立 face、字重是真的
-还是合成、哪些配置文件可读、字体池里有哪些非 AOSP 字体、以及覆盖缺口。
+当前 11 份样本的公开脱敏汇总见 [oem-samples-v1.md](oem-samples-v1.md)，由这些证据对 Compose
+Android 字体选择做出的源码审计见
+[2026-08-05-compose-font-selection-audit.md](2026-08-05-compose-font-selection-audit.md)。
 
-第 1 节是设备身份，diff 时整节忽略。第 2–8 节是原始证据，结论意外时才往下翻。
+## 主机端校验与比较
 
-报告输出是确定性的（不含 hashcode、时间戳或任何逐次变化的值，顺序固定），所以 OEM 设备的
-报告可以直接和本目录的 AOSP 基线做 diff，差异行就是结论：
+`tools/android-font-evidence/evidence.py` 只使用 Python 标准库，负责三件事：
+
+- `validate`：校验 schema、ZIP 条目安全性、manifest 完整性、条目大小与 SHA-256、
+  observation ID 唯一性、状态计数、PNG 引用和辅助清单计数；
+- `compare`：按稳定 observation ID 对齐两份包，分别报告请求、run metrics、逐 glyph 读回与
+  raster 的变化，不直接 diff ZIP 或 XML；
+- `catalog`：按**整份 ZIP 的 SHA-256**连接经过人工审阅的采集条件，生成机器目录和中文审计表。
 
 ```shell
-diff docs/research/android-font-reports/2026-08-05-aosp-api37-emulator.txt 新报告.txt
+python3 tools/android-font-evidence/evidence.py validate /path/to/evidence-*.zip
+
+python3 tools/android-font-evidence/evidence.py compare \
+  /path/to/before.zip /path/to/after.zip \
+  --json-output /tmp/font-comparison.json \
+  --markdown-output /tmp/font-comparison.md
+
+python3 tools/android-font-evidence/evidence.py catalog \
+  /path/to/evidence-*.zip \
+  --labels /path/to/private-labels.json \
+  --json-output /path/to/private-catalog.json \
+  --markdown-output /path/to/private-catalog.md
 ```
 
-## 基线
-
-| 文件 | 设备 | API |
-| --- | --- | --- |
-| `2026-08-05-aosp-api23-emulator.txt` | AOSP 模拟器 arm64 | 23 |
-| `2026-08-05-aosp-api37-emulator.txt` | AOSP 模拟器 `sdk_gphone16k_arm64` | 37 |
-
-两份都是 AOSP，**不含任何 OEM 定制**。它们的作用是给 OEM 报告当参照，本身不能用来推断
-真实设备上的字体行为。
-
-## 已经从基线读出的事实
-
-- 同一 `NotoSansCJK-Regular.ttc` 内，`骨` 的 glyph id 随 locale 变化（简 45133 / 繁 45134 /
-  港 45132 / 日 45132 / 韩 45132）。**face 身份不足以确定字形，locale 必须进入 shaping。**
-- API 37 上中文 400 与 700 的文件、宽度、字形全部相同——该路径没有真中文粗体。
-- API 37 上 `/system/etc/font_fallback.xml` 存在但普通应用读不到；`fonts.xml` 可读。
-  API 23 上 `fonts.xml`、`system_fonts.xml`、`fallback_fonts.xml` 三份都可读。
-- API 37 全机 207 个字体中，`localeList` 自称含 `zh` 的只有 2 个
-  （`NotoSansCJK-Regular.ttc`、`NotoSerifCJK-Regular.ttc`）。
-
-## 待采集
-
-OEM 设备（尤其自带中文字体的国产机）。关注 F4 里带 `<== 中文与拉丁落到不同文件` 标记的行：
-那就是「该家族只接管西文、中文仍回落 Noto」的直接证据。
-
-F4 探测的家族名从设备的字体配置里现取（`<family name="...">`），不写死任何「常见 OEM 名」
-去撞——`Typeface.create()` 认不出名字时会静默回落默认字体，猜错的名字看起来和「这台机器
-没有该字体」完全一样，假阴性正好落在最关键的一格。AOSP 基线上这套现取机制自动发现了
-`roboto-flex` 与 `source-sans-pro` 两个家族，都是硬编清单不会包含的。
+人工标签只记录采集者明确提供的条件，例如同一台设备在「系统默认」与「启用字体模块」下的两次
+采集。`/data` 字体、`Overlay` 文件名、默认可变轴实例等由工具列为观测信号，但不会自动推断成某个
+主题、无障碍设置或 OEM 策略。原始 ZIP、archive SHA-256 标签和完整机器目录都可能保留可识别的
+设备组合，只能放在本地私有研究工作区；Git 中只保留无法回连单份原包的人工脱敏汇总。
