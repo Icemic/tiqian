@@ -163,7 +163,13 @@ object DomParagraphRenderer {
             result.positionedClusters(line)
                 .filter {
                     val cluster = result.clusters[it.clusterIndex]
-                    cluster.displayText.isNotEmpty() || cluster.range in zeroWidthBreakRanges
+                    // Inline objects are deliberately unshaped clusters with empty display
+                    // text, so they must be kept by range: the host element is cloned into
+                    // this cell, and dropping it would leak the object advance into the
+                    // preceding run's letter-spacing.
+                    cluster.displayText.isNotEmpty() ||
+                        cluster.range in zeroWidthBreakRanges ||
+                        cluster.range in inlineObjectAdvanceByRange
                 }
         }
 
