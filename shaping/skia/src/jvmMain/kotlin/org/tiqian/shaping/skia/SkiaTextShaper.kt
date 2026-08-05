@@ -57,7 +57,10 @@ class SkiaTextShaper(
 
         val collector = GlyphCollectingRunHandler()
         if (displayText.isNotEmpty()) {
-            runShaper(displayText, font, language, ShapingOptions.DEFAULT, collector)
+            val options = input.openTypeFeatures.fold(ShapingOptions.DEFAULT) { current, feature ->
+                current.withFeatures(feature)
+            }
+            runShaper(displayText, font, language, options, collector)
         }
         val glyphIds = collector.glyphIds.toShortArray()
         val xPositions = collector.xPositions
@@ -112,6 +115,7 @@ class SkiaTextShaper(
             fontKey = input.fontDecision.candidate.key,
             glyphs = glyphs,
             advance = advance,
+            openTypeFeatures = input.openTypeFeatures,
         )
         val decision = ShapingDecisionInfo(
             range = input.range,
