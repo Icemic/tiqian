@@ -1,6 +1,10 @@
 package org.tiqian.layout
 
 import org.tiqian.core.Cluster
+import org.tiqian.core.EastAsianSpacingEdges
+import org.tiqian.core.EastAsianSpacingValue
+import org.tiqian.core.InlineObjectPreferredStretch
+import org.tiqian.core.InlineObjectPreferredStretchKind
 import org.tiqian.font.FontRole
 
 /**
@@ -14,6 +18,8 @@ import org.tiqian.font.FontRole
  *   2. CjkLatinSpace     — the sino-western gap（中西间距）: stretches from
  *                          the autospace base (0.25em) by up to another
  *                          0.25em — total 0.5em, CLREQ's upper bound.
+ *   2a. Inline-object provider resources, each capped by its measured blank:
+ *       punctuation trailing space, relation space, then binary-operator space.
  *   3. CjkInterChar      — last resort for lines containing CJK body text:
  *                          EVEN inter-character expansion（平均拉大字距）,
  *                          UNCAPPED. A Western-dominant visual line does not
@@ -28,18 +34,14 @@ import org.tiqian.font.FontRole
  * Each [JustificationAllocation] targets a specific cluster: the delta is
  * understood as trailing space added to that cluster's advance.
  *
- * Tier-3 eligibility — UNIFORM TRACKING over every remaining 字符间距 at the
- * same share: 汉字↔汉字、汉字↔标点的任一侧、标点↔标点（含已折叠的相邻标点对），
- * AND `PunctuationLatinInterChar`: 标点↔西文（a 标点 face abutting a Western
- * word）— CLREQ tier ③「剩余所有字符间距」excludes only 不可断标点字间距 and
- * 连接号/分隔号前后, NOT 标点↔西文. Collapsed or trimmed punctuation blanks are
- * never PREFERENTIALLY refilled (their original width is gone for good), but
- * they take the uniform share like every other position — the user-ratified
- * reading of「加空白也是跟其他一样尽量均匀地加」. Excluded: 汉字↔西文 (that is
- * 中西间距, tier 2) and 西文↔西文 (word distance is tier 1, intra-word letter
- * spacing is never a tier). Atomic long marks (dash / ellipsis) also keep both
- * neighbours closed: stretching around a two-em dash reads as a generated space
- * and violates the source-preserving long-mark model.
+ * Tier-3 eligibility — UNIFORM TRACKING over every logical spacing position at the same share.
+ * This includes CJK↔CJK, punctuation↔Western, and the word-space / sino-western gaps that
+ * already received their capped tier-1 / tier-2 allocation. The earlier tiers are preferential
+ * adjustments, not exclusions from the final uniform pass. A typed space owns one logical gap,
+ * so its two physical cluster edges are never double-counted. Intra-word Western letter spacing
+ * remains excluded. CLREQ's inseparable symbol interiors and connector / solidus boundaries stay
+ * closed. Collapsed line-edge spaces stay collapsed, and atomic long marks (dash / ellipsis) still
+ * keep both neighbours closed.
  */
 class Justifier(
     /**
@@ -53,13 +55,15 @@ class Justifier(
     fun justify(
         adjustedClusters: List<Cluster>,
         clusterRoles: List<FontRole>,
+        eastAsianSpacingEdges: List<EastAsianSpacingEdges>,
         lineClusterRange: IntRange,
         maxWidth: Float,
         fontSize: Float,
         skip: Boolean,
         /**
          * 「在一些排版风格中，中西间距固定默认宽度……不允许被拉伸」—
-         * false disables the CjkLatinSpace tier (AdjustmentStylePolicy).
+         * false keeps the gap fixed: it disables both the preferred
+         * CjkLatinSpace stretch and its participation in final uniform spacing.
          */
         allowSinoWesternGapStretch: Boolean = true,
         /**
@@ -75,14 +79,37 @@ class Justifier(
         cjkLatinSpaceMaxEm: Float,
         /**
          * `NoStretchBoundaryClusters` — cluster indices whose adjacent
-         * boundaries stay closed in CjkInterChar. Covers CLREQ's explicit
+         * boundaries stay closed throughout stretching. Covers CLREQ's explicit
          * connector / solidus limit and the engine's atomic long-mark model
          * for dash / ellipsis.
          */
         noStretchBoundaryClusters: Set<Int> = emptySet(),
+        /**
+         * Cluster indices whose trailing boundary must not stretch. This is
+     * the precise form used for CLREQ's symbol-separation rule: `50|%`,
+     * `¥|100`, and similar inseparable pairs stay closed without also
+     * closing the pair's outer boundaries.
+     */
+        noStretchBoundaryAfterClusters: Set<Int> = emptySet(),
+        /**
+         * Explicit object edges that join the final equal-spacing pass. The
+         * index is the cluster on the left of the boundary. Opaque inline
+         * objects remain fixed unless their provider opts an edge in.
+         */
+        uniformInlineObjectBoundaryAfterClusters: Set<Int> = emptySet(),
+        /**
+         * Provider-measured capped stretch at specific object boundaries. These run after the
+         * CLREQ word/sino-western tiers and before final uniform tracking. Their semantic order is
+         * fixed here; the provider supplies classification, natural width, and an absolute target,
+         * not allocation policy.
+         */
+        preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> = emptyMap(),
     ): JustificationPlan {
         require(clusterRoles.size == adjustedClusters.size) {
             "clusterRoles must align with adjustedClusters."
+        }
+        require(eastAsianSpacingEdges.size == adjustedClusters.size) {
+            "East_Asian_Spacing values must align with adjustedClusters."
         }
 
         val adjustedWidth = lineClusterRange.sumOf { adjustedClusters[it].advance.toDouble() }.toFloat()
@@ -99,6 +126,19 @@ class Justifier(
 
         var remaining = deficitBefore
         val allocations = mutableListOf<JustificationAllocation>()
+        fun boundaryIsClosed(leftIdx: Int, rightIdx: Int): Boolean =
+            leftIdx in noStretchBoundaryAfterClusters ||
+                leftIdx in noStretchBoundaryClusters ||
+                rightIdx in noStretchBoundaryClusters
+
+        // A source-space cluster represents one logical gap even though it has
+        // a physical boundary on each side. If either side is protected, the
+        // logical gap is protected too.
+        fun spaceGapIsClosed(spaceIdx: Int): Boolean =
+            spaceIdx - 1 in noStretchBoundaryAfterClusters ||
+                spaceIdx in noStretchBoundaryAfterClusters ||
+                spaceIdx - 1 in noStretchBoundaryClusters ||
+                spaceIdx + 1 in noStretchBoundaryClusters
 
         // 1. WordSpace — stretch Latin word spaces（CLREQ 拉伸第一档：西文
         // 词距，一行内多处应同时、同等量处理）. A word space is a space-run
@@ -108,7 +148,8 @@ class Justifier(
         // Equal caps + proportional allocation = equal amounts.
         val wordSpaceOpps = buildList {
             for (idx in lineClusterRange) {
-                if (!adjustedClusters[idx].isWordSpaceBetweenLatin(idx, adjustedClusters, clusterRoles)) continue
+                if (!adjustedClusters.isWordSpaceBetweenNarrow(idx, eastAsianSpacingEdges)) continue
+                if (spaceGapIsClosed(idx)) continue
                 val naturalWidth = adjustedClusters[idx].advance
                 if (naturalWidth <= 0f) continue
                 // Headroom to the absolute cap (CLREQ ≤ 0.5em final width);
@@ -135,14 +176,14 @@ class Justifier(
 
         // 2. CjkLatinSpace — the sino-western gap（中西间距）, stretched from its
         // 0.25em base up to 0.5em, every instance in the line by equal amounts
-        // (CLREQ 拉伸第②档：同时、同等量). The same gap takes two shapes:
+        // (CLREQ 拉伸第②档：同时、同等量). The historical enum name
+        // is retained for compatibility; eligibility is Unicode East_Asian_Spacing
+        // W↔N, not FontRole.CjkText↔FontRole.LatinText. The same gap takes two shapes:
         //
-        //   (a) VIRTUAL — a CJK↔Latin cluster boundary with no typed space
-        //       whose boundary-adjacent western character is alpha/numeric.
-        //       `IdeographAlphaNumericJustifyBoundary`: same rule as autospace
-        //       (ADR 0009); punctuation-led LatinText runs such as `/TERFism`
-        //       keep Latin shaping but do not become 中西间距.
-        //   (b) TYPED — an author U+0020 between an ideograph and a Latin word,
+        //   (a) VIRTUAL — a W↔N source boundary with no typed space.
+        //       A punctuation-led shaping run such as `/TERFism` begins with O,
+        //       so it keeps its Western shaping without fabricating 中西间距.
+        //   (b) TYPED — an author U+0020 between W and N source units,
         //       which autospace normalised to the 0.25em base. It IS the 中西
         //       间距 and must stretch too (`TypedSinoWesternSpaceStretches`).
         //       Earlier `TypedSpaceBoundaryDefersToWordSpace` deferred it to the
@@ -161,12 +202,14 @@ class Justifier(
                 // Headroom from the base 中西间距 up to the (style-set) cap.
                 capacity = ((cjkLatinSpaceMaxEm - cjkLatinSpaceBaseEm) * fontSize).coerceAtLeast(0f),
             ) { leftIdx, rightIdx ->
-                isIdeographAlphaNumericBoundary(leftIdx, rightIdx, adjustedClusters, clusterRoles) &&
+                isWideNarrowBoundary(leftIdx, rightIdx, eastAsianSpacingEdges) &&
+                    !boundaryIsClosed(leftIdx, rightIdx) &&
                     !adjustedClusters[leftIdx].text.endsWith(' ') &&
                     !adjustedClusters[rightIdx].text.startsWith(' ')
             } + buildList {
                 for (idx in lineClusterRange) {
-                    if (!adjustedClusters[idx].isSinoWesternTypedSpace(idx, adjustedClusters, clusterRoles)) continue
+                    if (!adjustedClusters.isWideNarrowTypedSpace(idx, eastAsianSpacingEdges)) continue
+                    if (spaceGapIsClosed(idx)) continue
                     // A space collapsed to 0 at a line edge (LineEdgeWordSpaceCollapse)
                     // must NOT be revived as a stretchable gap, or the trimmed edge
                     // blank reappears at 0.5em.
@@ -193,14 +236,47 @@ class Justifier(
         )
         if (remaining <= 0f) return finalize(lineClusterRange, deficitBefore, remaining, allocations)
 
+        for (preferredKind in InlineObjectPreferredStretchKind.entries) {
+            val preferredOpps = buildList {
+                preferredInlineObjectBoundaryAfterClusters.forEach { (leftIdx, preferred) ->
+                    if (preferred.kind != preferredKind) return@forEach
+                    val rightIdx = leftIdx + 1
+                    if (leftIdx !in lineClusterRange || rightIdx !in lineClusterRange) return@forEach
+                    if (boundaryIsClosed(leftIdx, rightIdx)) return@forEach
+                    add(
+                        JustificationOpportunity(
+                            targetClusterIndex = leftIdx,
+                            kind = preferredKind.glueKind(),
+                            priority = 2,
+                            capacity = preferred.capacity,
+                        ),
+                    )
+                }
+            }
+            remaining = allocate(
+                deficit = remaining,
+                opportunities = preferredOpps,
+                reason = preferredKind.reason,
+                into = allocations,
+            )
+            if (remaining <= 0f) {
+                return finalize(lineClusterRange, deficitBefore, remaining, allocations)
+            }
+        }
+
         // WesternDominantLineNaturalSpacing: a visual line containing no CJK
         // body text remains Western composition even when full-width Chinese
         // punctuation occurs inside technical names such as `Rust（Winio）`.
         // Word-space and sino-western tiers above still run when applicable;
         // the remaining deficit stays ragged instead of turning punctuation ↔
         // Latin boundaries into half-em pseudo-spaces.
-        val hasCjkBodyText = lineClusterRange.any { clusterRoles[it] == FontRole.CjkText }
-        if (!hasCjkBodyText) {
+        val hasCjkBodyText = lineClusterRange.any { eastAsianSpacingEdges[it].containsWide }
+        val hasAdjustableInlineObjectBoundary =
+            (lineClusterRange.first until lineClusterRange.last).any { leftIdx ->
+                leftIdx in uniformInlineObjectBoundaryAfterClusters &&
+                    !boundaryIsClosed(leftIdx, leftIdx + 1)
+            }
+        if (!hasCjkBodyText && !hasAdjustableInlineObjectBoundary) {
             return finalize(
                 lineClusterRange = lineClusterRange,
                 deficitBefore = deficitBefore,
@@ -210,7 +286,7 @@ class Justifier(
             )
         }
 
-        // 3. CjkInterChar — last resort: EVEN expansion across boundaries
+        // 3. CjkInterChar — last resort: EVEN expansion across logical gaps
         // （CLREQ「剩余所有字符间距，同时、同等量拉伸」）, uncapped (equal
         // per-boundary capacity = the whole remaining deficit, so proportional
         // allocation degenerates to an exact even split that always fills the
@@ -220,13 +296,12 @@ class Justifier(
         //   - CJK↔CJK（汉字、标点任一侧、标点↔标点）;
         //   - `PunctuationLatinInterChar`: 标点↔西文 — a 标点 face abutting a
         //     Western word IS 剩余字符间距 too (CLREQ tier ③ excludes only
-        //     不可断标点 + 连接号/分隔号, NOT 标点↔西文). Only 汉字↔西文 stays
-        //     out — that is 中西间距, handled by tier ② above.
-        // Excluded: 西文↔西文 (word distance is tier ①, intra-word never), and
-        // the no-stretch boundaries.
-        fun isWesternWord(idx: Int): Boolean =
-            clusterRoles[idx] == FontRole.LatinText && adjustedClusters[idx].text.any { it != ' ' }
-        val cjkInterOpps = buildBoundaryOpportunities(
+        //     不可断标点 + 连接号/分隔号, NOT 标点↔西文);
+        //   - virtual W↔N gaps after their tier-② cap;
+        //   - one logical gap for every non-collapsed word space / typed W↔N space after its
+        //     tier-①/② allocation. The delta lands on the space cluster itself.
+        // Excluded: intra-word Western letter spacing and the no-stretch boundaries.
+        val uniformTextBoundaryOpps = buildBoundaryOpportunities(
             adjustedClusters = adjustedClusters,
             lineClusterRange = lineClusterRange,
             kind = GlueKind.CjkInterChar,
@@ -236,13 +311,47 @@ class Justifier(
             val l = clusterRoles[leftIdx]
             val r = clusterRoles[rightIdx]
             val bothCjk = l.isCjkLike() && r.isCjkLike()
-            val punctWestern = (l == FontRole.CjkPunctuation && isWesternWord(rightIdx)) ||
-                (isWesternWord(leftIdx) && r == FontRole.CjkPunctuation)
-            (bothCjk || punctWestern) &&
-                // NoStretchBoundaryClusters: boundaries touching connectors,
-                // solidus, dash, or ellipsis stay closed.
-                leftIdx !in noStretchBoundaryClusters && rightIdx !in noStretchBoundaryClusters
+            val punctWestern =
+                (l == FontRole.CjkPunctuation &&
+                    eastAsianSpacingEdges[rightIdx].leading == EastAsianSpacingValue.Narrow) ||
+                    (eastAsianSpacingEdges[leftIdx].trailing == EastAsianSpacingValue.Narrow &&
+                        r == FontRole.CjkPunctuation)
+            val virtualSinoWestern = allowSinoWesternGapStretch &&
+                isWideNarrowBoundary(leftIdx, rightIdx, eastAsianSpacingEdges)
+            (bothCjk || punctWestern || virtualSinoWestern) &&
+                leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
+                // CLREQ: inseparable symbol pairs stay closed; boundaries
+                // touching connectors, solidus, dash, or ellipsis also stay closed.
+                !boundaryIsClosed(leftIdx, rightIdx)
         }
+        val uniformInlineObjectBoundaryOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.InlineObjectBoundary,
+            priority = 3,
+            capacity = remaining,
+        ) { leftIdx, rightIdx ->
+            leftIdx in uniformInlineObjectBoundaryAfterClusters &&
+                !boundaryIsClosed(leftIdx, rightIdx)
+        }
+        val uniformSpaceOpps = buildList {
+            for (idx in lineClusterRange) {
+                val isWordSpace = adjustedClusters.isWordSpaceBetweenNarrow(idx, eastAsianSpacingEdges)
+                val isTypedSinoWestern = allowSinoWesternGapStretch &&
+                    adjustedClusters.isWideNarrowTypedSpace(idx, eastAsianSpacingEdges)
+                if ((!isWordSpace && !isTypedSinoWestern) || adjustedClusters[idx].advance <= 0f) continue
+                if (spaceGapIsClosed(idx)) continue
+                add(
+                    JustificationOpportunity(
+                        targetClusterIndex = idx,
+                        kind = GlueKind.CjkInterChar,
+                        priority = 3,
+                        capacity = remaining,
+                    ),
+                )
+            }
+        }
+        val cjkInterOpps = uniformTextBoundaryOpps + uniformInlineObjectBoundaryOpps + uniformSpaceOpps
         remaining = allocate(
             deficit = remaining,
             opportunities = cjkInterOpps,
@@ -373,74 +482,62 @@ class Justifier(
         fallbackReason = fallbackReason,
     )
 
-    private fun isIdeographAlphaNumericBoundary(
+    private fun isWideNarrowBoundary(
         leftIdx: Int,
         rightIdx: Int,
-        clusters: List<Cluster>,
-        roles: List<FontRole>,
-    ): Boolean {
-        val left = roles[leftIdx]
-        val right = roles[rightIdx]
-        return when {
-            left == FontRole.CjkText && right == FontRole.LatinText ->
-                clusters[rightIdx].text.firstOrNull()?.isAlphaNumericAutoSpaceBoundaryChar() == true
-            left == FontRole.LatinText && right == FontRole.CjkText ->
-                clusters[leftIdx].text.lastOrNull()?.isAlphaNumericAutoSpaceBoundaryChar() == true
-            else -> false
-        }
-    }
-
-    private fun Char.isAlphaNumericAutoSpaceBoundaryChar(): Boolean =
-        isLetter() || isDigit()
+        spacingEdges: List<EastAsianSpacingEdges>,
+    ): Boolean =
+        spacingEdges[leftIdx].trailing.isWideNarrowPairWith(spacingEdges[rightIdx].leading)
 
     private fun FontRole.isCjkLike(): Boolean =
         this == FontRole.CjkText || this == FontRole.CjkPunctuation
 
-    /**
-     * A word space: a space-run cluster whose nearest non-space context is
-     * Latin on both sides. CJK-adjacent space clusters are sino-western
-     * gaps (autospace's territory), not word spaces.
-     */
-    private fun Cluster.isWordSpaceBetweenLatin(
-        idx: Int,
-        clusters: List<Cluster>,
-        roles: List<FontRole>,
-    ): Boolean {
-        if (text.isEmpty() || !text.all { it == ' ' }) return false
-        if (roles[idx] != FontRole.LatinText) return false
-        val prevLatinWord = idx > 0 &&
-            roles[idx - 1] == FontRole.LatinText &&
-            !clusters[idx - 1].text.all { it == ' ' }
-        val nextLatinWord = idx < clusters.lastIndex &&
-            roles[idx + 1] == FontRole.LatinText &&
-            !clusters[idx + 1].text.all { it == ' ' }
-        return prevLatinWord && nextLatinWord
+    private fun InlineObjectPreferredStretchKind.glueKind(): GlueKind = when (this) {
+        InlineObjectPreferredStretchKind.PunctuationTrailing -> GlueKind.InlineObjectPunctuationTrailing
+        InlineObjectPreferredStretchKind.Relation -> GlueKind.InlineObjectRelation
+        InlineObjectPreferredStretchKind.BinaryOperator -> GlueKind.InlineObjectBinaryOperator
     }
 
-    /**
-     * A typed sino-western gap: a space-run cluster with an ideograph on one
-     * side and an alpha/numeric western word edge on the other
-     * (`TypedSinoWesternSpaceStretches`). Mirrors
-     * `isIdeographAlphaNumericBoundary`: slash/bracket-adjacent typed spaces
-     * are punctuation/author spacing territory, not 中西间距.
-     */
-    private fun Cluster.isSinoWesternTypedSpace(
-        idx: Int,
-        clusters: List<Cluster>,
-        roles: List<FontRole>,
-    ): Boolean {
-        if (text.isEmpty() || !text.all { it == ' ' }) return false
-        val leftCjk = idx > 0 && roles[idx - 1] == FontRole.CjkText
-        val rightCjk = idx < clusters.lastIndex && roles[idx + 1] == FontRole.CjkText
-        val leftLatinWord = idx > 0 &&
-            roles[idx - 1] == FontRole.LatinText &&
-            clusters[idx - 1].text.lastOrNull()?.isAlphaNumericAutoSpaceBoundaryChar() == true
-        val rightLatinWord = idx < clusters.lastIndex &&
-            roles[idx + 1] == FontRole.LatinText &&
-            clusters[idx + 1].text.firstOrNull()?.isAlphaNumericAutoSpaceBoundaryChar() == true
-        return (leftCjk && rightLatinWord) || (leftLatinWord && rightCjk)
-    }
+    private val InlineObjectPreferredStretchKind.reason: String
+        get() = when (this) {
+            InlineObjectPreferredStretchKind.PunctuationTrailing -> "InlineObjectPunctuationTrailing"
+            InlineObjectPreferredStretchKind.Relation -> "InlineObjectRelation"
+            InlineObjectPreferredStretchKind.BinaryOperator -> "InlineObjectBinaryOperator"
+        }
+
 }
+
+/** A source space between two Narrow runs: one logical Western word gap. */
+private fun List<Cluster>.isWordSpaceBetweenNarrow(
+    idx: Int,
+    spacingEdges: List<EastAsianSpacingEdges>,
+): Boolean {
+    val cluster = getOrNull(idx) ?: return false
+    if (cluster.text.isEmpty() || !cluster.text.all { it == ' ' }) return false
+    val previousNarrowWord = idx > 0 &&
+        spacingEdges[idx - 1].trailing == EastAsianSpacingValue.Narrow &&
+        !this[idx - 1].text.all { it == ' ' }
+    val nextNarrowWord = idx < lastIndex &&
+        spacingEdges[idx + 1].leading == EastAsianSpacingValue.Narrow &&
+        !this[idx + 1].text.all { it == ' ' }
+    return previousNarrowWord && nextNarrowWord
+}
+
+/** A source space whose two non-space neighbours resolve to Wide and Narrow. */
+private fun List<Cluster>.isWideNarrowTypedSpace(
+    idx: Int,
+    spacingEdges: List<EastAsianSpacingEdges>,
+): Boolean {
+    val cluster = getOrNull(idx) ?: return false
+    if (cluster.text.isEmpty() || !cluster.text.all { it == ' ' }) return false
+    val left = spacingEdges.getOrNull(idx - 1)?.trailing
+    val right = spacingEdges.getOrNull(idx + 1)?.leading
+    return left?.isWideNarrowPairWith(right) == true
+}
+
+private fun EastAsianSpacingValue.isWideNarrowPairWith(other: EastAsianSpacingValue?): Boolean =
+    (this == EastAsianSpacingValue.Wide && other == EastAsianSpacingValue.Narrow) ||
+        (this == EastAsianSpacingValue.Narrow && other == EastAsianSpacingValue.Wide)
 
 data class JustificationOpportunity(
     val targetClusterIndex: Int,

@@ -1,7 +1,6 @@
 package org.tiqian.layout
 
 import org.tiqian.core.Ic
-
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
@@ -98,6 +97,44 @@ class AutoSpaceSingleGapTest {
     }
 
     @Test
+    fun unicodeEastAsianSpacingCoversNarrowScriptsWithoutScriptWhitelists() {
+        for (sample in listOf("α", "я", "ա")) {
+            val result = ExplainableStubParagraphLayoutEngine().layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                    content = TiqianTextContent("中${sample}文"),
+                    constraints = LayoutConstraints(maxWidth = 320f),
+                ),
+            )
+
+            val narrow = result.clusters.single { it.text == sample }
+            assertEquals(20f, narrow.advance, "sample=$sample")
+            assertEquals(2, result.debug.autoSpaceDecisions.size, "sample=$sample")
+            assertTrue(result.debug.autoSpaceDecisions.all { it.clusterRange == narrow.range }, "sample=$sample")
+            assertTrue(
+                result.debug.autoSpaceDecisions.all {
+                    it.reason == "TextAutoSpaceInsert:east-asian-spacing-W-N"
+                },
+                "sample=$sample",
+            )
+        }
+    }
+
+    @Test
+    fun conditionalPunctuationFollowsChineseLanguageResolution() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent("中%文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertEquals(2, result.debug.autoSpaceDecisions.size)
+        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "EastAsianSpacing.Wide" })
+    }
+
+    @Test
     fun autospaceDoesNotFireBetweenLatinAndCjkPunctuation() {
         // Per CSS Text 4, `text-autospace` fires at ideograph ↔ alpha/numeric
         // boundaries only. Punctuation has its own spacing model. The text
@@ -148,7 +185,7 @@ class AutoSpaceSingleGapTest {
             ),
         )
         assertEquals(2, result.debug.autoSpaceDecisions.size) // one per space cluster
-        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "CjkText" })
+        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "EastAsianSpacing.Wide" })
         assertTrue(result.debug.autoSpaceDecisions.all { it.side == "gap" })
     }
 

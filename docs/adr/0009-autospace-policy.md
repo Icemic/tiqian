@@ -108,3 +108,30 @@ CLREQ 自己的注②也记录了「很多排版风格在实际处理上,只允�
   profile 与 Justifier 各存一份」的漂移面。
 - 引擎/几何层不再硬编码 `0.25f * fontSize`:每条 `AutoSpaceDecisionInfo`
   记录应用的 `gapPx`,`positionedClusters` 等几何查询读决策值。
+
+## Amendment (2026-07-28): Unicode `East_Asian_Spacing` 边界
+
+把中西间距的“谁与谁相邻”从 `FontRole.CjkText ↔ FontRole.LatinText` 改为 Unicode
+Proposed Draft UTR #59 的 `East_Asian_Spacing` W↔N。字体面选择与自动间距从此是两套正交
+分类：Greek、Cyrillic、Armenian 等不需要为了得到间距而冒充 `LatinText`，符号/标点也不再靠
+项目自列码点猜测是否属于“西文”。
+
+- 数据固定为官方 `east-asian-spacing.txt` 的 2024-12-16 draft，生成表记录 source URL 与
+  SHA-256；显式 O 区间归入 `@missing: O`，相邻同值区间机械合并。
+- 核心先解析 shaping cluster 两端实际接界的 source grapheme unit；一个 `/Hi` run 的左边界是
+  O、右边界是 N，不能让首字符代表整个 run。当前复用 source interaction boundary map，完整
+  UAX #29 覆盖随该共享边界契约演进，不在 autospace 再复制一套分段器。
+- `Conditional` 在 `zh` 及其 macrolanguage members 下解析为 N，其他/未知语言解析为 O；
+  members 固定至 IANA Language Subtag Registry 2026-06-14 中的 `Macrolanguage: zh`
+  记录，不是项目自建语种白名单。
+  `cjkDigit` 继续作为十进制数字的独立 CSS-style 开关，其他 N 使用历史字段 `cjkLatin`。
+- U+0020 在 UTR #59 中是 O；ADR 0009 已有的 typed-space Replace 是明确的 higher-level
+  authoring contract，只有空格两侧的非空 source units 为 W/N 时才归一为一个 gap。
+- `AttachedAsciiPointMarkOverridesConditionalEastAsianSpacing` 是另一项明确的 higher-level
+  override：直接附着正文、已由 `AttachedAsciiPointMarkKinsoku` 当中文点号处理的
+  `, . : ; ! ?` 保持无中西间距；`%`、`#` 等仍按中文语境 C→N。
+- Debug 的 `boundaryRole` 改记 `EastAsianSpacing.Wide`，使 dump 不再把字体角色伪装成间距依据。
+
+UTR #59 当前仍是 informative work in progress，不宣称稳定 Unicode conformance。更新 draft
+必须显式替换数据修订与校验和，跑跨脚本 fixture、`LayoutDumpGoldenTest` 和 layout report，逐项
+审查边界变化。

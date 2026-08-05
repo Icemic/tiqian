@@ -16,6 +16,9 @@ import org.tiqian.clreq.PunctuationGluePlacement
 import org.tiqian.clreq.ClreqPunctuationGlyphSubstitutor
 import org.tiqian.core.AutoSpaceDecisionInfo
 import org.tiqian.core.Cluster
+import org.tiqian.core.EastAsianSpacingEdges
+import org.tiqian.core.EastAsianSpacingValue
+import org.tiqian.core.UnicodeEastAsianSpacing
 import org.tiqian.core.ClusterGeometryDecisionInfo
 import org.tiqian.core.ContextualKinsokuDecisionInfo
 import org.tiqian.core.DecorationDecisionInfo
@@ -43,9 +46,12 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.InlineBoxDecisionInfo
 import org.tiqian.core.InlineBoxSpan
+import org.tiqian.core.InlineObjectBoundaryAdjustment
 import org.tiqian.core.InlineObjectDecisionInfo
+import org.tiqian.core.InlineObjectLineHeightDecisionInfo
+import org.tiqian.core.InlineObjectPunctuationAttachmentDecisionInfo
+import org.tiqian.core.InlineObjectPreferredStretch
 import org.tiqian.core.InlineObjectSpan
-import org.tiqian.core.INLINE_OBJECT_REPLACEMENT_CHAR
 import org.tiqian.core.LineBox
 import org.tiqian.core.LineDebugInfo
 import org.tiqian.core.LineDecisionInfo
@@ -71,6 +77,7 @@ import kotlin.math.floor
 import kotlin.text.CharCategory
 import org.tiqian.core.LineSpacingDecisionInfo
 import org.tiqian.core.TextRange
+import org.tiqian.core.TextStyle
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FallbackResolver
 import org.tiqian.font.FontMetricsNormalizationInput
@@ -135,6 +142,12 @@ class ExplainableStubParagraphLayoutEngine(
         require(input.paragraphStyle.emphasisDotGapEm.isFinite() && input.paragraphStyle.emphasisDotGapEm >= 0f) {
             "ParagraphStyle.emphasisDotGapEm must be finite and non-negative"
         }
+        require(
+            input.paragraphStyle.inlineObjectMinimumClearanceEm.isFinite() &&
+                input.paragraphStyle.inlineObjectMinimumClearanceEm >= 0f,
+        ) {
+            "ParagraphStyle.inlineObjectMinimumClearanceEm must be finite and non-negative"
+        }
         input.inlineBoxes.forEach { inlineBox ->
             require(
                 inlineBox.range.start >= 0 &&
@@ -150,14 +163,18 @@ class ExplainableStubParagraphLayoutEngine(
         require(input.inlineObjects.distinctBy { it.range }.size == input.inlineObjects.size) {
             "InlineObjectSpan ranges must be unique"
         }
+        input.inlineObjects.sortedBy { it.range.start }.zipWithNext().forEach { (previous, next) ->
+            require(previous.range.end <= next.range.start) {
+                "InlineObjectSpan ranges must not overlap: ${previous.range} and ${next.range}"
+            }
+        }
         input.inlineObjects.forEach { inlineObject ->
             require(
-                inlineObject.range.length == 1 &&
-                    inlineObject.range.start >= 0 &&
-                    inlineObject.range.end <= text.length &&
-                    text[inlineObject.range.start] == INLINE_OBJECT_REPLACEMENT_CHAR,
+                inlineObject.range.start >= 0 &&
+                    inlineObject.range.start < inlineObject.range.end &&
+                    inlineObject.range.end <= text.length,
             ) {
-                "InlineObjectSpan ${inlineObject.range} must cover one U+FFFC replacement character"
+                "InlineObjectSpan ${inlineObject.range} must cover a non-empty source range"
             }
             require(
                 inlineObject.advance.isFinite() && inlineObject.advance > 0f &&
@@ -165,6 +182,18 @@ class ExplainableStubParagraphLayoutEngine(
                     inlineObject.descent.isFinite() && inlineObject.descent >= 0f,
             ) {
                 "InlineObjectSpan ${inlineObject.range} must have finite positive geometry"
+            }
+            require(inlineObject.leadingBoundary.shrinkCapacity == 0f) {
+                "InlineObjectSpan ${inlineObject.range} cannot shrink its leading boundary"
+            }
+            require(inlineObject.leadingBoundary.lineEndDiscardableAdvance == 0f) {
+                "InlineObjectSpan ${inlineObject.range} cannot discard advance at its leading boundary"
+            }
+            require(inlineObject.trailingBoundary.shrinkCapacity <= inlineObject.advance) {
+                "InlineObjectSpan ${inlineObject.range} trailing shrink capacity must not exceed its advance"
+            }
+            require(inlineObject.trailingBoundary.lineEndDiscardableAdvance <= inlineObject.advance) {
+                "InlineObjectSpan ${inlineObject.range} trailing line-end discard must not exceed its advance"
             }
         }
         val inlineObjectByRange = input.inlineObjects.associateBy { it.range }
@@ -283,7 +312,14 @@ class ExplainableStubParagraphLayoutEngine(
             fontRoleClassifier
         }
 
-        val clusterRanges = clusterRoleRanges(text, effectiveClassifier, context, clreqProfile, spanBoundaries)
+        val clusterRanges = clusterRoleRanges(
+            text,
+            effectiveClassifier,
+            context,
+            clreqProfile,
+            spanBoundaries,
+            input.inlineObjects.associateBy { it.range.start },
+        )
         val shapeableRanges = clusterRanges.filterNot {
             it.mandatoryBreak || it.zeroWidthSoftBreak || inlineObjectByRange.containsKey(it.range)
         }
@@ -431,6 +467,7 @@ class ExplainableStubParagraphLayoutEngine(
         // the same no-hyphen hard cuts.
         val hyphenOffsets = mutableSetOf<Int>()
         var hyphenAdvanceOrNull: Float? = null
+        var hyphenGlyphs: List<Glyph> = emptyList()
         fun latinWordCuts(
             decision: FontDecision,
             wordRange: TextRange,
@@ -609,7 +646,7 @@ class ExplainableStubParagraphLayoutEngine(
                     if (hyphenCuts.isNotEmpty()) {
                         hyphenOffsets += hyphenCuts
                         if (hyphenAdvanceOrNull == null) {
-                            hyphenAdvanceOrNull = textShaper.shape(
+                            val hyphenShaped = textShaper.shape(
                                 ShapingInput(
                                     text = "-",
                                     range = TextRange(0, 1),
@@ -617,7 +654,9 @@ class ExplainableStubParagraphLayoutEngine(
                                     fontDecision = decision,
                                     displayText = "-",
                                 ),
-                            ).clusters.singleOrNull()?.advance ?: (0.5f * fontSize)
+                            )
+                            hyphenAdvanceOrNull = hyphenShaped.clusters.singleOrNull()?.advance ?: (0.5f * fontSize)
+                            hyphenGlyphs = hyphenShaped.glyphRuns.flatMap { it.glyphs }
                         }
                     }
                     val bounds = listOf(segmentRange.start) + allCuts + listOf(segmentRange.end)
@@ -649,8 +688,27 @@ class ExplainableStubParagraphLayoutEngine(
         val shapingDecisions = shapingResults.flatMap { it.decisions }
         rawNaturalClusters.requireCoveredBy(fontDecisions)
 
+        val inlineObjectRanges = input.inlineObjects.map { it.range }
+        val eastAsianSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
+            if (
+                inlineObjectRanges.any { cluster.range.isInside(it) } ||
+                rawNaturalClusters.isAttachedAsciiPointMarkAt(index)
+            ) {
+                EastAsianSpacingEdges(
+                    leading = EastAsianSpacingValue.Other,
+                    trailing = EastAsianSpacingValue.Other,
+                    containsWide = false,
+                )
+            } else {
+                UnicodeEastAsianSpacing.resolvedEdges(
+                    text = cluster.text,
+                    locale = input.textStyle.locale,
+                )
+            }
+        }
+
         val autoSpaceResult = rawNaturalClusters.applyAutoSpacePolicy(
-            fontDecisions = fontDecisions,
+            eastAsianSpacingEdges = eastAsianSpacingEdges,
             policy = clreqProfile.autoSpace,
             fontSize = fontSize,
         )
@@ -667,10 +725,100 @@ class ExplainableStubParagraphLayoutEngine(
                 put(clusterIndex, inlineObject)
             }
         }
+        val inlineObjectBoundaryAfterClusters = mutableMapOf<Int, InlineObjectBoundaryAdjustment>()
+        fun registerInlineObjectBoundary(
+            leftClusterIndex: Int,
+            boundary: InlineObjectBoundaryAdjustment,
+        ) {
+            val previous = inlineObjectBoundaryAfterClusters[leftClusterIndex]
+            if (previous == null) {
+                inlineObjectBoundaryAfterClusters[leftClusterIndex] = boundary
+                return
+            }
+            val preferredKinds = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
+                .map { it.kind }
+                .distinct()
+            require(preferredKinds.size <= 1) {
+                "Conflicting inline-object stretch classes at cluster boundary $leftClusterIndex"
+            }
+            val preferred = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
+                .maxByOrNull { it.capacity }
+            inlineObjectBoundaryAfterClusters[leftClusterIndex] = InlineObjectBoundaryAdjustment(
+                participatesInUniformStretch =
+                    previous.participatesInUniformStretch || boundary.participatesInUniformStretch,
+                preferredStretch = preferred,
+                shrinkCapacity = maxOf(previous.shrinkCapacity, boundary.shrinkCapacity),
+                lineEndDiscardableAdvance = maxOf(
+                    previous.lineEndDiscardableAdvance,
+                    boundary.lineEndDiscardableAdvance,
+                ),
+                preventsLineBreak = previous.preventsLineBreak || boundary.preventsLineBreak,
+            )
+        }
+        inlineObjectByClusterIndex.forEach { (clusterIndex, inlineObject) ->
+            if (clusterIndex > 0 && inlineObject.leadingBoundary != InlineObjectBoundaryAdjustment.Fixed) {
+                registerInlineObjectBoundary(clusterIndex - 1, inlineObject.leadingBoundary)
+            }
+            if (
+                clusterIndex < naturalClusters.lastIndex &&
+                inlineObject.trailingBoundary != InlineObjectBoundaryAdjustment.Fixed
+            ) {
+                registerInlineObjectBoundary(clusterIndex, inlineObject.trailingBoundary)
+            }
+        }
+        val uniformInlineObjectBoundaryAfterClusters = inlineObjectBoundaryAfterClusters
+            .filterValues { it.participatesInUniformStretch }
+            .keys
+        val preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> =
+            inlineObjectBoundaryAfterClusters.mapNotNull { (clusterIndex, boundary) ->
+                boundary.preferredStretch?.let { clusterIndex to it }
+            }.toMap()
+        val inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryAfterClusters
+            .filterValues { it.preventsLineBreak }
+            .keys
+            .map { leftClusterIndex -> leftClusterIndex..(leftClusterIndex + 1) }
         val autoSpaceDecisions = autoSpaceResult.decisions
         val clusterRoles = naturalClusters.map { cluster ->
             fontDecisions.firstOrNull { cluster.range.isInside(it.range) }?.role ?: FontRole.Unknown
         }
+        val resolvedKinsoku = clreqProfile.kinsokuMode.resolve(measureEm)
+        val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
+        val inlineObjectAttachedMarks = naturalClusters.inlineObjectAttachedMarks(
+            clusterRoles = clusterRoles,
+            level = resolvedKinsoku.level,
+            kinsokuRule = kinsokuRule,
+        )
+        val inlineObjectSeparatorSpaceTrims = buildMap {
+            inlineObjectAttachedMarks.forEach { attachment ->
+                attachment.separatorClusterIndices.forEach { clusterIndex ->
+                    put(clusterIndex, naturalClusters[clusterIndex].advance)
+                }
+            }
+        }
+        val inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachedMarks
+            .flatMapTo(mutableSetOf()) { attachment ->
+                attachment.objectClusterIndex until attachment.markClusterIndex
+            }
+        val inlineObjectPunctuationAttachmentDecisions = inlineObjectAttachedMarks
+            .filter { it.separatorClusterIndices.isNotEmpty() }
+            .map { attachment ->
+                val separatorFirst = naturalClusters[attachment.separatorClusterIndices.first()]
+                val separatorLast = naturalClusters[attachment.separatorClusterIndices.last()]
+                val mark = naturalClusters[attachment.markClusterIndex]
+                InlineObjectPunctuationAttachmentDecisionInfo(
+                    objectRange = naturalClusters[attachment.objectClusterIndex].range,
+                    separatorRange = TextRange(separatorFirst.range.start, separatorLast.range.end),
+                    punctuationRange = mark.range,
+                    punctuationText = mark.text,
+                    protectedRange = TextRange(
+                        naturalClusters[attachment.objectClusterIndex].range.start,
+                        mark.range.end,
+                    ),
+                    collapsedAdvance = attachment.separatorClusterIndices
+                        .sumOf { naturalClusters[it].advance.toDouble() }
+                        .toFloat(),
+                )
+            }
         val mandatoryBreakClusters = naturalClusters.indices
             .filterTo(mutableSetOf()) { idx -> naturalClusters[idx].isMandatoryBreakCluster() }
         val zeroWidthBreakClusters = naturalClusters.indices
@@ -776,6 +924,7 @@ class ExplainableStubParagraphLayoutEngine(
                 } else {
                     declaredAscent + declaredDescent + rubyStackGap
                 },
+                glyphs = shaped?.glyphRuns.orEmpty().flatMap { it.glyphs },
             )
         }
         // 避让: left→right, push a 注文 (and everything after) right by the MINIMAL
@@ -826,7 +975,7 @@ class ExplainableStubParagraphLayoutEngine(
             HashMap(rubySpread).apply {
                 bopomofoSpans.forEach { z ->
                     val r = naturalClusters.clusterIndexRangeFor(z.baseRange) ?: return@forEach
-                    merge(r.last, 0.5f * fontSize) { a, b -> a + b }
+                    mergeValue(r.last, 0.5f * fontSize) { a, b -> a + b }
                 }
             }
         }
@@ -836,6 +985,7 @@ class ExplainableStubParagraphLayoutEngine(
             spacingPlan = spacingPlan,
         ).withInlineBoxAdvances(inlineBoxResult.advanceByCluster)
             .withRubySpread(rubyAndBopomofoSpread)
+            .withRawEdgeTrims(inlineObjectSeparatorSpaceTrims)
         val clusters = baseGeometry.resolveClusters()
         // CLREQ 挤压处理优先顺序 (ADR 0020): tiered shrink resources for
         // PushIn. Punctuation classes map to tiers; style knobs gate the
@@ -916,7 +1066,7 @@ class ExplainableStubParagraphLayoutEngine(
                             add(ShrinkOpportunity(idx, tier = 5, capacity = caps.trailing, channel = ShrinkChannel.TrailingGlue))
                         }
                     }
-                } else if (cluster.isSpaceRun()) {
+                } else if (cluster.isSpaceRun() && idx !in inlineObjectSeparatorSpaceTrims) {
                     if (cluster.range in gapClusterRanges) {
                         // CLREQ ⑥ 中西间距：最小挤为八分之一汉字宽（不是 0）；
                         // 部分风格禁止（knob）。
@@ -931,6 +1081,15 @@ class ExplainableStubParagraphLayoutEngine(
                             add(ShrinkOpportunity(idx, tier = 2, capacity = capacity, channel = ShrinkChannel.RawAdvance))
                         }
                     }
+                }
+            }
+            // `InlineObjectBoundaryCompression`: an object provider may expose
+            // measured blank at an edge as a last-resort compression resource.
+            // It follows every CLREQ text tier and never scales object glyphs.
+            inlineObjectByClusterIndex.forEach { (idx, inlineObject) ->
+                val trailing = inlineObject.trailingBoundary.shrinkCapacity
+                if (trailing > 0f) {
+                    add(ShrinkOpportunity(idx, tier = 8, capacity = trailing, channel = ShrinkChannel.RawAdvance))
                 }
             }
         }
@@ -1058,7 +1217,6 @@ class ExplainableStubParagraphLayoutEngine(
         )
         // Resolve 禁则档 + 悬挂 from the kinsoku mode and the measure in 字
         // (MeasureAdaptiveKinsoku default keys on measure/fontSize).
-        val resolvedKinsoku = clreqProfile.kinsokuMode.resolve(measureEm)
         val kinsokuDecision = KinsokuDecisionInfo(
             measureEm = measureEm,
             level = resolvedKinsoku.level.name,
@@ -1074,7 +1232,6 @@ class ExplainableStubParagraphLayoutEngine(
             }
         }
         // 行首/行尾禁则按解析出的 KinsokuLevel（CLREQ 四档）；空集 = 不处理档.
-        val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
         val asciiBracketKinsoku = naturalClusters.cjkContextAsciiBracketKinsoku(clusterRoles)
         val asciiPointMarkKinsoku = naturalClusters.attachedAsciiPointMarkKinsoku(
             clusterRoles = clusterRoles,
@@ -1083,8 +1240,17 @@ class ExplainableStubParagraphLayoutEngine(
             bodyLineWidth = measure - blockIndent,
             firstLineWidth = measure - firstLineIndent,
         )
+        val inlineObjectKinsoku = naturalClusters.inlineObjectAttachedKinsoku(
+            attachments = inlineObjectAttachedMarks,
+            lineBreakClusters = clusters,
+            level = resolvedKinsoku.level,
+            bodyLineWidth = measure - blockIndent,
+            firstLineWidth = measure - firstLineIndent,
+        )
         val resolvedHangableClusters =
-            hangableClusters + asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters
+            hangableClusters +
+                asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
+                inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
         val forbiddenLineStartClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
             idx in zeroWidthBreakClusters ||
                 (
@@ -1092,7 +1258,8 @@ class ExplainableStubParagraphLayoutEngine(
                     kinsokuRule.forbiddenAtLineStart(naturalClusters[idx])
                 ) ||
                 idx in asciiBracketKinsoku.forbiddenLineStartClusters ||
-                idx in asciiPointMarkKinsoku.forbiddenLineStartClusters
+                idx in asciiPointMarkKinsoku.forbiddenLineStartClusters ||
+                idx in inlineObjectKinsoku.forbiddenLineStartClusters
         }
         val forbiddenLineEndClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
             (
@@ -1112,19 +1279,76 @@ class ExplainableStubParagraphLayoutEngine(
                 naturalClusters[it].range.start in hyphenOffsets
             }
         }
-        // CJK↔CJK boundaries — the stretchable 汉字间距 the breaker gauges line
-        // looseness against.
-        val cjkInterCharBoundaries: Set<Int> = (1 until naturalClusters.size).filterTo(mutableSetOf()) {
-            clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
+        val numberSymbolClusterRanges = NumberSymbolCohesion.unbreakableRanges(text)
+            .mapNotNull { r ->
+                naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
+            }
+        val numberSymbolUnbreakableRanges = numberSymbolClusterRanges
+            .filter { idxRange ->
+                idxRange.sumOf { naturalClusters[it].advance.toDouble() } <= measure
+            }
+        // CLREQ 拉伸限制②：连接号、分隔号与其左右字符之间不拉伸。
+        // 原子长标号也封住两侧，避免制造看似源文本空格的间距。
+        val noStretchBoundaryClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
+            when (atomClassByRange[naturalClusters[idx].range]) {
+                PunctuationClass.Connector,
+                PunctuationClass.Solidus,
+                PunctuationClass.Dash,
+                PunctuationClass.Ellipsis,
+                -> true
+                else -> false
+            }
         }
-        // CJK↔Latin boundaries — 中西间距 absorbs deficit BEFORE 汉字间距 (CLREQ
-        // 拉伸顺序), so the breaker discounts their capacity from the looseness.
+        // CLREQ 拉伸限制①：符号分离禁则规定的内部字间距不得拉伸。
+        val noStretchBoundaryAfterClusters = numberSymbolClusterRanges
+            .flatMapTo(mutableSetOf()) { range -> range.first until range.last }
+            .apply { addAll(inlineObjectAttachmentNoStretchBoundaries) }
+        // The breaker's looseness estimate keeps its established two-class
+        // approximation. The exact final allocation, including repeated
+        // participation of word and sino-western gaps, belongs to Justifier.
+        val adjustableInlineBoundaryRightClusters = uniformInlineObjectBoundaryAfterClusters
+            .mapNotNullTo(mutableSetOf()) { leftIndex ->
+                val rightIndex = leftIndex + 1
+                if (
+                    leftIndex in noStretchBoundaryAfterClusters ||
+                    leftIndex in noStretchBoundaryClusters ||
+                    rightIndex in noStretchBoundaryClusters
+                ) {
+                    null
+                } else {
+                    rightIndex
+                }
+            }
+        val cjkInterCharBoundaries: Set<Int> = buildSet {
+            addAll((1 until naturalClusters.size).filter {
+                clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
+            })
+            // Paragraph-global and lookahead breakers price the same safe
+            // inline-object gaps that the final justifier can actually use.
+            addAll(adjustableInlineBoundaryRightClusters)
+        }
         val sinoWesternBoundaries: Set<Int> = (1 until naturalClusters.size).filterTo(mutableSetOf()) {
-            val a = clusterRoles[it - 1]
-            val b = clusterRoles[it]
-            (a == FontRole.CjkText && b == FontRole.LatinText) ||
-                (a == FontRole.LatinText && b == FontRole.CjkText)
+            isEastAsianSpacingBoundaryAt(
+                rightIndex = it,
+                clusters = naturalClusters,
+                spacingEdges = eastAsianSpacingEdges,
+            )
         }
+        val unbreakableRanges =
+            input.decorations
+                .filter { it.kind == DecorationKind.Mourning }
+                .mapNotNull { span -> naturalClusters.clusterIndexRangeFor(span.range) } +
+                // 行间注 (ADR 0032): 基文+注文不可拆 (CLREQ §注释符号).
+                pinyinSpans.mapNotNull { naturalClusters.clusterIndexRangeFor(it.baseRange) } +
+                numberSymbolUnbreakableRanges +
+                // `AttachedAsciiPointMarkKinsoku`: the preceding visible
+                // cluster and its attached point mark form a hard no-break boundary.
+                asciiPointMarkKinsoku.unbreakableRanges +
+                // `InlineObjectAttachedKinsoku`: formula/widget objects are
+                // visibly present even though their displayText is empty.
+                inlineObjectKinsoku.unbreakableRanges +
+                // Adjustment-only formula boundaries do not become accidental line breaks.
+                inlineObjectBoundaryUnbreakableRanges
         val lineSolution = if (text.isEmpty()) {
             LineSolution(emptyList())
         } else {
@@ -1145,28 +1369,10 @@ class ExplainableStubParagraphLayoutEngine(
                 // when the group actually fits the measure; a number wider than
                 // the column can't be kept whole, so it falls back to normal
                 // breaking instead of forcing an impossible constraint.
-                unbreakableRanges = (
-                    input.decorations
-                        .filter { it.kind == DecorationKind.Mourning }
-                        .mapNotNull { span -> naturalClusters.clusterIndexRangeFor(span.range) } +
-                        // 行间注 (ADR 0032): 基文+注文不可拆 (CLREQ §注释符号).
-                        pinyinSpans.mapNotNull { naturalClusters.clusterIndexRangeFor(it.baseRange) } +
-                        NumberSymbolCohesion.unbreakableRanges(text)
-                            .mapNotNull { r ->
-                                naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
-                            }
-                            .filter { idxRange ->
-                                idxRange.sumOf { naturalClusters[it].advance.toDouble() } <= measure
-                            } +
-                        // `AttachedAsciiPointMarkKinsoku`: the preceding visible
-                        // cluster and its attached point mark form a hard
-                        // no-break boundary. This lets greedy reflow the next
-                        // line instead of falling back to LeaveRagged when a
-                        // post-hoc CarryPrevious would overflow it.
-                        asciiPointMarkKinsoku.unbreakableRanges
-                    ),
+                unbreakableRanges = unbreakableRanges,
                 hangableClusters = resolvedHangableClusters,
-                extendableHangRanges = asciiPointMarkKinsoku.extendableHangRanges,
+                extendableHangRanges =
+                    asciiPointMarkKinsoku.extendableHangRanges + inlineObjectKinsoku.extendableHangRanges,
                 forbiddenLineStartClusters = forbiddenLineStartClusters,
                 forbiddenLineEndClusters = forbiddenLineEndClusters,
                 hyphenBreakClusters = hyphenBreakClusters,
@@ -1190,12 +1396,21 @@ class ExplainableStubParagraphLayoutEngine(
         val appliedHangingClusters = lineSolution.lines
             .flatMap { it.hangingClusterIndices }
             .toSet()
-        val contextualKinsokuDecisions = asciiPointMarkKinsoku.decisions.map { decision ->
+        val impossibleMeasureContextualHangClusters =
+            asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
+                inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
+        val contextualKinsokuDecisions =
+            (asciiPointMarkKinsoku.decisions + inlineObjectKinsoku.decisions).map { decision ->
             if (
-                decision.clusterIndex in asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters &&
+                decision.clusterIndex in impossibleMeasureContextualHangClusters &&
                 decision.clusterIndex in appliedHangingClusters
             ) {
-                decision.copy(impossibleMeasureFallback = "AttachedAsciiPointMarkImpossibleMeasureHang")
+                decision.copy(
+                    impossibleMeasureFallback = when (decision.reason) {
+                        "AttachedAsciiPointMarkKinsoku" -> "AttachedAsciiPointMarkImpossibleMeasureHang"
+                        else -> "InlineObjectAttachedMarkImpossibleMeasureHang"
+                    },
+                )
             } else {
                 decision
             }
@@ -1209,18 +1424,18 @@ class ExplainableStubParagraphLayoutEngine(
         for (alloc in pushInAllocations) {
             when (alloc.channel) {
                 ShrinkChannel.TrailingGlue ->
-                    pushInTrailing.merge(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
+                    pushInTrailing.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
                 ShrinkChannel.LeadingGlue ->
                     // 开夹注符号前侧（CLREQ 挤压④）；渲染层按 consumed
                     // leading 左移字形原点（ADR 0017 amendment）。
-                    pushInLeading.merge(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
+                    pushInLeading.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
                 ShrinkChannel.LeadingAndTrailingGlue -> {
                     // CLREQ: 间隔号挤压必须同时从字面两侧、同等量处理.
-                    pushInLeading.merge(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
-                    pushInTrailing.merge(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
+                    pushInLeading.mergeValue(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
+                    pushInTrailing.mergeValue(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
                 }
                 ShrinkChannel.RawAdvance ->
-                    pushInRawTrims.merge(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
+                    pushInRawTrims.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
             }
         }
         // LineEndHangingHyphen 标点挤压 (ADR 0029 amend): a reserved hyphen that
@@ -1256,13 +1471,13 @@ class ExplainableStubParagraphLayoutEngine(
                     val take = minOf(shortfall, (opp.capacity - used).coerceAtLeast(0f))
                     if (take <= 0f) continue
                     when (opp.channel) {
-                        ShrinkChannel.TrailingGlue -> pushInTrailing.merge(opp.clusterIndex, take) { a, b -> a + b }
-                        ShrinkChannel.LeadingGlue -> pushInLeading.merge(opp.clusterIndex, take) { a, b -> a + b }
+                        ShrinkChannel.TrailingGlue -> pushInTrailing.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
+                        ShrinkChannel.LeadingGlue -> pushInLeading.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
                         ShrinkChannel.LeadingAndTrailingGlue -> {
-                            pushInLeading.merge(opp.clusterIndex, take / 2f) { a, b -> a + b }
-                            pushInTrailing.merge(opp.clusterIndex, take / 2f) { a, b -> a + b }
+                            pushInLeading.mergeValue(opp.clusterIndex, take / 2f) { a, b -> a + b }
+                            pushInTrailing.mergeValue(opp.clusterIndex, take / 2f) { a, b -> a + b }
                         }
-                        ShrinkChannel.RawAdvance -> pushInRawTrims.merge(opp.clusterIndex, take) { a, b -> a + b }
+                        ShrinkChannel.RawAdvance -> pushInRawTrims.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
                     }
                     shortfall -= take
                 }
@@ -1291,7 +1506,7 @@ class ExplainableStubParagraphLayoutEngine(
                 val decision = autoSpaceDecisions.firstOrNull {
                     it.clusterRange == naturalClusters[clusterIdx].range && it.side == side
                 } ?: return
-                autoSpaceEdgeTrims.merge(clusterIdx, autoSpaceGap) { a, b -> a + b }
+                autoSpaceEdgeTrims.mergeValue(clusterIdx, autoSpaceGap) { a, b -> a + b }
                 autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
                     lineRange = line.sourceRange,
                     clusterRange = decision.clusterRange,
@@ -1311,9 +1526,10 @@ class ExplainableStubParagraphLayoutEngine(
             fun collapseEdgeSpace(clusterIdx: Int, side: String) {
                 val cluster = naturalClusters[clusterIdx]
                 if (!cluster.isSpaceRun()) return
+                if (clusterIdx in inlineObjectSeparatorSpaceTrims) return
                 val advance = naturalClusters[clusterIdx].advance
                 if (advance <= 0f) return
-                autoSpaceEdgeTrims.merge(clusterIdx, advance) { a, b -> a + b }
+                autoSpaceEdgeTrims.mergeValue(clusterIdx, advance) { a, b -> a + b }
                 autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
                     lineRange = line.sourceRange,
                     clusterRange = cluster.range,
@@ -1326,28 +1542,40 @@ class ExplainableStubParagraphLayoutEngine(
             }
             collapseEdgeSpace(line.clusterRange.last, "trailing")
             collapseEdgeSpace(line.clusterRange.first, "leading")
+
+            // InlineObjectLineEndDiscardableGlue: a formula fragment includes its natural
+            // post-operator math spacing when it stays in the line. If the paragraph actually
+            // breaks at that boundary, the space is line-edge glue rather than visible content.
+            // Remove only the part not already consumed by PushIn; the following fragment has no
+            // corresponding leading advance, so both the old line end and new line start stay flush.
+            if (line.endReason == LineEndReason.AutoWrap) {
+                val clusterIdx = line.clusterRange.last
+                val discardable = inlineObjectByClusterIndex[clusterIdx]
+                    ?.trailingBoundary
+                    ?.lineEndDiscardableAdvance
+                    ?: 0f
+                val consumedBefore = minOf(pushInRawTrims[clusterIdx] ?: 0f, discardable)
+                val remaining = (discardable - consumedBefore).coerceAtLeast(0f)
+                if (remaining > 0f) {
+                    autoSpaceEdgeTrims.mergeValue(clusterIdx, remaining) { a, b -> a + b }
+                    autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
+                        lineRange = line.sourceRange,
+                        clusterRange = naturalClusters[clusterIdx].range,
+                        side = "trailing",
+                        trimAmount = remaining,
+                        consumedBefore = consumedBefore,
+                        naturalGlue = discardable,
+                        reason = "InlineObjectLineEndDiscardableGlue",
+                    )
+                }
+            }
         }
         val rawTrims = HashMap<Int, Float>(autoSpaceEdgeTrims)
-        pushInRawTrims.forEach { (idx, amount) -> rawTrims.merge(idx, amount) { a, b -> a + b } }
+        pushInRawTrims.forEach { (idx, amount) -> rawTrims.mergeValue(idx, amount) { a, b -> a + b } }
         val trimmedGeometry = edgeTrimResult.geometry.withRawEdgeTrims(rawTrims)
         val trimmedClusters = trimmedGeometry.resolveClusters()
         val edgeTrimDecisions = edgeTrimResult.decisions + autoSpaceEdgeDecisions
 
-        // NoStretchBoundaryClusters:
-        // - AvoidStretchAroundConnectors（CLREQ 拉伸限制②）：连接号、分隔号
-        //   与其前后字符之间避免拉伸；
-        // - AtomicLongPunctuationBoundary：破折号、省略号是不拆分的长标号，
-        //   前后均匀拉伸会制造「—— 不」式的假空格。
-        val noStretchBoundaryClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-            when (atomClassByRange[naturalClusters[idx].range]) {
-                PunctuationClass.Connector,
-                PunctuationClass.Solidus,
-                PunctuationClass.Dash,
-                PunctuationClass.Ellipsis,
-                -> true
-                else -> false
-            }
-        }
         // LineEndHangingHyphen reserved width (ADR 0029 amend): a line that ends
         // mid-word at a hyphenation point gives the trailing hyphen real width
         // inside the measure — like a line-end punctuation mark, NOT hung by
@@ -1368,6 +1596,7 @@ class ExplainableStubParagraphLayoutEngine(
                 justifier.justify(
                     adjustedClusters = trimmedClusters,
                     clusterRoles = clusterRoles,
+                    eastAsianSpacingEdges = eastAsianSpacingEdges,
                     lineClusterRange = lineCandidate.inMeasureClusterRange,
                     maxWidth = (if (lineCandidate.clusterRange.first == 0) {
                         measure - firstLineIndent
@@ -1380,13 +1609,16 @@ class ExplainableStubParagraphLayoutEngine(
                     cjkLatinSpaceBaseEm = clreqProfile.autoSpace.gapEm,
                     cjkLatinSpaceMaxEm = clreqProfile.autoSpace.stretchMaxEm,
                     noStretchBoundaryClusters = noStretchBoundaryClusters,
+                    noStretchBoundaryAfterClusters = noStretchBoundaryAfterClusters,
+                    uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
+                    preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
                 )
             }
         }
         val justifyDeltaByCluster = HashMap<Int, Float>().apply {
             justificationPlans.filterNotNull()
                 .flatMap { it.allocations }
-                .forEach { alloc -> merge(alloc.targetClusterIndex, alloc.delta) { a, b -> a + b } }
+                .forEach { alloc -> mergeValue(alloc.targetClusterIndex, alloc.delta) { a, b -> a + b } }
         }
         val finalGeometry = trimmedGeometry.addJustificationDeltas(justifyDeltaByCluster)
         val finalClusters = finalGeometry.resolveClusters().map { c ->
@@ -1448,7 +1680,7 @@ class ExplainableStubParagraphLayoutEngine(
         val pinyinClusterRanges = pinyinSpans.mapNotNull { ruby ->
             naturalClusters.clusterIndexRangeFor(ruby.baseRange)?.let { ruby to it }
         }
-        val perLineRubyDeficit = lineSolution.lines.map { line ->
+        val perLineRubyExtent = lineSolution.lines.map { line ->
             val requiredExtent = pinyinClusterRanges.mapNotNull { (ruby, range) ->
                 if (range.first <= line.clusterRange.last && range.last >= line.clusterRange.first) {
                     rubyFontGeometryBySpan[ruby]?.requiredExtent
@@ -1456,12 +1688,20 @@ class ExplainableStubParagraphLayoutEngine(
                     null
                 }
             }.maxOrNull() ?: 0f
-            (requiredExtent - existingInterlineSpace).coerceAtLeast(0f)
+            requiredExtent
+        }
+        val perLineRubyDeficit = perLineRubyExtent.map {
+            (it - existingInterlineSpace).coerceAtLeast(0f)
         }
         val paragraphRubyDeficit = perLineRubyDeficit.maxOrNull() ?: 0f
         val lineRubyTopExtra = when (input.paragraphStyle.rubyLineHeightMode) {
             RubyLineHeightMode.PerLine -> perLineRubyDeficit
             RubyLineHeightMode.UniformParagraph -> List(lineSolution.lines.size) { paragraphRubyDeficit }
+        }
+        val lineRubyInterlineDemand = when (input.paragraphStyle.rubyLineHeightMode) {
+            RubyLineHeightMode.PerLine -> perLineRubyExtent
+            RubyLineHeightMode.UniformParagraph ->
+                List(lineSolution.lines.size) { perLineRubyExtent.maxOrNull() ?: 0f }
         }
         val rubyLineHeightDecision = if (pinyinSpans.isEmpty()) {
             null
@@ -1484,26 +1724,113 @@ class ExplainableStubParagraphLayoutEngine(
         }
         val baseTopExtent = baseLineMetrics.baseline
         val baseBottomExtent = baseLineMetrics.height - baseLineMetrics.baseline
-        val lineObjectTopExtra = lineSolution.lines.map { line ->
-            val ascent = line.clusterRange.mapNotNull(inlineObjectByClusterIndex::get)
+        val lineObjectAscent = lineSolution.lines.map { line ->
+            line.clusterRange.mapNotNull(inlineObjectByClusterIndex::get)
                 .maxOfOrNull { it.ascent } ?: 0f
-            (ascent - baseTopExtent).coerceAtLeast(0f)
         }
-        val lineObjectBottomExtra = lineSolution.lines.map { line ->
-            val descent = line.clusterRange.mapNotNull(inlineObjectByClusterIndex::get)
+        val lineObjectDescent = lineSolution.lines.map { line ->
+            line.clusterRange.mapNotNull(inlineObjectByClusterIndex::get)
                 .maxOfOrNull { it.descent } ?: 0f
-            (descent - baseBottomExtent).coerceAtLeast(0f)
         }
-        val lineTopExtra = lineRubyTopExtra.indices.map { index ->
-            maxOf(lineRubyTopExtra[index], lineObjectTopExtra[index])
+        val lineObjectTopIntrusion = lineObjectAscent.map {
+            (it - baseAscent).coerceAtLeast(0f)
         }
-        val lineTop = FloatArray(lineSolution.lines.size)
-        run {
-            var acc = 0f
-            for (i in lineTopExtra.indices) {
-                lineTop[i] = acc
-                acc += baseLineMetrics.height + lineTopExtra[i] + lineObjectBottomExtra[i]
+        val lineObjectBottomIntrusion = lineObjectDescent.map {
+            (it - baseDescent).coerceAtLeast(0f)
+        }
+        val inlineObjectMinimumClearance =
+            input.paragraphStyle.inlineObjectMinimumClearanceEm * fontSize
+
+        // InlineObjectInterlineCollision: ascent/descent describe visible object
+        // geometry, not an instruction to reserve each half of the current line box.
+        // An object may consume the existing gap between adjacent base faces while
+        // retaining the paragraph's minimum visible-content clearance. Only a
+        // clearance deficit changes baseline distance; otherwise the boundary between
+        // the two line boxes moves inside that already available space.
+        val combinedLineExtra = lineSolution.lines.indices.map { index ->
+            if (index == 0) {
+                maxOf(
+                    lineRubyTopExtra[index],
+                    (lineObjectAscent[index] - baseTopExtent).coerceAtLeast(0f),
+                )
+            } else {
+                val topDemand = maxOf(
+                    lineRubyInterlineDemand[index],
+                    lineObjectTopIntrusion[index],
+                )
+                val objectIntrudesBoundary =
+                    lineObjectBottomIntrusion[index - 1] > 0f ||
+                        (
+                            lineObjectTopIntrusion[index] > 0f &&
+                                lineObjectTopIntrusion[index] >= lineRubyInterlineDemand[index]
+                        )
+                val minimumClearance = if (objectIntrudesBoundary) inlineObjectMinimumClearance else 0f
+                (
+                    lineObjectBottomIntrusion[index - 1] + topDemand + minimumClearance -
+                        existingInterlineSpace
+                    ).coerceAtLeast(0f)
             }
+        }
+        val objectLineExtra = combinedLineExtra.indices.map { index ->
+            (combinedLineExtra[index] - lineRubyTopExtra[index]).coerceAtLeast(0f)
+        }
+        val lineBaseline = FloatArray(lineSolution.lines.size)
+        if (lineBaseline.isNotEmpty()) {
+            lineBaseline[0] = baseLineMetrics.baseline + combinedLineExtra[0]
+            for (index in 1 until lineBaseline.size) {
+                lineBaseline[index] = lineBaseline[index - 1] +
+                    baseLineMetrics.height + combinedLineExtra[index]
+            }
+        }
+
+        val lineTop = FloatArray(lineSolution.lines.size)
+        val lineBottom = FloatArray(lineSolution.lines.size)
+        val boundaryShiftsAfter = MutableList((lineSolution.lines.size - 1).coerceAtLeast(0)) { 0f }
+        for (index in 0 until lineSolution.lines.lastIndex) {
+            val currentContentBottomExtent = maxOf(baseDescent, lineObjectDescent[index])
+            val boundaryExtent = resolveInlineObjectLineBoundaryExtent(
+                nominalBoundaryExtent = baseBottomExtent,
+                currentContentBottomExtent = currentContentBottomExtent,
+                baselineDistance = lineBaseline[index + 1] - lineBaseline[index],
+                nextContentTopExtent = maxOf(baseAscent, lineObjectAscent[index + 1]),
+            )
+            val nominalBoundary = lineBaseline[index] + baseBottomExtent
+            val boundary = lineBaseline[index] + boundaryExtent
+            lineBottom[index] = boundary
+            lineTop[index + 1] = boundary
+            boundaryShiftsAfter[index] = boundary - nominalBoundary
+        }
+        val trailingObjectExtra = if (lineSolution.lines.isEmpty()) {
+            0f
+        } else {
+            (lineObjectDescent.last() - baseBottomExtent).coerceAtLeast(0f)
+        }
+        if (lineSolution.lines.isNotEmpty()) {
+            lineBottom[lineSolution.lines.lastIndex] = lineBaseline.last() +
+                baseBottomExtent + trailingObjectExtra
+        }
+        val inlineObjectLineHeightDecision = if (inlineObjectByClusterIndex.isEmpty()) {
+            null
+        } else {
+            val expandedLineIndices = objectLineExtra.indices.filter { objectLineExtra[it] > 0f }
+            InlineObjectLineHeightDecisionInfo(
+                baseLineHeight = baseLineMetrics.height,
+                baseFaceAscent = baseAscent,
+                baseFaceDescent = baseDescent,
+                availableInterlineSpace = existingInterlineSpace,
+                minimumClearance = inlineObjectMinimumClearance,
+                lineAscents = lineObjectAscent,
+                lineDescents = lineObjectDescent,
+                lineExtras = objectLineExtra,
+                boundaryShiftsAfter = boundaryShiftsAfter,
+                trailingExtra = trailingObjectExtra,
+                expandedLineIndices = expandedLineIndices,
+                reason = if (expandedLineIndices.isEmpty() && trailingObjectExtra == 0f) {
+                    "ExistingInterlineSpaceFitsInlineObjects"
+                } else {
+                    "InlineObjectInterlineCollision"
+                },
+            )
         }
 
         val laidOutLines = lineSolution.lines.mapIndexed { lineIndex, lineCandidate ->
@@ -1552,10 +1879,9 @@ class ExplainableStubParagraphLayoutEngine(
             LineBox(
                 range = lineCandidate.sourceRange,
                 clusterRange = lineCandidate.clusterRange,
-                baseline = lineTop[lineIndex] + lineTopExtra[lineIndex] + baseLineMetrics.baseline,
+                baseline = lineBaseline[lineIndex],
                 top = lineTop[lineIndex],
-                bottom = lineTop[lineIndex] + lineTopExtra[lineIndex] +
-                    baseLineMetrics.height + lineObjectBottomExtra[lineIndex],
+                bottom = lineBottom[lineIndex],
                 naturalWidth = lineCandidate.naturalWidth,
                 adjustedWidth = adjustedWidth,
                 visualWidth = visualWidth,
@@ -1565,6 +1891,7 @@ class ExplainableStubParagraphLayoutEngine(
                 indent = gridBodyOffset + baseIndent + alignmentInset,
                 endReason = lineCandidate.endReason,
                 hyphenAdvance = lineHyphenAdvance,
+                hyphenGlyphs = if (lineHyphenAdvance > 0f) hyphenGlyphs else emptyList(),
                 debug = LineDebugInfo(
                     repair = lineCandidate.repair?.let { "${it::class.simpleName}:${it.reason}" },
                     notes = listOf(
@@ -1608,6 +1935,42 @@ class ExplainableStubParagraphLayoutEngine(
                     descent = inlineObject.descent,
                     clusterIndex = clusterIndex,
                     lineIndex = lineSolution.lines.indexOfFirst { clusterIndex in it.clusterRange },
+                    leadingUniformStretch =
+                        inlineObject.leadingBoundary.participatesInUniformStretch,
+                    leadingPreferredStretchKind =
+                        inlineObject.leadingBoundary.preferredStretch?.kind?.name,
+                    leadingPreferredStretchNaturalWidth =
+                        inlineObject.leadingBoundary.preferredStretch?.naturalWidth ?: 0f,
+                    leadingPreferredStretchTargetWidth =
+                        inlineObject.leadingBoundary.preferredStretch?.targetWidth ?: 0f,
+                    leadingPreferredStretchCapacity =
+                        inlineObject.leadingBoundary.preferredStretch?.capacity ?: 0f,
+                    leadingPreventsLineBreak = inlineObject.leadingBoundary.preventsLineBreak,
+                    leadingShrinkCapacity = inlineObject.leadingBoundary.shrinkCapacity,
+                    leadingLineEndDiscardableAdvance =
+                        inlineObject.leadingBoundary.lineEndDiscardableAdvance,
+                    trailingUniformStretch =
+                        inlineObject.trailingBoundary.participatesInUniformStretch,
+                    trailingPreferredStretchKind =
+                        inlineObject.trailingBoundary.preferredStretch?.kind?.name,
+                    trailingPreferredStretchNaturalWidth =
+                        inlineObject.trailingBoundary.preferredStretch?.naturalWidth ?: 0f,
+                    trailingPreferredStretchTargetWidth =
+                        inlineObject.trailingBoundary.preferredStretch?.targetWidth ?: 0f,
+                    trailingPreferredStretchCapacity =
+                        inlineObject.trailingBoundary.preferredStretch?.capacity ?: 0f,
+                    trailingPreventsLineBreak = inlineObject.trailingBoundary.preventsLineBreak,
+                    trailingShrinkCapacity = inlineObject.trailingBoundary.shrinkCapacity,
+                    trailingLineEndDiscardableAdvance =
+                        inlineObject.trailingBoundary.lineEndDiscardableAdvance,
+                    reason = if (
+                        inlineObject.leadingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed ||
+                        inlineObject.trailingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed
+                    ) {
+                        "AdjustableInlineObject"
+                    } else {
+                        "MeasurableOpaqueInlineObject"
+                    },
                 )
             }
         // Ink-edge insets so 行间线/着重号 hug the text, not the edge blanks: the leading
@@ -1665,6 +2028,7 @@ class ExplainableStubParagraphLayoutEngine(
             baseDescent = baseDescent,
             fontSize = fontSize,
             bopomofoFontWeightAt = ::bopomofoFontWeightAt,
+            baseTextStyle = input.textStyle,
         )
 
         val widestLine = lines.maxOfOrNull { it.indent + it.visualWidth + it.hyphenAdvance } ?: 0f
@@ -1811,12 +2175,14 @@ class ExplainableStubParagraphLayoutEngine(
                 maxLinesDecision = maxLinesDecision,
                 lineSpacingDecision = lineSpacingDecision,
                 rubyLineHeightDecision = rubyLineHeightDecision,
+                inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
                 kinsokuDecision = kinsokuDecision,
                 contextualKinsokuDecisions = contextualKinsokuDecisions,
                 lineLengthGridDecision = lineLengthGridDecision,
                 firstLineIndentDecision = firstLineIndentDecision,
                 inlineBoxDecisions = inlineBoxResult.decisions,
                 inlineObjectDecisions = inlineObjectDecisions,
+                inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
                 zeroWidthBreakDecisions = zeroWidthBreakDecisions,
             ),
         )
@@ -2079,6 +2445,128 @@ class ExplainableStubParagraphLayoutEngine(
         val decisions: List<ContextualKinsokuDecisionInfo>,
     )
 
+    private data class InlineObjectAttachedMark(
+        val objectClusterIndex: Int,
+        val separatorClusterIndices: List<Int>,
+        val markClusterIndex: Int,
+    )
+
+    /**
+     * `InlineObjectPunctuationSeparatorSpaceCollapse`: Markdown commonly retains an author-written
+     * ASCII separator between inline math and following prose punctuation (`$x$ ，`). That space is
+     * source content, but it is not visual punctuation spacing. Identify the complete attachment so
+     * layout can collapse the space, close every intervening stretch boundary, and apply kinsoku to
+     * the first visible mark rather than to the invisible space at line start.
+     */
+    private fun List<Cluster>.inlineObjectAttachedMarks(
+        clusterRoles: List<FontRole>,
+        level: KinsokuLevel,
+        kinsokuRule: KinsokuRule,
+    ): List<InlineObjectAttachedMark> {
+        if (level == KinsokuLevel.None) return emptyList()
+        val result = mutableListOf<InlineObjectAttachedMark>()
+        for (markIndex in 1 until size) {
+            val mark = this[markIndex]
+            val isCjkForbidden =
+                clusterRoles.getOrNull(markIndex).isCjkKinsokuRole() && kinsokuRule.forbiddenAtLineStart(mark)
+            val isAttachedAsciiPointMark =
+                clusterRoles.getOrNull(markIndex) == FontRole.LatinText &&
+                    mark.text.firstOrNull()?.let(ClreqPunctuationPolicies::isAsciiPointMark) == true
+            if (!isCjkForbidden && !isAttachedAsciiPointMark) continue
+
+            var previousIndex = markIndex - 1
+            val separatorIndices = mutableListOf<Int>()
+            while (
+                previousIndex >= 0 &&
+                this[previousIndex].isSpaceRun() &&
+                this[previousIndex].range.end == this[previousIndex + 1].range.start
+            ) {
+                separatorIndices += previousIndex
+                previousIndex--
+            }
+            if (previousIndex < 0) continue
+            val previous = this[previousIndex]
+            if (!previous.isInlineObjectCluster() || previous.range.end != this[previousIndex + 1].range.start) continue
+
+            result += InlineObjectAttachedMark(
+                objectClusterIndex = previousIndex,
+                separatorClusterIndices = separatorIndices.asReversed(),
+                markClusterIndex = markIndex,
+            )
+        }
+        return result
+    }
+
+    /**
+     * `InlineObjectAttachedKinsoku`: an inline object has no glyph display text,
+     * but it is still the visible base immediately before an attached mark.
+     * Keep the object's last fragment with that mark whenever the pair fits;
+     * when the pair itself is wider than the line, permit the point mark to hang
+     * as the last-resort alternative to leaving it at line start.
+     */
+    private fun List<Cluster>.inlineObjectAttachedKinsoku(
+        attachments: List<InlineObjectAttachedMark>,
+        lineBreakClusters: List<Cluster>,
+        level: KinsokuLevel,
+        bodyLineWidth: Float,
+        firstLineWidth: Float,
+    ): ContextualKinsoku {
+        if (level == KinsokuLevel.None) {
+            return ContextualKinsoku(emptySet(), emptyList(), emptySet(), emptyList(), emptyList())
+        }
+        require(size == lineBreakClusters.size) {
+            "Inline-object kinsoku requires cluster-for-cluster line-break geometry"
+        }
+
+        val forbiddenLineStart = mutableSetOf<Int>()
+        val unbreakableRanges = mutableListOf<IntRange>()
+        val forcedHangable = mutableSetOf<Int>()
+        val extendableHangRanges = mutableListOf<IntRange>()
+        val decisions = mutableListOf<ContextualKinsokuDecisionInfo>()
+        for (attachment in attachments) {
+            val previousIndex = attachment.objectClusterIndex
+            val index = attachment.markClusterIndex
+            val mark = this[index]
+            val isAttachedAsciiPointMark =
+                mark.text.firstOrNull()?.let(ClreqPunctuationPolicies::isAsciiPointMark) == true
+
+            forbiddenLineStart += attachment.separatorClusterIndices
+            forbiddenLineStart += index
+            val protectedPair = previousIndex..index
+            val pairWidth = protectedPair.sumOf { lineBreakClusters[it].advance.toDouble() }.toFloat()
+            val availableWidth = if (previousIndex == 0) firstLineWidth else bodyLineWidth
+            if (pairWidth <= availableWidth) {
+                unbreakableRanges += protectedPair
+            } else {
+                val mayHang =
+                    mark.displayText.singleOrNull() in HANGABLE_PUNCTUATION || isAttachedAsciiPointMark
+                if (mayHang) {
+                    forcedHangable += attachment.separatorClusterIndices
+                    forcedHangable += index
+                    extendableHangRanges += protectedPair
+                }
+            }
+            decisions += ContextualKinsokuDecisionInfo(
+                range = mark.range,
+                sourceText = mark.text,
+                clusterIndex = index,
+                forbiddenPosition = "LineStart",
+                reason = if (attachment.separatorClusterIndices.isEmpty()) {
+                    "InlineObjectAttachedKinsoku"
+                } else {
+                    "InlineObjectAttachedKinsokuAcrossCollapsedSeparatorSpace"
+                },
+            )
+        }
+        return ContextualKinsoku(
+            forbiddenLineStartClusters = forbiddenLineStart,
+            unbreakableRanges = unbreakableRanges,
+            impossibleMeasureHangEligibleClusters = forcedHangable,
+            extendableHangRanges = extendableHangRanges,
+            decisions = decisions,
+        )
+    }
+
     /**
      * `AttachedAsciiPointMarkKinsoku`: directly attached ASCII `, . : ; ! ?`
      * keep their Latin face and proportional advance, but cannot begin an
@@ -2267,11 +2755,23 @@ class ExplainableStubParagraphLayoutEngine(
         context: FontRoleContext,
         profile: ClreqProfile,
         spanBoundaries: Set<Int> = emptySet(),
+        inlineObjectsByStart: Map<Int, InlineObjectSpan> = emptyMap(),
     ): List<ResolvedClusterRange> {
         val coalesceSet = profile.coalesceRepeatablePunctuation
         val ranges = mutableListOf<ResolvedClusterRange>()
         var index = 0
         while (index < text.length) {
+            val inlineObject = inlineObjectsByStart[index]
+            if (inlineObject != null) {
+                ranges.add(
+                    ResolvedClusterRange(
+                        range = inlineObject.range,
+                        role = FontRole.Unknown,
+                    ),
+                )
+                index = inlineObject.range.end
+                continue
+            }
             val codePoint = text.codePointAtCompat(index)
             val charCount = codePoint.charCount()
             val start = index
@@ -2440,7 +2940,7 @@ class ExplainableStubParagraphLayoutEngine(
                 Cluster(
                     range = inlineObject.range,
                     text = sourceText,
-                    displayText = sourceText,
+                    displayText = "",
                     fontKey = INLINE_OBJECT_FONT_KEY,
                     advance = inlineObject.advance,
                 ),
@@ -2450,7 +2950,7 @@ class ExplainableStubParagraphLayoutEngine(
                 ShapingDecisionInfo(
                     range = inlineObject.range,
                     sourceText = sourceText,
-                    displayText = sourceText,
+                    displayText = "",
                     fontKey = INLINE_OBJECT_FONT_KEY,
                     glyphCount = 0,
                     advance = inlineObject.advance,
@@ -2614,116 +3114,152 @@ class ExplainableStubParagraphLayoutEngine(
     }
 
     /**
-     * Applies `AutoSpacePolicy` to (word-segmented) natural clusters.
+     * Applies [AutoSpacePolicy] at Unicode `East_Asian_Spacing` W↔N boundaries.
      *
-     * Post `LatinWordSegmentation`, U+0020 runs are standalone clusters and
-     * the model is per-cluster (CSS Text 4 + ADR 0009; CLREQ:「原则上，汉字
-     * 与西文字母、数字间使用不多于四分之一个汉字宽的字距或空白」):
+     * `UnicodeEastAsianSpacingBoundary` is deliberately independent of [FontRole]: Greek,
+     * Cyrillic and every other code point assigned Narrow by the pinned UTR #59 data receive
+     * the same spacing even when their font fallback role differs. Inline objects are resolved
+     * to Other before this function, so alternate text never fabricates a text boundary.
      *
-     * - **space-run cluster with a CjkText neighbour** — the cluster IS the
-     *   sino-western gap: its advance normalises to `gapEm`
-     *   (`TextAutoSpaceReplace`, decision side="gap"; renderers need no
-     *   offsets, the cluster width is the gap).
-     * - **space-run cluster between two Latin words** — a word space
-     *   (CLREQ 西文词距): untouched here; justification stretches it.
-     * - **word cluster directly adjacent to CjkText** (no space cluster in
-     *   between) — when the boundary-adjacent western character is alpha /
-     *   numeric, `TextAutoSpaceInsert` adds the gap into the word cluster's
-     *   advance on that side; renderers offset glyphs by the recorded side
-     *   decision. Only under [AutoSpaceMode.Insert]; [AutoSpaceMode.Replace]
-     *   keeps the conservative behaviour. Slash-led technical runs such as
-     *   `/TERFism` keep Latin shaping but do not create a `跨 /TERFism` gap.
-     *
-     * Punctuation neighbours never produce a gap (their spacing is the
-     * punctuation glue model's job).
+     * U+0020 remains a higher-level author override in UTR #59 (its property is Other). ADR 0009
+     * keeps Tiqian's existing `Replace` contract: when one standalone space sits between W and N,
+     * that source space is normalised to the configured gap instead of adding a second gap.
      */
     private fun List<Cluster>.applyAutoSpacePolicy(
-        fontDecisions: List<FontDecision>,
+        eastAsianSpacingEdges: List<EastAsianSpacingEdges>,
         policy: AutoSpacePolicy,
         fontSize: Float,
     ): AutoSpaceApplicationResult {
         if (isEmpty()) return AutoSpaceApplicationResult(emptyList(), emptyList())
+        require(eastAsianSpacingEdges.size == size) {
+            "East_Asian_Spacing values must align with natural clusters."
+        }
 
-        val roles = map { cluster -> fontDecisions.firstOrNull { cluster.range.isInside(it.range) }?.role }
         val decisions = mutableListOf<AutoSpaceDecisionInfo>()
         val gap = policy.gapEm * fontSize
-        // TextAutoSpaceIdeographAlphaNumericBoundary: CLREQ/CSS Text only fire
-        // at ideograph ↔ alpha/numeric boundaries. Font role alone is too
-        // coarse: slash-led runs are LatinText for shaping, but `/` remains
-        // punctuation for spacing.
-        fun modeForWestern(boundaryChar: Char?): AutoSpaceMode? = when {
+        fun modeForNarrow(boundaryChar: Char?): AutoSpaceMode? = when {
             boundaryChar == null -> null
             boundaryChar.isDigit() -> policy.cjkDigit
-            boundaryChar.isLetter() -> policy.cjkLatin
-            else -> null
+            else -> policy.cjkLatin
         }
 
         val updated = mapIndexed { idx, cluster ->
-            if (roles[idx] != FontRole.LatinText) return@mapIndexed cluster
-            val prevRole = if (idx > 0) roles[idx - 1] else null
-            val nextRole = if (idx < lastIndex) roles[idx + 1] else null
+            val previousSpacing = eastAsianSpacingEdges.getOrNull(idx - 1)?.trailing
+            val currentSpacing = eastAsianSpacingEdges[idx]
+            val nextSpacing = eastAsianSpacingEdges.getOrNull(idx + 1)?.leading
 
             if (cluster.isSpaceRun()) {
-                val cjkAdjacent = prevRole == FontRole.CjkText || nextRole == FontRole.CjkText
-                if (!cjkAdjacent) return@mapIndexed cluster
-                // The western token sits on the non-CJK side of the space; its
-                // boundary char (nearest the space) selects digit vs letter.
-                val westernChar = when {
-                    prevRole == FontRole.CjkText -> getOrNull(idx + 1)?.text?.firstOrNull()
-                    else -> getOrNull(idx - 1)?.text?.lastOrNull()
+                val narrowBoundaryChar = when {
+                    previousSpacing == EastAsianSpacingValue.Wide &&
+                        nextSpacing == EastAsianSpacingValue.Narrow -> getOrNull(idx + 1)?.text?.firstOrNull()
+
+                    previousSpacing == EastAsianSpacingValue.Narrow &&
+                        nextSpacing == EastAsianSpacingValue.Wide -> getOrNull(idx - 1)?.text?.lastOrNull()
+
+                    else -> null
                 }
-                val mode = modeForWestern(westernChar)
+                val mode = modeForNarrow(narrowBoundaryChar)
                 if (mode == null || mode == AutoSpaceMode.Disabled) return@mapIndexed cluster
                 val reduction = cluster.advance - gap
                 if (reduction == 0f) return@mapIndexed cluster
                 decisions += AutoSpaceDecisionInfo(
                     clusterRange = cluster.range,
                     side = "gap",
-                    boundaryRole = FontRole.CjkText.name,
+                    boundaryRole = "EastAsianSpacing.Wide",
                     mode = AutoSpaceMode.Replace.name,
                     charactersAffected = cluster.text.length,
                     reductionPerChar = reduction / cluster.text.length,
                     totalReduction = reduction,
-                    reason = "TextAutoSpaceReplace:space-cluster-to-gap",
+                    reason = "TextAutoSpaceReplace:east-asian-spacing-W-space-N",
                 )
                 cluster.copy(advance = gap)
             } else {
                 var added = 0f
-                // Each side keys on the cluster's own boundary char.
-                if (prevRole == FontRole.CjkText &&
-                    modeForWestern(cluster.text.firstOrNull()) == AutoSpaceMode.Insert
+                if (previousSpacing == EastAsianSpacingValue.Wide &&
+                    currentSpacing.leading == EastAsianSpacingValue.Narrow &&
+                    modeForNarrow(cluster.text.firstOrNull()) == AutoSpaceMode.Insert
                 ) {
                     added += gap
                     decisions += AutoSpaceDecisionInfo(
                         clusterRange = cluster.range,
                         side = "leading",
-                        boundaryRole = FontRole.CjkText.name,
+                        boundaryRole = "EastAsianSpacing.Wide",
                         mode = AutoSpaceMode.Insert.name,
                         charactersAffected = 0,
                         reductionPerChar = 0f,
                         totalReduction = -gap,
-                        reason = "TextAutoSpaceInsert:ideograph-alpha",
+                        reason = "TextAutoSpaceInsert:east-asian-spacing-W-N",
                     )
                 }
-                if (nextRole == FontRole.CjkText &&
-                    modeForWestern(cluster.text.lastOrNull()) == AutoSpaceMode.Insert
+                if (nextSpacing == EastAsianSpacingValue.Wide &&
+                    currentSpacing.trailing == EastAsianSpacingValue.Narrow &&
+                    modeForNarrow(cluster.text.lastOrNull()) == AutoSpaceMode.Insert
                 ) {
                     added += gap
                     decisions += AutoSpaceDecisionInfo(
                         clusterRange = cluster.range,
                         side = "trailing",
-                        boundaryRole = FontRole.CjkText.name,
+                        boundaryRole = "EastAsianSpacing.Wide",
                         mode = AutoSpaceMode.Insert.name,
                         charactersAffected = 0,
                         reductionPerChar = 0f,
                         totalReduction = -gap,
-                        reason = "TextAutoSpaceInsert:ideograph-alpha",
+                        reason = "TextAutoSpaceInsert:east-asian-spacing-W-N",
                     )
                 }
                 if (added == 0f) cluster else cluster.copy(advance = cluster.advance + added)
             }
         }
         return AutoSpaceApplicationResult(updated, decisions)
+    }
+
+    /**
+     * Returns true for one physical boundary representing a single W↔N gap. A typed U+0020
+     * anchors the gap on its Wide side so line-cost accounting counts it exactly once.
+     */
+    private fun isEastAsianSpacingBoundaryAt(
+        rightIndex: Int,
+        clusters: List<Cluster>,
+        spacingEdges: List<EastAsianSpacingEdges>,
+    ): Boolean {
+        val leftIndex = rightIndex - 1
+        val left = spacingEdges[leftIndex].trailing
+        val right = spacingEdges[rightIndex].leading
+        if (left.isWideNarrowPairWith(right)) return true
+
+        return when {
+            clusters[rightIndex].isSpaceRun() &&
+                left == EastAsianSpacingValue.Wide &&
+                spacingEdges.getOrNull(rightIndex + 1)?.leading == EastAsianSpacingValue.Narrow -> true
+
+            clusters[leftIndex].isSpaceRun() &&
+                right == EastAsianSpacingValue.Wide &&
+                spacingEdges.getOrNull(leftIndex - 1)?.trailing == EastAsianSpacingValue.Narrow -> true
+
+            else -> false
+        }
+    }
+
+    private fun EastAsianSpacingValue.isWideNarrowPairWith(other: EastAsianSpacingValue): Boolean =
+        (this == EastAsianSpacingValue.Wide && other == EastAsianSpacingValue.Narrow) ||
+            (this == EastAsianSpacingValue.Narrow && other == EastAsianSpacingValue.Wide)
+
+    /**
+     * `AttachedAsciiPointMarkOverridesConditionalEastAsianSpacing`: UTR #59 is an informative
+     * default that higher-level protocols may override. Tiqian already recognizes directly
+     * attached ASCII `, . : ; ! ?` as Chinese point marks for kinsoku while retaining their
+     * proportional Latin glyphs; resolving those same marks from C to N would insert gaps and
+     * contradict that established punctuation contract. Standalone `%`, `#`, etc. still follow
+     * the Unicode Conditional value in Chinese language context.
+     */
+    private fun List<Cluster>.isAttachedAsciiPointMarkAt(index: Int): Boolean {
+        if (index <= 0) return false
+        val cluster = this[index]
+        val previous = this[index - 1]
+        return cluster.text.firstOrNull()?.let(ClreqPunctuationPolicies::isAsciiPointMark) == true &&
+            previous.displayText.isNotEmpty() &&
+            previous.text.lastOrNull()?.isWhitespace() == false &&
+            previous.range.end == cluster.range.start
     }
 
     private fun RepairCandidate.toDecisionInfo(clusters: List<Cluster>): LineRepairCandidateInfo =
@@ -2858,6 +3394,7 @@ class ExplainableStubParagraphLayoutEngine(
                         overhang = ((rubyWidth - contentWidth) / 2f).coerceAtLeast(0f),
                         fontFamilies = ruby.fontFamilies,
                         fontWeight = rubyFontWeight,
+                        glyphs = rubyGeometry.glyphs,
                     )
                 }
             }
@@ -2880,6 +3417,7 @@ class ExplainableStubParagraphLayoutEngine(
         baseDescent: Float,
         fontSize: Float,
         bopomofoFontWeightAt: (Int) -> Int,
+        baseTextStyle: TextStyle,
     ): List<BopomofoDecisionInfo> {
         if (rubySpans.isEmpty()) return emptyList()
         val hUnit = fontSize / 30f
@@ -2944,11 +3482,99 @@ class ExplainableStubParagraphLayoutEngine(
                     }
                 }
                 if (placements.isNotEmpty()) {
+                    val placementWeight = bopomofoFontWeightAt(ruby.baseRange.start)
+                    val replayPlacements = placements.map { placement ->
+                        fun shapeAt(size: Float): ShapingResult {
+                            val range = TextRange(0, placement.text.length)
+                            val decision = fallbackResolver.resolve(
+                                text = placement.text,
+                                range = range,
+                                request = FontRequest(
+                                    preferredFamilies = ruby.fontFamilies,
+                                    locale = baseTextStyle.locale,
+                                    role = FontRole.CjkText,
+                                ),
+                            )
+                            return textShaper.shape(
+                                ShapingInput(
+                                    text = placement.text,
+                                    range = range,
+                                    style = baseTextStyle.copy(
+                                        fontSize = size,
+                                        fontFamilies = ruby.fontFamilies,
+                                        fontWeight = placementWeight,
+                                        italic = false,
+                                    ),
+                                    fontDecision = decision,
+                                    displayText = placement.text,
+                                    openTypeFeatures = listOf("vert=1"),
+                                ),
+                            )
+                        }
+
+                        fun ShapingResult.inkBounds(): Rect? {
+                            val bounds = glyphRuns.flatMap { it.glyphs }.mapNotNull { glyph ->
+                                glyph.bounds?.let { bound ->
+                                    Rect(
+                                        left = bound.left + glyph.x,
+                                        top = bound.top + glyph.y,
+                                        right = bound.right + glyph.x,
+                                        bottom = bound.bottom + glyph.y,
+                                    )
+                                }
+                            }
+                            if (bounds.isEmpty()) return null
+                            return Rect(
+                                left = bounds.minOf { it.left },
+                                top = bounds.minOf { it.top },
+                                right = bounds.maxOf { it.right },
+                                bottom = bounds.maxOf { it.bottom },
+                            )
+                        }
+
+                        val initialSize = when (placement.role) {
+                            BopomofoGlyphRole.Neutral -> placement.width
+                            else -> placement.height
+                        }
+                        var replayFontSize = initialSize
+                        var shaped = shapeAt(replayFontSize)
+                        if (placement.role == BopomofoGlyphRole.Tone) {
+                            val initialInk = shaped.inkBounds()
+                            val inkWidth = initialInk?.let { it.right - it.left } ?: 0f
+                            if (inkWidth > 0f) {
+                                replayFontSize = initialSize * placement.width / inkWidth
+                                shaped = shapeAt(replayFontSize)
+                            }
+                        }
+                        val glyphs = shaped.glyphRuns.flatMap { it.glyphs }
+                        val advance = shaped.clusters.sumOf { it.advance.toDouble() }.toFloat()
+                        val ink = shaped.inkBounds()
+                        val drawX = when (placement.role) {
+                            BopomofoGlyphRole.Symbol,
+                            BopomofoGlyphRole.Neutral,
+                            -> placement.left + (placement.width - advance) / 2f
+
+                            BopomofoGlyphRole.Tone -> placement.left - (ink?.left ?: 0f)
+                        }
+                        val baselineY = when (placement.role) {
+                            BopomofoGlyphRole.Symbol -> placement.top + placement.height * 0.88f
+                            BopomofoGlyphRole.Neutral,
+                            BopomofoGlyphRole.Tone,
+                            -> placement.top + placement.height / 2f -
+                                ((ink?.top ?: 0f) + (ink?.bottom ?: 0f)) / 2f
+                        }
+                        placement.copy(
+                            glyphs = glyphs,
+                            drawX = drawX,
+                            baselineY = baselineY,
+                            fontSize = replayFontSize,
+                        )
+                    }
                     out += BopomofoDecisionInfo(
                         ruby.baseRange,
                         ruby.text,
                         lineIndex,
-                        placements,
+                        replayPlacements,
                         ruby.fontFamilies,
                         bopomofoFontWeightAt(ruby.baseRange.start),
                     )
@@ -3077,6 +3703,7 @@ private data class RubyFontGeometry(
     val ascent: Float,
     val descent: Float,
     val requiredExtent: Float,
+    val glyphs: List<Glyph>,
 )
 
 private data class ResolvedLineMetrics(
@@ -3107,10 +3734,10 @@ private fun List<Cluster>.applyInlineBoxSpans(spans: List<InlineBoxSpan>): Inlin
         if (span.range.start >= span.range.end) continue
         val clusterRange = clusterIndexRangeFor(span.range) ?: continue
         if (span.inlineStart != 0f) {
-            leadingByCluster.merge(clusterRange.first, span.inlineStart) { a, b -> a + b }
+            leadingByCluster.mergeValue(clusterRange.first, span.inlineStart) { a, b -> a + b }
         }
         if (span.inlineEnd != 0f) {
-            trailingByCluster.merge(clusterRange.last, span.inlineEnd) { a, b -> a + b }
+            trailingByCluster.mergeValue(clusterRange.last, span.inlineEnd) { a, b -> a + b }
         }
         decisions += InlineBoxDecisionInfo(
             range = span.range,
@@ -3264,7 +3891,15 @@ private data class PunctuationGeometryLedger(
         if (spreadByCluster.isEmpty()) this else copy(rubySpreadByCluster = spreadByCluster)
 
     fun withRawEdgeTrims(trimByCluster: Map<Int, Float>): PunctuationGeometryLedger =
-        if (trimByCluster.isEmpty()) this else copy(rawEdgeTrimByCluster = trimByCluster)
+        if (trimByCluster.isEmpty()) {
+            this
+        } else {
+            copy(
+                rawEdgeTrimByCluster = HashMap(rawEdgeTrimByCluster).apply {
+                    trimByCluster.forEach { (index, amount) -> mergeValue(index, amount) { a, b -> a + b } }
+                },
+            )
+        }
 
     fun consumeLineEdgeGlue(
         lines: List<LineCandidate>,
@@ -3287,7 +3922,7 @@ private data class PunctuationGeometryLedger(
             trailingBudget?.let { budget ->
                 val remaining = budget.trailingRemaining
                 if (remaining > 0f) {
-                    trailingConsumptionByCluster.merge(lastIdx, remaining) { a, b -> a + b }
+                    trailingConsumptionByCluster.mergeValue(lastIdx, remaining) { a, b -> a + b }
                     decisions += LineEdgeTrimDecisionInfo(
                         lineRange = line.sourceRange,
                         clusterRange = naturalClusters[lastIdx].range,
@@ -3304,7 +3939,7 @@ private data class PunctuationGeometryLedger(
             budgets[firstIdx]?.let { budget ->
                 val remaining = budget.leadingRemaining
                 if (remaining > 0f) {
-                    leadingConsumptionByCluster.merge(firstIdx, remaining) { a, b -> a + b }
+                    leadingConsumptionByCluster.mergeValue(firstIdx, remaining) { a, b -> a + b }
                     decisions += LineEdgeTrimDecisionInfo(
                         lineRange = line.sourceRange,
                         clusterRange = naturalClusters[firstIdx].range,
@@ -3524,6 +4159,26 @@ private const val ADJACENT_LINE_SHORTEN_EM = 0.0625f
 private const val ADJACENT_LINE_EPSILON = 0.01f
 
 /**
+ * InlineObjectBoundaryFloatClosure: resolve a shared line-box boundary in local line coordinates.
+ *
+ * The collision calculation guarantees that [currentContentBottomExtent] does not exceed the next
+ * line's content-top offset. Independent Float additions/subtractions can nevertheless invert two
+ * mathematically equal bounds by one ULP (for example 84.14 versus 84.13999). Closing that numerical
+ * sliver onto the current content edge preserves the already-resolved baseline grid and keeps the
+ * interval valid without inventing visible line spacing.
+ */
+internal fun resolveInlineObjectLineBoundaryExtent(
+    nominalBoundaryExtent: Float,
+    currentContentBottomExtent: Float,
+    baselineDistance: Float,
+    nextContentTopExtent: Float,
+): Float {
+    val nextContentTopOffset = baselineDistance - nextContentTopExtent
+    val closedUpperBound = maxOf(currentContentBottomExtent, nextContentTopOffset)
+    return nominalBoundaryExtent.coerceIn(currentContentBottomExtent, closedUpperBound)
+}
+
+/**
  * Contiguous cluster-index range whose clusters are fully covered by
  * [sourceRange]; null when no cluster is covered.
  */
@@ -3590,10 +4245,10 @@ private fun TextRange.isInside(other: TextRange): Boolean =
 
 /**
  * Common-stdlib port of `java.util.Map.merge` (absent from the JS common
- * stdlib): absent key → [value]; present → `remap(old, value)`. On JVM the
- * `java.util.Map.merge` member wins over this extension, so behavior — and the
- * goldens — are unchanged there; on JS this is the resolved implementation.
+ * stdlib and only present on Android from API 24): absent key → [value];
+ * present → `remap(old, value)`. The distinct name prevents the JVM member
+ * from winning overload resolution in API 23 artifacts.
  */
-private fun <K, V : Any> MutableMap<K, V>.merge(key: K, value: V, remap: (V, V) -> V) {
+private fun <K, V : Any> MutableMap<K, V>.mergeValue(key: K, value: V, remap: (V, V) -> V) {
     this[key] = this[key]?.let { remap(it, value) } ?: value
 }

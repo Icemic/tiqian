@@ -31,7 +31,7 @@ import kotlin.test.Test
  * signal CLREQ calls 字距过松. Reported as mean and p95 over all justified
  * (non-last) lines, alongside repair mix and unrepairable (LeaveRagged) rate.
  *
- * Run: `./gradlew :layout:jvmTest --tests '*KinsokuHangingExperimentProbe*'`
+ * Run: `TIQIAN_RUN_EXPERIMENTS=1 ./gradlew :layout:jvmTest --tests '*KinsokuHangingExperimentProbe*'`
  * (output in the test's stdout / build/reports). Skips gracefully when the
  * corpora are absent.
  *
@@ -113,6 +113,10 @@ class KinsokuHangingExperimentProbe {
 
     @Test
     fun reportKinsokuAndHangingAcrossLineWidths() {
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("KinsokuHangingExperimentProbe: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         val corpora = listOf(
             "wiki (encyclopedic, dash-sparse)" to loadCorpus("wiki-zh-corpus.txt"),
             "lit (dash/ellipsis ~1%)" to loadCorpus("lit-zh-corpus.txt"),

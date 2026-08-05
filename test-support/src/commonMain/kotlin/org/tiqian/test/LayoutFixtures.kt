@@ -3,6 +3,7 @@ package org.tiqian.test
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
+import org.tiqian.core.LineLengthGrid
 import org.tiqian.core.RubyLineHeightMode
 import org.tiqian.core.RubySpan
 import org.tiqian.core.TextRange
@@ -37,6 +38,8 @@ data class LayoutFixture(
      * Default off — the deterministic stub has no hyphenator.
      */
     val useEnglishHyphenation: Boolean = false,
+    /** Disable the default integer-`ic` measure for fixtures that need an exact width. */
+    val lineLengthGrid: LineLengthGrid = LineLengthGrid(),
 )
 
 object EarlyLayoutFixtures {
@@ -132,6 +135,13 @@ object EarlyLayoutFixtures {
             text = "中文Hello中文，世界。",
             constraints = LayoutConstraints(maxWidth = 144f),
             notes = "Justification uses CjkLatinSpace at the CJK↔Latin boundary plus PunctuationGlue if a spacing reduction landed on the line.",
+        ),
+        LayoutFixture(
+            id = "justify-unbreakable-number-symbol",
+            text = "中文50℃中文中文中文Example",
+            constraints = LayoutConstraints(maxWidth = 128f),
+            notes = "CLREQ stretch prohibition: the inseparable 50|℃ boundary stays closed while other legal gaps justify the line.",
+            lineLengthGrid = LineLengthGrid(enabled = false),
         ),
         LayoutFixture(
             id = "ascii-brackets-in-cjk",

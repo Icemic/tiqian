@@ -61,6 +61,7 @@ fun main() {
             paragraphStyle = org.tiqian.core.ParagraphStyle(
                 lineHeight = fixture.lineHeight,
                 firstLineIndent = fixture.firstLineIndentEm?.let { org.tiqian.core.Ic(it) },
+                lineLengthGrid = fixture.lineLengthGrid,
             ),
             decorations = fixture.decorations,
         )
@@ -761,12 +762,40 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
         }
         if (result.debug.inlineObjectDecisions.isNotEmpty()) {
             appendLine("<div class=\"metrics\">")
+            result.debug.inlineObjectLineHeightDecision?.let { decision ->
+                appendLine(
+                    "<span class=\"metric\">inline-object-line-height " +
+                        "base=${decision.baseLineHeight.oneDecimal()} " +
+                        "face=${decision.baseFaceAscent.oneDecimal()}+${decision.baseFaceDescent.oneDecimal()} " +
+                        "available=${decision.availableInterlineSpace.oneDecimal()} " +
+                        "clearance=${decision.minimumClearance.oneDecimal()} " +
+                        "extras=${decision.lineExtras.joinToString(",") { it.oneDecimal() }} " +
+                        "boundaries=${decision.boundaryShiftsAfter.joinToString(",") { it.oneDecimal() }} " +
+                        "trailing=${decision.trailingExtra.oneDecimal()} ${decision.reason}</span>",
+                )
+            }
             result.debug.inlineObjectDecisions.forEach { inlineObject ->
                 appendLine(
                     "<span class=\"metric\">inline-object ${inlineObject.range.start}-${inlineObject.range.end} " +
                         "advance=${inlineObject.advance.oneDecimal()} ascent=${inlineObject.ascent.oneDecimal()} " +
                         "descent=${inlineObject.descent.oneDecimal()} cluster=${inlineObject.clusterIndex} " +
-                        "line=${inlineObject.lineIndex} ${inlineObject.reason}</span>",
+                        "line=${inlineObject.lineIndex} " +
+                        "edges=${if (inlineObject.leadingUniformStretch) "stretch" else "fixed"}/" +
+                        "${inlineObject.leadingPreferredStretchKind ?: "-"}/" +
+                        "${inlineObject.leadingPreferredStretchNaturalWidth.oneDecimal()}→" +
+                        "${inlineObject.leadingPreferredStretchTargetWidth.oneDecimal()}/" +
+                        "${inlineObject.leadingPreferredStretchCapacity.oneDecimal()}/" +
+                        "${if (inlineObject.leadingPreventsLineBreak) "closed" else "natural"}/" +
+                        "${inlineObject.leadingShrinkCapacity.oneDecimal()}/" +
+                        "${inlineObject.leadingLineEndDiscardableAdvance.oneDecimal()}.." +
+                        "${if (inlineObject.trailingUniformStretch) "stretch" else "fixed"}/" +
+                        "${inlineObject.trailingPreferredStretchKind ?: "-"}/" +
+                        "${inlineObject.trailingPreferredStretchNaturalWidth.oneDecimal()}→" +
+                        "${inlineObject.trailingPreferredStretchTargetWidth.oneDecimal()}/" +
+                        "${inlineObject.trailingPreferredStretchCapacity.oneDecimal()}/" +
+                        "${if (inlineObject.trailingPreventsLineBreak) "closed" else "natural"}/" +
+                        "${inlineObject.trailingShrinkCapacity.oneDecimal()}/" +
+                        "${inlineObject.trailingLineEndDiscardableAdvance.oneDecimal()} ${inlineObject.reason}</span>",
                 )
             }
             appendLine("</div>")
@@ -780,6 +809,21 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
                         "forbid=${decision.forbiddenPosition} ${decision.reason}" +
                         (decision.impossibleMeasureFallback?.let { " fallback=${it.escapeHtml()}" } ?: "") +
                         "</span>",
+                )
+            }
+            appendLine("</div>")
+        }
+        if (result.debug.inlineObjectPunctuationAttachmentDecisions.isNotEmpty()) {
+            appendLine("<div class=\"metrics\">")
+            result.debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
+                appendLine(
+                    "<span class=\"metric\">inline-object-punctuation " +
+                        "${attachment.objectRange.start}-${attachment.objectRange.end} " +
+                        "separator=${attachment.separatorRange.start}-${attachment.separatorRange.end} " +
+                        "punctuation=${attachment.punctuationRange.start}-${attachment.punctuationRange.end} " +
+                        "collapsed=${attachment.collapsedAdvance.oneDecimal()} " +
+                        "protected=${attachment.protectedRange.start}-${attachment.protectedRange.end} " +
+                        "${attachment.reason}</span>",
                 )
             }
             appendLine("</div>")

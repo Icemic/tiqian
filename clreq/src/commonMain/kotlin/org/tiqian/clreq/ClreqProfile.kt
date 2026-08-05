@@ -130,18 +130,18 @@ fun PunctuationGluePlacement.glueSideFor(punctuationClass: PunctuationClass): Gl
 
 
 /**
- * AutoSpacePolicy — controls how spacing between CJK ideographs and Latin /
- * digit runs is materialised. Mirrors the CSS Text Module Level 4
- * `text-autospace` model (per-boundary mode + a configurable gap width)
- * rather than the project's earlier ad-hoc approach of treating typed
- * U+0020 spaces as opaque clusters.
+ * AutoSpacePolicy — controls how Unicode `East_Asian_Spacing` Wide↔Narrow
+ * boundaries are materialised. [cjkLatin] is the mode for non-decimal Narrow
+ * values (including Greek, Cyrillic and Conditional values resolved in a Chinese
+ * locale); [cjkDigit] remains the CSS-style decimal-digit override. Boundary
+ * classification is independent of font role and pinned in the core Unicode table.
  *
  * See [ADR 0009](docs/adr/0009-autospace-policy.md).
  *
  * Per-boundary [AutoSpaceMode] decides:
  * - `Disabled`: no engine-inserted space; typed U+0020 renders at its
  *    nominal 1em advance (i.e. classic stub behaviour).
- * - `Replace` (default): typed U+0020 at a CJK ↔ Latin / digit boundary is
+ * - `Replace` (default): typed U+0020 at a Wide ↔ Narrow boundary is
  *    absorbed into the autospace gap. The space cluster's advance shrinks
  *    from 1em to [gapEm] so the visible result is a single configurable gap,
  *    not 1em + autospace double-count.
@@ -198,7 +198,7 @@ data class AdjustmentStylePolicy(
     /**
      * 「在一些排版风格中，中西间距固定默认宽度……被排除在行内调整对象之外，
      * 不允许被挤压（/拉伸）」→ false 时 sino-western gap 既不进挤压容量，
-     * 也不参与 justify 的 CjkLatinSpace 拉伸档。
+     * 也不参与 justify 的优先拉伸或最后的统一字距。
      */
     val allowSinoWesternGapAdjustment: Boolean = true,
     /**

@@ -133,6 +133,8 @@ data class LineBox(
      * `indent + visualWidth`. 0 elsewhere.
      */
     val hyphenAdvance: Float = 0f,
+    /** Shape-once glyphs for the synthetic line-end hyphen, replayed at indent + visualWidth. */
+    val hyphenGlyphs: List<Glyph> = emptyList(),
     val debug: LineDebugInfo = LineDebugInfo(),
 )
 
@@ -176,12 +178,14 @@ data class LayoutDebugInfo(
     val maxLinesDecision: MaxLinesDecisionInfo? = null,
     val lineSpacingDecision: LineSpacingDecisionInfo? = null,
     val rubyLineHeightDecision: RubyLineHeightDecisionInfo? = null,
+    val inlineObjectLineHeightDecision: InlineObjectLineHeightDecisionInfo? = null,
     val kinsokuDecision: KinsokuDecisionInfo? = null,
     val contextualKinsokuDecisions: List<ContextualKinsokuDecisionInfo> = emptyList(),
     val lineLengthGridDecision: LineLengthGridDecisionInfo? = null,
     val firstLineIndentDecision: FirstLineIndentDecisionInfo? = null,
     val inlineBoxDecisions: List<InlineBoxDecisionInfo> = emptyList(),
     val inlineObjectDecisions: List<InlineObjectDecisionInfo> = emptyList(),
+    val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo> = emptyList(),
     val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo> = emptyList(),
 )
 
@@ -201,6 +205,22 @@ data class InlineObjectDecisionInfo(
     val descent: Float,
     val clusterIndex: Int,
     val lineIndex: Int,
+    val leadingUniformStretch: Boolean = false,
+    val leadingPreferredStretchKind: String? = null,
+    val leadingPreferredStretchNaturalWidth: Float = 0f,
+    val leadingPreferredStretchTargetWidth: Float = 0f,
+    val leadingPreferredStretchCapacity: Float = 0f,
+    val leadingPreventsLineBreak: Boolean = false,
+    val leadingShrinkCapacity: Float = 0f,
+    val leadingLineEndDiscardableAdvance: Float = 0f,
+    val trailingUniformStretch: Boolean = false,
+    val trailingPreferredStretchKind: String? = null,
+    val trailingPreferredStretchNaturalWidth: Float = 0f,
+    val trailingPreferredStretchTargetWidth: Float = 0f,
+    val trailingPreferredStretchCapacity: Float = 0f,
+    val trailingPreventsLineBreak: Boolean = false,
+    val trailingShrinkCapacity: Float = 0f,
+    val trailingLineEndDiscardableAdvance: Float = 0f,
     val reason: String = "MeasurableOpaqueInlineObject",
 )
 
@@ -291,6 +311,23 @@ data class ContextualKinsokuDecisionInfo(
 )
 
 /**
+ * A point mark attached to an inline object across author-written separator spaces.
+ *
+ * The source spaces remain available to copying and accessibility, while their layout advance is
+ * collapsed so the mark is visually attached. Every boundary in [protectedRange] is also closed to
+ * line breaking and justification.
+ */
+data class InlineObjectPunctuationAttachmentDecisionInfo(
+    val objectRange: TextRange,
+    val separatorRange: TextRange,
+    val punctuationRange: TextRange,
+    val punctuationText: String,
+    val protectedRange: TextRange,
+    val collapsedAdvance: Float,
+    val reason: String = "InlineObjectPunctuationSeparatorSpaceCollapse",
+)
+
+/**
  * `InterlinearMarkLineSpacingFloor` (CLREQ 5.6.1.1): with interlinear marks
  * (着重号、示亡号 etc.) present, line spacing must not drop below 1/2 of the
  * font size, so a tight line height can't collide the marks with the next line.
@@ -326,6 +363,29 @@ data class RubyLineHeightDecisionInfo(
 )
 
 /**
+ * `InlineObjectInterlineCollision`: a baseline-aligned inline object may use the paragraph's
+ * existing inter-line space before it changes the baseline grid, while retaining
+ * [minimumClearance] whenever object ink protrudes beyond the base text face. [lineExtras] records
+ * only the additional space that the objects themselves forced before each line (index 0 is
+ * paragraph-top containment); [boundaryShiftsAfter] records redistribution of already available
+ * space between adjacent line boxes and therefore does not change baseline distance.
+ */
+data class InlineObjectLineHeightDecisionInfo(
+    val baseLineHeight: Float,
+    val baseFaceAscent: Float,
+    val baseFaceDescent: Float,
+    val availableInterlineSpace: Float,
+    val minimumClearance: Float,
+    val lineAscents: List<Float>,
+    val lineDescents: List<Float>,
+    val lineExtras: List<Float>,
+    val boundaryShiftsAfter: List<Float>,
+    val trailingExtra: Float,
+    val expandedLineIndices: List<Int>,
+    val reason: String,
+)
+
+/**
  * 行间注 geometry (ruby, ADR 0032): annotation [text] placed over the base
  * [baseRange] on line [lineIndex]. [centerX] is the base range's horizontal
  * centre (the注文 centres on it, CLREQ「横排注音注文整体水平向基字居中」);
@@ -353,6 +413,8 @@ data class RubyDecisionInfo(
     val fontFamilies: List<String> = emptyList(),
     /** 注文字重：小字号下注文比基文重 100（OpenType weight），以保清晰。 */
     val fontWeight: Int = 400,
+    /** Shape-once annotation glyphs drawn at centerX - width/2, baselineY. */
+    val glyphs: List<Glyph> = emptyList(),
 )
 
 /**
@@ -379,6 +441,11 @@ data class BopomofoGlyphPlacement(
     val width: Float,
     val height: Float,
     val role: BopomofoGlyphRole,
+    /** Final shape-once glyphs after box-fit sizing and `vert` substitution. */
+    val glyphs: List<Glyph> = emptyList(),
+    val drawX: Float = left,
+    val baselineY: Float = top + height,
+    val fontSize: Float = height,
 )
 
 enum class BopomofoGlyphRole {

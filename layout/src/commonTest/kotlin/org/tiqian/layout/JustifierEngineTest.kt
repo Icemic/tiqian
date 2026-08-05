@@ -95,6 +95,44 @@ class JustifierEngineTest {
     }
 
     @Test
+    fun inseparableNumberAndUnitBoundaryAvoidsStretchUnderJustification() {
+        // CLREQ 拉伸限制①：50℃ 可以整体换行，但 50|℃ 中间不能被拉开。
+        // 128px 下 50℃ 位于非末行，行内其他合法间距确实发生两端对齐。
+        val text = "中文50℃中文中文中文Example"
+        val numberRange = org.tiqian.core.TextRange(2, 4)
+        val unitRange = org.tiqian.core.TextRange(4, 5)
+        val result = engine.layout(
+            LayoutInput(
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 128f),
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+            ),
+        )
+        val number = result.clusters.single {
+            numberRange.start >= it.range.start && numberRange.end <= it.range.end
+        }
+        val unit = result.clusters.single {
+            unitRange.start >= it.range.start && unitRange.end <= it.range.end
+        }
+        assertTrue(number !== unit)
+        val decision = result.debug.justificationDecisions.first {
+            number.range.start >= it.lineRange.start && unit.range.end <= it.lineRange.end &&
+                it.allocations.isNotEmpty()
+        }
+        assertTrue(
+            decision.allocations.none {
+                it.clusterRange == number.range &&
+                    (it.kind == "CjkLatinSpace" || it.kind == "CjkInterChar")
+            },
+            "50|℃ must stay closed: ${decision.allocations}",
+        )
+        assertEquals(0f, decision.deficitAfter)
+    }
+
+    @Test
     fun lastLineAlignmentPositionsTheLastLineViaIndent() {
         // 9 hanzi at maxWidth=100: line 0 (6 clusters) justifies to 100;
         // line 1 (3 clusters, 48) is the last line — its position comes from

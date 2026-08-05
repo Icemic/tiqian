@@ -110,6 +110,10 @@ enum class GlueKind {
     CjkLatinSpace,
     WordSpace,
     CjkInterChar,
+    InlineObjectPunctuationTrailing,
+    InlineObjectRelation,
+    InlineObjectBinaryOperator,
+    InlineObjectBoundary,
 }
 
 data class AdjustmentOpportunity(

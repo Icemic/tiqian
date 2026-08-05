@@ -173,6 +173,7 @@ internal fun lineLimit(maxWidth: Float, firstLineIndent: Float, lineStartCluster
  * - tier 5 — 行内逗、顿、分号 trailing glue（冒号等未尽列者同档兜底）
  * - tier 6 — 中西间距，最小压至 1/8em（风格开关可禁）
  * - tier 7 — 行内句号/问号/感叹号 trailing glue（风格开关可禁）
+ * - tier 8 — inline-object provider 明确暴露的边界空白（例如公式内部运算符断点处的数学间距）
  */
 data class ShrinkOpportunity(
     val clusterIndex: Int,
@@ -1101,7 +1102,7 @@ internal fun applyKinsokuRepairs(
     return LineSolution(mutable, totalBadness = totalBadness)
 }
 
-private data class PushInResult(
+internal data class PushInResult(
     val previous: LineCandidate,
     val current: LineCandidate?,
     val candidate: RepairCandidate,
@@ -1127,7 +1128,7 @@ private data class PushInResult(
  *     (`totalShrink < overflow`), update it here and rely on it as the
  *     only knob; do not reintroduce a second `overflow`-based path.
  */
-private fun tryPushIn(
+internal fun tryPushIn(
     prev: LineCandidate,
     curr: LineCandidate,
     naturalClusters: List<Cluster>,

@@ -33,23 +33,90 @@ data class InlineBoxSpan(
     val inlineEnd: Float = 0f,
 )
 
-/** Structural token used by text projections to reserve one inline object. */
+/** Structural token used by text projections that have no source fallback for an inline object. */
 const val INLINE_OBJECT_REPLACEMENT_CHAR: Char = '\uFFFC'
+
+/** Provider-supplied semantic class for capped, preferential inline-object boundary stretch. */
+enum class InlineObjectPreferredStretchKind {
+    PunctuationTrailing,
+    Relation,
+    BinaryOperator,
+}
+
+data class InlineObjectPreferredStretch(
+    val kind: InlineObjectPreferredStretchKind,
+    /** Blank already included in the provider's measured object advance. */
+    val naturalWidth: Float,
+    /** Absolute final width reached before the next preferred class may run. */
+    val targetWidth: Float,
+) {
+    val capacity: Float get() = targetWidth - naturalWidth
+
+    init {
+        require(naturalWidth.isFinite() && naturalWidth >= 0f) {
+            "Inline-object preferred stretch natural width must be finite and non-negative"
+        }
+        require(targetWidth.isFinite() && targetWidth > naturalWidth) {
+            "Inline-object preferred stretch target must be finite and exceed its natural width"
+        }
+    }
+}
+
+/**
+ * Paragraph adjustment and breaking allowed at one edge of an inline object.
+ *
+ * [preferredStretch] exposes a measured natural blank and absolute target to the provider-defined preferential
+ * pass: punctuation trailing space first, relation space second, binary-operator space third.
+ * [participatesInUniformStretch] additionally exposes the edge to the final equal-spacing pass;
+ * the preferential pass does not exclude it from that final uniform share. [preventsLineBreak]
+ * closes an adjustment-only boundary without conflating it with a genuine formula break point.
+ *
+ * On a trailing boundary, [shrinkCapacity] is physical blank space already included in the
+ * object's measured advance that may be removed as a last-resort compression resource.
+ * [lineEndDiscardableAdvance] is the subset that must disappear when this boundary becomes an
+ * automatic line end; it remains present when no break is taken. Leading shrink or discard is not
+ * supported because removing it would also have to move the object's paint origin.
+ * Opaque objects default to [Fixed].
+ */
+data class InlineObjectBoundaryAdjustment(
+    val participatesInUniformStretch: Boolean = false,
+    val preferredStretch: InlineObjectPreferredStretch? = null,
+    val shrinkCapacity: Float = 0f,
+    val lineEndDiscardableAdvance: Float = 0f,
+    val preventsLineBreak: Boolean = false,
+) {
+    init {
+        require(shrinkCapacity.isFinite() && shrinkCapacity >= 0f) {
+            "Inline-object boundary shrink capacity must be finite and non-negative"
+        }
+        require(lineEndDiscardableAdvance.isFinite() && lineEndDiscardableAdvance >= 0f) {
+            "Inline-object line-end discardable advance must be finite and non-negative"
+        }
+    }
+
+    companion object {
+        val Fixed = InlineObjectBoundaryAdjustment()
+    }
+}
 
 /**
  * One indivisible inline object occupying [range].
  *
- * The source projection contains exactly one [INLINE_OBJECT_REPLACEMENT_CHAR]
- * at [range]. The object is not font-shaped: [advance] is its measured
- * margin-box width, while [ascent] and [descent] are its block extents above
- * and below the surrounding text baseline. Layout uses all three values for
- * breaking and per-line metrics; the platform renderer owns the actual object.
+ * [range] remains source-faithful: it may cover an object's non-empty alternate text, or one
+ * [INLINE_OBJECT_REPLACEMENT_CHAR] when the host has no textual fallback. The covered source is
+ * not font-shaped; [advance] is the measured margin-box width, while [ascent] and [descent] are
+ * its visible extents above and below the surrounding text baseline. Layout uses all three values
+ * for breaking and per-line metrics. An object first consumes the existing space between adjacent
+ * text faces; the baseline grid expands only for the remaining collision deficit. The platform
+ * renderer owns the actual object.
  */
 data class InlineObjectSpan(
     val range: TextRange,
     val advance: Float,
     val ascent: Float,
     val descent: Float,
+    val leadingBoundary: InlineObjectBoundaryAdjustment = InlineObjectBoundaryAdjustment.Fixed,
+    val trailingBoundary: InlineObjectBoundaryAdjustment = InlineObjectBoundaryAdjustment.Fixed,
 )
 
 data class TextStyle(
@@ -193,6 +260,9 @@ enum class RubyLineHeightMode {
 /** ADR 0018: 着重号与被注文字字面底边之间的默认净空，单位 em。 */
 const val DEFAULT_EMPHASIS_DOT_GAP_EM: Float = 0.1f
 
+/** InlineObjectMinimumClearance: oversized inline ink keeps this inter-line clearance, in em. */
+const val DEFAULT_INLINE_OBJECT_MINIMUM_CLEARANCE_EM: Float = 0.1f
+
 data class ParagraphStyle(
     /**
      * Alignment of the paragraph's LAST line only. CLREQ:「与西文排版不同，
@@ -252,6 +322,14 @@ data class ParagraphStyle(
      * 右侧注音不使用此项。
      */
     val rubyLineHeightMode: RubyLineHeightMode = RubyLineHeightMode.PerLine,
+    /**
+     * 超出正文字面的行内对象与相邻行可见内容之间必须保留的最小净空，单位 em。
+     *
+     * 行内公式先使用正文行高已经提供的空白，但不能把空白吃到上下墨迹刚好相切；不足时
+     * 只增加“侵入量 + 此净空”尚缺的部分。默认 0.1em，取 TeX `\lineskip` 的同量级
+     * 安全间隙；显式设为 0 可关闭。
+     */
+    val inlineObjectMinimumClearanceEm: Float = DEFAULT_INLINE_OBJECT_MINIMUM_CLEARANCE_EM,
     /**
      * 着重号圆点墨迹上缘与被注文字字面底边之间的显式净空，单位 em。
      *

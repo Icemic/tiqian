@@ -42,6 +42,7 @@ class LayoutDumpGoldenTest {
                 for ((label, breaker) in listOf(
                     "greedy" to GreedyLineBreaker(),
                     "lookahead" to LookaheadLineBreaker(),
+                    "paragraph-dp" to ParagraphDpLineBreaker(),
                 )) {
                     val hyphenator = if (fixture.useEnglishHyphenation) {
                         org.tiqian.linebreak.EnglishHyphenation.enUs
@@ -71,6 +72,7 @@ class LayoutDumpGoldenTest {
                                 lineHeight = fixture.lineHeight,
                                 firstLineIndent = fixture.firstLineIndentEm?.let { org.tiqian.core.Ic(it) },
                                 rubyLineHeightMode = fixture.rubyLineHeightMode,
+                                lineLengthGrid = fixture.lineLengthGrid,
                             ),
                             decorations = fixture.decorations,
                             rubySpans = fixture.rubySpans,
@@ -135,6 +137,17 @@ class LayoutDumpGoldenTest {
                     "source='${k.sourceText.escapeDumpText()}' cluster=${k.clusterIndex} " +
                     "forbid=${k.forbiddenPosition} reason=${k.reason}" +
                     (k.impossibleMeasureFallback?.let { " fallback=$it" } ?: ""),
+            )
+        }
+        debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
+            appendLine(
+                "inline-object-punctuation ${attachment.objectRange.start}-${attachment.objectRange.end} " +
+                    "separator=${attachment.separatorRange.start}-${attachment.separatorRange.end} " +
+                    "punctuation=${attachment.punctuationRange.start}-${attachment.punctuationRange.end} " +
+                    "source='${attachment.punctuationText.escapeDumpText()}' " +
+                    "collapsed=${attachment.collapsedAdvance.fmt()} " +
+                    "protected=${attachment.protectedRange.start}-${attachment.protectedRange.end} " +
+                    "reason=${attachment.reason}",
             )
         }
         lines.forEachIndexed { i, line ->
@@ -212,7 +225,23 @@ class LayoutDumpGoldenTest {
                 "inline-object ${inlineObject.range.start}-${inlineObject.range.end} " +
                     "advance=${inlineObject.advance.fmt()} ascent=${inlineObject.ascent.fmt()} " +
                     "descent=${inlineObject.descent.fmt()} cluster=${inlineObject.clusterIndex} " +
-                    "line=${inlineObject.lineIndex} reason=${inlineObject.reason}",
+                    "line=${inlineObject.lineIndex} " +
+                    "edges=${if (inlineObject.leadingUniformStretch) "stretch" else "fixed"}/" +
+                    "${inlineObject.leadingPreferredStretchKind ?: "-"}/" +
+                    "${inlineObject.leadingPreferredStretchNaturalWidth.fmt()}→" +
+                    "${inlineObject.leadingPreferredStretchTargetWidth.fmt()}/" +
+                    "${inlineObject.leadingPreferredStretchCapacity.fmt()}/" +
+                    "${if (inlineObject.leadingPreventsLineBreak) "closed" else "natural"}/" +
+                    "${inlineObject.leadingShrinkCapacity.fmt()}/" +
+                    "${inlineObject.leadingLineEndDiscardableAdvance.fmt()}.." +
+                    "${if (inlineObject.trailingUniformStretch) "stretch" else "fixed"}/" +
+                    "${inlineObject.trailingPreferredStretchKind ?: "-"}/" +
+                    "${inlineObject.trailingPreferredStretchNaturalWidth.fmt()}→" +
+                    "${inlineObject.trailingPreferredStretchTargetWidth.fmt()}/" +
+                    "${inlineObject.trailingPreferredStretchCapacity.fmt()}/" +
+                    "${if (inlineObject.trailingPreventsLineBreak) "closed" else "natural"}/" +
+                    "${inlineObject.trailingShrinkCapacity.fmt()}/" +
+                    "${inlineObject.trailingLineEndDiscardableAdvance.fmt()} reason=${inlineObject.reason}",
             )
         }
         debug.spacingDecisions.forEach { s ->
@@ -266,6 +295,20 @@ class LayoutDumpGoldenTest {
                     "face=${d.baseFaceHeight.fmt()} ruby=${d.rubyExtent.fmt()} " +
                     "available=${d.availableInterlineSpace.fmt()} maxExtra=${d.maxExtra.fmt()} " +
                     "extras=${d.lineExtras.joinToString(",") { it.fmt() }.ifEmpty { "-" }} " +
+                "lines=${d.expandedLineIndices.joinToString(",").ifEmpty { "-" }} reason=${d.reason}",
+            )
+        }
+        debug.inlineObjectLineHeightDecision?.let { d ->
+            appendLine(
+                "inlineobjectlineheight base=${d.baseLineHeight.fmt()} " +
+                    "face=${d.baseFaceAscent.fmt()}+${d.baseFaceDescent.fmt()} " +
+                    "available=${d.availableInterlineSpace.fmt()} " +
+                    "clearance=${d.minimumClearance.fmt()} " +
+                    "ascents=${d.lineAscents.joinToString(",") { it.fmt() }.ifEmpty { "-" }} " +
+                    "descents=${d.lineDescents.joinToString(",") { it.fmt() }.ifEmpty { "-" }} " +
+                    "extras=${d.lineExtras.joinToString(",") { it.fmt() }.ifEmpty { "-" }} " +
+                    "boundaries=${d.boundaryShiftsAfter.joinToString(",") { it.fmt() }.ifEmpty { "-" }} " +
+                    "trailing=${d.trailingExtra.fmt()} " +
                     "lines=${d.expandedLineIndices.joinToString(",").ifEmpty { "-" }} reason=${d.reason}",
             )
         }
