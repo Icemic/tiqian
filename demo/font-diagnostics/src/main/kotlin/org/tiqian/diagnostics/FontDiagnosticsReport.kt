@@ -65,13 +65,26 @@ object FontDiagnosticsReport {
         "serif", "monospace", "serif-monospace", "casual", "cursive",
     )
 
-    /** OEM 家族名：解析不出来会回落默认，报告里体现为「与 sans-serif 同一 face」——这也是结论。 */
-    private val OEM_FAMILIES = listOf(
-        "MiSans", "MiSans VF", "MiSans Global", "mipro", "Mi Lan Pro",
-        "HarmonyOS Sans", "HarmonyOS Sans SC", "HarmonyOS_Sans_SC",
-        "OPPOSans", "OplusSans", "vivo Sans", "vivoType", "OneUI Sans", "SamsungOne",
-        "Noto Sans CJK SC", "Source Han Sans", "PingFang SC",
-    )
+    /**
+     * 设备自己声明的家族名，从可读的字体配置里现取。
+     *
+     * 刻意不写死一份「常见 OEM 家族名」去撞：`Typeface.create(name)` 认不出名字时会静默回落
+     * 默认字体，于是猜错的名字看起来和「这台机器没有该字体」一模一样——假阴性正好落在这份
+     * 报告最关键的一格上。配置里的 `<family name="...">` 是设备自述的事实，不需要我提前知道
+     * 厂商叫它什么。
+     */
+    private fun declaredFamilyNames(): List<String> {
+        val pattern = Regex("""<family[^>]*\bname\s*=\s*"([^"]+)"""")
+        return FONT_CONFIG_PATHS
+            .map(::File)
+            .filter { it.canRead() }
+            .flatMap { file ->
+                runCatching { pattern.findAll(file.readText()).map { it.groupValues[1] }.toList() }
+                    .getOrDefault(emptyList())
+            }
+            .distinct()
+            .sorted()
+    }
 
     private val WEIGHTS = listOf(100, 300, 400, 500, 700, 900)
 
@@ -93,11 +106,6 @@ object FontDiagnosticsReport {
         "/system_ext/fonts", "/system/font", "/data/system/theme/fonts",
     )
 
-    /** AOSP 常见字体名前缀。不匹配的一律当作 OEM 附加字体单列出来。 */
-    private val AOSP_PREFIXES = listOf(
-        "Noto", "Roboto", "Droid", "AndroidClock", "CarroisGothic", "ComingSoon",
-        "CutiveMono", "DancingScript", "Zeyada", "SourceSans", "AndroidEmoji", "Clock",
-    )
 
     // ---- 观测原语 -------------------------------------------------------------------
 
@@ -233,18 +241,21 @@ object FontDiagnosticsReport {
         appendLine()
 
         appendLine("[F4] 具名家族：哪些解析出与 sans-serif 不同的 face")
+        val declared = declaredFamilyNames()
+        appendLine("  设备配置里声明的家族名（现取，非猜测）：${declared.size} 个" +
+            if (declared.isEmpty()) "  <== 配置不可读，本节只能覆盖平台通用名" else "")
         val sansRef = sansCjk.fileNames to sansLatin.fileNames
-        (PLATFORM_FAMILIES + OEM_FAMILIES).forEach { name ->
+        val probed = (PLATFORM_FAMILIES + declared).distinct()
+        probed.forEach { name ->
             val tf = typefaceOf(name) ?: return@forEach
             val cjk = observe("中文", Locale.SIMPLIFIED_CHINESE, tf).fileNames
             val lat = observe("English", Locale.SIMPLIFIED_CHINESE, tf).fileNames
-            val distinct = (cjk to lat) != sansRef
-            val oem = name in OEM_FAMILIES
-            if (distinct || oem) {
-                appendLine("  ${if (oem) "[OEM] " else "      "}$name -> 中文=${cjk.joinToString()} 拉丁=${lat.joinToString()} " +
-                    "独立=${distinct}")
+            if ((cjk to lat) != sansRef) {
+                appendLine("  $name -> 中文=${cjk.joinToString()} 拉丁=${lat.joinToString()}" +
+                    if (cjk != lat) "   <== 中文与拉丁落到不同文件" else "")
             }
         }
+        appendLine("  （未列出的家族，其中文与拉丁均与 sans-serif 相同）")
         appendLine()
 
         appendLine("[F5] 字重：真文件/可变轴 还是 合成")
@@ -270,10 +281,12 @@ object FontDiagnosticsReport {
         appendLine("[F7] 字体池")
         val fonts = systemFontsOrEmpty()
         appendLine("  SystemFonts 数量: ${if (Build.VERSION.SDK_INT >= 29) fonts.size.toString() else "不可用"}")
-        val oemFonts = fonts.mapNotNull { it.file?.absolutePath }
-            .filter { path -> AOSP_PREFIXES.none { path.substringAfterLast('/').startsWith(it) } }
+        // 按文件所在分区分类，而不是按文件名猜哪些「像 OEM 字体」：分区是可观测事实，
+        // 名字前缀是猜测，两个方向都会错。
+        val outsideSystem = fonts.mapNotNull { it.file?.absolutePath }
+            .filterNot { it.startsWith("/system/fonts/") }
             .distinct().sorted()
-        appendLine("  非 AOSP 命名的字体（疑似 OEM 附加）: ${oemFonts.ifEmpty { listOf("(无)") }.joinToString()}")
+        appendLine("  不在 /system/fonts 下的字体（厂商分区 / 主题目录）: ${outsideSystem.ifEmpty { listOf("(无)") }.joinToString()}")
         val zhFonts = fonts.filter {
             runCatching { it.localeList.toLanguageTags() }.getOrDefault("").contains("zh", ignoreCase = true)
         }.mapNotNull { it.file?.absolutePath }.distinct().sorted()
@@ -336,8 +349,8 @@ object FontDiagnosticsReport {
     private fun StringBuilder.familySection() {
         appendLine("Typeface.create(name, NORMAL) 后渲染中文与拉丁。")
         appendLine()
-        for (name in PLATFORM_FAMILIES + OEM_FAMILIES) {
-            appendLine("### \"$name\"${if (name in OEM_FAMILIES) "  [OEM 候选名]" else ""}")
+        for (name in (PLATFORM_FAMILIES + declaredFamilyNames()).distinct()) {
+            appendLine("### \"$name\"")
             val tf = typefaceOf(name)
             if (tf == null) {
                 appendLine("  Typeface.create 失败")

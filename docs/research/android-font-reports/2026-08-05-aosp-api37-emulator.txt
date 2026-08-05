@@ -30,29 +30,16 @@ report-version: 3
   English : DEFAULT=[Roboto-Regular.ttf] sans-serif=[Roboto-Regular.ttf] 相同=true
 
 [F4] 具名家族：哪些解析出与 sans-serif 不同的 face
-        sans-serif-smallcaps -> 中文=NotoSansCJK-Regular.ttc 拉丁=CarroisGothicSC-Regular.ttf 独立=true
-        serif -> 中文=NotoSerifCJK-Regular.ttc 拉丁=NotoSerif-Regular.ttf 独立=true
-        monospace -> 中文=NotoSansCJK-Regular.ttc 拉丁=DroidSansMono.ttf 独立=true
-        serif-monospace -> 中文=NotoSansCJK-Regular.ttc 拉丁=CutiveMono.ttf 独立=true
-        casual -> 中文=NotoSansCJK-Regular.ttc 拉丁=ComingSoon.ttf 独立=true
-        cursive -> 中文=NotoSansCJK-Regular.ttc 拉丁=DancingScript-Regular.ttf 独立=true
-  [OEM] MiSans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] MiSans VF -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] MiSans Global -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] mipro -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] Mi Lan Pro -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] HarmonyOS Sans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] HarmonyOS Sans SC -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] HarmonyOS_Sans_SC -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] OPPOSans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] OplusSans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] vivo Sans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] vivoType -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] OneUI Sans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] SamsungOne -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] Noto Sans CJK SC -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] Source Han Sans -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
-  [OEM] PingFang SC -> 中文=NotoSansCJK-Regular.ttc 拉丁=Roboto-Regular.ttf 独立=false
+  设备配置里声明的家族名（现取，非猜测）：10 个
+  sans-serif-smallcaps -> 中文=NotoSansCJK-Regular.ttc 拉丁=CarroisGothicSC-Regular.ttf   <== 中文与拉丁落到不同文件
+  serif -> 中文=NotoSerifCJK-Regular.ttc 拉丁=NotoSerif-Regular.ttf   <== 中文与拉丁落到不同文件
+  monospace -> 中文=NotoSansCJK-Regular.ttc 拉丁=DroidSansMono.ttf   <== 中文与拉丁落到不同文件
+  serif-monospace -> 中文=NotoSansCJK-Regular.ttc 拉丁=CutiveMono.ttf   <== 中文与拉丁落到不同文件
+  casual -> 中文=NotoSansCJK-Regular.ttc 拉丁=ComingSoon.ttf   <== 中文与拉丁落到不同文件
+  cursive -> 中文=NotoSansCJK-Regular.ttc 拉丁=DancingScript-Regular.ttf   <== 中文与拉丁落到不同文件
+  roboto-flex -> 中文=NotoSansCJK-Regular.ttc 拉丁=RobotoFlex-Regular.ttf   <== 中文与拉丁落到不同文件
+  source-sans-pro -> 中文=NotoSansCJK-Regular.ttc 拉丁=SourceSansPro-Regular.ttf   <== 中文与拉丁落到不同文件
+  （未列出的家族，其中文与拉丁均与 sans-serif 相同）
 
 [F5] 字重：真文件/可变轴 还是 合成
   w=100 中文 NotoSansCJK-Regular.ttc adv=64.0 | 拉丁 Roboto-Regular.ttf adv=102.0
@@ -69,7 +56,7 @@ report-version: 3
 
 [F7] 字体池
   SystemFonts 数量: 207
-  非 AOSP 命名的字体（疑似 OEM 附加）: (无)
+  不在 /system/fonts 下的字体（厂商分区 / 主题目录）: (无)
   localeList 自称含 zh 的字体: /system/fonts/NotoSansCJK-Regular.ttc, /system/fonts/NotoSerifCJK-Regular.ttc
   枚举到但字节不可读: (无)
 
@@ -437,57 +424,12 @@ Typeface.create(name, NORMAL) 后渲染中文与拉丁。
 ### "cursive"
   中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
   English : glyphs=7 advance=84.0 files=DancingScript-Regular.ttf ids=6, 41, 34, 39, 36, 46, 35
-### "MiSans"  [OEM 候选名]
+### "roboto-flex"
   中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "MiSans VF"  [OEM 候选名]
+  English : glyphs=7 advance=104.0 files=RobotoFlex-Regular.ttf ids=40, 81, 74, 79, 76, 86, 75
+### "source-sans-pro"
   中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "MiSans Global"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "mipro"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "Mi Lan Pro"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "HarmonyOS Sans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "HarmonyOS Sans SC"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "HarmonyOS_Sans_SC"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "OPPOSans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "OplusSans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "vivo Sans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "vivoType"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "OneUI Sans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "SamsungOne"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "Noto Sans CJK SC"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "Source Han Sans"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
-### "PingFang SC"  [OEM 候选名]
-  中文    : glyphs=2 advance=64.0 files=NotoSansCJK-Regular.ttc ids=9544, 20036
-  English : glyphs=7 advance=105.0 files=Roboto-Regular.ttf ids=42, 83, 76, 81, 78, 88, 77
+  English : glyphs=7 advance=97.0 files=SourceSansPro-Regular.ttf ids=6, 41, 34, 39, 36, 46, 35
 
 ## 4. 原始证据：字重与可变轴
 

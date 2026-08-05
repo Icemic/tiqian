@@ -30,23 +30,8 @@ report-version: 3
   English : DEFAULT=[] sans-serif=[] 相同=true
 
 [F4] 具名家族：哪些解析出与 sans-serif 不同的 face
-  [OEM] MiSans -> 中文= 拉丁= 独立=false
-  [OEM] MiSans VF -> 中文= 拉丁= 独立=false
-  [OEM] MiSans Global -> 中文= 拉丁= 独立=false
-  [OEM] mipro -> 中文= 拉丁= 独立=false
-  [OEM] Mi Lan Pro -> 中文= 拉丁= 独立=false
-  [OEM] HarmonyOS Sans -> 中文= 拉丁= 独立=false
-  [OEM] HarmonyOS Sans SC -> 中文= 拉丁= 独立=false
-  [OEM] HarmonyOS_Sans_SC -> 中文= 拉丁= 独立=false
-  [OEM] OPPOSans -> 中文= 拉丁= 独立=false
-  [OEM] OplusSans -> 中文= 拉丁= 独立=false
-  [OEM] vivo Sans -> 中文= 拉丁= 独立=false
-  [OEM] vivoType -> 中文= 拉丁= 独立=false
-  [OEM] OneUI Sans -> 中文= 拉丁= 独立=false
-  [OEM] SamsungOne -> 中文= 拉丁= 独立=false
-  [OEM] Noto Sans CJK SC -> 中文= 拉丁= 独立=false
-  [OEM] Source Han Sans -> 中文= 拉丁= 独立=false
-  [OEM] PingFang SC -> 中文= 拉丁= 独立=false
+  设备配置里声明的家族名（现取，非猜测）：8 个
+  （未列出的家族，其中文与拉丁均与 sans-serif 相同）
 
 [F5] 字重：真文件/可变轴 还是 合成
   w=100 中文  adv=64.0 | 拉丁  adv=105.0
@@ -63,7 +48,7 @@ report-version: 3
 
 [F7] 字体池
   SystemFonts 数量: 不可用
-  非 AOSP 命名的字体（疑似 OEM 附加）: (无)
+  不在 /system/fonts 下的字体（厂商分区 / 主题目录）: (无)
   localeList 自称含 zh 的字体: (无)
   枚举到但字节不可读: (无)
 
@@ -433,57 +418,6 @@ Typeface.create(name, NORMAL) 后渲染中文与拉丁。
 ### "cursive"
   中文    : advance=64.0 （glyph 级信息需 API 31+）
   English : advance=84.0 （glyph 级信息需 API 31+）
-### "MiSans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "MiSans VF"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "MiSans Global"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "mipro"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "Mi Lan Pro"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "HarmonyOS Sans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "HarmonyOS Sans SC"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "HarmonyOS_Sans_SC"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "OPPOSans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "OplusSans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "vivo Sans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "vivoType"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "OneUI Sans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "SamsungOne"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "Noto Sans CJK SC"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "Source Han Sans"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
-### "PingFang SC"  [OEM 候选名]
-  中文    : advance=64.0 （glyph 级信息需 API 31+）
-  English : advance=105.0 （glyph 级信息需 API 31+）
 
 ## 4. 原始证据：字重与可变轴
 
