@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 诊断报告写在 cacheDir/reports，只为分享用，系统可随时回收。 -->
+    <cache-path name="reports" path="reports/" />
+</paths>
