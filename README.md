@@ -5,7 +5,7 @@
 
 提椠是一个中日韩段落书写器。
 
-它在平台字体能力和受控字体后端之上，统一处理中文正文里的字体选择、
+它在各平台的字体与绘制能力之上，统一处理中文正文里的字体选择、
 断行、避头尾、标点空间、两端对齐、行内空间分配与行间注。
 
 <picture>
@@ -41,54 +41,15 @@ val paragraph = buildAnnotatedString {
     append("。")
 }
 
-val scrollState = rememberScrollState()
-CjkSelectionContainer(scrollState = scrollState) {
-    Column(Modifier.verticalScroll(scrollState)) {
-        CjkText(
-            text = paragraph,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
-}
-```
-
-Android 默认正确性路径由同一份字体字节驱动 HarfBuzz shaping、FreeType metrics / ink / outline
-和最终 glyph replay。API 29+ 可以从公开 `SystemFonts` 建立 catalog；API 23–28 无公开系统字体枚举，
-生产宿主应在第一次 `CjkText` 前安装 asset、文件或 `ByteArray` 字体与明确的 fallback 角色，例如：
-
-```kotlin
-TiqianAndroidFontBackend.install(
-    context,
-    AndroidFontCatalog.host(
-        listOf(
-            AndroidFontFaceSpec(
-                source = AndroidFontSource.asset("fonts/NotoSansSC-Regular.otf"),
-                familyAliases = setOf("Noto Sans SC", "sans-serif"),
-                roles = setOf(
-                    FontRole.CjkText,
-                    FontRole.CjkPunctuation,
-                    FontRole.LatinText,
-                    FontRole.Symbol,
-                    FontRole.Unknown,
-                ),
-            ),
-        ),
-    ),
+CjkText(
+    text = paragraph,
+    style = MaterialTheme.typography.bodyLarge,
 )
 ```
 
-未安装宿主 catalog 时，API 23–28 只会尝试具名的 AOSP 字体路径并在 capability report 中报告
-`HostFontCatalogRecommendedBelowApi29`；该 report 用于诊断，不能把正文路由回 Compose `Text`。
-
 `CjkText` 会保留源码换行，并支持常用富文本样式、行间注与链接。接入现有富文本渲染器时，
-可以用 `cjkTextCompatibility()` 检查当前还不能保真的能力。只读正文需要选择与复制时，用
-`CjkSelectionContainer` 包住一个或多个 `CjkText`；鼠标拖选/双击、触摸长按与手柄、复制菜单和
-跨 `CjkText` 复制都直接使用提椠的最终布局几何，不会再放一层隐藏的 Compose `Text`。手柄、
-鼠标/触摸手势与 Android 文本放大镜复用当前 Compose Foundation 的平台实现，因此外观和交互
-跟随宿主 Compose 版本，而不是由提椠另画一套控件。
-滚动正文要把同一个 `ScrollState` 同时交给 `CjkSelectionContainer` 和 `verticalScroll`：真实拖选进入
-视口边缘后会继续滚动并扩展选区，单纯长按不动或小于 touch slop 的手指抖动不会自行往前选。
-当前自动滚动契约面向连续 composition 的 `ScrollState`；虚拟化列表需要单独的 lazy selection 协议。
+可以用 `cjkTextCompatibility()` 检查当前还不能保真的能力。只读正文可以用
+`CjkSelectionContainer` 包住一个或多个 `CjkText`，支持选择与复制。
 
 ## Web
 
