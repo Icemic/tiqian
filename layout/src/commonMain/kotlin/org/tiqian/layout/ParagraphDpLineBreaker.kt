@@ -54,7 +54,7 @@ import org.tiqian.core.LineEndReason
  *   authored break, the position just before the break control is not a
  *   candidate, so the zero-width control always rides the preceding line.
  */
-class ParagraphDpLineBreaker(
+internal class ParagraphDpLineBreaker(
     private val candidateWindow: Int = 8,
     private val raggednessWeight: Float = 0.5f,
     private val kinsoku: KinsokuRule = ClreqKinsokuRule(),

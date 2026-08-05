@@ -276,10 +276,7 @@ object TiqianWeb {
         val exactSessionId = resolved.conformingExactFontSessionId()
         val browserMetrics = WebCanvasFontMetricsResolver(resolved.fonts)
         val browserShaper = WebCanvasTextShaper(resolved.fonts, resolved.cjkDashCapability)
-        fun lineBreaker(): org.tiqian.layout.LineBreaker = when (options.lineBreakStrategy) {
-            "paragraph-dp" -> org.tiqian.layout.ParagraphDpLineBreaker()
-            else -> LookaheadLineBreaker()
-        }
+        fun lineBreaker(): org.tiqian.layout.LineBreaker = LookaheadLineBreaker()
         val browserEngine = ExplainableStubParagraphLayoutEngine(
             lineBreaker = lineBreaker(),
             fontMetricsResolver = browserMetrics,
@@ -372,10 +369,7 @@ object TiqianWeb {
         lowered: LoweredParagraph,
         options: EnhanceOptions,
     ): String? {
-        if (
-            options.conformingExactFontSessionId() == null ||
-            options.lineBreakStrategy != "lookahead"
-        ) return null
+        if (options.conformingExactFontSessionId() == null) return null
         if (
             lowered.decorations.isNotEmpty() || lowered.inlineObjects.isNotEmpty() ||
             lowered.domInlineObjects.isNotEmpty() || lowered.sourceSpans.any { span ->
@@ -1409,7 +1403,6 @@ object TiqianWeb {
             ?: DEFAULT_EMPHASIS_DOT_GAP_EM
         val strongAsEmphasisMarks = optionBoolean(options, "strongAsEmphasisMarks") ?: false
         val paragraphSelector = optionString(options, "paragraphSelector") ?: DEFAULT_PARAGRAPH_SELECTOR
-        val lineBreakStrategy = optionString(options, "lineBreakStrategy") ?: "lookahead"
         val requireExactLayoutWorker = optionBoolean(options, "requireExactLayoutWorker") ?: false
         val dashCapabilityObject = optionObject(options, "cjkDashCapability")
         val dashCapability = dashCapabilityObject?.let { capability ->
@@ -1436,7 +1429,6 @@ object TiqianWeb {
             paragraphSelector = paragraphSelector,
             cjkDashCapability = dashCapability,
             exactFontSession = exactFontSession,
-            lineBreakStrategy = lineBreakStrategy,
             requireExactLayoutWorker = requireExactLayoutWorker,
         )
     }
@@ -1456,11 +1448,6 @@ object TiqianWeb {
         val paragraphSelector: String = DEFAULT_PARAGRAPH_SELECTOR,
         val cjkDashCapability: WebCjkDashCapability? = null,
         val exactFontSession: ExactFontSessionCapability? = null,
-        /**
-         * Line-break strategy: `"lookahead"` (default) or `"paragraph-dp"`
-         * (ADR 0041 experimental paragraph-global optimizer).
-         */
-        val lineBreakStrategy: String = "lookahead",
         /**
          * Internal custom-element contract: every Worker-representable exact
          * layout must commit its prepared plan. Rich paragraphs outside that
