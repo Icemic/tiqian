@@ -1,11 +1,15 @@
 package org.tiqian.compose
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.UrlAnnotation
+import androidx.compose.ui.text.VerbatimTtsAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -17,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import org.tiqian.core.LayoutConstraints
@@ -143,6 +148,40 @@ class CjkTextCompatibilityTest {
         assertFalse(issues.isEmpty())
         assertTrue(CjkTextCapabilityIssue.InlinePlaceholders in issues)
         assertTrue(CjkTextCapabilityIssue.UnknownStringAnnotations in issues)
+    }
+
+    @Test
+    fun measuredInlineObjectClearsComposePlaceholderCapabilityIssues() {
+        val text = buildAnnotatedString {
+            append("中")
+            appendInlineContent("math", "x^2")
+            append("文")
+        }
+        val inlineObject = CjkInlineObject(
+            range = TextRange(1, 4),
+            advance = 20.dp,
+            ascent = 16.dp,
+            descent = 4.dp,
+            content = {},
+        )
+
+        assertEquals(
+            emptySet(),
+            text.cjkTextCompatibility(inlineObjects = listOf(inlineObject)).issues,
+        )
+    }
+
+    @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+    @Suppress("DEPRECATION")
+    @Test
+    fun legacyUrlAndTtsAnnotationsRemainAccessibleWithoutCapabilityGaps() {
+        val text = buildAnnotatedString {
+            append("链接正文")
+            addUrlAnnotation(UrlAnnotation("https://example.com"), 0, 2)
+            addTtsAnnotation(VerbatimTtsAnnotation("正文"), 2, 4)
+        }
+
+        assertEquals(emptySet(), text.cjkTextCompatibility().issues)
     }
 
     @Test

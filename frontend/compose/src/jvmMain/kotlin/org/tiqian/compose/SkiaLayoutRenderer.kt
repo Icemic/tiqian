@@ -2,17 +2,16 @@ package org.tiqian.compose
 
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.RichTextLineSegment
-import org.tiqian.core.RichTextSpan
 import org.tiqian.core.TextSpan
 import org.tiqian.core.ColorSpan
-import org.tiqian.core.positionedRichTextSegments
+import org.tiqian.core.richTextDecorationLineY
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
-import org.tiqian.shaping.skia.drawTiqianGlyphs
-import org.tiqian.shaping.skia.lineInkSkipIntervals
+import org.tiqian.shaping.skia.drawTiqianGlyphsWithPositions
+import org.tiqian.shaping.skia.lineInkSkipIntervalsWithPositions
 import org.tiqian.shaping.skia.shapeTextBlob
 import org.tiqian.shaping.skia.vertGlyphIds
 import org.jetbrains.skia.Font
@@ -32,10 +31,12 @@ import kotlin.math.min
  */
 internal actual fun ContentDrawScope.drawParagraph(
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
-    richTextSpans: List<RichTextSpan>,
     spans: List<TextSpan>,
+    selectionBoxes: List<org.tiqian.core.Rect>,
+    selectionColor: Int?,
 ) {
     val fontSize = result.input.textStyle.fontSize
     val cjkFont = Font(SkiaSystemTypefaces.cjk, fontSize)
@@ -44,16 +45,49 @@ internal actual fun ContentDrawScope.drawParagraph(
     val shaper = Shaper.makeShaperDrivenWrapper()
 
     drawIntoCanvas { canvas ->
-        val skCanvas = canvas.nativeCanvas
-        // Segment geometry once per draw: both backgrounds and lines consume it.
-        val richTextSegments = result.positionedRichTextSegments(richTextSpans)
+        val skCanvas = canvas.skiaCanvas
+        val richTextSegments = replayIndex.richTextSegments
         drawSkiaRichTextBackgrounds(skCanvas, richTextSegments)
+        if (selectionColor != null) {
+            val selectionPaint = Paint().apply {
+                mode = PaintMode.FILL
+                this.color = selectionColor
+            }
+            for (box in selectionBoxes) {
+                skCanvas.drawRect(
+                    Rect.makeLTRB(box.left, box.top, box.right, box.bottom),
+                    selectionPaint,
+                )
+            }
+        }
 
         // Shared cluster-walk (shaping/skia) — same path the playground
         // raster uses, so the role-containment / leading-shift handling can't
         // drift between the two.
-        drawTiqianGlyphs(skCanvas, result, cjkFont, latinFont, paint, shaper, colorSpans = colorSpans, spans = spans)
-        drawSkiaRichTextLines(skCanvas, result, color, colorSpans, richTextSegments, spans, cjkFont, latinFont, shaper)
+        drawTiqianGlyphsWithPositions(
+            skCanvas,
+            result,
+            cjkFont,
+            latinFont,
+            paint,
+            shaper,
+            colorSpans = colorSpans,
+            spans = spans,
+            positionedClusters = replayIndex.positionedClusters,
+            fontRoleByClusterRange = replayIndex.fontRoleByClusterRange,
+        )
+        drawSkiaRichTextLines(
+            skCanvas,
+            result,
+            replayIndex,
+            color,
+            colorSpans,
+            replayIndex.richTextDecorationSegments,
+            spans,
+            cjkFont,
+            latinFont,
+            shaper,
+        )
 
         // Emphasis dots (ADR 0018): paint the engine-owned final diameter at
         // the engine-owned ink-centre anchor.
@@ -92,6 +126,7 @@ internal actual fun ContentDrawScope.drawParagraph(
                         drawSkiaStraightInterlinearLine(
                             canvas = skCanvas,
                             result = result,
+                            replayIndex = replayIndex,
                             lineIndex = seg.lineIndex,
                             left = seg.left,
                             right = seg.right,
@@ -106,7 +141,7 @@ internal actual fun ContentDrawScope.drawParagraph(
                         )
                     }
                     "BookTitle" -> {
-                        val skips = result.lineInkSkipIntervals(
+                        val skips = result.lineInkSkipIntervalsWithPositions(
                             result.lines[seg.lineIndex],
                             cjkFont,
                             latinFont,
@@ -114,6 +149,8 @@ internal actual fun ContentDrawScope.drawParagraph(
                             seg.top - skipBandPad,
                             seg.top + skipBandPad,
                             spans,
+                            replayIndex.positionedClusters,
+                            replayIndex.fontRoleByClusterRange,
                         )
                         keptIntervals(seg.left, seg.right, skips, skipClearance) { x0, x1 ->
                             skCanvas.drawPath(org.tiqian.shaping.skia.wavyLinePath(x0, x1, seg.top, fontSize), framePaint)
@@ -226,6 +263,7 @@ private fun drawSkiaRichTextBackgrounds(
 private fun drawSkiaRichTextLines(
     canvas: org.jetbrains.skia.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
     segments: List<RichTextLineSegment>,
@@ -247,19 +285,13 @@ private fun drawSkiaRichTextLines(
         if (role != RichTextRole.Underline && role != RichTextRole.LineThrough) continue
         val style = spans.lastOrNull { seg.range.start >= it.range.start && seg.range.start < it.range.end }?.style
             ?: result.input.textStyle
-        val rawLineY = if (role == RichTextRole.Underline) {
-            // Reuse the same horizontal line geometry as 专名号: a close line below
-            // the CJK face, with skip-ink only for ink that actually crosses it.
-            seg.baseline + style.fontSize * INTERLINEAR_UNDERLINE_OFFSET_EM
-        } else {
-            seg.baseline - style.fontSize * GENERIC_LINE_THROUGH_OFFSET_EM
-        }
-        val lineY = rawLineY.coerceIn(seg.top + paint.strokeWidth / 2f, seg.bottom - paint.strokeWidth / 2f)
+        val lineY = result.richTextDecorationLineY(seg, paint.strokeWidth)
         paint.color = seg.span.paint.argb ?: colorAt(seg.range.start, color, colorSpans)
         if (role == RichTextRole.Underline) {
             drawSkiaStraightInterlinearLine(
                 canvas = canvas,
                 result = result,
+                replayIndex = replayIndex,
                 lineIndex = seg.lineIndex,
                 left = seg.left,
                 right = seg.right,
@@ -282,6 +314,7 @@ private fun drawSkiaRichTextLines(
 private fun drawSkiaStraightInterlinearLine(
     canvas: org.jetbrains.skia.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     lineIndex: Int,
     left: Float,
     right: Float,
@@ -298,8 +331,28 @@ private fun drawSkiaStraightInterlinearLine(
     val line = result.lines.getOrNull(lineIndex) ?: return
     val cacheKey = (lineIndex.toLong() shl 32) or (lineY.toRawBits().toLong() and 0xFFFFFFFFL)
     val skips = skipCache?.getOrPut(cacheKey) {
-        result.lineInkSkipIntervals(line, cjkFont, latinFont, shaper, lineY - skipBandPad, lineY + skipBandPad, spans)
-    } ?: result.lineInkSkipIntervals(line, cjkFont, latinFont, shaper, lineY - skipBandPad, lineY + skipBandPad, spans)
+        result.lineInkSkipIntervalsWithPositions(
+            line,
+            cjkFont,
+            latinFont,
+            shaper,
+            lineY - skipBandPad,
+            lineY + skipBandPad,
+            spans,
+            replayIndex.positionedClusters,
+            replayIndex.fontRoleByClusterRange,
+        )
+    } ?: result.lineInkSkipIntervalsWithPositions(
+        line,
+        cjkFont,
+        latinFont,
+        shaper,
+        lineY - skipBandPad,
+        lineY + skipBandPad,
+        spans,
+        replayIndex.positionedClusters,
+        replayIndex.fontRoleByClusterRange,
+    )
     keptIntervals(left, right, skips, skipClearance) { x0, x1 ->
         canvas.drawLine(x0, lineY, x1, lineY, paint)
     }
@@ -338,8 +391,6 @@ private inline fun keptIntervals(
 }
 
 private const val INLINE_CODE_BACKGROUND_COLOR: Int = 0x1A000000
-private const val INTERLINEAR_UNDERLINE_OFFSET_EM = 0.18f
-private const val GENERIC_LINE_THROUGH_OFFSET_EM = 0.30f
 private const val BROWSER_LIKE_SKIP_INK_CLEARANCE_EM = 0.10f
 private const val BROWSER_LIKE_SKIP_INK_CLEARANCE_MAX = 13f
 

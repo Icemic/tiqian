@@ -1,10 +1,12 @@
 package org.tiqian.compose
 
+import android.annotation.TargetApi
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PathMeasure
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.Build
 import android.text.TextPaint
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -17,38 +19,52 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBox
 import org.tiqian.core.RichTextLineSegment
 import org.tiqian.core.RichTextRole
-import org.tiqian.core.RichTextSpan
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.BopomofoGlyphRole
-import org.tiqian.core.positionedClusters
-import org.tiqian.core.positionedRichTextSegments
+import org.tiqian.core.richTextDecorationLineY
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
 import org.tiqian.shaping.android.SystemAndroidTypefaceResolver
+import org.tiqian.shaping.nativefont.AndroidNativeGlyphReplay
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
-private val AndroidRendererTypefaces = SystemAndroidTypefaceResolver()
+private val AndroidRendererTypefaces by lazy(LazyThreadSafetyMode.PUBLICATION) {
+    SystemAndroidTypefaceResolver()
+}
 
 internal actual fun ContentDrawScope.drawParagraph(
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
-    richTextSpans: List<RichTextSpan>,
     spans: List<TextSpan>,
+    selectionBoxes: List<org.tiqian.core.Rect>,
+    selectionColor: Int?,
 ) {
     drawIntoCanvas { canvas ->
         val native = canvas.nativeCanvas
-        // Segment geometry once per draw: both backgrounds and lines consume it.
-        val richTextSegments = result.positionedRichTextSegments(richTextSpans)
+        val richTextSegments = replayIndex.richTextSegments
         drawAndroidRichTextBackgrounds(native, richTextSegments)
-        drawAndroidGlyphs(native, result, color, colorSpans, spans, AndroidRendererTypefaces)
-        drawAndroidRichTextLines(native, result, color, colorSpans, richTextSegments, spans, AndroidRendererTypefaces)
-        drawAndroidDecorations(native, result, color, colorSpans, spans, AndroidRendererTypefaces)
+        if (selectionColor != null) {
+            val selectionPaint = Paint().apply {
+                style = Paint.Style.FILL
+                this.color = selectionColor
+            }
+            for (box in selectionBoxes) {
+                native.drawRect(box.left, box.top, box.right, box.bottom, selectionPaint)
+            }
+        }
+        drawAndroidGlyphs(native, result, replayIndex, color, colorSpans, spans, AndroidRendererTypefaces)
+        drawAndroidRichTextLines(
+            native, result, replayIndex, color, colorSpans, replayIndex.richTextDecorationSegments,
+            spans, AndroidRendererTypefaces,
+        )
+        drawAndroidDecorations(native, result, replayIndex, color, colorSpans, spans, AndroidRendererTypefaces)
         drawAndroidRuby(native, result, color, AndroidRendererTypefaces)
         drawAndroidBopomofo(native, result, color, AndroidRendererTypefaces)
     }
@@ -57,6 +73,7 @@ internal actual fun ContentDrawScope.drawParagraph(
 private fun drawAndroidGlyphs(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
     spans: List<TextSpan>,
@@ -66,19 +83,21 @@ private fun drawAndroidGlyphs(
         this.color = color
         textLocale = Locale.forLanguageTag(result.input.textStyle.locale)
     }
-    val glyphsByClusterRange = result.glyphRuns
-        .flatMap { it.glyphs }
-        .groupBy { it.clusterRange }
-    result.forEachAndroidPositionedCluster(spans) { _, cluster, drawX, baselineY, run ->
+    result.forEachAndroidPositionedCluster(replayIndex, spans) { _, cluster, drawX, baselineY, run ->
         paint.color = colorSpans.lastOrNull { cluster.range.start >= it.start && cluster.range.start < it.end }?.argb ?: color
         paint.textSize = run.style.fontSize
         paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
         paint.fontFeatureSettings = null
-        val glyphs = glyphsByClusterRange[cluster.range].orEmpty()
-        // minSdk 31 == Android S, so Canvas.drawGlyphs is always available; per-glyph
-        // replay falls back to contextual string drawing only when a glyph's shaped
-        // Font key is missing/evicted (drawPositionedGlyphs returns false).
-        if (drawPositionedGlyphs(canvas, glyphs, drawX, baselineY, paint)) {
+        val glyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty()
+        // API 23+ correctness path: replay the exact HarfBuzz glyph ids and
+        // placements through FreeType outlines from the same controlled bytes.
+        if (AndroidNativeGlyphReplay.drawGlyphs(canvas, glyphs, drawX, baselineY, run.style.fontSize, paint)) {
+            return@forEachAndroidPositionedCluster
+        }
+        requireNativeReplayDidNotFail(glyphs)
+        // API 31 platform adapter remains an optional comparison/optimization
+        // path. Its process-local Font keys never define low-version correctness.
+        if (Build.VERSION.SDK_INT >= 31 && drawPositionedGlyphs31(canvas, glyphs, drawX, baselineY, paint)) {
             return@forEachAndroidPositionedCluster
         }
         // CjkPunctuation clusters need the full-buffer clipped draw (context GSUB);
@@ -101,12 +120,25 @@ private fun drawAndroidGlyphs(
     }
     for (line in result.lines) {
         if (line.hyphenAdvance > 0f) {
-            drawContextShapedText(canvas, "-", line.indent + line.visualWidth, line.baseline, FontRole.LatinText, hyphenPaint)
+            val originX = line.indent + line.visualWidth
+            if (!AndroidNativeGlyphReplay.drawGlyphs(
+                    canvas,
+                    line.hyphenGlyphs,
+                    originX,
+                    line.baseline,
+                    result.input.textStyle.fontSize,
+                    hyphenPaint,
+                )
+            ) {
+                requireNativeReplayDidNotFail(line.hyphenGlyphs)
+                drawContextShapedText(canvas, "-", originX, line.baseline, FontRole.LatinText, hyphenPaint)
+            }
         }
     }
 }
 
-private fun drawPositionedGlyphs(
+@TargetApi(31)
+private fun drawPositionedGlyphs31(
     canvas: android.graphics.Canvas,
     glyphs: List<Glyph>,
     originX: Float,
@@ -141,6 +173,7 @@ private fun drawPositionedGlyphs(
 private fun drawAndroidDecorations(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
     spans: List<TextSpan>,
@@ -173,6 +206,7 @@ private fun drawAndroidDecorations(
                 drawAndroidStraightInterlinearLine(
                     canvas = canvas,
                     result = result,
+                    replayIndex = replayIndex,
                     lineIndex = seg.lineIndex,
                     left = seg.left,
                     right = seg.right,
@@ -186,7 +220,12 @@ private fun drawAndroidDecorations(
             }
             DecorationKind.BookTitle.name -> {
                 val skips = result.androidLineInkSkipIntervals(
-                    result.lines[seg.lineIndex], seg.top - skipBandPad, seg.top + skipBandPad, spans, typefaces,
+                    replayIndex,
+                    result.lines[seg.lineIndex],
+                    seg.top - skipBandPad,
+                    seg.top + skipBandPad,
+                    spans,
+                    typefaces,
                 )
                 keptIntervals(seg.left, seg.right, skips, skipClearance) { x0, x1 ->
                     canvas.drawPath(wavyLinePath(x0, x1, seg.top, fontSize), strokePaint)
@@ -223,6 +262,7 @@ private fun drawAndroidRichTextBackgrounds(
 private fun drawAndroidRichTextLines(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
     segments: List<RichTextLineSegment>,
@@ -242,19 +282,13 @@ private fun drawAndroidRichTextLines(
         if (role != RichTextRole.Underline && role != RichTextRole.LineThrough) continue
         val style = spans.lastOrNull { seg.range.start >= it.range.start && seg.range.start < it.range.end }?.style
             ?: result.input.textStyle
-        val rawLineY = if (role == RichTextRole.Underline) {
-            // Reuse the same horizontal line geometry as 专名号: a close line below
-            // the CJK face, with skip-ink only for ink that actually crosses it.
-            seg.baseline + style.fontSize * INTERLINEAR_UNDERLINE_OFFSET_EM
-        } else {
-            seg.baseline - style.fontSize * GENERIC_LINE_THROUGH_OFFSET_EM
-        }
-        val lineY = rawLineY.coerceIn(seg.top + strokePaint.strokeWidth / 2f, seg.bottom - strokePaint.strokeWidth / 2f)
+        val lineY = result.richTextDecorationLineY(seg, strokePaint.strokeWidth)
         strokePaint.color = seg.span.paint.argb ?: colorAt(seg.range.start, color, colorSpans)
         if (role == RichTextRole.Underline) {
             drawAndroidStraightInterlinearLine(
                 canvas = canvas,
                 result = result,
+                replayIndex = replayIndex,
                 lineIndex = seg.lineIndex,
                 left = seg.left,
                 right = seg.right,
@@ -275,6 +309,7 @@ private fun drawAndroidRichTextLines(
 private fun drawAndroidStraightInterlinearLine(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     lineIndex: Int,
     left: Float,
     right: Float,
@@ -289,8 +324,12 @@ private fun drawAndroidStraightInterlinearLine(
     val line = result.lines.getOrNull(lineIndex) ?: return
     val cacheKey = (lineIndex.toLong() shl 32) or (lineY.toRawBits().toLong() and 0xFFFFFFFFL)
     val skips = skipCache?.getOrPut(cacheKey) {
-        result.androidLineInkSkipIntervals(line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces)
-    } ?: result.androidLineInkSkipIntervals(line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces)
+        result.androidLineInkSkipIntervals(
+            replayIndex, line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces,
+        )
+    } ?: result.androidLineInkSkipIntervals(
+        replayIndex, line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces,
+    )
     keptIntervals(left, right, skips, skipClearance) { x0, x1 ->
         canvas.drawLine(x0, lineY, x1, lineY, paint)
     }
@@ -311,10 +350,22 @@ private fun drawAndroidRuby(
     }
     for (ruby in result.debug.rubyDecisions) {
         paint.textSize = ruby.fontSize
-        paint.typeface = typefaces.resolve(FontRole.LatinText, ruby.fontFamilies, ruby.fontWeight, italic = false)
         paint.fontFeatureSettings = null
-        val width = paint.measureText(ruby.text)
-        drawContextShapedText(canvas, ruby.text, ruby.centerX - width / 2f, ruby.baselineY, FontRole.LatinText, paint)
+        val originX = ruby.centerX - ruby.width / 2f
+        if (!AndroidNativeGlyphReplay.drawGlyphs(
+                canvas,
+                ruby.glyphs,
+                originX,
+                ruby.baselineY,
+                ruby.fontSize,
+                paint,
+            )
+        ) {
+            requireNativeReplayDidNotFail(ruby.glyphs)
+            paint.typeface = typefaces.resolve(FontRole.LatinText, ruby.fontFamilies, ruby.fontWeight, italic = false)
+            val width = paint.measureText(ruby.text)
+            drawContextShapedText(canvas, ruby.text, ruby.centerX - width / 2f, ruby.baselineY, FontRole.LatinText, paint)
+        }
     }
 }
 
@@ -333,6 +384,18 @@ private fun drawAndroidBopomofo(
     for (z in result.debug.bopomofoDecisions) {
         paint.typeface = typefaces.resolve(FontRole.CjkText, z.fontFamilies, z.fontWeight, italic = false)
         for (p in z.placements) {
+            if (AndroidNativeGlyphReplay.drawGlyphs(
+                    canvas,
+                    p.glyphs,
+                    p.drawX,
+                    p.baselineY,
+                    p.fontSize,
+                    paint,
+                )
+            ) {
+                continue
+            }
+            requireNativeReplayDidNotFail(p.glyphs)
             when (p.role) {
                 BopomofoGlyphRole.Symbol -> {
                     // ㄅㄆㄇ are full-em CJK glyphs → sit on the 字身框 baseline (0.88),
@@ -368,6 +431,7 @@ private data class AndroidClusterRun(
 )
 
 private inline fun LayoutResult.forEachAndroidPositionedCluster(
+    replayIndex: LayoutResultReplayIndex,
     spans: List<TextSpan>,
     action: (line: LineBox, cluster: Cluster, drawX: Float, baselineY: Float, run: AndroidClusterRun) -> Unit,
 ) {
@@ -376,26 +440,23 @@ private inline fun LayoutResult.forEachAndroidPositionedCluster(
         .filter { it.kind == DecorationKind.Emphasis }
         .map { it.range }
 
-    for (line in lines) {
-        for (positioned in positionedClusters(line)) {
-            val cluster = clusters[positioned.clusterIndex]
-            val role = debug.fontDecisions.firstOrNull {
-                cluster.range.start >= it.range.start && cluster.range.end <= it.range.end
-            }?.role.toFontRole()
-            val isLatin = role == FontRole.LatinText
-            val spanStyle = spans.lastOrNull { cluster.range.start >= it.range.start && cluster.range.start < it.range.end }?.style
-            val italic = (spanStyle?.italic ?: false) ||
-                (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
-            val style = (spanStyle ?: baseStyle).copy(italic = italic)
-            if (cluster.displayText.isNotEmpty()) {
-                action(
-                    line,
-                    cluster,
-                    positioned.drawX,
-                    line.baseline + cluster.baselineShift,
-                    AndroidClusterRun(role, style),
-                )
-            }
+    for (positioned in replayIndex.positionedClusters) {
+        val line = lines[positioned.lineIndex]
+        val cluster = clusters[positioned.clusterIndex]
+        val role = replayIndex.fontRoleByClusterRange[cluster.range].toFontRole()
+        val isLatin = role == FontRole.LatinText
+        val spanStyle = spans.lastOrNull { cluster.range.start >= it.range.start && cluster.range.start < it.range.end }?.style
+        val italic = (spanStyle?.italic ?: false) ||
+            (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
+        val style = (spanStyle ?: baseStyle).copy(italic = italic)
+        if (cluster.displayText.isNotEmpty()) {
+            action(
+                line,
+                cluster,
+                positioned.drawX,
+                line.baseline + cluster.baselineShift,
+                AndroidClusterRun(role, style),
+            )
         }
     }
 }
@@ -441,6 +502,7 @@ private fun drawContextShapedText(
 }
 
 private fun LayoutResult.androidLineInkSkipIntervals(
+    replayIndex: LayoutResultReplayIndex,
     line: LineBox,
     bandTop: Float,
     bandBottom: Float,
@@ -453,23 +515,41 @@ private fun LayoutResult.androidLineInkSkipIntervals(
     }
     val path = Path()
     val bounds = RectF()
-    forEachAndroidPositionedCluster(spans) { l, cluster, drawX, baselineY, run ->
+    forEachAndroidPositionedCluster(replayIndex, spans) { l, cluster, drawX, baselineY, run ->
         if (l !== line) return@forEachAndroidPositionedCluster
         // AndroidOutlineBandSkipInk: TextBlob.getIntercepts is Skia-only, so the
         // Android renderer derives equivalent intervals from the real outline
         // path and the underline's vertical band. This skips only the ink slice
         // that touches the line, not the whole glyph or text cluster.
         paint.textSize = run.style.fontSize
-        paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
         paint.fontFeatureSettings = null
         path.reset()
-        paint.getTextPath(cluster.displayText, 0, cluster.displayText.length, drawX, baselineY, path)
+        val glyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty()
+        val nativePath = AndroidNativeGlyphReplay.glyphPath(
+            glyphs = glyphs,
+            originX = drawX,
+            originY = baselineY,
+            fontSize = run.style.fontSize,
+        )
+        if (nativePath != null) {
+            path.set(nativePath)
+        } else {
+            requireNativeReplayDidNotFail(glyphs)
+            paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
+            paint.getTextPath(cluster.displayText, 0, cluster.displayText.length, drawX, baselineY, path)
+        }
         if (path.isEmpty) return@forEachAndroidPositionedCluster
         path.computeBounds(bounds, true)
         if (bounds.bottom < bandTop || bounds.top > bandBottom) return@forEachAndroidPositionedCluster
         path.horizontalBandIntercepts(bandTop, bandBottom).forEach { out += it }
     }
     return out.toFloatArray()
+}
+
+private fun requireNativeReplayDidNotFail(glyphs: List<Glyph>) {
+    check(!AndroidNativeGlyphReplay.ownsGlyphs(glyphs)) {
+        "NativeGlyphReplayUnavailable: a retained native font face could not replay its shaped glyph outline"
+    }
 }
 
 private data class PathPoint(val x: Float, val y: Float)
@@ -577,8 +657,6 @@ private fun wavyLinePath(left: Float, right: Float, y: Float, fontSize: Float): 
 }
 
 private const val INLINE_CODE_BACKGROUND_COLOR: Int = 0x1A000000
-private const val INTERLINEAR_UNDERLINE_OFFSET_EM = 0.18f
-private const val GENERIC_LINE_THROUGH_OFFSET_EM = 0.30f
 private const val BROWSER_LIKE_SKIP_INK_CLEARANCE_EM = 0.10f
 private const val BROWSER_LIKE_SKIP_INK_CLEARANCE_MAX = 13f
 private const val WAVY_ENDPOINT_EPSILON_PX = 0.01f

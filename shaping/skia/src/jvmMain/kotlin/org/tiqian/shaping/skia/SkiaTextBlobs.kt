@@ -4,7 +4,9 @@ import org.tiqian.core.Cluster
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBox
+import org.tiqian.core.PositionedCluster
 import org.tiqian.core.TextSpan
+import org.tiqian.core.TextRange
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.TextStyle
 import org.tiqian.font.fontRoleNameUsesLatinFace
@@ -154,12 +156,46 @@ fun drawTiqianGlyphs(
     baselineOffset: Float = 0f,
     colorSpans: List<ColorSpan> = emptyList(),
     spans: List<TextSpan> = emptyList(),
+) = drawTiqianGlyphsWithPositions(
+    canvas = canvas,
+    result = result,
+    cjkFont = cjkFont,
+    latinFont = latinFont,
+    paint = paint,
+    shaper = shaper,
+    baselineOffset = baselineOffset,
+    colorSpans = colorSpans,
+    spans = spans,
+    positionedClusters = result.positionedClusters(),
+    fontRoleByClusterRange = emptyMap(),
+)
+
+/** Draws through caller-retained core geometry without rebuilding the positioned-cluster list. */
+fun drawTiqianGlyphsWithPositions(
+    canvas: Canvas,
+    result: LayoutResult,
+    cjkFont: Font,
+    latinFont: Font,
+    paint: org.jetbrains.skia.Paint,
+    shaper: Shaper,
+    baselineOffset: Float = 0f,
+    colorSpans: List<ColorSpan> = emptyList(),
+    spans: List<TextSpan> = emptyList(),
+    positionedClusters: List<PositionedCluster>,
+    fontRoleByClusterRange: Map<TextRange, String?>,
 ) {
     val language = result.input.textStyle.locale
     // Color is render-only (no advance change), so it never touches the walk's
     // positioning — just the paint per cluster, by source offset.
     val paintByColor = HashMap<Int, org.jetbrains.skia.Paint>()
-    result.forEachPositionedCluster(cjkFont, latinFont, baselineOffset, spans) { _, cluster, drawX, baselineY, font ->
+    result.forEachPositionedCluster(
+        cjkFont,
+        latinFont,
+        baselineOffset,
+        spans,
+        positionedClusters,
+        fontRoleByClusterRange,
+    ) { _, cluster, drawX, baselineY, font ->
         val argb = if (colorSpans.isEmpty()) {
             null
         } else {
@@ -206,6 +242,8 @@ internal inline fun LayoutResult.forEachPositionedCluster(
     latinFont: Font,
     baselineOffset: Float,
     spans: List<TextSpan> = emptyList(),
+    precomputedPositions: List<PositionedCluster>? = null,
+    fontRoleByClusterRange: Map<TextRange, String?>? = null,
     action: (line: LineBox, cluster: Cluster, drawX: Float, baselineY: Float, font: Font) -> Unit,
 ) {
     val baseStyle = input.textStyle
@@ -218,43 +256,47 @@ internal inline fun LayoutResult.forEachPositionedCluster(
     val emphasisRanges = input.decorations
         .filter { it.kind == org.tiqian.core.DecorationKind.Emphasis }
         .map { it.range }
-    for (line in lines) {
+    val positions = precomputedPositions ?: positionedClusters()
+    for (positioned in positions) {
+        val line = lines[positioned.lineIndex]
         val baselineY = line.baseline + baselineOffset
-        for (positioned in positionedClusters(line)) {
-            val cluster = clusters[positioned.clusterIndex]
-            val role = debug.fontDecisions.firstOrNull {
+        val cluster = clusters[positioned.clusterIndex]
+        val role = if (fontRoleByClusterRange?.containsKey(cluster.range) == true) {
+            fontRoleByClusterRange[cluster.range]
+        } else {
+            debug.fontDecisions.firstOrNull {
                 cluster.range.start >= it.range.start && cluster.range.end <= it.range.end
             }?.role
-            val isLatin = fontRoleNameUsesLatinFace(role) // LatinVsCjkFaceSelection (shared rule)
-            val baseFont = if (isLatin) latinFont else cjkFont
-            val style = spans.lastOrNull {
-                cluster.range.start >= it.range.start && cluster.range.start < it.range.end
-            }?.style ?: baseStyle
-            val size = style.fontSize
-            val weight = style.fontWeight
-            val italic = style.italic ||
-                (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
-            val family = style.fontFamilies.firstOrNull()
-            val font = if (size == baseStyle.fontSize && weight == 400 && !italic && family == null) {
-                baseFont
-            } else {
-                styledFonts.getOrPut("$isLatin:$size:$weight:$italic:$family") {
-                    val tf = if (weight == 400 && !italic && family == null) {
-                        baseFont.typeface
-                    } else {
-                        SkiaSystemTypefaces.typeface(
-                            isLatin,
-                            family,
-                            FontStyle(weight, FontStyle.NORMAL.width, if (italic) FontSlant.ITALIC else FontSlant.UPRIGHT),
-                        ) ?: baseFont.typeface
-                    }
-                    Font(tf, size)
+        }
+        val isLatin = fontRoleNameUsesLatinFace(role) // LatinVsCjkFaceSelection (shared rule)
+        val baseFont = if (isLatin) latinFont else cjkFont
+        val style = spans.lastOrNull {
+            cluster.range.start >= it.range.start && cluster.range.start < it.range.end
+        }?.style ?: baseStyle
+        val size = style.fontSize
+        val weight = style.fontWeight
+        val italic = style.italic ||
+            (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
+        val family = style.fontFamilies.firstOrNull()
+        val font = if (size == baseStyle.fontSize && weight == 400 && !italic && family == null) {
+            baseFont
+        } else {
+            styledFonts.getOrPut("$isLatin:$size:$weight:$italic:$family") {
+                val tf = if (weight == 400 && !italic && family == null) {
+                    baseFont.typeface
+                } else {
+                    SkiaSystemTypefaces.typeface(
+                        isLatin,
+                        family,
+                        FontStyle(weight, FontStyle.NORMAL.width, if (italic) FontSlant.ITALIC else FontSlant.UPRIGHT),
+                    ) ?: baseFont.typeface
                 }
+                Font(tf, size)
             }
-            if (cluster.displayText.isNotEmpty()) {
-                // baselineShift aligns mixed non-Roman fonts/sizes by 字身框底部.
-                action(line, cluster, positioned.drawX, baselineY + cluster.baselineShift, font)
-            }
+        }
+        if (cluster.displayText.isNotEmpty()) {
+            // baselineShift aligns mixed non-Roman fonts/sizes by 字身框底部.
+            action(line, cluster, positioned.drawX, baselineY + cluster.baselineShift, font)
         }
     }
 }
@@ -274,10 +316,40 @@ fun LayoutResult.lineInkSkipIntervals(
     bandTop: Float,
     bandBottom: Float,
     spans: List<TextSpan> = emptyList(),
+): FloatArray = lineInkSkipIntervalsWithPositions(
+    line = line,
+    cjkFont = cjkFont,
+    latinFont = latinFont,
+    shaper = shaper,
+    bandTop = bandTop,
+    bandBottom = bandBottom,
+    spans = spans,
+    positionedClusters = positionedClusters(),
+    fontRoleByClusterRange = emptyMap(),
+)
+
+/** Skip-ink query variant that consumes caller-retained positioned-cluster geometry. */
+fun LayoutResult.lineInkSkipIntervalsWithPositions(
+    line: LineBox,
+    cjkFont: Font,
+    latinFont: Font,
+    shaper: Shaper,
+    bandTop: Float,
+    bandBottom: Float,
+    spans: List<TextSpan> = emptyList(),
+    positionedClusters: List<PositionedCluster>,
+    fontRoleByClusterRange: Map<TextRange, String?>,
 ): FloatArray {
     val language = input.textStyle.locale
     val out = mutableListOf<Float>()
-    forEachPositionedCluster(cjkFont, latinFont, 0f, spans) { l, cluster, drawX, baselineY, font ->
+    forEachPositionedCluster(
+        cjkFont,
+        latinFont,
+        0f,
+        spans,
+        positionedClusters,
+        fontRoleByClusterRange,
+    ) { l, cluster, drawX, baselineY, font ->
         if (l !== line) return@forEachPositionedCluster
         val blob = shapeTextBlob(shaper, cluster.displayText, font, language) ?: return@forEachPositionedCluster
         // getIntercepts wants the band in the blob's baseline-relative y; the

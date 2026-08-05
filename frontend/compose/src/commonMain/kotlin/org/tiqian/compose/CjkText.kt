@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -22,6 +23,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import org.tiqian.core.Ic
+import org.tiqian.core.InlineObjectBoundaryAdjustment
+import org.tiqian.core.InlineObjectPreferredStretch
+import org.tiqian.core.InlineObjectPreferredStretchKind
+import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineLengthGrid
@@ -136,26 +141,34 @@ fun CjkText(
     minLines: Int = 1,
     style: ComposeTextStyle = ComposeTextStyle.Default,
     paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    inlineObjects: List<CjkInlineObject> = emptyList(),
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
-    val resolvedStyle = resolveComposeTextStyle(
-        style = style,
-        color = color,
-        fontSize = fontSize,
-        fontStyle = fontStyle,
-        fontWeight = fontWeight,
-        fontFamily = fontFamily,
-        textDecoration = textDecoration,
-        textAlign = textAlign,
-        lineHeight = lineHeight,
-    )
-    val lowered = lowerComposeText(text, resolvedStyle, paragraphStyle)
+    val resolvedStyle = remember(
+        style, color, fontSize, fontStyle, fontWeight, fontFamily, textDecoration, textAlign, lineHeight,
+    ) {
+        resolveComposeTextStyle(
+            style = style,
+            color = color,
+            fontSize = fontSize,
+            fontStyle = fontStyle,
+            fontWeight = fontWeight,
+            fontFamily = fontFamily,
+            textDecoration = textDecoration,
+            textAlign = textAlign,
+            lineHeight = lineHeight,
+        )
+    }
+    val lowered = remember(text, resolvedStyle, paragraphStyle) {
+        lowerComposeText(text, resolvedStyle, paragraphStyle)
+    }
     CjkText(
         text = lowered.text,
         modifier = modifier,
         textStyle = lowered.textStyle,
         paragraphStyle = lowered.paragraphStyle,
+        inlineObjects = inlineObjects,
         softWrap = softWrap,
         overflow = overflow,
         maxLines = maxLines,
@@ -174,6 +187,7 @@ fun CjkText(
     modifier: Modifier = Modifier,
     textStyle: CjkTextStyle,
     paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    inlineObjects: List<CjkInlineObject> = emptyList(),
     overflow: TextOverflow = TextOverflow.Clip,
     softWrap: Boolean = true,
     maxLines: Int = Int.MAX_VALUE,
@@ -182,20 +196,84 @@ fun CjkText(
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     val density = LocalDensity.current
-    val renderText = text.withBaseLinkStyles()
-    val coreStyle = textStyle.toCoreTextStyle(density)
+    val renderText = remember(text) { text.withBaseLinkStyles() }
+    val coreStyle = remember(textStyle, density) { textStyle.toCoreTextStyle(density) }
+    val resolvedParagraphStyle = remember(paragraphStyle, textStyle, density) {
+        paragraphStyle.withCjkTextStyleLineHeight(textStyle, density)
+    }
+    val decorations = remember(renderText) { renderText.cjkDecorations() }
+    val colorSpans = remember(renderText) { renderText.cjkColorSpans() }
+    val richTextSpans = remember(renderText) { renderText.cjkRichTextSpans() }
+    val spans = remember(renderText, coreStyle, density) { renderText.cjkStyleSpans(coreStyle, density) }
+    val rubySpans = remember(renderText) { renderText.cjkRubySpans() }
+    val coreInlineObjects = remember(inlineObjects, density) {
+        inlineObjects.map { inlineObject ->
+            InlineObjectSpan(
+                range = org.tiqian.core.TextRange(inlineObject.range.start, inlineObject.range.end),
+                advance = with(density) { inlineObject.advance.toPx() },
+                ascent = with(density) { inlineObject.ascent.toPx() },
+                descent = with(density) { inlineObject.descent.toPx() },
+                leadingBoundary = InlineObjectBoundaryAdjustment(
+                    participatesInUniformStretch = inlineObject.leadingBoundary.participatesInUniformStretch,
+                    preferredStretch = inlineObject.leadingBoundary.preferredStretch?.let {
+                        InlineObjectPreferredStretch(
+                            kind = when (it.kind) {
+                                CjkInlineObjectPreferredStretchKind.PunctuationTrailing ->
+                                    InlineObjectPreferredStretchKind.PunctuationTrailing
+                                CjkInlineObjectPreferredStretchKind.Relation ->
+                                    InlineObjectPreferredStretchKind.Relation
+                                CjkInlineObjectPreferredStretchKind.BinaryOperator ->
+                                    InlineObjectPreferredStretchKind.BinaryOperator
+                            },
+                            naturalWidth = with(density) { it.naturalWidth.toPx() },
+                            targetWidth = with(density) { it.targetWidth.toPx() },
+                        )
+                    },
+                    shrinkCapacity = with(density) { inlineObject.leadingBoundary.shrinkCapacity.toPx() },
+                    lineEndDiscardableAdvance = with(density) {
+                        inlineObject.leadingBoundary.lineEndDiscardableAdvance.toPx()
+                    },
+                    preventsLineBreak = inlineObject.leadingBoundary.preventsLineBreak,
+                ),
+                trailingBoundary = InlineObjectBoundaryAdjustment(
+                    participatesInUniformStretch = inlineObject.trailingBoundary.participatesInUniformStretch,
+                    preferredStretch = inlineObject.trailingBoundary.preferredStretch?.let {
+                        InlineObjectPreferredStretch(
+                            kind = when (it.kind) {
+                                CjkInlineObjectPreferredStretchKind.PunctuationTrailing ->
+                                    InlineObjectPreferredStretchKind.PunctuationTrailing
+                                CjkInlineObjectPreferredStretchKind.Relation ->
+                                    InlineObjectPreferredStretchKind.Relation
+                                CjkInlineObjectPreferredStretchKind.BinaryOperator ->
+                                    InlineObjectPreferredStretchKind.BinaryOperator
+                            },
+                            naturalWidth = with(density) { it.naturalWidth.toPx() },
+                            targetWidth = with(density) { it.targetWidth.toPx() },
+                        )
+                    },
+                    shrinkCapacity = with(density) { inlineObject.trailingBoundary.shrinkCapacity.toPx() },
+                    lineEndDiscardableAdvance = with(density) {
+                        inlineObject.trailingBoundary.lineEndDiscardableAdvance.toPx()
+                    },
+                    preventsLineBreak = inlineObject.trailingBoundary.preventsLineBreak,
+                ),
+            )
+        }
+    }
     CjkTextLayout(
         text = renderText.text,
         semanticsText = text,
         modifier = modifier,
         textStyle = coreStyle,
-        paragraphStyle = paragraphStyle.withCjkTextStyleLineHeight(textStyle, density),
+        paragraphStyle = resolvedParagraphStyle,
         color = textStyle.colorArgbOrNull() ?: DEFAULT_TEXT_COLOR,
-        decorations = renderText.cjkDecorations(),
-        colorSpans = renderText.cjkColorSpans(),
-        richTextSpans = renderText.cjkRichTextSpans(),
-        spans = renderText.cjkStyleSpans(coreStyle, density),
-        rubySpans = renderText.cjkRubySpans(),
+        decorations = decorations,
+        colorSpans = colorSpans,
+        richTextSpans = richTextSpans,
+        spans = spans,
+        rubySpans = rubySpans,
+        inlineObjects = coreInlineObjects,
+        inlineObjectContent = inlineObjects,
         softWrap = softWrap,
         overflow = overflow,
         maxLines = maxLines,

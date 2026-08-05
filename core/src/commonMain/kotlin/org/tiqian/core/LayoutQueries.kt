@@ -4,6 +4,9 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+private const val INTERLINEAR_UNDERLINE_OFFSET_EM = 0.18f
+private const val GENERIC_LINE_THROUGH_OFFSET_EM = 0.30f
+
 /**
  * A cluster positioned in layout coordinates. The rectangle is the cluster's line box slice, not
  * glyph ink bounds: selection, hit testing, and accessibility need stable occupied text geometry.
@@ -210,6 +213,75 @@ fun LayoutResult.positionedRichTextSegments(spans: List<RichTextSpan>): List<Ric
 }
 
 /**
+ * Returns only underline/strike-through segments with punctuation glue removed at the decoration's
+ * outer source edges. `RichTextDecorationPunctuationGlueTrim` deliberately keeps the occupied
+ * geometry from [positionedRichTextSegments] unchanged for backgrounds, links, selection, and hit
+ * testing; glue between two decorated clusters also remains covered so a continuous decoration
+ * does not acquire an internal gap.
+ */
+fun LayoutResult.trimmedRichTextDecorationSegments(
+    occupiedSegments: List<RichTextLineSegment>,
+): List<RichTextLineSegment> {
+    if (occupiedSegments.isEmpty()) return emptyList()
+    val decorationSegments = occupiedSegments.filter {
+        it.span.role == RichTextRole.Underline || it.span.role == RichTextRole.LineThrough
+    }
+    if (decorationSegments.isEmpty()) return emptyList()
+    val geometryByRange = debug.geometryDecisions.associateBy { it.range }
+    return decorationSegments.map { segment ->
+        val line = lines.getOrNull(segment.lineIndex) ?: return@map segment
+        val firstCluster = line.clusterRange.asSequence()
+            .mapNotNull(clusters::getOrNull)
+            .firstOrNull { it.range.end > segment.range.start }
+        val lastCluster = line.clusterRange.asSequence()
+            .mapNotNull(clusters::getOrNull)
+            .lastOrNull { it.range.start < segment.range.end }
+        val leadingGlue = firstCluster
+            ?.takeIf { segment.range.start == it.range.start }
+            ?.let { geometryByRange[it.range] }
+            ?.let { (it.leadingGlueNatural - it.leadingGlueConsumed).coerceAtLeast(0f) }
+            ?: 0f
+        val trailingGlue = lastCluster
+            ?.takeIf { segment.range.end == it.range.end }
+            ?.let { geometryByRange[it.range] }
+            ?.let { (it.trailingGlueNatural - it.trailingGlueConsumed).coerceAtLeast(0f) }
+            ?: 0f
+        val left = (segment.left + leadingGlue).coerceAtMost(segment.right)
+        segment.copy(
+            left = left,
+            right = (segment.right - trailingGlue).coerceAtLeast(left),
+        )
+    }
+}
+
+/**
+ * Resolves the physical center line used by Tiqian's underline/strike-through renderers.
+ * Consumers drawing a custom stroke style reuse this query instead of guessing from a line box.
+ */
+fun LayoutResult.richTextDecorationLineY(
+    segment: RichTextLineSegment,
+    strokeWidth: Float,
+): Float {
+    require(strokeWidth.isFinite() && strokeWidth >= 0f) { "strokeWidth must be finite and non-negative" }
+    val role = segment.span.role
+    require(role == RichTextRole.Underline || role == RichTextRole.LineThrough) {
+        "richTextDecorationLineY only supports underline and line-through segments"
+    }
+    val style = input.content.spans.lastOrNull {
+        segment.range.start >= it.range.start && segment.range.start < it.range.end
+    }?.style ?: input.textStyle
+    val rawLineY = if (role == RichTextRole.Underline) {
+        segment.baseline + style.fontSize * INTERLINEAR_UNDERLINE_OFFSET_EM
+    } else {
+        segment.baseline - style.fontSize * GENERIC_LINE_THROUGH_OFFSET_EM
+    }
+    return rawLineY.coerceIn(
+        segment.top + strokeWidth / 2f,
+        segment.bottom - strokeWidth / 2f,
+    )
+}
+
+/**
  * Returns a caret rectangle for [offset]. The x position is derived from Tiqian's cluster advances;
  * inside a multi-code-unit cluster, `SourceRangeLinearClusterSplit` places the caret proportionally.
  */
@@ -255,6 +327,139 @@ fun LayoutResult.getOffsetForPosition(x: Float, y: Float): Int {
         ?: clusters.minBy { minOf(abs(x - it.left), abs(x - it.right)) }
     return cluster.offsetForX(x)
 }
+
+/**
+ * Hit-tests a static-text selection endpoint and snaps it to a safe source interaction boundary.
+ * This retains per-code-point Latin selection inside word layout atoms without ever returning the
+ * middle of a surrogate, combining sequence, emoji ZWJ sequence, or other grouped source unit.
+ */
+fun LayoutResult.getSelectionOffsetForPosition(x: Float, y: Float): Int {
+    if (lines.isEmpty()) return 0
+    val lineIndex = lines.indices.minBy { index ->
+        val line = lines[index]
+        when {
+            y < line.top -> line.top - y
+            y > line.bottom -> y - line.bottom
+            else -> 0f
+        }
+    }
+    val positioned = positionedClusters(lineIndex, lines[lineIndex])
+    if (positioned.isEmpty()) {
+        return coerceSelectionOffset(lines[lineIndex].range.start, SourceBoundaryBias.Nearest)
+    }
+    if (x <= positioned.first().left) {
+        return coerceSelectionOffset(positioned.first().range.start, SourceBoundaryBias.Nearest)
+    }
+    if (x >= positioned.last().right) {
+        return coerceSelectionOffset(positioned.last().range.end, SourceBoundaryBias.Nearest)
+    }
+    val cluster = positioned.firstOrNull { x >= it.left && x <= it.right }
+        ?: positioned.minBy { minOf(abs(x - it.left), abs(x - it.right)) }
+    val rawOffset = cluster.offsetForX(x)
+    val backward = coerceSelectionOffset(rawOffset, SourceBoundaryBias.Backward)
+    val forward = coerceSelectionOffset(rawOffset, SourceBoundaryBias.Forward)
+    if (backward == forward) return backward
+    val backwardDistance = abs(getCursorRect(backward).left - x)
+    val forwardDistance = abs(getCursorRect(forward).left - x)
+    return if (backwardDistance < forwardDistance) backward else forward
+}
+
+/** Coerces an external UTF-16 offset to a safe selection/caret boundary. */
+fun LayoutResult.coerceSelectionOffset(offset: Int, bias: SourceBoundaryBias): Int {
+    val text = input.content.text
+    val clamped = offset.coerceIn(0, text.length)
+    return text.coerceToInteractionBoundary(clamped, TextRange(0, text.length), bias)
+}
+
+/**
+ * Expands a safe source offset to the word selected by a static-text double click.
+ * `SourceInteractionWordExpansion` joins adjacent letter/digit/connector graphemes, keeps Han
+ * ideographs individually selectable, groups adjacent whitespace, and otherwise returns exactly
+ * one source interaction unit. It does not depend on shaping-cluster width or line-break atoms.
+ */
+fun LayoutResult.getSelectionWordBoundary(offset: Int): TextRange {
+    val text = input.content.text
+    if (text.isEmpty()) return TextRange(0, 0)
+    val boundaries = text.interactionBoundaries(TextRange(0, text.length))
+    val clamped = offset.coerceIn(0, text.length)
+    val exactIndex = boundaries.binarySearch(clamped)
+    val unitIndex = when {
+        clamped == text.length -> boundaries.lastIndex - 1
+        exactIndex >= 0 -> exactIndex
+        else -> (-exactIndex - 2).coerceAtLeast(0)
+    }
+    val kind = text.selectionWordKind(boundaries[unitIndex], boundaries[unitIndex + 1])
+    if (kind == SelectionWordKind.Single) {
+        return TextRange(boundaries[unitIndex], boundaries[unitIndex + 1])
+    }
+    var first = unitIndex
+    var last = unitIndex
+    while (
+        first > 0 &&
+        text.selectionWordKind(boundaries[first - 1], boundaries[first]) == kind
+    ) {
+        first--
+    }
+    while (
+        last + 2 < boundaries.size &&
+        text.selectionWordKind(boundaries[last + 1], boundaries[last + 2]) == kind
+    ) {
+        last++
+    }
+    return TextRange(boundaries[first], boundaries[last + 1])
+}
+
+/**
+ * Returns the word/source unit visually under a point. Unlike caret hit testing, a point in the
+ * right half of one Han box still belongs to that ideograph instead of the following insertion
+ * boundary.
+ */
+fun LayoutResult.getSelectionWordBoundaryForPosition(x: Float, y: Float): TextRange? {
+    if (lines.isEmpty() || input.content.text.isEmpty()) return null
+    val lineIndex = lines.indices.minBy { index ->
+        val line = lines[index]
+        when {
+            y < line.top -> line.top - y
+            y > line.bottom -> y - line.bottom
+            else -> 0f
+        }
+    }
+    val positioned = positionedClusters(lineIndex, lines[lineIndex])
+    if (positioned.isEmpty()) return null
+    val cluster = positioned.firstOrNull { x >= it.left && x <= it.right }
+        ?: positioned.minBy { minOf(abs(x - it.left), abs(x - it.right)) }
+    if (cluster.range.isEmpty) return null
+    val sourceUnitOffset = cluster.offsetForX(x)
+        .coerceIn(cluster.range.start, cluster.range.end - 1)
+    return getSelectionWordBoundary(sourceUnitOffset)
+}
+
+private enum class SelectionWordKind { Word, Whitespace, Single }
+
+private fun String.selectionWordKind(start: Int, end: Int): SelectionWordKind {
+    val codePoint = codePointAtCompat(start, end)
+    if (codePoint in SELECTION_MANDATORY_BREAKS) return SelectionWordKind.Single
+    if (codePoint <= Char.MAX_VALUE.code && codePoint.toChar().isWhitespace()) {
+        return SelectionWordKind.Whitespace
+    }
+    if (codePoint.isHanIdeograph()) return SelectionWordKind.Single
+    if (
+        codePoint <= Char.MAX_VALUE.code &&
+        (codePoint.toChar().isLetterOrDigit() || codePoint.toChar() in SELECTION_WORD_CONNECTORS)
+    ) {
+        return SelectionWordKind.Word
+    }
+    return SelectionWordKind.Single
+}
+
+private fun Int.isHanIdeograph(): Boolean =
+    this in 0x3400..0x4DBF ||
+        this in 0x4E00..0x9FFF ||
+        this in 0xF900..0xFAFF ||
+        this in 0x20000..0x323AF
+
+private val SELECTION_WORD_CONNECTORS = setOf('_', '\'', '\u2019')
+private val SELECTION_MANDATORY_BREAKS = setOf(0x000A, 0x000D, 0x0085, 0x2028, 0x2029)
 
 private fun LayoutResult.positionedClusters(lineIndex: Int, line: LineBox): List<PositionedCluster> {
     val leadingConsumed = debug.geometryDecisions

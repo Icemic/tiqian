@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,8 @@ import androidx.compose.ui.use
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.TextStyle
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.ParagraphLayoutEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -34,6 +37,76 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class CjkTextRecompositionTest {
+
+    @Test
+    fun outerMinLinesRemeasureReusesExactEngineResult() {
+        var minLines by mutableStateOf(1)
+        var measuredHeight = 0
+        var layoutCalls = 0
+        val delegate = ExplainableStubParagraphLayoutEngine()
+        val measurer = ParagraphMeasurer(
+            object : ParagraphLayoutEngine {
+                override fun layout(input: org.tiqian.core.LayoutInput): LayoutResult {
+                    layoutCalls += 1
+                    return delegate.layout(input)
+                }
+            },
+        )
+
+        ImageComposeScene(width = 240, height = 180) {
+            CjkText(
+                text = "缓存只复用完全相同的引擎输入。",
+                modifier = Modifier.width(200.dp).onSizeChanged { measuredHeight = it.height },
+                textStyle = CjkTextStyle(fontSize = 20.sp),
+                minLines = minLines,
+                measurer = measurer,
+            )
+        }.use { scene ->
+            scene.render(0L)
+            assertEquals(1, layoutCalls)
+            val oneLineHeight = measuredHeight
+
+            minLines = 3
+            Snapshot.sendApplyNotifications()
+            scene.render(100_000_000L)
+
+            assertEquals(1, layoutCalls, "minLines only changes the outer Compose box")
+            assertTrue(measuredHeight > oneLineHeight)
+        }
+    }
+
+    @Test
+    fun widthChangeInvalidatesExactEngineResult() {
+        var width by mutableStateOf(200.dp)
+        var layoutCalls = 0
+        val delegate = ExplainableStubParagraphLayoutEngine()
+        val measurer = ParagraphMeasurer(
+            object : ParagraphLayoutEngine {
+                override fun layout(input: org.tiqian.core.LayoutInput): LayoutResult {
+                    layoutCalls += 1
+                    return delegate.layout(input)
+                }
+            },
+        )
+
+        ImageComposeScene(width = 240, height = 180) {
+            CjkText(
+                text = "宽度跨越约束时必须重新运行真实布局。",
+                modifier = Modifier.width(width),
+                textStyle = CjkTextStyle(fontSize = 20.sp),
+                measurer = measurer,
+            )
+        }.use { scene ->
+            scene.render(0L)
+            assertEquals(1, layoutCalls)
+
+            width = 160.dp
+            Snapshot.sendApplyNotifications()
+            scene.render(100_000_000L)
+
+            assertEquals(2, layoutCalls)
+        }
+    }
 
     @Test
     fun editingTextStateRepaints() {

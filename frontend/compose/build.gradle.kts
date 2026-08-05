@@ -10,7 +10,7 @@ kotlin {
     android {
         namespace = "org.tiqian.compose"
         compileSdk = 36
-        minSdk = 31
+        minSdk = 23
     }
 
     sourceSets {
@@ -20,22 +20,26 @@ kotlin {
             // runtime + ui carry public-signature types (@Composable, Modifier,
             // AnnotatedString, TextUnit/Color/FontFamily via CjkTextStyle) → api
             // so consumers resolve the Tiqian API without re-declaring them.
-            api(compose.runtime)
-            api(compose.ui)
-            implementation(compose.foundation)
+            api("org.jetbrains.compose.runtime:runtime:1.11.1")
+            api("org.jetbrains.compose.ui:ui:1.11.1")
+            // ScrollState is part of CjkSelectionContainer's public auto-scroll contract.
+            api("org.jetbrains.compose.foundation:foundation:1.11.1")
         }
 
         jvmMain.dependencies {
             implementation(project(":shaping:skia"))
-            implementation(compose.desktop.currentOs)
         }
 
         androidMain.dependencies {
             implementation(project(":shaping:android-adapter"))
+            // Host font catalogs are part of the Android artifact contract.
+            api(project(":shaping:native-font"))
         }
 
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            // Native Skiko runtime belongs to the test/application runtime, not the library POM.
+            implementation(compose.desktop.currentOs)
         }
     }
 }

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.UrlAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
@@ -107,6 +108,44 @@ class CjkTextLinkClickTest {
             scene.render()
             val result = layout ?: error("onTextLayout not called")
             val box = result.getBoundingBoxes("前文".length, "前文链接".length).first()
+            tap(scene, box.center)
+
+            assertEquals(url, opened)
+        }
+    }
+
+    @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+    @Suppress("DEPRECATION")
+    @Test
+    fun tapOnLegacyUrlAnnotationUsesLocalUriHandler() {
+        var opened: String? = null
+        val url = "https://example.com/legacy"
+        val text = buildAnnotatedString {
+            append("旧链接")
+            addUrlAnnotation(UrlAnnotation(url), 0, length)
+        }
+        var layout: LayoutResult? = null
+
+        ImageComposeScene(width = 360, height = 180) {
+            CompositionLocalProvider(
+                LocalUriHandler provides object : UriHandler {
+                    override fun openUri(uri: String) {
+                        opened = uri
+                    }
+                },
+            ) {
+                CjkText(
+                    text = text,
+                    modifier = Modifier.width(340.dp),
+                    style = TextStyle(fontSize = 20.sp),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene ->
+            scene.render()
+            val box = (layout ?: error("onTextLayout not called"))
+                .getBoundingBoxes(0, text.length)
+                .first()
             tap(scene, box.center)
 
             assertEquals(url, opened)

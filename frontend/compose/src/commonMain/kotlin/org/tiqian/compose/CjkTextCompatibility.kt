@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.font.GenericFontFamily
 import androidx.compose.ui.text.style.Hyphens
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.TextUnit
 
 /** U+FFFC OBJECT REPLACEMENT CHARACTER, used by Compose inline content placeholders. */
 private const val InlinePlaceholderChar = '\uFFFC'
+private const val ComposeInlineContentTag = "androidx.compose.foundation.text.inlineContent"
 
 /**
  * Capability report for rendering a Compose [AnnotatedString] through Tiqian without losing
@@ -41,7 +43,9 @@ enum class CjkTextCapabilityIssue {
     LinkAnnotations,
     /** Always-on link styles are supported; focus, hover, and press styles still need stateful rendering. */
     LinkInteractionStyles,
+    /** Retained for binary/source compatibility; legacy URL annotations keep pointer and a11y actions. */
     UrlAnnotations,
+    /** Retained for binary/source compatibility; TTS annotations pass through Compose semantics. */
     TtsAnnotations,
     InlinePlaceholders,
     UnknownStringAnnotations,
@@ -81,15 +85,31 @@ enum class CjkTextCapabilityIssue {
 fun AnnotatedString.cjkTextCompatibility(
     style: ComposeTextStyle = ComposeTextStyle.Default,
     overflow: TextOverflow = TextOverflow.Clip,
+    inlineObjects: List<CjkInlineObject> = emptyList(),
 ): CjkTextCompatibility {
     val issues = linkedSetOf<CjkTextCapabilityIssue>()
 
     if (paragraphStyles.isNotEmpty()) issues += CjkTextCapabilityIssue.ParagraphStyleRanges
-    if (getUrlAnnotations(0, length).isNotEmpty()) issues += CjkTextCapabilityIssue.UrlAnnotations
-    if (getTtsAnnotations(0, length).isNotEmpty()) issues += CjkTextCapabilityIssue.TtsAnnotations
-    if (text.any { it == InlinePlaceholderChar }) issues += CjkTextCapabilityIssue.InlinePlaceholders
+    val modeledInlineRanges = inlineObjects.map { it.range }.toSet()
+    val placeholderOffsets = text.indices.filter { text[it] == InlinePlaceholderChar }
+    val inlineObjectsCoverEveryPlaceholder = placeholderOffsets.all { offset ->
+        TextRange(offset, offset + 1) in modeledInlineRanges
+    }
+    if (!inlineObjectsCoverEveryPlaceholder) {
+        issues += CjkTextCapabilityIssue.InlinePlaceholders
+    }
+    val composeInlineAnnotations = getStringAnnotations(ComposeInlineContentTag, 0, length)
+    val composeInlineAnnotationsAreModeled = composeInlineAnnotations.all { annotation ->
+        TextRange(annotation.start, annotation.end) in modeledInlineRanges
+    }
 
-    val supportedStringTags = setOf(CjkDecorationTag, CjkRubyTag, CjkBopomofoTag, CjkRichTextTag)
+    val supportedStringTags = buildSet {
+        add(CjkDecorationTag)
+        add(CjkRubyTag)
+        add(CjkBopomofoTag)
+        add(CjkRichTextTag)
+        if (composeInlineAnnotationsAreModeled) add(ComposeInlineContentTag)
+    }
     if (getStringAnnotations(0, length).any { it.tag !in supportedStringTags }) {
         issues += CjkTextCapabilityIssue.UnknownStringAnnotations
     }

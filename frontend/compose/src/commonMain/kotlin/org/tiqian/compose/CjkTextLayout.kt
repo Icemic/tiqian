@@ -2,6 +2,7 @@ package org.tiqian.compose
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -14,6 +15,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.FirstBaseline
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
@@ -28,9 +30,14 @@ import androidx.compose.ui.node.invalidateSemantics
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.copyText
+import androidx.compose.ui.semantics.setSelection
 import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.textSelectionRange
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextRange as ComposeTextRange
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
@@ -38,17 +45,22 @@ import org.tiqian.clreq.ClreqProfile
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
+import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LineBox
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextSpan
 import org.tiqian.core.RubySpan
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
+import org.tiqian.core.SourceBoundaryBias
+import org.tiqian.core.coerceSelectionOffset
 import org.tiqian.core.getBoundingBoxes
 import org.tiqian.core.getOffsetForPosition
-import org.tiqian.core.positionedClusters
+import org.tiqian.core.getLineForOffset
 import kotlin.math.ceil
+import kotlin.math.floor
 
 /**
  * Internal renderer node used by the public `CjkText` facades. It takes fully lowered core
@@ -75,6 +87,8 @@ internal fun CjkTextLayout(
     richTextSpans: List<RichTextSpan> = emptyList(),
     spans: List<TextSpan> = emptyList(),
     rubySpans: List<RubySpan> = emptyList(),
+    inlineObjects: List<InlineObjectSpan> = emptyList(),
+    inlineObjectContent: List<CjkInlineObject> = emptyList(),
     softWrap: Boolean = true,
     overflow: TextOverflow = TextOverflow.Visible,
     maxLines: Int = Int.MAX_VALUE,
@@ -83,11 +97,20 @@ internal fun CjkTextLayout(
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     validateTextControls(maxLines, minLines, overflow)
+    require(inlineObjects.size == inlineObjectContent.size) {
+        "Every InlineObjectSpan must have one Compose presentation"
+    }
+    require(inlineObjects.indices.all { index ->
+        val presentation = inlineObjectContent[index]
+        val span = inlineObjects[index]
+        span.range.start == presentation.range.start && span.range.end == presentation.range.end
+    }) {
+        "Inline object layout and presentation ranges must match"
+    }
     // CjkTextLinkClicks: Compose-Text-parity link handling. A tap is hit-tested
     // against the ENGINE's own geometry (getOffsetForPosition + bounding boxes —
     // no hidden Compose Text layout, ADR 0036), then dispatched to the link's
     // LinkInteractionListener, falling back to LocalUriHandler for plain Urls.
-    val hasLinks = semanticsText.hasLinkAnnotations(0, semanticsText.length)
     val latestResult = remember { arrayOfNulls<LayoutResult>(1) }
     val latestOnTextLayout = rememberUpdatedState(onTextLayout)
     val reportLayout: (LayoutResult) -> Unit = remember {
@@ -97,8 +120,18 @@ internal fun CjkTextLayout(
         }
     }
     val uriHandler = LocalUriHandler.current
-    val linkModifier = if (hasLinks) {
-        CjkTextLinkElement(semanticsText, latestResult, uriHandler)
+    val selectionState = LocalCjkSelectionState.current
+    val selectionBridge = remember { CjkTextSelectionBridge() }
+    val inlineObjectPlacements = remember(inlineObjects) {
+        inlineObjects.map { CjkInlineObjectPlacement() }
+    }
+    // Keep the pointer node installed even while the text has no links. Replacing an empty
+    // modifier with a pointer node after an annotation-only update can otherwise leave the new
+    // node without hit-test bounds until a later relayout; updating a stable node also avoids
+    // changing the modifier topology when links appear or disappear.
+    val linkModifier = CjkTextLinkElement(semanticsText, latestResult, uriHandler)
+    val selectionModifier = if (selectionState != null) {
+        Modifier.foundationSelectionGestures(selectionState, selectionBridge)
     } else {
         Modifier
     }
@@ -110,14 +143,56 @@ internal fun CjkTextLayout(
     Box(
         modifier
             .then(linkModifier)
+            .then(selectionModifier)
             .then(
                 CjkTextLayoutElement(
                     text, semanticsText, textStyle, paragraphStyle, color,
-                    decorations, colorSpans, richTextSpans, spans, rubySpans,
+                    decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
                     softWrap, overflow, maxLines, minLines, measurer, reportLayout,
+                    selectionState, selectionBridge, inlineObjectPlacements,
                 ),
             ),
-    )
+    ) {
+        inlineObjectContent.forEachIndexed { index, inlineObject ->
+            key(inlineObject.range.start, inlineObject.range.end) {
+                CjkInlineObjectContent(inlineObject, inlineObjectPlacements[index])
+            }
+        }
+    }
+}
+
+private class CjkInlineObjectPlacement {
+    var left: Float = 0f
+    var top: Float = 0f
+    var visible: Boolean = false
+}
+
+@Composable
+private fun CjkInlineObjectContent(
+    inlineObject: CjkInlineObject,
+    placement: CjkInlineObjectPlacement,
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val widthPx = with(density) { inlineObject.advance.toPx() }
+    val heightPx = with(density) { inlineObject.ascent.toPx() + inlineObject.descent.toPx() }
+    Layout(
+        content = { Box { inlineObject.content() } },
+    ) { measurables, _ ->
+        val width = ceil(widthPx).toInt().coerceAtLeast(1)
+        val height = ceil(heightPx).toInt().coerceAtLeast(1)
+        val placeable = measurables.single().measure(Constraints.fixed(width, height))
+        // This zero-size layout is an overlay: the paragraph node owns the actual measured box.
+        layout(0, 0) {
+            if (placement.visible) {
+                val x = floor(placement.left).toInt()
+                val y = floor(placement.top).toInt()
+                placeable.placeWithLayer(x, y) {
+                    translationX = placement.left - x
+                    translationY = placement.top - y
+                }
+            }
+        }
+    }
 }
 
 private class CjkTextLinkElement(
@@ -180,7 +255,6 @@ private class CjkTextLinkNode(
                 pressedLink = latestResult[0]?.let { linkHitAt(text, it, change.position) }
                 if (pressedLink != null) {
                     pressedPointerId = change.id
-                    change.consume()
                 }
             }
 
@@ -203,10 +277,11 @@ private class CjkTextLinkNode(
                 if (upHit != downHit) return
                 change.consume()
                 val link = upHit.link
-                val listener = link.linkInteractionListener
                 when {
-                    listener != null -> listener.onClick(link)
+                    link?.linkInteractionListener != null ->
+                        link.linkInteractionListener?.onClick(link)
                     link is LinkAnnotation.Url -> uriHandler.openUri(link.url)
+                    upHit.legacyUrl != null -> uriHandler.openUri(upHit.legacyUrl)
                 }
             }
 
@@ -225,23 +300,45 @@ private class CjkTextLinkNode(
 }
 
 private data class LinkHit(
-    val link: LinkAnnotation,
+    val link: LinkAnnotation? = null,
+    val legacyUrl: String? = null,
     val start: Int,
     val end: Int,
 )
 
+/**
+ * The selection pointer modifier must sit outside the layout modifier so Compose hit-tests it
+ * against the paragraph's measured bounds. Both nodes share this narrow bridge; geometry and
+ * source offsets still come exclusively from [CjkTextLayoutNode]'s [LayoutResult].
+ */
+internal class CjkTextSelectionBridge {
+    var selectable: CjkSelectable? = null
+    var coordinates: androidx.compose.ui.layout.LayoutCoordinates? = null
+}
+
+@OptIn(ExperimentalTextApi::class)
+@Suppress("DEPRECATION")
 private fun linkHitAt(text: AnnotatedString, result: LayoutResult, position: Offset): LinkHit? {
     if (text.length == 0) return null
     val offset = result.getOffsetForPosition(position.x, position.y)
     val queryStart = offset.coerceIn(0, text.length - 1)
-    return text.getLinkAnnotations(queryStart, queryStart + 1)
+    val composeLink = text.getLinkAnnotations(queryStart, queryStart + 1)
         .firstOrNull { range ->
             result.getBoundingBoxes(range.start, range.end).any { box ->
                 position.x >= box.left && position.x <= box.right &&
                     position.y >= box.top && position.y <= box.bottom
             }
         }
-        ?.let { LinkHit(it.item, it.start, it.end) }
+        ?.let { LinkHit(link = it.item, start = it.start, end = it.end) }
+    if (composeLink != null) return composeLink
+    return text.getUrlAnnotations(queryStart, queryStart + 1)
+        .firstOrNull { range ->
+            result.getBoundingBoxes(range.start, range.end).any { box ->
+                position.x >= box.left && position.x <= box.right &&
+                    position.y >= box.top && position.y <= box.bottom
+            }
+        }
+        ?.let { LinkHit(legacyUrl = it.item.url, start = it.start, end = it.end) }
 }
 
 /** Backs [CjkTextLayout] — a measure+draw [Modifier.Node] that repaints on update. */
@@ -256,23 +353,29 @@ private class CjkTextLayoutElement(
     private val richTextSpans: List<RichTextSpan>,
     private val spans: List<TextSpan>,
     private val rubySpans: List<RubySpan>,
+    private val inlineObjects: List<InlineObjectSpan>,
     private val softWrap: Boolean,
     private val overflow: TextOverflow,
     private val maxLines: Int,
     private val minLines: Int,
     private val measurer: ParagraphMeasurer,
     private val onTextLayout: (LayoutResult) -> Unit,
+    private val selectionState: CjkSelectionState?,
+    private val selectionBridge: CjkTextSelectionBridge,
+    private val inlineObjectPlacements: List<CjkInlineObjectPlacement>,
 ) : ModifierNodeElement<CjkTextLayoutNode>() {
     override fun create() = CjkTextLayoutNode(
         text, semanticsText, textStyle, paragraphStyle, color,
-        decorations, colorSpans, richTextSpans, spans, rubySpans,
+        decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
         softWrap, overflow, maxLines, minLines, measurer, onTextLayout,
+        selectionState, selectionBridge, inlineObjectPlacements,
     )
 
     override fun update(node: CjkTextLayoutNode) = node.update(
         text, semanticsText, textStyle, paragraphStyle, color,
-        decorations, colorSpans, richTextSpans, spans, rubySpans,
+        decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
         softWrap, overflow, maxLines, minLines, measurer, onTextLayout,
+        selectionState, selectionBridge, inlineObjectPlacements,
     )
 
     override fun equals(other: Any?): Boolean =
@@ -280,10 +383,13 @@ private class CjkTextLayoutElement(
             semanticsText == other.semanticsText && paragraphStyle == other.paragraphStyle && color == other.color &&
             decorations == other.decorations && colorSpans == other.colorSpans &&
             richTextSpans == other.richTextSpans && spans == other.spans &&
-            rubySpans == other.rubySpans && softWrap == other.softWrap &&
+            rubySpans == other.rubySpans && inlineObjects == other.inlineObjects &&
+            softWrap == other.softWrap &&
             overflow == other.overflow && maxLines == other.maxLines &&
             minLines == other.minLines && measurer === other.measurer &&
-            onTextLayout === other.onTextLayout
+            onTextLayout === other.onTextLayout && selectionState === other.selectionState &&
+            selectionBridge === other.selectionBridge &&
+            inlineObjectPlacements === other.inlineObjectPlacements
 
     override fun hashCode(): Int {
         var r = text.hashCode()
@@ -296,12 +402,16 @@ private class CjkTextLayoutElement(
         r = 31 * r + richTextSpans.hashCode()
         r = 31 * r + spans.hashCode()
         r = 31 * r + rubySpans.hashCode()
+        r = 31 * r + inlineObjects.hashCode()
         r = 31 * r + softWrap.hashCode()
         r = 31 * r + overflow.hashCode()
         r = 31 * r + maxLines
         r = 31 * r + minLines
         r = 31 * r + measurer.hashCode()
         r = 31 * r + onTextLayout.hashCode()
+        r = 31 * r + (selectionState?.hashCode() ?: 0)
+        r = 31 * r + selectionBridge.hashCode()
+        r = 31 * r + inlineObjectPlacements.hashCode()
         return r
     }
 }
@@ -317,21 +427,60 @@ private class CjkTextLayoutNode(
     private var richTextSpans: List<RichTextSpan>,
     private var spans: List<TextSpan>,
     private var rubySpans: List<RubySpan>,
+    private var inlineObjects: List<InlineObjectSpan>,
     private var softWrap: Boolean,
     private var overflow: TextOverflow,
     private var maxLines: Int,
     private var minLines: Int,
     private var measurer: ParagraphMeasurer,
     private var onTextLayout: (LayoutResult) -> Unit,
-) : Modifier.Node(), LayoutModifierNode, DrawModifierNode, SemanticsModifierNode {
+    private var selectionState: CjkSelectionState?,
+    private var selectionBridge: CjkTextSelectionBridge,
+    private var inlineObjectPlacements: List<CjkInlineObjectPlacement>,
+) : Modifier.Node(), LayoutModifierNode, DrawModifierNode, SemanticsModifierNode,
+    CjkSelectable {
+
+    /**
+     * `ExactComposeMeasureReuse`: Compose can ask a node to measure again even when the engine input
+     * is unchanged (for example when only `minLines` changes the outer box). Keep exactly one result
+     * at the node that owns it; this avoids a second full shaping/layout pass without introducing a
+     * cross-paragraph cache or weakening any layout/font invalidation boundary.
+     */
+    private data class CachedLayout(
+        val measurer: ParagraphMeasurer,
+        val input: LayoutInput,
+        val inputHash: Int,
+        val result: LayoutResult,
+    ) {
+        fun matches(measurer: ParagraphMeasurer, input: LayoutInput): Boolean =
+            this.measurer === measurer && inputHash == input.hashCode() && this.input == input
+    }
 
     private var result: LayoutResult? = null
+    private var cachedLayout: CachedLayout? = null
+    private var replayIndex: LayoutResultReplayIndex? = null
     private var drawClipWidth: Float = 0f
     private var drawClipHeight: Float = 0f
     private var drawClipLeft: Float = 0f
     private var drawClipTop: Float = 0f
     private var drawClipRight: Float = 0f
     private var drawClipBottom: Float = 0f
+    override var selectionCoordinates: androidx.compose.ui.layout.LayoutCoordinates? = null
+        private set
+    override val selectionText: AnnotatedString
+        get() = semanticsText
+
+    override fun onAttach() {
+        selectionBridge.selectable = this
+        selectionBridge.coordinates?.let(::updateSelectionCoordinates)
+        selectionState?.register(this)
+    }
+
+    override fun onDetach() {
+        selectionState?.unregister(this)
+        if (selectionBridge.selectable === this) selectionBridge.selectable = null
+        selectionCoordinates = null
+    }
 
     fun update(
         text: String,
@@ -344,12 +493,16 @@ private class CjkTextLayoutNode(
         richTextSpans: List<RichTextSpan>,
         spans: List<TextSpan>,
         rubySpans: List<RubySpan>,
+        inlineObjects: List<InlineObjectSpan>,
         softWrap: Boolean,
         overflow: TextOverflow,
         maxLines: Int,
         minLines: Int,
         measurer: ParagraphMeasurer,
         onTextLayout: (LayoutResult) -> Unit,
+        selectionState: CjkSelectionState?,
+        selectionBridge: CjkTextSelectionBridge,
+        inlineObjectPlacements: List<CjkInlineObjectPlacement>,
     ) {
         validateTextControls(maxLines, minLines, overflow)
         // Split invalidation like BasicText: layout-affecting params re-measure
@@ -376,12 +529,16 @@ private class CjkTextLayoutNode(
         val layoutChanged = text != this.text || textStyle != this.textStyle ||
             paragraphStyle != this.paragraphStyle || decorations != this.decorations ||
             spans != this.spans || rubySpans != this.rubySpans ||
+            inlineObjects != this.inlineObjects ||
             softWrap != this.softWrap || maxLines != this.maxLines ||
             minLines != this.minLines || measurer !== this.measurer ||
-            oldSourceBoundaries != newSourceBoundaries
+            oldSourceBoundaries != newSourceBoundaries ||
+            inlineObjectPlacements !== this.inlineObjectPlacements
+        val richTextChanged = richTextSpans != this.richTextSpans
         val drawChanged = color != this.color || colorSpans != this.colorSpans ||
-            richTextSpans != this.richTextSpans || overflow != this.overflow
+            richTextChanged || overflow != this.overflow
         val semanticsChanged = semanticsText != this.semanticsText
+        val oldSelectionState = this.selectionState
         val callbackChanged = onTextLayout !== this.onTextLayout
         this.text = text
         this.semanticsText = semanticsText
@@ -393,16 +550,36 @@ private class CjkTextLayoutNode(
         this.richTextSpans = richTextSpans
         this.spans = spans
         this.rubySpans = rubySpans
+        this.inlineObjects = inlineObjects
         this.softWrap = softWrap
         this.overflow = overflow
         this.maxLines = maxLines
         this.minLines = minLines
         this.measurer = measurer
         this.onTextLayout = onTextLayout
+        this.selectionState = selectionState
+        this.inlineObjectPlacements = inlineObjectPlacements
+        if (this.selectionBridge !== selectionBridge) {
+            if (this.selectionBridge.selectable === this) this.selectionBridge.selectable = null
+            this.selectionBridge = selectionBridge
+            if (isAttached) {
+                selectionBridge.selectable = this
+                selectionBridge.coordinates?.let(::updateSelectionCoordinates)
+            }
+        }
+        if (oldSelectionState !== selectionState) {
+            oldSelectionState?.unregister(this)
+            if (isAttached) selectionState?.register(this)
+            invalidateDraw()
+            invalidateSemantics()
+        } else if (semanticsChanged) {
+            selectionState?.selectableChanged(this, textChanged = true)
+        }
         if (layoutChanged) {
             invalidateMeasurement()
             invalidateDraw()
         } else if (drawChanged) {
+            if (richTextChanged) replayIndex = result?.toReplayIndex(richTextSpans)
             invalidateDraw()
         }
         if (semanticsChanged) invalidateSemantics()
@@ -414,32 +591,135 @@ private class CjkTextLayoutNode(
 
     override fun SemanticsPropertyReceiver.applySemantics() {
         text = this@CjkTextLayoutNode.semanticsText
+        val state = selectionState ?: return
+        val range = state.rangeFor(this@CjkTextLayoutNode)
+        textSelectionRange = ComposeTextRange(range?.start ?: 0, range?.end ?: 0)
+        setSelection { start, end, _ ->
+            state.setSelectionFromSemantics(this@CjkTextLayoutNode, start, end)
+        }
+        if (range != null && !range.isEmpty) {
+            copyText { state.copySelection() }
+        }
+    }
+
+    override fun updateSelectionCoordinates(coordinates: androidx.compose.ui.layout.LayoutCoordinates) {
+        selectionCoordinates = coordinates
+        selectionState?.selectableChanged(this)
+    }
+
+    override fun selectionOffsetAt(localPosition: Offset): Int? {
+        val layout = result ?: return null
+        val index = replayIndex ?: return null
+        return index.selectionOffsetForPosition(layout, localPosition.x, localPosition.y)
+    }
+
+    override fun selectionWordRangeAt(localPosition: Offset): org.tiqian.core.TextRange? {
+        val layout = result ?: return null
+        val index = replayIndex ?: return null
+        return index.selectionWordRangeForPosition(layout, localPosition.x, localPosition.y)
+    }
+
+    override fun selectionParagraphRangeAt(localPosition: Offset): org.tiqian.core.TextRange? {
+        val layout = result ?: return null
+        val index = replayIndex ?: return null
+        val source = semanticsText.text
+        if (source.isEmpty()) return org.tiqian.core.TextRange(0, 0)
+        val rawOffset = index.selectionOffsetForPosition(layout, localPosition.x, localPosition.y)
+            .coerceIn(0, source.length)
+        var start = rawOffset
+        while (start > 0 && source[start - 1] != '\n') start--
+        var end = rawOffset
+        while (end < source.length && source[end] != '\n') end++
+        return org.tiqian.core.TextRange(start, end)
+    }
+
+    override fun coerceSelectionOffset(offset: Int, bias: SourceBoundaryBias): Int =
+        result?.coerceSelectionOffset(offset, bias) ?: offset.coerceIn(0, semanticsText.length)
+
+    override fun selectionCursorPosition(offset: Int): Offset? {
+        val layout = result ?: return null
+        val cursor = replayIndex?.cursorRect(layout, offset) ?: return null
+        return Offset(cursor.left, cursor.bottom)
+    }
+
+    override fun selectionLineRange(offset: Int): org.tiqian.core.TextRange? {
+        val layout = result ?: return null
+        val lineIndex = layout.getLineForOffset(offset)
+        return layout.lines.getOrNull(lineIndex)?.range
+    }
+
+    override fun selectionLineLeft(offset: Int): Float {
+        val layout = result ?: return -1f
+        val lineIndex = layout.getLineForOffset(offset)
+        val line = layout.lines.getOrNull(lineIndex) ?: return -1f
+        return replayIndex?.positionedClustersByLine?.getOrNull(lineIndex)
+            ?.firstOrNull()?.left ?: line.indent
+    }
+
+    override fun selectionLineRight(offset: Int): Float {
+        val layout = result ?: return -1f
+        val lineIndex = layout.getLineForOffset(offset)
+        val line = layout.lines.getOrNull(lineIndex) ?: return -1f
+        return replayIndex?.positionedClustersByLine?.getOrNull(lineIndex)
+            ?.lastOrNull()?.right ?: line.indent
+    }
+
+    override fun selectionLineCenterY(offset: Int): Float {
+        val layout = result ?: return -1f
+        val lineIndex = layout.getLineForOffset(offset)
+        val line = layout.lines.getOrNull(lineIndex) ?: return -1f
+        return (line.top + line.bottom) / 2f
+    }
+
+    override fun selectionLineHeight(offset: Int): Float {
+        val layout = result ?: return 0f
+        val lineIndex = layout.getLineForOffset(offset)
+        val line = layout.lines.getOrNull(lineIndex) ?: return 0f
+        return line.bottom - line.top
+    }
+
+    override fun selectionBoxes(range: org.tiqian.core.TextRange): List<org.tiqian.core.Rect> =
+        result?.let { layout -> replayIndex?.selectionBoxes(layout, range) }.orEmpty()
+
+    override fun invalidateSelection() {
+        invalidateDraw()
+        invalidateSemantics()
     }
 
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
         val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else DEFAULT_UNBOUNDED_WIDTH
         val layoutWidth = if (softWrap) maxWidth else DEFAULT_UNBOUNDED_WIDTH
+        val sourceBoundaries = sourceBoundariesFor(
+            textLength = text.length,
+            decorations = decorations,
+            colorSpans = colorSpans,
+            richTextSpans = richTextSpans,
+            spans = spans,
+            rubySpans = rubySpans,
+        )
+        val layoutInput = LayoutInput(
+            content = org.tiqian.core.TiqianTextContent(text, spans, sourceBoundaries),
+            textStyle = textStyle,
+            paragraphStyle = paragraphStyle,
+            constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
+            decorations = decorations,
+            rubySpans = rubySpans,
+            inlineObjects = inlineObjects,
+        )
         // softWrap changes the measurement width; maxLines is an ENGINE constraint
         // (`MaxLinesLineTruncation`, recorded in debug) so [onTextLayout] receives the
         // engine's own explainable result, not a frontend-doctored copy.
-        val laidOut = measurer.measure(
-            text = text,
-            constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
-            textStyle = textStyle,
-            paragraphStyle = paragraphStyle,
-            decorations = decorations,
-            spans = spans,
-            rubySpans = rubySpans,
-            sourceBoundaries = sourceBoundariesFor(
-                textLength = text.length,
-                decorations = decorations,
-                colorSpans = colorSpans,
-                richTextSpans = richTextSpans,
-                spans = spans,
-                rubySpans = rubySpans,
-            ),
-        )
+        val cached = cachedLayout
+        val laidOut = if (cached != null && cached.matches(measurer, layoutInput)) {
+            cached.result
+        } else {
+            measurer.measure(layoutInput).also { measured ->
+                cachedLayout = CachedLayout(measurer, layoutInput, layoutInput.hashCode(), measured)
+            }
+        }
         result = laidOut
+        replayIndex = laidOut.toReplayIndex(richTextSpans)
+        updateInlineObjectPlacements(laidOut, replayIndex, inlineObjects, inlineObjectPlacements)
         onTextLayout(laidOut)
         // The drawn content (incl. 行间装饰 overhang) paints from draw(); the empty inner
         // content is placed at 0. MinLinesHeightReservation: minLines only reserves
@@ -448,10 +728,10 @@ private class CjkTextLayoutNode(
         val lineHeight = laidOut.debug.lineSpacingDecision?.resolvedHeight
             ?: laidOut.lines.firstOrNull()?.let { it.bottom - it.top }
             ?: textStyle.fontSize * 1.5f
-        val placeable = measurable.measure(Constraints.fixed(0, 0))
         val w = ceil(laidOut.size.width).toInt().coerceIn(constraints.minWidth, constraints.maxWidth)
         val h = ceil(maxOf(laidOut.size.height, lineHeight * minLines))
             .toInt().coerceIn(constraints.minHeight, constraints.maxHeight)
+        val placeable = measurable.measure(Constraints.fixed(w, h))
         drawClipWidth = w.toFloat()
         drawClipHeight = h.toFloat()
         // LegalHangingInkClip: TextOverflow.Clip should still paint CJK hanging
@@ -467,8 +747,9 @@ private class CjkTextLayoutNode(
                 line.hyphenAdvance
             maxOf(drawClipWidth, punctuationEdge, hyphenEdge)
         } ?: drawClipWidth
-        val legalClipLeft = laidOut.positionedClusters().minOfOrNull { it.drawX } ?: 0f
-        val paintOverhang = laidOut.visiblePaintOverhang(drawClipWidth, drawClipHeight)
+        val positionedClusters = replayIndex?.positionedClusters.orEmpty()
+        val legalClipLeft = positionedClusters.minOfOrNull { it.drawX } ?: 0f
+        val paintOverhang = laidOut.visiblePaintOverhang(drawClipWidth, drawClipHeight, positionedClusters)
         drawClipLeft = minOf(0f, legalClipLeft, -paintOverhang.left)
         drawClipTop = -paintOverhang.top
         drawClipRight = maxOf(drawClipWidth, legalClipRight, drawClipWidth + paintOverhang.right)
@@ -481,17 +762,49 @@ private class CjkTextLayoutNode(
     }
 
     override fun ContentDrawScope.draw() {
-        result?.let {
+        val result = result
+        val replayIndex = replayIndex
+        if (result != null && replayIndex != null) {
             val drawScope = this
+            val selectionRange = selectionState?.rangeFor(this@CjkTextLayoutNode)
+            val selectionBoxes = selectionRange?.let { replayIndex.selectionBoxes(result, it) }.orEmpty()
+            val selectionColor = selectionRange?.let { selectionState?.selectionBackgroundArgb }
             if (overflow == TextOverflow.Visible) {
-                drawParagraph(it, color, colorSpans, richTextSpans, spans)
+                drawParagraph(result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor)
+                drawContent()
             } else {
                 clipRect(left = drawClipLeft, top = drawClipTop, right = drawClipRight, bottom = drawClipBottom) {
-                    drawScope.drawParagraph(it, color, colorSpans, richTextSpans, spans)
+                    drawScope.drawParagraph(
+                        result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor,
+                    )
+                    drawScope.drawContent()
                 }
             }
+        } else {
+            drawContent()
         }
-        drawContent()
+    }
+}
+
+private fun updateInlineObjectPlacements(
+    result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex?,
+    inlineObjects: List<InlineObjectSpan>,
+    placements: List<CjkInlineObjectPlacement>,
+) {
+    require(inlineObjects.size == placements.size)
+    val positionedByRange = replayIndex?.positionedClusters?.associateBy { it.range }.orEmpty()
+    inlineObjects.forEachIndexed { index, inlineObject ->
+        val placement = placements[index]
+        val positioned = positionedByRange[inlineObject.range]
+        placement.visible = positioned != null
+        if (positioned != null) {
+            // InlineObjectPaintOrigin: [left] is the cluster's occupied selection box and can
+            // include leading autospace/glue. The opaque child replaces glyph paint, so it must
+            // start at the same final draw origin a glyph run would use.
+            placement.left = positioned.drawX
+            placement.top = positioned.baseline - inlineObject.ascent
+        }
     }
 }
 
@@ -520,8 +833,11 @@ private data class PaintOverhang(
  * Paint may exceed a visible cluster's occupied box (for example an italic glyph or 着重号), but
  * normal text whose occupied box lies beyond the node is still overflow and must remain clipped.
  */
-private fun LayoutResult.visiblePaintOverhang(width: Float, height: Float): PaintOverhang {
-    val positions = positionedClusters()
+private fun LayoutResult.visiblePaintOverhang(
+    width: Float,
+    height: Float,
+    positions: List<org.tiqian.core.PositionedCluster>,
+): PaintOverhang {
     val positionsByRange = positions.associateBy { it.range }
     var left = 0f
     var top = 0f
@@ -649,10 +965,12 @@ internal expect fun rememberPlatformParagraphMeasurer(profile: ClreqProfile): Pa
 
 internal expect fun ContentDrawScope.drawParagraph(
     result: LayoutResult,
+    replayIndex: LayoutResultReplayIndex,
     color: Int,
     colorSpans: List<ColorSpan>,
-    richTextSpans: List<RichTextSpan>,
     spans: List<TextSpan>,
+    selectionBoxes: List<org.tiqian.core.Rect>,
+    selectionColor: Int?,
 )
 
 private const val DEFAULT_UNBOUNDED_WIDTH = 65_536f

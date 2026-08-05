@@ -24,11 +24,13 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import org.tiqian.compose.CjkBlock
+import org.tiqian.compose.CjkSelectionContainer
 import org.tiqian.compose.CjkText
 import org.tiqian.compose.CjkTextStyle
 import org.tiqian.compose.ListMarker
@@ -44,30 +46,49 @@ import org.tiqian.compose.ruby
 fun TiqianDemoScreen() {
     // CjkTextStyle: `.sp` is lowered to engine px via density inside the composable.
     val textStyle = CjkTextStyle(fontSize = 15.sp)
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+    val scrollState = rememberScrollState()
+    CjkSelectionContainer(
+        modifier = Modifier.fillMaxSize(),
+        scrollState = scrollState,
     ) {
-        // 实时重排：在输入框打字，下面这段会跟着重新排版（measure+draw Modifier.Node）。
-        var draft by remember { mutableStateOf("在这里打字，看我实时重排……") }
-        TextField(
-            value = draft,
-            modifier = Modifier.fillMaxWidth(),
-            onValueChange = { draft = it },
-        )
-        CjkText(text = draft, modifier = Modifier.fillMaxWidth(), textStyle = textStyle)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .verticalScroll(scrollState)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            // 实时重排：在输入框打字，下面这段会跟着重新排版（measure+draw Modifier.Node）。
+            var draft by remember { mutableStateOf("在这里打字，看我实时重排；也可以拖选、双击并复制。") }
+            TextField(
+                value = draft,
+                modifier = Modifier.fillMaxWidth(),
+                onValueChange = { draft = it },
+            )
+            CjkText(text = draft, modifier = Modifier.fillMaxWidth(), textStyle = textStyle)
 
-        // 小品文：把目前的排版能力一次用全。
-        CjkText(
-            blocks = remember { essayBlocks() },
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = textStyle,
-        )
+            CjkText(
+                text = remember {
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                            append("“开标点与句末标点。”")
+                        }
+                        append(" 下划线只画字身，不吃首尾标点 glue。")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = textStyle,
+            )
+
+            // 小品文：把目前的排版能力一次用全。
+            CjkText(
+                blocks = remember { essayBlocks() },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = textStyle,
+            )
+        }
     }
 }
 

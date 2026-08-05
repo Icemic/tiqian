@@ -30,15 +30,17 @@ class ParagraphMeasurer(
         spans: List<TextSpan> = emptyList(),
         rubySpans: List<RubySpan> = emptyList(),
         sourceBoundaries: Set<Int> = emptySet(),
-    ): LayoutResult =
-        engine.layout(
-            LayoutInput(
-                content = TiqianTextContent(text, spans, sourceBoundaries),
-                textStyle = textStyle,
-                paragraphStyle = paragraphStyle,
-                constraints = constraints,
-                decorations = decorations,
-                rubySpans = rubySpans,
-            ),
-        )
+    ): LayoutResult = measure(
+        LayoutInput(
+            content = TiqianTextContent(text, spans, sourceBoundaries),
+            textStyle = textStyle,
+            paragraphStyle = paragraphStyle,
+            constraints = constraints,
+            decorations = decorations,
+            rubySpans = rubySpans,
+        ),
+    )
+
+    /** Internal exact-input entry used by the Compose node's one-result cache. */
+    internal fun measure(input: LayoutInput): LayoutResult = engine.layout(input)
 }

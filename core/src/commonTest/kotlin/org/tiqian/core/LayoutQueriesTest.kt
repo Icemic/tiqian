@@ -211,6 +211,77 @@ class LayoutQueriesTest {
     }
 
     @Test
+    fun richTextDecorationTrimsOnlyOuterPunctuationGlue() {
+        val result = punctuationGlueResult()
+        val underline = RichTextSpan(
+            TextRange(0, 4),
+            RichTextRole.Underline,
+        )
+
+        val occupied = result.positionedRichTextSegments(listOf(underline)).single()
+        val decoration = result.trimmedRichTextDecorationSegments(listOf(occupied)).single()
+
+        assertEquals(Rect(0f, 0f, 40f, 20f), occupied.rect)
+        assertEquals(Rect(5f, 0f, 35f, 20f), decoration.rect)
+        assertEquals(TextRange(0, 4), decoration.range)
+    }
+
+    @Test
+    fun richTextDecorationKeepsPunctuationGlueInsideItsRange() {
+        val result = punctuationGlueResult()
+        val underline = RichTextSpan(
+            TextRange(1, 4),
+            RichTextRole.Underline,
+        )
+
+        val decoration = result.trimmedRichTextDecorationSegments(
+            result.positionedRichTextSegments(listOf(underline)),
+        ).single()
+
+        // The closing mark at 1..2 is internal, so its trailing glue remains part of the
+        // continuous line; only the final closing mark's outer trailing glue is removed.
+        assertEquals(Rect(10f, 0f, 35f, 20f), decoration.rect)
+    }
+
+    @Test
+    fun richTextDecorationDoesNotTrimAlreadyConsumedOpeningGlueTwice() {
+        val original = punctuationGlueResult()
+        val result = original.copy(
+            debug = original.debug.copy(
+                geometryDecisions = original.debug.geometryDecisions.map { geometry ->
+                    if (geometry.range == TextRange(0, 1)) {
+                        geometry.copy(leadingGlueConsumed = geometry.leadingGlueNatural)
+                    } else {
+                        geometry
+                    }
+                },
+            ),
+        )
+        val underline = RichTextSpan(TextRange(0, 1), RichTextRole.Underline)
+
+        val decoration = result.trimmedRichTextDecorationSegments(
+            result.positionedRichTextSegments(listOf(underline)),
+        ).single()
+
+        assertEquals(0f, decoration.left)
+    }
+
+    @Test
+    fun customLineStylesReuseTheRendererUnderlineHeight() {
+        val result = punctuationGlueResult()
+        val underline = RichTextSpan(TextRange(0, 4), RichTextRole.Underline)
+        val segment = result.trimmedRichTextDecorationSegments(
+            result.positionedRichTextSegments(listOf(underline)),
+        ).single()
+
+        assertEquals(
+            segment.baseline + result.input.textStyle.fontSize * 0.18f,
+            result.richTextDecorationLineY(segment, strokeWidth = 1f),
+            0.001f,
+        )
+    }
+
+    @Test
     fun hitTestingChoosesOffsetFromTiqianClusterAdvances() {
         val result = sampleResult()
 
@@ -219,6 +290,51 @@ class LayoutQueriesTest {
         assertEquals(2, result.getOffsetForPosition(24f, 5f))
         assertEquals(3, result.getOffsetForPosition(4f, 25f))
         assertEquals(4, result.getOffsetForPosition(30f, 25f))
+    }
+
+    @Test
+    fun selectionHitTestingKeepsSupportedSourceSequencesAtomic() {
+        val result = interactionBoundaryResult()
+
+        assertEquals(0, result.getSelectionOffsetForPosition(5f, 10f))
+        assertEquals(2, result.getSelectionOffsetForPosition(15f, 10f))
+        assertEquals(2, result.getSelectionOffsetForPosition(25f, 10f))
+        assertEquals(4, result.getSelectionOffsetForPosition(35f, 10f))
+        assertEquals(4, result.getSelectionOffsetForPosition(45f, 10f))
+        assertEquals(9, result.getSelectionOffsetForPosition(75f, 10f))
+    }
+
+    @Test
+    fun externalSelectionOffsetsRespectDirectionalBoundaryBias() {
+        val result = interactionBoundaryResult()
+
+        assertEquals(2, result.coerceSelectionOffset(3, SourceBoundaryBias.Backward))
+        assertEquals(4, result.coerceSelectionOffset(3, SourceBoundaryBias.Forward))
+        assertEquals(4, result.coerceSelectionOffset(3, SourceBoundaryBias.Nearest))
+        assertEquals(4, result.coerceSelectionOffset(6, SourceBoundaryBias.Backward))
+        assertEquals(9, result.coerceSelectionOffset(6, SourceBoundaryBias.Forward))
+    }
+
+    @Test
+    fun supportedSourceSequenceRemainsAtomicAcrossEngineClusterBoundaries() {
+        val result = crossClusterInteractionBoundaryResult()
+
+        assertEquals(0, result.coerceSelectionOffset(1, SourceBoundaryBias.Backward))
+        assertEquals(2, result.coerceSelectionOffset(1, SourceBoundaryBias.Forward))
+        assertEquals(0, result.getSelectionOffsetForPosition(8f, 10f))
+        assertEquals(2, result.getSelectionOffsetForPosition(12f, 10f))
+    }
+
+    @Test
+    fun selectionWordBoundaryExpandsLatinButKeepsHanAtomic() {
+        val result = wordBoundaryResult()
+
+        assertEquals(TextRange(2, 10), result.getSelectionWordBoundary(6))
+        assertEquals(TextRange(0, 1), result.getSelectionWordBoundary(0))
+        assertEquals(TextRange(1, 2), result.getSelectionWordBoundary(1))
+        assertEquals(TextRange(11, 12), result.getSelectionWordBoundary(12))
+        assertEquals(TextRange(0, 1), result.getSelectionWordBoundaryForPosition(5f, 10f))
+        assertEquals(TextRange(2, 10), result.getSelectionWordBoundaryForPosition(60f, 10f))
     }
 
     @Test
@@ -275,6 +391,150 @@ class LayoutQueriesTest {
                     visualWidth = 10f,
                 ),
             ),
+        )
+
+    private fun punctuationGlueResult(): LayoutResult =
+        LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent("（，中）"),
+                textStyle = TextStyle(fontSize = 10f),
+                constraints = LayoutConstraints(maxWidth = 40f),
+            ),
+            size = Size(40f, 20f),
+            clusters = listOf(
+                Cluster(TextRange(0, 1), "（", fontKey = "cjk", advance = 10f),
+                Cluster(TextRange(1, 2), "，", fontKey = "cjk", advance = 10f),
+                Cluster(TextRange(2, 3), "中", fontKey = "cjk", advance = 10f),
+                Cluster(TextRange(3, 4), "）", fontKey = "cjk", advance = 10f),
+            ),
+            glyphRuns = emptyList(),
+            lines = listOf(
+                LineBox(
+                    range = TextRange(0, 4),
+                    clusterRange = 0..3,
+                    baseline = 15f,
+                    top = 0f,
+                    bottom = 20f,
+                    naturalWidth = 40f,
+                    adjustedWidth = 40f,
+                    visualWidth = 40f,
+                ),
+            ),
+            debug = LayoutDebugInfo(
+                geometryDecisions = listOf(
+                    punctuationGeometry(TextRange(0, 1), "（", leadingGlue = 5f),
+                    punctuationGeometry(TextRange(1, 2), "，", trailingGlue = 5f),
+                    punctuationGeometry(TextRange(2, 3), "中"),
+                    punctuationGeometry(TextRange(3, 4), "）", trailingGlue = 5f),
+                ),
+            ),
+        )
+
+    private fun interactionBoundaryResult(): LayoutResult =
+        LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent("😀e\u0301👩‍👩"),
+                textStyle = TextStyle(fontSize = 10f),
+                constraints = LayoutConstraints(maxWidth = 90f),
+            ),
+            size = Size(90f, 20f),
+            clusters = listOf(
+                Cluster(TextRange(0, 2), "😀", fontKey = "emoji", advance = 20f),
+                Cluster(TextRange(2, 4), "e\u0301", fontKey = "latin", advance = 20f),
+                Cluster(TextRange(4, 9), "👩‍👩", fontKey = "emoji", advance = 50f),
+            ),
+            glyphRuns = emptyList(),
+            lines = listOf(
+                LineBox(
+                    range = TextRange(0, 9),
+                    clusterRange = 0..2,
+                    baseline = 15f,
+                    top = 0f,
+                    bottom = 20f,
+                    naturalWidth = 90f,
+                    adjustedWidth = 90f,
+                    visualWidth = 90f,
+                ),
+            ),
+        )
+
+    private fun wordBoundaryResult(): LayoutResult =
+        LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent("前 template 后"),
+                textStyle = TextStyle(fontSize = 10f),
+                constraints = LayoutConstraints(maxWidth = 120f),
+            ),
+            size = Size(120f, 20f),
+            clusters = listOf(
+                Cluster(TextRange(0, 1), "前", fontKey = "cjk", advance = 10f),
+                Cluster(TextRange(1, 2), " ", fontKey = "latin", advance = 10f),
+                Cluster(TextRange(2, 10), "template", fontKey = "latin", advance = 80f),
+                Cluster(TextRange(10, 11), " ", fontKey = "latin", advance = 10f),
+                Cluster(TextRange(11, 12), "后", fontKey = "cjk", advance = 10f),
+            ),
+            glyphRuns = emptyList(),
+            lines = listOf(
+                LineBox(
+                    range = TextRange(0, 12),
+                    clusterRange = 0..4,
+                    baseline = 15f,
+                    top = 0f,
+                    bottom = 20f,
+                    naturalWidth = 120f,
+                    adjustedWidth = 120f,
+                    visualWidth = 120f,
+                ),
+            ),
+        )
+
+    private fun crossClusterInteractionBoundaryResult(): LayoutResult =
+        LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent("e\u0301"),
+                textStyle = TextStyle(fontSize = 10f),
+                constraints = LayoutConstraints(maxWidth = 20f),
+            ),
+            size = Size(20f, 20f),
+            clusters = listOf(
+                Cluster(TextRange(0, 1), "e", fontKey = "latin", advance = 10f),
+                Cluster(TextRange(1, 2), "\u0301", fontKey = "latin", advance = 10f),
+            ),
+            glyphRuns = emptyList(),
+            lines = listOf(
+                LineBox(
+                    range = TextRange(0, 2),
+                    clusterRange = 0..1,
+                    baseline = 15f,
+                    top = 0f,
+                    bottom = 20f,
+                    naturalWidth = 20f,
+                    adjustedWidth = 20f,
+                    visualWidth = 20f,
+                ),
+            ),
+        )
+
+    private fun punctuationGeometry(
+        range: TextRange,
+        text: String,
+        leadingGlue: Float = 0f,
+        trailingGlue: Float = 0f,
+    ): ClusterGeometryDecisionInfo =
+        ClusterGeometryDecisionInfo(
+            range = range,
+            sourceText = text,
+            displayText = text,
+            baseAdvance = 10f,
+            bodyWidth = 10f - leadingGlue - trailingGlue,
+            leadingGlueNatural = leadingGlue,
+            leadingGlueConsumed = 0f,
+            trailingGlueNatural = trailingGlue,
+            trailingGlueConsumed = 0f,
+            justificationDelta = 0f,
+            resolvedAdvance = 10f,
+            source = "test",
+            reason = "PunctuationGlueTest",
         )
 
     private fun rubySelectionResult(): LayoutResult =

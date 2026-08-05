@@ -149,6 +149,36 @@ class RichTextRenderTest {
         assertEquals(templateRight, underline.right, absoluteTolerance = 0.01f)
         assertEquals(punctuationCluster.left, underline.right, absoluteTolerance = 0.01f)
     }
+
+    @Test
+    fun underlineIncludingPunctuationTrimsOpeningAndClosingGlue() {
+        val text = buildAnnotatedString {
+            append("甲")
+            withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                append("（乙）")
+            }
+            append("丙")
+        }
+        val result = ParagraphMeasurer(ExplainableStubParagraphLayoutEngine()).measure(
+            text = text,
+            constraints = org.tiqian.core.LayoutConstraints(maxWidth = 400f),
+            density = Density(1f),
+            textStyle = CjkTextStyle(fontSize = 16.sp),
+        )
+        val underlineSpan = text.cjkRichTextSpans().single { it.role == RichTextRole.Underline }
+        val replayIndex = result.toReplayIndex(listOf(underlineSpan))
+        val occupied = replayIndex.richTextSegments.single()
+        val underline = replayIndex.richTextDecorationSegments.single()
+        val openingGeometry = result.debug.geometryDecisions.single { it.range == TextRange(1, 2) }
+        val closingGeometry = result.debug.geometryDecisions.single { it.range == TextRange(3, 4) }
+        val leadingGlue = openingGeometry.leadingGlueNatural - openingGeometry.leadingGlueConsumed
+        val trailingGlue = closingGeometry.trailingGlueNatural - closingGeometry.trailingGlueConsumed
+
+        assertTrue(leadingGlue > 0f, "test requires remaining opening-punctuation glue")
+        assertTrue(trailingGlue > 0f, "test requires remaining closing-punctuation glue")
+        assertEquals(occupied.left + leadingGlue, underline.left, absoluteTolerance = 0.01f)
+        assertEquals(occupied.right - trailingGlue, underline.right, absoluteTolerance = 0.01f)
+    }
 }
 
 private const val INTERLINEAR_UNDERLINE_OFFSET_EM_FOR_TEST = 0.18f

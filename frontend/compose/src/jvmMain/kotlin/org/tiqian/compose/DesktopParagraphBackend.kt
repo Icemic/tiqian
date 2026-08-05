@@ -14,8 +14,8 @@ internal actual fun rememberPlatformParagraphMeasurer(profile: ClreqProfile): Pa
         ParagraphMeasurer(
             ExplainableStubParagraphLayoutEngine(
                 lineBreaker = LookaheadLineBreaker(),
-                textShaper = SkiaTextShaper(),
-                fontMetricsResolver = SkiaFontMetricsResolver(),
+                textShaper = BoundedComposeTextShaperCache(SkiaTextShaper()),
+                fontMetricsResolver = BoundedComposeFontMetricsCache(SkiaFontMetricsResolver()),
                 clreqProfileResolver = { profile },
             ),
         )

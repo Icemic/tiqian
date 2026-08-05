@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "org.tiqian.demo.android"
-        minSdk = 31
+        minSdk = 23
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
