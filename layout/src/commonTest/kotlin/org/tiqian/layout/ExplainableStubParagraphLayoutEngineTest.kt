@@ -1718,8 +1718,10 @@ class ExplainableStubParagraphLayoutEngineTest {
         val line = result.lines.single()
         // ADR 0002 amendment: real baseline at the typo ascent (0.88em), not the
         // em centre. Box height = CjkBodyLineHeightDefault 1.5em = 24f; the
-        // 0.5em leading splits evenly, so baseline = 4 + 14.08.
-        assertEquals(18.08f, line.baseline)
+        // 0.5em leading splits evenly, so baseline = 4 + 14.08. The resolved
+        // baseline is carried in a FloatArray, which Kotlin/JS rounds to true
+        // Float precision, so compare with the same tolerance as RubyLayoutTest.
+        assertEquals(18.08f, line.baseline, 0.001f)
         assertEquals(24f, line.bottom)
         val cjk = result.debug.metricDecisions.first { it.role == "CjkText" }
         assertEquals(14.08f, cjk.layoutAscent)
