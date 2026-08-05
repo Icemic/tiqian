@@ -20,13 +20,12 @@ subprojects {
 
     plugins.withId("org.jetbrains.kotlin.multiplatform") {
         extensions.configure<KotlinMultiplatformExtension>("kotlin") {
-            // Uniform JDK 25 toolchain (provisioned via foojay resolver) so
-            // compile and test always run on the same JVM regardless of the
-            // daemon's own Java version.
+            // Compile and test with the uniform provisioned JDK 25 toolchain, but emit Java 17
+            // bytecode so published JVM libraries do not impose the build JDK on consumers.
             jvmToolchain(25)
             jvm {
                 compilerOptions {
-                    jvmTarget.set(JvmTarget.JVM_25)
+                    jvmTarget.set(JvmTarget.JVM_17)
                 }
             }
         }
