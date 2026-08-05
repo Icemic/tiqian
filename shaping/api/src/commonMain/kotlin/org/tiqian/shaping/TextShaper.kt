@@ -18,6 +18,8 @@ data class ShapingInput(
     val style: TextStyle,
     val fontDecision: FontDecision,
     val displayText: String = text.substring(range.start, range.end),
+    /** Explicit non-default OpenType features required by this replay run. */
+    val openTypeFeatures: List<String> = emptyList(),
 )
 
 data class ShapingResult(

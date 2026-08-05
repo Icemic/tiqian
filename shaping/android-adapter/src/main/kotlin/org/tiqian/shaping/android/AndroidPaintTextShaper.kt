@@ -1,6 +1,8 @@
 package org.tiqian.shaping.android
 
+import android.annotation.TargetApi
 import android.graphics.RectF as AndroidRectF
+import android.os.Build
 import android.graphics.Typeface
 import android.graphics.text.PositionedGlyphs
 import android.graphics.text.TextRunShaper
@@ -41,6 +43,7 @@ import kotlin.math.max
  *   [PositionedGlyphs] glyph ids/fonts as drawing. This keeps skip-ink at
  *   glyph granularity instead of collapsing a whole Latin word to one bounds box.
  */
+@TargetApi(31)
 class AndroidPaintTextShaper(
     private val typefaceResolver: AndroidTypefaceResolver = SystemAndroidTypefaceResolver(),
     private val paintConfigurator: (TextPaint, ShapingInput) -> Unit = { _, _ -> },
@@ -106,6 +109,7 @@ class AndroidPaintTextShaper(
             fontKey = input.fontDecision.candidate.key,
             glyphs = glyphs,
             advance = advance,
+            openTypeFeatures = input.openTypeFeatures,
         )
         val decision = ShapingDecisionInfo(
             range = input.range,
@@ -234,6 +238,7 @@ class AndroidPaintTextShaper(
             textSize = input.style.fontSize
             textLocale = Locale.forLanguageTag(input.style.locale)
             typeface = typefaceResolver.resolve(input)
+            input.openTypeFeatures.toAndroidFontFeatureSettings()?.let { fontFeatureSettings = it }
             paintConfigurator(this, input)
         }
 
@@ -245,6 +250,16 @@ class AndroidPaintTextShaper(
             right = right,
             bottom = bottom,
         )
+    }
+}
+
+private fun List<String>.toAndroidFontFeatureSettings(): String? {
+    if (isEmpty()) return null
+    return joinToString(",") { feature ->
+        val pieces = feature.split('=', limit = 2)
+        val tag = pieces[0].trim().take(4)
+        val value = pieces.getOrNull(1)?.trim()?.toIntOrNull() ?: 1
+        "'$tag' $value"
     }
 }
 
@@ -269,14 +284,18 @@ interface AndroidTypefaceResolver {
  */
 class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
     private val cjkTypeface: android.graphics.Typeface? =
-        CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
-            val file = java.io.File(path)
-            if (!file.exists()) return@firstNotNullOfOrNull null
-            runCatching {
-                android.graphics.Typeface.Builder(file)
-                    .setTtcIndex(ttcIndex)
-                    .build()
-            }.getOrNull()
+        if (Build.VERSION.SDK_INT >= 26) {
+            CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
+                val file = java.io.File(path)
+                if (!file.exists()) return@firstNotNullOfOrNull null
+                runCatching {
+                    android.graphics.Typeface.Builder(file)
+                        .setTtcIndex(ttcIndex)
+                        .build()
+                }.getOrNull()
+            }
+        } else {
+            null
         }
 
     override fun resolve(input: ShapingInput): android.graphics.Typeface =
@@ -302,7 +321,18 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
         } else {
             cjkTypefaceFor(family) ?: android.graphics.Typeface.DEFAULT
         }
-        return Typeface.create(base, fontWeight.coerceIn(1, 1000), italic)
+        return if (Build.VERSION.SDK_INT >= 28) {
+            Typeface.create(base, fontWeight.coerceIn(1, 1000), italic)
+        } else {
+            val bold = fontWeight >= 600
+            val style = when {
+                bold && italic -> Typeface.BOLD_ITALIC
+                bold -> Typeface.BOLD
+                italic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+            Typeface.create(base, style)
+        }
     }
 
     private fun cjkTypefaceFor(family: String?): Typeface? =

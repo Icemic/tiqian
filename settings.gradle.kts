@@ -51,6 +51,7 @@ include(
     ":shaping:jvm",
     ":shaping:skia",
     ":shaping:android-adapter",
+    ":shaping:native-font",
     ":shaping:web-adapter",
     ":frontend:web",
     ":frontend:web-precompute",

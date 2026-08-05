@@ -1,5 +1,6 @@
 package org.tiqian.shaping.android
 
+import android.annotation.TargetApi
 import android.graphics.fonts.Font
 import java.util.IdentityHashMap
 import java.util.LinkedHashMap
@@ -13,6 +14,7 @@ import java.util.LinkedHashMap
  * string drawing for that cluster instead of retaining every platform Font for
  * the process lifetime.
  */
+@TargetApi(31)
 object AndroidPositionedGlyphFontRegistry {
     private const val MaxRetainedFonts = 512
 

@@ -3,15 +3,25 @@ plugins {
 }
 
 android {
-    namespace = "org.tiqian.shaping.android"
+    namespace = "org.tiqian.shaping.nativefont"
     compileSdk = 36
+    ndkVersion = "29.0.13599879"
 
     defaultConfig {
-        // The artifact remains loadable on the Compose API 23 floor. The
-        // TextRunShaper implementation itself is guarded as an API 31-only
-        // optional comparison/optimization backend.
         minSdk = 23
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.3.2"
+        }
     }
 
     compileOptions {
@@ -24,7 +34,9 @@ dependencies {
     api(project(":shaping:api"))
 
     androidTestImplementation(project(":layout"))
+    androidTestImplementation(project(":shaping:android-adapter"))
     androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation(kotlin("test"))
 }

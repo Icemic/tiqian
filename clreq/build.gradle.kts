@@ -8,7 +8,7 @@ kotlin {
     android {
         namespace = "org.tiqian.clreq"
         compileSdk = 36
-        minSdk = 31
+        minSdk = 23
         withHostTest {}
     }
     js {
