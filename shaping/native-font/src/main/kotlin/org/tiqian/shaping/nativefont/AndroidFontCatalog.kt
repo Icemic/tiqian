@@ -511,7 +511,7 @@ internal object PublicSystemFontsCatalog {
     private fun familyAliases(font: Font): Set<String> {
         val name = font.file?.nameWithoutExtension.orEmpty().lowercase()
         return buildSet {
-            add(name.ifEmpty { "system-${font.sourceIdentifier}" })
+            add(name.ifEmpty { "system-${font.stableSourceId()}" })
             when {
                 "mono" in name -> addAll(listOf("mono", "monospace"))
                 "serif" in name && "sans" !in name -> add("serif")
@@ -519,6 +519,16 @@ internal object PublicSystemFontsCatalog {
             }
         }
     }
+
+    /**
+     * `Font.getSourceIdentifier` only exists on API 31+, but the public `SystemFonts`
+     * enumeration this catalog is built from starts at API 29. Below 31 the enumerated
+     * instances are the identity the catalog actually needs: the id is consumed once,
+     * inside the single [createOrNull] pass, to separate faces that share a file path,
+     * collection index and axis set.
+     */
+    private fun Font.stableSourceId(): Int =
+        if (Build.VERSION.SDK_INT >= 31) sourceIdentifier else System.identityHashCode(this)
 
     private fun Font.variationAxes(): Map<String, Float> =
         axes.orEmpty().associate { axis -> axis.tag to axis.styleValue }.toSortedMap()
@@ -579,7 +589,7 @@ internal object PublicSystemFontsCatalog {
     }
 
     private fun SystemFontInstance.instanceKey(): SystemFontInstanceKey = SystemFontInstanceKey(
-        sourceIdentifier = font.sourceIdentifier,
+        sourceIdentifier = font.stableSourceId(),
         filePath = font.file?.absolutePath,
         collectionIndex = font.ttcIndex,
         variationAxes = variationAxes.entries.map { it.key to it.value.toRawBits() },
@@ -589,7 +599,7 @@ internal object PublicSystemFontsCatalog {
 
     private fun systemFontLabel(font: Font, axes: Map<String, Float>): String = buildString {
         append("SystemFonts:")
-        append(font.file?.absolutePath ?: font.sourceIdentifier)
+        append(font.file?.absolutePath ?: font.stableSourceId())
         if (axes.isNotEmpty()) {
             append('#')
             append(axes.entries.joinToString(",") { (tag, value) -> "$tag=$value" })
