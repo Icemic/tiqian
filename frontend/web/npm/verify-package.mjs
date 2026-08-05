@@ -35,7 +35,14 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
   }
   if (manifest.license !== "MPL-2.0") fail("manifest must declare MPL-2.0");
 
-  for (const required of ["LICENSE", "README.md", "layout-worker.js", "worker-layout.js"]) {
+  for (const required of [
+    "LICENSE",
+    "README.md",
+    "layout-worker.js",
+    "precompute-html.js",
+    "precompute-html.d.ts",
+    "worker-layout.js",
+  ]) {
     const metadata = await stat(new URL(required, packageRoot));
     if (!metadata.isFile() || metadata.size === 0) fail(`${required} is missing or empty`);
     if (!manifest.files.includes(required)) fail(`${required} is absent from files`);

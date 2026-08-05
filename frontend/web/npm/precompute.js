@@ -24,6 +24,7 @@ const FIELD_SEPARATOR = "\u001d";
 const PLAIN_PARAGRAPH_SELECTOR = ":is(p, li)[data-tq-snapshot-key]";
 const RUNTIME_PARAGRAPH_SELECTOR = ":is(p, li):not([data-tiqian-skip])";
 const SNAPSHOT_LOCALE = "zh-Hans";
+const FONT_CONTRACT_CAPTURE_MAX_WIDTH_PX = 16_777_216;
 const SHARED_RUNTIME_STYLE = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 const PARAGRAPH_CAPABILITY_ISSUES = [
   "NoExactFontFace",
@@ -186,6 +187,28 @@ function encodedInlineBoxes(boxes) {
   ].join(FIELD_SEPARATOR)).join(RECORD_SEPARATOR);
 }
 
+/**
+ * WidthIndependentFontEvidenceCaptureMeasure: font contracts capture shaping
+ * and metrics for the complete source, but publish no reusable line geometry.
+ * Give the internal layout pass a source-derived wide measure so callers do
+ * not have to duplicate a browser CSS width merely to collect font evidence.
+ */
+function fontContractCaptureWidth(text, textSpans, inlineBoxes, typography) {
+  const largestFontSize = textSpans.reduce(
+    (largest, span) => Math.max(largest, span.fontSizePx),
+    typography.fontSizePx,
+  );
+  const inlineAdvance = inlineBoxes.reduce(
+    (total, box) => total + Math.abs(box.inlineStartPx) + Math.abs(box.inlineEndPx),
+    0,
+  );
+  const estimatedUnbrokenAdvance = Math.max(1, text.length) * largestFontSize * 2 + inlineAdvance;
+  return Math.min(
+    FONT_CONTRACT_CAPTURE_MAX_WIDTH_PX,
+    Math.max(largestFontSize, estimatedUnbrokenAdvance),
+  );
+}
+
 export function snapshotPlainTextIssue(text) {
   if (text.includes("\uFFFC")) return "UnsupportedInlineObject";
   if (text.includes("\u200D") || /[\uFE00-\uFE0F]/u.test(text)) return "UnsupportedEmojiSequence";
@@ -316,7 +339,9 @@ export async function createPrecomputer(options = {}) {
       const issue = snapshotPlainTextIssue(text);
       if (issue) return unsupportedParagraph(key, issue);
     }
-    const maxWidthPx = Number(input.maxWidthPx);
+    const maxWidthPx = snapshotCandidate
+      ? Number(input.maxWidthPx)
+      : fontContractCaptureWidth(text, textSpans, inlineBoxes, typography);
     if (!Number.isFinite(maxWidthPx) || maxWidthPx <= 0) throw new Error("InvalidMaximumMeasure");
     let plan;
     let fontEvidence;

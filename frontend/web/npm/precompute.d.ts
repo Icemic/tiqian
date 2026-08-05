@@ -95,6 +95,19 @@ export interface SnapshotParagraphInput {
   sourceBoundaries?: readonly number[];
 }
 
+export interface FontContractInput {
+  key: string;
+  text: string;
+  semantics?: readonly SnapshotSemanticSpan[];
+  /** Required with full explicit metrics for every `code` semantic range. */
+  textSpans?: readonly SnapshotTextSpan[];
+  /** Required even for zero edges for every `code` semantic range. */
+  inlineBoxes?: readonly SnapshotInlineBox[];
+  sourceBoundaries?: readonly number[];
+  /** @deprecated Font evidence is width-independent; this value is ignored. */
+  maxWidthPx?: number;
+}
+
 export interface UnsupportedPreparedParagraph {
   readonly status: "unsupported";
   readonly key: string;
@@ -107,7 +120,7 @@ export interface Precomputer {
   readonly renderFontFamilies: readonly string[];
   prepareParagraph(input: SnapshotParagraphInput): Promise<PreparedParagraph | UnsupportedPreparedParagraph>;
   /** Capture exact-font and server-replay evidence for runtime-only or semantic prose. */
-  prepareFontContract(input: SnapshotParagraphInput): Promise<PreparedParagraph | UnsupportedPreparedParagraph>;
+  prepareFontContract(input: FontContractInput): Promise<PreparedParagraph | UnsupportedPreparedParagraph>;
   close(): void;
 }
 

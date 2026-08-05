@@ -55,6 +55,8 @@
     "layout-worker.js",
     "precompute.d.ts",
     "precompute.js",
+    "precompute-html.d.ts",
+    "precompute-html.js",
     "precompute-fonts.js",
     "precompute-node-fonts.js",
     "precompute-runtime/",
@@ -84,6 +86,10 @@
       "types": "./precompute.d.ts",
       "default": "./precompute.js"
     },
+    "./precompute-html": {
+      "types": "./precompute-html.d.ts",
+      "default": "./precompute-html.js"
+    },
     "./snapshot-client": {
       "types": "./snapshot-client.d.ts",
       "default": "./snapshot-client.js"
@@ -98,6 +104,7 @@
   ],
   "dependencies": {
     "harfbuzzjs": "1.4.0",
+    "linkedom": "0.18.13",
     "woff2-encoder": "2.0.0"
   }
 }

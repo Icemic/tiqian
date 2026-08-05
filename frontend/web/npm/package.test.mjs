@@ -18,6 +18,7 @@ test("published package includes the generated runtime and no repository-only bi
   assert.ok(manifest.files.includes("runtime/"));
   assert.ok(manifest.files.includes("precompute-runtime/"));
   assert.ok(manifest.files.includes("precompute-node-fonts.js"));
+  assert.ok(manifest.files.includes("precompute-html.js"));
   assert.ok(manifest.files.includes("browser-font-replay.js"));
   assert.ok(manifest.files.includes("browser-fonts.js"));
   assert.ok(manifest.files.includes("font-face-boundaries.js"));
@@ -29,11 +30,13 @@ test("published package includes the generated runtime and no repository-only bi
   assert.ok(manifest.files.includes("snapshot-client.js"));
   assert.ok(manifest.files.includes("worker-layout.js"));
   assert.equal(manifest.exports["./precompute"].default, "./precompute.js");
+  assert.equal(manifest.exports["./precompute-html"].default, "./precompute-html.js");
   assert.equal(manifest.exports["./snapshot-client"].default, "./snapshot-client.js");
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.exports["./build-runtime"], undefined);
   assert.equal(manifest.dependencies?.puppeteer, undefined);
   assert.equal(manifest.dependencies?.playwright, undefined);
+  assert.equal(manifest.dependencies?.linkedom, "0.18.13");
   assert.ok(manifest.sideEffects.includes("./prepared-dom.js"));
   assert.equal(
     manifest.scripts.prepack,
@@ -120,6 +123,9 @@ test("the precompute public surface matches its declarations", async () => {
   ]);
   assert.match(declarations, /function renderPreparedParagraph\(/u);
   assert.match(declarations, /function renderFontContractBundle\(/u);
+  assert.match(declarations, /interface FontContractInput[\s\S]*?maxWidthPx\?: number/u);
+  assert.match(declarations, /prepareFontContract\(input: FontContractInput\)/u);
+  assert.match(source, /WidthIndependentFontEvidenceCaptureMeasure/u);
   assert.match(declarations, /readonly inertTemplate: string/u);
   assert.doesNotMatch(declarations, /renderPreparedParagraphArtifact/u);
   assert.doesNotMatch(declarations, /renderPreparedParagraphInto/u);

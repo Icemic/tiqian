@@ -1,0 +1,70 @@
+# `@tiqian/sveltekit`
+
+SvelteKit integration for `@tiqian/prose`. Plain component usage keeps the
+server-rendered semantic HTML and enhances it at the live browser width:
+
+```shell
+npm install @tiqian/prose@alpha @tiqian/sveltekit@alpha
+```
+
+```svelte
+<script>
+  import TiqianProse from "@tiqian/sveltekit";
+</script>
+
+<TiqianProse html={post.renderedContent} />
+```
+
+`html` must be HTML the application already trusts or sanitizes. This path needs
+no maximum width, font-file path, or server hook: SSR returns the original
+semantic paragraphs, and Tiqian measures the real browser container before
+enhancing them.
+
+For exact build-time font evidence, create one server integration, pass its
+`handle` from `hooks.server.ts`, and prepare the HTML in a server load:
+
+```ts
+// src/lib/server/tiqian.ts
+import { createTiqianSvelteKit } from "@tiqian/sveltekit/server";
+
+export const tiqian = createTiqianSvelteKit({
+  fontStylesheets: [{ source: new URL("./article.css", import.meta.url), publicUrl: "/article.css" }],
+  typography: { fontFamilies: ["Article Sans"], fontSizePx: 18, lineHeightPx: 32 },
+});
+```
+
+```ts
+// src/hooks.server.ts
+import { tiqian } from "$lib/server/tiqian";
+
+export const handle = tiqian.handle;
+```
+
+```ts
+// src/routes/article/[slug]/+page.server.ts
+import { tiqian } from "$lib/server/tiqian";
+
+export async function load() {
+  const post = await loadPost();
+  return { post, prose: await tiqian.prepare(post.renderedContent) };
+}
+```
+
+```svelte
+<script>
+  import TiqianProse from "@tiqian/sveltekit";
+  let { data } = $props();
+</script>
+
+<TiqianProse prepared={data.prose} />
+```
+
+No maximum width is required. Pass `{ snapshot: { maxWidthPx } }` to
+`prepare()` only when opting into fixed-measure prepared geometry. The server
+hook puts full inert assets in the document head while route data carries only
+the compact bundle needed by client navigation.
+
+Explicit `id` values identify one server-asset payload within a request or the
+retained fallback cache. Reusing an id for different content in the same scope
+throws `ConflictingTiqianSvelteKitAssets`; omit `id` to use the default
+content-derived identity.

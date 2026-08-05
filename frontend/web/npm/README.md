@@ -159,7 +159,6 @@ precomputer 前用 `prepareFontContract()` 只生成字体与度量证据，再�
 const evidence = await precomputer.prepareFontContract({
   key: "intro-font-contract",
   text: "需要在浏览器排版的正文。",
-  maxWidthPx: 720,
 });
 if (evidence.status !== "prepared") {
   throw new Error(evidence.issue);
@@ -173,12 +172,22 @@ const fontBundle = renderFontContractBundle(
 
 `fontBundle` 的注入和客户端注册方式与上面的 `bundle` 相同，`<tiqian-prose>` 仍用
 `snapshot-ref` 引用它的 id；段落布局在浏览器完成，并复用构建期的 shaping 结果，正文段落
-不需要设置 `data-tq-snapshot-key`。
+不需要设置 `data-tq-snapshot-key`。字体证据与最终断行宽度无关，因此这里不需要声明
+`maxWidthPx`；只有前面的固定版心 snapshot 才需要宽度。
+
+## 框架集成
+
+同一仓库还提供独立的 `@tiqian/sveltekit` 与 `@tiqian/astro` 包。最小用法只包裹站点已经渲染的
+正文，即可得到 semantic SSR 和按浏览器真实容器宽度运行的提椠增强；无需声明最大宽度。需要构建期
+exact-font replay 时再配置宿主字体，只有主动开启 fixed-measure snapshot 时才传 `maxWidthPx`。
+
+框架包保持独立，是为了不让普通 `@tiqian/prose` 用户安装 Svelte 或 Astro；它们与核心放在同一仓库，
+以便 snapshot wire 和发布版本始终一起验证。
 
 ## 运行环境
 
 - 包是 ESM-only；CommonJS 宿主需要使用动态 `import()`。
-- `@tiqian/prose/precompute` 需要 Node.js 22 或更高版本。
+- `@tiqian/prose/precompute` 与 `@tiqian/prose/precompute-html` 需要 Node.js 22 或更高版本。
 - 浏览器端 runtime 是纯 JavaScript，不加载 WebAssembly，也不需要特殊的服务器配置。
 
 ## 了解提椠

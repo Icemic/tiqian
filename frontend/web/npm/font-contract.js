@@ -49,7 +49,6 @@ export function requiredCjkDashContractInput(input, typography) {
   return {
     key: String(input.key ?? ""),
     text: probeText,
-    maxWidthPx: input.maxWidthPx,
     textSpans,
   };
 }

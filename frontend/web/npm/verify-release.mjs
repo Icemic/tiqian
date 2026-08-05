@@ -60,6 +60,7 @@ try {
 import * as api from "@tiqian/prose";
 import { TiqianProseElement } from "@tiqian/prose/element";
 import * as precompute from "@tiqian/prose/precompute";
+import { createHtmlPreparer } from "@tiqian/prose/precompute-html";
 
 assert.equal(typeof api.enhance, "function");
 assert.equal(typeof api.destroy, "function");
@@ -72,6 +73,7 @@ assert.deepEqual(Object.keys(precompute).sort(), [
   "renderSnapshotTemplate",
   "snapshotPlainTextIssue",
 ]);
+assert.equal(typeof createHtmlPreparer, "function");
 assert.match(import.meta.resolve("@tiqian/prose/styles.css"), /styles\\.css$/u);
 `,
   );

@@ -1,0 +1,6 @@
+**/node_modules/
+**/*.tgz
+**/.astro/
+**/.svelte-kit/
+**/.astro-fixture-*/
+**/.sveltekit-fixture-*/

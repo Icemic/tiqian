@@ -132,7 +132,6 @@ test("runtime font contracts retain required dash replay for every owning style"
   assert.deepEqual(requiredCjkDashContractInput(input, typography), {
     key: "runtime-only",
     text: "——⸺",
-    maxWidthPx: 360,
     textSpans: [
       { start: 0, end: 2, fontFamilies: ["Fixture CJK"], fontSizePx: 18, fontWeight: 700, italic: false, baselineShiftPx: 0 },
       { start: 2, end: 3, fontFamilies: ["Fixture CJK"], fontSizePx: 18, fontWeight: 400, italic: false, baselineShiftPx: 0 },
