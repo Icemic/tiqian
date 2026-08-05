@@ -1,6 +1,7 @@
 package org.tiqian.layout.tooling
 
 import org.tiqian.core.Cluster
+import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBox
@@ -11,6 +12,7 @@ import org.tiqian.core.TiqianTextContent
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.GreedyLineBreaker
 import org.tiqian.layout.LookaheadLineBreaker
+import org.tiqian.layout.ParagraphDpLineBreaker
 import org.tiqian.shaping.ExplainableStubTextShaper
 import org.tiqian.shaping.TextShaper
 import org.tiqian.shaping.jvm.AwtTextShaper
@@ -72,9 +74,39 @@ fun main() {
         printFixtureDump(fixture, greedyResult, lookaheadResult)
     }
 
+    val dpItems = DP_COMPARISON_PARAGRAPHS.flatMapIndexed { index, text ->
+        DP_COMPARISON_WIDTHS.map { width ->
+            val fixture = LayoutFixture(
+                id = "dp-compare-${index + 1}-w${width.toInt()}",
+                text = text,
+                constraints = LayoutConstraints(maxWidth = width),
+                notes = "",
+                firstLineIndentEm = DP_COMPARISON_INDENT_EM,
+            )
+            val input = LayoutInput(
+                content = TiqianTextContent(text),
+                constraints = fixture.constraints,
+                paragraphStyle = org.tiqian.core.ParagraphStyle(
+                    firstLineIndent = org.tiqian.core.Ic(DP_COMPARISON_INDENT_EM),
+                ),
+            )
+            fun layout(breaker: org.tiqian.layout.LineBreaker) =
+                ExplainableStubParagraphLayoutEngine(
+                    lineBreaker = breaker,
+                    textShaper = textShaper,
+                    hyphenator = org.tiqian.linebreak.NoHyphenator,
+                ).layout(input)
+            DpComparisonItem(
+                fixture = fixture,
+                lookahead = layout(LookaheadLineBreaker()),
+                paragraphDp = layout(ParagraphDpLineBreaker()),
+            )
+        }
+    }
+
     val reportFile = File("build/reports/tiqian-layout-report/index.html")
     reportFile.parentFile.mkdirs()
-    reportFile.writeText(renderHtmlReport(reportItems, shaperMode))
+    reportFile.writeText(renderHtmlReport(reportItems, dpItems, shaperMode))
     println()
     println("HTML report: ${reportFile.absolutePath}")
 }
@@ -83,6 +115,58 @@ private data class LayoutReportItem(
     val fixture: LayoutFixture,
     val greedy: LayoutResult,
     val lookahead: LayoutResult,
+)
+
+/**
+ * ADR 0041 目检区：同一批真实博客段落、同一宽度下 lookahead 与 paragraph-dp 并排。
+ * 判据是肉眼——行内密度是否更匀、相邻行是否不再一紧一松。
+ *
+ * This lives in the report (not in a shipped frontend) because
+ * `ParagraphDpLineBreaker` is `internal` to `layout`: the experimental
+ * optimizer must not reach a published artifact while it is still being tuned.
+ */
+private data class DpComparisonItem(
+    val fixture: LayoutFixture,
+    val lookahead: LayoutResult,
+    val paragraphDp: LayoutResult,
+) {
+    /**
+     * 目检导航用：断点相同的一批（v3 下真实语料上多数如此）不必逐张看图，
+     * 眼睛应该直接跳到断点或行内调整确实不同的那几组。
+     */
+    val divergence: String
+        get() {
+            fun breaks(result: LayoutResult) = result.lines.map { it.clusterRange }
+            fun widths(result: LayoutResult) = result.lines.map { it.adjustedWidth }
+            return when {
+                breaks(lookahead) != breaks(paragraphDp) -> "断点不同"
+                widths(lookahead) != widths(paragraphDp) -> "断点相同、行内调整不同"
+                else -> "一致"
+            }
+        }
+}
+
+/** 段首缩进按中文正文惯例固定 2 字，和 DP 调优探针的 narrow sweep 一致。 */
+private const val DP_COMPARISON_INDENT_EM = 2f
+
+/** 240px ≈ 15 字/行，是 ADR 0041 里 lookahead 留下可见拉伸的窄版心；320px 是常见博客版心。 */
+private val DP_COMPARISON_WIDTHS = listOf(240f, 320f)
+
+/** 真实博客段落（blog3《画风清奇的开源许可证》、neo-blog《PWM》《字体更新》）。 */
+private val DP_COMPARISON_PARAGRAPHS = listOf(
+    "无论你的源代码是否重要，开发者都应当为自己的源代码选择许可证。当然，如果你觉得自己的" +
+        "源代码真的很不重要，甚至想跟读你代码的人们开个玩笑，那么可以考虑一下这些画风有毒的" +
+        "开源许可证们 (ﾟ∀。)。",
+    "和任何一个小众开源许可证一样，WTFPL 并没有被广泛的应用，虽然它是一份 GPL 兼容的许可证，" +
+        "甚至还得到了 FSF 的认可（但没得到 OSI 的认可），但是并不被 FSF 与 OSI 推荐使用。" +
+        "原因包括：不够严肃、细节过于模糊且解有多种解读方式。",
+    "脉冲宽度调制（英语：Pulse-width modulation，缩写：PWM），简称脉宽调制，是用脉波来输出" +
+        "模拟信号的一种技术，一般转换后脉波的周期固定，但脉波的工作周期会依模拟信号的大小而改变。",
+    "只有一个原因：没有 Serif。如果你曾经看过我的 Blog，你会发现有一段时间我在使用思源宋体" +
+        "来作为正文字体，但是，思源宋体用其超级丑的使用体验劝退了我，于是我转身向 MiSans 走去。" +
+        "没有 Serif 指的是，没有一个可以在网页上分包，符合再分发协议的衬线字体（直接把方正全家" +
+        "都干死了），又是因为汉仪玄宋不适合作为正文字体，所以基本上汉仪全家也死了。你没有一个" +
+        "可以使用的规范的 Serif 衬线的宋体。",
 )
 
 /**
@@ -460,7 +544,11 @@ private fun SpacingDecisionInfo.compactDump(): String =
 private fun Cluster.compactDump(): String =
     "${range.start}-${range.end} '$displayText' ${advance.oneDecimal()} $fontKey"
 
-private fun renderHtmlReport(items: List<LayoutReportItem>, shaperMode: ShaperMode): String =
+private fun renderHtmlReport(
+    items: List<LayoutReportItem>,
+    dpItems: List<DpComparisonItem>,
+    shaperMode: ShaperMode,
+): String =
     buildString {
         appendLine("<!doctype html>")
         appendLine("<html lang=\"zh-Hans\">")
@@ -496,6 +584,12 @@ private fun renderHtmlReport(items: List<LayoutReportItem>, shaperMode: ShaperMo
               h2 { font-size: 18px; margin: 0 0 4px; }
               .notes { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
               .compare { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; align-items: start; margin: 12px 0 14px; }
+              /* 目检区按 raster 原尺寸并排，窄视口横向滚动而不是缩放或重叠——
+                 缩放后的图像不能用来判断行内密度。 */
+              .compare.pair { grid-template-columns: max-content max-content; justify-content: start; overflow-x: auto; }
+              .dp-case { border-top: 1px dashed var(--rule); padding-top: 14px; margin-top: 14px; }
+              .dp-case:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+              .dp-case-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
               .render-col { min-width: 0; }
               .col-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
               .sample-browser { line-height: 1; padding: 0; background: var(--panel); border: 1px dashed var(--rule); box-sizing: content-box; word-break: break-word; }
@@ -519,6 +613,7 @@ private fun renderHtmlReport(items: List<LayoutReportItem>, shaperMode: ShaperMo
                 "切回 deterministic stub 用 <code>TIQIAN_LAYOUT_REPORT_SHAPER=stub</code>。</p>",
         )
         items.forEach { item -> appendLine(item.renderSection(shaperMode)) }
+        appendLine(renderDpComparisonSection(dpItems, shaperMode))
         appendLine("</main></body></html>")
     }
 
@@ -562,6 +657,45 @@ private fun LayoutReportItem.renderSection(shaperMode: ShaperMode): String {
         }
         appendLine("</details>")
 
+        appendLine("</section>")
+    }
+}
+
+private fun renderDpComparisonSection(
+    items: List<DpComparisonItem>,
+    shaperMode: ShaperMode,
+): String {
+    if (items.isEmpty()) return ""
+    return buildString {
+        appendLine("<section>")
+        appendLine("<h2>断行策略目检：lookahead vs paragraph-dp</h2>")
+        appendLine(
+            "<p class=\"notes\">ADR 0041 目检区：同一批真实博客段落、同一宽度并排渲染。" +
+                "判据是肉眼——行内密度是否更匀、相邻行是否不再一紧一松。" +
+                "<code>paragraph-dp</code> 仍是实验策略，默认断行器不变，也不进入任何发布产物。</p>",
+        )
+        items.forEach { item ->
+            val width = item.fixture.constraints.maxWidth
+            appendLine("<div class=\"dp-case\">")
+            appendLine(
+                "<div class=\"dp-case-label\">${item.fixture.id.escapeHtml()} · " +
+                    "${width.oneDecimal()}px · 段首缩进 ${DP_COMPARISON_INDENT_EM.oneDecimal()} 字 · " +
+                    "<strong>${item.divergence.escapeHtml()}</strong></div>",
+            )
+            appendLine("<div class=\"compare pair\">")
+            appendLine(renderRasterColumn("lookahead", item.lookahead, item.fixture, shaperMode))
+            appendLine(renderRasterColumn("paragraph-dp", item.paragraphDp, item.fixture, shaperMode))
+            appendLine("</div>")
+            appendLine("<details>")
+            appendLine(
+                "<summary>decisions · lookahead ${item.lookahead.lines.size} lines · " +
+                    "paragraph-dp ${item.paragraphDp.lines.size} lines</summary>",
+            )
+            appendLine(renderEngineMetadata("lookahead", item.lookahead))
+            appendLine(renderEngineMetadata("paragraph-dp", item.paragraphDp))
+            appendLine("</details>")
+            appendLine("</div>")
+        }
         appendLine("</section>")
     }
 }

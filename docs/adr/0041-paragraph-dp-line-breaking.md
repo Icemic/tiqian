@@ -175,3 +175,28 @@ rollout)加上 ADR 0031 压缩优先与 ADR 0038 凸密度,已接近修正后感
 lookahead;下一步是把观察到的具体段落纳入对赛语料复现定位,再按数据决定
 是走「悬挂边进 DP + 转默认」还是继续收窄 v3 模型。收档结论的证伪链继续
 有效:任何模型改动仍须过三轮目检同款的 DOM 尺子。
+
+## 修订(2026-08-05):实验实现不进入发布产物,目检移入 layout report
+
+解冻时恢复的 web `lineBreakStrategy` 选项与 demo 对照区,把一个仍在调优、
+明确「还不能替代 lookahead」的实验求解器接进了发布路径。实测
+`@tiqian/prose` 的 `runtime/tiqian-web.js` 确实带着它:去掉分支后 Kotlin/JS
+DCE 把 `ParagraphDpLineBreaker` / `DpContext` / `EdgeGeometry` 全部摘除,
+bundle 从 498,013 降到 486,314 字节(gzip 165,981 → 161,238),其中约
+2.9 KB gzip 是 DP 本身。默认断行器不变不足以成为理由:未定稿的策略不应该
+让每个访问者付传输代价,也不应该出现在预发布库的公开 API 面上。
+
+处置:
+
+- `ParagraphDpLineBreaker` 降为 `internal`,只有 `layout` 自己的 test source
+  set 够得着;
+- 删除 `EnhanceOptions.lineBreakStrategy`(含 option 解析与 worker 路径的
+  `!= "lookahead"` 守卫)与 demo 对照区;
+- 目检区移入 `:layout:generateLayoutReport`:同一批真实博客段落,240px 与
+  320px 两档版心,lookahead 与 paragraph-dp 并排 raster,并按断点/行内调整
+  是否不同给出导航标记。
+
+**代价要写明**:本 ADR 三轮目检用的是浏览器 DOM 尺子,移入 report 后量的是
+AWT / Skia raster。引擎几何同源,但字体与 Canvas 行为不同源。转默认前,任何
+依赖浏览器实际字体度量的结论都必须重新在 DOM 尺子上建立——report 目检只能
+用于定位代价模型问题,不能单独作为转默认的验收。
