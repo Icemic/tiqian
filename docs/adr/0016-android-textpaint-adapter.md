@@ -143,3 +143,32 @@ id、origin、Font 绘制；只有缺少平台 Font key 时，才退回同一 re
   就是中文形，上下文无关测量的西文形是测量方法的伪差异，不是平台真值。
 - **Typeface.CustomFallbackBuilder 构造带语言属性的字体链。** 否决：构造出的
   字体仍不携带 fonts.xml 的 lang 属性，无法影响 HB 的 script/language 解析。
+
+## Amendment (2026-08-05)：枚举不是渲染真值，平台读回才是
+
+API 29+ 的 catalog 由 `SystemFonts.getAvailableFonts()` 构建，而该 API 返回的是**无序集合，
+不带具名家族归属，也不带 fallback 次序**（`selectGenericSans` 的注释已经记过这一点）。因此
+`cjkScore` 只能按 `localeList` 加文件名打分猜哪一个是 CJK 正文字体。
+
+这个猜测在 OEM 设备上会与平台实际解析分叉。典型形态：厂商把自家字体插进具名 `sans-serif`
+（西文位），而 `lang="zh-Hans"` 的 fallback 链仍指向 Noto——平台按链渲染，我们按「谁看起来
+最像 CJK」打分，两边选出不同的 face，且分叉是静默的。解析 `/system/etc/fonts.xml` 能改善
+候选枚举与次序（它带 `lang` 标签，API 21+ 即为该格式，world-readable），但它同样只是**声明**：
+厂商主题引擎与运行时换字体不在那份 XML 里。
+
+因此定为：**只有让平台自己 shape 一遍、再读回 `PositionedGlyphs.getFont(i).file`，才算渲染
+真值。** `AndroidPositionedGlyphFontRegistry` 已经持有这些 `Font` 对象（当前仅用作 drawGlyphs
+的不透明 key），证据一直在，只是没有被读。
+
+`platformResolvedFacesMatchTheFacesWeSelect` 按此取证：以 `zh-Hans` locale 让平台自由选字，
+读回实际 face 文件，与 catalog 选出的 face 比对。AOSP API 37 上二者一致
+（`/system/fonts/NotoSansCJK-Regular.ttc`），基线成立；OEM 设备上同一断言会把分叉抓成失败。
+
+范围与未决：
+
+- 该取证要求 API 31（逐 glyph 的 `getFont`）。**API 23–30 没有 glyph 级 font 读回**，
+  只能停在枚举 + 宿主 catalog + 声明缺口，不得声称与平台同源。
+- 探针不能复用 glyph 的 `renderFontKey`：Han context 下它按 `NoGlyphReplayInHanContext`
+  有意置 null，那是 glyph id 不可重放，不是字体身份不可用。
+- OEM 分叉本身**尚未实测**，手边只有 AOSP 模拟器。真机（如搭载 MiSans 的设备）跑通同一断言
+  之前，上述分叉机制是依据 API 契约的推断，不是观测结论。

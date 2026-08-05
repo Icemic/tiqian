@@ -6,8 +6,10 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.fonts.SystemFonts
+import android.graphics.text.TextRunShaper
 import android.os.Build
 import android.os.SystemClock
+import android.text.TextPaint
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Test
@@ -29,6 +31,7 @@ import org.tiqian.shaping.android.AndroidFontMetricsResolver
 import org.tiqian.shaping.android.AndroidPaintTextShaper
 import org.tiqian.shaping.android.AndroidTypefaceResolver
 import java.io.File
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -308,6 +311,69 @@ class AndroidNativeFontBackendTest {
         assertEquals(platformLayout.lines.size, nativeLayout.lines.size)
         nativeLayout.lines.zip(platformLayout.lines).forEach { (a, b) ->
             assertTrue(abs(a.visualWidth - b.visualWidth) <= 1.5f, "line width native=${a.visualWidth} platform=${b.visualWidth}")
+        }
+    }
+
+    /**
+     * PlatformResolvedFaceEvidence：我们为 CJK / 西文选的 face，是不是这台设备真正会拿来
+     * 渲染的那一个。
+     *
+     * `SystemFonts.getAvailableFonts()` 是无序集合，丢掉了具名家族归属与 fallback 次序
+     * （见 `AndroidFontCatalog.selectGenericSans` 的注释），所以 API 29+ 的 catalog 只能按
+     * `localeList` + 文件名打分猜。OEM 常常只把自家字体插进具名 `sans-serif`（西文位），
+     * 而 `lang="zh-Hans"` 的 fallback 链仍指向 Noto——猜测与平台实际解析就此分叉，
+     * 表现为「西文换了字体、中文还是 Noto」，且分叉是静默的。
+     *
+     * 唯一的真值是让平台自己 shape 一遍，再读回 `PositionedGlyphs.getFont(i).file`。
+     * 这里在 AOSP 上立基线；OEM 设备上同一断言会把分叉抓成失败，而不是默默用错字体。
+     *
+     * 不能复用 glyph 的 `renderFontKey`：Han context 下它按 `NoGlyphReplayInHanContext`
+     * 被有意置 null，那是因为 glyph id 不可重放，不是字体身份不可用——所以这里直接取证。
+     */
+    @Test
+    fun platformResolvedFacesMatchTheFacesWeSelect() {
+        if (Build.VERSION.SDK_INT < 31) return
+        val catalog = PublicSystemFontsCatalog.createOrNull() ?: return
+
+        // 正文语言必须显式给到 paint：fallback 链对 zh-Hans / ja / ko 的取舍就在这里分岔，
+        // 用宿主默认 locale 探出来的不是提椠正文实际要的那条链。
+        fun platformFaces(text: String): List<String> {
+            val paint = TextPaint().apply {
+                textSize = 32f
+                typeface = Typeface.DEFAULT
+                textLocale = Locale.SIMPLIFIED_CHINESE
+            }
+            val shaped =
+                TextRunShaper.shapeTextRun(text, 0, text.length, 0, text.length, 0f, 0f, false, paint)
+            assertTrue(shaped.glyphCount() > 0, "platform produced no glyphs for '$text'")
+            return (0 until shaped.glyphCount())
+                .map { index ->
+                    assertNotNull(
+                        shaped.getFont(index).file,
+                        "platform face for '$text' glyph $index reports no file",
+                    ).absolutePath
+                }
+                .distinct()
+        }
+
+        fun selectedFace(role: FontRole): String = assertNotNull(
+            catalog.faceSpecs
+                .firstOrNull { spec -> role in spec.roles && spec.weight == 400 && !spec.italic }
+                ?.source?.label
+                ?.removePrefix("SystemFonts:")
+                ?.substringBefore('#'),
+            "catalog has no upright 400 face for $role",
+        )
+
+        for ((text, role) in listOf("中文" to FontRole.CjkText, "English" to FontRole.LatinText)) {
+            val platform = platformFaces(text)
+            val selected = selectedFace(role)
+            assertTrue(
+                selected in platform,
+                "$role divergence for '$text': catalog selected $selected but the platform renders " +
+                    "it with ${platform.joinToString()} — the catalog is guessing a face this device " +
+                    "does not actually use",
+            )
         }
     }
 
