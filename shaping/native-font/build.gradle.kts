@@ -1,5 +1,16 @@
+import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+
 plugins {
     id("com.android.library")
+}
+
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(25))
+        },
+    )
 }
 
 android {
@@ -33,6 +44,7 @@ android {
 dependencies {
     api(project(":shaping:api"))
 
+    testImplementation(kotlin("test-junit"))
     androidTestImplementation(project(":layout"))
     androidTestImplementation(project(":shaping:android-adapter"))
     androidTestImplementation("androidx.test:runner:1.6.2")

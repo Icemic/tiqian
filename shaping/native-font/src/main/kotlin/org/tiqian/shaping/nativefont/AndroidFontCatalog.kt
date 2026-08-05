@@ -4,7 +4,6 @@ import android.annotation.TargetApi
 import android.content.Context
 import android.graphics.fonts.Font
 import android.graphics.fonts.FontStyle
-import android.graphics.fonts.FontVariationAxis
 import android.graphics.fonts.SystemFonts
 import android.os.Build
 import org.tiqian.font.FontRole
@@ -59,13 +58,15 @@ sealed class AndroidFontSource protected constructor(
 }
 
 /**
- * One physical host/system face. [roles] and [familyAliases] form an explicit
- * fallback catalog; the backend never asks Android to silently substitute a
- * different face after shaping.
+ * One concrete host/system face instance. [familyKey] groups regular, bold and italic faces into
+ * one fallback family; [roles] says which role chains may reference it. [variationAxes] must be
+ * the effective coordinates used for replay, including a platform weight/italic override after
+ * that override has been lowered to its OpenType axis.
  */
 data class AndroidFontFaceSpec(
     val source: AndroidFontSource,
     val collectionIndex: Int = 0,
+    val familyKey: String,
     val familyAliases: Set<String>,
     val roles: Set<FontRole>,
     val weight: Int = 400,
@@ -75,6 +76,7 @@ data class AndroidFontFaceSpec(
 ) {
     init {
         require(collectionIndex >= 0) { "collectionIndex must be non-negative" }
+        require(familyKey.isNotBlank()) { "familyKey must not be blank" }
         require(familyAliases.isNotEmpty()) { "At least one family alias is required" }
         require(roles.isNotEmpty()) { "At least one font role is required" }
         require(weight in 1..1000) { "OpenType weight must be in 1..1000" }
@@ -89,11 +91,37 @@ data class AndroidFontFaceSpec(
 
 data class AndroidFontCatalog(
     val faceSpecs: List<AndroidFontFaceSpec>,
+    /** Ordered family keys for every role. Style matching happens inside one family before fallback. */
+    val fallbackChains: Map<FontRole, List<String>> = defaultFallbackChains(faceSpecs),
     val sourceKind: String = "ExplicitHostFontCatalog",
     val declaredIssues: List<FontBackendCapabilityIssue> = emptyList(),
 ) {
     init {
         require(faceSpecs.isNotEmpty()) { "AndroidFontCatalog must declare at least one face" }
+        val families = faceSpecs.groupBy(AndroidFontFaceSpec::familyKey)
+        val declaredRoles = faceSpecs.flatMapTo(linkedSetOf(), AndroidFontFaceSpec::roles)
+        require(fallbackChains.keys.containsAll(declaredRoles)) {
+            "Every declared font role must have an ordered fallback chain"
+        }
+        fallbackChains.forEach { (role, chain) ->
+            require(chain.isNotEmpty()) { "Fallback chain for $role must not be empty" }
+            require(chain.size == chain.distinct().size) { "Fallback chain for $role repeats a family" }
+            chain.forEach { familyKey ->
+                val family = requireNotNull(families[familyKey]) {
+                    "Fallback chain for $role references unknown family $familyKey"
+                }
+                require(family.any { role in it.roles }) {
+                    "Fallback family $familyKey has no face for role $role"
+                }
+            }
+        }
+        faceSpecs.forEach { spec ->
+            spec.roles.forEach { role ->
+                require(spec.familyKey in fallbackChains.getValue(role)) {
+                    "Face family ${spec.familyKey} declares $role but is absent from that fallback chain"
+                }
+            }
+        }
     }
 
     companion object {
@@ -101,10 +129,27 @@ data class AndroidFontCatalog(
          * Production host contract for API 23–28: package fonts as assets, files
          * or byte arrays and install this catalog before the first CjkText.
          */
-        fun host(faceSpecs: List<AndroidFontFaceSpec>): AndroidFontCatalog =
-            AndroidFontCatalog(faceSpecs = faceSpecs)
+        fun host(
+            faceSpecs: List<AndroidFontFaceSpec>,
+            fallbackChains: Map<FontRole, List<String>> = defaultFallbackChains(faceSpecs),
+        ): AndroidFontCatalog = AndroidFontCatalog(
+            faceSpecs = faceSpecs,
+            fallbackChains = fallbackChains,
+        )
     }
 }
+
+private fun defaultFallbackChains(faceSpecs: List<AndroidFontFaceSpec>): Map<FontRole, List<String>> =
+    FontRole.entries.mapNotNull { role ->
+        faceSpecs
+            .asSequence()
+            .filter { role in it.roles }
+            .map(AndroidFontFaceSpec::familyKey)
+            .distinct()
+            .toList()
+            .takeIf(List<String>::isNotEmpty)
+            ?.let { role to it }
+    }.toMap()
 
 /** Loaded face plus evidence about request matching; shared by shaping, metrics and replay. */
 internal data class ResolvedNativeFontFace(
@@ -116,12 +161,94 @@ internal data class ResolvedNativeFontFace(
 )
 
 private data class LoadedFace(
+    val catalogIndex: Int,
+    val familyKey: String,
     val descriptor: ReplayableFontFaceDescriptor,
     val nativeFace: NativeFontFace,
 )
 
+private data class LoadedFamily(
+    val faces: List<LoadedFace>,
+)
+
+private data class PlatformLoadedFace(
+    val descriptor: ReplayableFontFaceDescriptor,
+    val nativeFace: NativeFontFace,
+)
+
+internal data class OrderedFamilySelection<T>(
+    val familyIndex: Int,
+    val face: T,
+    val exactFamily: Boolean,
+)
+
+/** Family order is authoritative; italic/weight matching happens only inside one covering family. */
+internal fun <T> selectOrderedFamilyFace(
+    families: List<List<T>>,
+    preferredFamilies: List<String>,
+    requestedWeight: Int,
+    requestedItalic: Boolean,
+    aliases: (T) -> Set<String>,
+    covers: (T) -> Boolean,
+    weight: (T) -> Int,
+    italic: (T) -> Boolean,
+    stableId: (T) -> String,
+): OrderedFamilySelection<T>? {
+    val preferred = preferredFamilies.map(::normaliseFamily).filter(String::isNotEmpty)
+    val exactFamilyIndices = if (preferred.isEmpty()) {
+        families.indices.toList()
+    } else {
+        families.indices.filter { familyIndex ->
+            families[familyIndex].any { face ->
+                aliases(face).any { normaliseFamily(it) in preferred }
+            }
+        }
+    }
+    val familyPool = exactFamilyIndices.ifEmpty { families.indices.toList() }
+    return familyPool.firstNotNullOfOrNull { familyIndex ->
+        families[familyIndex]
+            .withIndex()
+            .filter { covers(it.value) }
+            .minWithOrNull(
+                compareBy<IndexedValue<T>>(
+                    { if (italic(it.value) == requestedItalic) 0 else 1 },
+                    { abs(weight(it.value) - requestedWeight) },
+                    IndexedValue<T>::index,
+                    { stableId(it.value) },
+                ),
+            )
+            ?.value
+            ?.let { face ->
+                OrderedFamilySelection(
+                    familyIndex = familyIndex,
+                    face = face,
+                    exactFamily = preferred.isEmpty() || familyIndex in exactFamilyIndices,
+                )
+            }
+    }
+}
+
+private class RevisionListener(
+    private val callback: (Long) -> Unit,
+) {
+    private var lastDelivered = 0L
+
+    fun deliver(revision: Long) {
+        val shouldDeliver = synchronized(this) {
+            if (revision <= lastDelivered) false else {
+                lastDelivered = revision
+                true
+            }
+        }
+        if (shouldDeliver) callback(revision)
+    }
+}
+
 private class LoadedAndroidFontCatalog(
     private val loadedFaces: List<LoadedFace>,
+    private val familiesByRole: Map<FontRole, List<LoadedFamily>>,
+    val revision: Long,
+    val usesPlatformDefaultOracle: Boolean,
     override val capabilityReport: FontBackendCapabilityReport,
 ) : ReplayableFontCatalog {
     override val faces: List<ReplayableFontFaceDescriptor> = loadedFaces.map { it.descriptor }
@@ -130,29 +257,24 @@ private class LoadedAndroidFontCatalog(
         resolveNative(request)?.descriptor
 
     fun resolveNative(request: ReplayableFontFaceRequest): ResolvedNativeFontFace? {
-        val roleCandidates = loadedFaces.filter { request.role in it.descriptor.roles }
-        if (roleCandidates.isEmpty()) return null
-        val preferred = request.preferredFamilies.map(::normaliseFamily).filter { it.isNotEmpty() }
-        val exactFamilyCandidates = if (preferred.isEmpty()) {
-            roleCandidates
-        } else {
-            roleCandidates.filter { face ->
-                face.descriptor.familyAliases.any { normaliseFamily(it) in preferred }
-            }
-        }
-        val familyPool = exactFamilyCandidates.ifEmpty { roleCandidates }
-        val covered = familyPool.filter { it.nativeFace.hasGlyphs(request.selectionText) }
-        val selected = covered.minWithOrNull(
-            compareBy<LoadedFace>(
-                { if (it.descriptor.italic == request.italic) 0 else 1 },
-                { abs(it.descriptor.weight - request.weight) },
-                { it.descriptor.id.value },
-            ),
+        val roleFamilies = familiesByRole[request.role].orEmpty()
+        if (roleFamilies.isEmpty()) return null
+        val selection = selectOrderedFamilyFace(
+            families = roleFamilies.map(LoadedFamily::faces),
+            preferredFamilies = request.preferredFamilies,
+            requestedWeight = request.weight,
+            requestedItalic = request.italic,
+            aliases = { it.descriptor.familyAliases },
+            covers = { it.nativeFace.hasGlyphs(request.selectionText) },
+            weight = { it.descriptor.weight },
+            italic = { it.descriptor.italic },
+            stableId = { "${it.catalogIndex}:${it.descriptor.id.value}" },
         ) ?: return null
+        val selected = selection.face
         return ResolvedNativeFontFace(
             descriptor = selected.descriptor,
             nativeFace = selected.nativeFace,
-            exactFamily = preferred.isEmpty() || selected in exactFamilyCandidates,
+            exactFamily = selection.exactFamily,
             exactStyle = selected.descriptor.italic == request.italic && selected.descriptor.weight == request.weight,
             coversSelectionText = true,
         )
@@ -167,6 +289,10 @@ object TiqianAndroidFontBackend {
     private const val BackendName = "TiqianHarfBuzzFreeType"
     private val lock = Any()
     private val faceById = LinkedHashMap<FontFaceId, NativeFontFace>()
+    private val platformFaceByRequest = object : LinkedHashMap<ReplayableFontFaceRequest, ResolvedNativeFontFace>(256, 0.75f, true) {}
+    private val platformFaceByInstance = LinkedHashMap<String, PlatformLoadedFace>()
+    private val revisionListeners = linkedSetOf<RevisionListener>()
+    private var lastRevision = 0L
 
     @Volatile
     private var activeCatalog: LoadedAndroidFontCatalog? = null
@@ -178,11 +304,41 @@ object TiqianAndroidFontBackend {
     val nativeVersions: String
         get() = versionEvidence
 
-    /** Install explicit host fonts. This report is diagnostic and never routes to a host renderer. */
-    fun install(context: Context, catalog: AndroidFontCatalog): FontBackendCapabilityReport =
+    /** Install one immutable font environment. Old faces remain retained for old LayoutResult replay. */
+    fun install(context: Context, catalog: AndroidFontCatalog): FontBackendCapabilityReport {
+        val installed: LoadedAndroidFontCatalog
+        val listeners: List<RevisionListener>
         synchronized(lock) {
-            loadCatalog(context.applicationContext, catalog).also { activeCatalog = it }.capabilityReport
+            installed = loadCatalog(
+                context = context.applicationContext,
+                catalog = catalog,
+                revision = nextRevisionLocked(),
+                usesPlatformDefaultOracle = false,
+            )
+            activeCatalog = installed
+            listeners = revisionListeners.toList()
         }
+        listeners.forEach { listener -> runCatching { listener.deliver(installed.revision) } }
+        return installed.capabilityReport
+    }
+
+    /** Monotonic identity of the active immutable catalog, suitable for layout/cache keys. */
+    fun catalogRevision(context: Context): Long = ensureInstalled(context).revision
+
+    /**
+     * Observe active-catalog replacement. The current revision is delivered immediately so a
+     * registration cannot miss an install racing with subscription.
+     */
+    fun addCatalogRevisionListener(context: Context, listener: (Long) -> Unit): AutoCloseable {
+        ensureInstalled(context)
+        val subscription = RevisionListener(listener)
+        val current = synchronized(lock) {
+            revisionListeners += subscription
+            checkNotNull(activeCatalog).revision
+        }
+        subscription.deliver(current)
+        return AutoCloseable { synchronized(lock) { revisionListeners -= subscription } }
+    }
 
     fun capabilityReport(context: Context): FontBackendCapabilityReport =
         ensureInstalled(context).capabilityReport
@@ -192,6 +348,9 @@ object TiqianAndroidFontBackend {
         request: ReplayableFontFaceRequest,
     ): ResolvedNativeFontFace {
         val catalog = ensureInstalled(context)
+        if (Build.VERSION.SDK_INT >= 31 && catalog.usesPlatformDefaultOracle) {
+            resolvePlatformDefaultFace(context.applicationContext, request)?.let { return it }
+        }
         return catalog.resolveNative(request) ?: error(
             "MissingControlledFontFace: role=${request.role}; families=${request.preferredFamilies}; " +
                 "install an AndroidFontCatalog before composing CjkText; report=${catalog.capabilityReport}",
@@ -202,24 +361,62 @@ object TiqianAndroidFontBackend {
         faceById[FontFaceId(renderFontKey)]
     }
 
-    private fun ensureInstalled(context: Context): LoadedAndroidFontCatalog {
-        activeCatalog?.let { return it }
-        return synchronized(lock) {
-            activeCatalog ?: loadCatalog(context.applicationContext, defaultCatalog()).also { activeCatalog = it }
+    internal fun resetDefaultCatalogForTesting(context: Context) {
+        synchronized(lock) {
+            platformFaceByRequest.clear()
+            platformFaceByInstance.clear()
+            val catalog = defaultCatalog(context.applicationContext)
+            activeCatalog = loadCatalog(
+                context = context.applicationContext,
+                catalog = catalog,
+                revision = nextRevisionLocked(),
+                usesPlatformDefaultOracle = catalog.isPlatformDefaultOracleCatalog(),
+            )
         }
     }
 
-    private fun defaultCatalog(): AndroidFontCatalog {
+    private fun ensureInstalled(context: Context): LoadedAndroidFontCatalog {
+        activeCatalog?.let { return it }
+        return synchronized(lock) {
+            activeCatalog ?: run {
+                val catalog = defaultCatalog(context.applicationContext)
+                loadCatalog(
+                    context.applicationContext,
+                    catalog,
+                    nextRevisionLocked(),
+                    usesPlatformDefaultOracle = catalog.isPlatformDefaultOracleCatalog(),
+                ).also { activeCatalog = it }
+            }
+        }
+    }
+
+    private fun nextRevisionLocked(): Long = (++lastRevision).also {
+        check(it > 0L) { "Android font catalog revision overflow" }
+    }
+
+    private fun defaultCatalog(context: Context): AndroidFontCatalog {
+        if (Build.VERSION.SDK_INT >= 31) {
+            AndroidPlatformFontOracle.bootstrapCatalogOrNull()?.let { return it }
+        }
+        DeclaredSystemFontConfigCatalog.createOrNull()?.let { return it }
         if (Build.VERSION.SDK_INT >= 29) {
-            PublicSystemFontsCatalog.createOrNull()?.let { return it }
+            ApproximatePublicSystemFontsCatalog.createOrNull()?.let { return it }
         }
         return wellKnownSystemPathCatalog()
     }
 
-    private fun loadCatalog(context: Context, catalog: AndroidFontCatalog): LoadedAndroidFontCatalog {
+    private fun AndroidFontCatalog.isPlatformDefaultOracleCatalog(): Boolean =
+        sourceKind == "AndroidPlatformTextRunOracleApi31"
+
+    private fun loadCatalog(
+        context: Context,
+        catalog: AndroidFontCatalog,
+        revision: Long,
+        usesPlatformDefaultOracle: Boolean,
+    ): LoadedAndroidFontCatalog {
         val issues = catalog.declaredIssues.toMutableList()
         val loaded = mutableListOf<LoadedFace>()
-        for (spec in catalog.faceSpecs) {
+        for ((catalogIndex, spec) in catalog.faceSpecs.withIndex()) {
             val axes = spec.variationAxes.toSortedMap()
             val bytes = runCatching { spec.source.readBytes(context) }.getOrElse { error ->
                 issues += FontBackendCapabilityIssue(
@@ -249,10 +446,12 @@ object TiqianAndroidFontBackend {
             }
             val (id, native) = loadedFace
             loaded += LoadedFace(
+                catalogIndex = catalogIndex,
+                familyKey = spec.familyKey,
                 descriptor = ReplayableFontFaceDescriptor(
                     id = id,
-                    familyAliases = spec.familyAliases,
-                    roles = spec.roles,
+                    familyAliases = spec.familyAliases.toSet(),
+                    roles = spec.roles.toSet(),
                     weight = spec.weight,
                     italic = spec.italic,
                     collectionIndex = spec.collectionIndex,
@@ -262,7 +461,15 @@ object TiqianAndroidFontBackend {
                 nativeFace = native,
             )
         }
-        val roles = loaded.flatMapTo(linkedSetOf()) { it.descriptor.roles }
+        val familiesByRole = catalog.fallbackChains.mapValues { (role, familyKeys) ->
+            familyKeys.mapNotNull { familyKey ->
+                loaded
+                    .filter { it.familyKey == familyKey && role in it.descriptor.roles }
+                    .takeIf(List<LoadedFace>::isNotEmpty)
+                    ?.let(::LoadedFamily)
+            }
+        }
+        val roles = familiesByRole.filterValues(List<LoadedFamily>::isNotEmpty).keys
         val requiredRoles = setOf(FontRole.CjkText, FontRole.CjkPunctuation, FontRole.LatinText)
         val missingRoles = requiredRoles - roles
         if (missingRoles.isNotEmpty()) {
@@ -277,7 +484,94 @@ object TiqianAndroidFontBackend {
             faces = loaded.map { it.descriptor },
             issues = issues,
         )
-        return LoadedAndroidFontCatalog(loaded, report)
+        return LoadedAndroidFontCatalog(
+            loadedFaces = loaded,
+            familiesByRole = familiesByRole,
+            revision = revision,
+            usesPlatformDefaultOracle = usesPlatformDefaultOracle,
+            capabilityReport = report,
+        )
+    }
+
+    @TargetApi(31)
+    private fun resolvePlatformDefaultFace(
+        context: Context,
+        request: ReplayableFontFaceRequest,
+    ): ResolvedNativeFontFace? {
+        synchronized(lock) {
+            platformFaceByRequest[request]?.let { return it }
+        }
+        val selection = AndroidPlatformFontOracle.select(request)
+        synchronized(lock) {
+            platformFaceByInstance[selection.instanceKey]?.let { loaded ->
+                return ResolvedNativeFontFace(
+                    descriptor = loaded.descriptor.copy(
+                        familyAliases = selection.aliases,
+                        roles = setOf(request.role),
+                        weight = selection.weight,
+                        italic = selection.italic,
+                    ),
+                    nativeFace = loaded.nativeFace,
+                    exactFamily = true,
+                    exactStyle = true,
+                    coversSelectionText = true,
+                ).also { resolved -> cachePlatformRequestLocked(request, resolved) }
+            }
+        }
+        val axes = selection.variationAxes.toSortedMap()
+        val bytes = runCatching { selection.source.readBytes(context) }.getOrElse { return null }
+        val resolved = runCatching {
+            val id = stableFaceId(bytes, selection.collectionIndex, axes)
+            val native = synchronized(lock) {
+                faceById.getOrPut(id) {
+                    val handle = NativeFontBridge.nativeRegisterFace(
+                        bytes = bytes,
+                        collectionIndex = selection.collectionIndex,
+                        variationTags = axes.keys.map(::variationTag).toIntArray(),
+                        variationValues = axes.values.toFloatArray(),
+                    )
+                    NativeFontFace(handle, NativeFontBridge.nativeUnitsPerEm(handle))
+                }
+            }
+            ResolvedNativeFontFace(
+                descriptor = ReplayableFontFaceDescriptor(
+                    id = id,
+                    familyAliases = selection.aliases,
+                    roles = setOf(request.role),
+                    weight = selection.weight,
+                    italic = selection.italic,
+                    collectionIndex = selection.collectionIndex,
+                    sourceLabel = selection.source.label,
+                    variationAxes = axes,
+                ),
+                nativeFace = native,
+                exactFamily = true,
+                exactStyle = true,
+                coversSelectionText = native.hasGlyphs(request.selectionText),
+            )
+        }.getOrElse { return null }
+        if (!resolved.coversSelectionText) return null
+        synchronized(lock) {
+            platformFaceByInstance[selection.instanceKey] = PlatformLoadedFace(
+                descriptor = resolved.descriptor,
+                nativeFace = resolved.nativeFace,
+            )
+            cachePlatformRequestLocked(request, resolved)
+        }
+        return resolved
+    }
+
+    private fun cachePlatformRequestLocked(
+        request: ReplayableFontFaceRequest,
+        resolved: ResolvedNativeFontFace,
+    ) {
+        platformFaceByRequest[request] = resolved
+        while (platformFaceByRequest.size > MaxPlatformRequestEntries) {
+            val iterator = platformFaceByRequest.entries.iterator()
+            if (!iterator.hasNext()) break
+            iterator.next()
+            iterator.remove()
+        }
     }
 
     private fun stableFaceId(
@@ -303,6 +597,8 @@ object TiqianAndroidFontBackend {
             },
         )
     }
+
+    private const val MaxPlatformRequestEntries = 4096
 }
 
 private fun wellKnownSystemPathCatalog(): AndroidFontCatalog {
@@ -329,6 +625,7 @@ private fun wellKnownSystemPathCatalog(): AndroidFontCatalog {
     ) = AndroidFontFaceSpec(
         source = AndroidFontSource.file(File(path)),
         collectionIndex = index,
+        familyKey = if (FontRole.CjkText in roles) "well-known-cjk" else "well-known-latin",
         familyAliases = aliases,
         roles = roles,
         weight = weight,
@@ -387,25 +684,20 @@ private fun wellKnownSystemPathCatalog(): AndroidFontCatalog {
 }
 
 @TargetApi(29)
-internal object PublicSystemFontsCatalog {
+internal object ApproximatePublicSystemFontsCatalog {
     fun createOrNull(
         fonts: List<Font> = SystemFonts.getAvailableFonts().toList(),
     ): AndroidFontCatalog? = runCatching {
         if (fonts.isEmpty()) return null
         val upright = fonts.filter { it.style.slant == FontStyle.FONT_SLANT_UPRIGHT }
-        val cjkRegular = upright.minByOrNull { cjkScore(it, targetWeight = 400) }
-            ?.instantiateWeight(400)
-        val cjkBold = upright.minByOrNull { cjkScore(it, targetWeight = 700) }
-            ?.instantiateWeight(700)
-        val latinRegularFont = selectGenericSans(upright, targetWeight = 400)
-        val latinRegular = latinRegularFont?.instantiateWeight(400)
-        val latinBold = latinRegularFont?.instantiateWeight(700)?.takeIf { it.weight == 700 }
-            ?: selectGenericSans(upright, targetWeight = 700)?.instantiateWeight(700)
+        val cjkRegular = selectApproximateCjk(upright, targetWeight = 400)
+        val cjkBold = selectApproximateCjk(upright, targetWeight = 700)
+        val latinRegular = selectGenericSans(upright, targetWeight = 400)
+        val latinBold = selectGenericSans(upright, targetWeight = 700)
         val latinItalic = selectGenericSans(
             fonts.filter { it.style.slant == FontStyle.FONT_SLANT_ITALIC },
             targetWeight = 400,
         )
-            ?.instantiateWeight(400)
         val cjkRoles = setOf(
             FontRole.CjkText,
             FontRole.CjkPunctuation,
@@ -420,36 +712,42 @@ internal object PublicSystemFontsCatalog {
             FontRole.Unknown,
         )
         val selected = listOfNotNull(
-            cjkRegular?.let { it to cjkRoles },
-            cjkBold?.let { it to cjkRoles },
-            latinRegular?.let { it to latinFallbackRoles },
-            latinBold?.let { it to latinFallbackRoles },
-            latinItalic?.let { it to latinFallbackRoles },
+            cjkRegular?.let { Triple(it, cjkRoles, "approximate-system-cjk") },
+            cjkBold?.let { Triple(it, cjkRoles, "approximate-system-cjk") },
+            latinRegular?.let { Triple(it, latinFallbackRoles, "approximate-system-latin") },
+            latinBold?.let { Triple(it, latinFallbackRoles, "approximate-system-latin") },
+            latinItalic?.let { Triple(it, latinFallbackRoles, "approximate-system-latin") },
         )
         val specs = selected
-            .groupBy { (instance, _) -> instance.instanceKey() }
+            .groupBy { (font, _, familyKey) -> font.instanceKey() to familyKey }
             .map { (_, selections) ->
-                val instance = selections.first().first
-                val font = instance.font
+                val (font, _, familyKey) = selections.first()
                 val roles = selections.flatMapTo(linkedSetOf()) { it.second }
-                val axes = instance.variationAxes
+                val axes = font.variationAxes()
                 AndroidFontFaceSpec(
                     source = AndroidFontSource.bytes(
                         fontBytes(font),
                         systemFontLabel(font, axes),
                     ),
                     collectionIndex = font.ttcIndex,
+                    familyKey = familyKey,
                     familyAliases = familyAliases(font),
                     roles = roles,
-                    weight = instance.weight,
-                    italic = instance.italic,
+                    weight = font.style.weight.coerceIn(1, 1000),
+                    italic = font.style.slant == FontStyle.FONT_SLANT_ITALIC,
                     variationAxes = axes,
                 )
             }
         if (specs.none { FontRole.CjkText in it.roles } || specs.none { FontRole.LatinText in it.roles }) return null
         AndroidFontCatalog(
             faceSpecs = specs,
-            sourceKind = "AndroidPublicSystemFontsApi29",
+            sourceKind = "ApproximateAndroidPublicSystemFontsApi29",
+            declaredIssues = listOf(
+                FontBackendCapabilityIssue(
+                    code = "ApproximateSystemFontSelection",
+                    detail = "SystemFonts is unordered and does not expose the active family/fallback graph; selected faces may differ from the OEM or user default",
+                ),
+            ),
         )
     }.getOrNull()
 
@@ -466,12 +764,27 @@ internal object PublicSystemFontsCatalog {
         return languageScore + sansScore + abs(font.style.weight - targetWeight)
     }
 
+    private fun selectApproximateCjk(fonts: List<Font>, targetWeight: Int): Font? =
+        fonts.minWithOrNull(
+            compareBy<Font>(
+                { font -> cjkScore(font, targetWeight) },
+                { font -> font.file?.absolutePath.orEmpty() },
+                Font::getTtcIndex,
+                { font ->
+                    font.variationAxes().entries.joinToString(",") { (tag, value) ->
+                        "$tag=${value.toRawBits()}"
+                    }
+                },
+                { font -> font.style.weight },
+            ),
+        )
+
     /**
      * `SystemFonts.getAvailableFonts()` is an unordered set and loses named-family membership.
      * Roboto's normal and condensed aliases can therefore expose the same file and weight with
      * only `wdth` distinguishing them. Resolve generic sans deterministically, preferring the
-     * registered normal width before weight proximity, then retain that instance's complete
-     * reported coordinate set when deriving another weight.
+     * registered normal width before weight proximity. This is deliberately diagnostic-only:
+     * it preserves the enumerated instance and never manufactures a new 400/700 axis value.
      */
     private fun selectGenericSans(fonts: List<Font>, targetWeight: Int): Font? =
         fonts.minWithOrNull(
@@ -533,68 +846,13 @@ internal object PublicSystemFontsCatalog {
     private fun Font.variationAxes(): Map<String, Float> =
         axes.orEmpty().associate { axis -> axis.tag to axis.styleValue }.toSortedMap()
 
-    /**
-     * Android may expose a variable family only at its default weight and use aliases for the
-     * remaining weights. Materialize and retain the requested coordinates before exporting bytes;
-     * [Font.getAxes] is not a complete record for alias-created instances on every Android release.
-     */
-    private fun Font.instantiateWeight(targetWeight: Int): SystemFontInstance {
-        val currentAxes = variationAxes()
-        if (style.weight == targetWeight && "wght" !in currentAxes) {
-            return SystemFontInstance(
-                font = this,
-                variationAxes = currentAxes,
-                weight = targetWeight,
-                italic = style.slant == FontStyle.FONT_SLANT_ITALIC,
-            )
-        }
-        if (currentAxes["wght"] == targetWeight.toFloat()) {
-            return SystemFontInstance(
-                font = this,
-                variationAxes = currentAxes,
-                weight = targetWeight,
-                italic = style.slant == FontStyle.FONT_SLANT_ITALIC,
-            )
-        }
-        val targetAxes = currentAxes.toMutableMap().apply {
-            this["wght"] = targetWeight.toFloat()
-        }.toSortedMap()
-        val candidate = runCatching {
-            val builder = file?.let { sourceFile -> Font.Builder(sourceFile) }
-                ?: Font.Builder(buffer.duplicate().apply { position(0) })
-            builder
-                .setTtcIndex(ttcIndex)
-                .setWeight(targetWeight)
-                .setSlant(style.slant)
-                .setFontVariationSettings(
-                    targetAxes.map { (tag, value) -> FontVariationAxis(tag, value) }.toTypedArray(),
-                )
-                .build()
-        }.getOrNull()?.takeIf { it.style.weight == targetWeight }
-        return if (candidate != null) {
-            SystemFontInstance(
-                font = candidate,
-                variationAxes = targetAxes,
-                weight = targetWeight,
-                italic = candidate.style.slant == FontStyle.FONT_SLANT_ITALIC,
-            )
-        } else {
-            SystemFontInstance(
-                font = this,
-                variationAxes = currentAxes,
-                weight = style.weight.coerceIn(1, 1000),
-                italic = style.slant == FontStyle.FONT_SLANT_ITALIC,
-            )
-        }
-    }
-
-    private fun SystemFontInstance.instanceKey(): SystemFontInstanceKey = SystemFontInstanceKey(
-        sourceIdentifier = font.stableSourceId(),
-        filePath = font.file?.absolutePath,
-        collectionIndex = font.ttcIndex,
-        variationAxes = variationAxes.entries.map { it.key to it.value.toRawBits() },
-        weight = weight,
-        slant = if (italic) FontStyle.FONT_SLANT_ITALIC else FontStyle.FONT_SLANT_UPRIGHT,
+    private fun Font.instanceKey(): FontInstanceKey = FontInstanceKey(
+        sourceIdentifier = stableSourceId(),
+        filePath = file?.absolutePath,
+        collectionIndex = ttcIndex,
+        variationAxes = variationAxes().entries.map { it.key to it.value.toRawBits() },
+        weight = style.weight,
+        slant = style.slant,
     )
 
     private fun systemFontLabel(font: Font, axes: Map<String, Float>): String = buildString {
@@ -606,7 +864,7 @@ internal object PublicSystemFontsCatalog {
         }
     }
 
-    private data class SystemFontInstanceKey(
+    private data class FontInstanceKey(
         val sourceIdentifier: Int,
         val filePath: String?,
         val collectionIndex: Int,
@@ -615,12 +873,6 @@ internal object PublicSystemFontsCatalog {
         val slant: Int,
     )
 
-    private data class SystemFontInstance(
-        val font: Font,
-        val variationAxes: Map<String, Float>,
-        val weight: Int,
-        val italic: Boolean,
-    )
 }
 
 private fun variationTag(tag: String): Int =

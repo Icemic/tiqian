@@ -38,6 +38,7 @@ class AndroidNativeTextShaper(
         val face = resolveFace(
             role = input.fontDecision.role,
             families = input.style.fontFamilies,
+            fontSize = input.style.fontSize,
             weight = input.style.fontWeight,
             italic = input.style.italic,
             locale = input.style.locale,
@@ -134,6 +135,7 @@ class AndroidNativeTextShaper(
     private fun resolveFace(
         role: FontRole,
         families: List<String>,
+        fontSize: Float,
         weight: Int,
         italic: Boolean,
         locale: String,
@@ -143,6 +145,7 @@ class AndroidNativeTextShaper(
         ReplayableFontFaceRequest(
             role = role,
             preferredFamilies = families,
+            fontSize = fontSize,
             weight = weight,
             italic = italic,
             locale = locale,
@@ -162,6 +165,7 @@ class AndroidNativeFontMetricsResolver(
             ReplayableFontFaceRequest(
                 role = request.role,
                 preferredFamilies = request.fontFamilies,
+                fontSize = request.fontSize,
                 weight = request.fontWeight,
                 italic = request.italic,
                 locale = request.locale,

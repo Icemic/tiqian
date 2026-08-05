@@ -33,12 +33,18 @@ data class ReplayableFontFaceDescriptor(
 data class ReplayableFontFaceRequest(
     val role: FontRole,
     val preferredFamilies: List<String>,
+    /** Requested em size; platform default selection may resolve size-dependent variation axes. */
+    val fontSize: Float,
     val weight: Int,
     val italic: Boolean,
     val locale: String,
     /** Text used to reject a face that cannot cover this concrete run. */
     val selectionText: String,
-)
+) {
+    init {
+        require(fontSize > 0f && fontSize.isFinite()) { "fontSize must be positive and finite" }
+    }
+}
 
 /** A named loss of evidence or coverage. Reports inform hosts; they never route to another renderer. */
 data class FontBackendCapabilityIssue(
