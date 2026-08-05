@@ -240,7 +240,17 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /observedAttributes = \[[\s\S]*?"emphasis-dot-gap-em",[\s\S]*?"strong-as-emphasis-marks",[\s\S]*?"snapshot-ref",[\s\S]*?\]/u,
+    /observedAttributes = \[[\s\S]*?"disabled",[\s\S]*?"emphasis-dot-gap-em",[\s\S]*?"strong-as-emphasis-marks",[\s\S]*?"snapshot-ref",[\s\S]*?\]/u,
+  );
+  assert.match(elementSource, /get disabled\(\)[\s\S]*?hasAttribute\("disabled"\)/u);
+  assert.match(elementDeclarations, /disabled: boolean/u);
+  assert.match(
+    elementSource,
+    /ReversibleDisabledEnhancement[\s\S]*?if \(this\.disabled\) return/u,
+  );
+  assert.match(
+    elementSource,
+    /DisabledAttributeOwnsTeardown[\s\S]*?#restartConnectedLifecycle\(\)/u,
   );
   assert.match(elementSource, /get strongAsEmphasisMarks\(\)[\s\S]*?hasAttribute\("strong-as-emphasis-marks"\)/u);
   assert.match(elementDeclarations, /strongAsEmphasisMarks: boolean/u);

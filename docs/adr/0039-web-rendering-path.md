@@ -286,6 +286,14 @@ weak state 保留到同一节点重连或随节点回收，不能为了即将被
 Gradle 生成的 `runtime/tiqian-web.js`；仓库内 build helper 不是安装后可执行的 CLI，不能以一个
 依赖仓库 `gradlew` 的伪 `bin` 入口发布。
 
+`ReversibleDisabledEnhancement` 把 `<tiqian-prose disabled>` 定义为原生 Boolean attribute 生命周期，
+而不是 CSS 可见性或宿主 DOM 重建约定。初始存在时保留 semantic source，不采用 snapshot、不加载
+runtime、不建立字体或几何 observer；运行中增加时取消所有代际化任务、恢复 snapshot/runtime source、
+释放 exact-font session 与 document-scoped 状态。移除属性后从同一 semantic source 重新进入完整连接
+生命周期，并可复用仍已注册的 snapshot。URL、localStorage、rollout 等偏好来源属于宿主，只能把最终
+状态投影到 `disabled`；通用 element 不读取或持久化宿主策略。SSR 已经传输的 inert snapshot 不因
+客户端关闭而从 HTML 消失。
+
 嵌套 root 以最近的 descendant root 为所有权边界：外层 `enhance()` 不得再次 lower 内层 root 的
 段落，`enhanceAll()` 则让每个 root 各自接管直接作用域。这样局部 widget 与整篇正文可以同时使用
 Tiqian，而不会产生双重渲染或相互 destroy。

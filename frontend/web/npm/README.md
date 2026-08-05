@@ -61,6 +61,19 @@ Markdown 的加粗默认保留为原生 `<strong>` 粗体。如果站点把 `<st
 </tiqian-prose>
 ```
 
+需要让宿主或用户关闭增强时，使用标准 Boolean attribute `disabled`：
+
+```html
+<tiqian-prose disabled>
+  <p>当前保留浏览器原生排版。</p>
+</tiqian-prose>
+```
+
+`disabled` 初始存在时，组件保留服务器输出的语义 DOM，不采用构建期快照，也不启动排版 runtime
+或观察器。运行中增加该属性会取消在途排版并恢复原文；移除后会重新进入完整生命周期，并可复用
+已经注册的快照。它只控制客户端增强，不会从已经生成的 SSR HTML 中删除 inert snapshot 数据。
+和所有 HTML Boolean attribute 一样，`disabled="false"` 仍表示关闭；需要开启时应移除该属性。
+
 ## 命令式 API
 
 不能使用自定义元素时，可以自行管理正文根节点的生命周期：

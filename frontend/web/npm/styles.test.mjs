@@ -11,6 +11,15 @@ test("static stylesheet exposes a runtime readiness marker", () => {
 
 test("web lists keep native markers on a stable two-character body indent", () => {
   assert.match(stylesheet, /WebNativeTwoIcListIndent/u);
+  assert.match(stylesheet, /DisabledRootKeepsHostListGeometry/u);
+  assert.match(
+    stylesheet,
+    /:is\(tiqian-prose:not\(:where\(\[disabled\]\)\), \[data-tiqian-root\]\) :where\(ol, ul\)/u,
+  );
+  assert.doesNotMatch(
+    stylesheet,
+    /:is\(tiqian-prose, \[data-tiqian-root\]\) :where\(ol, ul\)/u,
+  );
   assert.match(stylesheet, /:where\(ol, ul\):not\(\.footnotes-list\)/u);
   assert.match(
     stylesheet,

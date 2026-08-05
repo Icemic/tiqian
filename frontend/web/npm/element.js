@@ -205,6 +205,7 @@ function loadExactFontFallback() {
 
 class TiqianProseElement extends HTMLElementBase {
   static observedAttributes = [
+    "disabled",
     "emphasis-dot-gap-em",
     "strong-as-emphasis-marks",
     "snapshot-ref",
@@ -254,6 +255,14 @@ class TiqianProseElement extends HTMLElementBase {
   #typographyObserver = null;
   #viewportResizeListener = null;
 
+  get disabled() {
+    return this.hasAttribute("disabled");
+  }
+
+  set disabled(value) {
+    this.toggleAttribute("disabled", Boolean(value));
+  }
+
   get emphasisDotGapEm() {
     const value = Number.parseFloat(this.getAttribute("emphasis-dot-gap-em"));
     return Number.isFinite(value) ? value : null;
@@ -298,6 +307,11 @@ class TiqianProseElement extends HTMLElementBase {
       this.#runtimeStateActive = false;
     }
     this.#connected = true;
+    this.#clearLifecycleDiagnostics();
+    // ReversibleDisabledEnhancement: the Boolean attribute is the complete
+    // opt-out contract. Keep semantic SSR children live and avoid stylesheet,
+    // font, snapshot, runtime and observer work until the host removes it.
+    if (this.disabled) return;
     this.#exactFontRejectedAttempt = "";
     const generation = ++this.#generation;
     this.#clearInitialFontRetry();
@@ -323,16 +337,6 @@ class TiqianProseElement extends HTMLElementBase {
       ? null
       : loadTiqianRuntime();
     runtimePromise?.catch(() => {});
-    delete this.dataset.tiqianCapabilityIssue;
-    delete this.dataset.tiqianEnhanceMs;
-    delete this.dataset.tiqianLoadMs;
-    delete this.dataset.tiqianMaxSliceMs;
-    delete this.dataset.tiqianRelayoutMs;
-    delete this.dataset.tiqianRelayoutMaxSliceMs;
-    delete this.dataset.tiqianFontWait;
-    delete this.dataset.tiqianSnapshotLiveIssue;
-    delete this.dataset.tiqianSnapshotCount;
-    delete this.dataset.tiqianSnapshotMiss;
     this.#removeReadyListener();
     this.#stopTypographyObservation();
     this.#readyListener = (event) => {
@@ -540,6 +544,14 @@ class TiqianProseElement extends HTMLElementBase {
 
   attributeChangedCallback(name, oldValue, newValue) {
     if (oldValue === newValue) return;
+    if (name === "disabled") {
+      // DisabledAttributeOwnsTeardown: adding the attribute uses the same
+      // source restoration and cancellation path as a connected lifecycle
+      // restart; connectedCallback then stops before any new work. Removing it
+      // re-enters the complete snapshot/runtime lifecycle from semantic source.
+      if (this.#connected) this.#restartConnectedLifecycle();
+      return;
+    }
     if (name === "snapshot-ref") {
       // UpgradeAttributeReactionGuard: when an SSR element is defined after it
       // was parsed, the platform reports its existing observed attributes
@@ -615,6 +627,19 @@ class TiqianProseElement extends HTMLElementBase {
       document.fonts?.removeEventListener?.("loadingerror", this.#initialFontRetryListener);
       this.#initialFontRetryListener = null;
     }
+  }
+
+  #clearLifecycleDiagnostics() {
+    delete this.dataset.tiqianCapabilityIssue;
+    delete this.dataset.tiqianEnhanceMs;
+    delete this.dataset.tiqianLoadMs;
+    delete this.dataset.tiqianMaxSliceMs;
+    delete this.dataset.tiqianRelayoutMs;
+    delete this.dataset.tiqianRelayoutMaxSliceMs;
+    delete this.dataset.tiqianFontWait;
+    delete this.dataset.tiqianSnapshotLiveIssue;
+    delete this.dataset.tiqianSnapshotCount;
+    delete this.dataset.tiqianSnapshotMiss;
   }
 
   #restartConnectedLifecycle() {

@@ -57,7 +57,7 @@ test("element entry still registers the browser custom element", async () => {
   }
 });
 
-test("initial font timeout retries the latest attributes and disconnect cancels stale work", async () => {
+test("disabled is reversible and cancels stale initial font work", async () => {
   const globalNames = [
     "document",
     "HTMLElement",
@@ -215,9 +215,20 @@ test("initial font timeout retries the latest attributes and disconnect cancels 
 
     const module = await import(`./element.js?font-lifecycle=${Date.now()}`);
     const element = new module.TiqianProseElement();
+    element.disabled = true;
     element.connectedCallback();
     await new Promise((resolve) => setImmediate(resolve));
 
+    assert.equal(element.disabled, true);
+    assert.equal(fontLoads.length, 0);
+    assert.equal(fontListeners.has("loadingdone"), false);
+    assert.equal(fontListeners.has("loadingerror"), false);
+
+    element.disabled = false;
+    element.attributeChangedCallback("disabled", "", null);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(element.disabled, false);
     assert.equal(element.dataset.tiqianFontWait, "timeout");
     assert.equal(element.hasAttribute("data-tiqian-enhanced"), false);
     assert.equal(fontLoads.length, 1);
@@ -238,6 +249,12 @@ test("initial font timeout retries the latest attributes and disconnect cancels 
 
     assert.equal(fontLoads.length, 3);
     assert.equal(element.dataset.tiqianFontWait, "timeout");
+
+    element.disabled = true;
+    element.attributeChangedCallback("disabled", null, "");
+    assert.equal(element.dataset.tiqianFontWait, undefined);
+    assert.equal(fontListeners.has("loadingdone"), false);
+    assert.equal(fontListeners.has("loadingerror"), false);
 
     element.isConnected = false;
     element.disconnectedCallback();
