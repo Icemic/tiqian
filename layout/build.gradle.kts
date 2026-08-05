@@ -47,7 +47,9 @@ tasks.register<JavaExec>("generateLayoutReport") {
     mainClass.set("org.tiqian.layout.tooling.LayoutReportMainKt")
     classpath = files(jvmTestCompilation.output.allOutputs) +
         configurations.named("jvmTestRuntimeClasspath").get()
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // BufferedImage/font probing is fully off-screen. Headless mode prevents macOS AWT's
+    // non-daemon auto-shutdown thread from keeping the completed CI task alive indefinitely.
+    jvmArgs("-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED")
 }
 
 val readmeSampleBlackSvg = rootProject.layout.projectDirectory.file("docs/images/sample-paragraph-black.svg")
