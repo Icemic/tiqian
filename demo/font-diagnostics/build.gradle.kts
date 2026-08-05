@@ -2,6 +2,21 @@ plugins {
     id("com.android.application")
 }
 
+fun gitOutput(vararg arguments: String): String = runCatching {
+    providers.exec {
+        workingDir(rootDir)
+        commandLine("git", *arguments)
+    }.standardOutput.asText.get().trim()
+}.getOrDefault("unknown")
+
+val collectorGitRevision = gitOutput("rev-parse", "--short=12", "HEAD")
+val collectorGitDirty = gitOutput(
+    "status",
+    "--porcelain",
+    "--",
+    "demo/font-diagnostics",
+).let { status -> status != "unknown" && status.isNotEmpty() }
+
 /**
  * 独立的一次性字体诊断 app。
  *
@@ -18,12 +33,19 @@ android {
         applicationId = "org.tiqian.diagnostics"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+        buildConfigField("String", "COLLECTOR_GIT_REVISION", "\"$collectorGitRevision\"")
+        buildConfigField("boolean", "COLLECTOR_GIT_DIRTY", collectorGitDirty.toString())
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 }
 
 dependencies {
-    // FileProvider：报告按文件分享，避免长文本被消息应用截断。
+    // FileProvider：完整 ZIP 证据包通过 content URI 分享。
     implementation("androidx.core:core:1.16.0")
+    testImplementation(kotlin("test-junit"))
 }

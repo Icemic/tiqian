@@ -1,3 +1,18 @@
 <resources>
-    <string name="app_name">提椠字体诊断</string>
+    <string name="app_name">字体信息收集</string>
+    <string name="screen_title">字体信息收集</string>
+    <string name="intro">这个工具用来确认不同 Android 手机怎样显示文字。完成后，请把结果发给邀请你测试的人。</string>
+    <string name="collecting_title">正在收集</string>
+    <string name="collecting_detail">通常需要十几秒，请暂时不要关闭这个页面。</string>
+    <string name="complete_title">收集完成</string>
+    <string name="complete_detail">点击下方按钮，选择你常用的发送方式。</string>
+    <string name="send_result">发送结果</string>
+    <string name="failure_title">收集失败</string>
+    <string name="failure_detail">请关闭应用后重新打开。如果仍然失败，请把这个页面截图发给邀请你测试的人。\n\n错误代码：%1$s</string>
+    <string name="privacy_title">会收集哪些信息？</string>
+    <string name="privacy_body">结果中包含手机型号、Android 版本、系统字体信息和几段固定测试文字的显示结果。不读取照片、通讯录或聊天记录，不修改任何设置，应用本身也不会联网。只有点击“发送结果”后，系统才会让你选择发送方式。</string>
+    <string name="provider_label">由提椠项目提供</string>
+    <string name="bundle_read_failed">结果文件暂时无法发送，请关闭应用后重试。</string>
+    <string name="share_subject">手机字体收集结果</string>
+    <string name="share_chooser_title">发送结果</string>
 </resources>
