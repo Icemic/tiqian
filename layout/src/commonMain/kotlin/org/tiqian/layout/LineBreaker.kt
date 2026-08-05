@@ -684,6 +684,10 @@ class LookaheadLineBreaker(
             endExclusive = segmentEndExclusive,
             unbreakableRanges = unbreakableRanges,
             nonRenderingControlClusters = nonRenderingControlClusters,
+            // BoundedLookaheadMaterialization: scoring observes only
+            // futureLineHorizon lines. One additional line is sufficient for
+            // adjacent kinsoku repair to modify the last scored line.
+            maxLines = futureLineHorizon + 1,
         )
         // Apply kinsoku once across [firstLine] + future so both splice
         // conflicts and future-line conflicts are scored with the same PushIn
@@ -742,8 +746,10 @@ class LookaheadLineBreaker(
         endExclusive: Int = adjusted.size,
         unbreakableRanges: List<IntRange> = emptyList(),
         nonRenderingControlClusters: Set<Int> = emptySet(),
+        maxLines: Int = Int.MAX_VALUE,
     ): List<LineCandidate> {
         if (start >= endExclusive) return emptyList()
+        require(maxLines > 0) { "maxLines must be positive" }
 
         val lines = mutableListOf<LineCandidate>()
         var lineStart = start
@@ -772,6 +778,7 @@ class LookaheadLineBreaker(
                     naturalClusters = natural,
                     adjustedClusters = adjusted,
                 )
+                if (lines.size >= maxLines) return lines
                 lineStart = breakAt
                 adjustedAccum = adjusted[breakAt].advance
                 hasRenderingContent = breakAt !in nonRenderingControlClusters

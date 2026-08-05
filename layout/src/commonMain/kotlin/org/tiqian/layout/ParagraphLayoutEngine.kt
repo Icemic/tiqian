@@ -112,6 +112,40 @@ private val COMBINING_MARK_CATEGORIES = setOf(
     CharCategory.ENCLOSING_MARK,
 )
 
+/** Monotonic interval join for source-ordered clusters and source-ordered decisions. */
+private fun <T> List<Cluster>.containingItems(
+    items: List<T>,
+    rangeOf: (T) -> TextRange,
+): List<T?> {
+    var itemIndex = 0
+    return map { cluster ->
+        while (itemIndex < items.size && rangeOf(items[itemIndex]).end <= cluster.range.start) {
+            itemIndex += 1
+        }
+        items.getOrNull(itemIndex)?.takeIf { item ->
+            val range = rangeOf(item)
+            cluster.range.start >= range.start && cluster.range.end <= range.end
+        }
+    }
+}
+
+/** Monotonic inverse interval join when one cluster may contain several ordered items. */
+private fun <T> List<Cluster>.firstContainedItem(
+    items: List<T>,
+    rangeOf: (T) -> TextRange,
+): List<T?> {
+    var itemIndex = 0
+    return map { cluster ->
+        while (itemIndex < items.size && rangeOf(items[itemIndex]).end <= cluster.range.start) {
+            itemIndex += 1
+        }
+        items.getOrNull(itemIndex)?.takeIf { item ->
+            val range = rangeOf(item)
+            range.start >= cluster.range.start && range.end <= cluster.range.end
+        }
+    }
+}
+
 interface ParagraphLayoutEngine {
     fun layout(input: LayoutInput): LayoutResult
 }
@@ -778,9 +812,9 @@ class ExplainableStubParagraphLayoutEngine(
             .keys
             .map { leftClusterIndex -> leftClusterIndex..(leftClusterIndex + 1) }
         val autoSpaceDecisions = autoSpaceResult.decisions
-        val clusterRoles = naturalClusters.map { cluster ->
-            fontDecisions.firstOrNull { cluster.range.isInside(it.range) }?.role ?: FontRole.Unknown
-        }
+        val clusterRoles = naturalClusters
+            .containingItems(fontDecisions, FontDecision::range)
+            .map { decision -> decision?.role ?: FontRole.Unknown }
         val resolvedKinsoku = clreqProfile.kinsokuMode.resolve(measureEm)
         val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
         val inlineObjectAttachedMarks = naturalClusters.inlineObjectAttachedMarks(
@@ -1000,12 +1034,10 @@ class ExplainableStubParagraphLayoutEngine(
         // for a rolled-back `——` (two display chars, ADR 0003) that is two per-char
         // ranges, and a lookup by the coalesced cluster range would silently miss
         // (device bug: the dash dropped out of noStretch/centering after rollback).
-        val atomClassByRange: Map<TextRange, PunctuationClass> = buildMap {
-            for (cluster in naturalClusters) {
-                val cls = punctuationAtoms.firstOrNull { it.range.isInside(cluster.range) }?.punctuationClass
-                if (cls != null) put(cluster.range, cls)
-            }
-        }
+        val atomClassByRange: Map<TextRange, PunctuationClass> = naturalClusters
+            .zip(naturalClusters.firstContainedItem(punctuationAtoms, PunctuationAtom::range))
+            .mapNotNull { (cluster, atom) -> atom?.punctuationClass?.let { cluster.range to it } }
+            .toMap()
         val shrinkOpportunities = buildList {
             naturalClusters.forEachIndexed { idx, cluster ->
                 val caps = glueCaps[idx]
@@ -1094,11 +1126,30 @@ class ExplainableStubParagraphLayoutEngine(
             }
         }
 
+        // `FontMetricFaceSelectionTextJoin`: font decisions and shaped clusters
+        // are both source ordered. Walk them once instead of filtering the whole
+        // paragraph for every decision (which made layout quadratic on long text).
+        var metricClusterIndex = 0
         val metricDecisions = fontDecisions.map { decision ->
-            val displayedFaceSelectionText = naturalClusters
-                .filter { cluster -> cluster.range.isInside(decision.range) }
-                .joinToString(separator = "") { cluster -> cluster.displayText }
-                .ifEmpty { text.substring(decision.range.start, decision.range.end) }
+            while (
+                metricClusterIndex < naturalClusters.size &&
+                naturalClusters[metricClusterIndex].range.end <= decision.range.start
+            ) {
+                metricClusterIndex += 1
+            }
+            val displayedFaceSelectionText = buildString {
+                while (
+                    metricClusterIndex < naturalClusters.size &&
+                    naturalClusters[metricClusterIndex].range.start < decision.range.end
+                ) {
+                    val cluster = naturalClusters[metricClusterIndex]
+                    require(cluster.range.isInside(decision.range)) {
+                        "Shaped cluster ${cluster.range} crosses font decision ${decision.range}"
+                    }
+                    append(cluster.displayText)
+                    metricClusterIndex += 1
+                }
+            }.ifEmpty { text.substring(decision.range.start, decision.range.end) }
             val request = FontMetricsRequest(
                 fontKey = decision.candidate.key,
                 fontSize = fontSizeAt(decision.range.start),
@@ -1168,6 +1219,10 @@ class ExplainableStubParagraphLayoutEngine(
             defaultLineHeight = defaultBodyLineHeight,
             spacingFloor = interlinearSpacingFloor,
         )
+        val metricDecisionByRange: Map<TextRange, ClusterMetricDecision> = naturalClusters
+            .zip(naturalClusters.containingItems(metricDecisions, ClusterMetricDecision::range))
+            .mapNotNull { (cluster, decision) -> decision?.let { cluster.range to it } }
+            .toMap()
         val baseFaceHeight = baseAscent + baseDescent
         val existingInterlineSpace = (baseLineMetrics.height - baseFaceHeight).coerceAtLeast(0f)
         val lineSpacingDecision = if (baseLineMetrics.height <= 0f) {
@@ -1627,9 +1682,7 @@ class ExplainableStubParagraphLayoutEngine(
             // ExplicitBaselineShiftSpan then stacks author intent (sup/subscript)
             // on top of that metric alignment; Roman clusters still keep metric
             // shift 0 but may receive the explicit style shift.
-            val m = metricDecisions.firstOrNull {
-                c.range.start >= it.range.start && c.range.end <= it.range.end
-            }?.layoutMetrics ?: return@map c
+            val m = metricDecisionByRange[c.range]?.layoutMetrics ?: return@map c
             val metricShift = if (m.baselineClass == BaselineClass.Roman) 0f else baseBoxDescent - m.descent
             val shift = c.baselineShift + metricShift + styleAt(c.range.start).baselineShift
             if (shift > -0.01f && shift < 0.01f) c else c.copy(baselineShift = shift)
@@ -3082,15 +3135,23 @@ class ExplainableStubParagraphLayoutEngine(
         start >= other.start && end <= other.end
 
     private fun List<Cluster>.requireCoveredBy(fontDecisions: List<FontDecision>) {
+        var clusterIndex = 0
         fontDecisions.forEach { decision ->
-            val coveringClusters = filter { cluster -> cluster.range.isInside(decision.range) }
-                .sortedBy { it.range.start }
+            while (clusterIndex < size && this[clusterIndex].range.end <= decision.range.start) {
+                clusterIndex += 1
+            }
             var cursor = decision.range.start
-            for (cluster in coveringClusters) {
+            while (clusterIndex < size && this[clusterIndex].range.start < decision.range.end) {
+                val cluster = this[clusterIndex]
+                require(cluster.range.isInside(decision.range)) {
+                    "TextShaper returned cluster ${cluster.range} crossing ${decision.range}"
+                }
                 require(cluster.range.start == cursor) {
-                    "TextShaper returned non-contiguous clusters for ${decision.range}: $coveringClusters"
+                    "TextShaper returned non-contiguous clusters for ${decision.range}; " +
+                        "expected start=$cursor, actual=${cluster.range}"
                 }
                 cursor = cluster.range.end
+                clusterIndex += 1
             }
             require(cursor == decision.range.end) {
                 "TextShaper must return clusters covering ${decision.range}; coveredUntil=$cursor"
