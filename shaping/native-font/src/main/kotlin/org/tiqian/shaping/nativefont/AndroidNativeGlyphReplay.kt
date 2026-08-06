@@ -1,9 +1,12 @@
 package org.tiqian.shaping.nativefont
 
 import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.fonts.Font
 import org.tiqian.core.Glyph
+import org.tiqian.core.Rect
 import java.util.LinkedHashMap
 
 /** FreeType outline replay for API 23+, consuming only glyph ids/origins emitted by LayoutResult. */
@@ -20,6 +23,7 @@ object AndroidNativeGlyphReplay {
         fontSize: Float,
         paint: Paint,
     ): Boolean {
+        if (requiresPlatformSyntheticBold(glyphs)) return false
         val path = glyphPath(glyphs, originX, originY, fontSize) ?: return false
         if (!path.isEmpty) canvas.drawPath(path, paint)
         return true
@@ -31,6 +35,19 @@ object AndroidNativeGlyphReplay {
             glyph.renderFontKey?.let(TiqianAndroidFontBackend::faceFor) != null
         }
 
+    fun requiresPlatformSyntheticBold(glyphs: List<Glyph>): Boolean =
+        glyphs.any { glyph ->
+            glyph.renderFontKey?.let(TiqianAndroidFontBackend::isSyntheticBoldFace) == true
+        }
+
+    fun usesSyntheticItalic(glyphs: List<Glyph>): Boolean =
+        glyphs.any { glyph ->
+            glyph.renderFontKey?.let(TiqianAndroidFontBackend::isSyntheticItalicFace) == true
+        }
+
+    fun platformFontFor(renderFontKey: String): Font? =
+        TiqianAndroidFontBackend.platformFontFor(renderFontKey)
+
     /** Absolute path used by both paint and decoration skip-ink interception. */
     fun glyphPath(
         glyphs: List<Glyph>,
@@ -39,11 +56,18 @@ object AndroidNativeGlyphReplay {
         fontSize: Float,
     ): Path? {
         if (glyphs.isEmpty()) return null
+        if (requiresPlatformSyntheticBold(glyphs)) return null
         val result = Path().apply { fillType = Path.FillType.WINDING }
         for (glyph in glyphs) {
             val key = glyph.renderFontKey ?: return null
             val face = TiqianAndroidFontBackend.faceFor(key) ?: return null
-            val outline = scaledOutline(key, face, glyph.id, fontSize) ?: return null
+            val outline = scaledOutline(
+                faceId = key,
+                face = face,
+                glyphId = glyph.id,
+                fontSize = fontSize,
+                syntheticItalic = TiqianAndroidFontBackend.isSyntheticItalicFace(key),
+            ) ?: return null
             result.addPath(outline, originX + glyph.x, originY + glyph.y)
         }
         return result
@@ -54,6 +78,7 @@ object AndroidNativeGlyphReplay {
         face: NativeFontFace,
         glyphId: UInt,
         fontSize: Float,
+        syntheticItalic: Boolean,
     ): Path? {
         val key = OutlineKey(faceId, glyphId, fontSize.toRawBits())
         synchronized(cacheLock) {
@@ -61,7 +86,9 @@ object AndroidNativeGlyphReplay {
         }
         val commands = face.outline(glyphId) ?: return null
         val scale = fontSize / face.unitsPerEm
-        val path = decodeOutline(commands, scale)
+        val path = decodeOutline(commands, scale).apply {
+            if (syntheticItalic) transform(SyntheticItalicMatrix)
+        }
         synchronized(cacheLock) {
             scaledOutlineCache[key] = path
             while (scaledOutlineCache.size > MaxCachedScaledOutlines) {
@@ -97,4 +124,19 @@ object AndroidNativeGlyphReplay {
         val glyphId: UInt,
         val fontSizeBits: Int,
     )
+
+    internal fun transformInkBounds(bounds: Rect, syntheticItalic: Boolean): Rect {
+        if (!syntheticItalic) return bounds
+        val topShift = SyntheticItalicSkewX * bounds.top
+        val bottomShift = SyntheticItalicSkewX * bounds.bottom
+        return Rect(
+            left = minOf(bounds.left + topShift, bounds.left + bottomShift),
+            top = bounds.top,
+            right = maxOf(bounds.right + topShift, bounds.right + bottomShift),
+            bottom = bounds.bottom,
+        )
+    }
+
+    private const val SyntheticItalicSkewX = -0.25f
+    private val SyntheticItalicMatrix = Matrix().apply { setSkew(SyntheticItalicSkewX, 0f) }
 }

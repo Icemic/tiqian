@@ -1,5 +1,6 @@
 package org.tiqian.shaping.nativefont
 
+import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 
 internal object NativeFontBridge {
@@ -7,13 +8,17 @@ internal object NativeFontBridge {
         System.loadLibrary("tiqian_native_font")
     }
 
-    external fun nativeRegisterFace(
-        bytes: ByteArray,
+    external fun nativeRegisterFileSource(path: String): Long
+    external fun nativeRegisterBufferSource(buffer: ByteBuffer, size: Long): Long
+    external fun nativeReleaseSource(handle: Long)
+    external fun nativeCreateFace(
+        sourceHandle: Long,
         collectionIndex: Int,
         variationTags: IntArray,
         variationValues: FloatArray,
     ): Long
     external fun nativeReleaseFace(handle: Long)
+    external fun nativeResourceStats(): LongArray
     external fun nativeUnitsPerEm(handle: Long): Int
     external fun nativeHasGlyphs(handle: Long, text: String): Boolean
 
@@ -37,6 +42,23 @@ internal object NativeFontBridge {
     external fun nativeMetrics(handle: Long, fontSize: Float): FloatArray?
     external fun nativeOutline(handle: Long, glyphId: Int): FloatArray?
     external fun nativeVersions(): String
+}
+
+internal data class NativeFontResourceStats(
+    val sourceCount: Long,
+    /** Bytes owned by direct buffers or covered by read-only file mappings; this is not RSS. */
+    val sourceBytes: Long,
+    val faceCount: Long,
+)
+
+internal fun nativeFontResourceStats(): NativeFontResourceStats {
+    val values = NativeFontBridge.nativeResourceStats()
+    check(values.size == 3) { "Native font resource stats have an unexpected shape" }
+    return NativeFontResourceStats(
+        sourceCount = values[0],
+        sourceBytes = values[1],
+        faceCount = values[2],
+    )
 }
 
 internal class NativeFontFace(

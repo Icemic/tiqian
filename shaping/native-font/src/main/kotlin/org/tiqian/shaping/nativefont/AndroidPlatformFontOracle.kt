@@ -24,7 +24,7 @@ import java.util.Locale
 @TargetApi(31)
 internal object AndroidPlatformFontOracle {
     fun select(request: ReplayableFontFaceRequest): PlatformFontSelection {
-        val selectionText = request.selectionText.ifEmpty { representativeText(request.role) }
+        val selectionText = platformFaceProbeText(request)
         val paint = TextPaint().apply {
             isAntiAlias = true
             textSize = request.fontSize
@@ -42,20 +42,25 @@ internal object AndroidPlatformFontOracle {
             false,
             paint,
         )
-        check(shaped.glyphCount() > 0) {
-            "PlatformFontSelectionEmpty: role=${request.role}; text=$selectionText"
-        }
         val instances = (0 until shaped.glyphCount())
             .map { index -> shaped.platformInstance(index) }
             .distinctBy(PlatformGlyphInstance::instanceKey)
-        check(instances.size == 1) {
-            "PlatformSelectionSpansMultipleFaces: role=${request.role}; text=$selectionText; " +
-                "faces=${instances.joinToString { it.font.sourceLabel() }}"
+        check(instances.isNotEmpty()) {
+            "PlatformFontSelectionEmpty: role=${request.role}; " +
+                "requestText=${request.selectionText}; probeText=$selectionText"
         }
-        val instance = instances.single()
-        check(!instance.fakeBold && !instance.fakeItalic) {
-            "PlatformSelectionUsesSyntheticStyle: role=${request.role}; text=$selectionText; " +
-                "fakeBold=${instance.fakeBold}; fakeItalic=${instance.fakeItalic}"
+        // PlatformMultiFaceStringDrawDegrade: the platform legitimately itemizes some runs
+        // across more than one physical face (a CJK base plus a combining mark its face lacks,
+        // Thai/Arabic and other non-CJK scripts, or a Latin word crossing a fallback boundary).
+        // No single controlled-byte face can replay those, so we keep the base (first) face for
+        // metrics, record the platform-measured run advance, and flag the selection so the layout
+        // backend defers this segment's measurement and drawing to the platform text stack.
+        val spansMultipleFaces = instances.size > 1
+        val instance = instances.first()
+        val degradedRunAdvance = if (spansMultipleFaces) {
+            paint.getRunAdvance(selectionText, 0, selectionText.length, 0, selectionText.length, false, selectionText.length)
+        } else {
+            0f
         }
         val font = instance.font
         return PlatformFontSelection(
@@ -63,8 +68,12 @@ internal object AndroidPlatformFontOracle {
             source = font.source(),
             collectionIndex = font.ttcIndex,
             variationAxes = instance.variationAxes,
-            weight = instance.effectiveWeight,
-            italic = instance.effectiveItalic,
+            weight = if (instance.fakeBold) request.weight else instance.effectiveWeight,
+            italic = instance.effectiveItalic || instance.fakeItalic,
+            syntheticBold = instance.fakeBold,
+            syntheticItalic = instance.fakeItalic,
+            spansMultipleFaces = spansMultipleFaces,
+            degradedRunAdvance = degradedRunAdvance,
             aliases = buildSet {
                 addAll(request.preferredFamilies.filter(String::isNotBlank))
                 font.file?.nameWithoutExtension?.takeIf(String::isNotBlank)?.let(::add)
@@ -134,15 +143,29 @@ internal object AndroidPlatformFontOracle {
         }
     }
 
-    private fun representativeText(role: FontRole): String = when (role) {
-        FontRole.CjkText -> "中"
-        FontRole.CjkPunctuation -> "。"
-        FontRole.LatinText -> "A"
-        FontRole.Symbol -> "∑"
-        FontRole.Emoji -> "😀"
-        FontRole.Unknown -> "�"
-    }
 }
+
+/**
+ * Shared curly quotes and em dashes have glyphs in both Latin and CJK system fonts. Once the
+ * paragraph classifier has assigned [FontRole.CjkPunctuation], probing the isolated mark would
+ * discard that decision and let Android's Latin primary face win merely because it also covers
+ * the code point. `CjkPunctuationHanFaceAnchor` therefore selects the concrete CJK face with the
+ * same Han probe as [FontRole.CjkText]; the selected bytes then shape the original punctuation.
+ */
+internal fun platformFaceProbeText(request: ReplayableFontFaceRequest): String =
+    when (request.role) {
+        FontRole.CjkPunctuation -> "中"
+        else -> request.selectionText.ifEmpty {
+            when (request.role) {
+                FontRole.CjkText -> "中"
+                FontRole.LatinText -> "A"
+                FontRole.Symbol -> "∑"
+                FontRole.Emoji -> "😀"
+                FontRole.Unknown -> "�"
+                FontRole.CjkPunctuation -> error("handled above")
+            }
+        }
+    }
 
 @TargetApi(31)
 internal data class PlatformFontSelection(
@@ -152,6 +175,12 @@ internal data class PlatformFontSelection(
     val variationAxes: Map<String, Float>,
     val weight: Int,
     val italic: Boolean,
+    val syntheticBold: Boolean,
+    val syntheticItalic: Boolean,
+    /** True when the platform shaped the probe run across more than one physical face. */
+    val spansMultipleFaces: Boolean = false,
+    /** Platform-measured run advance for the degrade path; only meaningful when [spansMultipleFaces]. */
+    val degradedRunAdvance: Float = 0f,
     val aliases: Set<String>,
 ) {
     val instanceKey: String = buildString {
@@ -162,6 +191,10 @@ internal data class PlatformFontSelection(
         append(collectionIndex)
         append(':')
         append(variationAxes.entries.joinToString(",") { (tag, value) -> "$tag=${value.toRawBits()}" })
+        append(":syntheticBold=")
+        append(syntheticBold)
+        append(":syntheticItalic=")
+        append(syntheticItalic)
     }
 }
 
@@ -228,6 +261,7 @@ private data class PlatformGlyphInstance(
         append(":fakeItalic=")
         append(fakeItalic)
     }
+
 }
 
 @TargetApi(31)
@@ -235,9 +269,10 @@ private fun Font.source(): AndroidFontSource {
     file?.takeIf(File::isFile)?.let { file ->
         return AndroidFontSource.file(file, sourceLabel())
     }
-    val buffer = buffer.duplicate().apply { position(0) }
-    val bytes = ByteArray(buffer.remaining()).also(buffer::get)
-    return AndroidFontSource.bytes(bytes, sourceLabel())
+    return AndroidFontSource.directBuffer(
+        buffer.duplicate().apply { position(0) },
+        sourceLabel(),
+    )
 }
 
 @TargetApi(31)

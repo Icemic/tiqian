@@ -1,12 +1,19 @@
 #include <jni.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <fcntl.h>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 #include <hb-ft.h>
@@ -25,6 +32,9 @@ constexpr int kLoadFlags = FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING;
 
 FT_Library g_freetype = nullptr;
 std::once_flag g_freetype_once;
+std::atomic<jlong> g_live_source_count{0};
+std::atomic<jlong> g_live_source_bytes{0};
+std::atomic<jlong> g_live_face_count{0};
 
 void throw_java(JNIEnv* env, const char* class_name, const std::string& message) {
     jclass cls = env->FindClass(class_name);
@@ -40,15 +50,43 @@ bool ensure_freetype(JNIEnv* env) {
     return false;
 }
 
+struct FontBlob {
+    const unsigned char* data = nullptr;
+    size_t size = 0;
+    void* mapping = MAP_FAILED;
+    JavaVM* java_vm = nullptr;
+    jobject direct_buffer = nullptr;
+
+    ~FontBlob() {
+        if (mapping != MAP_FAILED) munmap(mapping, size);
+        if (direct_buffer != nullptr && java_vm != nullptr) {
+            JNIEnv* env = nullptr;
+            bool attached = false;
+            const jint status = java_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+            if (status == JNI_EDETACHED && java_vm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            }
+            if (env != nullptr) env->DeleteGlobalRef(direct_buffer);
+            if (attached) java_vm->DetachCurrentThread();
+        }
+        g_live_source_bytes.fetch_sub(static_cast<jlong>(size), std::memory_order_relaxed);
+        g_live_source_count.fetch_sub(1, std::memory_order_relaxed);
+    }
+};
+
+using FontBlobHandle = std::shared_ptr<FontBlob>;
+
 struct Face {
-    std::vector<unsigned char> bytes;
+    FontBlobHandle source;
     FT_Face ft_face = nullptr;
     hb_font_t* hb_font = nullptr;
+    bool counted = false;
     std::mutex mutex;
 
     ~Face() {
         if (hb_font != nullptr) hb_font_destroy(hb_font);
         if (ft_face != nullptr) FT_Done_Face(ft_face);
+        if (counted) g_live_face_count.fetch_sub(1, std::memory_order_relaxed);
     }
 };
 
@@ -65,6 +103,10 @@ struct Shape {
 
 Face* face_from(jlong handle) {
     return reinterpret_cast<Face*>(static_cast<intptr_t>(handle));
+}
+
+FontBlobHandle* source_from(jlong handle) {
+    return reinterpret_cast<FontBlobHandle*>(static_cast<intptr_t>(handle));
 }
 
 Shape* shape_from(jlong handle) {
@@ -181,6 +223,14 @@ jfloatArray float_array(JNIEnv* env, const std::vector<float>& values) {
     return result;
 }
 
+jlongArray long_array(JNIEnv* env, const std::vector<jlong>& values) {
+    jlongArray result = env->NewLongArray(static_cast<jsize>(values.size()));
+    if (result != nullptr && !values.empty()) {
+        env->SetLongArrayRegion(result, 0, static_cast<jsize>(values.size()), values.data());
+    }
+    return result;
+}
+
 bool apply_variations(
     JNIEnv* env,
     FT_Face face,
@@ -252,30 +302,117 @@ bool apply_variations(
 }  // namespace
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeRegisterFace(
+Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeRegisterFileSource(
     JNIEnv* env,
     jobject,
-    jbyteArray bytes,
+    jstring path
+) {
+    if (path == nullptr) {
+        throw_java(env, "java/lang/IllegalArgumentException", "Font path must not be null");
+        return 0;
+    }
+    const std::string native_path = to_utf8(env, path);
+    if (env->ExceptionCheck()) return 0;
+    const int fd = open(native_path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        throw_java(env, "java/io/IOException", "Could not open font file: " + std::string(std::strerror(errno)));
+        return 0;
+    }
+    struct stat status{};
+    if (fstat(fd, &status) != 0) {
+        const int saved_errno = errno;
+        close(fd);
+        throw_java(env, "java/io/IOException", "Could not stat font file: " + std::string(std::strerror(saved_errno)));
+        return 0;
+    }
+    if (status.st_size <= 0 ||
+        static_cast<uint64_t>(status.st_size) > static_cast<uint64_t>(std::numeric_limits<FT_Long>::max())) {
+        close(fd);
+        throw_java(env, "java/io/IOException", "Font file has an invalid size");
+        return 0;
+    }
+    void* mapping = mmap(nullptr, static_cast<size_t>(status.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+    const int saved_errno = errno;
+    close(fd);
+    if (mapping == MAP_FAILED) {
+        throw_java(env, "java/io/IOException", "Could not map font file: " + std::string(std::strerror(saved_errno)));
+        return 0;
+    }
+    auto source = std::make_shared<FontBlob>();
+    source->mapping = mapping;
+    source->data = static_cast<const unsigned char*>(mapping);
+    source->size = static_cast<size_t>(status.st_size);
+    g_live_source_count.fetch_add(1, std::memory_order_relaxed);
+    g_live_source_bytes.fetch_add(static_cast<jlong>(source->size), std::memory_order_relaxed);
+    return static_cast<jlong>(reinterpret_cast<intptr_t>(new FontBlobHandle(std::move(source))));
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeRegisterBufferSource(
+    JNIEnv* env,
+    jobject,
+    jobject buffer,
+    jlong size
+) {
+    if (buffer == nullptr || size <= 0 || size > std::numeric_limits<FT_Long>::max()) {
+        throw_java(env, "java/lang/IllegalArgumentException", "Direct font buffer must not be empty");
+        return 0;
+    }
+    void* address = env->GetDirectBufferAddress(buffer);
+    const jlong capacity = env->GetDirectBufferCapacity(buffer);
+    if (address == nullptr || capacity < size) {
+        throw_java(env, "java/lang/IllegalArgumentException", "Font buffer must be direct and large enough");
+        return 0;
+    }
+    JavaVM* java_vm = nullptr;
+    if (env->GetJavaVM(&java_vm) != JNI_OK) {
+        throw_java(env, "java/lang/IllegalStateException", "Could not retain the font buffer VM");
+        return 0;
+    }
+    jobject retained_buffer = env->NewGlobalRef(buffer);
+    if (retained_buffer == nullptr) return 0;
+    auto source = std::make_shared<FontBlob>();
+    source->data = static_cast<const unsigned char*>(address);
+    source->size = static_cast<size_t>(size);
+    source->java_vm = java_vm;
+    source->direct_buffer = retained_buffer;
+    g_live_source_count.fetch_add(1, std::memory_order_relaxed);
+    g_live_source_bytes.fetch_add(size, std::memory_order_relaxed);
+    return static_cast<jlong>(reinterpret_cast<intptr_t>(new FontBlobHandle(std::move(source))));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeReleaseSource(
+    JNIEnv*,
+    jobject,
+    jlong handle
+) {
+    delete source_from(handle);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeCreateFace(
+    JNIEnv* env,
+    jobject,
+    jlong source_handle,
     jint collection_index,
     jintArray variation_tags,
     jfloatArray variation_values
 ) {
     if (!ensure_freetype(env)) return 0;
-    if (bytes == nullptr || env->GetArrayLength(bytes) == 0) {
-        throw_java(env, "java/lang/IllegalArgumentException", "Font bytes must not be empty");
+    FontBlobHandle* source = source_from(source_handle);
+    if (source == nullptr || !*source || (*source)->data == nullptr || (*source)->size == 0) {
+        throw_java(env, "java/lang/IllegalArgumentException", "Font source is closed or empty");
         return 0;
     }
 
     auto face = std::make_unique<Face>();
-    const jsize length = env->GetArrayLength(bytes);
-    face->bytes.resize(static_cast<size_t>(length));
-    env->GetByteArrayRegion(bytes, 0, length, reinterpret_cast<jbyte*>(face->bytes.data()));
-    if (env->ExceptionCheck()) return 0;
+    face->source = *source;
 
     const FT_Error error = FT_New_Memory_Face(
         g_freetype,
-        face->bytes.data(),
-        static_cast<FT_Long>(face->bytes.size()),
+        face->source->data,
+        static_cast<FT_Long>(face->source->size),
         collection_index,
         &face->ft_face
     );
@@ -290,6 +427,8 @@ Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeRegisterFace(
         return 0;
     }
     hb_ft_font_set_load_flags(face->hb_font, kLoadFlags);
+    g_live_face_count.fetch_add(1, std::memory_order_relaxed);
+    face->counted = true;
     return static_cast<jlong>(reinterpret_cast<intptr_t>(face.release()));
 }
 
@@ -300,6 +439,18 @@ Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeReleaseFace(
     jlong handle
 ) {
     delete face_from(handle);
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_org_tiqian_shaping_nativefont_NativeFontBridge_nativeResourceStats(
+    JNIEnv* env,
+    jobject
+) {
+    return long_array(env, {
+        g_live_source_count.load(std::memory_order_relaxed),
+        g_live_source_bytes.load(std::memory_order_relaxed),
+        g_live_face_count.load(std::memory_order_relaxed),
+    });
 }
 
 extern "C" JNIEXPORT jint JNICALL

@@ -30,6 +30,7 @@ import org.tiqian.shaping.android.AndroidFontMetricsResolver
 import org.tiqian.shaping.android.AndroidPaintTextShaper
 import org.tiqian.shaping.android.AndroidTypefaceResolver
 import java.io.File
+import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -81,6 +82,263 @@ class AndroidNativeFontBackendTest {
         assertEquals(extensionPlatform.variationAxes, extensionNative.descriptor.variationAxes)
         if (commonPlatform.instanceKey != extensionPlatform.instanceKey) {
             assertNotEquals(commonNative.descriptor.id, extensionNative.descriptor.id)
+        }
+    }
+
+    @Test
+    fun cjkQuotesAndDashesUseTheSameConcreteFaceAsHanText() {
+        if (Build.VERSION.SDK_INT < 31) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        fun resolve(role: FontRole, text: String) = TiqianAndroidFontBackend.resolveFace(
+            context,
+            org.tiqian.shaping.ReplayableFontFaceRequest(
+                role = role,
+                preferredFamilies = emptyList(),
+                fontSize = 32f,
+                weight = 400,
+                italic = false,
+                locale = "zh-Hans",
+                selectionText = text,
+            ),
+        ).descriptor
+
+        val han = resolve(FontRole.CjkText, "中")
+        for (punctuation in listOf("“", "”", "‘", "’", "—", "——")) {
+            val actual = resolve(FontRole.CjkPunctuation, punctuation)
+            assertEquals(han.id.sourceDigest(), actual.id.sourceDigest(), punctuation)
+            assertEquals(han.collectionIndex, actual.collectionIndex, punctuation)
+            assertEquals(han.variationAxes, actual.variationAxes, punctuation)
+        }
+    }
+
+    @Test
+    fun multiFaceSegmentsDegradeToPlatformStringDrawInsteadOfCrashing() {
+        if (Build.VERSION.SDK_INT < 31) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        // Repro of the zhplus.lite crash: runs the platform itemizes across two physical faces
+        // (a non-CJK script base+mark, and a Han base with a combining mark its CJK face lacks).
+        // Before the fix the oracle's single-face check threw PlatformSelectionSpansMultipleFaces
+        // during Compose measure. Only assert on a device that actually splits the run.
+        val candidates = listOf(
+            "กิ" to FontRole.Unknown, // กิ — Thai base + vowel mark
+            "中҉" to FontRole.CjkText, // 中 + combining Cyrillic millions sign
+        )
+        var exercised = 0
+        for ((text, role) in candidates) {
+            val request = org.tiqian.shaping.ReplayableFontFaceRequest(
+                role = role,
+                preferredFamilies = emptyList(),
+                fontSize = 32f,
+                weight = 400,
+                italic = false,
+                locale = "zh-Hans",
+                selectionText = text,
+            )
+            if (!AndroidPlatformFontOracle.select(request).spansMultipleFaces) continue
+            exercised += 1
+
+            val shaped = AndroidNativeTextShaper(context).shape(input(text, role, 32f))
+            val cluster = shaped.clusters.single()
+            assertEquals(text, cluster.displayText)
+            assertEquals(text, cluster.text, "source text must be preserved")
+            assertTrue(cluster.advance > 0f, "$text degraded advance was ${cluster.advance}")
+
+            val glyphs = shaped.glyphRuns.single().glyphs
+            assertTrue(
+                glyphs.all { it.renderFontKey == null },
+                "$text multi-face segment must be non-replayable so the renderer platform-draws it",
+            )
+            assertTrue(
+                !AndroidNativeGlyphReplay.ownsGlyphs(glyphs),
+                "$text degraded glyphs must not claim a retained native face",
+            )
+            assertEquals(
+                org.tiqian.shaping.PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE,
+                shaped.decisions.single().capabilityIssue,
+                text,
+            )
+        }
+        android.util.Log.i(
+            "TiqianMultiFace",
+            "sdk=${Build.VERSION.SDK_INT} model=${Build.MODEL} multiFaceCasesExercised=$exercised",
+        )
+    }
+
+    @Test
+    fun platformSyntheticItalicCjkRemainsReplayable() {
+        if (Build.VERSION.SDK_INT < 35) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        val request = org.tiqian.shaping.ReplayableFontFaceRequest(
+            role = FontRole.CjkText,
+            preferredFamilies = emptyList(),
+            fontSize = 32f,
+            weight = 400,
+            italic = true,
+            locale = "zh-Hans",
+            selectionText = "拉",
+        )
+        val platform = AndroidPlatformFontOracle.select(request)
+        if (!platform.syntheticItalic) return
+
+        val resolved = TiqianAndroidFontBackend.resolveFace(context, request)
+        assertTrue(resolved.descriptor.italic)
+        assertTrue(resolved.descriptor.id.value.endsWith(":syntheticItalic=-0.25"))
+        assertTrue(TiqianAndroidFontBackend.isSyntheticItalicFace(resolved.descriptor.id.value))
+
+        val regular = AndroidNativeTextShaper(context).shape(
+            input("拉", FontRole.CjkText, 32f, italic = false),
+        )
+        val italic = AndroidNativeTextShaper(context).shape(
+            input("拉", FontRole.CjkText, 32f, italic = true),
+        )
+        assertEquals(
+            regular.glyphRuns.single().glyphs.map { it.id },
+            italic.glyphRuns.single().glyphs.map { it.id },
+            "Platform synthetic italic must preserve the selected physical glyphs",
+        )
+        assertNotEquals(
+            regular.glyphRuns.single().glyphs.single().bounds,
+            italic.glyphRuns.single().glyphs.single().bounds,
+            "Synthetic italic ink bounds must replay the same baseline shear as drawing",
+        )
+        assertTrue(replayInkPixels(italic.glyphRuns.single().glyphs, 32f) > 0)
+    }
+
+    @Test
+    fun platformSyntheticBoldRemainsDrawableByTheSelectedAndroidFont() {
+        if (Build.VERSION.SDK_INT < 35) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        val request = org.tiqian.shaping.ReplayableFontFaceRequest(
+            role = FontRole.LatinText,
+            preferredFamilies = emptyList(),
+            fontSize = 32f,
+            weight = 700,
+            italic = false,
+            locale = "zh-Hans",
+            selectionText = "\\aleph_0",
+        )
+        val platform = AndroidPlatformFontOracle.select(request)
+        if (!platform.syntheticBold) return
+
+        val resolved = TiqianAndroidFontBackend.resolveFace(context, request)
+        assertEquals(700, resolved.descriptor.weight)
+        assertTrue(resolved.descriptor.id.value.contains(":syntheticBold=platform"))
+        assertTrue(TiqianAndroidFontBackend.isSyntheticBoldFace(resolved.descriptor.id.value))
+        assertNotNull(AndroidNativeGlyphReplay.platformFontFor(resolved.descriptor.id.value))
+
+        val shaped = AndroidNativeTextShaper(context).shape(
+            input("\\aleph_0", FontRole.LatinText, 32f, fontWeight = 700),
+        )
+        val glyphs = shaped.glyphRuns.single().glyphs
+        assertTrue(AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs))
+        assertTrue(glyphs.all { it.renderFontKey == resolved.descriptor.id.value })
+        val font = requireNotNull(AndroidNativeGlyphReplay.platformFontFor(resolved.descriptor.id.value))
+        val regularInk = platformGlyphInkPixels(glyphs, font, 32f, fakeBold = false)
+        val boldInk = platformGlyphInkPixels(glyphs, font, 32f, fakeBold = true)
+        assertTrue(regularInk > 0)
+        assertTrue(
+            boldInk > regularInk,
+            "Canvas.drawGlyphs must apply the platform fake-bold paint to the exact selected glyphs",
+        )
+    }
+
+    @Test
+    fun nativeFaceInstancesShareOneFileMappingAndKeepItAlive() {
+        val file = File("/system/fonts/Roboto-Regular.ttf").takeIf(File::isFile) ?: return
+        val before = nativeFontResourceStats()
+        val sourceHandle = NativeFontBridge.nativeRegisterFileSource(file.canonicalPath)
+        assertNotEquals(0L, sourceHandle)
+        val afterSource = nativeFontResourceStats()
+        assertEquals(before.sourceCount + 1, afterSource.sourceCount)
+        assertEquals(before.sourceBytes + file.length(), afterSource.sourceBytes)
+
+        val firstFace = NativeFontBridge.nativeCreateFace(sourceHandle, 0, intArrayOf(), floatArrayOf())
+        val secondFace = NativeFontBridge.nativeCreateFace(sourceHandle, 0, intArrayOf(), floatArrayOf())
+        assertNotEquals(0L, firstFace)
+        assertNotEquals(0L, secondFace)
+        try {
+            val withFaces = nativeFontResourceStats()
+            assertEquals(afterSource.sourceCount, withFaces.sourceCount)
+            assertEquals(afterSource.sourceBytes, withFaces.sourceBytes)
+            assertEquals(afterSource.faceCount + 2, withFaces.faceCount)
+
+            NativeFontBridge.nativeReleaseSource(sourceHandle)
+            assertTrue(NativeFontBridge.nativeHasGlyphs(firstFace, "A"))
+            val retained = nativeFontResourceStats()
+            assertEquals(afterSource.sourceCount, retained.sourceCount)
+            assertEquals(afterSource.sourceBytes, retained.sourceBytes)
+        } finally {
+            NativeFontBridge.nativeReleaseFace(firstFace)
+            NativeFontBridge.nativeReleaseFace(secondFace)
+        }
+        assertEquals(before, nativeFontResourceStats())
+    }
+
+    @Test
+    fun nativeFaceInstancesShareOneDirectBufferAndKeepItAlive() {
+        val file = File("/system/fonts/Roboto-Regular.ttf").takeIf(File::isFile) ?: return
+        val bytes = file.readBytes()
+        val buffer = ByteBuffer.allocateDirect(bytes.size).apply {
+            put(bytes)
+            position(0)
+        }
+        val before = nativeFontResourceStats()
+        val sourceHandle = NativeFontBridge.nativeRegisterBufferSource(buffer, bytes.size.toLong())
+        assertNotEquals(0L, sourceHandle)
+        val firstFace = NativeFontBridge.nativeCreateFace(sourceHandle, 0, intArrayOf(), floatArrayOf())
+        val secondFace = NativeFontBridge.nativeCreateFace(sourceHandle, 0, intArrayOf(), floatArrayOf())
+        try {
+            val withFaces = nativeFontResourceStats()
+            assertEquals(before.sourceCount + 1, withFaces.sourceCount)
+            assertEquals(before.sourceBytes + bytes.size, withFaces.sourceBytes)
+            assertEquals(before.faceCount + 2, withFaces.faceCount)
+
+            NativeFontBridge.nativeReleaseSource(sourceHandle)
+            assertTrue(NativeFontBridge.nativeHasGlyphs(secondFace, "A"))
+            assertEquals(withFaces.copy(faceCount = before.faceCount + 2), nativeFontResourceStats())
+        } finally {
+            NativeFontBridge.nativeReleaseFace(firstFace)
+            NativeFontBridge.nativeReleaseFace(secondFace)
+        }
+        assertEquals(before, nativeFontResourceStats())
+    }
+
+    @Test
+    fun platformAxisInstancesDoNotDuplicateTheirFontSource() {
+        if (Build.VERSION.SDK_INT < 31) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        fun request(weight: Int) = org.tiqian.shaping.ReplayableFontFaceRequest(
+            role = FontRole.CjkText,
+            preferredFamilies = emptyList(),
+            fontSize = 32f,
+            weight = weight,
+            italic = false,
+            locale = "zh-Hans",
+            selectionText = "中",
+        )
+
+        val regular = TiqianAndroidFontBackend.resolveFace(context, request(400))
+        val afterRegular = TiqianAndroidFontBackend.resourceStatsForTesting()
+        val bold = TiqianAndroidFontBackend.resolveFace(context, request(700))
+        val afterBold = TiqianAndroidFontBackend.resourceStatsForTesting()
+        val regularDigest = regular.descriptor.id.sourceDigest()
+        val boldDigest = bold.descriptor.id.sourceDigest()
+        val regularLocator = regular.descriptor.sourceLabel.substringBefore('#')
+        val boldLocator = bold.descriptor.sourceLabel.substringBefore('#')
+        android.util.Log.i(
+            "TiqianNativeSource",
+            "model=${Build.MODEL} regular=${regular.descriptor.sourceLabel} " +
+                "bold=${bold.descriptor.sourceLabel} afterRegular=$afterRegular afterBold=$afterBold",
+        )
+        if (regularLocator == boldLocator) {
+            assertEquals(regularDigest, boldDigest, "The same platform font file must identify one source")
+        }
+        if (regularDigest == boldDigest) {
+            assertEquals(afterRegular.sourceCount, afterBold.sourceCount)
+            assertEquals(afterRegular.sourceBytes, afterBold.sourceBytes)
+        }
+        if (regular.descriptor.variationAxes != bold.descriptor.variationAxes) {
+            assertNotEquals(regular.descriptor.id, bold.descriptor.id)
         }
     }
 
@@ -383,11 +641,17 @@ class AndroidNativeFontBackendTest {
         role: FontRole,
         fontSize: Float,
         fontWeight: Int = 400,
+        italic: Boolean = false,
     ): ShapingInput =
         ShapingInput(
             text = text,
             range = TextRange(0, text.length),
-            style = TextStyle(fontSize = fontSize, locale = "zh-Hans", fontWeight = fontWeight),
+            style = TextStyle(
+                fontSize = fontSize,
+                locale = "zh-Hans",
+                fontWeight = fontWeight,
+                italic = italic,
+            ),
             fontDecision = FontDecision(
                 range = TextRange(0, text.length),
                 candidate = FontCandidate("test-$role", "sans-serif", role),
@@ -414,9 +678,36 @@ class AndroidNativeFontBackendTest {
         return pixels.count { pixel -> (pixel ushr 24) >= 0x40 }
     }
 
+    @android.annotation.TargetApi(31)
+    private fun platformGlyphInkPixels(
+        glyphs: List<org.tiqian.core.Glyph>,
+        font: android.graphics.fonts.Font,
+        fontSize: Float,
+        fakeBold: Boolean,
+    ): Int {
+        val bitmap = Bitmap.createBitmap(320, 112, Bitmap.Config.ARGB_8888)
+        val ids = IntArray(glyphs.size) { index -> glyphs[index].id.toInt() }
+        val positions = FloatArray(glyphs.size * 2) { index ->
+            val glyph = glyphs[index / 2]
+            if (index % 2 == 0) 20f + glyph.x else 80f + glyph.y
+        }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF000000.toInt()
+            textSize = fontSize
+            isFakeBoldText = fakeBold
+        }
+        Canvas(bitmap).drawGlyphs(ids, 0, positions, 0, glyphs.size, font, paint)
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        return pixels.count { pixel -> (pixel ushr 24) >= 0x40 }
+    }
+
     private fun cjkFontFile(): File? = listOf(
         File("/system/fonts/NotoSansCJK-Regular.ttc"),
         File("/system/fonts/NotoSansSC-Regular.otf"),
         File("/system/fonts/NotoSansCJKsc-Regular.otf"),
     ).firstOrNull(File::isFile)
+
+    private fun org.tiqian.shaping.FontFaceId.sourceDigest(): String =
+        value.removePrefix("tiqian-font:sha256:").substringBefore(':')
 }

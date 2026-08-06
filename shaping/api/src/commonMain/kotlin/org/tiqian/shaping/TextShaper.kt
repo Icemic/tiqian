@@ -12,6 +12,15 @@ import org.tiqian.font.FontDecision
 const val UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE =
     "UnverifiedDisplaySubstitutionCoverage"
 
+/**
+ * Cross-module capability contract for a shaping segment the platform itemizes across more
+ * than one physical face — a CJK base with a combining mark its face lacks, a non-CJK script
+ * run (Thai, Arabic…), or a Latin word crossing a fallback boundary. A single controlled-byte
+ * face cannot replay such a segment, so the backend measures and draws it through the platform
+ * text stack instead of outline replay, keeping the source range and layout correct.
+ */
+const val PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE = "PlatformMultiFaceStringDraw"
+
 data class ShapingInput(
     val text: String,
     val range: TextRange,

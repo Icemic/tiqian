@@ -2,8 +2,32 @@ package org.tiqian.shaping.nativefont
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import org.tiqian.shaping.FontFaceId
+import org.tiqian.shaping.ReplayableFontFaceRequest
+import org.tiqian.font.FontRole
 
 class AndroidPlatformFontOracleContractTest {
+    @Test
+    fun cjkPunctuationUsesTheHanFaceProbeInsteadOfTheSharedCharacter() {
+        for (punctuation in listOf("“", "”", "‘", "’", "—", "——")) {
+            assertEquals(
+                "中",
+                platformFaceProbeText(
+                    ReplayableFontFaceRequest(
+                        role = FontRole.CjkPunctuation,
+                        preferredFamilies = emptyList(),
+                        fontSize = 32f,
+                        weight = 400,
+                        italic = false,
+                        locale = "zh-Hans",
+                        selectionText = punctuation,
+                    ),
+                ),
+                punctuation,
+            )
+        }
+    }
+
     @Test
     fun platformOverridesReplaceOnlyTheirCorrespondingAxes() {
         assertEquals(
@@ -31,6 +55,24 @@ class AndroidPlatformFontOracleContractTest {
         assertEquals(
             axes.toSortedMap(),
             applyPlatformStyleOverrides(axes, PlatformStyleOverrides()),
+        )
+    }
+
+    @Test
+    fun syntheticItalicIsPartOfTheReplayInstanceIdentity() {
+        val physical = FontFaceId("tiqian-font:sha256:abc:0:axes=")
+
+        assertEquals(
+            physical,
+            platformReplayFaceId(physical, syntheticBold = false, syntheticItalic = false),
+        )
+        assertEquals(
+            FontFaceId("tiqian-font:sha256:abc:0:axes=:syntheticItalic=-0.25"),
+            platformReplayFaceId(physical, syntheticBold = false, syntheticItalic = true),
+        )
+        assertEquals(
+            FontFaceId("tiqian-font:sha256:abc:0:axes=:syntheticBold=platform:syntheticItalic=-0.25"),
+            platformReplayFaceId(physical, syntheticBold = true, syntheticItalic = true),
         )
     }
 }

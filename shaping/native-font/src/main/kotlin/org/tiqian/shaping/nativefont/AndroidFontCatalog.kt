@@ -14,48 +14,146 @@ import org.tiqian.shaping.ReplayableFontCatalog
 import org.tiqian.shaping.ReplayableFontFaceDescriptor
 import org.tiqian.shaping.ReplayableFontFaceRequest
 import java.io.File
+import java.nio.ByteBuffer
 import java.security.MessageDigest
-import java.util.Locale
 import kotlin.math.abs
 
-/** Controlled bytes source accepted by the API 23+ native font backend. */
+internal sealed interface PreparedAndroidFontSource {
+    val digestHex: String
+    val sizeBytes: Long
+
+    data class FileMapping(
+        override val digestHex: String,
+        override val sizeBytes: Long,
+        val path: String,
+    ) : PreparedAndroidFontSource
+
+    data class DirectBuffer(
+        override val digestHex: String,
+        override val sizeBytes: Long,
+        val buffer: ByteBuffer,
+    ) : PreparedAndroidFontSource
+}
+
+/** Controlled immutable source accepted by the API 23+ native font backend. */
 sealed class AndroidFontSource protected constructor(
     val label: String,
 ) {
-    internal abstract fun readBytes(context: Context): ByteArray
+    internal abstract fun locatorKey(context: Context): String
+    internal abstract fun prepare(context: Context): PreparedAndroidFontSource
 
     companion object {
         fun bytes(bytes: ByteArray, label: String = "host-byte-array"): AndroidFontSource =
-            ByteArraySource(bytes.copyOf(), label)
+            DirectBufferSource(copyToDirectBuffer(bytes), label, "bytes")
 
         fun file(file: File, label: String = file.absolutePath): AndroidFontSource =
             FileSource(file, label)
 
         fun asset(path: String, label: String = "asset:$path"): AndroidFontSource =
             AssetSource(path, label)
+
+        internal fun directBuffer(buffer: ByteBuffer, label: String): AndroidFontSource =
+            DirectBufferSource(buffer.immutableDirectView(), label, "buffer")
     }
 
-    private class ByteArraySource(
-        private val bytes: ByteArray,
+    private class DirectBufferSource(
+        private val buffer: ByteBuffer,
         label: String,
+        kind: String,
     ) : AndroidFontSource(label) {
-        override fun readBytes(context: Context): ByteArray = bytes.copyOf()
+        private val digestHex = sha256Hex(buffer)
+        private val key = "$kind:sha256:$digestHex:${buffer.capacity()}"
+
+        override fun locatorKey(context: Context): String = key
+
+        override fun prepare(context: Context): PreparedAndroidFontSource =
+            PreparedAndroidFontSource.DirectBuffer(
+                digestHex = digestHex,
+                sizeBytes = buffer.capacity().toLong(),
+                buffer = buffer,
+            )
     }
 
     private class FileSource(
         private val file: File,
         label: String,
     ) : AndroidFontSource(label) {
-        override fun readBytes(context: Context): ByteArray = file.readBytes()
+        override fun locatorKey(context: Context): String {
+            val canonical = file.canonicalFile
+            return "file:${canonical.path}:${canonical.length()}:${canonical.lastModified()}"
+        }
+
+        override fun prepare(context: Context): PreparedAndroidFontSource {
+            val canonical = file.canonicalFile
+            require(canonical.isFile) { "Font file does not exist: ${canonical.path}" }
+            val size = canonical.length()
+            require(size > 0L) { "Font file is empty: ${canonical.path}" }
+            return PreparedAndroidFontSource.FileMapping(
+                digestHex = sha256Hex(canonical),
+                sizeBytes = size,
+                path = canonical.path,
+            )
+        }
     }
 
     private class AssetSource(
         private val path: String,
         label: String,
     ) : AndroidFontSource(label) {
-        override fun readBytes(context: Context): ByteArray = context.assets.open(path).use { it.readBytes() }
+        override fun locatorKey(context: Context): String = "asset:${context.packageName}:$path"
+
+        override fun prepare(context: Context): PreparedAndroidFontSource {
+            val bytes = context.assets.open(path).use { it.readBytes() }
+            val buffer = copyToDirectBuffer(bytes)
+            return PreparedAndroidFontSource.DirectBuffer(
+                digestHex = sha256Hex(buffer),
+                sizeBytes = buffer.capacity().toLong(),
+                buffer = buffer,
+            )
+        }
     }
 }
+
+private fun copyToDirectBuffer(bytes: ByteArray): ByteBuffer {
+    require(bytes.isNotEmpty()) { "Font bytes must not be empty" }
+    return ByteBuffer.allocateDirect(bytes.size).apply {
+        put(bytes)
+        position(0)
+    }.asReadOnlyBuffer()
+}
+
+private fun ByteBuffer.immutableDirectView(): ByteBuffer {
+    require(isDirect) { "Font ByteBuffer must be direct" }
+    val view = duplicate().apply { position(0) }.slice().asReadOnlyBuffer()
+    require(view.hasRemaining()) { "Font ByteBuffer must not be empty" }
+    return view
+}
+
+private fun sha256Hex(buffer: ByteBuffer): String =
+    MessageDigest.getInstance("SHA-256")
+        .apply { update(buffer.duplicate().apply { position(0) }) }
+        .digest()
+        .toHex()
+
+private fun sha256Hex(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().buffered().use { input ->
+        val chunk = ByteArray(DefaultDigestChunkBytes)
+        while (true) {
+            val count = input.read(chunk)
+            if (count < 0) break
+            if (count > 0) digest.update(chunk, 0, count)
+        }
+    }
+    return digest.digest().toHex()
+}
+
+private fun ByteArray.toHex(): String = joinToString("") { byte ->
+    HexDigits[(byte.toInt() ushr 4) and 0x0F].toString() + HexDigits[byte.toInt() and 0x0F]
+}
+
+private const val HexDigits = "0123456789abcdef"
+private const val DefaultDigestChunkBytes = 64 * 1024
 
 /**
  * One concrete host/system face instance. [familyKey] groups regular, bold and italic faces into
@@ -158,6 +256,14 @@ internal data class ResolvedNativeFontFace(
     val exactFamily: Boolean,
     val exactStyle: Boolean,
     val coversSelectionText: Boolean,
+    /**
+     * False when the platform itemized the segment across multiple faces: this face is kept
+     * only for metrics, and the segment is measured/drawn through the platform text stack
+     * ([PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE]) rather than controlled-byte outline replay.
+     */
+    val replayable: Boolean = true,
+    /** Platform-measured run advance used by the non-replayable degrade path. */
+    val degradedRunAdvance: Float = 0f,
 )
 
 private data class LoadedFace(
@@ -174,6 +280,12 @@ private data class LoadedFamily(
 private data class PlatformLoadedFace(
     val descriptor: ReplayableFontFaceDescriptor,
     val nativeFace: NativeFontFace,
+)
+
+private data class LoadedNativeFontSource(
+    val handle: Long,
+    val digestHex: String,
+    val sizeBytes: Long,
 )
 
 internal data class OrderedFamilySelection<T>(
@@ -288,10 +400,15 @@ private class LoadedAndroidFontCatalog(
 object TiqianAndroidFontBackend {
     private const val BackendName = "TiqianHarfBuzzFreeType"
     private val lock = Any()
+    private val sourceByLocator = LinkedHashMap<String, LoadedNativeFontSource>()
+    private val sourceByDigest = LinkedHashMap<String, LoadedNativeFontSource>()
     private val faceById = LinkedHashMap<FontFaceId, NativeFontFace>()
     private val platformFaceByRequest = object : LinkedHashMap<ReplayableFontFaceRequest, ResolvedNativeFontFace>(256, 0.75f, true) {}
     private val platformFaceByInstance = LinkedHashMap<String, PlatformLoadedFace>()
+    private val platformFontById = LinkedHashMap<FontFaceId, Font>()
     private val revisionListeners = linkedSetOf<RevisionListener>()
+    private val syntheticBoldFaceIds = linkedSetOf<FontFaceId>()
+    private val syntheticItalicFaceIds = linkedSetOf<FontFaceId>()
     private var lastRevision = 0L
 
     @Volatile
@@ -361,6 +478,20 @@ object TiqianAndroidFontBackend {
         faceById[FontFaceId(renderFontKey)]
     }
 
+    internal fun isSyntheticItalicFace(renderFontKey: String): Boolean = synchronized(lock) {
+        FontFaceId(renderFontKey) in syntheticItalicFaceIds
+    }
+
+    internal fun isSyntheticBoldFace(renderFontKey: String): Boolean = synchronized(lock) {
+        FontFaceId(renderFontKey) in syntheticBoldFaceIds
+    }
+
+    internal fun platformFontFor(renderFontKey: String): Font? = synchronized(lock) {
+        platformFontById[FontFaceId(renderFontKey)]
+    }
+
+    internal fun resourceStatsForTesting(): NativeFontResourceStats = nativeFontResourceStats()
+
     internal fun resetDefaultCatalogForTesting(context: Context) {
         synchronized(lock) {
             platformFaceByRequest.clear()
@@ -418,7 +549,7 @@ object TiqianAndroidFontBackend {
         val loaded = mutableListOf<LoadedFace>()
         for ((catalogIndex, spec) in catalog.faceSpecs.withIndex()) {
             val axes = spec.variationAxes.toSortedMap()
-            val bytes = runCatching { spec.source.readBytes(context) }.getOrElse { error ->
+            val source = runCatching { loadSourceLocked(context, spec.source) }.getOrElse { error ->
                 issues += FontBackendCapabilityIssue(
                     code = "FontSourceUnavailable",
                     detail = "${spec.source.label}: ${error::class.simpleName}: ${error.message}",
@@ -426,10 +557,10 @@ object TiqianAndroidFontBackend {
                 continue
             }
             val loadedFace = runCatching {
-                val id = stableFaceId(bytes, spec.collectionIndex, axes)
+                val id = stableFaceId(source.digestHex, spec.collectionIndex, axes)
                 val native = faceById.getOrPut(id) {
-                    val handle = NativeFontBridge.nativeRegisterFace(
-                        bytes = bytes,
+                    val handle = NativeFontBridge.nativeCreateFace(
+                        sourceHandle = source.handle,
                         collectionIndex = spec.collectionIndex,
                         variationTags = axes.keys.map(::variationTag).toIntArray(),
                         variationValues = axes.values.toFloatArray(),
@@ -514,25 +645,38 @@ object TiqianAndroidFontBackend {
                     nativeFace = loaded.nativeFace,
                     exactFamily = true,
                     exactStyle = true,
-                    coversSelectionText = true,
+                    coversSelectionText = !selection.spansMultipleFaces,
+                    replayable = !selection.spansMultipleFaces,
+                    degradedRunAdvance = selection.degradedRunAdvance,
                 ).also { resolved -> cachePlatformRequestLocked(request, resolved) }
             }
         }
         val axes = selection.variationAxes.toSortedMap()
-        val bytes = runCatching { selection.source.readBytes(context) }.getOrElse { return null }
         val resolved = runCatching {
-            val id = stableFaceId(bytes, selection.collectionIndex, axes)
             val native = synchronized(lock) {
-                faceById.getOrPut(id) {
-                    val handle = NativeFontBridge.nativeRegisterFace(
-                        bytes = bytes,
+                val source = loadSourceLocked(context, selection.source)
+                val physicalId = stableFaceId(source.digestHex, selection.collectionIndex, axes)
+                val id = platformReplayFaceId(
+                    physicalId = physicalId,
+                    syntheticBold = selection.syntheticBold,
+                    syntheticItalic = selection.syntheticItalic,
+                )
+                val physicalFace = faceById.getOrPut(physicalId) {
+                    val handle = NativeFontBridge.nativeCreateFace(
+                        sourceHandle = source.handle,
                         collectionIndex = selection.collectionIndex,
                         variationTags = axes.keys.map(::variationTag).toIntArray(),
                         variationValues = axes.values.toFloatArray(),
                     )
                     NativeFontFace(handle, NativeFontBridge.nativeUnitsPerEm(handle))
                 }
+                faceById[id] = physicalFace
+                if (selection.syntheticBold) syntheticBoldFaceIds += id
+                if (selection.syntheticItalic) syntheticItalicFaceIds += id
+                if (selection.syntheticBold) platformFontById[id] = selection.font
+                physicalFace to id
             }
+            val (nativeFace, id) = native
             ResolvedNativeFontFace(
                 descriptor = ReplayableFontFaceDescriptor(
                     id = id,
@@ -541,16 +685,28 @@ object TiqianAndroidFontBackend {
                     weight = selection.weight,
                     italic = selection.italic,
                     collectionIndex = selection.collectionIndex,
-                    sourceLabel = selection.source.label,
+                    sourceLabel = buildString {
+                        append(selection.source.label)
+                        if (selection.syntheticBold) append(":syntheticBold=platform")
+                        if (selection.syntheticItalic) append(":syntheticItalic=-0.25")
+                    },
                     variationAxes = axes,
                 ),
-                nativeFace = native,
+                nativeFace = nativeFace,
                 exactFamily = true,
                 exactStyle = true,
-                coversSelectionText = native.hasGlyphs(request.selectionText),
+                coversSelectionText = nativeFace.hasGlyphs(request.selectionText),
+                replayable = !selection.spansMultipleFaces,
+                degradedRunAdvance = selection.degradedRunAdvance,
             )
         }.getOrElse { return null }
-        if (!resolved.coversSelectionText) return null
+        // CjkPunctuationHanFaceAnchor deliberately keeps the CJK face even when a proposed
+        // display substitution is absent. HarfBuzz must report the missing glyph so layout can
+        // roll the substitution back to its source form; silently switching to a Latin face here
+        // would both defeat the role decision and conceal that evidence. A non-replayable
+        // multi-face degrade intentionally does not cover the whole run, so it bypasses this
+        // rejection and is handled by the platform string-draw path.
+        if (resolved.replayable && !resolved.coversSelectionText && request.role != FontRole.CjkPunctuation) return null
         synchronized(lock) {
             platformFaceByInstance[selection.instanceKey] = PlatformLoadedFace(
                 descriptor = resolved.descriptor,
@@ -575,19 +731,17 @@ object TiqianAndroidFontBackend {
     }
 
     private fun stableFaceId(
-        bytes: ByteArray,
+        sourceDigestHex: String,
         collectionIndex: Int,
         variationAxes: Map<String, Float>,
     ): FontFaceId {
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-        val hex = digest.joinToString("") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xFF) }
         val axes = variationAxes.entries.joinToString(",") { (tag, value) ->
             "$tag=${value.toRawBits().toUInt().toString(16)}"
         }
         return FontFaceId(
             buildString {
                 append("tiqian-font:sha256:")
-                append(hex)
+                append(sourceDigestHex)
                 append(':')
                 append(collectionIndex)
                 if (axes.isNotEmpty()) {
@@ -598,8 +752,48 @@ object TiqianAndroidFontBackend {
         )
     }
 
+    /**
+     * Sources are immutable for the process lifetime. Locator lookup avoids re-hashing a system
+     * file for every platform request; digest lookup folds different locators with identical
+     * content into one native mapping/direct buffer. A Face only retains this shared source.
+     */
+    private fun loadSourceLocked(context: Context, source: AndroidFontSource): LoadedNativeFontSource {
+        val locator = source.locatorKey(context)
+        sourceByLocator[locator]?.let { return it }
+        val prepared = source.prepare(context)
+        sourceByDigest[prepared.digestHex]?.let { existing ->
+            sourceByLocator[locator] = existing
+            return existing
+        }
+        val handle = when (prepared) {
+            is PreparedAndroidFontSource.FileMapping ->
+                NativeFontBridge.nativeRegisterFileSource(prepared.path)
+            is PreparedAndroidFontSource.DirectBuffer ->
+                NativeFontBridge.nativeRegisterBufferSource(prepared.buffer, prepared.sizeBytes)
+        }
+        check(handle != 0L) { "Native font source registration did not return a handle" }
+        return LoadedNativeFontSource(
+            handle = handle,
+            digestHex = prepared.digestHex,
+            sizeBytes = prepared.sizeBytes,
+        ).also { loaded ->
+            sourceByLocator[locator] = loaded
+            sourceByDigest[prepared.digestHex] = loaded
+        }
+    }
+
     private const val MaxPlatformRequestEntries = 4096
 }
+
+internal fun platformReplayFaceId(
+    physicalId: FontFaceId,
+    syntheticBold: Boolean,
+    syntheticItalic: Boolean,
+): FontFaceId = buildString {
+    append(physicalId.value)
+    if (syntheticBold) append(":syntheticBold=platform")
+    if (syntheticItalic) append(":syntheticItalic=-0.25")
+}.let(::FontFaceId)
 
 private fun wellKnownSystemPathCatalog(): AndroidFontCatalog {
     val cjkRoles = setOf(
@@ -725,8 +919,10 @@ internal object ApproximatePublicSystemFontsCatalog {
                 val roles = selections.flatMapTo(linkedSetOf()) { it.second }
                 val axes = font.variationAxes()
                 AndroidFontFaceSpec(
-                    source = AndroidFontSource.bytes(
-                        fontBytes(font),
+                    source = font.file?.takeIf(File::isFile)?.let { file ->
+                        AndroidFontSource.file(file, systemFontLabel(font, axes))
+                    } ?: AndroidFontSource.directBuffer(
+                        font.buffer.duplicate().apply { position(0) },
                         systemFontLabel(font, axes),
                     ),
                     collectionIndex = font.ttcIndex,
@@ -813,13 +1009,6 @@ internal object ApproximatePublicSystemFontsCatalog {
 
     private fun genericSansWidthDistance(font: Font): Float =
         abs((font.variationAxes()["wdth"] ?: 100f) - 100f)
-
-    private fun fontBytes(font: Font): ByteArray {
-        font.file?.takeIf(File::isFile)?.let { return it.readBytes() }
-        val buffer = font.buffer.duplicate()
-        buffer.position(0)
-        return ByteArray(buffer.remaining()).also(buffer::get)
-    }
 
     private fun familyAliases(font: Font): Set<String> {
         val name = font.file?.nameWithoutExtension.orEmpty().lowercase()

@@ -11,6 +11,7 @@ import org.tiqian.font.FontMetricsRequest
 import org.tiqian.font.FontMetricsResolver
 import org.tiqian.font.FontRole
 import org.tiqian.font.RawFontMetrics
+import org.tiqian.shaping.PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE
 import org.tiqian.shaping.ReplayableFontFaceRequest
 import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
@@ -44,6 +45,9 @@ class AndroidNativeTextShaper(
             locale = input.style.locale,
             selectionText = displayText,
         )
+        if (!face.replayable) {
+            return platformStringDrawResult(input, sourceText, displayText, face)
+        }
         val shaped = face.nativeFace.shape(
             text = displayText,
             fontSize = input.style.fontSize,
@@ -55,7 +59,14 @@ class AndroidNativeTextShaper(
         val glyphs = shaped.glyphIds.indices.map { index ->
             val p = index * 4
             val bound = shaped.bounds.copyOfRange(p, p + 4).let { values ->
-                if (values.any(Float::isNaN)) null else Rect(values[0], values[1], values[2], values[3])
+                if (values.any(Float::isNaN)) {
+                    null
+                } else {
+                    AndroidNativeGlyphReplay.transformInkBounds(
+                        bounds = Rect(values[0], values[1], values[2], values[3]),
+                        syntheticItalic = TiqianAndroidFontBackend.isSyntheticItalicFace(face.descriptor.id.value),
+                    )
+                }
             }
             Glyph(
                 id = shaped.glyphIds[index].toUInt(),
@@ -100,6 +111,9 @@ class AndroidNativeTextShaper(
                     source = ShapingSource.HarfBuzz.name,
                     reason = buildString {
                         append("ControlledFontBytesShapeOnce")
+                        if (input.fontDecision.role == FontRole.CjkPunctuation) {
+                            append(":CjkPunctuationHanFaceAnchor")
+                        }
                         if (!face.exactFamily) append(":RequestedFamilyUnavailable")
                         if (!face.exactStyle) append(":RequestedStyleFaceUnavailable")
                     },
@@ -110,6 +124,70 @@ class AndroidNativeTextShaper(
                     language = input.style.locale,
                     strategy = "StableFontFaceIdFreeTypeOutlineReplay",
                     featureEvidence = "${TiqianAndroidFontBackend.nativeVersions};features=${features.joinToString()}",
+                ),
+            ),
+        )
+    }
+
+    /**
+     * PlatformMultiFaceStringDrawDegrade: the platform selected more than one physical face for
+     * this segment (a CJK base plus a combining mark its face lacks, a non-CJK script run, or a
+     * Latin word crossing a fallback boundary), so no single controlled-byte face can replay it.
+     * Emit a non-replayable run — one glyph with a null `renderFontKey` carrying the
+     * platform-measured advance — which the Android renderer already draws with
+     * `Canvas.drawTextRun` through the same platform text stack that produced the advance. The
+     * base face resolved for metrics stays correct for line height; only glyph-granular ink is
+     * given up, reported as [PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE].
+     */
+    private fun platformStringDrawResult(
+        input: ShapingInput,
+        sourceText: String,
+        displayText: String,
+        face: ResolvedNativeFontFace,
+    ): ShapingResult {
+        val advance = face.degradedRunAdvance
+        val faceKey = face.descriptor.id.value
+        val glyph = Glyph(
+            id = 0u,
+            clusterRange = input.range,
+            advance = advance,
+            renderFontKey = null,
+        )
+        return ShapingResult(
+            clusters = listOf(
+                Cluster(
+                    range = input.range,
+                    text = sourceText,
+                    displayText = displayText,
+                    fontKey = faceKey,
+                    advance = advance,
+                ),
+            ),
+            glyphRuns = listOf(
+                GlyphRun(
+                    range = input.range,
+                    fontKey = faceKey,
+                    glyphs = listOf(glyph),
+                    advance = advance,
+                ),
+            ),
+            decisions = listOf(
+                ShapingDecisionInfo(
+                    range = input.range,
+                    sourceText = sourceText,
+                    displayText = displayText,
+                    fontKey = faceKey,
+                    glyphCount = 1,
+                    advance = advance,
+                    source = ShapingSource.AndroidPaint.name,
+                    reason = "PlatformMultiFaceStringDrawDegrade",
+                    glyphsWithoutInkBounds = 1,
+                    missingGlyphs = 0,
+                    resolvedFace = faceKey,
+                    script = input.fontDecision.role.nativeScriptName(),
+                    language = input.style.locale,
+                    strategy = "PlatformDrawTextRunStringFallback",
+                    capabilityIssue = PLATFORM_MULTI_FACE_STRING_DRAW_ISSUE,
                 ),
             ),
         )
