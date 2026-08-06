@@ -29,6 +29,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0015 Skiko shaping adapter 交叉验证](0015-skiko-shaping-adapter-cross-check.md)
 - [0016 Android API 23 native 字体后端与平台 shaping oracle](0016-android-textpaint-adapter.md)
 - [0017 Compose Desktop renderer](0017-compose-desktop-renderer.md)
+- [0043 多 face 段降级为平台字符串绘制](0043-multi-face-platform-string-draw-degrade.md)
 
 ## 行内与段落排版
 
