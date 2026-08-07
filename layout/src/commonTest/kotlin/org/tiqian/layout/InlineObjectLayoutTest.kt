@@ -235,6 +235,62 @@ class InlineObjectLayoutTest {
     }
 
     @Test
+    fun adjustBreakForUnbreakablesRetreatsPastTheWholeContiguousRun() {
+        // A per-atom formula (e.g. `P(0.5)`) produces a CHAIN of adjacent unbreakable ranges. A
+        // break landing inside it must retreat past the ENTIRE run, not a single range — the
+        // closure gap that let `0.5|)` slip back onto the phone. Ranges below forbid breaks at
+        // clusters 2,3,4; the only legal points are 1 and 5.
+        val chain = listOf(1..2, 2..3, 3..4)
+        // Break inside the run (2, 3, or 4) retreats all the way to 1, not just one range back.
+        assertEquals(1, adjustBreakForUnbreakables(4, lineStart = 0, unbreakableRanges = chain))
+        assertEquals(1, adjustBreakForUnbreakables(3, lineStart = 0, unbreakableRanges = chain))
+        assertEquals(1, adjustBreakForUnbreakables(2, lineStart = 0, unbreakableRanges = chain))
+        // A break already outside the run is untouched.
+        assertEquals(5, adjustBreakForUnbreakables(5, lineStart = 0, unbreakableRanges = chain))
+        // Retreat halts at the first legal point strictly above lineStart.
+        assertEquals(3, adjustBreakForUnbreakables(5, lineStart = 2, unbreakableRanges = listOf(3..4, 4..5)))
+        // Give up (keep the original break) when the run reaches the line start: it is wider than
+        // the line, so an overflow inside it is unavoidable.
+        assertEquals(4, adjustBreakForUnbreakables(4, lineStart = 1, unbreakableRanges = chain))
+    }
+
+    @Test
+    fun perAtomFormulaChainNeverBreaksMidRun() {
+        // A per-atom formula (`10^{34}x^3`-style) splits into a CHAIN of adjacent unbreakable
+        // ranges. When it overflows, the whole chain must move to the next line together — the fill
+        // push-in pass must not refill a break back inside it (the `10^{34}|x^3` slip). Four atoms
+        // at 12f each = 48f follow a 16f leading glyph; at maxWidth 60f the chain cannot share the
+        // first line, so the only legal break is right after the leading cluster.
+        val closed = InlineObjectBoundaryAdjustment(preventsLineBreak = true)
+        val run = (1..4).map { atom ->
+            InlineObjectSpan(
+                range = TextRange(atom, atom + 1),
+                advance = 12f,
+                ascent = 16f,
+                descent = 4f,
+                trailingBoundary = if (atom < 4) closed else InlineObjectBoundaryAdjustment(),
+            )
+        }
+        val result = fixedBasicKinsokuEngine(LookaheadLineBreaker()).layout(
+            LayoutInput(
+                content = TiqianTextContent("中一二三四"),
+                textStyle = TextStyle(fontSize = 16f),
+                constraints = LayoutConstraints(maxWidth = 60f),
+                paragraphStyle = style,
+                inlineObjects = run,
+            ),
+        )
+        // Clusters 2,3,4 sit strictly inside the chain — no line may end there.
+        val illegalBreaks = setOf(2, 3, 4)
+        for (line in result.lines) {
+            assertTrue(
+                line.range.end !in illegalBreaks,
+                "line ended inside the unbreakable formula chain: ${result.lines.map { it.range }}",
+            )
+        }
+    }
+
+    @Test
     fun punctuationAttachedToInlineObjectNeverStartsWrappedLine() {
         val breakers = listOf(
             GreedyLineBreaker(),

@@ -207,19 +207,25 @@ enum class ShrinkChannel {
 }
 
 /**
- * Moves [breakAt] out of any unbreakable range it falls strictly inside of
- * (to the range start), provided the line keeps at least one cluster.
- * Returns [breakAt] unchanged otherwise — including the give-up case where
- * the range itself is wider than the line (split fallback).
+ * Moves [breakAt] out of the unbreakable span it falls strictly inside of, retreating to before
+ * the whole **contiguous run** of unbreakable ranges (their closure), provided the line keeps at
+ * least one cluster. A long inline object — e.g. per-atom math split into many adjacent `C..C+1`
+ * ranges — forms such a chain, and stepping back a single range at a time can land inside the
+ * previous one. Returns [breakAt] unchanged in the give-up case where the run reaches the line
+ * start (the run is wider than the line; split fallback).
  */
 internal fun adjustBreakForUnbreakables(
     breakAt: Int,
     lineStart: Int,
     unbreakableRanges: List<IntRange>,
 ): Int {
-    val containing = unbreakableRanges.firstOrNull { breakAt > it.first && breakAt <= it.last }
-        ?: return breakAt
-    return if (containing.first > lineStart) containing.first else breakAt
+    var candidate = breakAt
+    while (true) {
+        val containing = unbreakableRanges.firstOrNull { candidate > it.first && candidate <= it.last }
+            ?: return candidate
+        if (containing.first <= lineStart) return breakAt
+        candidate = containing.first
+    }
 }
 
 /**
@@ -547,7 +553,10 @@ class LookaheadLineBreaker(
                         e == segmentEndExclusive
                 }
                 .distinct()
-                .ifEmpty { listOf(greedyEnd) }
+                // When every windowed candidate sits inside the unbreakable run, do not re-admit
+                // the raw greedy break (that is how a `0.5|)` split slipped through): retreat it to
+                // before the whole run so the illegal break never survives.
+                .ifEmpty { listOf(adjustBreakForUnbreakables(greedyEnd, lineStart, unbreakableRanges)) }
 
             var bestEnd = greedyEnd
             var bestScore = Float.POSITIVE_INFINITY
@@ -1390,6 +1399,11 @@ private fun fillPushInGroupEnd(
         if (containing != null) {
             groupEnd = containing.last
             if (groupEnd > curr.clusterRange.last) return null
+            // containing.last may begin the next contiguous unbreakable range: re-check so the
+            // pulled group ends past the WHOLE run, never inside it (closure, matching
+            // adjustBreakForUnbreakables). Without this, a per-atom formula's fill pass refills the
+            // break back inside the chain (`10^{34}|x^3`).
+            continue
         }
         if (groupEnd in forbiddenLineEndClusters) {
             groupEnd += 1
