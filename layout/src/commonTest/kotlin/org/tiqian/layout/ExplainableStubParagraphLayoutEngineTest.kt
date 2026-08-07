@@ -790,10 +790,10 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun expandsOnlyCjkContextQuotesAndAnchorsTheirUnderwidthGlyphs() {
+    fun requestsFullWidthCjkQuotesAndSynthesizesTheCellWhenTheFontStaysProportional() {
         // MiSans-like metrics: curly quotes are proportional (0.375em) even
-        // though this pair belongs to Chinese prose. Layout must retain the
-        // source glyphs while placing them in profile-anchored 1em boxes.
+        // after `fwid`. Layout keeps the source glyph box intact while placing
+        // that box on the correct side of a synthesized 1em punctuation cell.
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 private val delegate = ExplainableStubTextShaper()
@@ -801,6 +801,7 @@ class ExplainableStubParagraphLayoutEngineTest {
                 override fun shape(input: ShapingInput): ShapingResult {
                     val result = delegate.shape(input)
                     if (input.displayText != "“" && input.displayText != "”") return result
+                    assertEquals(listOf("fwid=1"), input.openTypeFeatures)
                     val advance = 6f
                     return result.copy(
                         clusters = result.clusters.map { it.copy(advance = advance) },
@@ -833,24 +834,41 @@ class ExplainableStubParagraphLayoutEngineTest {
         val closing = result.clusters.single { it.text == "”" }
         assertEquals(16f, opening.advance)
         assertEquals(16f, closing.advance)
-        assertEquals(9f, opening.glyphInlineShift)
-        assertEquals(1f, closing.glyphInlineShift)
+        assertEquals(10f, opening.glyphInlineShift)
+        assertEquals(0f, closing.glyphInlineShift)
 
         val openingDecision = result.debug.punctuationDecisions.single { it.char == '“' }
         val closingDecision = result.debug.punctuationDecisions.single { it.char == '”' }
         assertEquals(10f, openingDecision.advanceExpansion)
-        assertEquals("ProfileAnchoredUnderwidthGlyphShift", openingDecision.glyphPlacementReason)
-        assertEquals("ProfileAnchoredUnderwidthGlyphShift", closingDecision.glyphPlacementReason)
+        assertEquals("UnderwidthPunctuationFullWidthBoxPlacement", openingDecision.glyphPlacementReason)
+        assertEquals(null, closingDecision.glyphPlacementReason)
+        assertEquals("InkBoundsFittedBodyCompression", openingDecision.geometrySource)
+        assertEquals("InkBoundsFittedBodyCompression", closingDecision.geometrySource)
 
         val positioned = result.positionedClusters().associateBy { it.range }
         assertEquals(
-            positioned.getValue(opening.range).left + 9f,
+            positioned.getValue(opening.range).left + 10f,
             positioned.getValue(opening.range).drawX,
         )
         assertEquals(
-            positioned.getValue(closing.range).left + 1f,
+            positioned.getValue(closing.range).left,
             positioned.getValue(closing.range).drawX,
         )
+
+        val lineStart = engine.layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent("“文"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+        val lineStartQuote = lineStart.clusters.first()
+        val lineStartPositioned = lineStart.positionedClusters()
+        assertEquals(8f, lineStartQuote.advance)
+        // Leading half-cell was removed; the 6px proportional box retains its
+        // 1px internal bearing at x=2..8, and the following Han starts at x=8.
+        assertEquals(2f, lineStartPositioned[0].drawX)
+        assertEquals(8f, lineStartPositioned[1].left)
     }
 
     @Test
@@ -968,7 +986,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun inkBoundsReduceCompressionCapacityWithoutChangingGlueSide() {
+    fun inkBoundsDetermineCompressionAmountAndSides() {
         val atom = PunctuationAtomBuilder().build(
             char = '，',
             range = org.tiqian.core.TextRange(0, 1),
@@ -981,13 +999,13 @@ class ExplainableStubParagraphLayoutEngineTest {
 
         requireNotNull(atom)
         assertEquals(16f, atom.advance)
-        assertEquals(11f, atom.bodyWidth)
-        assertEquals(11f, atom.inkContainmentBodyFloor)
-        assertTrue(atom.inkContainmentApplied)
-        // PauseOrStop: all remaining glue stays on the profile's trailing side.
-        assertEquals(0f, atom.leadingGlue.natural)
-        assertEquals(5f, atom.trailingGlue.natural)
-        assertEquals("ProfileDerivedWithInkDiagnostics", atom.geometrySource)
+        assertEquals(8f, atom.bodyWidth)
+        assertEquals(8f, atom.inkContainmentBodyFloor)
+        assertTrue(!atom.inkContainmentApplied)
+        // The ink fits the centred half-em frame, so both sides lose 4px.
+        assertEquals(4f, atom.leadingGlue.natural)
+        assertEquals(4f, atom.trailingGlue.natural)
+        assertEquals("InkBoundsFittedBodyCompression", atom.geometrySource)
         // Ink fields are retained as diagnostics
         assertEquals(2f, atom.inkWidth)
         assertEquals(10f, atom.inkCenter)
@@ -1038,19 +1056,18 @@ class ExplainableStubParagraphLayoutEngineTest {
 
         val punctuation = result.debug.punctuationDecisions.single()
         assertEquals(inkBounds, punctuation.inkBounds)
-        assertEquals(11f, punctuation.bodyWidth)
-        assertEquals(11f, punctuation.inkContainmentBodyFloor)
-        assertTrue(punctuation.inkContainmentApplied)
-        // 。 is PauseOrStop: all glue on trailing side
-        assertEquals(0f, punctuation.leadingGlueNatural)
-        assertEquals(5f, punctuation.trailingGlueNatural)
-        assertEquals("ProfileDerivedWithInkDiagnostics", punctuation.geometrySource)
+        assertEquals(8f, punctuation.bodyWidth)
+        assertEquals(8f, punctuation.inkContainmentBodyFloor)
+        assertTrue(!punctuation.inkContainmentApplied)
+        assertEquals(4f, punctuation.leadingGlueNatural)
+        assertEquals(4f, punctuation.trailingGlueNatural)
+        assertEquals("InkBoundsFittedBodyCompression", punctuation.geometrySource)
 
         val geometry = result.debug.geometryDecisions.single()
-        assertEquals("ProfileDerivedWithInkDiagnostics", geometry.reason)
-        assertEquals(11f, geometry.bodyWidth)
-        assertEquals(0f, geometry.leadingGlueNatural)
-        assertEquals(5f, geometry.trailingGlueNatural)
+        assertEquals("InkBoundsFittedBodyCompression", geometry.reason)
+        assertEquals(8f, geometry.bodyWidth)
+        assertEquals(4f, geometry.leadingGlueNatural)
+        assertEquals(4f, geometry.trailingGlueNatural)
     }
 
     @Test
@@ -1177,7 +1194,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
         val stopGeometry = result.debug.geometryDecisions.single { it.sourceText == "。" }
         assertEquals("PunctuationGeometryLedger", stopGeometry.source)
-        assertEquals("ProfileDerivedWithShapedAdvance", stopGeometry.reason)
+        assertEquals("ProfileGlueFallbackWithoutFontGeometry", stopGeometry.reason)
         assertEquals(16f, stopGeometry.baseAdvance)
         assertEquals(8f, stopGeometry.bodyWidth)
         // PauseOrStop: all glue on trailing side, fully consumed by edge trim
@@ -1731,7 +1748,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun stubShaperProducesProfileDerivedWithShapedAdvance() {
+    fun stubShaperReportsProfileFallbackWhenInkBoundsAreUnavailable() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
@@ -1744,7 +1761,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertTrue(punctuationDecisions.isNotEmpty())
         for (p in punctuationDecisions) {
             assertEquals(
-                "ProfileDerivedWithShapedAdvance",
+                "ProfileGlueFallbackWithoutFontGeometry",
                 p.geometrySource,
                 "Stub shaper provides advance but no bounds for '${p.char}'",
             )
@@ -1757,7 +1774,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun shapingWithoutBoundsProducesProfileDerivedWithShapedAdvance() {
+    fun shapingWithoutBoundsProducesNamedProfileFallback() {
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
@@ -1799,7 +1816,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         )
 
         val punctuation = result.debug.punctuationDecisions.single()
-        assertEquals("ProfileDerivedWithShapedAdvance", punctuation.geometrySource)
+        assertEquals("ProfileGlueFallbackWithoutFontGeometry", punctuation.geometrySource)
         assertEquals("shaper-no-ink-bounds", punctuation.inkBoundsFallback)
         assertEquals(8f, punctuation.bodyWidth)
         // PauseOrStop: all glue on trailing side (class-based, not ink-based)
@@ -1835,7 +1852,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     @Test
     fun haltAdvanceFromShaperDrivesPunctuationBodyEndToEnd() {
         // A shaper that reports halt=7 for 。 — the engine's punctuation
-        // decision must carry the font-derived body and the FontHaltDerived
+        // decision must carry the font-derived body and the FontHalt
         // geometry source, and the ledger must keep resolved >= body.
         val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
@@ -1863,7 +1880,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         val stop = result.debug.punctuationDecisions.single()
         assertEquals(7f, stop.haltAdvance)
         assertEquals(7f, stop.bodyWidth)
-        assertEquals("FontHaltDerived", stop.geometrySource)
+        assertEquals("FontHaltFittedBodyCompression", stop.geometrySource)
         // Trailing glue grows to advance - haltBody = 9; at line end it is
         // trimmed away leaving exactly the font body.
         assertEquals(9f, stop.trailingGlueNatural)
@@ -2494,8 +2511,8 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertEquals(16f, advanceOfMidLinePunct("中·中文", "·", default))
         assertEquals(8f, advanceOfMidLinePunct("中·中文", "·", gb))
 
-        // Fixed = unadjustable: no shrink opportunity for the 间隔号 under GB,
-        // so a tight line cannot compress it (verified via no PushIn on it).
+        // Fixed = its full measured compression budget is consumed before breaking;
+        // no remaining capacity can be borrowed by PushIn.
         val result = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
@@ -2510,8 +2527,9 @@ class ExplainableStubParagraphLayoutEngineTest {
             ),
         )
         val mid = result.debug.geometryDecisions.single { it.sourceText == "·" }
-        assertEquals(0f, mid.trailingGlueNatural)
-        assertEquals(0f, mid.leadingGlueNatural)
+        assertEquals(mid.trailingGlueNatural, mid.trailingGlueConsumed)
+        assertEquals(mid.leadingGlueNatural, mid.leadingGlueConsumed)
+        assertEquals(8f, mid.resolvedAdvance)
     }
 
     @Test
@@ -3271,13 +3289,73 @@ class ExplainableStubParagraphLayoutEngineTest {
         val punctuationDecisions = result.debug.punctuationDecisions
         assertEquals(2, punctuationDecisions.size)
         for (p in punctuationDecisions) {
-            assertEquals("PolicyDerived", p.geometrySource, "source for '${p.char}'")
+            assertEquals("ProfileGlueFallbackWithoutFontGeometry", p.geometrySource, "source for '${p.char}'")
             assertEquals(
                 "glyph-cluster-mapping-ambiguous",
                 p.inkBoundsFallback,
                 "fallback for '${p.char}'",
             )
         }
+    }
+
+    @Test
+    fun multiCharacterPunctuationUsesCharacterLocalInkBounds() {
+        val engine = ExplainableStubParagraphLayoutEngine(
+            textShaper = object : TextShaper {
+                private val delegate = ExplainableStubTextShaper()
+
+                override fun shape(input: ShapingInput): ShapingResult {
+                    if (input.displayText != "⋯⋯") return delegate.shape(input)
+                    return ShapingResult(
+                        clusters = listOf(
+                            Cluster(
+                                range = input.range,
+                                text = input.text.substring(input.range.start, input.range.end),
+                                displayText = input.displayText,
+                                fontKey = input.fontDecision.candidate.key,
+                                advance = 32f,
+                            ),
+                        ),
+                        glyphRuns = listOf(
+                            GlyphRun(
+                                range = input.range,
+                                fontKey = input.fontDecision.candidate.key,
+                                glyphs = listOf(
+                                    Glyph(
+                                        id = 1u,
+                                        clusterRange = input.range,
+                                        advance = 16f,
+                                        x = 0f,
+                                        bounds = Rect(1.5f, -7f, 14.5f, -5f),
+                                    ),
+                                    Glyph(
+                                        id = 2u,
+                                        clusterRange = input.range,
+                                        advance = 16f,
+                                        x = 16f,
+                                        bounds = Rect(1.5f, -7f, 14.5f, -5f),
+                                    ),
+                                ),
+                                advance = 32f,
+                            ),
+                        ),
+                    )
+                }
+            },
+        )
+
+        val result = engine.layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent("……"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val decisions = result.debug.punctuationDecisions
+        assertEquals(2, decisions.size)
+        assertEquals(listOf(8f, 8f), decisions.map { it.inkCenter })
+        assertEquals(listOf(16f, 16f), decisions.map { it.advance })
     }
 }
 

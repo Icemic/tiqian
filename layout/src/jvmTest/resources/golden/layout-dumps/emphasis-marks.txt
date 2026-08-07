@@ -40,9 +40,9 @@ font 13-14 role=CjkText key=cjk-primary display='焙' sub=CjkPunctuationGlyphPol
 font 14-15 role=CjkText key=cjk-primary display='其' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-16 role=CjkText key=cjk-primary display='次' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 16-17 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 3-4 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 11-12 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 geom 16-17 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
@@ -98,9 +98,9 @@ font 13-14 role=CjkText key=cjk-primary display='焙' sub=CjkPunctuationGlyphPol
 font 14-15 role=CjkText key=cjk-primary display='其' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-16 role=CjkText key=cjk-primary display='次' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 16-17 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 3-4 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 11-12 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 geom 16-17 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
@@ -156,9 +156,9 @@ font 13-14 role=CjkText key=cjk-primary display='焙' sub=CjkPunctuationGlyphPol
 font 14-15 role=CjkText key=cjk-primary display='其' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-16 role=CjkText key=cjk-primary display='次' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 16-17 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 3-4 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 11-12 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 16-17 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 3-4 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 11-12 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 geom 16-17 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0

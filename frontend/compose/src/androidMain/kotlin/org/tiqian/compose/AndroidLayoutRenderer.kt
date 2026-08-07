@@ -88,18 +88,22 @@ private fun drawAndroidGlyphs(
         paint.textSize = run.style.fontSize
         paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
         paint.fontFeatureSettings = null
+        paint.isFakeBoldText = false
+        paint.textSkewX = 0f
         val glyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty()
         // API 23+ correctness path: replay the exact HarfBuzz glyph ids and
         // placements through FreeType outlines from the same controlled bytes.
         if (AndroidNativeGlyphReplay.drawGlyphs(canvas, glyphs, drawX, baselineY, run.style.fontSize, paint)) {
             return@forEachAndroidPositionedCluster
         }
-        requireNativeReplayDidNotFail(glyphs)
         // API 31 platform adapter remains an optional comparison/optimization
         // path. Its process-local Font keys never define low-version correctness.
+        paint.isFakeBoldText = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs)
+        paint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(glyphs)) -0.25f else 0f
         if (Build.VERSION.SDK_INT >= 31 && drawPositionedGlyphs31(canvas, glyphs, drawX, baselineY, paint)) {
             return@forEachAndroidPositionedCluster
         }
+        requireNativeReplayDidNotFail(glyphs)
         // CjkPunctuation clusters need the full-buffer clipped draw (context GSUB);
         // plain 汉字 are context-independent and keep the cheaper sub-range draw.
         //
@@ -148,7 +152,9 @@ private fun drawPositionedGlyphs31(
     if (glyphs.isEmpty()) return false
     val fonts = glyphs.map { glyph ->
         val key = glyph.renderFontKey ?: return false
-        AndroidPositionedGlyphFontRegistry.fontFor(key) ?: return false
+        AndroidPositionedGlyphFontRegistry.fontFor(key)
+            ?: AndroidNativeGlyphReplay.platformFontFor(key)
+            ?: return false
     }
 
     var start = 0
@@ -534,8 +540,11 @@ private fun LayoutResult.androidLineInkSkipIntervals(
         if (nativePath != null) {
             path.set(nativePath)
         } else {
-            requireNativeReplayDidNotFail(glyphs)
+            val syntheticBold = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs)
+            if (!syntheticBold) requireNativeReplayDidNotFail(glyphs)
             paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
+            paint.isFakeBoldText = syntheticBold
+            paint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(glyphs)) -0.25f else 0f
             paint.getTextPath(cluster.displayText, 0, cluster.displayText.length, drawX, baselineY, path)
         }
         if (path.isEmpty) return@forEachAndroidPositionedCluster

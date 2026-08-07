@@ -480,8 +480,8 @@ internal data class NormalizedCanvasInkBounds(
  * evidence rather than an outline bound. Firefox can offset the reported CJK
  * punctuation box by one CSS pixel even when Canvas and DOM advances are
  * identical, leaving a subpixel edge as a false glyph overhang. Feeding that
- * noise into `InkContainmentGlyphShift` moves opening and closing punctuation
- * in opposite directions and makes the DOM replay over-compress their gap.
+ * noise into the fitted punctuation body can falsely enlarge it and make the
+ * DOM replay under-compress punctuation gaps.
  *
  * Keep real overhangs of one CSS pixel or more (italic and synthetic-slant
  * safety still applies). Only clamp smaller excursions back to the measured

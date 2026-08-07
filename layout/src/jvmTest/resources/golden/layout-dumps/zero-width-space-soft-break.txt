@@ -31,8 +31,8 @@ font 5-14 role=LatinText key=latin-primary display='.Complete' sub=CjkPunctuatio
 font 14-15 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-21 role=LatinText key=latin-primary display='AaFont' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 21-22 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 14-15 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 21-22 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 zerowidthbreak 2-3 source='\u200B' cluster=1 reason=ZeroWidthSpaceSoftBreakNoShape
@@ -69,8 +69,8 @@ font 5-14 role=LatinText key=latin-primary display='.Complete' sub=CjkPunctuatio
 font 14-15 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-21 role=LatinText key=latin-primary display='AaFont' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 21-22 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 14-15 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 21-22 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 zerowidthbreak 2-3 source='\u200B' cluster=1 reason=ZeroWidthSpaceSoftBreakNoShape
@@ -107,8 +107,8 @@ font 5-14 role=LatinText key=latin-primary display='.Complete' sub=CjkPunctuatio
 font 14-15 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 15-21 role=LatinText key=latin-primary display='AaFont' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 21-22 role=CjkPunctuation key=cjk-primary display='？' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 14-15 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 21-22 '？' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 14-15 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 21-22 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 zerowidthbreak 2-3 source='\u200B' cluster=1 reason=ZeroWidthSpaceSoftBreakNoShape

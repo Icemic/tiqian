@@ -21,13 +21,7 @@ data class Cluster(
      * this channel so measure and paint share one box model.
      */
     val leadingLayoutAdvance: Float = 0f,
-    /**
-     * Layout-owned horizontal shift from the cluster pen to the glyph origin.
-     * It does not contribute to [advance]. Punctuation layout uses this when a
-     * proportional glyph must be placed inside a wider CLREQ body/space box;
-     * renderers consume it through `PositionedCluster.drawX` instead of
-     * re-deriving punctuation classes or font heuristics.
-     */
+    /** Layout-owned horizontal shift from the cluster pen to the glyph origin. */
     val glyphInlineShift: Float = 0f,
 )
 
@@ -78,14 +72,12 @@ data class Glyph(
      * half-width metrics), measured by a separate feature-tagged shaping
      * pass. Null when the shaper cannot measure features (AWT, stub) or the
      * font provides no alternate (`halt` advance == default advance).
-     * Punctuation geometry consumes it as the font-defined body width.
      */
     val haltAdvance: Float? = null,
     /**
      * The x placement shift `halt` applies (e.g. -0.5em for opening
-     * brackets whose leading blank is trimmed). Diagnostic: tells which
-     * side the FONT trims, for future validation against the profile's
-     * glue side. Null whenever [haltAdvance] is null.
+     * brackets whose leading blank is trimmed). Punctuation geometry uses
+     * it directly to split the leading/trailing compression budgets.
      */
     val haltPlacementX: Float? = null,
 )
@@ -603,7 +595,7 @@ data class PunctuationDecisionInfo(
     val policyBodyFloor: Float = bodyWidth,
     val inkWidth: Float? = null,
     val inkCenter: Float? = null,
-    /** Anchored body floor required to keep real glyph ink out of adjacent clusters. */
+    /** Minimum body left after all removable sidebearings have been consumed. */
     val inkContainmentBodyFloor: Float? = null,
     /** True when `InkContainmentBodyFloor` reduced the mark's compressible glue. */
     val inkContainmentApplied: Boolean = false,
@@ -616,22 +608,21 @@ data class PunctuationDecisionInfo(
      */
     val inkBoundsFallback: String? = null,
     /**
-     * Font-measured `halt` advance backing [bodyWidth] when
-     * [geometrySource] is `FontHaltDerived*`; null = policy body.
+     * Font-measured `halt` advance used by `FontHalt*` geometry; null = ink/policy path.
      */
     val haltAdvance: Float? = null,
     /**
-     * `HaltPlacementProfileCrossCheck` warning when the font's halt trim
-     * side contradicts the profile's glue side; null = consistent or no
-     * halt data.
+     * Warning when default ink prevents faithful replay of the measured halt trim.
      */
     val haltValidation: String? = null,
     /** Added layout advance when the shaped glyph is narrower than the CLREQ box. */
     val advanceExpansion: Float = 0f,
-    /** Glyph-origin placement inside that expanded box. */
+    /** Placement of an underwidth font-owned glyph box inside a synthesized full-width cell. */
     val glyphInlineShift: Float = 0f,
     /** Named placement heuristic, null when no glyph shift was needed. */
     val glyphPlacementReason: String? = null,
+    val leadingGlueInitiallyConsumed: Float = 0f,
+    val trailingGlueInitiallyConsumed: Float = 0f,
 )
 
 data class ClusterGeometryDecisionInfo(

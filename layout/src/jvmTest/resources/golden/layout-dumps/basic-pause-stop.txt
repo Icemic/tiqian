@@ -17,8 +17,8 @@ font 2-3 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGly
 font 3-4 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 4-5 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 5-6 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 2-3 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 5-6 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 edgetrim 5-6 side=trailing trim=8.0 reason=LineEndHalfWidthPunctuation
@@ -39,8 +39,8 @@ font 2-3 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGly
 font 3-4 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 4-5 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 5-6 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 2-3 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 5-6 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 edgetrim 5-6 side=trailing trim=8.0 reason=LineEndHalfWidthPunctuation
@@ -61,8 +61,8 @@ font 2-3 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGly
 font 3-4 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 4-5 role=CjkText key=cjk-primary display='文' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 5-6 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
-punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileDerivedWithShapedAdvance fallback=shaper-no-ink-bounds
+punct 2-3 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
+punct 5-6 '。' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 geom 2-3 body=8.0 lead=0.0/0.0 trail=0.0/8.0 justify=0.0 resolved=16.0
 geom 5-6 body=8.0 lead=0.0/0.0 trail=8.0/8.0 justify=0.0 resolved=8.0
 edgetrim 5-6 side=trailing trim=8.0 reason=LineEndHalfWidthPunctuation

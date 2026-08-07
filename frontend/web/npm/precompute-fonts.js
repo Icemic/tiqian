@@ -328,6 +328,7 @@ function scriptForText(text) {
 
 const SHARED_CURLY_QUOTE = /[\u2018-\u201d]/u;
 const LATIN_CONTEXT_PROPORTIONAL_FEATURES = Object.freeze(["pwid", "palt"]);
+const CJK_CONTEXT_FULL_WIDTH_FEATURES = Object.freeze(["fwid"]);
 const NO_SHAPING_FEATURES = Object.freeze([]);
 const SUPPORTED_BASE_FEATURES = new Set(["lnum"]);
 
@@ -342,8 +343,9 @@ function normalizeBaseFeatures(value) {
 /**
  * ContextualSharedQuoteShaping: the common layout pipeline resolves the quote
  * role; the exact backend turns that decision into a script and a replayable
- * feature set. `pwid` selects the Western proportional form while `palt`
- * covers fonts that expose only proportional alternate metrics.
+ * feature set. CJK punctuation requests `fwid`; Latin text requests `pwid`
+ * plus `palt`. Fonts may legally leave either request ineffective, so common
+ * layout still validates the shaped advance before completing a missing box.
  */
 export function shapingPolicyForRole(role, displayText) {
   const normalizedRole = String(role ?? "");
@@ -355,7 +357,15 @@ export function shapingPolicyForRole(role, displayText) {
         : NO_SHAPING_FEATURES,
     });
   }
-  if (normalizedRole === "CjkText" || normalizedRole === "CjkPunctuation") {
+  if (normalizedRole === "CjkPunctuation") {
+    return Object.freeze({
+      script: "Hani",
+      features: SHARED_CURLY_QUOTE.test(displayText)
+        ? CJK_CONTEXT_FULL_WIDTH_FEATURES
+        : NO_SHAPING_FEATURES,
+    });
+  }
+  if (normalizedRole === "CjkText") {
     return Object.freeze({ script: "Hani", features: NO_SHAPING_FEATURES });
   }
   return Object.freeze({ script: scriptForText(displayText), features: NO_SHAPING_FEATURES });

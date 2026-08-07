@@ -192,6 +192,11 @@ class LayoutDumpGoldenTest {
                 "punct ${p.range.start}-${p.range.end} '${p.char}' class=${p.punctuationClass} " +
                     "adv=${p.advance.fmt()} body=${p.bodyWidth.fmt()} " +
                     "lead=${p.leadingGlueNatural.fmt()} trail=${p.trailingGlueNatural.fmt()} " +
+                    (if (p.leadingGlueInitiallyConsumed != 0f || p.trailingGlueInitiallyConsumed != 0f) {
+                        "initial=${p.leadingGlueInitiallyConsumed.fmt()}/${p.trailingGlueInitiallyConsumed.fmt()} "
+                    } else {
+                        ""
+                    }) +
                     "anchor=${p.anchor} source=${p.geometrySource}" +
                     (if (p.advanceExpansion != 0f) " expand=${p.advanceExpansion.fmt()}" else "") +
                     (if (p.glyphInlineShift != 0f) " glyphShift=${p.glyphInlineShift.fmt()}" else "") +

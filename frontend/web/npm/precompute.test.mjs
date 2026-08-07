@@ -583,10 +583,10 @@ test("build-time unicode-range parser handles wildcard subsets", () => {
   ]);
 });
 
-test("shared curly quotes use role-aware scripts and replayable proportional features", () => {
+test("shared curly quotes use role-aware scripts and replayable width features", () => {
   assert.deepEqual(shapingPolicyForRole("CjkPunctuation", "’"), {
     script: "Hani",
-    features: [],
+    features: ["fwid"],
   });
   assert.deepEqual(shapingPolicyForRole("CjkText", "‘"), {
     script: "Hani",

@@ -1,29 +1,23 @@
 package org.tiqian.layout
 
 import org.tiqian.clreq.InteriorPunctuationStyle
+import org.tiqian.clreq.PunctuationGluePlacement
 import org.tiqian.clreq.PunctuationWidthPolicy
 import org.tiqian.core.Rect
 import org.tiqian.core.TextRange
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * FontHaltDerivedBody (ADR 0014 follow-up): when the shaper reports an
- * OpenType `halt` advance, it is the font designer's own half-width body and
- * replaces the policy `0.5em`. The glue direction stays profile-derived;
- * only the body/glue split changes.
- */
+/** Font-evidence punctuation compression contract (ADR 0014 amendment). */
 class PunctuationAtomBuilderHaltTest {
 
     private val builder = PunctuationAtomBuilder()
     private val em = 16f
 
     @Test
-    fun haltAdvanceReplacesPolicyBody() {
-        // A font whose 。 body is 7.5 (not exactly half of the 16 advance):
-        // body must follow the font, glue gets the remainder on the
-        // profile-decided side (PauseOrStop → trailing in MainlandSimplified).
+    fun haltAdvanceWithoutPlacementUsesNamedProfileFallback() {
         val atom = builder.build(
             char = '。',
             range = TextRange(0, 1),
@@ -35,148 +29,152 @@ class PunctuationAtomBuilderHaltTest {
         assertEquals(7.5f, atom.haltAdvance)
         assertEquals(0f, atom.leadingGlue.natural)
         assertEquals(8.5f, atom.trailingGlue.natural)
-        assertEquals("FontHaltDerived", atom.geometrySource)
+        assertEquals("FontHaltAdvanceWithProfileFallback", atom.geometrySource)
     }
 
     @Test
-    fun haltWithInkBoundsReportsCombinedSource() {
+    fun haltPlacementDirectlyDefinesBothCompressionSides() {
+        val atom = builder.build(
+            char = '（',
+            range = TextRange(0, 1),
+            em = em,
+            inkInput = PunctuationInkInput(
+                advance = 16f,
+                inkBounds = Rect(left = 5f, top = -12f, right = 11f, bottom = 2f),
+                haltAdvance = 8f,
+                haltPlacementX = -4f,
+            ),
+        )!!
+
+        assertEquals(4f, atom.leadingGlue.natural)
+        assertEquals(4f, atom.trailingGlue.natural)
+        assertEquals(8f, atom.bodyWidth)
+        assertEquals(PunctuationAnchor.Center, atom.anchor)
+        assertEquals("FontHaltFittedBodyCompression", atom.geometrySource)
+        assertNull(atom.haltValidation)
+    }
+
+    @Test
+    fun haltPlacementOverridesRegionalProfileDirection() {
+        val traditional = PunctuationAtomBuilder(PunctuationGluePlacement.Traditional)
+        val atom = traditional.build(
+            char = '。',
+            range = TextRange(0, 1),
+            em = em,
+            inkInput = PunctuationInkInput(
+                advance = 16f,
+                inkBounds = Rect(left = 1f, top = -4f, right = 7f, bottom = 1f),
+                haltAdvance = 8f,
+                haltPlacementX = 0f,
+            ),
+        )!!
+
+        assertEquals(0f, atom.leadingGlue.natural)
+        assertEquals(8f, atom.trailingGlue.natural)
+        assertNull(atom.haltValidation)
+    }
+
+    @Test
+    fun defaultInkCapsAHaltTrimThatWouldCutIntoThePaintedGlyph() {
+        val atom = builder.build(
+            char = '（',
+            range = TextRange(0, 1),
+            em = em,
+            inkInput = PunctuationInkInput(
+                advance = 16f,
+                inkBounds = Rect(left = 2f, top = -12f, right = 15f, bottom = 2f),
+                haltAdvance = 8f,
+                haltPlacementX = -8f,
+            ),
+        )!!
+
+        assertEquals(2f, atom.leadingGlue.natural)
+        assertEquals(0f, atom.trailingGlue.natural)
+        assertEquals(14f, atom.bodyWidth)
+        assertEquals("halt-trim-limited-by-default-ink-bounds", atom.haltValidation)
+        assertTrue(atom.inkContainmentApplied)
+    }
+
+    @Test
+    fun equalHaltAdvanceFallsThroughToInkBounds() {
         val atom = builder.build(
             char = '，',
             range = TextRange(0, 1),
             em = em,
             inkInput = PunctuationInkInput(
                 advance = 16f,
-                inkBounds = Rect(left = 2f, top = -4f, right = 5f, bottom = 1f),
-                haltAdvance = 8f,
+                inkBounds = Rect(left = 6f, top = -4f, right = 10f, bottom = 1f),
+                haltAdvance = 16f,
             ),
         )!!
 
-        assertEquals(8f, atom.bodyWidth)
-        assertEquals("FontHaltDerivedWithInkDiagnostics", atom.geometrySource)
+        assertNull(atom.haltAdvance)
+        assertEquals(4f, atom.leadingGlue.natural)
+        assertEquals(4f, atom.trailingGlue.natural)
+        assertEquals("InkBoundsFittedBodyCompression", atom.geometrySource)
     }
 
     @Test
-    fun haltEqualToAdvanceIsIgnored() {
-        // halt == full advance means the font has no alternate; fall back to
-        // the policy body (defensive — the shaper already nulls this case).
+    fun microsoftYaheiCentredCommaCompressesFromBothSides() {
+        // Microsoft YaHei Vista: advance=2048, comma ink x=821..1130.
+        val atom = fontUnitAtom('，', 2048f, 821f, 1130f)
+
+        assertEquals(8f, atom.bodyWidth, 0.001f)
+        assertEquals(4f, atom.leadingGlue.natural, 0.01f)
+        assertEquals(4f, atom.trailingGlue.natural, 0.01f)
+        assertEquals(PunctuationAnchor.Center, atom.anchor)
+        assertEquals(0f, atom.glyphInlineShift)
+    }
+
+    @Test
+    fun microsoftYaheiBottomLeftStopKeepsItsLeadingSafetyMargin() {
+        // Microsoft YaHei Vista: advance=2048, ideographic full stop ink x=131..632.
+        val atom = fontUnitAtom('。', 2048f, 131f, 632f)
+
+        assertEquals(8f, atom.bodyWidth)
+        assertEquals(0f, atom.leadingGlue.natural)
+        assertEquals(8f, atom.trailingGlue.natural)
+        assertEquals(PunctuationAnchor.Leading, atom.anchor)
+        // Fully compressed drawX is unchanged, so the font's left safety margin survives.
+        assertEquals(0f, atom.glyphInlineShift)
+    }
+
+    @Test
+    fun founderHeitiCentredParenthesesStayMirrorImages() {
+        // Founder Heiti: （ ink=456..647, ） ink=353..544, advance=1000.
+        val opening = fontUnitAtom('（', 1000f, 456f, 647f)
+        val closing = fontUnitAtom('）', 1000f, 353f, 544f)
+
+        assertEquals(opening.leadingGlue.natural, closing.trailingGlue.natural, 0.001f)
+        assertEquals(opening.trailingGlue.natural, closing.leadingGlue.natural, 0.001f)
+        assertTrue(opening.leadingGlue.natural > 0f && opening.trailingGlue.natural > 0f)
+        assertEquals(0f, opening.glyphInlineShift)
+        assertEquals(0f, closing.glyphInlineShift)
+    }
+
+    @Test
+    fun underwidthOpeningQuoteCompletesTheLeadingSideOfItsFullWidthCell() {
         val atom = builder.build(
-            char = '。',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 16f),
-        )!!
-
-        assertEquals(8f, atom.bodyWidth)
-        assertEquals(null, atom.haltAdvance)
-        assertEquals("ProfileDerivedWithShapedAdvance", atom.geometrySource)
-    }
-
-    @Test
-    fun haltPlacementConsistentWithProfileProducesNoWarning() {
-        // MainlandSimplified + Source Han-like halt data: 。 trims trailing
-        // (placement 0), （ trims leading (placement -8) — both match the
-        // profile glue sides, no warning.
-        val stop = builder.build(
-            char = '。',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 8f, haltPlacementX = 0f),
-        )!!
-        assertEquals(null, stop.haltValidation)
-
-        val open = builder.build(
-            char = '（',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 8f, haltPlacementX = -8f),
-        )!!
-        assertEquals(null, open.haltValidation)
-    }
-
-    @Test
-    fun haltPlacementContradictingProfileIsWarned() {
-        // A Traditional profile centres 。 (glue BothSides), but a Mainland-
-        // designed font trims the trailing side only — the cross-check must
-        // flag it while geometry keeps the profile decision.
-        val traditional = PunctuationAtomBuilder(
-            org.tiqian.clreq.PunctuationGluePlacement.Traditional,
-        )
-        val stop = traditional.build(
-            char = '。',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 8f, haltPlacementX = 0f),
-        )!!
-
-        assertEquals("halt-trims-trailing-but-profile-glue-both", stop.haltValidation)
-        // Geometry unchanged: glue still split per profile.
-        assertEquals(4f, stop.leadingGlue.natural)
-        assertEquals(4f, stop.trailingGlue.natural)
-    }
-
-    @Test
-    fun haltBodyFeedsCompressionAndGlueModelUnchanged() {
-        // 」。 with halt bodies: compression semantics stay the same — the
-        // inner gap (」 trailing glue) collapses by half-em regardless of
-        // whether the body came from halt or policy.
-        val closing = builder.build(
-            char = '」',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 8f),
-        )!!
-        val stop = builder.build(
-            char = '。',
-            range = TextRange(1, 2),
-            em = em,
-            inkInput = PunctuationInkInput(advance = 16f, haltAdvance = 8f),
-        )!!
-
-        val plan = PunctuationSpacingCompressor().compress(listOf(closing, stop), em)
-        val adj = plan.adjustments.single()
-        assertEquals(8f, adj.naturalInnerGlue)
-        assertEquals(0f, adj.adjustedInnerGlue)
-        assertEquals(8f, adj.reduction)
-    }
-
-    @Test
-    fun bookTitleBracketsKeepInkInsideCompressedAnchoredBodies() {
-        val opening = builder.build(
-            char = '《',
+            char = '“',
             range = TextRange(0, 1),
             em = em,
             inkInput = PunctuationInkInput(
-                advance = 16f,
-                inkBounds = Rect(left = 6.5f, top = -12f, right = 15.5f, bottom = 2f),
-            ),
-        )!!
-        val closing = builder.build(
-            char = '》',
-            range = TextRange(1, 2),
-            em = em,
-            inkInput = PunctuationInkInput(
-                advance = 16f,
-                inkBounds = Rect(left = 0.5f, top = -12f, right = 9.5f, bottom = 2f),
+                advance = 6f,
+                inkBounds = Rect(left = 1f, top = -10f, right = 5f, bottom = 0f),
             ),
         )!!
 
-        assertEquals(9.5f, opening.bodyWidth)
-        assertEquals(6.5f, opening.leadingGlue.natural)
-        assertEquals(0f, opening.trailingGlue.natural)
-        assertEquals(9.5f, closing.bodyWidth)
-        assertEquals(0f, closing.leadingGlue.natural)
-        assertEquals(6.5f, closing.trailingGlue.natural)
-        assertTrue(opening.inkContainmentApplied)
-        assertTrue(closing.inkContainmentApplied)
-
-        // Fully consuming the opening mark's leading glue shifts its raw glyph
-        // left by 6.5px: ink 6.5..15.5 becomes 0..9 and fits the 9.5px body.
-        assertTrue(15.5f - opening.leadingGlue.natural <= opening.bodyWidth)
-        assertTrue(9.5f <= closing.bodyWidth)
+        assertEquals(16f, atom.advance)
+        assertEquals(10f, atom.advanceExpansion)
+        assertEquals(8f, atom.bodyWidth, 0.001f)
+        assertEquals(8f, atom.leadingGlue.natural)
+        assertEquals(0f, atom.trailingGlue.natural)
+        assertEquals(10f, atom.glyphInlineShift)
+        assertEquals("UnderwidthPunctuationFullWidthBoxPlacement", atom.glyphPlacementReason)
     }
 
     @Test
-    fun forcedHalfWidthExpandsAndAnchorsWhenBookTitleInkDoesNotFit() {
+    fun fixedHalfConsumesMeasuredSidebearingsInsteadOfApplyingAProfileShift() {
         val atom = builder.build(
             char = '《',
             range = TextRange(0, 1),
@@ -188,72 +186,47 @@ class PunctuationAtomBuilderHaltTest {
             widthPolicy = PunctuationWidthPolicy(interior = InteriorPunctuationStyle.Kaiming),
         )!!
 
-        assertEquals(9.5f, atom.advance)
+        assertEquals(16f, atom.advance)
         assertEquals(9.5f, atom.bodyWidth)
-        assertEquals(-6.5f, atom.glyphInlineShift)
-        assertEquals("ForcedHalfWidthGlyphAnchorShift", atom.glyphPlacementReason)
+        assertEquals(6.5f, atom.leadingGlueInitiallyConsumed)
+        assertEquals(0f, atom.trailingGlueInitiallyConsumed)
+        assertEquals(0f, atom.glyphInlineShift)
+        assertEquals("InkBoundsFittedBodyCompressionFixedHalfWidth", atom.geometrySource)
+    }
+
+    @Test
+    fun overhangReducesCompressionCapacityWithoutMovingInk() {
+        val atom = builder.build(
+            char = '《',
+            range = TextRange(0, 1),
+            em = em,
+            inkInput = PunctuationInkInput(
+                advance = 16f,
+                inkBounds = Rect(left = 6.5f, top = -12f, right = 17f, bottom = 2f),
+            ),
+        )!!
+
+        assertEquals(17f, atom.advance)
+        assertEquals(10.5f, atom.bodyWidth)
+        assertEquals(6.5f, atom.leadingGlue.natural)
+        assertEquals(0f, atom.trailingGlue.natural)
+        assertEquals(0f, atom.glyphInlineShift)
         assertTrue(atom.inkContainmentApplied)
     }
 
-    @Test
-    fun openingInkOverhangIsShiftedInsideItsCompressedBody() {
-        val atom = builder.build(
-            char = '《',
+    private fun fontUnitAtom(char: Char, unitsPerEm: Float, left: Float, right: Float): PunctuationAtom =
+        builder.build(
+            char = char,
             range = TextRange(0, 1),
             em = em,
             inkInput = PunctuationInkInput(
-                advance = 16f,
-                inkBounds = Rect(left = 6.5f, top = -12f, right = 17f, bottom = 2f),
+                advance = em,
+                inkBounds = Rect(
+                    left = left / unitsPerEm * em,
+                    top = -12f,
+                    right = right / unitsPerEm * em,
+                    bottom = 2f,
+                ),
             ),
         )!!
-
-        assertEquals(10.5f, atom.inkContainmentBodyFloor)
-        assertEquals(10.5f, atom.bodyWidth)
-        assertEquals(-1f, atom.glyphInlineShift)
-        assertEquals("InkContainmentGlyphShift", atom.glyphPlacementReason)
-
-        val compressedOrigin = atom.glyphInlineShift - atom.leadingGlue.natural
-        assertEquals(0f, 6.5f + compressedOrigin, 0.001f)
-        assertEquals(atom.bodyWidth, 17f + compressedOrigin, 0.001f)
-    }
-
-    @Test
-    fun forcedHalfWidthReportsInkClampWhenItChangesTheAnchorShift() {
-        val atom = builder.build(
-            char = '《',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(
-                advance = 16f,
-                inkBounds = Rect(left = 6.5f, top = -12f, right = 17f, bottom = 2f),
-            ),
-            widthPolicy = PunctuationWidthPolicy(interior = InteriorPunctuationStyle.Kaiming),
-        )!!
-
-        assertEquals(10.5f, atom.bodyWidth)
-        assertEquals(-6.5f, atom.glyphInlineShift)
-        assertEquals("InkContainmentGlyphShift", atom.glyphPlacementReason)
-        assertEquals(0f, 6.5f + atom.glyphInlineShift, 0.001f)
-        assertEquals(atom.bodyWidth, 17f + atom.glyphInlineShift, 0.001f)
-    }
-
-    @Test
-    fun negativeClosingInkBearingCannotEscapeTheLeadingBody() {
-        val atom = builder.build(
-            char = '》',
-            range = TextRange(0, 1),
-            em = em,
-            inkInput = PunctuationInkInput(
-                advance = 16f,
-                inkBounds = Rect(left = -1f, top = -12f, right = 8f, bottom = 2f),
-            ),
-        )!!
-
-        assertEquals(9f, atom.inkContainmentBodyFloor)
-        assertEquals(9f, atom.bodyWidth)
-        assertEquals(1f, atom.glyphInlineShift)
-        assertEquals("InkContainmentGlyphShift", atom.glyphPlacementReason)
-        assertEquals(0f, -1f + atom.glyphInlineShift, 0.001f)
-        assertEquals(atom.bodyWidth, 8f + atom.glyphInlineShift, 0.001f)
-    }
 }

@@ -1,6 +1,5 @@
 package org.tiqian.layout
 
-import kotlin.math.abs
 import org.tiqian.clreq.ClreqPunctuationPolicies
 import org.tiqian.clreq.GlueSide
 import org.tiqian.clreq.PunctuationClass
@@ -16,13 +15,11 @@ data class PunctuationAtom(
     val advance: Float,
     val inkBounds: Rect?,
     val bodyWidth: Float,
-    /** Font-measured `halt` advance backing [bodyWidth]; null = policy body. */
+    /** Font-measured `halt` advance used to request the compressed box; null = ink/policy path. */
     val haltAdvance: Float? = null,
     /**
-     * `HaltPlacementProfileCrossCheck` warning: non-null when the side the
-     * FONT trims under `halt` contradicts the profile's glue side for this
-     * class (e.g. a Traditional-centred profile against a Mainland-designed
-     * font). Diagnostic only — geometry keeps the profile decision.
+     * Non-null when the default glyph's ink bounds prevent faithfully replaying
+     * the font's requested `halt` trim without drawing into a neighbour.
      */
     val haltValidation: String? = null,
     val leadingGlue: Glue,
@@ -32,7 +29,7 @@ data class PunctuationAtom(
     val policyBodyFloor: Float,
     val inkWidth: Float?,
     val inkCenter: Float?,
-    /** Minimum body that keeps the default glyph ink inside its compressed box. */
+    /** Minimum body left after all removable sidebearings have been consumed. */
     val inkContainmentBodyFloor: Float?,
     /** Named `InkContainmentBodyFloor` decision; false when policy/halt already suffices. */
     val inkContainmentApplied: Boolean,
@@ -43,26 +40,29 @@ data class PunctuationAtom(
      * shaped glyph is narrower than the CLREQ-required punctuation box.
      */
     val advanceExpansion: Float,
-    /** Glyph-origin shift that places the underwidth glyph inside its profile body. */
+    /** Placement of an underwidth font-owned glyph box inside a synthesized full-width cell. */
     val glyphInlineShift: Float,
     /** Named placement heuristic, null when [glyphInlineShift] is zero. */
     val glyphPlacementReason: String?,
+    /** Glue consumed before line breaking by a fixed-half punctuation style. */
+    val leadingGlueInitiallyConsumed: Float = 0f,
+    /** Glue consumed before line breaking by a fixed-half punctuation style. */
+    val trailingGlueInitiallyConsumed: Float = 0f,
 )
 
 data class PunctuationInkInput(
     val advance: Float,
     val inkBounds: Rect? = null,
     /**
-     * Font-measured OpenType `halt` advance — the font designer's own
-     * half-width body for this mark. When present (and smaller than the
-     * full advance) it REPLACES the policy body width; the glue direction
-     * still comes from the profile per ADR 0014.
+     * Font-measured OpenType `halt` advance — the font designer's requested
+     * compressed advance for this mark.
      */
     val haltAdvance: Float? = null,
     /**
      * The x placement shift the font applies under `halt` (-0.5em for
      * opening brackets, -0.25em for centred marks, 0 for closing/stop).
-     * Input to `HaltPlacementProfileCrossCheck` — diagnostic only.
+     * Together with [haltAdvance], this directly defines the leading and
+     * trailing compression budgets.
      */
     val haltPlacementX: Float? = null,
     /**
@@ -78,8 +78,8 @@ data class PunctuationInkInput(
      *   cluster's display characters, so per-character ink cannot be
      *   attributed; geometry falls back to pure policy ([advance] is unset).
      *
-     * Per ADR 0014 missing ink disables `InkContainmentBodyFloor`; profile
-     * glue direction and the policy/halt body remain the explicit fallback.
+     * Missing ink disables font-geometry-derived compression; a named profile
+     * fallback remains available for shapers that cannot expose glyph bounds.
      */
     val boundsFallbackReason: String? = null,
 )
@@ -175,7 +175,11 @@ class PunctuationSpacingCompressor {
         val adjustments = atoms.zipWithNext().mapNotNull { (left, right) ->
             if (left.range.end != right.range.start) return@mapNotNull null
 
-            val naturalInnerGlue = left.trailingGlue.natural + right.leadingGlue.natural
+            val leftTrailing = (left.trailingGlue.natural - left.trailingGlueInitiallyConsumed)
+                .coerceAtLeast(0f)
+            val rightLeading = (right.leadingGlue.natural - right.leadingGlueInitiallyConsumed)
+                .coerceAtLeast(0f)
+            val naturalInnerGlue = leftTrailing + rightLeading
             if (naturalInnerGlue <= 0f) return@mapNotNull null
 
             val adjustedInnerGlue = (naturalInnerGlue - emHalf).coerceAtLeast(0f)
@@ -184,7 +188,7 @@ class PunctuationSpacingCompressor {
 
             PunctuationSpacingAdjustment(
                 range = TextRange(left.range.start, right.range.end),
-                reductionTargetRange = if (left.trailingGlue.natural >= right.leadingGlue.natural) {
+                reductionTargetRange = if (leftTrailing >= rightLeading) {
                     left.range
                 } else {
                     right.range
@@ -222,7 +226,8 @@ class PunctuationSpacingCompressor {
             val rightChar = text.getOrNull(left.range.end) ?: return@mapNotNull null
             if (!ClreqPunctuationPolicies.isAsciiPointMark(rightChar)) return@mapNotNull null
 
-            val naturalInnerGlue = left.trailingGlue.natural
+            val naturalInnerGlue = (left.trailingGlue.natural - left.trailingGlueInitiallyConsumed)
+                .coerceAtLeast(0f)
             if (naturalInnerGlue <= 0f) return@mapNotNull null
             val adjustedInnerGlue = (naturalInnerGlue - emHalf).coerceAtLeast(0f)
             val reduction = naturalInnerGlue - adjustedInnerGlue
@@ -258,28 +263,15 @@ class PunctuationAtomBuilder(
     }
 
     /**
-     * Builds a [PunctuationAtom] whose body is always half-width (from policy).
+     * Builds the punctuation box from font evidence before consulting a regional fallback.
      *
-     * Glue placement is decided by [gluePlacement] + CLREQ class per ADR 0014
-     * (and clarified by the regional split in CLREQ 3.1.3):
+     * `FontHaltFittedBodyCompression` is authoritative when both `halt` advance and
+     * placement are available. Otherwise `InkBoundsFittedBodyCompression` tests the
+     * leading, centred, and trailing policy-width boxes, selects the smallest one that
+     * contains the original ink, and preserves every safety margin inside that box.
      *
-     * - **MainlandSimplified + Opening** (`「（《`): all glue on leading side.
-     * - **MainlandSimplified + Closing / PauseOrStop** (`」）。，`): all glue on trailing side.
-     * - **Traditional + any of the above**: glue split evenly (Traditional convention
-     *   centres `。 ，` etc. within the em box).
-     * - **Symmetric punctuation** (middle dot, interpunct, ellipsis, dash, quote, etc.):
-     *   glue split evenly in both placements.
-     *
-     * `inkInput` provides the real shaped advance (used instead of the policy
-     * advance when available) and glyph ink bounds. Ink never redistributes
-     * profile glue, but `InkContainmentBodyFloor` may reduce its compressible
-     * amount so the default glyph cannot overlap the neighbouring cluster.
-     *
-     * When `halt` or equivalent OpenType features become available, they
-     * will replace the policy body/advance directly, and ink bounds will
-     * serve as a validation check.
-     *
-     * Named heuristic: `ProfileDerivedGlueDirection`.
+     * `ProfileGlueFallbackWithoutFontGeometry` is used only when neither source can state
+     * the sides. It keeps stub and capability-limited shapers explicit and deterministic.
      */
     fun build(
         char: Char,
@@ -295,123 +287,48 @@ class PunctuationAtomBuilder(
         val policyAdvance = policy.defaultAdvanceEm * em
         val shapedAdvance = inkInput?.advance?.takeIf { it > 0f }
         val rawGlyphAdvance = shapedAdvance ?: policyAdvance
-        // 标点宽度风格（开明式 / GB 固定半宽）：把该类标点的占宽强制为半字
-        // （= body，glue 归零 → 半宽且不可调）。真实 ink 若装不进半字，
-        // `InkContainmentBodyFloor` 会诚实扩大该 body，不能以重叠换取名义半宽。
-        val forcedHalf = ClreqPunctuationPolicies.forcedHalfWidth(char, widthPolicy)
-        // `UnderwidthPunctuationAdvanceExpansion`: CJK punctuation keeps the
-        // profile's minimum box even when the selected face exposes a
-        // proportional Western glyph (notably U+2018..U+201D). A wider shaped
-        // glyph remains authoritative; fixed-half profiles still override both.
-        val profileAdvance = if (forcedHalf) {
-            0.5f * em
+        val rawInkBounds = inkInput?.inkBounds
+        val policyExpansion = (policyAdvance - rawGlyphAdvance).coerceAtLeast(0f)
+        // `UnderwidthPunctuationFullWidthBoxPlacement`: after `fwid` still
+        // shapes underwidth, place the intact proportional glyph box inside a
+        // synthesized full-width cell. Opening marks receive the missing width
+        // before their box, closing marks after it, and centred conventions
+        // split it. Compression later removes glue from this completed cell; it
+        // does not reposition ink inside the font-owned proportional box.
+        val synthesizedFullWidthPlacement = if (shapedAdvance != null && policyExpansion > 0f) {
+            when (gluePlacement.glueSideFor(policy.punctuationClass)) {
+                GlueSide.LeadingOnly -> policyExpansion
+                GlueSide.BothSides -> policyExpansion / 2f
+                GlueSide.TrailingOnly -> 0f
+            }
         } else {
-            maxOf(shapedAdvance ?: policyAdvance, policyAdvance)
+            0f
         }
-        // FontHaltDerivedBody: when the font provides an alternate half-width
-        // advance via `halt`, that is the designer-defined solid body — it
-        // replaces the policy 0.5em. Glue direction stays profile-derived
-        // (ADR 0014); only the body/glue SPLIT comes from the font.
-        val haltBody = inkInput?.haltAdvance?.takeIf {
-            it > 0f && it < maxOf(rawGlyphAdvance, policyAdvance)
-        }
-        val policyBodyFloor = policy.defaultBodyEm * em
-        val nominalBodyWidth = if (forcedHalf) {
-            minOf(haltBody ?: policyBodyFloor, profileAdvance)
-        } else {
-            haltBody ?: policyBodyFloor
-        }
-
-        // Ink never chooses the CLREQ glue SIDE. It only establishes a safety
-        // floor for the non-compressible body: after all permitted glue has
-        // been consumed, the default glyph's ink must still remain inside the
-        // occupied cluster box instead of entering its neighbour.
-        val inkBounds = inkInput?.inkBounds
+        val inkBounds = rawInkBounds?.shiftInline(synthesizedFullWidthPlacement)
         val inkWidth = inkBounds?.width?.coerceAtLeast(0f)
-        val glueSide = gluePlacement.glueSideFor(policy.punctuationClass)
-        val anchor = when (glueSide) {
-            GlueSide.LeadingOnly -> PunctuationAnchor.Trailing
-            GlueSide.TrailingOnly -> PunctuationAnchor.Leading
-            GlueSide.BothSides -> PunctuationAnchor.Center
-        }
-        val inkContainmentBodyFloor = inkContainmentBodyFloor(
-            glyphAdvance = rawGlyphAdvance,
-            inkBounds = inkBounds,
-            anchor = anchor,
-        )
-        val bodyWidth = maxOf(nominalBodyWidth, inkContainmentBodyFloor ?: 0f)
-        val inkContainmentApplied = inkContainmentBodyFloor != null &&
-            inkContainmentBodyFloor > nominalBodyWidth
-        val advance = if (forcedHalf) {
-            bodyWidth
-        } else {
-            maxOf(profileAdvance, bodyWidth)
-        }
         val inkCenter = inkBounds?.let { (it.left + it.right) / 2f }
-
-        // Glue direction remains profile-derived; only its safe capacity is
-        // reduced when the real glyph needs more than the nominal half body.
-        val totalGlue = (advance - bodyWidth).coerceAtLeast(0f)
-        val (leadingGlueNatural, trailingGlueNatural) = classBasedGlue(
-            punctuationClass = policy.punctuationClass,
-            totalGlue = totalGlue,
-            gluePlacement = gluePlacement,
-        )
-
+        val advance = maxOf(rawGlyphAdvance, policyAdvance, inkBounds?.right ?: 0f)
         val advanceExpansion = (advance - rawGlyphAdvance).coerceAtLeast(0f)
-        val bodyStart = when (anchor) {
-            PunctuationAnchor.Leading -> 0f
-            PunctuationAnchor.Center -> (advance - bodyWidth) / 2f
-            PunctuationAnchor.Trailing -> advance - bodyWidth
+        val policyBodyFloor = policy.defaultBodyEm * em
+        // A `halt` measured from an already-proportional glyph is not a
+        // half-width form of the synthesized full-width cell. Only accept it
+        // when shaping actually produced the policy-width natural box.
+        val haltBody = inkInput?.haltAdvance?.takeIf {
+            policyExpansion <= PLACEMENT_EPSILON && it > 0f && it < advance
         }
-        // `ProfileAnchoredUnderwidthGlyphShift`: centre the proportional glyph
-        // in the non-compressible body, then place that body according to the
-        // profile anchor. Clamping keeps the glyph inside the expanded box when
-        // its own advance is slightly wider than the nominal half-em body.
-        val forcedHalfTrimShift = if (forcedHalf && rawGlyphAdvance > advance) {
-            when (anchor) {
-                PunctuationAnchor.Leading -> 0f
-                PunctuationAnchor.Center -> (advance - rawGlyphAdvance) / 2f
-                PunctuationAnchor.Trailing -> advance - rawGlyphAdvance
-            }
-        } else {
-            0f
-        }
-        val preferredGlyphInlineShift = if (forcedHalfTrimShift != 0f) {
-            forcedHalfTrimShift
-        } else if (advanceExpansion > 0f) {
-            (bodyStart + (bodyWidth - rawGlyphAdvance) / 2f)
-                .coerceIn(0f, advanceExpansion)
-        } else {
-            0f
-        }
-        // `InkContainmentGlyphShift`: a glyph may overhang its own advance
-        // (italic/synthetic-slant punctuation is the common case). Body width
-        // alone cannot contain that overhang on the anchored edge, so constrain
-        // the preferred profile placement to the interval that keeps real ink
-        // inside the final, fully-compressed body.
-        val glyphInlineShift = inkBounds?.let { bounds ->
-            val minimum = bodyStart - bounds.left
-            val maximum = bodyStart + bodyWidth - bounds.right
-            if (minimum <= maximum) {
-                preferredGlyphInlineShift.coerceIn(minimum, maximum)
-            } else {
-                preferredGlyphInlineShift
-            }
-        } ?: preferredGlyphInlineShift
-        val inkContainmentShiftApplied = abs(glyphInlineShift - preferredGlyphInlineShift) > PLACEMENT_EPSILON
-        val glyphPlacementReason = when {
-            inkContainmentShiftApplied -> "InkContainmentGlyphShift"
-            forcedHalfTrimShift != 0f -> "ForcedHalfWidthGlyphAnchorShift"
-            glyphInlineShift != 0f -> "ProfileAnchoredUnderwidthGlyphShift"
-            else -> null
-        }
-        val haltValidation = crossCheckHaltPlacement(
+        val forcedHalf = ClreqPunctuationPolicies.forcedHalfWidth(char, widthPolicy)
+        val compression = compressionGeometry(
+            advance = advance,
+            rawGlyphAdvance = rawGlyphAdvance,
+            targetBody = haltBody ?: if (forcedHalf) minOf(policyBodyFloor, 0.5f * em) else policyBodyFloor,
+            inkBounds = inkBounds,
             haltBody = haltBody,
             haltPlacementX = inkInput?.haltPlacementX,
-            advance = advance,
-            glueSide = glueSide,
+            punctuationClass = policy.punctuationClass,
+            gluePlacement = gluePlacement,
         )
+        val leadingInitiallyConsumed = if (forcedHalf) compression.leadingTrim else 0f
+        val trailingInitiallyConsumed = if (forcedHalf) compression.trailingTrim else 0f
 
         return PunctuationAtom(
             range = range,
@@ -419,116 +336,169 @@ class PunctuationAtomBuilder(
             punctuationClass = policy.punctuationClass,
             advance = advance,
             inkBounds = inkBounds,
-            bodyWidth = bodyWidth,
+            bodyWidth = compression.bodyWidth,
             haltAdvance = haltBody,
-            haltValidation = haltValidation,
+            haltValidation = compression.haltValidation,
             leadingGlue = Glue(
                 kind = GlueKind.PunctuationLeading,
                 min = 0f,
-                natural = leadingGlueNatural,
-                max = leadingGlueNatural,
+                natural = compression.leadingTrim,
+                max = compression.leadingTrim,
                 priority = 0,
                 penalty = 0,
             ),
             trailingGlue = Glue(
                 kind = GlueKind.PunctuationTrailing,
                 min = 0f,
-                natural = trailingGlueNatural,
-                max = trailingGlueNatural,
+                natural = compression.trailingTrim,
+                max = compression.trailingTrim,
                 priority = 0,
                 penalty = 0,
             ),
-            anchor = anchor,
-            geometrySource = when {
-                haltBody != null && inkBounds != null -> "FontHaltDerivedWithInkDiagnostics"
-                haltBody != null -> "FontHaltDerived"
-                inkBounds != null -> "ProfileDerivedWithInkDiagnostics"
-                shapedAdvance != null -> "ProfileDerivedWithShapedAdvance"
-                else -> "PolicyDerived"
+            leadingGlueInitiallyConsumed = leadingInitiallyConsumed,
+            trailingGlueInitiallyConsumed = trailingInitiallyConsumed,
+            anchor = compression.anchor,
+            geometrySource = if (forcedHalf) {
+                "${compression.source}FixedHalfWidth"
+            } else {
+                compression.source
             },
             policyBodyFloor = policyBodyFloor,
             inkWidth = inkWidth,
             inkCenter = inkCenter,
-            inkContainmentBodyFloor = inkContainmentBodyFloor,
-            inkContainmentApplied = inkContainmentApplied,
+            inkContainmentBodyFloor = compression.inkBodyFloor,
+            inkContainmentApplied = compression.inkContainmentApplied,
             // MissingInkBoundsFallback: only meaningful when shaping ran but
             // produced no usable ink bounds for this character.
             inkBoundsFallback = if (inkBounds == null) inkInput?.boundsFallbackReason else null,
             advanceExpansion = advanceExpansion,
-            glyphInlineShift = glyphInlineShift,
-            glyphPlacementReason = glyphPlacementReason,
+            glyphInlineShift = synthesizedFullWidthPlacement,
+            glyphPlacementReason = synthesizedFullWidthPlacement.takeIf { it != 0f }
+                ?.let { "UnderwidthPunctuationFullWidthBoxPlacement" },
+        )
+    }
+
+    private fun Rect.shiftInline(amount: Float): Rect =
+        if (amount == 0f) this else Rect(left + amount, top, right + amount, bottom)
+
+    private fun compressionGeometry(
+        advance: Float,
+        rawGlyphAdvance: Float,
+        targetBody: Float,
+        inkBounds: Rect?,
+        haltBody: Float?,
+        haltPlacementX: Float?,
+        punctuationClass: PunctuationClass,
+        gluePlacement: PunctuationGluePlacement,
+    ): CompressionGeometry {
+        val requestedReduction = (advance - targetBody).coerceAtLeast(0f)
+        if (haltBody != null && haltPlacementX != null && haltPlacementX.isFinite()) {
+            // halt x is measured in the raw glyph box. Any policy expansion is
+            // trailing-only because the default glyph origin was never moved.
+            val rawReduction = (rawGlyphAdvance - haltBody).coerceAtLeast(0f)
+            val requestedLeading = (-haltPlacementX).coerceIn(0f, rawReduction)
+                .takeIf { it > PLACEMENT_EPSILON } ?: 0f
+            val requestedTrailing = (requestedReduction - requestedLeading).coerceAtLeast(0f)
+            val leading = inkBounds?.let { minOf(requestedLeading, it.left.coerceAtLeast(0f)) }
+                ?: requestedLeading
+            val trailing = inkBounds?.let { minOf(requestedTrailing, (advance - it.right).coerceAtLeast(0f)) }
+                ?: requestedTrailing
+            val limited = leading + PLACEMENT_EPSILON < requestedLeading ||
+                trailing + PLACEMENT_EPSILON < requestedTrailing
+            return CompressionGeometry(
+                leadingTrim = leading,
+                trailingTrim = trailing,
+                bodyWidth = advance - leading - trailing,
+                anchor = anchorFor(leading, trailing),
+                source = "FontHaltFittedBodyCompression",
+                inkBodyFloor = inkBounds?.let { advance - leading - trailing },
+                inkContainmentApplied = limited,
+                haltValidation = if (limited) "halt-trim-limited-by-default-ink-bounds" else null,
+            )
+        }
+
+        if (inkBounds != null) {
+            val frame = fittedBodyFrame(
+                advance = advance,
+                targetBody = targetBody.coerceIn(0f, advance),
+                inkBounds = inkBounds,
+            )
+            return CompressionGeometry(
+                leadingTrim = frame.start,
+                trailingTrim = (advance - frame.start - frame.width).coerceAtLeast(0f),
+                bodyWidth = frame.width,
+                anchor = frame.anchor,
+                source = if (haltBody != null) {
+                    "FontHaltAdvanceWithInkBoundsFittedPlacement"
+                } else {
+                    "InkBoundsFittedBodyCompression"
+                },
+                inkBodyFloor = frame.width,
+                inkContainmentApplied = frame.width > targetBody + PLACEMENT_EPSILON,
+                haltValidation = null,
+            )
+        }
+
+        val (leading, trailing) = classBasedGlue(
+            punctuationClass = punctuationClass,
+            totalGlue = requestedReduction,
+            gluePlacement = gluePlacement,
+        )
+        return CompressionGeometry(
+            leadingTrim = leading,
+            trailingTrim = trailing,
+            bodyWidth = advance - leading - trailing,
+            anchor = anchorFor(leading, trailing),
+            source = if (haltBody != null) {
+                "FontHaltAdvanceWithProfileFallback"
+            } else {
+                "ProfileGlueFallbackWithoutFontGeometry"
+            },
+            inkBodyFloor = null,
+            inkContainmentApplied = false,
+            haltValidation = null,
         )
     }
 
     /**
-     * `InkContainmentBodyFloor`: calculate the smallest anchored body that can
-     * contain the default glyph ink after all profile glue is consumed.
+     * `InkBoundsFittedBodyCompression` keeps the glyph at its font-defined
+     * position. For each canonical placement it expands the target body only as
+     * much as required to contain the original ink, then picks the narrowest
+     * result. Equal-width candidates are resolved by the closest body centre.
      */
-    private fun inkContainmentBodyFloor(
-        glyphAdvance: Float,
-        inkBounds: Rect?,
-        anchor: PunctuationAnchor,
-    ): Float? {
-        if (inkBounds == null || glyphAdvance <= 0f) return null
-        val anchoredFloor = when (anchor) {
-            PunctuationAnchor.Leading -> inkBounds.right
-            PunctuationAnchor.Trailing -> glyphAdvance - inkBounds.left
-            PunctuationAnchor.Center -> maxOf(
-                glyphAdvance - 2f * inkBounds.left,
-                2f * inkBounds.right - glyphAdvance,
-            )
-        }
-        // An overhanging glyph can be wider than the anchor-derived floor.
-        // No placement can fit ink into a body narrower than the ink itself.
-        val floor = maxOf(anchoredFloor, inkBounds.width.coerceAtLeast(0f))
-        return floor.takeIf { it.isFinite() }?.coerceAtLeast(0f)
-    }
-
-    /**
-     * Named heuristic: `HaltPlacementProfileCrossCheck`.
-     *
-     * Under `halt` the font states which side it trims: placement -0.5em =
-     * leading blank removed (opening brackets), 0 = trailing removed
-     * (closing / stops), ≈ -0.25em = both (centred marks). The profile's
-     * glue side must agree — glue is exactly the trimmable blank. A
-     * mismatch (e.g. Traditional centred profile on a Mainland-designed
-     * font) is recorded as a warning; geometry keeps the profile decision
-     * per ADR 0014.
-     */
-    private fun crossCheckHaltPlacement(
-        haltBody: Float?,
-        haltPlacementX: Float?,
+    private fun fittedBodyFrame(
         advance: Float,
-        glueSide: GlueSide,
-    ): String? {
-        if (haltBody == null || haltPlacementX == null) return null
-        val tolerance = 0.5f
-        val leadingTrim = (-haltPlacementX).coerceAtLeast(0f)
-        val trailingTrim = (advance - haltBody - leadingTrim).coerceAtLeast(0f)
-        val fontSide = when {
-            leadingTrim > tolerance && trailingTrim > tolerance -> GlueSide.BothSides
-            leadingTrim > tolerance -> GlueSide.LeadingOnly
-            else -> GlueSide.TrailingOnly
-        }
-        if (fontSide == glueSide) return null
-        return "halt-trims-${fontSide.dumpName()}-but-profile-glue-${glueSide.dumpName()}"
+        targetBody: Float,
+        inkBounds: Rect,
+    ): BodyFrame {
+        val leadingWidth = maxOf(targetBody, inkBounds.right).coerceIn(targetBody, advance)
+        val trailingWidth = maxOf(targetBody, advance - inkBounds.left).coerceIn(targetBody, advance)
+        val centeredWidth = maxOf(
+            targetBody,
+            advance - 2f * inkBounds.left,
+            2f * inkBounds.right - advance,
+        ).coerceIn(targetBody, advance)
+        val candidates = listOf(
+            BodyFrame(PunctuationAnchor.Leading, 0f, leadingWidth),
+            BodyFrame(PunctuationAnchor.Center, (advance - centeredWidth) / 2f, centeredWidth),
+            BodyFrame(PunctuationAnchor.Trailing, advance - trailingWidth, trailingWidth),
+        )
+        val inkCenter = (inkBounds.left + inkBounds.right) / 2f
+        return candidates.minWith(
+            compareBy<BodyFrame> { it.width }
+                .thenBy { kotlin.math.abs((it.start + it.width / 2f) - inkCenter) }
+                .thenBy { it.anchor.ordinal },
+        )
     }
 
-    private fun GlueSide.dumpName(): String =
-        when (this) {
-            GlueSide.LeadingOnly -> "leading"
-            GlueSide.TrailingOnly -> "trailing"
-            GlueSide.BothSides -> "both"
+    private fun anchorFor(leadingTrim: Float, trailingTrim: Float): PunctuationAnchor =
+        when {
+            leadingTrim > PLACEMENT_EPSILON && trailingTrim > PLACEMENT_EPSILON -> PunctuationAnchor.Center
+            leadingTrim > PLACEMENT_EPSILON -> PunctuationAnchor.Trailing
+            trailingTrim > PLACEMENT_EPSILON -> PunctuationAnchor.Leading
+            else -> PunctuationAnchor.Center
         }
 
-    /**
-     * Named heuristic: `ProfileDerivedGlueDirection`.
-     *
-     * The profile's [PunctuationGluePlacement] picks one of three sides
-     * per CLREQ class. Traditional Chinese centres all punctuation; only
-     * Mainland Simplified anchors body to one side for Opening / Closing /
-     * PauseOrStop.
-     */
     private fun classBasedGlue(
         punctuationClass: PunctuationClass,
         totalGlue: Float,
@@ -542,6 +512,23 @@ class PunctuationAtomBuilder(
                 sideGlue to sideGlue
             }
         }
+
+    private data class BodyFrame(
+        val anchor: PunctuationAnchor,
+        val start: Float,
+        val width: Float,
+    )
+
+    private data class CompressionGeometry(
+        val leadingTrim: Float,
+        val trailingTrim: Float,
+        val bodyWidth: Float,
+        val anchor: PunctuationAnchor,
+        val source: String,
+        val inkBodyFloor: Float?,
+        val inkContainmentApplied: Boolean,
+        val haltValidation: String?,
+    )
 
     private companion object {
         private const val PLACEMENT_EPSILON = 0.001f

@@ -852,6 +852,15 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
                     decision.inkWidth?.let { add("inkW=${it.oneDecimal()}") }
                     decision.inkCenter?.let { add("inkC=${it.oneDecimal()}") }
                     if (decision.advanceExpansion != 0f) add("expand=${decision.advanceExpansion.oneDecimal()}")
+                    if (
+                        decision.leadingGlueInitiallyConsumed != 0f ||
+                        decision.trailingGlueInitiallyConsumed != 0f
+                    ) {
+                        add(
+                            "initial=${decision.leadingGlueInitiallyConsumed.oneDecimal()}/" +
+                                decision.trailingGlueInitiallyConsumed.oneDecimal(),
+                        )
+                    }
                     if (decision.glyphInlineShift != 0f) add("glyphShift=${decision.glyphInlineShift.oneDecimal()}")
                     decision.glyphPlacementReason?.let { add("placement=$it") }
                 }.joinToString(" ")

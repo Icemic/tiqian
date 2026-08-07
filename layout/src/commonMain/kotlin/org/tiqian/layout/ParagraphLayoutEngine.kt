@@ -412,6 +412,10 @@ class ExplainableStubParagraphLayoutEngine(
                     style = segmentStyle,
                     fontDecision = decision,
                     displayText = substitution.displayText,
+                    openTypeFeatures = cjkPunctuationFullWidthFeatures(
+                        role = decision.role,
+                        displayText = substitution.displayText,
+                    ),
                 ),
             )
             val rollbackCause = when {
@@ -435,6 +439,10 @@ class ExplainableStubParagraphLayoutEngine(
                         style = segmentStyle,
                         fontDecision = decision,
                         displayText = sourceText,
+                        openTypeFeatures = cjkPunctuationFullWidthFeatures(
+                            role = decision.role,
+                            displayText = sourceText,
+                        ),
                     ),
                 )
             }
@@ -2144,6 +2152,8 @@ class ExplainableStubParagraphLayoutEngine(
                         bodyWidth = atom.bodyWidth,
                         leadingGlueNatural = atom.leadingGlue.natural,
                         trailingGlueNatural = atom.trailingGlue.natural,
+                        leadingGlueInitiallyConsumed = atom.leadingGlueInitiallyConsumed,
+                        trailingGlueInitiallyConsumed = atom.trailingGlueInitiallyConsumed,
                         anchor = atom.anchor.name,
                         inkBounds = atom.inkBounds,
                         geometrySource = atom.geometrySource,
@@ -2766,6 +2776,22 @@ class ExplainableStubParagraphLayoutEngine(
     private fun FontRole?.isCjkKinsokuRole(): Boolean =
         this == FontRole.CjkPunctuation
 
+    /**
+     * `CjkContextCurlyQuoteFullWidthVariant`: ask the font for its full-width
+     * form before layout synthesizes a missing full-width punctuation cell.
+     * Some fonts advertise `fwid` but do not map U+2018..U+201D, so the
+     * punctuation model must still validate the shaped advance.
+     */
+    private fun cjkPunctuationFullWidthFeatures(role: FontRole, displayText: String): List<String> =
+        if (role == FontRole.CjkPunctuation && displayText.any { it.isSharedCurlyQuote() }) {
+            listOf("fwid=1")
+        } else {
+            emptyList()
+        }
+
+    private fun Char.isSharedCurlyQuote(): Boolean =
+        this == '\u2018' || this == '\u2019' || this == '\u201C' || this == '\u201D'
+
     private fun String.isUrlLikeLatinToken(): Boolean {
         val lower = lowercase()
         return "://" in this || lower.startsWith("www.") || hasDomainLikeDot()
@@ -3055,7 +3081,15 @@ class ExplainableStubParagraphLayoutEngine(
     private fun Cluster.punctuationInkInputFor(displayIndex: Int, shapedGlyphs: List<Glyph>): PunctuationInkInput? {
         if (shapedGlyphs.isEmpty()) return null
         val glyph = when {
-            shapedGlyphs.size == displayText.length -> shapedGlyphs.getOrNull(displayIndex)
+            shapedGlyphs.size == displayText.length -> shapedGlyphs.getOrNull(displayIndex)?.let { glyph ->
+                // Glyph.x is cluster-local, while each punctuation atom needs
+                // bounds relative to its own character pen. Remove preceding
+                // glyph advances before folding the residual placement into ink.
+                val characterPen = shapedGlyphs.take(displayIndex)
+                    .sumOf { it.advance.toDouble() }
+                    .toFloat()
+                glyph.copy(x = glyph.x - characterPen)
+            }
             displayText.length == 1 -> shapedGlyphs.unionAsSingleGlyph()
             else -> null
         } ?: return PunctuationInkInput(
@@ -3068,7 +3102,14 @@ class ExplainableStubParagraphLayoutEngine(
         )
         return PunctuationInkInput(
             advance = glyph.advance,
-            inkBounds = glyph.bounds,
+            inkBounds = glyph.bounds?.let { bounds ->
+                Rect(
+                    left = bounds.left + glyph.x,
+                    top = bounds.top + glyph.y,
+                    right = bounds.right + glyph.x,
+                    bottom = bounds.bottom + glyph.y,
+                )
+            },
             boundsFallbackReason = if (glyph.bounds == null) "shaper-no-ink-bounds" else null,
             haltAdvance = glyph.haltAdvance,
             haltPlacementX = glyph.haltPlacementX,
@@ -3078,10 +3119,21 @@ class ExplainableStubParagraphLayoutEngine(
     private fun List<Glyph>.unionAsSingleGlyph(): Glyph? {
         if (isEmpty()) return null
         val first = first()
-        val bounds = mapNotNull { it.bounds }
+        val bounds = mapNotNull { glyph ->
+            glyph.bounds?.let {
+                Rect(
+                    left = it.left + glyph.x,
+                    top = it.top + glyph.y,
+                    right = it.right + glyph.x,
+                    bottom = it.bottom + glyph.y,
+                )
+            }
+        }
         if (bounds.isEmpty()) return first
         return first.copy(
             advance = sumOf { it.advance.toDouble() }.toFloat(),
+            x = 0f,
+            y = 0f,
             // halt metrics are per-glyph; a union pseudo-glyph has none.
             haltAdvance = null,
             haltPlacementX = null,
@@ -3862,9 +3914,9 @@ private data class PunctuationGeometryLedger(
             val budgets = geometries.mapValues { (_, geometry) ->
                 GlueBudget(
                     leadingNatural = geometry.leadingGlueNatural,
-                    leadingConsumed = 0f,
+                    leadingConsumed = geometry.leadingGlueInitiallyConsumed,
                     trailingNatural = geometry.trailingGlueNatural,
-                    trailingConsumed = 0f,
+                    trailingConsumed = geometry.trailingGlueInitiallyConsumed,
                 )
             }
             return PunctuationGeometryLedger(
@@ -3891,6 +3943,8 @@ private data class PunctuationGeometryLedger(
                     bodyWidth = atomsForCluster.sumOf { it.bodyWidth.toDouble() }.toFloat(),
                     leadingGlueNatural = atomsForCluster.first().leadingGlue.natural,
                     trailingGlueNatural = atomsForCluster.last().trailingGlue.natural,
+                    leadingGlueInitiallyConsumed = atomsForCluster.first().leadingGlueInitiallyConsumed,
+                    trailingGlueInitiallyConsumed = atomsForCluster.last().trailingGlueInitiallyConsumed,
                     glyphInlineShift = atomsForCluster.singleOrNull()?.glyphInlineShift ?: 0f,
                     glyphPlacementReason = atomsForCluster.singleOrNull()?.glyphPlacementReason,
                     reason = atomsForCluster.first().geometrySource,
@@ -4100,6 +4154,8 @@ private data class PunctuationClusterGeometry(
     val bodyWidth: Float,
     val leadingGlueNatural: Float,
     val trailingGlueNatural: Float,
+    val leadingGlueInitiallyConsumed: Float,
+    val trailingGlueInitiallyConsumed: Float,
     val glyphInlineShift: Float,
     val glyphPlacementReason: String?,
     val reason: String,
