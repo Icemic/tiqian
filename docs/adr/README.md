@@ -61,6 +61,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0040 构建期 Web 字体证据与最大版心快照](0040-build-time-web-font-snapshots.md)
 - [0041 全段动态规划断行](0041-paragraph-dp-line-breaking.md)
 - [0042 Web 框架集成包与无宽度字体证据](0042-framework-web-integrations.md)
+- [0044 选区/装饰几何按 glyph 边界映射源偏移](0044-source-offset-glyph-geometry.md)
 
 ## 早期状态说明
 
