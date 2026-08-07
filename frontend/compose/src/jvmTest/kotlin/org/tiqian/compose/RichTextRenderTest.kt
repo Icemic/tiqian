@@ -24,6 +24,7 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.TextRange
 import org.tiqian.core.getBoundingBoxes
+import org.tiqian.core.getCursorRect
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
@@ -178,6 +179,68 @@ class RichTextRenderTest {
         assertTrue(trailingGlue > 0f, "test requires remaining closing-punctuation glue")
         assertEquals(occupied.left + leadingGlue, underline.left, absoluteTolerance = 0.01f)
         assertEquals(occupied.right - trailingGlue, underline.right, absoluteTolerance = 0.01f)
+    }
+
+    @Test
+    fun underlineDoesNotOvershootCompressedLineEndPunctuation() {
+        // Real shaping: a full-width comma compressed to half width at a line end keeps its
+        // full-width glyph advance, which is wider than the cluster's occupied box. The underline
+        // must hug the occupied box (the line's visual edge), not the glyph advance — otherwise it
+        // juts a stray stub into the trimmed half (划线凭空凸出来一条).
+        var layout: LayoutResult? = null
+        val text = buildAnnotatedString {
+            withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
+                append("甲乙（template）丙，丁戊己庚辛")
+            }
+        }
+        ImageComposeScene(width = 240, height = 260) {
+            Box(Modifier.fillMaxSize().background(Color.White)) {
+                CjkText(
+                    text,
+                    modifier = Modifier.width(150.dp),
+                    textStyle = CjkTextStyle(fontSize = 24.sp),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { it.render() }
+        val result = layout ?: error("onTextLayout not called")
+        val comma = result.positionedClusters().single { text.text.substring(it.range.start, it.range.end) == "，" }
+        assertTrue(comma.lineIndex in result.lines.indices, "comma should be placed")
+        val commaLine = result.lines[comma.lineIndex]
+        // The comma sits at the end of its line and was compressed: its occupied box is the visual edge.
+        assertEquals(commaLine.indent + commaLine.visualWidth, comma.right, absoluteTolerance = 0.5f)
+        val decoration = result.toReplayIndex(text.cjkRichTextSpans())
+            .richTextDecorationSegments.single { it.lineIndex == comma.lineIndex }
+        assertTrue(
+            decoration.right <= commaLine.indent + commaLine.visualWidth + 0.5f,
+            "underline overshoots the compressed comma: ${decoration.right} > ${commaLine.indent + commaLine.visualWidth}",
+        )
+    }
+
+    @Test
+    fun caretInsideProportionalLatinWordFollowsGlyphAdvances() {
+        // "template" is one cluster; linear interpolation over its box would space every letter
+        // equally. Real per-glyph stops must make narrow letters (t, l) narrower than wide ones
+        // (m), so consecutive caret gaps are not uniform.
+        var layout: LayoutResult? = null
+        val text = buildAnnotatedString { append("template") }
+        ImageComposeScene(width = 320, height = 120) {
+            Box(Modifier.fillMaxSize().background(Color.White)) {
+                CjkText(
+                    text,
+                    modifier = Modifier.width(300.dp),
+                    textStyle = CjkTextStyle(fontSize = 24.sp),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { it.render() }
+        val result = layout ?: error("onTextLayout not called")
+        val x = (0..text.length).map { result.getCursorRect(it).left }
+        val gaps = (1..text.length).map { x[it] - x[it - 1] }
+        // 't' is narrower than 'm': a linear split would make every gap identical.
+        val tWidth = gaps[0]
+        val mWidth = gaps[2]
+        assertTrue(mWidth > tWidth + 1f, "expected proportional letter widths, got t=$tWidth m=$mWidth")
     }
 }
 

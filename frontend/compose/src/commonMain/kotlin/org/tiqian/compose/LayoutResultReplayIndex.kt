@@ -15,7 +15,6 @@ import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
 import org.tiqian.core.trimmedRichTextDecorationSegments
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -131,8 +130,10 @@ internal fun LayoutResultReplayIndex.cursorRect(result: LayoutResult, offset: In
         positioned.isEmpty() -> line.indent
         clamped <= positioned.first().range.start -> positioned.first().left
         clamped >= positioned.last().range.end -> positioned.last().right
-        else -> positioned.first { clamped >= it.range.start && clamped <= it.range.end }
-            .xForOffset(clamped)
+        else -> {
+            val cluster = positioned.first { clamped >= it.range.start && clamped <= it.range.end }
+            cluster.xForOffset(clamped)
+        }
     }
     return Rect(x, line.top, x + 1f, line.bottom)
 }
@@ -142,33 +143,65 @@ internal fun LayoutResultReplayIndex.selectionBoxes(
     range: TextRange,
 ): List<Rect> {
     if (range.isEmpty || result.lines.isEmpty()) return emptyList()
-    val start = range.start.coerceIn(0, result.input.content.text.length)
-    val end = range.end.coerceIn(start, result.input.content.text.length)
+    val textLength = result.input.content.text.length
+    val start = range.start.coerceIn(0, textLength)
+    val end = range.end.coerceIn(start, textLength)
     if (start == end) return emptyList()
+    // One continuous rect per line, from the selection's start caret to its end caret. Interior
+    // lines fill to the visual edges so autospace / punctuation glue and 两端对齐 gaps inside the
+    // selection are painted through (涂) instead of leaving slivers; the two endpoints stay
+    // ink-accurate via [cursorRect].
+    val firstLine = result.getLineForOffset(start).coerceIn(0, result.lines.lastIndex)
+    val lastLine = result.getLineForOffset(end).coerceIn(firstLine, result.lines.lastIndex)
     val boxes = ArrayList<Rect>()
-    var index = positionedClusters.binarySearchBy(start) { it.range.end }
-    if (index < 0) index = (-index - 1).coerceAtLeast(0)
-    while (index < positionedClusters.size) {
-        val cluster = positionedClusters[index++]
-        if (cluster.range.start >= end) break
-        val sliceStart = max(start, cluster.range.start)
-        val sliceEnd = minOf(end, cluster.range.end)
-        if (sliceStart < sliceEnd) boxes += cluster.sliceRect(sliceStart, sliceEnd)
+    for (lineIndex in firstLine..lastLine) {
+        val line = result.lines[lineIndex]
+        val positioned = positionedClustersByLine.getOrElse(lineIndex) { emptyList() }
+        if (positioned.isEmpty()) continue
+        val lineStart = maxOf(start, positioned.first().range.start)
+        val lineEnd = minOf(end, positioned.last().range.end)
+        if (lineStart >= lineEnd) continue
+        val leftX = if (lineStart > positioned.first().range.start) {
+            cursorRect(result, lineStart).left
+        } else {
+            positioned.first().left
+        }
+        val rightX = if (lineEnd < positioned.last().range.end) {
+            cursorRect(result, lineEnd).left
+        } else {
+            positioned.last().right
+        }
+        if (rightX > leftX) boxes += Rect(leftX, line.top, rightX, line.bottom)
     }
     return boxes
 }
 
+// Per-source glyph-boundary mapping, identical to core `LayoutQueries`: an interior offset in a
+// proportional Latin word lands on the real letter edge via [PositionedCluster.sourceStops], while
+// the outer boundaries stay the occupied box so compressed punctuation / 两端对齐 stretch never
+// overshoot a caret or selection endpoint. The cached replay path and the core queries agree.
 private fun PositionedCluster.xForOffset(offset: Int): Float {
-    if (range.length <= 0 || width <= 0f) return left
-    val ratio = (offset - range.start).toFloat() / range.length.toFloat()
-    return left + width * ratio.coerceIn(0f, 1f)
+    if (range.length <= 0) return left
+    val i = (offset - range.start).coerceIn(0, range.length)
+    sourceStops?.let { return it[i] }
+    return left + width * (i.toFloat() / range.length.toFloat())
 }
 
 private fun PositionedCluster.offsetForX(x: Float): Int {
-    if (range.length <= 0 || width <= 0f) return range.start
+    if (range.length <= 0) return range.start
+    sourceStops?.let { stops ->
+        var best = 0
+        var bestDistance = Float.MAX_VALUE
+        for (i in stops.indices) {
+            val distance = abs(x - stops[i])
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = i
+            }
+        }
+        return (range.start + best).coerceIn(range.start, range.end)
+    }
+    if (width <= 0f) return range.start
     val ratio = ((x - left) / width).coerceIn(0f, 1f)
     return (range.start + (ratio * range.length).roundToInt()).coerceIn(range.start, range.end)
 }
-
-private fun PositionedCluster.sliceRect(start: Int, end: Int): Rect =
-    Rect(xForOffset(start), top, xForOffset(end), bottom)

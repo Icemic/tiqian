@@ -27,6 +27,16 @@ data class PositionedCluster(
      * leading autospace or consumed leading punctuation glue.
      */
     val drawX: Float = left,
+    /**
+     * Per-source-offset x boundaries inside this cluster: `range.length + 1` entries running from
+     * [left] to [right]. The two ends are always the occupied box edges, so compressed line-edge
+     * punctuation (a full-width glyph advancing past its half-width cluster box) and 两端对齐 stretch
+     * never overshoot. Interior entries come from the shaped glyph origins, so a caret or selection
+     * endpoint inside a proportional Latin word lands on the real letter edge instead of a linear
+     * guess. Null when the run did not emit one glyph per source unit; callers then interpolate
+     * linearly over the occupied box.
+     */
+    val sourceStops: List<Float>? = null,
 ) {
     val width: Float get() = right - left
     val height: Float get() = bottom - top
@@ -193,9 +203,11 @@ fun LayoutResult.positionedRichTextSegments(spans: List<RichTextSpan>): List<Ric
                 current != null &&
                 current.lineIndex == next.lineIndex &&
                 current.span === next.span &&
-                current.range.end == next.range.start &&
-                abs(current.right - next.left) <= 0.5f
+                current.range.end == next.range.start
             ) {
+                // Source-contiguous occupied slices merge into one continuous rect, so a decoration
+                // or background never acquires an internal sliver (涂). Outer punctuation glue is
+                // removed afterwards by trimmedRichTextDecorationSegments, not here.
                 pending = current.copy(
                     range = TextRange(current.range.start, next.range.end),
                     right = next.right,
@@ -213,11 +225,13 @@ fun LayoutResult.positionedRichTextSegments(spans: List<RichTextSpan>): List<Ric
 }
 
 /**
- * Returns only underline/strike-through segments with punctuation glue removed at the decoration's
- * outer source edges. `RichTextDecorationPunctuationGlueTrim` deliberately keeps the occupied
- * geometry from [positionedRichTextSegments] unchanged for backgrounds, links, selection, and hit
- * testing; glue between two decorated clusters also remains covered so a continuous decoration
- * does not acquire an internal gap.
+ * Returns underline/strike-through segments with punctuation glue removed at the decoration's outer
+ * source edges. The occupied geometry from [positionedRichTextSegments] is already ink-tight, so
+ * autospace and 两端对齐 stretch are excluded structurally; `RichTextDecorationPunctuationGlueTrim`
+ * additionally removes punctuation glue, which lives in the recorded geometry rather than the glyph
+ * ink and so is not caught by the ink span. It keeps the occupied geometry unchanged for
+ * backgrounds, links, selection and hit testing; glue between two decorated clusters also remains
+ * covered so a continuous decoration does not acquire an internal gap.
  */
 fun LayoutResult.trimmedRichTextDecorationSegments(
     occupiedSegments: List<RichTextLineSegment>,
@@ -471,6 +485,9 @@ private fun LayoutResult.positionedClusters(lineIndex: Int, line: LineBox): List
     val leadingAutoSpaceGaps = debug.autoSpaceDecisions
         .filter { it.side == "leading" }
         .associate { it.clusterRange to -it.totalReduction }
+    val glyphsByClusterRange = glyphRuns.asSequence()
+        .flatMap { it.glyphs.asSequence() }
+        .groupBy { it.clusterRange }
 
     var x = line.indent
     val positioned = line.clusterRange.mapIndexed { indexInLine, clusterIndex ->
@@ -478,16 +495,34 @@ private fun LayoutResult.positionedClusters(lineIndex: Int, line: LineBox): List
         val leadingGap = if (indexInLine != 0) leadingAutoSpaceGaps[cluster.range] ?: 0f else 0f
         val drawX = x + cluster.leadingLayoutAdvance + cluster.glyphInlineShift + leadingGap -
             (leadingConsumed[cluster.range] ?: 0f)
+        // Interior source-offset boundaries from the shaped glyph origins, so a caret/selection
+        // endpoint inside a proportional Latin word lands on the real letter edge. Only when the run
+        // emitted one glyph per source unit (typical Latin); ligatures/complex runs stay null and
+        // callers interpolate linearly. The two ends are always the occupied box edges — a
+        // full-width punctuation glyph advancing past its compressed cluster box must not overshoot.
+        val right = x + cluster.advance
+        val glyphs = glyphsByClusterRange[cluster.range]
+        val sourceStops: List<Float>? =
+            if (glyphs != null && cluster.range.length > 1 && glyphs.size == cluster.range.length) {
+                buildList(cluster.range.length + 1) {
+                    add(x)
+                    for (gi in 1 until cluster.range.length) add((drawX + glyphs[gi].x).coerceIn(x, right))
+                    add(right)
+                }
+            } else {
+                null
+            }
         val positioned = PositionedCluster(
             lineIndex = lineIndex,
             clusterIndex = clusterIndex,
             range = cluster.range,
             left = x,
             top = line.top,
-            right = x + cluster.advance,
+            right = right,
             bottom = line.bottom,
             baseline = line.baseline + cluster.baselineShift,
             drawX = drawX,
+            sourceStops = sourceStops,
         )
         x += cluster.advance
         positioned
@@ -506,22 +541,34 @@ private fun LayoutResult.nearestLineForOffset(offset: Int): Int =
     }
 
 private fun PositionedCluster.xForOffset(offset: Int): Float {
-    if (range.length <= 0 || width <= 0f) return left
-    val ratio = (offset - range.start).toFloat() / range.length.toFloat()
-    return left + width * ratio.coerceIn(0f, 1f)
+    if (range.length <= 0) return left
+    val i = (offset - range.start).coerceIn(0, range.length)
+    sourceStops?.let { return it[i] }
+    return left + width * (i.toFloat() / range.length.toFloat())
 }
 
 private fun PositionedCluster.offsetForX(x: Float): Int {
-    if (range.length <= 0 || width <= 0f) return range.start
+    if (range.length <= 0) return range.start
+    sourceStops?.let { stops ->
+        var best = 0
+        var bestDistance = Float.MAX_VALUE
+        for (i in stops.indices) {
+            val distance = abs(x - stops[i])
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = i
+            }
+        }
+        return (range.start + best).coerceIn(range.start, range.end)
+    }
+    if (width <= 0f) return range.start
     val ratio = ((x - left) / width).coerceIn(0f, 1f)
     return (range.start + (ratio * range.length).roundToInt()).coerceIn(range.start, range.end)
 }
 
 private fun PositionedCluster.sliceRect(start: Int, end: Int): Rect {
     if (range.length <= 0 || width <= 0f) return rect
-    val l = xForOffset(start)
-    val r = xForOffset(end)
-    return Rect(l, top, r, bottom)
+    return Rect(xForOffset(start), top, xForOffset(end), bottom)
 }
 
 private fun LayoutResult.naturalAdvanceByRange(): Map<TextRange, Float> {
@@ -601,6 +648,9 @@ private fun LayoutResult.withRubySelectionGeometry(
 
     return positioned.mapIndexed { index, pc ->
         val bound = bounds[index]
-        pc.copy(left = bound.left, right = bound.right)
+        // Ruby redistributes occupied boxes to fill the annotation width, so absolute per-source
+        // glyph stops no longer align; selection and bounding boxes interpolate linearly over the
+        // redistributed box on ruby lines.
+        pc.copy(left = bound.left, right = bound.right, sourceStops = null)
     }
 }
