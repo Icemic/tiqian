@@ -103,14 +103,21 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
 - `shaping/jvm`：AWT 字体与 glyph vector；
 - `shaping/skia`：Skia / Skiko，供 Compose Desktop 与 JVM 渲染；
 - `shaping/native-font`：Android API 23+ HarfBuzz / FreeType 正确性后端，从同一字体字节完成
-  shaping、metrics、ink 与 outline replay；字体身份包含 TTC index 与有效可变字体轴坐标；每个
-  role 使用有序 family fallback，组内先匹配 regular / bold / italic。catalog revision 变化会让
-  Compose 同时重建 shaping、metrics 和 layout cache，旧 face 只为旧 `LayoutResult` 保留；
+  shaping、metrics、ink 与 outline replay；文件字体按内容身份只读映射一次，`ByteArray` / asset
+  转为一份共享 direct buffer，TTC index 与可变轴组合只创建轻量 face 实例，不复制整份字体。
+  字体身份包含源内容、TTC index 与有效轴坐标；每个 role 使用有序 family fallback，组内先匹配
+  regular / bold / italic。catalog revision 变化会让 Compose 同时重建 shaping、metrics 和 layout
+  cache，旧 face 只为旧 `LayoutResult` 保留；
 - `shaping/android-adapter`：API 31+ Android `TextPaint` / platform glyph data oracle 与可选优化；
 - `shaping/web-adapter`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据。
 
 平台 adapter 不决定 CLREQ 码点替换、标点宽度、避头尾或两端对齐。它无法提供某项证据时，
 必须输出具名降级原因，而不是在 renderer 中猜补偿值。
+标点压缩的目标宽度属于 CLREQ policy，但左右削边来自 adapter 提供的逐 glyph `halt`
+placement 或 ink bounds：layout 选择能保留原墨迹及框内安全边距的左、居中或右拟合框；
+只有缺少字体几何时才使用具名 profile fallback。renderer 不再为标点另行移动 glyph。
+中文上下文弯引号会先请求字体 `fwid`；若字体仍给出比例宽 glyph，layout 只把完整比例 glyph
+box 放到语义正确的全宽字身一侧，再从该全宽字身计算压缩，不在比例盒内部重排墨迹。
 
 ## 排版核心
 
@@ -147,6 +154,7 @@ Android API 23+ 默认走 native HarfBuzz / FreeType 同源后端；API 29+ 可�
 读取 `fonts.xml` 的有序声明，保留 `zh-Hans` 兼容 family 与其后续 fallback（包括声明为
 `lang="zh"` 的 MiSansL3 一类补充字库），同时报告无法观察 Minikin 最终运行时/主题选择。宿主也可
 提供 asset、文件或 `ByteArray` 受控 catalog 覆盖默认路径。
+这些输入都按 SHA-256 内容身份去重；文件 locator 只避免进程内反复计算摘要，不取代内容身份。
 API 31 platform glyph adapter 仅作对照 / 可选优化，capability report 不会把正文路由回 Compose Text。
 可选的
 `CjkSelectionContainer` 把同一份 `LayoutResult` 的 UTF-16 source range、cluster box 与 caret
@@ -200,7 +208,7 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 - `core`：平台无关的数据结构与 layout contract，不依赖其他提椠模块。
 - `font`：字体角色、fallback 与字体度量策略。
 - `shaping/*`：平台 shaping / replayable font contract 及其实现；`shaping/native-font` 持有
-  Android API 23+ 的受控字体加载、HarfBuzz / FreeType 与同源 outline replay。
+  Android API 23+ 的共享字体源、受控 face、HarfBuzz / FreeType 与同源 outline replay。
 - `linebreak`：断行机会、西文断词与相关数据。
 - `clreq`：中文 profile、标点分类、禁则与空间策略。
 - `layout`：段落布局、修复、行调整与结构化 decision。

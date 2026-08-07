@@ -5,8 +5,9 @@
 
 > [!NOTE]
 > 文末“bodyWidth 仍为 policy-derived、真实 shaping 后续接入”是当时状态。当前 ledger
-> 已消费真实 shaped advance 与 ink bounds，并按 [ADR 0014](0014-ink-bounds-calibrated-punctuation-geometry.md)
-> 做安全校准；无法取得证据时才走具名 policy fallback。
+> 已消费真实 shaped advance、`halt` placement 与 ink bounds，并按
+> [ADR 0014](0014-ink-bounds-calibrated-punctuation-geometry.md) 选择保留原墨迹安全边距的字体拟合框；
+> 无法取得证据时才走具名 policy fallback。
 
 ## Context
 
@@ -52,7 +53,8 @@ GlueBudget
   trailingNatural / trailingConsumed
 ```
 
-当前 `bodyWidth` 仍是 policy-derived；真实 shaping 接入后再由 glyph ink bounds / OpenType feature 输出校正。
+`bodyWidth` 的规范目标来自 policy，实际宽度与左右 glue 由 glyph `halt` / ink bounds
+拟合；固定半宽风格把框外 glue 作为 ledger 的初始消费量，而不是移动 glyph。
 
 ### 2. 所有调整写 ledger
 

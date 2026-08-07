@@ -17,6 +17,21 @@
   `TextRunShaper`，读回具体 file / TTC index / variation axes，再由 native 后端重放该实例；
   API 23–30 则读取 `fonts.xml` 的有序声明并明确报告无法观察 Minikin 最终运行时选择。语言兼容
   必须保留 `lang="zh"` 的补充字库，例如 MiSans 主字库之后的 `MiSansL3.otf`。
+- Amendment 2026-08-06：字体源与 face 实例分离。系统文件按内容身份只读 `mmap` 一次，宿主
+  `ByteArray` / asset 只保留一份 direct buffer；TTC index 与 variation axes 只建立共享该源的
+  FreeType / HarfBuzz face。native 统计分别报告活跃源数、源覆盖字节和 face 数，避免再用进程 RSS
+  猜测是否因多轴实例复制了整份字体。
+- Amendment 2026-08-06（二）：API 35+ 的 `PositionedGlyphs.getFakeItalic()` 是平台选择结果，
+  不能作为 fatal capability issue。oracle 保留平台决定并把合成斜体写入 replay face identity；
+  native outline 依 Android `TextPaint` 的 `textSkewX=-0.25` 规则绕基线斜切，ink bounds 使用同一
+  变换。平台报告 `getFakeBold()` 时不猜 FreeType 加粗量，而是保留同一个 Android `Font` 与
+  HarfBuzz glyph id，并用 `Canvas.drawGlyphs` + `Paint.fakeBoldText` 重放。是否合成仍由平台决定，
+  提椠不按文字、字体或厂商自行触发。
+- Amendment 2026-08-06（三）：`CjkPunctuation` 已是核心根据段落语境作出的字体角色决定。
+  Android oracle 不得再用孤立的弯引号或破折号探测字体，否则同时覆盖这些码位的西文主字体会
+  覆盖核心决定。`CjkPunctuationHanFaceAnchor` 使用与 `CjkText` 相同的汉字探针选定具体中文
+  face，再由该 face 对原标点执行 HarfBuzz shaping；引号与破折号的字体归属因此不会取决于它们
+  脱离上下文时的系统默认归属。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
@@ -51,7 +66,9 @@ Android API 23+ 的默认正确性路径改为 `shaping/native-font`：
   `file / source + TTC index + variation axes` 区分实例，并把坐标交给 FreeType 后再建立
   HarfBuzz face；不能按文件合并，也不能把枚举实例改写成猜测的 400 / 700。平台 font override
   在进入 catalog 时必须 lower 成 `AndroidFontFaceSpec.variationAxes` 的有效坐标；无法保真的
-  fake style 必须形成 capability issue。approximate 枚举路径只保留 API 实际报告的坐标。
+  fake style 必须形成 capability issue。approximate 枚举路径只保留 API 实际报告的坐标。这里的
+  “实例不可合并”只指 face 状态和稳定身份；底层字体文件必须按 SHA-256 内容身份共享，不能让
+  每个轴实例各自持有一份完整字节。
 - 每次 `TiqianAndroidFontBackend.install()` 产生新的单调 catalog revision，并通知 Compose 重建
   `ParagraphMeasurer`；这同时丢弃旧环境的 shaping、metrics 与段落 cache。已产出的
   `LayoutResult` 仍凭稳定 `FontFaceId` 使用被进程保留的旧 face 重放，两种生命周期不得混为一谈。
@@ -86,6 +103,10 @@ glyph id、advance、ink 数量、layout line range 与 visual width。API 23 / 
 此前 Galaxy 的约 85 s 来自 layout 内两处按字体决策反复扫描全文的平方级 range join；改为按
 source range 单调遍历后，layout golden 未变化。数字只证明当前 debug 真机门槛，不等同 release
 整机性能或内存结论。
+
+共享字体源改造后，Mi 10s 上普通正文命中 `MiSansVF.ttf wght=310`，粗体命中同一文件的
+`wght=360`：native face 数由 2 增至 3，而 source 仍为 2 份、覆盖 39,475,708 字节。该统计证明
+新增轴实例没有再映射或复制一份 MiSansVF；它不是 RSS，也不代替后续 release 整机内存验收。
 
 ## Context
 

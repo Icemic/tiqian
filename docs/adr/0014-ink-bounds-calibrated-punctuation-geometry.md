@@ -1,12 +1,16 @@
-# ADR 0014: 标点 glue 方向由 profile 决定，ink bounds 约束压缩安全
+# ADR 0014: 标点压缩几何由字体 `halt` / ink bounds 决定
 
-- Status: Accepted (amended 2026-06-10, 2026-07-11)
+- Status: Accepted (amended 2026-06-10, 2026-07-11, 2026-08-06)
 - Date: 2026-06-07
 
 ## Context
 
 ADR 0004 定了标点空间的加法模型：标点不是 `1em` 字符再做减法，而是
 `ink + body + leadingGlue + trailingGlue`。
+
+> 2026-08-06 的修订取代本文早期“profile 决定 glue 方向”以及
+> `ProfileAnchoredUnderwidthGlyphShift` / `InkContainmentGlyphShift` 的当前行为。
+> 这些旧段落只保留为决策演变记录，当前契约以下方最新 amendment 为准。
 
 ADR 0013 接入 `AwtTextShaper` 后，`Glyph.bounds` 已经能提供真实 glyph visual bounds。
 初版实现（已废弃）用 ink center 按比例分配 glue，并允许 ink width 撑大 body。
@@ -168,19 +172,62 @@ leading / trailing / both。普通字体能把墨迹装进半字时结果完全�
 glue。开明式/GB 固定半宽同样受此安全下限约束：宁可诚实地多占一点，也不能让 glyph
 重叠。缺少 ink bounds 时记录 `MissingInkBoundsFallback`，继续走 policy/halt 目标。
 
+### Amendment (2026-08-06): 字体拟合框决定压缩方向，不重定位墨迹
+
+真字体证据否定了“region/profile 可以替字体决定墨迹位于哪一侧”的前提：早期微软雅黑的
+逗号、冒号、问号等可以居中，而句号、顿号又位于左下；方正黑体的全角括号也是居中设计。
+差异发生在单个 glyph 层面，不能按地区、字体家族或标点类别统一猜测。
+
+当前证据优先级为：
+
+1. **`halt` advance + placement**：`FontHaltFittedBodyCompression` 直接把字体给出的
+   placement 还原为 leading/trailing 削边量。因为 renderer 回放默认 glyph，默认 glyph
+   的 ink bounds 仍是安全上限；若 `halt` 会削进默认墨迹，则减少对应侧压缩并记录
+   `halt-trim-limited-by-default-ink-bounds`。
+2. **ink bounds**：没有完整 `halt` placement 时，使用
+   `InkBoundsFittedBodyCompression`。设自然 advance 为 `A`、规范目标 body 为 `W`、
+   ink 横向范围为 `[L, R]`，分别求能够容纳原墨迹的三个规范框：
+   - 左框：`start = 0`，`width = max(W, R)`；
+   - 居中框：`width = max(W, A - 2L, 2R - A)`，`start = (A - width) / 2`；
+   - 右框：`width = max(W, A - L)`，`start = A - width`。
+   三者均限制在自然 advance 内；先选 width 最小者，同宽时选框中心最接近 ink center
+   的一项。最终 `leadingGlue = start`，`trailingGlue = A - start - width`。
+3. **无字体几何**：只有 shaper 不能提供上述证据时，才走具名
+   `ProfileGlueFallbackWithoutFontGeometry`。这不是正常真字体路径。
+
+“容纳原墨迹”也包括保留目标框内部的安全边距。例如左下角句号的墨迹完整落在左侧半字框
+时，leading glue 必须为 0，只削右侧框外空白；不能因为左侧仍有少量 sidebearing 就按比例
+吃掉它。居中括号若完整落在居中半字框，则两侧各削四分之一字。若任何半字框都装不下，
+body 只扩到能容纳原墨迹的最小规范框，不通过额外 glyph shift 硬塞。
+
+中文上下文的 U+2018..U+201D 先以 `CjkContextCurlyQuoteFullWidthVariant` 请求字体 `fwid`。
+若 shaping 仍返回比例 advance（MiSans VF 4.003 的双引号为 0.382em、单引号为 0.248em，
+且 `fwid` 不改变它们），`UnderwidthPunctuationFullWidthBoxPlacement` 才补齐缺失的全宽字身：
+开标点把新增空间放在比例 glyph box 之前，闭标点放在之后，居中 convention 均分。
+这里移动的是完整的字体比例盒，盒内 advance、ink 与安全边距不变；随后 `halt` / ink 压缩
+面对的是已经完成的全宽标点，而不是把比例字形一律向尾侧补宽。
+
+标点 builder 不再产生旧的 `ProfileAnchoredUnderwidthGlyphShift`、
+`InkContainmentGlyphShift` 或 `ForcedHalfWidthGlyphAnchorShift`。消费 leading glue 时 `drawX`
+随已删除的 leading 空白等量变化，这是压缩框的坐标结果，也不是在字体盒内重定位墨迹。
+
+开明式与 GB 固定半宽使用同一字体拟合框，并在断行前把该框外的 glue 标为已消费；因此它们
+仍是固定宽度、不给 PushIn 二次借用，同时不需要 renderer 侧位移。
+
 ## Consequences
 
-- 标点 body 以半宽为规范目标；真实默认 glyph 装不下时由
-  `InkContainmentBodyFloor` 扩到最小安全宽度。glue 方向仍只由 CLREQ profile 决定。
-- 行尾闭标点的 trailing glue 为 0.5em（8px @16px），edge trim 吃掉后变半宽——比旧模型（trim 4px）效果更正确。
+- 标点 body 以半宽为规范目标；真实默认 glyph 装不下时扩到最小字体拟合框。
+  glue 方向来自 `halt` placement 或逐 glyph ink bounds，不再由 profile 覆盖真字体几何。
+- 行尾闭标点只消费字体证据判定为框外的 trailing glue；没有字体几何时，profile fallback
+  才沿用 0.5em（8px @16px）的单侧预算。
 - 相邻标点压缩量不变（仍是 0.5em → 0.25em），但 reduction target 从右侧标点改为有 glue 的一侧。
-- Ink bounds 不改变风格方向，只限制会造成墨迹重叠的压缩容量；决定与 floor 一并进入 dump。
-- `halt` 接入后将直接替换 policy advance/body，ink bounds 作为验证手段。
-- 比例宽 U+2018..U+201D 在中文上下文中保持源码字形，但占位与开闭锚点符合 profile；
+- Ink bounds 同时决定压缩方向和安全容量；选中的框、glue、body 与 halt 限制进入 dump。
+- `halt` 同时提供目标 advance 与 placement；只有缺 placement 时才由 ink bounds 补方向。
+- 比例宽 U+2018..U+201D 在中文上下文中先请求字体全宽 variant；缺失时把完整比例 glyph box
+  放进语义正确的全宽字身，再由同一压缩模型处理；
   同码点的英文 quote pair 保持西文比例宽度。
 
 ## Follow-up
 
-- OpenType `halt` / `chws` 接入后，替换 policy body/advance 为字体预设值。
-- Ink bounds 用于自动验证 `halt` 输出是否合理（如果 ink 不在预期侧则发出警告）。
-- Android / Skia adapter 接入后复核同一批标点的 body/glue 差异。
+- 收集更多 OEM / 桌面字体的逐 glyph `halt`、advance 与 ink bounds 证据，扩充跨字体 fixture。
+- `chws` 仍不直接启用；相邻标点挤压继续由可解释的 glue ledger 负责。
