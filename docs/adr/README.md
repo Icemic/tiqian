@@ -30,6 +30,8 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0016 Android API 23 native 字体后端与平台 shaping oracle](0016-android-textpaint-adapter.md)
 - [0017 Compose Desktop renderer](0017-compose-desktop-renderer.md)
 - [0043 多 face 段降级为平台字符串绘制](0043-multi-face-platform-string-draw-degrade.md)
+- [0045 Apple (Kotlin/Native) 目标](0045-apple-kotlin-native-target.md)
+- [0046 Core Text shaping 与度量适配器](0046-core-text-shaping-adapter.md)
 
 ## 行内与段落排版
 
@@ -62,6 +64,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0041 全段动态规划断行](0041-paragraph-dp-line-breaking.md)
 - [0042 Web 框架集成包与无宽度字体证据](0042-framework-web-integrations.md)
 - [0044 选区/装饰几何按 glyph 边界映射源偏移](0044-source-offset-glyph-geometry.md)
+- [0047 Core Text 渲染前端](0047-core-text-rendering-frontend.md)
 
 ## 早期状态说明
 
