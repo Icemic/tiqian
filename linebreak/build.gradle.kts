@@ -3,12 +3,12 @@ plugins {
     id("com.android.kotlin.multiplatform.library")
 }
 
-// Web has no synchronous resource loading, so the bundled en-US TeX patterns are
-// embedded into JavaScript as a generated Kotlin constant, built from the SAME .tex the
-// JVM/Android resource path reads (single source of truth). ADR 0039.
-val generateJsHyphenationPatterns = tasks.register("generateJsHyphenationPatterns") {
+// Web and Kotlin/Native have no synchronous resource loading, so the bundled en-US
+// TeX patterns are embedded as a generated Kotlin constant, built from the SAME .tex
+// the JVM/Android resource path reads (single source of truth). ADR 0039.
+val generateEmbeddedHyphenationPatterns = tasks.register("generateEmbeddedHyphenationPatterns") {
     val patternFile = layout.projectDirectory.file("src/commonMain/resources/hyphenation/hyph-en-us.tex")
-    val outputDir = layout.buildDirectory.dir("generated/hyphenation-js/kotlin")
+    val outputDir = layout.buildDirectory.dir("generated/hyphenation-embedded/kotlin")
     inputs.file(patternFile)
     outputs.dir(outputDir)
     doLast {
@@ -43,6 +43,9 @@ kotlin {
         browser()
         useEsModules()
     }
+    macosArm64()
+    iosArm64()
+    iosSimulatorArm64()
 
     sourceSets {
         commonMain.dependencies {
@@ -54,7 +57,13 @@ kotlin {
         }
 
         jsMain {
-            kotlin.srcDir(generateJsHyphenationPatterns)
+            kotlin.srcDir(generateEmbeddedHyphenationPatterns)
+        }
+
+        // appleMain is an intermediate source set from the default hierarchy template; it is
+        // realized lazily, so configure it via matching{} rather than an eager named() lookup.
+        matching { it.name == "appleMain" }.configureEach {
+            kotlin.srcDir(generateEmbeddedHyphenationPatterns)
         }
     }
 }

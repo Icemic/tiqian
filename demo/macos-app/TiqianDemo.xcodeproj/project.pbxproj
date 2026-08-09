@@ -1,0 +1,270 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AAAA000000000000000000D1 /* TiqianDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C1 /* TiqianDemoApp.swift */; };
+		AAAA000000000000000000D2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C2 /* ContentView.swift */; };
+		AAAA000000000000000000D4 /* Samples.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C4 /* Samples.swift */; };
+		AAAA000000000000000000F3 /* TiqianUI in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA000000000000000000F2 /* TiqianUI */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AAAA000000000000000000B6 /* TiqianDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TiqianDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AAAA000000000000000000C1 /* TiqianDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TiqianDemoApp.swift; sourceTree = "<group>"; };
+		AAAA000000000000000000C2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AAAA000000000000000000C4 /* Samples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Samples.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AAAA000000000000000000B4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AAAA000000000000000000F3 /* TiqianUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AAAA000000000000000000A2 = {
+			isa = PBXGroup;
+			children = (
+				AAAA000000000000000000A4 /* TiqianDemo */,
+				AAAA000000000000000000A3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AAAA000000000000000000A3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AAAA000000000000000000B6 /* TiqianDemo.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AAAA000000000000000000A4 /* TiqianDemo */ = {
+			isa = PBXGroup;
+			children = (
+				AAAA000000000000000000C1 /* TiqianDemoApp.swift */,
+				AAAA000000000000000000C2 /* ContentView.swift */,
+				AAAA000000000000000000C4 /* Samples.swift */,
+			);
+			path = TiqianDemo;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AAAA000000000000000000A5 /* TiqianDemo */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AAAA000000000000000000A7 /* Build configuration list for PBXNativeTarget "TiqianDemo" */;
+			buildPhases = (
+				AAAA000000000000000000B3 /* Sources */,
+				AAAA000000000000000000B4 /* Frameworks */,
+				AAAA000000000000000000B5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TiqianDemo;
+			packageProductDependencies = (
+				AAAA000000000000000000F2 /* TiqianUI */,
+			);
+			productName = TiqianDemo;
+			productReference = AAAA000000000000000000B6 /* TiqianDemo.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AAAA000000000000000000A1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					AAAA000000000000000000A5 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = AAAA000000000000000000A6 /* Build configuration list for PBXProject "TiqianDemo" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AAAA000000000000000000A2;
+			packageReferences = (
+				AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../frontend/apple" */,
+			);
+			productRefGroup = AAAA000000000000000000A3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AAAA000000000000000000A5 /* TiqianDemo */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AAAA000000000000000000B5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AAAA000000000000000000B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AAAA000000000000000000D1 /* TiqianDemoApp.swift in Sources */,
+				AAAA000000000000000000D2 /* ContentView.swift in Sources */,
+				AAAA000000000000000000D4 /* Samples.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AAAA000000000000000000A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AAAA000000000000000000A9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		AAAA000000000000000000B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					CoreText,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AAAA000000000000000000B2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					CoreText,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.macos;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AAAA000000000000000000A6 /* Build configuration list for PBXProject "TiqianDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAAA000000000000000000A8 /* Debug */,
+				AAAA000000000000000000A9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AAAA000000000000000000A7 /* Build configuration list for PBXNativeTarget "TiqianDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AAAA000000000000000000B1 /* Debug */,
+				AAAA000000000000000000B2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../frontend/apple" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../frontend/apple";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AAAA000000000000000000F2 /* TiqianUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = TiqianUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AAAA000000000000000000A1 /* Project object */;
+}

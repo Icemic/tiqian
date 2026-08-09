@@ -1,0 +1,8 @@
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.DS_Store
+
+# SwiftPM state Xcode writes for the local TiqianUI package
+TiqianDemo.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/

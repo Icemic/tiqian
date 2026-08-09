@@ -1,30 +1,23 @@
 plugins {
     kotlin("multiplatform")
-    id("com.android.kotlin.multiplatform.library")
 }
 
+// Apple-platform shaping + font metrics via Core Text. Uses Kotlin/Native's built-in
+// platform.CoreText / platform.CoreFoundation bindings (no custom cinterop def needed).
 kotlin {
-    jvm()
-    android {
-        namespace = "org.tiqian.shaping.api"
-        compileSdk = 36
-        minSdk = 23
-        withHostTest {}
-    }
-    js {
-        browser()
-        useEsModules()
-    }
     macosArm64()
     iosArm64()
     iosSimulatorArm64()
 
     sourceSets {
+        all {
+            languageSettings.optIn("kotlinx.cinterop.ExperimentalForeignApi")
+        }
         commonMain.dependencies {
             api(project(":core"))
             api(project(":font"))
+            api(project(":shaping:api"))
         }
-
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
