@@ -47,6 +47,7 @@ enum class ShapingSource {
     AndroidPaint,
     Skia,
     HarfBuzz,
+    CoreText,
 }
 
 class ExplainableStubTextShaper : TextShaper {
