@@ -24,8 +24,6 @@ import org.tiqian.font.fontRoleNameUsesLatinFace
 import org.tiqian.shaping.coretext.CoreTextSupport
 import platform.CoreFoundation.CFArrayGetCount
 import platform.CoreFoundation.CFArrayGetValueAtIndex
-import platform.CoreFoundation.CFRelease
-import platform.CoreFoundation.CFRetain
 import platform.CoreGraphics.CGContextFillEllipseInRect
 import platform.CoreGraphics.CGContextFillPath
 import platform.CoreGraphics.CGContextFillRect
@@ -44,17 +42,12 @@ import platform.CoreGraphics.CGPathRelease
 import platform.CoreGraphics.CGPoint
 import platform.CoreGraphics.CGRect
 import platform.CoreText.CTFontDrawGlyphs
-import platform.CoreText.CTFontGetBoundingRectsForGlyphs
 import platform.CoreText.CTFontRef
 import platform.CoreText.CTLineGetGlyphRuns
-import platform.CoreText.CTLineGetTypographicBounds
 import platform.CoreText.CTRunGetGlyphCount
 import platform.CoreText.CTRunGetGlyphs
 import platform.CoreText.CTRunGetPositions
 import platform.CoreText.CTRunRef
-import platform.CoreText.kCTFontOrientationHorizontal
-/** 注音 ㄅㄆㄇ symbol baseline as a fraction of its box height (mirrors SkiaLayoutRenderer). */
-private const val BOPOMOFO_SYMBOL_BASELINE_FACTOR = 0.88
 private const val WAVY_HALF_WAVE_EM = 0.20
 private const val WAVY_AMPLITUDE_EM = 0.06
 private const val WAVY_ENDPOINT_EPSILON_PX = 0.01
@@ -286,10 +279,11 @@ class CoreTextLayoutRenderer(
     }
 
     /**
-     * 注音 (ADR 0033) — the engine's pre-shaped glyphs are horizontal, so the renderer
-     * re-shapes each placement with the font's VERTICAL forms (`vert`) into the box the
-     * engine placed, per role (mirrors `SkiaLayoutRenderer`). Measurement showed locale /
-     * SC-vs-TC don't change these glyphs; only vertical forms do.
+     * 注音: draw each placement as a real Core Text vertical run. The engine records the
+     * horizontal-baseline origin that Skia/Android replay; Core Text's vertical run pen is the
+     * 字身框 top centre instead, so the ㄅㄆㄇ symbol origin is derived from the box here. The
+     * ink-positioned 调号/轻声 marks are computed from each platform's own ink, so their recorded
+     * [drawX]/[baselineY] already match this Core Text run and are replayed as-is.
      */
     private fun drawBopomofo(result: LayoutResult, context: CGContextRef, canvasHeight: Double) {
         for (z in result.debug.bopomofoDecisions) {
@@ -297,95 +291,28 @@ class CoreTextLayoutRenderer(
             val weight = z.fontWeight // 注文字重 = 基文 + 300 (engine-computed, BopomofoLegibilityWeightBoost)
             for (p in z.placements) {
                 if (p.text.isEmpty()) continue
-                val left = p.left.toDouble()
-                val top = p.top.toDouble()
-                val boxW = p.width.toDouble()
-                val boxH = p.height.toDouble()
-                when (p.role) {
-                    // ㄅㄆㄇ: vertical form at the box size, horizontally centred by its advance.
-                    BopomofoGlyphRole.Symbol -> {
-                        val m = measureFirstVert(family, boxH, weight, p.text, z.locale) ?: continue
-                        drawGlyphWithFont(context, m.runFont, m.id, left + (boxW - m.advance) / 2.0, top + boxH * BOPOMOFO_SYMBOL_BASELINE_FACTOR, canvasHeight)
-                        CFRelease(m.runFont)
-                    }
-                    // 调号: its ink is tiny at box size — scale so ink WIDTH fills the box, ink-centre it.
-                    BopomofoGlyphRole.Tone -> {
-                        val ref = measureFirstVert(family, boxH, weight, p.text, z.locale) ?: continue
-                        val inkWidth = ref.inkWidth
-                        CFRelease(ref.runFont)
-                        if (inkWidth <= 0.0) continue
-                        val drawSize = boxH * (boxW / inkWidth)
-                        val m = measureFirstVert(family, drawSize, weight, p.text, z.locale) ?: continue
-                        drawGlyphWithFont(context, m.runFont, m.id, left - m.inkLeft, top + boxH / 2.0 + (m.inkBottom + m.inkHeight / 2.0), canvasHeight)
-                        CFRelease(m.runFont)
-                    }
-                    // 轻声: full-width vertical form at the column width, ink vertically centred.
-                    BopomofoGlyphRole.Neutral -> {
-                        val m = measureFirstVert(family, boxW, weight, p.text, z.locale) ?: continue
-                        drawGlyphWithFont(context, m.runFont, m.id, left + (boxW - m.advance) / 2.0, top + boxH / 2.0 + (m.inkBottom + m.inkHeight / 2.0), canvasHeight)
-                        CFRelease(m.runFont)
-                    }
+                val font = CoreTextSupport.font(family, p.fontSize.toDouble(), weight) ?: continue
+                val penX: Double
+                val baselineY: Double
+                if (p.role == BopomofoGlyphRole.Symbol) {
+                    penX = (p.left + p.width / 2f).toDouble()
+                    baselineY = p.top.toDouble()
+                } else {
+                    penX = p.drawX.toDouble()
+                    baselineY = p.baselineY.toDouble()
                 }
+                drawShapedText(
+                    context = context,
+                    font = font,
+                    text = p.text,
+                    penX = penX,
+                    baselineY = baselineY,
+                    canvasHeight = canvasHeight,
+                    vertical = true,
+                    language = z.locale,
+                    openTypeFeatures = listOf("vert=1"),
+                )
             }
-        }
-    }
-
-    private class VertGlyph(
-        val runFont: CTFontRef,
-        val id: UShort,
-        val inkLeft: Double,
-        val inkBottom: Double,
-        val inkWidth: Double,
-        val inkHeight: Double,
-        val advance: Double,
-    )
-
-    /**
-     * Shape [text] with vertical forms at [size] and [weight]. Returns the first glyph's id +
-     * ink bounds (CG y-up, baseline-relative) + advance, plus the RUN'S OWN font (retained —
-     * caller must [CFRelease] it). The measuring font is borrowed from [CoreTextSupport]'s cache
-     * and is NOT released here; the run's font is retained so it survives `CFRelease(line)`, and
-     * the caller's balancing `CFRelease` returns a cached run-font to the cache's own count (or
-     * drops the extra ref on a fallback face). 注音 vert forms often resolve from a fallback face,
-     * so the glyph MUST be drawn with that face, not a fresh family font (else the id maps to garbage).
-     */
-    private fun measureFirstVert(
-        family: String,
-        size: Double,
-        weight: Int,
-        text: String,
-        language: String,
-    ): VertGlyph? {
-        // Font + shaped (vertical-forms) line both borrowed from the shared caches — do NOT CFRelease.
-        val font = CoreTextSupport.font(family, size, weight) ?: return null
-        val line = CoreTextSupport.line(text, font, vertical = true, language = language) ?: return null
-        val advance = CTLineGetTypographicBounds(line, null, null, null)
-        val runs = CTLineGetGlyphRuns(line) ?: return null
-        if (CFArrayGetCount(runs).toInt() == 0) return null
-        val run: CTRunRef = CFArrayGetValueAtIndex(runs, 0.convert())!!.reinterpret()
-        val n = CTRunGetGlyphCount(run).toInt()
-        if (n <= 0) return null
-        val runFont: CTFontRef = CoreTextSupport.runFontOf(run) ?: font
-        CFRetain(runFont) // caller CFReleases; kept independent of the cached line's eviction
-        return memScoped {
-            val g = allocArray<CGGlyphVar>(n)
-            val rects = allocArray<CGRect>(n)
-            CTRunGetGlyphs(run, CoreTextSupport.cfRange(0, 0), g)
-            CTFontGetBoundingRectsForGlyphs(runFont, kCTFontOrientationHorizontal, g, rects, n.convert())
-            val r = rects[0]
-            VertGlyph(runFont, g[0], r.origin.x, r.origin.y, r.size.width, r.size.height, advance)
-        }
-    }
-
-    /** Draw a single glyph [id] with [font] (the run's own face) at ([penX], baseline [baselineY] in layout space). */
-    private fun drawGlyphWithFont(context: CGContextRef, font: CTFontRef, id: UShort, penX: Double, baselineY: Double, canvasHeight: Double) {
-        memScoped {
-            val g = allocArray<CGGlyphVar>(1)
-            g[0] = id
-            val pt = allocArray<CGPoint>(1)
-            pt[0].x = penX
-            pt[0].y = canvasHeight - baselineY
-            CTFontDrawGlyphs(font, g, pt, 1.convert(), context)
         }
     }
 

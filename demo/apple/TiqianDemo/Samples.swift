@@ -237,7 +237,8 @@ private let bopomofoSample = DemoSample(
 ) { _ in
     [.paragraph(para(
         t("您").bopomofo("ㄋㄧㄣˊ"), t("好").bopomofo("ㄏㄠˇ"), t("，"),
-        t("请").bopomofo("ㄑㄧㄥˇ"), t("坐").bopomofo("ㄗㄨㄛˋ"), t("。"),
+        t("请").bopomofo("ㄑㄧㄥˇ"), t("坐").bopomofo("ㄗㄨㄛˋ"),
+        t("吧").bopomofo("˙ㄅㄚ"), t("。"),
     ))]
 }
 

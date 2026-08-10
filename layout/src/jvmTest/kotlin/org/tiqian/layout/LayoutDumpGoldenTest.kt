@@ -342,7 +342,8 @@ class LayoutDumpGoldenTest {
             )
             z.placements.forEach { p ->
                 appendLine(
-                    "  ${p.role} '${p.text}' rect=${p.left.fmt()},${p.top.fmt()},${p.width.fmt()},${p.height.fmt()}",
+                    "  ${p.role} '${p.text}' rect=${p.left.fmt()},${p.top.fmt()},${p.width.fmt()},${p.height.fmt()} " +
+                        "draw=${p.drawX.fmt()},${p.baselineY.fmt()} size=${p.fontSize.fmt()}",
                 )
             }
         }

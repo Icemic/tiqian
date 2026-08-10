@@ -1,7 +1,7 @@
 package org.tiqian.layout
 
+import org.tiqian.core.BopomofoGlyphRole
 import org.tiqian.core.Ic
-
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
@@ -11,7 +11,6 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.core.BopomofoGlyphRole
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -122,4 +121,5 @@ class BopomofoLayoutTest {
         assertEquals("zh-Hans", result.input.textStyle.locale)
         assertEquals("zh-TW", result.debug.bopomofoDecisions.single().locale)
     }
+
 }

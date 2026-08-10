@@ -4,6 +4,7 @@ import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LineLengthGrid
+import org.tiqian.core.RubyKind
 import org.tiqian.core.RubyLineHeightMode
 import org.tiqian.core.RubySpan
 import org.tiqian.core.TextRange
@@ -205,6 +206,16 @@ object EarlyLayoutFixtures {
                 "before its annotated line in the default PerLine mode.",
             lineHeight = 18f,
             rubySpans = listOf(RubySpan(baseRange = TextRange(4, 5), text = "wù")),
+        ),
+        LayoutFixture(
+            id = "bopomofo-tone-em-box",
+            text = "好",
+            constraints = LayoutConstraints(maxWidth = 64f),
+            notes = "BopomofoToneSharedAnnotationEmSizing: the ordinary tone mark shares the " +
+                "0.3em annotation size; its 5×5 slot only positions it, and glyph ink does not rescale it.",
+            rubySpans = listOf(
+                RubySpan(baseRange = TextRange(0, 1), text = "ㄏㄠˇ", kind = RubyKind.Bopomofo),
+            ),
         ),
         LayoutFixture(
             id = "first-line-indent",

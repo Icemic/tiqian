@@ -3660,32 +3660,34 @@ class ExplainableStubParagraphLayoutEngine(
                             )
                         }
 
-                        val initialSize = when (placement.role) {
+                        val replayFontSize = when (placement.role) {
                             BopomofoGlyphRole.Neutral -> placement.width
-                            else -> placement.height
+                            BopomofoGlyphRole.Symbol,
+                            BopomofoGlyphRole.Tone,
+                            -> fontSize * BOPOMOFO_ANNOTATION_FONT_EM
                         }
-                        var replayFontSize = initialSize
-                        var shaped = shapeAt(replayFontSize)
-                        if (placement.role == BopomofoGlyphRole.Tone) {
-                            val initialInk = shaped.inkBounds()
-                            val inkWidth = initialInk?.let { it.right - it.left } ?: 0f
-                            if (inkWidth > 0f) {
-                                replayFontSize = initialSize * placement.width / inkWidth
-                                shaped = shapeAt(replayFontSize)
-                            }
-                        }
+                        // BopomofoToneSharedAnnotationEmSizing: keep the previously verified
+                        // annotation size; the 5×5 tone slot only supplies the centre target.
+                        val shaped = shapeAt(replayFontSize)
                         val glyphs = shaped.glyphRuns.flatMap { it.glyphs }
                         val advance = shaped.clusters.sumOf { it.advance.toDouble() }.toFloat()
                         val ink = shaped.inkBounds()
+                        // Skia/Android/web replay this horizontal-baseline origin directly:
+                        // the ㄅㄆㄇ symbol centres by its advance and sits on the 字身框
+                        // baseline. Core Text draws a real vertical run, so its renderer derives
+                        // its own top-centre origin from the box instead of replaying these.
                         val drawX = when (placement.role) {
                             BopomofoGlyphRole.Symbol,
                             BopomofoGlyphRole.Neutral,
                             -> placement.left + (placement.width - advance) / 2f
 
-                            BopomofoGlyphRole.Tone -> placement.left - (ink?.left ?: 0f)
+                            BopomofoGlyphRole.Tone -> placement.left + placement.width / 2f -
+                                ((ink?.left ?: 0f) + (ink?.right ?: advance)) / 2f
                         }
                         val baselineY = when (placement.role) {
-                            BopomofoGlyphRole.Symbol -> placement.top + placement.height * 0.88f
+                            BopomofoGlyphRole.Symbol ->
+                                placement.top + placement.height * BOPOMOFO_SYMBOL_BASELINE_FACTOR
+
                             BopomofoGlyphRole.Neutral,
                             BopomofoGlyphRole.Tone,
                             -> placement.top + placement.height / 2f -
@@ -4219,6 +4221,10 @@ private const val RUBY_FONT_EM = 0.5f
 private const val RUBY_FONT_WEIGHT_BOOST = 100
 /** `BopomofoLegibilityWeightBoost`: 注音 ㄅㄆㄇ 更小，默认比基文重 300. */
 private const val BOPOMOFO_FONT_WEIGHT_BOOST = 300
+/** 注音符号和普通调号共用的稳定字号；5×5 调号格只负责定位. */
+private const val BOPOMOFO_ANNOTATION_FONT_EM = 0.3f
+/** ㄅㄆㄇ symbol baseline as a fraction of its 字身框 height (horizontal-baseline replay). */
+private const val BOPOMOFO_SYMBOL_BASELINE_FACTOR = 0.88f
 private const val MANDATORY_BREAK_FONT_KEY = "mandatory-break"
 private const val ZERO_WIDTH_SOFT_BREAK_FONT_KEY = "zero-width-space"
 private const val INLINE_OBJECT_FONT_KEY = "inline-object"

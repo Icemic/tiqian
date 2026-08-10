@@ -5,7 +5,6 @@ import android.graphics.Paint
 import android.graphics.DashPathEffect
 import android.graphics.Path
 import android.graphics.PathMeasure
-import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.text.TextPaint
@@ -24,7 +23,6 @@ import org.tiqian.core.RichTextBackgroundDrawStyle
 import org.tiqian.core.RichTextLinePattern
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
-import org.tiqian.core.BopomofoGlyphRole
 import org.tiqian.core.richTextDecorationLineY
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
@@ -739,9 +737,9 @@ private fun drawAndroidBopomofo(
         textLocale = Locale.forLanguageTag(result.input.textStyle.locale)
         fontFeatureSettings = "'vert' on"
     }
-    val bounds = Rect()
     for (z in result.debug.bopomofoDecisions) {
         paint.typeface = typefaces.resolve(FontRole.CjkText, z.fontFamilies, z.fontWeight, italic = false)
+        paint.textLocale = Locale.forLanguageTag(z.locale)
         for (p in z.placements) {
             if (AndroidNativeGlyphReplay.drawGlyphs(
                     canvas,
@@ -755,31 +753,18 @@ private fun drawAndroidBopomofo(
                 continue
             }
             requireNativeReplayDidNotFail(p.glyphs)
-            when (p.role) {
-                BopomofoGlyphRole.Symbol -> {
-                    // ㄅㄆㄇ are full-em CJK glyphs → sit on the 字身框 baseline (0.88),
-                    // like body CJK; 轻声/声调 below ink-center because they are small marks.
-                    paint.textSize = p.height
-                    val drawX = p.left + (p.width - paint.measureText(p.text)) / 2f
-                    canvas.drawTextRun(p.text, 0, p.text.length, 0, p.text.length, drawX, p.top + p.height * 0.88f, false, paint)
-                }
-                BopomofoGlyphRole.Neutral -> {
-                    paint.textSize = p.width
-                    paint.getTextBounds(p.text, 0, p.text.length, bounds)
-                    val drawX = p.left + (p.width - paint.measureText(p.text)) / 2f
-                    val baselineY = p.top + p.height / 2f - (bounds.top + bounds.bottom) / 2f
-                    canvas.drawTextRun(p.text, 0, p.text.length, 0, p.text.length, drawX, baselineY, false, paint)
-                }
-                BopomofoGlyphRole.Tone -> {
-                    paint.textSize = p.height
-                    paint.getTextBounds(p.text, 0, p.text.length, bounds)
-                    val scale = if (bounds.width() > 0) p.width / bounds.width() else 1f
-                    paint.textSize = p.height * scale
-                    paint.getTextBounds(p.text, 0, p.text.length, bounds)
-                    val baselineY = p.top + p.height / 2f - (bounds.top + bounds.bottom) / 2f
-                    canvas.drawTextRun(p.text, 0, p.text.length, 0, p.text.length, p.left - bounds.left, baselineY, false, paint)
-                }
-            }
+            paint.textSize = p.fontSize
+            canvas.drawTextRun(
+                p.text,
+                0,
+                p.text.length,
+                0,
+                p.text.length,
+                p.drawX,
+                p.baselineY,
+                false,
+                paint,
+            )
         }
     }
 }

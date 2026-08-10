@@ -125,11 +125,143 @@ class CoreTextLayoutRendererTest {
             ),
         )
         assertTrue(zhuyin.debug.bopomofoDecisions.isNotEmpty(), "expected 注音 geometry")
+        val tone = zhuyin.debug.bopomofoDecisions.single().placements.single {
+            it.role == BopomofoGlyphRole.Tone
+        }
+        val symbol = zhuyin.debug.bopomofoDecisions.single().placements.first {
+            it.role == BopomofoGlyphRole.Symbol
+        }
+        assertEquals(
+            symbol.fontSize,
+            tone.fontSize,
+            0.001f,
+            "ordinary tone marks must share the stable annotation size on Core Text",
+        )
 
         // Re-shaping the vertical ㄅㄆㄇ + tone must add ink beside the base character.
         val plainInk = renderInkBands(plain, width = 240, bands = 1)[0]
         val zhuyinInk = renderInkBands(zhuyin, width = 240, bands = 1)[0]
         assertTrue(zhuyinInk > plainInk + 10, "注音 should add ink: plain=$plainInk zhuyin=$zhuyinInk")
+    }
+
+    @Test
+    fun bopomofoToneInkIsCenteredInItsSlot() {
+        val result = appleParagraphEngine().layout(
+            LayoutInput(
+                content = TiqianTextContent("好"),
+                textStyle = TextStyle(fontSize = 30f, locale = "zh-TW"),
+                constraints = LayoutConstraints(maxWidth = 400f),
+                rubySpans = listOf(RubySpan(TextRange(0, 1), "ㄏㄠˇ", kind = RubyKind.Bopomofo)),
+            ),
+        )
+        val decision = result.debug.bopomofoDecisions.single()
+        val tone = decision.placements.single { it.role == BopomofoGlyphRole.Tone }
+        val toneOnly = result.copy(
+            clusters = result.clusters.map { it.copy(displayText = "") },
+            glyphRuns = emptyList(),
+            debug = result.debug.copy(
+                rubyDecisions = emptyList(),
+                bopomofoDecisions = listOf(decision.copy(placements = listOf(tone))),
+                decorationDecisions = emptyList(),
+                decorationSegments = emptyList(),
+            ),
+        )
+
+        val inkColumns = renderInkColumns(toneOnly, width = 96)
+        val inkCenter = (inkColumns.first + inkColumns.last + 1) / 2f
+        val slotCenter = tone.left + tone.width / 2f
+        assertEquals(
+            slotCenter,
+            inkCenter,
+            1f,
+            "Core Text tone ink must centre on its 5×5 body box: slot=$slotCenter ink=$inkColumns " +
+                "drawX=${tone.drawX} baseline=${tone.baselineY} size=${tone.fontSize}",
+        )
+    }
+
+    @Test
+    fun bopomofoVerticalSymbolsStayInsideTheirNinePartBoxes() {
+        val result = appleParagraphEngine().layout(
+            LayoutInput(
+                content = TiqianTextContent("中"),
+                textStyle = TextStyle(fontSize = 30f, locale = "zh-TW"),
+                constraints = LayoutConstraints(maxWidth = 400f),
+                rubySpans = listOf(RubySpan(TextRange(0, 1), "ㄓㄨㄥ", kind = RubyKind.Bopomofo)),
+            ),
+        )
+
+        val symbols = result.debug.bopomofoDecisions.single().placements.filter {
+            it.role == BopomofoGlyphRole.Symbol
+        }
+        assertEquals(3, symbols.size)
+        for (symbol in symbols) {
+            // Core Text's vertical run pen is the 字身框 top centre (CoreTextLayoutRenderer),
+            // not the horizontal-baseline origin the engine records for Skia/Android replay.
+            val originX = symbol.left + symbol.width / 2f
+            val originTop = symbol.top
+            val ink = symbol.glyphs.mapNotNull { glyph ->
+                glyph.bounds?.let { bounds ->
+                    floatArrayOf(
+                        originX + glyph.x + bounds.left,
+                        originTop + glyph.y + bounds.top,
+                        originX + glyph.x + bounds.right,
+                        originTop + glyph.y + bounds.bottom,
+                    )
+                }
+            }
+            assertTrue(ink.isNotEmpty())
+            assertTrue(ink.minOf { it[0] } >= symbol.left - 0.1f, "${symbol.text} shifted left: $ink")
+            assertTrue(ink.maxOf { it[2] } <= symbol.left + symbol.width + 0.1f, "${symbol.text} shifted right: $ink")
+            assertTrue(ink.minOf { it[1] } >= symbol.top - 0.1f, "${symbol.text} shifted up: $ink")
+            assertTrue(ink.maxOf { it[3] } <= symbol.top + symbol.height + 0.1f, "${symbol.text} shifted down: $ink")
+        }
+    }
+
+    @Test
+    fun bopomofoRendererReplaysRecordedInkForEveryPlacement() {
+        val result = appleParagraphEngine().layout(
+            LayoutInput(
+                content = TiqianTextContent("好"),
+                textStyle = TextStyle(fontSize = 30f, locale = "zh-TW"),
+                constraints = LayoutConstraints(maxWidth = 400f),
+                rubySpans = listOf(RubySpan(TextRange(0, 1), "ㄏㄠˇ", kind = RubyKind.Bopomofo)),
+            ),
+        )
+        val decision = result.debug.bopomofoDecisions.single()
+        for (placement in decision.placements) {
+            val recordedBounds = placement.glyphs.mapNotNull { glyph ->
+                glyph.bounds?.let { bounds ->
+                    (glyph.x + bounds.left) to (glyph.x + bounds.right)
+                }
+            }
+            assertTrue(recordedBounds.isNotEmpty(), "${placement.text} must carry recorded ink")
+            // Symbols draw from the box top centre; ink-positioned marks replay the recorded origin.
+            val originX = if (placement.role == BopomofoGlyphRole.Symbol) {
+                placement.left + placement.width / 2f
+            } else {
+                placement.drawX
+            }
+            val recordedCenter = originX +
+                (recordedBounds.minOf { it.first } + recordedBounds.maxOf { it.second }) / 2f
+            val isolated = result.copy(
+                clusters = result.clusters.map { it.copy(displayText = "") },
+                glyphRuns = emptyList(),
+                debug = result.debug.copy(
+                    rubyDecisions = emptyList(),
+                    bopomofoDecisions = listOf(decision.copy(placements = listOf(placement))),
+                    decorationDecisions = emptyList(),
+                    decorationSegments = emptyList(),
+                ),
+            )
+            val inkColumns = renderInkColumns(isolated, width = 96)
+            val renderedCenter = (inkColumns.first + inkColumns.last + 1) / 2f
+            assertEquals(
+                recordedCenter,
+                renderedCenter,
+                1f,
+                "${placement.role} ${placement.text} renderer drift: recorded=$recordedCenter rendered=$inkColumns",
+            )
+        }
     }
 
     @Test
@@ -348,6 +480,37 @@ class CoreTextLayoutRendererTest {
         CGContextRelease(ctx)
         CGColorSpaceRelease(colorSpace)
         return maxCol
+    }
+
+    /** Renders [result] and returns the inclusive horizontal pixel range containing ink. */
+    private fun renderInkColumns(result: LayoutResult, width: Int): IntRange {
+        val height = maxOf(96, result.size.height.toInt() + 24)
+        val bytesPerRow = width * 4
+        val colorSpace = CGColorSpaceCreateDeviceRGB()
+        val ctx = CGBitmapContextCreate(
+            null, width.convert(), height.convert(), 8u, bytesPerRow.convert(), colorSpace,
+            CGImageAlphaInfo.kCGImageAlphaPremultipliedLast.value,
+        ) ?: error("could not create bitmap context")
+        CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0)
+        CGContextFillRect(ctx, CGRectMake(0.0, 0.0, width.toDouble(), height.toDouble()))
+        CGContextSetRGBFillColor(ctx, 0.0, 0.0, 0.0, 1.0)
+        CoreTextLayoutRenderer().draw(result, ctx, height.toDouble())
+
+        val data = CGBitmapContextGetData(ctx)?.reinterpret<UByteVar>() ?: error("no bitmap data")
+        var minCol = width
+        var maxCol = -1
+        for (row in 0 until height) {
+            for (col in 0 until width) {
+                if (data[(row * bytesPerRow) + (col * 4)] < 128u) {
+                    minCol = minOf(minCol, col)
+                    maxCol = maxOf(maxCol, col)
+                }
+            }
+        }
+        CGContextRelease(ctx)
+        CGColorSpaceRelease(colorSpace)
+        check(maxCol >= minCol) { "rendered no ink" }
+        return minCol..maxCol
     }
 
     /** Renders [result] (black base fill) with [colorSpans] and counts reddish pixels (R high, G/B low). */

@@ -15,7 +15,6 @@ import org.tiqian.shaping.skia.SkiaSystemTypefaces
 import org.tiqian.shaping.skia.drawTiqianGlyphsWithPositions
 import org.tiqian.shaping.skia.lineInkSkipIntervalsWithPositions
 import org.tiqian.shaping.skia.shapeTextBlob
-import org.tiqian.shaping.skia.vertGlyphIds
 import org.jetbrains.skia.Font
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.PaintMode
@@ -231,9 +230,8 @@ internal actual fun ContentDrawScope.drawParagraph(
             }
         }
 
-        // 注音 (ADR 0033): ㄅㄆㄇ symbols fill their 9×9 box; 调号 are ink-detected and
-        // scaled so their ink WIDTH fills the box, then vertically centred. FORCED CJK
-        // 注文 font (the optimized large tone glyphs live there, not in Western faces).
+        // 注音 (ADR 0033): layout owns each vertical glyph's size and position. The
+        // renderer only re-shapes with `vert` to recover the platform's physical glyph.
         for (z in result.debug.bopomofoDecisions) {
             val tf = (
                 SkiaSystemTypefaces.typeface(
@@ -244,49 +242,11 @@ internal actual fun ContentDrawScope.drawParagraph(
                     ?: SkiaSystemTypefaces.cjk
                 ) ?: continue
             for (p in z.placements) {
-                when (p.role) {
-                    org.tiqian.core.BopomofoGlyphRole.Symbol -> {
-                        val f = Font(tf, p.height) // box height = symbol 字身框 (0.3em)
-                        // Centre by the VERT glyph's advance (not the plain glyph's — they
-                        // can differ, e.g. half- vs full-width), since we draw the vert form.
-                        val gids = vertGlyphIds(tf, shaper, p.text, result.input.textStyle.locale)
-                        val adv = if (gids.isEmpty()) f.measureTextWidth(p.text) else f.getWidths(gids).sum()
-                        shapeTextBlob(shaper, p.text, f, result.input.textStyle.locale, vertical = true)?.let { blob ->
-                            skCanvas.drawTextBlob(blob, p.left + (p.width - adv) / 2f, p.top + p.height * 0.88f, paint)
-                        }
-                    }
-                    org.tiqian.core.BopomofoGlyphRole.Neutral -> {
-                        // 轻声: full-width vert glyph at the COLUMN-WIDTH size (not scaled);
-                        // h-centre by its vert advance, ink-position the dot into the box.
-                        val gids = vertGlyphIds(tf, shaper, p.text, result.input.textStyle.locale)
-                        if (gids.isEmpty()) continue
-                        val f = Font(tf, p.width) // full-width em = column width (9 份)
-                        val adv = f.getWidths(gids).sum()
-                        val b = f.getBounds(gids).first()
-                        shapeTextBlob(shaper, p.text, f, result.input.textStyle.locale, vertical = true)?.let { blob ->
-                            val drawX = p.left + (p.width - adv) / 2f
-                            val baselineY = p.top + p.height / 2f - (b.top + b.bottom) / 2f
-                            skCanvas.drawTextBlob(blob, drawX, baselineY, paint)
-                        }
-                    }
-                    org.tiqian.core.BopomofoGlyphRole.Tone -> {
-                        // Ink-detect the `vert` glyph (the form actually drawn), so the
-                        // scale-to-width + vertical-centre match what lands on screen.
-                        val glyphs = vertGlyphIds(tf, shaper, p.text, result.input.textStyle.locale)
-                        if (glyphs.isEmpty()) continue
-                        val ref = Font(tf, p.height) // a reference size; rescale to ink width
-                        val refBounds = ref.getBounds(glyphs).first()
-                        if (refBounds.width <= 0f) continue
-                        val scaled = Font(tf, p.height * (p.width / refBounds.width))
-                        val b = scaled.getBounds(glyphs).first()
-                        shapeTextBlob(shaper, p.text, scaled, result.input.textStyle.locale, vertical = true)?.let { blob ->
-                            // ink left → box left; ink vertical centre → box vertical centre.
-                            val drawX = p.left - b.left
-                            val baselineY = p.top + p.height / 2f - (b.top + b.bottom) / 2f
-                            skCanvas.drawTextBlob(blob, drawX, baselineY, paint)
-                        }
-                    }
+                val font = Font(tf, p.fontSize)
+                shapeTextBlob(shaper, p.text, font, z.locale, vertical = true)?.let { blob ->
+                    skCanvas.drawTextBlob(blob, p.drawX, p.baselineY, paint)
                 }
+                font.close()
             }
         }
     }

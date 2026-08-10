@@ -414,8 +414,8 @@ data class RubyDecisionInfo(
 /**
  * 注音 geometry (ADR 0033): the ㄅㄆㄇ symbols + 调号 placed in the right-side zone
  * of [baseRange] on line [lineIndex]. Each [placement] is one glyph + its box
- * (absolute px) + role; the renderer draws [BopomofoGlyphRole.Symbol] filling the
- * box and [BopomofoGlyphRole.Tone] ink-detected (scale to box width, vertical-centre).
+ * (absolute px) + role. Symbols use the 9×9 slot size; ordinary tone marks use the
+ * 5×5 slot size without glyph-ink-dependent rescaling.
  */
 data class BopomofoDecisionInfo(
     val baseRange: TextRange,
@@ -437,7 +437,7 @@ data class BopomofoGlyphPlacement(
     val width: Float,
     val height: Float,
     val role: BopomofoGlyphRole,
-    /** Final shape-once glyphs after box-fit sizing and `vert` substitution. */
+    /** Final shape-once glyphs at the declared annotation size after `vert` substitution. */
     val glyphs: List<Glyph> = emptyList(),
     val drawX: Float = left,
     val baselineY: Float = top + height,
@@ -448,7 +448,7 @@ enum class BopomofoGlyphRole {
     /** ㄅㄆㄇ — fill the 9×9 box at the box font size (字身框). */
     Symbol,
 
-    /** 平上去/入声 调号 — ink-detect, scale ink width to the box, vertical-centre. */
+    /** 平上去/入声调号 — share the 注音字号; the 5×5 slot positions ink but never changes size. */
     Tone,
 
     /**
