@@ -331,11 +331,15 @@ class LayoutDumpGoldenTest {
             appendLine(
                 "ruby ${r.baseRange.start}-${r.baseRange.end} '${r.text}' line=${r.lineIndex} " +
                     "centerX=${r.centerX.fmt()} baselineY=${r.baselineY.fmt()} size=${r.fontSize.fmt()} " +
-                    "box=${r.ascent.fmt()}/${r.descent.fmt()} width=${r.width.fmt()} overhang=${r.overhang.fmt()}",
+                    "box=${r.ascent.fmt()}/${r.descent.fmt()} width=${r.width.fmt()} " +
+                    "overhang=${r.overhang.fmt()} locale=${r.locale}",
             )
         }
         debug.bopomofoDecisions.forEach { z ->
-            appendLine("bopomofo ${z.baseRange.start}-${z.baseRange.end} '${z.text}' line=${z.lineIndex}")
+            appendLine(
+                "bopomofo ${z.baseRange.start}-${z.baseRange.end} '${z.text}' " +
+                    "line=${z.lineIndex} locale=${z.locale}",
+            )
             z.placements.forEach { p ->
                 appendLine(
                     "  ${p.role} '${p.text}' rect=${p.left.fmt()},${p.top.fmt()},${p.width.fmt()},${p.height.fmt()}",

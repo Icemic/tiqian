@@ -2662,6 +2662,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertEquals("BookTitle", lisao.kind)
         assertEquals(64f, lisao.left)
         assertEquals(96f, lisao.right)
+        assertEquals(baseline + 16f * 0.24f, lisao.top, 0.01f)
 
         // Adjacent pair: 顾炎武 right edge −1, 王夫之 left edge +1; outer
         // edges keep the text's outer frame.

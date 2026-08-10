@@ -156,7 +156,7 @@ private fun renderSvg(result: LayoutResult, inkColor: Int): ByteArray {
             ) ?: SkiaSystemTypefaces.latin
             Font(typeface, ruby.fontSize).use { rubyFont ->
                 val rubyWidth = rubyFont.measureTextWidth(ruby.text)
-                shapeTextBlob(shaper, ruby.text, rubyFont, result.input.textStyle.locale)?.use { blob ->
+                shapeTextBlob(shaper, ruby.text, rubyFont, ruby.locale)?.use { blob ->
                     canvas.drawTextBlob(blob, ruby.centerX - rubyWidth / 2f, ruby.baselineY, ink)
                 }
             }

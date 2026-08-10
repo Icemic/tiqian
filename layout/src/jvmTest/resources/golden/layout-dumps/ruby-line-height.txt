@@ -33,7 +33,7 @@ font 10-11 role=CjkText key=cjk-primary display='子' sub=CjkPunctuationGlyphPol
 font 11-12 role=CjkText key=cjk-primary display='丑' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 linespacing natural=16.0 requested=18.0 resolved=18.0 floor=0.0 applied=false reason=ExplicitLineHeight
 rubylineheight mode=PerLine base=18.0 face=16.0 ruby=8.0 available=2.0 maxExtra=6.0 extras=0.0,6.0,0.0 lines=1 reason=ConditionalRubyLineHeight
-ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0
+ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0 locale=zh-Hans
 == lookahead ==
 size 64.0x60.0
 kinsoku measure=4.0字 level=Basic hang=PauseStops reason=MeasureAdaptiveKinsoku:4字→Basic+Hang
@@ -66,7 +66,7 @@ font 10-11 role=CjkText key=cjk-primary display='子' sub=CjkPunctuationGlyphPol
 font 11-12 role=CjkText key=cjk-primary display='丑' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 linespacing natural=16.0 requested=18.0 resolved=18.0 floor=0.0 applied=false reason=ExplicitLineHeight
 rubylineheight mode=PerLine base=18.0 face=16.0 ruby=8.0 available=2.0 maxExtra=6.0 extras=0.0,6.0,0.0 lines=1 reason=ConditionalRubyLineHeight
-ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0
+ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0 locale=zh-Hans
 == paragraph-dp ==
 size 64.0x60.0
 kinsoku measure=4.0字 level=Basic hang=PauseStops reason=MeasureAdaptiveKinsoku:4字→Basic+Hang
@@ -99,4 +99,4 @@ font 10-11 role=CjkText key=cjk-primary display='子' sub=CjkPunctuationGlyphPol
 font 11-12 role=CjkText key=cjk-primary display='丑' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 linespacing natural=16.0 requested=18.0 resolved=18.0 floor=0.0 applied=false reason=ExplicitLineHeight
 rubylineheight mode=PerLine base=18.0 face=16.0 ruby=8.0 available=2.0 maxExtra=6.0 extras=0.0,6.0,0.0 lines=1 reason=ConditionalRubyLineHeight
-ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0
+ruby 4-5 'wù' line=1 centerX=8.0 baselineY=23.4 size=8.0 box=6.4/1.6 width=16.0 overhang=0.0 locale=zh-Hans

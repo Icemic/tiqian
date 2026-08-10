@@ -106,4 +106,20 @@ class BopomofoLayoutTest {
         assertEquals(listOf("˙", "ㄉ", "ㄜ"), decision.placements.map { it.text })
         assertEquals(BopomofoGlyphRole.Neutral, decision.placements.first().role)
     }
+
+    @Test
+    fun annotationLocaleDoesNotReplaceSimplifiedBaseLocale() {
+        val result = layout(
+            listOf(
+                RubySpan(
+                    TextRange(0, 1),
+                    "ㄓㄨㄥ",
+                    kind = RubyKind.Bopomofo,
+                ),
+            ),
+        )
+
+        assertEquals("zh-Hans", result.input.textStyle.locale)
+        assertEquals("zh-TW", result.debug.bopomofoDecisions.single().locale)
+    }
 }

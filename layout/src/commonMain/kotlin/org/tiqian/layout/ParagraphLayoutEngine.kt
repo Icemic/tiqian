@@ -917,12 +917,13 @@ class ExplainableStubParagraphLayoutEngine(
             val metricText = ruby.text.ifEmpty { "x" }
             val range = TextRange(0, metricText.length)
             val preferredFamilies = ruby.fontFamilies
+            val rubyLocale = ruby.locale ?: input.textStyle.locale
             val decision = fallbackResolver.resolve(
                 text = metricText,
                 range = range,
                 request = FontRequest(
                     preferredFamilies = preferredFamilies,
-                    locale = input.textStyle.locale,
+                    locale = rubyLocale,
                     role = FontRole.LatinText,
                 ),
             )
@@ -931,7 +932,7 @@ class ExplainableStubParagraphLayoutEngine(
                     fontKey = decision.candidate.key,
                     fontSize = rubyFontSize,
                     role = FontRole.LatinText,
-                    locale = input.textStyle.locale,
+                    locale = rubyLocale,
                     fontWeight = rubyFontWeight,
                     italic = input.textStyle.italic,
                     faceSelectionText = metricText,
@@ -951,6 +952,7 @@ class ExplainableStubParagraphLayoutEngine(
                             fontSize = rubyFontSize,
                             fontFamilies = ruby.fontFamilies,
                             fontWeight = rubyFontWeight,
+                            locale = rubyLocale,
                         ),
                         fontDecision = decision,
                         displayText = ruby.text,
@@ -2078,6 +2080,7 @@ class ExplainableStubParagraphLayoutEngine(
             fallbackBaseAscent = baseAscent,
             rubyFontSize = rubyFontSize,
             rubyFontWeight = rubyFontWeight,
+            baseLocale = input.textStyle.locale,
         )
         val bopomofoDecisions = computeBopomofoDecisions(
             rubySpans = input.rubySpans.filter { it.kind == RubyKind.Bopomofo },
@@ -2414,7 +2417,15 @@ class ExplainableStubParagraphLayoutEngine(
                 // 行间线贴字：face bottom (+0.12em) plus a hairline of air.
                 // At the default 0.1em emphasis gap, dot ink starts at +0.22em,
                 // so the +0.18em line remains first.
-                val lineY = baseline + fontSize * INTERLINEAR_LINE_Y_EM
+                // The straight line's centre and the wavy line's upper envelope keep the same
+                // visual clearance from the face. A shared centre line made the wave crest rise
+                // 0.06em into that clearance and touch the glyphs.
+                val lineYEm = if (span.kind == DecorationKind.BookTitle) {
+                    BOOK_TITLE_WAVE_LINE_Y_EM
+                } else {
+                    INTERLINEAR_LINE_Y_EM
+                }
+                val lineY = baseline + fontSize * lineYEm
                 spanSegments += DecorationSegmentInfo(
                     sourceRange = TextRange(segStart, segEnd),
                     kind = span.kind.name,
@@ -3465,6 +3476,7 @@ class ExplainableStubParagraphLayoutEngine(
         fallbackBaseAscent: Float,
         rubyFontSize: Float,
         rubyFontWeight: Int,
+        baseLocale: String,
     ): List<RubyDecisionInfo> {
         if (rubySpans.isEmpty()) return emptyList()
         val out = mutableListOf<RubyDecisionInfo>()
@@ -3507,6 +3519,7 @@ class ExplainableStubParagraphLayoutEngine(
                         overhang = ((rubyWidth - contentWidth) / 2f).coerceAtLeast(0f),
                         fontFamilies = ruby.fontFamilies,
                         fontWeight = rubyFontWeight,
+                        locale = ruby.locale ?: baseLocale,
                         glyphs = rubyGeometry.glyphs,
                     )
                 }
@@ -3537,6 +3550,7 @@ class ExplainableStubParagraphLayoutEngine(
         val vUnit = (baseAscent + baseDescent) / 30f
         val out = mutableListOf<BopomofoDecisionInfo>()
         for (ruby in rubySpans) {
+            val rubyLocale = ruby.locale ?: baseTextStyle.locale
             lineRanges.forEachIndexed { lineIndex, clusterRange ->
                 var x = lineBoxes[lineIndex].indent
                 var contentLeft = Float.NaN
@@ -3604,7 +3618,7 @@ class ExplainableStubParagraphLayoutEngine(
                                 range = range,
                                 request = FontRequest(
                                     preferredFamilies = ruby.fontFamilies,
-                                    locale = baseTextStyle.locale,
+                                    locale = rubyLocale,
                                     role = FontRole.CjkText,
                                 ),
                             )
@@ -3617,6 +3631,7 @@ class ExplainableStubParagraphLayoutEngine(
                                         fontFamilies = ruby.fontFamilies,
                                         fontWeight = placementWeight,
                                         italic = false,
+                                        locale = rubyLocale,
                                     ),
                                     fontDecision = decision,
                                     displayText = placement.text,
@@ -3690,6 +3705,7 @@ class ExplainableStubParagraphLayoutEngine(
                         replayPlacements,
                         ruby.fontFamilies,
                         bopomofoFontWeightAt(ruby.baseRange.start),
+                        rubyLocale,
                     )
                 }
             }
@@ -4268,6 +4284,12 @@ private const val MOURNING_FRAME_FACE_DESCENT_EM = 0.12f
  * 上缘在 +0.22em，故 +0.18em 的线仍在点之前。
  */
 private const val INTERLINEAR_LINE_Y_EM = 0.18f
+
+/**
+ * 书名号中心线额外下移一个 0.06em 波幅，使最上方波峰与专名号直线的上缘保持同等净空。
+ * 波形参数仍由 renderer 复用；这里只记录布局拥有的最终物理 y。
+ */
+private const val BOOK_TITLE_WAVE_LINE_Y_EM = 0.24f
 
 /** 相邻行间线各自回缩量（可见间隙 1/8em，单侧 ≤1/8em 上限内）. */
 private const val ADJACENT_LINE_SHORTEN_EM = 0.0625f
