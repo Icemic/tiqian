@@ -9,6 +9,7 @@ import org.tiqian.font.FontRole
 import org.tiqian.shaping.ShapingInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -73,6 +74,34 @@ class CoreTextShaperTest {
     }
 
     @Test
+    fun cjkMetricsFollowTheActualCoreTextFallbackRun() {
+        val defaultCjk = metrics.resolve(
+            FontMetricsRequest(
+                fontKey = "cjk",
+                fontSize = 18f,
+                role = FontRole.CjkText,
+                locale = "zh-Hans",
+                faceSelectionText = "宋",
+            ),
+        )
+        val latinOnlyRequested = metrics.resolve(
+            FontMetricsRequest(
+                fontKey = "latin-only-cjk",
+                fontSize = 18f,
+                role = FontRole.CjkText,
+                locale = "zh-Hans",
+                fontFamilies = listOf(CoreTextSupport.DEFAULT_LATIN_FAMILY),
+                faceSelectionText = "宋",
+            ),
+        )
+
+        assertEquals(defaultCjk.ascent, latinOnlyRequested.ascent, 0.01f)
+        assertEquals(defaultCjk.descent, latinOnlyRequested.descent, 0.01f)
+        assertEquals(defaultCjk.typoAscent!!, latinOnlyRequested.typoAscent!!, 0.01f)
+        assertEquals(defaultCjk.typoDescent!!, latinOnlyRequested.typoDescent!!, 0.01f)
+    }
+
+    @Test
     fun emptyDisplayTextProducesDegenerateCluster() {
         // A layout-decided empty display cluster (e.g. a fully compressed space) must not shape
         // glyphs but must still emit one zero-advance cluster + run so downstream indices align.
@@ -97,7 +126,38 @@ class CoreTextShaperTest {
         assertEquals(a.glyphRuns.single().glyphs.size, b.glyphRuns.single().glyphs.size)
     }
 
-    private fun input(text: String, role: FontRole, displayText: String = text): ShapingInput =
+    @Test
+    fun appliesOpenTypeFeaturesThroughCoreText() {
+        val enabled = shaper.shape(input("fi", FontRole.LatinText, features = listOf("liga=1")))
+        val disabled = shaper.shape(input("fi", FontRole.LatinText, features = listOf("liga=0")))
+
+        assertEquals(listOf("liga=1"), enabled.glyphRuns.single().openTypeFeatures)
+        assertEquals(listOf("liga=0"), disabled.glyphRuns.single().openTypeFeatures)
+        assertEquals("CoreTextFontDescriptor:liga=1", enabled.decisions.single().featureEvidence)
+        assertEquals(null, enabled.decisions.single().capabilityIssue)
+        assertNotEquals(
+            enabled.glyphRuns.single().glyphs.map { it.id },
+            disabled.glyphRuns.single().glyphs.map { it.id },
+            "Helvetica Neue's fi ligature must respond to the explicit Core Text feature setting",
+        )
+    }
+
+    @Test
+    fun reportsInvalidOpenTypeFeatureInsteadOfClaimingItWasApplied() {
+        val result = shaper.shape(input("fi", FontRole.LatinText, features = listOf("invalid-tag")))
+
+        assertTrue(result.clusters.single().advance > 0f, "the explicit degrade still shapes source text")
+        assertEquals(emptyList(), result.glyphRuns.single().openTypeFeatures)
+        assertEquals(CORE_TEXT_OPEN_TYPE_FEATURE_UNAVAILABLE, result.decisions.single().capabilityIssue)
+        assertEquals(null, result.decisions.single().featureEvidence)
+    }
+
+    private fun input(
+        text: String,
+        role: FontRole,
+        displayText: String = text,
+        features: List<String> = emptyList(),
+    ): ShapingInput =
         ShapingInput(
             text = text,
             range = TextRange(0, text.length),
@@ -109,5 +169,6 @@ class CoreTextShaperTest {
                 reason = "test",
             ),
             displayText = displayText,
+            openTypeFeatures = features,
         )
 }

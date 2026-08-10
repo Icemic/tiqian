@@ -30,6 +30,8 @@ import platform.CoreText.CTRunGetPositions
 import platform.CoreText.CTRunRef
 import platform.CoreText.kCTFontOrientationHorizontal
 
+const val CORE_TEXT_OPEN_TYPE_FEATURE_UNAVAILABLE: String = "CoreTextOpenTypeFeatureUnavailable"
+
 /**
  * Core Text shaping adapter (Apple / Kotlin-Native), the Native peer of `SkiaTextShaper`
  * / `AwtTextShaper` (ADR 0013/0015). Same contract: consume the layout-decided
@@ -43,10 +45,7 @@ import platform.CoreText.kCTFontOrientationHorizontal
  *
  * Shaping goes through the ONE shared line entry ([CoreTextSupport.line]) the renderer replays
  * with, so measure and draw resolve to the same cached `CTLine` — including the paragraph
- * **language** ([ShapingInput.style] locale), which drives `locl` glyph selection identically on
- * both sides. Still deferred (refinements under golden validation): `halt` alternate-width
- * measurement and OpenType-feature *application* (e.g. `fwid`) — features are still passed through
- * to [GlyphRun.openTypeFeatures] for now, not yet applied at shape time.
+ * **language** ([ShapingInput.style] locale) and explicit OpenType features such as `fwid=1`.
  */
 class CoreTextShaper(
     private val cjkFamily: String = CoreTextSupport.DEFAULT_CJK_FAMILY,
@@ -70,8 +69,27 @@ class CoreTextShaper(
             return degenerate(input, sourceText, displayText, fontKey, fontMissing = false)
         }
 
-        val shaped = shapeLine(displayText, font, input.style.locale)
-            ?: return degenerate(input, sourceText, displayText, fontKey, fontMissing = true)
+        val canonicalFeatures = CoreTextSupport.canonicalOpenTypeFeatures(input.openTypeFeatures)
+        var capabilityIssue = if (canonicalFeatures == null) CORE_TEXT_OPEN_TYPE_FEATURE_UNAVAILABLE else null
+        var appliedFeatures = canonicalFeatures.orEmpty()
+        var shaped = shapeLine(displayText, font, input.style.locale, appliedFeatures)
+        if (shaped == null && appliedFeatures.isNotEmpty()) {
+            // A requested feature that Core Text cannot instantiate is an explicit capability
+            // degrade. Shape without it only after recording the issue, and make the GlyphRun carry
+            // the actually-applied feature set so the renderer replays exactly this fallback.
+            capabilityIssue = CORE_TEXT_OPEN_TYPE_FEATURE_UNAVAILABLE
+            appliedFeatures = emptyList()
+            shaped = shapeLine(displayText, font, input.style.locale, appliedFeatures)
+        }
+        shaped ?: return degenerate(
+            input = input,
+            sourceText = sourceText,
+            displayText = displayText,
+            fontKey = fontKey,
+            fontMissing = true,
+            openTypeFeatures = appliedFeatures,
+            capabilityIssue = capabilityIssue,
+        )
         val advance = shaped.advance
         val count = shaped.glyphIds.size
         val cluster = Cluster(
@@ -97,7 +115,7 @@ class CoreTextShaper(
             fontKey = fontKey,
             glyphs = glyphs,
             advance = advance,
-            openTypeFeatures = input.openTypeFeatures,
+            openTypeFeatures = appliedFeatures,
         )
         val decision = ShapingDecisionInfo(
             range = input.range,
@@ -110,6 +128,10 @@ class CoreTextShaper(
             reason = "CoreTextShaper:$family",
             glyphsWithoutInkBounds = glyphs.count { it.bounds == null },
             missingGlyphs = shaped.glyphIds.count { it == 0u },
+            language = input.style.locale,
+            featureEvidence = appliedFeatures.takeIf { it.isNotEmpty() }
+                ?.let { "CoreTextFontDescriptor:${it.joinToString(",")}" },
+            capabilityIssue = capabilityIssue,
         )
         return ShapingResult(listOf(cluster), listOf(run), listOf(decision))
     }
@@ -127,8 +149,19 @@ class CoreTextShaper(
      * on both sides. Because measure and draw resolve to the very same cached `CTLine`, `measure ==
      * draw` (AGENTS.md #5) is guaranteed, not merely coincidental. The line is borrowed — NOT released.
      */
-    private fun shapeLine(displayText: String, font: CTFontRef, language: String?): Shaped? {
-        val line = CoreTextSupport.line(displayText, font, vertical = false, language = language) ?: return null
+    private fun shapeLine(
+        displayText: String,
+        font: CTFontRef,
+        language: String?,
+        openTypeFeatures: List<String>,
+    ): Shaped? {
+        val line = CoreTextSupport.line(
+            text = displayText,
+            font = font,
+            vertical = false,
+            language = language,
+            openTypeFeatures = openTypeFeatures,
+        ) ?: return null
         val advance = CTLineGetTypographicBounds(line, null, null, null).toFloat()
         val glyphIds = mutableListOf<UInt>()
         val xs = mutableListOf<Float>()
@@ -187,9 +220,11 @@ class CoreTextShaper(
         displayText: String,
         fontKey: String,
         fontMissing: Boolean,
+        openTypeFeatures: List<String> = emptyList(),
+        capabilityIssue: String? = null,
     ): ShapingResult {
         val cluster = Cluster(input.range, sourceText, displayText, fontKey, 0f)
-        val run = GlyphRun(input.range, fontKey, emptyList(), 0f, input.openTypeFeatures)
+        val run = GlyphRun(input.range, fontKey, emptyList(), 0f, openTypeFeatures)
         val decision = ShapingDecisionInfo(
             range = input.range,
             sourceText = sourceText,
@@ -199,6 +234,8 @@ class CoreTextShaper(
             advance = 0f,
             source = ShapingSource.CoreText.name,
             reason = if (fontMissing) "CoreTextShaper:font-unavailable" else "CoreTextShaper:empty",
+            language = input.style.locale,
+            capabilityIssue = capabilityIssue,
         )
         return ShapingResult(listOf(cluster), listOf(run), listOf(decision))
     }

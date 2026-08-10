@@ -31,8 +31,9 @@ private const val METRICS_REFERENCE_SIZE: Double = 128.0
  *   `OS/2` sTypoAscender/sTypoDescender (the clean ideographic em). The
  *   `ScriptAwareFontMetricsNormalizer` lays the CJK line box on this.
  *
- * Fonts come from [CoreTextSupport.font] (shared process cache); `measure == draw` (AGENTS.md
- * #5) since the shaper and renderer draw against the same cached family/size.
+ * Fonts come from [CoreTextSupport.font] (shared process cache), then [FontMetricsRequest.faceSelectionText]
+ * resolves the concrete Core Text fallback run. `measure == draw` (AGENTS.md #5) therefore holds
+ * even when a requested family is absent or lacks the requested CJK glyphs.
  */
 class CoreTextFontMetricsResolver(
     private val cjkFamily: String = CoreTextSupport.DEFAULT_CJK_FAMILY,
@@ -42,13 +43,22 @@ class CoreTextFontMetricsResolver(
     override fun resolve(request: FontMetricsRequest): RawFontMetrics {
         val family = request.fontFamilies.firstOrNull()
             ?: if (request.role.usesLatinFace()) latinFamily else cjkFamily
-        // Pre-baked, size-independent ratios read once per face instance (Apple system fonts are
-        // fixed): a font-size change reuses them instead of re-reading the OS/2 table per size. Keyed
-        // by (family, weight, italic) so a bold/oblique span measures ITS OWN face — synthetic oblique
-        // is a horizontal shear that leaves the vertical metrics unchanged, but a bold weight may
-        // declare a different ascent/descent, and measure == draw requires the drawn face's metrics.
-        val r = CoreTextSupport.ratios(family, request.fontWeight, request.italic) {
-            readRatios(family, request.fontWeight, request.italic)
+        // `CoreTextFallbackFaceMetrics`: resolve the face that owns this run before reading metrics.
+        // This is observable on iOS when a requested CJK family is unavailable: Core Text draws the
+        // fallback face, so aligning with the unavailable base face's descent would lift the run.
+        val baseFont = CoreTextSupport.font(
+            family,
+            METRICS_REFERENCE_SIZE,
+            request.fontWeight,
+            request.italic,
+        ) ?: return fallback(request)
+        val resolvedFont = CoreTextSupport.resolvedRunFont(
+            text = request.faceSelectionText,
+            font = baseFont,
+            language = request.locale,
+        )
+        val r = CoreTextSupport.ratios(resolvedFont) {
+            readRatios(resolvedFont)
         } ?: return fallback(request)
         val size = request.fontSize
         return RawFontMetrics(
@@ -66,8 +76,7 @@ class CoreTextFontMetricsResolver(
      * per-em. Core Text scales hhea/typo metrics linearly with point size, so `ratio * size` at draw
      * time equals what a per-size read would return — `measure == draw` (AGENTS.md #5) still holds.
      */
-    private fun readRatios(family: String, weight: Int, italic: Boolean): CoreTextSupport.MetricRatios? {
-        val font = CoreTextSupport.font(family, METRICS_REFERENCE_SIZE, weight, italic) ?: return null
+    private fun readRatios(font: CTFontRef): CoreTextSupport.MetricRatios? {
         val upm = CTFontGetUnitsPerEm(font).toDouble().let { if (it > 0.0) it else 1000.0 }
         val typo = readOs2Typo(font)
         return CoreTextSupport.MetricRatios(
