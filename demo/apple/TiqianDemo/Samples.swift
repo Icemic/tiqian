@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 import TiqianUI
 
 /// A demo passage, authored **here in the app** with native `AttributedString` + `CJKBlock` (this is
@@ -17,18 +21,37 @@ private func para(_ parts: AttributedString...) -> AttributedString {
     for part in parts { result.append(part) }
     return result
 }
+private func link(_ s: String, to destination: String) -> AttributedString {
+    var result = AttributedString(s)
+    result.link = URL(string: destination)
+    return result
+}
 
-private let accentRed = NSColor(srgbRed: 176.0 / 255, green: 0, blue: 32.0 / 255, alpha: 1)
-private let accentGreen = NSColor(srgbRed: 26.0 / 255, green: 110.0 / 255, blue: 60.0 / 255, alpha: 1)
+private let accentRed: PlatformColor = {
+    #if os(macOS)
+    NSColor(srgbRed: 176.0 / 255, green: 0, blue: 32.0 / 255, alpha: 1)
+    #else
+    UIColor(red: 176.0 / 255, green: 0, blue: 32.0 / 255, alpha: 1)
+    #endif
+}()
+private let accentGreen: PlatformColor = {
+    #if os(macOS)
+    NSColor(srgbRed: 26.0 / 255, green: 110.0 / 255, blue: 60.0 / 255, alpha: 1)
+    #else
+    UIColor(red: 26.0 / 255, green: 110.0 / 255, blue: 60.0 / 255, alpha: 1)
+    #endif
+}()
 private let serif = "Songti SC" // 宋体
 private let mono = "Menlo"
 
 let demoSamples: [DemoSample] = [
     overviewSample,
     richTextSample,
+    linkSample,
     listsSample,
     indentSample,
     mixedScriptSample,
+    hyphenationSample,
     lineBreakSample,
     justifySample,
     pinyinSample,
@@ -66,7 +89,7 @@ private let overviewSample = DemoSample(
             t("台湾来的朋友也照顾周到——"),
             t("您").bopomofo("ㄋㄧㄣˊ"), t("好").bopomofo("ㄏㄠˇ"), t("，"), t("请").bopomofo("ㄑㄧㄥˇ"),
             t("坐：ㄅㄆㄇ 竖在字旁，平上去入标得"), t("分毫不差").emphasis(), t("。"),
-        ).language("zh-TW")),
+        )),
         .section,
         .paragraph(para(
             t("我奉"), t("CLREQ").properNoun(), t("——也就是"), t("《中文排版需求》").bookTitle(),
@@ -103,6 +126,21 @@ private let richTextSample = DemoSample(
         .paragraph(para(
             t("组合也行："), t("加粗的宋体大字").styled(size: base * 1.3, bold: true, family: serif), t("，或"),
             t("斜的绿字").styled(size: base, italic: true, color: accentGreen), t("，随你搭配。"),
+        )),
+    ]
+}
+
+private let linkSample = DemoSample(
+    title: "链接",
+    subtitle: "AttributedString.link · SwiftUI OpenURLAction · UIKit / AppKit",
+) { _ in
+    [
+        .paragraph(para(
+            t("链接直接用 Apple 原生 AttributedString 属性创作：请参阅「"),
+            link("CLREQ", to: "https://www.w3.org/TR/clreq/"),
+            t("」与「"),
+            link("Unicode", to: "https://www.unicode.org/"),
+            t("」。链接跨行时仍由同一 source range 命中，拖选不会开启页面。"),
         )),
     ]
 }
@@ -149,6 +187,21 @@ private let mixedScriptSample = DemoSample(
         "我都没让它们贴着汉字。数字也一样：全书 1024 页、第 42 章、公元 2026 年，边界处都自动透着气。"))]
 }
 
+private let hyphenationSample = DemoSample(
+    title: "西文断词",
+    subtitle: "音节断开 · 行尾连字符 · 源文本不变",
+) { _ in
+    [
+        .paragraph(t(
+            "中文夹用英文时先尽量保持整词；整词放不下或会把上一行拉得过松，才按英文音节断开，并在行尾补显示层连字符。"
+        )),
+        .paragraph(t(
+            "窄栏可用 internationalization 验证正常音节断词，也可用 " +
+            "pneumonoultramicroscopicsilicovolcanoconiosis 验证超长词不会突出版心；复制所得仍是原词。"
+        )),
+    ]
+}
+
 private let lineBreakSample = DemoSample(
     title: "避头尾 · 标点挤压",
     subtitle: "行首禁则与标点半角",
@@ -185,7 +238,7 @@ private let bopomofoSample = DemoSample(
     [.paragraph(para(
         t("您").bopomofo("ㄋㄧㄣˊ"), t("好").bopomofo("ㄏㄠˇ"), t("，"),
         t("请").bopomofo("ㄑㄧㄥˇ"), t("坐").bopomofo("ㄗㄨㄛˋ"), t("。"),
-    ).language("zh-TW"))]
+    ))]
 }
 
 private let decorationSample = DemoSample(

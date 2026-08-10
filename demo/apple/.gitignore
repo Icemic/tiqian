@@ -2,6 +2,7 @@
 xcuserdata/
 *.xcuserstate
 DerivedData/
+.build/
 .DS_Store
 
 # SwiftPM state Xcode writes for the local TiqianUI package

@@ -11,10 +11,15 @@
 		AAAA000000000000000000D2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C2 /* ContentView.swift */; };
 		AAAA000000000000000000D4 /* Samples.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C4 /* Samples.swift */; };
 		AAAA000000000000000000F3 /* TiqianUI in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA000000000000000000F2 /* TiqianUI */; };
+		BBBB000000000000000000D1 /* TiqianDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C1 /* TiqianDemoApp.swift */; };
+		BBBB000000000000000000D2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C2 /* ContentView.swift */; };
+		BBBB000000000000000000D4 /* Samples.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAA000000000000000000C4 /* Samples.swift */; };
+		BBBB000000000000000000F3 /* TiqianUI in Frameworks */ = {isa = PBXBuildFile; productRef = AAAA000000000000000000F2 /* TiqianUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		AAAA000000000000000000B6 /* TiqianDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TiqianDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BBBB000000000000000000B6 /* TiqianDemo-iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "TiqianDemo-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AAAA000000000000000000C1 /* TiqianDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TiqianDemoApp.swift; sourceTree = "<group>"; };
 		AAAA000000000000000000C2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AAAA000000000000000000C4 /* Samples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Samples.swift; sourceTree = "<group>"; };
@@ -26,6 +31,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				AAAA000000000000000000F3 /* TiqianUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBBB000000000000000000B4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBBB000000000000000000F3 /* TiqianUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -44,6 +57,7 @@
 			isa = PBXGroup;
 			children = (
 				AAAA000000000000000000B6 /* TiqianDemo.app */,
+				BBBB000000000000000000B6 /* TiqianDemo-iOS.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -81,6 +95,26 @@
 			productReference = AAAA000000000000000000B6 /* TiqianDemo.app */;
 			productType = "com.apple.product-type.application";
 		};
+		BBBB000000000000000000A5 /* TiqianDemo-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BBBB000000000000000000A7 /* Build configuration list for PBXNativeTarget "TiqianDemo-iOS" */;
+			buildPhases = (
+				BBBB000000000000000000B3 /* Sources */,
+				BBBB000000000000000000B4 /* Frameworks */,
+				BBBB000000000000000000B5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "TiqianDemo-iOS";
+			packageProductDependencies = (
+				AAAA000000000000000000F2 /* TiqianUI */,
+			);
+			productName = TiqianDemo;
+			productReference = BBBB000000000000000000B6 /* TiqianDemo-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -92,6 +126,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					AAAA000000000000000000A5 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					BBBB000000000000000000A5 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -113,12 +150,20 @@
 			projectRoot = "";
 			targets = (
 				AAAA000000000000000000A5 /* TiqianDemo */,
+				BBBB000000000000000000A5 /* TiqianDemo-iOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AAAA000000000000000000B5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBBB000000000000000000B5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,6 +180,16 @@
 				AAAA000000000000000000D1 /* TiqianDemoApp.swift in Sources */,
 				AAAA000000000000000000D2 /* ContentView.swift in Sources */,
 				AAAA000000000000000000D4 /* Samples.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BBBB000000000000000000B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BBBB000000000000000000D1 /* TiqianDemoApp.swift in Sources */,
+				BBBB000000000000000000D2 /* ContentView.swift in Sources */,
+				BBBB000000000000000000D4 /* Samples.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -157,9 +212,7 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -176,8 +229,6 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
@@ -193,6 +244,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
@@ -201,6 +253,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -216,6 +270,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
@@ -224,8 +279,68 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.macos;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		BBBB000000000000000000B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "提椠 Demo";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					CoreText,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.ios;
+				PRODUCT_NAME = TiqianDemo;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		BBBB000000000000000000B2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "提椠 Demo";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					CoreText,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.tiqian.demo.ios;
+				PRODUCT_NAME = TiqianDemo;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -246,6 +361,15 @@
 			buildConfigurations = (
 				AAAA000000000000000000B1 /* Debug */,
 				AAAA000000000000000000B2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BBBB000000000000000000A7 /* Build configuration list for PBXNativeTarget "TiqianDemo-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBBB000000000000000000B1 /* Debug */,
+				BBBB000000000000000000B2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
