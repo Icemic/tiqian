@@ -22,9 +22,10 @@ object AndroidNativeGlyphReplay {
         originY: Float,
         fontSize: Float,
         paint: Paint,
+        reusablePath: Path? = null,
     ): Boolean {
         if (requiresPlatformSyntheticBold(glyphs)) return false
-        val path = glyphPath(glyphs, originX, originY, fontSize) ?: return false
+        val path = glyphPath(glyphs, originX, originY, fontSize, reusablePath) ?: return false
         if (!path.isEmpty) canvas.drawPath(path, paint)
         return true
     }
@@ -54,10 +55,14 @@ object AndroidNativeGlyphReplay {
         originX: Float,
         originY: Float,
         fontSize: Float,
+        reusablePath: Path? = null,
     ): Path? {
         if (glyphs.isEmpty()) return null
         if (requiresPlatformSyntheticBold(glyphs)) return null
-        val result = Path().apply { fillType = Path.FillType.WINDING }
+        val result = (reusablePath ?: Path()).apply {
+            reset()
+            fillType = Path.FillType.WINDING
+        }
         for (glyph in glyphs) {
             val key = glyph.renderFontKey ?: return null
             val face = TiqianAndroidFontBackend.faceFor(key) ?: return null

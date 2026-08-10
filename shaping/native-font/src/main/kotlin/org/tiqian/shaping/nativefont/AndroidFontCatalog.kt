@@ -673,7 +673,10 @@ object TiqianAndroidFontBackend {
                 faceById[id] = physicalFace
                 if (selection.syntheticBold) syntheticBoldFaceIds += id
                 if (selection.syntheticItalic) syntheticItalicFaceIds += id
-                if (selection.syntheticBold) platformFontById[id] = selection.font
+                // The platform Font and the NativeFontFace above are two handles over the same
+                // source, TTC index and variation axes. Retain it for exact Canvas.drawGlyphs
+                // replay on API 31+, not only for the fake-bold special case.
+                platformFontById[id] = selection.font
                 physicalFace to id
             }
             val (nativeFace, id) = native

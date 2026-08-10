@@ -243,6 +243,28 @@ class AndroidNativeFontBackendTest {
     }
 
     @Test
+    fun platformRegularFaceRetainsTheSelectedAndroidFontForGlyphReplay() {
+        if (Build.VERSION.SDK_INT < 31) return
+        TiqianAndroidFontBackend.resetDefaultCatalogForTesting(context)
+        val request = org.tiqian.shaping.ReplayableFontFaceRequest(
+            role = FontRole.CjkText,
+            preferredFamilies = emptyList(),
+            fontSize = 32f,
+            weight = 400,
+            italic = false,
+            locale = "zh-Hans",
+            selectionText = "普通正文",
+        )
+
+        val resolved = TiqianAndroidFontBackend.resolveFace(context, request)
+
+        assertNotNull(
+            AndroidNativeGlyphReplay.platformFontFor(resolved.descriptor.id.value),
+            "Regular platform-default faces must retain the exact Font used to create native shaping bytes",
+        )
+    }
+
+    @Test
     fun nativeFaceInstancesShareOneFileMappingAndKeepItAlive() {
         val file = File("/system/fonts/Roboto-Regular.ttf").takeIf(File::isFile) ?: return
         val before = nativeFontResourceStats()

@@ -27,6 +27,40 @@ import org.jetbrains.skia.shaper.Shaper
 import kotlin.math.max
 import kotlin.math.min
 
+private class SkiaParagraphDrawCache : ParagraphDrawCache {
+    internal val cjkFont = Font(SkiaSystemTypefaces.cjk, 1f)
+    internal val latinFont = Font(SkiaSystemTypefaces.latin, 1f)
+    internal val annotationFont = Font()
+    internal val glyphPaint = Paint()
+    internal val selectionPaint = Paint()
+    internal val richTextBackgroundPaint = Paint()
+    internal val richTextLinePaint = Paint()
+    internal val decorationPaint = Paint()
+    internal val framePaint = Paint()
+    internal val shaper = Shaper.makeShaperDrivenWrapper()
+    internal val skipInkIntervals = HashMap<Long, FloatArray>()
+
+    override fun invalidateGeometry() {
+        skipInkIntervals.clear()
+    }
+
+    override fun dispose() {
+        skipInkIntervals.clear()
+        cjkFont.close()
+        latinFont.close()
+        annotationFont.close()
+        glyphPaint.close()
+        selectionPaint.close()
+        richTextBackgroundPaint.close()
+        richTextLinePaint.close()
+        decorationPaint.close()
+        framePaint.close()
+        shaper.close()
+    }
+}
+
+internal actual fun createParagraphDrawCache(): ParagraphDrawCache = SkiaParagraphDrawCache()
+
 /**
  * Draws a [LayoutResult] onto the Compose desktop canvas. Pure presentation:
  * x stepping comes from cluster advances the ENGINE resolved; glyphs come
@@ -42,21 +76,24 @@ internal actual fun ContentDrawScope.drawParagraph(
     spans: List<TextSpan>,
     selectionBoxes: List<org.tiqian.core.Rect>,
     selectionColor: Int?,
+    drawCache: ParagraphDrawCache,
 ) {
+    val drawCache = drawCache as SkiaParagraphDrawCache
     val fontSize = result.input.textStyle.fontSize
-    val cjkFont = Font(SkiaSystemTypefaces.cjk, fontSize)
-    val latinFont = Font(SkiaSystemTypefaces.latin, fontSize)
-    val paint = Paint().apply { this.color = color }
-    val shaper = Shaper.makeShaperDrivenWrapper()
+    val cjkFont = drawCache.cjkFont.apply { size = fontSize }
+    val latinFont = drawCache.latinFont.apply { size = fontSize }
+    val paint = drawCache.glyphPaint.apply { this.color = color }
+    val shaper = drawCache.shaper
 
     drawIntoCanvas { canvas ->
         val skCanvas = canvas.skiaCanvas
-        drawSkiaRichTextBackgrounds(skCanvas, replayIndex.richTextBackgroundSegments)
+        drawSkiaRichTextBackgrounds(
+            skCanvas, replayIndex.richTextBackgroundSegments, drawCache.richTextBackgroundPaint,
+        )
         if (selectionColor != null) {
-            val selectionPaint = Paint().apply {
-                mode = PaintMode.FILL
-                this.color = selectionColor
-            }
+            val selectionPaint = drawCache.selectionPaint
+            selectionPaint.mode = PaintMode.FILL
+            selectionPaint.color = selectionColor
             for (box in selectionBoxes) {
                 skCanvas.drawRect(
                     Rect.makeLTRB(box.left, box.top, box.right, box.bottom),
@@ -91,11 +128,13 @@ internal actual fun ContentDrawScope.drawParagraph(
             cjkFont,
             latinFont,
             shaper,
+            drawCache.richTextLinePaint,
+            drawCache.skipInkIntervals,
         )
 
         // Emphasis dots (ADR 0018): paint the engine-owned final diameter at
         // the engine-owned ink-centre anchor.
-        val decorationPaint = Paint()
+        val decorationPaint = drawCache.decorationPaint
         for (dot in result.debug.decorationDecisions) {
             if (dot.applied && dot.dotDiameter > 0f) {
                 decorationPaint.color = colorAt(dot.clusterRange.start, color, colorSpans)
@@ -112,11 +151,10 @@ internal actual fun ContentDrawScope.drawParagraph(
         // edges stay undrawn), 专名号 straight underlines, 书名号甲式 wavy
         // underlines.
         if (result.debug.decorationSegments.isNotEmpty()) {
-            val framePaint = Paint().apply {
-                this.color = color
-                mode = org.jetbrains.skia.PaintMode.STROKE
-                strokeWidth = (fontSize / 16f).coerceAtLeast(1f)
-            }
+            val framePaint = drawCache.framePaint
+            framePaint.color = color
+            framePaint.mode = org.jetbrains.skia.PaintMode.STROKE
+            framePaint.strokeWidth = (fontSize / 16f).coerceAtLeast(1f)
             // text-decoration-skip-ink (Compose lacks it): break the 行间线 around
             // any glyph ink that crosses it, via Skia's getIntercepts. For pure
             // CJK the line sits below the face → no intercepts → continuous; it
@@ -142,20 +180,24 @@ internal actual fun ContentDrawScope.drawParagraph(
                             cjkFont = cjkFont,
                             latinFont = latinFont,
                             shaper = shaper,
+                            skipCache = drawCache.skipInkIntervals,
                         )
                     }
                     "BookTitle" -> {
-                        val skips = result.lineInkSkipIntervalsWithPositions(
-                            result.lines[seg.lineIndex],
-                            cjkFont,
-                            latinFont,
-                            shaper,
-                            seg.top - skipBandPad,
-                            seg.top + skipBandPad,
-                            spans,
-                            replayIndex.positionedClusters,
-                            replayIndex.fontRoleByClusterRange,
-                        )
+                        val cacheKey = skipInkCacheKey(seg.lineIndex, seg.top, skipBandPad)
+                        val skips = drawCache.skipInkIntervals.getOrPut(cacheKey) {
+                            result.lineInkSkipIntervalsWithPositions(
+                                result.lines[seg.lineIndex],
+                                cjkFont,
+                                latinFont,
+                                shaper,
+                                seg.top - skipBandPad,
+                                seg.top + skipBandPad,
+                                spans,
+                                replayIndex.positionedClusters,
+                                replayIndex.fontRoleByClusterRange,
+                            )
+                        }
                         keptIntervals(seg.left, seg.right, skips, skipClearance) { x0, x1 ->
                             skCanvas.drawPath(org.tiqian.shaping.skia.wavyLinePath(x0, x1, seg.top, fontSize), framePaint)
                         }
@@ -179,7 +221,10 @@ internal actual fun ContentDrawScope.drawParagraph(
             val rubyStyle = org.jetbrains.skia.FontStyle(ruby.fontWeight, org.jetbrains.skia.FontStyle.NORMAL.width, org.jetbrains.skia.FontSlant.UPRIGHT)
             val tf = SkiaSystemTypefaces.typeface(isLatin = true, family = ruby.fontFamilies.firstOrNull(), style = rubyStyle)
                 ?: SkiaSystemTypefaces.latin
-            val rubyFont = Font(tf, ruby.fontSize)
+            val rubyFont = drawCache.annotationFont.apply {
+                setTypeface(tf)
+                size = ruby.fontSize
+            }
             val width = rubyFont.measureTextWidth(ruby.text)
             shapeTextBlob(shaper, ruby.text, rubyFont, ruby.locale)?.let { blob ->
                 skCanvas.drawTextBlob(blob, ruby.centerX - width / 2f, ruby.baselineY, paint)
@@ -250,8 +295,8 @@ internal actual fun ContentDrawScope.drawParagraph(
 private fun drawSkiaRichTextBackgrounds(
     canvas: org.jetbrains.skia.Canvas,
     segments: List<RichTextLineSegment>,
+    paint: Paint,
 ) {
-    val paint = Paint()
     for (seg in segments) {
         val argb = when (seg.span.role) {
             RichTextRole.Background -> seg.span.paint.argb
@@ -299,13 +344,10 @@ private fun drawSkiaRichTextLines(
     cjkFont: Font,
     latinFont: Font,
     shaper: Shaper,
+    paint: Paint,
+    skipCache: MutableMap<Long, FloatArray>,
 ) {
-    val paint = Paint().apply {
-        mode = PaintMode.STROKE
-    }
-    // Skip-ink intervals re-shape the line's clusters — memoize per (line, band)
-    // so several underline segments on one line pay for shaping once per draw.
-    val skipCache = HashMap<Long, FloatArray>()
+    paint.mode = PaintMode.STROKE
     for (seg in segments) {
         val role = seg.span.role
         if (role != RichTextRole.Underline && role != RichTextRole.LineThrough) continue
@@ -380,9 +422,7 @@ private fun drawSkiaStraightInterlinearLine(
     skipCache: MutableMap<Long, FloatArray>? = null,
 ) {
     val line = result.lines.getOrNull(lineIndex) ?: return
-    val cacheKey = (lineIndex.toLong() shl 32) xor
-        (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
-        (skipBandPad.toRawBits().toLong() shl 1)
+    val cacheKey = skipInkCacheKey(lineIndex, lineY, skipBandPad)
     val skips = skipCache?.getOrPut(cacheKey) {
         result.lineInkSkipIntervalsWithPositions(
             line,
@@ -454,6 +494,11 @@ private fun drawSkiaStraightInterlinearLine(
         }
     }
 }
+
+private fun skipInkCacheKey(lineIndex: Int, lineY: Float, skipBandPad: Float): Long =
+    (lineIndex.toLong() shl 32) xor
+        (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
+        (skipBandPad.toRawBits().toLong() shl 1)
 
 private fun colorAt(offset: Int, color: Int, colorSpans: List<ColorSpan>): Int =
     colorSpans.lastOrNull { offset >= it.start && offset < it.end }?.argb ?: color

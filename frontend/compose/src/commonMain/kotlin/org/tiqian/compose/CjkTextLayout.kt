@@ -496,6 +496,7 @@ private class CjkTextLayoutNode(
     private var result: LayoutResult? = null
     private var cachedLayout: CachedLayout? = null
     private var replayIndex: LayoutResultReplayIndex? = null
+    private var drawCache: ParagraphDrawCache? = null
     private var drawClipWidth: Float = 0f
     private var drawClipHeight: Float = 0f
     private var drawClipLeft: Float = 0f
@@ -517,6 +518,7 @@ private class CjkTextLayoutNode(
     }
 
     override fun onAttach() {
+        drawCache = createParagraphDrawCache()
         selectionBridge.selectable = this
         selectionBridge.coordinates?.let(::updateSelectionCoordinates)
         selectionState?.register(this)
@@ -526,6 +528,8 @@ private class CjkTextLayoutNode(
         selectionState?.unregister(this)
         if (selectionBridge.selectable === this) selectionBridge.selectable = null
         selectionCoordinates = null
+        drawCache?.dispose()
+        drawCache = null
     }
 
     fun update(
@@ -628,7 +632,10 @@ private class CjkTextLayoutNode(
             invalidateMeasurement()
             invalidateDraw()
         } else if (drawChanged) {
-            if (richTextChanged) replayIndex = result?.toReplayIndex(richTextSpans)
+            if (richTextChanged) {
+                replayIndex = result?.toReplayIndex(richTextSpans)
+                drawCache?.invalidateGeometry()
+            }
             invalidateDraw()
         }
         if (semanticsChanged) invalidateSemantics()
@@ -769,6 +776,7 @@ private class CjkTextLayoutNode(
         }
         result = laidOut
         replayIndex = laidOut.toReplayIndex(richTextSpans)
+        drawCache?.invalidateGeometry()
         updateInlineObjectPlacements(laidOut, replayIndex, inlineObjects, inlineObjectPlacements)
         onTextLayout(laidOut)
         // The drawn content (incl. 行间装饰 overhang) paints from draw(); the empty inner
@@ -815,17 +823,20 @@ private class CjkTextLayoutNode(
         val result = result
         val replayIndex = replayIndex
         if (result != null && replayIndex != null) {
+            val drawCache = drawCache ?: return
             val drawScope = this
             val selectionRange = selectionState?.rangeFor(this@CjkTextLayoutNode)
             val selectionBoxes = selectionRange?.let { replayIndex.selectionBoxes(result, it) }.orEmpty()
             val selectionColor = selectionRange?.let { selectionState?.selectionBackgroundArgb }
             if (overflow == TextOverflow.Visible) {
-                drawParagraph(result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor)
+                drawParagraph(
+                    result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
+                )
                 drawContent()
             } else {
                 clipRect(left = drawClipLeft, top = drawClipTop, right = drawClipRight, bottom = drawClipBottom) {
                     drawScope.drawParagraph(
-                        result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor,
+                        result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
                     )
                     drawScope.drawContent()
                 }
@@ -1021,7 +1032,16 @@ internal expect fun ContentDrawScope.drawParagraph(
     spans: List<TextSpan>,
     selectionBoxes: List<org.tiqian.core.Rect>,
     selectionColor: Int?,
+    drawCache: ParagraphDrawCache,
 )
+
+/** Platform-owned mutable drawing resources retained for one attached `CjkText` node. */
+internal interface ParagraphDrawCache {
+    fun invalidateGeometry()
+    fun dispose()
+}
+
+internal expect fun createParagraphDrawCache(): ParagraphDrawCache
 
 private const val DEFAULT_UNBOUNDED_WIDTH = 65_536f
 internal const val DEFAULT_TEXT_COLOR: Int = 0xFF000000.toInt()
