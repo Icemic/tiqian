@@ -6,18 +6,25 @@ import UIKit
 #endif
 
 /// 拼音 (above) vs 注音 ㄅㄆㄇ (right side).
-public enum RubyKind: String, Codable, Hashable {
+public enum RubyKind: String, Codable, Hashable, Sendable {
     case pinyin
     case bopomofo
 }
 
 /// A ruby annotation attached to a run of base characters.
-public struct RubyReading: Codable, Hashable {
+public struct RubyReading: Codable, Hashable, Sendable {
     public var reading: String
     public var kind: RubyKind
-    public init(_ reading: String, kind: RubyKind = .pinyin) {
+    public var languageIdentifier: String?
+
+    public init(
+        _ reading: String,
+        kind: RubyKind = .pinyin,
+        languageIdentifier: String? = nil
+    ) {
         self.reading = reading
         self.kind = kind
+        self.languageIdentifier = languageIdentifier ?? (kind == .bopomofo ? "zh-TW" : nil)
     }
 }
 
@@ -25,7 +32,7 @@ public struct RubyReading: Codable, Hashable {
 /// `AttributedString` has no native equivalent for. Base rich text (weight / italic / size / family /
 /// color / language) uses the platform's **native** attributes (`.font`, `.foregroundColor`,
 /// `.languageIdentifier`) — only these CJK-specific roles need custom keys.
-public enum TiqianAttributes {
+public enum CJKAttributes {
     public struct RubyKey: AttributedStringKey {
         public typealias Value = RubyReading
         public static let name = "org.tiqian.ruby"
@@ -56,14 +63,14 @@ public enum TiqianAttributes {
 }
 
 public extension AttributeScopes {
-    /// The Tiqian scope: the custom CJK keys plus the platform + foundation scopes, so a single
+    /// The CJK text scope: custom CJK keys plus the platform and foundation scopes, so a single
     /// `run.font` / `run.foregroundColor` / `run.languageIdentifier` / `run.ruby` all resolve.
-    struct TiqianScope: AttributeScope {
-        public let ruby: TiqianAttributes.RubyKey
-        public let emphasis: TiqianAttributes.EmphasisKey
-        public let properNoun: TiqianAttributes.ProperNounKey
-        public let bookTitle: TiqianAttributes.BookTitleKey
-        public let mourning: TiqianAttributes.MourningKey
+    struct CJKAttributeScope: AttributeScope {
+        public let ruby: CJKAttributes.RubyKey
+        public let emphasis: CJKAttributes.EmphasisKey
+        public let properNoun: CJKAttributes.ProperNounKey
+        public let bookTitle: CJKAttributes.BookTitleKey
+        public let mourning: CJKAttributes.MourningKey
         public let foundation: FoundationAttributes
         #if canImport(AppKit)
         public let appKit: AppKitAttributes
@@ -73,14 +80,14 @@ public extension AttributeScopes {
         #endif
     }
 
-    var tiqian: TiqianScope.Type { TiqianScope.self }
+    var cjkText: CJKAttributeScope.Type { CJKAttributeScope.self }
 }
 
 public extension AttributeDynamicLookup {
     // Return type is `T` (the key type), not `T.Value?`: this is Apple's canonical custom-scope
     // dynamic-member pattern — `self[T.self]` here resolves to `T`, and the scope makes native
     // `AttributedString` attribute lookups (e.g. `.languageIdentifier`) reachable on runs.
-    subscript<T: AttributedStringKey>(dynamicMember keyPath: KeyPath<AttributeScopes.TiqianScope, T>) -> T {
+    subscript<T: AttributedStringKey>(dynamicMember keyPath: KeyPath<AttributeScopes.CJKAttributeScope, T>) -> T {
         self[T.self]
     }
 }
@@ -92,22 +99,23 @@ public extension AttributedString {
     /// member is shadowed by this helper method.)
     func ruby(_ reading: String, _ kind: RubyKind = .pinyin) -> AttributedString {
         var copy = self
-        copy[TiqianAttributes.RubyKey.self] = RubyReading(reading, kind: kind)
+        copy[CJKAttributes.RubyKey.self] = RubyReading(reading, kind: kind)
         return copy
     }
 
-    /// 注音 (ㄅㄆㄇ) over the whole fragment. The paragraph usually also wants `.language("zh-TW")`.
+    /// 注音 (ㄅㄆㄇ) over the whole fragment. The注文 carries `zh-TW`; the simplified-horizontal
+    /// base paragraph keeps its own language and CLREQ profile.
     func bopomofo(_ reading: String) -> AttributedString { ruby(reading, .bopomofo) }
 
-    /// Synthetic-oblique italic (works on CJK families with no italic face; see [TiqianAttributes.ItalicKey]).
-    func italic() -> AttributedString { var c = self; c[TiqianAttributes.ItalicKey.self] = true; return c }
+    /// Synthetic-oblique italic (works on CJK families with no italic face; see [CJKAttributes.ItalicKey]).
+    func italic() -> AttributedString { var c = self; c[CJKAttributes.ItalicKey.self] = true; return c }
 
-    func emphasis() -> AttributedString { var c = self; c[TiqianAttributes.EmphasisKey.self] = true; return c }
-    func properNoun() -> AttributedString { var c = self; c[TiqianAttributes.ProperNounKey.self] = true; return c }
-    func bookTitle() -> AttributedString { var c = self; c[TiqianAttributes.BookTitleKey.self] = true; return c }
-    func mourning() -> AttributedString { var c = self; c[TiqianAttributes.MourningKey.self] = true; return c }
+    func emphasis() -> AttributedString { var c = self; c[CJKAttributes.EmphasisKey.self] = true; return c }
+    func properNoun() -> AttributedString { var c = self; c[CJKAttributes.ProperNounKey.self] = true; return c }
+    func bookTitle() -> AttributedString { var c = self; c[CJKAttributes.BookTitleKey.self] = true; return c }
+    func mourning() -> AttributedString { var c = self; c[CJKAttributes.MourningKey.self] = true; return c }
 
-    /// BCP-47 language for this fragment (native `.languageIdentifier`); 注音 needs `"zh-TW"`.
+    /// BCP-47 language for the base-text fragment (native `.languageIdentifier`).
     func language(_ bcp47: String) -> AttributedString {
         var c = self
         c.languageIdentifier = bcp47
@@ -115,7 +123,7 @@ public extension AttributedString {
     }
 
     /// Set a native `.font` (family / size / weight, CJK default PingFang SC) and optional
-    /// `.foregroundColor`. `italic` is carried as the semantic [TiqianAttributes.ItalicKey] rather
+    /// `.foregroundColor`. `italic` is carried as the semantic [CJKAttributes.ItalicKey] rather
     /// than a font trait, so it renders as a shear even on CJK families with no italic face.
     func styled(
         size: CGFloat,
@@ -126,7 +134,7 @@ public extension AttributedString {
     ) -> AttributedString {
         var c = self
         c.font = Self.makeFont(family: family, size: size, bold: bold)
-        if italic { c[TiqianAttributes.ItalicKey.self] = true }
+        if italic { c[CJKAttributes.ItalicKey.self] = true }
         if let color { c.foregroundColor = color }
         return c
     }

@@ -60,11 +60,11 @@ include(
     ":clreq",
     ":layout",
     ":frontend:compose",
-    ":frontend:coretext-render",
+    ":frontend:apple",
+    ":frontend:apple:coretext-render",
     ":demo",
     ":demo:android",
     ":demo:font-diagnostics",
-    ":demo:macos-kit",
     ":frontend:android-view",
     ":test-support",
 )

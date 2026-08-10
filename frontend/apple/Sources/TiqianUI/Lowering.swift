@@ -46,48 +46,40 @@ enum Lowering {
         return builder
     }
 
-    /// Walk an `AttributedString`'s runs and replay them onto a `ParagraphContent`. Each run is a
-    /// ruby, a decoration, a styled run (native font/color), or plain text — mutually exclusive as
-    /// the demo authors them.
+    /// Walk an `AttributedString`'s runs and replay every independent attribute onto one source
+    /// range in `ParagraphContent`.
     private static func paragraphContent(_ attr: AttributedString, baseSize: Float) -> ParagraphContent {
         let content = ParagraphContent()
         for run in attr.runs {
             let text = String(attr[run.range].characters)
             if text.isEmpty { continue }
-            if let language = run.languageIdentifier { content.locale(bcp47: language) }
+            let language = run.languageIdentifier
 
-            // Ruby is a distinct base+reading construct. Combining ruby with other aspects on the
-            // same run is a v1 limitation (ruby takes precedence); a run is rarely both ruby and
-            // bold/coloured/decorated.
-            if let ruby = run.ruby {
-                switch ruby.kind {
-                case .pinyin: content.pinyin(base: text, reading: ruby.reading)
-                case .bopomofo: content.bopomofo(base: text, reading: ruby.reading)
-                }
-                continue
-            }
-
-            // Everything else is collected independently over the SAME range and emitted as one
+            // Everything is collected independently over the SAME range and emitted as one
             // `piece`, so a run that is e.g. bold + red + 着重号 keeps all three instead of only the
-            // first-matched aspect. Read the platform font/color via the explicit key — the bare
-            // `.font`/`.foregroundColor` dynamic members are ambiguous across AppKit/UIKit/SwiftUI.
+            // first-matched aspect. Ruby follows the same rule. Read platform font/color via the
+            // explicit key — bare `.font`/`.foregroundColor` dynamic members are ambiguous across
+            // AppKit/UIKit/SwiftUI.
             // Italic is a semantic flag (not a font trait) so it survives on faceless-italic CJK.
             #if canImport(AppKit)
             let font = run[AttributeScopes.AppKitAttributes.FontAttribute.self]
-            let color = run[AttributeScopes.AppKitAttributes.ForegroundColorAttribute.self]
+            let explicitColor = run[AttributeScopes.AppKitAttributes.ForegroundColorAttribute.self]
             #elseif canImport(UIKit)
             let font = run[AttributeScopes.UIKitAttributes.FontAttribute.self]
-            let color = run[AttributeScopes.UIKitAttributes.ForegroundColorAttribute.self]
+            let explicitColor = run[AttributeScopes.UIKitAttributes.ForegroundColorAttribute.self]
             #endif
-            let italic = run[TiqianAttributes.ItalicKey.self] == true
+            let link = run.link
+            let color = explicitColor ?? (link == nil ? nil : defaultLinkColor)
+            let italic = run[CJKAttributes.ItalicKey.self] == true
             let emphasis = run.emphasis == true
             let properNoun = run.properNoun == true
             let bookTitle = run.bookTitle == true
             let mourning = run.mourning == true
+            let ruby = run.ruby
 
-            let hasStyle = font != nil || color != nil || italic
+            let hasStyle = font != nil || color != nil || italic || language != nil
             let hasDecoration = emphasis || properNoun || bookTitle || mourning
-            if !hasStyle, !hasDecoration {
+            if !hasStyle, !hasDecoration, ruby == nil, link == nil {
                 content.text(s: text)
             } else {
                 content.piece(
@@ -97,10 +89,15 @@ enum Lowering {
                     sizeEm: font.map { Float($0.pointSize) / baseSize } ?? 1,
                     family: font?.familyName,
                     argb: argb(of: color),
+                    rubyReading: ruby?.reading,
+                    rubyBopomofo: ruby?.kind == .bopomofo,
                     emphasis: emphasis,
                     properNoun: properNoun,
                     bookTitle: bookTitle,
                     mourning: mourning,
+                    locale: language,
+                    rubyLocale: ruby?.languageIdentifier,
+                    linkTarget: link?.absoluteString,
                 )
             }
         }
@@ -130,5 +127,15 @@ enum Lowering {
         let G = Int64((g * 255).rounded())
         let B = Int64((b * 255).rounded())
         return (A << 24) | (R << 16) | (G << 8) | B
+    }
+
+    /// Platform-default link foreground. Native `AttributedString.link` supplies semantics; the
+    /// custom renderer supplies the same recognizable default when no explicit foreground wins.
+    private static var defaultLinkColor: PlatformColor {
+        #if canImport(AppKit)
+        NSColor.linkColor
+        #elseif canImport(UIKit)
+        UIColor.link
+        #endif
     }
 }
