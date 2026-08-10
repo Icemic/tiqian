@@ -36,7 +36,7 @@ kotlin {
             implementation(project(":shaping:jvm"))
             implementation(project(":shaping:skia"))
             implementation(project(":test-support"))
-            runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.148.1")
+            runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6")
         }
     }
 }
