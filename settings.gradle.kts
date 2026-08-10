@@ -64,6 +64,7 @@ include(
     ":frontend:apple:coretext-render",
     ":demo",
     ":demo:android",
+    ":benchmark:android",
     ":demo:font-diagnostics",
     ":frontend:android-view",
     ":test-support",
