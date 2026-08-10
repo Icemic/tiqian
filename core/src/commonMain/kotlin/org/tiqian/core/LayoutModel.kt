@@ -405,6 +405,8 @@ data class RubyDecisionInfo(
     val fontFamilies: List<String> = emptyList(),
     /** 注文字重：小字号下注文比基文重 100（OpenType weight），以保清晰。 */
     val fontWeight: Int = 400,
+    /** 本次注文 shaping 实际使用的 BCP-47 language。 */
+    val locale: String = "zh-Hans",
     /** Shape-once annotation glyphs drawn at centerX - width/2, baselineY. */
     val glyphs: List<Glyph> = emptyList(),
 )
@@ -424,6 +426,8 @@ data class BopomofoDecisionInfo(
     val fontFamilies: List<String> = emptyList(),
     /** 注文字重：比基文重 300（OpenType weight），小字号下保清晰。 */
     val fontWeight: Int = 400,
+    /** 本次注音 shaping 实际使用的 BCP-47 language。 */
+    val locale: String = "zh-Hans",
 )
 
 data class BopomofoGlyphPlacement(

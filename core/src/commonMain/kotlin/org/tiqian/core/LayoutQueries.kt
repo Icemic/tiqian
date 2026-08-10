@@ -5,7 +5,6 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val INTERLINEAR_UNDERLINE_OFFSET_EM = 0.18f
-private const val GENERIC_LINE_THROUGH_OFFSET_EM = 0.30f
 
 /**
  * A cluster positioned in layout coordinates. The rectangle is the cluster's line box slice, not
@@ -60,6 +59,38 @@ data class RichTextLineSegment(
     val width: Float get() = right - left
     val height: Float get() = bottom - top
     val rect: Rect get() = Rect(left, top, right, bottom)
+}
+
+/**
+ * Plain-text clipboard projection for [range]. Visible layout substitutions and soft-wrap glyphs
+ * never enter this string: it starts from source text, then mirrors the Web frontend's annotation
+ * contract by appending a fully-selected ruby / 注音 reading in full-width parentheses after its
+ * base. A partial selection of a multi-character base does not invent a detached reading.
+ */
+fun LayoutResult.getTextForCopy(range: TextRange): String {
+    val source = input.content.text
+    val start = range.start.coerceIn(0, source.length)
+    val end = range.end.coerceIn(start, source.length)
+    if (start == end) return ""
+
+    val annotationsByEnd = mutableMapOf<Int, MutableList<String>>()
+    fun addAnnotation(baseRange: TextRange, text: String) {
+        if (baseRange.start < start || baseRange.end > end) return
+        annotationsByEnd.getOrPut(baseRange.end) { mutableListOf() } += "（$text）"
+    }
+    debug.rubyDecisions.forEach { addAnnotation(it.baseRange, it.text) }
+    debug.bopomofoDecisions.forEach { addAnnotation(it.baseRange, it.text) }
+
+    return buildString {
+        var cursor = start
+        for (annotationEnd in annotationsByEnd.keys.sorted()) {
+            if (annotationEnd < cursor || annotationEnd > end) continue
+            append(source, cursor, annotationEnd)
+            annotationsByEnd.getValue(annotationEnd).forEach(::append)
+            cursor = annotationEnd
+        }
+        append(source, cursor, end)
+    }
 }
 
 /**
@@ -226,10 +257,8 @@ fun LayoutResult.positionedRichTextSegments(spans: List<RichTextSpan>): List<Ric
 
 /**
  * Returns underline/strike-through segments with punctuation glue removed at the decoration's outer
- * source edges. The occupied geometry from [positionedRichTextSegments] is already ink-tight, so
- * autospace and 两端对齐 stretch are excluded structurally; `RichTextDecorationPunctuationGlueTrim`
- * additionally removes punctuation glue, which lives in the recorded geometry rather than the glyph
- * ink and so is not caught by the ink span. It keeps the occupied geometry unchanged for
+ * source edges. `RichTextDecorationPunctuationGlueTrim` removes punctuation glue, which lives in
+ * the recorded occupied geometry rather than the glyph. It keeps the occupied geometry unchanged for
  * backgrounds, links, selection and hit testing; glue between two decorated clusters also remains
  * covered so a continuous decoration does not acquire an internal gap.
  */
@@ -241,8 +270,177 @@ fun LayoutResult.trimmedRichTextDecorationSegments(
         it.span.role == RichTextRole.Underline || it.span.role == RichTextRole.LineThrough
     }
     if (decorationSegments.isEmpty()) return emptyList()
+    return trimOuterPunctuationGlue(decorationSegments).withAdjacentSameStyleClearance()
+}
+
+/**
+ * Returns one continuous paint box per visual line for background roles. The horizontal box keeps
+ * every authored/internal gap between the first and last marked clusters, while its two outer edges
+ * exclude autospace, justification and punctuation glue owned by neighbouring text. Vertically it
+ * uses the marked clusters' typographic faces rather than the complete line box, so paragraph
+ * leading does not inflate a short highlight.
+ */
+fun LayoutResult.richTextBackgroundSegments(
+    occupiedSegments: List<RichTextLineSegment>,
+): List<RichTextLineSegment> {
+    if (occupiedSegments.isEmpty()) return emptyList()
+    val backgrounds = occupiedSegments.filter {
+        it.span.role == RichTextRole.Background || it.span.role == RichTextRole.InlineCode
+    }
+    if (backgrounds.isEmpty()) return emptyList()
+    val positioned = positionedClusters()
+    val positionedByLine = positioned.groupBy { it.lineIndex }
+    val glyphsByRange = glyphRuns.asSequence()
+        .flatMap { it.glyphs.asSequence() }
+        .groupBy { it.clusterRange }
+    val metrics = debug.metricDecisions
+
+    return trimOuterPunctuationGlue(backgrounds).map { segment ->
+        val covered = positionedByLine[segment.lineIndex].orEmpty().filter { cluster ->
+            cluster.range.end > segment.range.start && cluster.range.start < segment.range.end
+        }
+        if (covered.isEmpty()) return@map segment
+
+        val first = covered.first()
+        val last = covered.last()
+        val horizontalPadding = segment.span.paint.background.horizontalPadding
+        val leadingPadding = horizontalPadding.takeIf {
+            segment.range.start == segment.span.range.start
+        } ?: 0f
+        val trailingPadding = horizontalPadding.takeIf {
+            segment.range.end == segment.span.range.end
+        } ?: 0f
+        val left = max(segment.left, first.drawX - leadingPadding).coerceAtMost(segment.right)
+        val naturalLastRight = glyphsByRange[last.range]
+            ?.maxOfOrNull { glyph -> last.drawX + glyph.x + glyph.advance }
+            ?: last.right
+        val right = minOf(segment.right, naturalLastRight + trailingPadding).coerceAtLeast(left)
+
+        val (faceTop, faceBottom) = when (segment.span.paint.background.metricPolicy) {
+            RichTextBackgroundMetricPolicy.MarkedFaces -> markedFaceVerticalBounds(covered, metrics)
+            RichTextBackgroundMetricPolicy.UniformTextStyle -> uniformTextStyleVerticalBounds(
+                segment = segment,
+                metrics = metrics,
+                style = resolvedTextStyleAt(segment.range.start),
+            )
+            RichTextBackgroundMetricPolicy.UniformParagraphStyle -> uniformTextStyleVerticalBounds(
+                segment = segment,
+                metrics = metrics,
+                style = input.textStyle,
+            )
+        }
+        val verticalPadding = segment.span.paint.background.verticalPadding
+        segment.copy(
+            left = left,
+            right = right,
+            top = (faceTop - verticalPadding).coerceAtLeast(segment.top),
+            bottom = (faceBottom + verticalPadding).coerceAtMost(segment.bottom),
+        )
+    }.withAdjacentSameStyleClearance()
+}
+
+/**
+ * `AdjacentSameStyleRichTextClearance`: two source-adjacent runs with the same role and visible
+ * paint share one explicit gap. Each side yields half of the configured clearance. Different
+ * roles or paints remain untouched; in particular, a highlight beside an underline is not a
+ * cross-style avoidance case.
+ */
+private fun List<RichTextLineSegment>.withAdjacentSameStyleClearance(): List<RichTextLineSegment> {
+    if (size < 2) return this
+    val byLineAndStart = groupBy { it.lineIndex to it.range.start }
+    val byLineAndEnd = groupBy { it.lineIndex to it.range.end }
+
+    fun RichTextLineSegment.sameVisibleStyle(other: RichTextLineSegment): Boolean =
+        span.role == other.span.role &&
+            span.paint.copy(adjacentSameStyleClearance = 0f) ==
+            other.span.paint.copy(adjacentSameStyleClearance = 0f)
+
+    fun RichTextLineSegment.sharedClearance(other: RichTextLineSegment?): Float =
+        other
+            ?.takeIf(::sameVisibleStyle)
+            ?.let { minOf(span.paint.adjacentSameStyleClearance, it.span.paint.adjacentSameStyleClearance) }
+            ?: 0f
+
+    return map { segment ->
+        val leadingNeighbour = byLineAndEnd[segment.lineIndex to segment.range.start]
+            .orEmpty()
+            .firstOrNull(segment::sameVisibleStyle)
+        val trailingNeighbour = byLineAndStart[segment.lineIndex to segment.range.end]
+            .orEmpty()
+            .firstOrNull(segment::sameVisibleStyle)
+        val left = (segment.left + segment.sharedClearance(leadingNeighbour) / 2f)
+            .coerceAtMost(segment.right)
+        segment.copy(
+            left = left,
+            right = (segment.right - segment.sharedClearance(trailingNeighbour) / 2f)
+                .coerceAtLeast(left),
+        )
+    }
+}
+
+private fun LayoutResult.markedFaceVerticalBounds(
+    covered: List<PositionedCluster>,
+    metrics: List<MetricDecisionInfo>,
+): Pair<Float, Float> {
+    var top = Float.POSITIVE_INFINITY
+    var bottom = Float.NEGATIVE_INFINITY
+    covered.forEach { cluster ->
+        val metric = metrics.lastOrNull { decision ->
+            cluster.range.start >= decision.range.start && cluster.range.end <= decision.range.end
+        }
+        if (metric != null) {
+            top = minOf(top, cluster.baseline - metric.layoutAscent)
+            bottom = maxOf(bottom, cluster.baseline + metric.layoutDescent)
+        } else {
+            val style = resolvedTextStyleAt(cluster.range.start)
+            top = minOf(top, cluster.baseline - style.fontSize * BACKGROUND_FALLBACK_ASCENT_EM)
+            bottom = maxOf(bottom, cluster.baseline + style.fontSize * BACKGROUND_FALLBACK_DESCENT_EM)
+        }
+    }
+    return top to bottom
+}
+
+/**
+ * `UniformTextStyleBackgroundMetricBox`: fallback faces inside one highlighted run must not change
+ * its height. Prefer an ideographic metric for the run's resolved style, then any face carrying the
+ * same style, and finally the named em-box fallback used by generic backgrounds.
+ */
+private fun LayoutResult.uniformTextStyleVerticalBounds(
+    segment: RichTextLineSegment,
+    metrics: List<MetricDecisionInfo>,
+    style: TextStyle,
+): Pair<Float, Float> {
+    val matchingStyle = metrics.filter { decision ->
+        resolvedTextStyleAt(decision.range.start).sameFontMetricStyle(style)
+    }
+    val reference = matchingStyle.firstOrNull { it.metricBox == IDEOGRAPHIC_EM_BOX_NAME }
+        ?: matchingStyle.firstOrNull()
+    val ascent = reference?.layoutAscent ?: style.fontSize * BACKGROUND_FALLBACK_ASCENT_EM
+    val descent = reference?.layoutDescent ?: style.fontSize * BACKGROUND_FALLBACK_DESCENT_EM
+    return segment.baseline - ascent to segment.baseline + descent
+}
+
+private fun LayoutResult.resolvedTextStyleAt(offset: Int): TextStyle =
+    input.content.spans.lastOrNull { offset >= it.range.start && offset < it.range.end }?.style
+        ?: input.textStyle
+
+private fun TextStyle.sameFontMetricStyle(other: TextStyle): Boolean =
+    fontFamilies == other.fontFamilies &&
+        fontSize == other.fontSize &&
+        locale == other.locale &&
+        fontWeight == other.fontWeight &&
+        italic == other.italic &&
+        baselineShift == other.baselineShift
+
+private const val IDEOGRAPHIC_EM_BOX_NAME = "IdeographicEmBox"
+private const val BACKGROUND_FALLBACK_ASCENT_EM = 0.88f
+private const val BACKGROUND_FALLBACK_DESCENT_EM = 0.12f
+
+private fun LayoutResult.trimOuterPunctuationGlue(
+    segments: List<RichTextLineSegment>,
+): List<RichTextLineSegment> {
     val geometryByRange = debug.geometryDecisions.associateBy { it.range }
-    return decorationSegments.map { segment ->
+    return segments.map { segment ->
         val line = lines.getOrNull(segment.lineIndex) ?: return@map segment
         val firstCluster = line.clusterRange.asSequence()
             .mapNotNull(clusters::getOrNull)
@@ -287,7 +485,15 @@ fun LayoutResult.richTextDecorationLineY(
     val rawLineY = if (role == RichTextRole.Underline) {
         segment.baseline + style.fontSize * INTERLINEAR_UNDERLINE_OFFSET_EM
     } else {
-        segment.baseline - style.fontSize * GENERIC_LINE_THROUGH_OFFSET_EM
+        // `IdeographicMetricBoxLineThroughCenter`: a Chinese strike-through bisects the
+        // resolved style's declared 字身框. Prefer its real ideographic metric decision; the
+        // shared 0.88/0.12 em fallback is used only when the platform supplied no metrics.
+        val (faceTop, faceBottom) = uniformTextStyleVerticalBounds(
+            segment = segment,
+            metrics = debug.metricDecisions,
+            style = style,
+        )
+        (faceTop + faceBottom) / 2f
     }
     return rawLineY.coerceIn(
         segment.top + strokeWidth / 2f,

@@ -170,10 +170,88 @@ data class RichTextSpan(
 data class RichTextPaint(
     /** Optional ARGB paint. Null means "inherit the current text color/default role paint". */
     val argb: Int? = null,
-)
+    /** Stroke pattern for line decorations. Background roles ignore this field. */
+    val linePattern: RichTextLinePattern = RichTextLinePattern.Solid,
+    /** Box geometry and paint for background roles. Line decorations ignore this field. */
+    val background: RichTextBackgroundPaint = RichTextBackgroundPaint(),
+    /** Total visual gap shared by two immediately adjacent ranges with the same paint. */
+    val adjacentSameStyleClearance: Float = 0f,
+) {
+    init {
+        require(adjacentSameStyleClearance.isFinite() && adjacentSameStyleClearance >= 0f)
+    }
+}
+
+data class RichTextBackgroundPaint(
+    /** Fixed space between the glyph edge and each horizontal box edge, in layout units. */
+    val horizontalPadding: Float = 0f,
+    /** Extra space above and below the selected typographic box, in physical layout units. */
+    val verticalPadding: Float = 0f,
+    /** Radius used by the frontend when replaying the final background rectangle. */
+    val cornerRadius: Float = 0f,
+    val metricPolicy: RichTextBackgroundMetricPolicy = RichTextBackgroundMetricPolicy.MarkedFaces,
+    /** Whether the final box is filled or outlined; both modes reuse the same measured geometry. */
+    val drawStyle: RichTextBackgroundDrawStyle = RichTextBackgroundDrawStyle.Fill,
+) {
+    init {
+        require(horizontalPadding.isFinite() && horizontalPadding >= 0f)
+        require(verticalPadding.isFinite() && verticalPadding >= 0f)
+        require(cornerRadius.isFinite() && cornerRadius >= 0f)
+    }
+}
+
+sealed interface RichTextBackgroundDrawStyle {
+    data object Fill : RichTextBackgroundDrawStyle
+
+    /** Physical layout-unit stroke kept inside the resolved box by the frontend. */
+    data class Border(val strokeWidth: Float) : RichTextBackgroundDrawStyle {
+        init {
+            require(strokeWidth.isFinite() && strokeWidth > 0f)
+        }
+    }
+}
+
+enum class RichTextBackgroundMetricPolicy {
+    /** Union the declared metric boxes of the actual faces covered by the marked range. */
+    MarkedFaces,
+
+    /** Use one ideographic/reference metric box for the resolved text style across the whole run. */
+    UniformTextStyle,
+
+    /** Use the paragraph text style even when the marked run has a smaller inline font. */
+    UniformParagraphStyle,
+}
+
+sealed interface RichTextLinePattern {
+    data object Solid : RichTextLinePattern
+
+    /** Physical layout-unit dash geometry supplied by the frontend. */
+    data class Dashed(
+        val strokeWidth: Float,
+        val dashLength: Float,
+        val gapLength: Float,
+    ) : RichTextLinePattern {
+        init {
+            require(strokeWidth.isFinite() && strokeWidth > 0f)
+            require(dashLength.isFinite() && dashLength > 0f)
+            require(gapLength.isFinite() && gapLength > 0f)
+        }
+    }
+
+    /** Round dots with frontend-supplied diameter and visible edge-to-edge gap. */
+    data class Dotted(
+        val dotDiameter: Float,
+        val gapLength: Float,
+    ) : RichTextLinePattern {
+        init {
+            require(dotDiameter.isFinite() && dotDiameter > 0f)
+            require(gapLength.isFinite() && gapLength > 0f)
+        }
+    }
+}
 
 sealed interface RichTextRole {
-    /** Compose `SpanStyle.background`, painted behind the occupied text boxes. */
+    /** Compose `SpanStyle.background`, painted as one continuous typographic box per visual line. */
     data object Background : RichTextRole
 
     /** Compose `TextDecoration.Underline`, painted with Tiqian line geometry + skip-ink. */
@@ -211,6 +289,11 @@ data class RubySpan(
     val fontFamilies: List<String> = emptyList(),
     /** 拼音（上方，ADR 0032）或 注音（右侧竖排 ㄅㄆㄇ，ADR 0033）。 */
     val kind: RubyKind = RubyKind.Pinyin,
+    /**
+     * 注文自己的 BCP-47 language。注音默认 `zh-TW`；拼音空值继承正文 locale。
+     * 调用方无需为了注音重复声明 language，这也不会改变简体横排正文的 locale/profile。
+     */
+    val locale: String? = if (kind == RubyKind.Bopomofo) "zh-TW" else null,
 )
 
 enum class RubyKind {

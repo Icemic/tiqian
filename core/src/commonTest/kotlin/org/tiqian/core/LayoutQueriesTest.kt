@@ -7,6 +7,46 @@ import kotlin.test.assertTrue
 class LayoutQueriesTest {
 
     @Test
+    fun clipboardProjectionRestoresSourceAndAddsFullySelectedAnnotations() {
+        val result = LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent("提椠与您"),
+                constraints = LayoutConstraints(maxWidth = 200f),
+            ),
+            size = Size(0f, 0f),
+            clusters = emptyList(),
+            glyphRuns = emptyList(),
+            lines = emptyList(),
+            debug = LayoutDebugInfo(
+                rubyDecisions = listOf(
+                    RubyDecisionInfo(
+                        baseRange = TextRange(0, 2),
+                        text = "tíqiàn",
+                        lineIndex = 0,
+                        centerX = 0f,
+                        baselineY = 0f,
+                        fontSize = 8f,
+                        overhang = 0f,
+                    ),
+                ),
+                bopomofoDecisions = listOf(
+                    BopomofoDecisionInfo(
+                        baseRange = TextRange(3, 4),
+                        text = "ㄋㄧㄣˊ",
+                        lineIndex = 0,
+                        placements = emptyList(),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals("提椠（tíqiàn）与您（ㄋㄧㄣˊ）", result.getTextForCopy(TextRange(0, 4)))
+        assertEquals("提", result.getTextForCopy(TextRange(0, 1)))
+        assertEquals("提椠（tíqiàn）", result.getTextForCopy(TextRange(0, 2)))
+        assertEquals("您（ㄋㄧㄣˊ）", result.getTextForCopy(TextRange(3, 4)))
+    }
+
+    @Test
     fun positionedClustersFollowLineIndentAndAdvance() {
         val result = sampleResult()
 
@@ -282,6 +322,137 @@ class LayoutQueriesTest {
     }
 
     @Test
+    fun lineThroughBisectsTheIdeographicMetricBox() {
+        val original = backgroundGeometryResult()
+        val result = original.copy(
+            debug = original.debug.copy(
+                metricDecisions = listOf(
+                    backgroundMetric(
+                        range = TextRange(0, 3),
+                        metricBox = "IdeographicEmBox",
+                        ascent = 8f,
+                        descent = 2f,
+                    ),
+                ),
+            ),
+        )
+        val lineThrough = RichTextSpan(TextRange(0, 3), RichTextRole.LineThrough)
+        val segment = result.trimmedRichTextDecorationSegments(
+            result.positionedRichTextSegments(listOf(lineThrough)),
+        ).single()
+
+        assertEquals(
+            17f,
+            result.richTextDecorationLineY(segment, strokeWidth = 1f),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun richTextBackgroundKeepsInternalGapsButTrimsItsOuterLayoutSpace() {
+        val result = backgroundGeometryResult()
+        val full = RichTextSpan(TextRange(0, 3), RichTextRole.Background)
+        val finalCharacter = RichTextSpan(TextRange(2, 3), RichTextRole.Background)
+
+        val fullSegment = result.richTextBackgroundSegments(
+            result.positionedRichTextSegments(listOf(full)),
+        ).single()
+        val finalSegment = result.richTextBackgroundSegments(
+            result.positionedRichTextSegments(listOf(finalCharacter)),
+        ).single()
+
+        // One continuous rectangle covers A, the authored space, and B. Only B's outer trailing
+        // justification is excluded.
+        assertEquals(Rect(0f, 11.2f, 29f, 21.2f), fullSegment.rect)
+        // When B alone is marked, its leading autospace belongs outside the marked run.
+        assertEquals(Rect(19f, 11.2f, 29f, 21.2f), finalSegment.rect)
+    }
+
+    @Test
+    fun uniformTextStyleBackgroundIgnoresFallbackFaceHeightAndAddsPadding() {
+        val original = backgroundGeometryResult()
+        val result = original.copy(
+            debug = original.debug.copy(
+                metricDecisions = listOf(
+                    backgroundMetric(TextRange(0, 1), metricBox = "IdeographicEmBox", ascent = 8f, descent = 2f),
+                    backgroundMetric(TextRange(1, 3), metricBox = "RawFontBox", ascent = 12f, descent = 4f),
+                ),
+            ),
+        )
+        val paint = RichTextPaint(
+            background = RichTextBackgroundPaint(
+                verticalPadding = 1f,
+                cornerRadius = 2f,
+                metricPolicy = RichTextBackgroundMetricPolicy.UniformTextStyle,
+            ),
+        )
+        val first = RichTextSpan(TextRange(0, 1), RichTextRole.Background, paint)
+        val mixed = RichTextSpan(TextRange(0, 3), RichTextRole.Background, paint)
+
+        val segments = result.richTextBackgroundSegments(
+            result.positionedRichTextSegments(listOf(first, mixed)),
+        )
+
+        assertEquals(2, segments.size)
+        assertEquals(11f, segments[0].top)
+        assertEquals(23f, segments[0].bottom)
+        assertEquals(segments[0].top, segments[1].top)
+        assertEquals(segments[0].bottom, segments[1].bottom)
+        assertEquals(2f, segments[0].span.paint.background.cornerRadius)
+    }
+
+    @Test
+    fun adjacentBackgroundsWithTheSameStyleShareOneClearance() {
+        val result = sampleResult()
+        val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
+        val spans = listOf(
+            RichTextSpan(TextRange(0, 1), RichTextRole.Background, paint),
+            RichTextSpan(TextRange(1, 3), RichTextRole.Background, paint),
+        )
+
+        val segments = result.richTextBackgroundSegments(result.positionedRichTextSegments(spans))
+
+        assertEquals(2, segments.size)
+        assertEquals(2f, segments[1].left - segments[0].right, 0.001f)
+        assertEquals(13f, segments[0].right, 0.001f)
+        assertEquals(15f, segments[1].left, 0.001f)
+    }
+
+    @Test
+    fun adjacentLineDecorationsWithTheSameStyleShareOneClearance() {
+        val result = sampleResult()
+        val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
+        val spans = listOf(
+            RichTextSpan(TextRange(0, 1), RichTextRole.Underline, paint),
+            RichTextSpan(TextRange(1, 3), RichTextRole.Underline, paint),
+        )
+
+        val segments = result.trimmedRichTextDecorationSegments(
+            result.positionedRichTextSegments(spans),
+        )
+
+        assertEquals(2, segments.size)
+        assertEquals(2f, segments[1].left - segments[0].right, 0.001f)
+        assertEquals(13f, segments[0].right, 0.001f)
+        assertEquals(15f, segments[1].left, 0.001f)
+    }
+
+    @Test
+    fun adjacentBackgroundAndUnderlineDoNotAvoidAcrossStyles() {
+        val result = sampleResult()
+        val paint = RichTextPaint(adjacentSameStyleClearance = 2f)
+        val background = RichTextSpan(TextRange(0, 1), RichTextRole.Background, paint)
+        val underline = RichTextSpan(TextRange(1, 3), RichTextRole.Underline, paint)
+        val occupied = result.positionedRichTextSegments(listOf(background, underline))
+
+        val fill = result.richTextBackgroundSegments(occupied).single()
+        val line = result.trimmedRichTextDecorationSegments(occupied).single()
+
+        assertEquals(14f, fill.right, 0.001f)
+        assertEquals(14f, line.left, 0.001f)
+    }
+
+    @Test
     fun hitTestingChoosesOffsetFromTiqianClusterAdvances() {
         val result = sampleResult()
 
@@ -392,6 +563,82 @@ class LayoutQueriesTest {
                 ),
             ),
         )
+
+    private fun backgroundGeometryResult(): LayoutResult = LayoutResult(
+        input = LayoutInput(
+            content = TiqianTextContent("A B"),
+            textStyle = TextStyle(fontSize = 10f),
+            constraints = LayoutConstraints(maxWidth = 31f),
+        ),
+        size = Size(31f, 30f),
+        clusters = listOf(
+            Cluster(TextRange(0, 1), "A", fontKey = "latin", advance = 12f),
+            Cluster(TextRange(1, 2), " ", fontKey = "latin", advance = 5f),
+            Cluster(TextRange(2, 3), "B", fontKey = "latin", advance = 14f),
+        ),
+        glyphRuns = listOf(
+            GlyphRun(
+                range = TextRange(0, 1),
+                fontKey = "latin",
+                glyphs = listOf(Glyph(1u, TextRange(0, 1), advance = 10f)),
+                advance = 10f,
+            ),
+            GlyphRun(
+                range = TextRange(2, 3),
+                fontKey = "latin",
+                glyphs = listOf(Glyph(2u, TextRange(2, 3), advance = 10f)),
+                advance = 10f,
+            ),
+        ),
+        lines = listOf(
+            LineBox(
+                range = TextRange(0, 3),
+                clusterRange = 0..2,
+                baseline = 20f,
+                top = 0f,
+                bottom = 30f,
+                naturalWidth = 31f,
+                adjustedWidth = 31f,
+                visualWidth = 31f,
+            ),
+        ),
+        debug = LayoutDebugInfo(
+            autoSpaceDecisions = listOf(
+                AutoSpaceDecisionInfo(
+                    clusterRange = TextRange(2, 3),
+                    side = "leading",
+                    boundaryRole = "CjkLatin",
+                    mode = "Insert",
+                    charactersAffected = 1,
+                    reductionPerChar = -2f,
+                    totalReduction = -2f,
+                    reason = "test-leading-gap",
+                ),
+            ),
+        ),
+    )
+
+    private fun backgroundMetric(
+        range: TextRange,
+        metricBox: String,
+        ascent: Float,
+        descent: Float,
+    ) = MetricDecisionInfo(
+        range = range,
+        sourceText = "test",
+        role = "test",
+        fontKey = "test",
+        rawAscent = ascent,
+        rawDescent = descent,
+        rawLeading = 0f,
+        rawSource = "test",
+        layoutAscent = ascent,
+        layoutDescent = descent,
+        baselineClass = "test",
+        metricBox = metricBox,
+        layoutSource = "test",
+        reason = "test",
+    )
 
     private fun punctuationGlueResult(): LayoutResult =
         LayoutResult(
