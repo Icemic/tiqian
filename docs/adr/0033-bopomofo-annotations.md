@@ -8,7 +8,7 @@
 
 输入侧（`RubyKind.Bopomofo`、`BopomofoParser`、`bopomofo`）+ 几何（`computeBopomofoDecisions`：30 份
 表映到字身框；**已标注基字**右侧 0.5em 注音区预留）+ 绘制（符号填字身框；调号 CJK 字体 +
-墨迹探测 → 缩到 ink 宽 = 调号格 + 垂直居中）已落地。`BopomofoDecisionInfo` 入 dump。
+与符号共用 0.3em 字号，不按 glyph ink 二次缩放）已落地。`BopomofoDecisionInfo` 入 dump。
 `BopomofoLayoutTest` / `BopomofoParserTest` 守。完整纵横对齐（段内每字统一预留）不在当前
 slice 宣称完成，留给后续 profile / 竖排相关能力。
 
@@ -89,9 +89,23 @@ advance。完整纵横对齐要求段内**每字**（含未标注的标点 / 西
 - advance：`RubySpan.kind == Bopomofo` ⇒ 该 base range 的末 cluster 右侧结构性预留 0.5em
   注音区（复用 ADR 0032 的 `rubySpreadByCluster` 思路）。完整纵横对齐的每字统一预留不在
   当前实现内。
-- 绘制：每注音符号按 0.3em 字号画在其 9×9 份格；调号 5×5 / 轻声 2 高，按上表落位；都用
-  注文专用字体（须含 ㄅㄆㄇ 字形）。`BopomofoDecisionInfo` 入 dump（逐符 + 调号位置）。
+- 绘制：每注音符号按 0.3em 字号画在其 9×9 份格；普通调号共用相同的 0.3em 字号，
+  墨迹中心平移到 5×5 调号格中心，但不根据墨迹大小改字号；轻声按 2 份高的目标格落位。都用注文专用字体
+  （须含 ㄅㄆㄇ 字形）。`BopomofoDecisionInfo` 入 dump（逐符 + 调号位置、最终字号与基线）。
 - 验收：逐情况渲染 vs CLREQ 配图（绘制极严，render-verify loop）。
+
+### Amendment（2026-08-10）：`BopomofoToneSharedAnnotationEmSizing`
+
+旧实现先按 5×5 格字号 shaping 普通调号，再用 glyph ink 宽度把字号放大或缩小到“墨迹填满
+调号格”。这把字体内容框误当成字号依据：同一个调号会随字体、平台和具体 glyph bounds
+得到不同字号，Core Text renderer 还重复计算了一次。
+
+现改为普通调号与注音符号共用稳定的 0.3em 字号，5×5 格只定义调号墨迹的中心位置；
+`LayoutResult` 记录最终 `fontSize`、`drawX` 与 `baselineY`。这里的 `drawX`/`baselineY` 是
+横排基线原点：Skia / Android / Web 直接按它重放竖排字形（ㄅㄆㄇ 按 advance 居中、坐在字身框
+基线）。Core Text 画的是真正的竖排 run，其笔位在字身框顶端居中，所以 `CoreTextLayoutRenderer`
+只对 ㄅㄆㄇ 从字身框自行推导原点；由各平台 ink 算出的调号/轻声则照记录的 `drawX`/`baselineY`
+重放。Ink bounds 只参与平移居中，不参与普通调号的缩放。
 
 ## Consequences
 

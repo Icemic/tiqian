@@ -42,7 +42,7 @@
 ## Consequences
 
 - Apple 端到端管线打通:**文字 → 整形/度量 → 布局 → 分页 → 画到像素**。
-- 渲染器绘制正文字形 + 拼音/注音行间注 + 着重号点 + 专名号/书名号/示亡号线(`drawRuby`/`drawBopomofo`/`drawEmphasisDots`/`drawDecorationSegments`);拼音与注音都按 run 自身字体重整形绘制,避免用新建字体回放回退字体的字形 id(否则错配成乱码);注音按角色用 `vert` 竖排字形 + 声调 ink 缩放到框。
+- 渲染器绘制正文字形 + 拼音/注音行间注 + 着重号点 + 专名号/书名号/示亡号线(`drawRuby`/`drawBopomofo`/`drawEmphasisDots`/`drawDecorationSegments`);拼音与注音都按 run 自身字体重整形绘制,避免用新建字体回放回退字体的字形 id(否则错配成乱码);注音用 `vert` 竖排字形:ㄅㄆㄇ 是真正的竖排 run,其笔位取字身框顶端居中(核心记录的 `drawX`/`baselineY` 是给 Skia/Android/Web 的横排基线原点),调号/轻声按核心记录的原点与基线重放,普通声调共用注音字号、不再按 ink bounds 二次缩放。
 - 逐 cluster 字体解析走引擎 `debug.fontDecisions` + 共享 `usesLatinFace` 规则；feature 从实际
   `GlyphRun` 回放。装饰继承 source color；书名号波形参数与 Compose 一致，专名号/书名号依据
   `LayoutResult` 已记录的 glyph ink bounds 做 skip-ink，不在 renderer 建立第二份布局真值。
