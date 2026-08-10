@@ -32,7 +32,7 @@
   -> line breaking + kinsoku repair
   -> compression / justification / neighbor adjustment
   -> LayoutResult + structured debug decisions
-  -> Compose / DOM / Android renderer
+  -> Compose / DOM / Android / Core Text renderer
 ```
 
 `ExplainableStubParagraphLayoutEngine` 保留了早期名称，但当前实现已经走完整真实 pipeline。
@@ -109,7 +109,10 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
   regular / bold / italic。catalog revision 变化会让 Compose 同时重建 shaping、metrics 和 layout
   cache，旧 face 只为旧 `LayoutResult` 保留；
 - `shaping/android-adapter`：API 31+ Android `TextPaint` / platform glyph data oracle 与可选优化；
-- `shaping/web-adapter`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据。
+- `shaping/web-adapter`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据；
+- `shaping/coretext`：Apple Core Text shaping、系统字体度量与 glyph ink。语言和显式 OpenType
+  feature 进入同一条 `CTLine` 测绘路径；无法施加的 feature 以具名 capability issue 降级，不能
+  只把请求原样写进 `GlyphRun`。
 
 平台 adapter 不决定 CLREQ 码点替换、标点宽度、避头尾或两端对齐。它无法提供某项证据时，
 必须输出具名降级原因，而不是在 renderer 中猜补偿值。
@@ -161,12 +164,17 @@ API 31 platform glyph adapter 仅作对照 / 可选优化，capability report �
 位置接到鼠标/触摸选择、选区绘制、复制和 selection semantics；跨多个 `CjkText` 的选择由容器
 按实际几何顺序组合 source `AnnotatedString`。Compose Foundation 当前没有面向第三方布局结果的
 公开 `Selectable` 适配接口，因此前端用隔离、随版本编译验证的兼容层复用 Foundation 自己的
-平台手柄、手势状态机与 Android 文本放大镜；它只把坐标和 selection adjustment 翻译到
-`LayoutResult` 查询，不引入第二份 `TextLayoutResult`。同一布局的 positioned cluster、按行查询与
+平台手柄、手势状态机、文本上下文菜单与 Android 文本放大镜；Android 使用系统 `ActionMode`
+provider（含宿主菜单扩展和 `PROCESS_TEXT`），Desktop 使用当前 `LocalTextContextMenu` 右键契约。
+Compose Android artifact 同时合并 `ACTION_PROCESS_TEXT` / `text/plain` 的 `<queries>` 声明，避免
+Android 11+ 包可见性规则把其他应用注册的处理文本动作静默裁掉。
+兼容层只把坐标和 selection adjustment 翻译到 `LayoutResult` 查询，不引入第二份
+`TextLayoutResult`。同一布局的 positioned cluster、按行查询与
 glyph/source lookup 由不可变 replay index 复用；容器缓存节点几何顺序与每节点 range，只有跨过新的
 source boundary 才让受影响节点重绘。连续滚动宿主把同一个 `ScrollState` 同时交给容器与
 `verticalScroll`；拖动越过 touch slop 后进入视口边缘才启动自动滚动，并在内容移动时用 Tiqian
-几何刷新 endpoint，长按不动不会自行扩选。source `AnnotatedString`（含 link/URL/TTS annotation）
+几何刷新 endpoint；同一位置通知让系统菜单锚点和非拖动手柄跟随祖先裁剪后的可见视口，长按不动
+不会自行扩选。source `AnnotatedString`（含 link/URL/TTS annotation）
 原样进入 Compose semantics，非空选区再暴露 set-selection/copy action。Compose Android 只有拿到
 真实 `TextLayoutResult` 才会提供逐字符屏幕框与行/页遍历，前端不为此伪造第二份排版；编辑器、IME、
 lazy 虚拟列表 selection 与这项 TalkBack character-location 能力不属于当前静态正文路径。
@@ -203,6 +211,32 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 
 `frontend/android-view` 目前只保留前端契约，还不是与 Compose / Web 同等完整的可用入口。
 
+### Apple
+
+`frontend/apple/coretext-render` 在 macOS 与 iOS 上用 Core Text 重放 `LayoutResult`。正文字形沿用 shaping
+时的 language、OpenType feature、font 与 glyph 选择；拼音、注音和行间装饰消费核心给出的最终几何。
+装饰颜色继承对应 source range，专名号和书名号只依据 `LayoutResult` 已记录的 glyph ink bounds
+做避让，renderer 不重新 shaping 来推导布局真值。
+
+`frontend/apple` 是 Apple frontend 的唯一根：Gradle 模块把引擎、内部 Core Text renderer 与窄
+Swift-facing authoring/document facade 打成静态 `Tiqian.xcframework`（macOS arm64、iOS device
+arm64、iOS simulator arm64），同目录 Swift Package 用原生 `AttributedString` 表达字体、颜色、ruby
+、链接与装饰，并将同一 run 上的组合属性 lowering 到同一 source range。正文与注文语言独立 lowering：
+注音使用 `zh-TW`，不会覆盖简体横排正文默认的 `zh-Hans`。公共 Swift 类型使用 `CJKText`、
+`CJKBlock`、`CJKAttributes` 等领域名称；品牌名只保留在 `TiqianUI` 模块和包内二进制 artifact。
+`CJKTextView` 直接提供 `NSScrollView` / `UIScrollView` 原生入口，`CJKText` 只用
+`NSViewRepresentable` / `UIViewRepresentable` 包装同一个 view；AppKit/UIKit 只处理 viewport、滚动、动态系统颜色、坐标变换与
+无障碍 source text，宽度变化复用已 lowering 的 builder，并按整字栏宽重排。`frontend/apple`
+把多 block 的全局 UTF-16 source range 映射到各自 `LayoutResult` 的 hit-test / caret / selection box；
+iOS view 实现只读 `UITextInput` 并交给系统 `UITextInteraction(.nonEditable)` 管理手势、手柄与菜单，
+macOS view 用标准 responder action、`NSPasteboard` 与 AppKit 鼠标事件完成拖选、双击词选和复制。
+Apple 端用简体中文 `NLTokenizer` 把命中 offset 扩成语义词范围，核心仍提供 UTF-16 安全边界与全部
+caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计算。
+原生 `AttributedString.link` lowering 为精确 source range；链接命中区和下划线同样消费
+`LayoutResult` 几何。SwiftUI 交给环境 `OpenURLAction`，AppKit/UIKit 原生入口可通过 `onOpenURL`
+接管，未接管时使用平台 URL opener；拖动选择不会触发导航。
+两端都不经 TextKit 重排文字，也不维护第二份字符几何；编辑器和 IME 仍不属于这条静态正文路径。
+
 ## 模块职责
 
 - `core`：平台无关的数据结构与 layout contract，不依赖其他提椠模块。
@@ -212,12 +246,18 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 - `linebreak`：断行机会、西文断词与相关数据。
 - `clreq`：中文 profile、标点分类、禁则与空间策略。
 - `layout`：段落布局、修复、行调整与结构化 decision。
-- `frontend/compose`、`frontend/web`、`frontend/android-view`：前端 lowering 与呈现。
+- `frontend/compose`、`frontend/web`、`frontend/android-view`：前端
+  lowering 与呈现。
+- `frontend/apple/coretext-render`：Apple 内部 Core Text renderer 与 paragraph backend。
+- `frontend/apple`：生产 Swift facade、静态 XCFramework、`AttributedString` authoring 与 Apple
+  原生 view package；不拥有示例内容或排版规则。
 - `frontend/web-precompute`：Node exact-font session、构建期 layout 入口与快照 wire；不拥有排版规则。
 - `frontend/web/integrations/*`：框架 SSR / build / navigation transport；消费 `@tiqian/prose` 的公共
   HTML prepare 与 snapshot contract，不拥有排版或字体 policy。
 - `demo`：Desktop / Android 共用的 Compose 示例界面与 Desktop 启动入口。
 - `demo/android`：只负责 Android 应用打包和启动的薄外壳。
+- `demo/apple`：一个 Xcode project 内的 macOS / iOS targets，共享 Swift 样例内容并消费
+  `frontend/apple`。
 - `test-support` 与 `layout` 的报告任务：共享语料、布局诊断和文档样张生成。
 
 ## 不变量

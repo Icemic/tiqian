@@ -32,6 +32,12 @@ source mapping lands」的占位。
 index 读同一份 `sourceStops`，不再是发散的第二实现。选区高亮为每行 caret-to-caret 连续填充。ruby base 的
 框经 `withRubySelectionGeometry` 重分配后，`sourceStops` 置空（在重分配框上线性）。
 
+**2026-08-08 amendment — 富文本背景不是选区框。** `SpanStyle.background` 仍从同一份
+`positionedRichTextSegments` 起步，但生成独立的逐行 paint segment：一个视觉行内从首个标记内容边
+连续覆盖到末个标记内容边，保留区间内部的字距、中西间距、词距和标点间距；只剥掉区间外侧的
+autospace、justification 与标点 glue。竖直边使用标记文字的 typographic face，不再复用包含行间距的
+完整 `LineBox`。选择、链接命中与无障碍仍使用稳定占位盒，二者不能再次合并。
+
 **标点 glue 与本映射互补，不合并**：占位盒含标点 glue；ADR 0011/0014 的
 `RichTextDecorationPunctuationGlueTrim` 保留，负责剥掉装饰外缘的标点 glue。`sourceStops` 只让端点/内部
 的位置正确，两端仍是占位盒，压缩标点由 trim 收边。

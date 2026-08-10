@@ -1,32 +1,81 @@
-# TiqianUI — Apple (SwiftUI / AppKit) frontend
+# TiqianUI — Apple (SwiftUI / AppKit / UIKit) frontend
 
 The Apple peer of [`frontend/compose`](../compose): a reusable Swift Package that vends
 content-agnostic views over the Tiqian CJK typesetting engine, so apps consume a component instead
 of copying view code.
 
-> **Scope: macOS frontend + iOS backend.** The engine, the Core Text pipeline, and
-> `Tiqian.xcframework` build for iOS (`iosArm64` + simulator) too, but the SwiftUI/AppKit view
-> (`CJKText`) is **macOS-only** for now — it is inside `#if os(macOS)`. The iOS `UIViewRepresentable`
-> peer that actually presents body text on iOS is a follow-up; there is no iOS view yet.
+> **Scope: macOS 14+ and iOS 15+ read-only frontend.** The engine, Core Text pipeline and
+> `Tiqian.xcframework` build for macOS and iOS (`iosArm64` + simulator). `CJKText` uses
+> `NSViewRepresentable` on macOS and `UIViewRepresentable` on iOS. Both preserve source text for
+> selection and accessibility; clipboard text follows the Web frontend's annotation projection.
+> Editor / IME remains a separate follow-up.
 
-- **`CJKText`** — an `NSViewRepresentable` that takes a `[CJKBlock]` (content authored as native
-  `AttributedString`) plus a font size, lays out at the viewport width, and scrolls. It knows nothing
-  about *what* the content is (the analogue of Compose's `CjkText`). Selection / hit-testing will land
-  here later (engine `LayoutQueries`).
+- **`CJKTextView`** — the native AppKit/UIKit scrolling view (`NSScrollView` / `UIScrollView`). It
+  takes the same `[CJKBlock]` content on both platforms and can be embedded without SwiftUI.
+- **`CJKText`** — the thin SwiftUI bridge (`NSViewRepresentable` / `UIViewRepresentable`) over
+  `CJKTextView`. It takes `[CJKBlock]` content authored as native `AttributedString`, lays out at the viewport
+  width, and scrolls. Rotation and split-view width changes reuse the lowered document builder and
+  only rerun line breaking when the whole-character column changes. It knows nothing about *what*
+  the content is (the analogue of Compose's `CjkText`). Selection and hit testing consume engine
+  `LayoutQueries`: iOS delegates gestures, handles and the edit menu to non-editable
+  `UITextInteraction`; macOS uses AppKit mouse/responder actions and `NSPasteboard`.
 - Links the engine SDK (`Tiqian.xcframework`) as a binary target, so consumers only `import TiqianUI`
-  to reach `CJKText` + the `CJKBlock` / `AttributedString` authoring API; the engine's Kotlin/Native
+  to reach `CJKTextView` / `CJKText` + the `CJKBlock` / `AttributedString` authoring API; the engine's Kotlin/Native
   types stay internal to the package.
+
+Native word selection delegates semantic word expansion to Apple's simplified-Chinese
+`NLTokenizer`; caret and selection geometry remain engine-owned. Ruby annotations carry their own
+language: `.bopomofo(...)` uses `zh-TW` without changing the base paragraph's `zh-Hans` locale or
+mainland-horizontal profile.
+
+Native `AttributedString.link` runs keep Apple's authoring syntax. They are lowered to exact source
+ranges, while hit testing and underline geometry come from the engine's placed glyphs. `CJKText`
+dispatches through SwiftUI's `OpenURLAction`; `CJKTextView.onOpenURL` provides the AppKit/UIKit hook
+and otherwise opens the URL with the platform default. A selection drag does not activate a link.
+
+```swift
+var clreq = AttributedString("中文排版需求")
+clreq.link = URL(string: "https://www.w3.org/TR/clreq/")!
+
+CJKText([.paragraph(clreq)], fontSize: 18)
+```
 
 Pagination is **not** here — that is the [pageflow](https://github.com/tiqian-cjk/pageflow) engine's
 job; the reading view will *consume* pageflow's page model.
+
+iOS 15 is the natural lower bound because native Swift `AttributedString` is part of the authoring
+contract. Supporting iOS 12 would require a separate `NSAttributedString`/plain-text surface and a
+pre-`UITextInteraction` selection implementation, rather than a deployment-target change.
+
+UIKit and AppKit use the same native API:
+
+```swift
+let textView = CJKTextView([
+    .paragraph(AttributedString("中文正文")),
+], fontSize: 18)
+
+textView.setContent(updatedBlocks, fontSize: 20)
+```
 
 ## Build
 
 The binary target expects `Tiqian.xcframework` next to `Package.swift`. Produce it with:
 
 ```shell
-demo/macos-app/build-xcframework.sh   # assembles :demo:macos-kit and copies the xcframework here
+frontend/apple/build-xcframework.sh   # assembles :frontend:apple and syncs the xcframework here
 ```
 
 Then any Xcode project or SwiftPM target can depend on this local package and `import TiqianUI`.
-The bundled demo (`demo/macos-app`) does exactly that.
+The bundled demo (`demo/apple`) does exactly that, with macOS and iOS targets in one Xcode project.
+
+The views have native runtime coverage for layout, Core Text drawing, width reflow, scroll content
+size, source-faithful accessibility text, safe UTF-16 selection geometry, clipboard projection and
+native-link routing:
+
+```shell
+xcodebuild test -scheme TiqianUI \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+
+xcodebuild test -scheme TiqianUI \
+  -destination 'platform=macOS,arch=arm64'
+```

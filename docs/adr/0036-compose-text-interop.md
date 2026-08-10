@@ -31,6 +31,45 @@
 - Amendment 2026-07-28: an inline-object trailing boundary may mark measured advance as discardable
   only when that boundary becomes an automatic line end. Formula operators stay on the preceding
   line, while their post-operator math glue disappears at the break and remains present otherwise.
+- Amendment 2026-08-08: renderer-owned dashed and dotted underlines enter `CjkText` as
+  `CjkInlineDecoration`; Compose lowers their color and dash geometry into the normal
+  `RichTextRole.Underline`. Solid, dashed and dotted lines therefore share source boundaries, outer-glue
+  trim, underline height and skip-ink instead of letting a Markdown host repaint final geometry.
+- Amendment 2026-08-08: background spans use one continuous typographic box per visual line. The
+  box retains every internal word/CJK/Latin/punctuation gap, trims only layout space outside the
+  marked run, and uses the marked faces rather than the complete paragraph line box vertically.
+- Amendment 2026-08-09: renderer-owned highlight fills enter `CjkText` as
+  `CjkInlineBackground`. Unlike generic `SpanStyle.background`, one highlight run uses a single
+  resolved text-style metric box, so Latin/fallback faces inside it cannot change its height. The
+  frontend supplies explicit vertical padding and corner radius; both replay from the same final
+  `RichTextLineSegment` geometry on Skia and Android. Source-adjacent ranges with the same role and
+  visible paint share a 1 dp gap (half yielded by each side); unlike styles do not avoid one another.
+- Amendment 2026-08-09: inline code reuses the same uniform rounded-background geometry. Its fixed
+  4 dp inner horizontal padding enters layout through `InlineBoxSpan`, while any outer gap remains
+  the engine's ordinary Unicode East Asian wide/narrow spacing rather than a painted margin. The
+  default monospace run is 7/8 of the surrounding font size.
+- Amendment 2026-08-09: keyboard-input runs reuse inline code's font family, size, weight and box
+  dimensions. Their only default visual difference is a 1 dp border in place of the fill. Fill and
+  border replay the same final `RichTextLineSegment`; the renderer insets the centered stroke by
+  half its width so it cannot consume the box's inner or outer spacing.
+- Amendment 2026-08-09: shrinking inline-code text to 7/8 em does not shrink its surrounding box.
+  Inline code and keyboard input use the paragraph's reference font metrics plus the same vertical
+  padding as highlights; only the glyphs use the smaller monospace style. This keeps all three box
+  styles on one vertical rhythm in body text and headings.
+- Amendment 2026-08-10: line-through paint bisects the resolved text style's ideographic metric box.
+  It uses the platform's recorded `IdeographicEmBox` when available and the shared 0.88/0.12 em box
+  only when metrics are absent; renderers no longer place Chinese strike-throughs from a generic
+  baseline offset.
+- Amendment 2026-08-10: selection menus participate in Foundation's version-pinned text-context-menu
+  session instead of calling the legacy toolbar as a detached one-shot. Android therefore uses the
+  system `ActionMode` provider, including host filters/components and `PROCESS_TEXT`; Desktop uses
+  Compose's current `LocalTextContextMenu` right-click contract. The menu content rect and handles
+  share Foundation's ancestor-clipped visible bounds, and descendant movement during scrolling
+  invalidates the system anchor without creating another text layout. The Android artifact declares
+  the `ACTION_PROCESS_TEXT` / `text/plain` package-visibility query, so Android 11+ does not silently
+  reduce the external-app menu to packages already visible to the host. Clearing a selection closes
+  its `ActionMode` before publishing the empty selection state, preventing an intermediate
+  copy-disabled / select-all-only menu from flashing during dismissal.
 
 ## Context
 
@@ -108,8 +147,10 @@ Supported Compose rich text remains the subset already wired through the real pi
   are joined with a source newline during copy; `CjkDisableSelection` creates an explicit exclusion
   subtree;
 - mouse drag and double-click word selection, touch long-press selection and draggable handles,
-  triple-click paragraph selection, the platform copy/select-all toolbar, keyboard copy/Escape, and
-  Compose selection/copy semantics. Platform presentation comes from Foundation's actual
+  triple-click paragraph selection, the platform text-context-menu session, keyboard copy/Escape,
+  and Compose selection/copy semantics. Android's session uses the system `ActionMode` provider
+  with copy/select-all and `PROCESS_TEXT`; Desktop uses Compose's native/right-click text menu.
+  Platform presentation comes from Foundation's actual
   `SelectionHandle`, selection gesture detector, and Android text-default magnifier; Tiqian only
   adapts their positions and adjustment requests to its source/layout queries. Link taps remain
   active, while a drag that becomes a selection consumes movement and cancels the pending link
@@ -120,7 +161,9 @@ Supported Compose rich text remains the subset already wired through the real pi
   touch, and handle drags use a quadratic velocity ramp inside the viewport edge bands and refresh
   the source endpoint as content moves. Touch auto-scroll is not armed until accumulated movement
   crosses `ViewConfiguration.touchSlop`; a stationary long press therefore retains its initially
-  selected interaction unit. Lazy layouts remain outside this contract because virtualized
+  selected interaction unit. The same position notifications recompute the ancestor-clipped menu
+  content rect and hide non-dragged handles outside the visible viewport, matching Foundation's
+  scroll behavior. Lazy layouts remain outside this contract because virtualized
   `CjkText` nodes can leave composition;
 - selection replay keeps one immutable `LayoutResultReplayIndex` per measured result, including
   positioned clusters grouped by line and glyph/source lookup tables. `CjkSelectionState` caches

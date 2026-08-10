@@ -23,9 +23,11 @@ CLREQ §行间注（5.x）：基文旁的小字号标音/释义。两套标音�
 
 ### 第一刀 · 拼音（上方）模型
 
-- **`RubySpan(baseRange, text, fontFamilies)`**（core），随 `LayoutInput.rubySpans` 进引擎。
+- **`RubySpan(baseRange, text, fontFamilies, locale)`**（core），随 `LayoutInput.rubySpans` 进引擎。
   与 `DecorationSpan` 不同：ruby 有独立字体度量、避让和**断行约束**（基文不可拆），
   并在既有行间空间不足时参与 line-box 高度计算，不是渲染器自行猜位置的纯装饰。
+  `locale` 属于注文自身；拼音空值继承正文，注音按 kind 默认 `zh-TW`，不要求调用方重复声明，
+  也不改变简体横排正文的 locale。
 - **注文专用字体**（per-span `fontFamilies`）：注文本就该独立于正文——注音需含 ㄅㄆㄇ
   字形的字体，拼音/释义各取所需，且「拼注音共同标注」一字两注可各用其字体。经共享
   `SkiaSystemTypefaces.typeface` 解析（空 = 默认 Latin 面）。作者面 `cjkRuby(base, ruby,

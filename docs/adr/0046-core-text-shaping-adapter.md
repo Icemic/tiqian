@@ -10,18 +10,23 @@
 
 ## Decision
 
-`CoreTextShapingAdapter`:新增 `:shaping:coretext`(`macosArm64`),用 Kotlin/Native **内置的 `platform.CoreText` / `platform.CoreFoundation` 绑定**——无需自定义 cinterop def。
+`CoreTextShapingAdapter`:新增 `:shaping:coretext`(`macosArm64`、`iosArm64`、`iosSimulatorArm64`),用 Kotlin/Native **内置的 `platform.CoreText` / `platform.CoreFoundation` 绑定**——无需自定义 cinterop def。
 
 - **`CoreTextShaper`**:以 `CFAttributedString` + `CTLineCreateWithAttributedString` 整形,遍历 `CTRun` 用 `CTRunGetGlyphs` / `CTRunGetPositions` 抽取字形,产出**一个 cluster + 一个 glyph run**(镜像 AWT/Skia 适配器的契约:消费 layout 决定的 `displayText`,不做 fallback / CLREQ 替换 / 标点决策)。ink bounds 用 `CTFontGetBoundingRectsForGlyphs`,并把 CG(+y 向上,基线相对)转成核心约定(+y 向下、基线上方为负)。逐字形 advance 由相邻 position 差分,末字形取 `CTLineGetTypographicBounds` 的总宽——与 Skia 适配器一致。
 - **`CoreTextFontMetricsResolver`**:`CTFontGetAscent/Descent/Leading`(hhea 盒)+ 读 `OS/2` `sTypoAscender/Descender`(`CTFontCopyTable`)得到 CJK **字身框**,对标 `SkiaFontMetricsResolver` 与 [ADR 0002](0002-script-aware-font-metrics.md) amendment。
 - **测绘同源**(contributing.md 约束 / [ADR 0016](0016-android-textpaint-adapter.md) 北极星):整形与绘制使用**同一个 `CTFont`**,前端按同一字形 id 重放。
+- **语言与 feature 同源**：paragraph locale 写入 `kCTLanguageAttributeName`；`tag` / `tag=value`
+  形式的 OpenType feature 通过 Core Text font descriptor 写入同一条缓存 `CTLine`，renderer 复用
+  `GlyphRun` 中实际施加的 feature。无效或 Core Text 无法实例化的请求记录
+  `CoreTextOpenTypeFeatureUnavailable` 后才显式退回无 feature shaping。
 - 新增 `ShapingSource.CoreText`。默认 face:`PingFang SC`(CJK)/ `Helvetica Neue`(Latin)。
 
 ## Consequences
 
 - Apple 上有真实的 shaping 与字体度量;引擎的 CLREQ 规则(避头尾、标点挤压、两端对齐、注音)以**真实 Core Text 测量**驱动、端到端生效。
-- 代价(诚实记录):`halt`(标点半角实测,ADR 0014 follow-up)与 OpenType 特性**施加**暂缓——特性透传给 `GlyphRun.openTypeFeatures` 供前端,但未在 shape 时施加(如 `locl` 的 CJK 破折号变体);第一版未做逐 cluster 的多 face 处理(单 face 段,符合常见 CJK/Latin 正文)。
-- 代价(诚实记录,`LocaleTaggedShaping` 未应用):本适配器未给 `CFAttributedString` 打 `kCTLanguageAttributeName`,而 Skia/Android 适配器按 [ADR 0015](0015-skiko-shaping-adapter-cross-check.md) 会打(locale 影响 `locl` 变体)。实测 zh-Hans/zh-TW 与 PingFang SC/TC 都**不**改变注音字形;但破折号 `—`/省略号/引号等的 CJK `locl` 变体形式**尚未验证**——若 PingFang 对这些字形 locale 敏感,会复现 ADR 0015 修过的缺陷。列为已知待办(加 `kCTLanguageAttributeName`,或补测证明无需)。
+- 代价(诚实记录):`halt`(标点半角实测,ADR 0014 follow-up)仍暂缓；第一版未做逐
+  cluster 的多 face policy（Core Text 可在 run 内产生平台 fallback face，但 fallback 选择仍不成为核心
+  可解释 decision）。
 
 ## Alternatives considered
 
@@ -30,5 +35,7 @@
 
 ## Verification
 
-- `:shaping:coretext:macosArm64Test`(6 项,均在真实系统字体上运行):中/西文 shaping 产出正字形与正 advance;**逐字形 advance 求和 = cluster advance**;句号 `。` 带 ink bounds;CJK 的 `OS/2` sTypo 字身框读取正确且为正;拉丁度量为正。
+- `:shaping:coretext:macosArm64Test` 在真实系统字体上覆盖中/西文 shaping、advance、ink bounds、
+  `OS/2` sTypo 字身框、locale，以及 `liga=1` / `liga=0` 的真实 glyph 差异；无效 feature 断言具名
+  capability issue。相同测试源也在 `iosSimulatorArm64Test` 执行。
 - 关于 **golden**:`LayoutDumpGoldenTest` **有意**使用确定性 stub shaper(平台字体会让 golden 机器相关),因此平台适配器**不建机器精确 golden**——这与 [0013](0013-jvm-awt-shaping-adapter.md) / [0015](0015-skiko-shaping-adapter-cross-check.md) 一致(0015 亦记录了 AWT↔Skia 的合理分叉,用结构断言 + 交叉一致而非逐值 golden)。上游 stub golden 套件仍全绿,证明引擎未被本适配器改动。

@@ -20,7 +20,9 @@ decoration 通道（ADR 0018）已有 span 输入与按行分段几何（示亡�
 ## Decision
 
 - `DecorationKind.ProperNoun` / `BookTitle`：行间线两式。几何复用
-  `DecorationSegmentInfo`，线类 `top == bottom == baseline + 0.18em`
+  `DecorationSegmentInfo`。专名号直线中心为 `baseline + 0.18em`；书名号波浪线中心为
+  `baseline + 0.24em`，扣除 `0.06em` 波幅后，其上缘与直线保持相同净空。此前两者共用
+  `+0.18em` 中心，导致波峰侵入字身下方的空气并贴字。
   （字身底 +0.12em 下方一线空气，「紧贴所标注汉字」；使用着重号默认
   `0.1em` 字面净空时，点墨水上缘为 `0.12em + 0.1em = +0.22em`，
   先线后点成立，无需额外机制）。
