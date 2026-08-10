@@ -143,6 +143,19 @@ class CoreTextShaperTest {
     }
 
     @Test
+    fun vertFeatureSelectsTheBopomofoVerticalToneGlyph() {
+        val horizontal = shaper.shape(input("ˇ", FontRole.CjkText))
+        val vertical = shaper.shape(input("ˇ", FontRole.CjkText, features = listOf("vert=1")))
+
+        assertNotEquals(
+            horizontal.glyphRuns.single().glyphs.single().id,
+            vertical.glyphRuns.single().glyphs.single().id,
+            "vert=1 must select Core Text's Bopomofo vertical tone, not the western caron glyph",
+        )
+        assertTrue(vertical.glyphRuns.single().glyphs.single().y != 0f)
+    }
+
+    @Test
     fun reportsInvalidOpenTypeFeatureInsteadOfClaimingItWasApplied() {
         val result = shaper.shape(input("fi", FontRole.LatinText, features = listOf("invalid-tag")))
 

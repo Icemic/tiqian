@@ -105,8 +105,13 @@ class CoreTextShaper(
             Glyph(
                 id = shaped.glyphIds[i],
                 clusterRange = input.range,
-                advance = (endX - startX).coerceAtLeast(0f),
+                advance = if (shaped.verticalForms) {
+                    advance / count
+                } else {
+                    (endX - startX).coerceAtLeast(0f)
+                },
                 x = startX,
+                y = shaped.ys[i],
                 bounds = shaped.bounds[i],
             )
         }
@@ -139,8 +144,10 @@ class CoreTextShaper(
     private class Shaped(
         val glyphIds: List<UInt>,
         val xs: List<Float>,
+        val ys: List<Float>,
         val bounds: List<Rect?>,
         val advance: Float,
+        val verticalForms: Boolean,
     )
 
     /**
@@ -155,24 +162,26 @@ class CoreTextShaper(
         language: String?,
         openTypeFeatures: List<String>,
     ): Shaped? {
+        val verticalForms = openTypeFeatures.contains("vert=1")
         val line = CoreTextSupport.line(
             text = displayText,
             font = font,
-            vertical = false,
+            vertical = verticalForms,
             language = language,
             openTypeFeatures = openTypeFeatures,
         ) ?: return null
         val advance = CTLineGetTypographicBounds(line, null, null, null).toFloat()
         val glyphIds = mutableListOf<UInt>()
         val xs = mutableListOf<Float>()
+        val ys = mutableListOf<Float>()
         val bounds = mutableListOf<Rect?>()
         val runs = CTLineGetGlyphRuns(line)
         val runCount = if (runs != null) CFArrayGetCount(runs).toInt() else 0
         for (r in 0 until runCount) {
             val run: CTRunRef = CFArrayGetValueAtIndex(runs, r.convert())!!.reinterpret()
-            collectRun(run, font, glyphIds, xs, bounds)
+            collectRun(run, font, glyphIds, xs, ys, bounds)
         }
-        return Shaped(glyphIds, xs, bounds, advance)
+        return Shaped(glyphIds, xs, ys, bounds, advance, verticalForms)
     }
 
     private fun collectRun(
@@ -180,6 +189,7 @@ class CoreTextShaper(
         fallbackFont: CTFontRef,
         glyphIds: MutableList<UInt>,
         xs: MutableList<Float>,
+        ys: MutableList<Float>,
         bounds: MutableList<Rect?>,
     ) {
         val gcount = CTRunGetGlyphCount(run).toInt()
@@ -195,6 +205,7 @@ class CoreTextShaper(
             for (i in 0 until gcount) {
                 glyphIds += gbuf[i].toUInt()
                 xs += pbuf[i].x.toFloat()
+                ys += -pbuf[i].y.toFloat()
                 bounds += rbuf[i].toGlyphLocalRect()
             }
         }
