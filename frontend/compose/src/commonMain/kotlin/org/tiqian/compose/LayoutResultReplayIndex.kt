@@ -13,6 +13,7 @@ import org.tiqian.core.getLineForOffset
 import org.tiqian.core.getSelectionWordBoundary
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
+import org.tiqian.core.richTextBackgroundSegments
 import org.tiqian.core.trimmedRichTextDecorationSegments
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -28,6 +29,7 @@ internal data class LayoutResultReplayIndex(
     val positionedClusters: List<PositionedCluster>,
     val positionedClustersByLine: List<List<PositionedCluster>>,
     val richTextSegments: List<RichTextLineSegment>,
+    val richTextBackgroundSegments: List<RichTextLineSegment>,
     val richTextDecorationSegments: List<RichTextLineSegment>,
     val glyphsByClusterRange: Map<TextRange, List<Glyph>>,
     val fontRoleByClusterRange: Map<TextRange, String?>,
@@ -44,6 +46,7 @@ internal fun LayoutResult.toReplayIndex(richTextSpans: List<RichTextSpan>): Layo
         positionedClusters = positionedClusters,
         positionedClustersByLine = positionedClustersByLine,
         richTextSegments = richTextSegments,
+        richTextBackgroundSegments = richTextBackgroundSegments(richTextSegments),
         richTextDecorationSegments = trimmedRichTextDecorationSegments(richTextSegments),
         glyphsByClusterRange = glyphRuns.asSequence()
             .flatMap { it.glyphs.asSequence() }

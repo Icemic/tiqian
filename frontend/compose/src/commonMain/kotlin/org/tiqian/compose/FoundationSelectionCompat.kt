@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.detectDownAndDragGesturesWithObserver
 import androidx.compose.foundation.text.selection.MouseSelectionObserver
 import androidx.compose.foundation.text.selection.SelectionAdjustment
 import androidx.compose.foundation.text.selection.SelectionHandle
+import androidx.compose.foundation.text.selection.HandleHeight
 import androidx.compose.foundation.text.selection.awaitSelectionGestures
 import androidx.compose.foundation.gestures.awaitAllPointersUpWithSlopDetection
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -21,7 +22,10 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.text.style.ResolvedTextDirection
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
 
 /**
@@ -258,3 +262,26 @@ private fun SelectionAdjustment.toCjkAdjustment(): CjkSelectionAdjustment = when
 
 /** Android supplies the text magnifier; desktop deliberately returns this modifier unchanged. */
 internal expect fun Modifier.foundationSelectionMagnifier(state: CjkSelectionState): Modifier
+
+/** Foundation reserves four handle heights below the selected region for toolbar placement. */
+internal fun foundationSelectionToolbarHandleClearancePx(density: Density): Float =
+    with(density) { HandleHeight.toPx() * 4f }
+
+/** Foundation's ancestor-clipped visible bounds, expressed in these local coordinates. */
+internal fun LayoutCoordinates.visibleBoundsForSelection(): androidx.compose.ui.geometry.Rect {
+    val windowBounds = boundsInWindow()
+    return androidx.compose.ui.geometry.Rect(
+        windowToLocal(windowBounds.topLeft),
+        windowToLocal(windowBounds.bottomRight),
+    )
+}
+
+internal fun androidx.compose.ui.geometry.Rect.containsInclusive(offset: Offset): Boolean =
+    offset.x in left..right && offset.y in top..bottom
+
+/** Platform context-menu bridge matching the Compose Foundation version pinned by this module. */
+@Composable
+internal expect fun FoundationSelectionContextMenuArea(
+    state: CjkSelectionState,
+    content: @Composable () -> Unit,
+)

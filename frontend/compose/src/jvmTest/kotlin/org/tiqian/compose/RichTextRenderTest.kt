@@ -13,10 +13,12 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.use
 import org.jetbrains.skia.EncodedImageFormat
@@ -45,12 +47,12 @@ class RichTextRenderTest {
     fun backgroundAndTextDecorationPaintFromRichTextSpans() {
         var yellow = 0
         var blue = 0
-        ImageComposeScene(width = 520, height = 180) {
+        ImageComposeScene(width = 760, height = 180) {
             Box(Modifier.fillMaxSize().background(Color.White).padding(16.dp)) {
                 CjkText(
                     buildAnnotatedString {
                         append("普通")
-                        withStyle(SpanStyle(background = Color(0xFFFFEA00))) { append("高亮背景") }
+                        withStyle(SpanStyle(background = Color(0xFFFFEA00))) { append("高亮 A B 背景") }
                         append("，")
                         withStyle(SpanStyle(color = Color.Blue, textDecoration = TextDecoration.Underline)) {
                             append("蓝色下划线")
@@ -58,7 +60,7 @@ class RichTextRenderTest {
                         append("，")
                         inlineCode { append("code") }
                     },
-                    modifier = Modifier.width(480.dp),
+                    modifier = Modifier.width(720.dp),
                     textStyle = CjkTextStyle(fontSize = 40.sp),
                 )
             }
@@ -77,6 +79,262 @@ class RichTextRenderTest {
         }
         assertTrue(yellow > 600, "expected yellow background pixels, got $yellow")
         assertTrue(blue > 200, "expected blue text/underline pixels, got $blue")
+    }
+
+    @Test
+    fun explicitInlineBackgroundPaintsRoundedCorners() {
+        var layout: LayoutResult? = null
+        val backgrounds = listOf(
+            CjkInlineBackground(
+                range = androidx.compose.ui.text.TextRange(0, 2),
+                color = Color(0xFFFFE58F),
+            ),
+            CjkInlineBackground(
+                range = androidx.compose.ui.text.TextRange(2, 8),
+                color = Color(0xFFFFE58F),
+            ),
+        )
+        val image = ImageComposeScene(width = 420, height = 120) {
+            Box(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                CjkText(
+                    text = androidx.compose.ui.text.AnnotatedString("高亮中文 A B"),
+                    textStyle = CjkTextStyle(fontSize = 40.sp),
+                    inlineBackgrounds = backgrounds,
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        File("build/reports/tiqian-compose").mkdirs()
+        image.encodeToData(EncodedImageFormat.PNG)?.bytes?.let {
+            File("build/reports/tiqian-compose/rounded-background.png").writeBytes(it)
+        }
+        val pixels = image.toComposeImageBitmap().toPixelMap()
+        val yellowByRow = (0 until pixels.height).map { y ->
+            (0 until pixels.width).count { x ->
+                val color = pixels[x, y]
+                color.red > 0.8f && color.green > 0.65f && color.blue < 0.7f
+            }
+        }
+        val paintedRows = yellowByRow.filter { it > 0 }
+        val segments = (layout ?: error("onTextLayout not called"))
+            .toReplayIndex(backgrounds.map { it.toCore(Density(1f)) })
+            .richTextBackgroundSegments
+
+        assertEquals(2, segments.size)
+        assertEquals(segments[0].top, segments[1].top, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].bottom, segments[1].bottom, absoluteTolerance = 0.01f)
+        assertEquals(1f, segments[1].left - segments[0].right, absoluteTolerance = 0.01f)
+
+        assertTrue(paintedRows.isNotEmpty(), "expected a painted inline background")
+        assertTrue(
+            paintedRows.first() < paintedRows.max(),
+            "expected the first painted row to be inset by rounded corners",
+        )
+        assertTrue(
+            paintedRows.last() < paintedRows.max(),
+            "expected the last painted row to be inset by rounded corners",
+        )
+    }
+
+    @Test
+    fun inlineCodePaddingIsInsideTheBoxWhileOuterGapUsesCjkWesternSpacing() {
+        var layout: LayoutResult? = null
+        val background = CjkInlineBackground(
+            range = androidx.compose.ui.text.TextRange(1, 5),
+            color = Color(0xFFF1F3F5),
+            horizontalPadding = 4.dp,
+        )
+        ImageComposeScene(width = 320, height = 96) {
+            Box(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                CjkText(
+                    text = androidx.compose.ui.text.AnnotatedString("中code中"),
+                    textStyle = CjkTextStyle(fontSize = 24.sp),
+                    inlineBackgrounds = listOf(background),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        val result = layout ?: error("onTextLayout not called")
+        val inlineBox = result.debug.inlineBoxDecisions.single()
+        assertEquals(TextRange(1, 5), inlineBox.range)
+        assertEquals(4f, inlineBox.inlineStart, 0.01f)
+        assertEquals(4f, inlineBox.inlineEnd, 0.01f)
+        assertEquals(2, result.debug.autoSpaceDecisions.size)
+        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "EastAsianSpacing.Wide" })
+    }
+
+    @Test
+    fun highlightInlineCodeAndKeyboardReuseOneVerticalBoxGeometry() {
+        var layout: LayoutResult? = null
+        val boxes = listOf(
+            CjkInlineBackground(
+                range = androidx.compose.ui.text.TextRange(0, 2),
+                color = Color(0xFFFFE58F),
+            ),
+            CjkInlineBackground(
+                range = androidx.compose.ui.text.TextRange(3, 7),
+                color = Color(0xFFF1F3F5),
+                horizontalPadding = 4.dp,
+                metricPolicy = CjkInlineBackgroundMetricPolicy.ParagraphTextStyle,
+            ),
+            CjkInlineBackground(
+                range = androidx.compose.ui.text.TextRange(8, 12),
+                color = Color(0xFF7A828A),
+                horizontalPadding = 4.dp,
+                drawStyle = CjkInlineBackgroundDrawStyle.Border(1.dp),
+                metricPolicy = CjkInlineBackgroundMetricPolicy.ParagraphTextStyle,
+            ),
+        )
+        val image = ImageComposeScene(width = 420, height = 112) {
+            Box(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                CjkText(
+                    text = buildAnnotatedString {
+                        append("高亮 code Ctrl")
+                        addStyle(
+                            SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.875.em),
+                            3,
+                            7,
+                        )
+                        addStyle(
+                            SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.875.em),
+                            8,
+                            12,
+                        )
+                    },
+                    textStyle = CjkTextStyle(fontSize = 32.sp),
+                    inlineBackgrounds = boxes,
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        File("build/reports/tiqian-compose").mkdirs()
+        image.encodeToData(EncodedImageFormat.PNG)?.bytes?.let {
+            File("build/reports/tiqian-compose/inline-box-styles.png").writeBytes(it)
+        }
+
+        val segments = (layout ?: error("onTextLayout not called"))
+            .toReplayIndex(boxes.map { it.toCore(Density(1f)) })
+            .richTextBackgroundSegments
+        assertEquals(3, segments.size)
+        assertEquals(segments[0].height, segments[1].height, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].height, segments[2].height, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].top, segments[1].top, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].top, segments[2].top, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].bottom, segments[1].bottom, absoluteTolerance = 0.01f)
+        assertEquals(segments[0].bottom, segments[2].bottom, absoluteTolerance = 0.01f)
+        assertEquals(3f, segments[0].span.paint.background.verticalPadding)
+        assertEquals(3f, segments[1].span.paint.background.verticalPadding)
+        assertEquals(3f, segments[2].span.paint.background.verticalPadding)
+
+        val pixels = image.toComposeImageBitmap().toPixelMap()
+        val borderPixels = (0 until pixels.height).sumOf { y ->
+            (0 until pixels.width).count { x ->
+                val color = pixels[x, y]
+                color.red in 0.35f..0.65f && color.green in 0.35f..0.65f && color.blue in 0.35f..0.65f
+            }
+        }
+        assertTrue(borderPixels > 30, "expected outlined keyboard box pixels, got $borderPixels")
+    }
+
+    @Test
+    fun dottedUnderlinePaintsSeparatedRoundMarksOnTheTiqianLine() {
+        var layout: LayoutResult? = null
+        val decoration = CjkInlineDecoration(
+            range = androidx.compose.ui.text.TextRange(0, 5),
+            style = CjkInlineDecorationStyle.DottedUnderline(
+                color = Color.Red,
+                dotDiameter = 2.dp,
+                gapLength = 5.dp,
+            ),
+        )
+        val image = ImageComposeScene(width = 260, height = 120) {
+            Box(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                CjkText(
+                    text = androidx.compose.ui.text.AnnotatedString("CLREQ"),
+                    textStyle = CjkTextStyle(fontSize = 40.sp),
+                    inlineDecorations = listOf(decoration),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        File("build/reports/tiqian-compose").mkdirs()
+        image.encodeToData(EncodedImageFormat.PNG)?.bytes?.let {
+            File("build/reports/tiqian-compose/dotted-underline.png").writeBytes(it)
+        }
+        val result = layout ?: error("onTextLayout not called")
+        result.toReplayIndex(listOf(decoration.toCore(Density(1f))))
+            .richTextDecorationSegments.single()
+        val pixels = image.toComposeImageBitmap().toPixelMap()
+        val redAt = { x: Int, y: Int ->
+            val color = pixels[x, y]
+            color.red > 0.7f && color.green < 0.4f && color.blue < 0.4f
+        }
+        val y = (0 until pixels.height).maxBy { row ->
+            (0 until pixels.width).count { x -> redAt(x, row) }
+        }
+        val samples = (0 until pixels.width).map { x -> redAt(x, y) }
+        val paintedRuns = samples.zipWithNext().count { (left, right) -> !left && right }
+
+        assertTrue(samples.any { it }, "expected dotted underline pixels")
+        assertTrue(paintedRuns >= 3, "expected separated dots, got $paintedRuns painted runs")
+    }
+
+    @Test
+    fun dashedUnderlineFitsCompleteDashesToBothDecorationEdges() {
+        var layout: LayoutResult? = null
+        val decoration = CjkInlineDecoration(
+            range = androidx.compose.ui.text.TextRange(0, 4),
+            style = CjkInlineDecorationStyle.DashedUnderline(
+                color = Color.Red,
+                strokeWidth = 2.dp,
+                dashLength = 8.dp,
+                gapLength = 5.dp,
+            ),
+        )
+        val image = ImageComposeScene(width = 260, height = 120) {
+            Box(Modifier.fillMaxSize().background(Color.White).padding(12.dp)) {
+                CjkText(
+                    text = androidx.compose.ui.text.AnnotatedString("虚线标记"),
+                    textStyle = CjkTextStyle(fontSize = 40.sp),
+                    inlineDecorations = listOf(decoration),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        File("build/reports/tiqian-compose").mkdirs()
+        image.encodeToData(EncodedImageFormat.PNG)?.bytes?.let {
+            File("build/reports/tiqian-compose/dashed-underline.png").writeBytes(it)
+        }
+        val result = layout ?: error("onTextLayout not called")
+        val segment = result.toReplayIndex(listOf(decoration.toCore(Density(1f))))
+            .richTextDecorationSegments.single()
+        val pixels = image.toComposeImageBitmap().toPixelMap()
+        val redAt = { x: Int, y: Int ->
+            val color = pixels[x, y]
+            color.red > 0.7f && color.green < 0.4f && color.blue < 0.4f
+        }
+        val y = (0 until pixels.height).maxBy { row ->
+            (0 until pixels.width).count { x -> redAt(x, row) }
+        }
+        val samples = (0 until pixels.width).map { x -> redAt(x, y) }
+        val paintedRuns = samples.zipWithNext().count { (left, right) -> !left && right }
+        val leftEdge = (12f + segment.left).toInt()
+        val rightEdge = (12f + segment.right).toInt()
+
+        assertTrue(paintedRuns >= 4, "expected fitted separated dashes, got $paintedRuns painted runs")
+        assertTrue(
+            (leftEdge..leftEdge + 2).any { x -> redAt(x.coerceIn(0, pixels.width - 1), y) },
+            "expected a complete first dash at the decoration left edge",
+        )
+        assertTrue(
+            (rightEdge - 2..rightEdge).any { x -> redAt(x.coerceIn(0, pixels.width - 1), y) },
+            "expected a complete final dash at the decoration right edge",
+        )
     }
 
     @Test

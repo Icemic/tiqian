@@ -2,6 +2,7 @@ package org.tiqian.compose
 
 import android.annotation.TargetApi
 import android.graphics.Paint
+import android.graphics.DashPathEffect
 import android.graphics.Path
 import android.graphics.PathMeasure
 import android.graphics.Rect
@@ -19,6 +20,8 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBox
 import org.tiqian.core.RichTextLineSegment
 import org.tiqian.core.RichTextRole
+import org.tiqian.core.RichTextBackgroundDrawStyle
+import org.tiqian.core.RichTextLinePattern
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.BopomofoGlyphRole
@@ -48,8 +51,7 @@ internal actual fun ContentDrawScope.drawParagraph(
 ) {
     drawIntoCanvas { canvas ->
         val native = canvas.nativeCanvas
-        val richTextSegments = replayIndex.richTextSegments
-        drawAndroidRichTextBackgrounds(native, richTextSegments)
+        drawAndroidRichTextBackgrounds(native, replayIndex.richTextBackgroundSegments)
         if (selectionColor != null) {
             val selectionPaint = Paint().apply {
                 style = Paint.Style.FILL
@@ -251,9 +253,7 @@ private fun drawAndroidRichTextBackgrounds(
     canvas: android.graphics.Canvas,
     segments: List<RichTextLineSegment>,
 ) {
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     for (seg in segments) {
         val argb = when (seg.span.role) {
             RichTextRole.Background -> seg.span.paint.argb
@@ -261,7 +261,32 @@ private fun drawAndroidRichTextBackgrounds(
             else -> null
         } ?: continue
         paint.color = argb
-        canvas.drawRect(seg.left, seg.top, seg.right, seg.bottom, paint)
+        val inset = when (val drawStyle = seg.span.paint.background.drawStyle) {
+            RichTextBackgroundDrawStyle.Fill -> {
+                paint.style = Paint.Style.FILL
+                0f
+            }
+            is RichTextBackgroundDrawStyle.Border -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = drawStyle.strokeWidth
+                drawStyle.strokeWidth / 2f
+            }
+        }
+        val left = seg.left + inset
+        val top = seg.top + inset
+        val right = seg.right - inset
+        val bottom = seg.bottom - inset
+        if (right <= left || bottom <= top) continue
+        val radius = minOf(
+            (seg.span.paint.background.cornerRadius - inset).coerceAtLeast(0f),
+            (right - left) / 2f,
+            (bottom - top) / 2f,
+        ).coerceAtLeast(0f)
+        if (radius > 0f) {
+            canvas.drawRoundRect(left, top, right, bottom, radius, radius, paint)
+        } else {
+            canvas.drawRect(left, top, right, bottom, paint)
+        }
     }
 }
 
@@ -277,15 +302,34 @@ private fun drawAndroidRichTextLines(
 ) {
     val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = (result.input.textStyle.fontSize / 16f).coerceAtLeast(1f)
     }
-    val skipBandPad = strokePaint.strokeWidth.coerceAtLeast(1f)
     // Skip-ink intervals re-measure the line's clusters — memoize per (line, band)
     // so several underline segments on one line pay for the walk once per draw.
     val skipCache = HashMap<Long, FloatArray>()
     for (seg in segments) {
         val role = seg.span.role
         if (role != RichTextRole.Underline && role != RichTextRole.LineThrough) continue
+        when (val pattern = seg.span.paint.linePattern) {
+            RichTextLinePattern.Solid -> {
+                strokePaint.strokeWidth = (result.input.textStyle.fontSize / 16f).coerceAtLeast(1f)
+                strokePaint.pathEffect = null
+                strokePaint.strokeCap = Paint.Cap.BUTT
+            }
+            is RichTextLinePattern.Dashed -> {
+                strokePaint.strokeWidth = pattern.strokeWidth
+                strokePaint.strokeCap = Paint.Cap.ROUND
+                strokePaint.pathEffect = DashPathEffect(
+                    floatArrayOf(pattern.dashLength, pattern.gapLength),
+                    0f,
+                )
+            }
+            is RichTextLinePattern.Dotted -> {
+                strokePaint.strokeWidth = pattern.dotDiameter
+                strokePaint.strokeCap = Paint.Cap.BUTT
+                strokePaint.pathEffect = null
+            }
+        }
+        val skipBandPad = strokePaint.strokeWidth.coerceAtLeast(1f)
         val style = spans.lastOrNull { seg.range.start >= it.range.start && seg.range.start < it.range.end }?.style
             ?: result.input.textStyle
         val lineY = result.richTextDecorationLineY(seg, strokePaint.strokeWidth)
@@ -302,6 +346,7 @@ private fun drawAndroidRichTextLines(
                 paint = strokePaint,
                 skipBandPad = skipBandPad,
                 skipClearance = browserLikeSkipInkClearance(style.fontSize, strokePaint.strokeWidth),
+                linePattern = seg.span.paint.linePattern,
                 spans = spans,
                 typefaces = typefaces,
                 skipCache = skipCache,
@@ -310,6 +355,8 @@ private fun drawAndroidRichTextLines(
             canvas.drawLine(seg.left, lineY, seg.right, lineY, strokePaint)
         }
     }
+    strokePaint.pathEffect = null
+    strokePaint.strokeCap = Paint.Cap.BUTT
 }
 
 private fun drawAndroidStraightInterlinearLine(
@@ -323,12 +370,15 @@ private fun drawAndroidStraightInterlinearLine(
     paint: Paint,
     skipBandPad: Float,
     skipClearance: Float,
+    linePattern: RichTextLinePattern = RichTextLinePattern.Solid,
     spans: List<TextSpan>,
     typefaces: AndroidTypefaceResolver,
     skipCache: MutableMap<Long, FloatArray>? = null,
 ) {
     val line = result.lines.getOrNull(lineIndex) ?: return
-    val cacheKey = (lineIndex.toLong() shl 32) or (lineY.toRawBits().toLong() and 0xFFFFFFFFL)
+    val cacheKey = (lineIndex.toLong() shl 32) xor
+        (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
+        (skipBandPad.toRawBits().toLong() shl 1)
     val skips = skipCache?.getOrPut(cacheKey) {
         result.androidLineInkSkipIntervals(
             replayIndex, line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces,
@@ -337,7 +387,51 @@ private fun drawAndroidStraightInterlinearLine(
         replayIndex, line, lineY - skipBandPad, lineY + skipBandPad, spans, typefaces,
     )
     keptIntervals(left, right, skips, skipClearance) { x0, x1 ->
-        canvas.drawLine(x0, lineY, x1, lineY, paint)
+        when (linePattern) {
+            RichTextLinePattern.Solid -> canvas.drawLine(x0, lineY, x1, lineY, paint)
+            is RichTextLinePattern.Dashed -> {
+                paint.pathEffect = null
+                val saveCount = canvas.save()
+                canvas.clipRect(x0, lineY - paint.strokeWidth, x1, lineY + paint.strokeWidth)
+                val dashes = fittedDashedLineSegments(
+                    spanLeft = left,
+                    spanRight = right,
+                    dashLength = linePattern.dashLength,
+                    gapLength = linePattern.gapLength,
+                )
+                var index = 0
+                while (index + 1 < dashes.size) {
+                    val dashLeft = dashes[index]
+                    val dashRight = dashes[index + 1]
+                    if (dashRight > x0 && dashLeft < x1) {
+                        val capInset = minOf(paint.strokeWidth / 2f, (dashRight - dashLeft) / 2f)
+                        canvas.drawLine(
+                            dashLeft + capInset,
+                            lineY,
+                            dashRight - capInset,
+                            lineY,
+                            paint,
+                        )
+                    }
+                    index += 2
+                }
+                canvas.restoreToCount(saveCount)
+            }
+            is RichTextLinePattern.Dotted -> {
+                paint.style = Paint.Style.FILL
+                fittedDottedLineCenters(
+                    spanLeft = left,
+                    spanRight = right,
+                    keptLeft = x0,
+                    keptRight = x1,
+                    dotDiameter = linePattern.dotDiameter,
+                    gapLength = linePattern.gapLength,
+                ).forEach { center ->
+                    canvas.drawCircle(center, lineY, linePattern.dotDiameter / 2f, paint)
+                }
+                paint.style = Paint.Style.STROKE
+            }
+        }
     }
 }
 
@@ -355,6 +449,7 @@ private fun drawAndroidRuby(
         textLocale = Locale.forLanguageTag(result.input.textStyle.locale)
     }
     for (ruby in result.debug.rubyDecisions) {
+        paint.textLocale = Locale.forLanguageTag(ruby.locale)
         paint.textSize = ruby.fontSize
         paint.fontFeatureSettings = null
         val originX = ruby.centerX - ruby.width / 2f

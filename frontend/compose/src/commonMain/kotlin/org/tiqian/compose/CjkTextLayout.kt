@@ -2,7 +2,9 @@ package org.tiqian.compose
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -13,6 +15,8 @@ import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
@@ -59,6 +63,7 @@ import org.tiqian.core.coerceSelectionOffset
 import org.tiqian.core.getBoundingBoxes
 import org.tiqian.core.getOffsetForPosition
 import org.tiqian.core.getLineForOffset
+import org.tiqian.core.getTextForCopy
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -122,6 +127,7 @@ internal fun CjkTextLayout(
     val uriHandler = LocalUriHandler.current
     val selectionState = LocalCjkSelectionState.current
     val selectionBridge = remember { CjkTextSelectionBridge() }
+    val hoveringLink = remember { mutableStateOf(false) }
     val inlineObjectPlacements = remember(inlineObjects) {
         inlineObjects.map { CjkInlineObjectPlacement() }
     }
@@ -129,7 +135,7 @@ internal fun CjkTextLayout(
     // modifier with a pointer node after an annotation-only update can otherwise leave the new
     // node without hit-test bounds until a later relayout; updating a stable node also avoids
     // changing the modifier topology when links appear or disappear.
-    val linkModifier = CjkTextLinkElement(semanticsText, latestResult, uriHandler)
+    val linkModifier = CjkTextLinkElement(semanticsText, latestResult, uriHandler, hoveringLink)
     val selectionModifier = if (selectionState != null) {
         Modifier.foundationSelectionGestures(selectionState, selectionBridge)
     } else {
@@ -144,6 +150,15 @@ internal fun CjkTextLayout(
         modifier
             .then(linkModifier)
             .then(selectionModifier)
+            .pointerHoverIcon(
+                if (hoveringLink.value) {
+                    PointerIcon.Hand
+                } else if (selectionState != null) {
+                    PointerIcon.Text
+                } else {
+                    PointerIcon.Default
+                },
+            )
             .then(
                 CjkTextLayoutElement(
                     text, semanticsText, textStyle, paragraphStyle, color,
@@ -199,21 +214,24 @@ private class CjkTextLinkElement(
     private val text: AnnotatedString,
     private val latestResult: Array<LayoutResult?>,
     private val uriHandler: UriHandler,
+    private val hoveringLink: MutableState<Boolean>,
 ) : ModifierNodeElement<CjkTextLinkNode>() {
-    override fun create() = CjkTextLinkNode(text, latestResult, uriHandler)
+    override fun create() = CjkTextLinkNode(text, latestResult, uriHandler, hoveringLink)
 
     override fun update(node: CjkTextLinkNode) {
-        node.update(text, latestResult, uriHandler)
+        node.update(text, latestResult, uriHandler, hoveringLink)
     }
 
     override fun equals(other: Any?): Boolean =
         other is CjkTextLinkElement && text == other.text &&
-            latestResult === other.latestResult && uriHandler === other.uriHandler
+            latestResult === other.latestResult && uriHandler === other.uriHandler &&
+            hoveringLink === other.hoveringLink
 
     override fun hashCode(): Int {
         var result = text.hashCode()
         result = 31 * result + latestResult.hashCode()
         result = 31 * result + uriHandler.hashCode()
+        result = 31 * result + hoveringLink.hashCode()
         return result
     }
 }
@@ -222,6 +240,7 @@ private class CjkTextLinkNode(
     private var text: AnnotatedString,
     private var latestResult: Array<LayoutResult?>,
     private var uriHandler: UriHandler,
+    private var hoveringLink: MutableState<Boolean>,
 ) : Modifier.Node(), PointerInputModifierNode {
     private var pressedLink: LinkHit? = null
     private var pressedPointerId: PointerId? = null
@@ -230,11 +249,16 @@ private class CjkTextLinkNode(
         text: AnnotatedString,
         latestResult: Array<LayoutResult?>,
         uriHandler: UriHandler,
+        hoveringLink: MutableState<Boolean>,
     ) {
-        if (text != this.text) pressedLink = null
+        if (text != this.text) {
+            pressedLink = null
+            this.hoveringLink.value = false
+        }
         this.text = text
         this.latestResult = latestResult
         this.uriHandler = uriHandler
+        this.hoveringLink = hoveringLink
     }
 
     override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
@@ -261,6 +285,10 @@ private class CjkTextLinkNode(
             PointerEventType.Enter,
             PointerEventType.Move,
             -> {
+                val hoverChange = pointerEvent.changes.firstOrNull()
+                hoveringLink.value = hoverChange != null && latestResult[0]?.let { result ->
+                    linkHitAt(text, result, hoverChange.position)
+                } != null
                 val pointerId = pressedPointerId ?: return
                 val change = pointerEvent.changes.firstOrNull { it.id == pointerId } ?: return
                 val currentHit = latestResult[0]?.let { linkHitAt(text, it, change.position) }
@@ -285,12 +313,21 @@ private class CjkTextLinkNode(
                 }
             }
 
-            PointerEventType.Exit -> clearPressedLink()
+            PointerEventType.Exit -> {
+                hoveringLink.value = false
+                clearPressedLink()
+            }
         }
     }
 
     override fun onCancelPointerInput() {
+        hoveringLink.value = false
         clearPressedLink()
+    }
+
+    override fun onDetach() {
+        hoveringLink.value = false
+        super.onDetach()
     }
 
     private fun clearPressedLink() {
@@ -470,6 +507,15 @@ private class CjkTextLayoutNode(
     override val selectionText: AnnotatedString
         get() = semanticsText
 
+    override fun selectionTextForCopy(range: org.tiqian.core.TextRange): String {
+        val projected = result?.getTextForCopy(range)
+            ?: semanticsText.text.substring(
+                range.start.coerceIn(0, semanticsText.length),
+                range.end.coerceIn(range.start.coerceIn(0, semanticsText.length), semanticsText.length),
+            )
+        return projected
+    }
+
     override fun onAttach() {
         selectionBridge.selectable = this
         selectionBridge.coordinates?.let(::updateSelectionCoordinates)
@@ -526,6 +572,8 @@ private class CjkTextLayoutNode(
             spans = spans,
             rubySpans = rubySpans,
         )
+        val inlineBoxesChanged = richTextSpans.backgroundInlineBoxes() !=
+            this.richTextSpans.backgroundInlineBoxes()
         val layoutChanged = text != this.text || textStyle != this.textStyle ||
             paragraphStyle != this.paragraphStyle || decorations != this.decorations ||
             spans != this.spans || rubySpans != this.rubySpans ||
@@ -533,6 +581,7 @@ private class CjkTextLayoutNode(
             softWrap != this.softWrap || maxLines != this.maxLines ||
             minLines != this.minLines || measurer !== this.measurer ||
             oldSourceBoundaries != newSourceBoundaries ||
+            inlineBoxesChanged ||
             inlineObjectPlacements !== this.inlineObjectPlacements
         val richTextChanged = richTextSpans != this.richTextSpans
         val drawChanged = color != this.color || colorSpans != this.colorSpans ||
@@ -704,6 +753,7 @@ private class CjkTextLayoutNode(
             constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
             decorations = decorations,
             rubySpans = rubySpans,
+            inlineBoxes = richTextSpans.backgroundInlineBoxes(),
             inlineObjects = inlineObjects,
         )
         // softWrap changes the measurement width; maxLines is an ENGINE constraint

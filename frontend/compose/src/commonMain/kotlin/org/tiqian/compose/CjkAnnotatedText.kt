@@ -16,6 +16,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
@@ -65,8 +67,9 @@ internal fun AnnotatedString.withBaseLinkStyles(): AnnotatedString {
 
 /**
  * 行间注 (拼音/ruby, ADR 0032): appends [base] and annotates it with the [ruby]
- * reading placed above it. The reading is NOT part of the source string
- * (复制/搜索 保真 — only [base] is appended):
+ * reading placed above it. The reading is NOT part of the source string, search text, or
+ * accessibility semantics. When its whole base is selected, clipboard plain text follows the Web
+ * frontend and appends the reading as `base（ruby）`; a partial base selection copies only source:
  *
  * ```
  * CjkText(buildAnnotatedString {
@@ -134,7 +137,12 @@ internal fun AnnotatedString.cjkColorSpans(): List<ColorSpan> =
  * source edges are passed separately as cluster-boundary hints so [LayoutResult] geometry can
  * preserve exact source ranges without a renderer-side text layout fork.
  */
-internal fun AnnotatedString.cjkRichTextSpans(): List<RichTextSpan> {
+internal fun AnnotatedString.cjkRichTextSpans(
+    adjacentSameStyleClearance: Float = 0f,
+    inlineCodePaint: RichTextPaint = RichTextPaint(
+        adjacentSameStyleClearance = adjacentSameStyleClearance,
+    ),
+): List<RichTextSpan> {
     val out = mutableListOf<RichTextSpan>()
     for (span in spanStyles) {
         val range = TextRange(span.start, span.end)
@@ -143,12 +151,18 @@ internal fun AnnotatedString.cjkRichTextSpans(): List<RichTextSpan> {
             out += RichTextSpan(
                 range = range,
                 role = RichTextRole.Background,
-                paint = RichTextPaint(style.background.toArgb()),
+                paint = RichTextPaint(
+                    argb = style.background.toArgb(),
+                    adjacentSameStyleClearance = adjacentSameStyleClearance,
+                ),
             )
         }
         val decoration = style.textDecoration
         if (decoration != null && decoration != TextDecoration.None) {
-            val linePaint = RichTextPaint(style.color.takeIf { it != Color.Unspecified }?.toArgb())
+            val linePaint = RichTextPaint(
+                argb = style.color.takeIf { it != Color.Unspecified }?.toArgb(),
+                adjacentSameStyleClearance = adjacentSameStyleClearance,
+            )
             if (TextDecoration.Underline in decoration) {
                 out += RichTextSpan(range, RichTextRole.Underline, linePaint)
             }
@@ -167,7 +181,11 @@ internal fun AnnotatedString.cjkRichTextSpans(): List<RichTextSpan> {
     }
     for (role in getStringAnnotations(CjkRichTextTag, 0, length)) {
         if (role.item == InlineCodeRoleItem) {
-            out += RichTextSpan(TextRange(role.start, role.end), RichTextRole.InlineCode)
+            out += RichTextSpan(
+                TextRange(role.start, role.end),
+                RichTextRole.InlineCode,
+                inlineCodePaint,
+            )
         }
     }
     return out
@@ -277,6 +295,10 @@ fun ParagraphMeasurer.measure(
 ): LayoutResult {
     val renderText = text.withBaseLinkStyles()
     val core = textStyle.toCoreTextStyle(density)
+    val richTextSpans = renderText.cjkRichTextSpans(
+        adjacentSameStyleClearance = with(density) { 1.dp.toPx() },
+        inlineCodePaint = defaultInlineCodePaint(density),
+    )
     return measure(
         text = renderText.text,
         constraints = constraints,
@@ -285,6 +307,7 @@ fun ParagraphMeasurer.measure(
         decorations = renderText.cjkDecorations(),
         spans = renderText.cjkStyleSpans(core, density),
         rubySpans = renderText.cjkRubySpans(),
+        inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
     )
 }
@@ -302,6 +325,10 @@ fun ParagraphMeasurer.measure(
     val lowered = lowerComposeText(text, style, paragraphStyle)
     val renderText = lowered.text.withBaseLinkStyles()
     val core = lowered.textStyle.toCoreTextStyle(density)
+    val richTextSpans = renderText.cjkRichTextSpans(
+        adjacentSameStyleClearance = with(density) { 1.dp.toPx() },
+        inlineCodePaint = defaultInlineCodePaint(density),
+    )
     return measure(
         text = renderText.text,
         constraints = constraints,
@@ -310,6 +337,7 @@ fun ParagraphMeasurer.measure(
         decorations = renderText.cjkDecorations(),
         spans = renderText.cjkStyleSpans(core, density),
         rubySpans = renderText.cjkRubySpans(),
+        inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
     )
 }
@@ -339,6 +367,6 @@ fun AnnotatedString.Builder.bookTitle(block: AnnotatedString.Builder.() -> Unit)
 /** Inline code over [block]'s source text: monospace shaping plus Tiqian-owned code background. */
 fun AnnotatedString.Builder.inlineCode(block: AnnotatedString.Builder.() -> Unit) {
     withAnnotation(CjkRichTextTag, InlineCodeRoleItem) {
-        withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { block() }
+        withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 0.875.em)) { block() }
     }
 }

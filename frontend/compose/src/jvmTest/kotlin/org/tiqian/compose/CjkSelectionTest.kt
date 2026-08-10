@@ -2,13 +2,19 @@
 
 package org.tiqian.compose
 
+import androidx.compose.foundation.ContextMenuState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.foundation.text.LocalTextContextMenu
+import androidx.compose.foundation.text.TextContextMenu
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
@@ -42,6 +48,7 @@ import androidx.compose.ui.text.VerbatimTtsAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.use
 import org.tiqian.core.LayoutResult
@@ -52,9 +59,18 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
-@OptIn(ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 class CjkSelectionTest {
+
+    @Test
+    fun toolbarHandleClearanceScalesWithDensity() {
+        val oneX = foundationSelectionToolbarHandleClearancePx(Density(1f))
+        val twoX = foundationSelectionToolbarHandleClearancePx(Density(2f))
+
+        assertEquals(oneX * 2f, twoX, 0.001f)
+    }
 
     @Test
     fun mouseDragSelectsSourceTextAndPaintsLayoutBoxes() {
@@ -123,6 +139,127 @@ class CjkSelectionTest {
 
             assertTrue(state?.copySelection() == true)
             assertEquals("乙丙丁", clipboard.recordedText?.text)
+        }
+    }
+
+    @Test
+    fun copyMatchesWebRubyProjectionWithoutChangingSelectionOrAccessibilityText() {
+        val clipboard = RecordingClipboardManager()
+        var state: CjkSelectionState? = null
+        val firstSource = buildAnnotatedString {
+            append("前")
+            ruby("提椠", "tíqiàn")
+        }
+        val secondSource = buildAnnotatedString {
+            bopomofo("您", "ㄋㄧㄣˊ")
+            append("后")
+        }
+
+        ImageComposeScene(width = 360, height = 220) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CompositionLocalProvider(LocalClipboardManager provides clipboard) {
+                CjkSelectionContainer(state = selectionState) {
+                    Column {
+                        CjkText(firstSource, modifier = Modifier.width(340.dp), style = TextStyle(fontSize = 24.sp))
+                        CjkText(secondSource, modifier = Modifier.width(340.dp), style = TextStyle(fontSize = 24.sp))
+                    }
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            val selectionState = state ?: error("selection state missing")
+            assertTrue(selectionState.selectAll())
+            scene.render()
+
+            assertEquals("前提椠\n您后", selectionState.selectedText?.text)
+            assertTrue(selectionState.copySelection())
+            assertEquals("前提椠（tíqiàn）\n您（ㄋㄧㄣˊ）后", clipboard.recordedText?.text)
+
+            val semanticTexts = scene.semanticsOwners.flatMap {
+                it.getAllSemanticsNodes(mergingEnabled = false)
+            }.mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.singleOrNull() }
+            assertTrue(firstSource in semanticTexts)
+            assertTrue(secondSource in semanticTexts)
+        }
+    }
+
+    @Test
+    fun partialRubyBaseSelectionDoesNotCopyDetachedReading() {
+        val clipboard = RecordingClipboardManager()
+        var state: CjkSelectionState? = null
+        val source = buildAnnotatedString {
+            ruby("提椠", "tíqiàn")
+            append("之后")
+        }
+
+        ImageComposeScene(width = 320, height = 140) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CompositionLocalProvider(LocalClipboardManager provides clipboard) {
+                CjkSelectionContainer(state = selectionState) {
+                    CjkText(source, modifier = Modifier.width(300.dp), style = TextStyle(fontSize = 24.sp))
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            val semantics = scene.semanticsOwners.flatMap {
+                it.getAllSemanticsNodes(mergingEnabled = false)
+            }.single { node ->
+                node.config.getOrNull(SemanticsProperties.Text)?.singleOrNull() == source &&
+                    SemanticsActions.SetSelection in node.config
+            }
+            val setSelection = semantics.config[SemanticsActions.SetSelection].action
+                ?: error("set-selection semantics action missing")
+
+            assertTrue(setSelection(0, 1, true))
+            assertEquals("提", state?.selectedText?.text)
+            assertTrue(state?.copySelection() == true)
+            assertEquals("提", clipboard.recordedText?.text)
+        }
+    }
+
+    @Test
+    fun desktopContextMenuConsumesTheLiveTiqianSelectionAndActions() {
+        val clipboard = RecordingClipboardManager()
+        val contextMenu = RecordingTextContextMenu()
+        var state: CjkSelectionState? = null
+        var layout: LayoutResult? = null
+        val source = "前 context 后"
+
+        ImageComposeScene(width = 360, height = 140) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CompositionLocalProvider(
+                LocalClipboardManager provides clipboard,
+                LocalTextContextMenu provides contextMenu,
+            ) {
+                CjkSelectionContainer(state = selectionState) {
+                    CjkText(
+                        source,
+                        modifier = Modifier.width(340.dp),
+                        style = TextStyle(fontSize = 24.sp),
+                        onTextLayout = { layout = it },
+                    )
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            val selectionState = state ?: error("selection state missing")
+            val manager = contextMenu.manager ?: error("desktop text context menu was not installed")
+
+            assertTrue(selectionState.selectAll())
+            scene.render()
+            assertEquals(source, manager.selectedText.text)
+            assertTrue(manager.copy?.enabled == true)
+            manager.copy?.execute?.invoke()
+            assertEquals(source, clipboard.recordedText?.text)
+
+            selectionState.clearSelection()
+            manager.selectWordAtPositionIfNotAlreadySelected(
+                cursor(layout ?: error("layout missing"), source.indexOf("context") + 2),
+            )
+            assertEquals("context", selectionState.selectedText?.text)
         }
     }
 
@@ -412,6 +549,69 @@ class CjkSelectionTest {
     }
 
     @Test
+    fun clearingTouchSelectionHidesSystemMenuBeforePublishingEmptySelection() {
+        var state: CjkSelectionState? = null
+        var layout: LayoutResult? = null
+        val shortLongPress = object : ViewConfiguration {
+            override val longPressTimeoutMillis = 1L
+            override val doubleTapTimeoutMillis = 300L
+            override val doubleTapMinTimeMillis = 40L
+            override val touchSlop = 8f
+        }
+
+        ImageComposeScene(width = 320, height = 140) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CompositionLocalProvider(LocalViewConfiguration provides shortLongPress) {
+                CjkSelectionContainer(state = selectionState) {
+                    CjkText(
+                        "甲中文乙",
+                        modifier = Modifier.width(300.dp),
+                        style = TextStyle(fontSize = 24.sp),
+                        onTextLayout = { layout = it },
+                    )
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            val selectionState = state ?: error("selection state missing")
+            val menuEvents = mutableListOf<Pair<String, Boolean>>()
+            val systemMenu = CjkSystemContextMenu(
+                show = { menuEvents += "show" to selectionState.hasSelection },
+                hide = { menuEvents += "hide" to selectionState.hasSelection },
+            )
+            selectionState.attachSystemContextMenu(systemMenu)
+
+            val box = (layout ?: error("layout missing")).getBoundingBoxes(1, 2).single()
+            val point = Offset((box.left + box.right) / 2f, (box.top + box.bottom) / 2f)
+            scene.sendPointerEvent(
+                PointerEventType.Press,
+                point,
+                timeMillis = 6_500L,
+                type = PointerType.Touch,
+            )
+            Thread.sleep(20L)
+            scene.render()
+            scene.sendPointerEvent(
+                PointerEventType.Release,
+                point,
+                timeMillis = 6_550L,
+                type = PointerType.Touch,
+            )
+            assertEquals("show" to true, menuEvents.last())
+            menuEvents.clear()
+
+            selectionState.clearSelection()
+            assertEquals(
+                listOf("hide" to true),
+                menuEvents,
+                "ActionMode must close before the empty state can rebuild it as Select all only",
+            )
+            selectionState.detachSystemContextMenu(systemMenu)
+        }
+    }
+
+    @Test
     fun semanticsCanSetAndCopyASourceSafeSelection() {
         val clipboard = RecordingClipboardManager()
         val source = "甲😀乙丁"
@@ -608,6 +808,68 @@ class CjkSelectionTest {
         }
     }
 
+    @Test
+    fun contextMenuBoundsTrackScrollAndUseTheVisibleViewport() {
+        val source = "甲乙丙丁戊己庚辛壬癸。".repeat(20)
+        var state: CjkSelectionState? = null
+        var scrollState: ScrollState? = null
+        var layout: LayoutResult? = null
+
+        ImageComposeScene(width = 320, height = 160) {
+            val selectionState = rememberCjkSelectionState()
+            val scrolling = rememberScrollState()
+            state = selectionState
+            scrollState = scrolling
+            CjkSelectionContainer(
+                modifier = Modifier.width(320.dp).height(160.dp),
+                state = selectionState,
+                scrollState = scrolling,
+            ) {
+                Column(Modifier.verticalScroll(scrolling)) {
+                    CjkText(
+                        source,
+                        modifier = Modifier.width(300.dp),
+                        style = TextStyle(fontSize = 24.sp),
+                        onTextLayout = { layout = it },
+                    )
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            val result = layout ?: error("layout missing")
+            val secondLine = result.lines.getOrNull(1) ?: error("second line missing")
+            drag(
+                scene,
+                cursor(result, secondLine.range.start + 1),
+                cursor(result, (secondLine.range.start + 4).coerceAtMost(secondLine.range.end)),
+                startTime = 8_000L,
+            )
+            scene.render()
+            val selectionState = state ?: error("selection state missing")
+            val before = selectionState.selectionContentRectInRoot()
+                ?: error("selected region should be visible before scrolling")
+
+            val scrolling = scrollState ?: error("scroll state missing")
+            runBlocking { scrolling.scrollTo(12) }
+            scene.render()
+            val after = selectionState.selectionContentRectInRoot()
+                ?: error("selected region should remain partially visible")
+            assertTrue(after.top < before.top, "system menu anchor must move with selected content")
+            assertTrue(
+                kotlin.math.abs((before.top - after.top) - scrolling.value) < 1.5f,
+                "menu anchor must consume the same scroll delta as Compose verticalScroll",
+            )
+
+            runBlocking { scrolling.scrollTo(secondLine.bottom.toInt() + 20) }
+            scene.render()
+            assertEquals(
+                null,
+                selectionState.selectionContentRectInRoot(),
+                "a selection fully clipped by the viewport must not publish a new menu anchor",
+            )
+        }
+    }
+
     private fun cursor(result: LayoutResult, offset: Int): Offset {
         val caret = result.getCursorRect(offset)
         val line = result.lines[result.getLineForOffset(offset)]
@@ -673,6 +935,20 @@ class CjkSelectionTest {
         override fun hide() {
             hideCalls++
             status = TextToolbarStatus.Hidden
+        }
+    }
+
+    private class RecordingTextContextMenu : TextContextMenu {
+        var manager: TextContextMenu.TextManager? = null
+
+        @Composable
+        override fun Area(
+            textManager: TextContextMenu.TextManager,
+            state: ContextMenuState,
+            content: @Composable () -> Unit,
+        ) {
+            manager = textManager
+            content()
         }
     }
 }

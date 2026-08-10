@@ -142,6 +142,8 @@ fun CjkText(
     style: ComposeTextStyle = ComposeTextStyle.Default,
     paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
     inlineObjects: List<CjkInlineObject> = emptyList(),
+    inlineDecorations: List<CjkInlineDecoration> = emptyList(),
+    inlineBackgrounds: List<CjkInlineBackground> = emptyList(),
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
@@ -169,6 +171,8 @@ fun CjkText(
         textStyle = lowered.textStyle,
         paragraphStyle = lowered.paragraphStyle,
         inlineObjects = inlineObjects,
+        inlineBackgrounds = inlineBackgrounds,
+        inlineDecorations = inlineDecorations,
         softWrap = softWrap,
         overflow = overflow,
         maxLines = maxLines,
@@ -188,6 +192,8 @@ fun CjkText(
     textStyle: CjkTextStyle,
     paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
     inlineObjects: List<CjkInlineObject> = emptyList(),
+    inlineDecorations: List<CjkInlineDecoration> = emptyList(),
+    inlineBackgrounds: List<CjkInlineBackground> = emptyList(),
     overflow: TextOverflow = TextOverflow.Clip,
     softWrap: Boolean = true,
     maxLines: Int = Int.MAX_VALUE,
@@ -203,7 +209,14 @@ fun CjkText(
     }
     val decorations = remember(renderText) { renderText.cjkDecorations() }
     val colorSpans = remember(renderText) { renderText.cjkColorSpans() }
-    val richTextSpans = remember(renderText) { renderText.cjkRichTextSpans() }
+    val richTextSpans = remember(renderText, inlineBackgrounds, inlineDecorations, density) {
+        renderText.cjkRichTextSpans(
+            adjacentSameStyleClearance = with(density) { 1.dp.toPx() },
+            inlineCodePaint = defaultInlineCodePaint(density),
+        ) +
+            inlineBackgrounds.map { it.toCore(density) } +
+            inlineDecorations.map { it.toCore(density) }
+    }
     val spans = remember(renderText, coreStyle, density) { renderText.cjkStyleSpans(coreStyle, density) }
     val rubySpans = remember(renderText) { renderText.cjkRubySpans() }
     val coreInlineObjects = remember(inlineObjects, density) {

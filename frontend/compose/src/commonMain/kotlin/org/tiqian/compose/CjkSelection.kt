@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.TextToolbar
 import androidx.compose.ui.text.AnnotatedString
@@ -65,6 +66,7 @@ class CjkSelectionState internal constructor() {
     private var selection: CjkSelection? = null
     private var clipboardManager: ClipboardManager? = null
     private var textToolbar: TextToolbar? = null
+    private var systemContextMenu: CjkSystemContextMenu? = null
     private var hapticFeedback: HapticFeedback? = null
     private var containerCoordinates: LayoutCoordinates? = null
     private var gestureInitialSelection: CjkSelection? = null
@@ -93,8 +95,11 @@ class CjkSelectionState internal constructor() {
         private set
     internal var selectionViewportHeightPx by mutableStateOf(0f)
         private set
+    private var selectionToolbarHandleClearancePx = 0f
     internal var isSelectionAutoScrollArmed by mutableStateOf(false)
         private set
+    private var contextMenuPositionEpoch by mutableStateOf(0)
+    private var contextMenuToolbarRequested = false
     internal val isSelectionGestureInProgress: Boolean
         get() = gestureInitialSelection != null || handleFixedAnchor != null
 
@@ -103,6 +108,9 @@ class CjkSelectionState internal constructor() {
         val ownedSelectionOrGesture =
             selection != null || gestureInitialSelection != null || handleFixedAnchor != null
         val previouslySelected = selectionRanges.keys.toList()
+        // Finish ActionMode before publishing an empty selection. Otherwise Android can rebuild the
+        // still-visible menu from the intermediate state and briefly show only "Select all".
+        if (ownedSelectionOrGesture) hideContextMenuToolbar()
         selection = null
         selectionRanges = emptyMap()
         selectedText = null
@@ -119,13 +127,19 @@ class CjkSelectionState internal constructor() {
         currentDragPosition = Offset.Unspecified
         isSelectionAutoScrollArmed = false
         isTouchSelection = false
-        if (ownedSelectionOrGesture) textToolbar?.hide()
         previouslySelected.forEach(CjkSelectable::invalidateSelection)
     }
 
-    /** Copies the current source-faithful selection. */
+    /**
+     * Copies the Web-compatible plain-text projection of the current selection. Selection state
+     * and accessibility semantics stay source-faithful; only fully selected ruby / 注音 readings
+     * are appended to the clipboard text.
+     */
     fun copySelection(): Boolean {
-        val selected = selectedText?.takeIf { it.isNotEmpty() } ?: return false
+        if (!hasSelection) return false
+        val selected = buildClipboardText(orderedSelectables(), selectionRanges)
+            ?.takeIf { it.isNotEmpty() }
+            ?: return false
         @Suppress("DEPRECATION")
         clipboardManager?.setText(selected) ?: return false
         return true
@@ -141,7 +155,7 @@ class CjkSelectionState internal constructor() {
             CjkSelectionAnchor(last, last.selectionText.length),
             touch = isTouchSelection,
         )
-        showToolbarIfTouch()
+        showContextMenuToolbarIfTouch()
         return true
     }
 
@@ -150,11 +164,13 @@ class CjkSelectionState internal constructor() {
         textToolbar: TextToolbar,
         hapticFeedback: HapticFeedback,
         selectionBackgroundArgb: Int,
+        selectionToolbarHandleClearancePx: Float,
     ) {
         this.clipboardManager = clipboardManager
         this.textToolbar = textToolbar
         this.hapticFeedback = hapticFeedback
         this.selectionBackgroundArgb = selectionBackgroundArgb
+        this.selectionToolbarHandleClearancePx = selectionToolbarHandleClearancePx
     }
 
     internal fun detach() {
@@ -165,10 +181,24 @@ class CjkSelectionState internal constructor() {
         hapticFeedback = null
     }
 
+    internal fun attachSystemContextMenu(menu: CjkSystemContextMenu) {
+        systemContextMenu = menu
+        if (contextMenuToolbarRequested) menu.show()
+    }
+
+    internal fun detachSystemContextMenu(menu: CjkSystemContextMenu) {
+        if (systemContextMenu === menu) {
+            menu.hide()
+            systemContextMenu = null
+            contextMenuToolbarRequested = false
+        }
+    }
+
     internal fun updateContainerCoordinates(coordinates: LayoutCoordinates) {
         containerCoordinates = coordinates
         selectionViewportHeightPx = coordinates.size.height.toFloat()
         orderedSelectablesCache = null
+        contextMenuPositionEpoch++
         updateDerivedSelection()
     }
 
@@ -192,6 +222,7 @@ class CjkSelectionState internal constructor() {
 
     internal fun selectableChanged(selectable: CjkSelectable, textChanged: Boolean = false) {
         orderedSelectablesCache = null
+        contextMenuPositionEpoch++
         val current = selection
         if (
             textChanged &&
@@ -209,7 +240,7 @@ class CjkSelectionState internal constructor() {
         adjustment: CjkSelectionAdjustment,
         touch: Boolean,
     ): Boolean {
-        textToolbar?.hide()
+        hideContextMenuToolbar()
         focusRequester.requestFocus()
         val initial = selectionAt(selectable, localPosition, adjustment) ?: return false
         gestureInitialSelection = initial
@@ -225,7 +256,7 @@ class CjkSelectionState internal constructor() {
         localPosition: Offset,
     ): Boolean {
         val current = selection ?: return false
-        textToolbar?.hide()
+        hideContextMenuToolbar()
         focusRequester.requestFocus()
         val target = anchorAt(selectable, localPosition) ?: return false
         gestureInitialSelection = CjkSelection(current.anchor, current.anchor)
@@ -292,7 +323,7 @@ class CjkSelectionState internal constructor() {
         activeDragIsStart = null
         currentDragPosition = Offset.Unspecified
         isSelectionAutoScrollArmed = false
-        showToolbarIfTouch()
+        showContextMenuToolbarIfTouch()
     }
 
     internal fun rangeFor(selectable: CjkSelectable): TextRange? {
@@ -321,7 +352,7 @@ class CjkSelectionState internal constructor() {
         handleDragPosition += Offset(0f, -1f)
         activeDragIsStart = isStart
         currentDragPosition = handleDragPosition
-        textToolbar?.hide()
+        hideContextMenuToolbar()
     }
 
     internal fun dragHandle(isStart: Boolean, delta: Offset) {
@@ -350,7 +381,7 @@ class CjkSelectionState internal constructor() {
         activeDragIsStart = null
         currentDragPosition = Offset.Unspecified
         isSelectionAutoScrollArmed = false
-        showToolbarIfTouch()
+        showContextMenuToolbarIfTouch()
     }
 
     internal fun handleCopyKeyEvent(event: KeyEvent): Boolean {
@@ -434,12 +465,16 @@ class CjkSelectionState internal constructor() {
     }
 
     private fun updateDerivedSelection() {
+        contextMenuPositionEpoch++
         val previousRanges = selectionRanges
         val ordered = orderedSelectables()
         selectionRanges = buildSelectionRanges(ordered)
         selectedText = buildSelectedText(ordered, selectionRanges)
         hasSelection = selectedText != null
         updateHandlePositions()
+        if (contextMenuToolbarRequested && systemContextMenu == null) {
+            showLegacyTextToolbar()
+        }
         val affected = LinkedHashSet<CjkSelectable>()
         affected += previousRanges.keys
         affected += selectionRanges.keys
@@ -482,6 +517,22 @@ class CjkSelectionState internal constructor() {
                 if (!first) append('\n')
                 first = false
                 append(selectable.selectionText, range.start, range.end)
+            }
+        }.takeIf { it.isNotEmpty() }
+    }
+
+    private fun buildClipboardText(
+        ordered: List<CjkSelectable>,
+        ranges: Map<CjkSelectable, TextRange>,
+    ): AnnotatedString? {
+        if (ranges.isEmpty()) return null
+        return buildAnnotatedString {
+            var first = true
+            for (selectable in ordered) {
+                val range = ranges[selectable] ?: continue
+                if (!first) append('\n')
+                first = false
+                append(selectable.selectionTextForCopy(range))
             }
         }.takeIf { it.isNotEmpty() }
     }
@@ -574,13 +625,18 @@ class CjkSelectionState internal constructor() {
             handlesCrossed = false
             return
         }
+        val visibleBounds = container.visibleBoundsForSelection()
         fun position(anchor: CjkSelectionAnchor): Offset? {
             val coordinates = anchor.selectable.selectionCoordinates ?: return null
             val local = anchor.selectable.selectionCursorPosition(anchor.offset) ?: return null
             return container.localPositionOf(coordinates, local)
         }
-        startHandlePosition = position(current.anchor)
-        endHandlePosition = position(current.extent)
+        startHandlePosition = position(current.anchor)?.takeIf {
+            activeDragIsStart == true || visibleBounds.containsInclusive(it)
+        }
+        endHandlePosition = position(current.extent)?.takeIf {
+            activeDragIsStart == false || visibleBounds.containsInclusive(it)
+        }
         startHandleLineHeight = current.anchor.selectable.selectionLineHeight(current.anchor.offset)
         endHandleLineHeight = current.extent.selectable.selectionLineHeight(current.extent.offset)
         handlesCrossed = compareAnchors(current.anchor, current.extent) > 0
@@ -619,9 +675,21 @@ class CjkSelectionState internal constructor() {
         )
     }
 
-    private fun showToolbarIfTouch() {
+    private fun showContextMenuToolbarIfTouch() {
         if (!isTouchSelection || !hasSelection) return
-        val rect = selectionRectInWindow() ?: return
+        contextMenuToolbarRequested = true
+        systemContextMenu?.show() ?: showLegacyTextToolbar()
+    }
+
+    private fun hideContextMenuToolbar() {
+        val requested = contextMenuToolbarRequested
+        contextMenuToolbarRequested = false
+        systemContextMenu?.hide()
+        if (requested && systemContextMenu == null) textToolbar?.hide()
+    }
+
+    private fun showLegacyTextToolbar() {
+        val rect = selectionContentRectInWindow() ?: return
         textToolbar?.showMenu(
             rect = rect,
             onCopyRequested = {
@@ -631,14 +699,48 @@ class CjkSelectionState internal constructor() {
         )
     }
 
-    private fun selectionRectInWindow(): Rect? {
+    internal fun selectionContentRectInRoot(): Rect? {
+        // Android's platform ActionMode observes snapshot reads made while computing its content
+        // rect. LayoutCoordinates themselves are not snapshot state, so this named epoch makes
+        // descendant movement during verticalScroll invalidate the system toolbar position.
+        contextMenuPositionEpoch
+        val container = containerCoordinates?.takeIf { it.isAttached } ?: return null
+        val visible = container.visibleBoundsForSelection()
+        val selected = selectionRectInContainer(container) ?: return null
+        val clipped = visible.intersect(selected)
+        if (clipped.width < 0f || clipped.height < 0f) return null
+        val topLeft = container.localToRoot(clipped.topLeft)
+        val bottomRight = container.localToRoot(clipped.bottomRight)
+        return Rect(topLeft, bottomRight).copy(
+            bottom = bottomRight.y + selectionToolbarHandleClearancePx,
+        )
+    }
+
+    internal fun contextMenuContainerCoordinates(): LayoutCoordinates? =
+        containerCoordinates?.takeIf { it.isAttached }
+
+    private fun selectionContentRectInWindow(): Rect? {
+        val container = containerCoordinates?.takeIf { it.isAttached } ?: return null
+        val visible = container.visibleBoundsForSelection()
+        val selected = selectionRectInContainer(container) ?: return null
+        val clipped = visible.intersect(selected)
+        if (clipped.width < 0f || clipped.height < 0f) return null
+        val topLeft = container.localToWindow(clipped.topLeft)
+        val bottomRight = container.localToWindow(clipped.bottomRight)
+        return Rect(topLeft, bottomRight).copy(
+            bottom = bottomRight.y + selectionToolbarHandleClearancePx,
+        )
+    }
+
+    private fun selectionRectInContainer(container: LayoutCoordinates): Rect? {
         var union: Rect? = null
         for (selectable in orderedSelectables()) {
             val range = rangeFor(selectable) ?: continue
             val coordinates = selectable.selectionCoordinates ?: continue
+            if (!coordinates.isAttached) continue
             for (box in selectable.selectionBoxes(range)) {
-                val topLeft = coordinates.localToWindow(Offset(box.left, box.top))
-                val bottomRight = coordinates.localToWindow(Offset(box.right, box.bottom))
+                val topLeft = container.localPositionOf(coordinates, Offset(box.left, box.top))
+                val bottomRight = container.localPositionOf(coordinates, Offset(box.right, box.bottom))
                 val current = Rect(topLeft, bottomRight)
                 union = union?.let {
                     Rect(
@@ -653,7 +755,68 @@ class CjkSelectionState internal constructor() {
         return union
     }
 
+    internal fun contextTextAndSelection(): Pair<AnnotatedString, androidx.compose.ui.text.TextRange>? {
+        contextMenuPositionEpoch
+        val ordered = orderedSelectables().filter(selectionRanges::containsKey)
+        if (ordered.isEmpty()) return null
+        var selectionStart = -1
+        var selectionEnd = -1
+        val context = buildAnnotatedString {
+            ordered.forEachIndexed { index, selectable ->
+                val range = selectionRanges.getValue(selectable)
+                if (index == 0) {
+                    selectionStart = range.start
+                    append(selectable.selectionText, 0, range.start)
+                }
+                append(selectable.selectionText, range.start, range.end)
+                if (index < ordered.lastIndex) {
+                    append('\n')
+                } else {
+                    selectionEnd = length
+                    append(selectable.selectionText, range.end, selectable.selectionText.length)
+                }
+            }
+        }
+        if (selectionStart < 0 || selectionEnd < selectionStart) return null
+        return context to androidx.compose.ui.text.TextRange(selectionStart, selectionEnd)
+    }
+
+    internal fun isEntireContainerSelected(): Boolean {
+        contextMenuPositionEpoch
+        val ordered = orderedSelectables()
+        if (ordered.isEmpty()) return true
+        return ordered.all { selectable ->
+            val range = selectionRanges[selectable]
+            selectable.selectionText.isEmpty() ||
+                (range?.start == 0 && range.end == selectable.selectionText.length)
+        }
+    }
+
+    internal fun copyFromContextMenu() {
+        if (copySelection() && isTouchSelection) clearSelection()
+    }
+
+    internal fun selectWordAtContainerPositionIfOutsideSelection(position: Offset) {
+        val container = containerCoordinates?.takeIf { it.isAttached } ?: return
+        val selectable = selectableAt(position) ?: return
+        val coordinates = selectable.selectionCoordinates?.takeIf { it.isAttached } ?: return
+        val local = coordinates.localPositionOf(container, position)
+        val selectedRange = selectionRanges[selectable]
+        val insideSelection = selectedRange != null && selectable.selectionBoxes(selectedRange).any { box ->
+            local.x in box.left..box.right && local.y in box.top..box.bottom
+        }
+        if (insideSelection) return
+        if (beginGestureSelection(selectable, local, CjkSelectionAdjustment.Word, touch = false)) {
+            finishSelection()
+        }
+    }
+
 }
+
+internal class CjkSystemContextMenu(
+    val show: () -> Unit,
+    val hide: () -> Unit,
+)
 
 /** Remembers state for one [CjkSelectionContainer]. */
 @Composable
@@ -683,6 +846,7 @@ fun CjkSelectionContainer(
     val clipboardManager = LocalClipboardManager.current
     val textToolbar = LocalTextToolbar.current
     val hapticFeedback = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val colors = LocalTextSelectionColors.current
     SideEffect {
         state.attach(
@@ -690,6 +854,7 @@ fun CjkSelectionContainer(
             textToolbar,
             hapticFeedback,
             colors.backgroundColor.toArgb(),
+            foundationSelectionToolbarHandleClearancePx(density),
         )
     }
     CjkSelectionAutoScrollEffect(
@@ -713,12 +878,14 @@ fun CjkSelectionContainer(
             // publishes an otherwise empty accessibility node around every descendant text node.
             .focusTarget(),
     ) {
-        CompositionLocalProvider(LocalCjkSelectionState provides state) {
-            content()
-        }
-        if (state.isTouchSelection && state.hasSelection) {
-            CjkSelectionHandle(state, isStart = true)
-            CjkSelectionHandle(state, isStart = false)
+        FoundationSelectionContextMenuArea(state) {
+            CompositionLocalProvider(LocalCjkSelectionState provides state) {
+                content()
+            }
+            if (state.isTouchSelection && state.hasSelection) {
+                CjkSelectionHandle(state, isStart = true)
+                CjkSelectionHandle(state, isStart = false)
+            }
         }
     }
 
@@ -755,6 +922,7 @@ internal val LocalCjkSelectionState = compositionLocalOf<CjkSelectionState?> { n
 internal interface CjkSelectable {
     val selectionText: AnnotatedString
     val selectionCoordinates: LayoutCoordinates?
+    fun selectionTextForCopy(range: TextRange): String
     fun updateSelectionCoordinates(coordinates: LayoutCoordinates)
     fun selectionOffsetAt(localPosition: Offset): Int?
     fun selectionWordRangeAt(localPosition: Offset): TextRange?

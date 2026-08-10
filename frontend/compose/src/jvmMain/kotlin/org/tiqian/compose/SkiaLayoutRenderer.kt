@@ -5,6 +5,8 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.skiaCanvas
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.RichTextRole
+import org.tiqian.core.RichTextBackgroundDrawStyle
+import org.tiqian.core.RichTextLinePattern
 import org.tiqian.core.RichTextLineSegment
 import org.tiqian.core.TextSpan
 import org.tiqian.core.ColorSpan
@@ -17,7 +19,10 @@ import org.tiqian.shaping.skia.vertGlyphIds
 import org.jetbrains.skia.Font
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.PaintMode
+import org.jetbrains.skia.PaintStrokeCap
+import org.jetbrains.skia.PathEffect
 import org.jetbrains.skia.Rect
+import org.jetbrains.skia.RRect
 import org.jetbrains.skia.shaper.Shaper
 import kotlin.math.max
 import kotlin.math.min
@@ -46,8 +51,7 @@ internal actual fun ContentDrawScope.drawParagraph(
 
     drawIntoCanvas { canvas ->
         val skCanvas = canvas.skiaCanvas
-        val richTextSegments = replayIndex.richTextSegments
-        drawSkiaRichTextBackgrounds(skCanvas, richTextSegments)
+        drawSkiaRichTextBackgrounds(skCanvas, replayIndex.richTextBackgroundSegments)
         if (selectionColor != null) {
             val selectionPaint = Paint().apply {
                 mode = PaintMode.FILL
@@ -177,7 +181,7 @@ internal actual fun ContentDrawScope.drawParagraph(
                 ?: SkiaSystemTypefaces.latin
             val rubyFont = Font(tf, ruby.fontSize)
             val width = rubyFont.measureTextWidth(ruby.text)
-            shapeTextBlob(shaper, ruby.text, rubyFont, result.input.textStyle.locale)?.let { blob ->
+            shapeTextBlob(shaper, ruby.text, rubyFont, ruby.locale)?.let { blob ->
                 skCanvas.drawTextBlob(blob, ruby.centerX - width / 2f, ruby.baselineY, paint)
             }
         }
@@ -255,8 +259,32 @@ private fun drawSkiaRichTextBackgrounds(
             else -> null
         } ?: continue
         paint.color = argb
-        paint.mode = PaintMode.FILL
-        canvas.drawRect(Rect.makeLTRB(seg.left, seg.top, seg.right, seg.bottom), paint)
+        val inset = when (val drawStyle = seg.span.paint.background.drawStyle) {
+            RichTextBackgroundDrawStyle.Fill -> {
+                paint.mode = PaintMode.FILL
+                0f
+            }
+            is RichTextBackgroundDrawStyle.Border -> {
+                paint.mode = PaintMode.STROKE
+                paint.strokeWidth = drawStyle.strokeWidth
+                drawStyle.strokeWidth / 2f
+            }
+        }
+        val left = seg.left + inset
+        val top = seg.top + inset
+        val right = seg.right - inset
+        val bottom = seg.bottom - inset
+        if (right <= left || bottom <= top) continue
+        val radius = minOf(
+            (seg.span.paint.background.cornerRadius - inset).coerceAtLeast(0f),
+            (right - left) / 2f,
+            (bottom - top) / 2f,
+        ).coerceAtLeast(0f)
+        if (radius > 0f) {
+            canvas.drawRRect(RRect.makeLTRB(left, top, right, bottom, radius), paint)
+        } else {
+            canvas.drawRect(Rect.makeLTRB(left, top, right, bottom), paint)
+        }
     }
 }
 
@@ -274,15 +302,34 @@ private fun drawSkiaRichTextLines(
 ) {
     val paint = Paint().apply {
         mode = PaintMode.STROKE
-        strokeWidth = (result.input.textStyle.fontSize / 16f).coerceAtLeast(1f)
     }
-    val skipBandPad = paint.strokeWidth.coerceAtLeast(1f)
     // Skip-ink intervals re-shape the line's clusters — memoize per (line, band)
     // so several underline segments on one line pay for shaping once per draw.
     val skipCache = HashMap<Long, FloatArray>()
     for (seg in segments) {
         val role = seg.span.role
         if (role != RichTextRole.Underline && role != RichTextRole.LineThrough) continue
+        when (val pattern = seg.span.paint.linePattern) {
+            RichTextLinePattern.Solid -> {
+                paint.strokeWidth = (result.input.textStyle.fontSize / 16f).coerceAtLeast(1f)
+                paint.pathEffect = null
+                paint.strokeCap = PaintStrokeCap.BUTT
+            }
+            is RichTextLinePattern.Dashed -> {
+                paint.strokeWidth = pattern.strokeWidth
+                paint.strokeCap = PaintStrokeCap.ROUND
+                paint.pathEffect = PathEffect.makeDash(
+                    floatArrayOf(pattern.dashLength, pattern.gapLength),
+                    0f,
+                )
+            }
+            is RichTextLinePattern.Dotted -> {
+                paint.strokeWidth = pattern.dotDiameter
+                paint.strokeCap = PaintStrokeCap.BUTT
+                paint.pathEffect = null
+            }
+        }
+        val skipBandPad = paint.strokeWidth.coerceAtLeast(1f)
         val style = spans.lastOrNull { seg.range.start >= it.range.start && seg.range.start < it.range.end }?.style
             ?: result.input.textStyle
         val lineY = result.richTextDecorationLineY(seg, paint.strokeWidth)
@@ -299,6 +346,7 @@ private fun drawSkiaRichTextLines(
                 paint = paint,
                 skipBandPad = skipBandPad,
                 skipClearance = browserLikeSkipInkClearance(style.fontSize, paint.strokeWidth),
+                linePattern = seg.span.paint.linePattern,
                 spans = spans,
                 cjkFont = cjkFont,
                 latinFont = latinFont,
@@ -309,6 +357,8 @@ private fun drawSkiaRichTextLines(
             canvas.drawLine(seg.left, lineY, seg.right, lineY, paint)
         }
     }
+    paint.pathEffect = null
+    paint.strokeCap = PaintStrokeCap.BUTT
 }
 
 private fun drawSkiaStraightInterlinearLine(
@@ -322,6 +372,7 @@ private fun drawSkiaStraightInterlinearLine(
     paint: Paint,
     skipBandPad: Float,
     skipClearance: Float,
+    linePattern: RichTextLinePattern = RichTextLinePattern.Solid,
     spans: List<TextSpan>,
     cjkFont: Font,
     latinFont: Font,
@@ -329,7 +380,9 @@ private fun drawSkiaStraightInterlinearLine(
     skipCache: MutableMap<Long, FloatArray>? = null,
 ) {
     val line = result.lines.getOrNull(lineIndex) ?: return
-    val cacheKey = (lineIndex.toLong() shl 32) or (lineY.toRawBits().toLong() and 0xFFFFFFFFL)
+    val cacheKey = (lineIndex.toLong() shl 32) xor
+        (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
+        (skipBandPad.toRawBits().toLong() shl 1)
     val skips = skipCache?.getOrPut(cacheKey) {
         result.lineInkSkipIntervalsWithPositions(
             line,
@@ -354,7 +407,51 @@ private fun drawSkiaStraightInterlinearLine(
         replayIndex.fontRoleByClusterRange,
     )
     keptIntervals(left, right, skips, skipClearance) { x0, x1 ->
-        canvas.drawLine(x0, lineY, x1, lineY, paint)
+        when (linePattern) {
+            RichTextLinePattern.Solid -> canvas.drawLine(x0, lineY, x1, lineY, paint)
+            is RichTextLinePattern.Dashed -> {
+                paint.pathEffect = null
+                val saveCount = canvas.save()
+                canvas.clipRect(x0, lineY - paint.strokeWidth, x1, lineY + paint.strokeWidth, false)
+                val dashes = fittedDashedLineSegments(
+                    spanLeft = left,
+                    spanRight = right,
+                    dashLength = linePattern.dashLength,
+                    gapLength = linePattern.gapLength,
+                )
+                var index = 0
+                while (index + 1 < dashes.size) {
+                    val dashLeft = dashes[index]
+                    val dashRight = dashes[index + 1]
+                    if (dashRight > x0 && dashLeft < x1) {
+                        val capInset = minOf(paint.strokeWidth / 2f, (dashRight - dashLeft) / 2f)
+                        canvas.drawLine(
+                            dashLeft + capInset,
+                            lineY,
+                            dashRight - capInset,
+                            lineY,
+                            paint,
+                        )
+                    }
+                    index += 2
+                }
+                canvas.restoreToCount(saveCount)
+            }
+            is RichTextLinePattern.Dotted -> {
+                paint.mode = PaintMode.FILL
+                fittedDottedLineCenters(
+                    spanLeft = left,
+                    spanRight = right,
+                    keptLeft = x0,
+                    keptRight = x1,
+                    dotDiameter = linePattern.dotDiameter,
+                    gapLength = linePattern.gapLength,
+                ).forEach { center ->
+                    canvas.drawCircle(center, lineY, linePattern.dotDiameter / 2f, paint)
+                }
+                paint.mode = PaintMode.STROKE
+            }
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RubySpan
 import org.tiqian.core.TextSpan
@@ -29,6 +30,7 @@ class ParagraphMeasurer(
         decorations: List<DecorationSpan> = emptyList(),
         spans: List<TextSpan> = emptyList(),
         rubySpans: List<RubySpan> = emptyList(),
+        inlineBoxes: List<InlineBoxSpan> = emptyList(),
         sourceBoundaries: Set<Int> = emptySet(),
     ): LayoutResult = measure(
         LayoutInput(
@@ -38,6 +40,7 @@ class ParagraphMeasurer(
             constraints = constraints,
             decorations = decorations,
             rubySpans = rubySpans,
+            inlineBoxes = inlineBoxes,
         ),
     )
 

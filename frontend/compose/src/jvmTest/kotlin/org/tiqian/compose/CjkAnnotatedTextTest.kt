@@ -13,14 +13,19 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.RichTextRole
+import org.tiqian.core.RichTextBackgroundDrawStyle
+import org.tiqian.core.RichTextLinePattern
+import org.tiqian.core.RichTextSpan
 import org.tiqian.core.RubyKind
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The attributed-text builders compute decoration ranges from the builder
@@ -145,7 +150,7 @@ class CjkAnnotatedTextTest {
             append("后")
         }
 
-        val spans = text.cjkRichTextSpans()
+        val spans = text.cjkRichTextSpans(adjacentSameStyleClearance = 1.5f)
 
         assertEquals(
             RichTextRole.Background,
@@ -155,6 +160,7 @@ class CjkAnnotatedTextTest {
         assertEquals(Color.Blue.toArgb(), spans.first { it.role == RichTextRole.Underline }.paint.argb)
         assertEquals(Color.Blue.toArgb(), spans.first { it.role == RichTextRole.LineThrough }.paint.argb)
         assertEquals(TextRange(1, 3), spans.first { it.role == RichTextRole.Underline }.range)
+        assertTrue(spans.all { it.paint.adjacentSameStyleClearance == 1.5f })
     }
 
     @Test
@@ -176,6 +182,106 @@ class CjkAnnotatedTextTest {
         assertEquals(RichTextRole.Link("https://example.com"), link.role)
         assertEquals(TextRange(4, 8), code.range)
         assertEquals(listOf("monospace"), style.style.fontFamilies)
+        assertEquals(14f, style.style.fontSize)
+    }
+
+    @Test
+    fun dashedUnderlineLowersToTheNormalUnderlineRole() {
+        val span = CjkInlineDecoration(
+            range = androidx.compose.ui.text.TextRange(1, 3),
+            style = CjkInlineDecorationStyle.DashedUnderline(
+                color = Color.Red,
+                strokeWidth = 1.dp,
+                dashLength = 6.dp,
+                gapLength = 4.dp,
+            ),
+        ).toCore(Density(2f))
+
+        assertEquals(TextRange(1, 3), span.range)
+        assertEquals(RichTextRole.Underline, span.role)
+        assertEquals(Color.Red.toArgb(), span.paint.argb)
+        assertEquals(
+            RichTextLinePattern.Dashed(strokeWidth = 2f, dashLength = 12f, gapLength = 8f),
+            span.paint.linePattern,
+        )
+        assertEquals(2f, span.paint.adjacentSameStyleClearance)
+    }
+
+    @Test
+    fun roundedBackgroundLowersUniformMetricGeometry() {
+        val span = CjkInlineBackground(
+            range = androidx.compose.ui.text.TextRange(1, 4),
+            color = Color.Yellow,
+            verticalPadding = 1.dp,
+            cornerRadius = 2.dp,
+        ).toCore(Density(2f))
+
+        assertEquals(TextRange(1, 4), span.range)
+        assertEquals(RichTextRole.Background, span.role)
+        assertEquals(Color.Yellow.toArgb(), span.paint.argb)
+        assertEquals(0f, span.paint.background.horizontalPadding)
+        assertEquals(2f, span.paint.background.verticalPadding)
+        assertEquals(4f, span.paint.background.cornerRadius)
+        assertEquals(2f, span.paint.adjacentSameStyleClearance)
+        assertEquals(
+            org.tiqian.core.RichTextBackgroundMetricPolicy.UniformTextStyle,
+            span.paint.background.metricPolicy,
+        )
+    }
+
+    @Test
+    fun outlinedBackgroundKeepsItsStrokeInsideTheSameBoxGeometry() {
+        val span = CjkInlineBackground(
+            range = androidx.compose.ui.text.TextRange(1, 4),
+            color = Color.Gray,
+            horizontalPadding = 4.dp,
+            drawStyle = CjkInlineBackgroundDrawStyle.Border(1.dp),
+        ).toCore(Density(2f))
+
+        assertEquals(8f, span.paint.background.horizontalPadding)
+        assertEquals(
+            RichTextBackgroundDrawStyle.Border(strokeWidth = 2f),
+            span.paint.background.drawStyle,
+        )
+    }
+
+    @Test
+    fun inlineCodeDefaultsReserveACompactRoundedBox() {
+        val paint = defaultInlineCodePaint(Density(2f))
+        val span = RichTextSpan(TextRange(1, 5), RichTextRole.InlineCode, paint)
+
+        assertEquals(8f, paint.background.horizontalPadding)
+        assertEquals(6f, paint.background.verticalPadding)
+        assertEquals(6f, paint.background.cornerRadius)
+        assertEquals(2f, paint.adjacentSameStyleClearance)
+        assertEquals(
+            org.tiqian.core.RichTextBackgroundMetricPolicy.UniformParagraphStyle,
+            paint.background.metricPolicy,
+        )
+        assertEquals(
+            org.tiqian.core.InlineBoxSpan(TextRange(1, 5), inlineStart = 8f, inlineEnd = 8f),
+            listOf(span).backgroundInlineBoxes().single(),
+        )
+    }
+
+    @Test
+    fun dottedUnderlineLowersToTheNormalUnderlineRole() {
+        val span = CjkInlineDecoration(
+            range = androidx.compose.ui.text.TextRange(0, 5),
+            style = CjkInlineDecorationStyle.DottedUnderline(
+                dotDiameter = 1.dp,
+                gapLength = 2.dp,
+            ),
+        ).toCore(Density(2f))
+
+        assertEquals(TextRange(0, 5), span.range)
+        assertEquals(RichTextRole.Underline, span.role)
+        assertEquals(null, span.paint.argb)
+        assertEquals(
+            RichTextLinePattern.Dotted(dotDiameter = 2f, gapLength = 4f),
+            span.paint.linePattern,
+        )
+        assertEquals(2f, span.paint.adjacentSameStyleClearance)
     }
 
     @Test
