@@ -6,8 +6,8 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.coretext.CoreTextLayoutRenderer
-import org.tiqian.coretext.appleParagraphEngine
+import org.tiqian.apple.coretext.CoreTextLayoutRenderer
+import org.tiqian.apple.coretext.appleParagraphEngine
 import org.tiqian.shaping.coretext.CoreTextSupport
 import platform.CoreGraphics.CGContextRef
 

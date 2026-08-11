@@ -10,7 +10,8 @@
 
 ## Decision
 
-`CoreTextRenderingFrontend`:新增 `:frontend:apple:coretext-render`(`macosArm64`、`iosArm64`、`iosSimulatorArm64`)。
+`CoreTextRenderingFrontend`:新增 `:frontend:apple:coretext-render`(`macosArm64`、`iosArm64`、`iosSimulatorArm64`)；
+其 Kotlin renderer 包为 `org.tiqian.apple.coretext`，与 `org.tiqian.shaping.coretext` 分开。
 
 - **`CoreTextLayoutRenderer`**:用 `CTFontDrawGlyphs` 画 `LayoutResult`——按字形 id 重放,pen 按 `Cluster.advance` 步进,`clusters` 与 `glyphRuns` 平行对应(逐 cluster index 取对应 run),镜像 `SkiaLayoutRenderer`。坐标:`LayoutResult` 为左上原点 / y 向下,`CGContext` 为左下 / y 向上,故 `layoutY → canvasHeight - layoutY`,用默认 text matrix 让字形正立(无需翻转上下文)。
 - **`AppleParagraphBackend`**:把引擎接到 `CoreTextShaper` + `CoreTextFontMetricsResolver` + `LookaheadLineBreaker`,其余 seam(clreq profile / justifier / hyphenator / role classifier / fallback)用引擎默认,对标 `DesktopParagraphBackend` 的最小构造。

@@ -19,7 +19,7 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
-import org.tiqian.coretext.CoreTextLayoutRenderer
+import org.tiqian.apple.coretext.CoreTextLayoutRenderer
 import kotlin.math.ceil
 import kotlin.math.max
 

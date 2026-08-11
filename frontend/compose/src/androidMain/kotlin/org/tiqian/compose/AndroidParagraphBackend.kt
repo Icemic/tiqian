@@ -8,9 +8,9 @@ import androidx.compose.ui.platform.LocalContext
 import org.tiqian.clreq.ClreqProfile
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
-import org.tiqian.shaping.nativefont.AndroidNativeFontMetricsResolver
-import org.tiqian.shaping.nativefont.AndroidNativeTextShaper
-import org.tiqian.shaping.nativefont.TiqianAndroidFontBackend
+import org.tiqian.shaping.android.nativefont.AndroidNativeFontMetricsResolver
+import org.tiqian.shaping.android.nativefont.AndroidNativeTextShaper
+import org.tiqian.shaping.android.nativefont.TiqianAndroidFontBackend
 
 @Composable
 internal actual fun rememberPlatformParagraphMeasurer(profile: ClreqProfile): ParagraphMeasurer {

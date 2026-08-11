@@ -32,10 +32,14 @@
   覆盖核心决定。`CjkPunctuationHanFaceAnchor` 使用与 `CjkText` 相同的汉字探针选定具体中文
   face，再由该 face 对原标点执行 HarfBuzz shaping；引号与破折号的字体归属因此不会取决于它们
   脱离上下文时的系统默认归属。
+- Amendment 2026-08-12：首次 Maven 发布前按 [ADR 0048](0048-suite-maven-and-package-namespaces.md)
+  把 Android native 后端明确命名为 `:shaping:android-native-font`、
+  `org.tiqian:tiqian-shaping-android-native-font` 与
+  `org.tiqian.shaping.android.nativefont`；只改变模块和公共包身份，不改变本 ADR 的后端契约。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
-Android API 23+ 的默认正确性路径改为 `shaping/native-font`：
+Android API 23+ 的默认正确性路径改为 `shaping/android-native-font`：
 
 - `shaping/api` 定义平台无关的 `FontFaceId`、`ReplayableFontCatalog`、face request / descriptor
   与结构化 `FontBackendCapabilityReport`。`FontFaceId` 由字体字节 SHA-256、TTC index 与可变字体轴实例

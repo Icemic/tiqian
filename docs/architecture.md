@@ -108,7 +108,7 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
 
 - `shaping/jvm`：AWT 字体与 glyph vector；
 - `shaping/skia`：Skia / Skiko，供 Compose Desktop 与 JVM 渲染；
-- `shaping/native-font`：Android API 23+ HarfBuzz / FreeType 正确性后端，从同一字体字节完成
+- `shaping/android-native-font`：Android API 23+ HarfBuzz / FreeType 正确性后端，从同一字体字节完成
   shaping、metrics、ink 与 outline replay；文件字体按内容身份只读映射一次，`ByteArray` / asset
   转为一份共享 direct buffer，TTC index 与可变轴组合只创建轻量 face 实例，不复制整份字体。
   字体身份包含源内容、TTC index 与有效轴坐标；每个 role 使用有序 family fallback，组内先匹配
@@ -248,7 +248,7 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 
 - `core`：平台无关的数据结构与 layout contract，不依赖其他提椠模块。
 - `font`：字体角色、fallback 与字体度量策略。
-- `shaping/*`：平台 shaping / replayable font contract 及其实现；`shaping/native-font` 持有
+- `shaping/*`：平台 shaping / replayable font contract 及其实现；`shaping/android-native-font` 持有
   Android API 23+ 的共享字体源、受控 face、HarfBuzz / FreeType 与同源 outline replay。
 - `linebreak`：断行机会、西文断词与相关数据。
 - `clreq`：中文 profile、标点分类、禁则与空间策略。
@@ -266,6 +266,12 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
 - `demo/apple`：一个 Xcode project 内的 macOS / iOS targets，共享 Swift 样例内容并消费
   `frontend/apple`。
 - `test-support` 与 `layout` 的报告任务：共享语料、布局诊断和文档样张生成。
+
+首次公开发布的套件统一使用 Maven group `org.tiqian`。提椠核心 artifact 保留 `tiqian-*`
+产品族前缀，数学与 Markdown 分别使用 `math-*` 与 `markdown-*`。Markdown 的中立文档模型位于
+`org.tiqian.markdown`，Compose renderer 位于 `org.tiqian.markdown.compose`；Android native
+字体后端位于 `org.tiqian.shaping.android.nativefont`。完整命名边界见
+[ADR 0048](adr/0048-suite-maven-and-package-namespaces.md)。
 
 ## 不变量
 

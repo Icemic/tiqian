@@ -14,7 +14,7 @@ import org.tiqian.core.getCursorRect
 import org.tiqian.core.getSelectionOffsetForPosition
 import org.tiqian.core.getSelectionWordBoundaryForPosition
 import org.tiqian.core.getTextForCopy
-import org.tiqian.coretext.CoreTextLayoutRenderer
+import org.tiqian.apple.coretext.CoreTextLayoutRenderer
 import platform.CoreGraphics.CGContextRef
 import platform.CoreGraphics.CGContextRestoreGState
 import platform.CoreGraphics.CGContextSaveGState

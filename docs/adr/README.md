@@ -65,6 +65,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0042 Web 框架集成包与无宽度字体证据](0042-framework-web-integrations.md)
 - [0044 选区/装饰几何按 glyph 边界映射源偏移](0044-source-offset-glyph-geometry.md)
 - [0047 Core Text 渲染前端](0047-core-text-rendering-frontend.md)
+- [0048 套件 Maven 坐标与包命名](0048-suite-maven-and-package-namespaces.md)
 
 ## 早期状态说明
 

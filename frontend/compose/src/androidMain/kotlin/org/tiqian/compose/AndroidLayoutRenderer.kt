@@ -28,7 +28,7 @@ import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
 import org.tiqian.shaping.android.SystemAndroidTypefaceResolver
-import org.tiqian.shaping.nativefont.AndroidNativeGlyphReplay
+import org.tiqian.shaping.android.nativefont.AndroidNativeGlyphReplay
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max

@@ -42,7 +42,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Tiqian"
+rootProject.name = "tiqian"
 
 include(
     ":core",
@@ -51,7 +51,7 @@ include(
     ":shaping:jvm",
     ":shaping:skia",
     ":shaping:android-adapter",
-    ":shaping:native-font",
+    ":shaping:android-native-font",
     ":shaping:web-adapter",
     ":shaping:coretext",
     ":frontend:web",

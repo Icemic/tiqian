@@ -42,8 +42,8 @@ val publishedModules = mapOf(
         "Tiqian Android Shaping Adapter",
         "Android shaping and glyph replay adapter for Tiqian.",
     ),
-    ":shaping:native-font" to PublishedModule(
-        "tiqian-shaping-native-font",
+    ":shaping:android-native-font" to PublishedModule(
+        "tiqian-shaping-android-native-font",
         "Tiqian Android Native Font",
         "Native Android font discovery and shaping support for Tiqian.",
     ),
