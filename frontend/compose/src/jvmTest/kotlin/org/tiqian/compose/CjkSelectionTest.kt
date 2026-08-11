@@ -851,6 +851,9 @@ class CjkSelectionTest {
 
             val scrolling = scrollState ?: error("scroll state missing")
             runBlocking { scrolling.scrollTo(12) }
+            // ImageComposeScene consumes the ScrollState change in one frame and publishes the
+            // descendant's new global coordinates in the next. Read menu geometry only after both.
+            scene.render()
             scene.render()
             val after = selectionState.selectionContentRectInRoot()
                 ?: error("selected region should remain partially visible")
@@ -861,6 +864,7 @@ class CjkSelectionTest {
             )
 
             runBlocking { scrolling.scrollTo(secondLine.bottom.toInt() + 20) }
+            scene.render()
             scene.render()
             assertEquals(
                 null,
