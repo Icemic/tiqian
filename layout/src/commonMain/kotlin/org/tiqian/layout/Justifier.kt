@@ -97,6 +97,12 @@ class Justifier(
          * the same share as every other eligible character gap.
          */
         westernBracketCjkInterCharBoundaryAfterClusters: Set<Int> = emptySet(),
+        /** Physical edges touching an attached run; neither represents adjacent prose. */
+        attachedInlinePhysicalBoundaryAfterClusters: Set<Int> = emptySet(),
+        /** Target edge after an attached run -> virtual prose cluster on its left. */
+        attachedInlineVirtualBoundaryAfterClusters: Map<Int, Int> = emptyMap(),
+        /** Virtual prose boundaries that are W/N and therefore also join tier ②. */
+        attachedInlineVirtualSinoWesternBoundaryAfterClusters: Set<Int> = emptySet(),
         /**
          * Explicit object edges that join the final equal-spacing pass. The
          * index is the cluster on the left of the boundary. Opaque inline
@@ -209,10 +215,30 @@ class Justifier(
                 capacity = ((cjkLatinSpaceMaxEm - cjkLatinSpaceBaseEm) * fontSize).coerceAtLeast(0f),
             ) { leftIdx, rightIdx ->
                 isWideNarrowBoundary(leftIdx, rightIdx, eastAsianSpacingEdges) &&
+                    leftIdx !in attachedInlinePhysicalBoundaryAfterClusters &&
                     !boundaryIsClosed(leftIdx, rightIdx) &&
                     !adjustedClusters[leftIdx].text.endsWith(' ') &&
                     !adjustedClusters[rightIdx].text.startsWith(' ')
             } + buildList {
+                attachedInlineVirtualSinoWesternBoundaryAfterClusters.forEach { targetIndex ->
+                    val previousIndex = attachedInlineVirtualBoundaryAfterClusters[targetIndex]
+                        ?: return@forEach
+                    val nextIndex = targetIndex + 1
+                    if (targetIndex !in lineClusterRange || nextIndex !in lineClusterRange) return@forEach
+                    if (previousIndex in noStretchBoundaryClusters || nextIndex in noStretchBoundaryClusters) {
+                        return@forEach
+                    }
+                    add(
+                        JustificationOpportunity(
+                            targetClusterIndex = targetIndex,
+                            kind = GlueKind.CjkLatinSpace,
+                            priority = 1,
+                            capacity = ((cjkLatinSpaceMaxEm - cjkLatinSpaceBaseEm) * fontSize)
+                                .coerceAtLeast(0f),
+                            reason = "AttachedInlineVirtualAutoSpace",
+                        ),
+                    )
+                }
                 for (idx in lineClusterRange) {
                     if (!adjustedClusters.isWideNarrowTypedSpace(idx, eastAsianSpacingEdges)) continue
                     if (spaceGapIsClosed(idx)) continue
@@ -328,6 +354,8 @@ class Justifier(
                 isWideNarrowBoundary(leftIdx, rightIdx, eastAsianSpacingEdges)
             (bothCjk || punctWestern || virtualSinoWestern) &&
                 leftIdx !in westernBracketCjkInterCharBoundaryAfterClusters &&
+                leftIdx !in attachedInlinePhysicalBoundaryAfterClusters &&
+                leftIdx !in attachedInlineVirtualBoundaryAfterClusters &&
                 leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
                 // CLREQ: inseparable symbol pairs stay closed; boundaries
                 // touching connectors, solidus, dash, or ellipsis also stay closed.
@@ -342,8 +370,26 @@ class Justifier(
             reason = "WesternBracketCjkInterChar",
         ) { leftIdx, rightIdx ->
             leftIdx in westernBracketCjkInterCharBoundaryAfterClusters &&
+                leftIdx !in attachedInlinePhysicalBoundaryAfterClusters &&
                 leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
                 !boundaryIsClosed(leftIdx, rightIdx)
+        }
+        val attachedInlineVirtualOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.CjkInterChar,
+            priority = 3,
+            capacity = remaining,
+            reason = "AttachedInlineVirtualInterChar",
+        ) { leftIdx, rightIdx ->
+            val previousIndex = attachedInlineVirtualBoundaryAfterClusters[leftIdx]
+            previousIndex != null &&
+                (allowSinoWesternGapStretch ||
+                    leftIdx !in attachedInlineVirtualSinoWesternBoundaryAfterClusters) &&
+                leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
+                previousIndex !in noStretchBoundaryClusters &&
+                rightIdx !in noStretchBoundaryClusters &&
+                previousIndex !in noStretchBoundaryAfterClusters
         }
         val uniformInlineObjectBoundaryOpps = buildBoundaryOpportunities(
             adjustedClusters = adjustedClusters,
@@ -373,7 +419,8 @@ class Justifier(
             }
         }
         val cjkInterOpps =
-            uniformTextBoundaryOpps + westernBracketCjkOpps + uniformInlineObjectBoundaryOpps + uniformSpaceOpps
+            uniformTextBoundaryOpps + westernBracketCjkOpps + attachedInlineVirtualOpps +
+                uniformInlineObjectBoundaryOpps + uniformSpaceOpps
         remaining = allocate(
             deficit = remaining,
             opportunities = cjkInterOpps,

@@ -1,10 +1,14 @@
 package org.tiqian.layout
 
 import org.tiqian.core.Ic
+import org.tiqian.core.InlineAttachment
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TiqianTextContent
+import org.tiqian.core.TextRange
+import org.tiqian.core.TextSpan
+import org.tiqian.core.TextStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -19,6 +23,75 @@ import kotlin.test.assertTrue
  * the boundary width. That violates the spec and the project's intent.
  */
 class AutoSpaceSingleGapTest {
+
+    @Test
+    fun attachedReferenceBetweenCjkTextDoesNotInventAnAutospaceGap() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(
+                    text = "正文1后文",
+                    spans = listOf(
+                        TextSpan(
+                            TextRange(2, 3),
+                            TextStyle(inlineAttachment = InlineAttachment.Previous),
+                        ),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertTrue(result.debug.autoSpaceDecisions.isEmpty(), "${result.debug.autoSpaceDecisions}")
+    }
+
+    @Test
+    fun attachedReferenceBeforeLatinTextGetsTheVirtualCjkLatinGap() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(
+                    text = "正文1ABC",
+                    spans = listOf(
+                        TextSpan(
+                            TextRange(2, 3),
+                            TextStyle(inlineAttachment = InlineAttachment.Previous),
+                        ),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val decision = result.debug.autoSpaceDecisions.single()
+        assertEquals("trailing", decision.side)
+        assertEquals("InlineAttachment.Previous", decision.boundaryRole)
+        assertEquals(
+            "AttachedInlineVirtualAutoSpace:east-asian-spacing-W-N",
+            decision.reason,
+        )
+    }
+
+    @Test
+    fun attachedReferenceAtParagraphEndHasNoAutospaceGap() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(
+                    text = "正文1",
+                    spans = listOf(
+                        TextSpan(
+                            TextRange(2, 3),
+                            TextStyle(inlineAttachment = InlineAttachment.Previous),
+                        ),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertTrue(result.debug.autoSpaceDecisions.isEmpty(), "${result.debug.autoSpaceDecisions}")
+    }
 
     @Test
     fun oneTypedSpaceBecomesOneAutospaceGap() {

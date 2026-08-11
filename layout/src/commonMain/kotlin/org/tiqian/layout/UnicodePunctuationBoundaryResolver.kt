@@ -2,6 +2,9 @@ package org.tiqian.layout
 
 import org.tiqian.core.Cluster
 import org.tiqian.core.ContextualKinsokuDecisionInfo
+import org.tiqian.core.EastAsianSpacingEdges
+import org.tiqian.core.EastAsianSpacingValue
+import org.tiqian.core.InlineAttachment
 import org.tiqian.font.FontRole
 import org.tiqian.linebreak.UnicodePunctuationLineBreak
 import org.tiqian.linebreak.UnicodePunctuationLineBreakClass
@@ -40,24 +43,164 @@ internal fun resolveWesternBracketCjkInterCharBoundaries(
 ): Set<Int> = buildSet {
     for (leftIndex in 0 until clusters.lastIndex) {
         val rightIndex = leftIndex + 1
-        val leftIsWesternBracket =
-            clusterRoles.getOrNull(leftIndex) != FontRole.CjkPunctuation &&
-                text.substring(clusters[leftIndex].range.start, clusters[leftIndex].range.end)
-                    .lastSignificantCodePoint()
-                    ?.codePoint
-                    ?.isWesternBracketCodePoint() == true
-        val rightIsWesternBracket =
-            clusterRoles.getOrNull(rightIndex) != FontRole.CjkPunctuation &&
-                text.substring(clusters[rightIndex].range.start, clusters[rightIndex].range.end)
-                    .firstSignificantCodePoint()
-                    ?.codePoint
-                    ?.isWesternBracketCodePoint() == true
-        val leftIsCjkBody = clusterRoles.getOrNull(leftIndex) == FontRole.CjkText
-        val rightIsCjkBody = clusterRoles.getOrNull(rightIndex) == FontRole.CjkText
-        if ((leftIsWesternBracket && rightIsCjkBody) || (leftIsCjkBody && rightIsWesternBracket)) {
+        if (
+            isWesternBracketCjkInterCharBoundary(
+                text = text,
+                clusters = clusters,
+                clusterRoles = clusterRoles,
+                leftIndex = leftIndex,
+                rightIndex = rightIndex,
+            )
+        ) {
             add(leftIndex)
         }
     }
+}
+
+internal data class AttachedInlineVirtualBoundary(
+    val previousClusterIndex: Int,
+    val attachedClusterRange: IntRange,
+    val nextClusterIndex: Int?,
+)
+
+/**
+ * `AttachedInlineVirtualAdjacency`: an attached run is ignored only while deciding
+ * the boundary spacing of the prose around it. Source order, shaping and glyph
+ * geometry stay untouched. The resulting boundary is physically owned by the end
+ * of the attached run so no blank is left before the attachment.
+ */
+internal fun resolveAttachedInlineVirtualBoundaries(
+    inlineAttachments: List<InlineAttachment>,
+): List<AttachedInlineVirtualBoundary> = buildList {
+    var index = 0
+    while (index < inlineAttachments.size) {
+        if (inlineAttachments[index] != InlineAttachment.Previous) {
+            index += 1
+            continue
+        }
+        val start = index
+        var end = start
+        while (
+            end + 1 < inlineAttachments.size &&
+            inlineAttachments[end + 1] == InlineAttachment.Previous
+        ) {
+            end += 1
+        }
+        if (start > 0) {
+            add(
+                AttachedInlineVirtualBoundary(
+                    previousClusterIndex = start - 1,
+                    attachedClusterRange = start..end,
+                    nextClusterIndex = (end + 1).takeIf { it < inlineAttachments.size },
+                ),
+            )
+        }
+        index = end + 1
+    }
+}
+
+internal data class AttachedInlineInterCharBoundaries(
+    val ordinaryWesternBoundaryAfterClusters: Set<Int>,
+    /** Both physical edges touching an attached run; neither is a prose boundary. */
+    val suppressedPhysicalBoundaryAfterClusters: Set<Int>,
+    /** Target edge after the attached run -> virtual prose cluster on its left. */
+    val virtualBoundaryAfterClusters: Map<Int, Int>,
+    /** Subset of [virtualBoundaryAfterClusters] that is a virtual W/N boundary. */
+    val virtualSinoWesternBoundaryAfterClusters: Set<Int>,
+)
+
+/**
+ * Resolves final-tier inter-character opportunities from the prose that would be
+ * adjacent if attached runs were absent. This deliberately does not infer a target
+ * merely because a physical edge before the attachment happened to be stretchable.
+ */
+internal fun resolveAttachedInlineInterCharBoundaries(
+    text: String,
+    clusters: List<Cluster>,
+    clusterRoles: List<FontRole>,
+    eastAsianSpacingEdges: List<EastAsianSpacingEdges>,
+    westernBoundaryAfterClusters: Set<Int>,
+    inlineAttachments: List<InlineAttachment>,
+): AttachedInlineInterCharBoundaries {
+    require(clusters.size == clusterRoles.size && clusters.size == eastAsianSpacingEdges.size) {
+        "Clusters, roles and East_Asian_Spacing edges must align."
+    }
+    require(clusters.size == inlineAttachments.size) {
+        "Inline attachments must align with clusters."
+    }
+
+    val virtualBoundaries = resolveAttachedInlineVirtualBoundaries(inlineAttachments)
+    val suppressedPhysical = buildSet {
+        virtualBoundaries.forEach { boundary ->
+            add(boundary.previousClusterIndex)
+            if (boundary.nextClusterIndex != null) add(boundary.attachedClusterRange.last)
+        }
+    }
+    val ordinaryWestern = westernBoundaryAfterClusters - suppressedPhysical
+    val virtual = mutableMapOf<Int, Int>()
+    val virtualSinoWestern = mutableSetOf<Int>()
+    virtualBoundaries.forEach { boundary ->
+        val nextIndex = boundary.nextClusterIndex ?: return@forEach
+        val previousIndex = boundary.previousClusterIndex
+        val leftRole = clusterRoles[previousIndex]
+        val rightRole = clusterRoles[nextIndex]
+        val bothCjk = leftRole.isCjkLike() && rightRole.isCjkLike()
+        val punctuationWestern =
+            (leftRole == FontRole.CjkPunctuation &&
+                eastAsianSpacingEdges[nextIndex].leading == EastAsianSpacingValue.Narrow) ||
+                (eastAsianSpacingEdges[previousIndex].trailing == EastAsianSpacingValue.Narrow &&
+                    rightRole == FontRole.CjkPunctuation)
+        val sinoWestern = eastAsianSpacingEdges[previousIndex].trailing
+            .isWideNarrowPairWith(eastAsianSpacingEdges[nextIndex].leading)
+        val westernBracket = isWesternBracketCjkInterCharBoundary(
+            text = text,
+            clusters = clusters,
+            clusterRoles = clusterRoles,
+            leftIndex = previousIndex,
+            rightIndex = nextIndex,
+        )
+        if (bothCjk || punctuationWestern || sinoWestern || westernBracket) {
+            virtual[boundary.attachedClusterRange.last] = previousIndex
+        }
+        if (sinoWestern) virtualSinoWestern += boundary.attachedClusterRange.last
+    }
+    return AttachedInlineInterCharBoundaries(
+        ordinaryWesternBoundaryAfterClusters = ordinaryWestern,
+        suppressedPhysicalBoundaryAfterClusters = suppressedPhysical,
+        virtualBoundaryAfterClusters = virtual,
+        virtualSinoWesternBoundaryAfterClusters = virtualSinoWestern,
+    )
+}
+
+private fun FontRole.isCjkLike(): Boolean =
+    this == FontRole.CjkText || this == FontRole.CjkPunctuation
+
+private fun EastAsianSpacingValue.isWideNarrowPairWith(other: EastAsianSpacingValue): Boolean =
+    (this == EastAsianSpacingValue.Wide && other == EastAsianSpacingValue.Narrow) ||
+        (this == EastAsianSpacingValue.Narrow && other == EastAsianSpacingValue.Wide)
+
+private fun isWesternBracketCjkInterCharBoundary(
+    text: String,
+    clusters: List<Cluster>,
+    clusterRoles: List<FontRole>,
+    leftIndex: Int,
+    rightIndex: Int,
+): Boolean {
+    val leftIsWesternBracket =
+        clusterRoles.getOrNull(leftIndex) != FontRole.CjkPunctuation &&
+            text.substring(clusters[leftIndex].range.start, clusters[leftIndex].range.end)
+                .lastSignificantCodePoint()
+                ?.codePoint
+                ?.isWesternBracketCodePoint() == true
+    val rightIsWesternBracket =
+        clusterRoles.getOrNull(rightIndex) != FontRole.CjkPunctuation &&
+            text.substring(clusters[rightIndex].range.start, clusters[rightIndex].range.end)
+                .firstSignificantCodePoint()
+                ?.codePoint
+                ?.isWesternBracketCodePoint() == true
+    val leftIsCjkBody = clusterRoles.getOrNull(leftIndex) == FontRole.CjkText
+    val rightIsCjkBody = clusterRoles.getOrNull(rightIndex) == FontRole.CjkText
+    return (leftIsWesternBracket && rightIsCjkBody) || (leftIsCjkBody && rightIsWesternBracket)
 }
 
 private fun Int.isWesternBracketCodePoint(): Boolean =

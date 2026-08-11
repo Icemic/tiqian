@@ -6,6 +6,9 @@
   并列的 render-only span），不再住 `shaping/skia`——前端公开签名遂不泄漏 Skia 类型。
 - Amendment 2026-07-07：`TextStyle.baselineShift` 成为 B 档 layout-affecting span
   样式，用于 Compose `SpanStyle.baselineShift` / 参考文献角标等显式上标/下标位移。
+- Amendment 2026-08-11：行内参考角标以 `InlineAttachment.Previous` 明确附着前文；
+  判断边界间距时暂时忽略角标，以角标两侧正文原本是否存在间距为准，结果由角标尾侧承载；
+  若正文直接相邻时没有间距，角标也不会凭空生成间距，落在行末时不保留空白。
 
 ## Context
 
@@ -58,6 +61,15 @@ Compose 侧作者面用 `AnnotatedString`（ADR 0030 的 `CjkParagraph(Annotated
   按 span 最终字号解析并翻转成 Tiqian 坐标。它不改变字体 fallback、标点 glue、禁则或
   Roman/CJK baseline 分类，只在最终 cluster baseline 上**叠加**作者样式位移；因此参考文献
   `[1]` 这类西文/数字角标仍保持共享 Roman baseline，只是被显式上移。
+- **行内附着关系**（✅ 已落地 2026-08-11，`AttachedInlineVirtualAdjacency`）：
+  `InlineAttachment.Previous` 表示一段行内文字在语义和间距上属于前文，而不等同于“凡是
+  上标都附着前文”。Compose 以专用 annotation 把范围送入 `TextSpan`；引擎仅在判断自动
+  中西间距、标点压缩与末档字间距时，把角标视为透明，按角标两侧正文直接相邻时的规则
+  重新求值，再让角标尾侧承载结果。例如 `中文[1]后文` 不生成空隙，`中文[1]Latin` 生成一处
+  中西间距，`。”[1]，后文` 按 `”，` 的相邻标点规则压缩，而不是把 `”` 后的固定半字搬过
+  去。范围位于段末，或尾侧边界成为实际行末时，不保留边界空白。源码、shaping、字框与
+  角标墨迹均不移动。附着范围内的 cluster 全部列入避头集合，并把前一正文 cluster 与整个
+  附着范围作为不可断组交给断行器；因此角标可以随前文留在行尾，但不能单独出现在下一行行首。
 - **混排 em 决策的字号基准 = 该空白的「归属 cluster」的字号**（加性 glue 模型每条空白都有
   归属者）。CLREQ 已为关键决策指定了归属，不是「小的/前一个/段落」的全局选择：
   - **中西间距** = 1/4 **汉字宽**（CLREQ 原文）→ 归属那个**汉字**的字号（西文字号不进式子）；

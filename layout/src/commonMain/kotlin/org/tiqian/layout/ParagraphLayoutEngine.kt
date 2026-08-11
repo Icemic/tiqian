@@ -47,6 +47,7 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.InlineBoxDecisionInfo
 import org.tiqian.core.InlineBoxSpan
+import org.tiqian.core.InlineAttachment
 import org.tiqian.core.InlineObjectBoundaryAdjustment
 import org.tiqian.core.InlineObjectDecisionInfo
 import org.tiqian.core.InlineObjectLineHeightDecisionInfo
@@ -762,6 +763,7 @@ class ExplainableStubParagraphLayoutEngine(
 
         val autoSpaceResult = rawNaturalClusters.applyAutoSpacePolicy(
             eastAsianSpacingEdges = eastAsianSpacingEdges,
+            inlineAttachments = rawNaturalClusters.map { styleAt(it.range.start).inlineAttachment },
             policy = clreqProfile.autoSpace,
             fontSize = fontSize,
         )
@@ -1034,13 +1036,23 @@ class ExplainableStubParagraphLayoutEngine(
                 }
             }
         }
-        val baseGeometry = PunctuationGeometryLedger.from(
+        val naturalInlineAttachments = naturalClusters.map { styleAt(it.range.start).inlineAttachment }
+        val punctuationBaseGeometry = PunctuationGeometryLedger.from(
             naturalClusters = naturalClusters,
             punctuationAtoms = punctuationAtoms,
             spacingPlan = spacingPlan,
         ).withInlineBoxAdvances(inlineBoxResult.advanceByCluster)
             .withRubySpread(rubyAndBopomofoSpread)
             .withRawEdgeTrims(inlineObjectSeparatorSpaceTrims)
+        val attachedPunctuationBoundary =
+            punctuationBaseGeometry.resolveAttachedInlinePunctuationBoundaries(
+                inlineAttachments = naturalInlineAttachments,
+                punctuationAtoms = punctuationAtoms,
+                em = fontSize,
+            )
+        val baseGeometry = attachedPunctuationBoundary.geometry
+        val attachedPunctuationTrailingGlueByCluster =
+            attachedPunctuationBoundary.trailingGlueByCluster
         val clusters = baseGeometry.resolveClusters()
         // CLREQ 挤压处理优先顺序 (ADR 0020): tiered shrink resources for
         // PushIn. Punctuation classes map to tiers; style knobs gate the
@@ -1332,14 +1344,34 @@ class ExplainableStubParagraphLayoutEngine(
             clusterRoles = clusterRoles,
             quotePairs = quotePairs,
         )
-        val westernBracketCjkInterCharBoundaryAfterClusters =
-            resolveWesternBracketCjkInterCharBoundaries(
+        val inlineAttachments = naturalInlineAttachments
+        val westernBracketBoundaries = resolveWesternBracketCjkInterCharBoundaries(
                 text = text,
                 clusters = naturalClusters,
                 clusterRoles = clusterRoles,
             )
+        val attachedInlineInterCharBoundaries = resolveAttachedInlineInterCharBoundaries(
+            text = text,
+            clusters = naturalClusters,
+            clusterRoles = clusterRoles,
+            eastAsianSpacingEdges = eastAsianSpacingEdges,
+            westernBoundaryAfterClusters = westernBracketBoundaries,
+            inlineAttachments = inlineAttachments,
+        )
+        val westernBracketCjkInterCharBoundaryAfterClusters =
+            attachedInlineInterCharBoundaries.ordinaryWesternBoundaryAfterClusters
+        val attachedInlinePhysicalBoundaryAfterClusters =
+            attachedInlineInterCharBoundaries.suppressedPhysicalBoundaryAfterClusters
+        val attachedInlineVirtualBoundaryAfterClusters =
+            attachedInlineInterCharBoundaries.virtualBoundaryAfterClusters
+        val attachedInlineVirtualSinoWesternBoundaryAfterClusters =
+            attachedInlineInterCharBoundaries.virtualSinoWesternBoundaryAfterClusters
+        val attachedInlineForbiddenLineStartClusters = inlineAttachments.indices.filterTo(mutableSetOf()) {
+            inlineAttachments[it] == InlineAttachment.Previous
+        }
         val forbiddenLineStartClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-            idx in zeroWidthBreakClusters ||
+            idx in attachedInlineForbiddenLineStartClusters ||
+                idx in zeroWidthBreakClusters ||
                 (
                 clusterRoles.getOrNull(idx).isCjkKinsokuRole() &&
                     kinsokuRule.forbiddenAtLineStart(naturalClusters[idx])
@@ -1408,7 +1440,8 @@ class ExplainableStubParagraphLayoutEngine(
             }
         val cjkInterCharBoundaries: Set<Int> = buildSet {
             addAll((1 until naturalClusters.size).filter {
-                clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
+                it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
+                    clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
             })
             // Paragraph-global and lookahead breakers price the same safe
             // inline-object gaps that the final justifier can actually use.
@@ -1416,20 +1449,33 @@ class ExplainableStubParagraphLayoutEngine(
             // `WesternBracketCjkInterChar`: the breaker must price the same
             // proportional-bracket gaps that final tier-3 justification uses.
             addAll(westernBracketCjkInterCharBoundaryAfterClusters.map { it + 1 })
+            addAll(attachedInlineVirtualBoundaryAfterClusters.keys.map { it + 1 })
         }
-        val sinoWesternBoundaries: Set<Int> = (1 until naturalClusters.size).filterTo(mutableSetOf()) {
-            isEastAsianSpacingBoundaryAt(
-                rightIndex = it,
-                clusters = naturalClusters,
-                spacingEdges = eastAsianSpacingEdges,
-            )
+        val sinoWesternBoundaries: Set<Int> = buildSet {
+            addAll((1 until naturalClusters.size).filter {
+                it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
+                    isEastAsianSpacingBoundaryAt(
+                        rightIndex = it,
+                        clusters = naturalClusters,
+                        spacingEdges = eastAsianSpacingEdges,
+                    )
+            })
+            addAll(attachedInlineVirtualSinoWesternBoundaryAfterClusters.map { it + 1 })
         }
+        val attachedInlineUnbreakableRanges =
+            resolveAttachedInlineVirtualBoundaries(inlineAttachments).map { boundary ->
+                boundary.previousClusterIndex..boundary.attachedClusterRange.last
+            }
         val unbreakableRanges =
             input.decorations
                 .filter { it.kind == DecorationKind.Mourning }
                 .mapNotNull { span -> naturalClusters.clusterIndexRangeFor(span.range) } +
                 // 行间注 (ADR 0032): 基文+注文不可拆 (CLREQ §注释符号).
                 pinyinSpans.mapNotNull { naturalClusters.clusterIndexRangeFor(it.baseRange) } +
+                // `AttachedInlineAvoidLineStart`: the forbidden-line-start set
+                // drives kinsoku repair; this structural range also prevents the
+                // initial breaker from proposing a split inside base+reference.
+                attachedInlineUnbreakableRanges +
                 numberSymbolUnbreakableRanges +
                 // `Uax14WesternPunctuationBoundary`: express punctuation
                 // protection as a closed boundary up front, not only as a
@@ -1644,6 +1690,21 @@ class ExplainableStubParagraphLayoutEngine(
             collapseEdgeSpace(line.clusterRange.last, "trailing")
             collapseEdgeSpace(line.clusterRange.first, "leading")
 
+            val attachedGlueCluster = line.clusterRange.last
+            val attachedGlue = attachedPunctuationTrailingGlueByCluster[attachedGlueCluster] ?: 0f
+            if (attachedGlue > 0f) {
+                autoSpaceEdgeTrims.mergeValue(attachedGlueCluster, attachedGlue) { a, b -> a + b }
+                autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
+                    lineRange = line.sourceRange,
+                    clusterRange = naturalClusters[attachedGlueCluster].range,
+                    side = "trailing",
+                    trimAmount = attachedGlue,
+                    consumedBefore = 0f,
+                    naturalGlue = attachedGlue,
+                    reason = "AttachedInlineVirtualBoundaryLineEndTrim",
+                )
+            }
+
             // InlineObjectLineEndDiscardableGlue: a formula fragment includes its natural
             // post-operator math spacing when it stays in the line. If the paragraph actually
             // breaks at that boundary, the space is line-edge glue rather than visible content.
@@ -1713,6 +1774,12 @@ class ExplainableStubParagraphLayoutEngine(
                     noStretchBoundaryAfterClusters = noStretchBoundaryAfterClusters,
                     westernBracketCjkInterCharBoundaryAfterClusters =
                         westernBracketCjkInterCharBoundaryAfterClusters,
+                    attachedInlinePhysicalBoundaryAfterClusters =
+                        attachedInlinePhysicalBoundaryAfterClusters,
+                    attachedInlineVirtualBoundaryAfterClusters =
+                        attachedInlineVirtualBoundaryAfterClusters,
+                    attachedInlineVirtualSinoWesternBoundaryAfterClusters =
+                        attachedInlineVirtualSinoWesternBoundaryAfterClusters,
                     uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
                     preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
                 )
@@ -2223,7 +2290,7 @@ class ExplainableStubParagraphLayoutEngine(
                         reductionTargetRange = adjustment.reductionTargetRange,
                         reason = adjustment.reason,
                     )
-                },
+                } + attachedPunctuationBoundary.decisions,
                 roleOverrides = roleOverrideInfos,
                 // Zip over ALL laid-out lines (not the maxLines-truncated boxes): the
                 // dump records every committed line, the truncation names the cut.
@@ -3278,12 +3345,16 @@ class ExplainableStubParagraphLayoutEngine(
      */
     private fun List<Cluster>.applyAutoSpacePolicy(
         eastAsianSpacingEdges: List<EastAsianSpacingEdges>,
+        inlineAttachments: List<InlineAttachment>,
         policy: AutoSpacePolicy,
         fontSize: Float,
     ): AutoSpaceApplicationResult {
         if (isEmpty()) return AutoSpaceApplicationResult(emptyList(), emptyList())
         require(eastAsianSpacingEdges.size == size) {
             "East_Asian_Spacing values must align with natural clusters."
+        }
+        require(inlineAttachments.size == size) {
+            "Inline attachments must align with natural clusters."
         }
 
         val decisions = mutableListOf<AutoSpaceDecisionInfo>()
@@ -3292,6 +3363,39 @@ class ExplainableStubParagraphLayoutEngine(
             boundaryChar == null -> null
             boundaryChar.isDigit() -> policy.cjkDigit
             else -> policy.cjkLatin
+        }
+
+        // AttachedInlineVirtualAutoSpace: neither physical edge touching an attached
+        // reference is a prose boundary. Decide W/N spacing from the prose clusters
+        // that would be adjacent without the reference, then own that one result at
+        // the reference's trailing edge. CJK[1]CJK consequently gets no gap, while
+        // CJK[1]Latin gets exactly one.
+        val attachedBoundaries = resolveAttachedInlineVirtualBoundaries(inlineAttachments)
+        val suppressedPhysicalBoundaryAfterClusters = buildSet {
+            attachedBoundaries.forEach { boundary ->
+                add(boundary.previousClusterIndex)
+                if (boundary.nextClusterIndex != null) add(boundary.attachedClusterRange.last)
+            }
+        }
+        val virtualGapAtRunEnd = BooleanArray(size)
+        attachedBoundaries.forEach { boundary ->
+            val nextIndex = boundary.nextClusterIndex ?: return@forEach
+            val nextCluster = getOrNull(nextIndex) ?: return@forEach
+            if (nextCluster.isSpaceRun() || nextCluster.isMandatoryBreakCluster()) return@forEach
+            val previousIndex = boundary.previousClusterIndex
+            val previousEdge = eastAsianSpacingEdges[previousIndex].trailing
+            val nextEdge = eastAsianSpacingEdges[nextIndex].leading
+            val narrowChar = when {
+                previousEdge == EastAsianSpacingValue.Wide &&
+                    nextEdge == EastAsianSpacingValue.Narrow -> nextCluster.text.firstOrNull()
+
+                previousEdge == EastAsianSpacingValue.Narrow &&
+                    nextEdge == EastAsianSpacingValue.Wide -> this[previousIndex].text.lastOrNull()
+
+                else -> null
+            }
+            virtualGapAtRunEnd[boundary.attachedClusterRange.last] =
+                modeForNarrow(narrowChar) == AutoSpaceMode.Insert
         }
 
         val updated = mapIndexed { idx, cluster ->
@@ -3328,7 +3432,8 @@ class ExplainableStubParagraphLayoutEngine(
                 var added = 0f
                 if (previousSpacing == EastAsianSpacingValue.Wide &&
                     currentSpacing.leading == EastAsianSpacingValue.Narrow &&
-                    modeForNarrow(cluster.text.firstOrNull()) == AutoSpaceMode.Insert
+                    modeForNarrow(cluster.text.firstOrNull()) == AutoSpaceMode.Insert &&
+                    idx - 1 !in suppressedPhysicalBoundaryAfterClusters
                 ) {
                     added += gap
                     decisions += AutoSpaceDecisionInfo(
@@ -3342,20 +3447,30 @@ class ExplainableStubParagraphLayoutEngine(
                         reason = "TextAutoSpaceInsert:east-asian-spacing-W-N",
                     )
                 }
-                if (nextSpacing == EastAsianSpacingValue.Wide &&
+                val normalTrailingGap = nextSpacing == EastAsianSpacingValue.Wide &&
                     currentSpacing.trailing == EastAsianSpacingValue.Narrow &&
-                    modeForNarrow(cluster.text.lastOrNull()) == AutoSpaceMode.Insert
-                ) {
+                    modeForNarrow(cluster.text.lastOrNull()) == AutoSpaceMode.Insert &&
+                    idx !in suppressedPhysicalBoundaryAfterClusters
+                val virtualTrailingGap = virtualGapAtRunEnd[idx]
+                if (normalTrailingGap || virtualTrailingGap) {
                     added += gap
                     decisions += AutoSpaceDecisionInfo(
                         clusterRange = cluster.range,
                         side = "trailing",
-                        boundaryRole = "EastAsianSpacing.Wide",
+                        boundaryRole = if (virtualTrailingGap) {
+                            "InlineAttachment.Previous"
+                        } else {
+                            "EastAsianSpacing.Wide"
+                        },
                         mode = AutoSpaceMode.Insert.name,
                         charactersAffected = 0,
                         reductionPerChar = 0f,
                         totalReduction = -gap,
-                        reason = "TextAutoSpaceInsert:east-asian-spacing-W-N",
+                        reason = if (virtualTrailingGap) {
+                            "AttachedInlineVirtualAutoSpace:east-asian-spacing-W-N"
+                        } else {
+                            "TextAutoSpaceInsert:east-asian-spacing-W-N"
+                        },
                     )
                 }
                 if (added == 0f) cluster else cluster.copy(advance = cluster.advance + added)
@@ -3945,6 +4060,8 @@ private data class PunctuationGeometryLedger(
     private val rubySpreadByCluster: Map<Int, Float> = emptyMap(),
     /** Structural inline box edges are never punctuation compression budget. */
     private val inlineBoxAdvanceByCluster: Map<Int, Float> = emptyMap(),
+    /** Virtual prose-boundary glue physically owned by an attached run's trailing edge. */
+    private val attachedInlineTrailingGlueByCluster: Map<Int, Float> = emptyMap(),
 ) {
     companion object {
         fun from(
@@ -4061,6 +4178,110 @@ private data class PunctuationGeometryLedger(
             )
         }
 
+    /**
+     * `AttachedInlineVirtualPunctuationBoundary`: ignore the attached run while
+     * deciding punctuation spacing. Both sides are recomputed as if the prose
+     * clusters were adjacent; this is not a transfer of the left-side glue.
+     *
+     * The right punctuation keeps as much of its own leading glue as the virtual
+     * boundary needs. Any remainder is owned by the attached run's trailing edge.
+     * At paragraph end the virtual boundary has zero width.
+     */
+    fun resolveAttachedInlinePunctuationBoundaries(
+        inlineAttachments: List<InlineAttachment>,
+        punctuationAtoms: List<PunctuationAtom>,
+        em: Float,
+    ): AttachedInlinePunctuationBoundaryResult {
+        require(inlineAttachments.size == naturalClusters.size) {
+            "Inline attachments must align with punctuation geometry clusters."
+        }
+        if (budgets.isEmpty() || inlineAttachments.none { it == InlineAttachment.Previous }) {
+            return AttachedInlinePunctuationBoundaryResult(this, emptyMap(), emptyList())
+        }
+
+        val updatedBudgets = budgets.toMutableMap()
+        val trailingGlue = mutableMapOf<Int, Float>()
+        val decisions = mutableListOf<SpacingDecisionInfo>()
+        resolveAttachedInlineVirtualBoundaries(inlineAttachments).forEach { boundary ->
+            val previousIndex = boundary.previousClusterIndex
+            val end = boundary.attachedClusterRange.last
+            val previousBudget = updatedBudgets[previousIndex]
+            val leftTrailing = previousBudget?.trailingRemaining ?: 0f
+            val nextIndex = boundary.nextClusterIndex?.takeUnless {
+                naturalClusters[it].fontKey == MANDATORY_BREAK_FONT_KEY &&
+                    naturalClusters[it].displayText.isEmpty()
+            }
+            val nextBudget = nextIndex?.let(updatedBudgets::get)
+            val rightLeading = nextBudget?.leadingRemaining ?: 0f
+            val leftAtom = punctuationAtoms.lastOrNull { atom ->
+                atom.range.isInside(naturalClusters[previousIndex].range)
+            }
+            val rightAtom = nextIndex?.let { index ->
+                punctuationAtoms.firstOrNull { atom -> atom.range.isInside(naturalClusters[index].range) }
+            }
+            val nextChar = nextIndex?.let { naturalClusters[it].text.firstOrNull() }
+            val naturalVirtualGlue = leftTrailing + rightLeading
+            val adjustedVirtualGlue = when {
+                nextIndex == null -> 0f
+                leftAtom != null && rightAtom != null ->
+                    (naturalVirtualGlue - em / 2f).coerceAtLeast(0f)
+
+                leftAtom?.punctuationClass == PunctuationClass.Closing &&
+                    nextChar?.let(ClreqPunctuationPolicies::isAsciiPointMark) == true ->
+                    (naturalVirtualGlue - em / 2f).coerceAtLeast(0f)
+
+                else -> naturalVirtualGlue
+            }
+
+            if (previousBudget != null && leftTrailing > 0f) {
+                updatedBudgets[previousIndex] = previousBudget.copy(
+                    trailingConsumed = previousBudget.trailingNatural,
+                )
+            }
+            val keptRightLeading = minOf(rightLeading, adjustedVirtualGlue)
+            if (nextIndex != null && nextBudget != null && keptRightLeading < rightLeading) {
+                updatedBudgets[nextIndex] = nextBudget.copy(
+                    leadingConsumed = nextBudget.leadingNatural - keptRightLeading,
+                )
+            }
+            val targetGlue = (adjustedVirtualGlue - keptRightLeading).coerceAtLeast(0f)
+            if (targetGlue > 0f) trailingGlue[end] = targetGlue
+
+            if (leftTrailing > 0f || rightLeading != adjustedVirtualGlue) {
+                val previous = naturalClusters[previousIndex]
+                val next = nextIndex?.let(naturalClusters::get)
+                decisions += SpacingDecisionInfo(
+                    range = TextRange(previous.range.start, next?.range?.end ?: naturalClusters[end].range.end),
+                    leftChar = previous.text.lastOrNull() ?: '\u0000',
+                    rightChar = next?.text?.firstOrNull() ?: '\u0000',
+                    naturalInnerGlue = naturalVirtualGlue,
+                    adjustedInnerGlue = adjustedVirtualGlue,
+                    reduction = naturalVirtualGlue - adjustedVirtualGlue,
+                    reductionTargetRange = previous.range,
+                    reason = when {
+                        nextIndex == null -> "AttachedInlineVirtualPunctuationBoundary:line-end"
+                        leftAtom != null && rightAtom != null ->
+                            "AttachedInlineVirtualPunctuationBoundary:adjacent-punctuation"
+                        leftAtom?.punctuationClass == PunctuationClass.Closing &&
+                            nextChar?.let(ClreqPunctuationPolicies::isAsciiPointMark) == true ->
+                            "AttachedInlineVirtualPunctuationBoundary:ascii-point-mark"
+                        else -> "AttachedInlineVirtualPunctuationBoundary:natural"
+                    },
+                )
+            }
+        }
+
+        val geometry = copy(
+            budgets = updatedBudgets,
+            attachedInlineTrailingGlueByCluster = HashMap(attachedInlineTrailingGlueByCluster).apply {
+                trailingGlue.forEach { (cluster, amount) ->
+                    mergeValue(cluster, amount) { a, b -> maxOf(a, b) }
+                }
+            },
+        )
+        return AttachedInlinePunctuationBoundaryResult(geometry, trailingGlue, decisions)
+    }
+
     fun consumeLineEdgeGlue(
         lines: List<LineCandidate>,
         forceLineEndHalfWidth: Boolean = true,
@@ -4170,7 +4391,8 @@ private data class PunctuationGeometryLedger(
         val spread = rubySpreadByCluster[index] ?: 0f
         val geometry = geometries[index] ?: run {
             val delta = justificationDeltaByCluster[index] ?: 0f
-            return (cluster.advance + delta + spread - rawTrim).coerceAtLeast(0f)
+            val attachedGlue = attachedInlineTrailingGlueByCluster[index] ?: 0f
+            return (cluster.advance + delta + spread + attachedGlue - rawTrim).coerceAtLeast(0f)
         }
         val inlineBoxAdvance = inlineBoxAdvanceByCluster[index] ?: 0f
         val budget = budgets[index]
@@ -4179,6 +4401,7 @@ private data class PunctuationGeometryLedger(
                     (justificationDeltaByCluster[index] ?: 0f) + spread - rawTrim
                 ).coerceAtLeast(0f)
         val delta = justificationDeltaByCluster[index] ?: 0f
+        val attachedGlue = attachedInlineTrailingGlueByCluster[index] ?: 0f
         return (
             geometry.bodyWidth +
                 budget.leadingRemaining +
@@ -4186,10 +4409,17 @@ private data class PunctuationGeometryLedger(
                 delta +
                 spread -
                 rawTrim +
-                inlineBoxAdvance
+                inlineBoxAdvance +
+                attachedGlue
             ).coerceAtLeast(0f)
     }
 }
+
+private data class AttachedInlinePunctuationBoundaryResult(
+    val geometry: PunctuationGeometryLedger,
+    val trailingGlueByCluster: Map<Int, Float>,
+    val decisions: List<SpacingDecisionInfo>,
+)
 
 private data class PunctuationClusterGeometry(
     val range: TextRange,

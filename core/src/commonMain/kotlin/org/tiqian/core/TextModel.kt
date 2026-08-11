@@ -18,6 +18,18 @@ data class TextSpan(
     val style: TextStyle,
 )
 
+/** How an inline text range belongs to the surrounding prose for boundary spacing. */
+enum class InlineAttachment {
+    None,
+
+    /**
+     * The range belongs to the preceding text, as an inline footnote reference does.
+     * A generated leading CJK/non-CJK gap moves to the range's trailing edge; the
+     * normal line-edge trim then discards it when that edge ends a line.
+     */
+    Previous,
+}
+
 /**
  * Layout-owned inline box edges around a source text range.
  *
@@ -133,6 +145,8 @@ data class TextStyle(
      * reference superscripts lowered from Compose `SpanStyle.baselineShift`.
      */
     val baselineShift: Float = 0f,
+    /** Semantic boundary attachment; independent of font metrics and baseline geometry. */
+    val inlineAttachment: InlineAttachment = InlineAttachment.None,
 )
 
 /**

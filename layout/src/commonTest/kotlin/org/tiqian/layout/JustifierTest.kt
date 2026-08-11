@@ -356,6 +356,59 @@ class JustifierTest {
     }
 
     @Test
+    fun attachedReferenceUsesTheVirtualProseBoundaryForStretching() {
+        val clusters = listOf(
+            cjk(0),
+            westernBracket(1, "["),
+            latin(2, em),
+            westernBracket(4, "]"),
+            cjk(5),
+        )
+        val roles = listOf(
+            FontRole.CjkText,
+            FontRole.LatinText,
+            FontRole.LatinText,
+            FontRole.LatinText,
+            FontRole.CjkText,
+        )
+        val natural = clusters.sumOf { it.advance.toDouble() }.toFloat()
+        val justifier = Justifier()
+        val middle = justifier.justify(
+            adjustedClusters = clusters,
+            clusterRoles = roles,
+            eastAsianSpacingEdges = spacingEdges(clusters),
+            lineClusterRange = clusters.indices,
+            maxWidth = natural + em,
+            fontSize = em,
+            skip = false,
+            cjkLatinSpaceBaseEm = 0.25f,
+            cjkLatinSpaceMaxEm = 0.5f,
+            attachedInlinePhysicalBoundaryAfterClusters = setOf(0, 3),
+            attachedInlineVirtualBoundaryAfterClusters = mapOf(3 to 0),
+        )
+
+        val allocation = middle.allocations.single()
+        assertEquals(3, allocation.targetClusterIndex)
+        assertEquals("AttachedInlineVirtualInterChar", allocation.reason)
+        assertEquals(em, allocation.delta, 0.001f)
+
+        val atLineEnd = justifier.justify(
+            adjustedClusters = clusters,
+            clusterRoles = roles,
+            eastAsianSpacingEdges = spacingEdges(clusters),
+            lineClusterRange = 0..3,
+            maxWidth = clusters.take(4).sumOf { it.advance.toDouble() }.toFloat() + em,
+            fontSize = em,
+            skip = false,
+            cjkLatinSpaceBaseEm = 0.25f,
+            cjkLatinSpaceMaxEm = 0.5f,
+            attachedInlinePhysicalBoundaryAfterClusters = setOf(0, 3),
+            attachedInlineVirtualBoundaryAfterClusters = mapOf(3 to 0),
+        )
+        assertTrue(atLineEnd.allocations.isEmpty())
+    }
+
+    @Test
     fun inseparableNumberSymbolBoundaryNeverStretches() {
         // CLREQ 明令禁止拉开符号分离禁则里的字间距。这里把 50|% 的边界
         // 关掉；行内其他合法间距仍可继续平均加宽。

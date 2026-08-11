@@ -23,6 +23,7 @@ import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.InlineAttachment
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextPaint
 import org.tiqian.core.RichTextRole
@@ -49,10 +50,22 @@ internal const val CjkBopomofoTag = "org.tiqian.bopomofo"
 /** Annotation tag carrying Tiqian rich-text roles such as inline code. */
 internal const val CjkRichTextTag = "org.tiqian.richtext"
 
+/** Annotation tag carrying [InlineAttachment] over a layout-affecting range. */
+internal const val CjkInlineAttachmentTag = "org.tiqian.inline-attachment"
+
 /** Separates an optional ruby font family from the reading inside the annotation item. */
 private const val RubyFontSeparator = "\u001F"
 
 private const val InlineCodeRoleItem = "InlineCode"
+
+/** Marks an existing source range as belonging to one of its neighbouring text runs. */
+fun AnnotatedString.Builder.addCjkInlineAttachment(
+    attachment: InlineAttachment,
+    start: Int,
+    end: Int,
+) {
+    addStringAnnotation(CjkInlineAttachmentTag, attachment.name, start, end)
+}
 
 /** Applies the always-on part of Compose link styling after authored spans so it wins on overlap. */
 internal fun AnnotatedString.withBaseLinkStyles(): AnnotatedString {
@@ -211,6 +224,7 @@ internal fun AnnotatedString.cjkSourceBoundaries(): Set<Int> {
     getStringAnnotations(CjkRubyTag, 0, length).forEach { addRange(it.start, it.end) }
     getStringAnnotations(CjkBopomofoTag, 0, length).forEach { addRange(it.start, it.end) }
     getStringAnnotations(CjkRichTextTag, 0, length).forEach { addRange(it.start, it.end) }
+    getStringAnnotations(CjkInlineAttachmentTag, 0, length).forEach { addRange(it.start, it.end) }
     return out
 }
 
@@ -232,9 +246,15 @@ internal fun AnnotatedString.cjkStyleSpans(base: TextStyle, density: Density): L
             it.item.fontStyle != null || it.item.fontFamily != null ||
             it.item.baselineShift != null
     }
-    if (relevant.isEmpty()) return emptyList()
+    val attachments = getStringAnnotations(CjkInlineAttachmentTag, 0, length).mapNotNull { range ->
+        runCatching { InlineAttachment.valueOf(range.item) }.getOrNull()?.let { attachment ->
+            AnnotatedString.Range(attachment, range.start, range.end)
+        }
+    }
+    if (relevant.isEmpty() && attachments.isEmpty()) return emptyList()
     val bounds = sortedSetOf(0, length)
     relevant.forEach { bounds += it.start; bounds += it.end }
+    attachments.forEach { bounds += it.start; bounds += it.end }
     val pts = bounds.toList()
     val out = mutableListOf<TextSpan>()
     for (i in 0 until pts.size - 1) {
@@ -242,12 +262,14 @@ internal fun AnnotatedString.cjkStyleSpans(base: TextStyle, density: Density): L
         val b = pts[i + 1]
         if (a >= b) continue
         val covering = relevant.filter { it.start <= a && it.end >= b }
-        if (covering.isEmpty()) continue
+        val coveringAttachments = attachments.filter { it.start <= a && it.end >= b }
+        if (covering.isEmpty() && coveringAttachments.isEmpty()) continue
         var size = base.fontSize
         var weight = base.fontWeight
         var italic = base.italic
         var families = base.fontFamilies
         var baselineShiftMultiplier: Float? = null
+        var inlineAttachment = base.inlineAttachment
         for (s in covering) {
             val unit = s.item.fontSize
             if (unit != TextUnit.Unspecified) {
@@ -265,6 +287,7 @@ internal fun AnnotatedString.cjkStyleSpans(base: TextStyle, density: Density): L
             // (no portable name) and stays at base (ADR 0030 字体 limitation).
             (s.item.fontFamily as? GenericFontFamily)?.let { families = listOf(it.name) }
         }
+        coveringAttachments.forEach { inlineAttachment = it.item }
         val baselineShift = base.baselineShift - (baselineShiftMultiplier ?: 0f) * size
         out += TextSpan(
             TextRange(a, b),
@@ -274,6 +297,7 @@ internal fun AnnotatedString.cjkStyleSpans(base: TextStyle, density: Density): L
                 italic = italic,
                 fontFamilies = families,
                 baselineShift = baselineShift,
+                inlineAttachment = inlineAttachment,
             ),
         )
     }

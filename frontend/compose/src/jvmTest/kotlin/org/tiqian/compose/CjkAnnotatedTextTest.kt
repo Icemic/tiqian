@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import org.tiqian.core.DecorationKind
+import org.tiqian.core.InlineAttachment
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.RichTextBackgroundDrawStyle
 import org.tiqian.core.RichTextLinePattern
@@ -94,6 +95,22 @@ class CjkAnnotatedTextTest {
         assertEquals(TextRange(2, 5), span.range)
         assertEquals(15f, span.style.fontSize)
         assertEquals(-BaselineShift.Superscript.multiplier * 15f, span.style.baselineShift, 0.001f)
+    }
+
+    @Test
+    fun inlineAttachmentCreatesAnExactLayoutSpanWithoutChangingSource() {
+        val text = buildAnnotatedString {
+            append("正文[1]后文")
+            addCjkInlineAttachment(InlineAttachment.Previous, start = 2, end = 5)
+        }
+
+        val span = text.cjkStyleSpans(TextStyle(fontSize = 20f), Density(1f)).single()
+
+        assertEquals("正文[1]后文", text.text)
+        assertEquals(TextRange(2, 5), span.range)
+        assertEquals(InlineAttachment.Previous, span.style.inlineAttachment)
+        assertTrue(2 in text.cjkSourceBoundaries())
+        assertTrue(5 in text.cjkSourceBoundaries())
     }
 
     @Test
