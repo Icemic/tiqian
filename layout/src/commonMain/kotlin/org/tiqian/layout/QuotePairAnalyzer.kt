@@ -31,7 +31,9 @@ data class QuoteRoleDecision(
  * pair together. Real prose uses the opening quote's outer (left) context, but
  * structural numbered prefixes such as `1.` are ignored so the quoted content
  * can choose the face. If there is no meaningful outer context, the quoted
- * content is used as a fallback.
+ * content is used as a fallback. When the left side is another completed quote
+ * pair in an adjacent list, its quoted content is skipped as a sibling rather
+ * than mistaken for the current pair's outer prose context.
  *
  * Pair matching and role classification are deliberately separate. [analyze]
  * returns only structurally paired quotes. [classifyQuoteRoles] additionally
@@ -101,8 +103,15 @@ class QuotePairAnalyzer {
         context: FontRoleContext = FontRoleContext(),
     ): List<QuoteRoleDecision> {
         val result = mutableListOf<QuoteRoleDecision>()
+        val pairedOpenByClose = pairs.associate { it.closeIndex to it.openIndex }
         for (pair in pairs) {
-            val decision = resolvePairContext(text, pair, fontRoleClassifier, context)
+            val decision = resolvePairContext(
+                text = text,
+                pair = pair,
+                classifier = fontRoleClassifier,
+                context = context,
+                pairedOpenByClose = pairedOpenByClose,
+            )
             result.add(
                 QuoteRoleDecision(
                     index = pair.openIndex,
@@ -161,7 +170,7 @@ class QuotePairAnalyzer {
             )
         }
 
-        val leftRole = scanLeftForMeaningfulRole(text, index - 1, classifier, context)
+        val leftRole = scanLeftForMeaningfulRole(text, index - 1, classifier, context).role
         val followingRole = scanRightForMeaningfulRole(text, index + 1, text.length, classifier, context)
         if (
             text.getOrNull(index - 1)?.isAsciiSpaceOrTab() == true &&
@@ -207,13 +216,16 @@ class QuotePairAnalyzer {
         pair: QuotePair,
         classifier: FontRoleClassifier,
         context: FontRoleContext,
+        pairedOpenByClose: Map<Int, Int>,
     ): ResolvedQuotePairContext {
-        val leftRole = scanLeftForMeaningfulRole(
+        val leftContext = scanLeftForMeaningfulRole(
             text = text,
             startIndex = pair.openIndex - 1,
             classifier = classifier,
             context = context,
+            pairedOpenByClose = pairedOpenByClose,
         )
+        val leftRole = leftContext.role
         val quotedRole = scanRightForMeaningfulRole(
             text = text,
             startIndex = pair.openIndex + 1,
@@ -263,16 +275,32 @@ class QuotePairAnalyzer {
         if (leftRole != null) {
             return ResolvedQuotePairContext(
                 role = leftRole,
-                source = "QuotePairOuterContext",
-                reason = "quote-pair-opening-left-context",
+                source = if (leftContext.skippedCompletedQuotePair) {
+                    "PreviousQuotedSiblingContentExclusion"
+                } else {
+                    "QuotePairOuterContext"
+                },
+                reason = if (leftContext.skippedCompletedQuotePair) {
+                    "previous-quoted-sibling-content-excluded; quote-pair-opening-left-context"
+                } else {
+                    "quote-pair-opening-left-context"
+                },
             )
         }
 
         if (quotedRole != null) {
             return ResolvedQuotePairContext(
                 role = quotedRole,
-                source = "QuotePairQuotedContentContext",
-                reason = "quote-pair-quoted-content-context",
+                source = if (leftContext.skippedCompletedQuotePair) {
+                    "PreviousQuotedSiblingContentExclusion"
+                } else {
+                    "QuotePairQuotedContentContext"
+                },
+                reason = if (leftContext.skippedCompletedQuotePair) {
+                    "previous-quoted-sibling-content-excluded; quote-pair-quoted-content-context"
+                } else {
+                    "quote-pair-quoted-content-context"
+                },
             )
         }
 
@@ -310,9 +338,25 @@ class QuotePairAnalyzer {
         startIndex: Int,
         classifier: FontRoleClassifier,
         context: FontRoleContext,
-    ): FontRole? {
+        pairedOpenByClose: Map<Int, Int> = emptyMap(),
+    ): LeftQuoteContext {
         var i = startIndex
+        var skippedCompletedQuotePair = false
         while (i >= 0) {
+            // `PreviousQuotedSiblingContentExclusion`: when adjacent quoted
+            // list items share one prose context, the completed item to the
+            // left is not itself the current opening quote's outer language.
+            // Skip the whole structurally paired item instead of skipping only
+            // its closing mark and then leaking its final Latin/CJK character
+            // into the next pair's role (`“对A”“波霸”`,
+            // `“double”“double may”`).
+            val pairedOpen = pairedOpenByClose[i]
+            if (pairedOpen != null) {
+                skippedCompletedQuotePair = true
+                i = pairedOpen - 1
+                continue
+            }
+
             val c = text[i].code
 
             if (c.isNeutralQuoteContextCodePoint()) {
@@ -333,13 +377,14 @@ class QuotePairAnalyzer {
 
             val role = classifier.classify(text, TextRange(startIndex, i + 1), context)
             when (role) {
-                FontRole.LatinText -> return FontRole.LatinText
-                FontRole.CjkText, FontRole.CjkPunctuation -> return FontRole.CjkPunctuation
+                FontRole.LatinText -> return LeftQuoteContext(FontRole.LatinText, skippedCompletedQuotePair)
+                FontRole.CjkText, FontRole.CjkPunctuation ->
+                    return LeftQuoteContext(FontRole.CjkPunctuation, skippedCompletedQuotePair)
                 else -> { /* skip Unknown, Symbol, Emoji, spaces, ASCII punctuation */ }
             }
             i = startIndex - 1
         }
-        return null
+        return LeftQuoteContext(null, skippedCompletedQuotePair)
     }
 
     private fun scanRightForMeaningfulRole(
@@ -465,6 +510,11 @@ class QuotePairAnalyzer {
         val role: FontRole,
         val source: String,
         val reason: String,
+    )
+
+    private data class LeftQuoteContext(
+        val role: FontRole?,
+        val skippedCompletedQuotePair: Boolean,
     )
 }
 

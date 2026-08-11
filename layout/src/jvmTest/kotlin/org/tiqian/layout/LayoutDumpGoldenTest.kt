@@ -187,6 +187,14 @@ class LayoutDumpGoldenTest {
                     "display='${f.displayText}' sub=${f.substitutionReason}",
             )
         }
+        debug.roleOverrides.forEach { role ->
+            appendLine(
+                "role-override ${role.range.start}-${role.range.end} " +
+                    "source='${role.sourceText.escapeDumpText()}' " +
+                    "${role.originalRole}->${role.overriddenRole} " +
+                    "policy=${role.source} reason=${role.reason}",
+            )
+        }
         debug.punctuationDecisions.forEach { p ->
             appendLine(
                 "punct ${p.range.start}-${p.range.end} '${p.char}' class=${p.punctuationClass} " +

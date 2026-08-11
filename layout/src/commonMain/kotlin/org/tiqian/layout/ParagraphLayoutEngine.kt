@@ -582,11 +582,10 @@ class ExplainableStubParagraphLayoutEngine(
             if (!structuralSolidus && !opaqueSeparatorMode) {
                 return emptyList()
             }
-            val keepUrlScheme = tokenAdvance <= measure
             val cuts = mutableListOf<Int>()
             for (i in 0 until token.lastIndex) {
                 val breakAfter = (structuralSolidus && !urlLike && token[i] == '/') ||
-                    (opaqueSeparatorMode && token.isLatinTokenBreakAfter(i, keepUrlScheme))
+                    (opaqueSeparatorMode && token.isLatinTokenBreakAfter(i, tokenAdvance <= measure))
                 if (breakAfter) cuts += tokenRange.start + i + 1
             }
             return cuts
@@ -1297,7 +1296,6 @@ class ExplainableStubParagraphLayoutEngine(
             }
         }
         // 行首/行尾禁则按解析出的 KinsokuLevel（CLREQ 四档）；空集 = 不处理档.
-        val asciiBracketKinsoku = naturalClusters.cjkContextAsciiBracketKinsoku(clusterRoles)
         val asciiPointMarkKinsoku = naturalClusters.attachedAsciiPointMarkKinsoku(
             clusterRoles = clusterRoles,
             lineBreakClusters = clusters,
@@ -1316,13 +1314,19 @@ class ExplainableStubParagraphLayoutEngine(
             hangableClusters +
                 asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
                 inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
+        val unicodePunctuationBoundaries = resolveUnicodePunctuationBoundaries(
+            text = text,
+            clusters = naturalClusters,
+            clusterRoles = clusterRoles,
+            quotePairs = quotePairs,
+        )
         val forbiddenLineStartClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
             idx in zeroWidthBreakClusters ||
                 (
                 clusterRoles.getOrNull(idx).isCjkKinsokuRole() &&
                     kinsokuRule.forbiddenAtLineStart(naturalClusters[idx])
                 ) ||
-                idx in asciiBracketKinsoku.forbiddenLineStartClusters ||
+                idx in unicodePunctuationBoundaries.forbiddenLineStartClusters ||
                 idx in asciiPointMarkKinsoku.forbiddenLineStartClusters ||
                 idx in inlineObjectKinsoku.forbiddenLineStartClusters
         }
@@ -1331,7 +1335,7 @@ class ExplainableStubParagraphLayoutEngine(
                 clusterRoles.getOrNull(idx).isCjkKinsokuRole() &&
                     kinsokuRule.forbiddenAtLineEnd(naturalClusters[idx])
                 ) ||
-                idx in asciiBracketKinsoku.forbiddenLineEndClusters
+                idx in unicodePunctuationBoundaries.forbiddenLineEndClusters
         }
         // LineEndHangingHyphen as a LAST resort (ADR 0029 amendment): a break
         // before one of these clusters is a syllable/hard-break continuation —
@@ -1406,6 +1410,11 @@ class ExplainableStubParagraphLayoutEngine(
                 // 行间注 (ADR 0032): 基文+注文不可拆 (CLREQ §注释符号).
                 pinyinSpans.mapNotNull { naturalClusters.clusterIndexRangeFor(it.baseRange) } +
                 numberSymbolUnbreakableRanges +
+                // `Uax14WesternPunctuationBoundary`: express punctuation
+                // protection as a closed boundary up front, not only as a
+                // post-break repair. This allows ordinary reflow to move the
+                // following suffix instead of leaving a closing mark at line start.
+                unicodePunctuationBoundaries.unbreakableRanges +
                 // `AttachedAsciiPointMarkKinsoku`: the preceding visible
                 // cluster and its attached point mark form a hard no-break boundary.
                 asciiPointMarkKinsoku.unbreakableRanges +
@@ -1465,7 +1474,13 @@ class ExplainableStubParagraphLayoutEngine(
             asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
                 inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
         val contextualKinsokuDecisions =
-            (asciiPointMarkKinsoku.decisions + inlineObjectKinsoku.decisions).map { decision ->
+            (
+                asciiPointMarkKinsoku.decisions +
+                    inlineObjectKinsoku.decisions +
+                    unicodePunctuationBoundaries.decisions
+                )
+                .distinctBy { decision -> decision.range to decision.forbiddenPosition }
+                .map { decision ->
             if (
                 decision.clusterIndex in impossibleMeasureContextualHangClusters &&
                 decision.clusterIndex in appliedHangingClusters
@@ -2506,11 +2521,6 @@ class ExplainableStubParagraphLayoutEngine(
                 )
             }
 
-    private data class AsciiBracketKinsoku(
-        val forbiddenLineStartClusters: Set<Int>,
-        val forbiddenLineEndClusters: Set<Int>,
-    )
-
     private data class ContextualKinsoku(
         val forbiddenLineStartClusters: Set<Int>,
         val unbreakableRanges: List<IntRange>,
@@ -2738,51 +2748,6 @@ class ExplainableStubParagraphLayoutEngine(
             decisions,
         )
     }
-
-    private fun List<Cluster>.cjkContextAsciiBracketKinsoku(
-        clusterRoles: List<FontRole>,
-    ): AsciiBracketKinsoku {
-        val forbiddenLineStart = mutableSetOf<Int>()
-        val forbiddenLineEnd = mutableSetOf<Int>()
-        val openingStack = mutableMapOf<Char, MutableList<Int>>()
-
-        forEachIndexed { index, cluster ->
-            when (val bracket = cluster.singleAsciiBracketOrNull()) {
-                '(', '[', '{' -> openingStack.getOrPut(bracket) { mutableListOf() }.add(index)
-                ')', ']', '}' -> {
-                    val opening = asciiOpeningBracketFor(bracket)
-                    val openingIndex = openingStack[opening]?.removeLastOrNull() ?: return@forEachIndexed
-                    val interior = (openingIndex + 1) until index
-                    val hasCjkInterior = interior.any { i ->
-                        clusterRoles.getOrNull(i).isCjkTextualRole()
-                    }
-                    if (hasCjkInterior) {
-                        // CjkContextAsciiBracketKinsoku: typed ASCII brackets
-                        // keep their Latin face, but a short CJK parenthetical
-                        // must still obey CLREQ-style bracket placement.
-                        forbiddenLineEnd += openingIndex
-                        forbiddenLineStart += index
-                    }
-                }
-            }
-        }
-
-        return AsciiBracketKinsoku(forbiddenLineStart, forbiddenLineEnd)
-    }
-
-    private fun Cluster.singleAsciiBracketOrNull(): Char? =
-        displayText.singleOrNull()?.takeIf { it in "()[]{}" }
-
-    private fun asciiOpeningBracketFor(closing: Char): Char =
-        when (closing) {
-            ')' -> '('
-            ']' -> '['
-            '}' -> '{'
-            else -> closing
-        }
-
-    private fun FontRole?.isCjkTextualRole(): Boolean =
-        this == FontRole.CjkText || this == FontRole.CjkPunctuation
 
     private fun FontRole?.isCjkKinsokuRole(): Boolean =
         this == FontRole.CjkPunctuation

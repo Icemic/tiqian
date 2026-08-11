@@ -66,6 +66,12 @@ Wide / Narrow / Other（Conditional 在中文语言上下文解析为 Narrow）�
 Greek、Cyrillic 等非 Latin 字母互相绑死。该 UTR 仍是 work in progress，升级数据必须显式更新
 修订、校验和、fixture 与 golden，不能静默跟随网络最新版。
 
+断行也不复用字体角色充当规则真值。`linebreak` 固定 Unicode 17.0.0 `LineBreak.txt` 中布局实际
+消费的标点类别；`layout` 的 `Uax14WesternPunctuationBoundary` 为非 CJK 开闭符号、点号与已解析
+引号提供 UAX #14 基础 no-break 边界，CLREQ profile 再对 `CjkPunctuation` 做 None / Basic / GB /
+Strict tailoring。当前只承诺 ADR 0026 amendment 列出的标点子集、mandatory break 与 U+200B，
+不把 `SimpleCharacterLineBreakAnalyzer` 冒充完整 Unicode Line Breaking Algorithm。
+
 Compose 的 `CjkInlineObject` 是 `InlineObjectSpan` 的呈现边界：宿主先提供对象的 advance、
 ascent 与 descent，核心据此断行并形成真实行盒，Compose 前端再把 composable 放到
 `LayoutResult` 的最终 baseline 上。`PlaceholderVerticalAlign` 不参与这条路径，也不能成为
@@ -130,7 +136,8 @@ box 放到语义正确的全宽字身一侧，再从该全宽字身计算压缩�
    layout metrics。
 2. `PunctuationAtom` 把标点表达为 `ink/body + leadingGlue + trailingGlue`，避免把所有
    标点先假定成 1em 再散落减法补丁。
-3. `linebreak` 提供 UAX #14、强制换行、西文按词断行与连字符断词候选。
+3. `linebreak` 提供固定 Unicode 数据、已实现的 UAX #14 标点子集、强制换行、西文按词断行与
+   连字符断词候选。
 4. line breaker 按 `ClreqProfile` 选择断点，并通过 PushIn、Hang、CarryPrevious、
    CarryNext 等具名 repair 处理行首行尾禁则。
 5. 行调整在合法断行基础上分配可压缩和可拉伸空间，非末行以中文正文两端对齐为基线。

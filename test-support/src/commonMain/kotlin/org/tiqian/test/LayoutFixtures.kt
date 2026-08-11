@@ -78,6 +78,22 @@ object EarlyLayoutFixtures {
                 "’，‘ sequence exercises both adjacent-punctuation compression boundaries.",
         ),
         LayoutFixture(
+            id = "adjacent-curly-quote-list-context",
+            text = "中文“对A”“波霸”；中文“欧派”“double”“double may”呢",
+            constraints = LayoutConstraints(maxWidth = 320f),
+            notes = "PreviousQuotedSiblingContentExclusion skips each completed quoted list item " +
+                "while resolving the next pair's outer prose context, so Latin content in one item " +
+                "cannot switch a following CJK-context quote pair to proportional Latin geometry.",
+        ),
+        LayoutFixture(
+            id = "mi10s-adjacent-curly-quote-wrap",
+            text = "所以这个和 “骑ji” “说shui”“斜xiá”不一样，港台是从众的，大陆读音大多数源自韵书。",
+            constraints = LayoutConstraints(maxWidth = 160f),
+            notes = "Mi 10s dogfood regression: PreviousQuotedSiblingContentExclusion gives the adjacent " +
+                "‘斜xiá’ pair its outer Chinese prose context, while Uax14WesternPunctuationBoundary " +
+                "keeps Western closing/opening punctuation attached even when a shared code point uses a Latin face.",
+        ),
+        LayoutFixture(
             id = "unmatched-curly-quotes",
             text = "’90s James’； “truncated；中文“未闭",
             constraints = LayoutConstraints(maxWidth = 240f),

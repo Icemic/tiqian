@@ -369,6 +369,14 @@ class TiqianWebEnhancerTest {
 
         val cases = listOf(
             QuoteCase(source = "中“文”中", proportionalQuoteCount = 0),
+            QuoteCase(
+                source = "便延伸出了“乃子”“大波”“大灯”“大雷”“大扎”“对A”“波霸”这些词",
+                proportionalQuoteCount = 0,
+            ),
+            QuoteCase(
+                source = "这些太直白了是吧， “欧派”“double”“double may”呢",
+                proportionalQuoteCount = 0,
+            ),
             QuoteCase(source = "“Hello”", proportionalQuoteCount = 2),
             QuoteCase(source = "that’s James’ ’90s", proportionalQuoteCount = 3),
             QuoteCase(source = "中文 ‘don’t’", proportionalQuoteCount = 3),

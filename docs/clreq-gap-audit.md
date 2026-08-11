@@ -170,17 +170,19 @@ justify 延长、`AdjacentInterlinearLineShortening`（相邻侧各回缩 1/16em
   Conditional 在中文语言上下文解析为 N。紧贴正文且已进入
   `AttachedAsciiPointMarkKinsoku` 的 `, . : ; ! ?` 是已记录的上层中文点号覆盖，不会因 C→N
   反向长出间距。默认两档均为 Insert，跨脚本与数字开关均有单测。
-- **ASCII 点号行首禁则**——已解决（2026-07-12）：CLREQ 记录了中文横排
+- **ASCII 点号行首禁则**——已解决（2026-07-12；2026-08-11 与 UAX #14 分层）：CLREQ 记录了中文横排
   采用 U+002C `,` 作逗号/顿号的非典型体例；这是直接码点证据。项目依
   “点号不得居行首”语义将策略保守推广到同类 `, . : ; ! ?`，不声称 CLREQ 已按
-  码点逐个列举后五者。`AttachedAsciiPointMarkKinsoku` 让直接紧随非空白可见文字的
-  这些点号在非 `None` 禁则档不得居自动折行行首，同时保持 `LatinText` 字体面、比例
-  advance，且不进入 CJK 标点 glue 或行尾半宽。普通情况用 no-break 边界；连前字与整个
+  码点逐个列举后五者。UAX #14 的 `EX` / `IS` 基础边界让这些非 CJK 点号不得居自动折行
+  行首，即使 CLREQ 档为 `None` 也保持西文标准；`AttachedAsciiPointMarkKinsoku` 在非
+  `None` 中文禁则档继续提供上下文 protected run 与不可能宽度 Hang。它们保持
+  `LatinText` 字体面、比例 advance，且不进入 CJK 标点 glue 或行尾半宽。普通情况用
+  no-break 边界；连前字与整个
   连续点号 run 都无法共同容纳时，repair 先尝试 PushIn，确实选中后才记录
   `AttachedAsciiPointMarkImpossibleMeasureHang` 悬挂兜底。宽度判定与 breaker 同源（含 ruby/
   注音 spread），跨样式 cluster 的连续 run 可延伸同一次具名 Hang。前导点号 run 与后续
   Latin 文本独立 shaping，包括二次 hard-cut 才暴露的 comma；普通
-  `foo,bar` / `1,234` 不变，直引号方向仍不猜测。
+  `foo,bar` / `1,234` 不变；方向不明的直引号按 UAX #14 LB19 保护两侧，不改字体角色。
 - **GB 式固定半宽标点**——已解决（ADR 0027）：「不可调整的标点包括：GB 式
   半字连接号、间隔号、分隔号，固定半个字宽」。落为 `PunctuationWidthPolicy.
   gbFixedSeparators` opt-in（连接/间隔/分隔→0.5em、glue 0 不可调）；并顺带

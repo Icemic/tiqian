@@ -12,7 +12,7 @@
   HarfBuzz / WOFF2 WebAssembly，并允许已验证 keyed snapshot 与 unkeyed runtime completion 共存）；
   2026-07-18（默认字体所有权改为 host-compatible：构建端直接读取宿主 `@font-face` 样式表，浏览器
   不再下载字体字节或生成 render-family alias；响应式 SSR 始终保留 semantic source；采用与计数验证
-  改为可中断的渐进证明）
+  改为可中断的渐进证明）；2026-08-11（相邻引文列举项的上下文不再泄漏前一项内容）
 - Amends: [ADR 0039 Web 渲染路径与真实站点接入](0039-web-rendering-path.md)
 
 ## Context
@@ -109,6 +109,11 @@ U+2018–U+201D 同时用于中文引号和西文 quote / apostrophe，exact-fon
 (`that’s`)、尾部所有格 (`James’`)、省略式开头 (`’90s`) 与被截断的 quotation 先看紧邻的
 Western 空格和前后有意义的文字 run，再决定 Latin / CJK role。这个规则只增加结构化 role
 decision，不补写缺失引号，也不修改 source range；没有任何文字语境时仍保守落到 CJK。
+
+`PreviousQuotedSiblingContentExclusion` 处理相邻的引文列举项：当新开引号向左寻找外层语境时，
+若首先遇到一个已成对的闭引号，则跨过该完整引文后继续寻找，不把前一列举项末尾的文字当成当前项的
+外层正文。因此 `中文“对A”“波霸”` 和 `中文“欧派”“double”“double may”` 的各对引号都沿用外层中文正文的
+CJK role；该决定进入 `roleOverrides` 及 layout dump，不改写 source text。
 
 构建端对每个已分段的 `ShapingInput` 使用同一条具名策略，browser replay 以完整输入 key 消费其结果：
 

@@ -81,7 +81,12 @@ class AsciiPointMarkKinsokuTest {
         assertTrue("1,234" in clusterTexts)
         assertTrue("50%" in clusterTexts)
         assertTrue("\"quoted\"" in clusterTexts)
-        assertTrue(result.debug.contextualKinsokuDecisions.isEmpty())
+        assertEquals(
+            setOf("LineStart", "LineEnd"),
+            result.debug.contextualKinsokuDecisions
+                .filter { it.sourceText == "\"quoted\"" }
+                .mapTo(mutableSetOf()) { it.forbiddenPosition },
+        )
     }
 
     @Test
@@ -281,7 +286,7 @@ class AsciiPointMarkKinsokuTest {
     }
 
     @Test
-    fun kinsokuNoneExplicitlyAllowsTheAsciiPointMarkAtLineStart() {
+    fun kinsokuNoneDisablesClreqButKeepsTheUax14AsciiPointMarkBoundary() {
         val text = "中文中文,中文"
         for ((label, breaker) in breakers()) {
             val result = layout(
@@ -291,14 +296,18 @@ class AsciiPointMarkKinsokuTest {
                 level = KinsokuLevel.None,
             )
 
-            assertTrue(result.lineTexts(text).any { it.startsWith(',') }, "$label lines: ${result.lineTexts(text)}")
-            assertTrue(result.debug.contextualKinsokuDecisions.isEmpty(), label)
+            assertTrue(result.lineTexts(text).none { it.startsWith(',') }, "$label lines: ${result.lineTexts(text)}")
+            assertEquals(
+                "Uax14WesternPunctuationBoundary:LB15d",
+                result.debug.contextualKinsokuDecisions.single { it.sourceText == "," }.reason,
+                label,
+            )
         }
     }
 
     @Test
     fun authoredWhitespaceAndMandatoryBreakDoNotCreateContextualKinsoku() {
-        for (text in listOf("中 ,文", "中\n,文", ",中文")) {
+        for (text in listOf("中\n,文", ",中文")) {
             for ((label, breaker) in breakers()) {
                 val result = layout(text, maxWidth = 1_000f, breaker = breaker)
                 assertTrue(
@@ -306,6 +315,15 @@ class AsciiPointMarkKinsokuTest {
                     "$label text=${text.replace("\n", "\\n")} decisions=${result.debug.contextualKinsokuDecisions}",
                 )
             }
+        }
+        for ((label, breaker) in breakers()) {
+            val text = "中 ,文"
+            val result = layout(text, maxWidth = 1_000f, breaker = breaker)
+            assertEquals(
+                "Uax14WesternPunctuationBoundary:LB15d",
+                result.debug.contextualKinsokuDecisions.single { it.sourceText == "," }.reason,
+                label,
+            )
         }
     }
 

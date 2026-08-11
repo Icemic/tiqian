@@ -713,6 +713,75 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
+    fun adjacentQuotedListItemsKeepCjkQuoteGeometryAcrossMixedContent() {
+        val texts = listOf(
+            "便延伸出了“乃子”“大波”“大灯”“大雷”“大扎”“对A”“波霸”这些词",
+            "这些太直白了是吧，\n “欧派”“double”“double may”呢",
+        )
+
+        for (text in texts) {
+            val result = ExplainableStubParagraphLayoutEngine().layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                    content = TiqianTextContent(text),
+                    constraints = LayoutConstraints(maxWidth = 1_000f),
+                ),
+            )
+            val quoteIndices = text.indices.filterTo(mutableSetOf()) { text[it].isCurlyQuoteForTest() }
+
+            assertEquals(
+                quoteIndices,
+                result.debug.fontDecisions
+                    .filter { it.role == FontRole.CjkPunctuation.name && it.range.start in quoteIndices }
+                    .mapTo(mutableSetOf()) { it.range.start },
+                text,
+            )
+            assertEquals(
+                quoteIndices,
+                result.debug.punctuationDecisions
+                    .filter { it.char.isCurlyQuoteForTest() }
+                    .mapTo(mutableSetOf()) { it.range.start },
+                text,
+            )
+            val finalQuoteIndices = setOf(text.lastIndexOf('“'), text.lastIndexOf('”'))
+            val finalQuoteOverrides = result.debug.roleOverrides
+                .filter { it.range.start in finalQuoteIndices }
+            assertEquals(finalQuoteIndices, finalQuoteOverrides.mapTo(mutableSetOf()) { it.range.start }, text)
+            assertTrue(
+                finalQuoteOverrides.all { it.source == "PreviousQuotedSiblingContentExclusion" },
+                text,
+            )
+            assertEquals(text, result.input.content.text)
+        }
+    }
+
+    @Test
+    fun mi10sAdjacentLatinTranscriptionsKeepTheFinalQuotePairInCjkContext() {
+        val text = "所以这个和 “骑ji” “说shui”“斜xiá”不一样，港台是从众的，大陆读音大多数源自韵书。"
+        val result = ExplainableStubParagraphLayoutEngine(
+            lineBreaker = LookaheadLineBreaker(),
+            hyphenator = NoHyphenator,
+        ).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 160f),
+            ),
+        )
+
+        val finalOpen = text.lastIndexOf('“')
+        val finalClose = text.lastIndexOf('”')
+        val finalOverrides = result.debug.roleOverrides.filter { it.range.start == finalOpen || it.range.start == finalClose }
+        assertEquals(setOf(finalOpen, finalClose), finalOverrides.mapTo(mutableSetOf()) { it.range.start })
+        assertTrue(finalOverrides.all { it.overriddenRole == FontRole.CjkPunctuation.name })
+        assertTrue(finalOverrides.all { it.source == "PreviousQuotedSiblingContentExclusion" })
+        assertTrue(
+            result.lines.none { line -> text.substring(line.range.start, line.range.end).startsWith('”') },
+            result.lines.joinToString { line -> text.substring(line.range.start, line.range.end) },
+        )
+    }
+
+    @Test
     fun skipsNeutralDashBeforeLatinQuotePairInLayout() {
         val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(

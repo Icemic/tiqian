@@ -89,12 +89,14 @@ CLREQ 行首行尾禁则分四档（`KinsokuLevel`，命名对齐第六节原文
 `isLatinTechnicalPunctuation` 上下文补丁，其余 ASCII 标点漏到 `Unknown` → CJK 面，
 导致 `%` 等用中文字体渲染（全宽）。
 
-禁则例外（不改变字体面）：`CjkContextAsciiBracketKinsoku` 只在 ASCII `()[]{}` 成对且
-内部含 CJK 文本/标点时，把开括号加入行尾禁则、闭括号加入行首禁则。这样
-`份额(国产品牌)，` 不会断成行首 `)，`，但 `(` / `)` 仍用 Latin 字体，不进入中文
-标点 glue / atom 模型。
+断行与字体面分离：`Uax14WesternPunctuationBoundary` 使用固定的 Unicode 17.0.0
+`LineBreak.txt` 标点类别。非 CJK 的 `OP` 开符号不得居自动折行行尾，`CL` / `CP` 闭符号
+不得居行首，因此 ASCII `()[]{}` 无论内部是中文还是西文都保留西文标准边界；它们仍用
+Latin 字体，不进入中文标点 glue / atom 模型。成对弯引号优先由 `QuotePairAnalyzer` 的结构
+决定开闭边界；未配对的 Unicode `Pi` / `Pf` 引号仍保留方向，U+2019 再区分词首省略、词尾
+apostrophe 与词内 apostrophe，不再让字体角色兼任断行语义。完整分层见 ADR 0026 amendment。
 
-另一项禁则例外是 `AttachedAsciiPointMarkKinsoku`。CLREQ 明确记录了西文较多的中文横排
+另一项上下文增强是 `AttachedAsciiPointMarkKinsoku`。CLREQ 明确记录了西文较多的中文横排
 采用 U+002C COMMA `,` 作为逗号或顿号的非典型体例；这是直接的码点证据。
 CLREQ 另一般规定点号不得居行首，提椠因此将同一语义推广到方向明确的 ASCII
 点号 `, . : ; ! ?`；后五者是项目策略，不冒充 CLREQ 已按码点逐个列举。这些点号
@@ -102,7 +104,9 @@ CLREQ 另一般规定点号不得居行首，提椠因此将同一语义推广�
 `Strict` 下加入行首禁则，并与前一 cluster 形成 no-break 边界。这样既覆盖中文正文采用
 半角点号，也覆盖超长 Latin token 硬拆后暴露出的 comma cluster。它们仍保持 Latin face、
 平台 shaping 得到的比例 advance，也不进入 CJK
-`PunctuationAtom`、glue、行尾半宽或相邻标点压缩。它们不加入 profile 的常规点号
+`PunctuationAtom`、glue、行尾半宽或相邻标点压缩。2026-08-11 起，非 CJK `EX` / `IS`
+码点的基础 no-break 边界来自 UAX #14，即使 CLREQ 档为 `None` 也不允许自动落到行首；
+本上下文规则保留 protected run 与极窄版心 Hang 的职责。它们不加入 profile 的常规点号
 悬挂集；仅当“前一 cluster + 连续点号 run”按 breaker 实际使用的几何（含注音/
 ruby spread）仍无法容纳时，才具备极窄版心悬挂资格。repair 仍先尝试 PushIn；
 只有最终确实选中 Hang 的 cluster 才在结构化 decision 中记录
@@ -112,8 +116,9 @@ ruby spread）仍无法容纳时，才具备极窄版心悬挂资格。repair �
 `AttachedAsciiPointMarkSegmentation` 与 `PostCutAsciiPointMarkPrefixSegmentation` 只把这种
 前导点号 run 与其后的 Latin 文本分开，包括二次 hard-cut 才产生前导点号的情况，避免
 `中文,anyway` 因一个禁则把整个 `,anyway` 绑成 offender；普通 `foo,bar`、`1,234`、URL、
-`%`、`- / ~` 的既有 Latin 分段不变。U+0022 / U+0027 直引号没有开闭方向信息，不在本
-规则中猜测；弯引号继续由 `QuotePairAnalyzer` 成对判定。
+`%`、`- / ~` 的既有 Latin 分段不变。`AttachedAsciiPointMarkKinsoku` 不猜测 U+0022 /
+U+0027 直引号；独立的 UAX 边界层按 LB19 保护其两侧。弯引号先使用 `QuotePairAnalyzer`
+的成对结构，配对失败时再保留 `Pi` / `Pf` 方向并解析 U+2019 的词内位置。
 前端不按 ASCII 码点补逻辑；Compose `TextOverflow.Clip` 仅在 `hangingPunctuationAdvance`
 非零时将该行的最终 `visualWidth` 视为合法绘制边界，确保 justify 后的点号或前字自身
 超宽时都不会被误裁掉。

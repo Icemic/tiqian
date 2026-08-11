@@ -50,18 +50,20 @@ interface LineBreaker {
         extendableHangRanges: List<IntRange> = emptyList(),
         /**
          * Forbidden-at-line-start cluster indices, resolved by the caller
-         * from the profile's [org.tiqian.clreq.KinsokuLevel]. When
-         * non-null this overrides the breaker's own [KinsokuRule] (so the
-         * paragraph engine can carry the profile level); null = fall back to
-         * the injected rule (standalone breaker use / tests).
+         * from the profile's [org.tiqian.clreq.KinsokuLevel] plus applicable
+         * Unicode boundary policies. When non-null this overrides the
+         * breaker's own [KinsokuRule] (so the paragraph engine can carry the
+         * fully resolved policy); null = fall back to the injected rule
+         * (standalone breaker use / tests).
          */
         forbiddenLineStartClusters: Set<Int>? = null,
         /**
          * Forbidden-at-line-END cluster indices (开引号/开括号; GB·严格 的
-         * 分隔号). A break that would end a line on one of these retreats
+         * 分隔号). These may come from CLREQ or a Unicode boundary policy.
+         * A break that would end a line on one of these retreats
          * (`adjustBreakForLineEnd`), moving the mark to the next line's
-         * start — recorded as [RepairOption.CarryNext]. Empty/null = no
-         * line-end prohibition (e.g. KinsokuLevel.None).
+         * start — recorded as [RepairOption.CarryNext]. Empty = no resolved
+         * line-end prohibition.
          */
         forbiddenLineEndClusters: Set<Int> = emptySet(),
         /**

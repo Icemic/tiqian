@@ -170,6 +170,37 @@ class QuotePairAnalyzerTest {
     }
 
     @Test
+    fun adjacentQuotedListItemsDoNotUsePreviousItemContentAsOuterContext() {
+        val cases = listOf(
+            QuoteRoleCase(
+                "CJK list item after mixed-script item",
+                "便延伸出了“乃子”“大波”“大灯”“大雷”“大扎”“对A”“波霸”这些词",
+                "CCCCCCCCCCCCCC",
+            ),
+            QuoteRoleCase(
+                "Latin list item after Latin item in CJK prose",
+                "这些太直白了是吧，\n “欧派”“double”“double may”呢",
+                "CCCCCC",
+            ),
+        )
+
+        for (case in cases) assertRoleSignature(case)
+
+        for (text in cases.map { it.text }) {
+            val finalOpen = text.lastIndexOf('“')
+            val finalClose = text.lastIndexOf('”')
+            val finalPairDecisions = analyzer
+                .classifyQuoteRoles(text, analyzer.analyze(text), classifier)
+                .filter { it.index == finalOpen || it.index == finalClose }
+            assertEquals(2, finalPairDecisions.size, text)
+            assertTrue(
+                finalPairDecisions.all { it.source == "PreviousQuotedSiblingContentExclusion" },
+                "$text: $finalPairDecisions",
+            )
+        }
+    }
+
+    @Test
     fun spacedCjkQuotedContentRemainsCjk() {
         val text = "他说 ‘你好’"
         val roles = analyzer.classifyPairs(text, analyzer.analyze(text), classifier)
