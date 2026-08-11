@@ -403,6 +403,7 @@ object TiqianAndroidFontBackend {
     private val sourceByLocator = LinkedHashMap<String, LoadedNativeFontSource>()
     private val sourceByDigest = LinkedHashMap<String, LoadedNativeFontSource>()
     private val faceById = LinkedHashMap<FontFaceId, NativeFontFace>()
+    private val descriptorById = LinkedHashMap<FontFaceId, ReplayableFontFaceDescriptor>()
     private val platformFaceByRequest = object : LinkedHashMap<ReplayableFontFaceRequest, ResolvedNativeFontFace>(256, 0.75f, true) {}
     private val platformFaceByInstance = LinkedHashMap<String, PlatformLoadedFace>()
     private val platformFontById = LinkedHashMap<FontFaceId, Font>()
@@ -476,6 +477,11 @@ object TiqianAndroidFontBackend {
 
     internal fun faceFor(renderFontKey: String): NativeFontFace? = synchronized(lock) {
         faceById[FontFaceId(renderFontKey)]
+    }
+
+    /** Stable replay evidence for a glyph id emitted by [AndroidNativeTextShaper]. */
+    fun replayFaceDescriptor(renderFontKey: String): ReplayableFontFaceDescriptor? = synchronized(lock) {
+        descriptorById[FontFaceId(renderFontKey)]
     }
 
     internal fun isSyntheticItalicFace(renderFontKey: String): Boolean = synchronized(lock) {
@@ -576,19 +582,21 @@ object TiqianAndroidFontBackend {
                 continue
             }
             val (id, native) = loadedFace
+            val descriptor = ReplayableFontFaceDescriptor(
+                id = id,
+                familyAliases = spec.familyAliases.toSet(),
+                roles = spec.roles.toSet(),
+                weight = spec.weight,
+                italic = spec.italic,
+                collectionIndex = spec.collectionIndex,
+                sourceLabel = spec.source.label,
+                variationAxes = axes,
+            )
+            descriptorById[id] = descriptor
             loaded += LoadedFace(
                 catalogIndex = catalogIndex,
                 familyKey = spec.familyKey,
-                descriptor = ReplayableFontFaceDescriptor(
-                    id = id,
-                    familyAliases = spec.familyAliases.toSet(),
-                    roles = spec.roles.toSet(),
-                    weight = spec.weight,
-                    italic = spec.italic,
-                    collectionIndex = spec.collectionIndex,
-                    sourceLabel = spec.source.label,
-                    variationAxes = axes,
-                ),
+                descriptor = descriptor,
                 nativeFace = native,
             )
         }
@@ -711,6 +719,7 @@ object TiqianAndroidFontBackend {
         // rejection and is handled by the platform string-draw path.
         if (resolved.replayable && !resolved.coversSelectionText && request.role != FontRole.CjkPunctuation) return null
         synchronized(lock) {
+            descriptorById[resolved.descriptor.id] = resolved.descriptor
             platformFaceByInstance[selection.instanceKey] = PlatformLoadedFace(
                 descriptor = resolved.descriptor,
                 nativeFace = resolved.nativeFace,
