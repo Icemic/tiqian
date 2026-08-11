@@ -1076,15 +1076,55 @@ class ExplainableStubParagraphLayoutEngine(
                 val caps = glueCaps[idx]
                 if (caps != null) {
                     val cls = atomClassByRange[cluster.range]
+                    fun addGeometryAwareOpportunity(
+                        tier: Int,
+                        lineEndOnly: Boolean = false,
+                    ) {
+                        if (caps.paired) {
+                            val pairedCapacity = 2f * minOf(caps.leading, caps.trailing)
+                            if (pairedCapacity > 0f) {
+                                add(
+                                    ShrinkOpportunity(
+                                        clusterIndex = idx,
+                                        tier = tier,
+                                        capacity = pairedCapacity,
+                                        channel = ShrinkChannel.LeadingAndTrailingGlue,
+                                        lineEndOnly = lineEndOnly,
+                                    ),
+                                )
+                            }
+                        } else {
+                            if (caps.leading > 0f) {
+                                add(
+                                    ShrinkOpportunity(
+                                        clusterIndex = idx,
+                                        tier = tier,
+                                        capacity = caps.leading,
+                                        channel = ShrinkChannel.LeadingGlue,
+                                        lineEndOnly = lineEndOnly,
+                                    ),
+                                )
+                            }
+                            if (caps.trailing > 0f) {
+                                add(
+                                    ShrinkOpportunity(
+                                        clusterIndex = idx,
+                                        tier = tier,
+                                        capacity = caps.trailing,
+                                        channel = ShrinkChannel.TrailingGlue,
+                                        lineEndOnly = lineEndOnly,
+                                    ),
+                                )
+                            }
+                        }
+                    }
                     when (cls) {
                         PunctuationClass.Interpunct,
                         PunctuationClass.MiddleDot,
                         -> {
-                            // CLREQ ③ 间隔号：双侧同时、同等量，最小挤到 0。
-                            val both = caps.leading + caps.trailing
-                            if (both > 0f) {
-                                add(ShrinkOpportunity(idx, tier = 3, capacity = both, channel = ShrinkChannel.LeadingAndTrailingGlue))
-                            }
+                            // CLREQ ③ 间隔号：字体几何通常给出居中框，因此
+                            // 双侧同时、同等量；异常的单侧字体仍忠实消费其实际空白。
+                            addGeometryAwareOpportunity(tier = 3)
                         }
 
                         // CLREQ ④ 夹注符号：开始夹注的前侧、结束夹注的
@@ -1095,12 +1135,7 @@ class ExplainableStubParagraphLayoutEngine(
                         PunctuationClass.Closing,
                         PunctuationClass.Quote,
                         -> {
-                            if (caps.leading > 0f) {
-                                add(ShrinkOpportunity(idx, tier = 4, capacity = caps.leading, channel = ShrinkChannel.LeadingGlue))
-                            }
-                            if (caps.trailing > 0f) {
-                                add(ShrinkOpportunity(idx, tier = 4, capacity = caps.trailing, channel = ShrinkChannel.TrailingGlue))
-                            }
+                            addGeometryAwareOpportunity(tier = 4)
                         }
 
                         PunctuationClass.PauseOrStop -> {
@@ -1113,23 +1148,11 @@ class ExplainableStubParagraphLayoutEngine(
                             // is only reachable via the tier-1 line-end
                             // promotion (行末削半 is a separate rule).
                             val lineEndOnly = isStop && !adjustmentStyle.allowInlineStopCompression
-                            if (caps.trailing > 0f) {
-                                add(
-                                    ShrinkOpportunity(
-                                        idx,
-                                        tier = tier,
-                                        capacity = caps.trailing,
-                                        channel = ShrinkChannel.TrailingGlue,
-                                        lineEndOnly = lineEndOnly,
-                                    ),
-                                )
-                            }
+                            addGeometryAwareOpportunity(tier = tier, lineEndOnly = lineEndOnly)
                         }
 
                         // CLREQ 未列其余带 glue 的标点：按 ⑤ 档兜底。
-                        else -> if (caps.trailing > 0f) {
-                            add(ShrinkOpportunity(idx, tier = 5, capacity = caps.trailing, channel = ShrinkChannel.TrailingGlue))
-                        }
+                        else -> addGeometryAwareOpportunity(tier = 5)
                     }
                 } else if (cluster.isSpaceRun() && idx !in inlineObjectSeparatorSpaceTrims) {
                     if (cluster.range in gapClusterRanges) {
@@ -4109,6 +4132,7 @@ private data class PunctuationGeometryLedger(
                     trailingGlueInitiallyConsumed = atomsForCluster.last().trailingGlueInitiallyConsumed,
                     glyphInlineShift = atomsForCluster.singleOrNull()?.glyphInlineShift ?: 0f,
                     glyphPlacementReason = atomsForCluster.singleOrNull()?.glyphPlacementReason,
+                    anchor = atomsForCluster.singleOrNull()?.anchor,
                     reason = atomsForCluster.first().geometrySource,
                 )
             }.toMap()
@@ -4157,7 +4181,15 @@ private data class PunctuationGeometryLedger(
         budgets.mapNotNull { (index, budget) ->
             val leading = budget.leadingRemaining
             val trailing = budget.trailingRemaining
-            if (leading > 0f || trailing > 0f) index to GlueCapacity(leading, trailing) else null
+            if (leading > 0f || trailing > 0f) {
+                index to GlueCapacity(
+                    leading = leading,
+                    trailing = trailing,
+                    paired = geometries[index]?.anchor == PunctuationAnchor.Center,
+                )
+            } else {
+                null
+            }
         }.toMap()
 
     fun addJustificationDeltas(deltaByCluster: Map<Int, Float>): PunctuationGeometryLedger =
@@ -4293,45 +4325,80 @@ private data class PunctuationGeometryLedger(
         val decisions = mutableListOf<LineEdgeTrimDecisionInfo>()
         val leadingConsumptionByCluster = HashMap<Int, Float>()
         val trailingConsumptionByCluster = HashMap<Int, Float>()
+
+        fun consumeAtEdge(
+            line: LineCandidate,
+            clusterIndex: Int,
+            edge: PunctuationLineEdge,
+        ) {
+            val budget = budgets[clusterIndex] ?: return
+            // A one-cluster line reaches this helper twice. Subtract the first
+            // edge's scheduled amount so a centred frame is consumed once.
+            val leadingRemaining = (
+                budget.leadingRemaining -
+                    (leadingConsumptionByCluster[clusterIndex] ?: 0f)
+                ).coerceAtLeast(0f)
+            val trailingRemaining = (
+                budget.trailingRemaining -
+                    (trailingConsumptionByCluster[clusterIndex] ?: 0f)
+                ).coerceAtLeast(0f)
+            val paired = geometries[clusterIndex]?.anchor == PunctuationAnchor.Center
+            val pairedPerSide = if (paired) minOf(leadingRemaining, trailingRemaining) else 0f
+            val leadingAmount = when {
+                paired -> pairedPerSide
+                edge == PunctuationLineEdge.Start -> leadingRemaining
+                else -> 0f
+            }
+            val trailingAmount = when {
+                paired -> pairedPerSide
+                edge == PunctuationLineEdge.End -> trailingRemaining
+                else -> 0f
+            }
+            val total = leadingAmount + trailingAmount
+            if (total <= 0f) return
+
+            if (leadingAmount > 0f) {
+                leadingConsumptionByCluster.mergeValue(clusterIndex, leadingAmount) { a, b -> a + b }
+            }
+            if (trailingAmount > 0f) {
+                trailingConsumptionByCluster.mergeValue(clusterIndex, trailingAmount) { a, b -> a + b }
+            }
+            decisions += LineEdgeTrimDecisionInfo(
+                lineRange = line.sourceRange,
+                clusterRange = naturalClusters[clusterIndex].range,
+                side = if (paired) "both" else edge.side,
+                trimAmount = total,
+                consumedBefore = if (paired) {
+                    budget.leadingConsumed + budget.trailingConsumed
+                } else if (edge == PunctuationLineEdge.Start) {
+                    budget.leadingConsumed
+                } else {
+                    budget.trailingConsumed
+                },
+                naturalGlue = if (paired) {
+                    budget.leadingNatural + budget.trailingNatural
+                } else if (edge == PunctuationLineEdge.Start) {
+                    budget.leadingNatural
+                } else {
+                    budget.trailingNatural
+                },
+                reason = if (paired) {
+                    "Line${edge.reasonPart}CenteredPunctuationPairedCompression"
+                } else {
+                    "Line${edge.reasonPart}HalfWidthPunctuation"
+                },
+            )
+        }
+
         lines.forEach { line ->
             if (line.clusterRange.isEmptyClusterRange()) return@forEach
-            val lastIdx = line.clusterRange.last
             // 宽松风格 (AllowFullWidth): the unconditional line-end half-width
             // trim is skipped; the blank was only available as on-demand
             // shrink capacity during PushIn.
-            val trailingBudget = if (forceLineEndHalfWidth) budgets[lastIdx] else null
-            trailingBudget?.let { budget ->
-                val remaining = budget.trailingRemaining
-                if (remaining > 0f) {
-                    trailingConsumptionByCluster.mergeValue(lastIdx, remaining) { a, b -> a + b }
-                    decisions += LineEdgeTrimDecisionInfo(
-                        lineRange = line.sourceRange,
-                        clusterRange = naturalClusters[lastIdx].range,
-                        side = "trailing",
-                        trimAmount = remaining,
-                        consumedBefore = budget.trailingConsumed,
-                        naturalGlue = budget.trailingNatural,
-                        reason = "LineEndHalfWidthPunctuation",
-                    )
-                }
+            if (forceLineEndHalfWidth) {
+                consumeAtEdge(line, line.clusterRange.last, PunctuationLineEdge.End)
             }
-
-            val firstIdx = line.clusterRange.first
-            budgets[firstIdx]?.let { budget ->
-                val remaining = budget.leadingRemaining
-                if (remaining > 0f) {
-                    leadingConsumptionByCluster.mergeValue(firstIdx, remaining) { a, b -> a + b }
-                    decisions += LineEdgeTrimDecisionInfo(
-                        lineRange = line.sourceRange,
-                        clusterRange = naturalClusters[firstIdx].range,
-                        side = "leading",
-                        trimAmount = remaining,
-                        consumedBefore = budget.leadingConsumed,
-                        naturalGlue = budget.leadingNatural,
-                        reason = "LineStartHalfWidthPunctuation",
-                    )
-                }
-            }
+            consumeAtEdge(line, line.clusterRange.first, PunctuationLineEdge.Start)
         }
 
         val updated = copy(
@@ -4382,6 +4449,7 @@ private data class PunctuationGeometryLedger(
         copy(
             budgets = budgets.consumeByRange(
                 clusters = naturalClusters,
+                geometries = geometries,
                 adjustments = spacingPlan.adjustments,
             ),
         )
@@ -4433,6 +4501,7 @@ private data class PunctuationClusterGeometry(
     val trailingGlueInitiallyConsumed: Float,
     val glyphInlineShift: Float,
     val glyphPlacementReason: String?,
+    val anchor: PunctuationAnchor?,
     val reason: String,
 )
 
@@ -4457,6 +4526,14 @@ private data class LineEdgeTrimResult(
     val geometry: PunctuationGeometryLedger,
     val decisions: List<LineEdgeTrimDecisionInfo>,
 )
+
+private enum class PunctuationLineEdge(
+    val side: String,
+    val reasonPart: String,
+) {
+    Start(side = "leading", reasonPart = "Start"),
+    End(side = "trailing", reasonPart = "End"),
+}
 
 /** ADR 0018 final painted diameter; renderers must not apply another scale factor. */
 private const val EMPHASIS_DOT_DIAMETER_EM = 0.19f
@@ -4531,7 +4608,12 @@ private val HANGABLE_PUNCTUATION = setOf('、', '，', '。')
 private val INLINE_STOPS = setOf('。', '！', '？', '．')
 
 /** Remaining glue per side, input to the tiered shrink model (ADR 0020). */
-internal data class GlueCapacity(val leading: Float, val trailing: Float)
+internal data class GlueCapacity(
+    val leading: Float,
+    val trailing: Float,
+    /** True when resolved punctuation geometry selected a centred body frame. */
+    val paired: Boolean,
+)
 
 /**
  * ADR 0018: 示亡号 frame hugs the CJK character face (字面) with no margin.
@@ -4612,6 +4694,7 @@ private fun Map<Int, GlueBudget>.consume(
 
 private fun Map<Int, GlueBudget>.consumeByRange(
     clusters: List<Cluster>,
+    geometries: Map<Int, PunctuationClusterGeometry>,
     adjustments: List<PunctuationSpacingAdjustment>,
 ): Map<Int, GlueBudget> {
     if (adjustments.isEmpty()) return this
@@ -4621,11 +4704,25 @@ private fun Map<Int, GlueBudget>.consumeByRange(
             val targetIdx = clusters.indexOfFirst { adjustment.reductionTargetRange.isInside(it.range) }
             if (targetIdx < 0) return@forEach
             updated[targetIdx]?.let { current ->
+                val leadingRemaining = current.leadingRemaining
+                val trailingRemaining = current.trailingRemaining
+                if (
+                    geometries[targetIdx]?.anchor == PunctuationAnchor.Center
+                ) {
+                    val perSide = minOf(
+                        adjustment.reduction / 2f,
+                        leadingRemaining,
+                        trailingRemaining,
+                    )
+                    updated[targetIdx] = current.copy(
+                        leadingConsumed = current.leadingConsumed + perSide,
+                        trailingConsumed = current.trailingConsumed + perSide,
+                    )
+                    return@let
+                }
                 // Consume reduction from whichever side has remaining capacity.
-                // With class-based single-sided glue, all glue may be on one
-                // side (e.g. PauseOrStop → trailing only, Opening → leading only).
-                val leadingRemaining = current.leadingNatural - current.leadingConsumed
-                val trailingRemaining = current.trailingNatural - current.trailingConsumed
+                // With single-sided font geometry or the profile fallback, all
+                // glue may be on one side (e.g. PauseOrStop → trailing only).
                 updated[targetIdx] = if (trailingRemaining >= leadingRemaining) {
                     current.copy(
                         trailingConsumed = (current.trailingConsumed + adjustment.reduction)

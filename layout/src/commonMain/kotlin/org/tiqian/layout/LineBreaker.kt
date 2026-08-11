@@ -201,7 +201,7 @@ enum class ShrinkChannel {
      */
     LeadingGlue,
 
-    /** Consume leading and trailing glue simultaneously, equal amounts. */
+    /** Consume a centred punctuation frame's leading and trailing glue equally. */
     LeadingAndTrailingGlue,
 
     /** Reduce the cluster's raw advance (word spaces, gap clusters). */
@@ -1171,12 +1171,19 @@ internal fun tryPushIn(
 
     // Tiered shrink resources across the merged line (CLREQ 挤压处理优先
     // 顺序, ADR 0020). The offender will sit at the merged line's END, so
-    // its trailing glue IS the 行末标点削半宽 step — promote it to tier 1.
+    // its removable outer frame IS the 行末标点削半宽 step — promote it to
+    // tier 1. A centred glyph owns a paired frame, not a trailing-only one.
     val inLine = shrinkOpportunities
         .filter { it.clusterIndex in expandedRange && it.capacity > 0f }
         .filter { !it.lineEndOnly || it.clusterIndex == offenderIndex }
         .map { opp ->
-            if (opp.clusterIndex == offenderIndex && opp.channel == ShrinkChannel.TrailingGlue) {
+            if (
+                opp.clusterIndex == offenderIndex &&
+                (
+                    opp.channel == ShrinkChannel.TrailingGlue ||
+                        opp.channel == ShrinkChannel.LeadingAndTrailingGlue
+                )
+            ) {
                 opp.copy(tier = 1)
             } else {
                 opp

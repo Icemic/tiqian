@@ -1,6 +1,6 @@
 # ADR 0014: 标点压缩几何由字体 `halt` / ink bounds 决定
 
-- Status: Accepted (amended 2026-06-10, 2026-07-11, 2026-08-06)
+- Status: Accepted (amended 2026-06-10, 2026-07-11, 2026-08-06, 2026-08-12)
 - Date: 2026-06-07
 
 ## Context
@@ -223,6 +223,9 @@ body 只扩到能容纳原墨迹的最小规范框，不通过额外 glyph shift
 - 相邻标点压缩量不变（仍是 0.5em → 0.25em），但 reduction target 从右侧标点改为有 glue 的一侧。
 - Ink bounds 同时决定压缩方向和安全容量；选中的框、glue、body 与 halt 限制进入 dump。
 - `halt` 同时提供目标 advance 与 placement；只有缺 placement 时才由 ink bounds 补方向。
+- 字体拟合框选中 `Center` 时，左右 glue 是一个成对预算。相邻标点压缩、PushIn、
+  行首/行尾削减都必须同时等量消费两侧；后续阶段不得再按 `PauseOrStop` 等字符类别
+  把它降回单侧预算。左框和右框仍只消费各自真实存在的一侧空白。
 - 比例宽 U+2018..U+201D 在中文上下文中先请求字体全宽 variant；缺失时把完整比例 glyph box
   放进语义正确的全宽字身，再由同一压缩模型处理；
   同码点的英文 quote pair 保持西文比例宽度。

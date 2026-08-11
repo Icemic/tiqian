@@ -1,6 +1,6 @@
 # ADR 0020: 挤压分层与调整风格开关
 
-- Status: Accepted
+- Status: Accepted (amended 2026-06-13, 2026-08-12)
 - Date: 2026-06-12
 
 ## Context
@@ -78,16 +78,19 @@ CLREQ 实际列了**七档**，其中两档被我们误判为「CLREQ 未列的�
 
 | tier | 资源 | channel | CLREQ |
 |---|---|---|---|
-| 1 | 行末标点削半（offender 晋升） | TrailingGlue | ① |
+| 1 | 行末标点削半（offender 晋升） | TrailingGlue / LeadingAndTrailingGlue | ① |
 | 2 | 西文词距 → 1/4em | RawAdvance | ② |
 | 3 | 间隔号双侧等量 → 0 | LeadingAndTrailingGlue | ③ |
-| 4 | 夹注符号外侧：开括号/开引号**前侧**、闭括号/闭引号后侧 | LeadingGlue / TrailingGlue | ④ |
-| 5 | 行内逗、顿、分号（冒号等未尽列者同档兜底） | TrailingGlue | ⑤ |
+| 4 | 夹注符号可压缩框 | LeadingGlue / TrailingGlue / LeadingAndTrailingGlue | ④ |
+| 5 | 行内逗、顿、分号（冒号等未尽列者同档兜底） | TrailingGlue / LeadingAndTrailingGlue | ⑤ |
 | 6 | 中西间距 → **最小 1/8em**（原实现压到 0；风格开关可禁） | RawAdvance | ⑥ |
-| 7 | 行内句问叹（风格开关可禁，`lineEndOnly` 语义不变） | TrailingGlue | ⑦ |
+| 7 | 行内句问叹（风格开关可禁，`lineEndOnly` 语义不变） | TrailingGlue / LeadingAndTrailingGlue | ⑦ |
 
 - 新增 `ShrinkChannel.LeadingGlue`：开夹注前侧的消费；渲染层的
   leading-consumed 左移（ADR 0017 amendment）天然覆盖。
+- 字符类别只决定挤压档序，不决定 glue 的物理方向。ADR 0014 的字体拟合框为
+  `Center` 时，同一档使用 `LeadingAndTrailingGlue` 等量消费两侧；只有字体几何或
+  无度量 fallback 确实给出单侧框时才使用 `LeadingGlue` / `TrailingGlue`。
 - 「tier 6 项目扩展」的说法撤销——CLREQ 几乎列全了所有标点 glue，
   真正的项目兜底只剩未尽列的点号（如冒号），归入第 5 档。
 - 拉伸侧同步补 CLREQ 限制：`AvoidStretchAroundConnectors`——均匀拉大

@@ -1137,6 +1137,77 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertEquals(8f, geometry.bodyWidth)
         assertEquals(4f, geometry.leadingGlueNatural)
         assertEquals(4f, geometry.trailingGlueNatural)
+        assertEquals(4f, geometry.leadingGlueConsumed)
+        assertEquals(4f, geometry.trailingGlueConsumed)
+        assertEquals(8f, geometry.resolvedAdvance)
+
+        val edge = result.debug.lineEdgeTrimDecisions.single()
+        assertEquals("both", edge.side)
+        assertEquals(8f, edge.trimAmount)
+        assertEquals("LineEndCenteredPunctuationPairedCompression", edge.reason)
+    }
+
+    @Test
+    fun pushInKeepsFontCenteredPunctuationCompressionPaired() {
+        val engine = ExplainableStubParagraphLayoutEngine(
+            textShaper = object : TextShaper {
+                override fun shape(input: ShapingInput): ShapingResult {
+                    val clusters = input.displayText.mapIndexed { index, character ->
+                        val range = TextRange(input.range.start + index, input.range.start + index + 1)
+                        Cluster(
+                            range = range,
+                            text = input.text.substring(range.start, range.end),
+                            displayText = character.toString(),
+                            fontKey = input.fontDecision.candidate.key,
+                            advance = 16f,
+                        )
+                    }
+                    return ShapingResult(
+                        clusters = clusters,
+                        glyphRuns = listOf(
+                            GlyphRun(
+                                range = input.range,
+                                fontKey = input.fontDecision.candidate.key,
+                                glyphs = clusters.mapIndexed { index, cluster ->
+                                    Glyph(
+                                        id = (index + 1).toUInt(),
+                                        clusterRange = cluster.range,
+                                        advance = 16f,
+                                        bounds = if (cluster.displayText == "，") {
+                                            Rect(left = 5f, top = -2f, right = 11f, bottom = 2f)
+                                        } else {
+                                            Rect(left = 0f, top = -12f, right = 16f, bottom = 4f)
+                                        },
+                                    )
+                                },
+                                advance = clusters.sumOf { it.advance.toDouble() }.toFloat(),
+                            ),
+                        ),
+                    )
+                }
+            },
+        )
+
+        val result = engine.layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent("中文中文，中文"),
+                constraints = LayoutConstraints(maxWidth = 72f),
+            ),
+        )
+
+        val comma = result.debug.geometryDecisions.single { it.sourceText == "，" }
+        assertEquals(4f, comma.leadingGlueConsumed)
+        assertEquals(4f, comma.trailingGlueConsumed)
+        assertEquals(8f, comma.resolvedAdvance)
+        val pushIn = result.debug.lineDecisions
+            .mapNotNull { it.repairDecision }
+            .single { it.kind == "PushIn" }
+        assertEquals(8f, pushIn.shrink)
+        assertEquals(TextRange(4, 5), pushIn.pushInAllocations.single().clusterRange)
     }
 
     @Test
@@ -1221,6 +1292,14 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertEquals(4f, stop.leadingGlueNatural)
         assertEquals(4f, stop.trailingGlueNatural)
         assertEquals("Center", stop.anchor)
+
+        val geometry = result.debug.geometryDecisions.single { it.sourceText == "。" }
+        assertEquals(4f, geometry.leadingGlueConsumed)
+        assertEquals(4f, geometry.trailingGlueConsumed)
+        assertEquals(8f, geometry.resolvedAdvance)
+        val edge = result.debug.lineEdgeTrimDecisions.single()
+        assertEquals("both", edge.side)
+        assertEquals("LineEndCenteredPunctuationPairedCompression", edge.reason)
     }
 
     @Test
