@@ -2330,6 +2330,57 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
+    fun bibliographicNumericLocatorExposesStructuralBreaks() {
+        val text = "中文中文中文44(10):21-38."
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 224f),
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = org.tiqian.core.LineLengthGrid(enabled = false),
+                ),
+            ),
+        )
+
+        val locatorStart = text.indexOf("44")
+        val decision = result.debug.breakOpportunityDecisions.single()
+        assertEquals(org.tiqian.core.TextRange(locatorStart, text.length), decision.range)
+        assertEquals("44(10):21-38.", decision.sourceText)
+        assertEquals(
+            listOf(text.indexOf('('), text.indexOf(':') + 1),
+            decision.breakOffsets,
+        )
+        assertEquals("BibliographicNumericLocatorBreak", decision.reason)
+
+        val lineTexts = result.lines.map { text.substring(it.range.start, it.range.end) }
+        assertTrue(lineTexts.first().endsWith("44(10):"), "locator should fill the preceding line: $lineTexts")
+        assertEquals("21-38.", lineTexts.last())
+        assertTrue(lineTexts.none { it.endsWith("(") }, "opening bracket cannot end a line: $lineTexts")
+        assertTrue(lineTexts.none { it.startsWith(")") }, "closing bracket cannot start a line: $lineTexts")
+    }
+
+    @Test
+    fun ordinaryNumericFormsDoNotBecomeBibliographicLocators() {
+        for (token in listOf("3.14", "1,000", "12:34", "2023-08-11")) {
+            val result = ExplainableStubParagraphLayoutEngine().layout(
+                LayoutInput(
+                    content = TiqianTextContent("中文$token"),
+                    constraints = LayoutConstraints(maxWidth = 320f),
+                    paragraphStyle = ParagraphStyle(
+                        firstLineIndent = Ic(0f),
+                        lineLengthGrid = org.tiqian.core.LineLengthGrid(enabled = false),
+                    ),
+                ),
+            )
+            assertTrue(
+                result.debug.breakOpportunityDecisions.isEmpty(),
+                "$token must keep its existing numeric/token policy: ${result.debug.breakOpportunityDecisions}",
+            )
+        }
+    }
+
+    @Test
     fun blockIndentInsetsEveryLine() {
         // 段落缩排 (CLREQ §6.2.1.2): blockIndent insets ALL lines (引用/诗词块).
         val result = ExplainableStubParagraphLayoutEngine().layout(

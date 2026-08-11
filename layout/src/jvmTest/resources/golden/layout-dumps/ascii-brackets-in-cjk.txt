@@ -4,13 +4,13 @@ maxWidth: 240.0
 == greedy ==
 size 240.0x48.0
 kinsoku measure=15.0字 level=Basic hang=Disabled reason=MeasureAdaptiveKinsoku:15字→Basic
-line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+5.3,CjkInterChar@1+5.3,CjkInterChar@2+5.3
+line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+3.2,CjkInterChar@1+3.2,CjkInterChar@2+3.2,CjkInterChar@3+3.2(WesternBracketCjkInterChar),CjkInterChar@4+3.2(WesternBracketCjkInterChar)
 line[1] 14-24 natural=160.0 adjusted=152.0 visual=152.0 repair=- candidates=- justify=-
-cluster 0-1 '中' adv=21.3
-cluster 1-2 '文' adv=21.3
-cluster 2-3 '段' adv=21.3
-cluster 3-4 '落' adv=16.0
-cluster 4-13 '(English)' adv=144.0
+cluster 0-1 '中' adv=19.2
+cluster 1-2 '文' adv=19.2
+cluster 2-3 '段' adv=19.2
+cluster 3-4 '落' adv=19.2
+cluster 4-13 '(English)' adv=147.2
 cluster 13-14 '和' adv=16.0
 cluster 14-21 '[mixed]' adv=112.0
 cluster 21-22 '说' adv=16.0
@@ -33,13 +33,13 @@ linespacing natural=16.0 requested=- resolved=24.0 floor=0.0 applied=false reaso
 == lookahead ==
 size 240.0x48.0
 kinsoku measure=15.0字 level=Basic hang=Disabled reason=MeasureAdaptiveKinsoku:15字→Basic
-line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+5.3,CjkInterChar@1+5.3,CjkInterChar@2+5.3
+line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+3.2,CjkInterChar@1+3.2,CjkInterChar@2+3.2,CjkInterChar@3+3.2(WesternBracketCjkInterChar),CjkInterChar@4+3.2(WesternBracketCjkInterChar)
 line[1] 14-24 natural=160.0 adjusted=152.0 visual=152.0 repair=- candidates=- justify=-
-cluster 0-1 '中' adv=21.3
-cluster 1-2 '文' adv=21.3
-cluster 2-3 '段' adv=21.3
-cluster 3-4 '落' adv=16.0
-cluster 4-13 '(English)' adv=144.0
+cluster 0-1 '中' adv=19.2
+cluster 1-2 '文' adv=19.2
+cluster 2-3 '段' adv=19.2
+cluster 3-4 '落' adv=19.2
+cluster 4-13 '(English)' adv=147.2
 cluster 13-14 '和' adv=16.0
 cluster 14-21 '[mixed]' adv=112.0
 cluster 21-22 '说' adv=16.0
@@ -62,13 +62,13 @@ linespacing natural=16.0 requested=- resolved=24.0 floor=0.0 applied=false reaso
 == paragraph-dp ==
 size 240.0x48.0
 kinsoku measure=15.0字 level=Basic hang=Disabled reason=MeasureAdaptiveKinsoku:15字→Basic
-line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+5.3,CjkInterChar@1+5.3,CjkInterChar@2+5.3
+line[0] 0-14 natural=224.0 adjusted=224.0 visual=240.0 repair=- candidates=- justify=deficit=16.0->0.0 CjkInterChar@0+3.2,CjkInterChar@1+3.2,CjkInterChar@2+3.2,CjkInterChar@3+3.2(WesternBracketCjkInterChar),CjkInterChar@4+3.2(WesternBracketCjkInterChar)
 line[1] 14-24 natural=160.0 adjusted=152.0 visual=152.0 repair=- candidates=- justify=-
-cluster 0-1 '中' adv=21.3
-cluster 1-2 '文' adv=21.3
-cluster 2-3 '段' adv=21.3
-cluster 3-4 '落' adv=16.0
-cluster 4-13 '(English)' adv=144.0
+cluster 0-1 '中' adv=19.2
+cluster 1-2 '文' adv=19.2
+cluster 2-3 '段' adv=19.2
+cluster 3-4 '落' adv=19.2
+cluster 4-13 '(English)' adv=147.2
 cluster 13-14 '和' adv=16.0
 cluster 14-21 '[mixed]' adv=112.0
 cluster 21-22 '说' adv=16.0

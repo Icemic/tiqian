@@ -148,6 +148,22 @@ source 中存在空格。
 原子长标号规则关闭两侧。纯西文视觉行的自然排版、行边空格折叠、西文字母内部
 字距和禁用中西间距调整的风格开关均不变。
 
+### Amendment (2026-08-11): WesternBracketCjkInterChar
+
+Mi 10s 文献语料中的 `化学教育(中英文)` 暴露出 Unicode 属性分层后的遗漏：ASCII
+括号正确保留 `LatinText` 字体面与比例 advance，但 UTR #59 的 `(` / `)` 是 `Other`，
+既不属于 CJK↔CJK，也不属于 W↔N 中西间距，于是括号内外四个字间位置全部漏出
+`CjkInterChar`。本行的剩余宽度只能集中落在少数汉字边界，产生不均匀的大空洞。
+
+新增具名准入 `WesternBracketCjkInterChar`：非 CJK 的 `OP` / `CL` / `CP` 括号直接接触
+`CjkText` 时，其边界参加第③档统一加字距，与本行其他合法位置同份额、无优先级。
+它不添加中西自动间距，不改变括号字体或 advance，也不开放纯西文括号内部的 tracking。
+连接号、分隔号、原子长标号与符号分离禁则的既有关闭边界仍优先。
+
+调宽与断行保持两份独立契约：ADR 0026 的 `Uax14WesternPunctuationBoundary` 继续禁止
+开括号居行末、闭括号居行首；一个边界能参加均分不表示它能成为断点。结构化
+justification allocation 以 `WesternBracketCjkInterChar` 记录本次准入来源。
+
 ## Consequences
 
 - 行尾标点「自然半宽」不是硬编码 `-= 0.5em`，而是 `lineEndPolicy + trailingGlue.min`。

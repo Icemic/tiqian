@@ -218,6 +218,23 @@ ADR 0026 amendment 已把 UAX #14 的 `EX` / `IS` 基础 no-break 边界用于�
 把连续点号 run 与前一可见 cluster 组织成同源 protected group，并在组本身宽于版心时提供
 `AttachedAsciiPointMarkImpossibleMeasureHang`。字体面、比例 advance 与 CJK glue 仍与该规则解耦。
 
+### 2026-08-11 BibliographicNumericLocatorBreak
+
+文献定位串 `44(10):21-38.` 是“卷（期）：页码范围”的结构化西文内容，不是一个英文词，
+也不是一个不可拆的阿拉伯数字。旧 `LatinOpaqueTokenBreak` 只有在非 URL token 自身宽于
+版心（或达到长 token 阈值）时才暴露分隔符；该串能独占一行时就保持单 cluster，导致前行
+只能用少量汉字间距吸收大额 deficit。
+
+新增具名 `BibliographicNumericLocatorBreak`，只匹配严格的
+`digits(digits):digits[-digits][.]` 形式，并提供两个 clean source 断点：期号开括号之前、
+冒号之后。于是可以排成 `44 | (10): | 21-38.`，但每段连续数字和页码范围本身仍保持完整；
+不补合成连字符，也不改写 source。普通整数、小数、千分位、日期、时间和短标识串不进入
+该策略。命中的 source range、绝对 UTF-16 断点与策略名进入
+`breakOpportunityDecisions` 和 layout dump。
+
+括号边界仍由 ADR 0026 的 `Uax14WesternPunctuationBoundary` 约束，因而开括号不会被留在
+行末，闭括号不会落到下一行行首。数字及前后缀单位的 `NumberSymbolCohesion` 不变。
+
 ## Consequences
 
 - 长西文词在窄版心混排时按 en-US 音节断点换行（`in-ter-na-tion-al-iza-tion`），

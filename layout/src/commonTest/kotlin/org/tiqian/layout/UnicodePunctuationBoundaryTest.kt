@@ -5,17 +5,59 @@ import org.tiqian.clreq.ClreqProfileResolver
 import org.tiqian.clreq.KinsokuLevel
 import org.tiqian.clreq.KinsokuMode
 import org.tiqian.core.Ic
+import org.tiqian.core.Cluster
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LineLengthGrid
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TiqianTextContent
+import org.tiqian.core.TextRange
+import org.tiqian.font.FontRole
 import org.tiqian.linebreak.NoHyphenator
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UnicodePunctuationBoundaryTest {
+    @Test
+    fun westernBracketsTouchingCjkExposeAllFourStretchBoundaries() {
+        val text = "育(中文)后"
+        val clusters = text.indices.map { index ->
+            Cluster(
+                range = TextRange(index, index + 1),
+                text = text[index].toString(),
+                fontKey = if (text[index] == '(' || text[index] == ')') "latin" else "cjk",
+                advance = 16f,
+            )
+        }
+        val roles = text.map { char ->
+            if (char == '(' || char == ')') FontRole.LatinText else FontRole.CjkText
+        }
+
+        assertEquals(
+            setOf(0, 1, 3, 4),
+            resolveWesternBracketCjkInterCharBoundaries(text, clusters, roles),
+        )
+
+        val westernText = "A(B)C"
+        val westernClusters = westernText.indices.map { index ->
+            Cluster(
+                range = TextRange(index, index + 1),
+                text = westernText[index].toString(),
+                fontKey = "latin",
+                advance = 8f,
+            )
+        }
+        assertEquals(
+            emptySet(),
+            resolveWesternBracketCjkInterCharBoundaries(
+                westernText,
+                westernClusters,
+                List(westernClusters.size) { FontRole.LatinText },
+            ),
+        )
+    }
+
     @Test
     fun westernClosingPunctuationCannotBeginAnAutomaticLine() {
         for (mark in listOf(')', ']', '}', ',', '.', ':', ';', '!', '?')) {

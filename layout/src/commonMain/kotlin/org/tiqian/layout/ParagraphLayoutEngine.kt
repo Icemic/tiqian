@@ -15,6 +15,7 @@ import org.tiqian.clreq.PunctuationClass
 import org.tiqian.clreq.PunctuationGluePlacement
 import org.tiqian.clreq.ClreqPunctuationGlyphSubstitutor
 import org.tiqian.core.AutoSpaceDecisionInfo
+import org.tiqian.core.BreakOpportunityDecisionInfo
 import org.tiqian.core.Cluster
 import org.tiqian.core.EastAsianSpacingEdges
 import org.tiqian.core.EastAsianSpacingValue
@@ -569,6 +570,7 @@ class ExplainableStubParagraphLayoutEngine(
                 h - bounds.last { it < h } >= 2 && bounds.first { it > h } - h >= 2
             }.map { wordRange.start + it }
         }
+        val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
         fun latinSeparatorCuts(
             tokenRange: TextRange,
             tokenAdvance: Float,
@@ -578,11 +580,21 @@ class ExplainableStubParagraphLayoutEngine(
             val urlLike = token.isUrlLikeLatinToken()
             val opaque = token.any { !it.isLetter() }
             val structuralSolidus = token.hasBreakableLatinSolidus()
+            val bibliographicLocatorCuts = token.bibliographicNumericLocatorBreakOffsets()
             val opaqueSeparatorMode = urlLike || (opaque && (tokenAdvance > measure || forceOpaqueBreaks))
-            if (!structuralSolidus && !opaqueSeparatorMode) {
+            if (!structuralSolidus && !opaqueSeparatorMode && bibliographicLocatorCuts.isEmpty()) {
                 return emptyList()
             }
-            val cuts = mutableListOf<Int>()
+            val cuts = bibliographicLocatorCuts
+                .mapTo(mutableListOf()) { tokenRange.start + it }
+            if (bibliographicLocatorCuts.isNotEmpty()) {
+                breakOpportunityDecisions += BreakOpportunityDecisionInfo(
+                    range = tokenRange,
+                    sourceText = token,
+                    breakOffsets = cuts.toList(),
+                    reason = "BibliographicNumericLocatorBreak",
+                )
+            }
             for (i in 0 until token.lastIndex) {
                 val breakAfter = (structuralSolidus && !urlLike && token[i] == '/') ||
                     (opaqueSeparatorMode && token.isLatinTokenBreakAfter(i, tokenAdvance <= measure))
@@ -1320,6 +1332,12 @@ class ExplainableStubParagraphLayoutEngine(
             clusterRoles = clusterRoles,
             quotePairs = quotePairs,
         )
+        val westernBracketCjkInterCharBoundaryAfterClusters =
+            resolveWesternBracketCjkInterCharBoundaries(
+                text = text,
+                clusters = naturalClusters,
+                clusterRoles = clusterRoles,
+            )
         val forbiddenLineStartClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
             idx in zeroWidthBreakClusters ||
                 (
@@ -1395,6 +1413,9 @@ class ExplainableStubParagraphLayoutEngine(
             // Paragraph-global and lookahead breakers price the same safe
             // inline-object gaps that the final justifier can actually use.
             addAll(adjustableInlineBoundaryRightClusters)
+            // `WesternBracketCjkInterChar`: the breaker must price the same
+            // proportional-bracket gaps that final tier-3 justification uses.
+            addAll(westernBracketCjkInterCharBoundaryAfterClusters.map { it + 1 })
         }
         val sinoWesternBoundaries: Set<Int> = (1 until naturalClusters.size).filterTo(mutableSetOf()) {
             isEastAsianSpacingBoundaryAt(
@@ -1690,6 +1711,8 @@ class ExplainableStubParagraphLayoutEngine(
                     cjkLatinSpaceMaxEm = clreqProfile.autoSpace.stretchMaxEm,
                     noStretchBoundaryClusters = noStretchBoundaryClusters,
                     noStretchBoundaryAfterClusters = noStretchBoundaryAfterClusters,
+                    westernBracketCjkInterCharBoundaryAfterClusters =
+                        westernBracketCjkInterCharBoundaryAfterClusters,
                     uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
                     preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
                 )
@@ -2265,6 +2288,7 @@ class ExplainableStubParagraphLayoutEngine(
                 inlineObjectDecisions = inlineObjectDecisions,
                 inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
                 zeroWidthBreakDecisions = zeroWidthBreakDecisions,
+                breakOpportunityDecisions = breakOpportunityDecisions,
             ),
         )
     }
@@ -2793,6 +2817,44 @@ class ExplainableStubParagraphLayoutEngine(
             '.', '-', '_', '?', '&', '=', '#', '%', '~' -> true
             else -> false
         }
+    }
+
+    /**
+     * `BibliographicNumericLocatorBreak`: a volume(issue):page-range locator is
+     * structured Western text, not one indivisible opaque token. Expose clean
+     * breaks before the issue group and after the colon while keeping every
+     * digit run and the page range itself intact.
+     *
+     * This is deliberately narrower than a general numeric parser: ordinary
+     * decimals, thousands separators, dates, times, and short identifiers keep
+     * their existing cohesion rules.
+     */
+    private fun String.bibliographicNumericLocatorBreakOffsets(): List<Int> {
+        val open = indexOf('(')
+        if (open <= 0 || this[0].isDigit().not()) return emptyList()
+        val close = indexOf(')', startIndex = open + 1)
+        if (close <= open + 1) return emptyList()
+        val colon = indexOf(':', startIndex = close + 1)
+        if (colon != close + 1 || colon >= lastIndex) return emptyList()
+
+        val volume = substring(0, open)
+        val issue = substring(open + 1, close)
+        val pages = substring(colon + 1).removeSuffix(".")
+        if (volume.isEmpty() || issue.isEmpty() || pages.isEmpty()) return emptyList()
+        if (!volume.all(Char::isDigit) || !issue.all(Char::isDigit)) return emptyList()
+
+        val rangeSeparator = pages.indexOfFirst { it == '-' || it == '\u2013' || it == '\u2014' }
+        val pagesAreNumeric = if (rangeSeparator < 0) {
+            pages.all(Char::isDigit)
+        } else {
+            rangeSeparator > 0 &&
+                rangeSeparator < pages.lastIndex &&
+                pages.substring(0, rangeSeparator).all(Char::isDigit) &&
+                pages.substring(rangeSeparator + 1).all(Char::isDigit)
+        }
+        if (!pagesAreNumeric) return emptyList()
+
+        return listOf(open, colon + 1)
     }
 
     private fun String.hasBreakableLatinSolidus(): Boolean =

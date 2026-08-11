@@ -92,6 +92,12 @@ class Justifier(
      */
         noStretchBoundaryAfterClusters: Set<Int> = emptySet(),
         /**
+         * `WesternBracketCjkInterChar`: boundaries where a proportional
+         * Western bracket directly touches CJK body text. They join tier 3 at
+         * the same share as every other eligible character gap.
+         */
+        westernBracketCjkInterCharBoundaryAfterClusters: Set<Int> = emptySet(),
+        /**
          * Explicit object edges that join the final equal-spacing pass. The
          * index is the cluster on the left of the boundary. Opaque inline
          * objects remain fixed unless their provider opts an edge in.
@@ -297,6 +303,8 @@ class Justifier(
         //   - `PunctuationLatinInterChar`: 标点↔西文 — a 标点 face abutting a
         //     Western word IS 剩余字符间距 too (CLREQ tier ③ excludes only
         //     不可断标点 + 连接号/分隔号, NOT 标点↔西文);
+        //   - `WesternBracketCjkInterChar`: proportional OP/CL/CP brackets
+        //     directly touching CJK body text, without changing their face;
         //   - virtual W↔N gaps after their tier-② cap;
         //   - one logical gap for every non-collapsed word space / typed W↔N space after its
         //     tier-①/② allocation. The delta lands on the space cluster itself.
@@ -319,9 +327,22 @@ class Justifier(
             val virtualSinoWestern = allowSinoWesternGapStretch &&
                 isWideNarrowBoundary(leftIdx, rightIdx, eastAsianSpacingEdges)
             (bothCjk || punctWestern || virtualSinoWestern) &&
+                leftIdx !in westernBracketCjkInterCharBoundaryAfterClusters &&
                 leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
                 // CLREQ: inseparable symbol pairs stay closed; boundaries
                 // touching connectors, solidus, dash, or ellipsis also stay closed.
+                !boundaryIsClosed(leftIdx, rightIdx)
+        }
+        val westernBracketCjkOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.CjkInterChar,
+            priority = 3,
+            capacity = remaining,
+            reason = "WesternBracketCjkInterChar",
+        ) { leftIdx, rightIdx ->
+            leftIdx in westernBracketCjkInterCharBoundaryAfterClusters &&
+                leftIdx !in uniformInlineObjectBoundaryAfterClusters &&
                 !boundaryIsClosed(leftIdx, rightIdx)
         }
         val uniformInlineObjectBoundaryOpps = buildBoundaryOpportunities(
@@ -351,7 +372,8 @@ class Justifier(
                 )
             }
         }
-        val cjkInterOpps = uniformTextBoundaryOpps + uniformInlineObjectBoundaryOpps + uniformSpaceOpps
+        val cjkInterOpps =
+            uniformTextBoundaryOpps + westernBracketCjkOpps + uniformInlineObjectBoundaryOpps + uniformSpaceOpps
         remaining = allocate(
             deficit = remaining,
             opportunities = cjkInterOpps,
@@ -410,6 +432,7 @@ class Justifier(
         kind: GlueKind,
         priority: Int,
         capacity: Float,
+        reason: String? = null,
         predicate: (leftIdx: Int, rightIdx: Int) -> Boolean,
     ): List<JustificationOpportunity> {
         if (capacity <= 0f) return emptyList()
@@ -421,6 +444,7 @@ class Justifier(
                     kind = kind,
                     priority = priority,
                     capacity = capacity,
+                    reason = reason,
                 )
             }
         }
@@ -447,7 +471,7 @@ class Justifier(
                         kind = opp.kind,
                         priority = opp.priority,
                         delta = alloc,
-                        reason = reason,
+                        reason = opp.reason ?: reason,
                     )
                 }
             }
@@ -460,7 +484,7 @@ class Justifier(
                         kind = opp.kind,
                         priority = opp.priority,
                         delta = opp.capacity,
-                        reason = reason,
+                        reason = opp.reason ?: reason,
                     )
                 }
             }
@@ -544,6 +568,7 @@ data class JustificationOpportunity(
     val kind: GlueKind,
     val priority: Int,
     val capacity: Float,
+    val reason: String? = null,
 )
 
 data class JustificationAllocation(

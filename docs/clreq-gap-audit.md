@@ -164,6 +164,9 @@ justify 延长、`AdjacentInterlinearLineShortening`（相邻侧各回缩 1/16em
   落为 `NumberSymbolCohesion.unbreakableRanges(text)`（clreq，含内部小数点/
   千分位 `. ,`），引擎并入 breaker 的 `unbreakableRanges`。**仅当该组宽度 ≤ 版心
   才生效**——比版心还宽的数字组无法整行保留，回退正常断行而非强加不可能约束。
+  `44(10):21-38.` 这类文献“卷（期）：页码范围”不是一个数字组；2026-08-11 起由
+  `BibliographicNumericLocatorBreak` 在期号前、冒号后提供 clean 断点，同时保留各连续
+  数字与页码范围本身。详见 ADR 0029 amendment。
 - **中西自动间距按 Unicode `East_Asian_Spacing` 接线**——已解决（2026-07-28，
   ADR 0009 amendment）：W↔N 是边界真值，不再把 `FontRole.LatinText` 当字符分类；Greek、
   Cyrillic 等随官方表进入 N。N 的边界字符是十进制数字→`cjkDigit`，其余→`cjkLatin`；

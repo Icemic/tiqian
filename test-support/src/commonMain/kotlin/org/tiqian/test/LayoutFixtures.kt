@@ -94,6 +94,25 @@ object EarlyLayoutFixtures {
                 "keeps Western closing/opening punctuation attached even when a shared code point uses a Latin face.",
         ),
         LayoutFixture(
+            id = "mi10s-western-bracket-citation-wrap",
+            text = "史力军,姚晨,杨国玉,等.常见有机化合物中文词汇的读音详解[J].化学教育(中英文), 2023, 44(10):21-38.",
+            constraints = LayoutConstraints(maxWidth = 272f),
+            notes = "Mi 10s dogfood regression: WesternBracketCjkInterChar lets proportional ASCII " +
+                "parentheses touching Chinese share tier-3 equal expansion without changing their Latin face; " +
+                "BibliographicNumericLocatorBreak exposes clean volume(issue):page-range boundaries while each " +
+                "digit run and the page range remain intact.",
+            lineLengthGrid = LineLengthGrid(enabled = false),
+        ),
+        LayoutFixture(
+            id = "bibliographic-numeric-locator-break",
+            text = "中文中文中文44(10):21-38.",
+            constraints = LayoutConstraints(maxWidth = 224f),
+            notes = "BibliographicNumericLocatorBreak lets the preceding Chinese line take " +
+                "44(10): and wraps before the intact page range 21-38.; the volume and issue " +
+                "digit runs remain cohesive and no synthetic hyphen is added.",
+            lineLengthGrid = LineLengthGrid(enabled = false),
+        ),
+        LayoutFixture(
             id = "unmatched-curly-quotes",
             text = "’90s James’； “truncated；中文“未闭",
             constraints = LayoutConstraints(maxWidth = 240f),

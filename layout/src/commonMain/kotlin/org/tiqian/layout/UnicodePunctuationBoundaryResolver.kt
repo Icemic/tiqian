@@ -22,6 +22,54 @@ internal data class UnicodePunctuationBoundaries(
 )
 
 /**
+ * Named policy: `WesternBracketCjkInterChar`.
+ *
+ * ASCII and other Western brackets retain their Latin face and proportional
+ * advance, but a bracket directly touching CJK body text still forms an
+ * ordinary character-spacing position for CLREQ tier-3 equal expansion. This
+ * is deliberately independent of line breaking: [resolveUnicodePunctuationBoundaries]
+ * continues to keep opening brackets off line ends and closing brackets off
+ * line starts.
+ *
+ * The returned indices identify the cluster on the left of each boundary.
+ */
+internal fun resolveWesternBracketCjkInterCharBoundaries(
+    text: String,
+    clusters: List<Cluster>,
+    clusterRoles: List<FontRole>,
+): Set<Int> = buildSet {
+    for (leftIndex in 0 until clusters.lastIndex) {
+        val rightIndex = leftIndex + 1
+        val leftIsWesternBracket =
+            clusterRoles.getOrNull(leftIndex) != FontRole.CjkPunctuation &&
+                text.substring(clusters[leftIndex].range.start, clusters[leftIndex].range.end)
+                    .lastSignificantCodePoint()
+                    ?.codePoint
+                    ?.isWesternBracketCodePoint() == true
+        val rightIsWesternBracket =
+            clusterRoles.getOrNull(rightIndex) != FontRole.CjkPunctuation &&
+                text.substring(clusters[rightIndex].range.start, clusters[rightIndex].range.end)
+                    .firstSignificantCodePoint()
+                    ?.codePoint
+                    ?.isWesternBracketCodePoint() == true
+        val leftIsCjkBody = clusterRoles.getOrNull(leftIndex) == FontRole.CjkText
+        val rightIsCjkBody = clusterRoles.getOrNull(rightIndex) == FontRole.CjkText
+        if ((leftIsWesternBracket && rightIsCjkBody) || (leftIsCjkBody && rightIsWesternBracket)) {
+            add(leftIndex)
+        }
+    }
+}
+
+private fun Int.isWesternBracketCodePoint(): Boolean =
+    UnicodePunctuationLineBreak.classOf(this) in WESTERN_BRACKET_LINE_BREAK_CLASSES
+
+private val WESTERN_BRACKET_LINE_BREAK_CLASSES = setOf(
+    UnicodePunctuationLineBreakClass.OpenPunctuation,
+    UnicodePunctuationLineBreakClass.ClosePunctuation,
+    UnicodePunctuationLineBreakClass.CloseParenthesis,
+)
+
+/**
  * Named policy: `Uax14WesternPunctuationBoundary`.
  *
  * Implemented UAX #14 punctuation rules:

@@ -956,6 +956,16 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
             }
             appendLine("</div>")
         }
+        if (result.debug.breakOpportunityDecisions.isNotEmpty()) {
+            appendLine("<div class=\"metrics\">")
+            result.debug.breakOpportunityDecisions.forEach { decision ->
+                appendLine(
+                    "<span class=\"metric\">break-opportunity ${decision.range.start}-${decision.range.end} " +
+                        "offsets=${decision.breakOffsets.joinToString(",")} ${decision.reason}</span>",
+                )
+            }
+            appendLine("</div>")
+        }
         if (result.debug.inlineObjectPunctuationAttachmentDecisions.isNotEmpty()) {
             appendLine("<div class=\"metrics\">")
             result.debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
@@ -1029,7 +1039,10 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
                 )
                 justification.allocations.forEach { alloc ->
                     appendLine(
-                        "<span class=\"metric\">${alloc.kind} +${alloc.delta.oneDecimal()} @${alloc.clusterRange.start}-${alloc.clusterRange.end}</span>",
+                        "<span class=\"metric\">${alloc.kind} +${alloc.delta.oneDecimal()} " +
+                            "@${alloc.clusterRange.start}-${alloc.clusterRange.end}" +
+                            (if (alloc.reason == alloc.kind) "" else " ${alloc.reason}") +
+                            "</span>",
                     )
                 }
             }

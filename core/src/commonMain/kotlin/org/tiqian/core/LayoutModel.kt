@@ -179,6 +179,19 @@ data class LayoutDebugInfo(
     val inlineObjectDecisions: List<InlineObjectDecisionInfo> = emptyList(),
     val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo> = emptyList(),
     val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo> = emptyList(),
+    val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo> = emptyList(),
+)
+
+/**
+ * A named source-level policy that exposed clean line-break offsets inside an
+ * otherwise indivisible shaping segment. Offsets are absolute UTF-16 source
+ * offsets; no source character or synthetic glyph is inserted.
+ */
+data class BreakOpportunityDecisionInfo(
+    val range: TextRange,
+    val sourceText: String,
+    val breakOffsets: List<Int>,
+    val reason: String,
 )
 
 data class InlineBoxDecisionInfo(

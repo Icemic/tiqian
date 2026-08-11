@@ -26,6 +26,8 @@ class JustifierTest {
     private fun slashLatin(at: Int, w: Float) = Cluster(TextRange(at, at + 3), "/Hi", fontKey = "latin", advance = w)
     private fun punctuation(at: Int, text: String = "（") =
         Cluster(TextRange(at, at + 1), text, fontKey = "cjk", advance = em)
+    private fun westernBracket(at: Int, text: String) =
+        Cluster(TextRange(at, at + 1), text, fontKey = "latin", advance = 0.5f * em)
     private fun inlineObject(at: Int, text: String) =
         Cluster(TextRange(at, at + text.length), text, displayText = "", fontKey = "inline-object", advance = 2f * em)
     private fun spacingEdges(clusters: List<Cluster>) =
@@ -311,6 +313,45 @@ class JustifierTest {
         val uniform = plan.allocations.filter { it.kind == GlueKind.CjkInterChar }
         assertEquals(listOf(0, 3, 4, 2), uniform.map { it.targetClusterIndex })
         uniform.forEach { assertEquals(0.375f * em, it.delta, 0.001f) }
+        assertEquals(0f, plan.unfilledDeficit)
+    }
+
+    @Test
+    fun westernBracketsTouchingCjkShareTierThreeStretch() {
+        val clusters = listOf(
+            cjk(0),
+            westernBracket(1, "("),
+            cjk(2),
+            westernBracket(3, ")"),
+            cjk(4),
+        )
+        val roles = listOf(
+            FontRole.CjkText,
+            FontRole.LatinText,
+            FontRole.CjkText,
+            FontRole.LatinText,
+            FontRole.CjkText,
+        )
+        val natural = clusters.sumOf { it.advance.toDouble() }.toFloat()
+        val plan = Justifier().justify(
+            adjustedClusters = clusters,
+            clusterRoles = roles,
+            eastAsianSpacingEdges = spacingEdges(clusters),
+            lineClusterRange = clusters.indices,
+            maxWidth = natural + em,
+            fontSize = em,
+            skip = false,
+            cjkLatinSpaceBaseEm = 0.25f,
+            cjkLatinSpaceMaxEm = 0.5f,
+            westernBracketCjkInterCharBoundaryAfterClusters = setOf(0, 1, 2, 3),
+        )
+
+        val allocations = plan.allocations.filter { it.kind == GlueKind.CjkInterChar }
+        assertEquals(setOf(0, 1, 2, 3), allocations.map { it.targetClusterIndex }.toSet())
+        allocations.forEach {
+            assertEquals("WesternBracketCjkInterChar", it.reason)
+            assertEquals(0.25f * em, it.delta, 0.001f)
+        }
         assertEquals(0f, plan.unfilledDeficit)
     }
 

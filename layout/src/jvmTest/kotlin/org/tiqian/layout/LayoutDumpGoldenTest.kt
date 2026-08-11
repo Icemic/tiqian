@@ -139,6 +139,13 @@ class LayoutDumpGoldenTest {
                     (k.impossibleMeasureFallback?.let { " fallback=$it" } ?: ""),
             )
         }
+        debug.breakOpportunityDecisions.forEach { decision ->
+            appendLine(
+                "break-opportunity ${decision.range.start}-${decision.range.end} " +
+                    "source='${decision.sourceText.escapeDumpText()}' " +
+                    "offsets=${decision.breakOffsets.joinToString(",")} reason=${decision.reason}",
+            )
+        }
         debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
             appendLine(
                 "inline-object-punctuation ${attachment.objectRange.start}-${attachment.objectRange.end} " +
@@ -162,7 +169,10 @@ class LayoutDumpGoldenTest {
                 ?.let { j ->
                     "deficit=${j.deficitBefore.fmt()}->${j.deficitAfter.fmt()}" +
                         j.allocations
-                            .joinToString(",") { "${it.kind}@${it.clusterRange.start}+${it.delta.fmt()}" }
+                            .joinToString(",") {
+                                "${it.kind}@${it.clusterRange.start}+${it.delta.fmt()}" +
+                                    if (it.reason == it.kind) "" else "(${it.reason})"
+                            }
                             .takeIf { it.isNotEmpty() }
                             ?.let { " $it" }
                             .orEmpty()
