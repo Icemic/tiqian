@@ -334,7 +334,7 @@ private fun platformFontFor(
 }
 
 @TargetApi(31)
-private class AndroidGlyphBatch31 {
+internal class AndroidGlyphBatch31 {
     private var glyphIds = IntArray(32)
     private var positions = FloatArray(64)
     private var count = 0
@@ -375,13 +375,27 @@ private class AndroidGlyphBatch31 {
 
     fun flush(canvas: android.graphics.Canvas, paint: Paint) {
         if (count == 0) return
-        paint.color = color
-        paint.textSize = Float.fromBits(textSizeBits)
-        paint.isFakeBoldText = fakeBold
-        paint.textSkewX = Float.fromBits(textSkewBits)
-        canvas.drawGlyphs(glyphIds, 0, positions, 0, count, checkNotNull(font), paint)
-        count = 0
-        font = null
+        // append() prepares Paint for the incoming glyph before it flushes the
+        // previous batch. Keep that pending style intact: otherwise the old
+        // batch style becomes the new batch style as well.
+        val pendingColor = paint.color
+        val pendingTextSize = paint.textSize
+        val pendingFakeBold = paint.isFakeBoldText
+        val pendingTextSkew = paint.textSkewX
+        try {
+            paint.color = color
+            paint.textSize = Float.fromBits(textSizeBits)
+            paint.isFakeBoldText = fakeBold
+            paint.textSkewX = Float.fromBits(textSkewBits)
+            canvas.drawGlyphs(glyphIds, 0, positions, 0, count, checkNotNull(font), paint)
+        } finally {
+            paint.color = pendingColor
+            paint.textSize = pendingTextSize
+            paint.isFakeBoldText = pendingFakeBold
+            paint.textSkewX = pendingTextSkew
+            count = 0
+            font = null
+        }
     }
 
     private fun ensureCapacity(required: Int) {

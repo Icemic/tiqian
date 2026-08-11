@@ -11,6 +11,10 @@ kotlin {
         namespace = "org.tiqian.compose"
         compileSdk = 36
         minSdk = 23
+        androidResources.enable = true
+        withDeviceTest {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        }
     }
 
     sourceSets {
@@ -34,6 +38,12 @@ kotlin {
             implementation(project(":shaping:android-adapter"))
             // Host font catalogs are part of the Android artifact contract.
             api(project(":shaping:native-font"))
+        }
+
+        getByName("androidDeviceTest").dependencies {
+            implementation(kotlin("test"))
+            implementation("androidx.test:runner:1.7.0")
+            implementation("androidx.test.ext:junit:1.3.0")
         }
 
         jvmTest.dependencies {
