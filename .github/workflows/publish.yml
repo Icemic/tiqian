@@ -66,9 +66,17 @@ jobs:
           echo "$cmake_bin_dir" >> "$GITHUB_PATH"
           "$cmake_bin_dir/cmake" --version
 
-      - name: Verify Tiqian release build
+      - name: Verify platform-independent tests and release artifacts
         run: |
-          ./gradlew build publishTiqianToMavenLocal \
+          ./gradlew \
+            :core:allTests \
+            :font:allTests \
+            :linebreak:allTests \
+            :clreq:allTests \
+            :layout:allTests \
+            :shaping:api:allTests \
+            assemble \
+            publishTiqianToMavenLocal \
             -Dmaven.repo.local="$RUNNER_TEMP/tiqian-maven-preflight" \
             --no-daemon
 
