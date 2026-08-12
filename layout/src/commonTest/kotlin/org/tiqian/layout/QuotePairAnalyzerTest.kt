@@ -3,6 +3,7 @@ package org.tiqian.layout
 import org.tiqian.core.TextRange
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
+import org.tiqian.font.FontRoleContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -61,7 +62,7 @@ class QuotePairAnalyzerTest {
     fun contractionInsideCjkSingleQuotesKeepsApostropheLatin() {
         val text = "\u4E2D\u2018that\u2019s\u2019\u4E2D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
 
         assertEquals(FontRole.CjkPunctuation, roles[1])
         assertEquals(FontRole.CjkPunctuation, roles[text.lastIndex - 1])
@@ -71,19 +72,19 @@ class QuotePairAnalyzerTest {
 
     @Test
     fun inWordApostropheMatrixDoesNotConsumeOuterQuotePairs() {
-        for (word in listOf("that’s", "l’été", "rock’n’roll", "version2’s")) {
+        for (word in listOf("that’s", "l’été", "rock’n’roll", "version2’s", "α’β", "а’б", "e\u0301’s")) {
             assertTrue(analyzer.analyze(word).isEmpty(), word)
-            val decisions = analyzer.classifyQuoteRoles(word, emptyList(), classifier)
+            val decisions = analyzer.classifyQuoteRoles(word, emptyList())
             assertTrue(decisions.all { it.role == FontRole.LatinText }, "$word: $decisions")
             assertTrue(
-                decisions.all { it.source == "LatinInWordApostropheExclusion" },
+                decisions.all { it.source == "NonCjkInWordApostrophe" },
                 "$word: $decisions",
             )
 
             val quoted = "‘$word’"
             val pair = analyzer.analyze(quoted)
             assertEquals(listOf(QuotePair(0, quoted.lastIndex, QuoteType.Single)), pair, quoted)
-            val roles = analyzer.classifyPairs(quoted, pair, classifier)
+            val roles = analyzer.classifyPairs(quoted, pair)
             assertEquals("L".repeat(quoted.count { it.isCurlyQuote() }), roles.toRoleSignature(quoted), quoted)
         }
     }
@@ -118,7 +119,7 @@ class QuotePairAnalyzerTest {
         // 他说"你好"
         val text = "\u4ED6\u8BF4\u201C\u4F60\u597D\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.CjkPunctuation, roles[2]) // opening "
         assertEquals(FontRole.CjkPunctuation, roles[5]) // closing "
     }
@@ -128,7 +129,7 @@ class QuotePairAnalyzerTest {
         // he said "hello" world
         val text = "he said \u201Chello\u201D world"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.LatinText, roles[8])  // opening "
         assertEquals(FontRole.LatinText, roles[14]) // closing "
     }
@@ -138,7 +139,7 @@ class QuotePairAnalyzerTest {
         // 他说"hello" — opening quote's outer context is CJK
         val text = "\u4ED6\u8BF4\u201Chello\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.CjkPunctuation, roles[2]) // opening "
         assertEquals(FontRole.CjkPunctuation, roles[8]) // closing " — same as opening
     }
@@ -149,13 +150,12 @@ class QuotePairAnalyzerTest {
         val decisions = analyzer.classifyQuoteRoles(
             text,
             analyzer.analyze(text),
-            classifier,
         )
 
         assertEquals(listOf(3, 5, 8, 10), decisions.map { it.index }.sorted())
         assertTrue(decisions.all { it.role == FontRole.LatinText }, decisions.toString())
         assertTrue(
-            decisions.all { it.source == "WhitespaceDelimitedLatinQuotePair" },
+            decisions.all { it.source == "DelimitedWesternQuotationRun" },
             decisions.toString(),
         )
     }
@@ -163,7 +163,7 @@ class QuotePairAnalyzerTest {
     @Test
     fun unspacedCjkQuotationOfLatinTextRemainsCjk() {
         val text = "他说‘hello’"
-        val roles = analyzer.classifyPairs(text, analyzer.analyze(text), classifier)
+        val roles = analyzer.classifyPairs(text, analyzer.analyze(text))
 
         assertEquals(FontRole.CjkPunctuation, roles[2])
         assertEquals(FontRole.CjkPunctuation, roles[text.lastIndex])
@@ -190,11 +190,11 @@ class QuotePairAnalyzerTest {
             val finalOpen = text.lastIndexOf('“')
             val finalClose = text.lastIndexOf('”')
             val finalPairDecisions = analyzer
-                .classifyQuoteRoles(text, analyzer.analyze(text), classifier)
+                .classifyQuoteRoles(text, analyzer.analyze(text))
                 .filter { it.index == finalOpen || it.index == finalClose }
             assertEquals(2, finalPairDecisions.size, text)
             assertTrue(
-                finalPairDecisions.all { it.source == "PreviousQuotedSiblingContentExclusion" },
+                finalPairDecisions.all { it.source == "PairedPunctuationOuterScriptContext" },
                 "$text: $finalPairDecisions",
             )
         }
@@ -203,7 +203,7 @@ class QuotePairAnalyzerTest {
     @Test
     fun spacedCjkQuotedContentRemainsCjk() {
         val text = "他说 ‘你好’"
-        val roles = analyzer.classifyPairs(text, analyzer.analyze(text), classifier)
+        val roles = analyzer.classifyPairs(text, analyzer.analyze(text))
 
         assertEquals(FontRole.CjkPunctuation, roles[3])
         assertEquals(FontRole.CjkPunctuation, roles[text.lastIndex])
@@ -214,7 +214,7 @@ class QuotePairAnalyzerTest {
         // "你好" — no outer context, defaults to CJK
         val text = "\u201C\u4F60\u597D\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.CjkPunctuation, roles[0]) // opening "
         assertEquals(FontRole.CjkPunctuation, roles[3]) // closing "
     }
@@ -223,27 +223,75 @@ class QuotePairAnalyzerTest {
     fun classifiesTextStartLatinPairFromQuotedContent() {
         val text = "\u201CHello\u201D world"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.LatinText, roles[0])
         assertEquals(FontRole.LatinText, roles[6])
+    }
+
+    @Test
+    fun mixedChineseQuestionAtParagraphStartUsesParagraphLanguage() {
+        val text = "“Json是谁？”"
+        val decisions = analyzer.classifyQuoteRoles(text, analyzer.analyze(text))
+
+        assertEquals(listOf(0, text.lastIndex), decisions.map { it.index })
+        assertTrue(decisions.all { it.role == FontRole.CjkPunctuation }, decisions.toString())
+        assertTrue(decisions.all { it.source == "ParagraphLanguageQuoteContext" }, decisions.toString())
+    }
+
+    @Test
+    fun explicitEnglishParagraphLanguageWinsForMixedQuotation() {
+        val text = "“Json是谁？”"
+        val decisions = analyzer.classifyQuoteRoles(
+            text,
+            analyzer.analyze(text),
+            FontRoleContext(locale = "en"),
+        )
+
+        assertTrue(decisions.all { it.role == FontRole.LatinText }, decisions.toString())
+        assertTrue(decisions.all { it.source == "ParagraphLanguageQuoteContext" }, decisions.toString())
+    }
+
+    @Test
+    fun commonDigitsDoNotChooseTheQuoteRole() {
+        val text = "“2024”"
+        val pairs = analyzer.analyze(text)
+
+        val chinese = analyzer.classifyQuoteRoles(text, pairs)
+        assertTrue(chinese.all { it.role == FontRole.CjkPunctuation }, chinese.toString())
+        assertTrue(chinese.all { it.source == "ParagraphLanguageQuoteContext" }, chinese.toString())
+
+        val english = analyzer.classifyQuoteRoles(text, pairs, FontRoleContext(locale = "en"))
+        assertTrue(english.all { it.role == FontRole.LatinText }, english.toString())
+        assertTrue(english.all { it.source == "ParagraphLanguageQuoteContext" }, english.toString())
+    }
+
+    @Test
+    fun nonLatinWesternScriptsParticipateAsStrongScriptEvidence() {
+        val cases = listOf(
+            QuoteRoleCase("standalone Cyrillic quotation", "“Привет”", "LL"),
+            QuoteRoleCase("mixed Greek and Chinese quotation", "“π是谁？”", "CC"),
+            QuoteRoleCase("CJK prose quoting Cyrillic", "他说“Привет”", "CC"),
+        )
+
+        for (case in cases) assertRoleSignature(case)
     }
 
     @Test
     fun numberedCjkQuotePrefixUsesQuotedContent() {
         val text = "1.\u201C\u4F60\u77E5\u9053\u674E\u767D\u662F\u600E\u4E48\u6B7B\u7684\u5417\uFF1F\u201D"
         val pairs = analyzer.analyze(text)
-        val decisions = analyzer.classifyQuoteRoles(text, pairs, classifier)
+        val decisions = analyzer.classifyQuoteRoles(text, pairs)
 
         assertEquals(FontRole.CjkPunctuation, decisions.single { it.index == 2 }.role)
         assertEquals(FontRole.CjkPunctuation, decisions.single { it.index == text.lastIndex }.role)
-        assertEquals("NumberedCjkQuotePrefix", decisions.single { it.index == 2 }.source)
+        assertEquals("PairedPunctuationContentScriptContext", decisions.single { it.index == 2 }.source)
     }
 
     @Test
     fun numberedLatinQuotePrefixStillUsesLatinContent() {
         val text = "1.\u201CHello\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
 
         assertEquals(FontRole.LatinText, roles[2])
         assertEquals(FontRole.LatinText, roles[8])
@@ -254,7 +302,7 @@ class QuotePairAnalyzerTest {
         // 他说："她说'你好'。"
         val text = "\u4ED6\u8BF4\uFF1A\u201C\u5979\u8BF4\u2018\u4F60\u597D\u2019\u3002\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         // Outer double quotes — left of " is ： (CJK punctuation)
         assertEquals(FontRole.CjkPunctuation, roles[3])
         assertEquals(FontRole.CjkPunctuation, roles[11])
@@ -268,7 +316,7 @@ class QuotePairAnalyzerTest {
         // She said "he said 'hello' today" end
         val text = "She said \u201Che said \u2018hello\u2019 today\u201D end"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         // All quotes should be Latin
         for ((_, role) in roles) {
             assertEquals(FontRole.LatinText, role)
@@ -280,7 +328,7 @@ class QuotePairAnalyzerTest {
         // English: "hello" — colon and space before quote
         val text = "English: \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         // : is Unknown, space is Unknown, but 'h' in "English" is Latin
         assertEquals(FontRole.LatinText, roles[9])  // opening "
         assertEquals(FontRole.LatinText, roles[15]) // closing "
@@ -290,7 +338,7 @@ class QuotePairAnalyzerTest {
     fun skipsNeutralDashWhenResolvingContext() {
         val text = "English \u2014 \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.LatinText, roles[10])
         assertEquals(FontRole.LatinText, roles[16])
     }
@@ -300,7 +348,7 @@ class QuotePairAnalyzerTest {
         // he said "hello"
         val text = "he said \u201Chello\u201D"
         val pairs = analyzer.analyze(text)
-        val roles = analyzer.classifyPairs(text, pairs, classifier)
+        val roles = analyzer.classifyPairs(text, pairs)
         assertEquals(FontRole.LatinText, roles[8])  // opening "
         assertEquals(FontRole.LatinText, roles[14]) // closing " at end of text
     }
@@ -310,6 +358,8 @@ class QuotePairAnalyzerTest {
         val cases = listOf(
             QuoteRoleCase("Latin content at text start", "“Hello”", "LL"),
             QuoteRoleCase("CJK content at text start", "“你好”", "CC"),
+            QuoteRoleCase("mixed Chinese question at text start", "“Json是谁？”", "CC"),
+            QuoteRoleCase("Cyrillic content at text start", "“Привет”", "LL"),
             QuoteRoleCase("CJK prose quoting Latin", "他说“hello”", "CC"),
             QuoteRoleCase("Latin prose quoting CJK", "He said “你好”", "LL"),
             QuoteRoleCase("spaced Western initials in CJK", "（如 ‘O’, ‘Q’）", "LLLL"),
@@ -333,21 +383,22 @@ class QuotePairAnalyzerTest {
     @Test
     fun roleDecisionSourcesStayExplainableAcrossFallbackPaths() {
         val cases = listOf(
-            "“Hello”" to "QuotePairQuotedContentContext",
-            "English—“Hello”" to "QuotePairOuterContext",
-            "（如 ‘O’）" to "WhitespaceDelimitedLatinQuotePair",
-            "1.“中文”" to "NumberedCjkQuotePrefix",
-            "“”English" to "QuotePairFollowingContext",
-            "“”" to "QuotePairDefaultCjkContext",
-            "that’s" to "LatinInWordApostropheExclusion",
-            "中文 ’90s" to "WhitespaceDelimitedUnmatchedLatinQuote",
-            "James’" to "UnmatchedCurlyQuoteOuterContext",
-            "’90s" to "UnmatchedCurlyQuoteFollowingContext",
-            "”" to "UnmatchedCurlyQuoteDefaultCjkContext",
+            "“Hello”" to "PairedPunctuationContentScriptContext",
+            "“Json是谁？”" to "ParagraphLanguageQuoteContext",
+            "English—“Hello”" to "PairedPunctuationOuterScriptContext",
+            "（如 ‘O’）" to "DelimitedWesternQuotationRun",
+            "1.“中文”" to "PairedPunctuationContentScriptContext",
+            "“”English" to "PairedPunctuationOuterScriptContext",
+            "“”" to "ParagraphLanguageQuoteContext",
+            "that’s" to "NonCjkInWordApostrophe",
+            "中文 ’90s" to "DelimitedUnmatchedWesternQuote",
+            "James’" to "UnmatchedQuoteSurroundingScriptContext",
+            "’90s" to "UnmatchedQuoteSurroundingScriptContext",
+            "”" to "ParagraphLanguageQuoteContext",
         )
 
         for ((text, expectedSource) in cases) {
-            val decisions = analyzer.classifyQuoteRoles(text, analyzer.analyze(text), classifier)
+            val decisions = analyzer.classifyQuoteRoles(text, analyzer.analyze(text))
             assertTrue(decisions.isNotEmpty(), text)
             assertTrue(decisions.all { it.source == expectedSource }, "$text: $decisions")
         }
@@ -360,7 +411,7 @@ class QuotePairAnalyzerTest {
     )
 
     private fun assertRoleSignature(case: QuoteRoleCase) {
-        val roles = analyzer.classifyPairs(case.text, analyzer.analyze(case.text), classifier)
+        val roles = analyzer.classifyPairs(case.text, analyzer.analyze(case.text))
         assertEquals(case.expectedSignature, roles.toRoleSignature(case.text), case.label)
     }
 

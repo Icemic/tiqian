@@ -93,12 +93,12 @@ font 44-45 role=CjkText key=cjk-primary display='自' sub=CjkPunctuationGlyphPol
 font 45-46 role=CjkText key=cjk-primary display='韵' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 46-47 role=CjkText key=cjk-primary display='书' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 47-48 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' LatinText->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 18-19 source='”' LatinText->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
+role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 18-19 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 6-7 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '”' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 12-13 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -217,12 +217,12 @@ font 44-45 role=CjkText key=cjk-primary display='自' sub=CjkPunctuationGlyphPol
 font 45-46 role=CjkText key=cjk-primary display='韵' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 46-47 role=CjkText key=cjk-primary display='书' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 47-48 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' LatinText->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 18-19 source='”' LatinText->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
+role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 18-19 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 6-7 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '”' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 12-13 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -341,12 +341,12 @@ font 44-45 role=CjkText key=cjk-primary display='自' sub=CjkPunctuationGlyphPol
 font 45-46 role=CjkText key=cjk-primary display='韵' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 46-47 role=CjkText key=cjk-primary display='书' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 47-48 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' LatinText->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 18-19 source='”' LatinText->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
-role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PreviousQuotedSiblingContentExclusion reason=previous-quoted-sibling-content-excluded; quote-pair-opening-left-context
+role-override 6-7 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 12-13 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 18-19 source='”' LatinText->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 19-20 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 24-25 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 6-7 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '”' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 12-13 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds

@@ -127,6 +127,11 @@ placement 或 ink bounds：layout 选择能保留原墨迹及框内安全边距�
 只有缺少字体几何时才使用具名 profile fallback。renderer 不再为标点另行移动 glyph。
 中文上下文弯引号会先请求字体 `fwid`；若字体仍给出比例宽 glyph，layout 只把完整比例 glyph
 box 放到语义正确的全宽字身一侧，再从该全宽字身计算压缩，不在比例盒内部重排墨迹。
+弯引号的中文 / 西文 role 由结构化上下文解析：配对阶段只建立嵌套关系，role 阶段汇总同一外层
+左右两侧与完整引文的强脚本文本，混合或无文字证据时服从 `TextStyle.locale`。相邻引文内容不会
+泄漏为下一对的外层上下文，renderer 也不重新猜测 role。强文本证据固定使用 Unicode 17.0.0
+`Scripts.txt` 的 Script 数据；Common、Inherited 与未分配码点不提供语言证据，也不依赖
+Android、JVM 或 JS 自带的 Unicode 表。
 
 ## 排版核心
 

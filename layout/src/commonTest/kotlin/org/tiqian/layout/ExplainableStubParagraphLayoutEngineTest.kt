@@ -748,7 +748,7 @@ class ExplainableStubParagraphLayoutEngineTest {
                 .filter { it.range.start in finalQuoteIndices }
             assertEquals(finalQuoteIndices, finalQuoteOverrides.mapTo(mutableSetOf()) { it.range.start }, text)
             assertTrue(
-                finalQuoteOverrides.all { it.source == "PreviousQuotedSiblingContentExclusion" },
+                finalQuoteOverrides.all { it.source == "PairedPunctuationOuterScriptContext" },
                 text,
             )
             assertEquals(text, result.input.content.text)
@@ -774,7 +774,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         val finalOverrides = result.debug.roleOverrides.filter { it.range.start == finalOpen || it.range.start == finalClose }
         assertEquals(setOf(finalOpen, finalClose), finalOverrides.mapTo(mutableSetOf()) { it.range.start })
         assertTrue(finalOverrides.all { it.overriddenRole == FontRole.CjkPunctuation.name })
-        assertTrue(finalOverrides.all { it.source == "PreviousQuotedSiblingContentExclusion" })
+        assertTrue(finalOverrides.all { it.source == "PairedPunctuationOuterScriptContext" })
         assertTrue(
             result.lines.none { line -> text.substring(line.range.start, line.range.end).startsWith('”') },
             result.lines.joinToString { line -> text.substring(line.range.start, line.range.end) },
@@ -833,8 +833,33 @@ class ExplainableStubParagraphLayoutEngineTest {
         val closeQuoteOverride = result.debug.roleOverrides.firstOrNull { it.range.start == 6 }
         assertEquals("LatinText", openQuoteOverride?.overriddenRole)
         assertEquals("CjkPunctuation", openQuoteOverride?.originalRole)
-        assertEquals("QuotePairQuotedContentContext", openQuoteOverride?.source)
+        assertEquals("PairedPunctuationOuterScriptContext", openQuoteOverride?.source)
         assertEquals("LatinText", closeQuoteOverride?.overriddenRole)
+    }
+
+    @Test
+    fun mixedChineseQuestionAtParagraphStartKeepsCjkQuoteGeometry() {
+        val text = "“Json是谁？”"
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        val quoteIndices = setOf(0, text.lastIndex)
+        val overrides = result.debug.roleOverrides.filter { it.range.start in quoteIndices }
+        assertEquals(quoteIndices, overrides.mapTo(mutableSetOf()) { it.range.start })
+        assertTrue(overrides.all { it.overriddenRole == FontRole.CjkPunctuation.name })
+        assertTrue(overrides.all { it.source == "ParagraphLanguageQuoteContext" })
+        assertEquals(
+            quoteIndices,
+            result.debug.punctuationDecisions
+                .filter { it.char == '“' || it.char == '”' }
+                .mapTo(mutableSetOf()) { it.range.start },
+        )
+        assertEquals(text, result.clusters.joinToString(separator = "") { it.text })
     }
 
     @Test
@@ -853,8 +878,8 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertEquals("cjk-primary", openQuote.fontKey)
 
         val openQuoteOverride = result.debug.roleOverrides.single { it.range.start == 2 }
-        assertEquals("NumberedCjkQuotePrefix", openQuoteOverride.source)
-        assertEquals("numbered-prefix-uses-quoted-cjk-context", openQuoteOverride.reason)
+        assertEquals("PairedPunctuationContentScriptContext", openQuoteOverride.source)
+        assertEquals("quoted-content-script", openQuoteOverride.reason)
         assertEquals(FontRole.CjkPunctuation.name, openQuoteOverride.overriddenRole)
     }
 

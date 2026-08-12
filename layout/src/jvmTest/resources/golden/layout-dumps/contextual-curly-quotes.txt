@@ -21,11 +21,11 @@ font 9-10 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPoli
 font 10-11 role=CjkPunctuation key=cjk-primary display='’' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='‘' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 6-7 source='’' LatinText->LatinText policy=LatinInWordApostropheExclusion reason=latin-in-word-apostrophe
-role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
-role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
+role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 6-7 source='’' LatinText->LatinText policy=NonCjkInWordApostrophe reason=non-cjk-in-word-apostrophe
+role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
+role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
 punct 1-2 '‘' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 8-9 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -59,11 +59,11 @@ font 9-10 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPoli
 font 10-11 role=CjkPunctuation key=cjk-primary display='’' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='‘' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 6-7 source='’' LatinText->LatinText policy=LatinInWordApostropheExclusion reason=latin-in-word-apostrophe
-role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
-role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
+role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 6-7 source='’' LatinText->LatinText policy=NonCjkInWordApostrophe reason=non-cjk-in-word-apostrophe
+role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
+role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
 punct 1-2 '‘' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 8-9 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -97,11 +97,11 @@ font 9-10 role=CjkText key=cjk-primary display='中' sub=CjkPunctuationGlyphPoli
 font 10-11 role=CjkPunctuation key=cjk-primary display='’' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='，' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='‘' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 6-7 source='’' LatinText->LatinText policy=LatinInWordApostropheExclusion reason=latin-in-word-apostrophe
-role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
-role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedCurlyQuoteOuterContext reason=unmatched-curly-quote-left-context
+role-override 1-2 source='‘' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 6-7 source='’' LatinText->LatinText policy=NonCjkInWordApostrophe reason=non-cjk-in-word-apostrophe
+role-override 8-9 source='’' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='’' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
+role-override 12-13 source='‘' CjkPunctuation->CjkPunctuation policy=UnmatchedQuoteSurroundingScriptContext reason=unmatched-quote-surrounding-script
 punct 1-2 '‘' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 8-9 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 10-11 '’' class=Closing adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds

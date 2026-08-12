@@ -335,7 +335,7 @@ class ExplainableStubParagraphLayoutEngine(
         val measureEm = measure / fontSize
 
         val quotePairs = quotePairAnalyzer.analyze(text)
-        val quoteRoleDecisions = quotePairAnalyzer.classifyQuoteRoles(text, quotePairs, fontRoleClassifier, context)
+        val quoteRoleDecisions = quotePairAnalyzer.classifyQuoteRoles(text, quotePairs, context)
         val quoteRoleOverrides = quoteRoleDecisions.associate { it.index to it.role }
         val roleOverrideInfos = quoteRoleDecisions.toRoleOverrideInfos(
             text = text,

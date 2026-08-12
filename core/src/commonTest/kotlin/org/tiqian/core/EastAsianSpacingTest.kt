@@ -2,8 +2,17 @@ package org.tiqian.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class EastAsianSpacingTest {
+    @Test
+    fun chineseLanguageContextUsesPinnedMacrolanguageRegistry() {
+        assertTrue(UnicodeEastAsianSpacing.isChineseLanguageContext("zh-Hans"))
+        assertTrue(UnicodeEastAsianSpacing.isChineseLanguageContext("yue-Hant-HK"))
+        assertFalse(UnicodeEastAsianSpacing.isChineseLanguageContext("en"))
+    }
+
     @Test
     fun usesPinnedUnicodeDraftDataAcrossScripts() {
         assertEquals(EastAsianSpacingValue.Wide, UnicodeEastAsianSpacing.propertyOf('提'.code))

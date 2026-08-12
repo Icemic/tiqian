@@ -73,24 +73,31 @@ object EarlyLayoutFixtures {
             id = "contextual-curly-quotes",
             text = "中‘that’s’中’，‘",
             constraints = LayoutConstraints(maxWidth = 192f),
-            notes = "LatinInWordApostropheExclusion keeps the apostrophe in that’s on the Latin run " +
+            notes = "NonCjkInWordApostrophe keeps the apostrophe in that’s on the Western run " +
                 "while the surrounding single quotes retain CJK punctuation geometry; the trailing " +
                 "’，‘ sequence exercises both adjacent-punctuation compression boundaries.",
+        ),
+        LayoutFixture(
+            id = "mixed-script-quote-paragraph-language",
+            text = "“Json是谁？”",
+            constraints = LayoutConstraints(maxWidth = 192f),
+            notes = "A quote-only Chinese paragraph begins with a Latin identifier; full content evidence is mixed, " +
+                "so ParagraphLanguageQuoteContext keeps the pair on CJK punctuation geometry.",
         ),
         LayoutFixture(
             id = "adjacent-curly-quote-list-context",
             text = "中文“对A”“波霸”；中文“欧派”“double”“double may”呢",
             constraints = LayoutConstraints(maxWidth = 320f),
-            notes = "PreviousQuotedSiblingContentExclusion skips each completed quoted list item " +
-                "while resolving the next pair's outer prose context, so Latin content in one item " +
-                "cannot switch a following CJK-context quote pair to proportional Latin geometry.",
+            notes = "PairedPunctuationOuterScriptContext evaluates ordinary text at the enclosing level " +
+                "and excludes every quoted sibling, so Latin content in one item cannot switch a following " +
+                "CJK-context quote pair to proportional Latin geometry.",
         ),
         LayoutFixture(
             id = "mi10s-adjacent-curly-quote-wrap",
             text = "所以这个和 “骑ji” “说shui”“斜xiá”不一样，港台是从众的，大陆读音大多数源自韵书。",
             constraints = LayoutConstraints(maxWidth = 160f),
-            notes = "Mi 10s dogfood regression: PreviousQuotedSiblingContentExclusion gives the adjacent " +
-                "‘斜xiá’ pair its outer Chinese prose context, while Uax14WesternPunctuationBoundary " +
+            notes = "Mi 10s dogfood regression: PairedPunctuationOuterScriptContext gives the adjacent " +
+                "‘斜xiá’ pair its enclosing Chinese prose context, while Uax14WesternPunctuationBoundary " +
                 "keeps Western closing/opening punctuation attached even when a shared code point uses a Latin face.",
         ),
         LayoutFixture(
@@ -116,7 +123,7 @@ object EarlyLayoutFixtures {
             id = "unmatched-curly-quotes",
             text = "’90s James’； “truncated；中文“未闭",
             constraints = LayoutConstraints(maxWidth = 240f),
-            notes = "UnmatchedCurlyQuoteDirectionalContext keeps leading elisions, trailing " +
+            notes = "UnmatchedQuoteSurroundingScriptContext keeps leading elisions, trailing " +
                 "possessives, and spaced truncated Latin quotations proportional while an " +
                 "unspaced truncated quote in Chinese remains CJK punctuation.",
         ),

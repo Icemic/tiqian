@@ -36,6 +36,9 @@ object UnicodeEastAsianSpacing {
     const val LANGUAGE_REGISTRY_SOURCE: String =
         "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry"
 
+    /** Resolves the pinned IANA language registry's `zh` macrolanguage members. */
+    fun isChineseLanguageContext(locale: String): Boolean = locale.isChineseLanguageContext()
+
     /** Returns the unresolved property value for one Unicode scalar value. */
     fun propertyOf(codePoint: Int): EastAsianSpacingValue {
         require(codePoint in 0..0x10FFFF) { "Not a Unicode scalar value: $codePoint" }

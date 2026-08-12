@@ -101,19 +101,23 @@ adjustment 用 margin 表达，不能为了减少 DOM 再合并成连续 text ru
 ### `RoleAwareCurlyQuoteReplay`：共用码点按 role 选 script / feature
 
 U+2018–U+201D 同时用于中文引号和西文 quote / apostrophe，exact-font shaping 不能只按码点
-固定一种字面。`QuotePairAnalyzer` 先按段落上下文决定成对引号的 `FontRole`，同时应用
-`LatinInWordApostropheExclusion`：U+2019 两侧都是拉丁单词字符时不消耗外层单引号对。因此
-`中‘that’s’中` 的外层引号仍是 CJK punctuation，中间 `that’s` 则保持连续的 Latin run。
+固定一种字面。`QuotePairAnalyzer` 只建立嵌套配对，`ContextualQuoteRoleResolver` 再按 UAX #24
+对 Common 成对标点的处理原则解析 role：先汇总引号外同一层级左右两侧的强脚本文本，再看已解析的
+外层引号与引号内的完整强脚本文本；证据混合或缺失时使用段落 BCP-47 locale。它不再让左侧一个字符
+或引文的第一个字符决定整对引号。因此独立中文段落 `“Json是谁？”` 使用 CJK role，显式 `locale=en`
+的同一段文字则使用 Latin role。
+强脚本证据固定到 Unicode 17.0.0 `Scripts.txt`；Common、Inherited 与未分配码点
+不参与投票，因此数字、空格和标点不会被误当成西文语境。这也避免 Android 系统版本、
+JVM 与 JavaScript 运行时各自的 Unicode 表令希腊文、西里尔文等证据跨平台漂移。
 
-`UnmatchedCurlyQuoteDirectionalContext` 补齐不成对但仍有明确语言语境的弯引号：词中撇号
-(`that’s`)、尾部所有格 (`James’`)、省略式开头 (`’90s`) 与被截断的 quotation 先看紧邻的
-Western 空格和前后有意义的文字 run，再决定 Latin / CJK role。这个规则只增加结构化 role
-decision，不补写缺失引号，也不修改 source range；没有任何文字语境时仍保守落到 CJK。
+相邻引文在同一层级统一处理，解析外层证据时跳过所有已配对的 sibling 内容。因此
+`中文“对A”“波霸”` 和 `中文“欧派”“double”“double may”` 都继承引号之外的中文正文，不需要为每个
+相邻组合另设分支。以 Western 空白明确隔开的纯西文引文仍形成独立 run，例如
+`（如 ‘O’, ‘Q’）`；结构化编号前缀不作为正文语言证据。
 
-`PreviousQuotedSiblingContentExclusion` 处理相邻的引文列举项：当新开引号向左寻找外层语境时，
-若首先遇到一个已成对的闭引号，则跨过该完整引文后继续寻找，不把前一列举项末尾的文字当成当前项的
-外层正文。因此 `中文“对A”“波霸”` 和 `中文“欧派”“double”“double may”` 的各对引号都沿用外层中文正文的
-CJK role；该决定进入 `roleOverrides` 及 layout dump，不改写 source text。
+未配对的弯引号使用左右两侧完整的强脚本证据，冲突时同样回到段落 locale。U+2019 两侧属于
+非 CJK 词字符时由 `NonCjkInWordApostrophe` 保持在 Western run，并且不消耗外层单引号对。
+这些规则只增加结构化 role decision，不补写缺失引号，也不修改 source range。
 
 构建端对每个已分段的 `ShapingInput` 使用同一条具名策略，browser replay 以完整输入 key 消费其结果：
 

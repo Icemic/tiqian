@@ -32,8 +32,8 @@ font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGl
 font 10-11 role=CjkPunctuation key=cjk-primary display='”' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
+role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 2-3 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 3-4 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 6-7 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -85,8 +85,8 @@ font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGl
 font 10-11 role=CjkPunctuation key=cjk-primary display='”' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
+role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 2-3 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 3-4 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 6-7 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
@@ -138,8 +138,8 @@ font 9-10 role=CjkPunctuation key=cjk-primary display='。' sub=CjkPunctuationGl
 font 10-11 role=CjkPunctuation key=cjk-primary display='”' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 11-12 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
 font 12-13 role=CjkPunctuation key=cjk-primary display='！' sub=CjkPunctuationGlyphPolicy:PreferClreqRecommendedCodepoints:preserve
-role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
-role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=QuotePairOuterContext reason=quote-pair-opening-left-context
+role-override 3-4 source='“' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
+role-override 10-11 source='”' CjkPunctuation->CjkPunctuation policy=PairedPunctuationOuterScriptContext reason=quote-pair-inherits-enclosing-level-script
 punct 2-3 '：' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 3-4 '“' class=Opening adv=16.0 body=8.0 lead=8.0 trail=0.0 anchor=Trailing source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
 punct 6-7 '，' class=PauseOrStop adv=16.0 body=8.0 lead=0.0 trail=8.0 anchor=Leading source=ProfileGlueFallbackWithoutFontGeometry fallback=shaper-no-ink-bounds
