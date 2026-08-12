@@ -1,0 +1,88 @@
+name: Stage Tiqian Maven release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Maven release version
+        required: true
+        type: string
+      namespace:
+        description: Central Portal namespace
+        required: true
+        default: org.tiqian
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage-tiqian-maven-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    env:
+      TIQIAN_VERSION: ${{ inputs.version }}
+      MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+      MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+      SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+      SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+      SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+    steps:
+      - name: Check out Tiqian
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$TIQIAN_VERSION" == *-SNAPSHOT ]]; then
+            echo "Central staging requires an immutable non-SNAPSHOT version." >&2
+            exit 1
+          fi
+          for variable in MAVEN_CENTRAL_USERNAME MAVEN_CENTRAL_PASSWORD SIGNING_KEY; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "Required release secret $variable is missing." >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+
+      - name: Install CMake 4.3.2 for Android native font
+        run: |
+          python3 -m venv "$HOME/cmake-venv"
+          "$HOME/cmake-venv/bin/pip" install --quiet "cmake==4.3.2"
+          cmake_bin_dir="$("$HOME/cmake-venv/bin/python" -c 'import cmake, os; print(os.path.join(os.path.dirname(cmake.__file__), "data", "bin"))')"
+          echo "$cmake_bin_dir" >> "$GITHUB_PATH"
+          "$cmake_bin_dir/cmake" --version
+
+      - name: Verify Tiqian release build
+        run: |
+          ./gradlew build publishTiqianToMavenLocal \
+            -Dmaven.repo.local="$RUNNER_TEMP/tiqian-maven-preflight" \
+            --no-daemon
+
+      - name: Upload Tiqian modules
+        run: ./gradlew publishTiqianToCentral --no-daemon
+
+      - name: Create Central Portal deployment
+        env:
+          CENTRAL_NAMESPACE: ${{ inputs.namespace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          authorization="$(printf '%s:%s' "$MAVEN_CENTRAL_USERNAME" "$MAVEN_CENTRAL_PASSWORD" | base64 | tr -d '\n')"
+          curl --fail-with-body --retry 3 \
+            --request POST \
+            --header "Authorization: Bearer $authorization" \
+            "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/$CENTRAL_NAMESPACE?publishing_type=user_managed"

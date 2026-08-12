@@ -42,3 +42,14 @@ Android namespace 跟随具体发布模块，不要求 `shaping/api` 等平台�
   `org.tiqian.markdown.compose`。
 - 这次迁移发生在首次公开发布前，不提供旧包名或旧 artifact 的兼容转发。
 - `org.tiqian` 必须先在 Maven Central 完成 namespace 验证，发布流程才能使用这些坐标。
+
+## Amendment：仓库持有各自的发布流程（2026-08-12）
+
+三个仓库各自持有 Maven staging 工作流，只上传本仓库拥有的 publication，并分别创建
+user-managed Central Portal deployment。Central token 与 PGP 签名密钥由 GitHub 组织持有，
+只授权给这三个发布仓库。
+
+联合发布仍先用隔离 Maven 仓库验证同一版本的真实依赖与消费者编译；Markdown staging 在本地
+准备同版本的 Tiqian 与 Math 产物，但不得代替它们上传。三个 deployment 全部通过 Central
+验证后，再按 Tiqian、Math、Markdown 的依赖顺序公开。这样保留锁步版本的发布门槛，同时让
+失败重试、权限和产物所有权停留在各自仓库。
