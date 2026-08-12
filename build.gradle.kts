@@ -54,13 +54,6 @@ fun Project.configureMavenPublishing(module: PublishedModule) {
     pluginManager.apply("maven-publish")
     pluginManager.apply("signing")
 
-    val javadocJar = tasks.register<Jar>("javadocJar") {
-        archiveClassifier.set("javadoc")
-        from(rootProject.file("LICENSE")) {
-            into("META-INF")
-        }
-    }
-
     extensions.configure<PublishingExtension>("publishing") {
         repositories {
             maven {
@@ -100,9 +93,18 @@ fun Project.configureMavenPublishing(module: PublishedModule) {
     afterEvaluate {
         extensions.configure<PublishingExtension>("publishing") {
             publications.withType(MavenPublication::class.java).configureEach {
+                val publicationName = name
                 val targetSuffix = artifactId.removePrefix(project.name)
                 artifactId = module.artifactId + targetSuffix
-                artifact(javadocJar)
+                artifact(
+                    tasks.register<Jar>("${publicationName}PublicationJavadocJar") {
+                        archiveBaseName.set("${project.name}-$publicationName")
+                        archiveClassifier.set("javadoc")
+                        from(rootProject.file("LICENSE")) {
+                            into("META-INF")
+                        }
+                    },
+                )
                 pom {
                     name.set(module.displayName)
                     description.set(module.description)
