@@ -27,7 +27,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0013 JVM AWT shaping adapter](0013-jvm-awt-shaping-adapter.md)
 - [0014 Ink-bounds 标点几何校准](0014-ink-bounds-calibrated-punctuation-geometry.md)
 - [0015 Skiko shaping adapter 交叉验证](0015-skiko-shaping-adapter-cross-check.md)
-- [0016 Android API 23 native 字体后端与平台 shaping oracle](0016-android-textpaint-adapter.md)
+- [0016 Android 平台 run 重放与受控 native 字体后端](0016-android-textpaint-adapter.md)
 - [0017 Compose Desktop renderer](0017-compose-desktop-renderer.md)
 - [0043 多 face 段降级为平台字符串绘制](0043-multi-face-platform-string-draw-degrade.md)
 - [0045 Apple (Kotlin/Native) 目标](0045-apple-kotlin-native-target.md)
@@ -66,6 +66,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0044 选区/装饰几何按 glyph 边界映射源偏移](0044-source-offset-glyph-geometry.md)
 - [0047 Core Text 渲染前端](0047-core-text-rendering-frontend.md)
 - [0048 套件 Maven 坐标与包命名](0048-suite-maven-and-package-namespaces.md)
+- [0049 虚拟正文选区使用逻辑文档坐标](0049-logical-document-selection.md)
 
 ## 早期状态说明
 
