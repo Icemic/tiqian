@@ -31,6 +31,7 @@ class ParagraphDpLineBreakerTest {
         maxCjkStretchPerGap: Float = 8f,
         shrinkOpportunities: List<ShrinkOpportunity> = emptyList(),
         lineAdjustmentPushIn: Boolean = false,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
     ): LineSolution = breaker.breakLines(
         naturalClusters = clusters,
         adjustedClusters = clusters,
@@ -42,6 +43,7 @@ class ParagraphDpLineBreakerTest {
         cjkInterCharBoundaries = cjkInterCharBoundaries,
         maxCjkStretchPerGap = maxCjkStretchPerGap,
         lineAdjustmentPushIn = lineAdjustmentPushIn,
+        progressiveBreakOpportunities = progressiveBreakOpportunities,
     )
 
     private fun assertTiles(solution: LineSolution, clusterCount: Int) {
@@ -52,6 +54,43 @@ class ParagraphDpLineBreakerTest {
             expected = line.clusterRange.last + 1
         }
         assertEquals(clusterCount, expected, "lines must cover every cluster")
+    }
+
+    @Test
+    fun compressedSameTierBoundaryIsNotReportedAsPromotion() {
+        val clusters = listOf(
+            cluster(0, "a", 30f),
+            cluster(1, "/", 30f),
+            cluster(2, "b", 25f),
+            cluster(3, "c", 30f),
+            cluster(4, "d", 30f),
+        )
+        val span = TextRange(0, clusters.size)
+        val solution = breakLines(
+            clusters = clusters,
+            maxWidth = 80f,
+            cjkInterCharBoundaries = emptySet(),
+            shrinkOpportunities = listOf(
+                ShrinkOpportunity(
+                    clusterIndex = 2,
+                    tier = 2,
+                    capacity = 5f,
+                    channel = ShrinkChannel.RawAdvance,
+                ),
+            ),
+            lineAdjustmentPushIn = true,
+            progressiveBreakOpportunities = mapOf(
+                1 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
+                2 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Structural, span),
+                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Structural, span),
+            ),
+        )
+
+        assertEquals(0..2, solution.lines.first().clusterRange)
+        assertTrue(
+            (solution.lines.first().repair as RepairOption.PushIn).reason
+                .startsWith("LineAdjustmentPushIn"),
+        )
     }
 
     @Test

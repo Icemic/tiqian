@@ -4,6 +4,8 @@ import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LineLengthGrid
+import org.tiqian.core.LineBreakPolicy
+import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.RubyKind
 import org.tiqian.core.RubyLineHeightMode
 import org.tiqian.core.RubySpan
@@ -41,6 +43,7 @@ data class LayoutFixture(
     val useEnglishHyphenation: Boolean = false,
     /** Disable the default integer-`ic` measure for fixtures that need an exact width. */
     val lineLengthGrid: LineLengthGrid = LineLengthGrid(),
+    val lineBreakSpans: List<LineBreakSpan> = emptyList(),
 )
 
 object EarlyLayoutFixtures {
@@ -319,6 +322,19 @@ object EarlyLayoutFixtures {
                 "when it cannot fit. The 'hyphen=' " +
                 "line tag marks where. Needs the injected English hyphenator.",
             useEnglishHyphenation = true,
+        ),
+        LayoutFixture(
+            id = "progressive-technical-inline",
+            text = "中文 internationalization 命令",
+            constraints = LayoutConstraints(maxWidth = 160f),
+            notes = "ProgressiveTechnicalBreak: semantic link/code text uses syllable boundaries " +
+                "without a displayed hyphen. Only source whitespace contributes bounded technical " +
+                "stretch; structural, camel, syllable, and emergency boundaries never become tracking, " +
+                "and the ordinary paragraph justification chain remains available.",
+            useEnglishHyphenation = true,
+            lineBreakSpans = listOf(
+                LineBreakSpan(TextRange(3, 23), LineBreakPolicy.ProgressiveTechnical),
+            ),
         ),
         LayoutFixture(
             id = "adaptive-short-line-indent",

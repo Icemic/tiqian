@@ -11,6 +11,8 @@ import org.tiqian.core.Glyph
 import org.tiqian.core.GlyphRun
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LineBreakPolicy
+import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.LineLengthGrid
 import org.tiqian.core.LineEndReason
 import org.tiqian.linebreak.Hyphenator
@@ -1598,6 +1600,176 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertTrue(
             result.debug.lineDecisions.none { it.repairDecision?.reasonCode == "ForbiddenAtLineStart" },
             "URL separators are LatinText and must not trigger CJK line-start kinsoku",
+        )
+    }
+
+    @Test
+    fun progressiveTechnicalBreakUsesOrdinaryJustificationInEveryStrategy() {
+        val text = "中文abcdefghij"
+        val technical = LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical)
+        val syllables = object : Hyphenator {
+            override fun hyphenate(word: String): List<Int> = listOf(4, 7)
+        }
+        val breakers: List<LineBreaker> = listOf(
+            GreedyLineBreaker(),
+            LookaheadLineBreaker(),
+            ParagraphDpLineBreaker(),
+        )
+
+        breakers.forEach { breaker ->
+            val result = ExplainableStubParagraphLayoutEngine(
+                lineBreaker = breaker,
+                hyphenator = syllables,
+            ).layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(
+                        firstLineIndent = Ic(0f),
+                        lineLengthGrid = LineLengthGrid(enabled = false),
+                    ),
+                    content = TiqianTextContent(text, lineBreakSpans = listOf(technical)),
+                    constraints = LayoutConstraints(maxWidth = 104f),
+                ),
+            )
+
+            assertEquals(6, result.lines.first().range.end, breaker.strategyName)
+            assertEquals(0f, result.lines.first().hyphenAdvance, breaker.strategyName)
+            assertTrue(
+                result.debug.lineDecisions.first().notes.contains("technical-break:Syllable"),
+                "${breaker.strategyName}: ${result.debug.lineDecisions.first().notes}",
+            )
+            val adjustment = result.debug.justificationDecisions.first { it.lineRange == result.lines.first().range }
+            assertTrue(adjustment.allocations.isNotEmpty(), breaker.strategyName)
+            assertTrue(
+                adjustment.allocations.all { allocation ->
+                    allocation.clusterRange.end <= technical.range.start
+                },
+                "${breaker.strategyName}: ${adjustment.allocations}",
+            )
+            assertEquals(0f, adjustment.deficitAfter, 0.001f, breaker.strategyName)
+        }
+    }
+
+    @Test
+    fun progressiveTechnicalBreakPrefersStructuralBoundaryBeforeSyllableAndEmergency() {
+        val text = "中文ab.cdEfghij"
+        val result = ExplainableStubParagraphLayoutEngine(
+            lineBreaker = LookaheadLineBreaker(),
+            hyphenator = object : Hyphenator {
+                override fun hyphenate(word: String): List<Int> = listOf(2, 4, 6)
+            },
+        ).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent(
+                    text,
+                    lineBreakSpans = listOf(
+                        LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 124f),
+            ),
+        )
+
+        assertEquals("中文ab.cd", result.lineText(0))
+        assertTrue(result.debug.lineDecisions.first().notes.contains("technical-break:Structural"))
+        assertTrue(result.lines.all { it.hyphenAdvance == 0f })
+    }
+
+    @Test
+    fun progressiveTechnicalBreakFallsThroughStructuralTierBeforeOverstretchingOutsideText() {
+        val text = "中 ab/cdefghijk"
+        val technical = LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical)
+        val syllables = object : Hyphenator {
+            override fun hyphenate(word: String): List<Int> = listOf(2, 4, 6)
+        }
+
+        listOf(
+            GreedyLineBreaker(),
+            LookaheadLineBreaker(),
+            ParagraphDpLineBreaker(),
+        ).forEach { breaker ->
+            val result = ExplainableStubParagraphLayoutEngine(
+                lineBreaker = breaker,
+                hyphenator = syllables,
+            ).layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(
+                        firstLineIndent = Ic(0f),
+                        lineLengthGrid = LineLengthGrid(enabled = false),
+                    ),
+                    content = TiqianTextContent(text, lineBreakSpans = listOf(technical)),
+                    constraints = LayoutConstraints(maxWidth = 100f),
+                ),
+            )
+
+            assertEquals(7, result.lines.first().range.end, breaker.strategyName)
+            assertEquals(0f, result.lines.first().hyphenAdvance, breaker.strategyName)
+            assertTrue(
+                result.debug.lineDecisions.first().notes.contains("technical-break:Syllable"),
+                "${breaker.strategyName}: ${result.debug.lineDecisions.first().notes}",
+            )
+            val adjustment = result.debug.justificationDecisions.first {
+                it.lineRange == result.lines.first().range
+            }
+            assertTrue(
+                adjustment.allocations.none { allocation ->
+                    allocation.clusterRange.end > technical.range.start &&
+                        allocation.clusterRange.end < technical.range.end
+                },
+                "${breaker.strategyName}: ${adjustment.allocations}",
+            )
+        }
+    }
+
+    @Test
+    fun unbrokenProgressiveSpanUsesSourceSpaceThenKeepsBodyOpportunitiesAvailable() {
+        val text = "甲乙ab cd丙丁戊己"
+        val technical = LineBreakSpan(TextRange(2, 7), LineBreakPolicy.ProgressiveTechnical)
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent(
+                    text,
+                    lineBreakSpans = listOf(technical),
+                ),
+                constraints = LayoutConstraints(maxWidth = 129f),
+            ),
+        )
+        val baseline = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 129f),
+            ),
+        )
+
+        assertTrue(result.debug.lineDecisions.first().notes.none { it.startsWith("technical-break:") })
+        val adjustment = result.debug.justificationDecisions.first()
+        assertTrue(adjustment.allocations.isNotEmpty())
+        assertEquals(baseline.lines.map { it.range }, result.lines.map { it.range })
+        assertEquals(0f, adjustment.deficitAfter, 0.001f)
+        assertTrue(
+            adjustment.allocations.any {
+                it.clusterRange == TextRange(4, 5) &&
+                    it.kind == "ProgressiveTechnical" &&
+                    it.reason == "ProgressiveTechnicalWhitespaceStretch"
+            },
+            adjustment.allocations.toString(),
+        )
+        assertTrue(
+            adjustment.allocations.any {
+                it.clusterRange.end <= technical.range.start || it.clusterRange.start >= technical.range.end
+            },
+            "bounded technical whitespace must not freeze the remaining body opportunities: ${adjustment.allocations}",
         )
     }
 

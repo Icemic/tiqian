@@ -42,6 +42,13 @@ internal fun String.interactionBoundaries(range: TextRange): List<Int> {
     return interactionBoundaries(start, end)
 }
 
+/**
+ * Safe source-grapheme boundaries for layout policies that must never split a
+ * surrogate pair, combining sequence, emoji modifier/ZWJ sequence, regional
+ * indicator pair, or Hangul syllable sequence.
+ */
+fun String.sourceGraphemeBoundaries(range: TextRange): List<Int> = interactionBoundaries(range)
+
 private fun String.interactionBoundaries(start: Int, end: Int): List<Int> {
     val out = mutableListOf(start)
     var index = start

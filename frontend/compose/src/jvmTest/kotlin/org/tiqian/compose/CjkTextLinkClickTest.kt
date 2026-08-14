@@ -28,6 +28,7 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.getBoundingBoxes
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * `CjkTextLinkClicks`: taps are hit-tested against Tiqian's own geometry and
@@ -153,7 +154,7 @@ class CjkTextLinkClickTest {
     }
 
     @Test
-    fun linkAddedWithoutTextChangeCanReuseCurrentLayoutForHitTesting() {
+    fun linkAddedWithoutTextChangeRelayoutsAndKeepsHitTesting() {
         var clicks = 0
         val listener = LinkInteractionListener { clicks++ }
         val plain = AnnotatedString("链接正文后续。")
@@ -180,6 +181,7 @@ class CjkTextLinkClickTest {
 
             enabled.value = true
             scene.render()
+            assertTrue(layout !== result, "link break policy must invalidate the previous layout")
             tap(scene, box.center)
 
             assertEquals(1, clicks, "link annotations added without text changes must still hit-test")

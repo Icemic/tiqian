@@ -252,3 +252,35 @@ ADR 0026 amendment 已把 UAX #14 的 `EX` / `IS` 基础 no-break 边界用于�
   后续；当前是贪心/lookahead 在音节点、URL/标识串 clean 断点、必要硬断点之间选择。
 - 连字符当前会预留版心宽度；只有内容挤不回 `measure − 连字符宽` 时才悬挂。若日后
   要新增“始终悬挂”或其它 discretionary-break 风格，再另记 amendment。
+
+## Amendment (2026-08-14): ProgressiveTechnicalBreak
+
+链接与行内代码由前端降为同一个 `LineBreakSpan(ProgressiveTechnical)`，核心对其西文 token
+先保留 source 中已有的真实空白边界，再使用三级 clean 断点：第一档为结构符号之后与 CamelCase
+hump；第二档复用当前语言 hyphenator 的音节 offset，但不进入 `hyphenOffsets`、不绘制连字符；
+第三档才是 source-grapheme 安全边界的
+硬断。可独占一行的完整 token 在当前行余量不足时整体换行，避免为了备用硬断破坏未断开文本的
+kerning/shaping；超过整行宽度的技术 segment 才暴露其 grapheme 安全硬断点。每档通常只有在更高档
+不存在可用断点时才参与 greedy、lookahead 与 paragraph-DP 选择；若高档断点会让 span 外少数正文
+机会超过既有西文断词共用的单 gap 拉伸上限，`ProgressiveTechnicalStretchBoundedTierFallback`
+也把它视为不可用并进入下一档。fill PushIn 不得把已经选择的高档断点无条件改写成低档断点。
+
+技术 span 不建立替换正文的 justification policy，也不封闭 span 内或正文中的普通伸缩机会。所有
+非末行仍走同一条 Justifier。为了不把小额余量先推给 span 外的正文，技术文本中 source 真实存在的
+空格提供一个额外、有上限的 `ProgressiveTechnicalWhitespaceStretch`；不足的余量继续使用既有
+词空格、中西间距与中文正文机会。结构符号、CamelCase、音节与硬断边界只是可断点，不是 glue，
+不得在技术文本内制造 letter tracking。inline 位于行中、行尾落在后续正文时没有特殊的冻结分支。
+候选 tier、source offset、最终采用的 tier 与真实空格的补偿进入结构化 debug 和 dump。
+
+反向调整时，技术 span 与普通正文的西文词距统一遵守最小 `1/4em`，不能因 code/link 语义获得
+更窄的角色特例。`ProgressiveTechnicalTierPromotion` 允许 fill PushIn 在既有普通压缩容量足够时，
+把已经选择的 Emergency 边界升级到 Syllable / Structural；它只禁止相对当前边界降档，不能让更早
+但因过松已被淘汰的结构断点再次阻塞升级。paragraph-DP 把同一升级作为可压缩 edge，不能另行过滤。
+实际若前行的等档硬断可前移并消除 overflow，可以不消费空格容量；否则所有 compression allocation
+仍遵守原有 CLREQ 顺序、下限并进入 repair debug。
+
+`ProgressiveTechnicalWhitespaceBreakPricing` 让断点层级的松度估算先扣除候选行内真实源码空格
+已经拥有的有界技术伸缩量；恰好落在行尾并将被折叠的空格不计入。该容量直接取自同一个
+`Justifier` 配置，不能在 breaker 另写常量。paragraph-DP 提交可压缩 edge 时，promotion 也必须
+比较该行未经压缩时实际选中的技术断点与最终断点；同档 Structural → Structural 或
+Syllable → Syllable 仍是普通 `LineAdjustmentPushIn`，不得因更早存在低档候选而伪报升级。

@@ -110,6 +110,7 @@ enum class GlueKind {
     CjkLatinSpace,
     WordSpace,
     CjkInterChar,
+    ProgressiveTechnical,
     InlineObjectPunctuationTrailing,
     InlineObjectRelation,
     InlineObjectBinaryOperator,

@@ -24,6 +24,8 @@ import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LineBreakPolicy
+import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.InlineAttachment
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextPaint
@@ -206,6 +208,14 @@ internal fun AnnotatedString.cjkRichTextSpans(
     return out
 }
 
+/** Links and Tiqian inline code lower to the same core-owned technical break policy. */
+internal fun List<RichTextSpan>.cjkLineBreakSpans(): List<LineBreakSpan> =
+    asSequence()
+        .filter { it.role is RichTextRole.Link || it.role == RichTextRole.InlineCode }
+        .map { LineBreakSpan(it.range, LineBreakPolicy.ProgressiveTechnical) }
+        .distinctBy { it.range to it.policy }
+        .toList()
+
 /**
  * Source range edges that should be exact cluster boundaries for geometry queries.
  * Render-only ranges (color, underline, links) still need boxes that end at the
@@ -335,6 +345,7 @@ fun ParagraphMeasurer.measure(
         rubySpans = renderText.cjkRubySpans(),
         inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
+        lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
     )
 }
 
@@ -369,9 +380,10 @@ fun ParagraphMeasurer.measureWithInlineContent(
     return measure(
         LayoutInput(
             content = TiqianTextContent(
-                renderText.text,
-                renderText.cjkStyleSpans(core, density),
-                sourceBoundaries,
+                text = renderText.text,
+                spans = renderText.cjkStyleSpans(core, density),
+                sourceBoundaries = sourceBoundaries,
+                lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
             ),
             textStyle = core,
             paragraphStyle = lowered.paragraphStyle.withCjkTextStyleLineHeight(lowered.textStyle, density),
@@ -411,6 +423,7 @@ fun ParagraphMeasurer.measure(
         rubySpans = renderText.cjkRubySpans(),
         inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
+        lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
     )
 }
 

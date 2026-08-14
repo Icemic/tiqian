@@ -11,6 +11,9 @@ import org.tiqian.font.FontRole
  * Justifier — distributes a line's deficit (maxWidth - adjustedWidth) across
  * glue resources in CLREQ's expansion order（拉伸处理的优先顺序）:
  *
+ *   0. ProgressiveTechnicalWhitespace — a bounded addition on source-authored
+ *                          spaces inside links/inline code. Break-only technical
+ *                          boundaries never participate in justification.
  *   1. WordSpace         — space inside Latin runs（西文词距，CLREQ 第一档）.
  *                          Word spaces are standalone clusters after
  *                          `LatinWordSegmentation`; all instances in a line
@@ -51,7 +54,18 @@ class Justifier(
      * and does not stretch (a finer proportional space would).
      */
     private val wordSpaceMaxEm: Float = 0.5f,
+    /**
+     * `ProgressiveTechnicalWhitespaceStretch`: source-authored whitespace inside a link or
+     * inline-code span may absorb a small amount beyond the ordinary Western word-space cap.
+     * This is an ADDITIONAL cap, not a final-width cap. Structural, camel-case, syllable, and
+     * emergency break boundaries are deliberately excluded: turning those into glue would
+     * manufacture visible letter spacing inside technical text.
+     */
+    private val progressiveTechnicalWhitespaceStretchMaxEm: Float = 0.25f,
 ) {
+    internal fun progressiveTechnicalWhitespaceStretchCapacity(fontSize: Float): Float =
+        progressiveTechnicalWhitespaceStretchMaxEm * fontSize
+
     fun justify(
         adjustedClusters: List<Cluster>,
         clusterRoles: List<FontRole>,
@@ -60,6 +74,8 @@ class Justifier(
         maxWidth: Float,
         fontSize: Float,
         skip: Boolean,
+        /** Named line policy that disabled positive expansion, when [skip] is true. */
+        skipReason: String? = null,
         /**
          * 「在一些排版风格中，中西间距固定默认宽度……不允许被拉伸」—
          * false keeps the gap fixed: it disables both the preferred
@@ -116,6 +132,8 @@ class Justifier(
          * not allocation policy.
          */
         preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> = emptyMap(),
+        /** Source-whitespace boundaries in link/inline-code text, keyed by the space cluster. */
+        technicalBoundaryAfterClusters: Map<Int, ProgressiveBreakTier> = emptyMap(),
     ): JustificationPlan {
         require(clusterRoles.size == adjustedClusters.size) {
             "clusterRoles must align with adjustedClusters."
@@ -133,6 +151,7 @@ class Justifier(
                 allocations = emptyList(),
                 deficitBefore = deficitBefore,
                 unfilledDeficit = deficitBefore,
+                fallbackReason = if (skip) skipReason else null,
             )
         }
 
@@ -151,6 +170,29 @@ class Justifier(
                 spaceIdx in noStretchBoundaryAfterClusters ||
                 spaceIdx - 1 in noStretchBoundaryClusters ||
                 spaceIdx + 1 in noStretchBoundaryClusters
+
+        // `ProgressiveTechnicalWhitespaceStretch`: only a real source-space is additional glue.
+        // It runs before the ordinary prose tiers so the inline span absorbs a small residual
+        // first. The prose opportunities remain available when this bounded capacity is not
+        // enough; no range is frozen or removed from the ordinary Justifier.
+        val technicalWhitespaceOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.ProgressiveTechnical,
+            priority = ProgressiveBreakTier.Whitespace.priority,
+            capacity = progressiveTechnicalWhitespaceStretchCapacity(fontSize),
+            reason = "ProgressiveTechnicalWhitespaceStretch",
+        ) { leftIdx, _ ->
+            technicalBoundaryAfterClusters[leftIdx] == ProgressiveBreakTier.Whitespace &&
+                adjustedClusters[leftIdx].text.all(Char::isWhitespace)
+        }
+        remaining = allocate(
+            deficit = remaining,
+            opportunities = technicalWhitespaceOpps,
+            reason = "ProgressiveTechnicalWhitespaceStretch",
+            into = allocations,
+        )
+        if (remaining <= 0f) return finalize(lineClusterRange, deficitBefore, remaining, allocations)
 
         // 1. WordSpace — stretch Latin word spaces（CLREQ 拉伸第一档：西文
         // 词距，一行内多处应同时、同等量处理）. A word space is a space-run

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.InlineAttachment
+import org.tiqian.core.LineBreakPolicy
 import org.tiqian.core.RichTextRole
 import org.tiqian.core.RichTextBackgroundDrawStyle
 import org.tiqian.core.RichTextLinePattern
@@ -200,6 +201,10 @@ class CjkAnnotatedTextTest {
         assertEquals(TextRange(4, 8), code.range)
         assertEquals(listOf("monospace"), style.style.fontFamilies)
         assertEquals(14f, style.style.fontSize)
+
+        val breakSpans = rich.cjkLineBreakSpans()
+        assertEquals(listOf(link.range, code.range), breakSpans.map { it.range })
+        assertTrue(breakSpans.all { it.policy == LineBreakPolicy.ProgressiveTechnical })
     }
 
     @Test
@@ -239,6 +244,7 @@ class CjkAnnotatedTextTest {
         assertEquals(0f, span.paint.background.horizontalPadding)
         assertEquals(2f, span.paint.background.verticalPadding)
         assertEquals(4f, span.paint.background.cornerRadius)
+        assertEquals(4f, span.paint.background.continuationCornerRadius)
         assertEquals(2f, span.paint.adjacentSameStyleClearance)
         assertEquals(
             org.tiqian.core.RichTextBackgroundMetricPolicy.UniformTextStyle,
@@ -270,6 +276,7 @@ class CjkAnnotatedTextTest {
         assertEquals(8f, paint.background.horizontalPadding)
         assertEquals(6f, paint.background.verticalPadding)
         assertEquals(6f, paint.background.cornerRadius)
+        assertEquals(2f, paint.background.continuationCornerRadius)
         assertEquals(2f, paint.adjacentSameStyleClearance)
         assertEquals(
             org.tiqian.core.RichTextBackgroundMetricPolicy.UniformParagraphStyle,

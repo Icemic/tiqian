@@ -175,6 +175,58 @@ class LineAdjustmentPushInTest {
         assertEquals(0f, repair.totalShrink)
     }
 
+    @Test
+    fun fillPushInCompressesSourceSpaceToPromoteEmergencyBreakToSyllable() {
+        val clusters = listOf(
+            cluster(0, "a", 20f),
+            cluster(1, " ", 20f),
+            cluster(2, "R", 30f),
+            cluster(3, "e", 15f),
+            cluster(4, "l", 15f),
+        )
+        val lines = listOf(
+            rebuildLine(0..2, clusters, clusters),
+            rebuildLine(3..4, clusters, clusters),
+        )
+        val technicalRange = TextRange(0, 5)
+
+        val filled = applyFillPushIn(
+            lines = lines,
+            naturalClusters = clusters,
+            adjustedClusters = clusters,
+            maxWidth = 80f,
+            shrinkOpportunities = listOf(
+                ShrinkOpportunity(
+                    clusterIndex = 1,
+                    tier = 2,
+                    capacity = 10f,
+                    channel = ShrinkChannel.RawAdvance,
+                ),
+            ),
+            firstLineIndent = 0f,
+            compressBias = 1_000_000f,
+            forbiddenLineStartClusters = emptySet(),
+            forbiddenLineEndClusters = emptySet(),
+            unbreakableRanges = emptyList(),
+            pushInPenalty = 2,
+            gapBoundaries = setOf(0, 1, 2, 3),
+            progressiveBreakOpportunities = mapOf(
+                1 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Structural, technicalRange),
+                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, technicalRange),
+                4 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Syllable, technicalRange),
+            ),
+        )
+
+        assertEquals(0..3, filled[0].clusterRange)
+        assertEquals(80f, filled[0].adjustedWidth)
+        assertEquals(4..4, filled[1].clusterRange)
+        val repair = filled[0].repair as RepairOption.PushIn
+        assertEquals(5f, repair.totalShrink)
+        assertEquals(1, repair.allocations.single().clusterIndex)
+        assertEquals(5f, repair.allocations.single().shrink)
+        assertTrue(repair.reason.startsWith("ProgressiveTechnicalTierPromotion"))
+    }
+
     private fun cluster(index: Int, text: String, advance: Float): Cluster =
         Cluster(
             range = TextRange(index, index + 1),

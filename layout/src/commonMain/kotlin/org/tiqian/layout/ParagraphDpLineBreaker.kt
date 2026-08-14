@@ -99,6 +99,7 @@ internal class ParagraphDpLineBreaker(
         lineAdjustmentCompressBias: Float,
         hardBreakAfterClusters: Set<Int>,
         nonRenderingControlClusters: Set<Int>,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     ): LineSolution {
         if (adjustedClusters.isEmpty()) return LineSolution(emptyList())
         require(naturalClusters.size == adjustedClusters.size) {
@@ -124,6 +125,7 @@ internal class ParagraphDpLineBreaker(
             gapBoundaries = cjkInterCharBoundaries + sinoWesternBoundaries,
             dRef = maxCjkStretchPerGap,
             allowCompressionEdges = lineAdjustmentPushIn,
+            progressiveBreakOpportunities = progressiveBreakOpportunities,
         )
 
         // Segment by authored breaks; the DP never crosses them (ADR 0037).
@@ -181,6 +183,7 @@ internal class ParagraphDpLineBreaker(
         val gapBoundaries: Set<Int>,
         val dRef: Float,
         val allowCompressionEdges: Boolean,
+        val progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     ) {
         /** `gapPrefix[k]` = boundaries below k, so [lineGapCount] over a range is O(1). */
         private val gapPrefix = IntArray(adjustedClusters.size + 1).also { prefix ->
@@ -280,9 +283,15 @@ internal class ParagraphDpLineBreaker(
             nonRenderingControlClusters = context.nonRenderingControlClusters,
         )
         if (rawGreedy >= segmentEndExclusive) return listOf(segmentEndExclusive)
+        val progressiveGreedy = decideProgressiveBreak(
+            start, rawGreedy, context.progressiveBreakOpportunities,
+            context.adjustedClusters, limit,
+            context.cjkInterCharBoundaries, context.maxCjkStretchPerGap,
+            context.sinoWesternBoundaries, context.sinoWesternStretchCap,
+        )
         val baseline = adjustBreakForUnbreakables(
             breakAt = decideHyphenBreak(
-                start, rawGreedy, context.adjustedClusters, limit,
+                start, progressiveGreedy, context.adjustedClusters, limit,
                 context.hyphenBreakClusters, context.cjkInterCharBoundaries, context.maxCjkStretchPerGap,
                 context.sinoWesternBoundaries, context.sinoWesternStretchCap,
             ),
@@ -305,10 +314,26 @@ internal class ParagraphDpLineBreaker(
                 e += 1
             }
         }
+        fun isCompressedProgressiveTierPromotion(candidateEnd: Int): Boolean {
+            if (candidateEnd <= rawGreedy) return false
+            val current = context.progressiveBreakOpportunities[progressiveGreedy] ?: return false
+            val resulting = context.progressiveBreakOpportunities[candidateEnd] ?: return false
+            return current.spanRange == resulting.spanRange &&
+                resulting.tier.priority < current.tier.priority
+        }
         val filtered = (((rawGreedy - candidateWindow)..rawGreedy) + compressed)
             .filter { it in (start + 1)..segmentEndExclusive }
             .filter { e -> !endsWithMandatory || e != segmentEndExclusive - 1 }
             .filter { e -> context.unbreakableRanges.none { e > it.first && e <= it.last } }
+            .filter {
+                isCompressedProgressiveTierPromotion(it) ||
+                    progressiveCandidateAllowed(
+                        start, rawGreedy, it, context.progressiveBreakOpportunities,
+                        context.adjustedClusters, limit,
+                        context.cjkInterCharBoundaries, context.maxCjkStretchPerGap,
+                        context.sinoWesternBoundaries, context.sinoWesternStretchCap,
+                    )
+            }
             .filter { e ->
                 e == segmentEndExclusive ||
                     (start until e).any { it !in context.nonRenderingControlClusters }
@@ -323,7 +348,28 @@ internal class ParagraphDpLineBreaker(
                     )
         }
         val pool = clean.ifEmpty { filtered }
-        return (if (baseline in (start + 1)..segmentEndExclusive) pool + baseline else pool)
+        val promotions = pool.filter(::isCompressedProgressiveTierPromotion)
+        val tierPreferredPool = if (promotions.isEmpty()) {
+            pool
+        } else {
+            // `ProgressiveTechnicalTierPromotion`: once existing source-space
+            // compression makes a better technical tier reachable, do not keep a worse
+            // Emergency boundary merely because its raw geometry is slightly looser.
+            val bestPromotionPriority = promotions.minOf {
+                context.progressiveBreakOpportunities.getValue(it).tier.priority
+            }
+            val promotedSpan = context.progressiveBreakOpportunities.getValue(promotions.first()).spanRange
+            pool.filter { candidateEnd ->
+                val opportunity = context.progressiveBreakOpportunities[candidateEnd]
+                opportunity == null || opportunity.spanRange != promotedSpan ||
+                    opportunity.tier.priority <= bestPromotionPriority
+            }
+        }
+        return (if (baseline in (start + 1)..segmentEndExclusive && promotions.isEmpty()) {
+            tierPreferredPool + baseline
+        } else {
+            tierPreferredPool
+        })
             .distinct()
             .ifEmpty { listOf(baseline.coerceAtLeast(start + 1)) }
     }
@@ -502,7 +548,15 @@ internal class ParagraphDpLineBreaker(
             } else {
                 adjustBreakForUnbreakables(
                     breakAt = decideHyphenBreak(
-                        start, rawGreedy, context.adjustedClusters, limit,
+                        start,
+                        decideProgressiveBreak(
+                            start, rawGreedy, context.progressiveBreakOpportunities,
+                            context.adjustedClusters, limit,
+                            context.cjkInterCharBoundaries, context.maxCjkStretchPerGap,
+                            context.sinoWesternBoundaries, context.sinoWesternStretchCap,
+                        ),
+                        context.adjustedClusters,
+                        limit,
                         context.hyphenBreakClusters, context.cjkInterCharBoundaries,
                         context.maxCjkStretchPerGap,
                         context.sinoWesternBoundaries, context.sinoWesternStretchCap,
@@ -542,6 +596,30 @@ internal class ParagraphDpLineBreaker(
             val naturalLine = rebuildLine(lineStart..lastIndex, naturalClusters, adjustedClusters, endReason)
 
             val compressedLine = if (naturalLine.adjustedWidth > limit && lastIndex > lineStart) {
+                val resultingBreak = context.progressiveBreakOpportunities[chosenEnd]
+                val rawGreedy = findGreedyEnd(
+                    adjustedClusters = adjustedClusters,
+                    start = lineStart,
+                    maxWidth = limit,
+                    endExclusive = ends.last(),
+                    nonRenderingControlClusters = context.nonRenderingControlClusters,
+                )
+                val originalBreak = context.progressiveBreakOpportunities[
+                    decideProgressiveBreak(
+                        lineStart = lineStart,
+                        overflowAt = rawGreedy,
+                        opportunities = context.progressiveBreakOpportunities,
+                        adjustedClusters = adjustedClusters,
+                        lineLimit = limit,
+                        cjkInterCharBoundaries = context.cjkInterCharBoundaries,
+                        maxCjkStretchPerGap = context.maxCjkStretchPerGap,
+                        sinoWesternBoundaries = context.sinoWesternBoundaries,
+                        sinoWesternStretchCap = context.sinoWesternStretchCap,
+                    )
+                ]
+                val promotesProgressiveTier = originalBreak != null && resultingBreak != null &&
+                    originalBreak.spanRange == resultingBreak.spanRange &&
+                    resultingBreak.tier.priority < originalBreak.tier.priority
                 // CompressionAsDpEdge realization: identical repair records to
                 // the fill pass — same tiered capacity, same 行末削半 promotion.
                 val result = tryPushIn(
@@ -553,7 +631,11 @@ internal class ParagraphDpLineBreaker(
                     shrinkOpportunities = context.shrinkOpportunities,
                     pushInPenalty = pushInPenalty,
                     mergeThroughClusterIndex = lastIndex,
-                    reasonCode = "LineAdjustmentPushIn",
+                    reasonCode = if (promotesProgressiveTier) {
+                        "ProgressiveTechnicalTierPromotion"
+                    } else {
+                        "LineAdjustmentPushIn"
+                    },
                 )
                 if (result.candidate.accepted && result.current == null) result.previous else null
             } else {

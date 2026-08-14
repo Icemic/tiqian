@@ -58,7 +58,10 @@ fun main() {
             hyphenator = hyphenator,
         )
         val input = LayoutInput(
-            content = TiqianTextContent(fixture.text),
+            content = TiqianTextContent(
+                fixture.text,
+                lineBreakSpans = fixture.lineBreakSpans,
+            ),
             constraints = fixture.constraints,
             paragraphStyle = org.tiqian.core.ParagraphStyle(
                 lineHeight = fixture.lineHeight,
@@ -898,6 +901,7 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
                 appendLine(
                     "<span class=\"metric\">inline-box ${box.range.start}-${box.range.end} " +
                         "start=${box.inlineStart.oneDecimal()} end=${box.inlineEnd.oneDecimal()} " +
+                        "outer=${box.outerSpacing} " +
                         "clusters=${box.firstClusterIndex}-${box.lastClusterIndex} ${box.reason}</span>",
                 )
             }
@@ -961,7 +965,9 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
             result.debug.breakOpportunityDecisions.forEach { decision ->
                 appendLine(
                     "<span class=\"metric\">break-opportunity ${decision.range.start}-${decision.range.end} " +
-                        "offsets=${decision.breakOffsets.joinToString(",")} ${decision.reason}</span>",
+                        "offsets=${decision.breakOffsets.joinToString(",")}" +
+                        (decision.tier?.let { " tier=$it" } ?: "") +
+                        " ${decision.reason}</span>",
                 )
             }
             appendLine("</div>")

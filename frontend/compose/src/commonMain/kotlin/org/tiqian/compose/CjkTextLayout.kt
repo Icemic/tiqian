@@ -595,6 +595,8 @@ private class CjkTextLayoutNode(
         )
         val inlineBoxesChanged = richTextSpans.backgroundInlineBoxes() !=
             this.richTextSpans.backgroundInlineBoxes()
+        val lineBreakSpansChanged = richTextSpans.cjkLineBreakSpans() !=
+            this.richTextSpans.cjkLineBreakSpans()
         val layoutChanged = text != this.text || textStyle != this.textStyle ||
             paragraphStyle != this.paragraphStyle || decorations != this.decorations ||
             spans != this.spans || rubySpans != this.rubySpans ||
@@ -603,6 +605,7 @@ private class CjkTextLayoutNode(
             minLines != this.minLines || measurer !== this.measurer ||
             oldSourceBoundaries != newSourceBoundaries ||
             inlineBoxesChanged ||
+            lineBreakSpansChanged ||
             inlineObjectPlacements !== this.inlineObjectPlacements
         val richTextChanged = richTextSpans != this.richTextSpans
         val drawChanged = color != this.color || colorSpans != this.colorSpans ||
@@ -779,7 +782,12 @@ private class CjkTextLayoutNode(
                 rubySpans = rubySpans,
             )
             val layoutInput = LayoutInput(
-                content = org.tiqian.core.TiqianTextContent(text, spans, sourceBoundaries),
+                content = org.tiqian.core.TiqianTextContent(
+                    text = text,
+                    spans = spans,
+                    sourceBoundaries = sourceBoundaries,
+                    lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
+                ),
                 textStyle = textStyle,
                 paragraphStyle = paragraphStyle,
                 constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),

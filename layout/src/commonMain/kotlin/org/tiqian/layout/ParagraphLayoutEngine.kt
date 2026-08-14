@@ -45,7 +45,9 @@ import org.tiqian.core.JustificationDecisionInfo
 import org.tiqian.core.LayoutDebugInfo
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
+import org.tiqian.core.LineBreakPolicy
 import org.tiqian.core.InlineBoxDecisionInfo
+import org.tiqian.core.InlineBoxOuterSpacing
 import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.InlineAttachment
 import org.tiqian.core.InlineObjectBoundaryAdjustment
@@ -80,6 +82,7 @@ import kotlin.text.CharCategory
 import org.tiqian.core.LineSpacingDecisionInfo
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
+import org.tiqian.core.sourceGraphemeBoundaries
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FallbackResolver
 import org.tiqian.font.FontMetricsNormalizationInput
@@ -196,6 +199,13 @@ class ExplainableStubParagraphLayoutEngine(
                 "InlineBoxSpan ${inlineBox.range} must have finite inline edges"
             }
         }
+        input.content.lineBreakSpans.forEach { span ->
+            require(
+                span.range.start >= 0 && span.range.start < span.range.end && span.range.end <= text.length,
+            ) {
+                "LineBreakSpan ${span.range} must be a non-empty source range"
+            }
+        }
         require(input.inlineObjects.distinctBy { it.range }.size == input.inlineObjects.size) {
             "InlineObjectSpan ranges must be unique"
         }
@@ -285,6 +295,7 @@ class ExplainableStubParagraphLayoutEngine(
             input.rubySpans.forEach { addRange(it.baseRange) }
             input.inlineBoxes.forEach { addRange(it.range) }
             input.inlineObjects.forEach { addRange(it.range) }
+            input.content.lineBreakSpans.forEach { addRange(it.range) }
             input.content.sourceBoundaries.forEach(::addBoundary)
         }
         val clreqProfile = clreqProfileResolver.resolve(input.profileId)
@@ -392,6 +403,7 @@ class ExplainableStubParagraphLayoutEngine(
         val hyphenGlyphs = shapingStage.hyphenGlyphs
         val substitutionRollbacks = shapingStage.substitutionRollbacks
         val breakOpportunityDecisions = shapingStage.breakOpportunityDecisions
+        val progressiveBreakOffsets = shapingStage.progressiveBreakOffsets
         val rawNaturalClusters = shapingResults.flatMap { it.clusters }
         val shapedGlyphsByClusterRange = shapingResults
             .flatMap { it.glyphRuns }
@@ -411,10 +423,25 @@ class ExplainableStubParagraphLayoutEngine(
         rawNaturalClusters.requireCoveredBy(fontDecisions)
 
         val inlineObjectRanges = input.inlineObjects.map { it.range }
+        // `InlineBoxOuterAutoSpace`: every independent inline box presents one Narrow boundary
+        // contract to adjacent CJK text. The decision is owned here, before line breaking; source
+        // punctuation inside the box and frontend roles do not create separate special cases.
+        val narrowInlineBoxRanges = input.inlineBoxes
+            .filter { it.outerSpacing == InlineBoxOuterSpacing.Narrow }
+            .mapTo(mutableSetOf()) { it.range }
+        val narrowInlineBoxLeadingClusters = rawNaturalClusters.indices
+            .filterTo(mutableSetOf()) { index ->
+                narrowInlineBoxRanges.any { it.start == rawNaturalClusters[index].range.start }
+            }
+        val narrowInlineBoxTrailingClusters = rawNaturalClusters.indices
+            .filterTo(mutableSetOf()) { index ->
+                narrowInlineBoxRanges.any { it.end == rawNaturalClusters[index].range.end }
+            }
         val eastAsianSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
             if (
                 inlineObjectRanges.any { cluster.range.isInside(it) } ||
-                rawNaturalClusters.isAttachedAsciiPointMarkAt(index)
+                (rawNaturalClusters.isAttachedAsciiPointMarkAt(index) &&
+                    index !in narrowInlineBoxLeadingClusters)
             ) {
                 EastAsianSpacingEdges(
                     leading = EastAsianSpacingValue.Other,
@@ -422,9 +449,21 @@ class ExplainableStubParagraphLayoutEngine(
                     containsWide = false,
                 )
             } else {
-                UnicodeEastAsianSpacing.resolvedEdges(
+                val resolved = UnicodeEastAsianSpacing.resolvedEdges(
                     text = cluster.text,
                     locale = input.textStyle.locale,
+                )
+                resolved.copy(
+                    leading = if (index in narrowInlineBoxLeadingClusters) {
+                        EastAsianSpacingValue.Narrow
+                    } else {
+                        resolved.leading
+                    },
+                    trailing = if (index in narrowInlineBoxTrailingClusters) {
+                        EastAsianSpacingValue.Narrow
+                    } else {
+                        resolved.trailing
+                    },
                 )
             }
         }
@@ -434,6 +473,8 @@ class ExplainableStubParagraphLayoutEngine(
             inlineAttachments = rawNaturalClusters.map { styleAt(it.range.start).inlineAttachment },
             policy = clreqProfile.autoSpace,
             fontSize = fontSize,
+            narrowInlineBoxLeadingClusters = narrowInlineBoxLeadingClusters,
+            narrowInlineBoxTrailingClusters = narrowInlineBoxTrailingClusters,
         )
         val inlineBoxResult = autoSpaceResult.clusters.applyInlineBoxSpans(input.inlineBoxes)
         val naturalClusters = inlineBoxResult.clusters
@@ -831,7 +872,8 @@ class ExplainableStubParagraphLayoutEngine(
                             add(ShrinkOpportunity(idx, tier = 6, capacity = capacity, channel = ShrinkChannel.RawAdvance))
                         }
                     } else {
-                        // CLREQ ② 西文词距：最小挤到 1/4em。
+                        // CLREQ ② 西文词距：最小挤到 1/4em。Technical inline only changes
+                        // break-tier selection; its source spaces use this same prose floor.
                         val capacity = cluster.advance - WORD_SPACE_MIN_EM * fontSize
                         if (capacity > 0f) {
                             add(ShrinkOpportunity(idx, tier = 2, capacity = capacity, channel = ShrinkChannel.RawAdvance))
@@ -1089,6 +1131,22 @@ class ExplainableStubParagraphLayoutEngine(
                 naturalClusters[it].range.start in hyphenOffsets
             }
         }
+        val clusterIndexBySourceStart = naturalClusters.indices.associateBy { naturalClusters[it].range.start }
+        val progressiveTechnicalWhitespaceStretchCapacity =
+            justifier.progressiveTechnicalWhitespaceStretchCapacity(fontSize)
+        val progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> =
+            progressiveBreakOffsets.mapNotNull { (sourceOffset, opportunity) ->
+                clusterIndexBySourceStart[sourceOffset]?.let { clusterIndex ->
+                    clusterIndex to if (opportunity.tier == ProgressiveBreakTier.Whitespace) {
+                        opportunity.copy(
+                            precedingWhitespaceStretchCapacity =
+                                progressiveTechnicalWhitespaceStretchCapacity,
+                        )
+                    } else {
+                        opportunity
+                    }
+                }
+            }.toMap()
         val numberSymbolClusterRanges = NumberSymbolCohesion.unbreakableRanges(text)
             .mapNotNull { r ->
                 naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
@@ -1109,10 +1167,15 @@ class ExplainableStubParagraphLayoutEngine(
                 else -> false
             }
         }
-        // CLREQ 拉伸限制①：符号分离禁则规定的内部字间距不得拉伸。
         val noStretchBoundaryAfterClusters = numberSymbolClusterRanges
             .flatMapTo(mutableSetOf()) { range -> range.first until range.last }
-            .apply { addAll(inlineObjectAttachmentNoStretchBoundaries) }
+            .apply {
+                addAll(inlineObjectAttachmentNoStretchBoundaries)
+            }
+        val technicalBoundaryAfterClusters = progressiveBreakOpportunities
+            .filterValues { it.tier == ProgressiveBreakTier.Whitespace }
+            .mapKeys { (rightIndex, _) -> rightIndex - 1 }
+            .mapValues { (_, opportunity) -> opportunity.tier }
         // The breaker's looseness estimate keeps its established two-class
         // approximation. The exact final allocation, including repeated
         // participation of word and sino-western gaps, belongs to Justifier.
@@ -1132,6 +1195,7 @@ class ExplainableStubParagraphLayoutEngine(
         val cjkInterCharBoundaries: Set<Int> = buildSet {
             addAll((1 until naturalClusters.size).filter {
                 it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
+                    it - 1 !in noStretchBoundaryAfterClusters &&
                     clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
             })
             // Paragraph-global and lookahead breakers price the same safe
@@ -1145,6 +1209,7 @@ class ExplainableStubParagraphLayoutEngine(
         val sinoWesternBoundaries: Set<Int> = buildSet {
             addAll((1 until naturalClusters.size).filter {
                 it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
+                    it - 1 !in noStretchBoundaryAfterClusters &&
                     isEastAsianSpacingBoundaryAt(
                         rightIndex = it,
                         clusters = naturalClusters,
@@ -1223,6 +1288,7 @@ class ExplainableStubParagraphLayoutEngine(
                 },
                 hardBreakAfterClusters = mandatoryBreakClusters,
                 nonRenderingControlClusters = zeroWidthBreakClusters,
+                progressiveBreakOpportunities = progressiveBreakOpportunities,
             )
         }
         val appliedHangingClusters = lineSolution.lines
@@ -1473,6 +1539,7 @@ class ExplainableStubParagraphLayoutEngine(
                         attachedInlineVirtualSinoWesternBoundaryAfterClusters,
                     uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
                     preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
+                    technicalBoundaryAfterClusters = technicalBoundaryAfterClusters,
                 )
             }
         }
@@ -1654,6 +1721,7 @@ class ExplainableStubParagraphLayoutEngine(
                     inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
                     zeroWidthBreakDecisions = zeroWidthBreakDecisions,
                     breakOpportunityDecisions = breakOpportunityDecisions,
+                    progressiveBreakOpportunities = progressiveBreakOpportunities,
                 ),
             ),
         )
@@ -1844,6 +1912,7 @@ class ExplainableStubParagraphLayoutEngine(
         val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo>,
         val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo>,
         val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+        val progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     )
 
     /** Materializes the structured decision stream without owning layout policy. */
@@ -1944,6 +2013,8 @@ LayoutDebugInfo(
                             "adjusted:${line.adjustedWidth}",
                             "visual:${line.visualWidth}",
                         ) + listOfNotNull(
+                            progressiveBreakOpportunities[candidate.clusterRange.last + 1]
+                                ?.let { "technical-break:${it.tier.name}" },
                             candidate.repair?.let { "repair-reason:${it.reason}" },
                             justificationPlans.getOrNull(lineIndex)?.fallbackReason
                                 ?.let { "justify-fallback:$it" },
@@ -2317,6 +2388,7 @@ LayoutDebugInfo(
         val hyphenGlyphs: List<Glyph>,
         val substitutionRollbacks: Map<TextRange, String>,
         val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+        val progressiveBreakOffsets: Map<Int, ProgressiveBreakOpportunity>,
     )
 
     /**
@@ -2534,6 +2606,7 @@ LayoutDebugInfo(
             }.map { wordRange.start + it }
         }
         val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
+        val progressiveBreakOffsets = mutableMapOf<Int, ProgressiveBreakOpportunity>()
         fun latinSeparatorCuts(
             tokenRange: TextRange,
             tokenAdvance: Float,
@@ -2588,6 +2661,29 @@ LayoutDebugInfo(
             }
             return cuts.sorted()
         }
+        val progressiveSpanAdvanceCache = mutableMapOf<TextRange, Float>()
+        fun progressiveSpanAdvance(spanRange: TextRange): Float =
+            progressiveSpanAdvanceCache.getOrPut(spanRange) {
+                clusterRanges.sumOf { resolvedRange ->
+                    if (
+                        resolvedRange.mandatoryBreak || resolvedRange.zeroWidthSoftBreak ||
+                        inlineObjectByRange.containsKey(resolvedRange.range)
+                    ) {
+                        return@sumOf 0.0
+                    }
+                    val decision = fontDecisionByRange.getValue(resolvedRange.range)
+                    decision.shapingSegments(text).sumOf { candidate ->
+                        val start = maxOf(candidate.start, spanRange.start)
+                        val end = minOf(candidate.end, spanRange.end)
+                        if (start >= end) {
+                            0.0
+                        } else {
+                            shapeSegment(decision, TextRange(start, end))
+                                .clusters.sumOf { it.advance.toDouble() }
+                        }
+                    }
+                }.toFloat()
+            }
         val shapingResults = clusterRanges.flatMap { resolvedRange ->
             inlineObjectByRange[resolvedRange.range]?.let { inlineObject ->
                 return@flatMap listOf(inlineObjectShapingResult(text, inlineObject))
@@ -2603,6 +2699,10 @@ LayoutDebugInfo(
                 val shaped = shapeSegment(decision, segmentRange)
                 val isLatin = decision.role == FontRole.LatinText && segmentRange.length > 0
                 val w = if (isLatin) text.substring(segmentRange.start, segmentRange.end) else ""
+                val progressiveSpan = input.content.lineBreakSpans.firstOrNull { span ->
+                    span.policy == LineBreakPolicy.ProgressiveTechnical &&
+                        segmentRange.start >= span.range.start && segmentRange.end <= span.range.end
+                }
                 val allLetters = isLatin && w.all { it.isLetter() }
                 // §9.4 全大写缩写不断词；驼峰式在驼峰处断（无连字符）；含 '-' 在
                 // 已有连字符处断（§9.3，无新连字符）。以上都是 clean 断点（不进
@@ -2630,7 +2730,123 @@ LayoutDebugInfo(
                         longestUnhyphenatedLetterPiece >= LATIN_OPAQUE_TOKEN_MIN_LENGTH
                 val isLongOpaqueLatinToken =
                     isLongUnhyphenatedLetterToken || (isLatin && !allLetters && w.length >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)
+                val technicalStructuralCuts = if (progressiveSpan != null && isLatin) {
+                    buildSet {
+                        addAll(camelCaseCuts(segmentRange))
+                        for (i in 0 until w.lastIndex) {
+                            if (w[i] in PROGRESSIVE_TECHNICAL_BREAK_AFTER_CHARS) {
+                                add(segmentRange.start + i + 1)
+                            }
+                        }
+                    }.sorted()
+                } else {
+                    emptyList()
+                }
+                val rawTechnicalSyllableCuts = if (progressiveSpan != null && isLatin) {
+                    buildList {
+                        var runStart = 0
+                        while (runStart < w.length) {
+                            while (runStart < w.length && !w[runStart].isLetter()) runStart += 1
+                            var runEnd = runStart
+                            while (runEnd < w.length && w[runEnd].isLetter()) runEnd += 1
+                            if (runEnd > runStart) {
+                                val word = w.substring(runStart, runEnd)
+                                addAll(
+                                    hyphenator.hyphenate(word)
+                                        .filter { it in 1 until word.length }
+                                        .map { segmentRange.start + runStart + it },
+                                )
+                            }
+                            runStart = maxOf(runEnd, runStart + 1)
+                        }
+                    }.distinct().sorted()
+                } else {
+                    emptyList()
+                }
+                val technicalSyllableCuts = rawTechnicalSyllableCuts
+                    .filterNot { it in technicalStructuralCuts }
+                val technicalEmergencyCuts = if (progressiveSpan != null && isLatin) {
+                    val preferredBounds = (
+                        listOf(segmentRange.start) + technicalStructuralCuts + technicalSyllableCuts +
+                            listOf(segmentRange.end)
+                        ).distinct().sorted()
+                    preferredBounds.zipWithNext().flatMap { (start, end) ->
+                        val pieceRange = TextRange(start, end)
+                        val pieceAdvance = shapeSegment(decision, pieceRange)
+                            .clusters.sumOf { it.advance.toDouble() }.toFloat()
+                        // `ProgressiveTechnicalOverMeasureEmergencyExposure`: once the complete
+                        // technical shaping segment is wider than the measure, expose grapheme-safe
+                        // emergency cuts in its preferred pieces as the final tier. They are still
+                        // ignored while structural/syllable candidates keep outside justification
+                        // under its stretch ceiling; exposing them here prevents the residual from
+                        // being dumped into one or two CJK gaps beside a long path or identifier.
+                        if (
+                            pieceAdvance <= measure &&
+                            progressiveSpanAdvance(progressiveSpan.range) <= measure
+                        ) {
+                            emptyList()
+                        } else {
+                            text.sourceGraphemeBoundaries(pieceRange)
+                                .filter { it > start && it < end }
+                        }
+                    }
+                } else {
+                    emptyList()
+                }
+                if (progressiveSpan != null) {
+                    listOf(
+                        ProgressiveBreakTier.Structural to technicalStructuralCuts,
+                        ProgressiveBreakTier.Syllable to technicalSyllableCuts,
+                        ProgressiveBreakTier.Emergency to technicalEmergencyCuts,
+                    ).forEach { (tier, offsets) ->
+                        val uniqueOffsets = offsets.distinct().sorted()
+                        if (uniqueOffsets.isNotEmpty()) {
+                            breakOpportunityDecisions += BreakOpportunityDecisionInfo(
+                                range = segmentRange,
+                                sourceText = w,
+                                breakOffsets = uniqueOffsets,
+                                reason = "ProgressiveTechnicalBreak",
+                                tier = tier.name,
+                            )
+                        }
+                        uniqueOffsets.forEach { offset ->
+                            val current = progressiveBreakOffsets[offset]
+                            if (current == null || tier.priority < current.tier.priority) {
+                                progressiveBreakOffsets[offset] = ProgressiveBreakOpportunity(
+                                    tier,
+                                    progressiveSpan.range,
+                                )
+                            }
+                        }
+                    }
+                    val boundaryTier = if (
+                        segmentRange.start > progressiveSpan.range.start &&
+                        text[segmentRange.start - 1].isWhitespace()
+                    ) {
+                        ProgressiveBreakTier.Whitespace
+                    } else {
+                        ProgressiveBreakTier.WholeToken
+                    }
+                    val wholeToken = ProgressiveBreakOpportunity(boundaryTier, progressiveSpan.range)
+                    val currentAtStart = progressiveBreakOffsets[segmentRange.start]
+                    if (currentAtStart == null || wholeToken.tier.priority < currentAtStart.tier.priority) {
+                        progressiveBreakOffsets[segmentRange.start] = wholeToken
+                    }
+                    breakOpportunityDecisions += BreakOpportunityDecisionInfo(
+                        range = segmentRange,
+                        sourceText = w,
+                        breakOffsets = listOf(segmentRange.start),
+                        reason = if (boundaryTier == ProgressiveBreakTier.Whitespace) {
+                            "ProgressiveTechnicalWhitespaceBreak"
+                        } else {
+                            "ProgressiveTechnicalWholeTokenWrap"
+                        },
+                        tier = boundaryTier.name,
+                    )
+                }
                 val cleanCuts = when {
+                    progressiveSpan != null ->
+                        technicalStructuralCuts + technicalSyllableCuts + technicalEmergencyCuts
                     !isLatin -> emptyList()
                     w.contains('-') -> existingHyphenCuts(segmentRange) +
                         latinSeparatorCuts(segmentRange, tokenAdvance, isLongOpaqueLatinToken)
@@ -2639,7 +2855,7 @@ LayoutDebugInfo(
                     else -> emptyList()
                 }
                 val hyphenCuts = if (
-                    allLetters && !isAbbreviation && !isCamelCase &&
+                    progressiveSpan == null && allLetters && !isAbbreviation && !isCamelCase &&
                         !isLongUnhyphenatedLetterToken && !w.contains('-') && cleanCuts.isEmpty()
                 ) {
                     latinWordCuts(decision, segmentRange, syllableCuts)
@@ -2647,7 +2863,7 @@ LayoutDebugInfo(
                     emptyList()
                 }
                 val opaqueHardCuts = if (
-                    isLatin &&
+                    progressiveSpan == null && isLatin &&
                     (!allLetters || isLongUnhyphenatedLetterToken) &&
                     (tokenAdvance > measure || isLongOpaqueLatinToken)
                 ) {
@@ -2693,6 +2909,7 @@ LayoutDebugInfo(
             hyphenGlyphs = hyphenGlyphs,
             substitutionRollbacks = substitutionRollbacks.toMap(),
             breakOpportunityDecisions = breakOpportunityDecisions.toList(),
+            progressiveBreakOffsets = progressiveBreakOffsets.toMap(),
         )
     }
 
@@ -3684,6 +3901,8 @@ LayoutDebugInfo(
         inlineAttachments: List<InlineAttachment>,
         policy: AutoSpacePolicy,
         fontSize: Float,
+        narrowInlineBoxLeadingClusters: Set<Int> = emptySet(),
+        narrowInlineBoxTrailingClusters: Set<Int> = emptySet(),
     ): AutoSpaceApplicationResult {
         if (isEmpty()) return AutoSpaceApplicationResult(emptyList(), emptyList())
         require(eastAsianSpacingEdges.size == size) {
@@ -3775,12 +3994,20 @@ LayoutDebugInfo(
                     decisions += AutoSpaceDecisionInfo(
                         clusterRange = cluster.range,
                         side = "leading",
-                        boundaryRole = "EastAsianSpacing.Wide",
+                        boundaryRole = if (idx in narrowInlineBoxLeadingClusters) {
+                            "InlineBox.Narrow"
+                        } else {
+                            "EastAsianSpacing.Wide"
+                        },
                         mode = AutoSpaceMode.Insert.name,
                         charactersAffected = 0,
                         reductionPerChar = 0f,
                         totalReduction = -gap,
-                        reason = "TextAutoSpaceInsert:east-asian-spacing-W-N",
+                        reason = if (idx in narrowInlineBoxLeadingClusters) {
+                            "InlineBoxOuterAutoSpace:leading-W-N"
+                        } else {
+                            "TextAutoSpaceInsert:east-asian-spacing-W-N"
+                        },
                     )
                 }
                 val normalTrailingGap = nextSpacing == EastAsianSpacingValue.Wide &&
@@ -3793,7 +4020,9 @@ LayoutDebugInfo(
                     decisions += AutoSpaceDecisionInfo(
                         clusterRange = cluster.range,
                         side = "trailing",
-                        boundaryRole = if (virtualTrailingGap) {
+                        boundaryRole = if (idx in narrowInlineBoxTrailingClusters) {
+                            "InlineBox.Narrow"
+                        } else if (virtualTrailingGap) {
                             "InlineAttachment.Previous"
                         } else {
                             "EastAsianSpacing.Wide"
@@ -3802,7 +4031,9 @@ LayoutDebugInfo(
                         charactersAffected = 0,
                         reductionPerChar = 0f,
                         totalReduction = -gap,
-                        reason = if (virtualTrailingGap) {
+                        reason = if (idx in narrowInlineBoxTrailingClusters) {
+                            "InlineBoxOuterAutoSpace:trailing-N-W"
+                        } else if (virtualTrailingGap) {
                             "AttachedInlineVirtualAutoSpace:east-asian-spacing-W-N"
                         } else {
                             "TextAutoSpaceInsert:east-asian-spacing-W-N"
@@ -4352,6 +4583,7 @@ private fun List<Cluster>.applyInlineBoxSpans(spans: List<InlineBoxSpan>): Inlin
             range = span.range,
             inlineStart = span.inlineStart,
             inlineEnd = span.inlineEnd,
+            outerSpacing = span.outerSpacing.name,
             firstClusterIndex = clusterRange.first,
             lastClusterIndex = clusterRange.last,
         )
@@ -4898,6 +5130,10 @@ private const val HYPHEN_MIN_RIGHT = 3
 
 /** `LatinOpaqueTokenBreak`: long non-lexical Latin tokens expose clean no-hyphen breakpoints. */
 private const val LATIN_OPAQUE_TOKEN_MIN_LENGTH = 24
+
+/** `ProgressiveTechnicalStructuralBreak`: separators that stay on the previous line. */
+private val PROGRESSIVE_TECHNICAL_BREAK_AFTER_CHARS: Set<Char> =
+    setOf('/', '\\', '.', '-', '_', ':', ';', ',', '?', '&', '=', '#', '%', '~', '+', '*', '|', ')', ']', '}')
 
 /**
  * 连字作为最后一档（ADR 0029 amendment）：整词换行后，若填满版心需要给每个汉字

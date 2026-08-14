@@ -11,7 +11,24 @@ data class TiqianTextContent(
      * proportional slicing.
      */
     val sourceBoundaries: Set<Int> = emptySet(),
+    /** Layout-affecting source ranges whose internal Western tokens use an explicit break policy. */
+    val lineBreakSpans: List<LineBreakSpan> = emptyList(),
 )
+
+/** A source range opting into a named, frontend-independent line-break policy. */
+data class LineBreakSpan(
+    val range: TextRange,
+    val policy: LineBreakPolicy,
+)
+
+enum class LineBreakPolicy {
+    /**
+     * Technical inline text: prefer structural-symbol/camel boundaries, then
+     * language syllable boundaries without a displayed hyphen, then safe
+     * source-grapheme emergency boundaries.
+     */
+    ProgressiveTechnical,
+}
 
 data class TextSpan(
     val range: TextRange,
@@ -43,7 +60,19 @@ data class InlineBoxSpan(
     val range: TextRange,
     val inlineStart: Float = 0f,
     val inlineEnd: Float = 0f,
+    /**
+     * East Asian spacing class presented by the independent inline box at its two true outer
+     * edges. [Narrow] gives every boxed inline the same CJK-facing autospace contract regardless
+     * of whether its first source character is a letter, `.`, `/`, or another symbol. [Source]
+     * leaves both edges to the source characters, for spans that are only measurement wrappers.
+     */
+    val outerSpacing: InlineBoxOuterSpacing = InlineBoxOuterSpacing.Narrow,
 )
+
+enum class InlineBoxOuterSpacing {
+    Narrow,
+    Source,
+}
 
 /** Structural token used by text projections that have no source fallback for an inline object. */
 const val INLINE_OBJECT_REPLACEMENT_CHAR: Char = '\uFFFC'
@@ -203,6 +232,12 @@ data class RichTextBackgroundPaint(
     val verticalPadding: Float = 0f,
     /** Radius used by the frontend when replaying the final background rectangle. */
     val cornerRadius: Float = 0f,
+    /**
+     * Radius used on an edge where this source range continues on another visual line.
+     * Defaults to [cornerRadius], preserving the existing per-line rounded-box appearance unless
+     * the authored role explicitly distinguishes a continuation edge.
+     */
+    val continuationCornerRadius: Float = cornerRadius,
     val metricPolicy: RichTextBackgroundMetricPolicy = RichTextBackgroundMetricPolicy.MarkedFaces,
     /** Whether the final box is filled or outlined; both modes reuse the same measured geometry. */
     val drawStyle: RichTextBackgroundDrawStyle = RichTextBackgroundDrawStyle.Fill,
@@ -211,6 +246,7 @@ data class RichTextBackgroundPaint(
         require(horizontalPadding.isFinite() && horizontalPadding >= 0f)
         require(verticalPadding.isFinite() && verticalPadding >= 0f)
         require(cornerRadius.isFinite() && cornerRadius >= 0f)
+        require(continuationCornerRadius.isFinite() && continuationCornerRadius >= 0f)
     }
 }
 

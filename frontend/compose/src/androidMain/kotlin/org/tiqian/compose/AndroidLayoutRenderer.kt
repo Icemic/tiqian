@@ -24,6 +24,7 @@ import org.tiqian.core.RichTextLinePattern
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.richTextDecorationLineY
+import org.tiqian.core.resolvedBackgroundCornerRadii
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
@@ -43,6 +44,9 @@ private class AndroidParagraphDrawCache : ParagraphDrawCache {
     internal val glyphPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     internal val hyphenPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     internal val richTextBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    internal val richTextBackgroundPath = Path()
+    internal val richTextBackgroundRect = RectF()
+    internal val richTextBackgroundRadii = FloatArray(8)
     internal val richTextLinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     internal val decorationFillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     internal val decorationStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -85,7 +89,7 @@ internal actual fun ContentDrawScope.drawParagraph(
     drawIntoCanvas { canvas ->
         val native = canvas.nativeCanvas
         drawAndroidRichTextBackgrounds(
-            native, replayIndex.richTextBackgroundSegments, drawCache.richTextBackgroundPaint,
+            native, replayIndex.richTextBackgroundSegments, drawCache,
         )
         if (selectionColor != null) {
             val selectionPaint = drawCache.selectionPaint
@@ -471,8 +475,9 @@ private fun drawAndroidDecorations(
 private fun drawAndroidRichTextBackgrounds(
     canvas: android.graphics.Canvas,
     segments: List<RichTextLineSegment>,
-    paint: Paint,
+    drawCache: AndroidParagraphDrawCache,
 ) {
+    val paint = drawCache.richTextBackgroundPaint
     for (seg in segments) {
         val argb = when (seg.span.role) {
             RichTextRole.Background -> seg.span.paint.argb
@@ -496,15 +501,29 @@ private fun drawAndroidRichTextBackgrounds(
         val right = seg.right - inset
         val bottom = seg.bottom - inset
         if (right <= left || bottom <= top) continue
-        val radius = minOf(
-            (seg.span.paint.background.cornerRadius - inset).coerceAtLeast(0f),
-            (right - left) / 2f,
-            (bottom - top) / 2f,
-        ).coerceAtLeast(0f)
-        if (radius > 0f) {
-            canvas.drawRoundRect(left, top, right, bottom, radius, radius, paint)
-        } else {
+        val corners = seg.resolvedBackgroundCornerRadii(inset)
+        if (corners.isSquare) {
             canvas.drawRect(left, top, right, bottom, paint)
+        } else if (corners.isUniform) {
+            canvas.drawRoundRect(left, top, right, bottom, corners.topLeft, corners.topLeft, paint)
+        } else {
+            val radii = drawCache.richTextBackgroundRadii
+            radii[0] = corners.topLeft
+            radii[1] = corners.topLeft
+            radii[2] = corners.topRight
+            radii[3] = corners.topRight
+            radii[4] = corners.bottomRight
+            radii[5] = corners.bottomRight
+            radii[6] = corners.bottomLeft
+            radii[7] = corners.bottomLeft
+            drawCache.richTextBackgroundRect.set(left, top, right, bottom)
+            drawCache.richTextBackgroundPath.reset()
+            drawCache.richTextBackgroundPath.addRoundRect(
+                drawCache.richTextBackgroundRect,
+                radii,
+                Path.Direction.CW,
+            )
+            canvas.drawPath(drawCache.richTextBackgroundPath, paint)
         }
     }
 }

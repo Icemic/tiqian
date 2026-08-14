@@ -402,6 +402,42 @@ class LayoutQueriesTest {
     }
 
     @Test
+    fun backgroundContinuationCornersKeepOnlyTrueSourceEndsFullyRounded() {
+        val span = RichTextSpan(
+            range = TextRange(0, 12),
+            role = RichTextRole.InlineCode,
+            paint = RichTextPaint(
+                background = RichTextBackgroundPaint(
+                    cornerRadius = 3f,
+                    continuationCornerRadius = 1f,
+                ),
+            ),
+        )
+        fun segment(start: Int, end: Int) = RichTextLineSegment(
+            span = span,
+            lineIndex = 0,
+            range = TextRange(start, end),
+            left = 0f,
+            top = 0f,
+            right = 40f,
+            bottom = 20f,
+            baseline = 16f,
+        )
+
+        assertEquals(RichTextCornerRadii(3f, 1f, 1f, 3f), segment(0, 4).resolvedBackgroundCornerRadii())
+        assertEquals(RichTextCornerRadii(1f, 1f, 1f, 1f), segment(4, 8).resolvedBackgroundCornerRadii())
+        assertEquals(RichTextCornerRadii(1f, 3f, 3f, 1f), segment(8, 12).resolvedBackgroundCornerRadii())
+        assertEquals(RichTextCornerRadii(3f, 3f, 3f, 3f), segment(0, 12).resolvedBackgroundCornerRadii())
+    }
+
+    @Test
+    fun backgroundContinuationRadiusDefaultsToTheAuthoredCornerRadius() {
+        val background = RichTextBackgroundPaint(cornerRadius = 5f)
+
+        assertEquals(5f, background.continuationCornerRadius)
+    }
+
+    @Test
     fun adjacentBackgroundsWithTheSameStyleShareOneClearance() {
         val result = sampleResult()
         val paint = RichTextPaint(adjacentSameStyleClearance = 2f)

@@ -11,6 +11,7 @@ import org.tiqian.core.RichTextLineSegment
 import org.tiqian.core.TextSpan
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.richTextDecorationLineY
+import org.tiqian.core.resolvedBackgroundCornerRadii
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
 import org.tiqian.shaping.skia.drawTiqianGlyphsWithPositions
 import org.tiqian.shaping.skia.lineInkSkipIntervalsWithPositions
@@ -280,15 +281,23 @@ private fun drawSkiaRichTextBackgrounds(
         val right = seg.right - inset
         val bottom = seg.bottom - inset
         if (right <= left || bottom <= top) continue
-        val radius = minOf(
-            (seg.span.paint.background.cornerRadius - inset).coerceAtLeast(0f),
-            (right - left) / 2f,
-            (bottom - top) / 2f,
-        ).coerceAtLeast(0f)
-        if (radius > 0f) {
-            canvas.drawRRect(RRect.makeLTRB(left, top, right, bottom, radius), paint)
-        } else {
+        val corners = seg.resolvedBackgroundCornerRadii(inset)
+        if (corners.isSquare) {
             canvas.drawRect(Rect.makeLTRB(left, top, right, bottom), paint)
+        } else {
+            canvas.drawRRect(
+                RRect.makeLTRB(
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    corners.topLeft,
+                    corners.topRight,
+                    corners.bottomRight,
+                    corners.bottomLeft,
+                ),
+                paint,
+            )
         }
     }
 }

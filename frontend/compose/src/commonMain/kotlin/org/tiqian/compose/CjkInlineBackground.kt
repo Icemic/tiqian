@@ -23,6 +23,8 @@ data class CjkInlineBackground(
     val horizontalPadding: Dp = 0.dp,
     val verticalPadding: Dp = 3.dp,
     val cornerRadius: Dp = 3.dp,
+    /** Radius on a side where the same background continues on another visual line. */
+    val continuationCornerRadius: Dp = cornerRadius,
     val adjacentSameStyleClearance: Dp = 1.dp,
     val drawStyle: CjkInlineBackgroundDrawStyle = CjkInlineBackgroundDrawStyle.Fill,
     val metricPolicy: CjkInlineBackgroundMetricPolicy = CjkInlineBackgroundMetricPolicy.SpanTextStyle,
@@ -32,6 +34,7 @@ data class CjkInlineBackground(
         require(horizontalPadding.value >= 0f)
         require(verticalPadding.value >= 0f)
         require(cornerRadius.value >= 0f)
+        require(continuationCornerRadius.value >= 0f)
         require(adjacentSameStyleClearance.value >= 0f)
     }
 }
@@ -65,6 +68,7 @@ internal fun CjkInlineBackground.toCore(density: Density): RichTextSpan = RichTe
             horizontalPadding = with(density) { horizontalPadding.toPx() },
             verticalPadding = with(density) { verticalPadding.toPx() },
             cornerRadius = with(density) { cornerRadius.toPx() },
+            continuationCornerRadius = with(density) { continuationCornerRadius.toPx() },
             metricPolicy = when (metricPolicy) {
                 CjkInlineBackgroundMetricPolicy.SpanTextStyle ->
                     RichTextBackgroundMetricPolicy.UniformTextStyle
@@ -103,6 +107,7 @@ internal fun defaultInlineCodePaint(density: Density): RichTextPaint = RichTextP
         horizontalPadding = with(density) { 4.dp.toPx() },
         verticalPadding = with(density) { 3.dp.toPx() },
         cornerRadius = with(density) { 3.dp.toPx() },
+        continuationCornerRadius = with(density) { 1.dp.toPx() },
         metricPolicy = RichTextBackgroundMetricPolicy.UniformParagraphStyle,
     ),
     adjacentSameStyleClearance = with(density) { 1.dp.toPx() },

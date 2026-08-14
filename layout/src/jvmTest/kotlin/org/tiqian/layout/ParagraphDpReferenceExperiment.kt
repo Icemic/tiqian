@@ -72,6 +72,7 @@ class ParagraphDpReferenceExperiment {
             lineAdjustmentCompressBias: Float,
             hardBreakAfterClusters: Set<Int>,
             nonRenderingControlClusters: Set<Int>,
+            progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
         ): LineSolution {
             val result = inner.breakLines(
                 naturalClusters, adjustedClusters, maxWidth, shrinkOpportunities,
@@ -79,7 +80,7 @@ class ParagraphDpReferenceExperiment {
                 forbiddenLineStartClusters, forbiddenLineEndClusters, hyphenBreakClusters,
                 cjkInterCharBoundaries, maxCjkStretchPerGap, sinoWesternBoundaries,
                 sinoWesternStretchCap, lineAdjustmentPushIn, lineAdjustmentCompressBias,
-                hardBreakAfterClusters, nonRenderingControlClusters,
+                hardBreakAfterClusters, nonRenderingControlClusters, progressiveBreakOpportunities,
             )
             recorded = RecordedInputs(
                 naturalClusters, adjustedClusters, maxWidth, unbreakableRanges,

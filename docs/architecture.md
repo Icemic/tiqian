@@ -42,11 +42,12 @@ stub 只作为没有平台字体系统时的确定性测试 adapter 存在，不
 
 布局核心消费平台无关的输入：
 
-- `TiqianTextContent` 保存 source text 与样式 span；
+- `TiqianTextContent` 保存 source text、样式 span，以及由宿主语义投影的具名断行策略 span；
 - `TextStyle` 与 `ParagraphStyle` 保存样式和段落策略，`LayoutProfileId` 选择由
   profile resolver 提供的中文排版规则；
 - `DecorationSpan`、`RubySpan`（含 Bopomofo kind）、`InlineBoxSpan`、`InlineObjectSpan`
-  等结构表达行内语义和宿主几何；
+  等结构表达行内语义和宿主几何；独立 `InlineBoxSpan` 的 Narrow 外边界统一进入
+  autospace，不由 inline code、链接等角色分别补 margin；
 - `LayoutConstraints` 提供版心宽高与行数限制。
 
 输出 `LayoutResult` 包含：

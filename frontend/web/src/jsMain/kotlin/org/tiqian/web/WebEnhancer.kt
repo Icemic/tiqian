@@ -21,6 +21,8 @@ import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineLengthGrid
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextRange
+import org.tiqian.core.LineBreakPolicy
+import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
@@ -954,6 +956,7 @@ object TiqianWeb {
                 text = paragraph.lowered.text,
                 spans = paragraph.lowered.spans,
                 sourceBoundaries = paragraph.lowered.sourceBoundaries,
+                lineBreakSpans = paragraph.lowered.lineBreakSpans,
             ),
             textStyle = paragraph.lowered.textStyle,
             // EngineLineMeasureMatchesResponsiveGrid: retain the raw width in
@@ -1903,6 +1906,7 @@ private object MarkdownParagraphLowerer {
                 domInlineObjects = emptyList(),
                 sourceSpans = emptyList(),
                 sourceBoundaries = emptySet(),
+                lineBreakSpans = emptyList(),
             )
         }
         generatedPseudoContentIssue(paragraph)?.let { detail ->
@@ -2242,6 +2246,12 @@ private object MarkdownParagraphLowerer {
                 sourceSpans = sourceSpans.mapNotNull { span ->
                     projection.range(span.range)?.let { span.copy(range = it) }
                 },
+                lineBreakSpans = sourceSpans.mapNotNull { span ->
+                    if (span.element.tagName.uppercase() !in setOf("A", "CODE")) return@mapNotNull null
+                    projection.range(span.range)?.let {
+                        LineBreakSpan(it, LineBreakPolicy.ProgressiveTechnical)
+                    }
+                }.distinctBy { it.range to it.policy },
                 sourceBoundaries = sourceBoundaries
                     .map(projection::boundary)
                     .filter { it > 0 && it < projection.text.length }
@@ -2290,6 +2300,7 @@ data class LoweredParagraph(
     val domInlineObjects: List<DomInlineObject>,
     val sourceSpans: List<DomSourceSpan>,
     val sourceBoundaries: Set<Int>,
+    val lineBreakSpans: List<LineBreakSpan>,
 )
 
 private const val WORKER_RECORD_SEPARATOR = '\u001e'
@@ -2319,7 +2330,12 @@ private fun workerLayoutRequestJson(
             box.range.end,
             box.inlineStart,
             box.inlineEnd,
+            box.outerSpacing.name,
         ).joinToString(WORKER_FIELD_SEPARATOR.toString())
+    }
+    val lineBreakSpans = lowered.lineBreakSpans.joinToString(WORKER_RECORD_SEPARATOR.toString()) { span ->
+        listOf(span.range.start, span.range.end, span.policy.name)
+            .joinToString(WORKER_FIELD_SEPARATOR.toString())
     }
     return buildString {
         append('{')
@@ -2339,6 +2355,7 @@ private fun workerLayoutRequestJson(
         ).append(',')
         append("\"textSpans\":").appendWorkerJsonString(textSpans).append(',')
         append("\"inlineBoxes\":").appendWorkerJsonString(inlineBoxes).append(',')
+        append("\"lineBreakSpans\":").appendWorkerJsonString(lineBreakSpans).append(',')
         append("\"semantics\":[")
         lowered.sourceSpans.forEachIndexed { index, span ->
             if (index > 0) append(',')
@@ -2361,7 +2378,8 @@ private fun workerLayoutRequestJson(
             append("\"start\":").append(box.range.start).append(',')
             append("\"end\":").append(box.range.end).append(',')
             append("\"inlineStartPx\":").append(box.inlineStart).append(',')
-            append("\"inlineEndPx\":").append(box.inlineEnd)
+            append("\"inlineEndPx\":").append(box.inlineEnd).append(',')
+            append("\"outerSpacing\":").appendWorkerJsonString(box.outerSpacing.name)
             append('}')
         }
         append("],\"sourceTag\":").appendWorkerJsonString(paragraph.tagName.lowercase())

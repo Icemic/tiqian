@@ -47,7 +47,19 @@
 - Amendment 2026-08-09: inline code reuses the same uniform rounded-background geometry. Its fixed
   4 dp inner horizontal padding enters layout through `InlineBoxSpan`, while any outer gap remains
   the engine's ordinary Unicode East Asian wide/narrow spacing rather than a painted margin. The
-  default monospace run is 7/8 of the surrounding font size.
+  default monospace run is 7/8 of the surrounding font size. `InlineBoxSpan` presents a generic
+  Narrow outer-edge contract even when its source begins with `.` or `/`, so every independent
+  inline box stays one configured 中西文间距 away from adjacent CJK body text without role-specific
+  code. A measurement-only wrapper can opt back into source-character edges; an unboxed slash-led
+  text run therefore keeps its ordinary Unicode Other edge. The named decision is
+  `InlineBoxOuterAutoSpace`.
+- Amendment 2026-08-14: a wrapped inline-code background keeps its 3 dp radius only at the true
+  source start and end. A side continued from or onto another visual line uses a 1 dp continuation
+  radius, so the fragment reads as open without looking mechanically clipped. The radius pair is
+  carried by `RichTextBackgroundPaint`, and `RichTextLineSegment` resolves all four corners from its
+  final source range; Skia and Android replay those resolved corners rather than inferring them from
+  glyphs or line width. Generic highlights retain their authored radius on continuation sides unless
+  they explicitly opt into a different value.
 - Amendment 2026-08-09: keyboard-input runs reuse inline code's font family, size, weight and box
   dimensions. Their only default visual difference is a 1 dp border in place of the fill. Fill and
   border replay the same final `RichTextLineSegment`; the renderer insets the centered stroke by
@@ -264,3 +276,10 @@ during dogfooding.
 ./gradlew :frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextRenderTest'
 ./gradlew :frontend:compose:compileAndroidMain
 ```
+
+## Amendment (2026-08-14): link/code annotations affect line layout
+
+`LinkAnnotation.Url`、`LinkAnnotation.Clickable` 与 Tiqian `inlineCode` 除原有 `RichTextRole` 外，
+还统一降为核心 `LineBreakSpan(ProgressiveTechnical)`。因此新增、删除或移动链接 annotation 已不是
+纯绘制变化，必须使 Compose 的 `LayoutInput` 缓存失效并重新断行；点击、复制和无障碍仍使用原始
+source range。Compose 只负责投影这一语义，不自行选择符号、音节或硬断点。

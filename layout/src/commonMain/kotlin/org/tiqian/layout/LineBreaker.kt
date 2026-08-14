@@ -4,6 +4,23 @@ import org.tiqian.core.Cluster
 import org.tiqian.core.LineEndReason
 import org.tiqian.core.TextRange
 
+/** Ordered fallback tier for a break inside one progressive technical span. */
+enum class ProgressiveBreakTier(val priority: Int) {
+    Whitespace(0),
+    Structural(1),
+    Syllable(2),
+    WholeToken(3),
+    Emergency(4),
+}
+
+/** One cluster boundary exposed by a [org.tiqian.core.LineBreakSpan]. */
+data class ProgressiveBreakOpportunity(
+    val tier: ProgressiveBreakTier,
+    val spanRange: TextRange,
+    /** Bounded positive glue owned by the source whitespace immediately before this boundary. */
+    val precedingWhitespaceStretchCapacity: Float = 0f,
+)
+
 interface LineBreaker {
     val strategyName: String
         get() = "custom"
@@ -104,7 +121,218 @@ interface LineBreaker {
          * its own empty auto-wrapped line before an over-wide token.
          */
         nonRenderingControlClusters: Set<Int> = emptySet(),
+        /** Tiered clean break boundaries inside technical inline source spans. */
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
     ): LineSolution
+}
+
+/**
+ * `ProgressiveTechnicalBreakSelection`: while overflow is inside one technical
+ * span, choose the rightmost fitting boundary from its best available tier.
+ */
+internal fun decideProgressiveBreak(
+    lineStart: Int,
+    overflowAt: Int,
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+    adjustedClusters: List<Cluster>? = null,
+    lineLimit: Float = Float.POSITIVE_INFINITY,
+    cjkInterCharBoundaries: Set<Int> = emptySet(),
+    maxCjkStretchPerGap: Float = Float.POSITIVE_INFINITY,
+    sinoWesternBoundaries: Set<Int> = emptySet(),
+    sinoWesternStretchCap: Float = 0f,
+): Int {
+    val active = opportunities[overflowAt] ?: return overflowAt
+    val bestPriority = progressiveBreakPriorityForLine(
+        lineStart = lineStart,
+        overflowAt = overflowAt,
+        active = active,
+        opportunities = opportunities,
+        adjustedClusters = adjustedClusters,
+        lineLimit = lineLimit,
+        cjkInterCharBoundaries = cjkInterCharBoundaries,
+        maxCjkStretchPerGap = maxCjkStretchPerGap,
+        sinoWesternBoundaries = sinoWesternBoundaries,
+        sinoWesternStretchCap = sinoWesternStretchCap,
+    )
+    var bestBoundary: Int? = null
+    for (boundary in (lineStart + 1)..overflowAt) {
+        val opportunity = opportunities[boundary] ?: continue
+        if (opportunity.spanRange != active.spanRange) continue
+        if (opportunity.tier.priority == bestPriority && (bestBoundary == null || boundary > bestBoundary)) {
+            bestBoundary = boundary
+        }
+    }
+    return bestBoundary ?: overflowAt
+}
+
+/**
+ * Technical text has lower-tier clean breaks that ordinary Western words do not. Use them before
+ * allowing a preferred structural break to create visibly loose CJK body spacing. The engine's
+ * general last-resort ceiling is 0.5em; one quarter of that keeps the residual at 0.125em/gap.
+ */
+private const val PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION = 0.25f
+
+internal fun progressiveCandidateAllowed(
+    lineStart: Int,
+    rawGreedy: Int,
+    candidateEnd: Int,
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+    adjustedClusters: List<Cluster>? = null,
+    lineLimit: Float = Float.POSITIVE_INFINITY,
+    cjkInterCharBoundaries: Set<Int> = emptySet(),
+    maxCjkStretchPerGap: Float = Float.POSITIVE_INFINITY,
+    sinoWesternBoundaries: Set<Int> = emptySet(),
+    sinoWesternStretchCap: Float = 0f,
+): Boolean {
+    val active = opportunities[rawGreedy] ?: return true
+    val bestPriority = progressiveBreakPriorityForLine(
+        lineStart = lineStart,
+        overflowAt = rawGreedy,
+        active = active,
+        opportunities = opportunities,
+        adjustedClusters = adjustedClusters,
+        lineLimit = lineLimit,
+        cjkInterCharBoundaries = cjkInterCharBoundaries,
+        maxCjkStretchPerGap = maxCjkStretchPerGap,
+        sinoWesternBoundaries = sinoWesternBoundaries,
+        sinoWesternStretchCap = sinoWesternStretchCap,
+    )
+    val candidate = opportunities[candidateEnd] ?: run {
+        val sourceOffset = adjustedClusters?.getOrNull(candidateEnd)?.range?.start ?: return true
+        return sourceOffset <= active.spanRange.start || sourceOffset >= active.spanRange.end
+    }
+    if (candidate.spanRange != active.spanRange) return true
+    if (candidate.tier.priority != bestPriority) return false
+    if (adjustedClusters == null || !lineLimit.isFinite() || !maxCjkStretchPerGap.isFinite()) return true
+    return !progressiveCandidateIsTooLoose(
+        lineStart = lineStart,
+        boundary = candidateEnd,
+        opportunities = opportunities,
+        adjustedClusters = adjustedClusters,
+        lineLimit = lineLimit,
+        cjkInterCharBoundaries = cjkInterCharBoundaries,
+        maxCjkStretchPerGap = maxCjkStretchPerGap * PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION,
+        sinoWesternBoundaries = sinoWesternBoundaries,
+        sinoWesternStretchCap = sinoWesternStretchCap,
+    )
+}
+
+/**
+ * `ProgressiveTechnicalStretchBoundedTierFallback`: source whitespace is considered first, then
+ * structural/camel boundaries; a tier may not force the line's normal paragraph opportunities past the same per-gap
+ * stretch ceiling used by Western last-resort hyphenation. In that case the next clean tier is
+ * admitted. The final line still uses the ordinary Justifier; this helper only chooses a break.
+ */
+private fun progressiveBreakPriorityForLine(
+    lineStart: Int,
+    overflowAt: Int,
+    active: ProgressiveBreakOpportunity,
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+    adjustedClusters: List<Cluster>?,
+    lineLimit: Float,
+    cjkInterCharBoundaries: Set<Int>,
+    maxCjkStretchPerGap: Float,
+    sinoWesternBoundaries: Set<Int>,
+    sinoWesternStretchCap: Float,
+): Int {
+    val priorities = (lineStart + 1..overflowAt)
+        .mapNotNull { opportunities[it] }
+        .filter { it.spanRange == active.spanRange }
+        .map { it.tier.priority }
+        .distinct()
+        .sorted()
+    if (priorities.isEmpty()) return active.tier.priority
+    if (adjustedClusters == null || !lineLimit.isFinite() || !maxCjkStretchPerGap.isFinite()) {
+        return priorities.first()
+    }
+    val progressiveStretchLimit =
+        maxCjkStretchPerGap * PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION
+    var leastLoosePriority = priorities.first()
+    var leastLooseDensity = Float.POSITIVE_INFINITY
+    for (priority in priorities) {
+        val boundary = (lineStart + 1..overflowAt).lastOrNull { candidate ->
+            opportunities[candidate]?.let {
+                it.spanRange == active.spanRange && it.tier.priority == priority
+            } == true
+        } ?: continue
+        val density = progressiveCandidateStretchDensity(
+            lineStart = lineStart,
+            boundary = boundary,
+            opportunities = opportunities,
+            adjustedClusters = adjustedClusters,
+            lineLimit = lineLimit,
+            cjkInterCharBoundaries = cjkInterCharBoundaries,
+            sinoWesternBoundaries = sinoWesternBoundaries,
+            sinoWesternStretchCap = sinoWesternStretchCap,
+        )
+        if (density < leastLooseDensity) {
+            leastLooseDensity = density
+            leastLoosePriority = priority
+        }
+        if (density <= progressiveStretchLimit) return priority
+    }
+    // Every tier is visibly loose. Do not mechanically choose Emergency: its legal boundary may
+    // sit farther left than a structural/syllable candidate. Pick the tier whose rightmost legal
+    // boundary leaves the smallest real paragraph stretch, preserving tier order on a tie.
+    return leastLoosePriority
+}
+
+private fun progressiveCandidateIsTooLoose(
+    lineStart: Int,
+    boundary: Int,
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+    adjustedClusters: List<Cluster>,
+    lineLimit: Float,
+    cjkInterCharBoundaries: Set<Int>,
+    maxCjkStretchPerGap: Float,
+    sinoWesternBoundaries: Set<Int>,
+    sinoWesternStretchCap: Float,
+): Boolean {
+    return progressiveCandidateStretchDensity(
+        lineStart = lineStart,
+        boundary = boundary,
+        opportunities = opportunities,
+        adjustedClusters = adjustedClusters,
+        lineLimit = lineLimit,
+        cjkInterCharBoundaries = cjkInterCharBoundaries,
+        sinoWesternBoundaries = sinoWesternBoundaries,
+        sinoWesternStretchCap = sinoWesternStretchCap,
+    ) > maxCjkStretchPerGap
+}
+
+private fun progressiveCandidateStretchDensity(
+    lineStart: Int,
+    boundary: Int,
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+    adjustedClusters: List<Cluster>,
+    lineLimit: Float,
+    cjkInterCharBoundaries: Set<Int>,
+    sinoWesternBoundaries: Set<Int>,
+    sinoWesternStretchCap: Float,
+): Float {
+    var width = 0f
+    for (index in lineStart until boundary) width += adjustedClusters[index].advance
+    val deficit = (lineLimit - width).coerceAtLeast(0f)
+    // `ProgressiveTechnicalWhitespaceBreakPricing`: a Whitespace opportunity at offset k owns
+    // the real source-space cluster k - 1. It can fill a later candidate line, but not a line that
+    // ends at k (where that space is collapsed as trailing line-edge whitespace).
+    val technicalWhitespaceCapacity = (lineStart + 1 until boundary).sumOf { candidate ->
+        opportunities[candidate]
+            ?.takeIf { it.tier == ProgressiveBreakTier.Whitespace }
+            ?.precedingWhitespaceStretchCapacity
+            ?.toDouble()
+            ?: 0.0
+    }.toFloat()
+    val sinoWesternGapCount = (lineStart + 1 until boundary).count { it in sinoWesternBoundaries }
+    val cjkDeficit = (
+        deficit - technicalWhitespaceCapacity - sinoWesternGapCount * sinoWesternStretchCap
+        ).coerceAtLeast(0f)
+    val cjkGapCount = (lineStart + 1 until boundary).count { it in cjkInterCharBoundaries }
+    return if (cjkGapCount == 0) {
+        cjkDeficit
+    } else {
+        cjkDeficit / cjkGapCount
+    }
 }
 
 /**
@@ -271,6 +499,7 @@ class GreedyLineBreaker(
         lineAdjustmentCompressBias: Float,
         hardBreakAfterClusters: Set<Int>,
         nonRenderingControlClusters: Set<Int>,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     ): LineSolution {
         if (adjustedClusters.isEmpty()) return LineSolution(emptyList())
         require(naturalClusters.size == adjustedClusters.size) {
@@ -283,6 +512,7 @@ class GreedyLineBreaker(
             hyphenBreakClusters, cjkInterCharBoundaries, maxCjkStretchPerGap,
             sinoWesternBoundaries, sinoWesternStretchCap,
             hardBreakAfterClusters, nonRenderingControlClusters,
+            progressiveBreakOpportunities,
         )
         val repaired = applyKinsokuRepairs(
             initial = greedy,
@@ -305,6 +535,7 @@ class GreedyLineBreaker(
             shrinkOpportunities, firstLineIndent, lineAdjustmentCompressBias,
             forbiddenLineStartClusters, forbiddenLineEndClusters, unbreakableRanges, pushInPenalty,
             gapBoundaries = cjkInterCharBoundaries + sinoWesternBoundaries,
+            progressiveBreakOpportunities = progressiveBreakOpportunities,
         )
     }
 
@@ -322,6 +553,7 @@ class GreedyLineBreaker(
         sinoWesternStretchCap: Float,
         hardBreakAfterClusters: Set<Int>,
         nonRenderingControlClusters: Set<Int>,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     ): List<LineCandidate> {
         val lines = mutableListOf<LineCandidate>()
         var lineStart = 0
@@ -334,8 +566,14 @@ class GreedyLineBreaker(
             val nextAdjusted = adjustedAccum + adjustedClusters[i].advance
             val overflows = nextAdjusted > lineLimit(maxWidth, firstLineIndent, lineStart) && hasRenderingContent
             if (overflows) {
+                val progressive = decideProgressiveBreak(
+                    lineStart, i, progressiveBreakOpportunities,
+                    adjustedClusters, lineLimit(maxWidth, firstLineIndent, lineStart),
+                    cjkInterCharBoundaries, maxCjkStretchPerGap,
+                    sinoWesternBoundaries, sinoWesternStretchCap,
+                )
                 val decided = decideHyphenBreak(
-                    lineStart, i, adjustedClusters,
+                    lineStart, progressive, adjustedClusters,
                     lineLimit(maxWidth, firstLineIndent, lineStart),
                     hyphenBreakClusters, cjkInterCharBoundaries, maxCjkStretchPerGap,
                     sinoWesternBoundaries, sinoWesternStretchCap,
@@ -463,6 +701,7 @@ class LookaheadLineBreaker(
         lineAdjustmentCompressBias: Float,
         hardBreakAfterClusters: Set<Int>,
         nonRenderingControlClusters: Set<Int>,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     ): LineSolution {
         if (adjustedClusters.isEmpty()) return LineSolution(emptyList())
         require(naturalClusters.size == adjustedClusters.size) {
@@ -493,15 +732,26 @@ class LookaheadLineBreaker(
             // chosen break's pre-retreat position is known and CarryNext can
             // be labelled. decideHyphenBreak makes the greedy baseline obey the
             // last-resort hyphenation rule (whole-word unless over-long/太松).
+            val rawGreedyEnd = findGreedyEnd(
+                adjustedClusters,
+                lineStart,
+                lineLimit(maxWidth, firstLineIndent, lineStart),
+                endExclusive = segmentEndExclusive,
+                nonRenderingControlClusters = nonRenderingControlClusters,
+            )
             val greedyEnd = adjustBreakForUnbreakables(
                 breakAt = decideHyphenBreak(
                     lineStart = lineStart,
-                    overflowAt = findGreedyEnd(
-                        adjustedClusters,
+                    overflowAt = decideProgressiveBreak(
                         lineStart,
+                        rawGreedyEnd,
+                        progressiveBreakOpportunities,
+                        adjustedClusters,
                         lineLimit(maxWidth, firstLineIndent, lineStart),
-                        endExclusive = segmentEndExclusive,
-                        nonRenderingControlClusters = nonRenderingControlClusters,
+                        cjkInterCharBoundaries,
+                        maxCjkStretchPerGap,
+                        sinoWesternBoundaries,
+                        sinoWesternStretchCap,
                     ),
                     adjustedClusters = adjustedClusters,
                     lineLimit = lineLimit(maxWidth, firstLineIndent, lineStart),
@@ -551,6 +801,14 @@ class LookaheadLineBreaker(
                 .filter { it <= segmentEndExclusive }
                 .filter { e -> unbreakableRanges.none { e > it.first && e <= it.last } }
                 .filter { e ->
+                    progressiveCandidateAllowed(
+                        lineStart, rawGreedyEnd, e, progressiveBreakOpportunities,
+                        adjustedClusters, lineLimit(maxWidth, firstLineIndent, lineStart),
+                        cjkInterCharBoundaries, maxCjkStretchPerGap,
+                        sinoWesternBoundaries, sinoWesternStretchCap,
+                    )
+                }
+                .filter { e ->
                     (lineStart until e).any { it !in nonRenderingControlClusters } ||
                         e == segmentEndExclusive
                 }
@@ -586,6 +844,7 @@ class LookaheadLineBreaker(
                     dRef = dRef,
                     unbreakableRanges = unbreakableRanges,
                     nonRenderingControlClusters = nonRenderingControlClusters,
+                    progressiveBreakOpportunities = progressiveBreakOpportunities,
                 )
                 if (score < bestScore) {
                     bestScore = score
@@ -654,6 +913,7 @@ class LookaheadLineBreaker(
             shrinkOpportunities, firstLineIndent, lineAdjustmentCompressBias,
             forbiddenLineStartClusters, forbiddenLineEndClusters, unbreakableRanges, pushInPenalty,
             gapBoundaries = gapBoundaries,
+            progressiveBreakOpportunities = progressiveBreakOpportunities,
         )
     }
 
@@ -680,6 +940,7 @@ class LookaheadLineBreaker(
         dRef: Float = 1f,
         unbreakableRanges: List<IntRange> = emptyList(),
         nonRenderingControlClusters: Set<Int> = emptySet(),
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
     ): Float {
         val firstLine = rebuildLine(s..(e - 1), natural, adjusted)
         val future = rawGreedyLinesFrom(
@@ -695,6 +956,7 @@ class LookaheadLineBreaker(
             endExclusive = segmentEndExclusive,
             unbreakableRanges = unbreakableRanges,
             nonRenderingControlClusters = nonRenderingControlClusters,
+            progressiveBreakOpportunities = progressiveBreakOpportunities,
             // BoundedLookaheadMaterialization: scoring observes only
             // futureLineHorizon lines. One additional line is sufficient for
             // adjacent kinsoku repair to modify the last scored line.
@@ -727,7 +989,9 @@ class LookaheadLineBreaker(
         for (idx in 0 until horizon) {
             val line = spliced[idx]
             val isLast = (idx == spliced.lastIndex)
-            score += badness(line, maxWidth, isLast, firstLineIndent, prevD, gapBoundaries, dRef)
+            score += badness(
+                line, maxWidth, isLast, firstLineIndent, prevD, gapBoundaries, dRef,
+            )
             // AvoidConsecutiveSyntheticHyphenBreaks: consecutive generated
             // hyphens read choppy. This is only a soft lookahead demerit and
             // only applies to `hyphenBreakClusters`; clean breaks at existing
@@ -758,6 +1022,7 @@ class LookaheadLineBreaker(
         unbreakableRanges: List<IntRange> = emptyList(),
         nonRenderingControlClusters: Set<Int> = emptySet(),
         maxLines: Int = Int.MAX_VALUE,
+        progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
     ): List<LineCandidate> {
         if (start >= endExclusive) return emptyList()
         require(maxLines > 0) { "maxLines must be positive" }
@@ -777,7 +1042,14 @@ class LookaheadLineBreaker(
                 // win by pretending 示亡号/数字组 can split downstream.
                 val breakAt = adjustBreakForUnbreakables(
                     breakAt = decideHyphenBreak(
-                        lineStart, i, adjusted, maxWidth,
+                        lineStart,
+                        decideProgressiveBreak(
+                            lineStart, i, progressiveBreakOpportunities,
+                            adjusted, maxWidth,
+                            cjkInterCharBoundaries, maxCjkStretchPerGap,
+                            sinoWesternBoundaries, sinoWesternStretchCap,
+                        ),
+                        adjusted, maxWidth,
                         hyphenBreakClusters, cjkInterCharBoundaries, maxCjkStretchPerGap,
                         sinoWesternBoundaries, sinoWesternStretchCap,
                     ),
@@ -851,6 +1123,11 @@ private fun LineCandidate.endsWithSyntheticHyphen(hyphenBreakClusters: Set<Int>)
     endReason == LineEndReason.AutoWrap &&
         !clusterRange.isEmptyClusterRange() &&
         clusterRange.last + 1 in hyphenBreakClusters
+
+internal fun LineCandidate.endsWithProgressiveBreak(
+    opportunities: Map<Int, ProgressiveBreakOpportunity>,
+): Boolean = endReason == LineEndReason.AutoWrap &&
+    !clusterRange.isEmptyClusterRange() && clusterRange.last + 1 in opportunities
 
 internal fun applyKinsokuRepairs(
     initial: List<LineCandidate>,
@@ -1313,6 +1590,7 @@ internal fun applyFillPushIn(
     unbreakableRanges: List<IntRange>,
     pushInPenalty: Int,
     gapBoundaries: Set<Int> = emptySet(),
+    progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
 ): List<LineCandidate> {
     if (lines.size < 2 || compressBias <= 0f) return lines
     val out = lines.toMutableList()
@@ -1345,6 +1623,24 @@ internal fun applyFillPushIn(
             i += 1
             continue
         }
+        val currentBreak = progressiveBreakOpportunities[prev.clusterRange.last + 1]
+        val resultingBreak = progressiveBreakOpportunities[groupEnd + 1]
+        val promotesProgressiveTier =
+            currentBreak != null && resultingBreak != null &&
+                currentBreak.spanRange == resultingBreak.spanRange &&
+                resultingBreak.tier.priority < currentBreak.tier.priority
+        if (
+            currentBreak != null && resultingBreak != null &&
+            currentBreak.spanRange == resultingBreak.spanRange &&
+            resultingBreak.tier.priority > currentBreak.tier.priority
+        ) {
+            // `ProgressiveTechnicalFillPushInTierPromotion`: compare with the break actually
+            // selected for this line. Earlier structural candidates may already have been rejected
+            // as visibly too loose, so their nominal priority must not block Emergency → Syllable.
+            // Only a real degradation from the current boundary is forbidden.
+            i += 1
+            continue
+        }
         val addedAdvance = (curr0..groupEnd).sumOf { adjustedClusters[it].advance.toDouble() }.toFloat()
         val overflow = addedAdvance - deficit
         // 方向档位 (bias = Ws/Wc): PushOutFirst 下拉入依旧罕见;PushInFirst 下
@@ -1358,7 +1654,7 @@ internal fun applyFillPushIn(
         // cures (per-gap normalized; the fill is a cascade — curr refills from
         // ITS next line, so its deficit is not priced here). overflow ≤ 0 means
         // the cluster fits without compressing: always a win.
-        if (overflow > 0f) {
+        if (overflow > 0f && !promotesProgressiveTier) {
             val prevGaps = lineGapCount(prev.clusterRange, gapBoundaries)
             val dStretchCured = if (prevGaps == 0) 0f else deficit / prevGaps
             val dCompressionIntroduced =
@@ -1377,7 +1673,11 @@ internal fun applyFillPushIn(
             shrinkOpportunities = shrinkOpportunities,
             pushInPenalty = pushInPenalty,
             mergeThroughClusterIndex = groupEnd,
-            reasonCode = "LineAdjustmentPushIn",
+            reasonCode = if (promotesProgressiveTier) {
+                "ProgressiveTechnicalTierPromotion"
+            } else {
+                "LineAdjustmentPushIn"
+            },
         )
         if (result.candidate.accepted) {
             out[i] = result.previous
@@ -1442,6 +1742,7 @@ internal fun LineSolution.withFillPushIn(
     unbreakableRanges: List<IntRange>,
     pushInPenalty: Int,
     gapBoundaries: Set<Int> = emptySet(),
+    progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> = emptyMap(),
 ): LineSolution =
     if (!enabled) {
         this
@@ -1452,6 +1753,7 @@ internal fun LineSolution.withFillPushIn(
                 shrinkOpportunities, firstLineIndent, compressBias,
                 forbiddenLineStartClusters, forbiddenLineEndClusters, unbreakableRanges, pushInPenalty,
                 gapBoundaries,
+                progressiveBreakOpportunities,
             ),
             totalBadness = totalBadness,
         )

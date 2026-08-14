@@ -634,11 +634,44 @@ class TiqianWebEnhancerTest {
 
         val paragraph = root.querySelector("p") as HTMLElement
         assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
-        assertNotNull(paragraph.querySelector("code"))
+        val code = assertNotNull(paragraph.querySelector("code") as? HTMLElement)
+        assertEquals(1, paragraph.querySelectorAll("code").length)
+        assertEquals("slice", computedStyleValue(code, "box-decoration-break"))
+        assertNull(code.getAttribute("data-tq-inline-open-start"))
+        assertNull(code.getAttribute("data-tq-inline-open-end"))
         assertTrue(paragraph.querySelectorAll(".tq-line").length > 1)
         assertTrue(paragraph.scrollWidth <= paragraph.clientWidth + 1)
+        assertTrue(
+            paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
+                ?.textContent != "-",
+        )
         assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
         assertEquals("域名是 $token，它不会消失。", copySelection(paragraph))
+    }
+
+    @Test
+    fun longLinkTokenUsesTheSameCleanEmergencyBreakPolicy() {
+        val token = "eeeeeeeebad9a5e4b24e74cb55e829fb82c8244c0a5a3bae585179575af33bb0"
+        val root = mount(
+            """
+            <div data-tiqian-root="true" style="width: 220px">
+              <p style="font-size: 18px; line-height: 30px">详情见 <a href="/docs/$token">$token</a>，请核对。</p>
+            </div>
+            """.trimIndent(),
+        )
+
+        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
+
+        val paragraph = root.querySelector("p") as HTMLElement
+        assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
+        assertNotNull(paragraph.querySelector("a"))
+        assertTrue(paragraph.querySelectorAll(".tq-line").length > 1)
+        assertTrue(paragraph.scrollWidth <= paragraph.clientWidth + 1)
+        assertTrue(
+            paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
+                ?.textContent != "-",
+        )
+        assertEquals("详情见 $token，请核对。", copySelection(paragraph))
     }
 
     @Test

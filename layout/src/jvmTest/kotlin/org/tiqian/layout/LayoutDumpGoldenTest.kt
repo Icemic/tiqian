@@ -66,7 +66,10 @@ class LayoutDumpGoldenTest {
                     }
                     val result = engine.layout(
                         LayoutInput(
-                            content = TiqianTextContent(fixture.text),
+                            content = TiqianTextContent(
+                                fixture.text,
+                                lineBreakSpans = fixture.lineBreakSpans,
+                            ),
                             constraints = fixture.constraints,
                             paragraphStyle = org.tiqian.core.ParagraphStyle(
                                 lineHeight = fixture.lineHeight,
@@ -143,7 +146,9 @@ class LayoutDumpGoldenTest {
             appendLine(
                 "break-opportunity ${decision.range.start}-${decision.range.end} " +
                     "source='${decision.sourceText.escapeDumpText()}' " +
-                    "offsets=${decision.breakOffsets.joinToString(",")} reason=${decision.reason}",
+                    "offsets=${decision.breakOffsets.joinToString(",")}" +
+                    (decision.tier?.let { " tier=$it" } ?: "") +
+                    " reason=${decision.reason}",
             )
         }
         debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
@@ -240,6 +245,7 @@ class LayoutDumpGoldenTest {
             appendLine(
                 "inline-box ${box.range.start}-${box.range.end} " +
                     "start=${box.inlineStart.fmt()} end=${box.inlineEnd.fmt()} " +
+                    "outer=${box.outerSpacing} " +
                     "clusters=${box.firstClusterIndex}-${box.lastClusterIndex} reason=${box.reason}",
             )
         }

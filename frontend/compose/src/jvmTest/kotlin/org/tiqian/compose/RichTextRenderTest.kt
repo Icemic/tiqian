@@ -29,6 +29,7 @@ import org.tiqian.core.getBoundingBoxes
 import org.tiqian.core.getCursorRect
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
+import org.tiqian.core.resolvedBackgroundCornerRadii
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import java.io.File
 import kotlin.math.roundToInt
@@ -161,8 +162,143 @@ class RichTextRenderTest {
         assertEquals(TextRange(1, 5), inlineBox.range)
         assertEquals(4f, inlineBox.inlineStart, 0.01f)
         assertEquals(4f, inlineBox.inlineEnd, 0.01f)
+        assertEquals("Narrow", inlineBox.outerSpacing)
         assertEquals(2, result.debug.autoSpaceDecisions.size)
-        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "EastAsianSpacing.Wide" })
+        assertEquals(
+            setOf(
+                "InlineBoxOuterAutoSpace:leading-W-N",
+                "InlineBoxOuterAutoSpace:trailing-N-W",
+            ),
+            result.debug.autoSpaceDecisions.map { it.reason }.toSet(),
+        )
+        assertTrue(result.debug.autoSpaceDecisions.all { it.boundaryRole == "InlineBox.Narrow" })
+    }
+
+    @Test
+    fun markdownParagraphJustifiesAroundWrappedInlineCodeAndUsesContinuationCorners() {
+        var layout: LayoutResult? = null
+        val annotated = buildAnnotatedString {
+            append("准备发布前，请先在终端运行")
+            inlineCode { append("./gradlew :demo:android:assembleRelease") }
+            append("，然后打开输出目录核对签名与版本号；若任务失败，就根据报告里的诊断信息逐项处理。")
+        }
+        val image = ImageComposeScene(width = 420, height = 260) {
+            Box(Modifier.fillMaxSize().background(Color(0xFFF8F8F6)).padding(24.dp)) {
+                CjkText(
+                    text = annotated,
+                    modifier = Modifier.width(372.dp),
+                    textStyle = CjkTextStyle(fontSize = 22.sp, lineHeight = 1.65.em),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render() }
+
+        File("build/reports/tiqian-compose").mkdirs()
+        image.encodeToData(EncodedImageFormat.PNG)?.bytes?.let {
+            File("build/reports/tiqian-compose/markdown-inline-code-real-effect.png").writeBytes(it)
+        }
+
+        val density = Density(1f)
+        val spans = annotated.cjkRichTextSpans(inlineCodePaint = defaultInlineCodePaint(density))
+        val result = layout ?: error("onTextLayout not called")
+        val codeRanges = spans.filter { it.role == RichTextRole.InlineCode }.map { it.range }
+        assertTrue(
+            result.debug.autoSpaceDecisions.any {
+                it.reason == "InlineBoxOuterAutoSpace:leading-W-N"
+            },
+            "inline-code background must keep its outer sino-western gap: ${result.debug.autoSpaceDecisions}",
+        )
+        val wrappedCodeLines = result.lines.filter { line ->
+            codeRanges.any { code -> line.range.end > code.start && line.range.end < code.end }
+        }
+        assertTrue(wrappedCodeLines.isNotEmpty(), "expected an inline-code technical break")
+        assertTrue(
+            result.lines.any { line ->
+                annotated.text.substring(line.range.start, line.range.end).endsWith("assembleRe") &&
+                    line.debug.repair?.startsWith(
+                        "PushIn:ProgressiveTechnicalTierPromotion",
+                    ) == true
+            },
+            "expected source-space compression to promote R|elease to Re|lease: " +
+                "lines=${result.lines} breaks=${result.debug.breakOpportunityDecisions}",
+        )
+        val technicalPromotion = result.debug.lineDecisions
+            .first { decision ->
+                decision.repairDecision?.reasonCode ==
+                    "ProgressiveTechnicalTierPromotion"
+            }
+            .repairDecision!!
+        technicalPromotion.pushInAllocations.forEach { allocation ->
+            assertEquals(" ", annotated.text.substring(
+                allocation.clusterRange.start,
+                allocation.clusterRange.end,
+            ))
+        }
+        assertTrue(
+            wrappedCodeLines.any { line ->
+                result.debug.justificationDecisions
+                    .firstOrNull { it.lineRange == line.range }
+                    ?.allocations
+                    ?.isNotEmpty() == true
+            },
+            "expected ordinary paragraph spacing outside inline code to remain justified",
+        )
+        wrappedCodeLines.forEach { line ->
+            val adjustment = result.debug.justificationDecisions.firstOrNull { it.lineRange == line.range }
+            if (adjustment == null) {
+                assertEquals(352f, line.visualWidth, 0.01f, "compressed technical line must fill measure")
+                assertTrue(
+                    line.debug.repair?.startsWith("PushIn:") == true,
+                    "a non-justified wrapped technical line must carry its compression repair: $line",
+                )
+            } else {
+                assertEquals(
+                    0f,
+                    adjustment.deficitAfter,
+                    0.01f,
+                    "${line.range}: '${annotated.text.substring(line.range.start, line.range.end)}' $adjustment",
+                )
+            }
+        }
+        result.debug.justificationDecisions.flatMap { it.allocations }.forEach { allocation ->
+            val insideCode = codeRanges.any { code ->
+                allocation.clusterRange.start >= code.start && allocation.clusterRange.end <= code.end
+            }
+            if (insideCode) {
+                val target = result.clusters.first { it.range == allocation.clusterRange }
+                val exitsCodeAfterTarget = codeRanges.any { code -> target.range.end == code.end }
+                assertTrue(
+                    target.text.all(Char::isWhitespace) || exitsCodeAfterTarget,
+                    "technical justification must target source whitespace, not invent Latin tracking: $allocation",
+                )
+            }
+        }
+        val segments = result
+            .toReplayIndex(spans)
+            .richTextBackgroundSegments
+            .filter { it.span.role == RichTextRole.InlineCode }
+        assertTrue(segments.size >= 2, "expected wrapped inline code, got ${segments.size} segment")
+        val firstCodeSegment = segments.first()
+        val positioned = result.positionedClusters()
+        val precedingBodyCluster = positioned
+            .last { it.lineIndex == firstCodeSegment.lineIndex && it.range.end == firstCodeSegment.range.start }
+        assertTrue(
+            firstCodeSegment.left - precedingBodyCluster.right >= 22f * 0.125f - 0.01f,
+            "inline-code background painted over its outer sino-western gap: " +
+                "bodyRight=${precedingBodyCluster.right}, boxLeft=${firstCodeSegment.left}",
+        )
+
+        val first = segments.first().resolvedBackgroundCornerRadii()
+        val middle = segments.getOrNull(1)?.takeIf { segments.size > 2 }?.resolvedBackgroundCornerRadii()
+        val last = segments.last().resolvedBackgroundCornerRadii()
+        assertEquals(3f, first.topLeft)
+        assertEquals(1f, first.topRight)
+        middle?.let {
+            assertEquals(1f, it.topLeft)
+            assertEquals(1f, it.topRight)
+        }
+        assertEquals(1f, last.topLeft)
+        assertEquals(3f, last.topRight)
     }
 
     @Test

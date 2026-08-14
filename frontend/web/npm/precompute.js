@@ -162,7 +162,11 @@ function normalizeInlineBoxes(text, value) {
     if (!Number.isFinite(inlineStartPx) || !Number.isFinite(inlineEndPx)) {
       throw new Error("InvalidSnapshotInlineBoxGeometry");
     }
-    return Object.freeze({ ...range, inlineStartPx, inlineEndPx });
+    const outerSpacing = String(box.outerSpacing ?? "Narrow");
+    if (!["Narrow", "Source"].includes(outerSpacing)) {
+      throw new Error("InvalidSnapshotInlineBoxOuterSpacing");
+    }
+    return Object.freeze({ ...range, inlineStartPx, inlineEndPx, outerSpacing });
   }));
 }
 
@@ -184,7 +188,15 @@ function encodedInlineBoxes(boxes) {
     box.end,
     box.inlineStartPx,
     box.inlineEndPx,
+    box.outerSpacing,
   ].join(FIELD_SEPARATOR)).join(RECORD_SEPARATOR);
+}
+
+function encodedLineBreakSpans(semantics) {
+  return semantics
+    .filter((span) => ["a", "code"].includes(String(span.tagName ?? "").toLowerCase()))
+    .map((span) => [span.start, span.end, "ProgressiveTechnical"].join(FIELD_SEPARATOR))
+    .join(RECORD_SEPARATOR);
 }
 
 /**
@@ -379,6 +391,7 @@ export async function createPrecomputer(options = {}) {
         [...sourceBoundaries].sort((left, right) => left - right).join(","),
         encodedTextSpans(textSpans),
         encodedInlineBoxes(inlineBoxes),
+        encodedLineBreakSpans(semantics),
       );
       plan = JSON.parse(serialized);
       fontEvidence = fontSession.captureEvidence();

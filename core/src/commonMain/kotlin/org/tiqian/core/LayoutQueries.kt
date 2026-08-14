@@ -59,6 +59,53 @@ data class RichTextLineSegment(
     val width: Float get() = right - left
     val height: Float get() = bottom - top
     val rect: Rect get() = Rect(left, top, right, bottom)
+    /** The marked source range began on an earlier visual line. */
+    val continuesFromPreviousLine: Boolean get() = range.start > span.range.start
+    /** The marked source range continues onto a later visual line. */
+    val continuesOnNextLine: Boolean get() = range.end < span.range.end
+}
+
+/** Four physical corner radii resolved from one final rich-text background segment. */
+data class RichTextCornerRadii(
+    val topLeft: Float,
+    val topRight: Float,
+    val bottomRight: Float,
+    val bottomLeft: Float,
+) {
+    val isSquare: Boolean
+        get() = topLeft == 0f && topRight == 0f && bottomRight == 0f && bottomLeft == 0f
+
+    val isUniform: Boolean
+        get() = topLeft == topRight && topRight == bottomRight && bottomRight == bottomLeft
+}
+
+/**
+ * Resolves `RichTextBackgroundContinuationCorners` from source-continuation geometry. A true
+ * source endpoint keeps [RichTextBackgroundPaint.cornerRadius]; an edge split by line breaking uses
+ * [RichTextBackgroundPaint.continuationCornerRadius]. [inset] mirrors a centered border stroke that
+ * is moved inside the measured box. Renderers consume these four values instead of independently
+ * deciding whether a fragment is open or closed.
+ */
+fun RichTextLineSegment.resolvedBackgroundCornerRadii(inset: Float = 0f): RichTextCornerRadii {
+    require(inset.isFinite() && inset >= 0f)
+    val boxWidth = (width - inset * 2f).coerceAtLeast(0f)
+    val boxHeight = (height - inset * 2f).coerceAtLeast(0f)
+    val maximum = minOf(boxWidth / 2f, boxHeight / 2f)
+    fun resolve(radius: Float): Float = (radius - inset).coerceIn(0f, maximum)
+
+    val paint = span.paint.background
+    val left = resolve(
+        if (continuesFromPreviousLine) paint.continuationCornerRadius else paint.cornerRadius,
+    )
+    val right = resolve(
+        if (continuesOnNextLine) paint.continuationCornerRadius else paint.cornerRadius,
+    )
+    return RichTextCornerRadii(
+        topLeft = left,
+        topRight = right,
+        bottomRight = right,
+        bottomLeft = left,
+    )
 }
 
 /**

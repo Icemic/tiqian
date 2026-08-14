@@ -92,6 +92,7 @@ globalThis.addEventListener("message", async (event) => {
       sourceBoundaries,
       request.textSpans,
       request.inlineBoxes,
+      request.lineBreakSpans,
     );
     globalThis.postMessage({ id, ok: true, plan });
   } catch (error) {

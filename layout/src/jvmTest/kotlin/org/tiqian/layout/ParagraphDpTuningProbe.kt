@@ -63,6 +63,7 @@ class ParagraphDpTuningProbe {
             lineAdjustmentCompressBias: Float,
             hardBreakAfterClusters: Set<Int>,
             nonRenderingControlClusters: Set<Int>,
+            progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
         ): LineSolution {
             val result = inner.breakLines(
                 naturalClusters, adjustedClusters, maxWidth, shrinkOpportunities,
@@ -70,7 +71,7 @@ class ParagraphDpTuningProbe {
                 forbiddenLineStartClusters, forbiddenLineEndClusters, hyphenBreakClusters,
                 cjkInterCharBoundaries, maxCjkStretchPerGap, sinoWesternBoundaries,
                 sinoWesternStretchCap, lineAdjustmentPushIn, lineAdjustmentCompressBias,
-                hardBreakAfterClusters, nonRenderingControlClusters,
+                hardBreakAfterClusters, nonRenderingControlClusters, progressiveBreakOpportunities,
             )
             recorded = Recorded(
                 naturalClusters, adjustedClusters, maxWidth, firstLineIndent,

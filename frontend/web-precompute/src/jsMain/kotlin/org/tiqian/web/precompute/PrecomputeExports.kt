@@ -5,9 +5,12 @@ package org.tiqian.web.precompute
 import kotlin.js.JsExport
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineBoxSpan
+import org.tiqian.core.InlineBoxOuterSpacing
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LineLengthGrid
+import org.tiqian.core.LineBreakPolicy
+import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
@@ -52,6 +55,7 @@ fun precomputePlainParagraph(
     sourceBoundaries = "",
     textSpans = "",
     inlineBoxes = "",
+    lineBreakSpans = "",
 )
 
 private const val RECORD_SEPARATOR = '\u001e'
@@ -105,14 +109,29 @@ private fun parseInlineBoxes(value: String, textLength: Int): List<InlineBoxSpan
         .filter(String::isNotBlank)
         .map { record ->
             val fields = record.split(FIELD_SEPARATOR)
-            require(fields.size == 4) { "InvalidInlineBoxWire" }
+            require(fields.size == 4 || fields.size == 5) { "InvalidInlineBoxWire" }
             val start = fields[0].toInt()
             val end = fields[1].toInt()
             val inlineStart = fields[2].toFloat()
             val inlineEnd = fields[3].toFloat()
             require(start in 0 until end && end <= textLength) { "InvalidInlineBoxRange" }
             require(inlineStart.isFinite() && inlineEnd.isFinite()) { "InvalidInlineBoxGeometry" }
-            InlineBoxSpan(TextRange(start, end), inlineStart, inlineEnd)
+            val outerSpacing = fields.getOrNull(4)
+                ?.let(InlineBoxOuterSpacing::valueOf)
+                ?: InlineBoxOuterSpacing.Narrow
+            InlineBoxSpan(TextRange(start, end), inlineStart, inlineEnd, outerSpacing)
+        }
+
+private fun parseLineBreakSpans(value: String, textLength: Int): List<LineBreakSpan> =
+    value.split(RECORD_SEPARATOR)
+        .filter(String::isNotBlank)
+        .map { record ->
+            val fields = record.split(FIELD_SEPARATOR)
+            require(fields.size == 3) { "InvalidLineBreakSpanWire" }
+            val start = fields[0].toInt()
+            val end = fields[1].toInt()
+            require(start in 0 until end && end <= textLength) { "InvalidLineBreakSpanRange" }
+            LineBreakSpan(TextRange(start, end), LineBreakPolicy.valueOf(fields[2]))
         }
 
 /** Structured paragraph ABI: semantics stay in JS; metric spans enter the real layout pipeline. */
@@ -132,6 +151,7 @@ fun precomputeParagraph(
     sourceBoundaries: String,
     textSpans: String,
     inlineBoxes: String,
+    lineBreakSpans: String,
 ): String {
     require(text.isNotBlank()) { "EmptyParagraph" }
     require(maxWidthPx.isFinite() && maxWidthPx > 0.0) { "InvalidMaximumMeasure" }
@@ -155,6 +175,7 @@ fun precomputeParagraph(
             text = text,
             spans = parseTextSpans(textSpans, locale, text.length),
             sourceBoundaries = parseBoundaries(sourceBoundaries, text.length),
+            lineBreakSpans = parseLineBreakSpans(lineBreakSpans, text.length),
         ),
         textStyle = textStyle,
         paragraphStyle = ParagraphStyle(

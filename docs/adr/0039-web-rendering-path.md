@@ -258,7 +258,9 @@ strong-to-emphasis 映射。root 显式开启转换且实际包含 `<strong>` �
 在原生 source 仍连接时测得 inline-start/end 的 padding、border、margin 与 `::before/::after` 占宽，
 降为平台无关 `InlineBoxSpan`；core 把边界 advance 加进断行，并用 `Cluster.leadingLayoutAdvance` 区分
 盒子起点与 glyph origin。这样 inline code、spoiler pill、脚注伪元素都由同一模型计宽，标点压缩也不得
-吞掉这些结构宽度。相对定位/普通长度 `vertical-align` 从 computed style 读取为显式 baseline shift；
+吞掉这些结构宽度。2026-08-14 起同一 span 还携带通用 outer-spacing contract：独立 inline box
+默认以 Narrow 首尾边界进入 `InlineBoxOuterAutoSpace`，不再按 code、pill 或宿主标签逐项补间距；
+纯测量 wrapper 可选择 `Source`。相对定位/普通长度 `vertical-align` 从 computed style 读取为显式 baseline shift；
 只有无法解析的关键字才使用临时 baseline probe。
 
 browser runtime 只有在调用方显式提供 `monospaceFontFamily` contract，或 computed family 对应一个
@@ -552,3 +554,20 @@ document-level handler 只在 selection 与 `[data-tq-rendered]` 相交时接管
   `haltValidation` 通道。
 - 如果未来更换 core 的实现语言，本 ADR 的前端边界仍然成立：
   `OffscreenMeasureTextShaping` 度量后端与 `PreBrokenLineDom` 渲染边界不变。
+
+## Amendment (2026-08-14): semantic technical-break parity
+
+Browser runtime lowerer 将 `<a>` 与 `<code>` 的投影 range 统一送入核心
+`LineBreakSpan(ProgressiveTechnical)`；exact-font Worker request、缓存 key 与 Kotlin/JS precompute ABI
+必须序列化同一字段。构建期 precompute 直接从已规范化的 semantic spans 派生该字段。浏览器仍只
+重放核心给出的 cluster、断点和 spacing，不启用 `word-break`、`overflow-wrap` 或 `hyphens:auto`
+作为第二份布局真值。
+
+## Amendment (2026-08-14): native inline-code continuation decoration
+
+Web 不为逐角 1 px / 3 px 圆角拆分一个跨行 `<code>`。源元素继续以一个
+`ContinuousSemanticFlow` 节点跨过核心插入的软换行，并保留宿主的 computed
+`box-decoration-break`；默认 `slice` 因而在延续侧形成方角，真实首尾仍由宿主的圆角样式决定。
+这与 Compose 的 1 dp 延续圆角不是像素同形，而是 Web 保留 hover/focus、伪元素、border、padding
+和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制每段盒模型，仍按既有 capability 契约回退原生，
+不能用多份伪语义元素冒充支持。

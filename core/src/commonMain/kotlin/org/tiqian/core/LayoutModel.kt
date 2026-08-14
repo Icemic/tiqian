@@ -192,12 +192,15 @@ data class BreakOpportunityDecisionInfo(
     val sourceText: String,
     val breakOffsets: List<Int>,
     val reason: String,
+    /** Ordered policy tier when this decision belongs to a progressive break span. */
+    val tier: String? = null,
 )
 
 data class InlineBoxDecisionInfo(
     val range: TextRange,
     val inlineStart: Float,
     val inlineEnd: Float,
+    val outerSpacing: String,
     val firstClusterIndex: Int,
     val lastClusterIndex: Int,
     val reason: String = "InlineBoxBoundaryAdvance",
