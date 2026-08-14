@@ -2,6 +2,7 @@ package org.tiqian.shaping.android
 
 import android.graphics.fonts.Font
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.tiqian.core.TextRange
@@ -24,9 +25,19 @@ import kotlin.test.assertTrue
  * the `locl` zh-Hans dash at a full em.
  */
 @RunWith(AndroidJUnit4::class)
+@SdkSuppress(minSdkVersion = 31)
 class AndroidPaintTextShaperTest {
 
     private val shaper = AndroidPaintTextShaper()
+
+    @Test
+    fun hanContextIsReservedForScriptCommonCjkMarks() {
+        assertTrue(!requiresHanShapingContext("中", FontRole.CjkText))
+        assertTrue(!requiresHanShapingContext("かな", FontRole.CjkText))
+        assertTrue(!requiresHanShapingContext("A", FontRole.CjkText))
+        assertTrue(requiresHanShapingContext("—", FontRole.CjkText))
+        assertTrue(requiresHanShapingContext("。", FontRole.CjkPunctuation))
+    }
 
     @Test
     fun fullWidthPunctuationMeasuresOneEm() {

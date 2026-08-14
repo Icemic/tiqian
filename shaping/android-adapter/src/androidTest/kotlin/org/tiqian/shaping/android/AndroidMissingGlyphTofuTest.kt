@@ -25,7 +25,7 @@ class AndroidMissingGlyphTofuTest {
     private val typefaces = SystemAndroidTypefaceResolver()
     private val engine = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
-        textShaper = AndroidPaintTextShaper(typefaceResolver = typefaces),
+        textShaper = createAndroidTextShaper(typefaceResolver = typefaces),
         fontMetricsResolver = AndroidFontMetricsResolver(typefaceResolver = typefaces),
     )
 

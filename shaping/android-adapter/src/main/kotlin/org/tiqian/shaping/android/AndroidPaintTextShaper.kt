@@ -62,11 +62,7 @@ class AndroidPaintTextShaper(
         // clusters are shaped inside the buffer `中<cluster>中` (the same
         // Han-run environment Minikin gives them in real paragraphs) and
         // the cluster's glyphs/advance are sliced back out by offset.
-        val useHanContext = displayText.isNotEmpty() &&
-            (
-                input.fontDecision.role == org.tiqian.font.FontRole.CjkText ||
-                    input.fontDecision.role == org.tiqian.font.FontRole.CjkPunctuation
-                )
+        val useHanContext = requiresHanShapingContext(displayText, input.fontDecision.role)
         val measured = measureRun(paint, displayText, useHanContext)
         val advance = measured.advance
 
@@ -121,7 +117,7 @@ class AndroidPaintTextShaper(
             source = ShapingSource.AndroidPaint.name,
             reason = "AndroidPaintTextShaper:lang=${input.style.locale}",
             glyphsWithoutInkBounds = glyphs.count { it.bounds == null },
-            missingGlyphs = if (displayText.isNotEmpty() && !paint.hasGlyph(displayText)) 1 else 0,
+            missingGlyphs = measured.glyphIds.count { it == 0 },
         )
         return ShapingResult(
             clusters = listOf(cluster),
@@ -253,7 +249,7 @@ class AndroidPaintTextShaper(
     }
 }
 
-private fun List<String>.toAndroidFontFeatureSettings(): String? {
+internal fun List<String>.toAndroidFontFeatureSettings(): String? {
     if (isEmpty()) return null
     return joinToString(",") { feature ->
         val pieces = feature.split('=', limit = 2)

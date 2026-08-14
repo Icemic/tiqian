@@ -36,8 +36,6 @@ kotlin {
 
         androidMain.dependencies {
             implementation(project(":shaping:android-adapter"))
-            // Host font catalogs are part of the Android artifact contract.
-            api(project(":shaping:android-native-font"))
         }
 
         getByName("androidDeviceTest").dependencies {

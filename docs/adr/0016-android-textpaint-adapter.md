@@ -1,4 +1,4 @@
-# ADR 0016: Android API 23 native 字体后端与平台 shaping oracle
+# ADR 0016: Android 平台 run 重放与受控 native 字体后端
 
 - Status: Accepted
 - Date: 2026-06-10
@@ -36,6 +36,14 @@
   把 Android native 后端明确命名为 `:shaping:android-native-font`、
   `org.tiqian:tiqian-shaping-android-native-font` 与
   `org.tiqian.shaping.android.nativefont`；只改变模块和公共包身份，不改变本 ADR 的后端契约。
+- Amendment 2026-08-13：Compose Android 默认后端改为公开平台 run 契约，
+  `frontend/compose` 不再传递依赖 `android-native-font`。API 31+ 仍从
+  `TextRunShaper` 保留 glyph id、placement 与 `Font`，并用 `Canvas.drawGlyphs`
+  重放；API 23–30 改由 `LegacyPlatformRunReplay` 使测量和绘制共用同一
+  `TextPaint`、typeface、locale、OpenType feature 和上下文文本。旧系统没有
+  glyph 级字体读回 API，因此该路径不声称观察到 Minikin 的物理 face。
+  native 模块仍保留为宿主显式选择的受控字体后端，不再是 Compose
+  artifact 的默认体积与启动成本。
 
 ## 2026-08-05 决策修订：API 23 native correctness backend
 
@@ -89,6 +97,36 @@ Android API 23+ 的默认正确性路径改为 `shaping/android-native-font`：
 native bridge 目前留在提椠内，但公共边界只依赖 replayable font catalog / face contract；与
 `math-compose` 共用的字体加载、shaping、outline 与 cache 待双方桥接稳定后下沉，不复制数学布局规则。
 
+## 2026-08-13 决策修订：Compose 默认使用公开平台 run replay
+
+真实 Lite 应用验证表明，把 HarfBuzz / FreeType 与系统字体 catalog 全部传递进
+Compose artifact，会把 native ABI 体积、旧设备初始化与字体扫描成本无条件地
+交给每个宿主。对于“跟随 Android 当前字体选择”的普通 Compose 正文，
+平台本身已经拥有 Minikin 的完整 fallback 与 OEM 策略；提椠需要保住的是测量和
+绘制契约同源，不是在运行时再复制一遍平台字体系统。
+
+- API 31+ 使用 `AndroidPaintTextShaper`：从 `PositionedGlyphs` 读回 glyph id、
+  placement 和每段 `Font`，renderer 按 `LayoutResult` 保留的位置以
+  `Canvas.drawGlyphs` 重放。
+- API 23–30 使用 `AndroidLegacyTextShaper`。这些版本只公开了上下文
+  advance、path 和 `drawTextRun`，没有读回逐 glyph 字体的 API。
+  `LegacyPlatformRunReplay` 因此把每个 layout cluster 定义为平台 run：同一
+  display text、typeface、locale、OpenType feature 与 Han context 同时进入
+  `getRunAdvance` / `getTextPath` 和 `drawTextRun`。其结构化 decision 明确记录
+  `LegacyPlatformRunReplay:api23-30`，不伪造 glyph id 或物理 face 身份。
+- Han context 只用于 CJK 角色中没有强脚本的共用符号和标点。汉字、
+  假名、拉丁字母和数字不再放入合成的 `中…中` 缓冲，避免为不需要
+  script 锚点的内容增加测量与绘制差异。该判定由
+  `requiresHanShapingContext` 公开共享，数学公式中的宿主文字也使用同一
+  契约。
+- `shaping/android-native-font` 仍提供精确字体字节、HarfBuzz / FreeType 与
+  outline replay，适合宿主明确选择的受控字体环境。它不再由
+  `frontend/compose` 自动安装，也不作为跟随系统字体时的默认 fallback。
+
+这次修订取代本 ADR 中“API 23+ native backend 是 Compose 默认正确性边界”
+的结论；2026-08-05 的受控字体后端契约与验证证据仍保留，但不再描述
+Compose 默认依赖图。
+
 ### API 23+ 验证证据
 
 此前构建在 Android emulator 上通过 native instrumentation：API 23、27、30 各 4/4；API 31 与
@@ -137,7 +175,7 @@ Android 只能近似为「该 locale 下的平台文本栈测量」。
   对 zh-Hans 的映射一致）。不显式指定时 Roboto 在 fallback 链首位，会接管
   `—` `…` 等共用码点。
 
-### HanContextShaping（关键决策）
+### HanContextShaping（历史起点，已由 2026-08-13 amendment 收窄）
 
 孤立的 `—` 是 script-COMMON 码点，HarfBuzz 对单字符 buffer 解析为 OpenType
 DFLT script，而 Noto Sans CJK 的 `locl` 规则注册在 hani/latn/cyrl/… 下
@@ -146,7 +184,7 @@ DFLT script，而 Noto Sans CJK 的 `locl` 规则注册在 hani/latn/cyrl/… �
 Android 没有公开的 script 控制，且 `getRunAdvance`/`shapeTextRun` 的
 context 参数不参与 HB 的 script 推断（buffer 只含 run 本身）。
 
-因此 CJK role 的 cluster 统一放进 `中<cluster>中` buffer 整体 shaping，再按
+第一阶段因此把 CJK role 的 cluster 统一放进 `中<cluster>中` buffer 整体 shaping，再按
 offset 切回该 cluster 的 glyph 与 advance（pen 原点用 `getRunAdvance` 差分，
 不用 glyph x——`halt` 的 placement 位移正是要单独上报的量）。这正是真实
 Android 段落里 Minikin 给这些字符的环境，不是 hack。glyph↔字符无法 1:1
@@ -184,8 +222,8 @@ id、origin、Font 绘制；只有缺少平台 Font key 时，才退回同一 re
 - Android 真机/模拟器是唯一需要外部环境的测试路径，不进默认 `build`；
   按需跑 `:shaping:android-adapter:connectedAndroidTest`。
 - `local.properties`（sdk.dir）为本机配置，不入库。
-- 当前 Android Compose artifact 的最低版本为 API 23；API 23+ 的正确性由 native backend 提供，
-  上述 API 31 platform 路径只作为 oracle / 可选优化理解。
+- 当前 Android Compose artifact 的最低版本为 API 23。默认路径按 2026-08-13
+  amendment 使用公开平台 run replay；native backend 是宿主可显式选择的受控字体能力。
 
 ## Alternatives considered
 

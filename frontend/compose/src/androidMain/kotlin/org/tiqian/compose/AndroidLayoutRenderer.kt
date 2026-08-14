@@ -28,7 +28,7 @@ import org.tiqian.font.FontRole
 import org.tiqian.shaping.android.AndroidPositionedGlyphFontRegistry
 import org.tiqian.shaping.android.AndroidTypefaceResolver
 import org.tiqian.shaping.android.SystemAndroidTypefaceResolver
-import org.tiqian.shaping.android.nativefont.AndroidNativeGlyphReplay
+import org.tiqian.shaping.android.requiresHanShapingContext
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
@@ -48,7 +48,6 @@ private class AndroidParagraphDrawCache : ParagraphDrawCache {
     internal val decorationStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     internal val rubyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     internal val skipInkPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
-    internal val glyphReplayPath = Path()
     internal val skipInkPath = Path()
     internal val skipInkBounds = RectF()
     internal val skipInkIntervals = HashMap<Long, FloatArray>()
@@ -108,7 +107,7 @@ internal actual fun ContentDrawScope.drawParagraph(
             native, result, replayIndex, color, colorSpans, spans, AndroidRendererTypefaces, drawCache,
         )
         drawAndroidRuby(
-            native, result, color, AndroidRendererTypefaces, drawCache.rubyPaint, drawCache.glyphReplayPath,
+            native, result, color, AndroidRendererTypefaces, drawCache.rubyPaint,
         )
         drawAndroidBopomofo(native, result, color, AndroidRendererTypefaces)
     }
@@ -125,7 +124,6 @@ private fun drawAndroidGlyphs(
     drawCache: AndroidParagraphDrawCache,
 ) {
     val paint = drawCache.glyphPaint
-    val glyphReplayPath = drawCache.glyphReplayPath
     paint.color = color
     paint.textLocale = Locale.forLanguageTag(result.input.textStyle.locale)
     if (Build.VERSION.SDK_INT >= 31) {
@@ -138,11 +136,10 @@ private fun drawAndroidGlyphs(
             spans = spans,
             typefaces = typefaces,
             paint = paint,
-            glyphReplayPath = glyphReplayPath,
             drawCache = drawCache,
         )
     } else {
-        drawAndroidPositionedClustersWithPaths(
+        drawAndroidPlatformClusters(
             canvas = canvas,
             result = result,
             replayIndex = replayIndex,
@@ -151,7 +148,6 @@ private fun drawAndroidGlyphs(
             spans = spans,
             typefaces = typefaces,
             paint = paint,
-            glyphReplayPath = glyphReplayPath,
         )
     }
 
@@ -165,40 +161,18 @@ private fun drawAndroidGlyphs(
     for (line in result.lines) {
         if (line.hyphenAdvance > 0f) {
             val originX = line.indent + line.visualWidth
-            hyphenPaint.isFakeBoldText = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(line.hyphenGlyphs)
-            hyphenPaint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(line.hyphenGlyphs)) -0.25f else 0f
             val platformDrawn = Build.VERSION.SDK_INT >= 31 &&
                 drawPositionedGlyphs31(
                     canvas, line.hyphenGlyphs, originX, line.baseline, hyphenPaint, drawCache,
                 )
             if (platformDrawn) continue
 
-            // Native outline replay owns its synthetic italic transform and cannot accept
-            // Android's fake-bold paint. Reset both before trying that exact-glyph path.
-            hyphenPaint.isFakeBoldText = false
-            hyphenPaint.textSkewX = 0f
-            if (!AndroidNativeGlyphReplay.drawGlyphs(
-                    canvas,
-                    line.hyphenGlyphs,
-                    originX,
-                    line.baseline,
-                    result.input.textStyle.fontSize,
-                    hyphenPaint,
-                    glyphReplayPath,
-                )
-            ) {
-                requireNativeReplayDidNotFail(line.hyphenGlyphs)
-                hyphenPaint.isFakeBoldText =
-                    AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(line.hyphenGlyphs)
-                hyphenPaint.textSkewX =
-                    if (AndroidNativeGlyphReplay.usesSyntheticItalic(line.hyphenGlyphs)) -0.25f else 0f
-                drawContextShapedText(canvas, "-", originX, line.baseline, FontRole.LatinText, hyphenPaint)
-            }
+            drawContextShapedText(canvas, "-", originX, line.baseline, FontRole.LatinText, hyphenPaint)
         }
     }
 }
 
-private fun drawAndroidPositionedClustersWithPaths(
+private fun drawAndroidPlatformClusters(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
     replayIndex: LayoutResultReplayIndex,
@@ -207,26 +181,18 @@ private fun drawAndroidPositionedClustersWithPaths(
     spans: List<TextSpan>,
     typefaces: AndroidTypefaceResolver,
     paint: TextPaint,
-    glyphReplayPath: Path,
 ) {
     result.forEachAndroidPositionedCluster(replayIndex, spans) { _, cluster, drawX, baselineY, run ->
         prepareAndroidGlyphPaint(paint, cluster, run, color, colorSpans, typefaces)
-        val glyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty()
-        if (AndroidNativeGlyphReplay.drawGlyphs(
-                canvas, glyphs, drawX, baselineY, run.style.fontSize, paint, glyphReplayPath,
-            )
-        ) {
-            return@forEachAndroidPositionedCluster
-        }
-        drawAndroidClusterFallback(canvas, cluster, glyphs, drawX, baselineY, run, paint)
+        drawAndroidClusterRun(canvas, cluster, drawX, baselineY, run, paint)
     }
 }
 
 /**
  * AndroidPlatformGlyphBatch: API 31+ replays the exact LayoutResult glyph ids and absolute
  * placements through the retained platform Font, combining adjacent equal-style glyphs into one
- * Canvas.drawGlyphs call. A face without a retained platform Font falls back per cluster to the
- * API 23 FreeType-outline path, so this optimization cannot change font selection or layout truth.
+ * Canvas.drawGlyphs call. A run without an observable platform Font is replayed through the same
+ * contextual drawTextRun contract used on API 23-30.
  */
 @TargetApi(31)
 private fun drawAndroidPositionedClusters31(
@@ -238,7 +204,6 @@ private fun drawAndroidPositionedClusters31(
     spans: List<TextSpan>,
     typefaces: AndroidTypefaceResolver,
     paint: TextPaint,
-    glyphReplayPath: Path,
     drawCache: AndroidParagraphDrawCache,
 ) {
     val batch = (drawCache.glyphBatch31 as? AndroidGlyphBatch31)
@@ -251,8 +216,6 @@ private fun drawAndroidPositionedClusters31(
             platformFontFor(glyph, drawCache) != null
         }
         if (canUsePlatformGlyphs) {
-            paint.isFakeBoldText = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs)
-            paint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(glyphs)) -0.25f else 0f
             for (glyph in glyphs) {
                 batch.append(
                     canvas = canvas,
@@ -267,16 +230,7 @@ private fun drawAndroidPositionedClusters31(
         }
 
         batch.flush(canvas, paint)
-        // FreeType outline replay already applies the synthetic italic transform itself.
-        paint.isFakeBoldText = false
-        paint.textSkewX = 0f
-        if (AndroidNativeGlyphReplay.drawGlyphs(
-                canvas, glyphs, drawX, baselineY, run.style.fontSize, paint, glyphReplayPath,
-            )
-        ) {
-            return@forEachAndroidPositionedCluster
-        }
-        drawAndroidClusterFallback(canvas, cluster, glyphs, drawX, baselineY, run, paint)
+        drawAndroidClusterRun(canvas, cluster, drawX, baselineY, run, paint)
     }
     batch.flush(canvas, paint)
 }
@@ -294,23 +248,19 @@ private fun prepareAndroidGlyphPaint(
     }?.argb ?: color
     paint.textSize = run.style.fontSize
     paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
-    paint.fontFeatureSettings = null
+    paint.fontFeatureSettings = run.openTypeFeatures.toAndroidFontFeatureSettings()
     paint.isFakeBoldText = false
     paint.textSkewX = 0f
 }
 
-private fun drawAndroidClusterFallback(
+private fun drawAndroidClusterRun(
     canvas: android.graphics.Canvas,
     cluster: Cluster,
-    glyphs: List<Glyph>,
     drawX: Float,
     baselineY: Float,
     run: AndroidClusterRun,
     paint: TextPaint,
 ) {
-    paint.isFakeBoldText = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs)
-    paint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(glyphs)) -0.25f else 0f
-    requireNativeReplayDidNotFail(glyphs)
     // CjkPunctuation clusters need the full-buffer clipped draw (context GSUB);
     // plain 汉字 are context-independent and keep the cheaper sub-range draw.
     // Italic punctuation uses target-only drawing so context glyph overhang cannot leak.
@@ -328,7 +278,6 @@ private fun platformFontFor(
         return drawCache.platformFonts31[key] as? android.graphics.fonts.Font
     }
     val font = AndroidPositionedGlyphFontRegistry.fontFor(key)
-        ?: AndroidNativeGlyphReplay.platformFontFor(key)
     drawCache.platformFonts31[key] = font
     return font
 }
@@ -713,7 +662,6 @@ private fun drawAndroidRuby(
     color: Int,
     typefaces: AndroidTypefaceResolver,
     paint: TextPaint,
-    glyphReplayPath: Path,
 ) {
     paint.color = color
     paint.textLocale = Locale.forLanguageTag(result.input.textStyle.locale)
@@ -721,22 +669,9 @@ private fun drawAndroidRuby(
         paint.textLocale = Locale.forLanguageTag(ruby.locale)
         paint.textSize = ruby.fontSize
         paint.fontFeatureSettings = null
-        val originX = ruby.centerX - ruby.width / 2f
-        if (!AndroidNativeGlyphReplay.drawGlyphs(
-                canvas,
-                ruby.glyphs,
-                originX,
-                ruby.baselineY,
-                ruby.fontSize,
-                paint,
-                glyphReplayPath,
-            )
-        ) {
-            requireNativeReplayDidNotFail(ruby.glyphs)
-            paint.typeface = typefaces.resolve(FontRole.LatinText, ruby.fontFamilies, ruby.fontWeight, italic = false)
-            val width = paint.measureText(ruby.text)
-            drawContextShapedText(canvas, ruby.text, ruby.centerX - width / 2f, ruby.baselineY, FontRole.LatinText, paint)
-        }
+        paint.typeface = typefaces.resolve(FontRole.LatinText, ruby.fontFamilies, ruby.fontWeight, italic = false)
+        val width = paint.measureText(ruby.text)
+        drawContextShapedText(canvas, ruby.text, ruby.centerX - width / 2f, ruby.baselineY, FontRole.LatinText, paint)
     }
 }
 
@@ -755,18 +690,6 @@ private fun drawAndroidBopomofo(
         paint.typeface = typefaces.resolve(FontRole.CjkText, z.fontFamilies, z.fontWeight, italic = false)
         paint.textLocale = Locale.forLanguageTag(z.locale)
         for (p in z.placements) {
-            if (AndroidNativeGlyphReplay.drawGlyphs(
-                    canvas,
-                    p.glyphs,
-                    p.drawX,
-                    p.baselineY,
-                    p.fontSize,
-                    paint,
-                )
-            ) {
-                continue
-            }
-            requireNativeReplayDidNotFail(p.glyphs)
             paint.textSize = p.fontSize
             canvas.drawTextRun(
                 p.text,
@@ -786,6 +709,7 @@ private fun drawAndroidBopomofo(
 private data class AndroidClusterRun(
     val role: FontRole,
     val style: TextStyle,
+    val openTypeFeatures: List<String>,
 )
 
 private inline fun LayoutResult.forEachAndroidPositionedCluster(
@@ -813,7 +737,11 @@ private inline fun LayoutResult.forEachAndroidPositionedCluster(
                 cluster,
                 positioned.drawX,
                 line.baseline + cluster.baselineShift,
-                AndroidClusterRun(role, style),
+                AndroidClusterRun(
+                    role,
+                    style,
+                    replayIndex.openTypeFeaturesByClusterRange[cluster.range].orEmpty(),
+                ),
             )
         }
     }
@@ -832,7 +760,7 @@ private fun drawContextShapedText(
     clipToContext: Boolean = false,
 ) {
     if (text.isEmpty()) return
-    val useHanContext = role == FontRole.CjkText || role == FontRole.CjkPunctuation
+    val useHanContext = requiresHanShapingContext(text, role)
     if (useHanContext && clipToContext) {
         // FullBufferClippedPunctuationDraw: drawTextRun keeps context-driven GSUB
         // (locl 2em dash, zh quote forms…) only for glyphs INSIDE the drawn range —
@@ -879,24 +807,12 @@ private fun LayoutResult.androidLineInkSkipIntervals(
         // path and the underline's vertical band. This skips only the ink slice
         // that touches the line, not the whole glyph or text cluster.
         paint.textSize = run.style.fontSize
-        paint.fontFeatureSettings = null
+        paint.fontFeatureSettings = run.openTypeFeatures.toAndroidFontFeatureSettings()
         path.reset()
-        val glyphs = replayIndex.glyphsByClusterRange[cluster.range].orEmpty()
-        val nativePath = AndroidNativeGlyphReplay.glyphPath(
-            glyphs = glyphs,
-            originX = drawX,
-            originY = baselineY,
-            fontSize = run.style.fontSize,
-            reusablePath = path,
-        )
-        if (nativePath == null) {
-            val syntheticBold = AndroidNativeGlyphReplay.requiresPlatformSyntheticBold(glyphs)
-            if (!syntheticBold) requireNativeReplayDidNotFail(glyphs)
-            paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
-            paint.isFakeBoldText = syntheticBold
-            paint.textSkewX = if (AndroidNativeGlyphReplay.usesSyntheticItalic(glyphs)) -0.25f else 0f
-            paint.getTextPath(cluster.displayText, 0, cluster.displayText.length, drawX, baselineY, path)
-        }
+        paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
+        paint.isFakeBoldText = false
+        paint.textSkewX = 0f
+        paint.getTextPath(cluster.displayText, 0, cluster.displayText.length, drawX, baselineY, path)
         if (path.isEmpty) return@forEachAndroidPositionedCluster
         path.computeBounds(bounds, true)
         if (bounds.bottom < bandTop || bounds.top > bandBottom) return@forEachAndroidPositionedCluster
@@ -910,9 +826,13 @@ private fun skipInkCacheKey(lineIndex: Int, lineY: Float, skipBandPad: Float): L
         (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
         (skipBandPad.toRawBits().toLong() shl 1)
 
-private fun requireNativeReplayDidNotFail(glyphs: List<Glyph>) {
-    check(!AndroidNativeGlyphReplay.ownsGlyphs(glyphs)) {
-        "NativeGlyphReplayUnavailable: a retained native font face could not replay its shaped glyph outline"
+private fun List<String>.toAndroidFontFeatureSettings(): String? {
+    if (isEmpty()) return null
+    return joinToString(",") { feature ->
+        val pieces = feature.split('=', limit = 2)
+        val tag = pieces[0].trim().take(4)
+        val value = pieces.getOrNull(1)?.trim()?.toIntOrNull() ?: 1
+        "'$tag' $value"
     }
 }
 
