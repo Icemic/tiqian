@@ -374,356 +374,24 @@ class ExplainableStubParagraphLayoutEngine(
             resolved.range to decision
         }
 
-        // A CLREQ display substitution (ADR 0003, e.g. `——` → `⸺`) is only an
-        // improvement if the resolved font can actually DRAW it well; otherwise
-        // re-shape with the source text and record the rollback + its cause:
-        // - SubstitutionRollbackOnMissingGlyph: the font lacks the codepoint —
-        //   `⸺` U+2E3A is absent from PingFang SC / Hiragino / Heiti (tofu).
-        // - DashSubstitutionInkCoverageRollback: the font HAS `⸺` but its ink
-        //   does not fill the two-em advance (Pixel's Noto CJK carries a
-        //   ~1.6em-ink glyph left-aligned in a 2em advance → a ~0.35em hole
-        //   against the next character). The source `——` tiles two full-width
-        //   em dashes instead. Only judged when the shaper reports ink bounds;
-        //   stub/AWT (no ink) keep the substitution.
-        val substitutionRollbacks = mutableMapOf<TextRange, String>()
-        fun ShapingResult.dashInkCoverageDeficient(displayText: String, segmentFontSize: Float): Boolean {
-            if (!displayText.contains('\u2E3A')) return false
-            val glyph = glyphRuns.flatMap { it.glyphs }.singleOrNull() ?: return false
-            val ink = glyph.bounds ?: return false
-            // `DashSubstitutionTwoEmInkCoverage`: compare with the CLREQ
-            // target box, not the browser/font fallback's reported advance.
-            // A missing U+2E3A commonly falls back to a perfectly filled 1em
-            // glyph; dividing by that wrong 1em advance made the fallback look
-            // valid and silently shrank a Chinese dash by half.
-            val targetAdvance = DASH_SUBSTITUTION_TARGET_EM * segmentFontSize
-            return (ink.right - ink.left) < targetAdvance * DASH_SUBSTITUTION_MIN_INK_COVERAGE
-        }
-        fun shapeSegment(decision: FontDecision, segmentRange: TextRange): ShapingResult {
-            val sourceText = text.substring(segmentRange.start, segmentRange.end)
-            val substitution = punctuationGlyphSubstitutor.substitute(sourceText)
-            val baseSegmentStyle = styleAt(segmentRange.start)
-            val segmentStyle = if (decision.role == FontRole.LatinText && emphasisItalicAt(segmentRange.start)) {
-                baseSegmentStyle.copy(italic = true)
-            } else {
-                baseSegmentStyle
-            }
-            val shaped = textShaper.shape(
-                ShapingInput(
-                    text = text,
-                    range = segmentRange,
-                    style = segmentStyle,
-                    fontDecision = decision,
-                    displayText = substitution.displayText,
-                    openTypeFeatures = cjkPunctuationFullWidthFeatures(
-                        role = decision.role,
-                        displayText = substitution.displayText,
-                    ),
-                ),
-            )
-            val rollbackCause = when {
-                substitution.displayText == sourceText -> null
-                shaped.decisions.any {
-                    it.capabilityIssue == UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE
-                } -> "SubstitutionRollbackOnUnverifiedGlyphCoverage"
-                shaped.decisions.any { it.missingGlyphs > 0 } -> "SubstitutionRollbackOnMissingGlyph"
-                shaped.dashInkCoverageDeficient(substitution.displayText, segmentStyle.fontSize) ->
-                    "DashSubstitutionInkCoverageRollback"
-                else -> null
-            }
-            return if (rollbackCause == null) {
-                shaped
-            } else {
-                substitutionRollbacks[segmentRange] = rollbackCause
-                textShaper.shape(
-                    ShapingInput(
-                        text = text,
-                        range = segmentRange,
-                        style = segmentStyle,
-                        fontDecision = decision,
-                        displayText = sourceText,
-                        openTypeFeatures = cjkPunctuationFullWidthFeatures(
-                            role = decision.role,
-                            displayText = sourceText,
-                        ),
-                    ),
-                )
-            }
-        }
-        fun shapeSegmentWithPointMarkPrefix(
-            decision: FontDecision,
-            segmentRange: TextRange,
-        ): List<ShapingResult> {
-            var prefixEnd = segmentRange.start
-            while (
-                prefixEnd < segmentRange.end &&
-                ClreqPunctuationPolicies.isAsciiPointMark(text[prefixEnd])
-            ) {
-                prefixEnd += 1
-            }
-            return if (prefixEnd in (segmentRange.start + 1) until segmentRange.end) {
-                // `PostCutAsciiPointMarkPrefixSegmentation`: opaque-token and
-                // hard-cut passes can create a fresh `,A` piece after the
-                // initial role segmentation. Re-shape its point-mark prefix
-                // separately so kinsoku binds only the comma, not its suffix.
-                listOf(
-                    shapeSegment(decision, TextRange(segmentRange.start, prefixEnd)),
-                    shapeSegment(decision, TextRange(prefixEnd, segmentRange.end)),
-                )
-            } else {
-                listOf(shapeSegment(decision, segmentRange))
-            }
-        }
-        // LatinWordSegmentation (gap audit 缺口 2): Latin runs are shaped per
-        // word/space segment so each word and each space run becomes its own
-        // cluster — line breaks happen at word boundaries, word spaces become
-        // first-class adjustable clusters (CLREQ 西文词距). Cross-segment
-        // kerning at a space boundary is negligible.
-        //
-        // LineEndHangingHyphen (CLREQ §换行与断词连字「可使用连字符处」, ADR 0029):
-        // an all-letter Latin word is additionally split so the breaker may wrap
-        // it. A break at one of these offsets earns a displayed trailing hyphen;
-        // later geometry reserves that hyphen inside the measure when possible
-        // and hangs only the residual that cannot fit. `hyphenOffsets` are the
-        // absolute source offsets where the next line may continue the word.
-        //
-        // Cut points are (a) the [hyphenator]'s syllable points, plus (b)
-        // `LatinForcedHyphenBreak`: for any word piece STILL wider than the
-        // measure (hyphenation off, or a syllable/token that can't fit),
-        // character-level fallback cuts that hard-break it — preferring 前二后三
-        // (2/3) within the piece, breaking anywhere only when that can't be met
-        // (满足不了就算了).
-        //
-        // `LatinStructuralSolidusBreak`: a solidus inside a Latin token
-        // (`TeX/LaTeX`) is a clean separator boundary even when the whole token
-        // would fit a fresh line. The slash stays with the previous piece, so
-        // breaks read `TeX/` + `LaTeX`, never `/LaTeX`.
-        //
-        // `LatinOpaqueTokenBreak`: URL-like / identifier-like Latin tokens are
-        // not words. They get clean breaks at ASCII separators; if a remaining
-        // piece is still over-wide, it hard-breaks at character boundaries with
-        // NO synthetic hyphen. This keeps links copy-faithful and avoids
-        // inventing hyphens inside hashes, query strings, or mixed alpha/digit ids.
-        //
-        // `LatinLongUnhyphenatedLetterTokenBreak`: a very long all-letter run,
-        // or a very long hyphenator-unexplained piece inside one, is also
-        // opaque, not an English word. This covers pure-letter base64/hash
-        // fragments and synthetic strings such as `ssss...herstory`; it uses
-        // the same no-hyphen hard cuts.
-        val hyphenOffsets = mutableSetOf<Int>()
-        var hyphenAdvanceOrNull: Float? = null
-        var hyphenGlyphs: List<Glyph> = emptyList()
-        fun latinWordCuts(
-            decision: FontDecision,
-            wordRange: TextRange,
-            syllable: List<Int>,
-        ): List<Int> {
-            val cuts = mutableSetOf<Int>()
-            cuts += syllable.map { wordRange.start + it }
-            val relBounds = (listOf(0) + syllable + listOf(wordRange.length)).distinct()
-            for (i in 0 until relBounds.size - 1) {
-                val a = relBounds[i]
-                val b = relBounds[i + 1]
-                val pieceAdvance = shapeSegment(decision, TextRange(wordRange.start + a, wordRange.start + b))
-                    .clusters.singleOrNull()?.advance ?: 0f
-                if (pieceAdvance <= measure) continue
-                val lo = a + HYPHEN_MIN_LEFT
-                val hi = b - HYPHEN_MIN_RIGHT
-                val range = if (lo <= hi) lo..hi else (a + 1) until b
-                for (off in range) cuts += wordRange.start + off
-            }
-            return cuts.sorted()
-        }
-        // ExistingHyphenBreak (CY/T 154-2017 §9.3): a hyphenated compound breaks
-        // AT its existing hyphens — no NEW hyphen added, the existing one sits at
-        // the line end. Keeps ≥2 letters on each side (§9.4「不要把单个字母放在
-        // 一行的行末或行首」), which also leaves number ranges / abbreviation-number
-        // tokens (3-4, COVID-19) unbroken. These are clean break boundaries, not
-        // synthetic-hyphen points, so they never enter `hyphenOffsets`.
-        fun existingHyphenCuts(wordRange: TextRange): List<Int> {
-            val w = text.substring(wordRange.start, wordRange.end)
-            val cuts = mutableListOf<Int>()
-            for (i in w.indices) {
-                if (w[i] != '-') continue
-                var before = 0
-                var j = i - 1
-                while (j >= 0 && w[j].isLetter()) { before += 1; j -= 1 }
-                var after = 0
-                var k = i + 1
-                while (k < w.length && w[k].isLetter()) { after += 1; k += 1 }
-                if (before >= 2 && after >= 2) cuts += wordRange.start + i + 1
-            }
-            return cuts
-        }
-        // CamelCaseBreak: a camelCase/PascalCase product token (internal capital)
-        // breaks at its humps — lowercase→uppercase, or an acronym boundary
-        // Upper→Upper-then-lower (XML|Http) — with NO hyphen (the capital signals
-        // the break). ≥2 letters each side (§9.4). Clean breaks, not hyphenOffsets.
-        fun camelCaseCuts(wordRange: TextRange): List<Int> {
-            val w = text.substring(wordRange.start, wordRange.end)
-            val humps = (1 until w.length).filter { i ->
-                w[i].isUpperCase() && (
-                    w[i - 1].isLowerCase() ||
-                        (w[i - 1].isUpperCase() && i + 1 < w.length && w[i + 1].isLowerCase())
-                    )
-            }
-            val bounds = listOf(0) + humps + listOf(w.length)
-            return humps.filter { h ->
-                h - bounds.last { it < h } >= 2 && bounds.first { it > h } - h >= 2
-            }.map { wordRange.start + it }
-        }
-        val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
-        fun latinSeparatorCuts(
-            tokenRange: TextRange,
-            tokenAdvance: Float,
-            forceOpaqueBreaks: Boolean,
-        ): List<Int> {
-            val token = text.substring(tokenRange.start, tokenRange.end)
-            val urlLike = token.isUrlLikeLatinToken()
-            val opaque = token.any { !it.isLetter() }
-            val structuralSolidus = token.hasBreakableLatinSolidus()
-            val bibliographicLocatorCuts = token.bibliographicNumericLocatorBreakOffsets()
-            val opaqueSeparatorMode = urlLike || (opaque && (tokenAdvance > measure || forceOpaqueBreaks))
-            if (!structuralSolidus && !opaqueSeparatorMode && bibliographicLocatorCuts.isEmpty()) {
-                return emptyList()
-            }
-            val cuts = bibliographicLocatorCuts
-                .mapTo(mutableListOf()) { tokenRange.start + it }
-            if (bibliographicLocatorCuts.isNotEmpty()) {
-                breakOpportunityDecisions += BreakOpportunityDecisionInfo(
-                    range = tokenRange,
-                    sourceText = token,
-                    breakOffsets = cuts.toList(),
-                    reason = "BibliographicNumericLocatorBreak",
-                )
-            }
-            for (i in 0 until token.lastIndex) {
-                val breakAfter = (structuralSolidus && !urlLike && token[i] == '/') ||
-                    (opaqueSeparatorMode && token.isLatinTokenBreakAfter(i, tokenAdvance <= measure))
-                if (breakAfter) cuts += tokenRange.start + i + 1
-            }
-            return cuts
-        }
-        fun latinOpaqueHardCuts(
-            decision: FontDecision,
-            tokenRange: TextRange,
-            cleanCuts: List<Int>,
-            forceOpaqueBreaks: Boolean,
-        ): List<Int> {
-            val relBounds = (listOf(0) + cleanCuts.map { it - tokenRange.start } + listOf(tokenRange.length))
-                .distinct()
-                .sorted()
-            val cuts = mutableSetOf<Int>()
-            for (i in 0 until relBounds.size - 1) {
-                val a = relBounds[i]
-                val b = relBounds[i + 1]
-                if (b - a <= 1) continue
-                val pieceAdvance = shapeSegment(decision, TextRange(tokenRange.start + a, tokenRange.start + b))
-                    .clusters.singleOrNull()?.advance ?: 0f
-                if (pieceAdvance <= measure && !(forceOpaqueBreaks && b - a >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)) {
-                    continue
-                }
-                for (off in (a + 1) until b) cuts += tokenRange.start + off
-            }
-            return cuts.sorted()
-        }
-        val shapingResults = clusterRanges.flatMap { resolvedRange ->
-            inlineObjectByRange[resolvedRange.range]?.let { inlineObject ->
-                return@flatMap listOf(inlineObjectShapingResult(text, inlineObject))
-            }
-            if (resolvedRange.mandatoryBreak) {
-                return@flatMap listOf(mandatoryBreakShapingResult(text, resolvedRange.range))
-            }
-            if (resolvedRange.zeroWidthSoftBreak) {
-                return@flatMap listOf(zeroWidthSoftBreakShapingResult(text, resolvedRange.range))
-            }
-            val decision = fontDecisionByRange.getValue(resolvedRange.range)
-            decision.shapingSegments(text).flatMap { segmentRange ->
-                val shaped = shapeSegment(decision, segmentRange)
-                val isLatin = decision.role == FontRole.LatinText && segmentRange.length > 0
-                val w = if (isLatin) text.substring(segmentRange.start, segmentRange.end) else ""
-                val allLetters = isLatin && w.all { it.isLetter() }
-                // §9.4 全大写缩写不断词；驼峰式在驼峰处断（无连字符）；含 '-' 在
-                // 已有连字符处断（§9.3，无新连字符）。以上都是 clean 断点（不进
-                // hyphenOffsets）。其余全字母词走 §9.2 音节 + 硬断（加合成连字符）。
-                val isAllCaps = allLetters && w.length >= 2 && w.none { it.isLowerCase() }
-                val isAbbreviation = isAllCaps && w.length < LATIN_OPAQUE_TOKEN_MIN_LENGTH
-                val isCamelCase = allLetters && !isAllCaps && !isAbbreviation &&
-                    (1 until w.length).any { w[it].isUpperCase() }
-                val tokenAdvance = shaped.clusters.sumOf { it.advance.toDouble() }.toFloat()
-                val syllableCuts = if (
-                    allLetters && !isAbbreviation && !isCamelCase && !w.contains('-')
-                ) {
-                    hyphenator.hyphenate(w).distinct().sorted()
-                } else {
-                    emptyList()
-                }
-                val longestUnhyphenatedLetterPiece = if (allLetters) {
-                    val bounds = (listOf(0) + syllableCuts + listOf(w.length)).distinct().sorted()
-                    bounds.zipWithNext().maxOfOrNull { (a, b) -> b - a } ?: w.length
-                } else {
-                    0
-                }
-                val isLongUnhyphenatedLetterToken =
-                    allLetters && !isAbbreviation && !isCamelCase &&
-                        longestUnhyphenatedLetterPiece >= LATIN_OPAQUE_TOKEN_MIN_LENGTH
-                val isLongOpaqueLatinToken =
-                    isLongUnhyphenatedLetterToken || (isLatin && !allLetters && w.length >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)
-                val cleanCuts = when {
-                    !isLatin -> emptyList()
-                    w.contains('-') -> existingHyphenCuts(segmentRange) +
-                        latinSeparatorCuts(segmentRange, tokenAdvance, isLongOpaqueLatinToken)
-                    isCamelCase -> camelCaseCuts(segmentRange)
-                    !allLetters -> latinSeparatorCuts(segmentRange, tokenAdvance, isLongOpaqueLatinToken)
-                    else -> emptyList()
-                }
-                val hyphenCuts = if (
-                    allLetters && !isAbbreviation && !isCamelCase &&
-                        !isLongUnhyphenatedLetterToken && !w.contains('-') && cleanCuts.isEmpty()
-                ) {
-                    latinWordCuts(decision, segmentRange, syllableCuts)
-                } else {
-                    emptyList()
-                }
-                val opaqueHardCuts = if (
-                    isLatin &&
-                    (!allLetters || isLongUnhyphenatedLetterToken) &&
-                    (tokenAdvance > measure || isLongOpaqueLatinToken)
-                ) {
-                    latinOpaqueHardCuts(decision, segmentRange, cleanCuts, isLongOpaqueLatinToken)
-                } else {
-                    emptyList()
-                }
-                val allCuts = (cleanCuts + hyphenCuts + opaqueHardCuts).distinct().sorted()
-                if (allCuts.isEmpty()) {
-                    listOf(shaped)
-                } else {
-                    if (hyphenCuts.isNotEmpty()) {
-                        hyphenOffsets += hyphenCuts
-                        if (hyphenAdvanceOrNull == null) {
-                            val hyphenShaped = textShaper.shape(
-                                ShapingInput(
-                                    text = "-",
-                                    range = TextRange(0, 1),
-                                    style = input.textStyle,
-                                    fontDecision = decision,
-                                    displayText = "-",
-                                ),
-                            )
-                            hyphenAdvanceOrNull = hyphenShaped.clusters.singleOrNull()?.advance ?: (0.5f * fontSize)
-                            hyphenGlyphs = hyphenShaped.glyphRuns.flatMap { it.glyphs }
-                        }
-                    }
-                    val bounds = listOf(segmentRange.start) + allCuts + listOf(segmentRange.end)
-                    (0 until bounds.size - 1).flatMap { k ->
-                        shapeSegmentWithPointMarkPrefix(
-                            decision,
-                            TextRange(bounds[k], bounds[k + 1]),
-                        )
-                    }
-                }
-            }
-        }
-        val hyphenAdvance = hyphenAdvanceOrNull ?: 0f
+        val shapingStage = shapeParagraph(
+            input = input,
+            text = text,
+            fontSize = fontSize,
+            measure = measure,
+            clusterRanges = clusterRanges,
+            fontDecisionByRange = fontDecisionByRange,
+            inlineObjectByRange = inlineObjectByRange,
+            punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
+            styleAt = ::styleAt,
+            emphasisItalicAt = ::emphasisItalicAt,
+        )
+        val shapingResults = shapingStage.shapingResults
+        val hyphenOffsets = shapingStage.hyphenOffsets
+        val hyphenAdvance = shapingStage.hyphenAdvance
+        val hyphenGlyphs = shapingStage.hyphenGlyphs
+        val substitutionRollbacks = shapingStage.substitutionRollbacks
+        val breakOpportunityDecisions = shapingStage.breakOpportunityDecisions
         val rawNaturalClusters = shapingResults.flatMap { it.clusters }
         val shapedGlyphsByClusterRange = shapingResults
             .flatMap { it.glyphRuns }
@@ -1864,6 +1532,616 @@ class ExplainableStubParagraphLayoutEngine(
                 )
             }
 
+        val verticalGeometry = resolveLineVerticalGeometry(
+            input = input,
+            fontSize = fontSize,
+            pinyinSpans = pinyinSpans,
+            naturalClusters = naturalClusters,
+            lineSolution = lineSolution,
+            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+            existingInterlineSpace = existingInterlineSpace,
+            baseLineMetrics = baseLineMetrics,
+            baseFaceHeight = baseFaceHeight,
+            rubyExtent = rubyExtent,
+            inlineObjectByClusterIndex = inlineObjectByClusterIndex,
+            baseAscent = baseAscent,
+            baseDescent = baseDescent,
+        )
+        val rubyLineHeightDecision = verticalGeometry.rubyLineHeightDecision
+        val inlineObjectLineHeightDecision = verticalGeometry.inlineObjectLineHeightDecision
+        val lineBaseline = verticalGeometry.lineBaseline
+        val lineTop = verticalGeometry.lineTop
+        val lineBottom = verticalGeometry.lineBottom
+
+        val lineBoxes = buildLineBoxes(
+            input = input,
+            lineSolution = lineSolution,
+            trimmedClusters = trimmedClusters,
+            finalClusters = finalClusters,
+            firstLineIndent = firstLineIndent,
+            blockIndent = blockIndent,
+            measure = measure,
+            gridBodyOffset = gridBodyOffset,
+            lineBaseline = lineBaseline,
+            lineTop = lineTop,
+            lineBottom = lineBottom,
+            lineHyphenAdvanceAt = ::lineHyphenAdvanceAt,
+            hyphenGlyphs = hyphenGlyphs,
+            justificationPlans = justificationPlans,
+        )
+        val laidOutLines = lineBoxes.laidOutLines
+        val lines = lineBoxes.visibleLines
+        val maxLinesDecision = lineBoxes.maxLinesDecision
+        val visibleLineRanges = lineBoxes.visibleLineRanges
+        val annotationGeometry = resolveAnnotationGeometry(
+            input = input,
+            fontSize = fontSize,
+            inlineObjectByClusterIndex = inlineObjectByClusterIndex,
+            lineSolution = lineSolution,
+            clreqProfile = clreqProfile,
+            geometryDecisions = geometryDecisions,
+            autoSpaceDecisions = autoSpaceDecisions,
+            visibleLineRanges = visibleLineRanges,
+            lines = lines,
+            finalClusters = finalClusters,
+            clusterRoles = clusterRoles,
+            justifyDeltaByCluster = justifyDeltaByCluster,
+            rubyAndBopomofoSpread = rubyAndBopomofoSpread,
+            metricDecisions = metricDecisions,
+            pinyinSpans = pinyinSpans,
+            naturalClusters = naturalClusters,
+            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+            rubyStackGap = rubyStackGap,
+            baseAscent = baseAscent,
+            rubyFontSize = rubyFontSize,
+            rubyFontWeight = rubyFontWeight,
+            baseDescent = baseDescent,
+            bopomofoFontWeightAt = ::bopomofoFontWeightAt,
+        )
+        val inlineObjectDecisions = annotationGeometry.inlineObjectDecisions
+        val decorationDecisions = annotationGeometry.decorationDecisions
+        val decorationSegments = annotationGeometry.decorationSegments
+        val rubyDecisions = annotationGeometry.rubyDecisions
+        val bopomofoDecisions = annotationGeometry.bopomofoDecisions
+
+        val widestLine = lines.maxOfOrNull { it.indent + it.visualWidth + it.hyphenAdvance } ?: 0f
+        val totalHeight = lines.lastOrNull()?.bottom ?: if (text.isEmpty()) 0f else baseLineMetrics.height
+        val resultWidth = widestLine.coerceAtMost(input.constraints.maxWidth)
+
+        return LayoutResult(
+            input = input,
+            size = Size(
+                width = resultWidth,
+                height = totalHeight,
+            ),
+            clusters = finalClusters,
+            glyphRuns = glyphRuns,
+            lines = lines,
+            debug = buildLayoutDebugInfo(
+                LayoutDebugStageInput(
+                    text = text,
+                    fontDecisions = fontDecisions,
+                    punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
+                    substitutionRollbacks = substitutionRollbacks,
+                    shapingDecisions = shapingDecisions,
+                    metricDecisions = metricDecisions,
+                    punctuationAtoms = punctuationAtoms,
+                    geometryDecisions = geometryDecisions,
+                    spacingPlan = spacingPlan,
+                    attachedPunctuationBoundary = attachedPunctuationBoundary,
+                    roleOverrideInfos = roleOverrideInfos,
+                    laidOutLines = laidOutLines,
+                    lineSolution = lineSolution,
+                    clusters = clusters,
+                    justificationPlans = justificationPlans,
+                    autoSpaceDecisions = autoSpaceDecisions,
+                    edgeTrimDecisions = edgeTrimDecisions,
+                    decorationDecisions = decorationDecisions,
+                    decorationSegments = decorationSegments,
+                    rubyDecisions = rubyDecisions,
+                    bopomofoDecisions = bopomofoDecisions,
+                    mandatoryBreakDecisions = mandatoryBreakDecisions,
+                    maxLinesDecision = maxLinesDecision,
+                    lineSpacingDecision = lineSpacingDecision,
+                    rubyLineHeightDecision = rubyLineHeightDecision,
+                    inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
+                    kinsokuDecision = kinsokuDecision,
+                    contextualKinsokuDecisions = contextualKinsokuDecisions,
+                    lineLengthGridDecision = lineLengthGridDecision,
+                    firstLineIndentDecision = firstLineIndentDecision,
+                    inlineBoxDecisions = inlineBoxResult.decisions,
+                    inlineObjectDecisions = inlineObjectDecisions,
+                    inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
+                    zeroWidthBreakDecisions = zeroWidthBreakDecisions,
+                    breakOpportunityDecisions = breakOpportunityDecisions,
+                ),
+            ),
+        )
+    }
+
+    private data class AnnotationGeometryStageResult(
+        val inlineObjectDecisions: List<InlineObjectDecisionInfo>,
+        val decorationDecisions: List<DecorationDecisionInfo>,
+        val decorationSegments: List<DecorationSegmentInfo>,
+        val rubyDecisions: List<RubyDecisionInfo>,
+        val bopomofoDecisions: List<BopomofoDecisionInfo>,
+    )
+
+    /** Resolves decorations and annotation geometry against the final visible lines. */
+    private fun resolveAnnotationGeometry(
+        input: LayoutInput,
+        fontSize: Float,
+        inlineObjectByClusterIndex: Map<Int, InlineObjectSpan>,
+        lineSolution: LineSolution,
+        clreqProfile: ClreqProfile,
+        geometryDecisions: List<ClusterGeometryDecisionInfo>,
+        autoSpaceDecisions: List<AutoSpaceDecisionInfo>,
+        visibleLineRanges: List<IntRange>,
+        lines: List<LineBox>,
+        finalClusters: List<Cluster>,
+        clusterRoles: List<FontRole>,
+        justifyDeltaByCluster: Map<Int, Float>,
+        rubyAndBopomofoSpread: Map<Int, Float>,
+        metricDecisions: List<ClusterMetricDecision>,
+        pinyinSpans: List<RubySpan>,
+        naturalClusters: List<Cluster>,
+        rubyFontGeometryBySpan: Map<RubySpan, RubyFontGeometry>,
+        rubyStackGap: Float,
+        baseAscent: Float,
+        rubyFontSize: Float,
+        rubyFontWeight: Int,
+        baseDescent: Float,
+        bopomofoFontWeightAt: (Int) -> Int,
+    ): AnnotationGeometryStageResult {
+        val inlineObjectDecisions = inlineObjectByClusterIndex.entries
+            .sortedBy { it.key }
+            .map { (clusterIndex, inlineObject) ->
+                InlineObjectDecisionInfo(
+                    range = inlineObject.range,
+                    advance = inlineObject.advance,
+                    ascent = inlineObject.ascent,
+                    descent = inlineObject.descent,
+                    clusterIndex = clusterIndex,
+                    lineIndex = lineSolution.lines.indexOfFirst { clusterIndex in it.clusterRange },
+                    leadingUniformStretch =
+                        inlineObject.leadingBoundary.participatesInUniformStretch,
+                    leadingPreferredStretchKind =
+                        inlineObject.leadingBoundary.preferredStretch?.kind?.name,
+                    leadingPreferredStretchNaturalWidth =
+                        inlineObject.leadingBoundary.preferredStretch?.naturalWidth ?: 0f,
+                    leadingPreferredStretchTargetWidth =
+                        inlineObject.leadingBoundary.preferredStretch?.targetWidth ?: 0f,
+                    leadingPreferredStretchCapacity =
+                        inlineObject.leadingBoundary.preferredStretch?.capacity ?: 0f,
+                    leadingPreventsLineBreak = inlineObject.leadingBoundary.preventsLineBreak,
+                    leadingShrinkCapacity = inlineObject.leadingBoundary.shrinkCapacity,
+                    leadingLineEndDiscardableAdvance =
+                        inlineObject.leadingBoundary.lineEndDiscardableAdvance,
+                    trailingUniformStretch =
+                        inlineObject.trailingBoundary.participatesInUniformStretch,
+                    trailingPreferredStretchKind =
+                        inlineObject.trailingBoundary.preferredStretch?.kind?.name,
+                    trailingPreferredStretchNaturalWidth =
+                        inlineObject.trailingBoundary.preferredStretch?.naturalWidth ?: 0f,
+                    trailingPreferredStretchTargetWidth =
+                        inlineObject.trailingBoundary.preferredStretch?.targetWidth ?: 0f,
+                    trailingPreferredStretchCapacity =
+                        inlineObject.trailingBoundary.preferredStretch?.capacity ?: 0f,
+                    trailingPreventsLineBreak = inlineObject.trailingBoundary.preventsLineBreak,
+                    trailingShrinkCapacity = inlineObject.trailingBoundary.shrinkCapacity,
+                    trailingLineEndDiscardableAdvance =
+                        inlineObject.trailingBoundary.lineEndDiscardableAdvance,
+                    reason = if (
+                        inlineObject.leadingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed ||
+                        inlineObject.trailingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed
+                    ) {
+                        "AdjustableInlineObject"
+                    } else {
+                        "MeasurableOpaqueInlineObject"
+                    },
+                )
+            }
+        // Ink-edge insets so 行间线/着重号 hug the text, not the edge blanks: the leading
+        // autospace gap + consumed 开标点 leading glue (mirrors the renderer's glyph
+        // shift, SkiaTextBlobs.forEachPositionedCluster). The trailing justify stretch
+        // is already excluded at use; the LEADING side was being missed (CLREQ「两侧」).
+        val autoSpaceGapPx = clreqProfile.autoSpace.gapEm * fontSize
+        val geometryByRange = geometryDecisions.associateBy { it.range }
+        val leadingGapRanges = autoSpaceDecisions.filter { it.side == "leading" }.map { it.clusterRange }.toSet()
+        val trailingGapRanges = autoSpaceDecisions.filter { it.side == "trailing" }.map { it.clusterRange }.toSet()
+        val decorationDecisions = computeDecorationDecisions(
+            decorations = input.decorations,
+            lineRanges = visibleLineRanges,
+            lineBoxes = lines,
+            finalClusters = finalClusters,
+            clusterRoles = clusterRoles,
+            justifyDeltaByCluster = justifyDeltaByCluster,
+            rubySpreadByCluster = rubyAndBopomofoSpread,
+            metricDecisions = metricDecisions,
+            fontSize = fontSize,
+            emphasisDotGapEm = input.paragraphStyle.emphasisDotGapEm,
+        )
+        val decorationSegments = computeDecorationSegments(
+            decorations = input.decorations,
+            lineRanges = visibleLineRanges,
+            lineBoxes = lines,
+            finalClusters = finalClusters,
+            justifyDeltaByCluster = justifyDeltaByCluster,
+            geometryByRange = geometryByRange,
+            leadingGapRanges = leadingGapRanges,
+            trailingGapRanges = trailingGapRanges,
+            autoSpaceGapPx = autoSpaceGapPx,
+            fontSize = fontSize,
+        )
+        val rubyDecisions = computeRubyDecisions(
+            rubySpans = pinyinSpans,
+            lineRanges = visibleLineRanges,
+            lineBoxes = lines,
+            finalClusters = finalClusters,
+            naturalClusters = naturalClusters,
+            metricDecisions = metricDecisions,
+            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+            rubyStackGap = rubyStackGap,
+            fallbackBaseAscent = baseAscent,
+            rubyFontSize = rubyFontSize,
+            rubyFontWeight = rubyFontWeight,
+            baseLocale = input.textStyle.locale,
+        )
+        val bopomofoDecisions = computeBopomofoDecisions(
+            rubySpans = input.rubySpans.filter { it.kind == RubyKind.Bopomofo },
+            lineRanges = visibleLineRanges,
+            lineBoxes = lines,
+            finalClusters = finalClusters,
+            naturalClusters = naturalClusters,
+            baseAscent = baseAscent,
+            baseDescent = baseDescent,
+            fontSize = fontSize,
+            bopomofoFontWeightAt = bopomofoFontWeightAt,
+            baseTextStyle = input.textStyle,
+        )
+        return AnnotationGeometryStageResult(
+            inlineObjectDecisions = inlineObjectDecisions,
+            decorationDecisions = decorationDecisions,
+            decorationSegments = decorationSegments,
+            rubyDecisions = rubyDecisions,
+            bopomofoDecisions = bopomofoDecisions,
+        )
+    }
+
+    private class LayoutDebugStageInput(
+        val text: String,
+        val fontDecisions: List<FontDecision>,
+        val punctuationGlyphSubstitutor: ClreqPunctuationGlyphSubstitutor,
+        val substitutionRollbacks: Map<TextRange, String>,
+        val shapingDecisions: List<ShapingDecisionInfo>,
+        val metricDecisions: List<ClusterMetricDecision>,
+        val punctuationAtoms: List<PunctuationAtom>,
+        val geometryDecisions: List<ClusterGeometryDecisionInfo>,
+        val spacingPlan: PunctuationSpacingCompressionResult,
+        val attachedPunctuationBoundary: AttachedInlinePunctuationBoundaryResult,
+        val roleOverrideInfos: List<RoleOverrideInfo>,
+        val laidOutLines: List<LineBox>,
+        val lineSolution: LineSolution,
+        val clusters: List<Cluster>,
+        val justificationPlans: List<JustificationPlan?>,
+        val autoSpaceDecisions: List<AutoSpaceDecisionInfo>,
+        val edgeTrimDecisions: List<LineEdgeTrimDecisionInfo>,
+        val decorationDecisions: List<DecorationDecisionInfo>,
+        val decorationSegments: List<DecorationSegmentInfo>,
+        val rubyDecisions: List<RubyDecisionInfo>,
+        val bopomofoDecisions: List<BopomofoDecisionInfo>,
+        val mandatoryBreakDecisions: List<MandatoryBreakDecisionInfo>,
+        val maxLinesDecision: MaxLinesDecisionInfo?,
+        val lineSpacingDecision: LineSpacingDecisionInfo?,
+        val rubyLineHeightDecision: RubyLineHeightDecisionInfo?,
+        val inlineObjectLineHeightDecision: InlineObjectLineHeightDecisionInfo?,
+        val kinsokuDecision: KinsokuDecisionInfo,
+        val contextualKinsokuDecisions: List<ContextualKinsokuDecisionInfo>,
+        val lineLengthGridDecision: LineLengthGridDecisionInfo,
+        val firstLineIndentDecision: FirstLineIndentDecisionInfo,
+        val inlineBoxDecisions: List<InlineBoxDecisionInfo>,
+        val inlineObjectDecisions: List<InlineObjectDecisionInfo>,
+        val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo>,
+        val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo>,
+        val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+    )
+
+    /** Materializes the structured decision stream without owning layout policy. */
+    private fun buildLayoutDebugInfo(stage: LayoutDebugStageInput): LayoutDebugInfo = with(stage) {
+LayoutDebugInfo(
+                fontDecisions = fontDecisions.map { decision ->
+                    val clusterText = text.substring(decision.range.start, decision.range.end)
+                    val substitution = punctuationGlyphSubstitutor.substitute(clusterText)
+                    val rollbackCause = substitutionRollbacks.entries.firstOrNull { it.key.isInside(decision.range) }?.value
+                    FontDecisionInfo(
+                        range = decision.range,
+                        sourceText = clusterText,
+                        displayText = if (rollbackCause != null) clusterText else substitution.displayText,
+                        role = decision.role.name,
+                        fontKey = decision.candidate.key,
+                        reason = decision.reason,
+                        substitutionReason = if (rollbackCause != null) {
+                            "${substitution.reason}:$rollbackCause"
+                        } else {
+                            substitution.reason
+                        },
+                    )
+                },
+                shapingDecisions = shapingDecisions,
+                metricDecisions = metricDecisions.map { decision ->
+                    MetricDecisionInfo(
+                        range = decision.range,
+                        sourceText = decision.sourceText,
+                        role = decision.request.role.name,
+                        fontKey = decision.request.fontKey,
+                        rawAscent = decision.rawMetrics.ascent,
+                        rawDescent = decision.rawMetrics.descent,
+                        rawLeading = decision.rawMetrics.leading,
+                        rawSource = decision.rawMetrics.source.name,
+                        layoutAscent = decision.layoutMetrics.ascent,
+                        layoutDescent = decision.layoutMetrics.descent,
+                        baselineClass = decision.layoutMetrics.baselineClass.name,
+                        metricBox = decision.layoutMetrics.metricBox.name,
+                        layoutSource = decision.layoutMetrics.source.name,
+                        reason = decision.layoutMetrics.reason,
+                    )
+                },
+                punctuationDecisions = punctuationAtoms.map { atom ->
+                    PunctuationDecisionInfo(
+                        range = atom.range,
+                        char = atom.char,
+                        punctuationClass = atom.punctuationClass.name,
+                        advance = atom.advance,
+                        bodyWidth = atom.bodyWidth,
+                        leadingGlueNatural = atom.leadingGlue.natural,
+                        trailingGlueNatural = atom.trailingGlue.natural,
+                        leadingGlueInitiallyConsumed = atom.leadingGlueInitiallyConsumed,
+                        trailingGlueInitiallyConsumed = atom.trailingGlueInitiallyConsumed,
+                        anchor = atom.anchor.name,
+                        inkBounds = atom.inkBounds,
+                        geometrySource = atom.geometrySource,
+                        policyBodyFloor = atom.policyBodyFloor,
+                        inkWidth = atom.inkWidth,
+                        inkCenter = atom.inkCenter,
+                        inkContainmentBodyFloor = atom.inkContainmentBodyFloor,
+                        inkContainmentApplied = atom.inkContainmentApplied,
+                        inkBoundsFallback = atom.inkBoundsFallback,
+                        haltAdvance = atom.haltAdvance,
+                        haltValidation = atom.haltValidation,
+                        advanceExpansion = atom.advanceExpansion,
+                        glyphInlineShift = atom.glyphInlineShift,
+                        glyphPlacementReason = atom.glyphPlacementReason,
+                    )
+                },
+                geometryDecisions = geometryDecisions,
+                spacingDecisions = spacingPlan.adjustments.map { adjustment ->
+                    SpacingDecisionInfo(
+                        range = adjustment.range,
+                        leftChar = adjustment.leftChar,
+                        rightChar = adjustment.rightChar,
+                        naturalInnerGlue = adjustment.naturalInnerGlue,
+                        adjustedInnerGlue = adjustment.adjustedInnerGlue,
+                        reduction = adjustment.reduction,
+                        reductionTargetRange = adjustment.reductionTargetRange,
+                        reason = adjustment.reason,
+                    )
+                } + attachedPunctuationBoundary.decisions,
+                roleOverrides = roleOverrideInfos,
+                // Zip over ALL laid-out lines (not the maxLines-truncated boxes): the
+                // dump records every committed line, the truncation names the cut.
+                lineDecisions = laidOutLines.zip(lineSolution.lines).mapIndexed { lineIndex, (line, candidate) ->
+                    LineDecisionInfo(
+                        range = line.range,
+                        kind = lineBreaker.strategyName,
+                        repair = candidate.repair?.let { "${it::class.simpleName}" },
+                        repairPenalty = candidate.repair?.penalty ?: 0,
+                        repairDecision = candidate.repair?.toDecisionInfo(clusters),
+                        repairCandidates = candidate.repairCandidates.map { it.toDecisionInfo(clusters) },
+                        notes = listOf(
+                            "index:$lineIndex",
+                            "end:${line.endReason}",
+                            "natural:${line.naturalWidth}",
+                            "adjusted:${line.adjustedWidth}",
+                            "visual:${line.visualWidth}",
+                        ) + listOfNotNull(
+                            candidate.repair?.let { "repair-reason:${it.reason}" },
+                            justificationPlans.getOrNull(lineIndex)?.fallbackReason
+                                ?.let { "justify-fallback:$it" },
+                        ),
+                    )
+                },
+                justificationDecisions = justificationPlans.zip(lineSolution.lines)
+                    .mapNotNull { (plan, candidate) ->
+                        plan
+                            ?.takeIf { it.allocations.isNotEmpty() || it.deficitBefore > 0f }
+                            ?.let {
+                                JustificationDecisionInfo(
+                                    lineRange = candidate.sourceRange,
+                                    deficitBefore = it.deficitBefore,
+                                    deficitAfter = it.unfilledDeficit,
+                                    allocations = it.allocations.map { alloc ->
+                                        JustificationAllocationInfo(
+                                            clusterRange = clusters[alloc.targetClusterIndex].range,
+                                            kind = alloc.kind.name,
+                                            priority = alloc.priority,
+                                            delta = alloc.delta,
+                                            reason = alloc.reason,
+                                        )
+                                    },
+                                )
+                            }
+                    },
+                autoSpaceDecisions = autoSpaceDecisions,
+                lineEdgeTrimDecisions = edgeTrimDecisions,
+                decorationDecisions = decorationDecisions,
+                decorationSegments = decorationSegments,
+                rubyDecisions = rubyDecisions,
+                bopomofoDecisions = bopomofoDecisions,
+                mandatoryBreakDecisions = mandatoryBreakDecisions,
+                maxLinesDecision = maxLinesDecision,
+                lineSpacingDecision = lineSpacingDecision,
+                rubyLineHeightDecision = rubyLineHeightDecision,
+                inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
+                kinsokuDecision = kinsokuDecision,
+                contextualKinsokuDecisions = contextualKinsokuDecisions,
+                lineLengthGridDecision = lineLengthGridDecision,
+                firstLineIndentDecision = firstLineIndentDecision,
+                inlineBoxDecisions = inlineBoxDecisions,
+                inlineObjectDecisions = inlineObjectDecisions,
+                inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
+                zeroWidthBreakDecisions = zeroWidthBreakDecisions,
+                breakOpportunityDecisions = breakOpportunityDecisions,
+            )
+    }
+
+    private data class LineBoxStageResult(
+        val laidOutLines: List<LineBox>,
+        val visibleLines: List<LineBox>,
+        val maxLinesDecision: MaxLinesDecisionInfo?,
+        val visibleLineRanges: List<IntRange>,
+    )
+
+    /** Converts committed break candidates and vertical geometry into visible line boxes. */
+    private fun buildLineBoxes(
+        input: LayoutInput,
+        lineSolution: LineSolution,
+        trimmedClusters: List<Cluster>,
+        finalClusters: List<Cluster>,
+        firstLineIndent: Float,
+        blockIndent: Float,
+        measure: Float,
+        gridBodyOffset: Float,
+        lineBaseline: FloatArray,
+        lineTop: FloatArray,
+        lineBottom: FloatArray,
+        lineHyphenAdvanceAt: (Int) -> Float,
+        hyphenGlyphs: List<Glyph>,
+        justificationPlans: List<JustificationPlan?>,
+    ): LineBoxStageResult {
+        val laidOutLines = lineSolution.lines.mapIndexed { lineIndex, lineCandidate ->
+            // LineEndHangingPunctuation: the hung mark is excluded from the
+            // measure-fill width (adjustedWidth) but kept in visualWidth —
+            // it overflows the measure (突出版心).
+            val adjustedWidth = lineCandidate.clusterRange
+                .sumOf { idx ->
+                    if (idx in lineCandidate.hangingClusterIndices) 0.0 else trimmedClusters[idx].advance.toDouble()
+                }
+                .toFloat()
+            val visualWidth = lineCandidate.clusterRange
+                .sumOf { finalClusters[it].advance.toDouble() }
+                .toFloat()
+            val hangingPunctuationAdvance = lineCandidate.hangingClusterIndices
+                .sumOf { finalClusters[it].advance.toDouble() }
+                .toFloat()
+            val hasDrawableContent = !lineCandidate.clusterRange.isEmptyClusterRange() &&
+                lineCandidate.clusterRange.any { finalClusters[it].displayText.isNotEmpty() }
+            val baseIndent = when {
+                !hasDrawableContent -> 0f
+                lineCandidate.clusterRange.first == 0 -> firstLineIndent
+                else -> blockIndent
+            }
+            // LastLineAlignment: every line that ends its visual paragraph —
+            // the true last line AND every MandatoryBreak-ended line (it is the
+            // last line of ITS 段, ADR 0037) — is an alignment degree of freedom
+            // (CLREQ 双齐 baseline). AutoWrap lines are justified instead.
+            // Center/End express as an extra start-edge inset within the line's
+            // usable measure — renderers and decoration geometry consume
+            // LineBox.indent unchanged.
+            // LineEndHangingHyphen: this line ends mid-word when the NEXT line
+            // begins at a hyphenation source offset (reserved in the justify
+            // measure above; renderers draw it at indent + visualWidth).
+            val lineHyphenAdvance = lineHyphenAdvanceAt(lineIndex)
+            val limit = measure - baseIndent
+            val alignmentInset = if (lineCandidate.endReason == LineEndReason.AutoWrap) {
+                0f
+            } else {
+                when (input.paragraphStyle.lastLineAlignment) {
+                    LastLineAlignment.Start -> 0f
+                    LastLineAlignment.Center -> ((limit - visualWidth) / 2f).coerceAtLeast(0f)
+                    LastLineAlignment.End -> (limit - visualWidth).coerceAtLeast(0f)
+                }
+            }
+            LineBox(
+                range = lineCandidate.sourceRange,
+                clusterRange = lineCandidate.clusterRange,
+                baseline = lineBaseline[lineIndex],
+                top = lineTop[lineIndex],
+                bottom = lineBottom[lineIndex],
+                naturalWidth = lineCandidate.naturalWidth,
+                adjustedWidth = adjustedWidth,
+                visualWidth = visualWidth,
+                hangingPunctuationAdvance = hangingPunctuationAdvance,
+                // GridBodyAlignment: the whole body shifts by the container
+                // slack offset; per-line indent (段首缩进 + 末行对齐) stacks on top.
+                indent = gridBodyOffset + baseIndent + alignmentInset,
+                endReason = lineCandidate.endReason,
+                hyphenAdvance = lineHyphenAdvance,
+                hyphenGlyphs = if (lineHyphenAdvance > 0f) hyphenGlyphs else emptyList(),
+                debug = LineDebugInfo(
+                    repair = lineCandidate.repair?.let { "${it::class.simpleName}:${it.reason}" },
+                    notes = listOf(
+                        if (lineCandidate.clusterRange.isEmptyClusterRange()) {
+                            "line:${lineIndex}:clusters=empty"
+                        } else {
+                            "line:${lineIndex}:clusters=${lineCandidate.clusterRange.first}-${lineCandidate.clusterRange.last}"
+                        },
+                        "end:${lineCandidate.endReason}",
+                        "natural=${lineCandidate.naturalWidth},adjusted=${lineCandidate.adjustedWidth},visual=$visualWidth",
+                    ) + listOfNotNull(
+                        justificationPlans.getOrNull(lineIndex)?.fallbackReason
+                            ?.let { "justify-fallback:$it" },
+                    ),
+                ),
+            )
+        }
+        // MaxLinesLineTruncation: layout ran on the FULL text above (a truncated
+        // middle line keeps its justification); only the emitted line boxes are
+        // capped. `lineDecisions` below still records every laid-out line so the
+        // dump stays complete. Ruby/注音/decoration geometry below is computed
+        // over the VISIBLE lines only — renderers consume those lists directly.
+        val lines = if (laidOutLines.size > input.constraints.maxLines) {
+            laidOutLines.take(input.constraints.maxLines)
+        } else {
+            laidOutLines
+        }
+        val maxLinesDecision = if (lines.size < laidOutLines.size) {
+            MaxLinesDecisionInfo(laidOutLines = laidOutLines.size, visibleLines = lines.size)
+        } else {
+            null
+        }
+        val visibleLineRanges = lineSolution.lines.take(lines.size).map { it.clusterRange }
+        return LineBoxStageResult(
+            laidOutLines = laidOutLines,
+            visibleLines = lines,
+            maxLinesDecision = maxLinesDecision,
+            visibleLineRanges = visibleLineRanges,
+        )
+    }
+
+    private data class LineVerticalGeometryStageResult(
+        val rubyLineHeightDecision: RubyLineHeightDecisionInfo?,
+        val inlineObjectLineHeightDecision: InlineObjectLineHeightDecisionInfo?,
+        val lineBaseline: FloatArray,
+        val lineTop: FloatArray,
+        val lineBottom: FloatArray,
+    )
+
+    /** Resolves annotation and opaque-object vertical demand into final line boxes. */
+    private fun resolveLineVerticalGeometry(
+        input: LayoutInput,
+        fontSize: Float,
+        pinyinSpans: List<RubySpan>,
+        naturalClusters: List<Cluster>,
+        lineSolution: LineSolution,
+        rubyFontGeometryBySpan: Map<RubySpan, RubyFontGeometry>,
+        existingInterlineSpace: Float,
+        baseLineMetrics: ResolvedLineMetrics,
+        baseFaceHeight: Float,
+        rubyExtent: Float,
+        inlineObjectByClusterIndex: Map<Int, InlineObjectSpan>,
+        baseAscent: Float,
+        baseDescent: Float,
+    ): LineVerticalGeometryStageResult {
         // Per-line annotation/object extents. Ruby consumes existing inter-line
         // space first; a deficit is added before annotated lines by default, or
         // before every line in UniformParagraph mode. Opaque inline objects own
@@ -2023,363 +2301,398 @@ class ExplainableStubParagraphLayoutEngine(
                 },
             )
         }
+        return LineVerticalGeometryStageResult(
+            rubyLineHeightDecision = rubyLineHeightDecision,
+            inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
+            lineBaseline = lineBaseline,
+            lineTop = lineTop,
+            lineBottom = lineBottom,
+        )
+    }
 
-        val laidOutLines = lineSolution.lines.mapIndexed { lineIndex, lineCandidate ->
-            // LineEndHangingPunctuation: the hung mark is excluded from the
-            // measure-fill width (adjustedWidth) but kept in visualWidth —
-            // it overflows the measure (突出版心).
-            val adjustedWidth = lineCandidate.clusterRange
-                .sumOf { idx ->
-                    if (idx in lineCandidate.hangingClusterIndices) 0.0 else trimmedClusters[idx].advance.toDouble()
-                }
-                .toFloat()
-            val visualWidth = lineCandidate.clusterRange
-                .sumOf { finalClusters[it].advance.toDouble() }
-                .toFloat()
-            val hangingPunctuationAdvance = lineCandidate.hangingClusterIndices
-                .sumOf { finalClusters[it].advance.toDouble() }
-                .toFloat()
-            val hasDrawableContent = !lineCandidate.clusterRange.isEmptyClusterRange() &&
-                lineCandidate.clusterRange.any { finalClusters[it].displayText.isNotEmpty() }
-            val baseIndent = when {
-                !hasDrawableContent -> 0f
-                lineCandidate.clusterRange.first == 0 -> firstLineIndent
-                else -> blockIndent
-            }
-            // LastLineAlignment: every line that ends its visual paragraph —
-            // the true last line AND every MandatoryBreak-ended line (it is the
-            // last line of ITS 段, ADR 0037) — is an alignment degree of freedom
-            // (CLREQ 双齐 baseline). AutoWrap lines are justified instead.
-            // Center/End express as an extra start-edge inset within the line's
-            // usable measure — renderers and decoration geometry consume
-            // LineBox.indent unchanged.
-            // LineEndHangingHyphen: this line ends mid-word when the NEXT line
-            // begins at a hyphenation source offset (reserved in the justify
-            // measure above; renderers draw it at indent + visualWidth).
-            val lineHyphenAdvance = lineHyphenAdvanceAt(lineIndex)
-            val limit = measure - baseIndent
-            val alignmentInset = if (lineCandidate.endReason == LineEndReason.AutoWrap) {
-                0f
+    private data class ParagraphShapingStageResult(
+        val shapingResults: List<ShapingResult>,
+        val hyphenOffsets: Set<Int>,
+        val hyphenAdvance: Float,
+        val hyphenGlyphs: List<Glyph>,
+        val substitutionRollbacks: Map<TextRange, String>,
+        val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+    )
+
+    /**
+     * Width-dependent shaping stage. It resolves display substitutions and
+     * Western token break candidates, then returns source-faithful clusters and
+     * glyph evidence for the later punctuation and line-layout stages.
+     */
+    private fun shapeParagraph(
+        input: LayoutInput,
+        text: String,
+        fontSize: Float,
+        measure: Float,
+        clusterRanges: List<ResolvedClusterRange>,
+        fontDecisionByRange: Map<TextRange, FontDecision>,
+        inlineObjectByRange: Map<TextRange, InlineObjectSpan>,
+        punctuationGlyphSubstitutor: ClreqPunctuationGlyphSubstitutor,
+        styleAt: (Int) -> TextStyle,
+        emphasisItalicAt: (Int) -> Boolean,
+    ): ParagraphShapingStageResult {
+        // A CLREQ display substitution (ADR 0003, e.g. `——` → `⸺`) is only an
+        // improvement if the resolved font can actually DRAW it well; otherwise
+        // re-shape with the source text and record the rollback + its cause:
+        // - SubstitutionRollbackOnMissingGlyph: the font lacks the codepoint —
+        //   `⸺` U+2E3A is absent from PingFang SC / Hiragino / Heiti (tofu).
+        // - DashSubstitutionInkCoverageRollback: the font HAS `⸺` but its ink
+        //   does not fill the two-em advance (Pixel's Noto CJK carries a
+        //   ~1.6em-ink glyph left-aligned in a 2em advance → a ~0.35em hole
+        //   against the next character). The source `——` tiles two full-width
+        //   em dashes instead. Only judged when the shaper reports ink bounds;
+        //   stub/AWT (no ink) keep the substitution.
+        val substitutionRollbacks = mutableMapOf<TextRange, String>()
+        fun ShapingResult.dashInkCoverageDeficient(displayText: String, segmentFontSize: Float): Boolean {
+            if (!displayText.contains('\u2E3A')) return false
+            val glyph = glyphRuns.flatMap { it.glyphs }.singleOrNull() ?: return false
+            val ink = glyph.bounds ?: return false
+            // `DashSubstitutionTwoEmInkCoverage`: compare with the CLREQ
+            // target box, not the browser/font fallback's reported advance.
+            // A missing U+2E3A commonly falls back to a perfectly filled 1em
+            // glyph; dividing by that wrong 1em advance made the fallback look
+            // valid and silently shrank a Chinese dash by half.
+            val targetAdvance = DASH_SUBSTITUTION_TARGET_EM * segmentFontSize
+            return (ink.right - ink.left) < targetAdvance * DASH_SUBSTITUTION_MIN_INK_COVERAGE
+        }
+        fun shapeSegment(decision: FontDecision, segmentRange: TextRange): ShapingResult {
+            val sourceText = text.substring(segmentRange.start, segmentRange.end)
+            val substitution = punctuationGlyphSubstitutor.substitute(sourceText)
+            val baseSegmentStyle = styleAt(segmentRange.start)
+            val segmentStyle = if (decision.role == FontRole.LatinText && emphasisItalicAt(segmentRange.start)) {
+                baseSegmentStyle.copy(italic = true)
             } else {
-                when (input.paragraphStyle.lastLineAlignment) {
-                    LastLineAlignment.Start -> 0f
-                    LastLineAlignment.Center -> ((limit - visualWidth) / 2f).coerceAtLeast(0f)
-                    LastLineAlignment.End -> (limit - visualWidth).coerceAtLeast(0f)
-                }
+                baseSegmentStyle
             }
-            LineBox(
-                range = lineCandidate.sourceRange,
-                clusterRange = lineCandidate.clusterRange,
-                baseline = lineBaseline[lineIndex],
-                top = lineTop[lineIndex],
-                bottom = lineBottom[lineIndex],
-                naturalWidth = lineCandidate.naturalWidth,
-                adjustedWidth = adjustedWidth,
-                visualWidth = visualWidth,
-                hangingPunctuationAdvance = hangingPunctuationAdvance,
-                // GridBodyAlignment: the whole body shifts by the container
-                // slack offset; per-line indent (段首缩进 + 末行对齐) stacks on top.
-                indent = gridBodyOffset + baseIndent + alignmentInset,
-                endReason = lineCandidate.endReason,
-                hyphenAdvance = lineHyphenAdvance,
-                hyphenGlyphs = if (lineHyphenAdvance > 0f) hyphenGlyphs else emptyList(),
-                debug = LineDebugInfo(
-                    repair = lineCandidate.repair?.let { "${it::class.simpleName}:${it.reason}" },
-                    notes = listOf(
-                        if (lineCandidate.clusterRange.isEmptyClusterRange()) {
-                            "line:${lineIndex}:clusters=empty"
-                        } else {
-                            "line:${lineIndex}:clusters=${lineCandidate.clusterRange.first}-${lineCandidate.clusterRange.last}"
-                        },
-                        "end:${lineCandidate.endReason}",
-                        "natural=${lineCandidate.naturalWidth},adjusted=${lineCandidate.adjustedWidth},visual=$visualWidth",
-                    ) + listOfNotNull(
-                        justificationPlans.getOrNull(lineIndex)?.fallbackReason
-                            ?.let { "justify-fallback:$it" },
+            val shaped = textShaper.shape(
+                ShapingInput(
+                    text = text,
+                    range = segmentRange,
+                    style = segmentStyle,
+                    fontDecision = decision,
+                    displayText = substitution.displayText,
+                    openTypeFeatures = cjkPunctuationFullWidthFeatures(
+                        role = decision.role,
+                        displayText = substitution.displayText,
                     ),
                 ),
             )
-        }
-        // MaxLinesLineTruncation: layout ran on the FULL text above (a truncated
-        // middle line keeps its justification); only the emitted line boxes are
-        // capped. `lineDecisions` below still records every laid-out line so the
-        // dump stays complete. Ruby/注音/decoration geometry below is computed
-        // over the VISIBLE lines only — renderers consume those lists directly.
-        val lines = if (laidOutLines.size > input.constraints.maxLines) {
-            laidOutLines.take(input.constraints.maxLines)
-        } else {
-            laidOutLines
-        }
-        val maxLinesDecision = if (lines.size < laidOutLines.size) {
-            MaxLinesDecisionInfo(laidOutLines = laidOutLines.size, visibleLines = lines.size)
-        } else {
-            null
-        }
-        val visibleLineRanges = lineSolution.lines.take(lines.size).map { it.clusterRange }
-        val inlineObjectDecisions = inlineObjectByClusterIndex.entries
-            .sortedBy { it.key }
-            .map { (clusterIndex, inlineObject) ->
-                InlineObjectDecisionInfo(
-                    range = inlineObject.range,
-                    advance = inlineObject.advance,
-                    ascent = inlineObject.ascent,
-                    descent = inlineObject.descent,
-                    clusterIndex = clusterIndex,
-                    lineIndex = lineSolution.lines.indexOfFirst { clusterIndex in it.clusterRange },
-                    leadingUniformStretch =
-                        inlineObject.leadingBoundary.participatesInUniformStretch,
-                    leadingPreferredStretchKind =
-                        inlineObject.leadingBoundary.preferredStretch?.kind?.name,
-                    leadingPreferredStretchNaturalWidth =
-                        inlineObject.leadingBoundary.preferredStretch?.naturalWidth ?: 0f,
-                    leadingPreferredStretchTargetWidth =
-                        inlineObject.leadingBoundary.preferredStretch?.targetWidth ?: 0f,
-                    leadingPreferredStretchCapacity =
-                        inlineObject.leadingBoundary.preferredStretch?.capacity ?: 0f,
-                    leadingPreventsLineBreak = inlineObject.leadingBoundary.preventsLineBreak,
-                    leadingShrinkCapacity = inlineObject.leadingBoundary.shrinkCapacity,
-                    leadingLineEndDiscardableAdvance =
-                        inlineObject.leadingBoundary.lineEndDiscardableAdvance,
-                    trailingUniformStretch =
-                        inlineObject.trailingBoundary.participatesInUniformStretch,
-                    trailingPreferredStretchKind =
-                        inlineObject.trailingBoundary.preferredStretch?.kind?.name,
-                    trailingPreferredStretchNaturalWidth =
-                        inlineObject.trailingBoundary.preferredStretch?.naturalWidth ?: 0f,
-                    trailingPreferredStretchTargetWidth =
-                        inlineObject.trailingBoundary.preferredStretch?.targetWidth ?: 0f,
-                    trailingPreferredStretchCapacity =
-                        inlineObject.trailingBoundary.preferredStretch?.capacity ?: 0f,
-                    trailingPreventsLineBreak = inlineObject.trailingBoundary.preventsLineBreak,
-                    trailingShrinkCapacity = inlineObject.trailingBoundary.shrinkCapacity,
-                    trailingLineEndDiscardableAdvance =
-                        inlineObject.trailingBoundary.lineEndDiscardableAdvance,
-                    reason = if (
-                        inlineObject.leadingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed ||
-                        inlineObject.trailingBoundary != org.tiqian.core.InlineObjectBoundaryAdjustment.Fixed
-                    ) {
-                        "AdjustableInlineObject"
-                    } else {
-                        "MeasurableOpaqueInlineObject"
-                    },
+            val rollbackCause = when {
+                substitution.displayText == sourceText -> null
+                shaped.decisions.any {
+                    it.capabilityIssue == UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE
+                } -> "SubstitutionRollbackOnUnverifiedGlyphCoverage"
+                shaped.decisions.any { it.missingGlyphs > 0 } -> "SubstitutionRollbackOnMissingGlyph"
+                shaped.dashInkCoverageDeficient(substitution.displayText, segmentStyle.fontSize) ->
+                    "DashSubstitutionInkCoverageRollback"
+                else -> null
+            }
+            return if (rollbackCause == null) {
+                shaped
+            } else {
+                substitutionRollbacks[segmentRange] = rollbackCause
+                textShaper.shape(
+                    ShapingInput(
+                        text = text,
+                        range = segmentRange,
+                        style = segmentStyle,
+                        fontDecision = decision,
+                        displayText = sourceText,
+                        openTypeFeatures = cjkPunctuationFullWidthFeatures(
+                            role = decision.role,
+                            displayText = sourceText,
+                        ),
+                    ),
                 )
             }
-        // Ink-edge insets so 行间线/着重号 hug the text, not the edge blanks: the leading
-        // autospace gap + consumed 开标点 leading glue (mirrors the renderer's glyph
-        // shift, SkiaTextBlobs.forEachPositionedCluster). The trailing justify stretch
-        // is already excluded at use; the LEADING side was being missed (CLREQ「两侧」).
-        val autoSpaceGapPx = clreqProfile.autoSpace.gapEm * fontSize
-        val geometryByRange = geometryDecisions.associateBy { it.range }
-        val leadingGapRanges = autoSpaceDecisions.filter { it.side == "leading" }.map { it.clusterRange }.toSet()
-        val trailingGapRanges = autoSpaceDecisions.filter { it.side == "trailing" }.map { it.clusterRange }.toSet()
-        val decorationDecisions = computeDecorationDecisions(
-            decorations = input.decorations,
-            lineRanges = visibleLineRanges,
-            lineBoxes = lines,
-            finalClusters = finalClusters,
-            clusterRoles = clusterRoles,
-            justifyDeltaByCluster = justifyDeltaByCluster,
-            rubySpreadByCluster = rubyAndBopomofoSpread,
-            metricDecisions = metricDecisions,
-            fontSize = fontSize,
-            emphasisDotGapEm = input.paragraphStyle.emphasisDotGapEm,
-        )
-        val decorationSegments = computeDecorationSegments(
-            decorations = input.decorations,
-            lineRanges = visibleLineRanges,
-            lineBoxes = lines,
-            finalClusters = finalClusters,
-            justifyDeltaByCluster = justifyDeltaByCluster,
-            geometryByRange = geometryByRange,
-            leadingGapRanges = leadingGapRanges,
-            trailingGapRanges = trailingGapRanges,
-            autoSpaceGapPx = autoSpaceGapPx,
-            fontSize = fontSize,
-        )
-        val rubyDecisions = computeRubyDecisions(
-            rubySpans = pinyinSpans,
-            lineRanges = visibleLineRanges,
-            lineBoxes = lines,
-            finalClusters = finalClusters,
-            naturalClusters = naturalClusters,
-            metricDecisions = metricDecisions,
-            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
-            rubyStackGap = rubyStackGap,
-            fallbackBaseAscent = baseAscent,
-            rubyFontSize = rubyFontSize,
-            rubyFontWeight = rubyFontWeight,
-            baseLocale = input.textStyle.locale,
-        )
-        val bopomofoDecisions = computeBopomofoDecisions(
-            rubySpans = input.rubySpans.filter { it.kind == RubyKind.Bopomofo },
-            lineRanges = visibleLineRanges,
-            lineBoxes = lines,
-            finalClusters = finalClusters,
-            naturalClusters = naturalClusters,
-            baseAscent = baseAscent,
-            baseDescent = baseDescent,
-            fontSize = fontSize,
-            bopomofoFontWeightAt = ::bopomofoFontWeightAt,
-            baseTextStyle = input.textStyle,
-        )
-
-        val widestLine = lines.maxOfOrNull { it.indent + it.visualWidth + it.hyphenAdvance } ?: 0f
-        val totalHeight = lines.lastOrNull()?.bottom ?: if (text.isEmpty()) 0f else baseLineMetrics.height
-        val resultWidth = widestLine.coerceAtMost(input.constraints.maxWidth)
-
-        return LayoutResult(
-            input = input,
-            size = Size(
-                width = resultWidth,
-                height = totalHeight,
-            ),
-            clusters = finalClusters,
-            glyphRuns = glyphRuns,
-            lines = lines,
-            debug = LayoutDebugInfo(
-                fontDecisions = fontDecisions.map { decision ->
-                    val clusterText = text.substring(decision.range.start, decision.range.end)
-                    val substitution = punctuationGlyphSubstitutor.substitute(clusterText)
-                    val rollbackCause = substitutionRollbacks.entries.firstOrNull { it.key.isInside(decision.range) }?.value
-                    FontDecisionInfo(
-                        range = decision.range,
-                        sourceText = clusterText,
-                        displayText = if (rollbackCause != null) clusterText else substitution.displayText,
-                        role = decision.role.name,
-                        fontKey = decision.candidate.key,
-                        reason = decision.reason,
-                        substitutionReason = if (rollbackCause != null) {
-                            "${substitution.reason}:$rollbackCause"
-                        } else {
-                            substitution.reason
-                        },
+        }
+        fun shapeSegmentWithPointMarkPrefix(
+            decision: FontDecision,
+            segmentRange: TextRange,
+        ): List<ShapingResult> {
+            var prefixEnd = segmentRange.start
+            while (
+                prefixEnd < segmentRange.end &&
+                ClreqPunctuationPolicies.isAsciiPointMark(text[prefixEnd])
+            ) {
+                prefixEnd += 1
+            }
+            return if (prefixEnd in (segmentRange.start + 1) until segmentRange.end) {
+                // `PostCutAsciiPointMarkPrefixSegmentation`: opaque-token and
+                // hard-cut passes can create a fresh `,A` piece after the
+                // initial role segmentation. Re-shape its point-mark prefix
+                // separately so kinsoku binds only the comma, not its suffix.
+                listOf(
+                    shapeSegment(decision, TextRange(segmentRange.start, prefixEnd)),
+                    shapeSegment(decision, TextRange(prefixEnd, segmentRange.end)),
+                )
+            } else {
+                listOf(shapeSegment(decision, segmentRange))
+            }
+        }
+        // LatinWordSegmentation (gap audit 缺口 2): Latin runs are shaped per
+        // word/space segment so each word and each space run becomes its own
+        // cluster — line breaks happen at word boundaries, word spaces become
+        // first-class adjustable clusters (CLREQ 西文词距). Cross-segment
+        // kerning at a space boundary is negligible.
+        //
+        // LineEndHangingHyphen (CLREQ §换行与断词连字「可使用连字符处」, ADR 0029):
+        // an all-letter Latin word is additionally split so the breaker may wrap
+        // it. A break at one of these offsets earns a displayed trailing hyphen;
+        // later geometry reserves that hyphen inside the measure when possible
+        // and hangs only the residual that cannot fit. `hyphenOffsets` are the
+        // absolute source offsets where the next line may continue the word.
+        //
+        // Cut points are (a) the [hyphenator]'s syllable points, plus (b)
+        // `LatinForcedHyphenBreak`: for any word piece STILL wider than the
+        // measure (hyphenation off, or a syllable/token that can't fit),
+        // character-level fallback cuts that hard-break it — preferring 前二后三
+        // (2/3) within the piece, breaking anywhere only when that can't be met
+        // (满足不了就算了).
+        //
+        // `LatinStructuralSolidusBreak`: a solidus inside a Latin token
+        // (`TeX/LaTeX`) is a clean separator boundary even when the whole token
+        // would fit a fresh line. The slash stays with the previous piece, so
+        // breaks read `TeX/` + `LaTeX`, never `/LaTeX`.
+        //
+        // `LatinOpaqueTokenBreak`: URL-like / identifier-like Latin tokens are
+        // not words. They get clean breaks at ASCII separators; if a remaining
+        // piece is still over-wide, it hard-breaks at character boundaries with
+        // NO synthetic hyphen. This keeps links copy-faithful and avoids
+        // inventing hyphens inside hashes, query strings, or mixed alpha/digit ids.
+        //
+        // `LatinLongUnhyphenatedLetterTokenBreak`: a very long all-letter run,
+        // or a very long hyphenator-unexplained piece inside one, is also
+        // opaque, not an English word. This covers pure-letter base64/hash
+        // fragments and synthetic strings such as `ssss...herstory`; it uses
+        // the same no-hyphen hard cuts.
+        val hyphenOffsets = mutableSetOf<Int>()
+        var hyphenAdvanceOrNull: Float? = null
+        var hyphenGlyphs: List<Glyph> = emptyList()
+        fun latinWordCuts(
+            decision: FontDecision,
+            wordRange: TextRange,
+            syllable: List<Int>,
+        ): List<Int> {
+            val cuts = mutableSetOf<Int>()
+            cuts += syllable.map { wordRange.start + it }
+            val relBounds = (listOf(0) + syllable + listOf(wordRange.length)).distinct()
+            for (i in 0 until relBounds.size - 1) {
+                val a = relBounds[i]
+                val b = relBounds[i + 1]
+                val pieceAdvance = shapeSegment(decision, TextRange(wordRange.start + a, wordRange.start + b))
+                    .clusters.singleOrNull()?.advance ?: 0f
+                if (pieceAdvance <= measure) continue
+                val lo = a + HYPHEN_MIN_LEFT
+                val hi = b - HYPHEN_MIN_RIGHT
+                val range = if (lo <= hi) lo..hi else (a + 1) until b
+                for (off in range) cuts += wordRange.start + off
+            }
+            return cuts.sorted()
+        }
+        // ExistingHyphenBreak (CY/T 154-2017 §9.3): a hyphenated compound breaks
+        // AT its existing hyphens — no NEW hyphen added, the existing one sits at
+        // the line end. Keeps ≥2 letters on each side (§9.4「不要把单个字母放在
+        // 一行的行末或行首」), which also leaves number ranges / abbreviation-number
+        // tokens (3-4, COVID-19) unbroken. These are clean break boundaries, not
+        // synthetic-hyphen points, so they never enter `hyphenOffsets`.
+        fun existingHyphenCuts(wordRange: TextRange): List<Int> {
+            val w = text.substring(wordRange.start, wordRange.end)
+            val cuts = mutableListOf<Int>()
+            for (i in w.indices) {
+                if (w[i] != '-') continue
+                var before = 0
+                var j = i - 1
+                while (j >= 0 && w[j].isLetter()) { before += 1; j -= 1 }
+                var after = 0
+                var k = i + 1
+                while (k < w.length && w[k].isLetter()) { after += 1; k += 1 }
+                if (before >= 2 && after >= 2) cuts += wordRange.start + i + 1
+            }
+            return cuts
+        }
+        // CamelCaseBreak: a camelCase/PascalCase product token (internal capital)
+        // breaks at its humps — lowercase→uppercase, or an acronym boundary
+        // Upper→Upper-then-lower (XML|Http) — with NO hyphen (the capital signals
+        // the break). ≥2 letters each side (§9.4). Clean breaks, not hyphenOffsets.
+        fun camelCaseCuts(wordRange: TextRange): List<Int> {
+            val w = text.substring(wordRange.start, wordRange.end)
+            val humps = (1 until w.length).filter { i ->
+                w[i].isUpperCase() && (
+                    w[i - 1].isLowerCase() ||
+                        (w[i - 1].isUpperCase() && i + 1 < w.length && w[i + 1].isLowerCase())
                     )
-                },
-                shapingDecisions = shapingDecisions,
-                metricDecisions = metricDecisions.map { decision ->
-                    MetricDecisionInfo(
-                        range = decision.range,
-                        sourceText = decision.sourceText,
-                        role = decision.request.role.name,
-                        fontKey = decision.request.fontKey,
-                        rawAscent = decision.rawMetrics.ascent,
-                        rawDescent = decision.rawMetrics.descent,
-                        rawLeading = decision.rawMetrics.leading,
-                        rawSource = decision.rawMetrics.source.name,
-                        layoutAscent = decision.layoutMetrics.ascent,
-                        layoutDescent = decision.layoutMetrics.descent,
-                        baselineClass = decision.layoutMetrics.baselineClass.name,
-                        metricBox = decision.layoutMetrics.metricBox.name,
-                        layoutSource = decision.layoutMetrics.source.name,
-                        reason = decision.layoutMetrics.reason,
-                    )
-                },
-                punctuationDecisions = punctuationAtoms.map { atom ->
-                    PunctuationDecisionInfo(
-                        range = atom.range,
-                        char = atom.char,
-                        punctuationClass = atom.punctuationClass.name,
-                        advance = atom.advance,
-                        bodyWidth = atom.bodyWidth,
-                        leadingGlueNatural = atom.leadingGlue.natural,
-                        trailingGlueNatural = atom.trailingGlue.natural,
-                        leadingGlueInitiallyConsumed = atom.leadingGlueInitiallyConsumed,
-                        trailingGlueInitiallyConsumed = atom.trailingGlueInitiallyConsumed,
-                        anchor = atom.anchor.name,
-                        inkBounds = atom.inkBounds,
-                        geometrySource = atom.geometrySource,
-                        policyBodyFloor = atom.policyBodyFloor,
-                        inkWidth = atom.inkWidth,
-                        inkCenter = atom.inkCenter,
-                        inkContainmentBodyFloor = atom.inkContainmentBodyFloor,
-                        inkContainmentApplied = atom.inkContainmentApplied,
-                        inkBoundsFallback = atom.inkBoundsFallback,
-                        haltAdvance = atom.haltAdvance,
-                        haltValidation = atom.haltValidation,
-                        advanceExpansion = atom.advanceExpansion,
-                        glyphInlineShift = atom.glyphInlineShift,
-                        glyphPlacementReason = atom.glyphPlacementReason,
-                    )
-                },
-                geometryDecisions = geometryDecisions,
-                spacingDecisions = spacingPlan.adjustments.map { adjustment ->
-                    SpacingDecisionInfo(
-                        range = adjustment.range,
-                        leftChar = adjustment.leftChar,
-                        rightChar = adjustment.rightChar,
-                        naturalInnerGlue = adjustment.naturalInnerGlue,
-                        adjustedInnerGlue = adjustment.adjustedInnerGlue,
-                        reduction = adjustment.reduction,
-                        reductionTargetRange = adjustment.reductionTargetRange,
-                        reason = adjustment.reason,
-                    )
-                } + attachedPunctuationBoundary.decisions,
-                roleOverrides = roleOverrideInfos,
-                // Zip over ALL laid-out lines (not the maxLines-truncated boxes): the
-                // dump records every committed line, the truncation names the cut.
-                lineDecisions = laidOutLines.zip(lineSolution.lines).mapIndexed { lineIndex, (line, candidate) ->
-                    LineDecisionInfo(
-                        range = line.range,
-                        kind = lineBreaker.strategyName,
-                        repair = candidate.repair?.let { "${it::class.simpleName}" },
-                        repairPenalty = candidate.repair?.penalty ?: 0,
-                        repairDecision = candidate.repair?.toDecisionInfo(clusters),
-                        repairCandidates = candidate.repairCandidates.map { it.toDecisionInfo(clusters) },
-                        notes = listOf(
-                            "index:$lineIndex",
-                            "end:${line.endReason}",
-                            "natural:${line.naturalWidth}",
-                            "adjusted:${line.adjustedWidth}",
-                            "visual:${line.visualWidth}",
-                        ) + listOfNotNull(
-                            candidate.repair?.let { "repair-reason:${it.reason}" },
-                            justificationPlans.getOrNull(lineIndex)?.fallbackReason
-                                ?.let { "justify-fallback:$it" },
-                        ),
-                    )
-                },
-                justificationDecisions = justificationPlans.zip(lineSolution.lines)
-                    .mapNotNull { (plan, candidate) ->
-                        plan
-                            ?.takeIf { it.allocations.isNotEmpty() || it.deficitBefore > 0f }
-                            ?.let {
-                                JustificationDecisionInfo(
-                                    lineRange = candidate.sourceRange,
-                                    deficitBefore = it.deficitBefore,
-                                    deficitAfter = it.unfilledDeficit,
-                                    allocations = it.allocations.map { alloc ->
-                                        JustificationAllocationInfo(
-                                            clusterRange = clusters[alloc.targetClusterIndex].range,
-                                            kind = alloc.kind.name,
-                                            priority = alloc.priority,
-                                            delta = alloc.delta,
-                                            reason = alloc.reason,
-                                        )
-                                    },
-                                )
-                            }
-                    },
-                autoSpaceDecisions = autoSpaceDecisions,
-                lineEdgeTrimDecisions = edgeTrimDecisions,
-                decorationDecisions = decorationDecisions,
-                decorationSegments = decorationSegments,
-                rubyDecisions = rubyDecisions,
-                bopomofoDecisions = bopomofoDecisions,
-                mandatoryBreakDecisions = mandatoryBreakDecisions,
-                maxLinesDecision = maxLinesDecision,
-                lineSpacingDecision = lineSpacingDecision,
-                rubyLineHeightDecision = rubyLineHeightDecision,
-                inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
-                kinsokuDecision = kinsokuDecision,
-                contextualKinsokuDecisions = contextualKinsokuDecisions,
-                lineLengthGridDecision = lineLengthGridDecision,
-                firstLineIndentDecision = firstLineIndentDecision,
-                inlineBoxDecisions = inlineBoxResult.decisions,
-                inlineObjectDecisions = inlineObjectDecisions,
-                inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
-                zeroWidthBreakDecisions = zeroWidthBreakDecisions,
-                breakOpportunityDecisions = breakOpportunityDecisions,
-            ),
+            }
+            val bounds = listOf(0) + humps + listOf(w.length)
+            return humps.filter { h ->
+                h - bounds.last { it < h } >= 2 && bounds.first { it > h } - h >= 2
+            }.map { wordRange.start + it }
+        }
+        val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
+        fun latinSeparatorCuts(
+            tokenRange: TextRange,
+            tokenAdvance: Float,
+            forceOpaqueBreaks: Boolean,
+        ): List<Int> {
+            val token = text.substring(tokenRange.start, tokenRange.end)
+            val urlLike = token.isUrlLikeLatinToken()
+            val opaque = token.any { !it.isLetter() }
+            val structuralSolidus = token.hasBreakableLatinSolidus()
+            val bibliographicLocatorCuts = token.bibliographicNumericLocatorBreakOffsets()
+            val opaqueSeparatorMode = urlLike || (opaque && (tokenAdvance > measure || forceOpaqueBreaks))
+            if (!structuralSolidus && !opaqueSeparatorMode && bibliographicLocatorCuts.isEmpty()) {
+                return emptyList()
+            }
+            val cuts = bibliographicLocatorCuts
+                .mapTo(mutableListOf()) { tokenRange.start + it }
+            if (bibliographicLocatorCuts.isNotEmpty()) {
+                breakOpportunityDecisions += BreakOpportunityDecisionInfo(
+                    range = tokenRange,
+                    sourceText = token,
+                    breakOffsets = cuts.toList(),
+                    reason = "BibliographicNumericLocatorBreak",
+                )
+            }
+            for (i in 0 until token.lastIndex) {
+                val breakAfter = (structuralSolidus && !urlLike && token[i] == '/') ||
+                    (opaqueSeparatorMode && token.isLatinTokenBreakAfter(i, tokenAdvance <= measure))
+                if (breakAfter) cuts += tokenRange.start + i + 1
+            }
+            return cuts
+        }
+        fun latinOpaqueHardCuts(
+            decision: FontDecision,
+            tokenRange: TextRange,
+            cleanCuts: List<Int>,
+            forceOpaqueBreaks: Boolean,
+        ): List<Int> {
+            val relBounds = (listOf(0) + cleanCuts.map { it - tokenRange.start } + listOf(tokenRange.length))
+                .distinct()
+                .sorted()
+            val cuts = mutableSetOf<Int>()
+            for (i in 0 until relBounds.size - 1) {
+                val a = relBounds[i]
+                val b = relBounds[i + 1]
+                if (b - a <= 1) continue
+                val pieceAdvance = shapeSegment(decision, TextRange(tokenRange.start + a, tokenRange.start + b))
+                    .clusters.singleOrNull()?.advance ?: 0f
+                if (pieceAdvance <= measure && !(forceOpaqueBreaks && b - a >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)) {
+                    continue
+                }
+                for (off in (a + 1) until b) cuts += tokenRange.start + off
+            }
+            return cuts.sorted()
+        }
+        val shapingResults = clusterRanges.flatMap { resolvedRange ->
+            inlineObjectByRange[resolvedRange.range]?.let { inlineObject ->
+                return@flatMap listOf(inlineObjectShapingResult(text, inlineObject))
+            }
+            if (resolvedRange.mandatoryBreak) {
+                return@flatMap listOf(mandatoryBreakShapingResult(text, resolvedRange.range))
+            }
+            if (resolvedRange.zeroWidthSoftBreak) {
+                return@flatMap listOf(zeroWidthSoftBreakShapingResult(text, resolvedRange.range))
+            }
+            val decision = fontDecisionByRange.getValue(resolvedRange.range)
+            decision.shapingSegments(text).flatMap { segmentRange ->
+                val shaped = shapeSegment(decision, segmentRange)
+                val isLatin = decision.role == FontRole.LatinText && segmentRange.length > 0
+                val w = if (isLatin) text.substring(segmentRange.start, segmentRange.end) else ""
+                val allLetters = isLatin && w.all { it.isLetter() }
+                // §9.4 全大写缩写不断词；驼峰式在驼峰处断（无连字符）；含 '-' 在
+                // 已有连字符处断（§9.3，无新连字符）。以上都是 clean 断点（不进
+                // hyphenOffsets）。其余全字母词走 §9.2 音节 + 硬断（加合成连字符）。
+                val isAllCaps = allLetters && w.length >= 2 && w.none { it.isLowerCase() }
+                val isAbbreviation = isAllCaps && w.length < LATIN_OPAQUE_TOKEN_MIN_LENGTH
+                val isCamelCase = allLetters && !isAllCaps && !isAbbreviation &&
+                    (1 until w.length).any { w[it].isUpperCase() }
+                val tokenAdvance = shaped.clusters.sumOf { it.advance.toDouble() }.toFloat()
+                val syllableCuts = if (
+                    allLetters && !isAbbreviation && !isCamelCase && !w.contains('-')
+                ) {
+                    hyphenator.hyphenate(w).distinct().sorted()
+                } else {
+                    emptyList()
+                }
+                val longestUnhyphenatedLetterPiece = if (allLetters) {
+                    val bounds = (listOf(0) + syllableCuts + listOf(w.length)).distinct().sorted()
+                    bounds.zipWithNext().maxOfOrNull { (a, b) -> b - a } ?: w.length
+                } else {
+                    0
+                }
+                val isLongUnhyphenatedLetterToken =
+                    allLetters && !isAbbreviation && !isCamelCase &&
+                        longestUnhyphenatedLetterPiece >= LATIN_OPAQUE_TOKEN_MIN_LENGTH
+                val isLongOpaqueLatinToken =
+                    isLongUnhyphenatedLetterToken || (isLatin && !allLetters && w.length >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)
+                val cleanCuts = when {
+                    !isLatin -> emptyList()
+                    w.contains('-') -> existingHyphenCuts(segmentRange) +
+                        latinSeparatorCuts(segmentRange, tokenAdvance, isLongOpaqueLatinToken)
+                    isCamelCase -> camelCaseCuts(segmentRange)
+                    !allLetters -> latinSeparatorCuts(segmentRange, tokenAdvance, isLongOpaqueLatinToken)
+                    else -> emptyList()
+                }
+                val hyphenCuts = if (
+                    allLetters && !isAbbreviation && !isCamelCase &&
+                        !isLongUnhyphenatedLetterToken && !w.contains('-') && cleanCuts.isEmpty()
+                ) {
+                    latinWordCuts(decision, segmentRange, syllableCuts)
+                } else {
+                    emptyList()
+                }
+                val opaqueHardCuts = if (
+                    isLatin &&
+                    (!allLetters || isLongUnhyphenatedLetterToken) &&
+                    (tokenAdvance > measure || isLongOpaqueLatinToken)
+                ) {
+                    latinOpaqueHardCuts(decision, segmentRange, cleanCuts, isLongOpaqueLatinToken)
+                } else {
+                    emptyList()
+                }
+                val allCuts = (cleanCuts + hyphenCuts + opaqueHardCuts).distinct().sorted()
+                if (allCuts.isEmpty()) {
+                    listOf(shaped)
+                } else {
+                    if (hyphenCuts.isNotEmpty()) {
+                        hyphenOffsets += hyphenCuts
+                        if (hyphenAdvanceOrNull == null) {
+                            val hyphenShaped = textShaper.shape(
+                                ShapingInput(
+                                    text = "-",
+                                    range = TextRange(0, 1),
+                                    style = input.textStyle,
+                                    fontDecision = decision,
+                                    displayText = "-",
+                                ),
+                            )
+                            hyphenAdvanceOrNull = hyphenShaped.clusters.singleOrNull()?.advance ?: (0.5f * fontSize)
+                            hyphenGlyphs = hyphenShaped.glyphRuns.flatMap { it.glyphs }
+                        }
+                    }
+                    val bounds = listOf(segmentRange.start) + allCuts + listOf(segmentRange.end)
+                    (0 until bounds.size - 1).flatMap { k ->
+                        shapeSegmentWithPointMarkPrefix(
+                            decision,
+                            TextRange(bounds[k], bounds[k + 1]),
+                        )
+                    }
+                }
+            }
+        }
+        val hyphenAdvance = hyphenAdvanceOrNull ?: 0f
+        return ParagraphShapingStageResult(
+            shapingResults = shapingResults,
+            hyphenOffsets = hyphenOffsets.toSet(),
+            hyphenAdvance = hyphenAdvance,
+            hyphenGlyphs = hyphenGlyphs,
+            substitutionRollbacks = substitutionRollbacks.toMap(),
+            breakOpportunityDecisions = breakOpportunityDecisions.toList(),
         )
     }
 
