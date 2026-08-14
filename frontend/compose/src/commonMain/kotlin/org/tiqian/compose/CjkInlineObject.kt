@@ -4,7 +4,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import org.tiqian.core.InlineObjectBoundaryAdjustment
+import org.tiqian.core.InlineObjectPreferredStretch
+import org.tiqian.core.InlineObjectPreferredStretchKind
+import org.tiqian.core.InlineObjectSpan
 
 enum class CjkInlineObjectPreferredStretchKind {
     PunctuationTrailing,
@@ -93,3 +98,34 @@ data class CjkInlineObject(
         }
     }
 }
+
+internal fun CjkInlineObject.toCore(density: Density): InlineObjectSpan = InlineObjectSpan(
+    range = org.tiqian.core.TextRange(range.start, range.end),
+    advance = with(density) { advance.toPx() },
+    ascent = with(density) { ascent.toPx() },
+    descent = with(density) { descent.toPx() },
+    leadingBoundary = leadingBoundary.toCore(density),
+    trailingBoundary = trailingBoundary.toCore(density),
+)
+
+private fun CjkInlineObjectBoundary.toCore(density: Density): InlineObjectBoundaryAdjustment =
+    InlineObjectBoundaryAdjustment(
+        participatesInUniformStretch = participatesInUniformStretch,
+        preferredStretch = preferredStretch?.let {
+            InlineObjectPreferredStretch(
+                kind = when (it.kind) {
+                    CjkInlineObjectPreferredStretchKind.PunctuationTrailing ->
+                        InlineObjectPreferredStretchKind.PunctuationTrailing
+                    CjkInlineObjectPreferredStretchKind.Relation ->
+                        InlineObjectPreferredStretchKind.Relation
+                    CjkInlineObjectPreferredStretchKind.BinaryOperator ->
+                        InlineObjectPreferredStretchKind.BinaryOperator
+                },
+                naturalWidth = with(density) { it.naturalWidth.toPx() },
+                targetWidth = with(density) { it.targetWidth.toPx() },
+            )
+        },
+        shrinkCapacity = with(density) { shrinkCapacity.toPx() },
+        lineEndDiscardableAdvance = with(density) { lineEndDiscardableAdvance.toPx() },
+        preventsLineBreak = preventsLineBreak,
+    )

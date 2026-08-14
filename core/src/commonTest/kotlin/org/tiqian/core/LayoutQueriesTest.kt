@@ -497,6 +497,37 @@ class LayoutQueriesTest {
     }
 
     @Test
+    fun inlineObjectSourceRangeIsOneSelectionUnit() {
+        val source = "a\\operatorname{lim}b"
+        val objectRange = TextRange(1, source.lastIndex)
+        val result = LayoutResult(
+            input = LayoutInput(
+                content = TiqianTextContent(source),
+                constraints = LayoutConstraints(maxWidth = 200f),
+                inlineObjects = listOf(
+                    InlineObjectSpan(
+                        range = objectRange,
+                        advance = 40f,
+                        ascent = 12f,
+                        descent = 4f,
+                    ),
+                ),
+            ),
+            size = Size(60f, 20f),
+            clusters = emptyList(),
+            glyphRuns = emptyList(),
+            lines = emptyList(),
+            debug = LayoutDebugInfo(),
+        )
+
+        assertEquals(1, result.coerceSelectionOffset(5, SourceBoundaryBias.Backward))
+        assertEquals(objectRange.end, result.coerceSelectionOffset(5, SourceBoundaryBias.Forward))
+        assertEquals(1, result.coerceSelectionOffset(5, SourceBoundaryBias.Nearest))
+        assertEquals(objectRange.end, result.coerceSelectionOffset(objectRange.end - 1, SourceBoundaryBias.Nearest))
+        assertEquals(objectRange, result.getSelectionWordBoundary(5))
+    }
+
+    @Test
     fun selectionWordBoundaryExpandsLatinButKeepsHanAtomic() {
         val result = wordBoundaryResult()
 

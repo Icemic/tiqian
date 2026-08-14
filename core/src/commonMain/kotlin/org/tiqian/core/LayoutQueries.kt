@@ -588,6 +588,19 @@ fun LayoutResult.getSelectionOffsetForPosition(x: Float, y: Float): Int {
 fun LayoutResult.coerceSelectionOffset(offset: Int, bias: SourceBoundaryBias): Int {
     val text = input.content.text
     val clamped = offset.coerceIn(0, text.length)
+    input.inlineObjects.firstOrNull { clamped > it.range.start && clamped < it.range.end }?.let { inlineObject ->
+        return when (bias) {
+            SourceBoundaryBias.Backward -> inlineObject.range.start
+            SourceBoundaryBias.Forward -> inlineObject.range.end
+            SourceBoundaryBias.Nearest -> {
+                if (clamped - inlineObject.range.start < inlineObject.range.end - clamped) {
+                    inlineObject.range.start
+                } else {
+                    inlineObject.range.end
+                }
+            }
+        }
+    }
     return text.coerceToInteractionBoundary(clamped, TextRange(0, text.length), bias)
 }
 
@@ -600,8 +613,13 @@ fun LayoutResult.coerceSelectionOffset(offset: Int, bias: SourceBoundaryBias): I
 fun LayoutResult.getSelectionWordBoundary(offset: Int): TextRange {
     val text = input.content.text
     if (text.isEmpty()) return TextRange(0, 0)
-    val boundaries = text.interactionBoundaries(TextRange(0, text.length))
     val clamped = offset.coerceIn(0, text.length)
+    input.inlineObjects.firstOrNull {
+        clamped >= it.range.start && clamped < it.range.end
+    }?.let { inlineObject ->
+        return inlineObject.range
+    }
+    val boundaries = text.interactionBoundaries(TextRange(0, text.length))
     val exactIndex = boundaries.binarySearch(clamped)
     val unitIndex = when {
         clamped == text.length -> boundaries.lastIndex - 1

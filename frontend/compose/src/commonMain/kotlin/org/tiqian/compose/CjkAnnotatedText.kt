@@ -22,6 +22,7 @@ import org.tiqian.core.ColorSpan
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.LayoutConstraints
+import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.InlineAttachment
 import org.tiqian.core.ParagraphStyle
@@ -33,6 +34,7 @@ import org.tiqian.core.RubySpan
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
+import org.tiqian.core.TiqianTextContent
 
 // Annotation tags + extractors are the AnnotatedString WIRE PROTOCOL between the
 // public builders (emphasis/ruby/bopomofo/…) and the engine. INTERNAL on purpose —
@@ -333,6 +335,52 @@ fun ParagraphMeasurer.measure(
         rubySpans = renderText.cjkRubySpans(),
         inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
+    )
+}
+
+/**
+ * Full pre-layout counterpart to the rich `CjkText(AnnotatedString)` path, including measured
+ * inline objects and renderer-owned backgrounds/decorations.
+ */
+fun ParagraphMeasurer.measureWithInlineContent(
+    text: AnnotatedString,
+    constraints: LayoutConstraints,
+    density: Density,
+    style: ComposeTextStyle,
+    paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    inlineObjects: List<CjkInlineObject>,
+    inlineDecorations: List<CjkInlineDecoration> = emptyList(),
+    inlineBackgrounds: List<CjkInlineBackground> = emptyList(),
+): LayoutResult {
+    val lowered = lowerComposeText(text, style, paragraphStyle)
+    val renderText = lowered.text.withBaseLinkStyles()
+    val core = lowered.textStyle.toCoreTextStyle(density)
+    val richTextSpans = renderText.cjkRichTextSpans(
+        adjacentSameStyleClearance = with(density) { 1.dp.toPx() },
+        inlineCodePaint = defaultInlineCodePaint(density),
+    ) + inlineBackgrounds.map { it.toCore(density) } + inlineDecorations.map { it.toCore(density) }
+    val sourceBoundaries = buildSet {
+        addAll(renderText.cjkSourceBoundaries())
+        richTextSpans.forEach { span ->
+            add(span.range.start)
+            add(span.range.end)
+        }
+    }
+    return measure(
+        LayoutInput(
+            content = TiqianTextContent(
+                renderText.text,
+                renderText.cjkStyleSpans(core, density),
+                sourceBoundaries,
+            ),
+            textStyle = core,
+            paragraphStyle = lowered.paragraphStyle.withCjkTextStyleLineHeight(lowered.textStyle, density),
+            constraints = constraints,
+            decorations = renderText.cjkDecorations(),
+            rubySpans = renderText.cjkRubySpans(),
+            inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+            inlineObjects = inlineObjects.map { it.toCore(density) },
+        ),
     )
 }
 

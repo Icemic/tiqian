@@ -23,10 +23,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import org.tiqian.core.Ic
-import org.tiqian.core.InlineObjectBoundaryAdjustment
-import org.tiqian.core.InlineObjectPreferredStretch
-import org.tiqian.core.InlineObjectPreferredStretchKind
-import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineLengthGrid
@@ -64,6 +60,7 @@ fun CjkText(
     style: ComposeTextStyle = ComposeTextStyle.Default,
     paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
+    precomputedLayout: LayoutResult? = null,
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     CjkText(
@@ -84,6 +81,7 @@ fun CjkText(
         style = style,
         paragraphStyle = paragraphStyle,
         measurer = measurer,
+        precomputedLayout = precomputedLayout,
         onTextLayout = onTextLayout,
     )
 }
@@ -102,6 +100,7 @@ fun CjkText(
     maxLines: Int = Int.MAX_VALUE,
     minLines: Int = 1,
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
+    precomputedLayout: LayoutResult? = null,
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     CjkText(
@@ -114,6 +113,7 @@ fun CjkText(
         maxLines = maxLines,
         minLines = minLines,
         measurer = measurer,
+        precomputedLayout = precomputedLayout,
         onTextLayout = onTextLayout,
     )
 }
@@ -145,6 +145,7 @@ fun CjkText(
     inlineDecorations: List<CjkInlineDecoration> = emptyList(),
     inlineBackgrounds: List<CjkInlineBackground> = emptyList(),
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
+    precomputedLayout: LayoutResult? = null,
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     val resolvedStyle = remember(
@@ -178,6 +179,7 @@ fun CjkText(
         maxLines = maxLines,
         minLines = minLines,
         measurer = measurer,
+        precomputedLayout = precomputedLayout,
         onTextLayout = onTextLayout,
     )
 }
@@ -199,6 +201,7 @@ fun CjkText(
     maxLines: Int = Int.MAX_VALUE,
     minLines: Int = 1,
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
+    precomputedLayout: LayoutResult? = null,
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     val density = LocalDensity.current
@@ -220,58 +223,7 @@ fun CjkText(
     val spans = remember(renderText, coreStyle, density) { renderText.cjkStyleSpans(coreStyle, density) }
     val rubySpans = remember(renderText) { renderText.cjkRubySpans() }
     val coreInlineObjects = remember(inlineObjects, density) {
-        inlineObjects.map { inlineObject ->
-            InlineObjectSpan(
-                range = org.tiqian.core.TextRange(inlineObject.range.start, inlineObject.range.end),
-                advance = with(density) { inlineObject.advance.toPx() },
-                ascent = with(density) { inlineObject.ascent.toPx() },
-                descent = with(density) { inlineObject.descent.toPx() },
-                leadingBoundary = InlineObjectBoundaryAdjustment(
-                    participatesInUniformStretch = inlineObject.leadingBoundary.participatesInUniformStretch,
-                    preferredStretch = inlineObject.leadingBoundary.preferredStretch?.let {
-                        InlineObjectPreferredStretch(
-                            kind = when (it.kind) {
-                                CjkInlineObjectPreferredStretchKind.PunctuationTrailing ->
-                                    InlineObjectPreferredStretchKind.PunctuationTrailing
-                                CjkInlineObjectPreferredStretchKind.Relation ->
-                                    InlineObjectPreferredStretchKind.Relation
-                                CjkInlineObjectPreferredStretchKind.BinaryOperator ->
-                                    InlineObjectPreferredStretchKind.BinaryOperator
-                            },
-                            naturalWidth = with(density) { it.naturalWidth.toPx() },
-                            targetWidth = with(density) { it.targetWidth.toPx() },
-                        )
-                    },
-                    shrinkCapacity = with(density) { inlineObject.leadingBoundary.shrinkCapacity.toPx() },
-                    lineEndDiscardableAdvance = with(density) {
-                        inlineObject.leadingBoundary.lineEndDiscardableAdvance.toPx()
-                    },
-                    preventsLineBreak = inlineObject.leadingBoundary.preventsLineBreak,
-                ),
-                trailingBoundary = InlineObjectBoundaryAdjustment(
-                    participatesInUniformStretch = inlineObject.trailingBoundary.participatesInUniformStretch,
-                    preferredStretch = inlineObject.trailingBoundary.preferredStretch?.let {
-                        InlineObjectPreferredStretch(
-                            kind = when (it.kind) {
-                                CjkInlineObjectPreferredStretchKind.PunctuationTrailing ->
-                                    InlineObjectPreferredStretchKind.PunctuationTrailing
-                                CjkInlineObjectPreferredStretchKind.Relation ->
-                                    InlineObjectPreferredStretchKind.Relation
-                                CjkInlineObjectPreferredStretchKind.BinaryOperator ->
-                                    InlineObjectPreferredStretchKind.BinaryOperator
-                            },
-                            naturalWidth = with(density) { it.naturalWidth.toPx() },
-                            targetWidth = with(density) { it.targetWidth.toPx() },
-                        )
-                    },
-                    shrinkCapacity = with(density) { inlineObject.trailingBoundary.shrinkCapacity.toPx() },
-                    lineEndDiscardableAdvance = with(density) {
-                        inlineObject.trailingBoundary.lineEndDiscardableAdvance.toPx()
-                    },
-                    preventsLineBreak = inlineObject.trailingBoundary.preventsLineBreak,
-                ),
-            )
-        }
+        inlineObjects.map { it.toCore(density) }
     }
     CjkTextLayout(
         text = renderText.text,
@@ -292,6 +244,7 @@ fun CjkText(
         maxLines = maxLines,
         minLines = minLines,
         measurer = measurer,
+        precomputedLayout = precomputedLayout,
         onTextLayout = onTextLayout,
     )
 }

@@ -18,8 +18,9 @@ import org.tiqian.shaping.TextShaper
 internal class BoundedComposeTextShaperCache(
     private val delegate: TextShaper,
     maxEntries: Int = DEFAULT_COMPOSE_SHAPING_CACHE_ENTRIES,
+    sharedCache: SharedComposeBackendCache<ShapingInput, ShapingResult>? = null,
 ) : TextShaper {
-    private val cache = BoundedInsertionCache<ShapingInput, ShapingResult>(maxEntries)
+    private val cache = sharedCache ?: BoundedInsertionCache(maxEntries)
 
     override fun shape(input: ShapingInput): ShapingResult =
         cache.getOrPut(input) { delegate.shape(input) }
@@ -33,18 +34,23 @@ internal class BoundedComposeTextShaperCache(
 internal class BoundedComposeFontMetricsCache(
     private val delegate: FontMetricsResolver,
     maxEntries: Int = DEFAULT_COMPOSE_METRICS_CACHE_ENTRIES,
+    sharedCache: SharedComposeBackendCache<FontMetricsRequest, RawFontMetrics>? = null,
 ) : FontMetricsResolver {
-    private val cache = BoundedInsertionCache<FontMetricsRequest, RawFontMetrics>(maxEntries)
+    private val cache = sharedCache ?: BoundedInsertionCache(maxEntries)
 
     override fun resolve(request: FontMetricsRequest): RawFontMetrics =
         cache.getOrPut(request) { delegate.resolve(request) }
 }
 
-private class BoundedInsertionCache<K, V>(maxEntries: Int) {
+internal interface SharedComposeBackendCache<K, V> {
+    fun getOrPut(key: K, create: () -> V): V
+}
+
+private class BoundedInsertionCache<K, V>(maxEntries: Int) : SharedComposeBackendCache<K, V> {
     private val maxEntries = maxEntries.also { require(it > 0) { "maxEntries must be positive" } }
     private val values = LinkedHashMap<K, V>()
 
-    fun getOrPut(key: K, create: () -> V): V {
+    override fun getOrPut(key: K, create: () -> V): V {
         values[key]?.let { return it }
         return create().also { value ->
             if (values.size >= maxEntries) {
@@ -55,5 +61,28 @@ private class BoundedInsertionCache<K, V>(maxEntries: Int) {
     }
 }
 
+/**
+ * Width-independent backend results shared by foreground measurement and independently confined
+ * pre-layout workers. The platform store serializes cache misses, so a shaping backend instance is
+ * still owned by exactly one measurer while completed immutable results can be reused by all of
+ * them. Keep the session at the document/surface lifetime; typography and font decisions remain in
+ * the exact keys and therefore invalidate honestly.
+ */
+class ParagraphMeasurementSession(
+    shapingCacheEntries: Int = DEFAULT_SHARED_COMPOSE_SHAPING_CACHE_ENTRIES,
+    metricsCacheEntries: Int = DEFAULT_SHARED_COMPOSE_METRICS_CACHE_ENTRIES,
+) {
+    internal val shapingCache =
+        createSharedComposeBackendCache<ShapingInput, ShapingResult>(shapingCacheEntries)
+    internal val metricsCache =
+        createSharedComposeBackendCache<FontMetricsRequest, RawFontMetrics>(metricsCacheEntries)
+}
+
+internal expect fun <K, V> createSharedComposeBackendCache(
+    maxEntries: Int,
+): SharedComposeBackendCache<K, V>
+
 private const val DEFAULT_COMPOSE_SHAPING_CACHE_ENTRIES = 512
 private const val DEFAULT_COMPOSE_METRICS_CACHE_ENTRIES = 256
+private const val DEFAULT_SHARED_COMPOSE_SHAPING_CACHE_ENTRIES = 4096
+private const val DEFAULT_SHARED_COMPOSE_METRICS_CACHE_ENTRIES = 512

@@ -16,6 +16,9 @@ import androidx.compose.foundation.text.TextContextMenu
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
@@ -63,6 +66,62 @@ import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 class CjkSelectionTest {
+    @Test
+    fun logicalSelectionSurvivesVisibleFragmentDisposal() {
+        var state: CjkSelectionState? = null
+        var showFirst by mutableStateOf(true)
+        val document = CjkSelectionDocument(
+            listOf(
+                CjkSelectionDocumentFragment("first", AnnotatedString("第一段")),
+                CjkSelectionDocumentFragment("second", AnnotatedString("第二段")),
+            ),
+        )
+        ImageComposeScene(width = 320, height = 160) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CjkSelectionContainer(
+                state = selectionState,
+                document = document,
+            ) {
+                if (showFirst) {
+                    CjkSelectionScope("first") { CjkText("第一段") }
+                } else {
+                    CjkSelectionScope("second") { CjkText("第二段") }
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            assertTrue(state!!.selectAll())
+            assertEquals("第一段\n第二段", state!!.selectedText?.text)
+            showFirst = false
+            scene.render()
+            assertEquals("第一段\n第二段", state!!.selectedText?.text)
+            assertTrue(state!!.hasSelection)
+        }
+    }
+
+    @Test
+    fun logicalDocumentIgnoresUnmappedHostText() {
+        var state: CjkSelectionState? = null
+        val document = CjkSelectionDocument(
+            listOf(CjkSelectionDocumentFragment("body", AnnotatedString("正文"))),
+        )
+        ImageComposeScene(width = 320, height = 160) {
+            val selectionState = rememberCjkSelectionState()
+            state = selectionState
+            CjkSelectionContainer(state = selectionState, document = document) {
+                Column {
+                    CjkText("宿主标题")
+                    CjkSelectionScope("body") { CjkText("正文") }
+                }
+            }
+        }.use { scene ->
+            scene.render()
+            assertTrue(state!!.selectAll())
+            assertEquals("正文", state!!.selectedText?.text)
+        }
+    }
+
 
     @Test
     fun toolbarHandleClearanceScalesWithDensity() {

@@ -99,6 +99,7 @@ internal fun CjkTextLayout(
     maxLines: Int = Int.MAX_VALUE,
     minLines: Int = 1,
     measurer: ParagraphMeasurer = rememberParagraphMeasurer(),
+    precomputedLayout: LayoutResult? = null,
     onTextLayout: (LayoutResult) -> Unit = {},
 ) {
     validateTextControls(maxLines, minLines, overflow)
@@ -126,6 +127,7 @@ internal fun CjkTextLayout(
     }
     val uriHandler = LocalUriHandler.current
     val selectionState = LocalCjkSelectionState.current
+    val selectionScope = LocalCjkSelectionScope.current
     val selectionBridge = remember { CjkTextSelectionBridge() }
     val hoveringLink = remember { mutableStateOf(false) }
     val inlineObjectPlacements = remember(inlineObjects) {
@@ -164,7 +166,8 @@ internal fun CjkTextLayout(
                     text, semanticsText, textStyle, paragraphStyle, color,
                     decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
                     softWrap, overflow, maxLines, minLines, measurer, reportLayout,
-                    selectionState, selectionBridge, inlineObjectPlacements,
+                    precomputedLayout,
+                    selectionState, selectionScope, selectionBridge, inlineObjectPlacements,
                 ),
             ),
     ) {
@@ -397,7 +400,9 @@ private class CjkTextLayoutElement(
     private val minLines: Int,
     private val measurer: ParagraphMeasurer,
     private val onTextLayout: (LayoutResult) -> Unit,
+    private val precomputedLayout: LayoutResult?,
     private val selectionState: CjkSelectionState?,
+    private val selectionScope: CjkSelectionScopeInfo?,
     private val selectionBridge: CjkTextSelectionBridge,
     private val inlineObjectPlacements: List<CjkInlineObjectPlacement>,
 ) : ModifierNodeElement<CjkTextLayoutNode>() {
@@ -405,14 +410,16 @@ private class CjkTextLayoutElement(
         text, semanticsText, textStyle, paragraphStyle, color,
         decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
         softWrap, overflow, maxLines, minLines, measurer, onTextLayout,
-        selectionState, selectionBridge, inlineObjectPlacements,
+        precomputedLayout,
+        selectionState, selectionScope, selectionBridge, inlineObjectPlacements,
     )
 
     override fun update(node: CjkTextLayoutNode) = node.update(
         text, semanticsText, textStyle, paragraphStyle, color,
         decorations, colorSpans, richTextSpans, spans, rubySpans, inlineObjects,
         softWrap, overflow, maxLines, minLines, measurer, onTextLayout,
-        selectionState, selectionBridge, inlineObjectPlacements,
+        precomputedLayout,
+        selectionState, selectionScope, selectionBridge, inlineObjectPlacements,
     )
 
     override fun equals(other: Any?): Boolean =
@@ -424,7 +431,9 @@ private class CjkTextLayoutElement(
             softWrap == other.softWrap &&
             overflow == other.overflow && maxLines == other.maxLines &&
             minLines == other.minLines && measurer === other.measurer &&
+            precomputedLayout === other.precomputedLayout &&
             onTextLayout === other.onTextLayout && selectionState === other.selectionState &&
+            selectionScope == other.selectionScope &&
             selectionBridge === other.selectionBridge &&
             inlineObjectPlacements === other.inlineObjectPlacements
 
@@ -445,8 +454,12 @@ private class CjkTextLayoutElement(
         r = 31 * r + maxLines
         r = 31 * r + minLines
         r = 31 * r + measurer.hashCode()
+        // Equality is referential; avoid recursively hashing a full paragraph result on every
+        // modifier comparison and accept the harmless nullable-state collision here.
+        r = 31 * r + if (precomputedLayout == null) 0 else 1
         r = 31 * r + onTextLayout.hashCode()
         r = 31 * r + (selectionState?.hashCode() ?: 0)
+        r = 31 * r + (selectionScope?.hashCode() ?: 0)
         r = 31 * r + selectionBridge.hashCode()
         r = 31 * r + inlineObjectPlacements.hashCode()
         return r
@@ -471,7 +484,9 @@ private class CjkTextLayoutNode(
     private var minLines: Int,
     private var measurer: ParagraphMeasurer,
     private var onTextLayout: (LayoutResult) -> Unit,
+    private var precomputedLayout: LayoutResult?,
     private var selectionState: CjkSelectionState?,
+    private var selectionScope: CjkSelectionScopeInfo?,
     private var selectionBridge: CjkTextSelectionBridge,
     private var inlineObjectPlacements: List<CjkInlineObjectPlacement>,
 ) : Modifier.Node(), LayoutModifierNode, DrawModifierNode, SemanticsModifierNode,
@@ -521,7 +536,7 @@ private class CjkTextLayoutNode(
         drawCache = createParagraphDrawCache()
         selectionBridge.selectable = this
         selectionBridge.coordinates?.let(::updateSelectionCoordinates)
-        selectionState?.register(this)
+        selectionState?.register(this, selectionScope)
     }
 
     override fun onDetach() {
@@ -550,7 +565,9 @@ private class CjkTextLayoutNode(
         minLines: Int,
         measurer: ParagraphMeasurer,
         onTextLayout: (LayoutResult) -> Unit,
+        precomputedLayout: LayoutResult?,
         selectionState: CjkSelectionState?,
+        selectionScope: CjkSelectionScopeInfo?,
         selectionBridge: CjkTextSelectionBridge,
         inlineObjectPlacements: List<CjkInlineObjectPlacement>,
     ) {
@@ -592,7 +609,9 @@ private class CjkTextLayoutNode(
             richTextChanged || overflow != this.overflow
         val semanticsChanged = semanticsText != this.semanticsText
         val oldSelectionState = this.selectionState
+        val oldSelectionScope = this.selectionScope
         val callbackChanged = onTextLayout !== this.onTextLayout
+        val precomputedChanged = precomputedLayout !== this.precomputedLayout
         this.text = text
         this.semanticsText = semanticsText
         this.textStyle = textStyle
@@ -610,7 +629,9 @@ private class CjkTextLayoutNode(
         this.minLines = minLines
         this.measurer = measurer
         this.onTextLayout = onTextLayout
+        this.precomputedLayout = precomputedLayout
         this.selectionState = selectionState
+        this.selectionScope = selectionScope
         this.inlineObjectPlacements = inlineObjectPlacements
         if (this.selectionBridge !== selectionBridge) {
             if (this.selectionBridge.selectable === this) this.selectionBridge.selectable = null
@@ -620,15 +641,15 @@ private class CjkTextLayoutNode(
                 selectionBridge.coordinates?.let(::updateSelectionCoordinates)
             }
         }
-        if (oldSelectionState !== selectionState) {
+        if (oldSelectionState !== selectionState || oldSelectionScope != selectionScope) {
             oldSelectionState?.unregister(this)
-            if (isAttached) selectionState?.register(this)
+            if (isAttached) selectionState?.register(this, selectionScope)
             invalidateDraw()
             invalidateSemantics()
         } else if (semanticsChanged) {
             selectionState?.selectableChanged(this, textChanged = true)
         }
-        if (layoutChanged) {
+        if (layoutChanged || precomputedChanged) {
             invalidateMeasurement()
             invalidateDraw()
         } else if (drawChanged) {
@@ -642,7 +663,7 @@ private class CjkTextLayoutNode(
         // Link hit-testing stores the latest LayoutResult through onTextLayout. When only
         // annotations/callback wiring change, layout geometry is still valid but measure may not
         // rerun, so hand the current result to the new callback.
-        if (callbackChanged && !layoutChanged) result?.let(onTextLayout)
+        if (callbackChanged && !layoutChanged && !precomputedChanged) result?.let(onTextLayout)
     }
 
     override fun SemanticsPropertyReceiver.applySemantics() {
@@ -745,33 +766,36 @@ private class CjkTextLayoutNode(
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
         val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth.toFloat() else DEFAULT_UNBOUNDED_WIDTH
         val layoutWidth = if (softWrap) maxWidth else DEFAULT_UNBOUNDED_WIDTH
-        val sourceBoundaries = sourceBoundariesFor(
-            textLength = text.length,
-            decorations = decorations,
-            colorSpans = colorSpans,
-            richTextSpans = richTextSpans,
-            spans = spans,
-            rubySpans = rubySpans,
-        )
-        val layoutInput = LayoutInput(
-            content = org.tiqian.core.TiqianTextContent(text, spans, sourceBoundaries),
-            textStyle = textStyle,
-            paragraphStyle = paragraphStyle,
-            constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
-            decorations = decorations,
-            rubySpans = rubySpans,
-            inlineBoxes = richTextSpans.backgroundInlineBoxes(),
-            inlineObjects = inlineObjects,
-        )
         // softWrap changes the measurement width; maxLines is an ENGINE constraint
         // (`MaxLinesLineTruncation`, recorded in debug) so [onTextLayout] receives the
         // engine's own explainable result, not a frontend-doctored copy.
-        val cached = cachedLayout
-        val laidOut = if (cached != null && cached.matches(measurer, layoutInput)) {
-            cached.result
-        } else {
-            measurer.measure(layoutInput).also { measured ->
-                cachedLayout = CachedLayout(measurer, layoutInput, layoutInput.hashCode(), measured)
+        val laidOut = precomputedLayout ?: run {
+            val sourceBoundaries = sourceBoundariesFor(
+                textLength = text.length,
+                decorations = decorations,
+                colorSpans = colorSpans,
+                richTextSpans = richTextSpans,
+                spans = spans,
+                rubySpans = rubySpans,
+            )
+            val layoutInput = LayoutInput(
+                content = org.tiqian.core.TiqianTextContent(text, spans, sourceBoundaries),
+                textStyle = textStyle,
+                paragraphStyle = paragraphStyle,
+                constraints = LayoutConstraints(maxWidth = layoutWidth, maxLines = maxLines),
+                decorations = decorations,
+                rubySpans = rubySpans,
+                inlineBoxes = richTextSpans.backgroundInlineBoxes(),
+                inlineObjects = inlineObjects,
+            )
+            val cached = cachedLayout
+            when {
+                cached != null && cached.matches(measurer, layoutInput) -> cached.result
+                else -> tiqianTraceSection("TiqianParagraph.layout") {
+                    measurer.measure(layoutInput)
+                }.also { measured ->
+                    cachedLayout = CachedLayout(measurer, layoutInput, layoutInput.hashCode(), measured)
+                }
             }
         }
         result = laidOut
@@ -829,15 +853,19 @@ private class CjkTextLayoutNode(
             val selectionBoxes = selectionRange?.let { replayIndex.selectionBoxes(result, it) }.orEmpty()
             val selectionColor = selectionRange?.let { selectionState?.selectionBackgroundArgb }
             if (overflow == TextOverflow.Visible) {
-                drawParagraph(
-                    result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
-                )
+                tiqianTraceSection("TiqianParagraph.paint") {
+                    drawParagraph(
+                        result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
+                    )
+                }
                 drawContent()
             } else {
                 clipRect(left = drawClipLeft, top = drawClipTop, right = drawClipRight, bottom = drawClipBottom) {
-                    drawScope.drawParagraph(
-                        result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
-                    )
+                    tiqianTraceSection("TiqianParagraph.paint") {
+                        drawScope.drawParagraph(
+                            result, replayIndex, color, colorSpans, spans, selectionBoxes, selectionColor, drawCache,
+                        )
+                    }
                     drawScope.drawContent()
                 }
             }
@@ -1019,10 +1047,23 @@ private fun sourceBoundariesFor(
 @Composable
 fun rememberParagraphMeasurer(
     profile: ClreqProfile = ClreqProfile.MainlandHorizontal,
-): ParagraphMeasurer = rememberPlatformParagraphMeasurer(profile)
+    session: ParagraphMeasurementSession? = null,
+): ParagraphMeasurer = rememberPlatformParagraphMeasurer(profile, session)
+
+/**
+ * Creates an independent platform measurer for pre-layout work. Confine each instance to one
+ * worker; do not share it concurrently with a Compose node or another worker.
+ */
+expect fun createPlatformParagraphMeasurer(
+    profile: ClreqProfile = ClreqProfile.MainlandHorizontal,
+    session: ParagraphMeasurementSession? = null,
+): ParagraphMeasurer
 
 @Composable
-internal expect fun rememberPlatformParagraphMeasurer(profile: ClreqProfile): ParagraphMeasurer
+internal expect fun rememberPlatformParagraphMeasurer(
+    profile: ClreqProfile,
+    session: ParagraphMeasurementSession?,
+): ParagraphMeasurer
 
 internal expect fun ContentDrawScope.drawParagraph(
     result: LayoutResult,

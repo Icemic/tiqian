@@ -204,6 +204,57 @@ class CjkTextRenderTest {
     }
 
     @Test
+    fun precomputedLayoutIsReplayedWithoutCallingTheMeasurer() {
+        val source = "预排正文"
+        val preparedInput = LayoutInput(
+            content = org.tiqian.core.TiqianTextContent(source),
+            constraints = org.tiqian.core.LayoutConstraints(maxWidth = 160f),
+        )
+        val prepared = LayoutResult(
+            input = preparedInput,
+            size = Size(80f, 24f),
+            clusters = emptyList(),
+            glyphRuns = emptyList(),
+            lines = listOf(
+                LineBox(
+                    range = TextRange(0, source.length),
+                    clusterRange = IntRange.EMPTY,
+                    baseline = 18f,
+                    top = 0f,
+                    bottom = 24f,
+                    naturalWidth = 80f,
+                    adjustedWidth = 80f,
+                    visualWidth = 80f,
+                ),
+            ),
+        )
+        var measureCalls = 0
+        val rejectingMeasurer = ParagraphMeasurer(
+            object : ParagraphLayoutEngine {
+                override fun layout(input: LayoutInput): LayoutResult {
+                    measureCalls += 1
+                    error("precomputed layout must bypass measurement")
+                }
+            },
+        )
+        var replayed: LayoutResult? = null
+
+        ImageComposeScene(width = 180, height = 60) {
+            CjkText(
+                text = source,
+                modifier = Modifier.width(160.dp),
+                style = TextStyle(fontSize = 16.sp),
+                measurer = rejectingMeasurer,
+                precomputedLayout = prepared,
+                onTextLayout = { replayed = it },
+            )
+        }.use { scene -> scene.render() }
+
+        assertEquals(0, measureCalls)
+        assertTrue(replayed === prepared)
+    }
+
+    @Test
     fun hangingPunctuationClipUsesItsFinalVisualEdgeOnlyWhenExplicitlyAuthorized() {
         val hanging = LineBox(
             range = TextRange(0, 2),

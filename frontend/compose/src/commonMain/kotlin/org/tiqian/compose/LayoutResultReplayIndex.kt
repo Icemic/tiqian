@@ -32,6 +32,7 @@ internal data class LayoutResultReplayIndex(
     val richTextBackgroundSegments: List<RichTextLineSegment>,
     val richTextDecorationSegments: List<RichTextLineSegment>,
     val glyphsByClusterRange: Map<TextRange, List<Glyph>>,
+    val openTypeFeaturesByClusterRange: Map<TextRange, List<String>>,
     val fontRoleByClusterRange: Map<TextRange, String?>,
 )
 
@@ -42,6 +43,40 @@ internal fun LayoutResult.toReplayIndex(richTextSpans: List<RichTextSpan>): Layo
         positionedClustersByLine.getOrNull(positioned.lineIndex)?.add(positioned)
     }
     val richTextSegments = positionedRichTextSegments(richTextSpans)
+    val openTypeFeaturesByClusterRange = buildMap {
+        var runIndex = 0
+        for (cluster in clusters) {
+            while (runIndex < glyphRuns.size && glyphRuns[runIndex].range.end <= cluster.range.start) {
+                runIndex += 1
+            }
+            val run = glyphRuns.getOrNull(runIndex)
+            put(
+                cluster.range,
+                run?.takeIf {
+                    cluster.range.start >= it.range.start && cluster.range.end <= it.range.end
+                }?.openTypeFeatures.orEmpty(),
+            )
+        }
+    }
+    val fontRoleByClusterRange = buildMap {
+        var decisionIndex = 0
+        for (positioned in positionedClusters) {
+            val range = clusters[positioned.clusterIndex].range
+            while (
+                decisionIndex < debug.fontDecisions.size &&
+                debug.fontDecisions[decisionIndex].range.end <= range.start
+            ) {
+                decisionIndex += 1
+            }
+            val decision = debug.fontDecisions.getOrNull(decisionIndex)
+            put(
+                range,
+                decision?.takeIf {
+                    range.start >= it.range.start && range.end <= it.range.end
+                }?.role,
+            )
+        }
+    }
     return LayoutResultReplayIndex(
         positionedClusters = positionedClusters,
         positionedClustersByLine = positionedClustersByLine,
@@ -51,12 +86,8 @@ internal fun LayoutResult.toReplayIndex(richTextSpans: List<RichTextSpan>): Layo
         glyphsByClusterRange = glyphRuns.asSequence()
             .flatMap { it.glyphs.asSequence() }
             .groupBy { it.clusterRange },
-        fontRoleByClusterRange = positionedClusters.associate { positioned ->
-            val range = clusters[positioned.clusterIndex].range
-            range to debug.fontDecisions.firstOrNull { decision ->
-                range.start >= decision.range.start && range.end <= decision.range.end
-            }?.role
-        },
+        openTypeFeaturesByClusterRange = openTypeFeaturesByClusterRange,
+        fontRoleByClusterRange = fontRoleByClusterRange,
     )
 }
 

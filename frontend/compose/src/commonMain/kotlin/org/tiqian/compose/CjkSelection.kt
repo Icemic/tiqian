@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -50,17 +51,42 @@ import org.tiqian.core.SourceBoundaryBias
 import org.tiqian.core.TextRange
 import kotlin.math.abs
 
+/** One stable, independently virtualizable fragment in a selectable document. */
+@Immutable
+data class CjkSelectionDocumentFragment(
+    val key: Any,
+    val text: AnnotatedString,
+    val textForCopy: AnnotatedString = text,
+    val separatorAfter: String = "\n",
+)
+
 /**
- * Observable state for [CjkSelectionContainer]. [selectedText] preserves the source
- * [AnnotatedString] and inserts a newline between separately composed `CjkText` surfaces, matching
- * Compose's static multi-widget copy contract.
+ * Logical reading order and text projection for a virtualized document.
+ *
+ * Fragments exist independently of composition. Visible [CjkText] surfaces register only geometry
+ * under the matching [CjkSelectionScope] key, so selection endpoints survive disposal.
  */
+@Immutable
+class CjkSelectionDocument(fragments: List<CjkSelectionDocumentFragment>) {
+    val fragments: List<CjkSelectionDocumentFragment> = fragments.toList()
+    internal val indexByKey: Map<Any, Int> = this.fragments.mapIndexed { index, fragment ->
+        fragment.key to index
+    }.toMap().also { index ->
+        require(index.size == this.fragments.size) { "CjkSelectionDocument fragment keys must be unique" }
+    }
+}
+
+/** Observable state for one [CjkSelectionContainer]. */
 @Stable
 class CjkSelectionState internal constructor() {
     var selectedText: AnnotatedString? by mutableStateOf(null)
         private set
+    /** Owners retained only while their pointer coroutine is actively dragging. */
+    var activeGestureOwnerKeys: Set<Any> by mutableStateOf(emptySet())
+        private set
 
     private val selectables = mutableListOf<CjkSelectable>()
+    private val selectableScopes = mutableMapOf<CjkSelectable, CjkSelectionScopeInfo?>()
     private var orderedSelectablesCache: List<CjkSelectable>? = null
     private var selectionRanges: Map<CjkSelectable, TextRange> = emptyMap()
     private var selection: CjkSelection? = null
@@ -100,6 +126,7 @@ class CjkSelectionState internal constructor() {
         private set
     private var contextMenuPositionEpoch by mutableStateOf(0)
     private var contextMenuToolbarRequested = false
+    private var document: CjkSelectionDocument? = null
     internal val isSelectionGestureInProgress: Boolean
         get() = gestureInitialSelection != null || handleFixedAnchor != null
 
@@ -127,6 +154,7 @@ class CjkSelectionState internal constructor() {
         currentDragPosition = Offset.Unspecified
         isSelectionAutoScrollArmed = false
         isTouchSelection = false
+        activeGestureOwnerKeys = emptySet()
         previouslySelected.forEach(CjkSelectable::invalidateSelection)
     }
 
@@ -137,22 +165,31 @@ class CjkSelectionState internal constructor() {
      */
     fun copySelection(): Boolean {
         if (!hasSelection) return false
-        val selected = buildClipboardText(orderedSelectables(), selectionRanges)
-            ?.takeIf { it.isNotEmpty() }
-            ?: return false
+        val selected = buildClipboardText()?.takeIf { it.isNotEmpty() } ?: return false
         @Suppress("DEPRECATION")
         clipboardManager?.setText(selected) ?: return false
         return true
     }
 
-    /** Selects every currently composed `CjkText` in geometric reading order. */
+    /** Selects the logical document without composing or measuring off-screen fragments. */
     fun selectAll(): Boolean {
+        document?.fragments?.takeIf { it.isNotEmpty() }?.let { fragments ->
+            val first = fragments.first()
+            val last = fragments.last()
+            setSelection(
+                CjkSelectionAnchor(first.key, 0),
+                CjkSelectionAnchor(last.key, last.text.length),
+                touch = isTouchSelection,
+            )
+            showContextMenuToolbarIfTouch()
+            return true
+        }
         val ordered = orderedSelectables()
         val first = ordered.firstOrNull() ?: return false
         val last = ordered.last()
         setSelection(
-            CjkSelectionAnchor(first, 0),
-            CjkSelectionAnchor(last, last.selectionText.length),
+            CjkSelectionAnchor(keyFor(first), 0),
+            CjkSelectionAnchor(keyFor(last), last.selectionText.length),
             touch = isTouchSelection,
         )
         showContextMenuToolbarIfTouch()
@@ -165,12 +202,18 @@ class CjkSelectionState internal constructor() {
         hapticFeedback: HapticFeedback,
         selectionBackgroundArgb: Int,
         selectionToolbarHandleClearancePx: Float,
+        document: CjkSelectionDocument?,
     ) {
         this.clipboardManager = clipboardManager
         this.textToolbar = textToolbar
         this.hapticFeedback = hapticFeedback
         this.selectionBackgroundArgb = selectionBackgroundArgb
         this.selectionToolbarHandleClearancePx = selectionToolbarHandleClearancePx
+        if (this.document !== document) {
+            this.document = document
+            if (selection != null) clearSelection()
+            orderedSelectablesCache = null
+        }
     }
 
     internal fun detach() {
@@ -179,6 +222,7 @@ class CjkSelectionState internal constructor() {
         clipboardManager = null
         textToolbar = null
         hapticFeedback = null
+        document = null
     }
 
     internal fun attachSystemContextMenu(menu: CjkSystemContextMenu) {
@@ -202,18 +246,25 @@ class CjkSelectionState internal constructor() {
         updateDerivedSelection()
     }
 
-    internal fun register(selectable: CjkSelectable) {
+    internal fun register(
+        selectable: CjkSelectable,
+        scope: CjkSelectionScopeInfo?,
+    ) {
         if (selectable !in selectables) {
             selectables += selectable
-            orderedSelectablesCache = null
         }
+        selectableScopes[selectable] = scope
+        orderedSelectablesCache = null
+        validateDocumentRegistration(selectable, scope)
+        if (selection != null) updateDerivedSelection()
     }
 
     internal fun unregister(selectable: CjkSelectable) {
         selectables -= selectable
+        selectableScopes -= selectable
         orderedSelectablesCache = null
         val current = selection
-        if (current?.anchor?.selectable === selectable || current?.extent?.selectable === selectable) {
+        if (document == null && (current?.anchor?.key === selectable || current?.extent?.key === selectable)) {
             clearSelection()
         } else if (current != null) {
             updateDerivedSelection()
@@ -225,13 +276,47 @@ class CjkSelectionState internal constructor() {
         contextMenuPositionEpoch++
         val current = selection
         if (
-            textChanged &&
-            (current?.anchor?.selectable === selectable || current?.extent?.selectable === selectable)
+            textChanged && document == null &&
+            (current?.anchor?.key === selectable || current?.extent?.key === selectable)
         ) {
             clearSelection()
         } else if (current != null) {
             updateDerivedSelection()
         }
+    }
+
+    private fun validateDocumentRegistration(
+        selectable: CjkSelectable,
+        scope: CjkSelectionScopeInfo?,
+    ) {
+        val logicalDocument = document ?: return
+        val key = scope?.ownerKey ?: return
+        val index = logicalDocument.indexByKey[key]
+            ?: error("CjkSelectionScope key is absent from CjkSelectionDocument: $key")
+        require(logicalDocument.fragments[index].text.text == selectable.selectionText.text) {
+            "CjkSelectionScope text differs from CjkSelectionDocument fragment: $key"
+        }
+        require(selectables.none { other ->
+            other !== selectable && selectableScopes[other]?.ownerKey == key
+        }) { "Only one visible CjkText may register a document fragment: $key" }
+    }
+
+    internal fun beginGestureSelectionAtContainerPosition(
+        containerPosition: Offset,
+        adjustment: CjkSelectionAdjustment,
+        touch: Boolean,
+    ): Boolean {
+        val hit = selectableAndLocalPositionAt(containerPosition) ?: return false
+        hideContextMenuToolbar()
+        focusRequester.requestFocus()
+        val initial = selectionAt(hit.first, hit.second, adjustment) ?: return false
+        gestureInitialSelection = initial
+        activeGestureOwnerKeys = selectableScopes[hit.first]?.retentionKey?.let(::setOf).orEmpty()
+        activeGestureAdjustment = adjustment
+        activeDragIsStart = if (touch) false else null
+        currentDragPosition = containerPosition
+        setSelection(initial.anchor, initial.extent, touch)
+        return true
     }
 
     internal fun beginGestureSelection(
@@ -240,14 +325,19 @@ class CjkSelectionState internal constructor() {
         adjustment: CjkSelectionAdjustment,
         touch: Boolean,
     ): Boolean {
+        if (!isSelectableEligible(selectable)) return false
+        val position = toContainerPosition(selectable, localPosition) ?: return false
+        return beginGestureSelectionAtContainerPosition(position, adjustment, touch)
+    }
+
+    internal fun extendGestureSelectionAtContainerPosition(containerPosition: Offset): Boolean {
+        val current = selection ?: return false
+        val target = anchorAtContainerPosition(containerPosition) ?: return false
         hideContextMenuToolbar()
         focusRequester.requestFocus()
-        val initial = selectionAt(selectable, localPosition, adjustment) ?: return false
-        gestureInitialSelection = initial
-        activeGestureAdjustment = adjustment
-        activeDragIsStart = if (touch) false else null
-        updateCurrentDragPosition(selectable, localPosition)
-        setSelection(initial.anchor, initial.extent, touch)
+        gestureInitialSelection = CjkSelection(current.anchor, current.anchor)
+        currentDragPosition = containerPosition
+        setSelection(current.anchor, target, touch = false)
         return true
     }
 
@@ -255,40 +345,20 @@ class CjkSelectionState internal constructor() {
         selectable: CjkSelectable,
         localPosition: Offset,
     ): Boolean {
-        val current = selection ?: return false
-        hideContextMenuToolbar()
-        focusRequester.requestFocus()
-        val target = anchorAt(selectable, localPosition) ?: return false
-        gestureInitialSelection = CjkSelection(current.anchor, current.anchor)
-        setSelection(current.anchor, target, touch = false)
-        return true
+        if (!isSelectableEligible(selectable)) return false
+        val position = toContainerPosition(selectable, localPosition) ?: return false
+        return extendGestureSelectionAtContainerPosition(position)
     }
 
-    internal fun updateGestureSelection(
-        origin: CjkSelectable,
-        localPosition: Offset,
-        adjustment: CjkSelectionAdjustment,
-    ): Boolean {
-        val initial = gestureInitialSelection ?: selection ?: return false
-        val container = containerCoordinates ?: return false
-        val originCoordinates = origin.selectionCoordinates ?: return false
-        if (!container.isAttached || !originCoordinates.isAttached) return false
-        val containerPosition = container.localPositionOf(originCoordinates, localPosition)
-        currentDragPosition = containerPosition
-        activeGestureAdjustment = adjustment
-        return updateGestureSelectionAtContainerPosition(containerPosition, adjustment)
-    }
-
-    private fun updateGestureSelectionAtContainerPosition(
+    internal fun updateGestureSelectionAtContainerPosition(
         containerPosition: Offset,
         adjustment: CjkSelectionAdjustment,
     ): Boolean {
+        currentDragPosition = containerPosition
+        activeGestureAdjustment = adjustment
         val initial = gestureInitialSelection ?: selection ?: return false
-        val container = containerCoordinates ?: return false
-        val target = selectableAt(containerPosition) ?: return false
-        val targetCoordinates = target.selectionCoordinates ?: return false
-        val targetPosition = targetCoordinates.localPositionOf(container, containerPosition)
-        val targetSelection = selectionAt(target, targetPosition, adjustment) ?: return false
+        val hit = selectableAndLocalPositionAt(containerPosition) ?: return false
+        val targetSelection = selectionAt(hit.first, hit.second, adjustment) ?: return false
         val next = when (adjustment) {
             CjkSelectionAdjustment.Word,
             CjkSelectionAdjustment.Paragraph,
@@ -299,6 +369,23 @@ class CjkSelectionState internal constructor() {
         }
         setSelection(next.anchor, next.extent, isTouchSelection)
         return true
+    }
+
+    internal fun updateGestureSelection(
+        selectable: CjkSelectable,
+        localPosition: Offset,
+        adjustment: CjkSelectionAdjustment,
+    ): Boolean {
+        if (!isSelectableEligible(selectable)) return false
+        val position = toContainerPosition(selectable, localPosition) ?: return false
+        return updateGestureSelectionAtContainerPosition(position, adjustment)
+    }
+
+    private fun toContainerPosition(selectable: CjkSelectable, localPosition: Offset): Offset? {
+        val container = containerCoordinates ?: return null
+        val coordinates = selectable.selectionCoordinates ?: return null
+        if (!container.isAttached || !coordinates.isAttached) return null
+        return container.localPositionOf(coordinates, localPosition)
     }
 
     internal fun armSelectionAutoScroll() {
@@ -319,6 +406,7 @@ class CjkSelectionState internal constructor() {
 
     internal fun finishSelection() {
         gestureInitialSelection = null
+        activeGestureOwnerKeys = emptySet()
         activeGestureAdjustment = CjkSelectionAdjustment.None
         activeDragIsStart = null
         currentDragPosition = Offset.Unspecified
@@ -335,11 +423,12 @@ class CjkSelectionState internal constructor() {
         start: Int,
         end: Int,
     ): Boolean {
+        if (!isSelectableEligible(selectable)) return false
         val safeStart = selectable.coerceSelectionOffset(start, SourceBoundaryBias.Backward)
         val safeEnd = selectable.coerceSelectionOffset(end, SourceBoundaryBias.Forward)
         setSelection(
-            CjkSelectionAnchor(selectable, safeStart),
-            CjkSelectionAnchor(selectable, safeEnd),
+            CjkSelectionAnchor(keyFor(selectable), safeStart),
+            CjkSelectionAnchor(keyFor(selectable), safeEnd),
             touch = false,
         )
         return true
@@ -348,6 +437,12 @@ class CjkSelectionState internal constructor() {
     internal fun beginHandleDrag(isStart: Boolean) {
         val current = selection ?: return
         handleFixedAnchor = if (isStart) current.extent else current.anchor
+        val draggedAnchor = if (isStart) current.anchor else current.extent
+        activeGestureOwnerKeys = selectableForKey(draggedAnchor.key)
+            ?.let(selectableScopes::get)
+            ?.retentionKey
+            ?.let(::setOf)
+            .orEmpty()
         handleDragPosition = (if (isStart) startHandlePosition else endHandlePosition) ?: return
         handleDragPosition += Offset(0f, -1f)
         activeDragIsStart = isStart
@@ -378,6 +473,7 @@ class CjkSelectionState internal constructor() {
 
     internal fun endHandleDrag() {
         handleFixedAnchor = null
+        activeGestureOwnerKeys = emptySet()
         activeDragIsStart = null
         currentDragPosition = Offset.Unspecified
         isSelectionAutoScrollArmed = false
@@ -423,15 +519,15 @@ class CjkSelectionState internal constructor() {
         CjkSelectionAdjustment.Word ->
             selectable.selectionWordRangeAt(localPosition)?.let { range ->
                 CjkSelection(
-                    CjkSelectionAnchor(selectable, range.start),
-                    CjkSelectionAnchor(selectable, range.end),
+                    CjkSelectionAnchor(keyFor(selectable), range.start),
+                    CjkSelectionAnchor(keyFor(selectable), range.end),
                 )
             }
         CjkSelectionAdjustment.Paragraph ->
             selectable.selectionParagraphRangeAt(localPosition)?.let { range ->
                 CjkSelection(
-                    CjkSelectionAnchor(selectable, range.start),
-                    CjkSelectionAnchor(selectable, range.end),
+                    CjkSelectionAnchor(keyFor(selectable), range.start),
+                    CjkSelectionAnchor(keyFor(selectable), range.end),
                 )
             }
         CjkSelectionAdjustment.None,
@@ -454,22 +550,12 @@ class CjkSelectionState internal constructor() {
         else -> initial
     }
 
-    private fun updateCurrentDragPosition(
-        selectable: CjkSelectable,
-        localPosition: Offset,
-    ) {
-        val container = containerCoordinates ?: return
-        val coordinates = selectable.selectionCoordinates ?: return
-        if (!container.isAttached || !coordinates.isAttached) return
-        currentDragPosition = container.localPositionOf(coordinates, localPosition)
-    }
-
     private fun updateDerivedSelection() {
         contextMenuPositionEpoch++
         val previousRanges = selectionRanges
         val ordered = orderedSelectables()
         selectionRanges = buildSelectionRanges(ordered)
-        selectedText = buildSelectedText(ordered, selectionRanges)
+        selectedText = buildSelectedText()
         hasSelection = selectedText != null
         updateHandlePositions()
         if (contextMenuToolbarRequested && systemContextMenu == null) {
@@ -490,14 +576,16 @@ class CjkSelectionState internal constructor() {
     ): Map<CjkSelectable, TextRange> {
         val normalized = normalizedSelection() ?: return emptyMap()
         if (normalized.first == normalized.second) return emptyMap()
-        val startIndex = ordered.indexOf(normalized.first.selectable)
-        val endIndex = ordered.indexOf(normalized.second.selectable)
-        if (startIndex < 0 || endIndex < startIndex) return emptyMap()
         val ranges = LinkedHashMap<CjkSelectable, TextRange>()
-        for (index in startIndex..endIndex) {
-            val selectable = ordered[index]
-            val start = if (index == startIndex) normalized.first.offset else 0
-            val end = if (index == endIndex) normalized.second.offset else selectable.selectionText.length
+        val startIndex = orderOf(normalized.first.key)
+        val endIndex = orderOf(normalized.second.key)
+        if (startIndex < 0 || endIndex < startIndex) return emptyMap()
+        for (selectable in ordered) {
+            val key = keyFor(selectable)
+            val index = orderOf(key)
+            if (index !in startIndex..endIndex) continue
+            val start = if (key == normalized.first.key) normalized.first.offset else 0
+            val end = if (key == normalized.second.key) normalized.second.offset else selectable.selectionText.length
             TextRange(start.coerceAtMost(end), end.coerceAtLeast(start))
                 .takeUnless { it.isEmpty }
                 ?.let { ranges[selectable] = it }
@@ -505,34 +593,66 @@ class CjkSelectionState internal constructor() {
         return ranges
     }
 
-    private fun buildSelectedText(
-        ordered: List<CjkSelectable>,
-        ranges: Map<CjkSelectable, TextRange>,
-    ): AnnotatedString? {
-        if (ranges.isEmpty()) return null
+    private fun buildSelectedText(): AnnotatedString? {
+        val normalized = normalizedSelection() ?: return null
+        if (normalized.first == normalized.second) return null
+        val logicalDocument = document
+        if (logicalDocument == null) {
+            val ordered = orderedSelectables()
+            return buildAnnotatedString {
+                var first = true
+                for (selectable in ordered) {
+                    val range = selectionRanges[selectable] ?: continue
+                    if (!first) append('\n')
+                    first = false
+                    append(selectable.selectionText, range.start, range.end)
+                }
+            }.takeIf { it.isNotEmpty() }
+        }
+        val startIndex = logicalDocument.indexByKey.getValue(normalized.first.key)
+        val endIndex = logicalDocument.indexByKey.getValue(normalized.second.key)
         return buildAnnotatedString {
-            var first = true
-            for (selectable in ordered) {
-                val range = ranges[selectable] ?: continue
-                if (!first) append('\n')
-                first = false
-                append(selectable.selectionText, range.start, range.end)
+            for (index in startIndex..endIndex) {
+                val fragment = logicalDocument.fragments[index]
+                val start = if (index == startIndex) normalized.first.offset else 0
+                val end = if (index == endIndex) normalized.second.offset else fragment.text.length
+                if (end > start) append(fragment.text, start, end)
+                if (index < endIndex) append(fragment.separatorAfter)
             }
         }.takeIf { it.isNotEmpty() }
     }
 
-    private fun buildClipboardText(
-        ordered: List<CjkSelectable>,
-        ranges: Map<CjkSelectable, TextRange>,
-    ): AnnotatedString? {
-        if (ranges.isEmpty()) return null
+    private fun buildClipboardText(): AnnotatedString? {
+        val normalized = normalizedSelection() ?: return null
+        if (normalized.first == normalized.second) return null
+        val logicalDocument = document
+        if (logicalDocument == null) {
+            val ordered = orderedSelectables()
+            return buildAnnotatedString {
+                var first = true
+                for (selectable in ordered) {
+                    val range = selectionRanges[selectable] ?: continue
+                    if (!first) append('\n')
+                    first = false
+                    append(selectable.selectionTextForCopy(range))
+                }
+            }.takeIf { it.isNotEmpty() }
+        }
+        val startIndex = logicalDocument.indexByKey.getValue(normalized.first.key)
+        val endIndex = logicalDocument.indexByKey.getValue(normalized.second.key)
         return buildAnnotatedString {
-            var first = true
-            for (selectable in ordered) {
-                val range = ranges[selectable] ?: continue
-                if (!first) append('\n')
-                first = false
-                append(selectable.selectionTextForCopy(range))
+            for (index in startIndex..endIndex) {
+                val fragment = logicalDocument.fragments[index]
+                val start = if (index == startIndex) normalized.first.offset else 0
+                val end = if (index == endIndex) normalized.second.offset else fragment.text.length
+                if (end > start) {
+                    if (start == 0 && end == fragment.text.length) {
+                        append(fragment.textForCopy)
+                    } else {
+                        append(fragment.text, start, end)
+                    }
+                }
+                if (index < endIndex) append(fragment.separatorAfter)
             }
         }.takeIf { it.isNotEmpty() }
     }
@@ -547,17 +667,37 @@ class CjkSelectionState internal constructor() {
     }
 
     private fun compareAnchors(left: CjkSelectionAnchor, right: CjkSelectionAnchor): Int {
-        if (left.selectable === right.selectable) return left.offset.compareTo(right.offset)
-        val ordered = orderedSelectables()
-        return ordered.indexOf(left.selectable).compareTo(ordered.indexOf(right.selectable))
+        if (left.key == right.key) return left.offset.compareTo(right.offset)
+        return orderOf(left.key).compareTo(orderOf(right.key))
     }
+
+    private fun keyFor(selectable: CjkSelectable): Any =
+        selectableScopes[selectable]?.ownerKey
+            ?.takeIf { document?.indexByKey?.containsKey(it) == true }
+            ?: selectable
+
+    private fun isSelectableEligible(selectable: CjkSelectable): Boolean =
+        document == null || selectableScopes[selectable]?.ownerKey?.let(document!!.indexByKey::containsKey) == true
+
+    private fun orderOf(key: Any): Int = document?.indexByKey?.get(key)
+        ?: selectables.indexOfFirst { it === key }.let { index ->
+            if (index < 0) Int.MAX_VALUE else (document?.fragments?.size ?: 0) + index
+        }
+
+    private fun selectableForKey(key: Any): CjkSelectable? =
+        selectables.firstOrNull { keyFor(it) == key && it.selectionCoordinates?.isAttached == true }
 
     private fun orderedSelectables(): List<CjkSelectable> {
         orderedSelectablesCache?.let { return it }
         val container = containerCoordinates ?: return selectables.toList().also {
             orderedSelectablesCache = it
         }
-        return selectables.filter { it.selectionCoordinates?.isAttached == true }.sortedWith { a, b ->
+        return selectables.filter {
+            isSelectableEligible(it) && it.selectionCoordinates?.isAttached == true
+        }.sortedWith { a, b ->
+            if (document != null) {
+                return@sortedWith orderOf(keyFor(a)).compareTo(orderOf(keyFor(b)))
+            }
             val aCoordinates = a.selectionCoordinates ?: return@sortedWith -1
             val bCoordinates = b.selectionCoordinates ?: return@sortedWith 1
             val aPosition = container.localPositionOf(aCoordinates, Offset.Zero)
@@ -605,7 +745,14 @@ class CjkSelectionState internal constructor() {
     }
 
     private fun anchorAt(selectable: CjkSelectable, localPosition: Offset): CjkSelectionAnchor? =
-        selectable.selectionOffsetAt(localPosition)?.let { CjkSelectionAnchor(selectable, it) }
+        selectable.selectionOffsetAt(localPosition)?.let { CjkSelectionAnchor(keyFor(selectable), it) }
+
+    private fun selectableAndLocalPositionAt(position: Offset): Pair<CjkSelectable, Offset>? {
+        val container = containerCoordinates ?: return null
+        val selectable = selectableAt(position) ?: return null
+        val coordinates = selectable.selectionCoordinates ?: return null
+        return selectable to coordinates.localPositionOf(container, position)
+    }
 
     private fun anchorAtContainerPosition(position: Offset): CjkSelectionAnchor? {
         val container = containerCoordinates ?: return null
@@ -627,8 +774,9 @@ class CjkSelectionState internal constructor() {
         }
         val visibleBounds = container.visibleBoundsForSelection()
         fun position(anchor: CjkSelectionAnchor): Offset? {
-            val coordinates = anchor.selectable.selectionCoordinates ?: return null
-            val local = anchor.selectable.selectionCursorPosition(anchor.offset) ?: return null
+            val selectable = selectableForKey(anchor.key) ?: return null
+            val coordinates = selectable.selectionCoordinates ?: return null
+            val local = selectable.selectionCursorPosition(anchor.offset) ?: return null
             return container.localPositionOf(coordinates, local)
         }
         startHandlePosition = position(current.anchor)?.takeIf {
@@ -637,8 +785,10 @@ class CjkSelectionState internal constructor() {
         endHandlePosition = position(current.extent)?.takeIf {
             activeDragIsStart == false || visibleBounds.containsInclusive(it)
         }
-        startHandleLineHeight = current.anchor.selectable.selectionLineHeight(current.anchor.offset)
-        endHandleLineHeight = current.extent.selectable.selectionLineHeight(current.extent.offset)
+        startHandleLineHeight = selectableForKey(current.anchor.key)
+            ?.selectionLineHeight(current.anchor.offset) ?: 0f
+        endHandleLineHeight = selectableForKey(current.extent.key)
+            ?.selectionLineHeight(current.extent.offset) ?: 0f
         handlesCrossed = compareAnchors(current.anchor, current.extent) > 0
     }
 
@@ -650,14 +800,15 @@ class CjkSelectionState internal constructor() {
         val current = selection ?: return Offset.Unspecified
         val anchor = if (activeDragIsStart == true) current.anchor else current.extent
         val container = containerCoordinates ?: return Offset.Unspecified
-        val selectableCoordinates = anchor.selectable.selectionCoordinates ?: return Offset.Unspecified
+        val selectable = selectableForKey(anchor.key) ?: return Offset.Unspecified
+        val selectableCoordinates = selectable.selectionCoordinates ?: return Offset.Unspecified
         if (!container.isAttached || !selectableCoordinates.isAttached) return Offset.Unspecified
 
         val localDragPosition = selectableCoordinates.localPositionOf(container, currentDragPosition)
-        val lineRange = anchor.selectable.selectionLineRange(anchor.offset)
+        val lineRange = selectable.selectionLineRange(anchor.offset)
             ?: return Offset.Unspecified
-        val lineStartX = anchor.selectable.selectionLineLeft(lineRange.start)
-        val lineEndX = anchor.selectable.selectionLineRight((lineRange.end - 1).coerceAtLeast(lineRange.start))
+        val lineStartX = selectable.selectionLineLeft(lineRange.start)
+        val lineEndX = selectable.selectionLineRight((lineRange.end - 1).coerceAtLeast(lineRange.start))
         val constrainedX = localDragPosition.x.coerceIn(
             minOf(lineStartX, lineEndX),
             maxOf(lineStartX, lineEndX),
@@ -668,7 +819,7 @@ class CjkSelectionState internal constructor() {
         ) {
             return Offset.Unspecified
         }
-        val centerY = anchor.selectable.selectionLineCenterY(anchor.offset)
+        val centerY = selectable.selectionLineCenterY(anchor.offset)
         return container.localPositionOf(
             selectableCoordinates,
             Offset(constrainedX, centerY),
@@ -757,6 +908,30 @@ class CjkSelectionState internal constructor() {
 
     internal fun contextTextAndSelection(): Pair<AnnotatedString, androidx.compose.ui.text.TextRange>? {
         contextMenuPositionEpoch
+        val logicalDocument = document
+        if (logicalDocument != null) {
+            val normalized = normalizedSelection() ?: return null
+            val startIndex = logicalDocument.indexByKey.getValue(normalized.first.key)
+            val endIndex = logicalDocument.indexByKey.getValue(normalized.second.key)
+            var selectionStart = -1
+            var selectionEnd = -1
+            val context = buildAnnotatedString {
+                for (index in startIndex..endIndex) {
+                    val fragment = logicalDocument.fragments[index]
+                    val start = if (index == startIndex) normalized.first.offset else 0
+                    val end = if (index == endIndex) normalized.second.offset else fragment.text.length
+                    if (index == startIndex) {
+                        append(fragment.text, 0, start)
+                        selectionStart = length
+                    }
+                    append(fragment.text, start, end)
+                    if (index < endIndex) append(fragment.separatorAfter) else selectionEnd = length
+                    if (index == endIndex) append(fragment.text, end, fragment.text.length)
+                }
+            }
+            if (selectionStart < 0 || selectionEnd < selectionStart) return null
+            return context to androidx.compose.ui.text.TextRange(selectionStart, selectionEnd)
+        }
         val ordered = orderedSelectables().filter(selectionRanges::containsKey)
         if (ordered.isEmpty()) return null
         var selectionStart = -1
@@ -783,6 +958,13 @@ class CjkSelectionState internal constructor() {
 
     internal fun isEntireContainerSelected(): Boolean {
         contextMenuPositionEpoch
+        document?.let { logicalDocument ->
+            val normalized = normalizedSelection() ?: return false
+            val first = logicalDocument.fragments.firstOrNull() ?: return true
+            val last = logicalDocument.fragments.last()
+            return normalized.first.key == first.key && normalized.first.offset == 0 &&
+                normalized.second.key == last.key && normalized.second.offset == last.text.length
+        }
         val ordered = orderedSelectables()
         if (ordered.isEmpty()) return true
         return ordered.all { selectable ->
@@ -806,7 +988,13 @@ class CjkSelectionState internal constructor() {
             local.x in box.left..box.right && local.y in box.top..box.bottom
         }
         if (insideSelection) return
-        if (beginGestureSelection(selectable, local, CjkSelectionAdjustment.Word, touch = false)) {
+        val containerPosition = container.localPositionOf(coordinates, local)
+        if (beginGestureSelectionAtContainerPosition(
+                containerPosition,
+                CjkSelectionAdjustment.Word,
+                touch = false,
+            )
+        ) {
             finishSelection()
         }
     }
@@ -826,12 +1014,12 @@ fun rememberCjkSelectionState(): CjkSelectionState = remember { CjkSelectionStat
  * Enables source-faithful static-text selection for descendant `CjkText` surfaces. Unlike
  * Compose's `SelectionContainer`, this container consumes Tiqian [org.tiqian.core.LayoutResult]
  * geometry directly, so line breaks, punctuation glue, ruby expansion, and copied source ranges do
- * not pass through a hidden second text layout.
+ * not pass through a hidden second text layout. [document] supplies stable logical fragments for a
+ * virtualized document; selection and copying then survive off-screen disposal.
  *
  * When [content] uses `Modifier.verticalScroll`, pass that modifier's [scrollState] here as well.
  * A mouse, touch, or handle drag then scrolls inside the edge bands after the gesture has crossed
- * touch slop. `null` disables auto-scroll. Virtualized lazy layouts need a separate selection
- * contract because selected `CjkText` nodes may leave composition.
+ * touch slop. `null` disables auto-scroll.
  */
 @Composable
 fun CjkSelectionContainer(
@@ -840,6 +1028,7 @@ fun CjkSelectionContainer(
     scrollState: ScrollState? = null,
     autoScrollEdgeSize: Dp = 48.dp,
     autoScrollMaxVelocity: Dp = 1_200.dp,
+    document: CjkSelectionDocument? = null,
     content: @Composable () -> Unit,
 ) {
     @Suppress("DEPRECATION")
@@ -855,6 +1044,7 @@ fun CjkSelectionContainer(
             hapticFeedback,
             colors.backgroundColor.toArgb(),
             foundationSelectionToolbarHandleClearancePx(density),
+            document,
         )
     }
     CjkSelectionAutoScrollEffect(
@@ -900,6 +1090,21 @@ fun CjkDisableSelection(content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalCjkSelectionState provides null, content = content)
 }
 
+/**
+ * Associates one descendant [CjkText] with a stable [CjkSelectionDocumentFragment] key.
+ */
+@Composable
+fun CjkSelectionScope(
+    ownerKey: Any,
+    retentionKey: Any = ownerKey,
+    content: @Composable () -> Unit,
+) {
+    val scope = remember(ownerKey, retentionKey) {
+        CjkSelectionScopeInfo(ownerKey, retentionKey)
+    }
+    CompositionLocalProvider(LocalCjkSelectionScope provides scope, content = content)
+}
+
 @Composable
 private fun CjkSelectionHandle(
     state: CjkSelectionState,
@@ -918,6 +1123,12 @@ private fun CjkSelectionHandle(
 }
 
 internal val LocalCjkSelectionState = compositionLocalOf<CjkSelectionState?> { null }
+internal val LocalCjkSelectionScope = compositionLocalOf<CjkSelectionScopeInfo?> { null }
+
+internal data class CjkSelectionScopeInfo(
+    val ownerKey: Any,
+    val retentionKey: Any,
+)
 
 internal interface CjkSelectable {
     val selectionText: AnnotatedString
@@ -939,7 +1150,7 @@ internal interface CjkSelectable {
 }
 
 private data class CjkSelectionAnchor(
-    val selectable: CjkSelectable,
+    val key: Any,
     val offset: Int,
 )
 

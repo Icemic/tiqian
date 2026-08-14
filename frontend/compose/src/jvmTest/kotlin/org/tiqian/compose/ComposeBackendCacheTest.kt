@@ -62,6 +62,32 @@ class ComposeBackendCacheTest {
     }
 
     @Test
+    fun measurementSessionSharesCompletedShapingAcrossMeasurers() {
+        var firstCalls = 0
+        var secondCalls = 0
+        val session = ParagraphMeasurementSession(shapingCacheEntries = 8)
+        val delegate = ExplainableStubTextShaper()
+        val first = BoundedComposeTextShaperCache(
+            delegate = object : TextShaper {
+                override fun shape(input: ShapingInput) = delegate.shape(input).also { firstCalls += 1 }
+            },
+            sharedCache = session.shapingCache,
+        )
+        val second = BoundedComposeTextShaperCache(
+            delegate = object : TextShaper {
+                override fun shape(input: ShapingInput) = delegate.shape(input).also { secondCalls += 1 }
+            },
+            sharedCache = session.shapingCache,
+        )
+
+        first.shape(shapingInput())
+        second.shape(shapingInput().copy())
+
+        assertEquals(1, firstCalls)
+        assertEquals(0, secondCalls, "a foreground measurer must consume the worker's shaping result")
+    }
+
+    @Test
     fun widthReflowReusesShapingAndFontMetricsButStillRebreaks() {
         var shapingCalls = 0
         var metricsCalls = 0
