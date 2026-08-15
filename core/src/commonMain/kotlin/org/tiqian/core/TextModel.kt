@@ -317,6 +317,13 @@ sealed interface RichTextRole {
     data class Link(val target: String) : RichTextRole
 
     /**
+     * Renderer-owned technical inline range. It participates in the shared progressive technical
+     * break policy but carries no paint of its own, so adapters can supply a code box, border, or
+     * fallback presentation without duplicating geometry.
+     */
+    data object TechnicalInline : RichTextRole
+
+    /**
      * Inline code role authored through Tiqian's builder. Its source is unchanged; the Compose
      * bridge also lowers its generic monospace font family via [TextSpan].
      */

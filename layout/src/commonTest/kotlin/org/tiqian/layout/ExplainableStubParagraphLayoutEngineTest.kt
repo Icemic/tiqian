@@ -1604,7 +1604,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun progressiveTechnicalBreakUsesOrdinaryJustificationInEveryStrategy() {
+    fun progressiveTechnicalBreakKeepsCjkBodyUnstretchedInEveryStrategy() {
         val text = "中文abcdefghij"
         val technical = LineBreakSpan(TextRange(2, text.length), LineBreakPolicy.ProgressiveTechnical)
         val syllables = object : Hyphenator {
@@ -1634,14 +1634,19 @@ class ExplainableStubParagraphLayoutEngineTest {
             assertEquals(6, result.lines.first().range.end, breaker.strategyName)
             assertEquals(0f, result.lines.first().hyphenAdvance, breaker.strategyName)
             assertTrue(
-                result.debug.lineDecisions.first().notes.contains("technical-break:Syllable"),
+                result.debug.lineDecisions.first().notes.contains("technical-break:Emergency"),
                 "${breaker.strategyName}: ${result.debug.lineDecisions.first().notes}",
             )
             val adjustment = result.debug.justificationDecisions.first { it.lineRange == result.lines.first().range }
             assertTrue(adjustment.allocations.isNotEmpty(), breaker.strategyName)
             assertTrue(
-                adjustment.allocations.all { allocation ->
-                    allocation.clusterRange.end <= technical.range.start
+                adjustment.allocations.none { it.kind == "CjkInterChar" },
+                "${breaker.strategyName}: ${adjustment.allocations}",
+            )
+            assertTrue(
+                adjustment.allocations.any { allocation ->
+                    allocation.kind == "EmergencyGraphemeTracking" &&
+                        allocation.clusterRange.start >= technical.range.start
                 },
                 "${breaker.strategyName}: ${adjustment.allocations}",
             )
@@ -1650,7 +1655,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
-    fun progressiveTechnicalBreakPrefersStructuralBoundaryBeforeSyllableAndEmergency() {
+    fun progressiveTechnicalStructuralBreakFallsThroughToEmergencyBeforeTracking() {
         val text = "中文ab.cdEfghij"
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
@@ -1674,8 +1679,66 @@ class ExplainableStubParagraphLayoutEngineTest {
         )
 
         assertEquals("中文ab.cd", result.lineText(0))
-        assertTrue(result.debug.lineDecisions.first().notes.contains("technical-break:Structural"))
+        assertTrue(
+            result.debug.lineDecisions.first().notes.contains("technical-break:Emergency"),
+            "lines=${result.lines.indices.map(result::lineText)} decisions=${result.debug.lineDecisions} " +
+                "adjustments=${result.debug.justificationDecisions}",
+        )
         assertTrue(result.lines.all { it.hyphenAdvance == 0f })
+        val firstLineAdjustment = result.debug.justificationDecisions.first()
+        assertTrue(firstLineAdjustment.allocations.none { it.kind == "CjkInterChar" })
+        assertTrue(
+            firstLineAdjustment.allocations.any {
+                it.kind == "EmergencyGraphemeTracking" &&
+                    it.reason.startsWith("TerminalTechnicalEmergencyTracking")
+            },
+        )
+    }
+
+    @Test
+    fun progressiveTechnicalCleanBreakMayNotStretchEarlierOpaqueToken() {
+        val text = "deadbeef1234deadbeef1234 ab.cdEfghijklmnop"
+        val terminalTechnicalRange = TextRange(25, text.length)
+        val result = ExplainableStubParagraphLayoutEngine(
+            lineBreaker = LookaheadLineBreaker(),
+            hyphenator = object : Hyphenator {
+                override fun hyphenate(word: String): List<Int> = listOf(2, 4, 6)
+            },
+        ).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent(
+                    text,
+                    lineBreakSpans = listOf(
+                        LineBreakSpan(terminalTechnicalRange, LineBreakPolicy.ProgressiveTechnical),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 300f),
+            ),
+        )
+
+        val affectedLineIndex = result.debug.lineDecisions.indexOfFirst {
+            it.notes.any { note -> note.startsWith("technical-break:") }
+        }
+        assertTrue(affectedLineIndex >= 0, result.debug.lineDecisions.toString())
+        assertTrue(
+            result.debug.lineDecisions[affectedLineIndex].notes.contains("technical-break:Emergency"),
+            "lines=${result.lines.indices.map(result::lineText)} decisions=${result.debug.lineDecisions} " +
+                "adjustments=${result.debug.justificationDecisions}",
+        )
+        val affectedLine = result.lines[affectedLineIndex]
+        val affectedLineAdjustment = result.debug.justificationDecisions
+            .first { it.lineRange == affectedLine.range }
+        val emergencyTracking = affectedLineAdjustment.allocations
+            .filter { it.kind == "EmergencyGraphemeTracking" }
+        assertTrue(emergencyTracking.isNotEmpty(), affectedLineAdjustment.toString())
+        assertTrue(
+            emergencyTracking.all { it.clusterRange.start >= terminalTechnicalRange.start },
+            "a later clean break borrowed tracking from the earlier hash: $emergencyTracking",
+        )
     }
 
     @Test
@@ -1722,6 +1785,67 @@ class ExplainableStubParagraphLayoutEngineTest {
                 "${breaker.strategyName}: ${adjustment.allocations}",
             )
         }
+    }
+
+    @Test
+    fun progressiveTechnicalEmergencyIsExposedByCurrentLineStretchNotFullMeasure() {
+        val text = "Swift 这边是我最有体感的。JSONDecoder 慢是个老问题，" +
+            "SR-6252[36] 那个 issue 里挖出的根因是底层走 NSJSONSerialization " +
+            "再桥接回 Objective-C，swift_dynamicCast 吃掉大量时间。"
+        val swiftRange = TextRange(104, 121)
+        val result = ExplainableStubParagraphLayoutEngine(
+            lineBreaker = LookaheadLineBreaker(),
+            hyphenator = NoHyphenator,
+        ).layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(
+                    firstLineIndent = Ic(0f),
+                    lineLengthGrid = LineLengthGrid(enabled = false),
+                ),
+                content = TiqianTextContent(
+                    text,
+                    lineBreakSpans = listOf(
+                        LineBreakSpan(TextRange(16, 27), LineBreakPolicy.ProgressiveTechnical),
+                        LineBreakSpan(TextRange(67, 86), LineBreakPolicy.ProgressiveTechnical),
+                        LineBreakSpan(swiftRange, LineBreakPolicy.ProgressiveTechnical),
+                    ),
+                ),
+                constraints = LayoutConstraints(maxWidth = 579f),
+            ),
+        )
+
+        val lineTexts = result.lines.indices.map(result::lineText)
+        val affectedLineIndex = lineTexts.indexOfFirst { it.contains("Objective-C") }
+        assertTrue(affectedLineIndex >= 0, lineTexts.toString())
+        val affectedLine = result.lines[affectedLineIndex]
+        assertEquals(
+            "erialization 再桥接回 Objective-C，swift_dy",
+            result.lineText(affectedLineIndex),
+        )
+        assertTrue(
+            result.debug.lineDecisions[affectedLineIndex]
+                .notes.contains("technical-break:Emergency"),
+        )
+        val affectedLineAdjustment = result.debug.justificationDecisions
+            .firstOrNull { it.lineRange == affectedLine.range }
+        val cjkStretch = affectedLineAdjustment
+            ?.allocations
+            .orEmpty()
+            .filter { it.kind == "CjkInterChar" }
+            .maxOfOrNull { it.delta } ?: 0f
+        assertTrue(cjkStretch <= 0.001f, "current line still stretched CJK body: $cjkStretch")
+        assertTrue(
+            result.debug.breakOpportunityDecisions.any {
+                it.range == swiftRange &&
+                    it.tier == "Emergency" &&
+                    it.reason == "CurrentLineTechnicalEmergencyBreak"
+            },
+        )
+        assertTrue(
+            result.debug.emergencyTrackingEligibilityDecisions.any {
+                it.range == swiftRange && it.reason.startsWith("CurrentLineTechnicalTierRejection:")
+            },
+        )
     }
 
     @Test

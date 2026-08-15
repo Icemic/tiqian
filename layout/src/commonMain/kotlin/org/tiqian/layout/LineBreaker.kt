@@ -166,11 +166,11 @@ internal fun decideProgressiveBreak(
 }
 
 /**
- * Technical text has lower-tier clean breaks that ordinary Western words do not. Use them before
- * allowing a preferred structural break to create visibly loose CJK body spacing. The engine's
- * general last-resort ceiling is 0.5em; one quarter of that keeps the residual at 0.125em/gap.
+ * Technical text has lower-tier clean breaks that ordinary Western words do not. A clean tier is
+ * retained only when bounded spacing resources fill the line without tracking; otherwise continue
+ * through syllable to the rightmost emergency cut before adding any letter spacing.
  */
-private const val PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION = 0.25f
+internal const val PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION = 0f
 
 internal fun progressiveCandidateAllowed(
     lineStart: Int,
@@ -185,10 +185,24 @@ internal fun progressiveCandidateAllowed(
     sinoWesternStretchCap: Float = 0f,
 ): Boolean {
     val active = opportunities[rawGreedy] ?: return true
-    val bestPriority = progressiveBreakPriorityForLine(
+    val candidate = opportunities[candidateEnd] ?: run {
+        val sourceOffset = adjustedClusters?.getOrNull(candidateEnd)?.range?.start ?: return true
+        return sourceOffset <= active.spanRange.start || sourceOffset >= active.spanRange.end
+    }
+    if (candidate.spanRange != active.spanRange) return true
+    if (candidateEnd > rawGreedy) {
+        // Paragraph-DP contributes these only as measured compression edges. Reaching a same-tier
+        // or cleaner boundary past natural fit fills the line rather than creating the early-break
+        // tracking this guard prevents.
+        return candidate.tier.priority <= active.tier.priority
+    }
+    // `ProgressiveTechnicalRightmostTierBoundary`: lookahead/paragraph-DP may compare a whole-token
+    // wrap before the active span, but once a line breaks inside that span they must replay the one
+    // boundary selected by the tier policy. Letting them score earlier boundaries from the same
+    // tier can trade a huge current-line tracking deficit for a cosmetically smoother next line.
+    val selectedBoundary = decideProgressiveBreak(
         lineStart = lineStart,
         overflowAt = rawGreedy,
-        active = active,
         opportunities = opportunities,
         adjustedClusters = adjustedClusters,
         lineLimit = lineLimit,
@@ -197,24 +211,7 @@ internal fun progressiveCandidateAllowed(
         sinoWesternBoundaries = sinoWesternBoundaries,
         sinoWesternStretchCap = sinoWesternStretchCap,
     )
-    val candidate = opportunities[candidateEnd] ?: run {
-        val sourceOffset = adjustedClusters?.getOrNull(candidateEnd)?.range?.start ?: return true
-        return sourceOffset <= active.spanRange.start || sourceOffset >= active.spanRange.end
-    }
-    if (candidate.spanRange != active.spanRange) return true
-    if (candidate.tier.priority != bestPriority) return false
-    if (adjustedClusters == null || !lineLimit.isFinite() || !maxCjkStretchPerGap.isFinite()) return true
-    return !progressiveCandidateIsTooLoose(
-        lineStart = lineStart,
-        boundary = candidateEnd,
-        opportunities = opportunities,
-        adjustedClusters = adjustedClusters,
-        lineLimit = lineLimit,
-        cjkInterCharBoundaries = cjkInterCharBoundaries,
-        maxCjkStretchPerGap = maxCjkStretchPerGap * PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION,
-        sinoWesternBoundaries = sinoWesternBoundaries,
-        sinoWesternStretchCap = sinoWesternStretchCap,
-    )
+    return candidateEnd == selectedBoundary
 }
 
 /**
@@ -249,6 +246,7 @@ private fun progressiveBreakPriorityForLine(
         maxCjkStretchPerGap * PROGRESSIVE_TECHNICAL_VISIBLE_STRETCH_FRACTION
     var leastLoosePriority = priorities.first()
     var leastLooseDensity = Float.POSITIVE_INFINITY
+    var leastLooseBoundary = lineStart + 1
     for (priority in priorities) {
         val boundary = (lineStart + 1..overflowAt).lastOrNull { candidate ->
             opportunities[candidate]?.let {
@@ -268,36 +266,25 @@ private fun progressiveBreakPriorityForLine(
         if (density < leastLooseDensity) {
             leastLooseDensity = density
             leastLoosePriority = priority
+            leastLooseBoundary = boundary
         }
         if (density <= progressiveStretchLimit) return priority
     }
-    // Every tier is visibly loose. Do not mechanically choose Emergency: its legal boundary may
-    // sit farther left than a structural/syllable candidate. Pick the tier whose rightmost legal
-    // boundary leaves the smallest real paragraph stretch, preserving tier order on a tie.
-    return leastLoosePriority
-}
-
-private fun progressiveCandidateIsTooLoose(
-    lineStart: Int,
-    boundary: Int,
-    opportunities: Map<Int, ProgressiveBreakOpportunity>,
-    adjustedClusters: List<Cluster>,
-    lineLimit: Float,
-    cjkInterCharBoundaries: Set<Int>,
-    maxCjkStretchPerGap: Float,
-    sinoWesternBoundaries: Set<Int>,
-    sinoWesternStretchCap: Float,
-): Boolean {
-    return progressiveCandidateStretchDensity(
-        lineStart = lineStart,
-        boundary = boundary,
-        opportunities = opportunities,
-        adjustedClusters = adjustedClusters,
-        lineLimit = lineLimit,
-        cjkInterCharBoundaries = cjkInterCharBoundaries,
-        sinoWesternBoundaries = sinoWesternBoundaries,
-        sinoWesternStretchCap = sinoWesternStretchCap,
-    ) > maxCjkStretchPerGap
+    // Every clean tier is visibly loose. Prefer Emergency immediately when its exposed boundary is
+    // at least as far right as the best clean boundary. If the clean boundary itself is farther
+    // right, return it for this pass so the exact post-trim plan can reject that tier; shaping then
+    // re-exposes the same physical boundary as Emergency. This avoids retreating to an earlier hard
+    // cut merely because clean endpoints were excluded from the initial Emergency pieces.
+    val emergencyBoundary = (lineStart + 1..overflowAt).lastOrNull { candidate ->
+        opportunities[candidate]?.let {
+            it.spanRange == active.spanRange && it.tier == ProgressiveBreakTier.Emergency
+        } == true
+    }
+    return if (emergencyBoundary != null && emergencyBoundary >= leastLooseBoundary) {
+        ProgressiveBreakTier.Emergency.priority
+    } else {
+        leastLoosePriority
+    }
 }
 
 private fun progressiveCandidateStretchDensity(
@@ -327,6 +314,28 @@ private fun progressiveCandidateStretchDensity(
     val cjkDeficit = (
         deficit - technicalWhitespaceCapacity - sinoWesternGapCount * sinoWesternStretchCap
         ).coerceAtLeast(0f)
+    val activeSpan = opportunities[boundary]?.spanRange
+    val terminalTechnicalSourceUnits = if (activeSpan == null) {
+        0
+    } else {
+        (lineStart until boundary).sumOf { index ->
+            val cluster = adjustedClusters[index]
+            if (
+                cluster.range.start >= activeSpan.start && cluster.range.end <= activeSpan.end &&
+                cluster.text.none(Char::isWhitespace)
+            ) {
+                cluster.text.length
+            } else {
+                0
+            }
+        }
+    }
+    // `TerminalTechnicalTrackingDensityEstimate`: once a technical prefix is present at line end,
+    // its source-unit gaps—not the unrelated CJK body gaps—are the eventual bounded tracking
+    // resource. Progressive technical segmentation is currently Latin/ASCII-oriented, so source
+    // UTF-16 units coincide with the grapheme cuts exposed by this policy.
+    val terminalTechnicalGapCount = (terminalTechnicalSourceUnits - 1).coerceAtLeast(0)
+    if (terminalTechnicalGapCount > 0) return cjkDeficit / terminalTechnicalGapCount
     val cjkGapCount = (lineStart + 1 until boundary).count { it in cjkInterCharBoundaries }
     return if (cjkGapCount == 0) {
         cjkDeficit
@@ -1613,7 +1622,7 @@ internal fun applyFillPushIn(
             continue
         }
         val curr0 = curr.clusterRange.first
-        val groupEnd = fillPushInGroupEnd(
+        var groupEnd = fillPushInGroupEnd(
             curr = curr,
             forbiddenLineStartClusters = forbiddenLineStartClusters,
             forbiddenLineEndClusters = forbiddenLineEndClusters,
@@ -1624,11 +1633,43 @@ internal fun applyFillPushIn(
             continue
         }
         val currentBreak = progressiveBreakOpportunities[prev.clusterRange.last + 1]
-        val resultingBreak = progressiveBreakOpportunities[groupEnd + 1]
-        val promotesProgressiveTier =
+        var resultingBreak = progressiveBreakOpportunities[groupEnd + 1]
+        var addedAdvance = (curr0..groupEnd).sumOf { adjustedClusters[it].advance.toDouble() }.toFloat()
+        var promotesProgressiveTier =
             currentBreak != null && resultingBreak != null &&
                 currentBreak.spanRange == resultingBreak.spanRange &&
                 resultingBreak.tier.priority < currentBreak.tier.priority
+        if (
+            promotesProgressiveTier && currentBreak != null &&
+            addedAdvance < deficit - PROGRESSIVE_TIER_PROMOTION_FILL_EPSILON
+        ) {
+            // `ProgressiveTechnicalFillRefillSkipsIntermediateCleanerTier`: an upstream repair can
+            // move this line's start forward while leaving its old technical end untouched. If the
+            // first pulled grapheme happens to land on a cleaner boundary but still leaves the line
+            // short, cross that intermediate boundary and refill to the next boundary of the
+            // already-selected tier. Stopping at the cleaner label would create a large deficit;
+            // refusing the pull entirely would strand the stale pre-repair break.
+            val searchStart = groupEnd + 2
+            val searchEnd = curr.clusterRange.last + 1
+            val matchingTierBoundary = if (searchStart > searchEnd) {
+                null
+            } else {
+                (searchStart..searchEnd).firstOrNull { boundary ->
+                    progressiveBreakOpportunities[boundary]?.let { opportunity ->
+                        opportunity.spanRange == currentBreak.spanRange &&
+                            opportunity.tier == currentBreak.tier
+                    } == true
+                }
+            }
+            if (matchingTierBoundary != null) {
+                groupEnd = matchingTierBoundary - 1
+                resultingBreak = progressiveBreakOpportunities[matchingTierBoundary]
+                addedAdvance = (curr0..groupEnd)
+                    .sumOf { adjustedClusters[it].advance.toDouble() }
+                    .toFloat()
+                promotesProgressiveTier = false
+            }
+        }
         if (
             currentBreak != null && resultingBreak != null &&
             currentBreak.spanRange == resultingBreak.spanRange &&
@@ -1641,8 +1682,15 @@ internal fun applyFillPushIn(
             i += 1
             continue
         }
-        val addedAdvance = (curr0..groupEnd).sumOf { adjustedClusters[it].advance.toDouble() }.toFloat()
         val overflow = addedAdvance - deficit
+        if (promotesProgressiveTier && overflow < -PROGRESSIVE_TIER_PROMOTION_FILL_EPSILON) {
+            // `ProgressiveTechnicalTierPromotionRequiresFullLine`: with the technical tier
+            // fallback threshold at zero, pulling one cluster merely to rename Emergency as a
+            // cleaner tier must not reopen a positive line deficit. That would override the
+            // breaker's rightmost hard cut and then justify the resulting short prefix.
+            i += 1
+            continue
+        }
         // 方向档位 (bias = Ws/Wc): PushOutFirst 下拉入依旧罕见;PushInFirst 下
         // 该闸恒通,由下面的均摊闸决定。
         if (overflow >= deficit * compressBias) {
@@ -1695,6 +1743,8 @@ private fun RepairOption?.isContinuableZeroShrinkFillPushIn(): Boolean =
     this is RepairOption.PushIn &&
         totalShrink <= 0.001f &&
         reason.startsWith("LineAdjustmentPushIn:")
+
+private const val PROGRESSIVE_TIER_PROMOTION_FILL_EPSILON = 0.001f
 
 private fun fillPushInGroupEnd(
     curr: LineCandidate,

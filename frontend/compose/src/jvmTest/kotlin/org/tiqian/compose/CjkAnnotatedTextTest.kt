@@ -208,6 +208,41 @@ class CjkAnnotatedTextTest {
     }
 
     @Test
+    fun rendererOwnedTechnicalInlineHasNoPaintAndInteractionOnlyClickableIsNotALink() {
+        val text = buildAnnotatedString {
+            append("中")
+            val technicalStart = length
+            append("Ctrl")
+            addTechnicalInlineAnnotation(technicalStart, length)
+            append("与")
+            val footnoteStart = length
+            withLink(LinkAnnotation.Clickable(tag = "footnote", linkInteractionListener = {})) {
+                append("[1]")
+            }
+            addCjkInteractionOnlyAnnotation(footnoteStart, length)
+            append("及")
+            withLink(LinkAnnotation.Clickable(tag = "generic", linkInteractionListener = {})) {
+                append("action")
+            }
+        }
+
+        val rich = text.cjkRichTextSpans()
+        val technical = rich.single { it.role == RichTextRole.TechnicalInline }
+        val link = rich.single { it.role is RichTextRole.Link }
+
+        assertEquals(TextRange(1, 5), technical.range)
+        assertEquals(TextRange(10, 16), link.range)
+        assertEquals(RichTextRole.Link("generic"), link.role)
+        assertTrue(technical.paint.background.horizontalPadding == 0f)
+        assertTrue(rich.backgroundInlineBoxes().isEmpty())
+        assertEquals(
+            listOf(TextRange(1, 5), TextRange(10, 16)),
+            rich.cjkLineBreakSpans().map { it.range },
+        )
+        assertTrue(TextRange(6, 9) !in rich.cjkLineBreakSpans().map { it.range })
+    }
+
+    @Test
     fun dashedUnderlineLowersToTheNormalUnderlineRole() {
         val span = CjkInlineDecoration(
             range = androidx.compose.ui.text.TextRange(1, 3),

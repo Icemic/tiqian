@@ -1132,6 +1132,7 @@ object DomParagraphRenderer {
                 RichTextRole.InlineCode -> if (background == null) {
                     background = argbToCss(s.paint.argb ?: options.inlineCodeBackgroundArgb)
                 }
+                RichTextRole.TechnicalInline -> Unit
                 is RichTextRole.Link -> {
                     linkTarget = role.target
                     linkId = "link-${s.range.start}-${s.range.end}-$index"

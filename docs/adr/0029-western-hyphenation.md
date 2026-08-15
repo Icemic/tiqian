@@ -259,18 +259,38 @@ ADR 0026 amendment 已把 UAX #14 的 `EX` / `IS` 基础 no-break 边界用于�
 先保留 source 中已有的真实空白边界，再使用三级 clean 断点：第一档为结构符号之后与 CamelCase
 hump；第二档复用当前语言 hyphenator 的音节 offset，但不进入 `hyphenOffsets`、不绘制连字符；
 第三档才是 source-grapheme 安全边界的
-硬断。可独占一行的完整 token 在当前行余量不足时整体换行，避免为了备用硬断破坏未断开文本的
-kerning/shaping；超过整行宽度的技术 segment 才暴露其 grapheme 安全硬断点。每档通常只有在更高档
+硬断。整个 token 能否放进另一条完整行，不参与当前行的断点判定。首次 shaping 保留未断开文本的
+kerning，并先暴露结构与音节断点；若 `WholeToken` 换行会使当前行正文机会超过可见拉伸上限，
+`CurrentLineTechnicalTierRejection` 记录实际失败的 tier，只对该技术 span 补充 grapheme-safe 候选并重跑同一 pipeline。
+超过当前行完整可用宽度的技术 segment 仍直接暴露这些必要硬断点。每档通常只有在更高档
 不存在可用断点时才参与 greedy、lookahead 与 paragraph-DP 选择；若高档断点会让 span 外少数正文
-机会超过既有西文断词共用的单 gap 拉伸上限，`ProgressiveTechnicalStretchBoundedTierFallback`
-也把它视为不可用并进入下一档。fill PushIn 不得把已经选择的高档断点无条件改写成低档断点。
+机会产生任何 tracking，`ProgressiveTechnicalStretchBoundedTierFallback` 也把它视为不可用并进入
+下一档；也就是 tier 降级阈值为 0。若所有 clean tier 都留有余量，必须选择最靠右的 Emergency
+硬断，之后才让技术串自身吸收余量；不能保留 Structural / Syllable 再用 tracking 补齐。
+fill PushIn 不得把已经选择的高档断点无条件改写成低档断点。
+`ProgressiveTechnicalTierPromotionRequiresFullLine` 只允许 clean-tier promotion 在拉入后已经填满
+（或需要压缩）时发生；若拉入后仍有正余量，必须保留 breaker 选中的更靠右硬断。
+若上游避头尾改变了下一行起点，refill 的首个 grapheme 恰好落在 cleaner tier 但仍填不满，
+`ProgressiveTechnicalFillRefillSkipsIntermediateCleanerTier` 跨过这个中间边界，继续拉到下一个与原
+断点同 tier 的边界；不能让旧行尾停在原地，也不能以 cleaner 标签为由制造新的大余量。
+lookahead 与 paragraph-DP 可以比较 span 之前的 whole-token wrap，但一旦决定在 span 内断开，
+`ProgressiveTechnicalRightmostTierBoundary` 要求它们重放 tier policy 选出的唯一最靠右边界，不能为
+平滑后续行而改选同一 tier 中更早、当前行 tracking 更大的候选。
 
-技术 span 不建立替换正文的 justification policy，也不封闭 span 内或正文中的普通伸缩机会。所有
-非末行仍走同一条 Justifier。为了不把小额余量先推给 span 外的正文，技术文本中 source 真实存在的
-空格提供一个额外、有上限的 `ProgressiveTechnicalWhitespaceStretch`；不足的余量继续使用既有
-词空格、中西间距与中文正文机会。结构符号、CamelCase、音节与硬断边界只是可断点，不是 glue，
-不得在技术文本内制造 letter tracking。inline 位于行中、行尾落在后续正文时没有特殊的冻结分支。
-候选 tier、source offset、最终采用的 tier 与真实空格的补偿进入结构化 debug 和 dump。
+技术 span 不封闭 span 内或正文中的普通伸缩机会，所有非末行仍走同一条 Justifier。为了不把小额
+余量先推给 span 外的正文，技术文本中 source 真实存在的空格提供一个额外、有上限的
+`ProgressiveTechnicalWhitespaceStretch`；不足的余量继续使用既有词空格、中西间距与中文正文机会。
+结构符号、CamelCase、音节与硬断边界本身只是可断点，不直接成为 glue。
+
+实际 trim 与 justification 可能证明 breaker 的松度估算偏低。breaker 与最终正文的容许值均为
+**0**：若选中的非 Emergency 技术断点产生任何 `CjkInterChar`，或借用了其他 opaque token 的
+`EmergencyGraphemeTracking`，`CurrentLineTechnicalTierRejection` 拒绝这次实际失败的 tier 并重跑。
+尚未失败的下一档仍按 Structural → Syllable → Emergency 参与；只有最终采用 Emergency 时，才为
+行末技术 span 开放 source-grapheme tracking。它在有界空格与 inline-object 资源之后、中文正文字距
+之前吸收余量；行中技术 span、后续正文和无关行不进入这一提前档。若该行末 span 没有可用 grapheme
+边界，普通正文机会仍可兜底，因此这不是冻结正文或封闭 range。被拒绝 tier、候选 source offset、
+最终采用的 tier、真实空格补偿与 `TerminalTechnicalEmergencyTracking` allocation 都进入结构化
+debug 和 dump。
 
 反向调整时，技术 span 与普通正文的西文词距统一遵守最小 `1/4em`，不能因 code/link 语义获得
 更窄的角色特例。`ProgressiveTechnicalTierPromotion` 允许 fill PushIn 在既有普通压缩容量足够时，

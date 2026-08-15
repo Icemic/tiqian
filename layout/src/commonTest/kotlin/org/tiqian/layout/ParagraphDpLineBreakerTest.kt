@@ -80,9 +80,8 @@ class ParagraphDpLineBreakerTest {
             ),
             lineAdjustmentPushIn = true,
             progressiveBreakOpportunities = mapOf(
-                1 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
-                2 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Structural, span),
-                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Structural, span),
+                2 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
+                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
             ),
         )
 

@@ -2,6 +2,8 @@ package org.tiqian.layout
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import org.tiqian.core.Cluster
 import org.tiqian.core.TextRange
 
@@ -46,5 +48,28 @@ class ProgressiveTechnicalBreakTest {
                 maxCjkStretchPerGap = 8f,
             ),
         )
+    }
+
+    @Test
+    fun lookaheadMayNotReplaceSelectedEmergencyBoundaryWithEarlierSameTierCut() {
+        val span = TextRange(0, 5)
+        val clusters = List(5) { index -> cluster(index, ('a' + index).toString(), 20f) }
+        val opportunities = mapOf(
+            3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
+            4 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, span),
+        )
+
+        fun allowed(candidateEnd: Int) = progressiveCandidateAllowed(
+            lineStart = 0,
+            rawGreedy = 4,
+            candidateEnd = candidateEnd,
+            opportunities = opportunities,
+            adjustedClusters = clusters,
+            lineLimit = 90f,
+            maxCjkStretchPerGap = 8f,
+        )
+
+        assertFalse(allowed(3))
+        assertTrue(allowed(4))
     }
 }

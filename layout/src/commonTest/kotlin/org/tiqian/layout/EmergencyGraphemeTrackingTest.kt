@@ -28,7 +28,7 @@ class EmergencyGraphemeTrackingTest {
     )
 
     @Test
-    fun technicalIdentifierExposesLetterDigitTransitionsAsStructuralCuts() {
+    fun rejectedLetterDigitStructuralOffsetsRemainAvailableAsEmergencyCuts() {
         val text = "Machine2Machine"
         val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
@@ -45,16 +45,16 @@ class EmergencyGraphemeTrackingTest {
             ),
         )
 
-        val structural = result.debug.breakOpportunityDecisions
-            .filter { it.tier == "Structural" }
+        val emergency = result.debug.breakOpportunityDecisions
+            .filter { it.tier == "Emergency" }
             .flatMap { it.breakOffsets }
-        assertTrue(7 in structural, structural.toString())
-        assertTrue(8 in structural, structural.toString())
+        assertTrue(7 in emergency, emergency.toString())
+        assertTrue(8 in emergency, emergency.toString())
         assertTrue(result.lines.all { it.hyphenAdvance == 0f })
     }
 
     @Test
-    fun technicalIdentifierActuallySelectsLetterDigitStructuralCut() {
+    fun technicalIdentifierRelabelsLooseLetterDigitBoundaryAsEmergency() {
         val text = "Machine2Machine"
         val uniformAdvanceShaper = object : TextShaper {
             override fun shape(input: ShapingInput): ShapingResult {
@@ -90,7 +90,7 @@ class EmergencyGraphemeTrackingTest {
         )
 
         assertEquals(TextRange(0, 8), result.lines.first().range)
-        assertTrue(result.debug.lineDecisions.first().notes.contains("technical-break:Structural"))
+        assertTrue(result.debug.lineDecisions.first().notes.contains("technical-break:Emergency"))
         assertEquals(0f, result.lines.first().hyphenAdvance)
     }
 
@@ -145,7 +145,7 @@ class EmergencyGraphemeTrackingTest {
         assertTrue(
             result.debug.justificationDecisions.flatMap { it.allocations }.any {
                 it.kind == "EmergencyGraphemeTracking" &&
-                    it.reason == "EmergencyGraphemeTracking:ProgressiveTechnicalSpan"
+                    it.reason == "TerminalTechnicalEmergencyTracking:ProgressiveTechnicalSpan"
             },
         )
     }

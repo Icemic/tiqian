@@ -176,7 +176,13 @@ class ExplainableStubParagraphLayoutEngine(
      */
     private val hyphenator: Hyphenator = defaultHyphenator(),
 ) : ParagraphLayoutEngine {
-    override fun layout(input: LayoutInput): LayoutResult {
+    override fun layout(input: LayoutInput): LayoutResult =
+        layoutWithRejectedTechnicalTiers(input, emptyMap())
+
+    private fun layoutWithRejectedTechnicalTiers(
+        input: LayoutInput,
+        rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
+    ): LayoutResult {
         val text = input.content.text
         val fontSize = input.textStyle.fontSize
         require(input.paragraphStyle.emphasisDotGapEm.isFinite() && input.paragraphStyle.emphasisDotGapEm >= 0f) {
@@ -397,6 +403,7 @@ class ExplainableStubParagraphLayoutEngine(
             punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
             styleAt = ::styleAt,
             emphasisItalicAt = ::emphasisItalicAt,
+            rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
         )
         val shapingResults = shapingStage.shapingResults
         val hyphenOffsets = shapingStage.hyphenOffsets
@@ -1536,6 +1543,20 @@ class ExplainableStubParagraphLayoutEngine(
             if (isLast || lineCandidate.clusterRange.isEmptyClusterRange() || lineCandidate.endReason != LineEndReason.AutoWrap) {
                 null
             } else {
+                val selectedTechnicalBreak =
+                    progressiveBreakOpportunities[lineCandidate.clusterRange.last + 1]
+                val preferredTrackingSpan = selectedTechnicalBreak
+                    ?.spanRange
+                    ?.takeIf { selectedTechnicalBreak.tier == ProgressiveBreakTier.Emergency }
+                val preferredEmergencyTrackingBoundaries = if (preferredTrackingSpan == null) {
+                    emptyMap()
+                } else {
+                    emergencyTrackingBoundaryAfterClusters.filterKeys { leftIndex ->
+                        val rightIndex = leftIndex + 1
+                        naturalClusters[leftIndex].range.start >= preferredTrackingSpan.start &&
+                            naturalClusters[rightIndex].range.end <= preferredTrackingSpan.end
+                    }
+                }
                 // A hung mark sits beyond the measure: justify fills the
                 // CONTENT (range minus the hanging mark) to maxWidth.
                 justifier.justify(
@@ -1567,8 +1588,53 @@ class ExplainableStubParagraphLayoutEngine(
                     preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
                     technicalBoundaryAfterClusters = technicalBoundaryAfterClusters,
                     emergencyTrackingBoundaryAfterClusters = emergencyTrackingBoundaryAfterClusters,
+                    preferredEmergencyTrackingBoundaryAfterClusters = preferredEmergencyTrackingBoundaries,
                 )
             }
+        }
+        // `CurrentLineTechnicalTierRejection`: whether a complete technical token could fit some
+        // other line is irrelevant to this line's decision. If a non-Emergency tier still requires
+        // unbounded body or grapheme tracking after real trimming and justification, reject that
+        // exact tier for the span and replay the hierarchy. The retry exposes Emergency candidates
+        // but still gives every not-yet-rejected cleaner tier its normal chance. Since every retry
+        // adds at least one of the finite tiers, recursion is bounded and monotonic.
+        val currentLineTechnicalBodyStretchLimit =
+            CURRENT_LINE_TECHNICAL_BODY_STRETCH_LIMIT_EM * fontSize
+        val newlyRejectedTechnicalTiers = mutableMapOf<TextRange, MutableSet<ProgressiveBreakTier>>()
+        lineSolution.lines.indices.forEach { lineIndex ->
+                val line = lineSolution.lines[lineIndex]
+                if (line.endReason != LineEndReason.AutoWrap || line.clusterRange.isEmptyClusterRange()) {
+                    return@forEach
+                }
+                val selectedTechnicalBreak = progressiveBreakOpportunities[line.clusterRange.last + 1]
+                    ?.takeUnless { it.tier == ProgressiveBreakTier.Emergency }
+                    ?: return@forEach
+                val rejectedForSpan = rejectedTechnicalTiersBySpan[selectedTechnicalBreak.spanRange].orEmpty()
+                if (selectedTechnicalBreak.tier in rejectedForSpan) return@forEach
+                val currentLinePlan = justificationPlans.getOrNull(lineIndex) ?: return@forEach
+                val currentLineUsesUnboundedTracking = currentLinePlan.allocations.any { allocation ->
+                    (allocation.kind == GlueKind.CjkInterChar ||
+                        allocation.kind == GlueKind.EmergencyGraphemeTracking) &&
+                        allocation.delta >
+                        currentLineTechnicalBodyStretchLimit + TECHNICAL_STRETCH_EPSILON_PX
+                }
+                if (currentLineUsesUnboundedTracking) {
+                    newlyRejectedTechnicalTiers
+                        .getOrPut(selectedTechnicalBreak.spanRange) { mutableSetOf() }
+                        .add(selectedTechnicalBreak.tier)
+                }
+            }
+        if (newlyRejectedTechnicalTiers.isNotEmpty()) {
+            val updatedRejectedTiers = rejectedTechnicalTiersBySpan
+                .mapValues { (_, tiers) -> tiers.toMutableSet() }
+                .toMutableMap()
+            newlyRejectedTechnicalTiers.forEach { (span, tiers) ->
+                updatedRejectedTiers.getOrPut(span) { mutableSetOf() }.addAll(tiers)
+            }
+            return layoutWithRejectedTechnicalTiers(
+                input,
+                updatedRejectedTiers,
+            )
         }
         val justifyDeltaByCluster = HashMap<Int, Float>().apply {
             justificationPlans.filterNotNull()
@@ -2438,6 +2504,7 @@ LayoutDebugInfo(
         punctuationGlyphSubstitutor: ClreqPunctuationGlyphSubstitutor,
         styleAt: (Int) -> TextStyle,
         emphasisItalicAt: (Int) -> Boolean,
+        rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
     ): ParagraphShapingStageResult {
         // A CLREQ display substitution (ADR 0003, e.g. `——` → `⸺`) is only an
         // improvement if the resolved font can actually DRAW it well; otherwise
@@ -2854,21 +2921,24 @@ LayoutDebugInfo(
                 val technicalSyllableCuts = rawTechnicalSyllableCuts
                     .filterNot { it in technicalStructuralCuts }
                 val technicalEmergencyCuts = if (progressiveSpan != null && isLatin) {
+                    val rejectedTiers = rejectedTechnicalTiersBySpan[progressiveSpan.range].orEmpty()
+                    val exposedForCurrentLine = rejectedTiers.isNotEmpty()
                     val preferredBounds = (
                         listOf(segmentRange.start) + technicalStructuralCuts + technicalSyllableCuts +
                             listOf(segmentRange.end)
                         ).distinct().sorted()
-                    preferredBounds.zipWithNext().flatMap { (start, end) ->
+                    val interiorEmergencyCuts = preferredBounds.zipWithNext().flatMap { (start, end) ->
                         val pieceRange = TextRange(start, end)
                         val pieceAdvance = shapeSegment(decision, pieceRange)
                             .clusters.sumOf { it.advance.toDouble() }.toFloat()
-                        // `ProgressiveTechnicalOverMeasureEmergencyExposure`: once the complete
-                        // technical shaping segment is wider than the measure, expose grapheme-safe
-                        // emergency cuts in its preferred pieces as the final tier. They are still
-                        // ignored while structural/syllable candidates keep outside justification
-                        // under its stretch ceiling; exposing them here prevents the residual from
-                        // being dumped into one or two CJK gaps beside a long path or identifier.
+                        // `ProgressiveTechnicalEmergencyExposure`: an over-measure technical span
+                        // needs grapheme-safe cuts immediately. A span that fits the full measure
+                        // receives the same final tier only after the post-adjustment plan rejects a
+                        // clean tier for requiring tracking (`CurrentLineTechnicalTierRejection`).
+                        // Structural/syllable candidates still win while bounded spacing fills the
+                        // current line without tracking.
                         if (
+                            !exposedForCurrentLine &&
                             pieceAdvance <= measure &&
                             progressiveSpanAdvance(progressiveSpan.range) <= measure
                         ) {
@@ -2878,6 +2948,15 @@ LayoutDebugInfo(
                                 .filter { it > start && it < end }
                         }
                     }
+                    val rejectedCleanBoundaries = buildList {
+                        if (ProgressiveBreakTier.Structural in rejectedTiers) {
+                            addAll(technicalStructuralCuts)
+                        }
+                        if (ProgressiveBreakTier.Syllable in rejectedTiers) {
+                            addAll(technicalSyllableCuts)
+                        }
+                    }
+                    (interiorEmergencyCuts + rejectedCleanBoundaries).distinct().sorted()
                 } else {
                     emptyList()
                 }
@@ -2885,7 +2964,14 @@ LayoutDebugInfo(
                     if (technicalEmergencyCuts.isNotEmpty()) {
                         registerEmergencyTrackingEligibility(
                             progressiveSpan.range,
-                            "ProgressiveTechnicalSpan",
+                            if (rejectedTechnicalTiersBySpan[progressiveSpan.range].orEmpty().isNotEmpty()) {
+                                "CurrentLineTechnicalTierRejection:" +
+                                    rejectedTechnicalTiersBySpan.getValue(progressiveSpan.range)
+                                        .sortedBy(ProgressiveBreakTier::priority)
+                                        .joinToString("+") { it.name }
+                            } else {
+                                "ProgressiveTechnicalSpan"
+                            },
                         )
                     }
                     listOf(
@@ -2893,13 +2979,23 @@ LayoutDebugInfo(
                         ProgressiveBreakTier.Syllable to technicalSyllableCuts,
                         ProgressiveBreakTier.Emergency to technicalEmergencyCuts,
                     ).forEach { (tier, offsets) ->
+                        if (tier in rejectedTechnicalTiersBySpan[progressiveSpan.range].orEmpty()) {
+                            return@forEach
+                        }
                         val uniqueOffsets = offsets.distinct().sorted()
                         if (uniqueOffsets.isNotEmpty()) {
                             breakOpportunityDecisions += BreakOpportunityDecisionInfo(
                                 range = segmentRange,
                                 sourceText = w,
                                 breakOffsets = uniqueOffsets,
-                                reason = "ProgressiveTechnicalBreak",
+                                reason = if (
+                                    tier == ProgressiveBreakTier.Emergency &&
+                                    rejectedTechnicalTiersBySpan[progressiveSpan.range].orEmpty().isNotEmpty()
+                                ) {
+                                    "CurrentLineTechnicalEmergencyBreak"
+                                } else {
+                                    "ProgressiveTechnicalBreak"
+                                },
                                 tier = tier.name,
                             )
                         }
@@ -2921,22 +3017,24 @@ LayoutDebugInfo(
                     } else {
                         ProgressiveBreakTier.WholeToken
                     }
-                    val wholeToken = ProgressiveBreakOpportunity(boundaryTier, progressiveSpan.range)
-                    val currentAtStart = progressiveBreakOffsets[segmentRange.start]
-                    if (currentAtStart == null || wholeToken.tier.priority < currentAtStart.tier.priority) {
-                        progressiveBreakOffsets[segmentRange.start] = wholeToken
+                    if (boundaryTier !in rejectedTechnicalTiersBySpan[progressiveSpan.range].orEmpty()) {
+                        val wholeToken = ProgressiveBreakOpportunity(boundaryTier, progressiveSpan.range)
+                        val currentAtStart = progressiveBreakOffsets[segmentRange.start]
+                        if (currentAtStart == null || wholeToken.tier.priority < currentAtStart.tier.priority) {
+                            progressiveBreakOffsets[segmentRange.start] = wholeToken
+                        }
+                        breakOpportunityDecisions += BreakOpportunityDecisionInfo(
+                            range = segmentRange,
+                            sourceText = w,
+                            breakOffsets = listOf(segmentRange.start),
+                            reason = if (boundaryTier == ProgressiveBreakTier.Whitespace) {
+                                "ProgressiveTechnicalWhitespaceBreak"
+                            } else {
+                                "ProgressiveTechnicalWholeTokenWrap"
+                            },
+                            tier = boundaryTier.name,
+                        )
                     }
-                    breakOpportunityDecisions += BreakOpportunityDecisionInfo(
-                        range = segmentRange,
-                        sourceText = w,
-                        breakOffsets = listOf(segmentRange.start),
-                        reason = if (boundaryTier == ProgressiveBreakTier.Whitespace) {
-                            "ProgressiveTechnicalWhitespaceBreak"
-                        } else {
-                            "ProgressiveTechnicalWholeTokenWrap"
-                        },
-                        tier = boundaryTier.name,
-                    )
                 }
                 val cleanCuts = when {
                     progressiveSpan != null ->
@@ -5253,6 +5351,16 @@ private const val HYPHEN_LAST_RESORT_CJK_STRETCH_EM = 0.5f
 
 /** 中西间距可拉伸余量（justify CjkLatinSpace cap 0.5em − 自然 0.25em），算松紧时先扣它. */
 private const val HYPHEN_SINO_WESTERN_STRETCH_CAP_EM = 0.25f
+
+/**
+ * A retained clean technical break may not create tracking. Both the break-tier estimate and the
+ * real post-justification check use zero; a rejected clean tier is replayed as Emergency so the
+ * terminal technical span, rather than CJK body or an unrelated opaque token, absorbs the residual.
+ */
+private const val CURRENT_LINE_TECHNICAL_BODY_STRETCH_LIMIT_EM = 0f
+
+/** Float tolerance for `CurrentLineTechnicalTierRejection` threshold comparisons. */
+private const val TECHNICAL_STRETCH_EPSILON_PX = 0.001f
 
 /** CLREQ 挤压第②档：西文词距最小压至四分之一汉字宽. */
 private const val WORD_SPACE_MIN_EM = 0.25f

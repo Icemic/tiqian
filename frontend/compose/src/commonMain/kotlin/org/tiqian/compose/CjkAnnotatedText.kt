@@ -61,6 +61,8 @@ internal const val CjkInlineAttachmentTag = "org.tiqian.inline-attachment"
 private const val RubyFontSeparator = "\u001F"
 
 private const val InlineCodeRoleItem = "InlineCode"
+private const val TechnicalInlineRoleItem = "TechnicalInline"
+private const val InteractionOnlyRoleItem = "InteractionOnly"
 
 /** Marks an existing source range as belonging to one of its neighbouring text runs. */
 fun AnnotatedString.Builder.addCjkInlineAttachment(
@@ -69,6 +71,22 @@ fun AnnotatedString.Builder.addCjkInlineAttachment(
     end: Int,
 ) {
     addStringAnnotation(CjkInlineAttachmentTag, attachment.name, start, end)
+}
+
+/** Marks a renderer-owned inline range for technical breaking without adding paint or padding. */
+fun AnnotatedString.Builder.addTechnicalInlineAnnotation(start: Int, end: Int) {
+    require(start in 0..end && end <= length) {
+        "Technical inline range [$start, $end) must be inside AnnotatedString length $length"
+    }
+    if (start != end) addStringAnnotation(CjkRichTextTag, TechnicalInlineRoleItem, start, end)
+}
+
+/** Keeps a Compose clickable range interactive without classifying it as a textual link. */
+fun AnnotatedString.Builder.addCjkInteractionOnlyAnnotation(start: Int, end: Int) {
+    require(start in 0..end && end <= length) {
+        "Interaction-only range [$start, $end) must be inside AnnotatedString length $length"
+    }
+    if (start != end) addStringAnnotation(CjkRichTextTag, InteractionOnlyRoleItem, start, end)
 }
 
 /** Applies the always-on part of Compose link styling after authored spans so it wins on overlap. */
@@ -161,6 +179,9 @@ internal fun AnnotatedString.cjkRichTextSpans(
     ),
 ): List<RichTextSpan> {
     val out = mutableListOf<RichTextSpan>()
+    val interactionOnlyRanges = getStringAnnotations(CjkRichTextTag, 0, length)
+        .filter { it.item == InteractionOnlyRoleItem }
+        .mapTo(mutableSetOf()) { it.start to it.end }
     for (span in spanStyles) {
         val range = TextRange(span.start, span.end)
         val style = span.item
@@ -189,6 +210,9 @@ internal fun AnnotatedString.cjkRichTextSpans(
         }
     }
     for (link in getLinkAnnotations(0, length)) {
+        if (link.item is LinkAnnotation.Clickable && (link.start to link.end) in interactionOnlyRanges) {
+            continue
+        }
         val target = when (val item = link.item) {
             is LinkAnnotation.Url -> item.url
             is LinkAnnotation.Clickable -> item.tag
@@ -197,23 +221,29 @@ internal fun AnnotatedString.cjkRichTextSpans(
         out += RichTextSpan(TextRange(link.start, link.end), RichTextRole.Link(target))
     }
     for (role in getStringAnnotations(CjkRichTextTag, 0, length)) {
-        if (role.item == InlineCodeRoleItem) {
-            out += RichTextSpan(
-                TextRange(role.start, role.end),
-                RichTextRole.InlineCode,
-                inlineCodePaint,
+        when (role.item) {
+            InlineCodeRoleItem -> out += RichTextSpan(
+                TextRange(role.start, role.end), RichTextRole.InlineCode, inlineCodePaint,
+            )
+            TechnicalInlineRoleItem -> out += RichTextSpan(
+                TextRange(role.start, role.end), RichTextRole.TechnicalInline,
             )
         }
     }
     return out
 }
 
-/** Links and Tiqian inline code lower to the same core-owned technical break policy. */
+/** Links, Tiqian inline code, and renderer-owned technical ranges share one break policy. */
 internal fun List<RichTextSpan>.cjkLineBreakSpans(): List<LineBreakSpan> =
     asSequence()
-        .filter { it.role is RichTextRole.Link || it.role == RichTextRole.InlineCode }
+        .filter {
+            it.role is RichTextRole.Link ||
+                it.role == RichTextRole.InlineCode ||
+                it.role == RichTextRole.TechnicalInline
+        }
         .map { LineBreakSpan(it.range, LineBreakPolicy.ProgressiveTechnical) }
         .distinctBy { it.range to it.policy }
+        .sortedWith(compareBy<LineBreakSpan>({ it.range.start }, { it.range.end }))
         .toList()
 
 /**

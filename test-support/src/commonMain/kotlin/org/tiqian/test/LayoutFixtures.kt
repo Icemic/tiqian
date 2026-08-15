@@ -363,6 +363,23 @@ object EarlyLayoutFixtures {
             ),
         ),
         LayoutFixture(
+            id = "progressive-technical-current-line-emergency",
+            text = "Swift 这边是我最有体感的。JSONDecoder 慢是个老问题，" +
+                "SR-6252[36] 那个 issue 里挖出的根因是底层走 NSJSONSerialization " +
+                "再桥接回 Objective-C，swift_dynamicCast 吃掉大量时间。",
+            constraints = LayoutConstraints(maxWidth = 579f),
+            notes = "CurrentLineTechnicalTierRejection: a technical token is reconsidered against " +
+                "the current line's stretch, regardless of whether the complete token fits a full measure. " +
+                "A clean tier that needs unbounded tracking is rejected; the hierarchy continues to a " +
+                "rightmost Emergency cut before terminal technical tracking is allowed.",
+            lineLengthGrid = LineLengthGrid(enabled = false),
+            lineBreakSpans = listOf(
+                LineBreakSpan(TextRange(16, 27), LineBreakPolicy.ProgressiveTechnical),
+                LineBreakSpan(TextRange(67, 86), LineBreakPolicy.ProgressiveTechnical),
+                LineBreakSpan(TextRange(104, 121), LineBreakPolicy.ProgressiveTechnical),
+            ),
+        ),
+        LayoutFixture(
             id = "adaptive-short-line-indent",
             text = "提椠是一个面向中文正文的排版引擎",
             constraints = LayoutConstraints(maxWidth = 160f),

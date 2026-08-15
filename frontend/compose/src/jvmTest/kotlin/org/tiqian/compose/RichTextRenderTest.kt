@@ -213,27 +213,13 @@ class RichTextRenderTest {
         }
         assertTrue(wrappedCodeLines.isNotEmpty(), "expected an inline-code technical break")
         assertTrue(
-            result.lines.any { line ->
-                annotated.text.substring(line.range.start, line.range.end).endsWith("assembleRe") &&
-                    line.debug.repair?.startsWith(
-                        "PushIn:ProgressiveTechnicalTierPromotion",
-                    ) == true
+            result.debug.lineDecisions.any { decision ->
+                wrappedCodeLines.any { it.range == decision.range } &&
+                    decision.notes.contains("technical-break:Emergency")
             },
-            "expected source-space compression to promote R|elease to Re|lease: " +
+            "expected the zero-threshold policy to reach a rightmost emergency cut: " +
                 "lines=${result.lines} breaks=${result.debug.breakOpportunityDecisions}",
         )
-        val technicalPromotion = result.debug.lineDecisions
-            .first { decision ->
-                decision.repairDecision?.reasonCode ==
-                    "ProgressiveTechnicalTierPromotion"
-            }
-            .repairDecision!!
-        technicalPromotion.pushInAllocations.forEach { allocation ->
-            assertEquals(" ", annotated.text.substring(
-                allocation.clusterRange.start,
-                allocation.clusterRange.end,
-            ))
-        }
         assertTrue(
             wrappedCodeLines.any { line ->
                 result.debug.justificationDecisions
@@ -268,8 +254,12 @@ class RichTextRenderTest {
                 val target = result.clusters.first { it.range == allocation.clusterRange }
                 val exitsCodeAfterTarget = codeRanges.any { code -> target.range.end == code.end }
                 assertTrue(
-                    target.text.all(Char::isWhitespace) || exitsCodeAfterTarget,
-                    "technical justification must target source whitespace, not invent Latin tracking: $allocation",
+                    target.text.all(Char::isWhitespace) || exitsCodeAfterTarget ||
+                        (
+                            allocation.kind == "EmergencyGraphemeTracking" &&
+                                allocation.reason.startsWith("TerminalTechnicalEmergencyTracking")
+                            ),
+                    "technical justification must use source whitespace or an authorized terminal gap: $allocation",
                 )
             }
         }

@@ -23,6 +23,9 @@ import org.tiqian.font.FontRole
  *                          0.25em — total 0.5em, CLREQ's upper bound.
  *   2a. Inline-object provider resources, each capped by its measured blank:
  *       punctuation trailing space, relation space, then binary-operator space.
+ *   2b. TerminalTechnicalEmergencyTracking — only the terminal technical span whose selected
+ *                          break is Emergency authorizes grapheme tracking. Its gaps absorb the
+ *                          residual before body tracking.
  *   3. CjkInterChar      — last resort for lines containing CJK body text:
  *                          EVEN inter-character expansion（平均拉大字距）,
  *                          UNCAPPED. A Western-dominant visual line does not
@@ -140,6 +143,12 @@ class Justifier(
         technicalBoundaryAfterClusters: Map<Int, ProgressiveBreakTier> = emptyMap(),
         /** Explicitly authorized grapheme boundaries, keyed by the cluster on their left. */
         emergencyTrackingBoundaryAfterClusters: Map<Int, String> = emptyMap(),
+        /**
+         * Authorized boundaries in the terminal technical span whose selected break is Emergency.
+         * These absorb the residual before CJK body tracking; unrelated prose and mid-line
+         * technical spans keep the ordinary justification order.
+         */
+        preferredEmergencyTrackingBoundaryAfterClusters: Map<Int, String> = emptyMap(),
     ): JustificationPlan {
         require(clusterRoles.size == adjustedClusters.size) {
             "clusterRoles must align with adjustedClusters."
@@ -344,6 +353,28 @@ class Justifier(
             }
         }
 
+        val preferredEmergencyTrackingOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.EmergencyGraphemeTracking,
+            priority = 3,
+            capacity = remaining,
+        ) { leftIdx, _ ->
+            leftIdx in preferredEmergencyTrackingBoundaryAfterClusters
+        }.map { opportunity ->
+            opportunity.copy(
+                reason = "TerminalTechnicalEmergencyTracking:" +
+                    preferredEmergencyTrackingBoundaryAfterClusters.getValue(opportunity.targetClusterIndex),
+            )
+        }
+        remaining = allocate(
+            deficit = remaining,
+            opportunities = preferredEmergencyTrackingOpps,
+            reason = "TerminalTechnicalEmergencyTracking",
+            into = allocations,
+        )
+        if (remaining <= 0f) return finalize(lineClusterRange, deficitBefore, remaining, allocations)
+
         // WesternDominantLineNaturalSpacing: a visual line containing no CJK
         // body text remains Western composition even when full-width Chinese
         // punctuation occurs inside technical names such as `Rust（Winio）`.
@@ -497,7 +528,8 @@ class Justifier(
             // cohesion may close break boundaries but cannot leave tracking
             // concentrated on the few remaining letter gaps. Empty/object and
             // source-space edges were already excluded when this map was built.
-            leftIdx in emergencyTrackingBoundaryAfterClusters
+            leftIdx in emergencyTrackingBoundaryAfterClusters &&
+                leftIdx !in preferredEmergencyTrackingBoundaryAfterClusters
         }.map { opportunity ->
             opportunity.copy(
                 reason = "EmergencyGraphemeTracking:" +

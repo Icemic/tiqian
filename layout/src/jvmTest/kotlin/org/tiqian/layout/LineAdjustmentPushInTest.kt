@@ -227,6 +227,87 @@ class LineAdjustmentPushInTest {
         assertTrue(repair.reason.startsWith("ProgressiveTechnicalTierPromotion"))
     }
 
+    @Test
+    fun fillPushInDoesNotPromoteEmergencyBreakWhenCleanerBoundaryStillLeavesDeficit() {
+        val clusters = listOf(
+            cluster(0, "a", 20f),
+            cluster(1, " ", 20f),
+            cluster(2, "R", 30f),
+            cluster(3, "e", 15f),
+            cluster(4, "l", 15f),
+        )
+        val lines = listOf(
+            rebuildLine(0..2, clusters, clusters),
+            rebuildLine(3..4, clusters, clusters),
+        )
+        val technicalRange = TextRange(0, 5)
+
+        val filled = applyFillPushIn(
+            lines = lines,
+            naturalClusters = clusters,
+            adjustedClusters = clusters,
+            maxWidth = 100f,
+            shrinkOpportunities = emptyList(),
+            firstLineIndent = 0f,
+            compressBias = 1_000_000f,
+            forbiddenLineStartClusters = emptySet(),
+            forbiddenLineEndClusters = emptySet(),
+            unbreakableRanges = emptyList(),
+            pushInPenalty = 2,
+            gapBoundaries = setOf(0, 1, 2, 3),
+            progressiveBreakOpportunities = mapOf(
+                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, technicalRange),
+                4 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Syllable, technicalRange),
+            ),
+        )
+
+        assertEquals(0..2, filled[0].clusterRange)
+        assertEquals(3..4, filled[1].clusterRange)
+        assertEquals(null, filled[0].repair)
+    }
+
+    @Test
+    fun fillPushInCrossesIntermediateCleanerBoundaryToRefillAtSelectedTier() {
+        val clusters = listOf(
+            cluster(0, "a", 20f),
+            cluster(1, " ", 20f),
+            cluster(2, "R", 30f),
+            cluster(3, "e", 15f),
+            cluster(4, "l", 15f),
+        )
+        val lines = listOf(
+            rebuildLine(0..2, clusters, clusters),
+            rebuildLine(3..4, clusters, clusters),
+        )
+        val technicalRange = TextRange(0, 5)
+
+        val filled = applyFillPushIn(
+            lines = lines,
+            naturalClusters = clusters,
+            adjustedClusters = clusters,
+            maxWidth = 100f,
+            shrinkOpportunities = emptyList(),
+            firstLineIndent = 0f,
+            compressBias = 1_000_000f,
+            forbiddenLineStartClusters = emptySet(),
+            forbiddenLineEndClusters = emptySet(),
+            unbreakableRanges = emptyList(),
+            pushInPenalty = 2,
+            gapBoundaries = setOf(0, 1, 2, 3),
+            progressiveBreakOpportunities = mapOf(
+                3 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, technicalRange),
+                4 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Syllable, technicalRange),
+                5 to ProgressiveBreakOpportunity(ProgressiveBreakTier.Emergency, technicalRange),
+            ),
+        )
+
+        assertEquals(1, filled.size)
+        assertEquals(0..4, filled.single().clusterRange)
+        assertEquals(100f, filled.single().adjustedWidth)
+        val repair = filled.single().repair as RepairOption.PushIn
+        assertTrue(repair.reason.startsWith("LineAdjustmentPushIn"))
+    }
+
     private fun cluster(index: Int, text: String, advance: Float): Cluster =
         Cluster(
             range = TextRange(index, index + 1),
