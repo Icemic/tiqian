@@ -111,6 +111,7 @@ enum class GlueKind {
     WordSpace,
     CjkInterChar,
     ProgressiveTechnical,
+    EmergencyGraphemeTracking,
     InlineObjectPunctuationTrailing,
     InlineObjectRelation,
     InlineObjectBinaryOperator,

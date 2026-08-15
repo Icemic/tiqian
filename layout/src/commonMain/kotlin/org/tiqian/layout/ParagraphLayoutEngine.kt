@@ -17,6 +17,7 @@ import org.tiqian.clreq.ClreqPunctuationGlyphSubstitutor
 import org.tiqian.core.AutoSpaceDecisionInfo
 import org.tiqian.core.BreakOpportunityDecisionInfo
 import org.tiqian.core.Cluster
+import org.tiqian.core.EmergencyTrackingEligibilityDecisionInfo
 import org.tiqian.core.EastAsianSpacingEdges
 import org.tiqian.core.EastAsianSpacingValue
 import org.tiqian.core.UnicodeEastAsianSpacing
@@ -403,6 +404,7 @@ class ExplainableStubParagraphLayoutEngine(
         val hyphenGlyphs = shapingStage.hyphenGlyphs
         val substitutionRollbacks = shapingStage.substitutionRollbacks
         val breakOpportunityDecisions = shapingStage.breakOpportunityDecisions
+        val emergencyTrackingEligibilityDecisions = shapingStage.emergencyTrackingEligibilityDecisions
         val progressiveBreakOffsets = shapingStage.progressiveBreakOffsets
         val rawNaturalClusters = shapingResults.flatMap { it.clusters }
         val shapedGlyphsByClusterRange = shapingResults
@@ -1176,6 +1178,30 @@ class ExplainableStubParagraphLayoutEngine(
             .filterValues { it.tier == ProgressiveBreakTier.Whitespace }
             .mapKeys { (rightIndex, _) -> rightIndex - 1 }
             .mapValues { (_, opportunity) -> opportunity.tier }
+        // `ExplicitEmergencyTrackingEligibility`: only ranges named by the shaping
+        // stage may open intra-token tracking. The map is cluster-indexed so the
+        // Justifier replays source-grapheme boundaries without reclassifying text.
+        val emergencyTrackingBoundaryAfterClusters = buildMap<Int, String> {
+            for (leftIndex in 0 until naturalClusters.lastIndex) {
+                val rightIndex = leftIndex + 1
+                val left = naturalClusters[leftIndex]
+                val right = naturalClusters[rightIndex]
+                if (left.range.end != right.range.start) continue
+                if (
+                    leftIndex in inlineObjectByClusterIndex || rightIndex in inlineObjectByClusterIndex ||
+                    leftIndex in zeroWidthBreakClusters || rightIndex in zeroWidthBreakClusters ||
+                    leftIndex in mandatoryBreakClusters || rightIndex in mandatoryBreakClusters ||
+                    left.text.isEmpty() || right.text.isEmpty() ||
+                    left.text.all(Char::isWhitespace) || right.text.all(Char::isWhitespace)
+                ) {
+                    continue
+                }
+                val eligibility = emergencyTrackingEligibilityDecisions.firstOrNull { decision ->
+                    left.range.start >= decision.range.start && right.range.end <= decision.range.end
+                } ?: continue
+                put(leftIndex, eligibility.reason)
+            }
+        }
         // The breaker's looseness estimate keeps its established two-class
         // approximation. The exact final allocation, including repeated
         // participation of word and sino-western gaps, belongs to Justifier.
@@ -1540,6 +1566,7 @@ class ExplainableStubParagraphLayoutEngine(
                     uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
                     preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
                     technicalBoundaryAfterClusters = technicalBoundaryAfterClusters,
+                    emergencyTrackingBoundaryAfterClusters = emergencyTrackingBoundaryAfterClusters,
                 )
             }
         }
@@ -1721,6 +1748,7 @@ class ExplainableStubParagraphLayoutEngine(
                     inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
                     zeroWidthBreakDecisions = zeroWidthBreakDecisions,
                     breakOpportunityDecisions = breakOpportunityDecisions,
+                    emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions,
                     progressiveBreakOpportunities = progressiveBreakOpportunities,
                 ),
             ),
@@ -1912,6 +1940,7 @@ class ExplainableStubParagraphLayoutEngine(
         val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo>,
         val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo>,
         val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+        val emergencyTrackingEligibilityDecisions: List<EmergencyTrackingEligibilityDecisionInfo>,
         val progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity>,
     )
 
@@ -2062,6 +2091,7 @@ LayoutDebugInfo(
                 inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
                 zeroWidthBreakDecisions = zeroWidthBreakDecisions,
                 breakOpportunityDecisions = breakOpportunityDecisions,
+                emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions,
             )
     }
 
@@ -2388,6 +2418,7 @@ LayoutDebugInfo(
         val hyphenGlyphs: List<Glyph>,
         val substitutionRollbacks: Map<TextRange, String>,
         val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
+        val emergencyTrackingEligibilityDecisions: List<EmergencyTrackingEligibilityDecisionInfo>,
         val progressiveBreakOffsets: Map<Int, ProgressiveBreakOpportunity>,
     )
 
@@ -2605,7 +2636,51 @@ LayoutDebugInfo(
                 h - bounds.last { it < h } >= 2 && bounds.first { it > h } - h >= 2
             }.map { wordRange.start + it }
         }
+        // `TechnicalAlphaNumericTransitionBreak`: identifiers commonly encode a
+        // semantic boundary at letter<->digit transitions (`Machine|2|Machine`).
+        // These are structural clean cuts: no synthetic hyphen is displayed.
+        fun alphaNumericTransitionCuts(wordRange: TextRange): List<Int> {
+            val w = text.substring(wordRange.start, wordRange.end)
+            return (1 until w.length).mapNotNull { index ->
+                val left = w[index - 1]
+                val right = w[index]
+                if (
+                    (left.isLetter() && right.isDigit()) ||
+                    (left.isDigit() && right.isLetter())
+                ) {
+                    wordRange.start + index
+                } else {
+                    null
+                }
+            }
+        }
+        fun String.strongNonLexicalReason(): String? {
+            if (length < EMERGENCY_TRACKING_TOKEN_MIN_LENGTH) return null
+            if (all(Char::isLetter) && all { it.equals(first(), ignoreCase = true) }) {
+                return "LongRepeatedLetterRun"
+            }
+            if (any(Char::isLetter) && all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+                return "LongHexIdentityRun"
+            }
+            if (any(Char::isLetter) && any(Char::isDigit)) {
+                val transitions = zipWithNext().count { (left, right) ->
+                    (left.isLetter() && right.isDigit()) ||
+                        (left.isDigit() && right.isLetter())
+                }
+                if (transitions >= 2) return "LongMixedAlphaNumericIdentifier"
+            }
+            return null
+        }
         val breakOpportunityDecisions = mutableListOf<BreakOpportunityDecisionInfo>()
+        val emergencyTrackingEligibilityDecisions = mutableListOf<EmergencyTrackingEligibilityDecisionInfo>()
+        fun registerEmergencyTrackingEligibility(range: TextRange, reason: String) {
+            if (emergencyTrackingEligibilityDecisions.any { it.range == range && it.reason == reason }) return
+            emergencyTrackingEligibilityDecisions += EmergencyTrackingEligibilityDecisionInfo(
+                range = range,
+                sourceText = text.substring(range.start, range.end),
+                reason = reason,
+            )
+        }
         val progressiveBreakOffsets = mutableMapOf<Int, ProgressiveBreakOpportunity>()
         fun latinSeparatorCuts(
             tokenRange: TextRange,
@@ -2657,7 +2732,9 @@ LayoutDebugInfo(
                 if (pieceAdvance <= measure && !(forceOpaqueBreaks && b - a >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)) {
                     continue
                 }
-                for (off in (a + 1) until b) cuts += tokenRange.start + off
+                val pieceRange = TextRange(tokenRange.start + a, tokenRange.start + b)
+                text.sourceGraphemeBoundaries(pieceRange)
+                    .filterTo(cuts) { it > pieceRange.start && it < pieceRange.end }
             }
             return cuts.sorted()
         }
@@ -2712,8 +2789,10 @@ LayoutDebugInfo(
                 val isCamelCase = allLetters && !isAllCaps && !isAbbreviation &&
                     (1 until w.length).any { w[it].isUpperCase() }
                 val tokenAdvance = shaped.clusters.sumOf { it.advance.toDouble() }.toFloat()
+                val strongNonLexicalReason = if (isLatin) w.strongNonLexicalReason() else null
                 val syllableCuts = if (
-                    allLetters && !isAbbreviation && !isCamelCase && !w.contains('-')
+                    allLetters && !isAbbreviation && !isCamelCase && !w.contains('-') &&
+                    strongNonLexicalReason == null
                 ) {
                     hyphenator.hyphenate(w).distinct().sorted()
                 } else {
@@ -2729,10 +2808,12 @@ LayoutDebugInfo(
                     allLetters && !isAbbreviation && !isCamelCase &&
                         longestUnhyphenatedLetterPiece >= LATIN_OPAQUE_TOKEN_MIN_LENGTH
                 val isLongOpaqueLatinToken =
-                    isLongUnhyphenatedLetterToken || (isLatin && !allLetters && w.length >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)
+                    strongNonLexicalReason != null || isLongUnhyphenatedLetterToken ||
+                        (isLatin && !allLetters && w.length >= LATIN_OPAQUE_TOKEN_MIN_LENGTH)
                 val technicalStructuralCuts = if (progressiveSpan != null && isLatin) {
                     buildSet {
                         addAll(camelCaseCuts(segmentRange))
+                        addAll(alphaNumericTransitionCuts(segmentRange))
                         for (i in 0 until w.lastIndex) {
                             if (w[i] in PROGRESSIVE_TECHNICAL_BREAK_AFTER_CHARS) {
                                 add(segmentRange.start + i + 1)
@@ -2744,20 +2825,27 @@ LayoutDebugInfo(
                 }
                 val rawTechnicalSyllableCuts = if (progressiveSpan != null && isLatin) {
                     buildList {
-                        var runStart = 0
-                        while (runStart < w.length) {
-                            while (runStart < w.length && !w[runStart].isLetter()) runStart += 1
-                            var runEnd = runStart
-                            while (runEnd < w.length && w[runEnd].isLetter()) runEnd += 1
-                            if (runEnd > runStart) {
-                                val word = w.substring(runStart, runEnd)
-                                addAll(
-                                    hyphenator.hyphenate(word)
-                                        .filter { it in 1 until word.length }
-                                        .map { segmentRange.start + runStart + it },
-                                )
+                        val preferredBounds = (
+                            listOf(segmentRange.start) + technicalStructuralCuts + listOf(segmentRange.end)
+                            ).distinct().sorted()
+                        preferredBounds.zipWithNext().forEach { (pieceStart, pieceEnd) ->
+                            val piece = text.substring(pieceStart, pieceEnd)
+                            if (piece.strongNonLexicalReason() != null) return@forEach
+                            var runStart = pieceStart
+                            while (runStart < pieceEnd) {
+                                while (runStart < pieceEnd && !text[runStart].isLetter()) runStart += 1
+                                var runEnd = runStart
+                                while (runEnd < pieceEnd && text[runEnd].isLetter()) runEnd += 1
+                                if (runEnd > runStart) {
+                                    val word = text.substring(runStart, runEnd)
+                                    addAll(
+                                        hyphenator.hyphenate(word)
+                                            .filter { it in 1 until word.length }
+                                            .map { runStart + it },
+                                    )
+                                }
+                                runStart = maxOf(runEnd, runStart + 1)
                             }
-                            runStart = maxOf(runEnd, runStart + 1)
                         }
                     }.distinct().sorted()
                 } else {
@@ -2794,6 +2882,12 @@ LayoutDebugInfo(
                     emptyList()
                 }
                 if (progressiveSpan != null) {
+                    if (technicalEmergencyCuts.isNotEmpty()) {
+                        registerEmergencyTrackingEligibility(
+                            progressiveSpan.range,
+                            "ProgressiveTechnicalSpan",
+                        )
+                    }
                     listOf(
                         ProgressiveBreakTier.Structural to technicalStructuralCuts,
                         ProgressiveBreakTier.Syllable to technicalSyllableCuts,
@@ -2871,6 +2965,18 @@ LayoutDebugInfo(
                 } else {
                     emptyList()
                 }
+                if (progressiveSpan == null && opaqueHardCuts.isNotEmpty()) {
+                    val cleanBounds = (listOf(segmentRange.start) + cleanCuts + listOf(segmentRange.end))
+                        .distinct().sorted()
+                    cleanBounds.zipWithNext().forEach { (pieceStart, pieceEnd) ->
+                        val pieceHardCuts = opaqueHardCuts.filter { it > pieceStart && it < pieceEnd }
+                        if (pieceHardCuts.isEmpty()) return@forEach
+                        val pieceRange = TextRange(pieceStart, pieceEnd)
+                        val pieceReason = text.substring(pieceStart, pieceEnd).strongNonLexicalReason()
+                            ?: return@forEach
+                        registerEmergencyTrackingEligibility(pieceRange, pieceReason)
+                    }
+                }
                 val allCuts = (cleanCuts + hyphenCuts + opaqueHardCuts).distinct().sorted()
                 if (allCuts.isEmpty()) {
                     listOf(shaped)
@@ -2909,6 +3015,7 @@ LayoutDebugInfo(
             hyphenGlyphs = hyphenGlyphs,
             substitutionRollbacks = substitutionRollbacks.toMap(),
             breakOpportunityDecisions = breakOpportunityDecisions.toList(),
+            emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions.toList(),
             progressiveBreakOffsets = progressiveBreakOffsets.toMap(),
         )
     }
@@ -5130,6 +5237,9 @@ private const val HYPHEN_MIN_RIGHT = 3
 
 /** `LatinOpaqueTokenBreak`: long non-lexical Latin tokens expose clean no-hyphen breakpoints. */
 private const val LATIN_OPAQUE_TOKEN_MIN_LENGTH = 24
+
+/** Strong non-lexical evidence threshold for emergency tracking authorization. */
+private const val EMERGENCY_TRACKING_TOKEN_MIN_LENGTH = 12
 
 /** `ProgressiveTechnicalStructuralBreak`: separators that stay on the previous line. */
 private val PROGRESSIVE_TECHNICAL_BREAK_AFTER_CHARS: Set<Char> =

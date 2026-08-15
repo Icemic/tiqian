@@ -28,6 +28,10 @@ import org.tiqian.font.FontRole
  *                          UNCAPPED. A Western-dominant visual line does not
  *                          enter this tier merely because it contains CJK
  *                          punctuation; see `WesternDominantLineNaturalSpacing`.
+ *   4. EmergencyGraphemeTracking — exact residual fill over source-grapheme
+ *                          boundaries in explicitly authorized technical or
+ *                          strongly non-lexical ranges. Ordinary Western prose
+ *                          never enters this tier.
  *
  * CLREQ's expansion list has no punctuation-space tier: punctuation
  * adjustment space participates in COMPRESSION only. The earlier tier-1
@@ -134,6 +138,8 @@ class Justifier(
         preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> = emptyMap(),
         /** Source-whitespace boundaries in link/inline-code text, keyed by the space cluster. */
         technicalBoundaryAfterClusters: Map<Int, ProgressiveBreakTier> = emptyMap(),
+        /** Explicitly authorized grapheme boundaries, keyed by the cluster on their left. */
+        emergencyTrackingBoundaryAfterClusters: Map<Int, String> = emptyMap(),
     ): JustificationPlan {
         require(clusterRoles.size == adjustedClusters.size) {
             "clusterRoles must align with adjustedClusters."
@@ -182,7 +188,7 @@ class Justifier(
             priority = ProgressiveBreakTier.Whitespace.priority,
             capacity = progressiveTechnicalWhitespaceStretchCapacity(fontSize),
             reason = "ProgressiveTechnicalWhitespaceStretch",
-        ) { leftIdx, _ ->
+        ) { leftIdx, rightIdx ->
             technicalBoundaryAfterClusters[leftIdx] == ProgressiveBreakTier.Whitespace &&
                 adjustedClusters[leftIdx].text.all(Char::isWhitespace)
         }
@@ -350,7 +356,11 @@ class Justifier(
                 leftIdx in uniformInlineObjectBoundaryAfterClusters &&
                     !boundaryIsClosed(leftIdx, leftIdx + 1)
             }
-        if (!hasCjkBodyText && !hasAdjustableInlineObjectBoundary) {
+        val lineHasEmergencyTrackingBoundary =
+            (lineClusterRange.first until lineClusterRange.last).any {
+                it in emergencyTrackingBoundaryAfterClusters
+            }
+        if (!hasCjkBodyText && !hasAdjustableInlineObjectBoundary && !lineHasEmergencyTrackingBoundary) {
             return finalize(
                 lineClusterRange = lineClusterRange,
                 deficitBefore = deficitBefore,
@@ -469,8 +479,49 @@ class Justifier(
             reason = "CjkInterChar",
             into = allocations,
         )
+        if (remaining <= 0f) return finalize(lineClusterRange, deficitBefore, remaining, allocations)
 
-        return finalize(lineClusterRange, deficitBefore, remaining, allocations)
+        // `ExplicitEmergencyGraphemeTracking`: ordinary paragraph opportunities
+        // above always run first. Only an upstream, structured eligibility
+        // decision can open these source-grapheme boundaries; this is the exact
+        // fill fallback for standalone links, hashes, and identifiers.
+        val emergencyTrackingOpps = buildBoundaryOpportunities(
+            adjustedClusters = adjustedClusters,
+            lineClusterRange = lineClusterRange,
+            kind = GlueKind.EmergencyGraphemeTracking,
+            priority = 4,
+            capacity = remaining,
+        ) { leftIdx, _ ->
+            // This authorization is deliberately independent from ordinary
+            // prose no-stretch glue. In an opaque identifier, digit and symbol
+            // cohesion may close break boundaries but cannot leave tracking
+            // concentrated on the few remaining letter gaps. Empty/object and
+            // source-space edges were already excluded when this map was built.
+            leftIdx in emergencyTrackingBoundaryAfterClusters
+        }.map { opportunity ->
+            opportunity.copy(
+                reason = "EmergencyGraphemeTracking:" +
+                    emergencyTrackingBoundaryAfterClusters.getValue(opportunity.targetClusterIndex),
+            )
+        }
+        remaining = allocate(
+            deficit = remaining,
+            opportunities = emergencyTrackingOpps,
+            reason = "EmergencyGraphemeTracking",
+            into = allocations,
+        )
+
+        return finalize(
+            lineClusterRange = lineClusterRange,
+            deficitBefore = deficitBefore,
+            unfilled = remaining,
+            allocations = allocations,
+            fallbackReason = if (remaining > 0f && lineHasEmergencyTrackingBoundary) {
+                "EmergencyTrackingNoOpenBoundary"
+            } else {
+                null
+            },
+        )
     }
 
     /**

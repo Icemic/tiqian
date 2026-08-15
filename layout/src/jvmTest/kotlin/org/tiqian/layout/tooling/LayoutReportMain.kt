@@ -972,6 +972,17 @@ private fun renderEngineMetadata(label: String, result: LayoutResult): String =
             }
             appendLine("</div>")
         }
+        if (result.debug.emergencyTrackingEligibilityDecisions.isNotEmpty()) {
+            appendLine("<div class=\"metrics\">")
+            result.debug.emergencyTrackingEligibilityDecisions.forEach { decision ->
+                appendLine(
+                    "<span class=\"metric\">tracking-eligibility " +
+                        "${decision.range.start}-${decision.range.end} " +
+                        "${decision.reason.escapeHtml()}</span>",
+                )
+            }
+            appendLine("</div>")
+        }
         if (result.debug.inlineObjectPunctuationAttachmentDecisions.isNotEmpty()) {
             appendLine("<div class=\"metrics\">")
             result.debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->

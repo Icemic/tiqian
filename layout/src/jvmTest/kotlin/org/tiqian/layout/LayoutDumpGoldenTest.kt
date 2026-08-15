@@ -151,6 +151,12 @@ class LayoutDumpGoldenTest {
                     " reason=${decision.reason}",
             )
         }
+        debug.emergencyTrackingEligibilityDecisions.forEach { decision ->
+            appendLine(
+                "tracking-eligibility ${decision.range.start}-${decision.range.end} " +
+                    "source='${decision.sourceText.escapeDumpText()}' reason=${decision.reason}",
+            )
+        }
         debug.inlineObjectPunctuationAttachmentDecisions.forEach { attachment ->
             appendLine(
                 "inline-object-punctuation ${attachment.objectRange.start}-${attachment.objectRange.end} " +

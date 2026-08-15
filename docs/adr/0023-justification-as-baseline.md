@@ -89,3 +89,18 @@ justify 跳过末行的既有规则保证：短标签、标题永远不被拉伸
 不断行时后侧数学空白照常存在；命中断点时，该实测空白作为行尾可丢弃 glue 移除，下一片段
 不带前导空白。这样既保持 TeX/KaTeX 的断行方向，也不会在两个行端留下空洞。提供方不能为了
 暴露空白而给段落断行器凭空增加断点。
+
+### Amendment (2026-08-15): ExplicitEmergencyGraphemeTracking
+
+`WesternDominantLineNaturalSpacing` 继续是默认：大段普通西文在词距上限耗尽后可以右侧参差，
+不得为了双齐自动拉开字母间距。唯一窄例外是 upstream 已给出结构化资格的技术/non-lexical
+range（见 ADR 0029 amendment）。非末行先完整运行源码技术空格、普通西文词距、中西间距、
+公式/inline object 资源以及中文 `CjkInterChar`；仍有 residual 时，才把它平均分配到该资格
+range 内、当前行实际存在的 source-grapheme cluster 边界。普通数字/符号 cohesion 可以继续关闭
+断点，但不能把 tracking 集中到 token 内少数未关闭的字母间距；源码空格和 opaque inline object
+边界不进入这组机会。
+
+该末档名为 `ExplicitEmergencyGraphemeTracking`，allocation kind 为
+`EmergencyGraphemeTracking`。资格 range 与原因写入 `emergencyTrackingEligibilityDecisions`，
+逐 boundary 的实际分配继续写入 `JustificationDecisionInfo`。技术 inline 位于行中时不会冻结或
+删除正文机会；纯链接/hash 行则可以用这项兜底精确填满版心。末行和 mandatory-break 行仍不调宽。

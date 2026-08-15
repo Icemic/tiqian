@@ -284,3 +284,21 @@ kerning/shaping；超过整行宽度的技术 segment 才暴露其 grapheme 安�
 `Justifier` 配置，不能在 breaker 另写常量。paragraph-DP 提交可压缩 edge 时，promotion 也必须
 比较该行未经压缩时实际选中的技术断点与最终断点；同档 Structural → Structural 或
 Syllable → Syllable 仍是普通 `LineAdjustmentPushIn`，不得因更早存在低档候选而伪报升级。
+
+## Amendment (2026-08-15): TechnicalAlphaNumericTransitionBreak 与 non-lexical 排除
+
+`ProgressiveTechnical` 的 Structural 档增加字母↔数字边界，`Machine2Machine` 因而明确得到
+`Machine|2|Machine` 两个 clean 断点；它们与符号、CamelCase 一样不补连字符。断点档序不变：
+源码空白、Structural（符号/驼峰/字母数字转换）、Syllable、WholeToken、Emergency。
+
+技术 span 的 Syllable 枚举改为逐 Structural piece 进行。命中具名强 non-lexical 证据的 piece
+不交给语言 hyphenator，避免 hex/hash 被英文模式解释出无语义的“音节”断点。当前证据只包括：
+`LongRepeatedLetterRun`、`LongHexIdentityRun` 与 `LongMixedAlphaNumericIdentifier`；
+每项都有最小长度门槛并进入
+`emergencyTrackingEligibilityDecisions`。这不是“ordinary Western”分类器：默认结果是无资格，
+不能因为某段文字用了 Latin 字体、没有空格、全大写或 hyphenator 没返回结果，就反推它是
+技术 token。
+
+普通西文仍按本 ADR 的单词/音节/连字符路径。只有显式 `ProgressiveTechnical` span 或命中上述
+强 non-lexical 证据的 source range，才可在必要硬断后开放下一份 ADR 0023 所述的 emergency
+tracking；source range、复制和搜索语义不变。

@@ -180,6 +180,7 @@ data class LayoutDebugInfo(
     val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo> = emptyList(),
     val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo> = emptyList(),
     val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo> = emptyList(),
+    val emergencyTrackingEligibilityDecisions: List<EmergencyTrackingEligibilityDecisionInfo> = emptyList(),
 )
 
 /**
@@ -194,6 +195,17 @@ data class BreakOpportunityDecisionInfo(
     val reason: String,
     /** Ordered policy tier when this decision belongs to a progressive break span. */
     val tier: String? = null,
+)
+
+/**
+ * A source range explicitly allowed to absorb an otherwise unfillable line
+ * deficit through grapheme-safe tracking. Ordinary Western prose is absent
+ * from this list and therefore never becomes tracking-eligible by default.
+ */
+data class EmergencyTrackingEligibilityDecisionInfo(
+    val range: TextRange,
+    val sourceText: String,
+    val reason: String,
 )
 
 data class InlineBoxDecisionInfo(

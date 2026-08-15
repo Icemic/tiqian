@@ -327,13 +327,39 @@ object EarlyLayoutFixtures {
             id = "progressive-technical-inline",
             text = "中文 internationalization 命令",
             constraints = LayoutConstraints(maxWidth = 160f),
-            notes = "ProgressiveTechnicalBreak: semantic link/code text uses syllable boundaries " +
-                "without a displayed hyphen. Only source whitespace contributes bounded technical " +
-                "stretch; structural, camel, syllable, and emergency boundaries never become tracking, " +
-                "and the ordinary paragraph justification chain remains available.",
+            notes = "ProgressiveTechnicalBreak: semantic link/code text uses structural, letter-digit, " +
+                "camel, then syllable boundaries without a displayed hyphen. Ordinary paragraph " +
+                "opportunities remain first; only an otherwise unfillable auto-wrapped technical line " +
+                "uses explicit grapheme tracking.",
             useEnglishHyphenation = true,
             lineBreakSpans = listOf(
                 LineBreakSpan(TextRange(3, 23), LineBreakPolicy.ProgressiveTechnical),
+            ),
+        ),
+        LayoutFixture(
+            id = "progressive-technical-hash-fill",
+            text = "deadbeefcafebabefeedfaceabcdefabcdef",
+            constraints = LayoutConstraints(maxWidth = 173f),
+            notes = "ExplicitEmergencyGraphemeTracking: a standalone technical hash skips syllable " +
+                "classification, hard-breaks at source graphemes, and exactly fills every non-last line. " +
+                "The final line remains naturally aligned.",
+            useEnglishHyphenation = true,
+            lineLengthGrid = LineLengthGrid(enabled = false),
+            lineBreakSpans = listOf(
+                LineBreakSpan(TextRange(0, 36), LineBreakPolicy.ProgressiveTechnical),
+            ),
+        ),
+        LayoutFixture(
+            id = "progressive-technical-alpha-numeric",
+            text = "Machine2Machine",
+            constraints = LayoutConstraints(maxWidth = 76f),
+            notes = "TechnicalAlphaNumericTransitionBreak: the real-font report selects " +
+                "Machine2|Machine at the letter-digit structural boundary; the cut stays clean " +
+                "and adds no hyphen.",
+            useEnglishHyphenation = true,
+            lineLengthGrid = LineLengthGrid(enabled = false),
+            lineBreakSpans = listOf(
+                LineBreakSpan(TextRange(0, 15), LineBreakPolicy.ProgressiveTechnical),
             ),
         ),
         LayoutFixture(
