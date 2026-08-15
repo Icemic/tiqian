@@ -38,7 +38,7 @@ class TextRenderingBenchmark {
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(StartupTimingMetric()),
-            compilationMode = CompilationMode.Full(),
+            compilationMode = STARTUP_COMPILATION,
             startupMode = StartupMode.COLD,
             iterations = 5,
             setupBlock = { pressHome() },
@@ -50,7 +50,7 @@ class TextRenderingBenchmark {
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
-            compilationMode = CompilationMode.Full(),
+            compilationMode = INTERACTION_COMPILATION,
             startupMode = StartupMode.WARM,
             iterations = 5,
             setupBlock = { startCaseAndWait(case) },
@@ -68,7 +68,7 @@ class TextRenderingBenchmark {
         benchmarkRule.measureRepeated(
             packageName = TARGET_PACKAGE,
             metrics = listOf(FrameTimingMetric()),
-            compilationMode = CompilationMode.Full(),
+            compilationMode = INTERACTION_COMPILATION,
             startupMode = StartupMode.WARM,
             iterations = 5,
             setupBlock = { startCaseAndWait(case) },
@@ -108,5 +108,19 @@ class TextRenderingBenchmark {
 
     private companion object {
         const val TARGET_PACKAGE = "org.tiqian.demo.android"
+
+        // `JitVisibleCompilation`: the previous `Full()` AOT-compiled everything, so a
+        // regression that only hurts JIT/interpreter paths — the S8+ (API 28) reality — was
+        // invisible. Measure the compilation states a real device actually runs in instead.
+        //
+        // Cold startup on a freshly installed app: no baseline profile, no AOT, so the
+        // interpreter/JIT startup cost is included. This is the worst case a first-launch
+        // user sees, and where a missing baseline profile would show up.
+        val STARTUP_COMPILATION: CompilationMode = CompilationMode.None()
+
+        // Steady-state frames after the hot paths have JIT-warmed (3 warmup iterations):
+        // this is where a "broke the JIT" regression surfaces. Swap to CompilationMode.Full()
+        // for a pure-code-cost upper bound when that comparison is wanted.
+        val INTERACTION_COMPILATION: CompilationMode = CompilationMode.Partial(warmupIterations = 3)
     }
 }
