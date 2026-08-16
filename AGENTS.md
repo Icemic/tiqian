@@ -87,6 +87,18 @@ Layout report 位于
    无法同源时明确报告 capability issue 或回退，不能静默猜测。
 6. **不要假装支持竖排或 JLREQ。** 新 API 需要考虑 writing mode 扩展点，但当前不承诺尚未实现的能力。
 
+## 代码组织
+
+以下是约定而非 lint 强制（不要为此引入 ktlint 之类的工具），适用于 tiqian、tiqian-math、
+tiqian-markdown 三个仓库：
+
+- 单个源文件尽量保持在 1000 行以下。新代码按功能簇分文件；既有文件超标时拆分，
+  优先纯移动，单 object/单类拆不动时允许「成员函数原样搬出为同包 internal 扩展函数」
+  与「巨型测试类按主题拆多类」两种机械等价手段，且必须以模块测试全绿
+  （layout 还要 golden 零 diff）作为行为不变的证据。
+- 主入口文件（如 `TiqianMarkdown.kt`、`WebEnhancer.kt` 的入口 object）只做入口与接线，
+  不堆放实现；实现放到按功能簇命名的文件里。
+
 ## 工作区与提交
 
 工作区可能同时存在其他任务的改动。不要还原、格式化或提交无关文件；同一文件已有并行改动时，
