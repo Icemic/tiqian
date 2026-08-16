@@ -1156,7 +1156,21 @@ class ExplainableStubParagraphLayoutEngine(
                     }
                 }
             }.toMap()
+        val progressiveTechnicalRanges = input.content.lineBreakSpans
+            .filter { it.policy == LineBreakPolicy.ProgressiveTechnical }
+            .map { it.range }
         val numberSymbolClusterRanges = NumberSymbolCohesion.unbreakableRanges(text)
+            // `ProgressiveTechnicalOverridesNumberSymbolCohesion`: CLREQ's number/unit cohesion
+            // describes prose numbers such as `37℃` and `¥100`. Digits inside an explicitly
+            // technical URL/hash/code span belong to that span's Structural → Syllable →
+            // Emergency policy; treating a long digit run as unbreakable can retreat a rightmost
+            // Emergency cut hundreds of pixels and then fill the gap with letter tracking.
+            .filterNot { sourceRange ->
+                progressiveTechnicalRanges.any { technicalRange ->
+                    sourceRange.first < technicalRange.end &&
+                        sourceRange.last + 1 > technicalRange.start
+                }
+            }
             .mapNotNull { r ->
                 naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
             }

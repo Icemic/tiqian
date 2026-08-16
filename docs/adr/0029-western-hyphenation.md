@@ -281,6 +281,9 @@ lookahead 与 paragraph-DP 可以比较 span 之前的 whole-token wrap，但一
 余量先推给 span 外的正文，技术文本中 source 真实存在的空格提供一个额外、有上限的
 `ProgressiveTechnicalWhitespaceStretch`；不足的余量继续使用既有词空格、中西间距与中文正文机会。
 结构符号、CamelCase、音节与硬断边界本身只是可断点，不直接成为 glue。
+正文数字与单位适用的 `NumberSymbolCohesion` 不得覆盖显式 `ProgressiveTechnical` span；URL、hash
+和 inline code 中的数字仍服从同一套 Structural → Syllable → Emergency 层级。否则 raw greedy
+进入数字串后会被正文数字禁则退回较早的字母数字边界，再用 tracking 补上本可由硬断占据的宽度。
 
 实际 trim 与 justification 可能证明 breaker 的松度估算偏低。breaker 与最终正文的容许值均为
 **0**：若选中的非 Emergency 技术断点产生任何 `CjkInterChar`，或借用了其他 opaque token 的

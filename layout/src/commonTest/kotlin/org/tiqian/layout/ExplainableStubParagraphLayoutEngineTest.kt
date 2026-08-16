@@ -1696,6 +1696,39 @@ class ExplainableStubParagraphLayoutEngineTest {
     }
 
     @Test
+    fun progressiveTechnicalHardBreakOverridesNumberRunCohesion() {
+        val text = "aaaaa1234567890bbbb"
+        val technical = LineBreakSpan(TextRange(0, text.length), LineBreakPolicy.ProgressiveTechnical)
+        val breakers: List<LineBreaker> = listOf(
+            GreedyLineBreaker(),
+            LookaheadLineBreaker(),
+            ParagraphDpLineBreaker(),
+        )
+
+        breakers.forEach { breaker ->
+            val result = ExplainableStubParagraphLayoutEngine(
+                lineBreaker = breaker,
+                hyphenator = NoHyphenator,
+            ).layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(
+                        firstLineIndent = Ic(0f),
+                        lineLengthGrid = LineLengthGrid(enabled = false),
+                    ),
+                    content = TiqianTextContent(text, lineBreakSpans = listOf(technical)),
+                    constraints = LayoutConstraints(maxWidth = 160f),
+                ),
+            )
+
+            assertEquals("aaaaa12345", result.lineText(0), breaker.strategyName)
+            assertTrue(
+                result.debug.lineDecisions.first().notes.contains("technical-break:Emergency"),
+                "${breaker.strategyName}: ${result.debug.lineDecisions}",
+            )
+        }
+    }
+
+    @Test
     fun progressiveTechnicalCleanBreakMayNotStretchEarlierOpaqueToken() {
         val text = "deadbeef1234deadbeef1234 ab.cdEfghijklmnop"
         val terminalTechnicalRange = TextRange(25, text.length)
