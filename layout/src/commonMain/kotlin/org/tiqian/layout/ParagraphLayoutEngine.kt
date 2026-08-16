@@ -113,7 +113,7 @@ import org.tiqian.shaping.TextShaper
 import org.tiqian.shaping.UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE
 
 /** Monotonic interval join for source-ordered clusters and source-ordered decisions. */
-private fun <T> List<Cluster>.containingItems(
+internal fun <T> List<Cluster>.containingItems(
     items: List<T>,
     rangeOf: (T) -> TextRange,
 ): List<T?> {
@@ -154,13 +154,13 @@ class ExplainableStubParagraphLayoutEngine(
     private val fontRoleClassifier: FontRoleClassifier = CjkFontRoleClassifier(),
     internal val fallbackResolver: FallbackResolver = PreferCjkForAmbiguousPunctuationResolver(),
     private val clreqProfileResolver: ClreqProfileResolver = BuiltInClreqProfileResolver,
-    private val fontMetricsResolver: FontMetricsResolver = StubFontMetricsResolver(),
-    private val fontMetricsNormalizer: FontMetricsNormalizer = ScriptAwareFontMetricsNormalizer(),
+    internal val fontMetricsResolver: FontMetricsResolver = StubFontMetricsResolver(),
+    internal val fontMetricsNormalizer: FontMetricsNormalizer = ScriptAwareFontMetricsNormalizer(),
     private val punctuationAtomBuilder: PunctuationAtomBuilder = PunctuationAtomBuilder(),
     private val punctuationSpacingCompressor: PunctuationSpacingCompressor = PunctuationSpacingCompressor(),
     private val quotePairAnalyzer: QuotePairAnalyzer = QuotePairAnalyzer(),
     internal val lineBreaker: LineBreaker = GreedyLineBreaker(),
-    private val justifier: Justifier = Justifier(),
+    internal val justifier: Justifier = Justifier(),
     internal val textShaper: TextShaper = ExplainableStubTextShaper(),
     /**
      * Western syllable hyphenation source (CLREQ「可使用连字符处」). Defaults to
@@ -173,7 +173,7 @@ class ExplainableStubParagraphLayoutEngine(
     override fun layout(input: LayoutInput): LayoutResult =
         layoutWithRejectedTechnicalTiers(input, emptyMap())
 
-    private fun layoutWithRejectedTechnicalTiers(
+    internal fun layoutWithRejectedTechnicalTiers(
         input: LayoutInput,
         rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
     ): LayoutResult {
@@ -895,956 +895,75 @@ class ExplainableStubParagraphLayoutEngine(
             }
         }
 
-        // `FontMetricFaceSelectionTextJoin`: font decisions and shaped clusters
-        // are both source ordered. Walk them once instead of filtering the whole
-        // paragraph for every decision (which made layout quadratic on long text).
-        var metricClusterIndex = 0
-        val metricDecisions = fontDecisions.map { decision ->
-            while (
-                metricClusterIndex < naturalClusters.size &&
-                naturalClusters[metricClusterIndex].range.end <= decision.range.start
-            ) {
-                metricClusterIndex += 1
-            }
-            val displayedFaceSelectionText = buildString {
-                while (
-                    metricClusterIndex < naturalClusters.size &&
-                    naturalClusters[metricClusterIndex].range.start < decision.range.end
-                ) {
-                    val cluster = naturalClusters[metricClusterIndex]
-                    require(cluster.range.isInside(decision.range)) {
-                        "Shaped cluster ${cluster.range} crosses font decision ${decision.range}"
-                    }
-                    append(cluster.displayText)
-                    metricClusterIndex += 1
-                }
-            }.ifEmpty { text.substring(decision.range.start, decision.range.end) }
-            val request = FontMetricsRequest(
-                fontKey = decision.candidate.key,
-                fontSize = fontSizeAt(decision.range.start),
-                role = decision.role,
-                locale = input.textStyle.locale,
-                fontWeight = styleAt(decision.range.start).fontWeight,
-                italic = styleAt(decision.range.start).italic,
-                faceSelectionText = displayedFaceSelectionText,
-                fontFamilies = styleAt(decision.range.start).fontFamilies,
-            )
-            val rawMetrics = fontMetricsResolver.resolve(request)
-            val layoutMetrics = fontMetricsNormalizer.normalize(
-                FontMetricsNormalizationInput(
-                    request = request,
-                    rawMetrics = rawMetrics,
-                ),
-            )
-            ClusterMetricDecision(
-                range = decision.range,
-                sourceText = text.substring(decision.range.start, decision.range.end),
-                request = request,
-                rawMetrics = rawMetrics,
-                layoutMetrics = layoutMetrics,
-            )
-        }
-
-        // 行间注 vertical placement (ADR 0032): use the ideographic base face,
-        // then seat the ruby font's declared Latin box above it. Glyph ink does
-        // not participate, so reading content cannot change the baseline grid.
-        val baseMetricDecisions = metricDecisions
-            .filter { it.layoutMetrics.metricBox == MetricBox.IdeographicEmBox }
-            .ifEmpty { metricDecisions }
-        val baseAscent = baseMetricDecisions.maxOfOrNull { it.layoutMetrics.ascent }
-            ?: (fontSize * CJK_FACE_ASCENT_FALLBACK_EM)
-        val baseDescent = baseMetricDecisions.maxOfOrNull { it.layoutMetrics.descent }
-            ?: (fontSize * CJK_FACE_DESCENT_FALLBACK_EM)
-        // BaseIdeographicMetricReference (ADR 0002/0030): CJK body text AND CJK
-        // punctuation both normalize to an IdeographicEmBox on the shared Roman
-        // baseline. The reference therefore comes from any base-size ideographic
-        // metric, not only FontRole.CjkText; otherwise "MacBook。" has an
-        // ideographic line box but the punctuation is shifted toward Latin raw
-        // descent because no Han body cluster appears.
-        val baseRefMetrics = metricDecisions
-            .firstOrNull {
-                it.layoutMetrics.metricBox == MetricBox.IdeographicEmBox &&
-                    it.request.fontSize == fontSize
-            }
-            ?.layoutMetrics
-        val baseBoxDescent = baseRefMetrics?.descent ?: baseDescent
-        // Required vertical space comes from the resolved Latin face's declared
-        // ascent/descent. It is stable for every reading in the same font; glyph
-        // bounds are deliberately irrelevant to line-height and placement.
-        val rubyExtent = rubyFontGeometryBySpan.values.maxOfOrNull { it.requiredExtent } ?: 0f
-
-        // InterlinearMarkLineSpacingFloor (CLREQ 5.6.1.1): with 行间标点
-        // (着重号、示亡号 etc.) present, line spacing (height − 字身高) must not
-        // drop below 1/2 字号 — a tight line height would collide the marks with
-        // the next line. (双面装 5/8 is print-only — show-through — deferred to a
-        // print backend, like 竖排.)
-        val interlinearSpacingFloor = if (input.decorations.isEmpty()) 0f else 0.5f * fontSize
-        val defaultBodyLineHeight = fontSize * DEFAULT_BODY_LINE_HEIGHT_EM
-        // Resolve the unannotated baseline grid first. Ruby can consume its full
-        // inter-line gap (not merely this line box's upper half-leading); only the
-        // measured shortfall is added below on a per-line or paragraph-wide basis.
-        val baseLineMetrics = metricDecisions.lineMetrics(
-            explicitLineHeight = input.paragraphStyle.lineHeight,
-            defaultLineHeight = defaultBodyLineHeight,
-            spacingFloor = interlinearSpacingFloor,
-        )
-        val metricDecisionByRange: Map<TextRange, ClusterMetricDecision> = naturalClusters
-            .zip(naturalClusters.containingItems(metricDecisions, ClusterMetricDecision::range))
-            .mapNotNull { (cluster, decision) -> decision?.let { cluster.range to it } }
-            .toMap()
-        val baseFaceHeight = baseAscent + baseDescent
-        val existingInterlineSpace = (baseLineMetrics.height - baseFaceHeight).coerceAtLeast(0f)
-        val lineSpacingDecision = if (baseLineMetrics.height <= 0f) {
-            null
-        } else {
-            val natural = baseLineMetrics.height - baseLineMetrics.extraLeading
-            val requested = input.paragraphStyle.lineHeight
-            // Did the mark floor raise the line above what the explicit/default
-            // height alone would give? (The 0.5em floor is subsumed by the 1.5em
-            // body default, so it only binds against an explicit tight lineHeight.)
-            val markFloorBinds = interlinearSpacingFloor > 0f &&
-                natural + interlinearSpacingFloor > (requested ?: defaultBodyLineHeight) + 0.001f
-            LineSpacingDecisionInfo(
-                naturalHeight = natural,
-                requestedLineHeight = requested,
-                resolvedHeight = baseLineMetrics.height,
-                spacingFloor = interlinearSpacingFloor,
-                floorApplied = markFloorBinds,
-                reason = when {
-                    requested != null && !markFloorBinds -> "ExplicitLineHeight"
-                    markFloorBinds -> "InterlinearMarkLineSpacingFloor"
-                    else -> "CjkBodyLineHeightDefault"
-                },
-            )
-        }
-        // ParagraphFirstLineIndent (CLREQ 段首缩排): the first line's usable
-        // measure shrinks by the indent; rendering shifts its start edge.
-        // MeasureAdaptiveFirstLineIndent: the indent default narrows to 1 字 on
-        // short measures (< shortBelowEm 字); an explicit firstLineIndent (ic)
-        // overrides. Threshold defaults to 14 字 like MeasureAdaptiveKinsoku's
-        // hanging but is an INDEPENDENT knob (ADR 0021 amendment).
-        val explicitIndentEm = input.paragraphStyle.firstLineIndent?.count
-        val indentPolicy = input.paragraphStyle.firstLineIndentPolicy
-        // 段落缩排 (block indent) insets EVERY line; 段首缩进 (firstLine) stacks on
-        // top, relative to the block, and MAY be negative (凸排：首行退回字头).
-        // Adaptive default is ≥0; an explicit value flows through as-is (incl.
-        // negative). The effective per-line indent is clamped ≥0 at use.
-        // `ic` resolves against the paragraph base 字身框 = fontSize (ADR 0034 段级锚点).
-        val blockIndent = input.paragraphStyle.blockIndent.toPx(fontSize)
-        val resolvedIndentEm = explicitIndentEm ?: indentPolicy.resolveEm(measureEm)
-        val firstLineIndent = (blockIndent + resolvedIndentEm * fontSize).coerceAtLeast(0f)
-        val firstLineIndentDecision = FirstLineIndentDecisionInfo(
-            source = if (explicitIndentEm != null) "Explicit" else "MeasureAdaptiveFirstLineIndent",
-            measureEm = measureEm,
-            thresholdEm = indentPolicy.shortBelowEm,
-            resolvedEm = resolvedIndentEm,
-        )
-        // Resolve 禁则档 + 悬挂 from the kinsoku mode and the measure in 字
-        // (MeasureAdaptiveKinsoku default keys on measure/fontSize).
-        val kinsokuDecision = KinsokuDecisionInfo(
-            measureEm = measureEm,
-            level = resolvedKinsoku.level.name,
-            hanging = resolvedKinsoku.hanging.name,
-            reason = resolvedKinsoku.reason,
-        )
-        // LineEndHangingPunctuation (CLREQ 行尾点号悬挂, ADR 0006): which
-        // clusters may hang past the measure. 顿/逗/句 only.
-        val hangableClusters: Set<Int> = when (resolvedKinsoku.hanging) {
-            HangingPunctuationStyle.Disabled -> emptySet()
-            HangingPunctuationStyle.PauseStops -> naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-                naturalClusters[idx].displayText.singleOrNull() in HANGABLE_PUNCTUATION
-            }
-        }
-        // 行首/行尾禁则按解析出的 KinsokuLevel（CLREQ 四档）；空集 = 不处理档.
-        val asciiPointMarkKinsoku = naturalClusters.attachedAsciiPointMarkKinsoku(
-            clusterRoles = clusterRoles,
-            lineBreakClusters = clusters,
-            level = resolvedKinsoku.level,
-            bodyLineWidth = measure - blockIndent,
-            firstLineWidth = measure - firstLineIndent,
-        )
-        val inlineObjectKinsoku = naturalClusters.inlineObjectAttachedKinsoku(
-            attachments = inlineObjectAttachedMarks,
-            lineBreakClusters = clusters,
-            level = resolvedKinsoku.level,
-            bodyLineWidth = measure - blockIndent,
-            firstLineWidth = measure - firstLineIndent,
-        )
-        val resolvedHangableClusters =
-            hangableClusters +
-                asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
-                inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
-        val unicodePunctuationBoundaries = resolveUnicodePunctuationBoundaries(
+        val prep = ParagraphLayoutPrep(
+            input = input,
+            rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
             text = text,
-            clusters = naturalClusters,
-            clusterRoles = clusterRoles,
-            quotePairs = quotePairs,
-        )
-        val inlineAttachments = naturalInlineAttachments
-        val westernBracketBoundaries = resolveWesternBracketCjkInterCharBoundaries(
-                text = text,
-                clusters = naturalClusters,
-                clusterRoles = clusterRoles,
-            )
-        val attachedInlineInterCharBoundaries = resolveAttachedInlineInterCharBoundaries(
-            text = text,
-            clusters = naturalClusters,
-            clusterRoles = clusterRoles,
-            eastAsianSpacingEdges = eastAsianSpacingEdges,
-            westernBoundaryAfterClusters = westernBracketBoundaries,
-            inlineAttachments = inlineAttachments,
-        )
-        val westernBracketCjkInterCharBoundaryAfterClusters =
-            attachedInlineInterCharBoundaries.ordinaryWesternBoundaryAfterClusters
-        val attachedInlinePhysicalBoundaryAfterClusters =
-            attachedInlineInterCharBoundaries.suppressedPhysicalBoundaryAfterClusters
-        val attachedInlineVirtualBoundaryAfterClusters =
-            attachedInlineInterCharBoundaries.virtualBoundaryAfterClusters
-        val attachedInlineVirtualSinoWesternBoundaryAfterClusters =
-            attachedInlineInterCharBoundaries.virtualSinoWesternBoundaryAfterClusters
-        val attachedInlineForbiddenLineStartClusters = inlineAttachments.indices.filterTo(mutableSetOf()) {
-            inlineAttachments[it] == InlineAttachment.Previous
-        }
-        val forbiddenLineStartClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-            idx in attachedInlineForbiddenLineStartClusters ||
-                idx in zeroWidthBreakClusters ||
-                (
-                clusterRoles.getOrNull(idx).isCjkKinsokuRole() &&
-                    kinsokuRule.forbiddenAtLineStart(naturalClusters[idx])
-                ) ||
-                idx in unicodePunctuationBoundaries.forbiddenLineStartClusters ||
-                idx in asciiPointMarkKinsoku.forbiddenLineStartClusters ||
-                idx in inlineObjectKinsoku.forbiddenLineStartClusters
-        }
-        val forbiddenLineEndClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-            (
-                clusterRoles.getOrNull(idx).isCjkKinsokuRole() &&
-                    kinsokuRule.forbiddenAtLineEnd(naturalClusters[idx])
-                ) ||
-                idx in unicodePunctuationBoundaries.forbiddenLineEndClusters
-        }
-        // LineEndHangingHyphen as a LAST resort (ADR 0029 amendment): a break
-        // before one of these clusters is a syllable/hard-break continuation —
-        // the breaker prefers whole-word wrap + justification and only takes it
-        // when the line would otherwise stretch 汉字间距 past the threshold.
-        val hyphenBreakClusters: Set<Int> = if (hyphenOffsets.isEmpty()) {
-            emptySet()
-        } else {
-            naturalClusters.indices.filterTo(mutableSetOf()) {
-                naturalClusters[it].range.start in hyphenOffsets
-            }
-        }
-        val clusterIndexBySourceStart = naturalClusters.indices.associateBy { naturalClusters[it].range.start }
-        val progressiveTechnicalWhitespaceStretchCapacity =
-            justifier.progressiveTechnicalWhitespaceStretchCapacity(fontSize)
-        val progressiveBreakOpportunities: Map<Int, ProgressiveBreakOpportunity> =
-            progressiveBreakOffsets.mapNotNull { (sourceOffset, opportunity) ->
-                clusterIndexBySourceStart[sourceOffset]?.let { clusterIndex ->
-                    clusterIndex to if (opportunity.tier == ProgressiveBreakTier.Whitespace) {
-                        opportunity.copy(
-                            precedingWhitespaceStretchCapacity =
-                                progressiveTechnicalWhitespaceStretchCapacity,
-                        )
-                    } else {
-                        opportunity
-                    }
-                }
-            }.toMap()
-        val progressiveTechnicalRanges = input.content.lineBreakSpans
-            .filter { it.policy == LineBreakPolicy.ProgressiveTechnical }
-            .map { it.range }
-        val numberSymbolClusterRanges = NumberSymbolCohesion.unbreakableRanges(text)
-            // `ProgressiveTechnicalOverridesNumberSymbolCohesion`: CLREQ's number/unit cohesion
-            // describes prose numbers such as `37℃` and `¥100`. Digits inside an explicitly
-            // technical URL/hash/code span belong to that span's Structural → Syllable →
-            // Emergency policy; treating a long digit run as unbreakable can retreat a rightmost
-            // Emergency cut hundreds of pixels and then fill the gap with letter tracking.
-            .filterNot { sourceRange ->
-                progressiveTechnicalRanges.any { technicalRange ->
-                    sourceRange.first < technicalRange.end &&
-                        sourceRange.last + 1 > technicalRange.start
-                }
-            }
-            .mapNotNull { r ->
-                naturalClusters.clusterIndexRangeFor(TextRange(r.first, r.last + 1))
-            }
-        val numberSymbolUnbreakableRanges = numberSymbolClusterRanges
-            .filter { idxRange ->
-                idxRange.sumOf { naturalClusters[it].advance.toDouble() } <= measure
-            }
-        // CLREQ 拉伸限制②：连接号、分隔号与其左右字符之间不拉伸。
-        // 原子长标号也封住两侧，避免制造看似源文本空格的间距。
-        val noStretchBoundaryClusters: Set<Int> = naturalClusters.indices.filterTo(mutableSetOf()) { idx ->
-            when (atomClassByRange[naturalClusters[idx].range]) {
-                PunctuationClass.Connector,
-                PunctuationClass.Solidus,
-                PunctuationClass.Dash,
-                PunctuationClass.Ellipsis,
-                -> true
-                else -> false
-            }
-        }
-        val noStretchBoundaryAfterClusters = numberSymbolClusterRanges
-            .flatMapTo(mutableSetOf()) { range -> range.first until range.last }
-            .apply {
-                addAll(inlineObjectAttachmentNoStretchBoundaries)
-            }
-        val technicalBoundaryAfterClusters = progressiveBreakOpportunities
-            .filterValues { it.tier == ProgressiveBreakTier.Whitespace }
-            .mapKeys { (rightIndex, _) -> rightIndex - 1 }
-            .mapValues { (_, opportunity) -> opportunity.tier }
-        // `ExplicitEmergencyTrackingEligibility`: only ranges named by the shaping
-        // stage may open intra-token tracking. The map is cluster-indexed so the
-        // Justifier replays source-grapheme boundaries without reclassifying text.
-        val emergencyTrackingBoundaryAfterClusters = buildMap<Int, String> {
-            for (leftIndex in 0 until naturalClusters.lastIndex) {
-                val rightIndex = leftIndex + 1
-                val left = naturalClusters[leftIndex]
-                val right = naturalClusters[rightIndex]
-                if (left.range.end != right.range.start) continue
-                if (
-                    leftIndex in inlineObjectByClusterIndex || rightIndex in inlineObjectByClusterIndex ||
-                    leftIndex in zeroWidthBreakClusters || rightIndex in zeroWidthBreakClusters ||
-                    leftIndex in mandatoryBreakClusters || rightIndex in mandatoryBreakClusters ||
-                    left.text.isEmpty() || right.text.isEmpty() ||
-                    left.text.all(Char::isWhitespace) || right.text.all(Char::isWhitespace)
-                ) {
-                    continue
-                }
-                val eligibility = emergencyTrackingEligibilityDecisions.firstOrNull { decision ->
-                    left.range.start >= decision.range.start && right.range.end <= decision.range.end
-                } ?: continue
-                put(leftIndex, eligibility.reason)
-            }
-        }
-        // The breaker's looseness estimate keeps its established two-class
-        // approximation. The exact final allocation, including repeated
-        // participation of word and sino-western gaps, belongs to Justifier.
-        val adjustableInlineBoundaryRightClusters = uniformInlineObjectBoundaryAfterClusters
-            .mapNotNullTo(mutableSetOf()) { leftIndex ->
-                val rightIndex = leftIndex + 1
-                if (
-                    leftIndex in noStretchBoundaryAfterClusters ||
-                    leftIndex in noStretchBoundaryClusters ||
-                    rightIndex in noStretchBoundaryClusters
-                ) {
-                    null
-                } else {
-                    rightIndex
-                }
-            }
-        val cjkInterCharBoundaries: Set<Int> = buildSet {
-            addAll((1 until naturalClusters.size).filter {
-                it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
-                    it - 1 !in noStretchBoundaryAfterClusters &&
-                    clusterRoles[it - 1] == FontRole.CjkText && clusterRoles[it] == FontRole.CjkText
-            })
-            // Paragraph-global and lookahead breakers price the same safe
-            // inline-object gaps that the final justifier can actually use.
-            addAll(adjustableInlineBoundaryRightClusters)
-            // `WesternBracketCjkInterChar`: the breaker must price the same
-            // proportional-bracket gaps that final tier-3 justification uses.
-            addAll(westernBracketCjkInterCharBoundaryAfterClusters.map { it + 1 })
-            addAll(attachedInlineVirtualBoundaryAfterClusters.keys.map { it + 1 })
-        }
-        val sinoWesternBoundaries: Set<Int> = buildSet {
-            addAll((1 until naturalClusters.size).filter {
-                it - 1 !in attachedInlinePhysicalBoundaryAfterClusters &&
-                    it - 1 !in noStretchBoundaryAfterClusters &&
-                    isEastAsianSpacingBoundaryAt(
-                        rightIndex = it,
-                        clusters = naturalClusters,
-                        spacingEdges = eastAsianSpacingEdges,
-                    )
-            })
-            addAll(attachedInlineVirtualSinoWesternBoundaryAfterClusters.map { it + 1 })
-        }
-        val attachedInlineUnbreakableRanges =
-            resolveAttachedInlineVirtualBoundaries(inlineAttachments).map { boundary ->
-                boundary.previousClusterIndex..boundary.attachedClusterRange.last
-            }
-        val unbreakableRanges =
-            input.decorations
-                .filter { it.kind == DecorationKind.Mourning }
-                .mapNotNull { span -> naturalClusters.clusterIndexRangeFor(span.range) } +
-                // 行间注 (ADR 0032): 基文+注文不可拆 (CLREQ §注释符号).
-                pinyinSpans.mapNotNull { naturalClusters.clusterIndexRangeFor(it.baseRange) } +
-                // `AttachedInlineAvoidLineStart`: the forbidden-line-start set
-                // drives kinsoku repair; this structural range also prevents the
-                // initial breaker from proposing a split inside base+reference.
-                attachedInlineUnbreakableRanges +
-                numberSymbolUnbreakableRanges +
-                // `Uax14WesternPunctuationBoundary`: express punctuation
-                // protection as a closed boundary up front, not only as a
-                // post-break repair. This allows ordinary reflow to move the
-                // following suffix instead of leaving a closing mark at line start.
-                unicodePunctuationBoundaries.unbreakableRanges +
-                // `AttachedAsciiPointMarkKinsoku`: the preceding visible
-                // cluster and its attached point mark form a hard no-break boundary.
-                asciiPointMarkKinsoku.unbreakableRanges +
-                // `InlineObjectAttachedKinsoku`: formula/widget objects are
-                // visibly present even though their displayText is empty.
-                inlineObjectKinsoku.unbreakableRanges +
-                // Adjustment-only formula boundaries do not become accidental line breaks.
-                inlineObjectBoundaryUnbreakableRanges
-        val lineSolution = if (text.isEmpty()) {
-            LineSolution(emptyList())
-        } else {
-            lineBreaker.breakLines(
-                naturalClusters = naturalClusters,
-                adjustedClusters = clusters,
-                // The breaker only needs per-line USABLE widths (via lineLimit):
-                // feed it the body width (measure − blockIndent) and a first-line
-                // indent relative to it. Rest lines then get the body width, line 0
-                // gets `measure − firstLineIndent`. Identical to before when
-                // blockIndent = 0; enables 段落缩排/凸排 with zero breaker changes.
-                maxWidth = measure - blockIndent,
-                firstLineIndent = firstLineIndent - blockIndent,
-                shrinkOpportunities = shrinkOpportunities,
-                // MourningSpanKeptUnbroken: 示亡号 spans stay on one line
-                // whenever they fit (ADR 0018). NumberSymbolCohesion: CLREQ
-                // 符号分离禁则 keeps 数字 + 前后缀符号/货币 on one line — but only
-                // when the group actually fits the measure; a number wider than
-                // the column can't be kept whole, so it falls back to normal
-                // breaking instead of forcing an impossible constraint.
-                unbreakableRanges = unbreakableRanges,
-                hangableClusters = resolvedHangableClusters,
-                extendableHangRanges =
-                    asciiPointMarkKinsoku.extendableHangRanges + inlineObjectKinsoku.extendableHangRanges,
-                forbiddenLineStartClusters = forbiddenLineStartClusters,
-                forbiddenLineEndClusters = forbiddenLineEndClusters,
-                hyphenBreakClusters = hyphenBreakClusters,
-                cjkInterCharBoundaries = cjkInterCharBoundaries,
-                maxCjkStretchPerGap = HYPHEN_LAST_RESORT_CJK_STRETCH_EM * fontSize,
-                sinoWesternBoundaries = sinoWesternBoundaries,
-                sinoWesternStretchCap = HYPHEN_SINO_WESTERN_STRETCH_CAP_EM * fontSize,
-                // LineAdjustmentStrategy (ADR 0031 修订): 推入/推出 是固定顺序,
-                // 不再有「偏差最小化」折中。PushInFirst = 能压就压(bias→∞),
-                // PushOutFirst = 先断行拉伸, PushOutOnly = 从不推入(旧行为)。
-                lineAdjustmentPushIn = adjustmentStyle.lineAdjustment != LineAdjustmentStrategy.PushOutOnly,
-                lineAdjustmentCompressBias = when (adjustmentStyle.lineAdjustment) {
-                    LineAdjustmentStrategy.PushInFirst -> 1_000_000f
-                    LineAdjustmentStrategy.PushOutFirst -> 0.5f
-                    LineAdjustmentStrategy.PushOutOnly -> 0f
-                },
-                hardBreakAfterClusters = mandatoryBreakClusters,
-                nonRenderingControlClusters = zeroWidthBreakClusters,
-                progressiveBreakOpportunities = progressiveBreakOpportunities,
-            )
-        }
-        val appliedHangingClusters = lineSolution.lines
-            .flatMap { it.hangingClusterIndices }
-            .toSet()
-        val impossibleMeasureContextualHangClusters =
-            asciiPointMarkKinsoku.impossibleMeasureHangEligibleClusters +
-                inlineObjectKinsoku.impossibleMeasureHangEligibleClusters
-        val contextualKinsokuDecisions =
-            (
-                asciiPointMarkKinsoku.decisions +
-                    inlineObjectKinsoku.decisions +
-                    unicodePunctuationBoundaries.decisions
-                )
-                .distinctBy { decision -> decision.range to decision.forbiddenPosition }
-                .map { decision ->
-            if (
-                decision.clusterIndex in impossibleMeasureContextualHangClusters &&
-                decision.clusterIndex in appliedHangingClusters
-            ) {
-                decision.copy(
-                    impossibleMeasureFallback = when (decision.reason) {
-                        "AttachedAsciiPointMarkKinsoku" -> "AttachedAsciiPointMarkImpossibleMeasureHang"
-                        else -> "InlineObjectAttachedMarkImpossibleMeasureHang"
-                    },
-                )
-            } else {
-                decision
-            }
-        }
-        val pushInAllocations = lineSolution.lines
-            .mapNotNull { it.repair as? RepairOption.PushIn }
-            .flatMap { it.allocations }
-        val pushInTrailing = HashMap<Int, Float>()
-        val pushInLeading = HashMap<Int, Float>()
-        val pushInRawTrims = HashMap<Int, Float>()
-        for (alloc in pushInAllocations) {
-            when (alloc.channel) {
-                ShrinkChannel.TrailingGlue ->
-                    pushInTrailing.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
-                ShrinkChannel.LeadingGlue ->
-                    // 开夹注符号前侧（CLREQ 挤压④）；渲染层按 consumed
-                    // leading 左移字形原点（ADR 0017 amendment）。
-                    pushInLeading.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
-                ShrinkChannel.LeadingAndTrailingGlue -> {
-                    // CLREQ: 间隔号挤压必须同时从字面两侧、同等量处理.
-                    pushInLeading.mergeValue(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
-                    pushInTrailing.mergeValue(alloc.clusterIndex, alloc.shrink / 2f) { a, b -> a + b }
-                }
-                ShrinkChannel.RawAdvance ->
-                    pushInRawTrims.mergeValue(alloc.clusterIndex, alloc.shrink) { a, b -> a + b }
-            }
-        }
-        // LineEndHangingHyphen 标点挤压 (ADR 0029 amend): a reserved hyphen that
-        // would overflow the measure first squeezes the line's compressible glue
-        // (the same `shrinkOpportunities`, in CLREQ 挤压 tier order, minus what
-        // PushIn already took); only the residual it cannot recover hangs past
-        // the edge. Augments the PushIn consume maps so the geometry applies both.
-        fun lineHyphenAdvanceAt(lineIndex: Int): Float {
-            if (hyphenOffsets.isEmpty() || lineIndex >= lineSolution.lines.lastIndex) return 0f
-            val next = lineSolution.lines[lineIndex + 1]
-            if (next.clusterRange.isEmptyClusterRange()) return 0f
-            val nextFirst = next.clusterRange.first
-            return if (naturalClusters[nextFirst].range.start in hyphenOffsets) hyphenAdvance else 0f
-        }
-        if (hyphenOffsets.isNotEmpty()) {
-            lineSolution.lines.forEachIndexed { lineIndex, line ->
-                if (line.clusterRange.isEmptyClusterRange()) return@forEachIndexed
-                val hyphen = lineHyphenAdvanceAt(lineIndex)
-                if (hyphen <= 0f) return@forEachIndexed
-                val lineLimit = if (line.clusterRange.first == 0) measure - firstLineIndent else measure - blockIndent
-                val content = line.clusterRange.sumOf { clusters[it].advance.toDouble() }.toFloat()
-                var shortfall = content + hyphen - lineLimit
-                if (shortfall <= 0.001f) return@forEachIndexed
-                for (opp in shrinkOpportunities.filter { it.clusterIndex in line.clusterRange && !it.lineEndOnly }.sortedBy { it.tier }) {
-                    if (shortfall <= 0.001f) break
-                    val used = when (opp.channel) {
-                        ShrinkChannel.TrailingGlue -> pushInTrailing[opp.clusterIndex] ?: 0f
-                        ShrinkChannel.LeadingGlue -> pushInLeading[opp.clusterIndex] ?: 0f
-                        ShrinkChannel.RawAdvance -> pushInRawTrims[opp.clusterIndex] ?: 0f
-                        ShrinkChannel.LeadingAndTrailingGlue ->
-                            (pushInLeading[opp.clusterIndex] ?: 0f) + (pushInTrailing[opp.clusterIndex] ?: 0f)
-                    }
-                    val take = minOf(shortfall, (opp.capacity - used).coerceAtLeast(0f))
-                    if (take <= 0f) continue
-                    when (opp.channel) {
-                        ShrinkChannel.TrailingGlue -> pushInTrailing.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
-                        ShrinkChannel.LeadingGlue -> pushInLeading.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
-                        ShrinkChannel.LeadingAndTrailingGlue -> {
-                            pushInLeading.mergeValue(opp.clusterIndex, take / 2f) { a, b -> a + b }
-                            pushInTrailing.mergeValue(opp.clusterIndex, take / 2f) { a, b -> a + b }
-                        }
-                        ShrinkChannel.RawAdvance -> pushInRawTrims.mergeValue(opp.clusterIndex, take) { a, b -> a + b }
-                    }
-                    shortfall -= take
-                }
-            }
-        }
-        val pushInGeometry = baseGeometry
-            .consumeTrailingByCluster(pushInTrailing)
-            .consumeLeadingByCluster(pushInLeading)
-        val pushInClusters = pushInGeometry.resolveClusters()
-        val edgeTrimResult = pushInGeometry.consumeLineEdgeGlue(
-            lines = lineSolution.lines,
-            forceLineEndHalfWidth = adjustmentStyle.lineEndPunctuation ==
-                LineEndPunctuationStyle.ForceHalfWidth,
-        )
-        // TextAutoSpaceLineEdgeTrim: the autospace replacement gap lives in
-        // the Latin cluster's advance, not in punctuation glue, so the edge
-        // trim above can't see it. A typed-space boundary gap landing on a
-        // line edge must disappear like any other line-edge blank — without
-        // this, justified lines stop one gap short of the right edge.
-        val autoSpaceGap = clreqProfile.autoSpace.gapEm * fontSize
-        val autoSpaceEdgeTrims = HashMap<Int, Float>()
-        val autoSpaceEdgeDecisions = mutableListOf<LineEdgeTrimDecisionInfo>()
-        lineSolution.lines.forEach { line ->
-            if (line.clusterRange.isEmptyClusterRange()) return@forEach
-            fun trimEdge(clusterIdx: Int, side: String) {
-                val decision = autoSpaceDecisions.firstOrNull {
-                    it.clusterRange == naturalClusters[clusterIdx].range && it.side == side
-                } ?: return
-                autoSpaceEdgeTrims.mergeValue(clusterIdx, autoSpaceGap) { a, b -> a + b }
-                autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
-                    lineRange = line.sourceRange,
-                    clusterRange = decision.clusterRange,
-                    side = side,
-                    trimAmount = autoSpaceGap,
-                    consumedBefore = 0f,
-                    naturalGlue = autoSpaceGap,
-                    reason = "TextAutoSpaceLineEdgeTrim",
-                )
-            }
-            trimEdge(line.clusterRange.last, "trailing")
-            trimEdge(line.clusterRange.first, "leading")
-
-            // LineEdgeWordSpaceCollapse: a space-run cluster landing on a
-            // line edge collapses entirely (CSS-like line-edge space
-            // removal; also CLREQ — no sino-western gap at line edges).
-            fun collapseEdgeSpace(clusterIdx: Int, side: String) {
-                val cluster = naturalClusters[clusterIdx]
-                if (!cluster.isSpaceRun()) return
-                if (clusterIdx in inlineObjectSeparatorSpaceTrims) return
-                val advance = naturalClusters[clusterIdx].advance
-                if (advance <= 0f) return
-                autoSpaceEdgeTrims.mergeValue(clusterIdx, advance) { a, b -> a + b }
-                autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
-                    lineRange = line.sourceRange,
-                    clusterRange = cluster.range,
-                    side = side,
-                    trimAmount = advance,
-                    consumedBefore = 0f,
-                    naturalGlue = advance,
-                    reason = "LineEdgeWordSpaceCollapse",
-                )
-            }
-            collapseEdgeSpace(line.clusterRange.last, "trailing")
-            collapseEdgeSpace(line.clusterRange.first, "leading")
-
-            val attachedGlueCluster = line.clusterRange.last
-            val attachedGlue = attachedPunctuationTrailingGlueByCluster[attachedGlueCluster] ?: 0f
-            if (attachedGlue > 0f) {
-                autoSpaceEdgeTrims.mergeValue(attachedGlueCluster, attachedGlue) { a, b -> a + b }
-                autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
-                    lineRange = line.sourceRange,
-                    clusterRange = naturalClusters[attachedGlueCluster].range,
-                    side = "trailing",
-                    trimAmount = attachedGlue,
-                    consumedBefore = 0f,
-                    naturalGlue = attachedGlue,
-                    reason = "AttachedInlineVirtualBoundaryLineEndTrim",
-                )
-            }
-
-            // InlineObjectLineEndDiscardableGlue: a formula fragment includes its natural
-            // post-operator math spacing when it stays in the line. If the paragraph actually
-            // breaks at that boundary, the space is line-edge glue rather than visible content.
-            // Remove only the part not already consumed by PushIn; the following fragment has no
-            // corresponding leading advance, so both the old line end and new line start stay flush.
-            if (line.endReason == LineEndReason.AutoWrap) {
-                val clusterIdx = line.clusterRange.last
-                val discardable = inlineObjectByClusterIndex[clusterIdx]
-                    ?.trailingBoundary
-                    ?.lineEndDiscardableAdvance
-                    ?: 0f
-                val consumedBefore = minOf(pushInRawTrims[clusterIdx] ?: 0f, discardable)
-                val remaining = (discardable - consumedBefore).coerceAtLeast(0f)
-                if (remaining > 0f) {
-                    autoSpaceEdgeTrims.mergeValue(clusterIdx, remaining) { a, b -> a + b }
-                    autoSpaceEdgeDecisions += LineEdgeTrimDecisionInfo(
-                        lineRange = line.sourceRange,
-                        clusterRange = naturalClusters[clusterIdx].range,
-                        side = "trailing",
-                        trimAmount = remaining,
-                        consumedBefore = consumedBefore,
-                        naturalGlue = discardable,
-                        reason = "InlineObjectLineEndDiscardableGlue",
-                    )
-                }
-            }
-        }
-        val rawTrims = HashMap<Int, Float>(autoSpaceEdgeTrims)
-        pushInRawTrims.forEach { (idx, amount) -> rawTrims.mergeValue(idx, amount) { a, b -> a + b } }
-        val trimmedGeometry = edgeTrimResult.geometry.withRawEdgeTrims(rawTrims)
-        val trimmedClusters = trimmedGeometry.resolveClusters()
-        val edgeTrimDecisions = edgeTrimResult.decisions + autoSpaceEdgeDecisions
-
-        // LineEndHangingHyphen reserved width (ADR 0029 amend): a line that ends
-        // mid-word at a hyphenation point gives the trailing hyphen real width
-        // inside the measure — like a line-end punctuation mark, NOT hung by
-        // default. The content therefore fills only `measure − hyphen`; when the
-        // content can't be squeezed that far (over-long words with no room) the
-        // hyphen falls past the edge (hangs) as a last resort, automatically.
-        // CLREQ:「中文排版特别是书籍正文排版极少使用左齐右不齐，原则上
-        // 应该进行两端对齐」— justification is the baseline, not an option:
-        // every non-last line goes through the justify chain. The last line
-        // is positioned by ParagraphStyle.lastLineAlignment instead.
-        val justificationPlans: List<JustificationPlan?> = lineSolution.lines.mapIndexed { lineIndex, lineCandidate ->
-            val isLast = lineIndex == lineSolution.lines.lastIndex
-            if (isLast || lineCandidate.clusterRange.isEmptyClusterRange() || lineCandidate.endReason != LineEndReason.AutoWrap) {
-                null
-            } else {
-                val selectedTechnicalBreak =
-                    progressiveBreakOpportunities[lineCandidate.clusterRange.last + 1]
-                val preferredTrackingSpan = selectedTechnicalBreak
-                    ?.spanRange
-                    ?.takeIf { selectedTechnicalBreak.tier == ProgressiveBreakTier.Emergency }
-                val preferredEmergencyTrackingBoundaries = if (preferredTrackingSpan == null) {
-                    emptyMap()
-                } else {
-                    emergencyTrackingBoundaryAfterClusters.filterKeys { leftIndex ->
-                        val rightIndex = leftIndex + 1
-                        naturalClusters[leftIndex].range.start >= preferredTrackingSpan.start &&
-                            naturalClusters[rightIndex].range.end <= preferredTrackingSpan.end
-                    }
-                }
-                // A hung mark sits beyond the measure: justify fills the
-                // CONTENT (range minus the hanging mark) to maxWidth.
-                justifier.justify(
-                    adjustedClusters = trimmedClusters,
-                    clusterRoles = clusterRoles,
-                    eastAsianSpacingEdges = eastAsianSpacingEdges,
-                    lineClusterRange = lineCandidate.inMeasureClusterRange,
-                    maxWidth = (if (lineCandidate.clusterRange.first == 0) {
-                        measure - firstLineIndent
-                    } else {
-                        measure - blockIndent
-                    }) - lineHyphenAdvanceAt(lineIndex),
-                    fontSize = fontSize,
-                    skip = false,
-                    allowSinoWesternGapStretch = adjustmentStyle.allowSinoWesternGapAdjustment,
-                    cjkLatinSpaceBaseEm = clreqProfile.autoSpace.gapEm,
-                    cjkLatinSpaceMaxEm = clreqProfile.autoSpace.stretchMaxEm,
-                    noStretchBoundaryClusters = noStretchBoundaryClusters,
-                    noStretchBoundaryAfterClusters = noStretchBoundaryAfterClusters,
-                    westernBracketCjkInterCharBoundaryAfterClusters =
-                        westernBracketCjkInterCharBoundaryAfterClusters,
-                    attachedInlinePhysicalBoundaryAfterClusters =
-                        attachedInlinePhysicalBoundaryAfterClusters,
-                    attachedInlineVirtualBoundaryAfterClusters =
-                        attachedInlineVirtualBoundaryAfterClusters,
-                    attachedInlineVirtualSinoWesternBoundaryAfterClusters =
-                        attachedInlineVirtualSinoWesternBoundaryAfterClusters,
-                    uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
-                    preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
-                    technicalBoundaryAfterClusters = technicalBoundaryAfterClusters,
-                    emergencyTrackingBoundaryAfterClusters = emergencyTrackingBoundaryAfterClusters,
-                    preferredEmergencyTrackingBoundaryAfterClusters = preferredEmergencyTrackingBoundaries,
-                )
-            }
-        }
-        // `CurrentLineTechnicalTierRejection`: whether a complete technical token could fit some
-        // other line is irrelevant to this line's decision. If a non-Emergency tier still requires
-        // unbounded body or grapheme tracking after real trimming and justification, reject that
-        // exact tier for the span and replay the hierarchy. The retry exposes Emergency candidates
-        // but still gives every not-yet-rejected cleaner tier its normal chance. Since every retry
-        // adds at least one of the finite tiers, recursion is bounded and monotonic.
-        val currentLineTechnicalBodyStretchLimit =
-            CURRENT_LINE_TECHNICAL_BODY_STRETCH_LIMIT_EM * fontSize
-        val newlyRejectedTechnicalTiers = mutableMapOf<TextRange, MutableSet<ProgressiveBreakTier>>()
-        lineSolution.lines.indices.forEach { lineIndex ->
-                val line = lineSolution.lines[lineIndex]
-                if (line.endReason != LineEndReason.AutoWrap || line.clusterRange.isEmptyClusterRange()) {
-                    return@forEach
-                }
-                val selectedTechnicalBreak = progressiveBreakOpportunities[line.clusterRange.last + 1]
-                    ?.takeUnless { it.tier == ProgressiveBreakTier.Emergency }
-                    ?: return@forEach
-                val rejectedForSpan = rejectedTechnicalTiersBySpan[selectedTechnicalBreak.spanRange].orEmpty()
-                if (selectedTechnicalBreak.tier in rejectedForSpan) return@forEach
-                val currentLinePlan = justificationPlans.getOrNull(lineIndex) ?: return@forEach
-                val currentLineUsesUnboundedTracking = currentLinePlan.allocations.any { allocation ->
-                    (allocation.kind == GlueKind.CjkInterChar ||
-                        allocation.kind == GlueKind.EmergencyGraphemeTracking) &&
-                        allocation.delta >
-                        currentLineTechnicalBodyStretchLimit + TECHNICAL_STRETCH_EPSILON_PX
-                }
-                if (currentLineUsesUnboundedTracking) {
-                    newlyRejectedTechnicalTiers
-                        .getOrPut(selectedTechnicalBreak.spanRange) { mutableSetOf() }
-                        .add(selectedTechnicalBreak.tier)
-                }
-            }
-        if (newlyRejectedTechnicalTiers.isNotEmpty()) {
-            val updatedRejectedTiers = rejectedTechnicalTiersBySpan
-                .mapValues { (_, tiers) -> tiers.toMutableSet() }
-                .toMutableMap()
-            newlyRejectedTechnicalTiers.forEach { (span, tiers) ->
-                updatedRejectedTiers.getOrPut(span) { mutableSetOf() }.addAll(tiers)
-            }
-            return layoutWithRejectedTechnicalTiers(
-                input,
-                updatedRejectedTiers,
-            )
-        }
-        val justifyDeltaByCluster = HashMap<Int, Float>().apply {
-            justificationPlans.filterNotNull()
-                .flatMap { it.allocations }
-                .forEach { alloc -> mergeValue(alloc.targetClusterIndex, alloc.delta) { a, b -> a + b } }
-        }
-        val finalGeometry = trimmedGeometry.addJustificationDeltas(justifyDeltaByCluster)
-        val finalClusters = finalGeometry.resolveClusters().map { c ->
-            // 字身框 bottom alignment: shift so this cluster's ideographic box
-            // bottom meets the base 字身框 bottom (0 for base font/size).
-            // ExplicitBaselineShiftSpan then stacks author intent (sup/subscript)
-            // on top of that metric alignment; Roman clusters still keep metric
-            // shift 0 but may receive the explicit style shift.
-            val m = metricDecisionByRange[c.range]?.layoutMetrics ?: return@map c
-            val metricShift = if (m.baselineClass == BaselineClass.Roman) 0f else baseBoxDescent - m.descent
-            val shift = c.baselineShift + metricShift + styleAt(c.range.start).baselineShift
-            if (shift > -0.01f && shift < 0.01f) c else c.copy(baselineShift = shift)
-        }
-        val geometryDecisions = finalGeometry.toDecisionInfo()
-
-        // DashInkCentering: a 破折号 body is TWO EM by model (grid), but some
-        // platform fonts draw their dash rule ≈1.6em of ink left-aligned in the
-        // box (Pixel's Noto CJK — both its `⸺` and its `——` ligature share that
-        // narrow rule). Centering the ink turns a one-sided ~0.35em hole into
-        // symmetric side bearings. Only when the shaper reported ink bounds.
-        fun List<Glyph>.centerDashInk(cluster: Cluster): List<Glyph> {
-            if (atomClassByRange[cluster.range] != PunctuationClass.Dash) return this
-            val glyph = singleOrNull() ?: return this
-            val ink = glyph.bounds ?: return this
-            val inset = (cluster.advance - (ink.right - ink.left)) / 2f - ink.left
-            if (inset <= 0.5f) return this
-            return listOf(glyph.copy(x = glyph.x + inset))
-        }
-        val glyphRuns = finalClusters
-            .renderableGlyphRunClusters(openTypeFeaturesByClusterRange)
-            .map { runClusters ->
-                val openTypeFeatures = openTypeFeaturesByClusterRange[runClusters.first().range].orEmpty()
-                GlyphRun(
-                    range = TextRange(runClusters.first().range.start, runClusters.last().range.end),
-                    fontKey = runClusters.first().fontKey,
-                    glyphs = runClusters.flatMapIndexed { fallbackGlyphId, cluster ->
-                        shapedGlyphsByClusterRange[cluster.range]
-                            ?.mapToClusterRange(cluster)
-                            ?.centerDashInk(cluster)
-                            ?: listOf(
-                                Glyph(
-                                    id = fallbackGlyphId.toUInt(),
-                                    clusterRange = cluster.range,
-                                    advance = cluster.advance,
-                                ),
-                            )
-                    },
-                    advance = runClusters.sumOf { it.advance.toDouble() }.toFloat(),
-                    openTypeFeatures = openTypeFeatures,
-                )
-            }
-
-        val verticalGeometry = resolveLineVerticalGeometry(
-            input = input,
             fontSize = fontSize,
-            pinyinSpans = pinyinSpans,
-            naturalClusters = naturalClusters,
-            lineSolution = lineSolution,
-            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
-            existingInterlineSpace = existingInterlineSpace,
-            baseLineMetrics = baseLineMetrics,
-            baseFaceHeight = baseFaceHeight,
-            rubyExtent = rubyExtent,
-            inlineObjectByClusterIndex = inlineObjectByClusterIndex,
-            baseAscent = baseAscent,
-            baseDescent = baseDescent,
-        )
-        val rubyLineHeightDecision = verticalGeometry.rubyLineHeightDecision
-        val inlineObjectLineHeightDecision = verticalGeometry.inlineObjectLineHeightDecision
-        val lineBaseline = verticalGeometry.lineBaseline
-        val lineTop = verticalGeometry.lineTop
-        val lineBottom = verticalGeometry.lineBottom
-
-        val lineBoxes = buildLineBoxes(
-            input = input,
-            lineSolution = lineSolution,
-            trimmedClusters = trimmedClusters,
-            finalClusters = finalClusters,
-            firstLineIndent = firstLineIndent,
-            blockIndent = blockIndent,
-            measure = measure,
-            gridBodyOffset = gridBodyOffset,
-            lineBaseline = lineBaseline,
-            lineTop = lineTop,
-            lineBottom = lineBottom,
-            lineHyphenAdvanceAt = ::lineHyphenAdvanceAt,
-            hyphenGlyphs = hyphenGlyphs,
-            justificationPlans = justificationPlans,
-        )
-        val laidOutLines = lineBoxes.laidOutLines
-        val lines = lineBoxes.visibleLines
-        val maxLinesDecision = lineBoxes.maxLinesDecision
-        val visibleLineRanges = lineBoxes.visibleLineRanges
-        val annotationGeometry = resolveAnnotationGeometry(
-            input = input,
-            fontSize = fontSize,
-            inlineObjectByClusterIndex = inlineObjectByClusterIndex,
-            lineSolution = lineSolution,
-            clreqProfile = clreqProfile,
-            geometryDecisions = geometryDecisions,
-            autoSpaceDecisions = autoSpaceDecisions,
-            visibleLineRanges = visibleLineRanges,
-            lines = lines,
-            finalClusters = finalClusters,
-            clusterRoles = clusterRoles,
-            justifyDeltaByCluster = justifyDeltaByCluster,
-            rubyAndBopomofoSpread = rubyAndBopomofoSpread,
-            metricDecisions = metricDecisions,
-            pinyinSpans = pinyinSpans,
-            naturalClusters = naturalClusters,
-            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
-            rubyStackGap = rubyStackGap,
-            baseAscent = baseAscent,
-            rubyFontSize = rubyFontSize,
-            rubyFontWeight = rubyFontWeight,
-            baseDescent = baseDescent,
+            styleAt = ::styleAt,
+            fontSizeAt = ::fontSizeAt,
             bopomofoFontWeightAt = ::bopomofoFontWeightAt,
+            rubyFontSize = rubyFontSize,
+            rubyStackGap = rubyStackGap,
+            rubyFontWeight = rubyFontWeight,
+            pinyinSpans = pinyinSpans,
+            clreqProfile = clreqProfile,
+            punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
+            measure = measure,
+            measureEm = measureEm,
+            gridBodyOffset = gridBodyOffset,
+            lineLengthGridDecision = lineLengthGridDecision,
+            quotePairs = quotePairs,
+            roleOverrideInfos = roleOverrideInfos,
+            fontDecisions = fontDecisions,
+            hyphenOffsets = hyphenOffsets,
+            hyphenAdvance = hyphenAdvance,
+            hyphenGlyphs = hyphenGlyphs,
+            substitutionRollbacks = substitutionRollbacks,
+            breakOpportunityDecisions = breakOpportunityDecisions,
+            emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions,
+            progressiveBreakOffsets = progressiveBreakOffsets,
+            shapedGlyphsByClusterRange = shapedGlyphsByClusterRange,
+            openTypeFeaturesByClusterRange = openTypeFeaturesByClusterRange,
+            shapingDecisions = shapingDecisions,
+            eastAsianSpacingEdges = eastAsianSpacingEdges,
+            autoSpaceDecisions = autoSpaceDecisions,
+            inlineBoxResult = inlineBoxResult,
+            naturalClusters = naturalClusters,
+            inlineObjectByClusterIndex = inlineObjectByClusterIndex,
+            uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
+            preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
+            inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryUnbreakableRanges,
+            clusterRoles = clusterRoles,
+            resolvedKinsoku = resolvedKinsoku,
+            kinsokuRule = kinsokuRule,
+            inlineObjectAttachedMarks = inlineObjectAttachedMarks,
+            inlineObjectSeparatorSpaceTrims = inlineObjectSeparatorSpaceTrims,
+            inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachmentNoStretchBoundaries,
+            inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
+            mandatoryBreakClusters = mandatoryBreakClusters,
+            zeroWidthBreakClusters = zeroWidthBreakClusters,
+            mandatoryBreakDecisions = mandatoryBreakDecisions,
+            zeroWidthBreakDecisions = zeroWidthBreakDecisions,
+            punctuationAtoms = punctuationAtoms,
+            spacingPlan = spacingPlan,
+            rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+            rubyAndBopomofoSpread = rubyAndBopomofoSpread,
+            naturalInlineAttachments = naturalInlineAttachments,
+            attachedPunctuationBoundary = attachedPunctuationBoundary,
+            baseGeometry = baseGeometry,
+            attachedPunctuationTrailingGlueByCluster = attachedPunctuationTrailingGlueByCluster,
+            clusters = clusters,
+            adjustmentStyle = adjustmentStyle,
+            atomClassByRange = atomClassByRange,
+            shrinkOpportunities = shrinkOpportunities,
         )
-        val inlineObjectDecisions = annotationGeometry.inlineObjectDecisions
-        val decorationDecisions = annotationGeometry.decorationDecisions
-        val decorationSegments = annotationGeometry.decorationSegments
-        val rubyDecisions = annotationGeometry.rubyDecisions
-        val bopomofoDecisions = annotationGeometry.bopomofoDecisions
-
-        val widestLine = lines.maxOfOrNull { it.indent + it.visualWidth + it.hyphenAdvance } ?: 0f
-        val totalHeight = lines.lastOrNull()?.bottom ?: if (text.isEmpty()) 0f else baseLineMetrics.height
-        val resultWidth = widestLine.coerceAtMost(input.constraints.maxWidth)
-
-        return LayoutResult(
-            input = input,
-            size = Size(
-                width = resultWidth,
-                height = totalHeight,
-            ),
-            clusters = finalClusters,
-            glyphRuns = glyphRuns,
-            lines = lines,
-            debug = buildLayoutDebugInfo(
-                LayoutDebugStageInput(
-                    text = text,
-                    fontDecisions = fontDecisions,
-                    punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
-                    substitutionRollbacks = substitutionRollbacks,
-                    shapingDecisions = shapingDecisions,
-                    metricDecisions = metricDecisions,
-                    punctuationAtoms = punctuationAtoms,
-                    geometryDecisions = geometryDecisions,
-                    spacingPlan = spacingPlan,
-                    attachedPunctuationBoundary = attachedPunctuationBoundary,
-                    roleOverrideInfos = roleOverrideInfos,
-                    laidOutLines = laidOutLines,
-                    lineSolution = lineSolution,
-                    clusters = clusters,
-                    justificationPlans = justificationPlans,
-                    autoSpaceDecisions = autoSpaceDecisions,
-                    edgeTrimDecisions = edgeTrimDecisions,
-                    decorationDecisions = decorationDecisions,
-                    decorationSegments = decorationSegments,
-                    rubyDecisions = rubyDecisions,
-                    bopomofoDecisions = bopomofoDecisions,
-                    mandatoryBreakDecisions = mandatoryBreakDecisions,
-                    maxLinesDecision = maxLinesDecision,
-                    lineSpacingDecision = lineSpacingDecision,
-                    rubyLineHeightDecision = rubyLineHeightDecision,
-                    inlineObjectLineHeightDecision = inlineObjectLineHeightDecision,
-                    kinsokuDecision = kinsokuDecision,
-                    contextualKinsokuDecisions = contextualKinsokuDecisions,
-                    lineLengthGridDecision = lineLengthGridDecision,
-                    firstLineIndentDecision = firstLineIndentDecision,
-                    inlineBoxDecisions = inlineBoxResult.decisions,
-                    inlineObjectDecisions = inlineObjectDecisions,
-                    inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
-                    zeroWidthBreakDecisions = zeroWidthBreakDecisions,
-                    breakOpportunityDecisions = breakOpportunityDecisions,
-                    emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions,
-                    progressiveBreakOpportunities = progressiveBreakOpportunities,
-                ),
-            ),
-        )
+        return finishParagraphLayout(prep, planParagraphLines(prep))
     }
 
     private fun TextRange.isInside(other: TextRange): Boolean =
         start >= other.start && end <= other.end
 }
-
-private const val CJK_FACE_ASCENT_FALLBACK_EM = 0.88f
-
-internal const val CJK_FACE_DESCENT_FALLBACK_EM = 0.12f
-
-/**
- * `CjkBodyLineHeightDefault`: 中文正文默认行高 1.5em(行距约 0.5em),无显式
- * [ParagraphStyle.lineHeight] 时生效。1.0em 实贴会让真墨迹(ascent≈0.94em)与
- * 相邻行碰头,且正文常规需要行距呼吸。CLREQ 的标点 floor 是「有行间标点时的
- * 下限」,与本默认取 max:单面装 0.5em floor 正好被本默认吸收,双面装 0.625em
- * 仍可顶高。显式 lineHeight 可向下覆盖本默认(仍不低于不重叠下限)。
- */
-private const val DEFAULT_BODY_LINE_HEIGHT_EM = 1.5f
 
 /** 行间注 (ruby, ADR 0032): 注文常用基文 1/2 字号 (CLREQ 振假名惯例). */
 private const val RUBY_FONT_EM = 0.5f
@@ -1870,33 +989,11 @@ private const val RUBY_MIN_GAP_EM_OF_RUBY = 0.25f
  */
 private const val RUBY_STACK_GAP_EM = 0f
 
-/**
- * 连字作为最后一档（ADR 0029 amendment）：整词换行后，若填满版心需要给每个汉字
- * 间距加超过此值（半个字宽）才回头连字；以下则宁可拉伸汉字间距、不连字。
- */
-private const val HYPHEN_LAST_RESORT_CJK_STRETCH_EM = 0.5f
-
-/** 中西间距可拉伸余量（justify CjkLatinSpace cap 0.5em − 自然 0.25em），算松紧时先扣它. */
-private const val HYPHEN_SINO_WESTERN_STRETCH_CAP_EM = 0.25f
-
-/**
- * A retained clean technical break may not create tracking. Both the break-tier estimate and the
- * real post-justification check use zero; a rejected clean tier is replayed as Emergency so the
- * terminal technical span, rather than CJK body or an unrelated opaque token, absorbs the residual.
- */
-private const val CURRENT_LINE_TECHNICAL_BODY_STRETCH_LIMIT_EM = 0f
-
-/** Float tolerance for `CurrentLineTechnicalTierRejection` threshold comparisons. */
-private const val TECHNICAL_STRETCH_EPSILON_PX = 0.001f
-
 /** CLREQ 挤压第②档：西文词距最小压至四分之一汉字宽. */
 private const val WORD_SPACE_MIN_EM = 0.25f
 
 /** CLREQ 挤压⑥：行内中西间距「最小挤为八分之一汉字宽」. */
 private const val SINO_WESTERN_GAP_MIN_EM = 0.125f
-
-/** CLREQ 行尾悬挂适配标点：顿号、逗号、句号. */
-internal val HANGABLE_PUNCTUATION = setOf('、', '，', '。')
 
 /** CLREQ 挤压第④档对象：「位于行内的句号、问号、感叹号」. */
 private val INLINE_STOPS = setOf('。', '！', '？', '．')

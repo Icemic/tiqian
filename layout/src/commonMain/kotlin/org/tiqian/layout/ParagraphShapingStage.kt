@@ -112,12 +112,6 @@ import org.tiqian.shaping.ShapingResult
 import org.tiqian.shaping.TextShaper
 import org.tiqian.shaping.UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE
 
-private val COMBINING_MARK_CATEGORIES = setOf(
-    CharCategory.NON_SPACING_MARK,
-    CharCategory.COMBINING_SPACING_MARK,
-    CharCategory.ENCLOSING_MARK,
-)
-
 internal data class ParagraphShapingStageResult(
     val shapingResults: List<ShapingResult>,
     val hyphenOffsets: Set<Int>,
@@ -849,147 +843,6 @@ private fun String.hasBreakableLatinSolidus(): Boolean =
             this[i + 1].isLetterOrDigit()
     }
 
-internal fun clusterRoleRanges(
-    text: String,
-    classifier: FontRoleClassifier,
-    context: FontRoleContext,
-    profile: ClreqProfile,
-    spanBoundaries: Set<Int> = emptySet(),
-    inlineObjectsByStart: Map<Int, InlineObjectSpan> = emptyMap(),
-): List<ResolvedClusterRange> {
-    val coalesceSet = profile.coalesceRepeatablePunctuation
-    val ranges = mutableListOf<ResolvedClusterRange>()
-    var index = 0
-    while (index < text.length) {
-        val inlineObject = inlineObjectsByStart[index]
-        if (inlineObject != null) {
-            ranges.add(
-                ResolvedClusterRange(
-                    range = inlineObject.range,
-                    role = FontRole.Unknown,
-                ),
-            )
-            index = inlineObject.range.end
-            continue
-        }
-        val codePoint = text.codePointAtCompat(index)
-        val charCount = codePoint.charCount()
-        val start = index
-        if (codePoint.isMandatoryBreakCodePointAt(text, index)) {
-            val end = if (codePoint == 0x000D && index + 1 < text.length && text[index + 1] == '\n') {
-                index + 2
-            } else {
-                index + charCount
-            }
-            ranges.add(
-                ResolvedClusterRange(
-                    range = TextRange(start, end),
-                    role = FontRole.Unknown,
-                    mandatoryBreak = true,
-                ),
-            )
-            index = end
-            continue
-        }
-        if (isZeroWidthSpaceCodePoint(codePoint)) {
-            val end = index + charCount
-            ranges.add(
-                ResolvedClusterRange(
-                    range = TextRange(start, end),
-                    role = FontRole.Unknown,
-                    zeroWidthSoftBreak = true,
-                ),
-            )
-            index = end
-            continue
-        }
-        val firstRange = TextRange(start, start + charCount)
-        val role = classifier.classify(text, firstRange, context)
-        val previousRange = ranges.lastOrNull()
-        val attachedAsciiPointMark =
-            role == FontRole.LatinText &&
-                codePoint.isAsciiPointMarkCodePoint() &&
-                previousRange != null &&
-                previousRange.role != FontRole.Unknown &&
-                text.getOrNull(previousRange.range.end - 1)?.isWhitespace() == false &&
-                previousRange.range.end == start
-
-        index += charCount
-        if (role == FontRole.LatinText) {
-            if (attachedAsciiPointMark) {
-                // `AttachedAsciiPointMarkSegmentation`: keep the leading
-                // point-mark run independent from following Latin text so
-                // kinsoku never has to move an entire `,anyway` token.
-                while (index < text.length && index !in spanBoundaries) {
-                    val nextCodePoint = text.codePointAtCompat(index)
-                    if (!nextCodePoint.isAsciiPointMarkCodePoint()) break
-                    index += nextCodePoint.charCount()
-                }
-            } else {
-                // A sized-span edge inside a Latin run / coalesced 标点 run ends the
-                // cluster there so each cluster carries a single font size (ADR 0030).
-                while (index < text.length && index !in spanBoundaries) {
-                    val nextCodePoint = text.codePointAtCompat(index)
-                    val nextCharCount = nextCodePoint.charCount()
-                    val nextRange = TextRange(index, index + nextCharCount)
-                    if (classifier.classify(text, nextRange, context) != FontRole.LatinText) break
-                    index += nextCharCount
-                }
-            }
-        } else if (role == FontRole.CjkPunctuation && codePoint in coalesceSet) {
-            while (index < text.length && index !in spanBoundaries) {
-                val nextCodePoint = text.codePointAtCompat(index)
-                if (nextCodePoint != codePoint) break
-                index += nextCodePoint.charCount()
-            }
-        }
-
-        // `GraphemeExtendStaysWithBaseCluster`: common code can classify
-        // BMP Mn/Mc/Me marks through Char.category; BMP and supplementary
-        // variation selectors are covered explicitly. Shaping one of those
-        // extenders as an independent Unknown run loses its base context and
-        // produces a legitimate zero advance which web capability validation
-        // then mistakes for a broken visible glyph. Keep the source range
-        // intact and send the base plus every covered extending mark through
-        // one font decision and shaping call. Other supplementary combining
-        // categories remain outside this deliberately narrow helper.
-        while (index < text.length && index !in spanBoundaries) {
-            val extender = text.codePointAtCompat(index)
-            if (!extender.isCombiningMarkCodePoint() && !extender.isVariationSelectorCodePoint()) break
-            index += extender.charCount()
-        }
-
-        ranges.add(ResolvedClusterRange(TextRange(start, index), role))
-    }
-    return ranges
-}
-
-private fun Int.isMandatoryBreakCodePointAt(text: String, index: Int): Boolean =
-    isMandatoryBreakCodePoint(this) &&
-        !(this == 0x000A && index > 0 && text[index - 1] == '\r')
-
-private fun String.codePointAtCompat(index: Int): Int {
-    val high = this[index].code
-    if (high !in 0xD800..0xDBFF || index + 1 >= length) return high
-
-    val low = this[index + 1].code
-    if (low !in 0xDC00..0xDFFF) return high
-
-    return 0x10000 + ((high - 0xD800) shl 10) + (low - 0xDC00)
-}
-
-private fun Int.charCount(): Int =
-    if (this > 0xFFFF) 2 else 1
-
-private fun Int.isVariationSelectorCodePoint(): Boolean =
-    this in 0xFE00..0xFE0F || this in 0xE0100..0xE01EF
-
-private fun Int.isCombiningMarkCodePoint(): Boolean =
-    this in 0..0xFFFF && toChar().category in COMBINING_MARK_CATEGORIES
-
-private fun Int.isAsciiPointMarkCodePoint(): Boolean =
-    this in 0..0xFFFF && ClreqPunctuationPolicies.isAsciiPointMark(toChar())
-
 private fun mandatoryBreakShapingResult(text: String, range: TextRange): ShapingResult {
     val sourceText = text.substring(range.start, range.end)
     val cluster = Cluster(
@@ -1093,31 +946,6 @@ private fun FontDecision.shapingSegments(text: String): List<TextRange> {
     return segments
 }
 
-internal fun List<Cluster>.requireCoveredBy(fontDecisions: List<FontDecision>) {
-    var clusterIndex = 0
-    fontDecisions.forEach { decision ->
-        while (clusterIndex < size && this[clusterIndex].range.end <= decision.range.start) {
-            clusterIndex += 1
-        }
-        var cursor = decision.range.start
-        while (clusterIndex < size && this[clusterIndex].range.start < decision.range.end) {
-            val cluster = this[clusterIndex]
-            require(cluster.range.isInside(decision.range)) {
-                "TextShaper returned cluster ${cluster.range} crossing ${decision.range}"
-            }
-            require(cluster.range.start == cursor) {
-                "TextShaper returned non-contiguous clusters for ${decision.range}; " +
-                    "expected start=$cursor, actual=${cluster.range}"
-            }
-            cursor = cluster.range.end
-            clusterIndex += 1
-        }
-        require(cursor == decision.range.end) {
-            "TextShaper must return clusters covering ${decision.range}; coveredUntil=$cursor"
-        }
-    }
-}
-
 // Glyph advances stay the shaper's NATURAL values — cluster-level spacing
 // (autospace / justify / push-in) lives at the positioning layer, never
 // smeared across interior glyphs (that smearing was the bug squeezing the
@@ -1132,13 +960,6 @@ internal fun List<Glyph>.mapToClusterRange(cluster: Cluster): List<Glyph> {
     }
     return map { glyph -> glyph.copy(clusterRange = cluster.range) }
 }
-
-internal data class ResolvedClusterRange(
-    val range: TextRange,
-    val role: FontRole,
-    val mandatoryBreak: Boolean = false,
-    val zeroWidthSoftBreak: Boolean = false,
-)
 
 private const val ZERO_WIDTH_SOFT_BREAK_FONT_KEY = "zero-width-space"
 
