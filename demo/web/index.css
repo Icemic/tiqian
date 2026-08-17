@@ -1,0 +1,394 @@
+/* ==========================================================================
+   Tiqian Web Demo - Stark Black & White Strict Layout (Inspired by roriri.one)
+   ========================================================================== */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-color: #ffffff;
+  --text-color: #111111;
+  --border-color: #000000;
+  --border-subtle: #444444;
+  --code-bg: #f4f4f4;
+  --hover-bg: #eeeeee;
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans CJK SC", "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding: 0;
+  margin: 0;
+}
+
+/* Container */
+.page-wrapper {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 16px;
+  transition: max-width 0.05s ease-out;
+}
+
+/* Header */
+.site-header {
+  border-bottom: 2px solid var(--border-color);
+  padding: 24px 0 16px 0;
+  margin-bottom: 20px;
+}
+
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.site-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+}
+
+.site-subtitle {
+  font-size: 14px;
+  color: #333333;
+  margin-top: 4px;
+  max-width: 640px;
+}
+
+/* Nav Bar */
+.nav-bar {
+  display: flex;
+  border: 1px solid var(--border-color);
+  background: #ffffff;
+  flex-wrap: wrap;
+}
+
+.nav-item {
+  padding: 8px 16px;
+  text-decoration: none;
+  color: var(--text-color);
+  font-weight: 600;
+  font-size: 14px;
+  border-right: 1px solid var(--border-color);
+  display: inline-block;
+}
+
+.nav-item:hover {
+  background-color: var(--hover-bg);
+}
+
+.nav-item.active {
+  background-color: var(--border-color);
+  color: #ffffff;
+}
+
+/* Floating Fixed Benchmark HUD */
+.floating-benchmark-hud {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 99999;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.hud-top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 5px;
+}
+
+.hud-sep {
+  color: #888888;
+}
+
+.hud-bottom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-bottom-row input[type="range"] {
+  width: 120px;
+  cursor: pointer;
+}
+
+.hud-val {
+  font-weight: 700;
+  display: inline-block;
+}
+
+/* Main Layout Grid - 3:1 proportional scaling */
+.layout-grid {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 32px;
+  align-items: start;
+  min-width: 0;
+  width: 100%;
+}
+
+.layout-grid > * {
+  min-width: 0;
+  min-inline-size: 0;
+}
+
+@media (max-width: 860px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .floating-benchmark-hud {
+    top: 10px;
+    right: 10px;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+}
+
+/* Article Feed */
+.articles-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+  width: 100%;
+}
+
+.article-card {
+  border: 1px solid var(--border-color);
+  padding: 24px;
+  background: #ffffff;
+  min-width: 0;
+  width: 100%;
+  overflow-wrap: break-word;
+}
+
+.article-header {
+  margin-bottom: 16px;
+  border-bottom: 1px solid #000000;
+  padding-bottom: 12px;
+}
+
+.article-category {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border-color);
+  padding: 2px 8px;
+  margin-bottom: 8px;
+  background: #fdfdfd;
+}
+
+.article-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  line-height: 1.35;
+}
+
+.article-title a {
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.article-title a:hover {
+  text-decoration: underline;
+}
+
+.article-meta {
+  font-size: 13px;
+  color: #555555;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.article-meta span {
+  display: inline-block;
+}
+
+/* Prose Typography */
+tiqian-prose, .prose {
+  display: block;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #111111;
+  min-width: 0;
+  width: 100%;
+}
+
+tiqian-prose p, .prose p {
+  margin-bottom: 14px;
+  text-align: justify;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+tiqian-prose code, .prose code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  border: 1px solid #ddd;
+  padding: 1px 4px;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+tiqian-prose a, .prose a {
+  color: #000000;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+tiqian-prose strong, .prose strong {
+  font-weight: 700;
+}
+
+tiqian-prose em, .prose em {
+  font-style: italic;
+}
+
+.article-footer {
+  margin-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #555555;
+  min-width: 0;
+}
+
+/* Sidebar */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  width: 100%;
+}
+
+.sidebar-box {
+  border: 1px solid var(--border-color);
+  padding: 18px;
+  background: #ffffff;
+  min-width: 0;
+  width: 100%;
+  overflow-wrap: break-word;
+}
+
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.author-bio {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.author-bio p {
+  margin-bottom: 10px;
+}
+
+.skill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.skill-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-color);
+  padding: 1px 5px;
+}
+
+/* To-Witter microblog items */
+.towitter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.towitter-item {
+  border-left: 2px solid var(--border-color);
+  padding-left: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.towitter-meta {
+  font-size: 11px;
+  color: #666666;
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  border: 1px solid var(--border-color);
+  margin-top: 24px;
+  background: #ffffff;
+  flex-wrap: wrap;
+}
+
+.page-btn {
+  padding: 8px 14px;
+  border-right: 1px solid var(--border-color);
+  text-decoration: none;
+  color: var(--text-color);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.page-btn:hover {
+  background: var(--hover-bg);
+}
+
+.page-btn.active {
+  background: #000000;
+  color: #ffffff;
+}
+
+/* Footer */
+.site-footer {
+  border-top: 2px solid var(--border-color);
+  padding: 24px 0 40px 0;
+  margin-top: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: #555555;
+}

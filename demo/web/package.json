@@ -1,0 +1,16 @@
+{
+  "name": "tiqian-web-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "parcel index.html --port 8888",
+    "build": "parcel build index.html"
+  },
+  "dependencies": {
+    "@tiqian/prose": "file:../../frontend/web/npm"
+  },
+  "devDependencies": {
+    "parcel": "^2.16.4"
+  }
+}
