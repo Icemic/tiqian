@@ -203,6 +203,50 @@ function loadExactFontFallback() {
   return exactFontFallbackPromise;
 }
 
+class TiqianLayoutCoordinator {
+  #entries = new Map();
+  #busyForegroundCount = 0;
+
+  register(element) {
+    this.#entries.set(element, { inViewport: true, busy: false });
+  }
+
+  unregister(element) {
+    const entry = this.#entries.get(element);
+    if (entry?.inViewport && entry?.busy) {
+      this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
+    }
+    this.#entries.delete(element);
+  }
+
+  update(element, { inViewport, busy }) {
+    let entry = this.#entries.get(element);
+    if (!entry) {
+      entry = { inViewport: inViewport ?? true, busy: busy ?? false };
+      this.#entries.set(element, entry);
+    }
+    const prevForegroundBusy = entry.inViewport && entry.busy;
+    if (inViewport !== undefined) entry.inViewport = inViewport;
+    if (busy !== undefined) entry.busy = busy;
+    const nextForegroundBusy = entry.inViewport && entry.busy;
+
+    if (prevForegroundBusy !== nextForegroundBusy) {
+      if (nextForegroundBusy) {
+        this.#busyForegroundCount += 1;
+      } else {
+        this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
+      }
+    }
+  }
+
+  shouldYield(element) {
+    const entry = this.#entries.get(element);
+    return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
+  }
+}
+
+const coordinator = new TiqianLayoutCoordinator();
+
 class TiqianProseElement extends HTMLElementBase {
   static observedAttributes = [
     "disabled",
@@ -219,9 +263,12 @@ class TiqianProseElement extends HTMLElementBase {
   #geometryRevision = 0;
   #generation = 0;
   #hasDispatched = false;
+  #idleCommitToken = null;
+  #inViewport = true;
   #initialFontRetryListener = null;
   #initialFontRetryObserver = null;
   #initialFontRetryToken = 0;
+  #intersectionObserver = null;
   #layoutWorkInFlight = false;
   #layoutWorkSignaturesCaptured = false;
   #layoutWorkGeometrySignature = "";
@@ -298,6 +345,8 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   connectedCallback() {
+    coordinator.register(this);
+    this.#observeIntersection();
     // ReconnectedSourceReclamation: detached roots keep their source backing in
     // weak runtime/snapshot state so navigation can discard them without
     // rebuilding an invisible old article. A real reconnection is the one case
@@ -513,6 +562,8 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   disconnectedCallback() {
+    coordinator.unregister(this);
+    this.#stopIntersectionObservation();
     this.#connected = false;
     ++this.#generation;
     this.#enhanceRequest += 1;
@@ -900,6 +951,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure } = {}) {
+    coordinator.update(this, { busy: true });
     this.#clearResponsiveRetarget();
     const operation = ++this.#layoutOperation;
     this.#layoutWorkInFlight = true;
@@ -969,6 +1021,7 @@ class TiqianProseElement extends HTMLElementBase {
       (!this.#layoutWorkUsesCapturedMeasure || effectiveLayoutChangedDuringWork);
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
+    coordinator.update(this, { busy: false });
     this.#layoutWorkSignaturesCaptured = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#clearResponsiveRetarget();
@@ -1375,12 +1428,11 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #scheduleResponsiveGeometryCommit() {
-    // LeadingSingleFlightGridInvalidation: integer-grid coalescing below remains the
-    // actual invalidation boundary. Once a potentially relevant change arrives,
-    // inspect it on the next frame instead of waiting for resize to stop. At most
-    // one callback is pending; changes during layout are recorded and ready
-    // schedules one next-frame pass against the latest geometry.
     if (this.#layoutWorkInFlight) {
+      if (this.#layoutWorkUsesCapturedMeasure) {
+        this.#cancelCapturedLayoutForLatestGeometry();
+        return;
+      }
       this.#responsiveCommitRequired = true;
       return;
     }
@@ -1390,6 +1442,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #commitResponsiveGeometryChange() {
     this.#resizeFrame = 0;
+    this.#clearIdleResponsiveGeometryCommit();
     if (!this.isConnected) return;
     if (this.#layoutWorkInFlight) {
       if (this.#layoutWorkUsesCapturedMeasure) {
@@ -1397,6 +1450,11 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       this.#responsiveCommitRequired = true;
+      return;
+    }
+    if (coordinator.shouldYield(this)) {
+      this.#responsiveCommitRequired = true;
+      this.#scheduleIdleResponsiveGeometryCommit();
       return;
     }
     // Before the first snapshot/runtime commit there is no layout to update.
@@ -1680,6 +1738,7 @@ class TiqianProseElement extends HTMLElementBase {
     ++this.#layoutOperation;
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
+    coordinator.update(this, { busy: false });
     this.#layoutWorkViewportTypographyEntries = [];
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
@@ -1695,6 +1754,7 @@ class TiqianProseElement extends HTMLElementBase {
     ++this.#layoutOperation;
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
+    coordinator.update(this, { busy: false });
     this.#layoutWorkViewportTypographyEntries = [];
     this.#stopLayoutWorkInputObservation();
     dispatch("tiqian:cancel-layout-work", this);
@@ -1830,6 +1890,59 @@ class TiqianProseElement extends HTMLElementBase {
       }
     }
     return elements;
+  }
+
+  #observeIntersection() {
+    if (this.#intersectionObserver || typeof IntersectionObserver === "undefined") return;
+    this.#intersectionObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === this) {
+          const wasInViewport = this.#inViewport;
+          this.#inViewport = entry.isIntersecting;
+          coordinator.update(this, { inViewport: this.#inViewport });
+          if (!wasInViewport && this.#inViewport && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
+            this.#clearIdleResponsiveGeometryCommit();
+            this.#scheduleResponsiveGeometryCommit();
+          }
+        }
+      }
+    }, { rootMargin: "200px 0px" });
+    this.#intersectionObserver.observe(this);
+  }
+
+  #stopIntersectionObservation() {
+    this.#intersectionObserver?.disconnect();
+    this.#intersectionObserver = null;
+    this.#clearIdleResponsiveGeometryCommit();
+  }
+
+  #scheduleIdleResponsiveGeometryCommit() {
+    if (this.#idleCommitToken) return;
+    if (typeof requestIdleCallback === "function") {
+      this.#idleCommitToken = requestIdleCallback(() => {
+        this.#idleCommitToken = null;
+        if (this.isConnected && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
+          this.#commitResponsiveGeometryChange();
+        }
+      }, { timeout: 1000 });
+    } else {
+      this.#idleCommitToken = setTimeout(() => {
+        this.#idleCommitToken = null;
+        if (this.isConnected && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
+          this.#commitResponsiveGeometryChange();
+        }
+      }, 100);
+    }
+  }
+
+  #clearIdleResponsiveGeometryCommit() {
+    if (!this.#idleCommitToken) return;
+    if (typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(this.#idleCommitToken);
+    } else {
+      clearTimeout(this.#idleCommitToken);
+    }
+    this.#idleCommitToken = null;
   }
 
   #paragraphWidthSignature() {
