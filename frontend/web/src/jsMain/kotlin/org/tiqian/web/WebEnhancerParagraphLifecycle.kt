@@ -58,7 +58,7 @@ internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob, idleSlice: Boole
     job.scheduledSliceToken = null
     val sliceStartedAt = performanceNow()
     var processedInSlice = 0
-    val budgetMs = job.state.options.sliceBudgetMs ?: MAX_PROGRESSIVE_SLICE_MS
+    val budgetMs = MAX_PROGRESSIVE_SLICE_MS
     try {
         do {
             job.processItem(job.nextIndex)
@@ -349,7 +349,6 @@ internal fun TiqianWeb.optionsFromJs(options: JsAny?): EnhanceOptions {
             detail = optionString(capability, "detail"),
         )
     }
-    val sliceBudgetMs = optionFloat(options, "sliceBudgetMs")?.toDouble()
     return EnhanceOptions(
         fontFamilies = FontFamilyOptions(cjk, latin, monospace, cjkSerif, latinSerif),
         fontSize = fontSize,
@@ -361,7 +360,6 @@ internal fun TiqianWeb.optionsFromJs(options: JsAny?): EnhanceOptions {
         cjkDashCapability = dashCapability,
         exactFontSession = exactFontSession,
         requireExactLayoutWorker = requireExactLayoutWorker,
-        sliceBudgetMs = sliceBudgetMs,
     )
 }
 

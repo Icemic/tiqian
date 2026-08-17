@@ -209,7 +209,6 @@ class TiqianProseElement extends HTMLElementBase {
     "emphasis-dot-gap-em",
     "strong-as-emphasis-marks",
     "snapshot-ref",
-    "slice-budget-ms",
   ];
 
   #forceTypographyRefresh = false;
@@ -238,6 +237,7 @@ class TiqianProseElement extends HTMLElementBase {
   #enhanceRequest = 0;
   #exactFontRejectedAttempt = "";
   #exactFontSession = null;
+  #lastObservedWidth = 0;
   #lastWidth = 0;
   #lastParagraphMeasures = "";
   #lastParagraphWidths = "";
@@ -295,21 +295,6 @@ class TiqianProseElement extends HTMLElementBase {
     } else {
       this.setAttribute("snapshot-ref", String(value));
     }
-  }
-
-  get sliceBudgetMs() {
-    const raw = this.getAttribute("slice-budget-ms");
-    if (raw == null) return undefined;
-    const parsed = Number.parseFloat(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-  }
-
-  set sliceBudgetMs(value) {
-    if (value == null) {
-      this.removeAttribute("slice-budget-ms");
-      return;
-    }
-    this.setAttribute("slice-budget-ms", String(value));
   }
 
   connectedCallback() {
@@ -579,8 +564,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (
       name !== "emphasis-dot-gap-em" &&
-      name !== "strong-as-emphasis-marks" &&
-      name !== "slice-budget-ms"
+      name !== "strong-as-emphasis-marks"
     ) return;
     if (!this.isConnected) return;
     // LatestObservedAttributeGeneration: strong emphasis controls snapshot
@@ -600,18 +584,15 @@ class TiqianProseElement extends HTMLElementBase {
   #baseEnhanceOptions() {
     const emphasisDotGapEm = this.emphasisDotGapEm;
     const strongAsEmphasisMarks = this.strongAsEmphasisMarks;
-    const sliceBudgetMs = this.sliceBudgetMs;
     if (
       emphasisDotGapEm == null &&
-      !strongAsEmphasisMarks &&
-      sliceBudgetMs == null
+      !strongAsEmphasisMarks
     ) {
       return undefined;
     }
     return {
       ...(emphasisDotGapEm == null ? {} : { emphasisDotGapEm }),
       ...(strongAsEmphasisMarks ? { strongAsEmphasisMarks: true } : {}),
-      ...(sliceBudgetMs == null ? {} : { sliceBudgetMs }),
     };
   }
 
@@ -1280,9 +1261,22 @@ class TiqianProseElement extends HTMLElementBase {
     const observer = new ResizeObserver((entries) => {
       let changed = false;
       for (const entry of entries) {
-        const width = fragmentedBorderBoxInlineSize(entry.target);
+        let width = 0;
+        if (entry.borderBoxSize) {
+          const box = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
+          width = box?.inlineSize ?? 0;
+        }
+        if (!width && entry.contentRect) {
+          width = entry.contentRect.width;
+        }
+        if (!width) {
+          width = fragmentedBorderBoxInlineSize(entry.target);
+        }
         const previous = widths.get(entry.target);
         widths.set(entry.target, width);
+        if (entry.target === this) {
+          this.#lastObservedWidth = width;
+        }
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
@@ -1398,27 +1392,26 @@ class TiqianProseElement extends HTMLElementBase {
     this.#resizeFrame = 0;
     if (!this.isConnected) return;
     if (this.#layoutWorkInFlight) {
+      if (this.#layoutWorkUsesCapturedMeasure) {
+        this.#cancelCapturedLayoutForLatestGeometry();
+        return;
+      }
       this.#responsiveCommitRequired = true;
       return;
     }
     // Before the first snapshot/runtime commit there is no layout to update.
     // The initial job will read the latest live width once its font gate opens.
-    if (!this.#hasDispatched) {
-      this.#responsiveCommitRequired = false;
-      this.#responsiveRelayoutRequired = false;
-      return;
-    }
-    const forceLatestWidth = this.#responsiveRelayoutRequired;
+    const forceLatestWidth = this.#responsiveRelayoutRequired || this.#responsiveCommitRequired;
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
-    const width = fragmentedBorderBoxInlineSize(this);
-    const paragraphWidths = this.#paragraphWidthSignature();
-    const paragraphMeasures = this.#paragraphMeasureSignature();
-    const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5 ||
-      paragraphWidths !== this.#lastParagraphWidths;
+    if (!this.#hasDispatched) return;
+    const width = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
+    const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
+    const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : this.#paragraphWidthSignature();
+    const paragraphMeasures = widthsChanged ? this.#lastParagraphMeasures : this.#paragraphMeasureSignature();
     const hostInlineSizeRefresh = widthsChanged &&
       this.querySelector("[data-tq-host-inline-size]") !== null;
-    const measuresChanged = paragraphMeasures !== this.#lastParagraphMeasures;
+    const measuresChanged = widthsChanged || paragraphMeasures !== this.#lastParagraphMeasures;
     const signature = this.#typographySignature();
     const typographyChanged = signature !== this.#lastTypography;
     if (!forceLatestWidth && !widthsChanged && !measuresChanged && !typographyChanged) {

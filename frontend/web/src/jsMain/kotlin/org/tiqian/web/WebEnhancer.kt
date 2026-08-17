@@ -387,22 +387,7 @@ object TiqianWeb {
                         browserFallbackEngine = activeExactFallbackEngine,
                         widthOverride = widths[paragraphIndex],
                     )
-                    // ParagraphCurrentMeasureCommit: keep the previous
-                    // paragraph DOM until its replacement is ready, then
-                    // require the captured measure to still equal the live
-                    // measure immediately before the single-paragraph commit.
-                    val currentWidth = paragraphWidth(paragraph)
-                    if (
-                        isCurrentResponsiveMeasure(
-                            preparedWidth = widths[paragraphIndex],
-                            currentWidth = currentWidth,
-                            fontSize = paragraph.lowered.textStyle.fontSize,
-                        )
-                    ) {
-                        commitSession.processItem(paragraphIndex, preparation)
-                    } else {
-                        commitSession.stale = true
-                    }
+                    commitSession.processItem(paragraphIndex, preparation)
                 },
                 onItemsFinished = commitSession::finish,
                 onFailure = commitSession::rollback,
@@ -515,7 +500,6 @@ object TiqianWeb {
          * contract retain the sliced browser-shaping path.
          */
         val requireExactLayoutWorker: Boolean = false,
-        val sliceBudgetMs: Double? = null,
     ) {
         lateinit var fonts: WebFontFamilies
             private set
@@ -524,12 +508,10 @@ object TiqianWeb {
             require(fontSize == null || (fontSize.isFinite() && fontSize > 0f)) {
                 "InvalidFontSize"
             }
-            val rootSliceBudget = root.getAttribute("slice-budget-ms")?.toDoubleOrNull()
             val inheritedFontFamily = computedStyle(root, "font-family").trim().takeIf { it.isNotBlank() }
             val resolvedCjk = fontFamilies.cjk ?: inheritedFontFamily ?: DEFAULT_CJK_FONT_FAMILY
             val resolvedLatin = fontFamilies.latin ?: inheritedFontFamily ?: DEFAULT_LATIN_FONT_FAMILY
             val resolved = copy(
-                sliceBudgetMs = sliceBudgetMs ?: rootSliceBudget,
                 fontFamilies = fontFamilies.copy(
                     cjk = resolvedCjk,
                     latin = resolvedLatin,

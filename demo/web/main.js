@@ -6,12 +6,11 @@ const widthVal = document.getElementById('width-val');
 const pageWrapper = document.querySelector('.page-wrapper');
 const relayoutMsVal = document.getElementById('relayout-ms-val');
 const fpsVal = document.getElementById('fps-val');
-const proseElements = document.querySelectorAll('tiqian-prose');
 
 // 1. Fluid Width Slider
 if (slider && pageWrapper && widthVal) {
   slider.addEventListener('input', (e) => {
-    const width = e.target.value;
+    const width = Number(e.target.value);
     widthVal.textContent = width + 'px';
     pageWrapper.style.maxWidth = width + 'px';
   });
@@ -25,10 +24,6 @@ function handleMetrics(e) {
 }
 document.addEventListener('tiqian:relayout-ready', handleMetrics);
 document.addEventListener('tiqian:ready', handleMetrics);
-proseElements.forEach(p => {
-  p.addEventListener('tiqian:relayout-ready', handleMetrics);
-  p.addEventListener('tiqian:ready', handleMetrics);
-});
 
 // 3. Live 60 FPS Monitor
 let frameCount = 0;
@@ -45,5 +40,3 @@ function updateFps() {
   requestAnimationFrame(updateFps);
 }
 requestAnimationFrame(updateFps);
-
-console.log('[Tiqian Demo] Initialized with ' + proseElements.length + ' <tiqian-prose> roots.');
