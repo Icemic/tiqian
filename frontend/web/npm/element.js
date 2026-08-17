@@ -262,24 +262,11 @@ class TiqianLayoutCoordinator {
   #callbacks = new Map();
   #rafId = 0;
   #budgetMs = 8.0;
-  #lastFrameTimestamp = 0;
+  #targetMaxBudgetMs = 12.0;
+  #minBudgetMs = 6.0;
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
-
-    // Adaptive dynamic budget adaptation:
-    // If consecutive frames are fast, keep ample budget;
-    // if frame duration exceeds target frame time (frame dropped / low-end CPU / Firefox),
-    // throttle down frame budget to leave sufficient room for browser styling, painting and compositing.
-    if (this.#lastFrameTimestamp > 0) {
-      const frameDelta = now - this.#lastFrameTimestamp;
-      if (frameDelta > 20.0) {
-        this.#budgetMs = Math.max(3.5, this.#budgetMs * 0.85);
-      } else if (frameDelta < 14.0) {
-        this.#budgetMs = Math.min(10.0, this.#budgetMs + 0.3);
-      }
-    }
-    this.#lastFrameTimestamp = now;
 
     const allTasks = Array.from(this.#callbacks.values());
     this.#callbacks.clear();
@@ -287,16 +274,18 @@ class TiqianLayoutCoordinator {
     // Human-centric visual prominence ordering:
     // 1. inViewport elements first;
     // 2. Larger visual container size / area first (prominent elements feel responsive first).
-    allTasks.sort((a, b) => {
-      const entryA = a.element ? this.#entries.get(a.element) : null;
-      const entryB = b.element ? this.#entries.get(b.element) : null;
-      const inViewA = entryA ? (entryA.inViewport ? 1 : 0) : 1;
-      const inViewB = entryB ? (entryB.inViewport ? 1 : 0) : 1;
-      if (inViewA !== inViewB) return inViewB - inViewA;
-      const scoreA = entryA ? (entryA.area || entryA.inlineSize || 0) : 0;
-      const scoreB = entryB ? (entryB.area || entryB.inlineSize || 0) : 0;
-      return scoreB - scoreA;
-    });
+    if (allTasks.length > 1) {
+      allTasks.sort((a, b) => {
+        const entryA = a.element ? this.#entries.get(a.element) : null;
+        const entryB = b.element ? this.#entries.get(b.element) : null;
+        const inViewA = entryA ? (entryA.inViewport ? 1 : 0) : 1;
+        const inViewB = entryB ? (entryB.inViewport ? 1 : 0) : 1;
+        if (inViewA !== inViewB) return inViewB - inViewA;
+        const scoreA = entryA ? (entryA.area || entryA.inlineSize || 0) : 0;
+        const scoreB = entryB ? (entryB.area || entryB.inlineSize || 0) : 0;
+        return scoreB - scoreA;
+      });
+    }
 
     const startTime = performance.now();
     let executedCount = 0;
@@ -316,6 +305,17 @@ class TiqianLayoutCoordinator {
       } catch (e) {
         console.error("Tiqian frame task error", e);
       }
+    }
+
+    // Dynamic execution-based budget adaptation:
+    // Monitor real execution duration of layout tasks within this frame.
+    // If tasks ran over budget (device under pressure / heavy DOM mutations), gently back off to protect frame rate;
+    // if tasks ran swiftly within budget, ramp up toward max target budget.
+    const elapsed = performance.now() - startTime;
+    if (elapsed > this.#budgetMs * 1.25 || elapsed > 14.0) {
+      this.#budgetMs = Math.max(this.#minBudgetMs, this.#budgetMs * 0.9);
+    } else if (elapsed < this.#budgetMs * 0.7) {
+      this.#budgetMs = Math.min(this.#targetMaxBudgetMs, this.#budgetMs + 0.5);
     }
   };
 
@@ -1071,7 +1071,6 @@ class TiqianProseElement extends HTMLElementBase {
     this.#responsiveRelayoutRequired = false;
     this.#acceptLayoutCompletion = false;
     this.#stopTypographyObservation();
-    this.#pauseWidthObservation();
     if (usesCapturedMeasure) this.#observeLayoutWorkInputs();
     return operation;
   }
@@ -1385,15 +1384,11 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeWidth() {
-    this.#resizeObserver?.disconnect();
+    if (this.#resizeObserver) return;
     // ResponsiveInlineSizeObservation: takeover intentionally changes block
     // height. Seed and compare only border-box inline sizes so those commits do
-    // not trigger a redundant responsive pass. A container-only width change
-    // is reported from inside the browser's ResizeObserver delivery loop; DOM
-    // rollback there can make a shallower host observer (for example one that
-    // watches body height) miss its own notification. Defer that fallback to
-    // the next frame, outside the delivery loop. Window and visual-viewport
-    // resize signals still synchronously restore source before paint.
+    // not trigger a redundant responsive pass. Persistent observation without
+    // pausing ensures drag interactions and live geometry changes are never lost.
     const widths = new WeakMap();
     const targets = [
       this,
@@ -1537,6 +1532,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (coordinator.shouldYield(this)) {
       this.#responsiveCommitRequired = true;
+      coordinator.requestFrame(this.#boundResponsiveCommit, this);
       return;
     }
     // Before the first snapshot/runtime commit there is no layout to update.
@@ -1545,7 +1541,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
     if (!this.#hasDispatched) return;
-    const width = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
+    const width = fragmentedBorderBoxInlineSize(this);
+    this.#lastObservedWidth = width;
     const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
     const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : this.#paragraphWidthSignature();
     const paragraphMeasures = widthsChanged ? this.#lastParagraphMeasures : this.#paragraphMeasureSignature();
@@ -1638,18 +1635,15 @@ class TiqianProseElement extends HTMLElementBase {
     this.#viewportResizeListener = null;
   }
 
-  #pauseWidthObservation() {
+  #stopWidthObservation() {
+    this.#clearResponsiveRetarget();
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
+    this.#lastObservedWidth = 0;
     if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
     this.#resizeObserverFrame = 0;
     if (this.#resizeFrame) cancelAnimationFrame(this.#resizeFrame);
     this.#resizeFrame = 0;
-  }
-
-  #stopWidthObservation() {
-    this.#clearResponsiveRetarget();
-    this.#pauseWidthObservation();
     this.#removeViewportResizeListener();
   }
 
