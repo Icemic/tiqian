@@ -250,7 +250,6 @@ class WebCanvasTextShaper(
         val role: FontRole,
     )
 
-    private val measurementCache = mutableMapOf<MeasurementKey, MeasuredText>()
     private var currentCanvasFont: String? = null
 
     private val ctx: CanvasRenderingContext2D by lazy {
@@ -456,11 +455,19 @@ class WebCanvasTextShaper(
     private fun MeasuredText.hasUsableAdvance(): Boolean =
         advance.isFinite() && advance > ZERO_ADVANCE_EPSILON
 
-    private companion object {
+    companion object {
         private const val CJK_DASH_SOURCE = "——"
         private const val TWO_EM_DASH = "⸺"
         private const val ZERO_ADVANCE_EPSILON = 0.01f
         private const val PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE = "pwid,palt"
+        private val measurementCache = mutableMapOf<MeasurementKey, MeasuredText>()
+
+        fun clearMeasurementCache() {
+            measurementCache.clear()
+        }
+
+        val measurementCacheSize: Int
+            get() = measurementCache.size
     }
 }
 

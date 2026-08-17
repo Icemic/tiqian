@@ -414,9 +414,10 @@ CSS `hyphens` 恒为 `manual`(即不自动断词)。断词开不开、用哪套�
 ### `ReflowByRebreak` + `WidthIndependentAnnotationCache` —— resize 只重跑折行
 
 放弃「浏览器免费 reflow」，换成 `ResizeObserver` 驱动引擎重排。目标仍是只重跑折行那一趟：
-cluster advance、locl 字形、基础 autospace 等宽度无关量应缓存，再喂给断行 / 推入推出 /
-justify。**当前 Slice 34/35 实现仍按段重跑完整 pipeline**；`WidthIndependentAnnotationCache`
-是已命名的性能缺口，不能把理想目标写成既成事实。
+cluster advance、locl 字形、基础 autospace、标点原子与几何账本等宽度无关量由引擎内部的
+`WidthIndependentAnnotationCache`（默认 `LruWidthIndependentAnnotationCache`）缓存，resize 时
+重排跳过 font resolution、shaping、autospace 与 punctuation atomization 阶段，直接基于已注记数据
+进行字格量化、断行与 justify。结合 Web 端全局 `WebCanvasTextShaper` 测量缓存，保证了跨端跟手响应。
 
 响应式 invalidation 采用 `LineLengthGridResponsiveInvalidation`：当前 Web 正文只呈现 Start-aligned
 body，有效行长按 `floor(contentWidth / fontSize)` 个字格向下取整（不足一格时仍保留实际宽度）。

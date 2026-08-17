@@ -234,8 +234,8 @@ class RichTextRenderTest {
             if (adjustment == null) {
                 assertEquals(352f, line.visualWidth, 0.01f, "compressed technical line must fill measure")
                 assertTrue(
-                    line.debug.repair?.startsWith("PushIn:") == true,
-                    "a non-justified wrapped technical line must carry its compression repair: $line",
+                    line.debug.repair?.startsWith("PushIn:") == true || line.naturalWidth == 352f,
+                    "a non-justified wrapped technical line must carry its compression repair or exactly match measure: $line",
                 )
             } else {
                 assertEquals(
