@@ -1,5 +1,6 @@
 # 提椠 Tíqiàn
 
+[![Maven Central](https://img.shields.io/maven-central/v/org.tiqian/tiqian-compose?label=maven)](https://central.sonatype.com/artifact/org.tiqian/tiqian-compose)
 [![npm version](https://img.shields.io/npm/v/%40tiqian%2Fprose?label=npm)](https://www.npmjs.com/package/@tiqian/prose)
 [![Telegram Link](https://img.shields.io/badge/Telegram-@tiqian__cjk-blue?logo=telegram&logoColor=fff)](https://t.me/tiqian_cjk)
 
@@ -29,8 +30,14 @@
 
 ## Compose
 
-`frontend/compose` 支持 Compose Desktop 和 Android 23 及以上版本。普通文本可以直接把
-Compose 的 `Text` 换成 `CjkText`，已有的 `AnnotatedString` 和 `TextStyle` 也可以继续使用。
+Compose 前端支持 Compose Desktop 和 Android 23 及以上版本：
+
+```kotlin
+implementation("org.tiqian:tiqian-compose:<version>")
+```
+
+普通文本可以直接把 Compose 的 `Text` 换成 `CjkText`，已有的 `AnnotatedString` 和
+`TextStyle` 也可以继续使用。
 
 ```kotlin
 val paragraph = buildAnnotatedString {
@@ -50,6 +57,9 @@ CjkText(
 `CjkText` 会保留源码换行，并支持常用富文本样式、行间注与链接。接入现有富文本渲染器时，
 可以用 `cjkTextCompatibility()` 检查当前还不能保真的能力。只读正文可以用
 `CjkSelectionContainer` 包住一个或多个 `CjkText`，支持选择与复制。
+
+整篇 Markdown 正文可以使用基于提椠的[提椠 Markdown](https://github.com/tiqian-cjk/tiqian-markdown)：
+段落排版之上，统一处理代码、表格、公式、图片与脚注。
 
 ## Web
 
