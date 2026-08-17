@@ -219,7 +219,7 @@ class TiqianLayoutCoordinator {
     this.#entries.delete(element);
   }
 
-  update(element, { inViewport, busy, area, inlineSize }) {
+  update(element, { inViewport, busy, area, inlineSize, visibleArea, intersectionRatio }) {
     let entry = this.#entries.get(element);
     if (!entry) {
       entry = {
@@ -227,6 +227,8 @@ class TiqianLayoutCoordinator {
         busy: busy ?? false,
         area: area ?? 0,
         inlineSize: inlineSize ?? 0,
+        visibleArea: visibleArea ?? 0,
+        intersectionRatio: intersectionRatio ?? 1.0,
       };
       this.#entries.set(element, entry);
     }
@@ -235,6 +237,8 @@ class TiqianLayoutCoordinator {
     if (busy !== undefined) entry.busy = busy;
     if (area !== undefined) entry.area = area;
     if (inlineSize !== undefined) entry.inlineSize = inlineSize;
+    if (visibleArea !== undefined) entry.visibleArea = visibleArea;
+    if (intersectionRatio !== undefined) entry.intersectionRatio = intersectionRatio;
     const nextForegroundBusy = entry.inViewport && entry.busy;
 
     if (prevForegroundBusy !== nextForegroundBusy) {
@@ -265,30 +269,31 @@ class TiqianLayoutCoordinator {
   #lastFrameTimestamp = 0;
   #measuredFrameInterval = 16.67;
   #estimatedSliceMs = 0.8;
+  #consecutiveIdleFrames = 0;
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
 
-    // Refresh rate & frame health adaptation:
-    // Detect host display refresh cadence (e.g. 60Hz vs 120Hz) and frame drops.
+    // Refresh rate & proportional pressure adaptation:
+    // Detect host display refresh cadence (e.g. 60Hz vs 120Hz) and severe frame drops.
     if (this.#lastFrameTimestamp > 0) {
       const frameDelta = now - this.#lastFrameTimestamp;
-      // Filter out background tab stalls / giant pauses
-      if (frameDelta > 4.0 && frameDelta < 50.0) {
-        // Track the nominal frame interval baseline (e.g. ~8.3ms for 120Hz, ~16.6ms for 60Hz)
+      if (frameDelta > 4.0 && frameDelta < 150.0) {
         if (frameDelta < this.#measuredFrameInterval * 1.1) {
           this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
         }
 
         const maxTargetBudget = Math.min(10.0, Math.max(4.0, this.#measuredFrameInterval * 0.6));
-        const minBudget = Math.max(1.0, this.#estimatedSliceMs * 1.1);
+        const minBudget = Math.max(1.0, this.#estimatedSliceMs * 1.05);
 
-        if (frameDelta > this.#measuredFrameInterval * 1.25) {
-          // Frame drop detected: back off to yield breathing room to host scripts and painting
-          this.#budgetMs = Math.max(minBudget, this.#budgetMs * 0.85);
-        } else {
-          // Healthy frame cadence: gently recover towards max target budget
-          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.25);
+        const pressureRatio = frameDelta / this.#measuredFrameInterval;
+        if (pressureRatio > 1.25) {
+          // Proportional Backoff: instantaneously scale down budget by the pressure ratio
+          // to immediately stop layout queue cascades on low-end CPUs / Firefox
+          this.#budgetMs = Math.max(minBudget, this.#budgetMs / pressureRatio);
+        } else if (pressureRatio <= 1.05) {
+          // Healthy frame cadence: steadily recover towards max target budget
+          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.3);
         }
       }
     }
@@ -297,19 +302,29 @@ class TiqianLayoutCoordinator {
     const allTasks = Array.from(this.#callbacks.values());
     this.#callbacks.clear();
 
-    // Human-centric visual prominence ordering:
-    // 1. inViewport elements first;
-    // 2. Larger visual container size / area first (prominent elements feel responsive first).
+    // Human-centric visual prominence ordering with Anti-Starvation aging:
+    // 1. inViewport + high intersection ratio + large visible area first;
+    // 2. Add deferCount aging boost so tasks that have waited multiple frames bubble up.
     if (allTasks.length > 1) {
       allTasks.sort((a, b) => {
         const entryA = a.element ? this.#entries.get(a.element) : null;
         const entryB = b.element ? this.#entries.get(b.element) : null;
-        const inViewA = entryA ? (entryA.inViewport ? 1 : 0) : 1;
-        const inViewB = entryB ? (entryB.inViewport ? 1 : 0) : 1;
-        if (inViewA !== inViewB) return inViewB - inViewA;
-        const scoreA = entryA ? (entryA.area || entryA.inlineSize || 0) : 0;
-        const scoreB = entryB ? (entryB.area || entryB.inlineSize || 0) : 0;
-        return scoreB - scoreA;
+
+        const inViewA = entryA?.inViewport ? 1 : 0;
+        const inViewB = entryB?.inViewport ? 1 : 0;
+
+        const visibleScoreA = entryA
+          ? ((entryA.visibleArea || entryA.area || 0) * (1.0 + (entryA.intersectionRatio || 0)) + (entryA.inlineSize || 0))
+          : 0;
+        const visibleScoreB = entryB
+          ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) + (entryB.inlineSize || 0))
+          : 0;
+
+        // Anti-Starvation aging: each frame a task is deferred gives it priority boost
+        const priorityA = inViewA * 1000000 + visibleScoreA + (a.deferCount || 0) * 50000;
+        const priorityB = inViewB * 1000000 + visibleScoreB + (b.deferCount || 0) * 50000;
+
+        return priorityB - priorityA;
       });
     }
 
@@ -317,11 +332,17 @@ class TiqianLayoutCoordinator {
     let executedCount = 0;
 
     for (let i = 0; i < allTasks.length; i++) {
+      const task = allTasks[i];
       const elapsed = performance.now() - startTime;
-      // Lookahead Yielding: if the next slice is predicted to overrun the frame budget, yield cleanly
-      if (executedCount > 0 && (elapsed + this.#estimatedSliceMs >= this.#budgetMs)) {
+
+      // Lookahead Yielding: yield before overrunning budget, UNLESS consecutiveIdleFrames > 2
+      // (guaranteed forward progress to prevent scheduler appearing dead).
+      const forceForwardProgress = (executedCount === 0 && this.#consecutiveIdleFrames >= 2);
+      if (!forceForwardProgress && executedCount > 0 && (elapsed + this.#estimatedSliceMs >= this.#budgetMs)) {
         for (let j = i; j < allTasks.length; j++) {
-          this.#callbacks.set(allTasks[j].callback, allTasks[j]);
+          const deferredTask = allTasks[j];
+          deferredTask.deferCount = (deferredTask.deferCount || 0) + 1;
+          this.#callbacks.set(deferredTask.callback, deferredTask);
         }
         this.#rafId = requestAnimationFrame(this.#runFrameLoop);
         break;
@@ -329,7 +350,7 @@ class TiqianLayoutCoordinator {
 
       const taskStart = performance.now();
       try {
-        allTasks[i].callback(now);
+        task.callback(now);
         executedCount++;
         const taskDuration = performance.now() - taskStart;
         this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs + 0.2 * Math.max(0.05, taskDuration);
@@ -337,10 +358,21 @@ class TiqianLayoutCoordinator {
         console.error("Tiqian frame task error", e);
       }
     }
+
+    if (executedCount === 0 && allTasks.length > 0) {
+      this.#consecutiveIdleFrames++;
+    } else {
+      this.#consecutiveIdleFrames = 0;
+    }
   };
 
   requestFrame(callback, element = null) {
-    this.#callbacks.set(callback, { callback, element });
+    const existing = this.#callbacks.get(callback);
+    this.#callbacks.set(callback, {
+      callback,
+      element,
+      deferCount: existing ? existing.deferCount : 0,
+    });
     if (this.#rafId) return;
     this.#rafId = requestAnimationFrame(this.#runFrameLoop);
   }
@@ -1996,8 +2028,12 @@ class TiqianProseElement extends HTMLElementBase {
           const wasInViewport = this.#inViewport;
           this.#inViewport = entry.isIntersecting;
           const rect = entry.boundingClientRect;
+          const interRect = entry.intersectionRect;
+          const visibleArea = interRect ? interRect.width * interRect.height : 0;
           coordinator.update(this, {
             inViewport: this.#inViewport,
+            intersectionRatio: entry.intersectionRatio || (this.#inViewport ? 1.0 : 0.0),
+            visibleArea,
             inlineSize: rect ? rect.width : 0,
             area: rect ? rect.width * rect.height : 0,
           });
