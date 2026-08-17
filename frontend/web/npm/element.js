@@ -1601,7 +1601,7 @@ class TiqianProseElement extends HTMLElementBase {
     const hostInlineSizeRefresh = widthsChanged &&
       this.querySelector("[data-tq-host-inline-size]") !== null;
     const measuresChanged = widthsChanged || paragraphMeasures !== this.#lastParagraphMeasures;
-    const signature = this.#typographySignature();
+    const signature = this.#typographySignature(false);
     const typographyChanged = signature !== this.#lastTypography;
     if (!forceLatestWidth && !widthsChanged && !measuresChanged && !typographyChanged) {
       this.#observeWidth();
@@ -1933,9 +1933,9 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #typographySignature() {
+  #typographySignature(includeGenerated = true) {
     return this.#typographyElements()
-      .map((element) => this.#elementTypographySignature(element))
+      .map((element) => this.#elementTypographySignature(element, includeGenerated))
       .join("\u001e");
   }
 

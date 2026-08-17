@@ -370,15 +370,14 @@ object TiqianWeb {
             paragraphs = paragraphs,
             state = state,
         )
+        val rootWidth = elementFragmentBorderBoxInlineSize(root)
         startProgressiveJob(
             ProgressiveJob(
                 state = state,
                 kind = ProgressiveJobKind.Relayout,
                 itemCount = paragraphs.size,
                 processItem = { index ->
-                    if (commitSession.stale || paragraphs.indices.any { pIndex ->
-                            kotlin.math.abs(paragraphWidth(paragraphs[pIndex]) - widths[pIndex]) >= 0.5f
-                        }) {
+                    if (commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f) {
                         commitSession.stale = true
                         return@ProgressiveJob
                     }
@@ -397,9 +396,7 @@ object TiqianWeb {
                 onItemsFinished = commitSession::finish,
                 onFailure = commitSession::rollback,
                 stale = {
-                    commitSession.stale || paragraphs.indices.any { index ->
-                        kotlin.math.abs(paragraphWidth(paragraphs[index]) - widths[index]) >= 0.5f
-                    }
+                    commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
                 },
                 startedAt = performanceNow(),
             ),
