@@ -294,7 +294,6 @@ class TiqianProseElement extends HTMLElementBase {
   #geometryRevision = 0;
   #generation = 0;
   #hasDispatched = false;
-  #idleCommitToken = null;
   #inViewport = true;
   #initialFontRetryListener = null;
   #initialFontRetryObserver = null;
@@ -1365,6 +1364,10 @@ class TiqianProseElement extends HTMLElementBase {
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
+      if (!this.#inViewport) {
+        this.#responsiveCommitRequired = true;
+        return;
+      }
       this.#scheduleResponsiveGeometryCommit();
     });
     this.#resizeObserver = observer;
@@ -1464,7 +1467,6 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #commitResponsiveGeometryChange() {
-    this.#clearIdleResponsiveGeometryCommit();
     if (!this.isConnected) return;
     if (this.#layoutWorkInFlight) {
       this.#responsiveCommitRequired = true;
@@ -1472,7 +1474,6 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (coordinator.shouldYield(this)) {
       this.#responsiveCommitRequired = true;
-      this.#scheduleIdleResponsiveGeometryCommit();
       return;
     }
     // Before the first snapshot/runtime commit there is no layout to update.
@@ -1919,7 +1920,6 @@ class TiqianProseElement extends HTMLElementBase {
           this.#inViewport = entry.isIntersecting;
           coordinator.update(this, { inViewport: this.#inViewport });
           if (!wasInViewport && this.#inViewport && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
-            this.#clearIdleResponsiveGeometryCommit();
             this.#scheduleResponsiveGeometryCommit();
           }
         }
@@ -1931,36 +1931,6 @@ class TiqianProseElement extends HTMLElementBase {
   #stopIntersectionObservation() {
     this.#intersectionObserver?.disconnect();
     this.#intersectionObserver = null;
-    this.#clearIdleResponsiveGeometryCommit();
-  }
-
-  #scheduleIdleResponsiveGeometryCommit() {
-    if (this.#idleCommitToken) return;
-    if (typeof requestIdleCallback === "function") {
-      this.#idleCommitToken = requestIdleCallback(() => {
-        this.#idleCommitToken = null;
-        if (this.isConnected && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
-          this.#commitResponsiveGeometryChange();
-        }
-      });
-    } else {
-      this.#idleCommitToken = setTimeout(() => {
-        this.#idleCommitToken = null;
-        if (this.isConnected && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
-          this.#commitResponsiveGeometryChange();
-        }
-      }, 100);
-    }
-  }
-
-  #clearIdleResponsiveGeometryCommit() {
-    if (!this.#idleCommitToken) return;
-    if (typeof cancelIdleCallback === "function") {
-      cancelIdleCallback(this.#idleCommitToken);
-    } else {
-      clearTimeout(this.#idleCommitToken);
-    }
-    this.#idleCommitToken = null;
   }
 
   #paragraphWidthSignature() {

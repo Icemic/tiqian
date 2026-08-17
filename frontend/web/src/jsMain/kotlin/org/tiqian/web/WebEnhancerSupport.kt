@@ -272,32 +272,6 @@ internal external fun progressiveInputIsPending(): Boolean
           else continuation();
         });
       };
-      if (idle) {
-        // PendingInputAwareIdleTail: layout is already complete in the Worker;
-        // each callback commits at most one offscreen paragraph. A normal
-        // 60 Hz idle period cannot provide the old 20 ms threshold, so waiting
-        // for it made a quiet resized article advance only once per timeout.
-        // Require one 8 ms commit slice, and yield only to input that is still
-        // pending rather than to an arbitrary post-scroll quiet window.
-        const requestWhenIdle = () => {
-          if (typeof requestIdleCallback === "function" &&
-              typeof cancelIdleCallback === "function") {
-            token.idleId = requestIdleCallback((deadline) => {
-              token.idleId = 0;
-              if (inputIsPending() || (!deadline.didTimeout &&
-                  deadline.timeRemaining() < MINIMUM_IDLE_BUDGET_MS)) {
-                scheduleFrame(requestWhenIdle);
-              } else {
-                callback();
-              }
-            });
-          } else {
-            scheduleFrame(callback);
-          }
-        };
-        requestWhenIdle();
-        return token;
-      }
       scheduleFrame(callback);
       return token;
     }""",
@@ -305,7 +279,6 @@ internal external fun progressiveInputIsPending(): Boolean
 internal external fun scheduleProgressiveCallback(callback: () -> Unit, idle: Boolean): JsAny
 @JsFun(
     """(token) => {
-      if (token.idleId && typeof cancelIdleCallback === "function") cancelIdleCallback(token.idleId);
       if (token.frameId) cancelAnimationFrame(token.frameId);
     }""",
 )
