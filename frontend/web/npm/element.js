@@ -241,7 +241,7 @@ class TiqianLayoutCoordinator {
 
   shouldYield(element) {
     const entry = this.#entries.get(element);
-    return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
+    return !!(entry && !entry.inViewport);
   }
 
   #callbacks = new Set();
@@ -1942,7 +1942,7 @@ class TiqianProseElement extends HTMLElementBase {
         if (this.isConnected && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
           this.#commitResponsiveGeometryChange();
         }
-      }, { timeout: 1000 });
+      });
     } else {
       this.#idleCommitToken = setTimeout(() => {
         this.#idleCommitToken = null;
