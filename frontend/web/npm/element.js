@@ -219,15 +219,22 @@ class TiqianLayoutCoordinator {
     this.#entries.delete(element);
   }
 
-  update(element, { inViewport, busy }) {
+  update(element, { inViewport, busy, area, inlineSize }) {
     let entry = this.#entries.get(element);
     if (!entry) {
-      entry = { inViewport: inViewport ?? true, busy: busy ?? false };
+      entry = {
+        inViewport: inViewport ?? true,
+        busy: busy ?? false,
+        area: area ?? 0,
+        inlineSize: inlineSize ?? 0,
+      };
       this.#entries.set(element, entry);
     }
     const prevForegroundBusy = entry.inViewport && entry.busy;
     if (inViewport !== undefined) entry.inViewport = inViewport;
     if (busy !== undefined) entry.busy = busy;
+    if (area !== undefined) entry.area = area;
+    if (inlineSize !== undefined) entry.inlineSize = inlineSize;
     const nextForegroundBusy = entry.inViewport && entry.busy;
 
     if (prevForegroundBusy !== nextForegroundBusy) {
@@ -239,29 +246,83 @@ class TiqianLayoutCoordinator {
     }
   }
 
+  remove(element) {
+    const entry = this.#entries.get(element);
+    if (entry && entry.inViewport && entry.busy) {
+      this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
+    }
+    this.#entries.delete(element);
+  }
+
   shouldYield(element) {
     const entry = this.#entries.get(element);
     return !!(entry && !entry.inViewport);
   }
 
-  #callbacks = new Set();
+  #callbacks = new Map();
   #rafId = 0;
+  #budgetMs = 8.0;
+  #lastFrameTimestamp = 0;
 
-  requestFrame(callback) {
-    this.#callbacks.add(callback);
-    if (this.#rafId) return;
-    this.#rafId = requestAnimationFrame((now) => {
-      this.#rafId = 0;
-      const tasks = Array.from(this.#callbacks);
-      this.#callbacks.clear();
-      for (let i = 0; i < tasks.length; i++) {
-        try {
-          tasks[i](now);
-        } catch (e) {
-          console.error("Tiqian frame task error", e);
-        }
+  #runFrameLoop = (now) => {
+    this.#rafId = 0;
+
+    // Adaptive dynamic budget adaptation:
+    // If consecutive frames are fast, keep ample budget;
+    // if frame duration exceeds target frame time (frame dropped / low-end CPU / Firefox),
+    // throttle down frame budget to leave sufficient room for browser styling, painting and compositing.
+    if (this.#lastFrameTimestamp > 0) {
+      const frameDelta = now - this.#lastFrameTimestamp;
+      if (frameDelta > 20.0) {
+        this.#budgetMs = Math.max(3.5, this.#budgetMs * 0.85);
+      } else if (frameDelta < 14.0) {
+        this.#budgetMs = Math.min(10.0, this.#budgetMs + 0.3);
       }
+    }
+    this.#lastFrameTimestamp = now;
+
+    const allTasks = Array.from(this.#callbacks.values());
+    this.#callbacks.clear();
+
+    // Human-centric visual prominence ordering:
+    // 1. inViewport elements first;
+    // 2. Larger visual container size / area first (prominent elements feel responsive first).
+    allTasks.sort((a, b) => {
+      const entryA = a.element ? this.#entries.get(a.element) : null;
+      const entryB = b.element ? this.#entries.get(b.element) : null;
+      const inViewA = entryA ? (entryA.inViewport ? 1 : 0) : 1;
+      const inViewB = entryB ? (entryB.inViewport ? 1 : 0) : 1;
+      if (inViewA !== inViewB) return inViewB - inViewA;
+      const scoreA = entryA ? (entryA.area || entryA.inlineSize || 0) : 0;
+      const scoreB = entryB ? (entryB.area || entryB.inlineSize || 0) : 0;
+      return scoreB - scoreA;
     });
+
+    const startTime = performance.now();
+    let executedCount = 0;
+
+    for (let i = 0; i < allTasks.length; i++) {
+      if (executedCount > 0 && (performance.now() - startTime >= this.#budgetMs)) {
+        for (let j = i; j < allTasks.length; j++) {
+          this.#callbacks.set(allTasks[j].callback, allTasks[j]);
+        }
+        this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+        break;
+      }
+
+      try {
+        allTasks[i].callback(now);
+        executedCount++;
+      } catch (e) {
+        console.error("Tiqian frame task error", e);
+      }
+    }
+  };
+
+  requestFrame(callback, element = null) {
+    this.#callbacks.set(callback, { callback, element });
+    if (this.#rafId) return;
+    this.#rafId = requestAnimationFrame(this.#runFrameLoop);
   }
 
   cancelFrame(callback) {
@@ -1360,6 +1421,8 @@ class TiqianProseElement extends HTMLElementBase {
         widths.set(entry.target, width);
         if (entry.target === this) {
           this.#lastObservedWidth = width;
+          const height = entry.contentRect ? entry.contentRect.height : 0;
+          coordinator.update(this, { inlineSize: width, area: width * (height || width * 0.6) });
         }
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
@@ -1463,7 +1526,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#responsiveCommitRequired = true;
       return;
     }
-    coordinator.requestFrame(this.#boundResponsiveCommit);
+    coordinator.requestFrame(this.#boundResponsiveCommit, this);
   }
 
   #commitResponsiveGeometryChange() {
@@ -1918,7 +1981,12 @@ class TiqianProseElement extends HTMLElementBase {
         if (entry.target === this) {
           const wasInViewport = this.#inViewport;
           this.#inViewport = entry.isIntersecting;
-          coordinator.update(this, { inViewport: this.#inViewport });
+          const rect = entry.boundingClientRect;
+          coordinator.update(this, {
+            inViewport: this.#inViewport,
+            inlineSize: rect ? rect.width : 0,
+            area: rect ? rect.width * rect.height : 0,
+          });
           if (!wasInViewport && this.#inViewport && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
             this.#scheduleResponsiveGeometryCommit();
           }
