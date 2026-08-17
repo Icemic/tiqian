@@ -24,6 +24,7 @@ import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LastLineAlignment
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutProfileId
+import org.tiqian.core.LineBreakPolicy
 import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.LineLengthGridDecisionInfo
 import org.tiqian.core.MandatoryBreakDecisionInfo
@@ -98,6 +99,7 @@ internal class WidthIndependentParagraphAnnotation(
     val segmentShapingCache: Map<TextRange, ShapingResult>,
     val substitutionRollbacks: Map<TextRange, String>,
     val rubyFontGeometryBySpan: Map<RubySpan, RubyFontGeometry>,
+    val baseShapingStage: ParagraphShapingStageResult,
 )
 
 interface WidthIndependentAnnotationCache {
@@ -393,6 +395,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         segmentShapingCache = baseShapingStage.segmentShapingCache,
         substitutionRollbacks = baseShapingStage.substitutionRollbacks,
         rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+        baseShapingStage = baseShapingStage,
     )
 }
 
@@ -437,25 +440,33 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
     val resolvedKinsoku = annotation.clreqProfile.kinsokuMode.resolve(measureEm)
     val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
 
-    // Compute width-dependent break opportunities and emergency breaks for the exact current measure
-    // using the pre-shaped segment cache so textShaper is not called repeatedly
-    val shapingStage = shapeParagraph(
-        input = input,
-        text = text,
-        fontSize = fontSize,
-        measure = measure,
-        clusterRanges = annotation.clusterRanges,
-        fontDecisionByRange = annotation.fontDecisionByRange,
-        inlineObjectByRange = annotation.inlineObjectByRange,
-        punctuationGlyphSubstitutor = annotation.punctuationGlyphSubstitutor,
-        styleAt = annotation.styleAt,
-        emphasisItalicAt = { offset ->
-            input.decorations.any { it.kind == DecorationKind.Emphasis && offset >= it.range.start && offset < it.range.end }
-        },
-        rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
-        cachedSegmentShaping = annotation.segmentShapingCache,
-        cachedSubstitutionRollbacks = annotation.substitutionRollbacks,
-    )
+    // Fast path: if there are no progressive technical spans, rejected tiers, or over-measure tokens,
+    // reuse baseShapingStage directly in O(1) without re-evaluating shaping stages.
+    val needsDynamicShaping = rejectedTechnicalTiersBySpan.isNotEmpty() ||
+        input.content.lineBreakSpans.any { it.policy == LineBreakPolicy.ProgressiveTechnical } ||
+        annotation.baseShapingStage.shapingResults.any { res -> res.clusters.sumOf { c -> c.advance.toDouble() } > measure }
+
+    val shapingStage = if (needsDynamicShaping) {
+        shapeParagraph(
+            input = input,
+            text = text,
+            fontSize = fontSize,
+            measure = measure,
+            clusterRanges = annotation.clusterRanges,
+            fontDecisionByRange = annotation.fontDecisionByRange,
+            inlineObjectByRange = annotation.inlineObjectByRange,
+            punctuationGlyphSubstitutor = annotation.punctuationGlyphSubstitutor,
+            styleAt = annotation.styleAt,
+            emphasisItalicAt = { offset ->
+                input.decorations.any { it.kind == DecorationKind.Emphasis && offset >= it.range.start && offset < it.range.end }
+            },
+            rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
+            cachedSegmentShaping = annotation.segmentShapingCache,
+            cachedSubstitutionRollbacks = annotation.substitutionRollbacks,
+        )
+    } else {
+        annotation.baseShapingStage
+    }
     val shapingResults = shapingStage.shapingResults
     val rawNaturalClusters = shapingResults.flatMap { it.clusters }
     val shapedGlyphsByClusterRange = shapingResults
