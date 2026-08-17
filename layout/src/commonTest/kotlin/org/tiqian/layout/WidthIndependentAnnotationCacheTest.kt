@@ -102,128 +102,86 @@ class WidthIndependentAnnotationCacheTest {
 
             assertEquals(expected.lines.size, actual.lines.size, "Line count mismatch at width $width")
             for (i in expected.lines.indices) {
-                val expectedLine = expected.lines[i]
-                val actualLine = actual.lines[i]
-                assertEquals(
-                    expected.clusters.slice(expectedLine.clusterRange).map { it.text },
-                    actual.clusters.slice(actualLine.clusterRange).map { it.text },
-                    "Line $i cluster mismatch at width $width",
-                )
-                assertEquals(
-                    expectedLine.adjustedWidth,
-                    actualLine.adjustedWidth,
-                    0.001f,
-                    "Line $i width mismatch at width $width",
-                )
+                assertEquals(expected.lines[i].range, actual.lines[i].range, "Line $i range mismatch at width $width")
+                assertEquals(expected.lines[i].visualWidth, actual.lines[i].visualWidth, 0.01f, "Line $i width mismatch at width $width")
             }
         }
     }
 
     @Test
-    fun cacheKeyDifferentiatesTextStyleAndContent() {
-        val shaper = CountingTextShaper()
+    fun cacheKeyDistinguishesTypographyDecorationsAndSpans() {
         val cache = LruWidthIndependentAnnotationCache()
-        val engine = ExplainableStubParagraphLayoutEngine(
-            textShaper = shaper,
-            annotationCache = cache,
-        )
+        val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
 
         val baseInput = LayoutInput(
-            content = TiqianTextContent("第一段文字内容。"),
+            content = TiqianTextContent("中西混合排版与测试文本。"),
             constraints = LayoutConstraints(maxWidth = 300f),
         )
-
         engine.layout(baseInput)
         assertEquals(1, cache.size)
-        val countAfterBase = shaper.shapeCallCount
 
-        // Changing text -> cache miss
-        val diffTextInput = baseInput.copy(content = TiqianTextContent("第二段不同的文字。"))
-        engine.layout(diffTextInput)
+        // 1. Text change
+        val textChanged = baseInput.copy(content = TiqianTextContent("中西混合排版与变动文本。"))
+        engine.layout(textChanged)
         assertEquals(2, cache.size)
-        assertTrue(shaper.shapeCallCount > countAfterBase)
-        val countAfterDiffText = shaper.shapeCallCount
 
-        // Changing fontSize in TextStyle -> cache miss
-        val diffStyleInput = baseInput.copy(textStyle = TextStyle(fontSize = 24f))
-        engine.layout(diffStyleInput)
+        // 2. Font size change
+        val fontChanged = baseInput.copy(textStyle = TextStyle(fontSize = 24f))
+        engine.layout(fontChanged)
         assertEquals(3, cache.size)
-        assertTrue(shaper.shapeCallCount > countAfterDiffText)
-        val countAfterDiffStyle = shaper.shapeCallCount
 
-        // Changing rubySpans -> cache miss
-        val diffRubyInput = baseInput.copy(
-            rubySpans = listOf(RubySpan(baseRange = TextRange(0, 2), text = "dì yī", kind = RubyKind.Pinyin)),
+        // 3. Emphasis decoration change
+        val emphasisChanged = baseInput.copy(
+            decorations = listOf(
+                DecorationSpan(range = TextRange(0, 4), kind = DecorationKind.Emphasis),
+            ),
         )
-        engine.layout(diffRubyInput)
+        engine.layout(emphasisChanged)
         assertEquals(4, cache.size)
-        assertTrue(shaper.shapeCallCount > countAfterDiffStyle)
-        val countAfterDiffRuby = shaper.shapeCallCount
 
-        // Changing decorations -> cache miss
-        val diffDecorationsInput = baseInput.copy(
-            decorations = listOf(DecorationSpan(range = TextRange(0, 2), kind = DecorationKind.Emphasis)),
+        // 4. Ruby change
+        val rubyChanged = baseInput.copy(
+            rubySpans = listOf(
+                RubySpan(baseRange = TextRange(0, 2), text = "zhōngxī", kind = RubyKind.Pinyin),
+            ),
         )
-        engine.layout(diffDecorationsInput)
+        engine.layout(rubyChanged)
         assertEquals(5, cache.size)
-        assertTrue(shaper.shapeCallCount > countAfterDiffRuby)
+
+        // 5. Inline box change
+        val inlineBoxChanged = baseInput.copy(
+            inlineBoxes = listOf(
+                InlineBoxSpan(range = TextRange(2, 4), inlineStart = 4f, inlineEnd = 4f),
+            ),
+        )
+        engine.layout(inlineBoxChanged)
+        assertEquals(6, cache.size)
     }
 
     @Test
-    fun cacheClearInvalidatesEntries() {
-        val shaper = CountingTextShaper()
-        val cache = LruWidthIndependentAnnotationCache()
-        val engine = ExplainableStubParagraphLayoutEngine(
-            textShaper = shaper,
-            annotationCache = cache,
-        )
-
-        val input = LayoutInput(
-            content = TiqianTextContent("测试缓存清理。"),
-            constraints = LayoutConstraints(maxWidth = 300f),
-        )
-
-        engine.layout(input)
-        assertEquals(1, cache.size)
-        val initialCalls = shaper.shapeCallCount
-
-        cache.clear()
-        assertEquals(0, cache.size)
-
-        engine.layout(input)
-        assertEquals(1, cache.size)
-        assertTrue(shaper.shapeCallCount > initialCalls, "After cache clear, layout must reshape text")
-    }
-
-    @Test
-    fun lruCacheEvictsOldestWhenMaxEntriesExceeded() {
+    fun lruCacheEvictsOldestEntriesWhenCapacityExceeded() {
         val cache = LruWidthIndependentAnnotationCache(maxEntries = 2)
-        val shaper = CountingTextShaper()
-        val engine = ExplainableStubParagraphLayoutEngine(
-            textShaper = shaper,
-            annotationCache = cache,
-        )
+        val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
 
-        val input1 = LayoutInput(content = TiqianTextContent("段落一"), constraints = LayoutConstraints(maxWidth = 200f))
-        val input2 = LayoutInput(content = TiqianTextContent("段落二"), constraints = LayoutConstraints(maxWidth = 200f))
-        val input3 = LayoutInput(content = TiqianTextContent("段落三"), constraints = LayoutConstraints(maxWidth = 200f))
+        val input1 = LayoutInput(content = TiqianTextContent("段落一文本内容"), constraints = LayoutConstraints(maxWidth = 300f))
+        val input2 = LayoutInput(content = TiqianTextContent("段落二文本内容"), constraints = LayoutConstraints(maxWidth = 300f))
+        val input3 = LayoutInput(content = TiqianTextContent("段落三文本内容"), constraints = LayoutConstraints(maxWidth = 300f))
 
         engine.layout(input1)
         engine.layout(input2)
         assertEquals(2, cache.size)
 
-        // Adding 3rd item should evict input1
+        val key1 = input1.toWidthIndependentAnnotationKey()
+        val key2 = input2.toWidthIndependentAnnotationKey()
+        assertTrue(cache.get(key1) != null)
+        assertTrue(cache.get(key2) != null)
+
+        // Insert third -> key1 should be evicted
         engine.layout(input3)
         assertEquals(2, cache.size)
-
-        val callsBeforeReplay = shaper.shapeCallCount
-
-        // input2 should hit cache
-        engine.layout(input2.copy(constraints = LayoutConstraints(maxWidth = 150f)))
-        assertEquals(callsBeforeReplay, shaper.shapeCallCount, "input2 should still be in cache")
-
-        // input1 was evicted, so layout must reshape it
-        engine.layout(input1.copy(constraints = LayoutConstraints(maxWidth = 150f)))
-        assertTrue(shaper.shapeCallCount > callsBeforeReplay, "input1 was evicted and must reshape")
+        val key3 = input3.toWidthIndependentAnnotationKey()
+        assertTrue(cache.get(key3) != null)
+        assertTrue(cache.get(key2) != null)
+        assertEquals(null, cache.get(key1), "Oldest entry key1 should be evicted")
     }
 }

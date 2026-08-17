@@ -43,12 +43,8 @@ import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleClassifier
 import org.tiqian.font.FontRoleContext
 import org.tiqian.shaping.ShapingInput
+import org.tiqian.shaping.ShapingResult
 
-/**
- * Key for caching width-independent layout annotations (`WidthIndependentAnnotationCache`).
- * Captures all textual, semantic, typographic, and annotation inputs that affect cluster
- * advances, punctuation atoms, autospace, and shaping before line breaking.
- */
 data class WidthIndependentAnnotationKey(
     val text: String,
     val spans: List<TextSpan>,
@@ -64,11 +60,23 @@ data class WidthIndependentAnnotationKey(
     val rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
 )
 
-/**
- * Complete set of width-independent paragraph annotations prepared before line breaking.
- * Reused during responsive resizing to avoid re-running font resolution, shaping, autospace,
- * inline box measurement, punctuation atomization, and ruby layout.
- */
+internal fun LayoutInput.toWidthIndependentAnnotationKey(
+    rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>> = emptyMap(),
+): WidthIndependentAnnotationKey = WidthIndependentAnnotationKey(
+    text = content.text,
+    spans = content.spans,
+    lineBreakSpans = content.lineBreakSpans,
+    sourceBoundaries = content.sourceBoundaries,
+    textStyle = textStyle,
+    decorations = decorations,
+    rubySpans = rubySpans,
+    inlineBoxes = inlineBoxes,
+    inlineObjects = inlineObjects,
+    profileId = profileId,
+    emphasisDotGapEm = paragraphStyle.emphasisDotGapEm,
+    rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
+)
+
 internal class WidthIndependentParagraphAnnotation(
     val text: String,
     val fontSize: Float,
@@ -84,45 +92,12 @@ internal class WidthIndependentParagraphAnnotation(
     val quotePairs: List<QuotePair>,
     val roleOverrideInfos: List<RoleOverrideInfo>,
     val fontDecisions: List<FontDecision>,
-    val hyphenOffsets: Set<Int>,
-    val hyphenAdvance: Float,
-    val hyphenGlyphs: List<Glyph>,
+    val clusterRanges: List<ResolvedClusterRange>,
+    val fontDecisionByRange: Map<TextRange, FontDecision>,
+    val inlineObjectByRange: Map<TextRange, InlineObjectSpan>,
+    val segmentShapingCache: Map<TextRange, ShapingResult>,
     val substitutionRollbacks: Map<TextRange, String>,
-    val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
-    val emergencyTrackingEligibilityDecisions: List<EmergencyTrackingEligibilityDecisionInfo>,
-    val progressiveBreakOffsets: Map<Int, ProgressiveBreakOpportunity>,
-    val shapedGlyphsByClusterRange: Map<TextRange, List<Glyph>>,
-    val openTypeFeaturesByClusterRange: Map<TextRange, List<String>>,
-    val shapingDecisions: List<ShapingDecisionInfo>,
-    val eastAsianSpacingEdges: List<EastAsianSpacingEdges>,
-    val autoSpaceDecisions: List<AutoSpaceDecisionInfo>,
-    val inlineBoxResult: InlineBoxApplicationResult,
-    val naturalClusters: List<Cluster>,
-    val inlineObjectByClusterIndex: Map<Int, InlineObjectSpan>,
-    val uniformInlineObjectBoundaryAfterClusters: Set<Int>,
-    val preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch>,
-    val inlineObjectBoundaryUnbreakableRanges: List<IntRange>,
-    val clusterRoles: List<FontRole>,
-    val inlineObjectAttachedMarks: List<InlineObjectAttachedMark>,
-    val inlineObjectSeparatorSpaceTrims: Map<Int, Float>,
-    val inlineObjectAttachmentNoStretchBoundaries: Set<Int>,
-    val inlineObjectPunctuationAttachmentDecisions: List<InlineObjectPunctuationAttachmentDecisionInfo>,
-    val mandatoryBreakClusters: Set<Int>,
-    val zeroWidthBreakClusters: Set<Int>,
-    val mandatoryBreakDecisions: List<MandatoryBreakDecisionInfo>,
-    val zeroWidthBreakDecisions: List<ZeroWidthBreakDecisionInfo>,
-    val punctuationAtoms: List<PunctuationAtom>,
-    val spacingPlan: PunctuationSpacingCompressionResult,
     val rubyFontGeometryBySpan: Map<RubySpan, RubyFontGeometry>,
-    val rubyAndBopomofoSpread: Map<Int, Float>,
-    val naturalInlineAttachments: List<InlineAttachment>,
-    val attachedPunctuationBoundary: AttachedInlinePunctuationBoundaryResult,
-    val baseGeometry: PunctuationGeometryLedger,
-    val attachedPunctuationTrailingGlueByCluster: Map<Int, Float>,
-    val clusters: List<Cluster>,
-    val adjustmentStyle: AdjustmentStylePolicy,
-    val atomClassByRange: Map<TextRange, PunctuationClass>,
-    val shrinkOpportunities: List<ShrinkOpportunity>,
 )
 
 interface WidthIndependentAnnotationCache {
@@ -133,48 +108,110 @@ interface WidthIndependentAnnotationCache {
 }
 
 class LruWidthIndependentAnnotationCache(val maxEntries: Int = 512) : WidthIndependentAnnotationCache {
-    private val entries = LinkedHashMap<WidthIndependentAnnotationKey, Any>()
+    private val map = mutableMapOf<WidthIndependentAnnotationKey, Any>()
+    private val keys = mutableListOf<WidthIndependentAnnotationKey>()
 
     override fun get(key: WidthIndependentAnnotationKey): Any? {
-        val value = entries.remove(key) ?: return null
-        entries[key] = value
+        val value = map[key] ?: return null
+        keys.remove(key)
+        keys.add(key)
         return value
     }
 
     override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {
-        entries.remove(key)
-        entries[key] = annotation
-        if (entries.size > maxEntries) {
-            val oldest = entries.keys.firstOrNull()
-            if (oldest != null) entries.remove(oldest)
+        if (key in map) {
+            keys.remove(key)
+        } else if (keys.size >= maxEntries) {
+            val oldest = keys.removeAt(0)
+            map.remove(oldest)
         }
+        keys.add(key)
+        map[key] = annotation
     }
 
     override fun clear() {
-        entries.clear()
+        map.clear()
+        keys.clear()
     }
 
     override val size: Int
-        get() = entries.size
+        get() = map.size
 }
 
-internal fun LayoutInput.toWidthIndependentAnnotationKey(
-    rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>> = emptyMap(),
-): WidthIndependentAnnotationKey =
-    WidthIndependentAnnotationKey(
-        text = content.text,
-        spans = content.spans,
-        lineBreakSpans = content.lineBreakSpans,
-        sourceBoundaries = content.sourceBoundaries,
-        textStyle = textStyle,
-        decorations = decorations,
-        rubySpans = rubySpans,
-        inlineBoxes = inlineBoxes,
-        inlineObjects = inlineObjects,
-        profileId = profileId,
-        emphasisDotGapEm = paragraphStyle.emphasisDotGapEm,
-        rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
-    )
+/** 行间注 (ruby, ADR 0032): 注文常用基文 1/2 字号 (CLREQ 振假名惯例). */
+private const val RUBY_FONT_EM = 0.5f
+
+/** `RubyLegibilityWeightBoost`: 拼音注文默认比基文重 100，保持轻而清楚. */
+private const val RUBY_FONT_WEIGHT_BOOST = 100
+
+/** `BopomofoLegibilityWeightBoost`: 注音 ㄅㄆㄇ 更小，默认比基文重 300. */
+private const val BOPOMOFO_FONT_WEIGHT_BOOST = 300
+
+/**
+ * 避让 最小间距 (CLREQ §罗马拼音「相邻注文的间距不应小于西文词间空格」): one 注文
+ * word space ≈ 1/4 of the 注文 em. Measured in 注文 units, NOT base 字宽.
+ */
+private const val RUBY_MIN_GAP_EM_OF_RUBY = 0.25f
+
+/**
+ * Extra clearance between the注文 Latin font box and the base 字身框顶 — **default 0**.
+ * The base glyph has its own internal top margin; bump only if a style wants
+ * visibly looser ruby.
+ */
+private const val RUBY_STACK_GAP_EM = 0f
+
+/** CLREQ 挤压第②档：西文词距最小压至四分之一汉字宽. */
+private const val WORD_SPACE_MIN_EM = 0.25f
+
+/** CLREQ 挤压⑥：行内中西间距「最小挤为八分之一汉字宽」. */
+private const val SINO_WESTERN_GAP_MIN_EM = 0.125f
+
+/** CLREQ 挤压第④档对象：「位于行内的句号、问号、感叹号」. */
+private val INLINE_STOPS = setOf('。', '！', '？', '．')
+
+private fun TextRange.isContainedIn(other: TextRange): Boolean =
+    start >= other.start && end <= other.end
+
+private fun <K, V> MutableMap<K, V>.mergeValue(key: K, value: V, remappingFunction: (V, V) -> V): V {
+    val oldValue = get(key)
+    val newValue = if (oldValue == null) value else remappingFunction(oldValue, value)
+    put(key, newValue)
+    return newValue
+}
+
+/** Monotonic interval join for source-ordered clusters and source-ordered decisions. */
+internal fun <T> List<Cluster>.containingItems(
+    items: List<T>,
+    rangeOf: (T) -> TextRange,
+): List<T?> {
+    var itemIndex = 0
+    return map { cluster ->
+        while (itemIndex < items.size && rangeOf(items[itemIndex]).end <= cluster.range.start) {
+            itemIndex += 1
+        }
+        items.getOrNull(itemIndex)?.takeIf { item ->
+            val range = rangeOf(item)
+            cluster.range.start >= range.start && cluster.range.end <= range.end
+        }
+    }
+}
+
+/** Monotonic inverse interval join when one cluster may contain several ordered items. */
+internal fun <T> List<Cluster>.firstContainedItem(
+    items: List<T>,
+    rangeOf: (T) -> TextRange,
+): List<T?> {
+    var itemIndex = 0
+    return map { cluster ->
+        while (itemIndex < items.size && rangeOf(items[itemIndex]).end <= cluster.range.start) {
+            itemIndex += 1
+        }
+        items.getOrNull(itemIndex)?.takeIf { item ->
+            val range = rangeOf(item)
+            range.start >= cluster.range.start && range.end <= cluster.range.end
+        }
+    }
+}
 
 internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotation(
     input: LayoutInput,
@@ -196,6 +233,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
     fun bopomofoFontWeightAt(offset: Int): Int =
         (styleAt(offset).fontWeight + BOPOMOFO_FONT_WEIGHT_BOOST).coerceIn(1, 900)
     val pinyinSpans = input.rubySpans.filter { it.kind == RubyKind.Pinyin }
+
     val spanBoundaries: Set<Int> = buildSet {
         fun addBoundary(offset: Int) {
             if (offset > 0 && offset < text.length) add(offset)
@@ -247,13 +285,12 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         it.mandatoryBreak || it.zeroWidthSoftBreak || inlineObjectByRange.containsKey(it.range)
     }
     val fontDecisions = shapeableRanges.map { resolvedRange ->
-        val spanStyle = styleAt(resolvedRange.range.start)
         fallbackResolver.resolve(
             text = text,
             range = resolvedRange.range,
             request = FontRequest(
-                preferredFamilies = spanStyle.fontFamilies,
-                locale = spanStyle.locale,
+                preferredFamilies = input.textStyle.fontFamilies,
+                locale = input.textStyle.locale,
                 role = resolvedRange.role,
             ),
         )
@@ -262,11 +299,11 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         resolved.range to decision
     }
 
-    val shapingStage = shapeParagraph(
+    val baseShapingStage = shapeParagraph(
         input = input,
         text = text,
         fontSize = fontSize,
-        measure = input.constraints.maxWidth,
+        measure = Float.POSITIVE_INFINITY,
         clusterRanges = clusterRanges,
         fontDecisionByRange = fontDecisionByRange,
         inlineObjectByRange = inlineObjectByRange,
@@ -274,235 +311,6 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         styleAt = ::styleAt,
         emphasisItalicAt = ::emphasisItalicAt,
         rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
-    )
-    val shapingResults = shapingStage.shapingResults
-    val hyphenOffsets = shapingStage.hyphenOffsets
-    val hyphenAdvance = shapingStage.hyphenAdvance
-    val hyphenGlyphs = shapingStage.hyphenGlyphs
-    val substitutionRollbacks = shapingStage.substitutionRollbacks
-    val breakOpportunityDecisions = shapingStage.breakOpportunityDecisions
-    val emergencyTrackingEligibilityDecisions = shapingStage.emergencyTrackingEligibilityDecisions
-    val progressiveBreakOffsets = shapingStage.progressiveBreakOffsets
-    val rawNaturalClusters = shapingResults.flatMap { it.clusters }
-    val shapedGlyphsByClusterRange = shapingResults
-        .flatMap { it.glyphRuns }
-        .flatMap { it.glyphs }
-        .groupBy { it.clusterRange }
-    val openTypeFeaturesByClusterRange = buildMap<TextRange, List<String>> {
-        shapingResults.flatMap { it.glyphRuns }.forEach { run ->
-            run.glyphs.map { it.clusterRange }.distinct().forEach { range ->
-                val previous = put(range, run.openTypeFeatures)
-                require(previous == null || previous == run.openTypeFeatures) {
-                    "Conflicting OpenType features for shaped cluster $range"
-                }
-            }
-        }
-    }
-    val shapingDecisions = shapingResults.flatMap { it.decisions }
-    rawNaturalClusters.requireCoveredBy(fontDecisions)
-
-    val inlineObjectRanges = input.inlineObjects.map { it.range }
-    val narrowInlineBoxRanges = input.inlineBoxes
-        .filter { it.outerSpacing == InlineBoxOuterSpacing.Narrow }
-        .mapTo(mutableSetOf()) { it.range }
-    val narrowInlineBoxLeadingClusters = rawNaturalClusters.indices
-        .filterTo(mutableSetOf()) { index ->
-            narrowInlineBoxRanges.any { it.start == rawNaturalClusters[index].range.start }
-        }
-    val narrowInlineBoxTrailingClusters = rawNaturalClusters.indices
-        .filterTo(mutableSetOf()) { index ->
-            narrowInlineBoxRanges.any { it.end == rawNaturalClusters[index].range.end }
-        }
-    val eastAsianSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
-        if (
-            inlineObjectRanges.any { cluster.range.isInside(it) } ||
-            (rawNaturalClusters.isAttachedAsciiPointMarkAt(index) &&
-                index !in narrowInlineBoxLeadingClusters)
-        ) {
-            EastAsianSpacingEdges(
-                leading = EastAsianSpacingValue.Other,
-                trailing = EastAsianSpacingValue.Other,
-                containsWide = false,
-            )
-        } else {
-            val resolved = UnicodeEastAsianSpacing.resolvedEdges(
-                text = cluster.text,
-                locale = input.textStyle.locale,
-            )
-            resolved.copy(
-                leading = if (index in narrowInlineBoxLeadingClusters) {
-                    EastAsianSpacingValue.Narrow
-                } else {
-                    resolved.leading
-                },
-                trailing = if (index in narrowInlineBoxTrailingClusters) {
-                    EastAsianSpacingValue.Narrow
-                } else {
-                    resolved.trailing
-                },
-            )
-        }
-    }
-
-    val autoSpaceResult = rawNaturalClusters.applyAutoSpacePolicy(
-        eastAsianSpacingEdges = eastAsianSpacingEdges,
-        inlineAttachments = rawNaturalClusters.map { styleAt(it.range.start).inlineAttachment },
-        policy = clreqProfile.autoSpace,
-        fontSize = fontSize,
-        narrowInlineBoxLeadingClusters = narrowInlineBoxLeadingClusters,
-        narrowInlineBoxTrailingClusters = narrowInlineBoxTrailingClusters,
-    )
-    val inlineBoxResult = autoSpaceResult.clusters.applyInlineBoxSpans(input.inlineBoxes)
-    val naturalClusters = inlineBoxResult.clusters
-    val inlineObjectByClusterIndex = buildMap {
-        for (inlineObject in input.inlineObjects) {
-            val clusterIndex = naturalClusters.indexOfFirst {
-                it.range == inlineObject.range && it.isInlineObjectCluster()
-            }
-            require(clusterIndex >= 0) {
-                "Inline object ${inlineObject.range} did not produce a layout cluster"
-            }
-            put(clusterIndex, inlineObject)
-        }
-    }
-    val inlineObjectBoundaryAfterClusters = mutableMapOf<Int, InlineObjectBoundaryAdjustment>()
-    fun registerInlineObjectBoundary(
-        leftClusterIndex: Int,
-        boundary: InlineObjectBoundaryAdjustment,
-    ) {
-        val previous = inlineObjectBoundaryAfterClusters[leftClusterIndex]
-        if (previous == null) {
-            inlineObjectBoundaryAfterClusters[leftClusterIndex] = boundary
-            return
-        }
-        val preferredKinds = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
-            .map { it.kind }
-            .distinct()
-        require(preferredKinds.size <= 1) {
-            "Conflicting inline-object stretch classes at cluster boundary $leftClusterIndex"
-        }
-        val preferred = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
-            .maxByOrNull { it.capacity }
-        inlineObjectBoundaryAfterClusters[leftClusterIndex] = InlineObjectBoundaryAdjustment(
-            participatesInUniformStretch =
-                previous.participatesInUniformStretch || boundary.participatesInUniformStretch,
-            preferredStretch = preferred,
-            shrinkCapacity = maxOf(previous.shrinkCapacity, boundary.shrinkCapacity),
-            lineEndDiscardableAdvance = maxOf(
-                previous.lineEndDiscardableAdvance,
-                boundary.lineEndDiscardableAdvance,
-            ),
-            preventsLineBreak = previous.preventsLineBreak || boundary.preventsLineBreak,
-        )
-    }
-    inlineObjectByClusterIndex.forEach { (clusterIndex, inlineObject) ->
-        if (clusterIndex > 0 && inlineObject.leadingBoundary != InlineObjectBoundaryAdjustment.Fixed) {
-            registerInlineObjectBoundary(clusterIndex - 1, inlineObject.leadingBoundary)
-        }
-        if (
-            clusterIndex < naturalClusters.lastIndex &&
-            inlineObject.trailingBoundary != InlineObjectBoundaryAdjustment.Fixed
-        ) {
-            registerInlineObjectBoundary(clusterIndex, inlineObject.trailingBoundary)
-        }
-    }
-    val uniformInlineObjectBoundaryAfterClusters = inlineObjectBoundaryAfterClusters
-        .filterValues { it.participatesInUniformStretch }
-        .keys
-    val preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> =
-        inlineObjectBoundaryAfterClusters.mapNotNull { (clusterIndex, boundary) ->
-            boundary.preferredStretch?.let { clusterIndex to it }
-        }.toMap()
-    val inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryAfterClusters
-        .filterValues { it.preventsLineBreak }
-        .keys
-        .map { leftClusterIndex -> leftClusterIndex..(leftClusterIndex + 1) }
-    val autoSpaceDecisions = autoSpaceResult.decisions
-    val clusterRoles = naturalClusters
-        .containingItems(fontDecisions, FontDecision::range)
-        .map { decision -> decision?.role ?: FontRole.Unknown }
-
-    val kinsokuRule = ClreqKinsokuRule(org.tiqian.clreq.KinsokuLevel.Strict)
-    val inlineObjectAttachedMarks = naturalClusters.inlineObjectAttachedMarks(
-        clusterRoles = clusterRoles,
-        level = org.tiqian.clreq.KinsokuLevel.Strict,
-        kinsokuRule = kinsokuRule,
-    )
-    val inlineObjectSeparatorSpaceTrims = buildMap {
-        inlineObjectAttachedMarks.forEach { attachment ->
-            attachment.separatorClusterIndices.forEach { clusterIndex ->
-                put(clusterIndex, naturalClusters[clusterIndex].advance)
-            }
-        }
-    }
-    val inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachedMarks
-        .flatMapTo(mutableSetOf()) { attachment ->
-            attachment.objectClusterIndex until attachment.markClusterIndex
-        }
-    val inlineObjectPunctuationAttachmentDecisions = inlineObjectAttachedMarks
-        .filter { it.separatorClusterIndices.isNotEmpty() }
-        .map { attachment ->
-            val separatorFirst = naturalClusters[attachment.separatorClusterIndices.first()]
-            val separatorLast = naturalClusters[attachment.separatorClusterIndices.last()]
-            val mark = naturalClusters[attachment.markClusterIndex]
-            InlineObjectPunctuationAttachmentDecisionInfo(
-                objectRange = naturalClusters[attachment.objectClusterIndex].range,
-                separatorRange = TextRange(separatorFirst.range.start, separatorLast.range.end),
-                punctuationRange = mark.range,
-                punctuationText = mark.text,
-                protectedRange = TextRange(
-                    naturalClusters[attachment.objectClusterIndex].range.start,
-                    mark.range.end,
-                ),
-                collapsedAdvance = attachment.separatorClusterIndices
-                    .sumOf { naturalClusters[it].advance.toDouble() }
-                    .toFloat(),
-            )
-        }
-    val mandatoryBreakClusters = naturalClusters.indices
-        .filterTo(mutableSetOf()) { idx -> naturalClusters[idx].isMandatoryBreakCluster() }
-    val zeroWidthBreakClusters = naturalClusters.indices
-        .filterTo(mutableSetOf()) { idx -> naturalClusters[idx].isZeroWidthSoftBreakCluster() }
-    val mandatoryBreakDecisions = naturalClusters.mapIndexedNotNull { idx, cluster ->
-        if (!cluster.isMandatoryBreakCluster()) return@mapIndexedNotNull null
-        MandatoryBreakDecisionInfo(
-            range = cluster.range,
-            sourceText = cluster.text,
-            breakAfterClusterIndex = idx,
-            reason = "MandatoryBreakNoShape",
-        )
-    }
-    val zeroWidthBreakDecisions = zeroWidthBreakClusters.sorted().map { clusterIndex ->
-        val cluster = naturalClusters[clusterIndex]
-        ZeroWidthBreakDecisionInfo(
-            range = cluster.range,
-            sourceText = cluster.text,
-            clusterIndex = clusterIndex,
-        )
-    }
-
-    val punctuationAtoms = naturalClusters.mapIndexedNotNull { idx, cluster ->
-        if (clusterRoles[idx] == FontRole.LatinText) null else cluster
-    }.flatMap { cluster ->
-        cluster.punctuationAtoms(
-            em = fontSize,
-            builder = punctuationAtomBuilder,
-            shapedGlyphs = shapedGlyphsByClusterRange[cluster.range].orEmpty(),
-            gluePlacement = clreqProfile.gluePlacement,
-            widthPolicy = clreqProfile.punctuationWidth,
-        )
-    }
-    val adjacentPunctuationSpacingPlan =
-        punctuationSpacingCompressor.compress(punctuationAtoms, em = fontSize)
-    val cjkClosingBeforeAsciiPointMarkPlan =
-        punctuationSpacingCompressor.compressCjkClosingBeforeAsciiPointMark(
-            atoms = punctuationAtoms,
-            text = text,
-            em = fontSize,
-        )
-    val spacingPlan = PunctuationSpacingCompressionResult(
-        adjustments = adjacentPunctuationSpacingPlan.adjustments +
-            cjkClosingBeforeAsciiPointMarkPlan.adjustments,
     )
 
     val rubyFontGeometryBySpan = pinyinSpans.associateWith { ruby ->
@@ -564,16 +372,314 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         )
     }
 
+    return WidthIndependentParagraphAnnotation(
+        text = text,
+        fontSize = fontSize,
+        styleAt = ::styleAt,
+        fontSizeAt = ::fontSizeAt,
+        bopomofoFontWeightAt = ::bopomofoFontWeightAt,
+        rubyFontSize = rubyFontSize,
+        rubyStackGap = rubyStackGap,
+        rubyFontWeight = rubyFontWeight,
+        pinyinSpans = pinyinSpans,
+        clreqProfile = clreqProfile,
+        punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
+        quotePairs = quotePairs,
+        roleOverrideInfos = roleOverrideInfos,
+        fontDecisions = fontDecisions,
+        clusterRanges = clusterRanges,
+        fontDecisionByRange = fontDecisionByRange,
+        inlineObjectByRange = inlineObjectByRange,
+        segmentShapingCache = baseShapingStage.segmentShapingCache,
+        substitutionRollbacks = baseShapingStage.substitutionRollbacks,
+        rubyFontGeometryBySpan = rubyFontGeometryBySpan,
+    )
+}
+
+internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
+    input: LayoutInput,
+    annotation: WidthIndependentParagraphAnnotation,
+    rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
+): ParagraphLayoutPrep {
+    val text = annotation.text
+    val fontSize = input.textStyle.fontSize
+    val grid = input.paragraphStyle.lineLengthGrid
+    val containerWidth = input.constraints.maxWidth
+    val gridCells = floor(containerWidth / fontSize).toInt().coerceAtLeast(1)
+    val measure = if (grid.enabled) {
+        (gridCells * fontSize).coerceAtMost(containerWidth)
+    } else {
+        containerWidth
+    }
+    val gridSlack = containerWidth - measure
+    val gridBodyAlignment = grid.bodyAlignment ?: input.paragraphStyle.lastLineAlignment
+    val gridBodyOffset = if (!grid.enabled) {
+        0f
+    } else {
+        when (gridBodyAlignment) {
+            LastLineAlignment.Start -> 0f
+            LastLineAlignment.Center -> gridSlack / 2f
+            LastLineAlignment.End -> gridSlack
+        }
+    }
+    val lineLengthGridDecision = LineLengthGridDecisionInfo(
+        enabled = grid.enabled,
+        containerWidth = containerWidth,
+        fontSize = fontSize,
+        cells = if (grid.enabled) gridCells else (measure / fontSize).toInt(),
+        measure = measure,
+        slack = gridSlack,
+        bodyAlignment = gridBodyAlignment.name,
+        bodyOffset = gridBodyOffset,
+        reason = if (grid.enabled) "LineLengthGridQuantization" else "GridBypassed",
+    )
+    val measureEm = measure / fontSize
+    val resolvedKinsoku = annotation.clreqProfile.kinsokuMode.resolve(measureEm)
+    val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
+
+    // Compute width-dependent break opportunities and emergency breaks for the exact current measure
+    // using the pre-shaped segment cache so textShaper is not called repeatedly
+    val shapingStage = shapeParagraph(
+        input = input,
+        text = text,
+        fontSize = fontSize,
+        measure = measure,
+        clusterRanges = annotation.clusterRanges,
+        fontDecisionByRange = annotation.fontDecisionByRange,
+        inlineObjectByRange = annotation.inlineObjectByRange,
+        punctuationGlyphSubstitutor = annotation.punctuationGlyphSubstitutor,
+        styleAt = annotation.styleAt,
+        emphasisItalicAt = { offset ->
+            input.decorations.any { it.kind == DecorationKind.Emphasis && offset >= it.range.start && offset < it.range.end }
+        },
+        rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
+        cachedSegmentShaping = annotation.segmentShapingCache,
+        cachedSubstitutionRollbacks = annotation.substitutionRollbacks,
+    )
+    val shapingResults = shapingStage.shapingResults
+    val rawNaturalClusters = shapingResults.flatMap { it.clusters }
+    val shapedGlyphsByClusterRange = shapingResults
+        .flatMap { it.glyphRuns }
+        .flatMap { it.glyphs }
+        .groupBy { it.clusterRange }
+    val openTypeFeaturesByClusterRange = buildMap<TextRange, List<String>> {
+        shapingResults.flatMap { it.glyphRuns }.forEach { run ->
+            run.glyphs.map { it.clusterRange }.distinct().forEach { range ->
+                val previous = put(range, run.openTypeFeatures)
+                require(previous == null || previous == run.openTypeFeatures) {
+                    "Conflicting OpenType features for shaped cluster $range"
+                }
+            }
+        }
+    }
+
+    rawNaturalClusters.requireCoveredBy(annotation.fontDecisions)
+
+    val inlineObjectRanges = input.inlineObjects.map { it.range }
+    val narrowInlineBoxRanges = input.inlineBoxes
+        .filter { it.outerSpacing == InlineBoxOuterSpacing.Narrow }
+        .mapTo(mutableSetOf()) { it.range }
+    val narrowInlineBoxLeadingClusters = rawNaturalClusters.indices
+        .filterTo(mutableSetOf()) { index ->
+            narrowInlineBoxRanges.any { it.start == rawNaturalClusters[index].range.start }
+        }
+    val narrowInlineBoxTrailingClusters = rawNaturalClusters.indices
+        .filterTo(mutableSetOf()) { index ->
+            narrowInlineBoxRanges.any { it.end == rawNaturalClusters[index].range.end }
+        }
+    val eastAsianSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
+        if (
+            inlineObjectRanges.any { cluster.range.isContainedIn(it) } ||
+            (rawNaturalClusters.isAttachedAsciiPointMarkAt(index) &&
+                index !in narrowInlineBoxLeadingClusters)
+        ) {
+            EastAsianSpacingEdges(
+                leading = EastAsianSpacingValue.Other,
+                trailing = EastAsianSpacingValue.Other,
+                containsWide = false,
+            )
+        } else {
+            val resolved = UnicodeEastAsianSpacing.resolvedEdges(
+                text = cluster.text,
+                locale = input.textStyle.locale,
+            )
+            resolved.copy(
+                leading = if (index in narrowInlineBoxLeadingClusters) {
+                    EastAsianSpacingValue.Narrow
+                } else {
+                    resolved.leading
+                },
+                trailing = if (index in narrowInlineBoxTrailingClusters) {
+                    EastAsianSpacingValue.Narrow
+                } else {
+                    resolved.trailing
+                },
+            )
+        }
+    }
+    val autoSpaceResult = rawNaturalClusters.applyAutoSpacePolicy(
+        eastAsianSpacingEdges = eastAsianSpacingEdges,
+        inlineAttachments = rawNaturalClusters.map { annotation.styleAt(it.range.start).inlineAttachment },
+        policy = annotation.clreqProfile.autoSpace,
+        fontSize = fontSize,
+        narrowInlineBoxLeadingClusters = narrowInlineBoxLeadingClusters,
+        narrowInlineBoxTrailingClusters = narrowInlineBoxTrailingClusters,
+    )
+    val inlineBoxResult = autoSpaceResult.clusters.applyInlineBoxSpans(input.inlineBoxes)
+    val naturalClusters = inlineBoxResult.clusters
+    val inlineObjectByClusterIndex = naturalClusters
+        .mapIndexedNotNull { clusterIndex, cluster ->
+            annotation.inlineObjectByRange[cluster.range]?.let { clusterIndex to it }
+        }
+        .toMap()
+
+    val inlineObjectBoundaryAfterClusters = mutableMapOf<Int, InlineObjectBoundaryAdjustment>()
+    fun registerInlineObjectBoundary(leftClusterIndex: Int, boundary: InlineObjectBoundaryAdjustment) {
+        val previous = inlineObjectBoundaryAfterClusters[leftClusterIndex]
+        if (previous == null) {
+            inlineObjectBoundaryAfterClusters[leftClusterIndex] = boundary
+            return
+        }
+        val preferredKinds = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
+            .map { it.kind }
+            .distinct()
+        require(preferredKinds.size <= 1) {
+            "Conflicting inline-object stretch classes at cluster boundary $leftClusterIndex"
+        }
+        val preferred = listOfNotNull(previous.preferredStretch, boundary.preferredStretch)
+            .maxByOrNull { it.capacity }
+        inlineObjectBoundaryAfterClusters[leftClusterIndex] = InlineObjectBoundaryAdjustment(
+            participatesInUniformStretch =
+                previous.participatesInUniformStretch || boundary.participatesInUniformStretch,
+            preferredStretch = preferred,
+            shrinkCapacity = maxOf(previous.shrinkCapacity, boundary.shrinkCapacity),
+            lineEndDiscardableAdvance = maxOf(
+                previous.lineEndDiscardableAdvance,
+                boundary.lineEndDiscardableAdvance,
+            ),
+            preventsLineBreak = previous.preventsLineBreak || boundary.preventsLineBreak,
+        )
+    }
+    inlineObjectByClusterIndex.forEach { (clusterIndex, inlineObject) ->
+        if (clusterIndex > 0 && inlineObject.leadingBoundary != InlineObjectBoundaryAdjustment.Fixed) {
+            registerInlineObjectBoundary(clusterIndex - 1, inlineObject.leadingBoundary)
+        }
+        if (
+            clusterIndex < naturalClusters.lastIndex &&
+            inlineObject.trailingBoundary != InlineObjectBoundaryAdjustment.Fixed
+        ) {
+            registerInlineObjectBoundary(clusterIndex, inlineObject.trailingBoundary)
+        }
+    }
+    val uniformInlineObjectBoundaryAfterClusters = inlineObjectBoundaryAfterClusters
+        .filterValues { it.participatesInUniformStretch }
+        .keys
+    val preferredInlineObjectBoundaryAfterClusters: Map<Int, InlineObjectPreferredStretch> =
+        inlineObjectBoundaryAfterClusters.mapNotNull { (clusterIndex, boundary) ->
+            boundary.preferredStretch?.let { clusterIndex to it }
+        }.toMap()
+    val inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryAfterClusters
+        .filterValues { it.preventsLineBreak }
+        .keys
+        .map { leftClusterIndex -> leftClusterIndex..(leftClusterIndex + 1) }
+    val autoSpaceDecisions = autoSpaceResult.decisions
+    val clusterRoles = naturalClusters
+        .containingItems(annotation.fontDecisions, FontDecision::range)
+        .map { decision -> decision?.role ?: FontRole.Unknown }
+
+    val inlineObjectAttachedMarks = naturalClusters.inlineObjectAttachedMarks(
+        clusterRoles = clusterRoles,
+        level = resolvedKinsoku.level,
+        kinsokuRule = kinsokuRule,
+    )
+    val inlineObjectSeparatorSpaceTrims = buildMap {
+        inlineObjectAttachedMarks.forEach { attachment ->
+            attachment.separatorClusterIndices.forEach { clusterIndex ->
+                put(clusterIndex, naturalClusters[clusterIndex].advance)
+            }
+        }
+    }
+    val inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachedMarks
+        .flatMapTo(mutableSetOf()) { attachment ->
+            attachment.objectClusterIndex until attachment.markClusterIndex
+        }
+    val inlineObjectPunctuationAttachmentDecisions = inlineObjectAttachedMarks
+        .filter { it.separatorClusterIndices.isNotEmpty() }
+        .map { attachment ->
+            val separatorFirst = naturalClusters[attachment.separatorClusterIndices.first()]
+            val separatorLast = naturalClusters[attachment.separatorClusterIndices.last()]
+            val mark = naturalClusters[attachment.markClusterIndex]
+            InlineObjectPunctuationAttachmentDecisionInfo(
+                objectRange = naturalClusters[attachment.objectClusterIndex].range,
+                separatorRange = TextRange(separatorFirst.range.start, separatorLast.range.end),
+                punctuationRange = mark.range,
+                punctuationText = mark.text,
+                protectedRange = TextRange(
+                    naturalClusters[attachment.objectClusterIndex].range.start,
+                    mark.range.end,
+                ),
+                collapsedAdvance = attachment.separatorClusterIndices
+                    .sumOf { naturalClusters[it].advance.toDouble() }
+                    .toFloat(),
+            )
+        }
+
+    val mandatoryBreakClusters = naturalClusters.indices
+        .filterTo(mutableSetOf()) { idx -> naturalClusters[idx].isMandatoryBreakCluster() }
+    val zeroWidthBreakClusters = naturalClusters.indices
+        .filterTo(mutableSetOf()) { idx -> naturalClusters[idx].isZeroWidthSoftBreakCluster() }
+    val mandatoryBreakDecisions = naturalClusters.mapIndexedNotNull { idx, cluster ->
+        if (!cluster.isMandatoryBreakCluster()) return@mapIndexedNotNull null
+        MandatoryBreakDecisionInfo(
+            range = cluster.range,
+            sourceText = cluster.text,
+            breakAfterClusterIndex = idx,
+            reason = "MandatoryBreakNoShape",
+        )
+    }
+    val zeroWidthBreakDecisions = zeroWidthBreakClusters.sorted().map { clusterIndex ->
+        val cluster = naturalClusters[clusterIndex]
+        ZeroWidthBreakDecisionInfo(
+            range = cluster.range,
+            sourceText = cluster.text,
+            clusterIndex = clusterIndex,
+        )
+    }
+
+    val punctuationAtoms = naturalClusters.mapIndexedNotNull { idx, cluster ->
+        if (clusterRoles[idx] == FontRole.LatinText) null else cluster
+    }.flatMap { cluster ->
+        cluster.punctuationAtoms(
+            em = fontSize,
+            builder = punctuationAtomBuilder,
+            shapedGlyphs = shapedGlyphsByClusterRange[cluster.range].orEmpty(),
+            gluePlacement = annotation.clreqProfile.gluePlacement,
+            widthPolicy = annotation.clreqProfile.punctuationWidth,
+        )
+    }
+    val adjacentPunctuationSpacingPlan =
+        punctuationSpacingCompressor.compress(punctuationAtoms, em = fontSize)
+    val cjkClosingBeforeAsciiPointMarkPlan =
+        punctuationSpacingCompressor.compressCjkClosingBeforeAsciiPointMark(
+            atoms = punctuationAtoms,
+            text = text,
+            em = fontSize,
+        )
+    val spacingPlan = PunctuationSpacingCompressionResult(
+        adjustments = adjacentPunctuationSpacingPlan.adjustments +
+            cjkClosingBeforeAsciiPointMarkPlan.adjustments,
+    )
+
     fun computeRubySpread(natural: List<Cluster>, rubySize: Float): Map<Int, Float> {
-        if (pinyinSpans.isEmpty()) return emptyMap()
+        if (annotation.pinyinSpans.isEmpty()) return emptyMap()
         val wordSpace = rubySize * RUBY_MIN_GAP_EM_OF_RUBY
         val leftX = FloatArray(natural.size)
         var acc = 0f
         for (i in natural.indices) { leftX[i] = acc; acc += natural[i].advance }
-        val measures = pinyinSpans.mapNotNull { ruby ->
+        val measures = annotation.pinyinSpans.mapNotNull { ruby ->
             val idxRange = natural.clusterIndexRangeFor(ruby.baseRange) ?: return@mapNotNull null
             val center = (leftX[idxRange.first] + leftX[idxRange.last] + natural[idxRange.last].advance) / 2f
-            Triple(idxRange.first, center, rubyFontGeometryBySpan.getValue(ruby).width)
+            Triple(idxRange.first, center, annotation.rubyFontGeometryBySpan.getValue(ruby).width)
         }.sortedBy { it.first }
         val spread = HashMap<Int, Float>()
         var shift = 0f
@@ -591,10 +697,9 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         }
         return spread
     }
-
-    val rubySpread = computeRubySpread(naturalClusters, rubyFontSize)
+    val rubySpread = computeRubySpread(naturalClusters, annotation.rubyFontSize)
     val bopomofoSpans = input.rubySpans.filter { it.kind == RubyKind.Bopomofo }
-    val rubyAndBopomofoSpread = if (bopomofoSpans.isEmpty()) {
+    val rubyAndBopomofoSpread: Map<Int, Float> = if (bopomofoSpans.isEmpty()) {
         rubySpread
     } else {
         HashMap(rubySpread).apply {
@@ -604,7 +709,9 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
             }
         }
     }
-    val naturalInlineAttachments = naturalClusters.map { styleAt(it.range.start).inlineAttachment }
+    val naturalInlineAttachments = naturalClusters.map { annotation.styleAt(it.range.start).inlineAttachment }
+    val adjustmentStyle = annotation.clreqProfile.adjustment
+
     val punctuationBaseGeometry = PunctuationGeometryLedger.from(
         naturalClusters = naturalClusters,
         punctuationAtoms = punctuationAtoms,
@@ -622,7 +729,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
     val attachedPunctuationTrailingGlueByCluster =
         attachedPunctuationBoundary.trailingGlueByCluster
     val clusters = baseGeometry.resolveClusters()
-    val adjustmentStyle = clreqProfile.adjustment
+
     val glueCaps = baseGeometry.glueCapacities()
     val gapClusterRanges = autoSpaceDecisions
         .filter { it.side == "gap" }
@@ -632,6 +739,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         .zip(naturalClusters.firstContainedItem(punctuationAtoms, PunctuationAtom::range))
         .mapNotNull { (cluster, atom) -> atom?.punctuationClass?.let { cluster.range to it } }
         .toMap()
+
     val shrinkOpportunities = buildList {
         naturalClusters.forEachIndexed { idx, cluster ->
             val caps = glueCaps[idx]
@@ -685,18 +793,21 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
                     -> {
                         addGeometryAwareOpportunity(tier = 3)
                     }
+
                     PunctuationClass.Opening,
                     PunctuationClass.Closing,
                     PunctuationClass.Quote,
                     -> {
                         addGeometryAwareOpportunity(tier = 4)
                     }
+
                     PunctuationClass.PauseOrStop -> {
                         val isStop = cluster.displayText.firstOrNull() in INLINE_STOPS
                         val tier = if (isStop) 7 else 5
                         val lineEndOnly = isStop && !adjustmentStyle.allowInlineStopCompression
                         addGeometryAwareOpportunity(tier = tier, lineEndOnly = lineEndOnly)
                     }
+
                     else -> addGeometryAwareOpportunity(tier = 5)
                 }
             } else if (cluster.isSpaceRun() && idx !in inlineObjectSeparatorSpaceTrims) {
@@ -721,108 +832,11 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         }
     }
 
-    return WidthIndependentParagraphAnnotation(
-        text = text,
-        fontSize = fontSize,
-        styleAt = ::styleAt,
-        fontSizeAt = ::fontSizeAt,
-        bopomofoFontWeightAt = ::bopomofoFontWeightAt,
-        rubyFontSize = rubyFontSize,
-        rubyStackGap = rubyStackGap,
-        rubyFontWeight = rubyFontWeight,
-        pinyinSpans = pinyinSpans,
-        clreqProfile = clreqProfile,
-        punctuationGlyphSubstitutor = punctuationGlyphSubstitutor,
-        quotePairs = quotePairs,
-        roleOverrideInfos = roleOverrideInfos,
-        fontDecisions = fontDecisions,
-        hyphenOffsets = hyphenOffsets,
-        hyphenAdvance = hyphenAdvance,
-        hyphenGlyphs = hyphenGlyphs,
-        substitutionRollbacks = substitutionRollbacks,
-        breakOpportunityDecisions = breakOpportunityDecisions,
-        emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions,
-        progressiveBreakOffsets = progressiveBreakOffsets,
-        shapedGlyphsByClusterRange = shapedGlyphsByClusterRange,
-        openTypeFeaturesByClusterRange = openTypeFeaturesByClusterRange,
-        shapingDecisions = shapingDecisions,
-        eastAsianSpacingEdges = eastAsianSpacingEdges,
-        autoSpaceDecisions = autoSpaceDecisions,
-        inlineBoxResult = inlineBoxResult,
-        naturalClusters = naturalClusters,
-        inlineObjectByClusterIndex = inlineObjectByClusterIndex,
-        uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
-        preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
-        inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryUnbreakableRanges,
-        clusterRoles = clusterRoles,
-        inlineObjectAttachedMarks = inlineObjectAttachedMarks,
-        inlineObjectSeparatorSpaceTrims = inlineObjectSeparatorSpaceTrims,
-        inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachmentNoStretchBoundaries,
-        inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
-        mandatoryBreakClusters = mandatoryBreakClusters,
-        zeroWidthBreakClusters = zeroWidthBreakClusters,
-        mandatoryBreakDecisions = mandatoryBreakDecisions,
-        zeroWidthBreakDecisions = zeroWidthBreakDecisions,
-        punctuationAtoms = punctuationAtoms,
-        spacingPlan = spacingPlan,
-        rubyFontGeometryBySpan = rubyFontGeometryBySpan,
-        rubyAndBopomofoSpread = rubyAndBopomofoSpread,
-        naturalInlineAttachments = naturalInlineAttachments,
-        attachedPunctuationBoundary = attachedPunctuationBoundary,
-        baseGeometry = baseGeometry,
-        attachedPunctuationTrailingGlueByCluster = attachedPunctuationTrailingGlueByCluster,
-        clusters = clusters,
-        adjustmentStyle = adjustmentStyle,
-        atomClassByRange = atomClassByRange,
-        shrinkOpportunities = shrinkOpportunities,
-    )
-}
-
-internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
-    input: LayoutInput,
-    annotation: WidthIndependentParagraphAnnotation,
-    rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
-): ParagraphLayoutPrep {
-    val fontSize = input.textStyle.fontSize
-    val grid = input.paragraphStyle.lineLengthGrid
-    val containerWidth = input.constraints.maxWidth
-    val gridCells = floor(containerWidth / fontSize).toInt().coerceAtLeast(1)
-    val measure = if (grid.enabled) {
-        (gridCells * fontSize).coerceAtMost(containerWidth)
-    } else {
-        containerWidth
-    }
-    val gridSlack = containerWidth - measure
-    val gridBodyAlignment = grid.bodyAlignment ?: input.paragraphStyle.lastLineAlignment
-    val gridBodyOffset = if (!grid.enabled) {
-        0f
-    } else {
-        when (gridBodyAlignment) {
-            LastLineAlignment.Start -> 0f
-            LastLineAlignment.Center -> gridSlack / 2f
-            LastLineAlignment.End -> gridSlack
-        }
-    }
-    val lineLengthGridDecision = LineLengthGridDecisionInfo(
-        enabled = grid.enabled,
-        containerWidth = containerWidth,
-        fontSize = fontSize,
-        cells = if (grid.enabled) gridCells else (measure / fontSize).toInt(),
-        measure = measure,
-        slack = gridSlack,
-        bodyAlignment = gridBodyAlignment.name,
-        bodyOffset = gridBodyOffset,
-        reason = if (grid.enabled) "LineLengthGridQuantization" else "GridBypassed",
-    )
-    val measureEm = measure / fontSize
-    val resolvedKinsoku = annotation.clreqProfile.kinsokuMode.resolve(measureEm)
-    val kinsokuRule = ClreqKinsokuRule(resolvedKinsoku.level)
-
     return ParagraphLayoutPrep(
         input = input,
         rejectedTechnicalTiersBySpan = rejectedTechnicalTiersBySpan,
-        text = annotation.text,
-        fontSize = annotation.fontSize,
+        text = text,
+        fontSize = fontSize,
         styleAt = annotation.styleAt,
         fontSizeAt = annotation.fontSizeAt,
         bopomofoFontWeightAt = annotation.bopomofoFontWeightAt,
@@ -839,71 +853,46 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
         quotePairs = annotation.quotePairs,
         roleOverrideInfos = annotation.roleOverrideInfos,
         fontDecisions = annotation.fontDecisions,
-        hyphenOffsets = annotation.hyphenOffsets,
-        hyphenAdvance = annotation.hyphenAdvance,
-        hyphenGlyphs = annotation.hyphenGlyphs,
-        substitutionRollbacks = annotation.substitutionRollbacks,
-        breakOpportunityDecisions = annotation.breakOpportunityDecisions,
-        emergencyTrackingEligibilityDecisions = annotation.emergencyTrackingEligibilityDecisions,
-        progressiveBreakOffsets = annotation.progressiveBreakOffsets,
-        shapedGlyphsByClusterRange = annotation.shapedGlyphsByClusterRange,
-        openTypeFeaturesByClusterRange = annotation.openTypeFeaturesByClusterRange,
-        shapingDecisions = annotation.shapingDecisions,
-        eastAsianSpacingEdges = annotation.eastAsianSpacingEdges,
-        autoSpaceDecisions = annotation.autoSpaceDecisions,
-        inlineBoxResult = annotation.inlineBoxResult,
-        naturalClusters = annotation.naturalClusters,
-        inlineObjectByClusterIndex = annotation.inlineObjectByClusterIndex,
-        uniformInlineObjectBoundaryAfterClusters = annotation.uniformInlineObjectBoundaryAfterClusters,
-        preferredInlineObjectBoundaryAfterClusters = annotation.preferredInlineObjectBoundaryAfterClusters,
-        inlineObjectBoundaryUnbreakableRanges = annotation.inlineObjectBoundaryUnbreakableRanges,
-        clusterRoles = annotation.clusterRoles,
+        hyphenOffsets = shapingStage.hyphenOffsets,
+        hyphenAdvance = shapingStage.hyphenAdvance,
+        hyphenGlyphs = shapingStage.hyphenGlyphs,
+        substitutionRollbacks = shapingStage.substitutionRollbacks,
+        breakOpportunityDecisions = shapingStage.breakOpportunityDecisions,
+        emergencyTrackingEligibilityDecisions = shapingStage.emergencyTrackingEligibilityDecisions,
+        progressiveBreakOffsets = shapingStage.progressiveBreakOffsets,
+        shapedGlyphsByClusterRange = shapedGlyphsByClusterRange,
+        openTypeFeaturesByClusterRange = openTypeFeaturesByClusterRange,
+        shapingDecisions = shapingStage.shapingResults.flatMap { it.decisions },
+        eastAsianSpacingEdges = eastAsianSpacingEdges,
+        autoSpaceDecisions = autoSpaceDecisions,
+        inlineBoxResult = inlineBoxResult,
+        naturalClusters = naturalClusters,
+        inlineObjectByClusterIndex = inlineObjectByClusterIndex,
+        uniformInlineObjectBoundaryAfterClusters = uniformInlineObjectBoundaryAfterClusters,
+        preferredInlineObjectBoundaryAfterClusters = preferredInlineObjectBoundaryAfterClusters,
+        inlineObjectBoundaryUnbreakableRanges = inlineObjectBoundaryUnbreakableRanges,
+        clusterRoles = clusterRoles,
         resolvedKinsoku = resolvedKinsoku,
         kinsokuRule = kinsokuRule,
-        inlineObjectAttachedMarks = annotation.inlineObjectAttachedMarks,
-        inlineObjectSeparatorSpaceTrims = annotation.inlineObjectSeparatorSpaceTrims,
-        inlineObjectAttachmentNoStretchBoundaries = annotation.inlineObjectAttachmentNoStretchBoundaries,
-        inlineObjectPunctuationAttachmentDecisions = annotation.inlineObjectPunctuationAttachmentDecisions,
-        mandatoryBreakClusters = annotation.mandatoryBreakClusters,
-        zeroWidthBreakClusters = annotation.zeroWidthBreakClusters,
-        mandatoryBreakDecisions = annotation.mandatoryBreakDecisions,
-        zeroWidthBreakDecisions = annotation.zeroWidthBreakDecisions,
-        punctuationAtoms = annotation.punctuationAtoms,
-        spacingPlan = annotation.spacingPlan,
+        inlineObjectAttachedMarks = inlineObjectAttachedMarks,
+        inlineObjectSeparatorSpaceTrims = inlineObjectSeparatorSpaceTrims,
+        inlineObjectAttachmentNoStretchBoundaries = inlineObjectAttachmentNoStretchBoundaries,
+        inlineObjectPunctuationAttachmentDecisions = inlineObjectPunctuationAttachmentDecisions,
+        mandatoryBreakClusters = mandatoryBreakClusters,
+        zeroWidthBreakClusters = zeroWidthBreakClusters,
+        mandatoryBreakDecisions = mandatoryBreakDecisions,
+        zeroWidthBreakDecisions = zeroWidthBreakDecisions,
+        punctuationAtoms = punctuationAtoms,
+        spacingPlan = spacingPlan,
         rubyFontGeometryBySpan = annotation.rubyFontGeometryBySpan,
-        rubyAndBopomofoSpread = annotation.rubyAndBopomofoSpread,
-        naturalInlineAttachments = annotation.naturalInlineAttachments,
-        attachedPunctuationBoundary = annotation.attachedPunctuationBoundary,
-        baseGeometry = annotation.baseGeometry,
-        attachedPunctuationTrailingGlueByCluster = annotation.attachedPunctuationTrailingGlueByCluster,
-        clusters = annotation.clusters,
-        adjustmentStyle = annotation.adjustmentStyle,
-        atomClassByRange = annotation.atomClassByRange,
-        shrinkOpportunities = annotation.shrinkOpportunities,
+        rubyAndBopomofoSpread = rubyAndBopomofoSpread,
+        naturalInlineAttachments = naturalInlineAttachments,
+        attachedPunctuationBoundary = attachedPunctuationBoundary,
+        baseGeometry = baseGeometry,
+        attachedPunctuationTrailingGlueByCluster = attachedPunctuationTrailingGlueByCluster,
+        clusters = clusters,
+        adjustmentStyle = adjustmentStyle,
+        atomClassByRange = atomClassByRange,
+        shrinkOpportunities = shrinkOpportunities,
     )
-}
-
-private const val RUBY_FONT_EM = 0.5f
-private const val RUBY_FONT_WEIGHT_BOOST = 100
-private const val BOPOMOFO_FONT_WEIGHT_BOOST = 300
-private const val RUBY_MIN_GAP_EM_OF_RUBY = 0.25f
-private const val RUBY_STACK_GAP_EM = 0f
-private const val WORD_SPACE_MIN_EM = 0.25f
-private const val SINO_WESTERN_GAP_MIN_EM = 0.125f
-private val INLINE_STOPS = setOf('。', '！', '？', '．')
-
-internal fun <T> List<Cluster>.firstContainedItem(
-    items: List<T>,
-    rangeOf: (T) -> TextRange,
-): List<T?> {
-    var itemIndex = 0
-    return map { cluster ->
-        while (itemIndex < items.size && rangeOf(items[itemIndex]).end <= cluster.range.start) {
-            itemIndex += 1
-        }
-        items.getOrNull(itemIndex)?.takeIf { item ->
-            val range = rangeOf(item)
-            range.start >= cluster.range.start && range.end <= cluster.range.end
-        }
-    }
 }

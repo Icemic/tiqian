@@ -74,6 +74,48 @@ Markdown 的加粗默认保留为原生 `<strong>` 粗体。如果站点把 `<st
 已经注册的快照。它只控制客户端增强，不会从已经生成的 SSR HTML 中删除 inert snapshot 数据。
 和所有 HTML Boolean attribute 一样，`disabled="false"` 仍表示关闭；需要开启时应移除该属性。
 
+## 响应式容器与 CSS 布局注意事项
+
+### 1. Flexbox / Grid 布局中的 `min-width: 0`
+
+在 CSS 规范中，Flexbox 与 CSS Grid 子项的 `min-width`（或 `min-inline-size`）默认值为 `auto`（即 `min-content` 内容最小宽度）。
+
+当 `<tiqian-prose>` 放置在 Flexbox 或 Grid 布局的子容器（例如 `.card`、`.main-content` 或双栏布局列）内时，若未解除默认最小宽度约束，容器在窗口缩小（resize）时可能会拒绝收缩，进而导致响应式观察器陷入尺寸死锁。
+
+**建议**：在承载正文的 Flex / Grid Item 上显式设置 `min-width: 0`（或 `min-inline-size: 0`）：
+
+```css
+.flex-item,
+.grid-column,
+.article-wrapper {
+  min-width: 0;
+  /* 或 min-inline-size: 0; */
+}
+```
+
+### 2. 避免缩放冲出：外层容器 `overflow: clip` 与标点悬挂安全区
+
+在窗口快速缩放或高频拖拽过程中，为避免排版完成前内容冲出外层视口或卡片边界，建议对外层容器添加溢出裁剪。但需要注意**层级与内边距搭配**，以避免破坏中西文排版的视觉悬挂：
+
+* **避免直接在 `<tiqian-prose>` 上设置 `overflow: hidden`**：
+  中文排版中，行首/行末的悬挂标点（Punctuation Hanging）可能向外延伸约 `0.5em`，着重号与下划线也位于字形基线下方。直接在组件根节点裁剪会导致突出的标点或行末点号被生硬切断。
+* **正确做法**：将 `overflow: clip`（或 `overflow: hidden`）设置在**外层卡片 / 版心容器（Article Container / Card Wrapper）** 上，并为该容器保留至少 `0.5em`（建议 `16px` 以上）的 `padding-inline`：
+
+```css
+/* 推荐：外层版心卡片负责裁剪与提供悬挂安全区 */
+.article-card,
+.prose-container {
+  overflow: clip; /* 或 overflow: hidden */
+  padding-inline: max(16px, 1em); /* 为标点悬挂预留安全缓冲区 */
+  box-sizing: border-box;
+}
+
+tiqian-prose {
+  display: block;
+  min-width: 0;
+}
+```
+
 ## 命令式 API
 
 不能使用自定义元素时，可以自行管理正文根节点的生命周期：
