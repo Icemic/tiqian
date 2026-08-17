@@ -19,10 +19,8 @@ import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 
 internal fun TiqianWeb.scheduleProgressiveSlice(job: ProgressiveJob) {
-    val idle = job.shouldScheduleIdle(job.nextIndex)
     job.scheduledSliceToken = scheduleProgressiveCallback(
-        callback = { runProgressiveSlice(job, idle) },
-        idle = idle,
+        callback = { runProgressiveSlice(job) },
     )
 }
 
@@ -38,12 +36,6 @@ internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
             job.onFailure?.invoke()
             failProgressiveJob(job, error)
         }
-    } else if (job.kind == ProgressiveJobKind.Relayout) {
-        // SynchronousForegroundRelayoutSlice: when WidthIndependentAnnotationCache
-        // is active, relayout is a pure arithmetic lookahead break. Execute the
-        // foreground slice synchronously in the same frame so the viewport
-        // updates with zero frame delay.
-        runProgressiveSlice(job, idleSlice = false)
     } else {
         scheduleProgressiveSlice(job)
     }
@@ -53,7 +45,7 @@ internal fun TiqianWeb.cancelProgressiveJob(root: HTMLElement) {
     progressiveJobs.remove(root)?.scheduledSliceToken?.let(::cancelProgressiveCallback)
 }
 
-internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob, idleSlice: Boolean) {
+internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob) {
     if (progressiveJobs[job.state.root] !== job) return
     job.scheduledSliceToken = null
     val sliceStartedAt = performanceNow()
@@ -68,8 +60,6 @@ internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob, idleSlice: Boole
             job.nextIndex < job.itemCount &&
             processedInSlice < MAX_PROGRESSIVE_ITEMS_PER_SLICE &&
             performanceNow() - sliceStartedAt < budgetMs &&
-            (!idleSlice || processedInSlice < MAX_PROGRESSIVE_IDLE_ITEMS_PER_SLICE) &&
-            !job.shouldScheduleIdle(job.nextIndex) &&
             !progressiveInputIsPending()
         )
     } catch (error: Throwable) {

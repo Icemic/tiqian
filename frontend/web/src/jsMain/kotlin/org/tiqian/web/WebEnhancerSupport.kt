@@ -253,9 +253,8 @@ internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLE
 )
 internal external fun progressiveInputIsPending(): Boolean
 @JsFun(
-    """(callback, idle) => {
-      const MINIMUM_IDLE_BUDGET_MS = 8;
-      const token = { kind: "cooperative", idleId: 0, frameId: 0 };
+    """(callback) => {
+      const token = { frameId: 0 };
       const inputIsPending = () => {
         try {
           return typeof navigator !== "undefined" && navigator.scheduling &&
@@ -276,7 +275,7 @@ internal external fun progressiveInputIsPending(): Boolean
       return token;
     }""",
 )
-internal external fun scheduleProgressiveCallback(callback: () -> Unit, idle: Boolean): JsAny
+internal external fun scheduleProgressiveCallback(callback: () -> Unit): JsAny
 @JsFun(
     """(token) => {
       if (token.frameId) cancelAnimationFrame(token.frameId);

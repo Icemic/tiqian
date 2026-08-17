@@ -163,9 +163,6 @@ object TiqianWeb {
                 }
             },
             stale = { stale },
-            shouldScheduleIdle = { index ->
-                candidates.getOrNull(index)?.let(::paragraphIsWithinProgressiveForegroundRange) == false
-            },
             startedAt = performanceNow(),
         )
         states.set(root, state)
@@ -379,6 +376,12 @@ object TiqianWeb {
                 kind = ProgressiveJobKind.Relayout,
                 itemCount = paragraphs.size,
                 processItem = { index ->
+                    if (commitSession.stale || paragraphs.indices.any { pIndex ->
+                            kotlin.math.abs(paragraphWidth(paragraphs[pIndex]) - widths[pIndex]) >= 0.5f
+                        }) {
+                        commitSession.stale = true
+                        return@ProgressiveJob
+                    }
                     val paragraphIndex = workOrder[index]
                     val paragraph = paragraphs[paragraphIndex]
                     val preparation = prepareParagraphLayout(
@@ -393,11 +396,10 @@ object TiqianWeb {
                 },
                 onItemsFinished = commitSession::finish,
                 onFailure = commitSession::rollback,
-                stale = { commitSession.stale },
-                shouldScheduleIdle = { index ->
-                    workOrder.getOrNull(index)
-                        ?.let { paragraphIndex -> paragraphs[paragraphIndex].source }
-                        ?.let(::paragraphIsWithinProgressiveForegroundRange) == false
+                stale = {
+                    commitSession.stale || paragraphs.indices.any { index ->
+                        kotlin.math.abs(paragraphWidth(paragraphs[index]) - widths[index]) >= 0.5f
+                    }
                 },
                 startedAt = performanceNow(),
             ),
@@ -609,7 +611,6 @@ object TiqianWeb {
         val onItemsFinished: (() -> Unit)? = null,
         val onFailure: (() -> Unit)? = null,
         val stale: (() -> Boolean)? = null,
-        val shouldScheduleIdle: (Int) -> Boolean = { false },
         val startedAt: Double,
         var nextIndex: Int = 0,
         var scheduledSliceToken: JsAny? = null,

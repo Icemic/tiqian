@@ -339,7 +339,6 @@ class TiqianWebProgressiveRelayoutTest {
         assertEquals("true", paragraphs.last().getAttribute("data-tq-rendered"))
         assertTrue(root.querySelectorAll("p[data-tq-rendered='true']").length < paragraphs.size)
         assertEquals(1, flushOneTestAnimationFrame())
-        assertTrue(scheduledTestIdleCallbackCount() > 0)
         flushAllTestAnimationFrames()
         assertEquals(18, root.querySelectorAll("p[data-tq-rendered='true']").length)
     }
@@ -366,7 +365,7 @@ class TiqianWebProgressiveRelayoutTest {
     }
 
     @Test
-    fun destroyCancelsIdleTailBeforeItTouchesNativeParagraphs() {
+    fun destroyCancelsScheduledProgressiveTailBeforeItTouchesNativeParagraphs() {
         val root = mount(
             """
             <div data-tiqian-root="true" style="width: 180px">
@@ -386,11 +385,6 @@ class TiqianWebProgressiveRelayoutTest {
 
         TiqianWeb.enhanceProgressively(root, testOptions())
 
-        assertEquals(1, pendingTestAnimationFrameCount())
-        assertEquals(1, scheduledTestIdleCallbackCount())
-        setTestIdleCallbackBudget(0)
-        assertEquals(1, flushOneTestAnimationFrame())
-        assertEquals(0, root.querySelectorAll("p[data-tq-rendered='true']").length)
         assertEquals(1, pendingTestAnimationFrameCount())
         TiqianWeb.destroy(root)
         assertEquals(1, cancelledTestAnimationFrameCount())
