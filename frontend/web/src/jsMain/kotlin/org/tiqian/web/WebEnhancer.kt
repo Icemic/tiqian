@@ -355,13 +355,15 @@ object TiqianWeb {
             return
         }
         val paragraphs = state.paragraphs.toList()
-        // ViewportPriorityRelayout: capture the priority before any live DOM is
-        // changed. A paragraph intersecting the viewport has distance zero;
-        // the remaining paragraphs follow by proximity and document order.
-        val workOrder = paragraphs.indices
-            .map { index -> index to paragraphViewportDistance(paragraphs[index].source) }
-            .sortedWith(compareBy<Pair<Int, Double>> { it.second }.thenBy { it.first })
-            .map { it.first }
+        val rootDistance = paragraphViewportDistance(root)
+        val workOrder = if (rootDistance <= 0.0) {
+            paragraphs.indices.toList()
+        } else {
+            paragraphs.indices
+                .map { index -> index to paragraphViewportDistance(paragraphs[index].source) }
+                .sortedWith(compareBy<Pair<Int, Double>> { it.second }.thenBy { it.first })
+                .map { it.first }
+        }
         // WidthSnapshotPerRelayoutJob: every paragraph is prepared against the
         // geometry seen when the job starts. If the host changes again while
         // slices are running, element.js schedules one latest-width follow-up
