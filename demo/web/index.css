@@ -46,9 +46,7 @@ body {
 
 /* Header */
 .site-header {
-  border-bottom: 2px solid var(--border-color);
   padding: 24px 0 16px 0;
-  margin-bottom: 20px;
 }
 
 .header-top {
@@ -57,7 +55,6 @@ body {
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
-  margin-bottom: 16px;
 }
 
 .site-title {
