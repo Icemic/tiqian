@@ -515,6 +515,7 @@ object TiqianWeb {
          * contract retain the sliced browser-shaping path.
          */
         val requireExactLayoutWorker: Boolean = false,
+        val sliceBudgetMs: Double? = null,
     ) {
         lateinit var fonts: WebFontFamilies
             private set
@@ -523,10 +524,12 @@ object TiqianWeb {
             require(fontSize == null || (fontSize.isFinite() && fontSize > 0f)) {
                 "InvalidFontSize"
             }
+            val rootSliceBudget = root.getAttribute("slice-budget-ms")?.toDoubleOrNull()
             val inheritedFontFamily = computedStyle(root, "font-family").trim().takeIf { it.isNotBlank() }
             val resolvedCjk = fontFamilies.cjk ?: inheritedFontFamily ?: DEFAULT_CJK_FONT_FAMILY
             val resolvedLatin = fontFamilies.latin ?: inheritedFontFamily ?: DEFAULT_LATIN_FONT_FAMILY
             val resolved = copy(
+                sliceBudgetMs = sliceBudgetMs ?: rootSliceBudget,
                 fontFamilies = fontFamilies.copy(
                     cjk = resolvedCjk,
                     latin = resolvedLatin,

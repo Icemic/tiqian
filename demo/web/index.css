@@ -19,6 +19,11 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--bg-color);
   color: var(--text-color);
@@ -36,7 +41,7 @@ body {
   max-width: 1280px;
   margin: 0 auto;
   padding: 0 16px;
-  transition: max-width 0.05s ease-out;
+  width: 100%;
 }
 
 /* Header */
@@ -102,6 +107,8 @@ body {
   top: 20px;
   right: 20px;
   z-index: 99999;
+  width: 240px;
+  box-sizing: border-box;
   background: #ffffff;
   border: 1px solid var(--border-color);
   padding: 8px 12px;
@@ -111,12 +118,14 @@ body {
   gap: 6px;
   font-family: var(--font-mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
 }
 
 .hud-top-row {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 5px;
 }
@@ -128,17 +137,21 @@ body {
 .hud-bottom-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
 .hud-bottom-row input[type="range"] {
-  width: 120px;
+  flex: 1;
+  min-width: 80px;
   cursor: pointer;
 }
 
 .hud-val {
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   display: inline-block;
+  text-align: right;
 }
 
 /* Main Layout Grid - 3:1 proportional scaling */
@@ -183,7 +196,9 @@ body {
   padding: 24px;
   background: #ffffff;
   min-width: 0;
+  max-width: 100%;
   width: 100%;
+  overflow: clip;
   overflow-wrap: break-word;
 }
 
@@ -238,7 +253,9 @@ tiqian-prose, .prose {
   line-height: 1.8;
   color: #111111;
   min-width: 0;
+  max-width: 100%;
   width: 100%;
+  overflow: clip;
 }
 
 tiqian-prose p, .prose p {
@@ -301,6 +318,15 @@ tiqian-prose em, .prose em {
   overflow-wrap: break-word;
 }
 
+tiqian-prose.sidebar-prose, .sidebar-prose {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+tiqian-prose.sidebar-prose p, .sidebar-prose p {
+  margin-bottom: 8px;
+}
+
 .sidebar-title {
   font-size: 15px;
   font-weight: 700;
@@ -356,32 +382,7 @@ tiqian-prose em, .prose em {
   font-family: var(--font-mono);
 }
 
-/* Pagination */
-.pagination {
-  display: flex;
-  border: 1px solid var(--border-color);
-  margin-top: 24px;
-  background: #ffffff;
-  flex-wrap: wrap;
-}
 
-.page-btn {
-  padding: 8px 14px;
-  border-right: 1px solid var(--border-color);
-  text-decoration: none;
-  color: var(--text-color);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.page-btn:hover {
-  background: var(--hover-bg);
-}
-
-.page-btn.active {
-  background: #000000;
-  color: #ffffff;
-}
 
 /* Footer */
 .site-footer {

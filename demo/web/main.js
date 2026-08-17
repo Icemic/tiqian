@@ -18,16 +18,16 @@ if (slider && pageWrapper && widthVal) {
 }
 
 // 2. Monitor Tiqian Relayout Latency
-window.addEventListener('tiqian:relayout-ready', (e) => {
-  if (e.detail && typeof e.detail.durationMs === 'number') {
-    relayoutMsVal.textContent = e.detail.durationMs.toFixed(1) + 'ms (' + (e.detail.enhancedCount || 0) + '段)';
+function handleMetrics(e) {
+  if (e.detail && typeof e.detail.durationMs === 'number' && relayoutMsVal) {
+    relayoutMsVal.textContent = e.detail.durationMs.toFixed(1) + 'ms';
   }
-});
-
-window.addEventListener('tiqian:ready', (e) => {
-  if (e.detail && typeof e.detail.durationMs === 'number') {
-    relayoutMsVal.textContent = e.detail.durationMs.toFixed(1) + 'ms (' + (e.detail.enhancedCount || 0) + '段)';
-  }
+}
+document.addEventListener('tiqian:relayout-ready', handleMetrics);
+document.addEventListener('tiqian:ready', handleMetrics);
+proseElements.forEach(p => {
+  p.addEventListener('tiqian:relayout-ready', handleMetrics);
+  p.addEventListener('tiqian:ready', handleMetrics);
 });
 
 // 3. Live 60 FPS Monitor

@@ -209,6 +209,7 @@ class TiqianProseElement extends HTMLElementBase {
     "emphasis-dot-gap-em",
     "strong-as-emphasis-marks",
     "snapshot-ref",
+    "slice-budget-ms",
   ];
 
   #forceTypographyRefresh = false;
@@ -294,6 +295,21 @@ class TiqianProseElement extends HTMLElementBase {
     } else {
       this.setAttribute("snapshot-ref", String(value));
     }
+  }
+
+  get sliceBudgetMs() {
+    const raw = this.getAttribute("slice-budget-ms");
+    if (raw == null) return undefined;
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  }
+
+  set sliceBudgetMs(value) {
+    if (value == null) {
+      this.removeAttribute("slice-budget-ms");
+      return;
+    }
+    this.setAttribute("slice-budget-ms", String(value));
   }
 
   connectedCallback() {
@@ -561,7 +577,11 @@ class TiqianProseElement extends HTMLElementBase {
       if (this.#connected) this.#restartConnectedLifecycle();
       return;
     }
-    if (name !== "emphasis-dot-gap-em" && name !== "strong-as-emphasis-marks") return;
+    if (
+      name !== "emphasis-dot-gap-em" &&
+      name !== "strong-as-emphasis-marks" &&
+      name !== "slice-budget-ms"
+    ) return;
     if (!this.isConnected) return;
     // LatestObservedAttributeGeneration: strong emphasis controls snapshot
     // eligibility, while all public options belong to the same connection
@@ -580,10 +600,18 @@ class TiqianProseElement extends HTMLElementBase {
   #baseEnhanceOptions() {
     const emphasisDotGapEm = this.emphasisDotGapEm;
     const strongAsEmphasisMarks = this.strongAsEmphasisMarks;
-    if (emphasisDotGapEm == null && !strongAsEmphasisMarks) return undefined;
+    const sliceBudgetMs = this.sliceBudgetMs;
+    if (
+      emphasisDotGapEm == null &&
+      !strongAsEmphasisMarks &&
+      sliceBudgetMs == null
+    ) {
+      return undefined;
+    }
     return {
       ...(emphasisDotGapEm == null ? {} : { emphasisDotGapEm }),
       ...(strongAsEmphasisMarks ? { strongAsEmphasisMarks: true } : {}),
+      ...(sliceBudgetMs == null ? {} : { sliceBudgetMs }),
     };
   }
 
@@ -1189,16 +1217,20 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #relayoutRuntimeAfterSnapshotMiss(operation) {
-    if (operation !== this.#layoutOperation) return;
+  #dispatchRelayout() {
     if (!this.#runtimeStateActive) {
-      this.#finishLayoutWorkAndObserve(operation);
+      this.#finishLayoutWorkAndObserve();
       return;
     }
     this.#beginLayoutWork({ usesCapturedMeasure: true });
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     dispatch("tiqian:relayout", this);
+  }
+
+  #relayoutRuntimeAfterSnapshotMiss(operation) {
+    if (operation !== this.#layoutOperation) return;
+    this.#dispatchRelayout();
   }
 
   #refreshRuntimeFromSource({ revalidateExactFont = true } = {}) {
@@ -1254,12 +1286,10 @@ class TiqianProseElement extends HTMLElementBase {
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
-      observer.disconnect();
-      if (this.#resizeObserver === observer) this.#resizeObserver = null;
       if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
       this.#resizeObserverFrame = requestAnimationFrame(() => {
         this.#resizeObserverFrame = 0;
-        if (this.isConnected) this.#handleResponsiveGeometryChange();
+        if (this.isConnected) this.#commitResponsiveGeometryChange();
       });
     });
     this.#resizeObserver = observer;
@@ -1327,11 +1357,10 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       if (this.#runtimeStateActive) {
-        // ResponsiveRuntimeRollbackAtFirstSafeSignal: runtime paragraphs carry
-        // explicit line breaks, so the same safe-signal rule applies after a
-        // snapshot has already fallen back. Teardown is synchronous and leaves
-        // native source readable until progressive enhancement commits
-        // latest-width paragraphs atomically.
+        // ResponsiveRuntimeDirectInPlaceRelayout: when typography is stable,
+        // width changes do not tear down the rendered DOM to native text.
+        // Direct single-frame in-place relayout computes the new line breaks
+        // using WidthIndependentAnnotationCache and swaps DOM atomically.
         if (
           this.hasAttribute("snapshot-ref") && loadedSnapshotMaximumMeasureMatches(this)
         ) {
@@ -1339,8 +1368,6 @@ class TiqianProseElement extends HTMLElementBase {
           return;
         }
         this.#responsiveCommitRequired = true;
-        this.#responsiveRelayoutRequired = true;
-        this.#restoreRuntimeSourceForRetarget();
         this.#scheduleResponsiveGeometryCommit();
         return;
       }
@@ -1459,8 +1486,16 @@ class TiqianProseElement extends HTMLElementBase {
       this.#scheduleTypographyCheck(true);
       return;
     }
-    if (typographyChanged) this.#lastTypography = signature;
-    this.#refreshRuntimeFromSource({ revalidateExactFont: typographyChanged });
+    if (typographyChanged) {
+      this.#lastTypography = signature;
+      this.#refreshRuntimeFromSource({ revalidateExactFont: true });
+      return;
+    }
+    if (this.#runtimeStateActive) {
+      this.#dispatchRelayout();
+      return;
+    }
+    this.#refreshRuntimeFromSource({ revalidateExactFont: false });
   }
 
   #removeViewportResizeListener() {
@@ -1654,12 +1689,9 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkInFlight = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#responsiveCommitRequired = true;
-    // TypographyRetargetMustRestart: cancellation restores native source.
-    // Even when that source now matches the last observed signature, a fresh
-    // job is still required to replace the rolled-back paragraphs.
     this.#responsiveRelayoutRequired = true;
     this.#stopLayoutWorkInputObservation();
-    this.#restoreRuntimeSourceForRetarget();
+    dispatch("tiqian:cancel-layout-work", this);
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
   }
@@ -1672,10 +1704,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkInFlight = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#stopLayoutWorkInputObservation();
-    this.#restoreRuntimeSourceForRetarget();
-    // The requested target signatures were recorded before the cancelled job
-    // committed. Force the existing coordinator to read live geometry and
-    // dispatch the latest target even when those cached signatures match.
+    dispatch("tiqian:cancel-layout-work", this);
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
     this.#ensureViewportResizeListener();

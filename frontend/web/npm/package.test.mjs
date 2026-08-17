@@ -307,7 +307,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /observer\.observe\(target, \{ box: "border-box" \}\)/u);
   assert.match(
     elementSource,
-    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?observer\.disconnect\(\)[\s\S]*?#resizeObserverFrame = requestAnimationFrame/u,
+    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?#resizeObserverFrame = requestAnimationFrame/u,
   );
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
@@ -333,11 +333,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?#restoreRuntimeSourceForRetarget\(\)[\s\S]*?#responsiveRelayoutRequired = true/u,
-  );
-  assert.match(
-    elementSource,
-    /TypographyRetargetMustRestart[\s\S]*?#responsiveRelayoutRequired = true/u,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?"tiqian:cancel-layout-work"[\s\S]*?#responsiveRelayoutRequired = true/u,
   );
   assert.match(
     elementSource,
@@ -373,7 +369,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveRuntimeRollbackAtFirstSafeSignal[\s\S]*?#restoreRuntimeSourceForRetarget\(\)[\s\S]*?#scheduleResponsiveGeometryCommit\(\)/u,
+    /ResponsiveRuntimeDirectInPlaceRelayout[\s\S]*?#scheduleResponsiveGeometryCommit\(\)/u,
   );
   assert.match(
     elementSource,
