@@ -245,7 +245,7 @@ internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLE
       try {
         return typeof navigator !== "undefined" && navigator.scheduling &&
           typeof navigator.scheduling.isInputPending === "function" &&
-          navigator.scheduling.isInputPending({ includeContinuous: true }) === true;
+          navigator.scheduling.isInputPending() === true;
       } catch (error) {
         return false;
       }
@@ -255,23 +255,10 @@ internal external fun progressiveInputIsPending(): Boolean
 @JsFun(
     """(callback) => {
       const token = { frameId: 0 };
-      const inputIsPending = () => {
-        try {
-          return typeof navigator !== "undefined" && navigator.scheduling &&
-            typeof navigator.scheduling.isInputPending === "function" &&
-            navigator.scheduling.isInputPending({ includeContinuous: true }) === true;
-        } catch (error) {
-          return false;
-        }
-      };
-      const scheduleFrame = (continuation) => {
-        token.frameId = requestAnimationFrame(() => {
-          token.frameId = 0;
-          if (inputIsPending()) scheduleFrame(continuation);
-          else continuation();
-        });
-      };
-      scheduleFrame(callback);
+      token.frameId = requestAnimationFrame(() => {
+        token.frameId = 0;
+        callback();
+      });
       return token;
     }""",
 )
