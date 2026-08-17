@@ -262,11 +262,37 @@ class TiqianLayoutCoordinator {
   #callbacks = new Map();
   #rafId = 0;
   #budgetMs = 8.0;
-  #targetMaxBudgetMs = 12.0;
-  #minBudgetMs = 6.0;
+  #lastFrameTimestamp = 0;
+  #measuredFrameInterval = 16.67;
+  #estimatedSliceMs = 0.8;
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
+
+    // Refresh rate & frame health adaptation:
+    // Detect host display refresh cadence (e.g. 60Hz vs 120Hz) and frame drops.
+    if (this.#lastFrameTimestamp > 0) {
+      const frameDelta = now - this.#lastFrameTimestamp;
+      // Filter out background tab stalls / giant pauses
+      if (frameDelta > 4.0 && frameDelta < 50.0) {
+        // Track the nominal frame interval baseline (e.g. ~8.3ms for 120Hz, ~16.6ms for 60Hz)
+        if (frameDelta < this.#measuredFrameInterval * 1.1) {
+          this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
+        }
+
+        const maxTargetBudget = Math.min(10.0, Math.max(4.0, this.#measuredFrameInterval * 0.6));
+        const minBudget = Math.max(1.0, this.#estimatedSliceMs * 1.1);
+
+        if (frameDelta > this.#measuredFrameInterval * 1.25) {
+          // Frame drop detected: back off to yield breathing room to host scripts and painting
+          this.#budgetMs = Math.max(minBudget, this.#budgetMs * 0.85);
+        } else {
+          // Healthy frame cadence: gently recover towards max target budget
+          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.25);
+        }
+      }
+    }
+    this.#lastFrameTimestamp = now;
 
     const allTasks = Array.from(this.#callbacks.values());
     this.#callbacks.clear();
@@ -291,7 +317,9 @@ class TiqianLayoutCoordinator {
     let executedCount = 0;
 
     for (let i = 0; i < allTasks.length; i++) {
-      if (executedCount > 0 && (performance.now() - startTime >= this.#budgetMs)) {
+      const elapsed = performance.now() - startTime;
+      // Lookahead Yielding: if the next slice is predicted to overrun the frame budget, yield cleanly
+      if (executedCount > 0 && (elapsed + this.#estimatedSliceMs >= this.#budgetMs)) {
         for (let j = i; j < allTasks.length; j++) {
           this.#callbacks.set(allTasks[j].callback, allTasks[j]);
         }
@@ -299,23 +327,15 @@ class TiqianLayoutCoordinator {
         break;
       }
 
+      const taskStart = performance.now();
       try {
         allTasks[i].callback(now);
         executedCount++;
+        const taskDuration = performance.now() - taskStart;
+        this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs + 0.2 * Math.max(0.05, taskDuration);
       } catch (e) {
         console.error("Tiqian frame task error", e);
       }
-    }
-
-    // Dynamic execution-based budget adaptation:
-    // Monitor real execution duration of layout tasks within this frame.
-    // If tasks ran over budget (device under pressure / heavy DOM mutations), gently back off to protect frame rate;
-    // if tasks ran swiftly within budget, ramp up toward max target budget.
-    const elapsed = performance.now() - startTime;
-    if (elapsed > this.#budgetMs * 1.25 || elapsed > 14.0) {
-      this.#budgetMs = Math.max(this.#minBudgetMs, this.#budgetMs * 0.9);
-    } else if (elapsed < this.#budgetMs * 0.7) {
-      this.#budgetMs = Math.min(this.#targetMaxBudgetMs, this.#budgetMs + 0.5);
     }
   };
 
