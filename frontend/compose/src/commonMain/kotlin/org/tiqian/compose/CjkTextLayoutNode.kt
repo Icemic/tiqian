@@ -461,11 +461,7 @@ internal class CjkTextLayoutNode(
             val cached = cachedLayout
             when {
                 cached != null && cached.matches(measurer, layoutInput) -> cached.result
-                // Observability: engine invocations on the frame path carry WHY they happened —
-                // cold (node's first measure) vs cacheMiss (input drifted) — plus text length.
-                else -> tiqianTraceSection(
-                    "TiqianParagraph.layout:${if (cached == null) "cold" else "cacheMiss"}:len=${text.length}",
-                ) {
+                else -> tiqianTraceSection("TiqianParagraph.layout") {
                     measurer.measure(layoutInput)
                 }.also { measured ->
                     cachedLayout = CachedLayout(measurer, layoutInput, layoutInput.hashCode(), measured)
