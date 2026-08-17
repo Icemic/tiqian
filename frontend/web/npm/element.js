@@ -243,6 +243,34 @@ class TiqianLayoutCoordinator {
     const entry = this.#entries.get(element);
     return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
   }
+
+  #callbacks = new Set();
+  #rafId = 0;
+
+  requestFrame(callback) {
+    this.#callbacks.add(callback);
+    if (this.#rafId) return;
+    this.#rafId = requestAnimationFrame((now) => {
+      this.#rafId = 0;
+      const tasks = Array.from(this.#callbacks);
+      this.#callbacks.clear();
+      for (let i = 0; i < tasks.length; i++) {
+        try {
+          tasks[i](now);
+        } catch (e) {
+          console.error("Tiqian frame task error", e);
+        }
+      }
+    });
+  }
+
+  cancelFrame(callback) {
+    this.#callbacks.delete(callback);
+    if (this.#callbacks.size === 0 && this.#rafId) {
+      cancelAnimationFrame(this.#rafId);
+      this.#rafId = 0;
+    }
+  }
 }
 
 const coordinator = new TiqianLayoutCoordinator();
@@ -257,6 +285,9 @@ class TiqianProseElement extends HTMLElementBase {
 
   #forceTypographyRefresh = false;
   #acceptLayoutCompletion = false;
+  #boundResponsiveCommit = () => {
+    if (this.isConnected) this.#commitResponsiveGeometryChange();
+  };
   #connected = false;
   #deferredTypographyCheck = false;
   #fontLoadingSettledListener = null;
@@ -563,6 +594,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   disconnectedCallback() {
     coordinator.unregister(this);
+    coordinator.cancelFrame(this.#boundResponsiveCommit);
     this.#stopIntersectionObservation();
     this.#connected = false;
     ++this.#generation;
@@ -1333,11 +1365,7 @@ class TiqianProseElement extends HTMLElementBase {
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
-      if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
-      this.#resizeObserverFrame = requestAnimationFrame(() => {
-        this.#resizeObserverFrame = 0;
-        if (this.isConnected) this.#commitResponsiveGeometryChange();
-      });
+      this.#scheduleResponsiveGeometryCommit();
     });
     this.#resizeObserver = observer;
     for (const target of targets) observer.observe(target, { box: "border-box" });
@@ -1429,26 +1457,16 @@ class TiqianProseElement extends HTMLElementBase {
 
   #scheduleResponsiveGeometryCommit() {
     if (this.#layoutWorkInFlight) {
-      if (this.#layoutWorkUsesCapturedMeasure) {
-        this.#cancelCapturedLayoutForLatestGeometry();
-        return;
-      }
       this.#responsiveCommitRequired = true;
       return;
     }
-    if (this.#resizeFrame) return;
-    this.#resizeFrame = requestAnimationFrame(() => this.#commitResponsiveGeometryChange());
+    coordinator.requestFrame(this.#boundResponsiveCommit);
   }
 
   #commitResponsiveGeometryChange() {
-    this.#resizeFrame = 0;
     this.#clearIdleResponsiveGeometryCommit();
     if (!this.isConnected) return;
     if (this.#layoutWorkInFlight) {
-      if (this.#layoutWorkUsesCapturedMeasure) {
-        this.#cancelCapturedLayoutForLatestGeometry();
-        return;
-      }
       this.#responsiveCommitRequired = true;
       return;
     }

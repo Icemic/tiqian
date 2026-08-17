@@ -307,7 +307,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /observer\.observe\(target, \{ box: "border-box" \}\)/u);
   assert.match(
     elementSource,
-    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?#resizeObserverFrame = requestAnimationFrame/u,
+    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?#scheduleResponsiveGeometryCommit/u,
   );
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
@@ -353,7 +353,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?if \(this\.#resizeFrame\) return;[\s\S]*?this\.#resizeFrame = requestAnimationFrame/u,
+    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinator\.requestFrame/u,
   );
   assert.ok(invalidationRuntimeLoad >= 0);
   assert.ok(invalidationDispatch > invalidationRuntimeLoad);

@@ -290,7 +290,7 @@ internal external fun progressiveInputIsPending(): Boolean
               } else {
                 callback();
               }
-            }, { timeout: 1000 });
+            });
           } else {
             scheduleFrame(callback);
           }
