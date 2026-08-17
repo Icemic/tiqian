@@ -67,6 +67,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0047 Core Text 渲染前端](0047-core-text-rendering-frontend.md)
 - [0048 套件 Maven 坐标与包命名](0048-suite-maven-and-package-namespaces.md)
 - [0049 虚拟正文选区使用逻辑文档坐标](0049-logical-document-selection.md)
+- [0050 API<31 自然簇串合并绘制](0050-natural-run-coalesced-draw.md)
 
 ## 早期状态说明
 

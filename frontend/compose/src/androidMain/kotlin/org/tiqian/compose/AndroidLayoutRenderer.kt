@@ -39,7 +39,7 @@ private val AndroidRendererTypefaces by lazy(LazyThreadSafetyMode.PUBLICATION) {
     SystemAndroidTypefaceResolver()
 }
 
-private class AndroidParagraphDrawCache : ParagraphDrawCache {
+internal class AndroidParagraphDrawCache : ParagraphDrawCache {
     internal val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     internal val glyphPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
     internal val hyphenPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
@@ -61,8 +61,17 @@ private class AndroidParagraphDrawCache : ParagraphDrawCache {
     // is unavailable. The API 31 helper creates and owns the typed batch lazily.
     internal var glyphBatch31: Any? = null
 
+    // NaturalRunCoalescedDraw (ADR 0050): the API<31 draw plan, built once per geometry and
+    // replayed each frame. Cleared with the geometry, and also rebuilt when the paint context
+    // (text color / colorSpans) baked into its commands changes without a geometry change.
+    internal var androidDrawPlan: List<AndroidDrawCommand>? = null
+    internal var androidDrawPlanColor: Int = 0
+    internal var androidDrawPlanColorSpans: List<ColorSpan>? = null
+
     override fun invalidateGeometry() {
         skipInkIntervals.clear()
+        androidDrawPlan = null
+        androidDrawPlanColorSpans = null
     }
 
     override fun dispose() {
@@ -70,6 +79,8 @@ private class AndroidParagraphDrawCache : ParagraphDrawCache {
         dashEffects.clear()
         platformFonts31.clear()
         glyphBatch31 = null
+        androidDrawPlan = null
+        androidDrawPlanColorSpans = null
     }
 }
 
@@ -152,6 +163,7 @@ private fun drawAndroidGlyphs(
             spans = spans,
             typefaces = typefaces,
             paint = paint,
+            drawCache = drawCache,
         )
     }
 
@@ -176,6 +188,10 @@ private fun drawAndroidGlyphs(
     }
 }
 
+// NaturalRunCoalescedDraw (ADR 0050): API 23-30 has no positioned-glyph batch API, so a naive
+// per-cluster drawTextRun makes the first display-list recording cost scale with cluster count.
+// Build a coalesced draw plan once per geometry (also rebuilt when the baked text color / colorSpans
+// change), then replay the pre-grouped command table. The plan lives in [AndroidDrawPlan.kt].
 private fun drawAndroidPlatformClusters(
     canvas: android.graphics.Canvas,
     result: LayoutResult,
@@ -185,11 +201,16 @@ private fun drawAndroidPlatformClusters(
     spans: List<TextSpan>,
     typefaces: AndroidTypefaceResolver,
     paint: TextPaint,
+    drawCache: AndroidParagraphDrawCache,
 ) {
-    result.forEachAndroidPositionedCluster(replayIndex, spans) { _, cluster, drawX, baselineY, run ->
-        prepareAndroidGlyphPaint(paint, cluster, run, color, colorSpans, typefaces)
-        drawAndroidClusterRun(canvas, cluster, drawX, baselineY, run, paint)
+    val plan = drawCache.androidDrawPlan?.takeIf {
+        drawCache.androidDrawPlanColor == color && drawCache.androidDrawPlanColorSpans == colorSpans
+    } ?: buildAndroidDrawPlan(result, replayIndex, color, colorSpans, spans, typefaces, paint).also {
+        drawCache.androidDrawPlan = it
+        drawCache.androidDrawPlanColor = color
+        drawCache.androidDrawPlanColorSpans = colorSpans
     }
+    replayAndroidDrawPlan(canvas, plan, paint)
 }
 
 /**
@@ -257,7 +278,7 @@ private fun prepareAndroidGlyphPaint(
     paint.textSkewX = 0f
 }
 
-private fun drawAndroidClusterRun(
+internal fun drawAndroidClusterRun(
     canvas: android.graphics.Canvas,
     cluster: Cluster,
     drawX: Float,
@@ -725,13 +746,13 @@ private fun drawAndroidBopomofo(
     }
 }
 
-private data class AndroidClusterRun(
+internal data class AndroidClusterRun(
     val role: FontRole,
     val style: TextStyle,
     val openTypeFeatures: List<String>,
 )
 
-private inline fun LayoutResult.forEachAndroidPositionedCluster(
+internal inline fun LayoutResult.forEachAndroidPositionedCluster(
     replayIndex: LayoutResultReplayIndex,
     spans: List<TextSpan>,
     action: (line: LineBox, cluster: Cluster, drawX: Float, baselineY: Float, run: AndroidClusterRun) -> Unit,
@@ -769,7 +790,7 @@ private inline fun LayoutResult.forEachAndroidPositionedCluster(
 private fun String?.toFontRole(): FontRole =
     runCatching { if (this == null) null else FontRole.valueOf(this) }.getOrNull() ?: FontRole.CjkText
 
-private fun drawContextShapedText(
+internal fun drawContextShapedText(
     canvas: android.graphics.Canvas,
     text: String,
     x: Float,
@@ -845,7 +866,7 @@ private fun skipInkCacheKey(lineIndex: Int, lineY: Float, skipBandPad: Float): L
         (lineY.toRawBits().toLong() and 0xFFFFFFFFL) xor
         (skipBandPad.toRawBits().toLong() shl 1)
 
-private fun List<String>.toAndroidFontFeatureSettings(): String? {
+internal fun List<String>.toAndroidFontFeatureSettings(): String? {
     if (isEmpty()) return null
     return joinToString(",") { feature ->
         val pieces = feature.split('=', limit = 2)
