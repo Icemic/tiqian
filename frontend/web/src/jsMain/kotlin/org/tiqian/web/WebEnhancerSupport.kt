@@ -469,7 +469,7 @@ internal external fun consoleWarn(message: String)
 internal external fun performanceNow(): Double
 @JsFun("(root) => { const value = Number(root.getAttribute('data-tiqian-snapshot-count')); return Number.isSafeInteger(value) && value > 0 ? value : 0; }")
 internal external fun observableSnapshotCount(root: HTMLElement): Int
-@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale) => root.dispatchEvent(new CustomEvent('tiqian:ready', { detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale } }))")
+@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale) => root.dispatchEvent(new CustomEvent('tiqian:ready', { bubbles: true, composed: true, detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale } }))")
 internal external fun dispatchTiqianReady(
     root: HTMLElement,
     enhancedCount: Int,
@@ -480,7 +480,7 @@ internal external fun dispatchTiqianReady(
     maxSliceMs: Double,
     stale: Boolean,
 )
-@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, failed, error, stale) => root.dispatchEvent(new CustomEvent('tiqian:relayout-ready', { detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, relayout: true, failed, error, stale } }))")
+@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, failed, error, stale) => root.dispatchEvent(new CustomEvent('tiqian:relayout-ready', { bubbles: true, composed: true, detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, relayout: true, failed, error, stale } }))")
 internal external fun dispatchTiqianRelayoutReady(
     root: HTMLElement,
     enhancedCount: Int,
@@ -493,7 +493,7 @@ internal external fun dispatchTiqianRelayoutReady(
     error: String?,
     stale: Boolean,
 )
-@JsFun("(root, kind, detail, durationMs, maxSliceMs) => root.dispatchEvent(new CustomEvent(kind === 'Relayout' ? 'tiqian:relayout-error' : 'tiqian:error', { detail: { kind, error: detail, durationMs, maxSliceMs } }))")
+@JsFun("(root, kind, detail, durationMs, maxSliceMs) => root.dispatchEvent(new CustomEvent(kind === 'Relayout' ? 'tiqian:relayout-error' : 'tiqian:error', { bubbles: true, composed: true, detail: { kind, error: detail, durationMs, maxSliceMs } }))")
 internal external fun dispatchTiqianProgressiveError(
     root: HTMLElement,
     kind: String,

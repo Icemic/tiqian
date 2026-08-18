@@ -1323,6 +1323,8 @@ class TiqianProseElement extends HTMLElementBase {
       this.#acceptLayoutCompletion = true;
       this.#acceptValidatedSnapshotGeometry();
       this.dispatchEvent(new CustomEvent("tiqian:relayout-ready", {
+        bubbles: true,
+        composed: true,
         detail: {
           enhancedCount: snapshot.count,
           issueCount: 0,
