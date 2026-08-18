@@ -570,5 +570,65 @@ Web 不为逐角 1 px / 3 px 圆角拆分一个跨行 `<code>`。源元素继续
 `ContinuousSemanticFlow` 节点跨过核心插入的软换行，并保留宿主的 computed
 `box-decoration-break`；默认 `slice` 因而在延续侧形成方角，真实首尾仍由宿主的圆角样式决定。
 这与 Compose 的 1 dp 延续圆角不是像素同形，而是 Web 保留 hover/focus、伪元素、border、padding
-和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制每段盒模型，仍按既有 capability 契约回退原生，
+和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制盒模型，仍按既有 capability 契约回退原生，
 不能用多份伪语义元素冒充支持。
+
+## Amendment (2026-08-18): atomic commit, same-grid retarget, per-slice stale guard
+
+Firefox profile（拖动 width-slider，25 个 `<tiqian-prose>`）显示：每次 relayout 的逐节点
+`removeChild` / `appendChild` 让每段产生约 44 条 mutation 记录，每条记录附带一次 Firefox
+a11y 树同步与父进程 IPC；快速拖动下累计为内容进程 94k marker、270–550 MB/s 分配流失与
+365ms eventDelay 峰值。本修订调整三处提交与守卫的粒度：
+
+1. **`AtomicParagraphDomSwap`**：renderer 先把全部行盒构建进 `DocumentFragment`，再对宿主
+   段落执行一次 `replaceChildren`。构建期间不读布局量，几何全部来自 `LayoutResult`，
+   所以交换是纯 DOM 写。每段 mutation 记录从约 44 条降到 2 条，并且消灭「旧行盒已拆、
+   新行盒未接」的裸 DOM 闪变窗口。异常路径的 rollback 仍逐节点恢复；该路径执行频率低，
+   不计入 mutation 预算。
+2. **`SameGridRetargetWithoutRestart`**：`LineLengthGridResponsiveInvalidation` 的同字格
+   零作业语义延伸到在途 job。responsive relayout dispatch 使用 `captureSignatures:false`，
+   捕获到的签名为空，原来的比较逻辑因此会在每次宽度事件时取消在途 job。现改为与最近一次
+   完成提交的量化 measure 比较：宽度仍在同一字格时任务继续跑完，未变化段落由
+   `ParagraphLayoutPreparation.Unchanged` 零成本跳过；宽度跨入新字格时才取消任务，
+   并按最新宽度重启。
+3. **`StaleMeasureGuardPerSlice`**：555a956 删除了逐段宽度守卫，因为该守卫在每段提交后
+   读一次布局，读与写交错，是 profile 中 910 次同步 reflow 的直接来源；删除后 `job.stale`
+   只在收尾求值，任务中途跨格时过期段落按旧宽度提交，违反「即便只落后一个字格也不得
+   提交」。本修订把守卫放回 **slice 头部**：每个 animation-frame slice 开始时求值一次
+   `job.stale()`，root 量化 measure 与 job 目标 drift ≥0.5px 即判定过期，跳过本 slice
+   剩余 item 并按 stale 收尾，由 element.js 以最新宽度派发后续 job。读取频率从每段一次降为
+   每 slice 一次，并且发生在两批 DOM 写之间，不再与写交错。同步首片提交时使用的宽度就是
+   当时的实时宽度，符合 `ParagraphCurrentMeasureCommit`；首片之后的漂移由逐 slice 守卫拦截。
+
+## Amendment (2026-08-18): offscreen debounce with visibility wake and kill
+
+coordinator 原先对离屏元素只做降优先级，快速拖动时视口外的段落仍每帧消耗 8ms 预算。
+`OffscreenDebounceGate` 把离屏元素的 frame 请求挪进单一延迟道：trailing 防抖 200ms，
+离屏期间每次重复请求都会把到期时间往后推；全协调器共享一个 timer；到期后任务回到既有
+循环，老化与前向推进规则照常生效。当 `inViewport` 从 false 变为 true 时立即提升：
+延迟任务直接进入当帧的回调队列。`cancelFrame` 与 `unregister` 会同步清理该元素在
+延迟道中的任务。在屏元素路径不变。
+
+`OffscreenLayoutWorkKill`：IntersectionObserver 观察到可见→离屏且元素 busy 时，复用
+`tiqian:cancel-layout-work` 通道停止在飞 slice。取消操作不会回滚 DOM，已经提交的可见
+成果保持不变。元素从离屏回到可见时，既有的 pending-responsive 分支会立即拉起其挂起的
+工作，与延迟道提升一起完成唤醒。两处逻辑集中在 coordinator 与 IntersectionObserver
+转换分支中，没有散落各处的独立计时器。
+
+防抖是否到期取决于**每个元素自身的宽度**是否稳定。快速拖动中，某个离屏 root 的宽度
+可能因视口宽度封顶或列宽上限而提前稳定，其 ResizeObserver 不再交付变化；trailing 窗口
+从最后一次真实宽度变化起算，200ms 后该元素完成一次最终布局。同一手势里宽度仍在变化的
+元素保持推迟。drag 测试的违规判据是：某次离屏 relayout 完成时，距该元素最后一次宽度
+变化不足 180ms。
+
+## Amendment (2026-08-18): fractional fragment-aware content measure
+
+555a956 把 `elementContentWidth` 改为 `clientWidth` 快路径时引入三个回归：整数舍入带来
+最多 `0.5px` 的误差，小数宽度上跨字格边界的变化可能被吞掉，违反
+`LineLengthGridResponsiveInvalidation` 的小数语义；stylesheet 声明的 padding（如
+`li { padding-inline-start }`）对 inline style 探针不可见；`getBoundingClientRect()` 在
+CSS 多列容器上取所有 fragment 的水平并集。现恢复 fragment-aware 实现：取
+`getClientRects()` 中最宽的 live fragment 作为单一 fragmentainer 的 border-box，减去
+computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain gBCR，仅用于
+≥0.5px 的粗粒度 drift 检测，整数级舍入误差在该容差下无影响；该函数注释与实现的不一致
+是历史遗留。

@@ -283,18 +283,21 @@ internal external fun elementFragmentBorderBoxInlineSize(element: HTMLElement): 
 @JsFun(
     """(element) => {
       if (!element) return 0;
-      const clientWidth = element.clientWidth;
-      if (clientWidth > 0 && !element.style.paddingLeft && !element.style.paddingRight) {
-        return clientWidth;
-      }
       const style = getComputedStyle(element);
-      if (clientWidth > 0) {
-        const pl = Number.parseFloat(style.paddingLeft) || 0;
-        const pr = Number.parseFloat(style.paddingRight) || 0;
-        return Math.max(0, clientWidth - pl - pr);
-      }
       const number = (value) => Number.parseFloat(value) || 0;
-      const borderBoxWidth = element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
+      // FractionalFragmentContentMeasure: clientWidth rounds to integer
+      // pixels, so a width change below 0.5px can go undetected and a
+      // font-size grid crossing at a fractional width can be missed.
+      // Inline-style probes cannot see padding declared in a stylesheet,
+      // such as li { padding-inline-start }. getBoundingClientRect()
+      // returns the union of all CSS column fragments. Take the widest
+      // live client rect instead; it is the border box of a single
+      // fragment. Then subtract the computed padding and borders.
+      const fallback = element.getBoundingClientRect().width;
+      const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
+      const borderBoxWidth = rects.length <= 1
+        ? fallback
+        : Math.max(...rects.map((rect) => rect.width));
       return borderBoxWidth - number(style.paddingLeft) - number(style.paddingRight) -
         number(style.borderLeftWidth) - number(style.borderRightWidth);
     }""",

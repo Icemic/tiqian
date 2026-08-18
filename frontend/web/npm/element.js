@@ -200,15 +200,32 @@ function loadExactFontFallback() {
   return exactFontFallbackPromise;
 }
 
+// OffscreenDebounceGate window: an off-screen element's frame task waits this
+// long after its last request before it runs. 200ms covers a full fast-drag
+// sweep, and a paused off-screen element still gets its final layout soon
+// after the window.
+const OFFSCREEN_DEBOUNCE_MS = 200;
+
 class TiqianLayoutCoordinator {
   #entries = new Map();
   #busyForegroundCount = 0;
+  // OffscreenDebounceGate: when an element is outside the viewport, its frame
+  // tasks wait in this deferred lane. Each repeated request while the element
+  // stays off-screen pushes the task's due time further out, so a fast drag
+  // keeps postponing layout work for elements the user cannot see. One
+  // shared timer moves due tasks back into the normal frame loop, where the
+  // anti-starvation aging rules still apply. When an element returns to the
+  // viewport, its pending task is promoted immediately, so visible content
+  // never waits out the debounce.
+  #deferred = new Map();
+  #deferredTimer = 0;
 
   register(element) {
     this.#entries.set(element, { inViewport: true, busy: false });
   }
 
   unregister(element) {
+    this.#dropDeferred(element);
     const entry = this.#entries.get(element);
     if (entry?.inViewport && entry?.busy) {
       this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
@@ -230,6 +247,7 @@ class TiqianLayoutCoordinator {
       this.#entries.set(element, entry);
     }
     const prevForegroundBusy = entry.inViewport && entry.busy;
+    const wasInViewport = entry.inViewport;
     if (inViewport !== undefined) entry.inViewport = inViewport;
     if (busy !== undefined) entry.busy = busy;
     if (area !== undefined) entry.area = area;
@@ -245,9 +263,13 @@ class TiqianLayoutCoordinator {
         this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
       }
     }
+    if (inViewport === true && !wasInViewport) {
+      this.#promoteDeferred(element);
+    }
   }
 
   remove(element) {
+    this.#dropDeferred(element);
     const entry = this.#entries.get(element);
     if (entry && entry.inViewport && entry.busy) {
       this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
@@ -259,6 +281,48 @@ class TiqianLayoutCoordinator {
     const entry = this.#entries.get(element);
     return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
   }
+
+  #dropDeferred(element) {
+    if (!this.#deferred.delete(element)) return;
+    if (this.#deferred.size === 0 && this.#deferredTimer) {
+      clearTimeout(this.#deferredTimer);
+      this.#deferredTimer = 0;
+    }
+  }
+
+  #promoteDeferred(element) {
+    const task = this.#deferred.get(element);
+    if (!task) return;
+    this.#deferred.delete(element);
+    if (this.#deferred.size === 0 && this.#deferredTimer) {
+      clearTimeout(this.#deferredTimer);
+      this.#deferredTimer = 0;
+    }
+    this.#callbacks.set(task.callback, task);
+    if (!this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+  }
+
+  #flushDeferred = () => {
+    this.#deferredTimer = 0;
+    const now = performance.now();
+    let nextDueAt = Infinity;
+    for (const [element, task] of Array.from(this.#deferred.entries())) {
+      if (task.dueAt <= now) {
+        this.#deferred.delete(element);
+        this.#callbacks.set(task.callback, task);
+      } else {
+        nextDueAt = Math.min(nextDueAt, task.dueAt);
+      }
+    }
+    if (this.#callbacks.size > 0 && !this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+    if (this.#deferred.size > 0) {
+      this.#deferredTimer = setTimeout(this.#flushDeferred, Math.max(0, nextDueAt - performance.now()));
+    }
+  };
 
   #callbacks = new Map();
   #rafId = 0;
@@ -366,17 +430,32 @@ class TiqianLayoutCoordinator {
 
   requestFrame(callback, element = null) {
     const existing = this.#callbacks.get(callback);
-    this.#callbacks.set(callback, {
+    const task = {
       callback,
       element,
       deferCount: existing ? existing.deferCount : 0,
-    });
+    };
+    const entry = element && this.#entries.get(element);
+    if (entry && !entry.inViewport) {
+      const pending = this.#deferred.get(element);
+      task.deferCount = Math.max(task.deferCount, pending ? pending.deferCount : 0);
+      task.dueAt = performance.now() + OFFSCREEN_DEBOUNCE_MS;
+      this.#deferred.set(element, task);
+      if (!this.#deferredTimer) {
+        this.#deferredTimer = setTimeout(this.#flushDeferred, OFFSCREEN_DEBOUNCE_MS);
+      }
+      return;
+    }
+    this.#callbacks.set(callback, task);
     if (this.#rafId) return;
     this.#rafId = requestAnimationFrame(this.#runFrameLoop);
   }
 
   cancelFrame(callback) {
     this.#callbacks.delete(callback);
+    for (const [element, task] of Array.from(this.#deferred.entries())) {
+      if (task.callback === callback) this.#dropDeferred(element);
+    }
     if (this.#callbacks.size === 0 && this.#rafId) {
       cancelAnimationFrame(this.#rafId);
       this.#rafId = 0;
@@ -1722,8 +1801,20 @@ class TiqianProseElement extends HTMLElementBase {
       }
       const maximumMeasure = this.hasAttribute("snapshot-ref") &&
         loadedSnapshotMaximumMeasureMatches(this);
+      // SameGridRetargetWithoutRestart: a responsive relayout dispatch uses
+      // captureSignatures:false and reads its measure live inside the layout
+      // job, so #layoutWorkMeasureSignature is empty here. Comparing against
+      // that empty signature cancelled the in-flight job on every width
+      // event. This guard compares against the measure of the last completed
+      // job instead. While the width stays inside the same N×fontSize grid
+      // cell, the committed DOM is already correct and unchanged paragraphs
+      // are skipped at zero cost, so the in-flight job keeps running. When
+      // the width crosses into a new cell, or when no completed measure
+      // exists yet, the guard cancels the job and restarts it at the latest
+      // width.
+      const measureBaseline = this.#layoutWorkMeasureSignature || this.#lastParagraphMeasures;
       if (
-        this.#paragraphMeasureSignature() === this.#layoutWorkMeasureSignature &&
+        this.#paragraphMeasureSignature() === measureBaseline &&
         maximumMeasure === this.#layoutWorkMaximumMeasure
       ) return;
       this.#cancelCapturedLayoutForLatestGeometry();
@@ -2054,6 +2145,17 @@ class TiqianProseElement extends HTMLElementBase {
             inlineSize: rect ? rect.width : 0,
             area: rect ? rect.width * rect.height : 0,
           });
+          if (wasInViewport && !this.#inViewport &&
+              this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
+            // OffscreenLayoutWorkKill: when an element leaves the viewport
+            // mid-drag, its in-flight relayout job is killed so it stops
+            // taking main-thread slices. Cancelling captured layout work does
+            // not roll back already committed paragraphs, so the visible
+            // result stays correct. The follow-up relayout that the cancel
+            // schedules goes into the deferred lane, so nothing replays until
+            // the drag settles or the element returns to the viewport.
+            this.#cancelCapturedLayoutForLatestGeometry();
+          }
           if (!wasInViewport && this.#inViewport && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
             this.#scheduleResponsiveGeometryCommit();
           }
@@ -2118,4 +2220,4 @@ if (
   registry.define(ELEMENT_NAME, TiqianProseElement);
 }
 
-export { TiqianProseElement };
+export { TiqianProseElement, TiqianLayoutCoordinator };

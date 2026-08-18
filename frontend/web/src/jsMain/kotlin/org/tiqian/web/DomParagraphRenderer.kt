@@ -20,6 +20,7 @@ import org.w3c.dom.CanvasRenderingContext2D
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLCanvasElement
+import org.w3c.dom.Node
 import org.w3c.dom.events.Event
 
 /**
@@ -85,7 +86,16 @@ object DomParagraphRenderer {
         inlineObjects: List<DomInlineObject> = emptyList(),
         options: Options = Options(),
     ) {
-        while (host.firstChild != null) host.removeChild(host.firstChild!!)
+        // AtomicParagraphDomSwap: build the whole paragraph into a detached
+        // DocumentFragment and swap it in with one replaceChildren call. The
+        // old per-node removeChild/appendChild loop cost one mutation record,
+        // one Firefox accessibility-tree sync and one parent-process IPC per
+        // node, which a fast drag turned into a mutation storm. The swap is
+        // always on and produces an equivalent tree. The demo drag suite
+        // bounds the record count with DragMutationRecordBudget. The builder
+        // reads no layout while the fragment is detached, and the single swap
+        // leaves no window where the host paragraph could appear empty.
+        val flow = document.createDocumentFragment()
         val fontSize = result.input.textStyle.fontSize
         val decorations = result.input.decorations
         val emphasisRanges = decorations
@@ -150,7 +160,6 @@ object DomParagraphRenderer {
         // HostDirectSemanticFlow: generated runs and the original semantic
         // hierarchy are direct children of the source paragraph. An extra
         // wrapper would break host selectors such as `p > a:hover`.
-        val flow = host
 
         fun semanticSpansFor(range: TextRange): List<DomSourceSpan> =
             sourceSpans
@@ -176,7 +185,7 @@ object DomParagraphRenderer {
         // expose one real <a> (and one real custom inline) for one source node.
         val activeSemanticSpans = mutableListOf<DomSourceSpan>()
         val activeSemanticElements = mutableListOf<HTMLElement>()
-        fun semanticContainerFor(semanticSpans: List<DomSourceSpan>): HTMLElement {
+        fun semanticContainerFor(semanticSpans: List<DomSourceSpan>): Node {
             val commonLimit = minOf(activeSemanticSpans.size, semanticSpans.size)
             var common = 0
             while (common < commonLimit && activeSemanticSpans[common] == semanticSpans[common]) {
@@ -186,7 +195,7 @@ object DomParagraphRenderer {
                 activeSemanticSpans.removeAt(activeSemanticSpans.lastIndex)
                 activeSemanticElements.removeAt(activeSemanticElements.lastIndex)
             }
-            var container = activeSemanticElements.lastOrNull() ?: flow
+            var container: Node = activeSemanticElements.lastOrNull() ?: flow
             for (index in common until semanticSpans.size) {
                 val sourceSpan = semanticSpans[index]
                 val clone = cloneSemanticElement(sourceSpan)
@@ -440,10 +449,11 @@ object DomParagraphRenderer {
             selectionEnd.setAttribute("data-tq-copy-ignore", "true")
             selectionEnd.setAttribute("aria-hidden", "true")
             selectionEnd.textContent = "\u200B"
-            host.appendChild(selectionEnd)
+            flow.appendChild(selectionEnd)
         }
-        appendInterlinearLines(host, result, colorSpans)
-        appendEmphasisDots(host, result, colorSpans, sourceSpans)
+        appendInterlinearLines(flow, result, colorSpans)
+        appendEmphasisDots(flow, result, colorSpans, sourceSpans)
+        replaceHostChildren(host, flow)
     }
 
     private data class RenderRun(
@@ -832,6 +842,17 @@ object DomParagraphRenderer {
     private const val DASH_DOM_RELATIVE_TOLERANCE = 0.03f
 
 }
+@JsFun(
+    """(host, flow) => {
+      if (typeof host.replaceChildren === "function") {
+        host.replaceChildren(flow);
+        return;
+      }
+      while (host.firstChild) host.removeChild(host.firstChild);
+      host.appendChild(flow);
+    }""",
+)
+private external fun replaceHostChildren(host: HTMLElement, flow: Node)
 @JsFun("(element, marginRight) => element.style.setProperty('margin-right', marginRight + 'px', 'important')")
 private external fun setInlineObjectTrailingMargin(element: Element, marginRight: Float)
 @JsFun("(element) => { const range = document.createRange(); range.selectNodeContents(element); return range.getBoundingClientRect().width; }")

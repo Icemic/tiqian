@@ -169,11 +169,15 @@ class TiqianWebSourceFidelityTest {
         installTestAnimationFrames()
         root.style.width = "120px"
         dispatchRelayout(root)
-        assertEquals(initial, renderedLineSignature(paragraph), "relayout must wait for an animation frame")
-        assertEquals(1, pendingTestAnimationFrameCount())
-        flushAllTestAnimationFrames()
+        // SyncFirstSlice: the relayout commits inside the dispatch task. The
+        // narrow result is already live with no frame delay, and there is no
+        // intermediate state where the old line boxes are gone but the new
+        // ones are not attached yet.
         val narrow = renderedLineSignature(paragraph)
         assertNotEquals(initial, narrow, "narrow width must exercise a real reflow")
+        assertEquals(0, pendingTestAnimationFrameCount())
+        flushAllTestAnimationFrames()
+        assertEquals(narrow, renderedLineSignature(paragraph))
 
         root.style.width = "220px"
         dispatchRelayout(root)
@@ -281,13 +285,16 @@ class TiqianWebSourceFidelityTest {
         root.style.width = "120px"
         dispatchRelayout(root)
 
-        assertTrue(plainParagraph.firstChild === renderedChild, "relayout preparation must keep rendered DOM live")
+        // SyncFirstSlice: both paragraphs are handled inside the dispatch
+        // task. The plain paragraph swaps its rendered DOM atomically, while
+        // the paragraph with a stable capability issue keeps its native
+        // source child.
+        assertFalse(plainParagraph.firstChild === renderedChild, "relayout must commit its first slice synchronously")
         assertTrue(issueParagraph.firstChild === issueSourceChild)
-        assertEquals(1, pendingTestAnimationFrameCount())
+        assertEquals(0, pendingTestAnimationFrameCount())
 
         flushAllTestAnimationFrames()
 
-        assertFalse(plainParagraph.firstChild === renderedChild)
         assertNotEquals(initial, renderedLineSignature(plainParagraph))
         assertTrue(issueParagraph.firstChild === issueSourceChild)
         assertNull(issueParagraph.getAttribute("data-tq-rendered"))

@@ -467,15 +467,19 @@ class TiqianWebProgressiveRelayoutTest {
     @Test
     fun newerRelayoutReplacesPendingWorkAndUsesTheLatestWidth() {
         val source = "连续 resize 只应提交最新宽度的分帧重排结果。".repeat(4)
-        val root = mount("<div data-tiqian-root='true' style='width: 320px'><p>$source</p></div>")
+        val markup = (0 until 10).joinToString("") { "<p>$source</p>" }
+        val root = mount("<div data-tiqian-root='true' style='width: 320px'>$markup</div>")
         val expectedRoot = mount(
-            "<div data-tiqian-root='true' style='width: 100px'><p>$source</p></div>",
+            "<div data-tiqian-root='true' style='width: 100px'>$markup</div>",
         )
         TiqianWeb.install()
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
-        assertEquals(1, TiqianWeb.enhance(expectedRoot, testOptions()))
-        val paragraph = root.querySelector("p") as HTMLElement
-        val initial = renderedLineSignature(paragraph)
+        assertEquals(10, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(10, TiqianWeb.enhance(expectedRoot, testOptions()))
+        val paragraphs = (0 until 10).map { index ->
+            root.querySelectorAll("p").item(index) as HTMLElement
+        }
+        val initialChildren = paragraphs.map { paragraph -> assertNotNull(paragraph.firstChild) }
+        val initial = renderedLineSignature(paragraphs[0])
         val expected = renderedLineSignature(expectedRoot.querySelector("p") as HTMLElement)
         assertNotEquals(initial, expected)
         var relayoutReadyCount = 0
@@ -487,23 +491,34 @@ class TiqianWebProgressiveRelayoutTest {
         root.style.width = "100px"
         dispatchRelayout(root)
 
+        // The first dispatch committed part of the root at 180px inside its
+        // synchronous slice and scheduled the rest. The second dispatch must
+        // replace that pending work, which costs one cancelled frame. The
+        // superseded job must not keep committing results prepared for an old
+        // width. The synchronous slice is budget-bound, so the test asserts
+        // the committed count only as a range.
         assertEquals(1, cancelledTestAnimationFrameCount())
         assertEquals(1, pendingTestAnimationFrameCount())
-        assertEquals(initial, renderedLineSignature(paragraph))
+        val replacedAtLatestWidth = paragraphs.indices.count { index ->
+            paragraphs[index].firstChild !== initialChildren[index]
+        }
+        assertTrue(replacedAtLatestWidth in 1 until paragraphs.size)
 
         flushAllTestAnimationFrames()
 
-        assertEquals(expected, renderedLineSignature(paragraph))
+        for (paragraph in paragraphs) {
+            assertEquals(expected, renderedLineSignature(paragraph))
+        }
         assertEquals(0, pendingTestAnimationFrameCount())
         assertEquals(1, relayoutReadyCount)
     }
 
     @Test
-    fun relayoutKeepsOldTiqianDomUntilItsFirstProgressiveFrame() {
+    fun relayoutSwapsParagraphDomAtomicallyWithoutAFrameDelay() {
         val root = mount(
             "<div data-tiqian-root='true' style='width: 320px'>" +
-                "<p>第一段在所有准备完成前保持旧节点。</p>" +
-                "<p>第二段也不能提前暴露新排版。</p>" +
+                "<p>第一段在原子替换中直接换上新排版。</p>" +
+                "<p>第二段也在同一个分片里完成交换。</p>" +
                 "</div>",
         )
         TiqianWeb.install()
@@ -521,9 +536,15 @@ class TiqianWebProgressiveRelayoutTest {
         root.style.width = "120px"
         dispatchRelayout(root)
 
-        assertTrue(first.firstChild === firstRenderedChild)
-        assertTrue(second.firstChild === secondRenderedChild)
-        assertEquals(1, pendingTestAnimationFrameCount())
+        // SyncFirstSlice: the first slice runs inside the dispatch task, so a
+        // two-paragraph root is fully re-laid out before any animation frame
+        // is flushed. Each paragraph swaps its children as one atomic unit,
+        // so no frame can catch a paragraph with its old line boxes already
+        // removed but the new ones not yet attached.
+        assertFalse(first.firstChild === firstRenderedChild)
+        assertFalse(second.firstChild === secondRenderedChild)
+        assertEquals(0, pendingTestAnimationFrameCount())
+        assertEquals(1, relayoutReadyCount)
 
         flushAllTestAnimationFrames()
 
@@ -551,8 +572,18 @@ class TiqianWebProgressiveRelayoutTest {
         root.style.width = "120px"
         dispatchRelayout(root)
 
+        // SyncFirstSlice: the first slice commits a budget-bound batch of
+        // paragraphs inside the dispatch task. A long root is therefore only
+        // partially re-laid out before any frame is flushed; the remaining
+        // paragraphs are committed by later animation-frame slices.
+        val committedBeforeAnyFrame = paragraphs.indices.count { index ->
+            paragraphs[index].firstChild !== previousChildren[index]
+        }
+        assertTrue(committedBeforeAnyFrame in 1 until paragraphs.size)
+        assertEquals(1, pendingTestAnimationFrameCount())
+
         var progressiveFrames = 0
-        var previousUpdatedCount = 0
+        var previousUpdatedCount = committedBeforeAnyFrame
         while (pendingTestAnimationFrameCount() > 0) {
             assertEquals(1, flushOneTestAnimationFrame())
             val updatedCount = paragraphs.indices.count { index ->
@@ -567,7 +598,7 @@ class TiqianWebProgressiveRelayoutTest {
             previousUpdatedCount = updatedCount
         }
 
-        assertTrue(progressiveFrames >= 2, "a long root must still yield during relayout")
+        assertTrue(progressiveFrames >= 1, "a long root must still yield during relayout")
         assertTrue(paragraphs.indices.all { index ->
             paragraphs[index].firstChild !== previousChildren[index]
         })
@@ -576,21 +607,24 @@ class TiqianWebProgressiveRelayoutTest {
 
     @Test
     fun relayoutNeverCommitsPreparedMeasureOneGridCellBehindCurrentWidth() {
-        val source = "任务执行中再次跨格时不能提交落后最终宽度的排版。".repeat(4)
-        val root = mount("<div data-tiqian-root='true' style='width: 320px'><p>$source</p></div>")
+        val source = "任务执行中再次跨格时不能提交落后最终宽度的排版。".repeat(2)
+        val markup = (0 until 10).joinToString("") { "<p>$source</p>" }
+        val root = mount("<div data-tiqian-root='true' style='width: 320px'>$markup</div>")
         val intermediateRoot = mount(
-            "<div data-tiqian-root='true' style='width: 180px'><p>$source</p></div>",
+            "<div data-tiqian-root='true' style='width: 180px'>$markup</div>",
         )
         val finalRoot = mount(
-            "<div data-tiqian-root='true' style='width: 162px'><p>$source</p></div>",
+            "<div data-tiqian-root='true' style='width: 162px'>$markup</div>",
         )
         TiqianWeb.install()
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
-        assertEquals(1, TiqianWeb.enhance(intermediateRoot, testOptions()))
-        assertEquals(1, TiqianWeb.enhance(finalRoot, testOptions()))
-        val paragraph = root.querySelector("p") as HTMLElement
-        val initialChild = assertNotNull(paragraph.firstChild)
-        val initial = renderedLineSignature(paragraph)
+        assertEquals(10, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(10, TiqianWeb.enhance(intermediateRoot, testOptions()))
+        assertEquals(10, TiqianWeb.enhance(finalRoot, testOptions()))
+        val paragraphs = (0 until 10).map { index ->
+            root.querySelectorAll("p").item(index) as HTMLElement
+        }
+        val initialChildren = paragraphs.map { paragraph -> assertNotNull(paragraph.firstChild) }
+        val initial = renderedLineSignature(paragraphs[0])
         val intermediate = renderedLineSignature(intermediateRoot.querySelector("p") as HTMLElement)
         val final = renderedLineSignature(finalRoot.querySelector("p") as HTMLElement)
         assertNotEquals(initial, intermediate)
@@ -608,28 +642,52 @@ class TiqianWebProgressiveRelayoutTest {
         root.style.width = "162px"
         flushAllTestAnimationFrames()
 
-        assertTrue(paragraph.firstChild === initialChild)
-        assertEquals(initial, renderedLineSignature(paragraph))
+        // The synchronous first slice committed part of the root at 180px;
+        // that slice is budget-bound, so the test asserts the committed
+        // count only as a range. The later drift to 162px is detected at the
+        // next slice head: StaleMeasureGuardPerSlice skips the remaining
+        // items and reports the job as stale. The skipped paragraphs keep
+        // the previously rendered DOM, because committing the 180px measure
+        // would leave them one grid cell behind the live width.
+        val committed = paragraphs.indices.count { index ->
+            paragraphs[index].firstChild !== initialChildren[index]
+        }
+        assertTrue(committed in 1 until paragraphs.size)
+        for ((index, paragraph) in paragraphs.withIndex()) {
+            val expected = if (paragraph.firstChild === initialChildren[index]) initial else intermediate
+            assertEquals(expected, renderedLineSignature(paragraph))
+        }
         assertEquals(1, readyCount)
         assertEquals(1, staleCount)
 
         dispatchRelayout(root)
         flushAllTestAnimationFrames()
 
-        assertEquals(final, renderedLineSignature(paragraph))
+        for (paragraph in paragraphs) {
+            assertEquals(final, renderedLineSignature(paragraph))
+        }
         assertEquals(2, readyCount)
         assertEquals(1, staleCount)
     }
 
     @Test
     fun relayoutDiscardsPreparedMeasureMoreThanOneGridCellBehindCurrentWidth() {
-        val source = "长文 resize 不能把相差多个字格的历史结果逐级播放出来。".repeat(4)
-        val root = mount("<div data-tiqian-root='true' style='width: 320px'><p>$source</p></div>")
+        val source = "长文 resize 不能把相差多个字格的历史结果逐级播放出来。".repeat(2)
+        val markup = (0 until 10).joinToString("") { "<p>$source</p>" }
+        val root = mount("<div data-tiqian-root='true' style='width: 320px'>$markup</div>")
+        val intermediateRoot = mount(
+            "<div data-tiqian-root='true' style='width: 180px'>$markup</div>",
+        )
         TiqianWeb.install()
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
-        val paragraph = root.querySelector("p") as HTMLElement
-        val initialChild = assertNotNull(paragraph.firstChild)
-        val initial = renderedLineSignature(paragraph)
+        assertEquals(10, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(10, TiqianWeb.enhance(intermediateRoot, testOptions()))
+        val paragraphs = (0 until 10).map { index ->
+            root.querySelectorAll("p").item(index) as HTMLElement
+        }
+        val initialChildren = paragraphs.map { paragraph -> assertNotNull(paragraph.firstChild) }
+        val initial = renderedLineSignature(paragraphs[0])
+        val intermediate = renderedLineSignature(intermediateRoot.querySelector("p") as HTMLElement)
+        assertNotEquals(initial, intermediate)
         var readyCount = 0
         var staleCount = 0
         root.addEventListener("tiqian:relayout-ready", { event ->
@@ -643,26 +701,41 @@ class TiqianWebProgressiveRelayoutTest {
         root.style.width = "144px"
         flushAllTestAnimationFrames()
 
-        assertTrue(paragraph.firstChild === initialChild)
-        assertEquals(initial, renderedLineSignature(paragraph))
+        // The synchronous first slice committed its paragraphs at 180px,
+        // which was the live width at commit time; that slice is
+        // budget-bound, so the test asserts the committed count only as a
+        // range. The later jump to 144px crosses multiple grid cells, so the
+        // remaining slices must be stopped instead of replaying the stale
+        // 180px results one cell at a time.
+        val committed = paragraphs.indices.count { index ->
+            paragraphs[index].firstChild !== initialChildren[index]
+        }
+        assertTrue(committed in 1 until paragraphs.size)
+        for ((index, paragraph) in paragraphs.withIndex()) {
+            val expected = if (paragraph.firstChild === initialChildren[index]) initial else intermediate
+            assertEquals(expected, renderedLineSignature(paragraph))
+        }
         assertEquals(1, readyCount)
         assertEquals(1, staleCount)
     }
 
     @Test
     fun relayoutDiscardsPreparedMeasureAfterOvershootOrDirectionReversal() {
-        val source = "反向 resize 或越过当前目标时不能提交旧方向的排版。".repeat(4)
+        val source = "反向 resize 或越过当前目标时不能提交旧方向的排版。".repeat(2)
+        val markup = (0 until 10).joinToString("") { "<p>$source</p>" }
         TiqianWeb.install()
         installTestAnimationFrames()
 
         fun assertStaleAt(currentWidth: String, reason: String) {
             val root = mount(
-                "<div data-tiqian-root='true' style='width: 320px'><p>$source</p></div>",
+                "<div data-tiqian-root='true' style='width: 320px'>$markup</div>",
             )
-            assertEquals(1, TiqianWeb.enhance(root, testOptions()))
-            val paragraph = root.querySelector("p") as HTMLElement
-            val initialChild = assertNotNull(paragraph.firstChild)
-            val initial = renderedLineSignature(paragraph)
+            assertEquals(10, TiqianWeb.enhance(root, testOptions()))
+            val paragraphs = (0 until 10).map { index ->
+                root.querySelectorAll("p").item(index) as HTMLElement
+            }
+            val initialChildren = paragraphs.map { paragraph -> assertNotNull(paragraph.firstChild) }
+            val initial = renderedLineSignature(paragraphs[0])
             var readyCount = 0
             var staleCount = 0
             root.addEventListener("tiqian:relayout-ready", { event ->
@@ -675,8 +748,20 @@ class TiqianWebProgressiveRelayoutTest {
             root.style.width = currentWidth
             flushAllTestAnimationFrames()
 
-            assertTrue(paragraph.firstChild === initialChild, reason)
-            assertEquals(initial, renderedLineSignature(paragraph), reason)
+            // The synchronous first slice committed its paragraphs at the
+            // then-live width of 180px; that slice is budget-bound, so the
+            // test asserts the committed count only as a range. Overshooting
+            // or reversing the target width must stop the remaining slices
+            // from committing the measure prepared for 180px.
+            val committed = paragraphs.indices.count { index ->
+                paragraphs[index].firstChild !== initialChildren[index]
+            }
+            assertTrue(committed in 1 until paragraphs.size, reason)
+            for ((index, paragraph) in paragraphs.withIndex()) {
+                if (paragraph.firstChild === initialChildren[index]) {
+                    assertEquals(initial, renderedLineSignature(paragraph), reason)
+                }
+            }
             assertEquals(1, readyCount)
             assertEquals(1, staleCount)
         }
@@ -763,25 +848,32 @@ class TiqianWebProgressiveRelayoutTest {
 
     @Test
     fun destroyCancelsPendingRelayoutBeforeItCanRestoreRenderedDom() {
-        val root = mount(
-            "<div data-tiqian-root='true' style='width: 260px'><p>取消 resize job 后必须保持原生正文。</p></div>",
-        )
-        val paragraph = root.querySelector("p") as HTMLElement
-        val originalHtml = paragraph.innerHTML
+        val markup = (0 until 10).joinToString("") { "<p>取消 resize job 后必须保持原生正文。</p>" }
+        val root = mount("<div data-tiqian-root='true' style='width: 260px'>$markup</div>")
+        val paragraphs = (0 until 10).map { index ->
+            root.querySelectorAll("p").item(index) as HTMLElement
+        }
+        val originalHtmls = paragraphs.map { paragraph -> paragraph.innerHTML }
         TiqianWeb.install()
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(10, TiqianWeb.enhance(root, testOptions()))
 
         installTestAnimationFrames()
         root.style.width = "100px"
         dispatchRelayout(root)
+        // The synchronous first slice has already committed part of the
+        // root. The destroy below must cancel the remaining scheduled slices
+        // and roll every paragraph, whether committed or not, back to native
+        // source.
         assertEquals(1, pendingTestAnimationFrameCount())
 
         TiqianWeb.destroy(root)
         assertEquals(1, cancelledTestAnimationFrameCount())
         flushAllTestAnimationFrames()
 
-        assertEquals(originalHtml, paragraph.innerHTML)
+        for ((index, paragraph) in paragraphs.withIndex()) {
+            assertEquals(originalHtmls[index], paragraph.innerHTML)
+            assertNull(paragraph.getAttribute("data-tq-rendered"))
+        }
         assertNull(root.getAttribute("data-tiqian-enhanced"))
-        assertNull(paragraph.getAttribute("data-tq-rendered"))
     }
 }

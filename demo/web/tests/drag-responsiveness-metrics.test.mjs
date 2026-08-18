@@ -181,15 +181,20 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
             const delta = now - lastFrameTime;
             lastFrameTime = now;
             frameDeltas.push(delta);
+            trackOffscreenWidths();
             requestAnimationFrame(onFrame);
           }
           requestAnimationFrame(onFrame);
 
-          // 3. Setup Bare-DOM Mutation Observer
+          // 3. Setup Bare-DOM Mutation Observer + DragMutationRecordBudget counters
           let bareDomFlashes = 0;
+          let mutationAddedNodes = 0;
+          let mutationRemovedNodes = 0;
           const mutationObserver = new MutationObserver((records) => {
             for (const record of records) {
               if (record.type === "childList") {
+                mutationAddedNodes += record.addedNodes.length;
+                mutationRemovedNodes += record.removedNodes.length;
                 for (const node of record.removedNodes) {
                   if (node.nodeType === 1 && node.classList?.contains("tq-line")) {
                     const parent = record.target;
@@ -204,6 +209,70 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           for (const prose of proseElements) {
             mutationObserver.observe(prose, { childList: true, subtree: true });
           }
+
+          // 3b. Offscreen relayout accounting: the coordinator defers frame
+          // work for prose roots outside the viewport (rootMargin 200px),
+          // using a per-element trailing debounce. A root whose own width has
+          // been stable for the whole debounce window may legitimately finish
+          // one relayout mid-drag: the viewport can cap the wrapper width
+          // while the slider keeps moving. A violation is a relayout that
+          // completes off-screen while the root's width is still changing
+          // inside the debounce window. Scrolling a deferred root back into
+          // view must resume its work on the next IntersectionObserver
+          // callback, well before the debounce fires.
+          const viewportHeight = window.innerHeight;
+          const offscreen = [];
+          for (const prose of proseElements) {
+            const rect = prose.getBoundingClientRect();
+            if (rect.top > viewportHeight + 200 || rect.bottom < -200) offscreen.push(prose);
+          }
+          const lastOffscreenWidthChangeAt = new Map();
+          for (const prose of offscreen) {
+            lastOffscreenWidthChangeAt.set(prose, performance.now());
+          }
+          const trackOffscreenWidths = () => {
+            const now = performance.now();
+            for (const prose of offscreen) {
+              if (!prose.isConnected) continue;
+              const width = prose.getBoundingClientRect().width;
+              const previous = trackOffscreenWidths.widths?.get(prose);
+              trackOffscreenWidths.widths?.set(prose, width);
+              if (previous != null && Math.abs(width - previous) >= 0.5) {
+                lastOffscreenWidthChangeAt.set(prose, now);
+              }
+            }
+          };
+          trackOffscreenWidths.widths = new Map();
+          const readyCounts = new Map();
+          let dragPhase = true;
+          let offscreenReadyDuringDrag = 0;
+          const offscreenDebounceViolations = [];
+          let wokenElementReadyAt = null;
+          let wokenElementScrollAt = null;
+          const isCurrentlyOffscreen = (element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.top > viewportHeight + 200 || rect.bottom < -200;
+          };
+          for (const prose of proseElements) {
+            readyCounts.set(prose, 0);
+            prose.addEventListener("tiqian:relayout-ready", () => {
+              readyCounts.set(prose, readyCounts.get(prose) + 1);
+              if (dragPhase && isCurrentlyOffscreen(prose)) {
+                offscreenReadyDuringDrag += 1;
+                const settledMs = performance.now() - (lastOffscreenWidthChangeAt.get(prose) ?? 0);
+                if (settledMs < 180) {
+                  offscreenDebounceViolations.push({
+                    idx: proseElements.indexOf(prose),
+                    settledMs: Math.round(settledMs),
+                  });
+                }
+              }
+              if (wokenElementScrollAt != null && prose === wakeTarget && wokenElementReadyAt == null) {
+                wokenElementReadyAt = performance.now();
+              }
+            });
+          }
+          let wakeTarget = null;
 
           // 4. Setup Event Loop Delay Prober
           const eventLoopDelays = [];
@@ -245,10 +314,29 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           for (let w = 1200; w >= 670; w -= 5) {
             await dragTo(w);
           }
+          dragPhase = false;
 
-          // Settle final layout
-          await new Promise((r) => setTimeout(r, 300));
+          // 5b. Offscreen wake: scroll the first below-the-fold prose back
+          // into view right after the drag. Its deferred commit must be
+          // promoted on the next IntersectionObserver callback, well before
+          // the 200ms trailing debounce fires.
+          const wakeLatencyMs = (async () => {
+            if (offscreen.length === 0) return null;
+            wakeTarget = offscreen[0];
+            wokenElementScrollAt = performance.now();
+            wakeTarget.scrollIntoView({ block: "center" });
+            const deadline = wokenElementScrollAt + 180;
+            while (performance.now() < deadline && wokenElementReadyAt == null) {
+              await new Promise((r) => setTimeout(r, 10));
+            }
+            return wokenElementReadyAt == null ? null : wokenElementReadyAt - wokenElementScrollAt;
+          })();
+
+          // Settle the final layout: the offscreen debounce needs its 200ms
+          // trailing window plus a few job frames before coverage is counted
+          await new Promise((r) => setTimeout(r, 600));
           const totalDragDuration = performance.now() - startTime;
+          const wakeMs = await wakeLatencyMs;
 
           // Stop monitors
           frameMonitoring = false;
@@ -293,6 +381,11 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
             maxEventLoopDelay,
             meanEventLoopDelay,
             bareDomFlashes,
+            mutationNodeOps: mutationAddedNodes + mutationRemovedNodes,
+            offscreenCount: offscreen.length,
+            offscreenReadyDuringDrag,
+            offscreenDebounceViolations,
+            wakeLatencyMs: wakeMs,
             totalParagraphs,
             enhancedParagraphs,
             finalSliderWidth: slider.value,
@@ -314,6 +407,13 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
       console.log(`Total Blocking Time (TBT)   : ${metrics.totalBlockingTime.toFixed(2)} ms`);
       console.log(`Max Event Loop Latency      : ${metrics.maxEventLoopDelay.toFixed(2)} ms`);
       console.log(`Bare DOM Flashes / Janks    : ${metrics.bareDomFlashes}`);
+      console.log(`Mutation Node Ops (budget)  : ${metrics.mutationNodeOps}`);
+      console.log(`Offscreen Roots             : ${metrics.offscreenCount}`);
+      console.log(`Offscreen Relayouts in Drag : ${metrics.offscreenReadyDuringDrag} (settled-width trailing commits)`);
+      if (metrics.offscreenDebounceViolations?.length) {
+        console.log(`Debounce Violations         : ${JSON.stringify(metrics.offscreenDebounceViolations)}`);
+      }
+      console.log(`Offscreen Wake Latency      : ${metrics.wakeLatencyMs == null ? "n/a" : `${metrics.wakeLatencyMs.toFixed(1)} ms`}`);
       console.log(`Enhanced Paragraph Coverage : ${metrics.enhancedParagraphs}/${metrics.totalParagraphs} (100%)`);
       console.log("=======================================================\n");
 
@@ -323,6 +423,28 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
       assert.ok(metrics.dragEventCount >= 250, "Must simulate at least 250 high-frequency drag steps");
       assert.ok(metrics.maxFrameDuration < 200, `Max frame stall (${metrics.maxFrameDuration.toFixed(1)}ms) must be under 200ms without freeze`);
       assert.ok(metrics.maxEventLoopDelay < 250, `Max event loop starvation (${metrics.maxEventLoopDelay.toFixed(1)}ms) must remain responsive`);
+      // DragMutationRecordBudget: the renderer commits each paragraph with a
+      // single replaceChildren call, so the drag no longer generates one
+      // mutation record per DOM node. This budget caps the total number of
+      // added and removed childList nodes across the whole 3-sweep drag at
+      // the measured baseline plus 40% headroom.
+      assert.ok(
+        metrics.mutationNodeOps <= 21000,
+        `Drag mutation node ops (${metrics.mutationNodeOps}) must stay within the post-atomic-swap budget`,
+      );
+      // OffscreenDebounceGate contract: an off-screen root's frame work stays
+      // deferred while the root's width is still changing. A mid-drag
+      // relayout may complete only after the root's width has been stable
+      // for the 200ms trailing window; the viewport can cap the wrapper
+      // width while the slider keeps moving. Returning a root to the viewport
+      // must resume its deferred commit well before that timer fires.
+      assert.ok(metrics.offscreenCount > 0, "Demo page must expose at least one offscreen prose root");
+      assert.strictEqual(
+        (metrics.offscreenDebounceViolations ?? []).length,
+        0,
+        "Offscreen roots must not complete relayouts while their width is still changing inside the debounce window",
+      );
+      assert.ok(metrics.wakeLatencyMs != null && metrics.wakeLatencyMs < 180, "Returning to the viewport must promote deferred work without waiting out the debounce");
     });
   } finally {
     client?.close();

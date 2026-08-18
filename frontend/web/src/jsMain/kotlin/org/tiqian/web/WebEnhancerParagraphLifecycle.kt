@@ -56,17 +56,34 @@ internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob) {
     val sliceStartedAt = performanceNow()
     var processedInSlice = 0
     val budgetMs = MAX_PROGRESSIVE_SLICE_MS
+    // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph
+    // against the width snapshot taken when the job started
+    // (WidthSnapshotPerRelayoutJob). ADR 0039 forbids committing a result
+    // even one grid cell behind the live width. So when the host width has
+    // drifted since the snapshot, the remaining items in this job are
+    // skipped and the finish event reports the job as stale; element.js
+    // then schedules one follow-up job at the latest width. The guard runs
+    // once at the head of each animation-frame slice, before the slice's
+    // DOM writes. The previous per-item guard performed a layout read after
+    // every paragraph commit, forcing one reflow per paragraph; one read
+    // per slice avoids that cost.
+    if (job.stale?.invoke() == true) {
+        job.nextIndex = job.itemCount
+    }
     try {
-        do {
+        while (job.nextIndex < job.itemCount) {
             job.processItem(job.nextIndex)
             job.nextIndex += 1
             processedInSlice += 1
-        } while (
-            job.nextIndex < job.itemCount &&
-            processedInSlice < MAX_PROGRESSIVE_ITEMS_PER_SLICE &&
-            performanceNow() - sliceStartedAt < budgetMs &&
-            !progressiveInputIsPending()
-        )
+            if (!(
+                processedInSlice < MAX_PROGRESSIVE_ITEMS_PER_SLICE &&
+                    performanceNow() - sliceStartedAt < budgetMs &&
+                    !progressiveInputIsPending()
+                )
+            ) {
+                break
+            }
+        }
     } catch (error: Throwable) {
         job.onFailure?.invoke()
         failProgressiveJob(job, error)

@@ -16,6 +16,7 @@ import org.tiqian.web.DomParagraphRenderer.BopomofoFontSpec
 import org.tiqian.web.DomParagraphRenderer.ClusterDeco
 import org.tiqian.web.DomParagraphRenderer.Options
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.Node
 
 internal fun DomParagraphRenderer.populateTrailingLetterSpacing(
     leaf: HTMLElement,
@@ -220,7 +221,7 @@ internal fun DomParagraphRenderer.rubyInlineSpan(
  * clusters.
  */
 internal fun DomParagraphRenderer.appendInterlinearLines(
-    host: HTMLElement,
+    container: Node,
     result: LayoutResult,
     colorSpans: List<ColorSpan>,
 ) {
@@ -277,7 +278,7 @@ internal fun DomParagraphRenderer.appendInterlinearLines(
         }
     }
 
-    host.appendChild(svg)
+    container.appendChild(svg)
 }
 
 /**
@@ -287,7 +288,7 @@ internal fun DomParagraphRenderer.appendInterlinearLines(
  * consume Tiqian's decoration geometry.
  */
 internal fun DomParagraphRenderer.appendEmphasisDots(
-    host: HTMLElement,
+    container: Node,
     result: LayoutResult,
     colorSpans: List<ColorSpan>,
     sourceSpans: List<DomSourceSpan>,
@@ -330,7 +331,7 @@ internal fun DomParagraphRenderer.appendEmphasisDots(
         svg.appendChild(circle)
     }
 
-    host.appendChild(svg)
+    container.appendChild(svg)
 }
 
 internal fun DomParagraphRenderer.decoFor(
