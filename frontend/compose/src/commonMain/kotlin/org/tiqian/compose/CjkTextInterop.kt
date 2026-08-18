@@ -18,7 +18,8 @@ import org.tiqian.core.Ic
 import org.tiqian.core.LastLineAlignment
 import org.tiqian.core.ParagraphStyle
 
-internal val ComposeTextParagraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero)
+/** Default paragraph geometry used by the Compose Text replacement facade. */
+val DefaultCjkTextParagraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero)
 
 internal data class LoweredComposeText(
     val text: AnnotatedString,

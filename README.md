@@ -40,6 +40,11 @@ implementation("org.tiqian:tiqian-compose:<version>")
 `TextStyle` 也可以继续使用。
 
 ```kotlin
+implementation("org.tiqian:tiqian-compose:$tiqianVersion")
+
+// Material 3 项目可以改为依赖 tiqian-compose-material3，以便读取 `LocalTextStyle` 与 `LocalContentColor` 等
+implementation("org.tiqian:tiqian-compose-material3:$tiqianVersion")
+
 val paragraph = buildAnnotatedString {
     append("编号 A-17 的青铜")
     ruby("盉", "hé")
@@ -58,8 +63,8 @@ CjkText(
 可以用 `cjkTextCompatibility()` 检查当前还不能保真的能力。只读正文可以用
 `CjkSelectionContainer` 包住一个或多个 `CjkText`，支持选择与复制。
 
-整篇 Markdown 正文可以使用基于提椠的[提椠 Markdown](https://github.com/tiqian-cjk/tiqian-markdown)：
-段落排版之上，统一处理代码、表格、公式、图片与脚注。
+整篇 Markdown 正文可以使用基于提椠的[提椠 Markdown](https://github.com/tiqian-cjk/tiqian-markdown)，
+段落排版之上，还可以统一处理代码、表格、公式、图片与脚注等。
 
 ## Web
 

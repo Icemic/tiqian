@@ -48,6 +48,11 @@ val publishedModules = mapOf(
         "Native Android font discovery and shaping support for Tiqian.",
     ),
     ":frontend:compose" to PublishedModule("tiqian-compose", "Tiqian Compose", "Compose frontend for the Tiqian CJK paragraph layout engine."),
+    ":frontend:compose-material3" to PublishedModule(
+        "tiqian-compose-material3",
+        "Tiqian Compose Material 3",
+        "Material 3 context adapter for the Tiqian Compose frontend.",
+    ),
 )
 
 fun Project.configureMavenPublishing(module: PublishedModule) {

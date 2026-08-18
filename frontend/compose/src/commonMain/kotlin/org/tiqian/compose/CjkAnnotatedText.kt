@@ -357,7 +357,7 @@ fun ParagraphMeasurer.measure(
     constraints: LayoutConstraints,
     density: Density,
     textStyle: CjkTextStyle = CjkTextStyle(),
-    paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    paragraphStyle: ParagraphStyle = DefaultCjkTextParagraphStyle,
 ): LayoutResult {
     val renderText = text.withBaseLinkStyles()
     val core = textStyle.toCoreTextStyle(density)
@@ -388,7 +388,7 @@ fun ParagraphMeasurer.measureWithInlineContent(
     constraints: LayoutConstraints,
     density: Density,
     style: ComposeTextStyle,
-    paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    paragraphStyle: ParagraphStyle = DefaultCjkTextParagraphStyle,
     inlineObjects: List<CjkInlineObject>,
     inlineDecorations: List<CjkInlineDecoration> = emptyList(),
     inlineBackgrounds: List<CjkInlineBackground> = emptyList(),
@@ -434,7 +434,7 @@ fun ParagraphMeasurer.measure(
     constraints: LayoutConstraints,
     density: Density,
     style: ComposeTextStyle,
-    paragraphStyle: ParagraphStyle = ComposeTextParagraphStyle,
+    paragraphStyle: ParagraphStyle = DefaultCjkTextParagraphStyle,
 ): LayoutResult {
     val lowered = lowerComposeText(text, style, paragraphStyle)
     val renderText = lowered.text.withBaseLinkStyles()

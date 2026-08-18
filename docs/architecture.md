@@ -159,10 +159,15 @@ Android、JVM 或 JS 自带的 Unicode 表。
 
 ### Compose
 
-`frontend/compose` 提供两类入口：
+`frontend/compose` 是不依赖 Material 的基础前端，提供两类入口：
 
 - 接受 `String` 或 `AnnotatedString` 的 `CjkText` 用于低成本替换 Compose `Text`；
 - `CjkText(blocks = ...)` 用于显式的段落、节与列表结构。
+
+`frontend/compose-material3` 是可选的宿主上下文适配层。它以
+`org.tiqian.compose.material3.CjkText` 暴露同形的单段入口，读取 Material 3 的
+`LocalTextStyle` 与 `LocalContentColor` 后转交基础前端。它不复制 TextStyle lowering、布局、
+字体 fallback 或绘制逻辑；未采用 Material 3 的宿主继续直接使用 `frontend/compose`。
 
 Compose 前端把 `AnnotatedString` 与 `TextStyle` lowering 成核心输入，并用
 `cjkTextCompatibility()` 报告当前无法完整保真的能力。Skia 与 Android renderer 重放
@@ -280,8 +285,9 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
   `frontend/apple`。
 - `test-support` 与 `layout` 的报告任务：共享语料、布局诊断和文档样张生成。
 
-首次公开发布的套件统一使用 Maven group `org.tiqian`。提椠核心 artifact 保留 `tiqian-*`
-产品族前缀，数学与 Markdown 分别使用 `math-*` 与 `markdown-*`。Markdown 的中立文档模型位于
+首次公开发布的套件统一使用 Maven group `org.tiqian`。提椠 artifact 保留 `tiqian-*`
+产品族前缀，其中 Compose 基础前端与 Material 3 适配层分别是 `tiqian-compose` 和
+`tiqian-compose-material3`；数学与 Markdown 分别使用 `math-*` 与 `markdown-*`。Markdown 的中立文档模型位于
 `org.tiqian.markdown`，Compose renderer 位于 `org.tiqian.markdown.compose`；Android native
 字体后端位于 `org.tiqian.shaping.android.nativefont`。完整命名边界见
 [ADR 0048](adr/0048-suite-maven-and-package-namespaces.md)。

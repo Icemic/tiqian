@@ -35,6 +35,12 @@
   `CjkInlineDecoration`; Compose lowers their color and dash geometry into the normal
   `RichTextRole.Underline`. Solid, dashed and dotted lines therefore share source boundaries, outer-glue
   trim, underline height and skip-ink instead of letting a Markdown host repaint final geometry.
+- Amendment 2026-08-18: `tiqian-compose` remains Foundation-neutral. The optional
+  `tiqian-compose-material3` adapter exposes the single-paragraph `CjkText` call shape with
+  `LocalTextStyle` and `LocalContentColor` defaults. It forwards the resolved Compose inputs to the
+  base frontend and does not own another TextStyle lowering or layout path. For an unstyled
+  `LinkAnnotation`, it also applies Material 3's current primary-colour underline before forwarding;
+  author-provided link styles remain unchanged.
 - Amendment 2026-08-08: background spans use one continuous typographic box per visual line. The
   box retains every internal word/CJK/Latin/punctuation gap, trims only layout space outside the
   marked run, and uses the marked faces rather than the complete paragraph line box vertically.

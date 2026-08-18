@@ -60,6 +60,7 @@ include(
     ":clreq",
     ":layout",
     ":frontend:compose",
+    ":frontend:compose-material3",
     ":frontend:apple",
     ":frontend:apple:coretext-render",
     ":demo",
