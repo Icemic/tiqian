@@ -1,0 +1,336 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+
+class CdpClient {
+  constructor(wsUrl) {
+    this.wsUrl = wsUrl;
+    this.ws = null;
+    this.id = 0;
+    this.pending = new Map();
+  }
+
+  async connect() {
+    return new Promise((resolve, reject) => {
+      this.ws = new WebSocket(this.wsUrl);
+      this.ws.onopen = () => resolve();
+      this.ws.onerror = (err) => reject(err);
+      this.ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.id && this.pending.has(msg.id)) {
+          const { resolve, reject } = this.pending.get(msg.id);
+          this.pending.delete(msg.id);
+          if (msg.error) {
+            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+          } else {
+            resolve(msg.result);
+          }
+        }
+      };
+    });
+  }
+
+  async send(method, params = {}) {
+    const id = ++this.id;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  async evaluate(expression) {
+    const res = await this.send("Runtime.evaluate", {
+      expression,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    if (res.exceptionDetails) {
+      throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
+    }
+    return res.result?.value;
+  }
+
+  close() {
+    this.ws?.close();
+  }
+}
+
+async function waitForServer(url, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+    } catch {
+      // retry
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Timeout waiting for demo server at ${url}`);
+}
+
+async function waitForCdpEndpoint(port, timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      if (res.ok) return;
+    } catch {
+      // retry
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
+}
+
+test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) => {
+  const demoPort = 8991;
+  const cdpPort = 9981;
+  const demoUrl = `http://127.0.0.1:${demoPort}/`;
+
+  let parcelProc = null;
+  let browserProc = null;
+  let client = null;
+
+  try {
+    parcelProc = spawn("npx", [
+      "parcel",
+      "index.html",
+      "--port",
+      String(demoPort),
+      "--no-cache",
+    ], {
+      cwd: webDemoDir,
+      stdio: "ignore",
+      detached: true,
+    });
+
+    await waitForServer(demoUrl, 30000);
+
+    const chromeBin = process.env.CHROME_BIN || "chromium";
+    browserProc = spawn(chromeBin, [
+      "--headless=new",
+      `--remote-debugging-port=${cdpPort}`,
+      "--no-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      demoUrl,
+    ], {
+      stdio: "ignore",
+      detached: true,
+    });
+
+    await waitForCdpEndpoint(cdpPort, 15000);
+
+    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = await listRes.json();
+    const pageTarget = targets.find((t) => t.type === "page") || targets[0];
+    assert.ok(pageTarget, "Must find an active browser page target");
+
+    client = new CdpClient(pageTarget.webSocketDebuggerUrl);
+    await client.connect();
+
+    await client.send("Page.enable");
+    await client.send("Runtime.enable");
+
+    // Wait for initial layout stabilization
+    await client.evaluate(`
+      new Promise((resolve) => {
+        if (document.readyState === "complete") {
+          setTimeout(resolve, 800);
+        } else {
+          window.addEventListener("load", () => setTimeout(resolve, 800));
+        }
+      })
+    `);
+
+    await t.test("Continuous rapid width dragging collects latency, long-task and frame metrics without freeze", async () => {
+      const metrics = await client.evaluate(`
+        (async () => {
+          const slider = document.getElementById("width-slider");
+          const pageWrapper = document.getElementById("page-wrapper");
+          const proseElements = Array.from(document.querySelectorAll("tiqian-prose"));
+
+          // 1. Setup LongTask Observer
+          const longTasks = [];
+          let longTaskObserver = null;
+          try {
+            longTaskObserver = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                longTasks.push({
+                  startTime: entry.startTime,
+                  duration: entry.duration,
+                  name: entry.name,
+                });
+              }
+            });
+            longTaskObserver.observe({ entryTypes: ["longtask"] });
+          } catch (e) {
+            // longtask observer not supported in this runtime
+          }
+
+          // 2. Setup rAF Frame Monitor
+          const frameDeltas = [];
+          let lastFrameTime = performance.now();
+          let frameMonitoring = true;
+          function onFrame(now) {
+            if (!frameMonitoring) return;
+            const delta = now - lastFrameTime;
+            lastFrameTime = now;
+            frameDeltas.push(delta);
+            requestAnimationFrame(onFrame);
+          }
+          requestAnimationFrame(onFrame);
+
+          // 3. Setup Bare-DOM Mutation Observer
+          let bareDomFlashes = 0;
+          const mutationObserver = new MutationObserver((records) => {
+            for (const record of records) {
+              if (record.type === "childList") {
+                for (const node of record.removedNodes) {
+                  if (node.nodeType === 1 && node.classList?.contains("tq-line")) {
+                    const parent = record.target;
+                    if (parent.tagName === "P" && !parent.querySelector(".tq-line")) {
+                      bareDomFlashes += 1;
+                    }
+                  }
+                }
+              }
+            }
+          });
+          for (const prose of proseElements) {
+            mutationObserver.observe(prose, { childList: true, subtree: true });
+          }
+
+          // 4. Setup Event Loop Delay Prober
+          const eventLoopDelays = [];
+          let probing = true;
+          const probeInterval = 8;
+          let expectedProbeTime = performance.now() + probeInterval;
+          function probeEventLoop() {
+            if (!probing) return;
+            const now = performance.now();
+            const delay = Math.max(0, now - expectedProbeTime);
+            eventLoopDelays.push(delay);
+            expectedProbeTime = now + probeInterval;
+            setTimeout(probeEventLoop, probeInterval);
+          }
+          setTimeout(probeEventLoop, probeInterval);
+
+          // 5. Execute Intense Drag Simulation
+          // Sweep 1: 1000px down to 400px (step -6px) -> 100 events
+          // Sweep 2: 400px up to 1100px (step +7px) -> 100 events
+          // Sweep 3: 1100px down to 670px (step -5px) -> 86 events
+          const startTime = performance.now();
+          let dragEventCount = 0;
+
+          async function dragTo(targetWidth) {
+            slider.value = String(targetWidth);
+            slider.dispatchEvent(new Event("input", { bubbles: true }));
+            slider.dispatchEvent(new Event("change", { bubbles: true }));
+            dragEventCount += 1;
+            // High-frequency throttle mimicking 60Hz-120Hz mousemove / trackpad events
+            await new Promise((r) => setTimeout(r, 8));
+          }
+
+          for (let w = 1000; w >= 400; w -= 6) {
+            await dragTo(w);
+          }
+          for (let w = 400; w <= 1100; w += 7) {
+            await dragTo(w);
+          }
+          for (let w = 1100; w >= 670; w -= 5) {
+            await dragTo(w);
+          }
+
+          // Settle final layout
+          await new Promise((r) => setTimeout(r, 300));
+          const totalDragDuration = performance.now() - startTime;
+
+          // Stop monitors
+          frameMonitoring = false;
+          probing = false;
+          longTaskObserver?.disconnect();
+          mutationObserver.disconnect();
+
+          // 6. Calculate Metrics Summary
+          const maxFrameDuration = frameDeltas.length > 0 ? Math.max(...frameDeltas) : 0;
+          const meanFrameDuration = frameDeltas.length > 0
+            ? frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length
+            : 0;
+          const maxEventLoopDelay = eventLoopDelays.length > 0 ? Math.max(...eventLoopDelays) : 0;
+          const meanEventLoopDelay = eventLoopDelays.length > 0
+            ? eventLoopDelays.reduce((a, b) => a + b, 0) / eventLoopDelays.length
+            : 0;
+          const totalBlockingTime = longTasks.reduce((sum, task) => sum + Math.max(0, task.duration - 50), 0);
+          const maxLongTaskDuration = longTasks.length > 0 ? Math.max(...longTasks.map((t) => t.duration)) : 0;
+
+          // Check enhancement coverage
+          let totalParagraphs = 0;
+          let enhancedParagraphs = 0;
+          for (const prose of proseElements) {
+            const ps = prose.querySelectorAll("p");
+            totalParagraphs += ps.length;
+            for (const p of ps) {
+              if (p.getAttribute("data-tq-rendered") === "true") {
+                enhancedParagraphs += 1;
+              }
+            }
+          }
+
+          return {
+            dragEventCount,
+            totalDragDuration,
+            totalFrames: frameDeltas.length,
+            meanFrameDuration,
+            maxFrameDuration,
+            longTaskCount: longTasks.length,
+            maxLongTaskDuration,
+            totalBlockingTime,
+            maxEventLoopDelay,
+            meanEventLoopDelay,
+            bareDomFlashes,
+            totalParagraphs,
+            enhancedParagraphs,
+            finalSliderWidth: slider.value,
+          };
+        })()
+      `);
+
+      // Print readable metrics table
+      console.log("\n=======================================================");
+      console.log("   TIQIAN DRAG RESPONSIVENESS & PERFORMANCE METRICS");
+      console.log("=======================================================");
+      console.log(`Total Drag Input Events     : ${metrics.dragEventCount}`);
+      console.log(`Total Drag Duration         : ${metrics.totalDragDuration.toFixed(2)} ms`);
+      console.log(`Rendered Frames Count       : ${metrics.totalFrames}`);
+      console.log(`Mean Frame Interval         : ${metrics.meanFrameDuration.toFixed(2)} ms`);
+      console.log(`Max Frame Stall Duration    : ${metrics.maxFrameDuration.toFixed(2)} ms`);
+      console.log(`Long Tasks (>50ms) Count    : ${metrics.longTaskCount}`);
+      console.log(`Max Long Task Duration      : ${metrics.maxLongTaskDuration.toFixed(2)} ms`);
+      console.log(`Total Blocking Time (TBT)   : ${metrics.totalBlockingTime.toFixed(2)} ms`);
+      console.log(`Max Event Loop Latency      : ${metrics.maxEventLoopDelay.toFixed(2)} ms`);
+      console.log(`Bare DOM Flashes / Janks    : ${metrics.bareDomFlashes}`);
+      console.log(`Enhanced Paragraph Coverage : ${metrics.enhancedParagraphs}/${metrics.totalParagraphs} (100%)`);
+      console.log("=======================================================\n");
+
+      // Assertions
+      assert.strictEqual(metrics.bareDomFlashes, 0, "Dragging must never flash bare unrendered DOM");
+      assert.strictEqual(metrics.enhancedParagraphs, metrics.totalParagraphs, "All paragraphs must remain 100% enhanced after dragging");
+      assert.ok(metrics.dragEventCount >= 250, "Must simulate at least 250 high-frequency drag steps");
+      assert.ok(metrics.maxFrameDuration < 200, `Max frame stall (${metrics.maxFrameDuration.toFixed(1)}ms) must be under 200ms without freeze`);
+      assert.ok(metrics.maxEventLoopDelay < 250, `Max event loop starvation (${metrics.maxEventLoopDelay.toFixed(1)}ms) must remain responsive`);
+    });
+  } finally {
+    client?.close();
+    if (browserProc?.pid) {
+      try { process.kill(-browserProc.pid, "SIGKILL"); } catch {}
+    }
+    if (parcelProc?.pid) {
+      try { process.kill(-parcelProc.pid, "SIGKILL"); } catch {}
+    }
+  }
+});
