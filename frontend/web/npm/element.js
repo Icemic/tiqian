@@ -819,7 +819,10 @@ class TiqianProseElement extends HTMLElementBase {
         attributeFilter: ["class", "style", "data-theme", "data-color-mode"],
       });
       for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        this.#initialFontRetryObserver.observe(ancestor, { attributes: true });
+        this.#initialFontRetryObserver.observe(ancestor, {
+          attributes: true,
+          attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
+        });
       }
     }
 
@@ -1746,6 +1749,7 @@ class TiqianProseElement extends HTMLElementBase {
     for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
       this.#typographyObserver.observe(ancestor, {
         attributes: true,
+        attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
       });
     }
     if (document.fonts) {
@@ -1834,7 +1838,10 @@ class TiqianProseElement extends HTMLElementBase {
       attributeOldValue: true,
     });
     for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
-      this.#layoutWorkTypographyObserver.observe(ancestor, { attributes: true });
+      this.#layoutWorkTypographyObserver.observe(ancestor, {
+        attributes: true,
+        attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
+      });
     }
     if (document.fonts) {
       this.#layoutWorkFontLoadingSettledListener = (event) => {
