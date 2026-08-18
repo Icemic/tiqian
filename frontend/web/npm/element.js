@@ -260,7 +260,7 @@ class TiqianLayoutCoordinator {
 
   shouldYield(element) {
     const entry = this.#entries.get(element);
-    return !!(entry && !entry.inViewport);
+    return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
   }
 
   #callbacks = new Map();
@@ -363,6 +363,10 @@ class TiqianLayoutCoordinator {
       this.#consecutiveIdleFrames++;
     } else {
       this.#consecutiveIdleFrames = 0;
+    }
+
+    if (this.#callbacks.size > 0 && !this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
   };
 
@@ -584,10 +588,11 @@ class TiqianProseElement extends HTMLElementBase {
         // font proof are still valid; only this line measure failed DOM replay.
         // Retain the session so a later grid can revalidate without rebuilding
         // the replay corpus. Disconnect and snapshot adoption remain the owners
-        // of final release.
         this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
       }
       if (stale) this.#responsiveCommitRequired = true;
+      if (stale) this.#responsiveRelayoutRequired = true;
+      if (stale) this.#runtimeStateActive = false;
       this.#finishLayoutWorkAndObserve();
     };
     this.addEventListener("tiqian:ready", this.#readyListener);
@@ -1160,8 +1165,10 @@ class TiqianProseElement extends HTMLElementBase {
     // font, style and viewport changes are observed while work is in flight and
     // cancel the captured job before ready; completion only needs to reconcile
     // geometry revisions that survived those observers.
-    const layoutInputsChangedDuringWork = rawGeometryChangedDuringWork &&
-      (!this.#layoutWorkUsesCapturedMeasure || effectiveLayoutChangedDuringWork);
+    const layoutInputsChangedDuringWork = this.#responsiveCommitRequired || (
+      rawGeometryChangedDuringWork &&
+      (!this.#layoutWorkUsesCapturedMeasure || effectiveLayoutChangedDuringWork)
+    );
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
     coordinator.update(this, { busy: false });
@@ -1476,10 +1483,6 @@ class TiqianProseElement extends HTMLElementBase {
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
-      if (!this.#inViewport) {
-        this.#responsiveCommitRequired = true;
-        return;
-      }
       this.#scheduleResponsiveGeometryCommit();
     });
     this.#resizeObserver = observer;
