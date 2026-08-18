@@ -670,3 +670,24 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
    时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让授予在整段拖动中饿死。
    授予跨 runtime 边界时只传剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
    耗时，两条时钟不做比较。200ms 级防抖到期时间与时长统计同用 `Date.now`，毫秒精度足够。
+
+## Amendment (2026-08-18): skip discarded finish reads
+
+2026-08-18 的 Zen profile（快拖，172 次字格穿越）把最大单一可归因项定位到
+`fragmentedBorderBoxInlineSize`（gBCR）23.1%、1483ms：每个 relayout job 完成时
+`#finishLayoutWorkAndObserve` 对 root 内每段读一次布局签名。审计发现这些读取没有消费者：
+
+1. 宽度移动中的 relayout finish 走 responsive-commit 分支，该分支不存储任何段落 baseline。
+2. relayout job 以 `captureSignatures: false` 派发，`#layoutWorkMeasureSignature` 为空串，
+   live 签名与空串比较恒为真，`layoutInputsChangedDuringWork` 的判定不需要 live 读数。
+3. 比较结果与签名值都被丢弃；每段一次 gBCR 加一次 getComputedStyle 花在 job 刚弄脏的
+   DOM 上。commit 任务在宽度移动时本就使用缓存 baseline，拖动全程没有任何路径消费该读数。
+
+**`ResponsiveFinishSkipsDoomedSignatureReads`**：finish 只在两种情况下读段落签名：与
+捕获签名比较（enhance 路径，`CapturedMeasureFollowUpCoalescing` 语义不变），或走
+unchanged 路径存储 baseline（宽度静止时的收尾一次读完）。宽度移动中的 finish 以缓存
+baseline 进入 responsive-commit 分支。finish 无条件的 typography 签名刷新保留，它是
+settle 后 commit 比较的基准。
+
+demo CDP burst 基线（1500×6000 视口、12 root 全可见、900ms 逐帧宽度振荡）：段落 gBCR
+读取从 610-624 降到 335-419；`drag-responsiveness-metrics` 以 500 为预算固定该行为。

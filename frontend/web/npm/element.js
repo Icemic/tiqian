@@ -1548,12 +1548,29 @@ class TiqianProseElement extends HTMLElementBase {
     // here triggers no comparison of its own; the next one just starts from
     // the true current state.
     const currentTypography = this.#typographySignature();
-    const currentParagraphWidths = this.#layoutWorkUsesCapturedMeasure
-      ? this.#lastParagraphWidths
-      : this.#paragraphWidthSignature();
-    const currentMeasures = (this.#layoutWorkUsesCapturedMeasure && !rawGeometryChangedDuringWork)
-      ? this.#lastParagraphMeasures
-      : this.#paragraphMeasureSignature();
+    // ResponsiveFinishSkipsDoomedSignatureReads: a finish that returns through
+    // the responsive-commit branch stores no paragraph baseline. Width
+    // movement puts every relayout finish onto that branch, and relayout
+    // jobs capture no measure signature, so the live paragraph signatures
+    // the finish read decided nothing and were discarded. Each read cost one
+    // gBCR and one computed style per paragraph on DOM the job had just
+    // dirtied. A finish reads the signatures only when it compares them
+    // against a captured signature or stores them on the unchanged path.
+    const signaturesConsumedByFinish = !rawGeometryChangedDuringWork ||
+      (this.#layoutWorkUsesCapturedMeasure &&
+        this.#layoutWorkMeasureSignature !== "");
+    const currentParagraphWidths = signaturesConsumedByFinish &&
+        !this.#layoutWorkUsesCapturedMeasure
+      ? this.#paragraphWidthSignature()
+      : this.#lastParagraphWidths;
+    let currentMeasures;
+    if (signaturesConsumedByFinish) {
+      currentMeasures = this.#layoutWorkUsesCapturedMeasure && !rawGeometryChangedDuringWork
+        ? this.#lastParagraphMeasures
+        : this.#paragraphMeasureSignature();
+    } else {
+      currentMeasures = this.#lastParagraphMeasures;
+    }
     const currentMaximumMeasure = this.hasAttribute("snapshot-ref") &&
       loadedSnapshotMaximumMeasureMatches(this);
     // CapturedMeasureFollowUpCoalescing: atomic relayout prepares every
@@ -1561,9 +1578,10 @@ class TiqianProseElement extends HTMLElementBase {
     // activity stays in the same N×fontSize measure and does not cross the
     // exact maximum-snapshot boundary, that result is already valid for the
     // final geometry and a second job would reproduce identical DOM.
-    const effectiveLayoutChangedDuringWork =
-      currentMeasures !== this.#layoutWorkMeasureSignature ||
-      currentMaximumMeasure !== this.#layoutWorkMaximumMeasure;
+    const effectiveLayoutChangedDuringWork = signaturesConsumedByFinish
+      ? (currentMeasures !== this.#layoutWorkMeasureSignature ||
+        currentMaximumMeasure !== this.#layoutWorkMaximumMeasure)
+      : true;
     // RenderOutputTypographyIsNotAnInputChange: the renderer intentionally
     // changes paragraph line-height and positioning after it commits measured
     // line boxes. Comparing that output signature with the captured native
