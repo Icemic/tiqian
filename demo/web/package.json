@@ -6,7 +6,7 @@
   "scripts": {
     "start": "parcel index.html --port 8888",
     "build": "parcel build index.html",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
     "@tiqian/prose": "file:../../frontend/web/npm"

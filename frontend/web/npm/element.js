@@ -592,7 +592,6 @@ class TiqianProseElement extends HTMLElementBase {
       }
       if (stale) this.#responsiveCommitRequired = true;
       if (stale) this.#responsiveRelayoutRequired = true;
-      if (stale) this.#runtimeStateActive = false;
       this.#finishLayoutWorkAndObserve();
     };
     this.addEventListener("tiqian:ready", this.#readyListener);
@@ -1606,7 +1605,7 @@ class TiqianProseElement extends HTMLElementBase {
     const hostInlineSizeRefresh = widthsChanged &&
       this.querySelector("[data-tq-host-inline-size]") !== null;
     const measuresChanged = widthsChanged || paragraphMeasures !== this.#lastParagraphMeasures;
-    const signature = this.#typographySignature(false);
+    const signature = this.#typographySignature();
     const typographyChanged = signature !== this.#lastTypography;
     if (!forceLatestWidth && !widthsChanged && !measuresChanged && !typographyChanged) {
       this.#observeWidth();
