@@ -337,7 +337,10 @@ object TiqianWeb {
             enhanceProgressively(root, runningJob.state.options)
             return
         }
-        val state = states.get(root) as? RootState ?: return
+        val state = states.get(root) as? RootState ?: run {
+            enhanceProgressively(root, EnhanceOptions(), ProgressiveJobKind.Relayout)
+            return
+        }
         val activeOptions = state.activeOptions()
         val activeEngine = state.activeEngine()
         val activeExactFallbackEngine = state.activeExactFallbackEngine()
