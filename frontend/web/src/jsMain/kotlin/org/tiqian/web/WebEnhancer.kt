@@ -354,21 +354,21 @@ object TiqianWeb {
             enhanceProgressively(root, state.options, ProgressiveJobKind.Relayout)
             return
         }
-        val paragraphs = state.paragraphs.toList()
-        val rootDistance = paragraphViewportDistance(root)
-        val workOrder = if (rootDistance <= 0.0) {
-            paragraphs.indices.toList()
+        val paragraphs = state.paragraphs
+        val count = paragraphs.size
+        val workOrder = if (paragraphViewportDistance(root) <= 0.0) {
+            IntArray(count) { it }
         } else {
-            paragraphs.indices
-                .map { index -> index to paragraphViewportDistance(paragraphs[index].source) }
-                .sortedWith(compareBy<Pair<Int, Double>> { it.second }.thenBy { it.first })
-                .map { it.first }
+            val distances = DoubleArray(count) { paragraphViewportDistance(paragraphs[it].source) }
+            Array(count) { it }.apply {
+                sortWith(compareBy<Int> { distances[it] }.thenBy { it })
+            }.toIntArray()
         }
         // WidthSnapshotPerRelayoutJob: every paragraph is prepared against the
         // geometry seen when the job starts. If the host changes again while
         // slices are running, element.js schedules one latest-width follow-up
         // instead of allowing a queue of obsolete widths to replay.
-        val widths = paragraphs.map(::paragraphWidth)
+        val widths = FloatArray(count) { paragraphWidth(paragraphs[it]) }
         val commitSession = ProgressiveRelayoutSession(
             paragraphs = paragraphs,
             state = state,

@@ -626,67 +626,71 @@ class TiqianProseElement extends HTMLElementBase {
       .then(async (fontGateOpen) => {
         if (!fontGateOpen) return;
         if (!this.isConnected || generation !== this.#generation) return;
-        const enhanceStartedAt = performance.now();
-        const operation = this.#beginLayoutWork({ captureSignatures: false });
-        let snapshot = { adopted: false };
-        try {
-          if (!strongEmphasisRuntimeRequired) {
-            snapshot = await tryAdoptRequestedSnapshot(
-              this,
-              () => this.isConnected && generation === this.#generation &&
-                operation === this.#layoutOperation,
-            );
-          }
-        } catch (error) {
-          this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
-          console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
-        }
-        if (
-          !this.isConnected || generation !== this.#generation ||
-          operation !== this.#layoutOperation
-        ) {
-          if (snapshot.adopted) restoreLoadedSnapshot(this);
-          return;
-        }
-        if (snapshot.adopted) {
-          delete this.dataset.tiqianSnapshotMiss;
-          this.#snapshotAdopted = true;
-          this.#snapshotEnhancedCount = snapshot.count;
-          // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
-          // paragraphs. Runtime-only prose remains semantic source and is
-          // enhanced through the same Kotlin pipeline without discarding valid
-          // server geometry for its keyed siblings.
-          const completionSelector = snapshotCompletionSelector(this);
-          if (completionSelector) {
-            await (runtimePromise ?? loadTiqianRuntime());
-            if (!this.isConnected || generation !== this.#generation) {
-              return;
+        const runInitialEnhance = async () => {
+          if (!this.isConnected || generation !== this.#generation) return;
+          const enhanceStartedAt = performance.now();
+          const operation = this.#beginLayoutWork({ captureSignatures: false });
+          let snapshot = { adopted: false };
+          try {
+            if (!strongEmphasisRuntimeRequired) {
+              snapshot = await tryAdoptRequestedSnapshot(
+                this,
+                () => this.isConnected && generation === this.#generation &&
+                  operation === this.#layoutOperation,
+              );
             }
-            this.#acceptValidatedSnapshotGeometry();
-            await this.#dispatchProgressiveEnhance(generation, {
-              paragraphSelector: completionSelector,
-            });
+          } catch (error) {
+            this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
+            console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
+          }
+          if (
+            !this.isConnected || generation !== this.#generation ||
+            operation !== this.#layoutOperation
+          ) {
+            if (snapshot.adopted) restoreLoadedSnapshot(this);
             return;
           }
-          if (!this.#runtimeStateActive) this.#releaseExactFontSession();
-          this.#hasDispatched = true;
-          this.#acceptLayoutCompletion = true;
-          this.#acceptValidatedSnapshotGeometry();
-          this.dispatchEvent(new CustomEvent("tiqian:ready", {
-            detail: {
-              enhancedCount: snapshot.count,
-              issueCount: 0,
-              durationMs: performance.now() - enhanceStartedAt,
-              maxSliceMs: 0,
-              snapshot: true,
-            },
-          }));
-          return;
-        }
-        this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
-        await (runtimePromise ?? loadTiqianRuntime());
-        if (!this.isConnected || generation !== this.#generation) return;
-        if (!(await this.#dispatchProgressiveEnhance(generation))) return;
+          if (snapshot.adopted) {
+            delete this.dataset.tiqianSnapshotMiss;
+            this.#snapshotAdopted = true;
+            this.#snapshotEnhancedCount = snapshot.count;
+            // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
+            // paragraphs. Runtime-only prose remains semantic source and is
+            // enhanced through the same Kotlin pipeline without discarding valid
+            // server geometry for its keyed siblings.
+            const completionSelector = snapshotCompletionSelector(this);
+            if (completionSelector) {
+              await (runtimePromise ?? loadTiqianRuntime());
+              if (!this.isConnected || generation !== this.#generation) {
+                return;
+              }
+              this.#acceptValidatedSnapshotGeometry();
+              await this.#dispatchProgressiveEnhance(generation, {
+                paragraphSelector: completionSelector,
+              });
+              return;
+            }
+            if (!this.#runtimeStateActive) this.#releaseExactFontSession();
+            this.#hasDispatched = true;
+            this.#acceptLayoutCompletion = true;
+            this.#acceptValidatedSnapshotGeometry();
+            this.dispatchEvent(new CustomEvent("tiqian:ready", {
+              detail: {
+                enhancedCount: snapshot.count,
+                issueCount: 0,
+                durationMs: performance.now() - enhanceStartedAt,
+                maxSliceMs: 0,
+                snapshot: true,
+              },
+            }));
+            return;
+          }
+          this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
+          await (runtimePromise ?? loadTiqianRuntime());
+          if (!this.isConnected || generation !== this.#generation) return;
+          if (!(await this.#dispatchProgressiveEnhance(generation))) return;
+        };
+        coordinator.requestFrame(runInitialEnhance, this);
       })
       .catch((error) => {
         if (generation !== this.#generation) return;
@@ -1941,9 +1945,13 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #typographySignature(includeGenerated = true) {
-    return this.#typographyElements()
-      .map((element) => this.#elementTypographySignature(element, includeGenerated))
-      .join("\u001e");
+    const elements = this.#typographyElements();
+    let sig = "";
+    for (let i = 0; i < elements.length; i++) {
+      if (i > 0) sig += "\u001e";
+      sig += this.#elementTypographySignature(elements[i], includeGenerated);
+    }
+    return sig;
   }
 
   #elementTypographySignature(
@@ -1952,26 +1960,28 @@ class TiqianProseElement extends HTMLElementBase {
     properties = TYPOGRAPHY_PROPERTIES,
   ) {
     const style = getComputedStyle(element);
-    const values = properties.map((property) => style.getPropertyValue(property));
-    const generated = includeGenerated
-      ? ["::before", "::after", "::first-letter", "::first-line"].map((selector) => {
-          const pseudo = getComputedStyle(element, selector);
-          return [
-            pseudo.getPropertyValue("content"),
-            pseudo.getPropertyValue("font-family"),
-            pseudo.getPropertyValue("font-size"),
-            pseudo.getPropertyValue("font-weight"),
-            pseudo.getPropertyValue("font-style"),
-            pseudo.getPropertyValue("font-feature-settings"),
-            pseudo.getPropertyValue("font-variation-settings"),
-            pseudo.getPropertyValue("font-variant"),
-            pseudo.getPropertyValue("font-language-override"),
-            pseudo.getPropertyValue("letter-spacing"),
-            pseudo.getPropertyValue("word-spacing"),
-          ].join("\u001d");
-        })
-      : [];
-    return [element.tagName, ...values, ...generated].join("\u001f");
+    let sig = element.tagName;
+    for (let i = 0; i < properties.length; i++) {
+      sig += "\u001f" + style.getPropertyValue(properties[i]);
+    }
+    if (includeGenerated) {
+      for (const selector of ["::before", "::after", "::first-letter", "::first-line"]) {
+        const pseudo = getComputedStyle(element, selector);
+        sig += "\u001f" +
+          pseudo.getPropertyValue("content") + "\u001d" +
+          pseudo.getPropertyValue("font-family") + "\u001d" +
+          pseudo.getPropertyValue("font-size") + "\u001d" +
+          pseudo.getPropertyValue("font-weight") + "\u001d" +
+          pseudo.getPropertyValue("font-style") + "\u001d" +
+          pseudo.getPropertyValue("font-feature-settings") + "\u001d" +
+          pseudo.getPropertyValue("font-variation-settings") + "\u001d" +
+          pseudo.getPropertyValue("font-variant") + "\u001d" +
+          pseudo.getPropertyValue("font-language-override") + "\u001d" +
+          pseudo.getPropertyValue("letter-spacing") + "\u001d" +
+          pseudo.getPropertyValue("word-spacing");
+      }
+    }
+    return sig;
   }
 
   #captureLayoutWorkViewportTypographyEntries() {
