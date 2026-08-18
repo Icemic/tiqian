@@ -206,9 +206,18 @@ function loadExactFontFallback() {
 // after the window.
 const OFFSCREEN_DEBOUNCE_MS = 200;
 
+// WorkerPolledScheduling: the coordinator owns every layout slice of an
+// attached root. Each slot caches liveness plus the three tier counters the
+// Kotlin facade reports, so a polled frame allocates nothing beyond the one
+// scan it already runs; slot objects live from attach to disconnect.
+function sumPendingUpTo(slot, tier) {
+  let total = 0;
+  for (let t = 0; t < tier; t++) total += slot.pendingByTier[t];
+  return total;
+}
+
 class TiqianLayoutCoordinator {
   #entries = new Map();
-  #busyForegroundCount = 0;
   // OffscreenDebounceGate: when an element is outside the viewport, its frame
   // tasks wait in this deferred lane. Each repeated request while the element
   // stays off-screen pushes the task's due time further out, so a fast drag
@@ -219,26 +228,25 @@ class TiqianLayoutCoordinator {
   // never waits out the debounce.
   #deferred = new Map();
   #deferredTimer = 0;
+  #workerSlots = [];
+  #workerWakeTimer = 0;
+  #frameCounter = 0;
 
   register(element) {
-    this.#entries.set(element, { inViewport: true, busy: false });
+    this.#entries.set(element, { inViewport: true });
   }
 
   unregister(element) {
     this.#dropDeferred(element);
-    const entry = this.#entries.get(element);
-    if (entry?.inViewport && entry?.busy) {
-      this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
-    }
+    this.#removeWorkerSlot(element);
     this.#entries.delete(element);
   }
 
-  update(element, { inViewport, busy, area, inlineSize, visibleArea, intersectionRatio }) {
+  update(element, { inViewport, area, inlineSize, visibleArea, intersectionRatio }) {
     let entry = this.#entries.get(element);
     if (!entry) {
       entry = {
         inViewport: inViewport ?? true,
-        busy: busy ?? false,
         area: area ?? 0,
         inlineSize: inlineSize ?? 0,
         visibleArea: visibleArea ?? 0,
@@ -246,23 +254,12 @@ class TiqianLayoutCoordinator {
       };
       this.#entries.set(element, entry);
     }
-    const prevForegroundBusy = entry.inViewport && entry.busy;
     const wasInViewport = entry.inViewport;
     if (inViewport !== undefined) entry.inViewport = inViewport;
-    if (busy !== undefined) entry.busy = busy;
     if (area !== undefined) entry.area = area;
     if (inlineSize !== undefined) entry.inlineSize = inlineSize;
     if (visibleArea !== undefined) entry.visibleArea = visibleArea;
     if (intersectionRatio !== undefined) entry.intersectionRatio = intersectionRatio;
-    const nextForegroundBusy = entry.inViewport && entry.busy;
-
-    if (prevForegroundBusy !== nextForegroundBusy) {
-      if (nextForegroundBusy) {
-        this.#busyForegroundCount += 1;
-      } else {
-        this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
-      }
-    }
     if (inViewport === true && !wasInViewport) {
       this.#promoteDeferred(element);
     }
@@ -270,16 +267,8 @@ class TiqianLayoutCoordinator {
 
   remove(element) {
     this.#dropDeferred(element);
-    const entry = this.#entries.get(element);
-    if (entry && entry.inViewport && entry.busy) {
-      this.#busyForegroundCount = Math.max(0, this.#busyForegroundCount - 1);
-    }
+    this.#removeWorkerSlot(element);
     this.#entries.delete(element);
-  }
-
-  shouldYield(element) {
-    const entry = this.#entries.get(element);
-    return !!(entry && !entry.inViewport && this.#busyForegroundCount > 0);
   }
 
   #dropDeferred(element) {
@@ -306,7 +295,7 @@ class TiqianLayoutCoordinator {
 
   #flushDeferred = () => {
     this.#deferredTimer = 0;
-    const now = performance.now();
+    const now = Date.now();
     let nextDueAt = Infinity;
     for (const [element, task] of Array.from(this.#deferred.entries())) {
       if (task.dueAt <= now) {
@@ -320,7 +309,7 @@ class TiqianLayoutCoordinator {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
     if (this.#deferred.size > 0) {
-      this.#deferredTimer = setTimeout(this.#flushDeferred, Math.max(0, nextDueAt - performance.now()));
+      this.#deferredTimer = setTimeout(this.#flushDeferred, Math.max(0, nextDueAt - Date.now()));
     }
   };
 
@@ -334,6 +323,7 @@ class TiqianLayoutCoordinator {
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
+    this.#frameCounter += 1;
 
     // Refresh rate & proportional pressure adaptation:
     // Detect host display refresh cadence (e.g. 60Hz vs 120Hz) and severe frame drops.
@@ -386,6 +376,13 @@ class TiqianLayoutCoordinator {
       });
     }
 
+    // ClockTierDiscipline: budget deadlines read performance.now. The rAF
+    // timestamp marks the frame start and lags behind callback execution in
+    // a long frame, so a budget window started from it can already be
+    // expired. Worker grants pass the remaining milliseconds as a duration,
+    // so the runtime measures them on its own Date.now timeline and the two
+    // clocks never mix. Coarse lanes such as debounce due times and duration
+    // statistics run on Date.now; millisecond resolution is enough there.
     const startTime = performance.now();
     let executedCount = 0;
 
@@ -406,22 +403,30 @@ class TiqianLayoutCoordinator {
         break;
       }
 
-      const taskStart = performance.now();
+      const taskStart = Date.now();
       try {
         task.callback(now);
         executedCount++;
-        const taskDuration = performance.now() - taskStart;
+        const taskDuration = Date.now() - taskStart;
         this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs + 0.2 * Math.max(0.05, taskDuration);
       } catch (e) {
         console.error("Tiqian frame task error", e);
       }
     }
 
-    if (executedCount === 0 && allTasks.length > 0) {
+    // Worker grants share the same frame budget the task loop just used;
+    // a dispatch task that started a job in this frame sees its first slice
+    // granted in the same frame.
+    const workerGrants = this.#pollWorkers(startTime, executedCount);
+
+    if (executedCount === 0 && workerGrants === 0 &&
+        (allTasks.length > 0 || this.#workerSlots.length > 0)) {
       this.#consecutiveIdleFrames++;
     } else {
       this.#consecutiveIdleFrames = 0;
     }
+
+    this.#retainWorkerFrame();
 
     if (this.#callbacks.size > 0 && !this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
@@ -439,7 +444,7 @@ class TiqianLayoutCoordinator {
     if (entry && !entry.inViewport) {
       const pending = this.#deferred.get(element);
       task.deferCount = Math.max(task.deferCount, pending ? pending.deferCount : 0);
-      task.dueAt = performance.now() + OFFSCREEN_DEBOUNCE_MS;
+      task.dueAt = Date.now() + OFFSCREEN_DEBOUNCE_MS;
       this.#deferred.set(element, task);
       if (!this.#deferredTimer) {
         this.#deferredTimer = setTimeout(this.#flushDeferred, OFFSCREEN_DEBOUNCE_MS);
@@ -461,6 +466,217 @@ class TiqianLayoutCoordinator {
       this.#rafId = 0;
     }
   }
+
+  registerWorker(element, runtime) {
+    for (let i = 0; i < this.#workerSlots.length; i++) {
+      if (this.#workerSlots[i].element === element) {
+        this.#workerSlots[i].runtime = runtime;
+        return;
+      }
+    }
+    this.#workerSlots.push({
+      element,
+      runtime,
+      active: false,
+      pendingByTier: [0, 0, 0],
+      deferredUntil: 0,
+      deferCount: 0,
+      lastGrantFrame: -1,
+    });
+  }
+
+  #removeWorkerSlot(element) {
+    const slots = this.#workerSlots;
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i].element !== element) continue;
+      slots[i] = slots[slots.length - 1];
+      slots.pop();
+      break;
+    }
+    if (slots.length === 0 && this.#workerWakeTimer) {
+      clearTimeout(this.#workerWakeTimer);
+      this.#workerWakeTimer = 0;
+    }
+  }
+
+  setWorkerActive(element, active) {
+    const slot = this.#findWorkerSlot(element);
+    if (!slot) return;
+    slot.active = active;
+    if (active && !this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+  }
+
+  // OffscreenWorkerDebounce: an off-screen root with pending layout work is
+  // granted nothing until this trailing window expires. Width changes while
+  // the root stays off-screen keep pushing the due time out, so a fast drag
+  // lays out only the final width.
+  refreshWorkerDeferred(element) {
+    const slot = this.#findWorkerSlot(element);
+    if (slot) slot.deferredUntil = Date.now() + OFFSCREEN_DEBOUNCE_MS;
+  }
+
+  clearWorkerDeferred(element) {
+    const slot = this.#findWorkerSlot(element);
+    if (!slot) return;
+    slot.deferredUntil = 0;
+    if (!this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+  }
+
+  requestWorkerFrame(element) {
+    if (!this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+  }
+
+  #findWorkerSlot(element) {
+    for (let i = 0; i < this.#workerSlots.length; i++) {
+      if (this.#workerSlots[i].element === element) return this.#workerSlots[i];
+    }
+    return null;
+  }
+
+  #compareWorkerSlots = (a, b) => {
+    const entryA = this.#entries.get(a.element);
+    const entryB = this.#entries.get(b.element);
+    const inViewA = entryA?.inViewport ? 1 : 0;
+    const inViewB = entryB?.inViewport ? 1 : 0;
+    const visibleScoreA = entryA
+      ? ((entryA.visibleArea || entryA.area || 0) * (1.0 + (entryA.intersectionRatio || 0)) +
+        (entryA.inlineSize || 0))
+      : 0;
+    const visibleScoreB = entryB
+      ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) +
+        (entryB.inlineSize || 0))
+      : 0;
+    // WorkerStarvationAging mirrors the task loop: a worker that keeps having
+    // pending work but never wins a grant climbs the order.
+    const priorityA = inViewA * 1000000 + visibleScoreA + a.deferCount * 50000;
+    const priorityB = inViewB * 1000000 + visibleScoreB + b.deferCount * 50000;
+    return priorityB - priorityA;
+  };
+
+  #pollWorkers(startTime, executedCount) {
+    const slots = this.#workerSlots;
+    if (slots.length === 0) return 0;
+    const deadline = startTime + this.#budgetMs;
+    // One scan per frame: liveness plus the three tier counters per attached
+    // root. Grants re-read only the tier they drained.
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (slot.runtime.workerHasJob(slot.element)) {
+        slot.active = true;
+        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
+      } else {
+        slot.active = false;
+        slot.pendingByTier[0] = 0;
+        slot.pendingByTier[1] = 0;
+        slot.pendingByTier[2] = 0;
+      }
+    }
+    slots.sort(this.#compareWorkerSlots);
+    let visibleCount = 0;
+    while (visibleCount < slots.length && this.#entries.get(slots[visibleCount].element)?.inViewport) {
+      visibleCount += 1;
+    }
+    let grants = 0;
+    let workDone = executedCount;
+    const grantSlot = (slot, tier) => {
+      while (sumPendingUpTo(slot, tier) > 0) {
+        const forceForwardProgress = workDone === 0 && this.#consecutiveIdleFrames >= 2;
+        const now = performance.now();
+        if (!forceForwardProgress && now + this.#estimatedSliceMs >= deadline) {
+          return false;
+        }
+        // ClockTierDiscipline: the grant passes the remaining milliseconds as a
+        // duration, so the runtime measures it on its own cheap clock.
+        const sliceStart = Date.now();
+        const processed = slot.runtime.workerRunSlice(
+          slot.element, Math.max(0, deadline - now), tier);
+        if (processed > 0) {
+          grants += 1;
+          workDone += 1;
+          this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs +
+            0.2 * Math.max(0.05, Date.now() - sliceStart);
+          slot.deferCount = 0;
+          slot.lastGrantFrame = this.#frameCounter;
+        }
+        // A tier-N grant may drain leftover lower-tier items, so every grant
+        // refreshes all three counters.
+        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
+        if (processed === 0) return true;
+      }
+      return true;
+    };
+    // TierOrderedGrants: tiers drain in order across roots. Every visible
+    // root finishes tier 1, its in-viewport paragraphs, before any root
+    // starts tier 2; tier 3 comes last. Off-screen roots join only after
+    // their debounce expires, behind every visible tier.
+    for (let tier = 1; tier <= 3; tier++) {
+      for (let i = 0; i < visibleCount; i++) {
+        if (slots[i].active && !grantSlot(slots[i], tier)) return grants;
+      }
+    }
+    const nowMs = Date.now();
+    for (let i = visibleCount; i < slots.length; i++) {
+      const slot = slots[i];
+      if (!slot.active || !(slot.deferredUntil > 0) || slot.deferredUntil > nowMs) continue;
+      for (let tier = 1; tier <= 3; tier++) {
+        if (!grantSlot(slot, tier)) return grants;
+      }
+    }
+    return grants;
+  }
+
+  #retainWorkerFrame() {
+    const slots = this.#workerSlots;
+    const now = Date.now();
+    let keepFrames = false;
+    let nextWakeAt = Infinity;
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (!slot.active) continue;
+      const total = slot.pendingByTier[0] + slot.pendingByTier[1] + slot.pendingByTier[2];
+      if (total === 0) continue;
+      if (this.#entries.get(slot.element)?.inViewport) {
+        keepFrames = true;
+      } else if (!slot.deferredUntil) {
+        // First frame this off-screen root has pending work: the debounce
+        // window starts now and the first grant follows its expiry.
+        slot.deferredUntil = now + OFFSCREEN_DEBOUNCE_MS;
+        if (slot.lastGrantFrame !== this.#frameCounter) slot.deferCount += 1;
+        nextWakeAt = Math.min(nextWakeAt, slot.deferredUntil);
+      } else if (slot.deferredUntil <= now) {
+        keepFrames = true;
+      } else {
+        if (slot.lastGrantFrame !== this.#frameCounter) slot.deferCount += 1;
+        nextWakeAt = Math.min(nextWakeAt, slot.deferredUntil);
+      }
+    }
+    if (keepFrames && !this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+    if (nextWakeAt < Infinity && !this.#workerWakeTimer) {
+      this.#workerWakeTimer = setTimeout(
+        this.#flushWorkerWake,
+        Math.max(0, nextWakeAt - Date.now()),
+      );
+    }
+  }
+
+  #flushWorkerWake = () => {
+    this.#workerWakeTimer = 0;
+    if (!this.#rafId) {
+      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    }
+  };
 }
 
 const coordinator = new TiqianLayoutCoordinator();
@@ -490,6 +706,7 @@ class TiqianProseElement extends HTMLElementBase {
   #initialFontRetryToken = 0;
   #intersectionObserver = null;
   #layoutWorkInFlight = false;
+  #layoutWorkerAttached = false;
   #layoutWorkSignaturesCaptured = false;
   #layoutWorkGeometrySignature = "";
   #layoutWorkMaximumMeasure = false;
@@ -509,6 +726,8 @@ class TiqianProseElement extends HTMLElementBase {
   #lastParagraphMeasures = "";
   #lastParagraphWidths = "";
   #lastTypography = "";
+  #paragraphObserver = null;
+  #paragraphTierIndex = new Map();
   #readyListener = null;
   #resizeFrame = 0;
   #resizeObserver = null;
@@ -589,7 +808,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = false;
     this.#snapshotAdopted = isLoadedSnapshotAdopted(this);
     this.#snapshotEnhancedCount = 0;
-    const loadStartedAt = performance.now();
+    const loadStartedAt = Date.now();
     let initialReadyReported = false;
     // OptInStrongSnapshotExclusion: v1 snapshots contain only plain paragraphs,
     // so they cannot claim that a semantic <strong> was lowered to emphasis
@@ -647,7 +866,7 @@ class TiqianProseElement extends HTMLElementBase {
         if (Number.isFinite(maxSliceMs)) this.dataset.tiqianMaxSliceMs = maxSliceMs.toFixed(1);
         if (!initialReadyReported) {
           initialReadyReported = true;
-          this.dataset.tiqianLoadMs = (performance.now() - loadStartedAt).toFixed(1);
+          this.dataset.tiqianLoadMs = (Date.now() - loadStartedAt).toFixed(1);
         }
       }
       // ExactPreparedDomFallbackSingleFlight: once browser replay proves that
@@ -707,7 +926,7 @@ class TiqianProseElement extends HTMLElementBase {
         if (!this.isConnected || generation !== this.#generation) return;
         const runInitialEnhance = async () => {
           if (!this.isConnected || generation !== this.#generation) return;
-          const enhanceStartedAt = performance.now();
+          const enhanceStartedAt = Date.now();
           const operation = this.#beginLayoutWork({ captureSignatures: false });
           let snapshot = { adopted: false };
           try {
@@ -757,7 +976,7 @@ class TiqianProseElement extends HTMLElementBase {
               detail: {
                 enhancedCount: snapshot.count,
                 issueCount: 0,
-                durationMs: performance.now() - enhanceStartedAt,
+                durationMs: Date.now() - enhanceStartedAt,
                 maxSliceMs: 0,
                 snapshot: true,
               },
@@ -789,6 +1008,7 @@ class TiqianProseElement extends HTMLElementBase {
     coordinator.unregister(this);
     coordinator.cancelFrame(this.#boundResponsiveCommit);
     this.#stopIntersectionObservation();
+    this.#stopParagraphTierObservation();
     this.#connected = false;
     ++this.#generation;
     this.#enhanceRequest += 1;
@@ -815,6 +1035,12 @@ class TiqianProseElement extends HTMLElementBase {
       detachLoadedSnapshot(this);
     }
     if (this.#runtimeStateActive) dispatch("tiqian:detach", this);
+    if (this.#layoutWorkerAttached) {
+      // tiqian:detach already cancelled the job, so workerDetach has no
+      // in-flight work to finish on this disconnected root.
+      globalThis.TiqianWeb?.workerDetach?.(this);
+      this.#layoutWorkerAttached = false;
+    }
     this.#releaseExactFontSession();
     this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
   }
@@ -1102,8 +1328,98 @@ class TiqianProseElement extends HTMLElementBase {
         return false;
       }
     }
+    this.#ensureLayoutWorker();
     dispatch("tiqian:enhance-progressively", this, preparedOptions);
+    this.#syncLayoutWorker();
     return true;
+  }
+
+  #ensureLayoutWorker() {
+    // WorkerPolledScheduling: attach before dispatch so the job is built
+    // coordinated from the start and every slice comes from a grant. The
+    // dispatch task runs inside the coordinator frame, so the first polled
+    // grant lands in the same frame under the shared budget.
+    const runtime = globalThis.TiqianWeb;
+    if (typeof runtime?.workerAttach !== "function") return;
+    runtime.workerAttach(this);
+    this.#layoutWorkerAttached = true;
+    coordinator.registerWorker(this, runtime);
+  }
+
+  #syncLayoutWorker() {
+    const runtime = globalThis.TiqianWeb;
+    if (!this.#layoutWorkerAttached || typeof runtime?.workerHasJob !== "function") return;
+    coordinator.setWorkerActive(this, runtime.workerHasJob(this));
+    this.#observeParagraphTiers(runtime);
+    coordinator.requestWorkerFrame(this);
+  }
+
+  #deactivateLayoutWorker() {
+    if (!this.#layoutWorkerAttached) return;
+    coordinator.setWorkerActive(this, false);
+  }
+
+  #observeParagraphTiers(runtime) {
+    const count = runtime.workerParagraphCount(this);
+    if (count === 0) {
+      this.#stopParagraphTierObservation();
+      return;
+    }
+    if (!this.#paragraphObserver && typeof IntersectionObserver === "undefined") return;
+    this.#paragraphObserver ??= new IntersectionObserver((entries) => {
+      const live = globalThis.TiqianWeb;
+      for (const entry of entries) {
+        const info = this.#paragraphTierIndex.get(entry.target);
+        if (!info) continue;
+        const tier = this.#paragraphTierFromEntry(entry);
+        if (tier === info.tier) continue;
+        info.tier = tier;
+        // Tier flips go straight to the running job's pending counters, so
+        // the next polled frame reorders the queue without rescanning.
+        if (typeof live?.workerSetParagraphTier === "function" && live.workerHasJob(this)) {
+          live.workerSetParagraphTier(this, info.index, tier);
+        }
+      }
+    }, { rootMargin: "100% 0px" });
+    // Paragraph hosts survive relayout; atomic swaps replace only their
+    // children. The diff converges: a stable article adds and drops nothing
+    // and the observer set stops churning.
+    const live = new Set();
+    for (let index = 0; index < count; index++) {
+      const paragraph = runtime.workerParagraphAt(this, index);
+      if (!paragraph) continue;
+      live.add(paragraph);
+      const info = this.#paragraphTierIndex.get(paragraph);
+      if (!info) {
+        this.#paragraphTierIndex.set(paragraph, { index, tier: 1 });
+        this.#paragraphObserver.observe(paragraph);
+      } else {
+        info.index = index;
+      }
+    }
+    for (const paragraph of this.#paragraphTierIndex.keys()) {
+      if (live.has(paragraph)) continue;
+      this.#paragraphObserver.unobserve(paragraph);
+      this.#paragraphTierIndex.delete(paragraph);
+    }
+  }
+
+  #paragraphTierFromEntry(entry) {
+    // ParagraphTierGating: the observer band spans one full viewport in each
+    // direction via rootMargin 100%. A paragraph crossing the visible
+    // viewport is tier 1; inside the band but off-screen is tier 2; beyond
+    // the band is tier 3.
+    if (!entry.isIntersecting) return 3;
+    const rect = entry.boundingClientRect;
+    if (!rect) return 2;
+    const viewportHeight = globalThis.innerHeight || 0;
+    return rect.bottom >= 0 && rect.top <= viewportHeight ? 1 : 2;
+  }
+
+  #stopParagraphTierObservation() {
+    this.#paragraphObserver?.disconnect();
+    this.#paragraphObserver = null;
+    this.#paragraphTierIndex.clear();
   }
 
   async #prepareExactFontSession(generation, request, revalidateExisting = true) {
@@ -1179,7 +1495,6 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure } = {}) {
-    coordinator.update(this, { busy: true });
     this.#clearResponsiveRetarget();
     const operation = ++this.#layoutOperation;
     this.#layoutWorkInFlight = true;
@@ -1224,9 +1539,15 @@ class TiqianProseElement extends HTMLElementBase {
     // leaving the old values in place makes the observer's first delivery
     // schedule a redundant full-page layout and can immediately invalidate a
     // responsive snapshot that was just adopted.
-    const currentTypography = this.#layoutWorkUsesCapturedMeasure
-      ? (this.#lastTypography || this.#typographySignature())
-      : this.#typographySignature();
+    // FinishedTypographyBaselineRefresh: the finished DOM is the new stable
+    // state, so the baseline must be re-read from it. Keeping a pre-job
+    // baseline works only while nothing else compares a live signature
+    // against it; the drag-time commit path does exactly that once the root
+    // width settles, and a mixed native/rendered DOM after a cancelled job
+    // would misread renderer output as a host typography change. Refreshing
+    // here triggers no comparison of its own; the next one just starts from
+    // the true current state.
+    const currentTypography = this.#typographySignature();
     const currentParagraphWidths = this.#layoutWorkUsesCapturedMeasure
       ? this.#lastParagraphWidths
       : this.#paragraphWidthSignature();
@@ -1254,9 +1575,15 @@ class TiqianProseElement extends HTMLElementBase {
       rawGeometryChangedDuringWork &&
       (!this.#layoutWorkUsesCapturedMeasure || effectiveLayoutChangedDuringWork)
     );
+    // FinishedTypographyBaselineRefresh also covers the changed-inputs branch:
+    // a follow-up commit runs on the next frame and compares a live signature
+    // against this baseline, so both branches must leave the baseline at the
+    // finished DOM state. Skipping it on the changed branch leaves the
+    // pre-job value (empty before the first completed job) and the follow-up
+    // commit misreads renderer output as a host typography change.
+    this.#lastTypography = currentTypography;
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
-    coordinator.update(this, { busy: false });
     this.#layoutWorkSignaturesCaptured = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#clearResponsiveRetarget();
@@ -1273,7 +1600,6 @@ class TiqianProseElement extends HTMLElementBase {
     }
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
-    this.#lastTypography = currentTypography;
     this.#lastWidth = fragmentedBorderBoxInlineSize(this);
     this.#lastParagraphMeasures = currentMeasures;
     this.#lastParagraphWidths = currentParagraphWidths;
@@ -1352,7 +1678,7 @@ class TiqianProseElement extends HTMLElementBase {
   #tryReadoptSnapshotAtMaximumMeasure() {
     if (!this.hasAttribute("snapshot-ref")) return;
     const generation = this.#generation;
-    const startedAt = performance.now();
+    const startedAt = Date.now();
     const operation = this.#beginLayoutWork();
     const runtimeSnapshotBackingRestored = this.#runtimeStateActive;
     if (runtimeSnapshotBackingRestored) {
@@ -1420,7 +1746,7 @@ class TiqianProseElement extends HTMLElementBase {
         detail: {
           enhancedCount: snapshot.count,
           issueCount: 0,
-          durationMs: performance.now() - startedAt,
+          durationMs: Date.now() - startedAt,
           maxSliceMs: 0,
           relayout: true,
           snapshot: true,
@@ -1496,7 +1822,9 @@ class TiqianProseElement extends HTMLElementBase {
     this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
+    this.#ensureLayoutWorker();
     dispatch("tiqian:relayout", this);
+    this.#syncLayoutWorker();
   }
 
   #relayoutRuntimeAfterSnapshotMiss(operation) {
@@ -1564,6 +1892,11 @@ class TiqianProseElement extends HTMLElementBase {
           this.#lastObservedWidth = width;
           const height = entry.contentRect ? entry.contentRect.height : 0;
           coordinator.update(this, { inlineSize: width, area: width * (height || width * 0.6) });
+          if (!this.#inViewport && this.#layoutWorkInFlight) {
+            // A width change while the root stays off-screen keeps pushing the
+            // worker's deferred wake-up, so only the final width is laid out.
+            coordinator.refreshWorkerDeferred(this);
+          }
         }
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
@@ -1666,10 +1999,19 @@ class TiqianProseElement extends HTMLElementBase {
       this.#responsiveCommitRequired = true;
       return;
     }
-    if (coordinator.shouldYield(this)) {
-      this.#responsiveCommitRequired = true;
-      coordinator.requestFrame(this.#boundResponsiveCommit, this);
-      return;
+    if (!this.#inViewport && this.#lastObservedWidth != null) {
+      // OffscreenTrailingWidthCheck: ResizeObserver delivers on animation
+      // frames, so while the frame loop pauses mid-drag the observer goes
+      // quiet and the off-screen debounce can expire although the width is
+      // still moving. Read the live width before releasing the commit; a
+      // moving width re-enters the trailing lane.
+      const liveWidth = fragmentedBorderBoxInlineSize(this);
+      if (Math.abs(liveWidth - this.#lastObservedWidth) >= 0.5) {
+        this.#lastObservedWidth = liveWidth;
+        this.#responsiveCommitRequired = true;
+        this.#scheduleResponsiveGeometryCommit();
+        return;
+      }
     }
     // Before the first snapshot/runtime commit there is no layout to update.
     // The initial job will read the latest live width once its font gate opens.
@@ -1968,12 +2310,13 @@ class TiqianProseElement extends HTMLElementBase {
     ++this.#layoutOperation;
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
-    coordinator.update(this, { busy: false });
     this.#layoutWorkViewportTypographyEntries = [];
+    this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
     this.#stopLayoutWorkInputObservation();
     dispatch("tiqian:cancel-layout-work", this);
+    this.#deactivateLayoutWorker();
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
   }
@@ -1984,14 +2327,28 @@ class TiqianProseElement extends HTMLElementBase {
     ++this.#layoutOperation;
     this.#acceptLayoutCompletion = false;
     this.#layoutWorkInFlight = false;
-    coordinator.update(this, { busy: false });
     this.#layoutWorkViewportTypographyEntries = [];
     this.#stopLayoutWorkInputObservation();
     dispatch("tiqian:cancel-layout-work", this);
+    this.#deactivateLayoutWorker();
+    this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
+  }
+
+  // CancelledTypographyBaselineAdvance: cancelling a captured job keeps every
+  // already committed paragraph in its rendered state, but no ready event will
+  // refresh the baseline the way a finished job would. The typography baseline
+  // would stay at the all-native pre-job signature while the live DOM mixes
+  // rendered and native paragraphs, so the next style-driven check compares a
+  // mixed-state signature against the native one, misreads renderer output as
+  // a host typography change and tears the whole root down. Advance the
+  // baseline to the current mixed state here; a later real host change still
+  // differs from it.
+  #advanceTypographyBaselineAfterCancellation() {
+    this.#lastTypography = this.#typographySignature();
   }
 
   #restoreRuntimeSourceForRetarget() {
@@ -2145,19 +2502,19 @@ class TiqianProseElement extends HTMLElementBase {
             inlineSize: rect ? rect.width : 0,
             area: rect ? rect.width * rect.height : 0,
           });
-          if (wasInViewport && !this.#inViewport &&
-              this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
-            // OffscreenLayoutWorkKill: when an element leaves the viewport
-            // mid-drag, its in-flight relayout job is killed so it stops
-            // taking main-thread slices. Cancelling captured layout work does
-            // not roll back already committed paragraphs, so the visible
-            // result stays correct. The follow-up relayout that the cancel
-            // schedules goes into the deferred lane, so nothing replays until
-            // the drag settles or the element returns to the viewport.
-            this.#cancelCapturedLayoutForLatestGeometry();
+          if (wasInViewport && !this.#inViewport) {
+            // OffscreenWorkerDebounce: an off-screen root stops receiving
+            // grants immediately; its pending layout work waits out the same
+            // trailing window as off-screen frame tasks and replays once the
+            // drag settles or the root returns. Already committed paragraphs
+            // stay committed.
+            coordinator.refreshWorkerDeferred(this);
           }
-          if (!wasInViewport && this.#inViewport && (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired)) {
-            this.#scheduleResponsiveGeometryCommit();
+          if (!wasInViewport && this.#inViewport) {
+            coordinator.clearWorkerDeferred(this);
+            if (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired) {
+              this.#scheduleResponsiveGeometryCommit();
+            }
           }
         }
       }

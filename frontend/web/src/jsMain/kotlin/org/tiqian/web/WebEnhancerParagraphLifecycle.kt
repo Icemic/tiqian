@@ -18,18 +18,10 @@ import org.tiqian.web.TiqianWeb.SourceInlineSize
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 
-internal fun TiqianWeb.scheduleProgressiveSlice(job: ProgressiveJob) {
-    job.scheduledSliceToken = scheduleProgressiveCallback(
-        callback = { runProgressiveSlice(job) },
-    )
-}
-
-internal fun TiqianWeb.startProgressiveJob(
-    job: ProgressiveJob,
-    executeFirstSliceSynchronously: Boolean = false,
-) {
+internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
     cancelProgressiveJob(job.state.root)
     job.state.root.removeAttribute(RELAYOUT_ERROR_ATTRIBUTE)
+    installParagraphTierTracking(job)
     progressiveJobs[job.state.root] = job
     if (job.itemCount == 0) {
         try {
@@ -39,57 +31,125 @@ internal fun TiqianWeb.startProgressiveJob(
             job.onFailure?.invoke()
             failProgressiveJob(job, error)
         }
-    } else if (executeFirstSliceSynchronously) {
-        runProgressiveSlice(job)
+    } else if (job.coordinated) {
+        // WorkerPolledScheduling: the coordinator grants every slice of an
+        // attached root. The job waits here; the first grant may land in the
+        // same frame as the dispatch task and stays inside the shared frame
+        // budget.
     } else {
-        scheduleProgressiveSlice(job)
+        // RunToCompletionWithoutCoordinator: without an attached coordinator
+        // nobody polls this root, so the job runs to completion right here.
+        while (progressiveJobs[job.state.root] === job && job.nextIndex < job.itemCount) {
+            runProgressiveSlice(job)
+        }
     }
 }
 
-internal fun TiqianWeb.cancelProgressiveJob(root: HTMLElement) {
-    progressiveJobs.remove(root)?.scheduledSliceToken?.let(::cancelProgressiveCallback)
+internal fun TiqianWeb.installParagraphTierTracking(job: ProgressiveJob) {
+    val itemTierIndex = job.itemTierIndex ?: return
+    val count = itemTierIndex.size
+    job.paragraphTiers = IntArray(count) { PROGRESSIVE_TIER_IN_VIEWPORT }
+    job.tierPending = IntArray(PROGRESSIVE_TIER_COUNT).also { it[0] = count }
+    job.itemDone = BooleanArray(job.itemCount)
+    job.docToItem = IntArray(count) { -1 }
+    itemTierIndex.forEachIndexed { item, doc -> job.docToItem!![doc] = item }
 }
 
-internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob) {
-    if (progressiveJobs[job.state.root] !== job) return
-    job.scheduledSliceToken = null
-    val sliceStartedAt = performanceNow()
+internal fun TiqianWeb.markProgressiveItemDone(job: ProgressiveJob, item: Int) {
+    val done = job.itemDone ?: return
+    if (done[item]) return
+    done[item] = true
+    val pending = job.tierPending ?: return
+    val tier = job.paragraphTiers!![job.itemTierIndex!![item]].coerceIn(1, PROGRESSIVE_TIER_COUNT)
+    pending[tier - 1] = maxOf(0, pending[tier - 1] - 1)
+}
+
+internal fun TiqianWeb.skipRemainingProgressiveItems(job: ProgressiveJob) {
+    val done = job.itemDone
+    if (done == null) {
+        job.nextIndex = job.itemCount
+        return
+    }
+    for (item in job.nextIndex until job.itemCount) {
+        markProgressiveItemDone(job, item)
+    }
+    job.nextIndex = job.itemCount
+}
+
+internal fun TiqianWeb.cancelProgressiveJob(root: HTMLElement) {
+    progressiveJobs.remove(root)
+}
+
+internal fun TiqianWeb.runProgressiveSlice(
+    job: ProgressiveJob,
+    budgetMs: Double? = null,
+    minTier: Int = PROGRESSIVE_TIER_COUNT,
+): Int {
+    if (progressiveJobs[job.state.root] !== job) return 0
+    // ClockTierDiscipline: the caller grants a millisecond budget, so elapsed
+    // time runs on the cheap coarse clock. The coordinator cannot interrupt a
+    // grant mid-slice, so the budget check is what bounds one grant.
+    val sliceStartedAt = dateNow()
+    val sliceDeadline = sliceStartedAt + (budgetMs ?: MAX_PROGRESSIVE_SLICE_MS)
     var processedInSlice = 0
-    val budgetMs = MAX_PROGRESSIVE_SLICE_MS
     // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph
-    // against the width snapshot taken when the job started
-    // (WidthSnapshotPerRelayoutJob). ADR 0039 forbids committing a result
+    // against the width snapshot taken when the job started, per
+    // WidthSnapshotPerRelayoutJob. ADR 0039 forbids committing a result
     // even one grid cell behind the live width. So when the host width has
     // drifted since the snapshot, the remaining items in this job are
     // skipped and the finish event reports the job as stale; element.js
     // then schedules one follow-up job at the latest width. The guard runs
-    // once at the head of each animation-frame slice, before the slice's
-    // DOM writes. The previous per-item guard performed a layout read after
-    // every paragraph commit, forcing one reflow per paragraph; one read
-    // per slice avoids that cost.
+    // once at the head of each slice, before the slice's DOM writes, and
+    // costs one layout read per slice.
     if (job.stale?.invoke() == true) {
-        job.nextIndex = job.itemCount
+        skipRemainingProgressiveItems(job)
     }
+    val done = job.itemDone
+    val tiers = job.paragraphTiers
+    val itemTierIndex = job.itemTierIndex
+    val gate = if (job.coordinated) minTier.coerceIn(1, PROGRESSIVE_TIER_COUNT) else PROGRESSIVE_TIER_COUNT
     try {
-        while (job.nextIndex < job.itemCount) {
-            job.processItem(job.nextIndex)
-            job.nextIndex += 1
+        var index = job.nextIndex
+        while (index < job.itemCount) {
+            if (done != null) {
+                if (done[index]) {
+                    index += 1
+                    continue
+                }
+                if (tiers != null && itemTierIndex != null &&
+                    tiers[itemTierIndex[index]] > gate
+                ) {
+                    index += 1
+                    continue
+                }
+            }
+            job.processItem(index)
+            if (done != null) markProgressiveItemDone(job, index)
             processedInSlice += 1
+            index += 1
             if (!(
                 processedInSlice < MAX_PROGRESSIVE_ITEMS_PER_SLICE &&
-                    performanceNow() - sliceStartedAt < budgetMs &&
-                    !progressiveInputIsPending()
+                    dateNow() < sliceDeadline
                 )
             ) {
                 break
             }
         }
+        // With done tracking, nextIndex only has to lead the first not-done
+        // item; keeping it tight shortens the next slice's scan. A gated item
+        // is not done, so nextIndex parks on it and the next slice rechecks
+        // its tier. Jobs without done tracking advance monotonically; the
+        // skip loop below does not run for them.
+        job.nextIndex = index
+        while (done != null && job.nextIndex < job.itemCount && done[job.nextIndex]) {
+            job.nextIndex += 1
+        }
     } catch (error: Throwable) {
         job.onFailure?.invoke()
         failProgressiveJob(job, error)
-        return
+        return processedInSlice
     }
-    val sliceDuration = performanceNow() - sliceStartedAt
+    val sliceDuration = dateNow() - sliceStartedAt
     job.maxSliceDuration = maxOf(job.maxSliceDuration, sliceDuration)
     publishState(job.state, keepEmpty = true)
     if (job.nextIndex >= job.itemCount) {
@@ -97,16 +157,15 @@ internal fun TiqianWeb.runProgressiveSlice(job: ProgressiveJob) {
             job.onItemsFinished?.invoke()
             job.maxSliceDuration = maxOf(
                 job.maxSliceDuration,
-                performanceNow() - sliceStartedAt,
+                dateNow() - sliceStartedAt,
             )
             finishProgressiveJob(job)
         } catch (error: Throwable) {
             job.onFailure?.invoke()
             failProgressiveJob(job, error)
         }
-    } else {
-        scheduleProgressiveSlice(job)
     }
+    return processedInSlice
 }
 
 internal fun TiqianWeb.finishProgressiveJob(job: ProgressiveJob) {
@@ -122,7 +181,7 @@ internal fun TiqianWeb.finishProgressiveJob(job: ProgressiveJob) {
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
             issueCount = job.state.issues.size,
-            durationMs = performanceNow() - job.startedAt,
+            durationMs = dateNow() - job.startedAt,
             maxSliceMs = job.maxSliceDuration,
             failed = false,
             error = null,
@@ -135,7 +194,7 @@ internal fun TiqianWeb.finishProgressiveJob(job: ProgressiveJob) {
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
             issueCount = job.state.issues.size,
-            durationMs = performanceNow() - job.startedAt,
+            durationMs = dateNow() - job.startedAt,
             maxSliceMs = job.maxSliceDuration,
             stale = job.commitSkipped || job.stale?.invoke() == true,
         )
@@ -151,7 +210,7 @@ internal fun TiqianWeb.failProgressiveJob(job: ProgressiveJob, error: Throwable)
         root = job.state.root,
         kind = job.kind.name,
         detail = detail,
-        durationMs = performanceNow() - job.startedAt,
+        durationMs = dateNow() - job.startedAt,
         maxSliceMs = job.maxSliceDuration,
     )
     val runtimeEnhancedCount = job.state.paragraphs.size
@@ -163,7 +222,7 @@ internal fun TiqianWeb.failProgressiveJob(job: ProgressiveJob, error: Throwable)
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
             issueCount = job.state.issues.size,
-            durationMs = performanceNow() - job.startedAt,
+            durationMs = dateNow() - job.startedAt,
             maxSliceMs = job.maxSliceDuration,
             failed = true,
             error = detail,
@@ -176,7 +235,7 @@ internal fun TiqianWeb.failProgressiveJob(job: ProgressiveJob, error: Throwable)
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
             issueCount = job.state.issues.size,
-            durationMs = performanceNow() - job.startedAt,
+            durationMs = dateNow() - job.startedAt,
             maxSliceMs = job.maxSliceDuration,
             stale = false,
         )

@@ -24,8 +24,16 @@ function installFakeClock() {
   let timerId = 0;
   const rafQueue = new Map();
   const timers = new Map();
+  const RealDate = Date;
 
   globalThis.performance = { now: () => now };
+  // Coarse lanes (debounce due times, duration stats) read Date.now, so the
+  // fake timeline drives them too.
+  globalThis.Date = class FakeDate extends RealDate {
+    static now() {
+      return now;
+    }
+  };
   globalThis.requestAnimationFrame = (callback) => {
     const id = ++rafId;
     rafQueue.set(id, callback);
@@ -78,6 +86,7 @@ const globalNames = [
   "cancelAnimationFrame",
   "setTimeout",
   "clearTimeout",
+  "Date",
 ];
 
 test("offscreen frame tasks wait out the debounce instead of running each frame", async () => {
@@ -186,6 +195,112 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
     }, element);
     clock.advance(16);
     assert.equal(runs, 1);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+// A fake Kotlin facade: pending counts per tier, runSlice drains one item from
+// the lowest non-empty tier at or below minTier, mirroring the real job's
+// done-scan.
+function fakeWorkerRuntime(pendingByElement, grants) {
+  return {
+    workerHasJob: (element) => pendingByElement.has(element),
+    workerPendingInTier: (element, tier) => pendingByElement.get(element)[tier - 1],
+    workerRunSlice: (element, budgetMs, minTier) => {
+      const tiers = pendingByElement.get(element);
+      grants.push([element.name, minTier]);
+      for (let tier = 1; tier <= minTier; tier++) {
+        if (tiers[tier - 1] > 0) {
+          tiers[tier - 1] -= 1;
+          return 1;
+        }
+      }
+      return 0;
+    },
+  };
+}
+
+test("visible workers drain tier 1 before any worker runs tier 2", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  try {
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const rootA = { name: "a" };
+    const rootB = { name: "b" };
+    coordinator.register(rootA);
+    coordinator.register(rootB);
+    const pending = new Map([
+      [rootA, [1, 0, 0]],
+      [rootB, [0, 1, 0]],
+    ]);
+    const grants = [];
+    const runtime = fakeWorkerRuntime(pending, grants);
+    coordinator.registerWorker(rootA, runtime);
+    coordinator.registerWorker(rootB, runtime);
+    coordinator.setWorkerActive(rootA, true);
+
+    clock.advance(16);
+    // TierOrderedGrants: every visible root's tier 1 drains before the first
+    // tier 2 grant, across roots.
+    assert.deepEqual(grants, [["a", 1], ["b", 2]]);
+    assert.deepEqual(pending.get(rootA), [0, 0, 0]);
+    assert.deepEqual(pending.get(rootB), [0, 0, 0]);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("offscreen workers wait out the debounce before receiving grants", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  try {
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const root = { name: "offscreen" };
+    coordinator.register(root);
+    coordinator.update(root, { inViewport: false });
+    const pending = new Map([[root, [2, 0, 0]]]);
+    const grants = [];
+    coordinator.registerWorker(root, fakeWorkerRuntime(pending, grants));
+    coordinator.setWorkerActive(root, true);
+
+    // Frames inside the debounce window: no grant at all.
+    clock.advance(16);
+    clock.advance(100);
+    assert.equal(grants.length, 0);
+
+    // Past the window the deferred wake runs the slices in tier order.
+    clock.advance(200);
+    assert.deepEqual(grants, [["offscreen", 1], ["offscreen", 1]]);
+    assert.deepEqual(pending.get(root), [0, 0, 0]);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("returning to the viewport clears the worker debounce immediately", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  try {
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const root = { name: "returning" };
+    coordinator.register(root);
+    coordinator.update(root, { inViewport: false });
+    const pending = new Map([[root, [1, 0, 0]]]);
+    const grants = [];
+    coordinator.registerWorker(root, fakeWorkerRuntime(pending, grants));
+    coordinator.setWorkerActive(root, true);
+    clock.advance(32);
+    assert.equal(grants.length, 0);
+
+    // Back on screen: the next frame grants without waiting out the window.
+    coordinator.update(root, { inViewport: true });
+    coordinator.clearWorkerDeferred(root);
+    clock.advance(16);
+    assert.deepEqual(grants, [["returning", 1]]);
   } finally {
     restoreGlobals(globals);
   }

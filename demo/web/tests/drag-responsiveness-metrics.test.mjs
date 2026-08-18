@@ -255,8 +255,12 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           };
           for (const prose of proseElements) {
             readyCounts.set(prose, 0);
-            prose.addEventListener("tiqian:relayout-ready", () => {
+            prose.addEventListener("tiqian:relayout-ready", (event) => {
               readyCounts.set(prose, readyCounts.get(prose) + 1);
+              // A stale finish abandons the remaining items at a moving width
+              // and schedules a follow-up job that re-enters the trailing
+              // lane. It commits nothing, so it is not a debounce violation.
+              if (event.detail?.stale) return;
               if (dragPhase && isCurrentlyOffscreen(prose)) {
                 offscreenReadyDuringDrag += 1;
                 const settledMs = performance.now() - (lastOffscreenWidthChangeAt.get(prose) ?? 0);

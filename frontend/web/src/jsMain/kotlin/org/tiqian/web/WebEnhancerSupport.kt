@@ -240,35 +240,6 @@ internal external fun paragraphViewportDistance(element: HTMLElement): Double
     }""",
 )
 internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLElement): Boolean
-@JsFun(
-    """() => {
-      try {
-        return typeof navigator !== "undefined" && navigator.scheduling &&
-          typeof navigator.scheduling.isInputPending === "function" &&
-          navigator.scheduling.isInputPending() === true;
-      } catch (error) {
-        return false;
-      }
-    }""",
-)
-internal external fun progressiveInputIsPending(): Boolean
-@JsFun(
-    """(callback) => {
-      const token = { frameId: 0 };
-      token.frameId = requestAnimationFrame(() => {
-        token.frameId = 0;
-        callback();
-      });
-      return token;
-    }""",
-)
-internal external fun scheduleProgressiveCallback(callback: () -> Unit): JsAny
-@JsFun(
-    """(token) => {
-      if (token && token.frameId) cancelAnimationFrame(token.frameId);
-    }""",
-)
-internal external fun cancelProgressiveCallback(token: JsAny)
 // CssFragmentedBlockInlineMeasure: getBoundingClientRect() unions every CSS
 // multi-column fragment and therefore grows horizontally with the number of
 // occupied columns. A paragraph is still laid out against one fragmentainer;
@@ -472,8 +443,10 @@ internal external fun hasClosest(element: HTMLElement, selector: String): Boolea
 internal external fun belongsToRootScope(paragraph: HTMLElement, root: HTMLElement, selector: String): Boolean
 @JsFun("(message) => console.warn(message)")
 internal external fun consoleWarn(message: String)
-@JsFun("() => performance.now()")
-internal external fun performanceNow(): Double
+// ClockTierDiscipline: slices receive a millisecond budget from the caller, so
+// the runtime measures elapsed time on the cheap coarse clock.
+@JsFun("() => Date.now()")
+internal external fun dateNow(): Double
 @JsFun("(root) => { const value = Number(root.getAttribute('data-tiqian-snapshot-count')); return Number.isSafeInteger(value) && value > 0 ? value : 0; }")
 internal external fun observableSnapshotCount(root: HTMLElement): Int
 @JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale) => root.dispatchEvent(new CustomEvent('tiqian:ready', { bubbles: true, composed: true, detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale } }))")
@@ -691,6 +664,12 @@ internal const val ZERO_ADVANCE_EPSILON = 0.01f
 internal const val CAPABILITY_DETAIL_LIMIT = 512
 internal const val MAX_PROGRESSIVE_SLICE_MS = 8.0
 internal const val MAX_PROGRESSIVE_ITEMS_PER_SLICE = 8
+// ParagraphTierGating: three paragraph priority bands the coordinator polls
+// per attached root. Tier 1 is in viewport, tier 2 near viewport, tier 3 far.
+// A gate of PROGRESSIVE_TIER_COUNT admits every tier; run-to-completion jobs
+// use it as their default gate.
+internal const val PROGRESSIVE_TIER_COUNT = 3
+internal const val PROGRESSIVE_TIER_IN_VIEWPORT = 1
 // ViewportForegroundIdleTail: visible and one-viewport-adjacent paragraphs
 // receive frame-budgeted work. The remaining native source stays responsive
 // and advances one paragraph per input-gapped idle callback so long articles
@@ -745,4 +724,3 @@ internal val NON_TEXT_INLINE_TAGS = setOf(
 
 internal val OPAQUE_INLINE_DISPLAYS = setOf("inline-block", "inline-flex", "inline-grid")
 internal val OPAQUE_INLINE_LEVEL_DISPLAYS = OPAQUE_INLINE_DISPLAYS + "inline"
-

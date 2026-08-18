@@ -19,10 +19,32 @@ class TiqianWebProgressiveRelayoutTest {
     fun cleanup() {
         for (root in mounted) {
             TiqianWeb.destroy(root)
+            with(TiqianWeb) { workerDetach(root) }
             root.parentNode?.removeChild(root)
         }
         mounted.clear()
         restoreTestAnimationFrames()
+    }
+
+    // WorkerPolledScheduling test harness: an attached root never runs on its
+    // own, so these helpers stand in for the page coordinator's per-frame
+    // grants. A zero budget grants one paragraph per slice, which keeps a
+    // mid-job width change constructible between slices.
+    private fun attachWorker(root: HTMLElement) {
+        with(TiqianWeb) { workerAttach(root) }
+    }
+
+    private fun grantWorkerSlice(root: HTMLElement, budgetMs: Double = 0.0): Int =
+        with(TiqianWeb) { workerRunSlice(root, budgetMs, PROGRESSIVE_TIER_COUNT) }
+
+    private fun runWorkerJobToCompletion(root: HTMLElement, budgetMs: Double = 0.0): Int {
+        var slices = 0
+        while (with(TiqianWeb) { workerHasJob(root) }) {
+            grantWorkerSlice(root, budgetMs)
+            slices += 1
+            if (slices > 1000) throw AssertionError("attached worker job did not settle")
+        }
+        return slices
     }
 
     @Test
@@ -199,6 +221,7 @@ class TiqianWebProgressiveRelayoutTest {
         val paragraph = root.querySelector("p") as HTMLElement
         val originalHtml = paragraph.innerHTML
 
+        attachWorker(root)
         TiqianWeb.enhanceProgressively(root, testOptions())
         assertEquals("0", root.getAttribute("data-tiqian-enhanced-count"))
 
@@ -254,11 +277,12 @@ class TiqianWebProgressiveRelayoutTest {
             readySnapshotCount = eventDetailInt(event, "snapshotCount")
         })
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
 
         assertEquals("2", root.getAttribute("data-tiqian-enhanced-count"))
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
         assertEquals("3", root.getAttribute("data-tiqian-enhanced-count"))
         assertEquals(3, readyEnhancedCount)
         assertEquals(1, readyRuntimeCount)
@@ -286,13 +310,14 @@ class TiqianWebProgressiveRelayoutTest {
             stale = relayoutEventIsStale(event)
         })
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
 
-        var progressiveFrames = 0
+        var progressiveSlices = 0
         var previousRenderedCount = 0
-        while (pendingTestAnimationFrameCount() > 0) {
-            assertEquals(1, flushOneTestAnimationFrame())
+        while (with(TiqianWeb) { workerHasJob(root) }) {
+            grantWorkerSlice(root)
             val renderedCount = root.querySelectorAll("p[data-tq-rendered='true']").length
             assertTrue(renderedCount >= previousRenderedCount)
             assertTrue(paragraphs.indices.all { index ->
@@ -300,8 +325,8 @@ class TiqianWebProgressiveRelayoutTest {
                 paragraph.firstChild === sourceChildren[index] ||
                     paragraph.getAttribute("data-tq-rendered") == "true"
             }, "each paragraph must be either intact source or a complete Tiqian result")
-            if (pendingTestAnimationFrameCount() > 0) {
-                progressiveFrames += 1
+            if (with(TiqianWeb) { workerHasJob(root) }) {
+                progressiveSlices += 1
                 assertTrue(renderedCount in 1 until paragraphs.size)
                 assertEquals(renderedCount.toString(), root.getAttribute("data-tiqian-enhanced-count"))
                 assertEquals(0, readyCount)
@@ -309,7 +334,7 @@ class TiqianWebProgressiveRelayoutTest {
             previousRenderedCount = renderedCount
         }
 
-        assertTrue(progressiveFrames >= 2)
+        assertTrue(progressiveSlices >= 2)
         assertTrue(paragraphs.indices.all { index ->
             paragraphs[index].firstChild !== sourceChildren[index]
         })
@@ -332,14 +357,14 @@ class TiqianWebProgressiveRelayoutTest {
         }
         setElementRect(paragraphs.last(), top = 0.0, width = 180.0)
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
-        assertEquals(1, flushOneTestAnimationFrame())
+        grantWorkerSlice(root)
 
         assertEquals("true", paragraphs.last().getAttribute("data-tq-rendered"))
         assertTrue(root.querySelectorAll("p[data-tq-rendered='true']").length < paragraphs.size)
-        assertEquals(1, flushOneTestAnimationFrame())
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
         assertEquals(18, root.querySelectorAll("p[data-tq-rendered='true']").length)
     }
 
@@ -355,13 +380,13 @@ class TiqianWebProgressiveRelayoutTest {
         val paragraph = root.querySelector("p") as HTMLElement
         setElementRect(paragraph, top = 0.0, width = 180.0)
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
         dispatchTestProgressiveScroll()
+        grantWorkerSlice(root)
 
-        assertEquals(1, flushOneTestAnimationFrame())
         assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
-        assertEquals(0, pendingTestAnimationFrameCount())
     }
 
     @Test
@@ -383,12 +408,14 @@ class TiqianWebProgressiveRelayoutTest {
         }
         installTestAnimationFrames()
 
+        attachWorker(root)
         TiqianWeb.enhanceProgressively(root, testOptions())
-
-        assertEquals(1, pendingTestAnimationFrameCount())
+        grantWorkerSlice(root)
+        assertTrue(
+            root.querySelectorAll("p[data-tq-rendered='true']").length < paragraphs.size,
+        )
         TiqianWeb.destroy(root)
-        assertEquals(1, cancelledTestAnimationFrameCount())
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         paragraphs.forEachIndexed { index, paragraph ->
             assertEquals(originalHtml[index], paragraph.innerHTML)
@@ -397,7 +424,7 @@ class TiqianWebProgressiveRelayoutTest {
     }
 
     @Test
-    fun progressiveEnhancementRollsBackPartialWorkPreparedAcrossDifferentWidths() {
+    fun progressiveEnhancementReportsStaleAcrossWidthChangeWithoutTearingCommittedParagraphs() {
         val markup = (0 until 18).joinToString("") { index ->
             "<p>第${index}段不能把旧宽度结果混入同一次整批提交。</p>"
         }
@@ -413,21 +440,27 @@ class TiqianWebProgressiveRelayoutTest {
             stale = relayoutEventIsStale(event)
         })
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
-        assertEquals(1, flushOneTestAnimationFrame())
+        grantWorkerSlice(root)
         root.style.width = "120px"
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
+        // StaleFinishKeepsCommittedParagraphs: paragraphs committed while the
+        // captured measure still held stay rendered; the drifted ones keep
+        // their semantic source for the follow-up job at the live width.
+        val renderedCount = root.querySelectorAll("p[data-tq-rendered='true']").length
+        assertTrue(renderedCount in 1 until 18)
         assertTrue(paragraphs.indices.all { index ->
-            paragraphs[index].firstChild === sourceChildren[index]
+            paragraphs[index].getAttribute("data-tq-rendered") == "true" ||
+                paragraphs[index].firstChild === sourceChildren[index]
         })
-        assertEquals(0, root.querySelectorAll("p[data-tq-rendered='true']").length)
         assertEquals(1, readyCount)
         assertTrue(stale)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(18, root.querySelectorAll("p[data-tq-rendered='true']").length)
         assertEquals(2, readyCount)
@@ -448,16 +481,15 @@ class TiqianWebProgressiveRelayoutTest {
         root.addEventListener("tiqian:ready", { readyCount += 1 })
         TiqianWeb.install()
         installTestAnimationFrames()
+        attachWorker(root)
 
         TiqianWeb.enhanceProgressively(root, testOptions())
         root.style.width = "120px"
         dispatchRelayout(root)
 
-        assertEquals(1, cancelledTestAnimationFrameCount())
-        assertEquals(1, pendingTestAnimationFrameCount())
         assertEquals("0", root.getAttribute("data-tiqian-enhanced-count"))
 
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(2, root.querySelectorAll("p[data-tq-rendered='true']").length)
         assertEquals("2", root.getAttribute("data-tiqian-enhanced-count"))
@@ -486,30 +518,28 @@ class TiqianWebProgressiveRelayoutTest {
         root.addEventListener("tiqian:relayout-ready", { relayoutReadyCount += 1 })
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "180px"
         dispatchRelayout(root)
+        grantWorkerSlice(root)
         root.style.width = "100px"
         dispatchRelayout(root)
 
-        // The first dispatch committed part of the root at 180px inside its
-        // synchronous slice and scheduled the rest. The second dispatch must
-        // replace that pending work, which costs one cancelled frame. The
+        // The first job committed part of the root at 180px inside its granted
+        // slice. The second dispatch must replace that pending work. The
         // superseded job must not keep committing results prepared for an old
-        // width. The synchronous slice is budget-bound, so the test asserts
-        // the committed count only as a range.
-        assertEquals(1, cancelledTestAnimationFrameCount())
-        assertEquals(1, pendingTestAnimationFrameCount())
+        // width. A granted slice is budget-bound, so the test asserts the
+        // committed count only as a range.
         val replacedAtLatestWidth = paragraphs.indices.count { index ->
             paragraphs[index].firstChild !== initialChildren[index]
         }
         assertTrue(replacedAtLatestWidth in 1 until paragraphs.size)
 
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         for (paragraph in paragraphs) {
             assertEquals(expected, renderedLineSignature(paragraph))
         }
-        assertEquals(0, pendingTestAnimationFrameCount())
         assertEquals(1, relayoutReadyCount)
     }
 
@@ -569,36 +599,36 @@ class TiqianWebProgressiveRelayoutTest {
         root.addEventListener("tiqian:relayout-ready", { relayoutReadyCount += 1 })
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "120px"
         dispatchRelayout(root)
+        grantWorkerSlice(root)
 
-        // SyncFirstSlice: the first slice commits a budget-bound batch of
-        // paragraphs inside the dispatch task. A long root is therefore only
-        // partially re-laid out before any frame is flushed; the remaining
-        // paragraphs are committed by later animation-frame slices.
+        // A granted slice commits a budget-bound batch of paragraphs. A long
+        // root is therefore only partially re-laid out after one grant; the
+        // remaining paragraphs are committed by later granted slices.
         val committedBeforeAnyFrame = paragraphs.indices.count { index ->
             paragraphs[index].firstChild !== previousChildren[index]
         }
         assertTrue(committedBeforeAnyFrame in 1 until paragraphs.size)
-        assertEquals(1, pendingTestAnimationFrameCount())
 
-        var progressiveFrames = 0
+        var progressiveSlices = 0
         var previousUpdatedCount = committedBeforeAnyFrame
-        while (pendingTestAnimationFrameCount() > 0) {
-            assertEquals(1, flushOneTestAnimationFrame())
+        while (with(TiqianWeb) { workerHasJob(root) }) {
+            grantWorkerSlice(root)
             val updatedCount = paragraphs.indices.count { index ->
                 paragraphs[index].firstChild !== previousChildren[index]
             }
             assertTrue(updatedCount >= previousUpdatedCount)
-            if (pendingTestAnimationFrameCount() > 0) {
-                progressiveFrames += 1
+            if (with(TiqianWeb) { workerHasJob(root) }) {
+                progressiveSlices += 1
                 assertTrue(updatedCount in 1 until paragraphs.size)
                 assertEquals(0, relayoutReadyCount)
             }
             previousUpdatedCount = updatedCount
         }
 
-        assertTrue(progressiveFrames >= 1, "a long root must still yield during relayout")
+        assertTrue(progressiveSlices >= 1, "a long root must still yield during relayout")
         assertTrue(paragraphs.indices.all { index ->
             paragraphs[index].firstChild !== previousChildren[index]
         })
@@ -637,13 +667,15 @@ class TiqianWebProgressiveRelayoutTest {
         })
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "180px"
         dispatchRelayout(root)
+        grantWorkerSlice(root)
         root.style.width = "162px"
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
-        // The synchronous first slice committed part of the root at 180px;
-        // that slice is budget-bound, so the test asserts the committed
+        // The first granted slice committed part of the root at 180px; a
+        // granted slice is budget-bound, so the test asserts the committed
         // count only as a range. The later drift to 162px is detected at the
         // next slice head: StaleMeasureGuardPerSlice skips the remaining
         // items and reports the job as stale. The skipped paragraphs keep
@@ -661,7 +693,7 @@ class TiqianWebProgressiveRelayoutTest {
         assertEquals(1, staleCount)
 
         dispatchRelayout(root)
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         for (paragraph in paragraphs) {
             assertEquals(final, renderedLineSignature(paragraph))
@@ -696,17 +728,19 @@ class TiqianWebProgressiveRelayoutTest {
         })
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "180px"
         dispatchRelayout(root)
+        grantWorkerSlice(root)
         root.style.width = "144px"
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
-        // The synchronous first slice committed its paragraphs at 180px,
-        // which was the live width at commit time; that slice is
-        // budget-bound, so the test asserts the committed count only as a
-        // range. The later jump to 144px crosses multiple grid cells, so the
-        // remaining slices must be stopped instead of replaying the stale
-        // 180px results one cell at a time.
+        // The first granted slice committed its paragraphs at 180px, which
+        // was the live width at commit time; a granted slice is budget-bound,
+        // so the test asserts the committed count only as a range. The later
+        // jump to 144px crosses multiple grid cells, so the remaining slices
+        // must stop; replaying the stale 180px results one cell at a time
+        // would fall behind the live grid.
         val committed = paragraphs.indices.count { index ->
             paragraphs[index].firstChild !== initialChildren[index]
         }
@@ -743,16 +777,19 @@ class TiqianWebProgressiveRelayoutTest {
                 if (relayoutEventIsStale(event)) staleCount += 1
             })
 
+            attachWorker(root)
             root.style.width = "180px"
             dispatchRelayout(root)
+            grantWorkerSlice(root)
             root.style.width = currentWidth
-            flushAllTestAnimationFrames()
+            runWorkerJobToCompletion(root)
 
-            // The synchronous first slice committed its paragraphs at the
-            // then-live width of 180px; that slice is budget-bound, so the
-            // test asserts the committed count only as a range. Overshooting
-            // or reversing the target width must stop the remaining slices
-            // from committing the measure prepared for 180px.
+            // The first granted slice committed its paragraphs at the
+            // then-live width of 180px; a granted slice is budget-bound, so
+            // the test asserts the committed count only as a range.
+            // Overshooting or reversing the target width must stop the
+            // remaining slices from committing the measure prepared for
+            // 180px.
             val committed = paragraphs.indices.count { index ->
                 paragraphs[index].firstChild !== initialChildren[index]
             }
@@ -858,17 +895,17 @@ class TiqianWebProgressiveRelayoutTest {
         assertEquals(10, TiqianWeb.enhance(root, testOptions()))
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "100px"
         dispatchRelayout(root)
-        // The synchronous first slice has already committed part of the
-        // root. The destroy below must cancel the remaining scheduled slices
-        // and roll every paragraph, whether committed or not, back to native
-        // source.
-        assertEquals(1, pendingTestAnimationFrameCount())
+        // One granted slice has already committed part of the root. The
+        // destroy below must cancel the remaining pending slices and roll
+        // every paragraph, whether committed or not, back to native source.
+        grantWorkerSlice(root)
+        assertTrue(with(TiqianWeb) { workerHasJob(root) })
 
         TiqianWeb.destroy(root)
-        assertEquals(1, cancelledTestAnimationFrameCount())
-        flushAllTestAnimationFrames()
+        assertFalse(with(TiqianWeb) { workerHasJob(root) })
 
         for ((index, paragraph) in paragraphs.withIndex()) {
             assertEquals(originalHtmls[index], paragraph.innerHTML)

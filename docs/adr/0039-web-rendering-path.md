@@ -632,3 +632,41 @@ CSS 多列容器上取所有 fragment 的水平并集。现恢复 fragment-aware
 computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain gBCR，仅用于
 ≥0.5px 的粗粒度 drift 检测，整数级舍入误差在该容差下无影响；该函数注释与实现的不一致
 是历史遗留。
+
+## Amendment (2026-08-18): coordinator-owned polled scheduling
+
+前两处修订落地后，快速拖动仍暴露三层缺陷：stale 收尾会把已提交段落整批回滚成
+   native，造成裸 DOM 闪变；离屏 trailing 防抖会在宽度仍在移动时到期；被取消任务夹带的
+   bare 段落无人补齐。
+三层缺陷同出一源：调度权分裂。Kotlin job 自排 animation frame，element.js coordinator
+又按自己的节奏派发，两边对「同一帧内谁先谁后、宽度何时算稳定」各有一份判断。
+本修订把调度权收归 coordinator。
+
+1. **`WorkerPolledScheduling`**：custom element 在派发 progressive job 前 attach root，
+   job 的每个 slice 都来自 coordinator 授予。coordinator 每帧通过原始类型 API 轮询：
+   读每个 root 的三层 pending 计数，按 tier 授予一个有界 slice，参数为剩余毫秒预算与
+   minTier，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回 job。所有参数与返回值都是
+   primitive，轮询热路径跨边界零对象分配。`ParagraphTierGating` 把段落分为在视口、近视口、
+   远三层；`TierOrderedGrants` 让所有可见 root 先排干 tier 1，再 tier 2 与 tier 3；
+   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 的 slice 授予也等满 200ms
+   trailing 防抖。coordinated job 的第一个 slice 同样来自授予，可以与 dispatch 任务落在
+   同一帧，共用同一帧预算。
+2. **`RunToCompletionWithoutCoordinator`**：standalone rAF 自调度路径整体删除。无
+   coordinator 的 root 一口气同步跑完，低层 API 直调与测试直接驱动都走这条路；detach
+   发生时，仍有剩余 item 的 job 同样同步跑完再返回。正常部署中 coordinator 必然存在；
+   保留第二套调度只制造时序 bug。
+3. **`StaleFinishKeepsCommittedParagraphs`**：job 以 stale 收尾时不回滚已提交段落。
+   逐 item 提交守卫已保证每个落地的段落与当时的实时量化 measure 一致；把整批回滚到
+   native 只会在跨帧、跨宽度变化的 job 上制造闪变。stale 事件仍照常派发，element.js 以
+   最新宽度派发一次后续 job。
+4. **`StrandedEnhanceResume`**：relayout job 的工作集并入「候选集合中存在、state 中没有」
+   的 bare 段落，bare 走实时宽度路径、rendered 走快照准备路径，同一 job 内混合推进。
+   任务取消后段落不会永久遗漏。
+5. **`OffscreenTrailingWidthCheck`**：ResizeObserver 的交付挂在 animation frame 边界；
+   coordinator 无任务时帧循环停摆，宽度变化停止送达，离屏 200ms 防抖可能在宽度仍在移动时
+   到期。放行 commit 前同步读一次实际宽度，确认宽度确已静止；仍在移动则刷新基线并重新
+   进入 trailing 防抖。
+6. **`ClockTierDiscipline`**：帧预算 deadline 读 `performance.now`。rAF 回调参数是帧起点
+   时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让授予在整段拖动中饿死。
+   授予跨 runtime 边界时只传剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
+   耗时，两条时钟不做比较。200ms 级防抖到期时间与时长统计同用 `Date.now`，毫秒精度足够。

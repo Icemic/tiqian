@@ -19,10 +19,31 @@ class TiqianWebSourceFidelityTest {
     fun cleanup() {
         for (root in mounted) {
             TiqianWeb.destroy(root)
+            with(TiqianWeb) { workerDetach(root) }
             root.parentNode?.removeChild(root)
         }
         mounted.clear()
         restoreTestAnimationFrames()
+    }
+
+    // WorkerPolledScheduling test harness: an attached root never runs on its
+    // own, so these helpers stand in for the page coordinator's per-frame
+    // grants.
+    private fun attachWorker(root: HTMLElement) {
+        with(TiqianWeb) { workerAttach(root) }
+    }
+
+    private fun grantWorkerSlice(root: HTMLElement, budgetMs: Double = 0.0): Int =
+        with(TiqianWeb) { workerRunSlice(root, budgetMs, PROGRESSIVE_TIER_COUNT) }
+
+    private fun runWorkerJobToCompletion(root: HTMLElement, budgetMs: Double = 0.0): Int {
+        var slices = 0
+        while (with(TiqianWeb) { workerHasJob(root) }) {
+            grantWorkerSlice(root, budgetMs)
+            slices += 1
+            if (slices > 1000) throw AssertionError("attached worker job did not settle")
+        }
+        return slices
     }
 
     @Test
@@ -224,9 +245,10 @@ class TiqianWebSourceFidelityTest {
         assertEquals("true", plainParagraph.getAttribute("data-tq-rendered"))
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "90px"
         dispatchRelayout(root)
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(originalHtml, cloneParagraph.innerHTML)
         assertNull(cloneParagraph.getAttribute("data-tq-rendered"))
@@ -242,7 +264,6 @@ class TiqianWebSourceFidelityTest {
         root.style.width = "520px"
         dispatchRelayout(root)
 
-        assertEquals(1, pendingTestAnimationFrameCount())
         assertEquals(1, relayoutReadyCount)
         assertNull(cloneParagraph.getAttribute("data-tq-rendered"))
         assertNull(plainParagraph.getAttribute("data-tq-rendered"))
@@ -250,7 +271,7 @@ class TiqianWebSourceFidelityTest {
         assertFalse(plainParagraph.firstChild === narrowRenderedChild)
         assertEquals("0", root.getAttribute("data-tiqian-enhanced-count"))
 
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(2, relayoutReadyCount)
         assertEquals("true", cloneParagraph.getAttribute("data-tq-rendered"))
