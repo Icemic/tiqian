@@ -56,6 +56,7 @@
               ]
               ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
                 chromium
+                firefox
                 noto-fonts
                 noto-fonts-cjk-sans
                 roboto
@@ -65,6 +66,7 @@
               "${pkgs.makeFontsConf { fontDirectories = [ pkgs.noto-fonts pkgs.noto-fonts-cjk-sans pkgs.roboto pkgs.inter ]; }}";
             JAVA_HOME = "${jdk.passthru.home}";
             CHROME_BIN = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "${pkgs.chromium}/bin/chromium";
+            FIREFOX_BIN = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "${pkgs.firefox}/bin/firefox";
             ANDROID_HOME = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux
               "${androidComposition.androidsdk}/libexec/android-sdk";
             LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux (
