@@ -221,9 +221,9 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           setTimeout(probeEventLoop, probeInterval);
 
           // 5. Execute Intense Drag Simulation
-          // Sweep 1: 1000px down to 400px (step -6px) -> 100 events
-          // Sweep 2: 400px up to 1100px (step +7px) -> 100 events
-          // Sweep 3: 1100px down to 670px (step -5px) -> 86 events
+          // Sweep 1: 1000px down to 360px (step -6px) -> 107 events
+          // Sweep 2: 360px all the way up to 1200px (step +5px) -> 168 events (expanding from minimum to maximum!)
+          // Sweep 3: 1200px down to 670px (step -5px) -> 106 events
           const startTime = performance.now();
           let dragEventCount = 0;
 
@@ -236,13 +236,13 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
             await new Promise((r) => setTimeout(r, 8));
           }
 
-          for (let w = 1000; w >= 400; w -= 6) {
+          for (let w = 1000; w >= 360; w -= 6) {
             await dragTo(w);
           }
-          for (let w = 400; w <= 1100; w += 7) {
+          for (let w = 360; w <= 1200; w += 5) {
             await dragTo(w);
           }
-          for (let w = 1100; w >= 670; w -= 5) {
+          for (let w = 1200; w >= 670; w -= 5) {
             await dragTo(w);
           }
 

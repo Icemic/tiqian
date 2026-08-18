@@ -265,7 +265,7 @@ internal external fun progressiveInputIsPending(): Boolean
 internal external fun scheduleProgressiveCallback(callback: () -> Unit): JsAny
 @JsFun(
     """(token) => {
-      if (token.frameId) cancelAnimationFrame(token.frameId);
+      if (token && token.frameId) cancelAnimationFrame(token.frameId);
     }""",
 )
 internal external fun cancelProgressiveCallback(token: JsAny)
@@ -275,22 +275,26 @@ internal external fun cancelProgressiveCallback(token: JsAny)
 // use the widest live fragment as its stable horizontal border-box measure.
 @JsFun(
     """(element) => {
-      const fallback = element.getBoundingClientRect().width;
-      const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
-      if (rects.length <= 1) return fallback;
-      return Math.max(...rects.map((rect) => rect.width));
+      if (!element) return 0;
+      return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
     }""",
 )
 internal external fun elementFragmentBorderBoxInlineSize(element: HTMLElement): Double
 @JsFun(
     """(element) => {
+      if (!element) return 0;
+      const clientWidth = element.clientWidth;
+      if (clientWidth > 0 && !element.style.paddingLeft && !element.style.paddingRight) {
+        return clientWidth;
+      }
       const style = getComputedStyle(element);
+      if (clientWidth > 0) {
+        const pl = Number.parseFloat(style.paddingLeft) || 0;
+        const pr = Number.parseFloat(style.paddingRight) || 0;
+        return Math.max(0, clientWidth - pl - pr);
+      }
       const number = (value) => Number.parseFloat(value) || 0;
-      const fallback = element.getBoundingClientRect().width;
-      const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
-      const borderBoxWidth = rects.length <= 1
-        ? fallback
-        : Math.max(...rects.map((rect) => rect.width));
+      const borderBoxWidth = element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
       return borderBoxWidth - number(style.paddingLeft) - number(style.paddingRight) -
         number(style.borderLeftWidth) - number(style.borderRightWidth);
     }""",

@@ -407,7 +407,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /ObserverBaselineAfterUncapturedLayout/u);
   assert.match(
     elementSource,
-    /const currentParagraphWidths = this\.#paragraphWidthSignature\(\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
+    /const currentParagraphWidths =[\s\S]*?this\.#paragraphWidthSignature\(\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
   );
   assert.match(elementSource, /!widthsChanged && !measuresChanged/u);
   assert.match(

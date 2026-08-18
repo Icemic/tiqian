@@ -380,8 +380,7 @@ object TiqianWeb {
                 kind = ProgressiveJobKind.Relayout,
                 itemCount = paragraphs.size,
                 processItem = { index ->
-                    if (commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f) {
-                        commitSession.stale = true
+                    if (commitSession.stale) {
                         return@ProgressiveJob
                     }
                     val paragraphIndex = workOrder[index]
@@ -403,6 +402,7 @@ object TiqianWeb {
                 },
                 startedAt = performanceNow(),
             ),
+            executeFirstSliceSynchronously = true,
         )
     }
 

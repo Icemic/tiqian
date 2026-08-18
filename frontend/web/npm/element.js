@@ -96,11 +96,8 @@ function nextFrame() {
 // every horizontally separated fragment. Custom-element invalidation and the
 // Kotlin runtime must compare the same per-fragment border-box measure.
 function fragmentedBorderBoxInlineSize(element) {
-  const fallback = Number(element?.getBoundingClientRect?.().width) || 0;
-  const rects = Array.from(element?.getClientRects?.() ?? [])
-    .filter((rect) => Number(rect.width) > 0);
-  if (rects.length <= 1) return fallback;
-  return Math.max(...rects.map((rect) => Number(rect.width) || 0));
+  if (!element) return 0;
+  return Number(element.getBoundingClientRect?.().width) || 0;
 }
 
 function belongsToRootScope(element, root) {
@@ -283,17 +280,14 @@ class TiqianLayoutCoordinator {
           this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
         }
 
-        const maxTargetBudget = Math.min(10.0, Math.max(4.0, this.#measuredFrameInterval * 0.6));
-        const minBudget = Math.max(1.0, this.#estimatedSliceMs * 1.05);
+        const maxTargetBudget = Math.min(6.0, Math.max(2.5, this.#measuredFrameInterval * 0.4));
+        const minBudget = Math.max(2.0, this.#estimatedSliceMs * 1.2);
 
         const pressureRatio = frameDelta / this.#measuredFrameInterval;
         if (pressureRatio > 1.25) {
-          // Proportional Backoff: instantaneously scale down budget by the pressure ratio
-          // to immediately stop layout queue cascades on low-end CPUs / Firefox
           this.#budgetMs = Math.max(minBudget, this.#budgetMs / pressureRatio);
         } else if (pressureRatio <= 1.05) {
-          // Healthy frame cadence: steadily recover towards max target budget
-          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.3);
+          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.5);
         }
       }
     }
@@ -1147,11 +1141,17 @@ class TiqianProseElement extends HTMLElementBase {
     // leaving the old values in place makes the observer's first delivery
     // schedule a redundant full-page layout and can immediately invalidate a
     // responsive snapshot that was just adopted.
-    const currentMeasures = this.#paragraphMeasureSignature();
+    const currentTypography = this.#layoutWorkUsesCapturedMeasure
+      ? (this.#lastTypography || this.#typographySignature())
+      : this.#typographySignature();
+    const currentParagraphWidths = this.#layoutWorkUsesCapturedMeasure
+      ? this.#lastParagraphWidths
+      : this.#paragraphWidthSignature();
+    const currentMeasures = (this.#layoutWorkUsesCapturedMeasure && !rawGeometryChangedDuringWork)
+      ? this.#lastParagraphMeasures
+      : this.#paragraphMeasureSignature();
     const currentMaximumMeasure = this.hasAttribute("snapshot-ref") &&
       loadedSnapshotMaximumMeasureMatches(this);
-    const currentTypography = this.#typographySignature();
-    const currentParagraphWidths = this.#paragraphWidthSignature();
     // CapturedMeasureFollowUpCoalescing: atomic relayout prepares every
     // paragraph from a width snapshot taken when the job starts. If resize
     // activity stays in the same N×fontSize measure and does not cross the
@@ -1410,7 +1410,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#finishLayoutWorkAndObserve();
       return;
     }
-    this.#beginLayoutWork({ usesCapturedMeasure: true });
+    this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     dispatch("tiqian:relayout", this);
@@ -1556,12 +1556,6 @@ class TiqianProseElement extends HTMLElementBase {
         // width changes do not tear down the rendered DOM to native text.
         // Direct single-frame in-place relayout computes the new line breaks
         // using WidthIndependentAnnotationCache and swaps DOM atomically.
-        if (
-          this.hasAttribute("snapshot-ref") && loadedSnapshotMaximumMeasureMatches(this)
-        ) {
-          this.#tryReadoptSnapshotAtMaximumMeasure();
-          return;
-        }
         this.#responsiveCommitRequired = true;
         this.#scheduleResponsiveGeometryCommit();
         return;
@@ -1600,7 +1594,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
     if (!this.#hasDispatched) return;
-    const width = fragmentedBorderBoxInlineSize(this);
+    const width = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
     this.#lastObservedWidth = width;
     const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
     const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : this.#paragraphWidthSignature();
@@ -1608,7 +1602,9 @@ class TiqianProseElement extends HTMLElementBase {
     const hostInlineSizeRefresh = widthsChanged &&
       this.querySelector("[data-tq-host-inline-size]") !== null;
     const measuresChanged = widthsChanged || paragraphMeasures !== this.#lastParagraphMeasures;
-    const signature = this.#typographySignature();
+    const signature = (widthsChanged && !this.#forceTypographyRefresh)
+      ? this.#lastTypography
+      : this.#typographySignature();
     const typographyChanged = signature !== this.#lastTypography;
     if (!forceLatestWidth && !widthsChanged && !measuresChanged && !typographyChanged) {
       this.#observeWidth();
@@ -1650,7 +1646,7 @@ class TiqianProseElement extends HTMLElementBase {
       }
       return;
     }
-    if (atMaximumMeasure && !typographyChanged) {
+    if (!this.#runtimeStateActive && atMaximumMeasure && !typographyChanged) {
       this.#tryReadoptSnapshotAtMaximumMeasure();
       return;
     }

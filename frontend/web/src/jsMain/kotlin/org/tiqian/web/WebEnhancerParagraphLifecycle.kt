@@ -24,7 +24,10 @@ internal fun TiqianWeb.scheduleProgressiveSlice(job: ProgressiveJob) {
     )
 }
 
-internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
+internal fun TiqianWeb.startProgressiveJob(
+    job: ProgressiveJob,
+    executeFirstSliceSynchronously: Boolean = false,
+) {
     cancelProgressiveJob(job.state.root)
     job.state.root.removeAttribute(RELAYOUT_ERROR_ATTRIBUTE)
     progressiveJobs[job.state.root] = job
@@ -36,6 +39,8 @@ internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
             job.onFailure?.invoke()
             failProgressiveJob(job, error)
         }
+    } else if (executeFirstSliceSynchronously) {
+        runProgressiveSlice(job)
     } else {
         scheduleProgressiveSlice(job)
     }
