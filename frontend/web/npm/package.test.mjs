@@ -537,16 +537,24 @@ test("layout coordinator implements visual prominence scoring, proportional back
     /priority[AB] = inView[AB] \* 1000000 \+ visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
   );
 
-  // 3. Proportional pressure backoff: budgetMs / pressureRatio
+  // 3. RefreshAnchoredFrameBudget: the budget follows the measured cadence
+  // only; the event-driven regulator and the shared slice EMA are gone.
   assert.match(
     elementSource,
-    /if \(pressureRatio > 1\.25\) \{[\s\S]*?this\.#budgetMs = Math\.max\(minBudget, this\.#budgetMs \/ pressureRatio\);/u,
+    /this\.#budgetMs = Math\.min\(6\.0, Math\.max\(2\.5, this\.#measuredFrameInterval \* 0\.4\)\);/u,
   );
+  assert.doesNotMatch(elementSource, /#estimatedSliceMs/u);
+  assert.doesNotMatch(elementSource, /#consecutiveIdleFrames/u);
 
-  // 4. Guaranteed forward progress after consecutive idle frames
+  // 4. DeadlineGate: grants stop on the real deadline, and a workless frame
+  // still grants once so oversized slices keep making progress.
   assert.match(
     elementSource,
-    /const forceForwardProgress = \(executedCount === 0 && this\.#consecutiveIdleFrames >= 2\);/u,
+    /const guaranteeForwardProgress = workDone === 0;/u,
+  );
+  assert.match(
+    elementSource,
+    /if \(!guaranteeForwardProgress && now >= deadline\) \{/u,
   );
 
   // 5. Lifecycle ready events bubble up for document-level observation
@@ -554,4 +562,28 @@ test("layout coordinator implements visual prominence scoring, proportional back
     elementSource,
     /new CustomEvent\("tiqian:relayout-ready", \{[\s\S]*?bubbles: true,[\s\S]*?composed: true,/u,
   );
+});
+
+test("offscreen deferred lane keeps every pending callback per element", async () => {
+  const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+
+  // OffscreenRequestQueue: an element can queue distinct callbacks while off
+  // screen (initial enhance plus responsive commits). The deferred lane must
+  // bucket tasks per element; a single task per element lets the newest
+  // request silently drop the older ones, which stalled initial enhancement
+  // for every root below the fold when a resize re-queued a commit.
+  // 1. A request lands in the element's bucket, not a single task slot.
+  assert.match(elementSource, /bucket\.tasks\.set\(callback, task\);/u);
+  // 2. A due or promoted bucket moves every task it holds.
+  const promoted = elementSource.match(
+    /for \(const task of bucket\.tasks\.values\(\)\) \{\s*this\.#callbacks\.set\(task\.callback, task\);/gu,
+  );
+  assert.ok(
+    promoted && promoted.length >= 2,
+    "flush and promote must both drain the whole bucket",
+  );
+  // 3. Cancelling one callback must not drop the element's other tasks.
+  assert.match(elementSource, /bucket\.tasks\.delete\(callback\);/u);
+  // 4. The single-slot regression must stay gone.
+  assert.doesNotMatch(elementSource, /this\.#deferred\.set\(element, task\);/u);
 });

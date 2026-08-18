@@ -280,14 +280,16 @@ class TiqianLayoutCoordinator {
   }
 
   #promoteDeferred(element) {
-    const task = this.#deferred.get(element);
-    if (!task) return;
+    const bucket = this.#deferred.get(element);
+    if (!bucket) return;
     this.#deferred.delete(element);
     if (this.#deferred.size === 0 && this.#deferredTimer) {
       clearTimeout(this.#deferredTimer);
       this.#deferredTimer = 0;
     }
-    this.#callbacks.set(task.callback, task);
+    for (const task of bucket.tasks.values()) {
+      this.#callbacks.set(task.callback, task);
+    }
     if (!this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
@@ -297,12 +299,14 @@ class TiqianLayoutCoordinator {
     this.#deferredTimer = 0;
     const now = Date.now();
     let nextDueAt = Infinity;
-    for (const [element, task] of Array.from(this.#deferred.entries())) {
-      if (task.dueAt <= now) {
+    for (const [element, bucket] of Array.from(this.#deferred.entries())) {
+      if (bucket.dueAt <= now) {
         this.#deferred.delete(element);
-        this.#callbacks.set(task.callback, task);
+        for (const task of bucket.tasks.values()) {
+          this.#callbacks.set(task.callback, task);
+        }
       } else {
-        nextDueAt = Math.min(nextDueAt, task.dueAt);
+        nextDueAt = Math.min(nextDueAt, bucket.dueAt);
       }
     }
     if (this.#callbacks.size > 0 && !this.#rafId) {
@@ -315,37 +319,31 @@ class TiqianLayoutCoordinator {
 
   #callbacks = new Map();
   #rafId = 0;
-  #budgetMs = 8.0;
+  #budgetMs = 6.0;
   #lastFrameTimestamp = 0;
   #measuredFrameInterval = 16.67;
-  #estimatedSliceMs = 0.8;
-  #consecutiveIdleFrames = 0;
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
     this.#frameCounter += 1;
 
-    // Refresh rate & proportional pressure adaptation:
-    // Detect host display refresh cadence (e.g. 60Hz vs 120Hz) and severe frame drops.
+    // RefreshAnchoredFrameBudget: the frame budget follows the measured
+    // display cadence only. The previous event-driven regulator shrank the
+    // budget on long frames and kept a shared EMA of slice durations, so one
+    // slow first slice could close the grant gate for every root until the
+    // idle-frame escape kicked in. Scheduling pressure now expresses itself
+    // by itself: a late frame starts late and the absolute deadline simply
+    // covers less work.
     if (this.#lastFrameTimestamp > 0) {
       const frameDelta = now - this.#lastFrameTimestamp;
       if (frameDelta > 4.0 && frameDelta < 150.0) {
         if (frameDelta < this.#measuredFrameInterval * 1.1) {
           this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
         }
-
-        const maxTargetBudget = Math.min(6.0, Math.max(2.5, this.#measuredFrameInterval * 0.4));
-        const minBudget = Math.max(2.0, this.#estimatedSliceMs * 1.2);
-
-        const pressureRatio = frameDelta / this.#measuredFrameInterval;
-        if (pressureRatio > 1.25) {
-          this.#budgetMs = Math.max(minBudget, this.#budgetMs / pressureRatio);
-        } else if (pressureRatio <= 1.05) {
-          this.#budgetMs = Math.min(maxTargetBudget, this.#budgetMs + 0.5);
-        }
       }
     }
     this.#lastFrameTimestamp = now;
+    this.#budgetMs = Math.min(6.0, Math.max(2.5, this.#measuredFrameInterval * 0.4));
 
     const allTasks = Array.from(this.#callbacks.values());
     this.#callbacks.clear();
@@ -390,10 +388,9 @@ class TiqianLayoutCoordinator {
       const task = allTasks[i];
       const elapsed = performance.now() - startTime;
 
-      // Lookahead Yielding: yield before overrunning budget, UNLESS consecutiveIdleFrames > 2
-      // (guaranteed forward progress to prevent scheduler appearing dead).
-      const forceForwardProgress = (executedCount === 0 && this.#consecutiveIdleFrames >= 2);
-      if (!forceForwardProgress && executedCount > 0 && (elapsed + this.#estimatedSliceMs >= this.#budgetMs)) {
+      // Yield once the budget is spent. The first task always runs; a
+      // prediction of the next task's cost was removed with the slice EMA.
+      if (executedCount > 0 && elapsed >= this.#budgetMs) {
         for (let j = i; j < allTasks.length; j++) {
           const deferredTask = allTasks[j];
           deferredTask.deferCount = (deferredTask.deferCount || 0) + 1;
@@ -403,12 +400,9 @@ class TiqianLayoutCoordinator {
         break;
       }
 
-      const taskStart = Date.now();
       try {
         task.callback(now);
         executedCount++;
-        const taskDuration = Date.now() - taskStart;
-        this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs + 0.2 * Math.max(0.05, taskDuration);
       } catch (e) {
         console.error("Tiqian frame task error", e);
       }
@@ -419,19 +413,39 @@ class TiqianLayoutCoordinator {
     // granted in the same frame.
     const workerGrants = this.#pollWorkers(startTime, executedCount);
 
-    if (executedCount === 0 && workerGrants === 0 &&
-        (allTasks.length > 0 || this.#workerSlots.length > 0)) {
-      this.#consecutiveIdleFrames++;
-    } else {
-      this.#consecutiveIdleFrames = 0;
-    }
-
     this.#retainWorkerFrame();
+
+    this.#traceFrame(now, executedCount, workerGrants);
 
     if (this.#callbacks.size > 0 && !this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
   };
+
+  // FrameTraceDiagnostics: opt-in scheduling evidence for stalls. A page that
+  // sets globalThis.__tqTrace (with { maxEntries }) before the first enhance
+  // gets one compact row per frame in globalThis.__tqFrameTrace; without the
+  // opt-in the cost is one property read per frame.
+  #traceFrame(now, executedCount, workerGrants) {
+    const trace = globalThis.__tqTrace;
+    if (!trace) return;
+    const ring = globalThis.__tqFrameTrace ?? (globalThis.__tqFrameTrace = []);
+    let activeSlots = 0;
+    let totalPending = 0;
+    for (let i = 0; i < this.#workerSlots.length; i++) {
+      const slot = this.#workerSlots[i];
+      if (!slot.active) continue;
+      activeSlots += 1;
+      totalPending += slot.pendingByTier[0] + slot.pendingByTier[1] + slot.pendingByTier[2];
+    }
+    ring.push([
+      Math.round(now), Math.round(this.#budgetMs * 10) / 10,
+      executedCount, workerGrants,
+      activeSlots, totalPending, this.#callbacks.size,
+    ]);
+    const maxEntries = trace.maxEntries ?? 600;
+    if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
+  }
 
   requestFrame(callback, element = null) {
     const existing = this.#callbacks.get(callback);
@@ -442,10 +456,19 @@ class TiqianLayoutCoordinator {
     };
     const entry = element && this.#entries.get(element);
     if (entry && !entry.inViewport) {
-      const pending = this.#deferred.get(element);
+      // OffscreenRequestQueue: one element can have several distinct
+      // callbacks pending while off screen (initial enhance plus responsive
+      // commits). Keep every callback per element; a single slot would let
+      // the newest request silently drop the older ones.
+      let bucket = this.#deferred.get(element);
+      if (!bucket) {
+        bucket = { dueAt: 0, tasks: new Map() };
+        this.#deferred.set(element, bucket);
+      }
+      const pending = bucket.tasks.get(callback);
       task.deferCount = Math.max(task.deferCount, pending ? pending.deferCount : 0);
-      task.dueAt = Date.now() + OFFSCREEN_DEBOUNCE_MS;
-      this.#deferred.set(element, task);
+      bucket.tasks.set(callback, task);
+      bucket.dueAt = Date.now() + OFFSCREEN_DEBOUNCE_MS;
       if (!this.#deferredTimer) {
         this.#deferredTimer = setTimeout(this.#flushDeferred, OFFSCREEN_DEBOUNCE_MS);
       }
@@ -458,8 +481,9 @@ class TiqianLayoutCoordinator {
 
   cancelFrame(callback) {
     this.#callbacks.delete(callback);
-    for (const [element, task] of Array.from(this.#deferred.entries())) {
-      if (task.callback === callback) this.#dropDeferred(element);
+    for (const [element, bucket] of Array.from(this.#deferred.entries())) {
+      bucket.tasks.delete(callback);
+      if (bucket.tasks.size === 0) this.#dropDeferred(element);
     }
     if (this.#callbacks.size === 0 && this.#rafId) {
       cancelAnimationFrame(this.#rafId);
@@ -588,21 +612,21 @@ class TiqianLayoutCoordinator {
     let workDone = executedCount;
     const grantSlot = (slot, tier) => {
       while (sumPendingUpTo(slot, tier) > 0) {
-        const forceForwardProgress = workDone === 0 && this.#consecutiveIdleFrames >= 2;
         const now = performance.now();
-        if (!forceForwardProgress && now + this.#estimatedSliceMs >= deadline) {
+        // DeadlineGate: grants stop once the frame budget is spent. A frame
+        // that produced no work at all still grants once, so a job whose
+        // every slice outlasts the budget keeps making progress.
+        const guaranteeForwardProgress = workDone === 0;
+        if (!guaranteeForwardProgress && now >= deadline) {
           return false;
         }
         // ClockTierDiscipline: the grant passes the remaining milliseconds as a
         // duration, so the runtime measures it on its own cheap clock.
-        const sliceStart = Date.now();
         const processed = slot.runtime.workerRunSlice(
           slot.element, Math.max(0, deadline - now), tier);
         if (processed > 0) {
           grants += 1;
           workDone += 1;
-          this.#estimatedSliceMs = 0.8 * this.#estimatedSliceMs +
-            0.2 * Math.max(0.05, Date.now() - sliceStart);
           slot.deferCount = 0;
           slot.lastGrantFrame = this.#frameCounter;
         }

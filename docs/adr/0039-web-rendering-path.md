@@ -603,22 +603,30 @@ a11y 树同步与父进程 IPC；快速拖动下累计为内容进程 94k marker
 ## Amendment (2026-08-18): offscreen debounce with visibility wake and kill
 
 coordinator 原先对离屏元素只做降优先级，快速拖动时视口外的段落仍每帧消耗 8ms 预算。
-`OffscreenDebounceGate` 把离屏元素的 frame 请求挪进单一延迟道：trailing 防抖 200ms，
-离屏期间每次重复请求都会把到期时间往后推；全协调器共享一个 timer；到期后任务回到既有
-循环，老化与前向推进规则照常生效。当 `inViewport` 从 false 变为 true 时立即提升：
-延迟任务直接进入当帧的回调队列。`cancelFrame` 与 `unregister` 会同步清理该元素在
-延迟道中的任务。在屏元素路径不变。
+`OffscreenDebounceGate` 改为：离屏元素的请求不立即执行，先挂起等 200ms；等待期间该
+元素再来新请求就重新计满 200ms。这样快速拖动时视口外的区块不会跟着每次宽度变化重排，
+只在宽度稳定后执行一次。挂起到期后任务照常进入每帧循环；元素回到视口时立即执行；
+`cancelFrame` 与 `unregister` 会同步清掉该元素还在挂起的任务。在屏元素的请求不受
+影响，照常执行。
+
+挂起队列初版按元素只保存一个待办任务，后来的请求会覆盖先前的。页面初次排版期间的
+一次视口变化会让视口外的区块被 IntersectionObserver 判为离屏，这些区块刚排入的初次
+排版请求因此被挂起。紧接着 ResizeObserver 报告宽度变化，每个区块又请求一次响应式
+提交，新请求把初次排版请求从挂起队列里覆盖掉。顶替它的提交任务运行时发现区块尚未
+排过版，按设计直接返回；初次排版请求已经不存在，这些区块从此不再有任何排版。修正
+（`OffscreenRequestQueue`）：挂起队列按元素持有一组待办任务，以回调为 key。到期、
+回到视口、取消三种操作都只影响组内对应的单个任务，同一区块的多个请求互不覆盖。
 
 `OffscreenLayoutWorkKill`：IntersectionObserver 观察到可见→离屏且元素 busy 时，复用
 `tiqian:cancel-layout-work` 通道停止在飞 slice。取消操作不会回滚 DOM，已经提交的可见
 成果保持不变。元素从离屏回到可见时，既有的 pending-responsive 分支会立即拉起其挂起的
-工作，与延迟道提升一起完成唤醒。两处逻辑集中在 coordinator 与 IntersectionObserver
-转换分支中，没有散落各处的独立计时器。
+工作，与挂起队列的立即执行一起完成唤醒。两处逻辑集中在 coordinator 与
+IntersectionObserver 转换分支中，没有散落各处的独立计时器。
 
-防抖是否到期取决于**每个元素自身的宽度**是否稳定。快速拖动中，某个离屏 root 的宽度
-可能因视口宽度封顶或列宽上限而提前稳定，其 ResizeObserver 不再交付变化；trailing 窗口
-从最后一次真实宽度变化起算，200ms 后该元素完成一次最终布局。同一手势里宽度仍在变化的
-元素保持推迟。drag 测试的违规判据是：某次离屏 relayout 完成时，距该元素最后一次宽度
+挂起是否到期取决于**每个元素自身的宽度**是否稳定。快速拖动中，某个离屏 root 的宽度
+可能因视口宽度封顶或列宽上限而提前稳定，其 ResizeObserver 不再交付变化；200ms 等待
+从最后一次真实宽度变化起算，期满后该元素完成一次最终布局。同一手势里宽度仍在变化的
+元素继续等待。drag 测试的违规判据是：某次离屏 relayout 完成时，距该元素最后一次宽度
 变化不足 180ms。
 
 ## Amendment (2026-08-18): fractional fragment-aware content measure
@@ -636,7 +644,7 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
 ## Amendment (2026-08-18): coordinator-owned polled scheduling
 
 前两处修订落地后，快速拖动仍暴露三层缺陷：stale 收尾会把已提交段落整批回滚成
-   native，造成裸 DOM 闪变；离屏 trailing 防抖会在宽度仍在移动时到期；被取消任务夹带的
+   native，造成裸 DOM 闪变；离屏挂起会在宽度仍在移动时到期；被取消任务夹带的
    bare 段落无人补齐。
 三层缺陷同出一源：调度权分裂。Kotlin job 自排 animation frame，element.js coordinator
 又按自己的节奏派发，两边对「同一帧内谁先谁后、宽度何时算稳定」各有一份判断。
@@ -648,8 +656,8 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
    minTier，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回 job。所有参数与返回值都是
    primitive，轮询热路径跨边界零对象分配。`ParagraphTierGating` 把段落分为在视口、近视口、
    远三层；`TierOrderedGrants` 让所有可见 root 先排干 tier 1，再 tier 2 与 tier 3；
-   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 的 slice 授予也等满 200ms
-   trailing 防抖。coordinated job 的第一个 slice 同样来自授予，可以与 dispatch 任务落在
+   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 的排版授予也等满同样的
+   200ms。coordinated job 的第一个 slice 同样来自授予，可以与 dispatch 任务落在
    同一帧，共用同一帧预算。
 2. **`RunToCompletionWithoutCoordinator`**：standalone rAF 自调度路径整体删除。无
    coordinator 的 root 一口气同步跑完，低层 API 直调与测试直接驱动都走这条路；detach
@@ -663,9 +671,9 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
    的 bare 段落，bare 走实时宽度路径、rendered 走快照准备路径，同一 job 内混合推进。
    任务取消后段落不会永久遗漏。
 5. **`OffscreenTrailingWidthCheck`**：ResizeObserver 的交付挂在 animation frame 边界；
-   coordinator 无任务时帧循环停摆，宽度变化停止送达，离屏 200ms 防抖可能在宽度仍在移动时
+   coordinator 无任务时帧循环停摆，宽度变化停止送达，离屏 200ms 挂起可能在宽度仍在移动时
    到期。放行 commit 前同步读一次实际宽度，确认宽度确已静止；仍在移动则刷新基线并重新
-   进入 trailing 防抖。
+   进入挂起等待。
 6. **`ClockTierDiscipline`**：帧预算 deadline 读 `performance.now`。rAF 回调参数是帧起点
    时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让授予在整段拖动中饿死。
    授予跨 runtime 边界时只传剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
@@ -691,3 +699,31 @@ settle 后 commit 比较的基准。
 
 demo CDP burst 基线（1500×6000 视口、12 root 全可见、900ms 逐帧宽度振荡）：段落 gBCR
 读取从 610-624 降到 335-419；`drag-responsiveness-metrics` 以 500 为预算固定该行为。
+
+## Amendment (2026-08-18): coordinator 不再预估排版耗时
+
+coordinator 每帧做两件事：跑回调队列里的轻量任务（派发排版作业、提交几何变化）；
+给已挂载的区块授予排版切片，即把帧预算（约 2.5 到 6ms）的剩余毫秒数传给 Kotlin 的
+`workerRunSlice`，排版循环在这段时间里尽量多排，每排完一段检查一次剩余时间，至少排
+一段。
+
+初版在此之上还维护一个全页共享的「切片耗时估计」（滑动平均）：授予前先按估计值预判
+这次切片会不会超出帧预算，会则不授予；帧预算下限与轻量任务的让路判断也都参考它。
+帧级追踪（`__tqFrameTrace`）证实这套预判会失效：冷启动的一个慢切片把估计值抬过帧
+预算后，授予门槛在预算远未耗尽时就一直成立，所有区块都拿不到授予，只剩「连续两帧
+毫无产出」的兜底通道，节奏退化成三帧排一段。估计值全页共享，一个慢切片惩罚所有
+区块。
+
+决定：删除整个预估层，coordinator 只切分帧和排序。
+
+1. `RefreshAnchoredFrameBudget`：帧预算每帧由实测帧间隔直接算出
+   `clamp(帧间隔 × 0.4, 2.5, 6.0)`，不随压力事件调节。帧来得晚，截止时刻不变，
+   能装的工作自然变少。
+2. `DeadlineGate`：授予只看真实时间，预算耗尽即停。兜底改成结构性的：一帧里轻量
+   任务与授予都毫无产出时仍授予一次，保证再慢的切片也有前向推进。
+3. 删除切片耗时估计、三处预判消费点、压力反比调节与连续空转帧计数。轻量任务的
+   让路只看已耗时间，每帧第一个任务恒执行。
+
+排版循环内部的时间治理不变：每排完一段检查剩余时间，时间到即停，至少排一段，
+`MAX_PROGRESSIVE_SLICE_MS` 仍是无协调时的上限。分工固定为：coordinator 决定每帧给
+排版多少时间、给谁；排版循环决定这段时间怎么用。
