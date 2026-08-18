@@ -93,6 +93,8 @@ tiqian-prose [data-tq-rendered="true"] {
      measured spacing through Tiqian geometry only. */
   font-feature-settings: "halt" 0, "chws" 0, "palt" 0 !important;
   line-height: 0 !important;
+  text-align: start !important;
+  text-justify: none !important;
 }
 
 [data-tq-rendered="true"][data-tq-canonical-source="true"] {

@@ -491,7 +491,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(stylesSource, /text-spacing-trim: space-all !important/u);
   assert.match(
     stylesSource,
-    /\[data-tq-rendered="true"\] \{[\s\S]*?font-feature-settings: "halt" 0, "chws" 0, "palt" 0 !important/u,
+    /\[data-tq-rendered="true"\] \{[\s\S]*?text-align: start !important;[\s\S]*?text-justify: none !important;/u,
   );
   assert.match(
     stylesSource,
