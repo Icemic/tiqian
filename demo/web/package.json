@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "parcel index.html --port 8888",
-    "build": "parcel build index.html"
+    "build": "parcel build index.html",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@tiqian/prose": "file:../../frontend/web/npm"
