@@ -76,34 +76,83 @@ class WidthIndependentAnnotationCacheTest {
 
     @Test
     fun cachedAndUncachedEnginesProduceIdenticalLayoutResultsAcrossWidths() {
-        val testText = "提椠是一个面向中文正文的段落排版引擎，遵循中文排版需求规范，支持两端对齐与标点挤压。"
+        val testFixtures = listOf(
+            "提椠是一个面向中文正文的段落排版引擎，遵循中文排版需求规范，支持两端对齐与标点挤压。",
+            "在《中文排版需求》（CLREQ）中，要求正文「两端对齐」；当遇到『标点符号』与西文（如 OpenType / CSS Grid）混排时，应正确执行挤压与推入推出——即使在 120Hz 高频拖拽下也是如此！",
+            "第一行缩进两个字身框。标点符号如……省略号、破折号——不应出现在行首，逗号、句号。也不得出现在行首。这就是避头尾（Kinsoku）规则的严格要求。",
+        )
         val cachedEngine = ExplainableStubParagraphLayoutEngine(
             annotationCache = LruWidthIndependentAnnotationCache(),
         )
+        val uncachedEngine = ExplainableStubParagraphLayoutEngine(
+            annotationCache = object : WidthIndependentAnnotationCache {
+                override fun get(key: WidthIndependentAnnotationKey): Any? = null
+                override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {}
+                override fun clear() {}
+                override val size: Int = 0
+            },
+        )
 
-        val testWidths = listOf(80f, 120f, 160f, 240f, 320f, 480f)
-        for (width in testWidths) {
-            val uncachedEngine = ExplainableStubParagraphLayoutEngine(
-                annotationCache = object : WidthIndependentAnnotationCache {
-                    override fun get(key: WidthIndependentAnnotationKey): Any? = null
-                    override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {}
-                    override fun clear() {}
-                    override val size: Int = 0
-                },
-            )
+        // Continuous fractional width sweep from 80px to 650px (simulating real slider drag)
+        val sweepWidths = generateSequence(80f) { if (it + 7.3f <= 650f) it + 7.3f else null }.toList()
+        for (fixture in testFixtures) {
+            for (width in sweepWidths) {
+                val input = LayoutInput(
+                    paragraphStyle = ParagraphStyle(firstLineIndent = Ic(2f)),
+                    content = TiqianTextContent(fixture),
+                    constraints = LayoutConstraints(maxWidth = width),
+                )
+
+                val expected = uncachedEngine.layout(input)
+                val actual = cachedEngine.layout(input)
+
+                assertEquals(expected.lines.size, actual.lines.size, "Line count mismatch for fixture at width $width")
+                for (i in expected.lines.indices) {
+                    assertEquals(expected.lines[i].range, actual.lines[i].range, "Line $i range mismatch at width $width")
+                    assertEquals(expected.lines[i].visualWidth, actual.lines[i].visualWidth, 0.001f, "Line $i visualWidth mismatch at width $width")
+                    assertEquals(expected.lines[i].adjustedWidth, actual.lines[i].adjustedWidth, 0.001f, "Line $i adjustedWidth mismatch at width $width")
+                    assertEquals(expected.lines[i].naturalWidth, actual.lines[i].naturalWidth, 0.001f, "Line $i naturalWidth mismatch at width $width")
+                    assertEquals(expected.lines[i].indent, actual.lines[i].indent, 0.001f, "Line $i indent mismatch at width $width")
+                    assertEquals(expected.lines[i].hangingPunctuationAdvance, actual.lines[i].hangingPunctuationAdvance, 0.001f, "Line $i hanging mismatch at width $width")
+                    assertEquals(expected.lines[i].endReason, actual.lines[i].endReason, "Line $i endReason mismatch at width $width")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun reflowFuzzingRandomSequenceProducesExactOutput() {
+        val fixture = "提椠段落排版：严格遵循简体中文 CLREQ 规范。包含“双引号”、‘单引号’、以及（括号）与【括号】；汉字与 English words 混排时自动添加 0.25em 间距，最后一行保持左对齐。"
+        val cachedEngine = ExplainableStubParagraphLayoutEngine(
+            annotationCache = LruWidthIndependentAnnotationCache(),
+        )
+        val uncachedEngine = ExplainableStubParagraphLayoutEngine(
+            annotationCache = object : WidthIndependentAnnotationCache {
+                override fun get(key: WidthIndependentAnnotationKey): Any? = null
+                override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {}
+                override fun clear() {}
+                override val size: Int = 0
+            },
+        )
+
+        // Pseudo-random pseudo-dragging width sequence bouncing between narrow and wide
+        val randomSequenceWidths = listOf(
+            320f, 150f, 480.5f, 95.2f, 210f, 600f, 120.3f, 450f, 180.7f, 300f,
+            75f, 520f, 133.3f, 266.6f, 399.9f, 110f, 470f, 195f, 345f, 580f,
+        )
+        for (width in randomSequenceWidths) {
             val input = LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(2f)),
-                content = TiqianTextContent(testText),
+                content = TiqianTextContent(fixture),
                 constraints = LayoutConstraints(maxWidth = width),
             )
-
             val expected = uncachedEngine.layout(input)
             val actual = cachedEngine.layout(input)
 
-            assertEquals(expected.lines.size, actual.lines.size, "Line count mismatch at width $width")
+            assertEquals(expected.lines.size, actual.lines.size, "Fuzz line count mismatch at width $width")
             for (i in expected.lines.indices) {
-                assertEquals(expected.lines[i].range, actual.lines[i].range, "Line $i range mismatch at width $width")
-                assertEquals(expected.lines[i].visualWidth, actual.lines[i].visualWidth, 0.01f, "Line $i width mismatch at width $width")
+                assertEquals(expected.lines[i].range, actual.lines[i].range, "Fuzz line $i range mismatch at width $width")
+                assertEquals(expected.lines[i].visualWidth, actual.lines[i].visualWidth, 0.001f, "Fuzz line $i width mismatch at width $width")
             }
         }
     }
