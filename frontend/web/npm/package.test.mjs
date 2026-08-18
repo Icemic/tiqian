@@ -521,3 +521,37 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /font-feature-settings: "halt" 0, "chws" 0, "palt" 1 !important/u,
   );
 });
+
+test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
+  const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+
+  // 1. Visual prominence scoring formula: visibleArea * (1 + ratio) + inlineSize
+  assert.match(
+    elementSource,
+    /visibleScore[AB] = entry[AB][\s\S]*?\(entry[AB]\.visibleArea \|\| entry[AB]\.area \|\| 0\) \* \(1\.0 \+ \(entry[AB]\.intersectionRatio \|\| 0\)\) \+ \(entry[AB]\.inlineSize \|\| 0\)/u,
+  );
+
+  // 2. Anti-starvation aging priority: inView * 1000000 + visibleScore + deferCount * 50000
+  assert.match(
+    elementSource,
+    /priority[AB] = inView[AB] \* 1000000 \+ visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
+  );
+
+  // 3. Proportional pressure backoff: budgetMs / pressureRatio
+  assert.match(
+    elementSource,
+    /if \(pressureRatio > 1\.25\) \{[\s\S]*?this\.#budgetMs = Math\.max\(minBudget, this\.#budgetMs \/ pressureRatio\);/u,
+  );
+
+  // 4. Guaranteed forward progress after consecutive idle frames
+  assert.match(
+    elementSource,
+    /const forceForwardProgress = \(executedCount === 0 && this\.#consecutiveIdleFrames >= 2\);/u,
+  );
+
+  // 5. Lifecycle ready events bubble up for document-level observation
+  assert.match(
+    elementSource,
+    /new CustomEvent\("tiqian:relayout-ready", \{[\s\S]*?bubbles: true,[\s\S]*?composed: true,/u,
+  );
+});
