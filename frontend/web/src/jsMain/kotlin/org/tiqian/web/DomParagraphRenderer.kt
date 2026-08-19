@@ -333,7 +333,6 @@ object DomParagraphRenderer {
                     textStyle = clusterStyle,
                     deco = deco,
                     italic = italic,
-                    isLatin = isLatin,
                     renderFontFamily = renderFontFamily[cluster.range],
                     openTypeFeatures = openTypeFeaturesByRange[cluster.range].orEmpty(),
                     // MultiCodeUnitShapingBoundary mirrors the canonical prepared
@@ -447,16 +446,6 @@ object DomParagraphRenderer {
         appendEmphasisDots(host, result, colorSpans, sourceSpans)
     }
 
-    // SyntheticCjkItalicSkew (ADR 0030 Amendment 2026-08-17): CJK faces have no real italic, so an
-    // italic CJK run renders as CSS `oblique 6deg`, matching the ~6° shear the Android/Apple/Skia
-    // renderers apply; a Latin italic run keeps `italic` (real face). oblique is advance-preserving,
-    // so the canvas measurer (which still asks for `italic`) and the DOM stay same-source.
-    private fun cssItalicFontStyle(italic: Boolean, isLatin: Boolean): String = when {
-        italic && !isLatin -> "oblique 6deg"
-        italic -> "italic"
-        else -> "normal"
-    }
-
     private data class RenderRun(
         var range: TextRange,
         var text: String,
@@ -466,7 +455,6 @@ object DomParagraphRenderer {
         val textStyle: TextStyle,
         val deco: ClusterDeco,
         val italic: Boolean,
-        val isLatin: Boolean = false,
         val renderFontFamily: String? = null,
         val openTypeFeatures: List<String> = emptyList(),
         val shapingBoundary: Boolean = false,
@@ -704,7 +692,7 @@ object DomParagraphRenderer {
             if (!insideSemantic && run.textStyle != paragraphStyle) {
                 setProperty("font-size", "${run.textStyle.fontSize}px", "important")
                 setProperty("font-weight", "${run.textStyle.fontWeight}", "important")
-                setProperty("font-style", cssItalicFontStyle(run.textStyle.italic, run.isLatin), "important")
+                setProperty("font-style", if (run.textStyle.italic) "italic" else "normal", "important")
             } else if (run.italic && !run.textStyle.italic) {
                 setProperty("font-style", "italic", "important")
             }
