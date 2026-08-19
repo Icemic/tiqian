@@ -651,13 +651,14 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
 本修订把调度权收归 coordinator。
 
 1. **`WorkerPolledScheduling`**：custom element 在派发 progressive job 前 attach root，
-   job 的每个 slice 都来自 coordinator 授予。coordinator 每帧通过原始类型 API 轮询：
-   读每个 root 的三层 pending 计数，按 tier 授予一个有界 slice，参数为剩余毫秒预算与
-   minTier，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回 job。所有参数与返回值都是
-   primitive，轮询热路径跨边界零对象分配。`ParagraphTierGating` 把段落分为在视口、近视口、
+   job 的每个 slice 都由 coordinator 授予。coordinator 每帧轮询：读每个 root 的
+   job generation（第几代 job，每次派发新 job 递增）与三层 pending 计数，按 tier
+   授予一个有界 slice，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回
+   job。授予的单位是一张凭证：一个 controller 对象，只发给一个收件人（已实施形态见
+   「调度架构弱点留档」第 2 条）；其余参数与返回值都是 primitive。`ParagraphTierGating` 把段落分为在视口、近视口、
    远三层；`TierOrderedGrants` 让所有可见 root 先排干 tier 1，再 tier 2 与 tier 3；
-   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 的排版授予也等满同样的
-   200ms。coordinated job 的第一个 slice 同样来自授予，可以与 dispatch 任务落在
+   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 拿排版凭证前也等满同样的
+   200ms。coordinated job 的第一个 slice 同样来自第一张凭证，可以与 dispatch 任务落在
    同一帧，共用同一帧预算。
 2. **`RunToCompletionWithoutCoordinator`**：standalone rAF 自调度路径整体删除。无
    coordinator 的 root 一口气同步跑完，低层 API 直调与测试直接驱动都走这条路；detach
@@ -675,9 +676,11 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
    到期。放行 commit 前同步读一次实际宽度，确认宽度确已静止；仍在移动则刷新基线并重新
    进入挂起等待。
 6. **`ClockTierDiscipline`**：帧预算 deadline 读 `performance.now`。rAF 回调参数是帧起点
-   时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让授予在整段拖动中饿死。
-   授予跨 runtime 边界时只传剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
-   耗时，两条时钟不做比较。200ms 级防抖到期时间与时长统计同用 `Date.now`，毫秒精度足够。
+   时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让整段拖动中一张凭证都
+   发不出去。当时跨边界传的是剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
+   耗时，两条时钟不做比较；后续 GrantController 修订改为携带换算到 `Date.now` 域的
+   截止时间戳，两条时钟在构造凭证时对齐一次。200ms 级防抖到期时间与时长统计同用
+   `Date.now`，毫秒精度足够。
 
 ## Amendment (2026-08-18): skip discarded finish reads
 
@@ -699,31 +702,97 @@ settle 后 commit 比较的基准。
 
 demo CDP burst 基线（1500×6000 视口、12 root 全可见、900ms 逐帧宽度振荡）：段落 gBCR
 读取从 610-624 降到 335-419；`drag-responsiveness-metrics` 以 500 为预算固定该行为。
+后续 enhance 停摆修复让 burst 内完成次数接近翻倍，绝对预算随机器吞吐漂移，2026-08-18
+改为按完成次数归一（每次完成 gBCR ≤ 4、gCS ≤ 24，实测基线 3.0 与 18.2），被固定的
+行为仍是 finish 路径的单次成本。
 
 ## Amendment (2026-08-18): coordinator 不再预估排版耗时
 
 coordinator 每帧做两件事：跑回调队列里的轻量任务（派发排版作业、提交几何变化）；
-给已挂载的区块授予排版切片，即把帧预算（约 2.5 到 6ms）的剩余毫秒数传给 Kotlin 的
-`workerRunSlice`，排版循环在这段时间里尽量多排，每排完一段检查一次剩余时间，至少排
-一段。
+给已挂载的区块授予排版切片。每次授予一张凭证（一个 GrantController 对象：收件人、
+job generation、换算到 `Date.now` 域的截止时间戳、段数配额），排版循环每排完一段问
+一次准入，至少排一段。
 
-初版在此之上还维护一个全页共享的「切片耗时估计」（滑动平均）：授予前先按估计值预判
-这次切片会不会超出帧预算，会则不授予；帧预算下限与轻量任务的让路判断也都参考它。
-帧级追踪（`__tqFrameTrace`）证实这套预判会失效：冷启动的一个慢切片把估计值抬过帧
-预算后，授予门槛在预算远未耗尽时就一直成立，所有区块都拿不到授予，只剩「连续两帧
-毫无产出」的兜底通道，节奏退化成三帧排一段。估计值全页共享，一个慢切片惩罚所有
-区块。
+初版在此之上还维护一个全页共享的「切片耗时估计」（滑动平均）：授予凭证前先按估计值
+预判这次切片会不会超出帧预算，会则不授予；帧预算下限与轻量任务的让路判断也都参考
+它。帧级追踪（`__tqFrameTrace`）证实这套预判会失效：冷启动的一个慢切片把估计值抬过
+帧预算后，发放凭证的门槛在预算远未耗尽时就一直成立，所有区块一张凭证都拿不到，只剩
+「连续两帧毫无产出」的兜底通道，节奏退化成三帧排一段。估计值全页共享，一个慢切片
+惩罚所有区块。
 
 决定：删除整个预估层，coordinator 只切分帧和排序。
 
 1. `RefreshAnchoredFrameBudget`：帧预算每帧由实测帧间隔直接算出
    `clamp(帧间隔 × 0.4, 2.5, 6.0)`，不随压力事件调节。帧来得晚，截止时刻不变，
    能装的工作自然变少。
-2. `DeadlineGate`：授予只看真实时间，预算耗尽即停。兜底改成结构性的：一帧里轻量
-   任务与授予都毫无产出时仍授予一次，保证再慢的切片也有前向推进。
+2. `DeadlineGate`：发不发凭证只看真实时间，预算耗尽即停。兜底改成结构性的：一帧里
+   轻量任务与凭证发放都毫无产出时仍发放一张，保证再慢的切片也有前向推进。
 3. 删除切片耗时估计、三处预判消费点、压力反比调节与连续空转帧计数。轻量任务的
    让路只看已耗时间，每帧第一个任务恒执行。
 
-排版循环内部的时间治理不变：每排完一段检查剩余时间，时间到即停，至少排一段，
-`MAX_PROGRESSIVE_SLICE_MS` 仍是无协调时的上限。分工固定为：coordinator 决定每帧给
-排版多少时间、给谁；排版循环决定这段时间怎么用。
+排版循环内部的时间治理不变：每排完一段问一次凭证携带的准入条件，到限即停，至少排
+一段，`MAX_PROGRESSIVE_SLICE_MS` 与 `MAX_PROGRESSIVE_ITEMS_PER_SLICE` 仍是无协调
+路径的上限。分工固定为：coordinator 决定每帧给排版多少时间、给谁；排版循环决定这段
+时间怎么用。
+
+## Amendment (2026-08-18): 调度架构弱点留档
+
+2026-08-18 调度重构（轮询调度、预算层拆除、挂起队列修正）期间的讨论收敛出三个
+长期架构弱点。每个弱点写清它在现行实现里的形态、已处理的部分、剩余部分要什么
+证据才值得动。
+
+1. **调度者与被调度的工作在同一条线程。** 排版计算、DOM 提交、布局量读取、浏览器
+   回流、coordinator 的帧循环全部在主线程。coordinator 用帧预算分时，但分时者自己
+   也在被分时的线程里：宿主脚本的长任务会挤掉帧循环，被挤之后 rAF 回调参数（帧
+   起点时间戳）在回调真正执行时早已落后，就是这条链的实例（`ClockTierDiscipline`
+   已处理时钟一侧）。预算层拆除后 coordinator 不再依赖跨帧历史做预判，帧晚到时
+   截止时刻不变、装得下的工作自然变少，这条链上的连锁失效少了一层。剩余部分：
+   主线程被宿主长任务占满时排版整体让路，没有机制能抢回时间。根治方向是把排版
+   计算挪进真 Worker，请求与结果都是纯数据，`worker-layout.js` 的快照排版已是
+   雏形；代价是 Worker 内拿不到 DOM 与计算样式，度量正确性只能靠构建期证据链
+   （ADR 0040）。这是独立的 ADR 级决策，本文件不预设结论。
+
+2. **取消与预算的最小作用单位是整个段落。** 排版作业按段落推进：断行、准备、
+   DOM 提交对一个段落一次做完，停止检查只在段落之间生效。段落成本方差很大：
+   实测短段不足 1ms，首次 enhance 的长段 5 到 20ms，单个超重段落可以吃掉整帧
+   预算，帧的截止时间拦不住进行中的那一段。
+
+   「该不该停」的判断当时有两份副本：coordinator 发放凭证前比较 deadline 与
+   performance.now，排版循环在每个段落后比较 sliceDeadline 与 Date.now，后者
+   的数字来自发放时传入的剩余毫秒。两份副本可能给出不同答案。预算 deadline
+   误用 rAF 回调参数（帧起点时间戳）导致凭证长期发不出去的事故就是时钟口径不一致
+   的实例，ClockTierDiscipline 修正了时钟选择，副本本身仍待合并。
+
+   讨论收敛的目标形态已于当天实施（GrantController）。停止检查收拢为一个准入判断：
+   coordinator 每次发放都构造一张凭证（一个 GrantController 对象）派下去，携带收件人
+   root、job generation、换算到 Date.now 域的截止时间戳与段数配额，外加一个
+   shouldStop 闭包；闭包只捕获这些数字，不捕获 coordinator 状态。排版循环不认识
+   时钟、策略与身份，每个段落边界问一次准入；问题在提交一个段落之后才问，所以
+   一张凭证至少提交一段。两份副本就此合并：循环回答问题依据的条款就是凭证携带的
+   条款，coordinator 侧的 `DeadlineGate` 只决定是否再发下一张。时间戳换算：每帧
+   轮询开头把两个时钟各读一次，得到 offset = Date.now() - performance.now()，帧的
+   截止时间加 offset 就换算到 Date.now 的读数上，之后循环内是同一读数上的数值比较；
+   两个时钟走速相同的假设与传时长的旧做法共用。配额补截止的盲区：Date.now 截断到
+   毫秒，亚毫秒的剩余时间可放行大量廉价段落，配额按段数封顶。job generation 在
+   每个 startProgressiveJob 时盖章，凭证携带的 generation 与现行 job 不符时静默
+   拒绝，发给已替换 job 的旧凭证不会跑到新 job 上。无 coordinator 的路径（detach
+   收尾、未 attach 的同步跑完）在 slice 开头构造本地准入，沿用毫秒与段数上限。
+   单线程的事实不变：slice 运行期间收件人的其余状态冻结，循环中途真正推进的量
+   只有时间。多个 root 之间的排序、预算切分与前向推进兜底依赖全局页面状态，
+   计算留在 coordinator，算出的值随凭证下行，本张凭证的截止与配额就是预算切分的
+   产物；全局状态本身不跨线，执行侧零全局知识。
+
+   剩余部分：把检查点下沉进断行循环、让段落做到一半能停且能恢复，仍是替换
+   治理模型的 ADR 级变更，只在单段超重场景有收益，demo 规模未观测到失控。
+   触发条件：真实页面出现单段超帧的可归因卡顿证据。
+
+3. **每条停止路径必须带上重派义务。** 协议要求：任何取消、挂起、掐死排版工作的
+   路径，必须能指出谁负责重新唤醒工作；说不出唤醒者的沉默只允许出现在元素断连
+   或宿主显式禁用。2026-08-18 逐路径审计的配对：排版变化取消与几何变化取消在
+   取消后显式重排一次几何提交；工作进行中收到新几何需求时记下「需要提交」标志，
+   收尾路径与回屏分支都会消费它；离屏掐死在回到视口时清除挂起并按标志重排；帧
+   任务挂起 200ms 到期由计时器整桶放行；排版凭证的发放挂起有独立的唤醒计时器，到点
+   重启帧循环；两种挂起的唤醒都不依赖新输入到达。断连与禁用的沉默有意。曾发生的缺口：
+   挂起队列初版按元素只保存一个待办任务，后到请求覆盖先到请求，初次排版请求被
+   宽度提交请求覆盖后永久丢失，即 enhance 停摆事故（`OffscreenRequestQueue` 修正，
+   见 offscreen debounce 修订）。新增停止路径时按此协议审查。

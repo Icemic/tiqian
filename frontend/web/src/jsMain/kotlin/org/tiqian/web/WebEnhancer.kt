@@ -38,6 +38,10 @@ object TiqianWeb {
     // source fragments only if a host later reconnects that exact element.
     private val states: dynamic = js("new WeakMap()")
     internal val progressiveJobs = LinkedHashMap<HTMLElement, ProgressiveJob>()
+    // Grants address jobs by generation: every started job increments this
+    // counter and carries the value, so a grant built for an older job is
+    // rejected once the root's job has been replaced.
+    internal var progressiveJobGeneration = 0
     // WorkerPolledScheduling: roots attached to the page coordinator. Every
     // slice of a job on these roots comes from a polled grant.
     internal val workerRoots: dynamic = js("new WeakSet()")
@@ -651,6 +655,7 @@ object TiqianWeb {
         val itemTierIndex: IntArray? = null,
         val paragraphsByDoc: List<HTMLElement>? = null,
         var coordinated: Boolean = false,
+        var generation: Int = 0,
         var nextIndex: Int = 0,
         var maxSliceDuration: Double = 0.0,
         var commitSkipped: Boolean = false,

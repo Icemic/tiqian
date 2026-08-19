@@ -570,18 +570,28 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
       console.log(`Relayouts During Burst     : ${burst.readyDuringBurst}`);
       console.log(`Burst Paragraph gBCR Reads : ${burst.burstGbcReads}`);
       console.log(`Burst Paragraph gCS Reads  : ${burst.burstGcsReads}`);
+      console.log(`gBCR / relayout            : ${(burst.burstGbcReads / burst.readyDuringBurst).toFixed(2)}`);
+      console.log(`gCS / relayout             : ${(burst.burstGcsReads / burst.readyDuringBurst).toFixed(2)}`);
       console.log("=======================================================\n");
       assert.ok(
         burst.readyDuringBurst >= 12,
         `Burst must drive relayout work across roots, saw ${burst.readyDuringBurst} completions`,
       );
+      // ResponsiveFinishSkipsDoomedSignatureReads budgets are per completion,
+      // not absolute: total reads scale with how many relayouts the burst
+      // completes, and that count moves with machine throughput and with
+      // scheduler fixes (the stall fix alone roughly doubled completions).
+      // The finish path this test polices costs the same per completion
+      // either way. Measured baseline: 3.0 gBCR and 18.2 gCS per relayout;
+      // budgets hold a third of headroom and still catch a finish that
+      // rescans every paragraph of a root instead of short-circuiting.
       assert.ok(
-        burst.burstGbcReads <= 500,
-        `Burst paragraph gBCR reads (${burst.burstGbcReads}) must stay within the finish-read budget`,
+        burst.burstGbcReads / burst.readyDuringBurst <= 4,
+        `Paragraph gBCR reads per relayout (${burst.burstGbcReads}/${burst.readyDuringBurst}) must stay within the finish-read budget`,
       );
       assert.ok(
-        burst.burstGcsReads <= 3200,
-        `Burst paragraph computed-style reads (${burst.burstGcsReads}) must stay within the finish-read budget`,
+        burst.burstGcsReads / burst.readyDuringBurst <= 24,
+        `Paragraph computed-style reads per relayout (${burst.burstGcsReads}/${burst.readyDuringBurst}) must stay within the finish-read budget`,
       );
     });
   } finally {

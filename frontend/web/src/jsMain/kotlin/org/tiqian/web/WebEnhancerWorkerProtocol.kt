@@ -10,8 +10,9 @@ import org.w3c.dom.HTMLElement
 /**
  * JsExport facade for [org.tiqian.web.TiqianWeb]'s worker protocol. The npm
  * runtime loader mounts these functions on the existing `globalThis.TiqianWeb`
- * bridge, so the coordinator calls straight into Kotlin with primitives only
- * and a polled frame allocates nothing across the boundary.
+ * bridge. A polled frame crosses the boundary with primitives and, per grant,
+ * one plain controller object carrying value-copied stop terms; no live
+ * coordinator state crosses (ADR 0039).
  */
 @JsExport
 object TiqianWebWorkers {
@@ -21,8 +22,10 @@ object TiqianWebWorkers {
 
     public fun hasJob(root: HTMLElement): Boolean = TiqianWeb.workerHasJob(root)
 
-    public fun runSlice(root: HTMLElement, budgetMs: Double, minTier: Int): Int =
-        TiqianWeb.workerRunSlice(root, budgetMs, minTier)
+    public fun jobGeneration(root: HTMLElement): Int = TiqianWeb.workerJobGeneration(root)
+
+    public fun runSlice(controller: GrantController?, minTier: Int): Int =
+        TiqianWeb.workerRunSlice(controller, minTier)
 
     public fun pendingInTier(root: HTMLElement, tier: Int): Int =
         TiqianWeb.workerPendingInTier(root, tier)
@@ -41,12 +44,16 @@ object TiqianWebWorkers {
  *
  * A custom element attaches its root before dispatching a progressive job.
  * The coordinator polls these functions each frame: it reads pending counts per
- * paragraph tier, grants one bounded slice through [workerRunSlice], and
- * pushes IntersectionObserver tier flips through [workerSetParagraphTier].
- * Roots that never attach run their job to completion in one go.
+ * paragraph tier and the current job generation, grants one bounded slice
+ * through [workerRunSlice] by passing a grant controller, and pushes
+ * IntersectionObserver tier flips through [workerSetParagraphTier]. Roots
+ * that never attach run their job to completion in one go.
  *
- * All arguments and return values are primitives, so a polled frame allocates
- * no objects across this boundary.
+ * Arguments and return values are primitives except the grant controller,
+ * one plain object per grant: recipient root, job generation, a deadline
+ * already converted into the Date.now() domain, a paragraph quota, and a
+ * shouldStop closure capturing only those numbers. The controller is the
+ * grant itself; the coordinator's multi-root state never crosses.
  */
 fun TiqianWeb.workerAttach(root: HTMLElement): Boolean {
     workerRoots.add(root)
@@ -75,16 +82,27 @@ internal fun TiqianWeb.workerIsAttached(root: HTMLElement): Boolean =
 fun TiqianWeb.workerHasJob(root: HTMLElement): Boolean =
     progressiveJobs.containsKey(root)
 
+fun TiqianWeb.workerJobGeneration(root: HTMLElement): Int =
+    progressiveJobs[root]?.generation ?: 0
+
 /**
- * Runs one slice bounded by the [budgetMs] millisecond budget. [minTier]
- * gates items: only paragraphs whose live tier is <= minTier are processed,
- * so tier 1 (in viewport) work always drains before tier 2 (near viewport)
- * and tier 3 (far). Returns the number of items committed in this slice.
+ * Runs one slice governed by [controller]. The grant is rejected when the
+ * root has no coordinated job or when its generation no longer matches the
+ * job, so a grant addressed to a job that was replaced never runs against
+ * the new job. [minTier] gates items: only paragraphs whose live tier is
+ * <= minTier are processed, so tier 1 (in viewport) work always drains
+ * before tier 2 (near viewport) and tier 3 (far). Returns the number of
+ * items committed in this slice.
  */
-fun TiqianWeb.workerRunSlice(root: HTMLElement, budgetMs: Double, minTier: Int): Int {
-    val job = progressiveJobs[root] ?: return 0
+fun TiqianWeb.workerRunSlice(controller: GrantController?, minTier: Int): Int {
+    if (controller == null) return 0
+    val job = progressiveJobs[controller.root] ?: return 0
     if (!job.coordinated) return 0
-    return runProgressiveSlice(job, budgetMs, minTier.coerceIn(1, PROGRESSIVE_TIER_COUNT))
+    if (job.generation != controller.generation) return 0
+    val admission = GrantAdmission { processed ->
+        controller.shouldStop(processed)
+    }
+    return runProgressiveSlice(job, admission, minTier.coerceIn(1, PROGRESSIVE_TIER_COUNT))
 }
 
 fun TiqianWeb.workerPendingInTier(root: HTMLElement, tier: Int): Int {

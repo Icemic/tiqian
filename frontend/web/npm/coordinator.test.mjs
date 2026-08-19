@@ -202,14 +202,18 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
 
 // A fake Kotlin facade: pending counts per tier, runSlice drains one item from
 // the lowest non-empty tier at or below minTier, mirroring the real job's
-// done-scan.
-function fakeWorkerRuntime(pendingByElement, grants) {
+// done-scan. runSlice receives one grant controller per call; the fake reads
+// the recipient root off it, like the real facade does.
+function fakeWorkerRuntime(pendingByElement, grants, controllers) {
   return {
     workerHasJob: (element) => pendingByElement.has(element),
+    workerJobGeneration: (element) => (pendingByElement.has(element) ? 1 : 0),
     workerPendingInTier: (element, tier) => pendingByElement.get(element)[tier - 1],
-    workerRunSlice: (element, budgetMs, minTier) => {
+    workerRunSlice: (controller, minTier) => {
+      const element = controller.root;
       const tiers = pendingByElement.get(element);
       grants.push([element.name, minTier]);
+      if (controllers) controllers.push(controller);
       for (let tier = 1; tier <= minTier; tier++) {
         if (tiers[tier - 1] > 0) {
           tiers[tier - 1] -= 1;
@@ -236,7 +240,8 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
       [rootB, [0, 1, 0]],
     ]);
     const grants = [];
-    const runtime = fakeWorkerRuntime(pending, grants);
+    const controllers = [];
+    const runtime = fakeWorkerRuntime(pending, grants, controllers);
     coordinator.registerWorker(rootA, runtime);
     coordinator.registerWorker(rootB, runtime);
     coordinator.setWorkerActive(rootA, true);
@@ -247,6 +252,17 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
     assert.deepEqual(grants, [["a", 1], ["b", 2]]);
     assert.deepEqual(pending.get(rootA), [0, 0, 0]);
     assert.deepEqual(pending.get(rootB), [0, 0, 0]);
+    // GrantController: each grant carries value-copied stop terms addressed to
+    // one recipient. The fake clock keeps both clocks on the same reading, so
+    // the deadline lands in the frame's domain. The quota alone must be enough
+    // to stop the slice; the deadline is time-dependent and stays unchecked.
+    assert.equal(controllers.length, 2);
+    assert.equal(controllers[0].root, rootA);
+    assert.equal(controllers[0].generation, 1);
+    assert.equal(controllers[0].quota, 8);
+    assert.equal(typeof controllers[0].shouldStop, "function");
+    assert.equal(controllers[0].shouldStop(controllers[0].quota), true);
+    assert.equal(controllers[1].root, rootB);
   } finally {
     restoreGlobals(globals);
   }

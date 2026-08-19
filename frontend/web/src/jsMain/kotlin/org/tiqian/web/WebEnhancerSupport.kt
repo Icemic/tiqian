@@ -662,6 +662,10 @@ internal const val DEFAULT_FONT_SIZE = 19f
 internal const val INLINE_EDGE_EPSILON = 0.01f
 internal const val ZERO_ADVANCE_EPSILON = 0.01f
 internal const val CAPABILITY_DETAIL_LIMIT = 512
+// StandaloneGrantAdmission caps for slices without a coordinator grant:
+// the millisecond cap bounds wall time, the item cap backs it up against
+// coarse-clock truncation. Coordinated grants carry their own deadline and
+// quota inside the grant controller.
 internal const val MAX_PROGRESSIVE_SLICE_MS = 8.0
 internal const val MAX_PROGRESSIVE_ITEMS_PER_SLICE = 8
 // ParagraphTierGating: three paragraph priority bands the coordinator polls

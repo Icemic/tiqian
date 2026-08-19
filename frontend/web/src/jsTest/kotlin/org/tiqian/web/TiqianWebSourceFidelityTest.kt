@@ -28,18 +28,26 @@ class TiqianWebSourceFidelityTest {
 
     // WorkerPolledScheduling test harness: an attached root never runs on its
     // own, so these helpers stand in for the page coordinator's per-frame
-    // grants.
+    // grants. The grant deadline defaults to 0, already in the past, so one
+    // slice commits one paragraph.
     private fun attachWorker(root: HTMLElement) {
         with(TiqianWeb) { workerAttach(root) }
     }
 
-    private fun grantWorkerSlice(root: HTMLElement, budgetMs: Double = 0.0): Int =
-        with(TiqianWeb) { workerRunSlice(root, budgetMs, PROGRESSIVE_TIER_COUNT) }
+    private fun grantWorkerSlice(root: HTMLElement, deadlineMs: Double = 0.0): Int {
+        val controller = testGrantController(
+            root,
+            with(TiqianWeb) { workerJobGeneration(root) },
+            deadlineMs,
+            Int.MAX_VALUE,
+        )
+        return with(TiqianWeb) { workerRunSlice(controller, PROGRESSIVE_TIER_COUNT) }
+    }
 
-    private fun runWorkerJobToCompletion(root: HTMLElement, budgetMs: Double = 0.0): Int {
+    private fun runWorkerJobToCompletion(root: HTMLElement, deadlineMs: Double = 0.0): Int {
         var slices = 0
         while (with(TiqianWeb) { workerHasJob(root) }) {
-            grantWorkerSlice(root, budgetMs)
+            grantWorkerSlice(root, deadlineMs)
             slices += 1
             if (slices > 1000) throw AssertionError("attached worker job did not settle")
         }

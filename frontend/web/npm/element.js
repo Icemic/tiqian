@@ -206,6 +206,12 @@ function loadExactFontFallback() {
 // after the window.
 const OFFSCREEN_DEBOUNCE_MS = 200;
 
+// GrantQuotaComplementsDeadline: a grant deadline truncates to whole
+// milliseconds on the coarse clock, so a sub-millisecond remainder could
+// admit many cheap paragraphs in one grant. The quota caps a grant by
+// paragraph count.
+const WORKER_GRANT_QUOTA = 8;
+
 // WorkerPolledScheduling: the coordinator owns every layout slice of an
 // attached root. Each slot caches liveness plus the three tier counters the
 // Kotlin facade reports, so a polled frame allocates nothing beyond the one
@@ -503,6 +509,7 @@ class TiqianLayoutCoordinator {
       runtime,
       active: false,
       pendingByTier: [0, 0, 0],
+      generation: 0,
       deferredUntil: 0,
       deferCount: 0,
       lastGrantFrame: -1,
@@ -587,17 +594,25 @@ class TiqianLayoutCoordinator {
     const slots = this.#workerSlots;
     if (slots.length === 0) return 0;
     const deadline = startTime + this.#budgetMs;
-    // One scan per frame: liveness plus the three tier counters per attached
-    // root. Grants re-read only the tier they drained.
+    // GrantClockConversion: the frame deadline lives in the performance.now()
+    // domain while the runtime's stop closure reads the coarse Date.now()
+    // clock. Reading both clocks once per poll yields this frame's offset;
+    // each grant converts its deadline by adding it, so both sides of a
+    // grant share one anchor and the runtime holds no clock arithmetic.
+    const grantDeadline = deadline + (Date.now() - performance.now());
+    // One scan per frame: liveness, job generation, and the three tier
+    // counters per attached root. Grants re-read only the tier they drained.
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
       if (slot.runtime.workerHasJob(slot.element)) {
         slot.active = true;
+        slot.generation = slot.runtime.workerJobGeneration(slot.element);
         slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
         slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
         slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
       } else {
         slot.active = false;
+        slot.generation = 0;
         slot.pendingByTier[0] = 0;
         slot.pendingByTier[1] = 0;
         slot.pendingByTier[2] = 0;
@@ -620,10 +635,22 @@ class TiqianLayoutCoordinator {
         if (!guaranteeForwardProgress && now >= deadline) {
           return false;
         }
-        // ClockTierDiscipline: the grant passes the remaining milliseconds as a
-        // duration, so the runtime measures it on its own cheap clock.
-        const processed = slot.runtime.workerRunSlice(
-          slot.element, Math.max(0, deadline - now), tier);
+        // GrantController: one controller per grant. It carries value-copied
+        // stop terms for this recipient alone: the root, the job generation
+        // this grant addresses, the Date.now()-domain deadline, and the
+        // paragraph quota. The closure captures only those numbers, never
+        // coordinator state, so the runtime can reach no other root through
+        // a grant. The loop asks shouldStop after each paragraph and obeys.
+        const quota = WORKER_GRANT_QUOTA;
+        const processed = slot.runtime.workerRunSlice({
+          root: slot.element,
+          generation: slot.generation,
+          deadline: grantDeadline,
+          quota,
+          shouldStop(processedCount) {
+            return processedCount >= quota || Date.now() >= grantDeadline;
+          },
+        }, tier);
         if (processed > 0) {
           grants += 1;
           workDone += 1;

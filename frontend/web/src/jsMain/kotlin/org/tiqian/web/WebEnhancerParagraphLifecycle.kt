@@ -20,6 +20,7 @@ import org.w3c.dom.HTMLElement
 
 internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
     cancelProgressiveJob(job.state.root)
+    job.generation = ++progressiveJobGeneration
     job.state.root.removeAttribute(RELAYOUT_ERROR_ATTRIBUTE)
     installParagraphTierTracking(job)
     progressiveJobs[job.state.root] = job
@@ -82,15 +83,16 @@ internal fun TiqianWeb.cancelProgressiveJob(root: HTMLElement) {
 
 internal fun TiqianWeb.runProgressiveSlice(
     job: ProgressiveJob,
-    budgetMs: Double? = null,
+    admission: GrantAdmission? = null,
     minTier: Int = PROGRESSIVE_TIER_COUNT,
 ): Int {
     if (progressiveJobs[job.state.root] !== job) return 0
-    // ClockTierDiscipline: the caller grants a millisecond budget, so elapsed
-    // time runs on the cheap coarse clock. The coordinator cannot interrupt a
-    // grant mid-slice, so the budget check is what bounds one grant.
+    // The admission question bounds one grant: a coordinated slice receives
+    // the coordinator's controller, a standalone slice builds its own (see
+    // standaloneGrantAdmission). Either way the loop body below holds no
+    // clock, no policy, and no identity; it asks after each paragraph.
+    val shouldStop = admission ?: standaloneGrantAdmission()
     val sliceStartedAt = dateNow()
-    val sliceDeadline = sliceStartedAt + (budgetMs ?: MAX_PROGRESSIVE_SLICE_MS)
     var processedInSlice = 0
     // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph
     // against the width snapshot taken when the job started, per
@@ -127,11 +129,9 @@ internal fun TiqianWeb.runProgressiveSlice(
             if (done != null) markProgressiveItemDone(job, index)
             processedInSlice += 1
             index += 1
-            if (!(
-                processedInSlice < MAX_PROGRESSIVE_ITEMS_PER_SLICE &&
-                    dateNow() < sliceDeadline
-                )
-            ) {
+            // At least one paragraph per slice: the question runs after an
+            // item, so a grant always commits before it can be told to stop.
+            if (shouldStop.shouldStop(processedInSlice)) {
                 break
             }
         }
