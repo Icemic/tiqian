@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  DEEP_GEOMETRY_HELPERS,
+  deepGeometryCounts,
+  diffDeepGeometry,
+} from "./helpers/deep-geometry.mjs";
 
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 
@@ -328,6 +333,8 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
         globalThis.__relayoutErrors = () =>
           Array.from(document.querySelectorAll("[data-tq-relayout-error]"))
             .map((el) => el.getAttribute("data-tq-relayout-error"));
+
+        ${DEEP_GEOMETRY_HELPERS}
       })()
     `);
 
@@ -346,8 +353,9 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
         `${label}: fingerprint must cover every live paragraph host`,
       );
 
+      const geoBefore = await client.evaluate("__deepGeometry()");
       const ms = await client.evaluate("__oneshot()");
-      const { issues, quiet, errors } = await client.evaluate(`
+      const { issues, quiet, errors, geoAfter } = await client.evaluate(`
         (async () => {
           const issues = __diff(__settledFp, __fingerprint());
           const before = JSON.stringify(__fingerprint());
@@ -356,6 +364,7 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
             issues,
             quiet: JSON.stringify(__fingerprint()) === before,
             errors: __relayoutErrors(),
+            geoAfter: __deepGeometry(),
           };
         })()
       `);
@@ -382,7 +391,25 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
       // coordination state, so no deferred grant or observer callback may
       // rewrite any paragraph after it returns.
       assert.ok(quiet, `${label}: output must stay unchanged after the one-shot`);
-      return { count: settled.fpCount, ms };
+
+      // MeasuredRunBoxesMatchOneShotOracle: the fingerprint compares what the
+      // engine wrote into the DOM; this check measures the physical boxes
+      // with getBoundingClientRect and Range. Root, paragraph, line, run
+      // element, and text-node boxes must agree between the coordinated and
+      // one-shot outputs, so an attribute-correct render that lands on the
+      // wrong physical geometry still fails.
+      const geoDiff = diffDeepGeometry(geoBefore, geoAfter);
+      const geoCounts = deepGeometryCounts(geoBefore);
+      assert.deepStrictEqual(
+        geoDiff.examples,
+        [],
+        `${label}: measured boxes must equal one-shot output (${geoDiff.boxesCompared} boxes, ${geoDiff.divergentBoxes} divergent): ${JSON.stringify(geoDiff.examples.slice(0, 3))}`,
+      );
+      assert.ok(
+        geoCounts.lineMarks > 0 && geoCounts.runEls > 0 && geoCounts.textNodes > 0,
+        `${label}: box comparison must cover real line markers, runs, and text nodes: ${JSON.stringify(geoCounts)}`,
+      );
+      return { count: settled.fpCount, ms, boxes: geoDiff.boxesCompared };
     };
 
     // ------------------------------------------------------------------
