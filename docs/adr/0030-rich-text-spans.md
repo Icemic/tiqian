@@ -17,7 +17,9 @@
   切变的一档。角度 `tan⁻¹(0.105) ≈ 6°`
   （取得意黑 / Smiley Sans 的设计斜度），在**自绘平台统一**：Android `textSkewX` /
   Apple CoreText `OBLIQUE_SHEAR` / Skia `Font.skewX`。**web 经浏览器 DOM 渲染（非自绘）**，
-  以 CSS `font-style: oblique 6deg` 对齐，属需浏览器验证的后续。着重号仍只承载「强调」。
+  由 `DomParagraphRenderer` 给 run 级 CJK 斜体设 CSS `font-style: oblique 6deg` 对齐（advance
+  不变，canvas 测量仍用 `italic`，同源不破；整段 `<p>` 皆斜的罕见情形走继承、暂不覆盖）。
+  着重号仍只承载「强调」。
 
 ## Context
 
