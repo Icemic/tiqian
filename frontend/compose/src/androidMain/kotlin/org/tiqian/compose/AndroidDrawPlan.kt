@@ -30,10 +30,10 @@ internal sealed interface AndroidDrawCommand {
 
 /**
  * The paint state [prepareAndroidGlyphPaint] would install for a cluster, reduced to an equality
- * key. `isFakeBoldText`/`textSkewX` are always false/0 on this path, so they are not part of the
- * key; they are still reset when the key is applied. Two clusters share a key when their resolved
- * color, text size, font role/family/weight/italic and OpenType feature string all match — i.e.
- * when `prepareAndroidGlyphPaint` would leave the paint in the same state.
+ * key. `isFakeBoldText` is always false, and `textSkewX` is derived from `role`+`italic` (both
+ * keyed — the synthetic CJK-italic shear), so neither needs its own key field. Two clusters share a
+ * key when their resolved color, text size, font role/family/weight/italic and OpenType feature
+ * string all match — i.e. when `prepareAndroidGlyphPaint` would leave the paint in the same state.
  */
 internal data class AndroidRunPaintKey(
     val color: Int,
@@ -118,7 +118,12 @@ private fun buildAndroidDrawPlanTraced(
             italic = run.style.italic,
             fontFeatureSettings = run.openTypeFeatures.toAndroidFontFeatureSettings(),
         )
-        val typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
+        val typeface = typefaces.resolve(
+            run.role,
+            run.style.fontFamilies,
+            run.style.fontWeight,
+            run.style.italic && !synthesizeCjkItalic(run.role, run.style.italic),
+        )
         planClusters += AndroidPlanCluster(
             cluster = cluster,
             drawX = drawX,
@@ -185,7 +190,10 @@ private fun applyAndroidRunPaint(paint: TextPaint, key: AndroidRunPaintKey, type
     paint.typeface = typeface
     paint.fontFeatureSettings = key.fontFeatureSettings
     paint.isFakeBoldText = false
-    paint.textSkewX = 0f
+    // SyntheticCjkItalicSkew: derived from the key's role+italic (both already keyed), so a merged
+    // and a per-cluster CJK-italic run install the identical shear (only single clusters here — an
+    // italic run is not merge-eligible).
+    paint.textSkewX = if (synthesizeCjkItalic(key.role, key.italic)) SYNTHETIC_CJK_ITALIC_SKEW else 0f
 }
 
 /**

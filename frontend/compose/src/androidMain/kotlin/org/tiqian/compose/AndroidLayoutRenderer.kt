@@ -260,6 +260,16 @@ private fun drawAndroidPositionedClusters31(
     batch.flush(canvas, paint)
 }
 
+// SyntheticCjkItalicSkew (ADR 0030 Amendment 2026-08-17): CJK faces ship no real italic
+// instance, so italic CJK draws the upright face + a controlled shear. -0.105 ≈ 6°
+// (得意黑 / Smiley Sans design slant), unified with the Apple/Skia renderers. Shared with the
+// API<31 coalesced draw plan (AndroidDrawPlan.kt), which mirrors this paint state.
+internal const val SYNTHETIC_CJK_ITALIC_SKEW = -0.105f
+
+// synthesizeCjkItalic: an italic CJK run has no real italic face → upright face + controlled shear.
+internal fun synthesizeCjkItalic(role: FontRole, italic: Boolean): Boolean =
+    italic && (role == FontRole.CjkText || role == FontRole.CjkPunctuation)
+
 private fun prepareAndroidGlyphPaint(
     paint: TextPaint,
     cluster: Cluster,
@@ -272,10 +282,16 @@ private fun prepareAndroidGlyphPaint(
         cluster.range.start >= it.start && cluster.range.start < it.end
     }?.argb ?: color
     paint.textSize = run.style.fontSize
-    paint.typeface = typefaces.resolve(run.role, run.style.fontFamilies, run.style.fontWeight, run.style.italic)
+    val synthesizeCjkItalic = synthesizeCjkItalic(run.role, run.style.italic)
+    paint.typeface = typefaces.resolve(
+        run.role,
+        run.style.fontFamilies,
+        run.style.fontWeight,
+        italic = run.style.italic && !synthesizeCjkItalic,
+    )
     paint.fontFeatureSettings = run.openTypeFeatures.toAndroidFontFeatureSettings()
     paint.isFakeBoldText = false
-    paint.textSkewX = 0f
+    paint.textSkewX = if (synthesizeCjkItalic) SYNTHETIC_CJK_ITALIC_SKEW else 0f
 }
 
 internal fun drawAndroidClusterRun(

@@ -165,6 +165,9 @@ private fun essayBlocks(): List<CjkBlock> = listOf(
             append("。它本为纸张正反透印而生，奈何屏幕没有背面，只好请它")
             emphasis { append("先走一步") }
             append("。")
+            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                append("纸终究比屏幕厚道，这话我只敢斜着说。")
+            }
         },
     ),
 

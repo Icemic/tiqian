@@ -146,6 +146,12 @@ fun vertGlyphIds(typeface: Typeface, shaper: Shaper, text: String, language: Str
 fun TextStyle.toSkiaFontStyle(): FontStyle =
     FontStyle(fontWeight, FontStyle.NORMAL.width, if (italic) FontSlant.ITALIC else FontSlant.UPRIGHT)
 
+// SyntheticCjkItalicSkew (ADR 0030 Amendment 2026-08-17): Skia synthetic-oblique shear for an
+// italic CJK cluster (CJK faces ship no real italic instance). -0.105 ≈ 6° (得意黑 / Smiley Sans
+// slant), unified with the Android/Apple renderers; negative skewX leans right (Blink's
+// synthetic-italic convention).
+private const val SYNTHETIC_CJK_ITALIC_SKEW = -0.105f
+
 fun drawTiqianGlyphs(
     canvas: Canvas,
     result: LayoutResult,
@@ -278,6 +284,7 @@ internal inline fun LayoutResult.forEachPositionedCluster(
         val italic = style.italic ||
             (isLatin && emphasisRanges.any { cluster.range.start >= it.start && cluster.range.start < it.end })
         val family = style.fontFamilies.firstOrNull()
+        val synthesizeCjkItalic = italic && !isLatin
         val font = if (size == baseStyle.fontSize && weight == 400 && !italic && family == null) {
             baseFont
         } else {
@@ -288,10 +295,14 @@ internal inline fun LayoutResult.forEachPositionedCluster(
                     SkiaSystemTypefaces.typeface(
                         isLatin,
                         family,
-                        FontStyle(weight, FontStyle.NORMAL.width, if (italic) FontSlant.ITALIC else FontSlant.UPRIGHT),
+                        FontStyle(
+                            weight,
+                            FontStyle.NORMAL.width,
+                            if (italic && !synthesizeCjkItalic) FontSlant.ITALIC else FontSlant.UPRIGHT,
+                        ),
                     ) ?: baseFont.typeface
                 }
-                Font(tf, size)
+                Font(tf, size).apply { if (synthesizeCjkItalic) skewX = SYNTHETIC_CJK_ITALIC_SKEW }
             }
         }
         if (cluster.displayText.isNotEmpty()) {

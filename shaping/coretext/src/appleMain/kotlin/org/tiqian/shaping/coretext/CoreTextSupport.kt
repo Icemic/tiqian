@@ -75,12 +75,14 @@ object CoreTextSupport {
     const val DEFAULT_LATIN_FAMILY: String = "Helvetica Neue"
 
     /**
-     * Synthetic-oblique shear for [italic] (ADR 0030 B 档). ~11.3° (`tan⁻¹ 0.2`). A horizontal
-     * shear leaves the horizontal advance unchanged, so `measure == draw` holds; and it renders a
-     * visible slant even for families with no italic face (e.g. PingFang), which matching an italic
-     * face by trait would not.
+     * Synthetic-oblique shear for [italic] (ADR 0030 Amendment 2026-08-17). ~6° (`tan⁻¹ 0.105`),
+     * the design slant of 得意黑 / Smiley Sans — unified across platforms; a natural, restrained
+     * oblique for square Han glyphs, far gentler than the ~14° platform default. A horizontal shear
+     * leaves the horizontal advance unchanged, so `measure == draw` holds; and it renders a visible
+     * slant even for families with no italic face (e.g. PingFang), which matching an italic face by
+     * trait would not.
      */
-    private const val OBLIQUE_SHEAR: Double = 0.2
+    private const val OBLIQUE_SHEAR: Double = 0.105
 
     private const val MAX_LINE_CACHE_ENTRIES: Int = 4096
 
