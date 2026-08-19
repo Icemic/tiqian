@@ -798,6 +798,11 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
   #connected = false;
+  #contentObserver = null;
+  #custodyTargets = new Map();
+  #contentProbeFrame = 0;
+  #contentReconcileRequired = false;
+  #contentTainted = new Set();
   #deferredTypographyCheck = false;
   #fontLoadingSettledListener = null;
   #geometryRevision = 0;
@@ -835,6 +840,7 @@ class TiqianProseElement extends HTMLElementBase {
   #resizeFrame = 0;
   #resizeObserver = null;
   #resizeObserverFrame = 0;
+  #resizeObserverWidths = null;
   #responsiveCommitRequired = false;
   #responsiveRetargetFrame = 0;
   #responsiveRelayoutRequired = false;
@@ -1129,6 +1135,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopTypographyObservation();
     this.#stopLayoutWorkInputObservation();
     this.#stopWidthObservation();
+    this.#stopContentObservation();
     // DetachedNavigationDisposal: swup and other HTML routers remove an entire
     // old article synchronously. Reconstructing every source paragraph here
     // blocks their scroll handoff and can visibly change the outgoing page.
@@ -1271,6 +1278,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopTypographyObservation();
     this.#stopLayoutWorkInputObservation();
     this.#stopWidthObservation();
+    this.#stopContentObservation();
     restoreLoadedSnapshot(this);
     if (this.#runtimeStateActive) dispatch("tiqian:destroy", this);
     this.#runtimeStateActive = false;
@@ -1625,6 +1633,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#responsiveRelayoutRequired = false;
     this.#acceptLayoutCompletion = false;
     this.#stopTypographyObservation();
+    this.#observeContent();
     if (usesCapturedMeasure) this.#observeLayoutWorkInputs();
     return operation;
   }
@@ -1719,6 +1728,24 @@ class TiqianProseElement extends HTMLElementBase {
       this.#scheduleResponsiveGeometryCommit();
       return true;
     }
+    if (this.#contentReconcileRequired && !this.#contentProbeFrame) {
+      // ContentOnlyFinishCommit: an uncaptured job may have raced a host
+      // edit. Resolve the flag with the read-only probe, never with the
+      // commit lane: the records are usually this job's own output, and a
+      // commit scheduled on them alone enters the offscreen deferred lane,
+      // where it later fires a width commit inside the drag debounce window.
+      // The probe clears an engine-owned flag without scheduling anything and
+      // schedules the commit itself only on proven drift. The finish still
+      // falls through to store its baselines, exactly like a finish without
+      // the flag.
+      this.#ensureViewportResizeListener();
+      const operation = this.#layoutOperation;
+      this.#contentProbeFrame = requestAnimationFrame(() => {
+        this.#contentProbeFrame = 0;
+        if (!this.isConnected || operation !== this.#layoutOperation) return;
+        this.#probeContentDrift();
+      });
+    }
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
     this.#lastWidth = fragmentedBorderBoxInlineSize(this);
@@ -1726,6 +1753,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#lastParagraphWidths = currentParagraphWidths;
     this.#observeWidth();
     this.#observeTypography();
+    this.#observeContent();
     return true;
   }
 
@@ -1979,7 +2007,18 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeWidth() {
-    if (this.#resizeObserver) return;
+    if (this.#resizeObserver) {
+      // AdoptedWidthObservation: content reconcile adopts paragraphs after
+      // the observer already exists. Seed and observe targets it has not
+      // seen, so an adopted paragraph responds to later width changes.
+      for (const paragraph of this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR)) {
+        if (!belongsToRootScope(paragraph, this)) continue;
+        if (this.#resizeObserverWidths.has(paragraph)) continue;
+        this.#resizeObserverWidths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
+        this.#resizeObserver.observe(paragraph, { box: "border-box" });
+      }
+      return;
+    }
     // ResponsiveInlineSizeObservation: takeover intentionally changes block
     // height. Seed and compare only border-box inline sizes so those commits do
     // not trigger a redundant responsive pass. Persistent observation without
@@ -2025,6 +2064,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#scheduleResponsiveGeometryCommit();
     });
     this.#resizeObserver = observer;
+    this.#resizeObserverWidths = widths;
     for (const target of targets) observer.observe(target, { box: "border-box" });
     this.#ensureViewportResizeListener();
   }
@@ -2140,6 +2180,34 @@ class TiqianProseElement extends HTMLElementBase {
     this.#responsiveCommitRequired = false;
     this.#responsiveRelayoutRequired = false;
     if (!this.#hasDispatched) return;
+    if (this.#contentReconcileRequired && !this.#contentProbeFrame) {
+      // ContentBeforeGeometry: one commit lane serves ResizeObserver and
+      // MutationObserver alike. Content goes first because re-lowering reads
+      // the live width, so a concurrent width change is absorbed by the same
+      // job; the reverse order would relayout stale text first. An idle
+      // reconcile falls through so a width-only change still commits.
+      this.#contentReconcileRequired = false;
+      const tainted = Array.from(this.#contentTainted);
+      this.#contentTainted.clear();
+      if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+        this.#invalidateSnapshotAndEnhance({ restoreBeforeLoad: true });
+        return;
+      }
+      if (this.#dispatchContentReconcile(tainted)) {
+        // ReconcileCommitPreservesWidthIntent: a work verdict returns before
+        // the width lane runs, and the reconcile job re-lowers only drifted,
+        // tainted and stranded paragraphs. A width change already pending at
+        // this commit would die with the flags beginLayoutWork cleared; the
+        // finish would then store the live width against stale paragraphs and
+        // the change would never re-enter layout. Re-arm the commit so the
+        // finish schedules one latest-width pass.
+        const pendingWidth = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
+        if (forceLatestWidth || Math.abs(pendingWidth - this.#lastWidth) >= 0.5) {
+          this.#responsiveCommitRequired = true;
+        }
+        return;
+      }
+    }
     const width = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
     this.#lastObservedWidth = width;
     const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
@@ -2240,6 +2308,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#clearResponsiveRetarget();
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
+    this.#resizeObserverWidths = null;
     this.#lastObservedWidth = 0;
     if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
     this.#resizeObserverFrame = 0;
@@ -2358,6 +2427,228 @@ class TiqianProseElement extends HTMLElementBase {
     this.#typographyFrame = 0;
     this.#forceTypographyRefresh = false;
     this.#deferredTypographyCheck = false;
+  }
+
+  // HostContentSignal: childList and characterData mutations on the live DOM
+  // are the only host content signals. Attributes and inline size already
+  // have their own observers. This observer stays connected across layout
+  // work on purpose: engine commits also produce records, and the drift
+  // probe disproves those by identity instead of disconnecting and losing
+  // host edits that land mid-flight.
+  #observeContent() {
+    if (!this.#contentObserver) {
+      this.#contentObserver = new MutationObserver((records) => {
+        this.#handleContentMutationRecords(records);
+      });
+      this.#contentObserver.observe(this, { childList: true, characterData: true, subtree: true });
+    }
+    this.#syncCustodyObservation();
+  }
+
+  // CustodyFragmentObservation: takeover moves the host's semantic children
+  // into a detached fragment the engine holds. Frameworks keep references to
+  // those original nodes (React's text update writes .data on them), so host
+  // edits land inside custody where the live-DOM subtree never sees them.
+  // Kotlin publishes the current fragment on each rendered paragraph; observe
+  // every tracked fragment alongside the root. Re-lowering creates a fresh
+  // fragment, so diff the desired set at every job boundary and re-target the
+  // observer only when it changed.
+  #syncCustodyObservation() {
+    const desired = new Map();
+    const paragraphs = this.querySelectorAll(
+      `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
+    );
+    for (const paragraph of paragraphs) {
+      if (!belongsToRootScope(paragraph, this)) continue;
+      const fragment = paragraph.__tqCustodyFragment;
+      if (fragment) desired.set(fragment, paragraph);
+    }
+    let unchanged = desired.size === this.#custodyTargets.size;
+    if (unchanged) {
+      for (const [fragment, paragraph] of desired) {
+        if (this.#custodyTargets.get(fragment) !== paragraph) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) return;
+    // Pending records from the outgoing target set still count. Flush them
+    // through the handler first, or a host edit landing in the same frame
+    // would be dropped together with the old registration.
+    const pending = this.#contentObserver.takeRecords();
+    if (pending.length) this.#handleContentMutationRecords(pending);
+    this.#contentObserver.disconnect();
+    this.#contentObserver.observe(this, { childList: true, characterData: true, subtree: true });
+    for (const fragment of desired.keys()) {
+      this.#contentObserver.observe(fragment, { childList: true, characterData: true, subtree: true });
+    }
+    this.#custodyTargets = desired;
+  }
+
+  // Attribution for a record under a custody fragment: walk up to the
+  // enclosing detached fragment and map it back to its live paragraph. Live
+  // nodes never reach a DocumentFragment ancestor, so the walk is safe there.
+  #custodyParagraphFor(node) {
+    let current = node;
+    while (current) {
+      if (current.nodeType === 11) {
+        return this.#custodyTargets.get(current) || null;
+      }
+      current = current.parentNode;
+    }
+    return null;
+  }
+
+  #stopContentObservation() {
+    this.#contentObserver?.disconnect();
+    this.#contentObserver = null;
+    this.#custodyTargets.clear();
+    if (this.#contentProbeFrame) cancelAnimationFrame(this.#contentProbeFrame);
+    this.#contentProbeFrame = 0;
+    this.#contentTainted.clear();
+    this.#contentReconcileRequired = false;
+  }
+
+  #handleContentMutationRecords(records) {
+    if (!this.#hasDispatched) return;
+    let paragraphSignal = false;
+    let structureSignal = false;
+    for (const record of records) {
+      // EnginePreparedStyleWritesAreNotContent: the prepared-dom renderer
+      // rewrites its own <style data-tq-prepared-value-styles> text content on
+      // every commit. Those records are engine output, never a host signal.
+      const recordElement = record.type === "characterData"
+        ? record.target.parentElement
+        : record.target;
+      if (recordElement?.closest?.("[data-tq-prepared-value-styles]")) continue;
+      const custodyParagraph = this.#custodyParagraphFor(record.target);
+      if (custodyParagraph) {
+        // CustodyCharacterDataIsHostCertain: the engine only moves whole
+        // nodes in and out of custody and never rewrites text inside it, so
+        // a characterData record there is a framework editing the original
+        // node it still holds. Taint directly. A childList record may be the
+        // engine's own re-take or rollback refill; the custody identity
+        // check in the probe tells them apart, so it only raises the flag.
+        if (record.type === "characterData") this.#contentTainted.add(custodyParagraph);
+        paragraphSignal = true;
+        continue;
+      }
+      const paragraph = recordElement?.closest?.(DEFAULT_PARAGRAPH_SELECTOR);
+      if (paragraph && belongsToRootScope(paragraph, this)) {
+        // TopLevelChildListTrustsIdentityProbe: engine commits append and
+        // remove a paragraph's direct children on every render, so a top-level
+        // childList record proves nothing by itself. The Kotlin classifier
+        // proves engine ownership by node identity. Only an in-place text
+        // edit, which child identity cannot see, taints its paragraph.
+        if (record.type === "characterData") this.#contentTainted.add(paragraph);
+        paragraphSignal = true;
+      } else if (record.type === "childList") {
+        // Records outside any paragraph (a host adding or removing paragraph
+        // wrappers or editing non-paragraph flow) change the candidate set.
+        structureSignal = true;
+      }
+    }
+    if (!paragraphSignal && !structureSignal) return;
+    this.#contentReconcileRequired = true;
+    if (structureSignal && (!this.#layoutWorkInFlight || this.#runtimeStateActive)) {
+      // StructureChangesCommitDirectly: a childList record outside every
+      // paragraph cannot be engine render output in the steady state, so no
+      // probe is needed and waiting for one would only delay candidate
+      // adoption. During initial enhancement the engine still installs its
+      // own scaffolding at root level, so an in-flight signal there keeps
+      // the probe path.
+      this.#scheduleResponsiveGeometryCommit();
+      return;
+    }
+    if (this.#layoutWorkInFlight) {
+      // MutationObserverDeliveryIsAsync: records land in a microtask after the
+      // engine's synchronous commit batch, so a captured job may already be
+      // rendering stale content. Probe drift read-only at the next frame; an
+      // engine-owned batch is disproven there without cancelling anything.
+      if (!this.#contentProbeFrame) {
+        const operation = this.#layoutOperation;
+        this.#contentProbeFrame = requestAnimationFrame(() => {
+          this.#contentProbeFrame = 0;
+          if (!this.isConnected || operation !== this.#layoutOperation) return;
+          this.#probeContentDrift();
+        });
+      }
+      return;
+    }
+    // EngineRecordsProvenIdleStayFree: a finished job's own records arrive in
+    // this microtask. Scheduling a commit on them alone would fire the width
+    // lane early and break the drag debounce, so prove host intent with the
+    // read-only probe first. Only real drift, taint or dead tracking schedules
+    // work; the probe clears the flag otherwise.
+    this.#probeContentDrift();
+  }
+
+  #probeContentDrift() {
+    // Mid-job takeovers publish fresh custody fragments; adopt them before
+    // reading custody identity so a host edit made during enhancement is
+    // already under observation when the probe runs.
+    this.#syncCustodyObservation();
+    const event = new CustomEvent("tiqian:probe-content-drift", { detail: { root: this } });
+    document.dispatchEvent(event);
+    let drift = null;
+    try {
+      drift = event.detail?.result ? JSON.parse(event.detail.result) : null;
+    } catch {
+      drift = null;
+    }
+    const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
+      (drift?.custody || 0);
+    const tainted = this.#contentTainted.size;
+    if (drifted === 0 && tainted === 0) {
+      // Engine-owned output disproven; nothing host-authored is pending.
+      this.#contentReconcileRequired = false;
+      return;
+    }
+    if (!this.#layoutWorkInFlight) {
+      this.#scheduleResponsiveGeometryCommit();
+      return;
+    }
+    // MidFlightHostEditCancelsCapturedJob: only a captured job is bound to a
+    // pre-edit snapshot. Uncaptured work lowers live content per slice and
+    // the finish funnel picks the edit up.
+    if (this.#layoutWorkUsesCapturedMeasure) {
+      this.#cancelCapturedLayoutForLatestGeometry();
+    }
+  }
+
+  #dispatchContentReconcile(paragraphs) {
+    if (!this.#runtimeStateActive) return false;
+    this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
+    this.#hasDispatched = true;
+    this.#acceptLayoutCompletion = true;
+    this.#ensureLayoutWorker();
+    const event = new CustomEvent("tiqian:reconcile-content", {
+      detail: { root: this, options: { paragraphs } },
+    });
+    document.dispatchEvent(event);
+    let outcome = null;
+    try {
+      outcome = event.detail?.result ? JSON.parse(event.detail.result) : null;
+    } catch {
+      outcome = null;
+    }
+    if (outcome?.outcome !== "work") {
+      // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
+      // or touched nothing tracked. Release the work slot without a ready
+      // round-trip so the next signal starts clean.
+      this.#finishLayoutWorkAndObserve();
+      // ReconcileAbsorbsLiveGeometry: a reconcile renders at the live width,
+      // and an idle verdict certifies the current DOM as settled output for
+      // exactly this geometry. Earlier finishes that took responsive early
+      // returns never stored a paragraph baseline, so the commit fall-through
+      // would compare a stale signature and dispatch a phantom relayout.
+      this.#lastParagraphMeasures = this.#paragraphMeasureSignature();
+      this.#lastParagraphWidths = this.#paragraphWidthSignature();
+      return false;
+    }
+    this.#syncLayoutWorker();
+    return true;
   }
 
   #observeLayoutWorkInputs() {

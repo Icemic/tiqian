@@ -17,6 +17,7 @@ import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.shaping.web.WebFontFamilies
 import org.w3c.dom.DocumentFragment
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.Node
 import org.w3c.dom.events.Event
 
 /**
@@ -36,7 +37,7 @@ object TiqianWeb {
     // DetachedRootWeakOwnership: navigation can discard a rendered article
     // without reconstructing its semantic DOM. Weak ownership retains the
     // source fragments only if a host later reconnects that exact element.
-    private val states: dynamic = js("new WeakMap()")
+    internal val states: dynamic = js("new WeakMap()")
     internal val progressiveJobs = LinkedHashMap<HTMLElement, ProgressiveJob>()
     // Grants address jobs by generation: every started job increments this
     // counter and carries the value, so a grant built for an older job is
@@ -73,6 +74,14 @@ object TiqianWeb {
         document.addEventListener("tiqian:relayout", listener@{ event: Event ->
             val root = eventRoot(event) ?: return@listener
             relayout(root)
+        })
+        document.addEventListener("tiqian:reconcile-content", listener@{ event: Event ->
+            val root = eventRoot(event) ?: return@listener
+            setEventResult(event, reconcileContent(root, eventParagraphs(event)))
+        })
+        document.addEventListener("tiqian:probe-content-drift", listener@{ event: Event ->
+            val root = eventRoot(event) ?: return@listener
+            setEventResult(event, probeContentDrift(root))
         })
         document.addEventListener("tiqian:cancel-layout-work", listener@{ event: Event ->
             val root = eventRoot(event) ?: return@listener
@@ -340,7 +349,7 @@ object TiqianWeb {
         }
     }
 
-    private fun strandedSourceParagraphs(root: HTMLElement, state: RootState): List<HTMLElement> {
+    internal fun strandedSourceParagraphs(root: HTMLElement, state: RootState): List<HTMLElement> {
         val candidates = paragraphCandidates(root, state.options.paragraphSelector)
         if (state.paragraphs.isEmpty()) return candidates
         val renderedSources = HashSet<HTMLElement>(state.paragraphs.size * 2)
@@ -693,6 +702,14 @@ object TiqianWeb {
         val source: HTMLElement,
         val originalContent: DocumentFragment,
         val lowered: LoweredParagraph,
+        // RenderedContentInvariant: after every engine task boundary this list
+        // equals the live child nodes of [source]. A mismatch means the host
+        // mutated the paragraph, which is the signal content reconcile acts on.
+        var renderedNodes: List<Node> = emptyList(),
+        // CustodyContentInvariant: the same identity contract for the detached
+        // custody fragment. Frameworks keep references to the original nodes
+        // and edit them inside custody, where live-DOM observers never fire.
+        var custodyNodes: List<Node> = emptyList(),
         val originalRenderedAttribute: String?,
         val originalPreparedFlowAttribute: String?,
         val originalCanonicalSourceAttribute: String?,

@@ -17,6 +17,7 @@ import org.tiqian.web.TiqianWeb.ProgressiveJobKind
 import org.tiqian.web.TiqianWeb.SourceInlineSize
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.Node
 
 internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
     cancelProgressiveJob(job.state.root)
@@ -275,7 +276,63 @@ internal fun TiqianWeb.captureLiveParagraph(paragraph: EnhancedParagraph): LiveP
     while (paragraph.source.firstChild != null) {
         content.appendChild(paragraph.source.firstChild!!)
     }
+    stampRenderedContent(paragraph)
     return snapshot
+}
+
+/**
+ * RenderedContentInvariant bookkeeping. Every site that rewrites a
+ * paragraph's live children must end with this stamp so a later content
+ * reconcile can tell engine-owned output from a host mutation by identity.
+ */
+internal fun stampRenderedContent(paragraph: EnhancedParagraph) {
+    paragraph.renderedNodes = liveChildNodes(paragraph.source)
+}
+
+internal fun liveChildNodes(element: Node): List<Node> {
+    val nodes = ArrayList<Node>()
+    var child: Node? = element.firstChild
+    while (child != null) {
+        nodes.add(child)
+        child = child.nextSibling
+    }
+    return nodes
+}
+
+internal fun renderedContentMatches(paragraph: EnhancedParagraph): Boolean {
+    val recorded = paragraph.renderedNodes
+    var child: Node? = paragraph.source.firstChild
+    var index = 0
+    while (child != null) {
+        if (index >= recorded.size || recorded[index] !== child) return false
+        index += 1
+        child = child.nextSibling
+    }
+    return index == recorded.size
+}
+
+internal fun custodyContentMatches(paragraph: EnhancedParagraph): Boolean {
+    val recorded = paragraph.custodyNodes
+    var child: Node? = paragraph.originalContent.firstChild
+    var index = 0
+    while (child != null) {
+        if (index >= recorded.size || recorded[index] !== child) return false
+        index += 1
+        child = child.nextSibling
+    }
+    return index == recorded.size
+}
+
+/**
+ * CustodyContentInvariant bookkeeping, mirroring [stampRenderedContent]. Every
+ * site that rewrites the custody fragment must end with this stamp, and the
+ * stamp also publishes the fragment on the paragraph element so element.js can
+ * observe it. The engine only moves whole nodes in and out of custody, so a
+ * child-identity mismatch proves a host edit inside custody.
+ */
+internal fun stampCustodyContent(paragraph: EnhancedParagraph) {
+    paragraph.custodyNodes = liveChildNodes(paragraph.originalContent)
+    paragraph.source.asDynamic().__tqCustodyFragment = paragraph.originalContent
 }
 
 internal fun TiqianWeb.rollbackRelayoutSnapshots(snapshots: List<LiveParagraphSnapshot>) {
@@ -288,6 +345,7 @@ internal fun TiqianWeb.rollbackRelayoutSnapshots(snapshots: List<LiveParagraphSn
             while (paragraph.source.firstChild != null) {
                 paragraph.originalContent.appendChild(paragraph.source.firstChild!!)
             }
+            stampCustodyContent(paragraph)
         } else {
             while (paragraph.source.firstChild != null) {
                 paragraph.source.removeChild(paragraph.source.firstChild!!)
@@ -330,6 +388,7 @@ internal fun TiqianWeb.rollbackRelayoutSnapshots(snapshots: List<LiveParagraphSn
             HOST_INLINE_SIZE_ATTRIBUTE,
             snapshot.hostInlineSizeAttribute,
         )
+        stampRenderedContent(paragraph)
     }
 }
 
@@ -530,6 +589,19 @@ internal fun TiqianWeb.restoreParagraph(paragraph: EnhancedParagraph) {
         paragraph.source.removeChild(paragraph.source.firstChild!!)
     }
     paragraph.source.appendChild(paragraph.originalContent)
+    // The drain empties custody. Restamp so a paragraph that stays tracked
+    // through the relayout-unsupported window does not read as host drift.
+    stampCustodyContent(paragraph)
+    restoreEngineOwnedParagraphShell(paragraph)
+    stampRenderedContent(paragraph)
+}
+
+/**
+ * Restores the paragraph element's attributes and inline style entries the
+ * engine overwrote during takeover. Shared by the custody restore path and
+ * the content-reconcile path that keeps host-mutated live children.
+ */
+internal fun TiqianWeb.restoreEngineOwnedParagraphShell(paragraph: EnhancedParagraph) {
     restoreAttribute(paragraph.source, "data-tq-rendered", paragraph.originalRenderedAttribute)
     restoreAttribute(
         paragraph.source,

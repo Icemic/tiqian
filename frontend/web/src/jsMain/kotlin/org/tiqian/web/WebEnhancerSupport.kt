@@ -161,6 +161,8 @@ internal class ExactSessionBrowserFallbackFontMetricsResolver(
 internal external fun eventRoot(event: Event): HTMLElement?
 @JsFun("(event) => event.detail && event.detail.paragraph ? event.detail.paragraph : null")
 internal external fun eventParagraph(event: Event): HTMLElement?
+@JsFun("(event) => event.detail && event.detail.options && Array.isArray(event.detail.options.paragraphs) ? event.detail.options.paragraphs : []")
+internal external fun eventParagraphs(event: Event): Array<HTMLElement>
 @JsFun("(event) => event.detail && event.detail.options ? event.detail.options : null")
 internal external fun eventOptions(event: Event): JsAny?
 @JsFun("(event, value) => { if (event.detail) event.detail.result = value; }")
