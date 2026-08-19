@@ -6,6 +6,18 @@ import { fileURLToPath } from "node:url";
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const TOTAL_EXPECTED_PROSE_ELEMENTS = 12;
 
+// A CDP response can be dropped silently when the page's execution context
+// is destroyed mid-evaluate, leaving the caller pending forever and hanging
+// the whole suite. Every remote call gets a hard deadline; a timeout fails
+// the test with the culprit method instead of wedging.
+const withTimeout = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+
 class CdpClient {
   constructor(wsUrl) {
     this.wsUrl = wsUrl;
@@ -15,7 +27,7 @@ class CdpClient {
   }
 
   async connect() {
-    return new Promise((resolve, reject) => {
+    return withTimeout(new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = () => resolve();
       this.ws.onerror = (err) => reject(err);
@@ -31,15 +43,15 @@ class CdpClient {
           }
         }
       };
-    });
+    }), 15000, "cdp connect");
   }
 
   async send(method, params = {}) {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return withTimeout(new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws.send(JSON.stringify({ id, method, params }));
-    });
+    }), 30000, `cdp ${method}`);
   }
 
   async evaluate(expression) {
@@ -59,63 +71,80 @@ class CdpClient {
   }
 }
 
-async function ensureServerRunning() {
-  try {
-    const res = await fetch("http://localhost:8888/", { method: "HEAD" });
-    if (res.ok) return null;
-  } catch {}
+// Hermetic setup on dedicated ports, matching the other suite files. The old
+// discovery form (reuse any server on 8888, reuse any browser on 9222, else
+// spawn on 9444) let orphans from earlier runs poison this file: a stale
+// server was reused with unknown build state, and an orphan holding the IPv4
+// debug port made Chromium fall back to binding ::1 only, wedging the test.
+const demoPort = 8990;
+const cdpPort = 9980;
+const demoUrl = `http://127.0.0.1:${demoPort}/`;
 
-  const serverProc = spawn("bun", ["run", "start"], {
+async function startDemoServer() {
+  const portBusy = await fetch(demoUrl).then(() => true, () => false);
+  if (portBusy) {
+    throw new Error(`Port ${demoPort} is already in use; a leftover server must be stopped first`);
+  }
+
+  // --no-hmr: the suite server is cold when the page first loads, and a late
+  // HMR push reloads the page mid-test, dropping in-flight CDP evaluate
+  // responses. The test needs a static dev server, not live reloading.
+  const serverProc = spawn("npx", [
+    "parcel",
+    "index.html",
+    "--port",
+    String(demoPort),
+    "--no-hmr",
+    "--no-cache",
+  ], {
     cwd: webDemoDir,
     stdio: "ignore",
+    detached: true,
   });
 
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 120; i++) {
     try {
-      const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+      const res = await fetch(demoUrl, { method: "HEAD" });
       if (res.ok) return serverProc;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  try { process.kill(-serverProc.pid, "SIGKILL"); } catch {}
+  serverProc.kill();
+  throw new Error(`Failed to start web demo server on port ${demoPort}`);
+}
+
+async function launchBrowserAndGetPage() {
+  const serverProc = await startDemoServer();
+
+  const chromeProc = spawn("chromium", [
+    "--headless=new",
+    `--remote-debugging-port=${cdpPort}`,
+    "--no-sandbox",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    demoUrl,
+  ], { stdio: "ignore", detached: true });
+
+  for (let i = 0; i < 75; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
+      if (res.ok) break;
     } catch {}
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  serverProc.kill();
-  throw new Error("Failed to start web demo server on port 8888");
-}
-
-async function getOrLaunchBrowser() {
-  const serverProc = await ensureServerRunning();
-
-  let port = 9222;
-  let chromeProc = null;
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`);
-    if (!res.ok) throw new Error("not ready");
-  } catch {
-    port = 9444;
-    chromeProc = spawn("chromium", [
-      "--headless=new",
-      `--remote-debugging-port=${port}`,
-      "--no-sandbox",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-      "http://localhost:8888/",
-    ], { stdio: "ignore" });
-
-    for (let i = 0; i < 30; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
-        if (res.ok) break;
-      } catch {}
-      await new Promise((r) => setTimeout(r, 200));
-    }
-  }
-
-  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const listRes = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/list`), 10000, "json/list");
   const targets = await listRes.json();
-  let page = targets.find((t) => t.type === "page" && t.url.includes("localhost:8888"));
+  let page = targets.find((t) => t.type === "page" && t.url.includes(`127.0.0.1:${demoPort}`));
 
   if (!page) {
-    const newTargetRes = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
+    const newTargetRes = await withTimeout(
+      fetch(`http://127.0.0.1:${cdpPort}/json/new?${demoUrl}`, { method: "PUT" }),
+      10000,
+      "json/new",
+    );
     page = await newTargetRes.json();
   }
 
@@ -128,12 +157,17 @@ async function getOrLaunchBrowser() {
 }
 
 test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
-  const { cdp, chromeProc, serverProc } = await getOrLaunchBrowser();
+  const { cdp, chromeProc, serverProc } = await launchBrowserAndGetPage();
 
   t.after(() => {
     cdp.close();
-    chromeProc?.kill();
-    serverProc?.kill();
+    // Group SIGKILL: a plain SIGTERM to the wrapper pid leaves the browser
+    // alive holding its debug port, which poisons later runs.
+    for (const proc of [chromeProc, serverProc]) {
+      if (!proc?.pid) continue;
+      try { process.kill(-proc.pid, "SIGKILL"); } catch {}
+      try { process.kill(proc.pid, "SIGKILL"); } catch {}
+    }
   });
 
   // Helper to wait for all prose elements to settle to current container width
