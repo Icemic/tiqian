@@ -210,7 +210,26 @@ const OFFSCREEN_DEBOUNCE_MS = 200;
 // milliseconds on the coarse clock, so a sub-millisecond remainder could
 // admit many cheap paragraphs in one grant. The quota caps a grant by
 // paragraph count.
-const WORKER_GRANT_QUOTA = 8;
+//
+// AdaptiveGrantQuota: the quota is per root and moves with measured frame
+// cost. A commit's real bill lands after the slice returns: style, layout,
+// and accessibility work for the committed paragraphs settle natively in the
+// same task, so the deadline bounds only the JS part. The frame delta after
+// a committing frame measures the whole bill one frame late. A slow frame
+// (delta above the cadence by GRANT_QUOTA_SLOW_FRAME_RATIO) halves that
+// root's quota, a healthy frame (delta under the cadence by
+// GRANT_QUOTA_HEALTHY_FRAME_RATIO) raises it by one. Only roots that
+// committed in the previous frame are judged, so one heavy root converges to
+// small batches while its neighbours keep their headroom. Deltas outside
+// [GRANT_QUOTA_MIN_FRAME_DELTA, GRANT_QUOTA_MAX_FRAME_DELTA] judge nobody:
+// those gaps come from suspended tabs, not from layout work.
+const WORKER_GRANT_QUOTA_MAX = 8;
+const WORKER_GRANT_QUOTA_START = 2;
+const WORKER_GRANT_QUOTA_FLOOR = 1;
+const GRANT_QUOTA_SLOW_FRAME_RATIO = 1.5;
+const GRANT_QUOTA_HEALTHY_FRAME_RATIO = 1.1;
+const GRANT_QUOTA_MIN_FRAME_DELTA = 4.0;
+const GRANT_QUOTA_MAX_FRAME_DELTA = 150.0;
 
 // WorkerPolledScheduling: the coordinator owns every layout slice of an
 // attached root. Each slot caches liveness plus the three tier counters the
@@ -327,6 +346,7 @@ class TiqianLayoutCoordinator {
   #rafId = 0;
   #budgetMs = 6.0;
   #lastFrameTimestamp = 0;
+  #hasFrameTimestamp = false;
   #measuredFrameInterval = 16.67;
 
   #runFrameLoop = (now) => {
@@ -340,8 +360,11 @@ class TiqianLayoutCoordinator {
     // idle-frame escape kicked in. Scheduling pressure now expresses itself
     // by itself: a late frame starts late and the absolute deadline simply
     // covers less work.
-    if (this.#lastFrameTimestamp > 0) {
-      const frameDelta = now - this.#lastFrameTimestamp;
+    let frameDelta = 0;
+    // The explicit flag keeps the first delta at zero even when a host or
+    // test clock starts at exactly zero, so frame two gets a real verdict.
+    if (this.#hasFrameTimestamp) {
+      frameDelta = now - this.#lastFrameTimestamp;
       if (frameDelta > 4.0 && frameDelta < 150.0) {
         if (frameDelta < this.#measuredFrameInterval * 1.1) {
           this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
@@ -349,7 +372,9 @@ class TiqianLayoutCoordinator {
       }
     }
     this.#lastFrameTimestamp = now;
+    this.#hasFrameTimestamp = true;
     this.#budgetMs = Math.min(6.0, Math.max(2.5, this.#measuredFrameInterval * 0.4));
+    this.#applyGrantQuotaFeedback(frameDelta);
 
     const allTasks = Array.from(this.#callbacks.values());
     this.#callbacks.clear();
@@ -453,6 +478,32 @@ class TiqianLayoutCoordinator {
     if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
   }
 
+  // AdaptiveGrantQuota feedback pass: the constant block above holds the
+  // full contract. This runs before any task or grant of the new frame, so
+  // the quota a grant reads already carries the previous frame's verdict.
+  // The verdict is per slot but the frame delta is shared: native follow-up
+  // cost cannot be split by root, so every root that committed in the slow
+  // frame is judged. An innocent neighbour recovers its headroom at one
+  // quota step per frame.
+  #applyGrantQuotaFeedback(frameDelta) {
+    if (frameDelta <= GRANT_QUOTA_MIN_FRAME_DELTA) return;
+    if (frameDelta >= GRANT_QUOTA_MAX_FRAME_DELTA) return;
+    const slowFrame = frameDelta > this.#measuredFrameInterval * GRANT_QUOTA_SLOW_FRAME_RATIO;
+    const healthyFrame = !slowFrame &&
+      frameDelta < this.#measuredFrameInterval * GRANT_QUOTA_HEALTHY_FRAME_RATIO;
+    if (!slowFrame && !healthyFrame) return;
+    const committingFrame = this.#frameCounter - 1;
+    for (let i = 0; i < this.#workerSlots.length; i++) {
+      const slot = this.#workerSlots[i];
+      if (slot.lastGrantFrame !== committingFrame) continue;
+      if (slowFrame) {
+        slot.quota = Math.max(WORKER_GRANT_QUOTA_FLOOR, Math.floor(slot.quota / 2));
+      } else {
+        slot.quota = Math.min(WORKER_GRANT_QUOTA_MAX, slot.quota + 1);
+      }
+    }
+  }
+
   requestFrame(callback, element = null) {
     const existing = this.#callbacks.get(callback);
     const task = {
@@ -513,6 +564,7 @@ class TiqianLayoutCoordinator {
       deferredUntil: 0,
       deferCount: 0,
       lastGrantFrame: -1,
+      quota: WORKER_GRANT_QUOTA_START,
     });
   }
 
@@ -641,7 +693,7 @@ class TiqianLayoutCoordinator {
         // paragraph quota. The closure captures only those numbers, never
         // coordinator state, so the runtime can reach no other root through
         // a grant. The loop asks shouldStop after each paragraph and obeys.
-        const quota = WORKER_GRANT_QUOTA;
+        const quota = slot.quota;
         const processed = slot.runtime.workerRunSlice({
           root: slot.element,
           generation: slot.generation,
