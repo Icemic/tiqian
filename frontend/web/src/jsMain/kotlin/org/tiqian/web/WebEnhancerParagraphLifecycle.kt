@@ -111,6 +111,7 @@ internal fun TiqianWeb.runProgressiveSlice(
     val itemTierIndex = job.itemTierIndex
     val gate = if (job.coordinated) minTier.coerceIn(1, PROGRESSIVE_TIER_COUNT) else PROGRESSIVE_TIER_COUNT
     try {
+        val sliceStartIndex = job.nextIndex
         var index = job.nextIndex
         while (index < job.itemCount) {
             if (done != null) {
@@ -140,9 +141,19 @@ internal fun TiqianWeb.runProgressiveSlice(
         // is not done, so nextIndex parks on it and the next slice rechecks
         // its tier. Jobs without done tracking advance monotonically; the
         // skip loop below does not run for them.
+        //
+        // TierGatedItemKeepsJobOpen: the tier gate advances the cursor past
+        // items it declined to run, so a slice that walks to itemCount
+        // without breaking would otherwise finish the job over those items.
+        // They were never committed, yet the ready event would report a
+        // complete non-stale relayout and no follow-up job would ever come.
+        // Park on the first not-done item by scanning back from where the
+        // slice started, not forward from where the cursor stopped.
         job.nextIndex = index
-        while (done != null && job.nextIndex < job.itemCount && done[job.nextIndex]) {
-            job.nextIndex += 1
+        if (done != null) {
+            var parked = sliceStartIndex
+            while (parked < job.itemCount && done[parked]) parked += 1
+            job.nextIndex = parked
         }
     } catch (error: Throwable) {
         job.onFailure?.invoke()

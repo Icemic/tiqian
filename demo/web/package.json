@@ -12,6 +12,7 @@
     "@tiqian/prose": "file:../../frontend/web/npm"
   },
   "devDependencies": {
-    "parcel": "^2.16.4"
+    "parcel": "^2.16.4",
+    "process": "^0.11.10"
   }
 }

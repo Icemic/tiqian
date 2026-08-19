@@ -55,6 +55,20 @@ class TiqianWebProgressiveRelayoutTest {
         return slices
     }
 
+    // One grant whose quota and deadline never bite, so the slice loop walks to
+    // itemCount instead of breaking on shouldStop. That walk is where a
+    // tier-gated item must survive: the gate advances the cursor without
+    // marking the item done, and the job may only finish when nothing is left.
+    private fun grantUnboundedSlice(root: HTMLElement, minTier: Int): Int {
+        val controller = testGrantController(
+            root,
+            with(TiqianWeb) { workerJobGeneration(root) },
+            Double.MAX_VALUE,
+            Int.MAX_VALUE,
+        )
+        return with(TiqianWeb) { workerRunSlice(controller, minTier) }
+    }
+
     @Test
     fun negativeGapAfterMultiCharacterRunUsesOverlapInsteadOfBeingDropped() {
         assertEquals(DomRunSpacing.Overlap(-9f), resolveDomRunSpacing("C++", -9f))
@@ -641,6 +655,79 @@ class TiqianWebProgressiveRelayoutTest {
             paragraphs[index].firstChild !== previousChildren[index]
         })
         assertEquals(1, relayoutReadyCount)
+    }
+
+    @Test
+    fun sliceWalkingPastTierGatedParagraphKeepsJobOpenInsteadOfAbandoningIt() {
+        // TierGatedItemKeepsJobOpen: reproduces the stuck one-cell-width
+        // sidebar paragraph. A narrow-dwell job commits every paragraph at the
+        // narrow width; the follow-up wide job then sees one of them flipped
+        // to a far tier. A granted slice that walks past that gated item
+        // without breaking must keep the job open — finishing it there
+        // strands the narrow commit forever with a stale=false ready event,
+        // and no later job ever comes because the host width is stable.
+        val source = "拖动经过窄区后回宽，被门槛挡住的段落不能被当作完成遗弃。".repeat(3)
+        val markup = (0 until 3).joinToString("") { "<p>$source</p>" }
+        val root = mount("<div data-tiqian-root='true' style='width: 320px'>$markup</div>")
+        TiqianWeb.install()
+        assertEquals(3, TiqianWeb.enhance(root, testOptions()))
+        val paragraphs = (0 until 3).map { index ->
+            root.querySelectorAll("p").item(index) as HTMLElement
+        }
+        val wideSignatures = paragraphs.map { renderedLineSignature(it) }
+        var relayoutReadyCount = 0
+        var staleReadyCount = 0
+        root.addEventListener("tiqian:relayout-ready", { event ->
+            relayoutReadyCount += 1
+            if (relayoutEventIsStale(event)) staleReadyCount += 1
+        })
+
+        installTestAnimationFrames()
+        attachWorker(root)
+
+        // Narrow dwell: every paragraph commits at the narrow width.
+        root.style.width = "120px"
+        dispatchRelayout(root)
+        runWorkerJobToCompletion(root)
+        assertEquals(1, relayoutReadyCount)
+        val narrowChildren = paragraphs.map { paragraph -> assertNotNull(paragraph.firstChild) }
+        assertTrue(paragraphs.indices.all { index ->
+            renderedLineSignature(paragraphs[index]) != wideSignatures[index]
+        })
+
+        // Back to wide. The middle paragraph is offscreen for the coordinator.
+        root.style.width = "320px"
+        dispatchRelayout(root)
+        assertTrue(with(TiqianWeb) { workerSetParagraphTier(root, 1, 3) })
+
+        // One unbounded slice walks item 0, gates item 1, walks item 2.
+        val committed = grantUnboundedSlice(root, minTier = 1)
+        assertEquals(2, committed)
+
+        // The gated paragraph must keep the job open; it must not be reported
+        // as a completed (stale=false) relayout while still narrow.
+        assertTrue(
+            with(TiqianWeb) { workerHasJob(root) },
+            "a tier-gated paragraph must keep its job open instead of being abandoned as finished",
+        )
+        assertEquals(0, staleReadyCount)
+        assertEquals(1, relayoutReadyCount)
+        assertEquals(1, with(TiqianWeb) { workerPendingInTier(root, 3) })
+        assertTrue(paragraphs[1].firstChild === narrowChildren[1])
+        assertTrue(paragraphs[0].firstChild !== narrowChildren[0])
+        assertTrue(paragraphs[2].firstChild !== narrowChildren[2])
+
+        // A later grant with a wider gate reaches the gated paragraph, and
+        // only then does the job finish.
+        grantUnboundedSlice(root, minTier = 3)
+        assertFalse(with(TiqianWeb) { workerHasJob(root) })
+        assertEquals(2, relayoutReadyCount)
+        assertEquals(0, staleReadyCount)
+        assertTrue(paragraphs[1].firstChild !== narrowChildren[1])
+        assertEquals(wideSignatures[1], renderedLineSignature(paragraphs[1]))
+        assertTrue(paragraphs.indices.all { index ->
+            renderedLineSignature(paragraphs[index]) == wideSignatures[index]
+        })
     }
 
     @Test
