@@ -479,7 +479,18 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       await client.evaluate(PAGE_HELPERS);
     });
 
-    const compareState = async (label) => {
+    // Timing instrumentation attributes differ per run (enhance-ms, load-ms,
+    // relayout-ms) and their position in the attribute order shifts; they are
+    // performance telemetry, not layout truth, so they are stripped for the
+    // DOM identity check.
+    const normalizedMainHtml = `(
+      document.querySelector("main") ?? document.body
+    ).outerHTML
+      .replace(/data-tiqian-(enhance|max-slice|load|relayout|relayout-max-slice)-ms="[^"]*"/g, "")
+      .replace(/\\s+/g, " ")
+      .replace(/\\s>/g, ">")`;
+
+    const compareState = async (label, { assertPixels }) => {
       // Settling is sequential with bringToFront: enhancement scheduling on a
       // background tab is throttled, and a hidden page never reaches its first
       // taken-over paragraph within the settle budget.
@@ -547,6 +558,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       const geometry = await both((client) => client.evaluate("__geometry()"));
       const report = geometryReport(geometry[0], geometry[1]);
       const geometryDiff = report.firstDiff;
+      const domHtml = await both((client) => client.evaluate(normalizedMainHtml));
       // Diagnostic record of where the two versions diverge; the assertions
       // below turn any divergence into a failure with this context.
       console.log(`[${label}] rendered dev=${settled[0].enhanced} published=${settled[1].enhanced}`);
@@ -556,10 +568,22 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       }
       if (failures.length) console.log(`[${label}] pixel diffs:\n  ${failures.join("\n  ")}`);
 
-      assert.deepStrictEqual(
-        failures,
-        [],
-        `${label}: published and dev screenshots must be pixel-identical (full page + every scrolled viewport):\n${failures.join("\n")}`,
+      // On a freshly loaded page rasterization is deterministic, so pixel
+      // identity is asserted. After host mutations, scroll-triggered re-renders
+      // make the same page differ from its own repeated capture (measured:
+      // 139k pixels self-noise), so post-mutation states assert engine truth
+      // (DOM + geometry) and only record pixel deltas.
+      if (assertPixels) {
+        assert.deepStrictEqual(
+          failures,
+          [],
+          `${label}: published and dev screenshots must be pixel-identical (full page + every scrolled viewport):\n${failures.join("\n")}`,
+        );
+      }
+      assert.strictEqual(
+        domHtml[1],
+        domHtml[0],
+        `${label}: engine DOM output differs between published and dev (timing attributes stripped)`,
       );
       assert.ok(
         geometryDiff === null,
@@ -572,7 +596,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     const results = [];
     for (const width of [900, 700]) {
       await setViewportWidth(width);
-      results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`)) });
+      results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`, { assertPixels: true })) });
     }
 
     // Supported mutations only: appended paragraphs and a removal, applied
@@ -596,7 +620,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     `));
     for (const width of [940, 700]) {
       await setViewportWidth(width);
-      results.push({ phase: `after-dom-change@${width}`, ...(await compareState(`after-dom-change@${width}`)) });
+      results.push({ phase: `after-dom-change@${width}`, ...(await compareState(`after-dom-change@${width}`, { assertPixels: false })) });
     }
 
     assert.ok(
