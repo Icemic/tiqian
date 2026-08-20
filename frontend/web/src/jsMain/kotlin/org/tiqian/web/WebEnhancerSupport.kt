@@ -243,10 +243,12 @@ internal external fun paragraphViewportDistance(element: HTMLElement): Double
     }""",
 )
 internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLElement): Boolean
-// CssFragmentedBlockInlineMeasure: getBoundingClientRect() unions every CSS
-// multi-column fragment and therefore grows horizontally with the number of
-// occupied columns. A paragraph is still laid out against one fragmentainer;
-// use the widest live fragment as its stable horizontal border-box measure.
+// CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width — for
+// a block fragmented by CSS columns this is the union of every fragment, not
+// a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
+// detection, where the union error is dwarfed by the tolerance (see the ADR
+// 0039 fractional fragment-aware amendment). A caller that needs the widest
+// live fragment must use the elementContentWidth pattern below instead.
 @JsFun(
     """(element) => {
       if (!element) return 0;
