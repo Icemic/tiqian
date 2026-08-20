@@ -64,7 +64,8 @@ Rust 侧分两个 Cargo workspace，都在 `frontend` 下。`frontend/rust` 持�
 - `tiqian-<platform>` 四个平台 crate：内含对应平台的静态库与头文件，`build.rs` 输出链接参数，
   由 `tiqian` 以 target-specific dependency 声明，cfg 谓词包含 arch 与 `target_env`。未覆盖
   目标（如 `x86_64-apple-darwin`、musl Linux）得到占位实现，调用时报具名错误。
-- `tiqian-precompute`：字体会话与编排。字体会话复刻 `precompute-fonts.js`：原生 HarfBuzz、
+- `tiqian-precompute`：字体会话与编排。字体会话复刻 `precompute-fonts.js`：harfrust
+  shaping、
   WOFF2 解码、face 选择、unicode-range 匹配与回放证据。face 选择与 unicode-range 匹配属于
   CSS `@font-face` 的证据职责，复刻现有 JS 行为；字体 fallback policy 仍在 Kotlin `font`
   模块。编排覆盖 `precompute.js`、`prepared-dom.js`、`snapshot-manifest.js`、
@@ -76,11 +77,29 @@ Rust 侧分两个 Cargo workspace，都在 `frontend` 下。`frontend/rust` 持�
   Neon 打包与 CI 配置沿用同维护者 blurest 仓库验证过的 `neon dist` 与 `neon show ci github`
   流程。
 
-HarfBuzz 用 `harfbuzz-sys`，关闭默认 feature、启用 `bundled` 从内嵌源码编译，并固定到
-`harfbuzzjs` 1.4.0 内嵌的同一上游版本；harfbuzz-sys 各 release 的内嵌副本无法对齐时 fork
-维护。WOFF2 用 `woff2` crate；HTML 解析用 `html5ever`。`harfbuzzjs`、`woff2-encoder`、
-`linkedom` 三个 npm 依赖随之删除。Kotlin 引擎侧保持零字体依赖。排版规则仍全部在 Kotlin
-核心，Rust 只承担 ADR 0001 平台 adapter 契约允许的平台层职责：字体加载、shaping 与度量。
+Shaping 用 `harfrust`，metrics 与 extents 用 `skrifa` / `read-fonts`，WOFF2 解码用
+`wuff`。四者都是纯 Rust 实现，构建不需要 C/C++ 工具链。采用版本 harfrust 0.13.0、
+skrifa 0.46、read-fonts 0.43、wuff 0.2，前三者共用同一 read-fonts 版本。依据是
+2026-08-20 的差分测试（见
+[docs/research/2026-08-20-harfbuzz-version-differential.md](../research/2026-08-20-harfbuzz-version-differential.md)）：
+
+- HarfBuzz 8.4 到 14.2.1 的输出逐字段一致。跨版本没有风险，将来若回到 C 路线，
+  `harfbuzz-sys` 直接可用。
+- rustybuzz 的输出同样一致，但它的仓库已于 2026-07-26 归档，不再维护。
+- 静态字体与可变字体上 harfrust 0.13.0 与 skrifa 的全部字段与 oracle 逐字一致。extents
+  按字形来源分派：静态 TrueType 读 glyf 头盒，CFF 与变实例坐标走轮廓包围盒。
+- WOFF2 解码器选 `wuff` 0.2。`woff2` crate 0.3 自 2022-05 起无维护，并且严格校验
+  header 的 `totalCompressedSize`，拒绝 `woff2-encoder` 生成且其自身可解的文件。
+  `wuff` 解同一文件的输出与 JS 侧 wasm 解码器字节一致（sha256 相同）。依赖里的
+  `bytes =1.9.0` 锁随 `woff2` crate 一并移除。
+
+snapshot evidence 的 `harfbuzzVersion` 只校验同一 manifest 内条目一致
+（`SnapshotFontEvidenceVersionConflict`）。Rust 侧报告自己的引擎标识与版本，同一
+snapshot 不混入两个引擎的证据。升级 harfrust 或 skrifa 后重跑 `LegacyJsOracleCutover`
+定义的差分 harness。HTML 解析用
+`html5ever`。`harfbuzzjs`、`woff2-encoder`、`linkedom` 三个 npm 依赖随之删除。
+Kotlin 引擎侧保持零字体依赖。排版规则仍全部在 Kotlin 核心，Rust 只承担 ADR 0001
+平台 adapter 契约允许的平台层职责：字体加载、shaping 与度量。
 
 ### `PackedFfiCalls`：打包 FFI 数据与调用预算
 
@@ -108,16 +127,16 @@ plan 序列化不在本 ADR 范围内。
 Neon 边界以字节为主。prepared DOM、bundle 与缓存条目经 Node Buffer 传输，缓存命中条目不经过
 JS 字符串编码；输入侧 HTML 与文本仍为 JS 字符串，napi 转换一次。
 
-并发契约：字体会话的 face 数据只读共享，shaping 线程各建 HarfBuzz font 实例。批处理入口在
+并发契约：字体会话的 face 数据只读共享，shaping 线程各建 shaper 实例。批处理入口在
 Rust 线程池并行执行，结果按输入顺序返回。入口保持同步语义，与现有 precompute API 一致。
 
 ### `StaticVendoredLinkage`：全部静态链接，禁止系统探测
 
-所有原生依赖 vendored 源码构建并静态链入。HarfBuzz 与 WOFF2 经 cc 从内嵌源码编译；SQLite
-缓存后端在启用 cargo feature 时经 rusqlite bundled 静态链入；非 Apple 平台静态链入 C++
-运行时，Apple 平台沿用系统 libc++ 基线。构建禁用 pkg-config 与运行时 dlopen 探测。CI 对
-每个平台产物执行 `ldd` / `dumpbin` 审计，动态依赖只允许 OS 基线库，出现 fontconfig、
-freetype、harfbuzz 系统库即失败。
+shaping（`harfrust`）、metrics（`skrifa` / `read-fonts`）、WOFF2 解码（`wuff`）均为
+纯 Rust 实现，无 C/C++ 构建依赖。SQLite 缓存后端在启用 cargo feature 时经 rusqlite
+bundled 静态链入，是唯一的原生编译依赖。构建禁用 pkg-config 与运行时 dlopen 探测。
+CI 对每个平台产物执行 `ldd` / `dumpbin` 审计，动态依赖只允许 OS 基线库，出现
+fontconfig、freetype、harfbuzz、sqlite 系统库即失败。
 
 Windows 静态库链接必须最先完成验证。Kotlin/Native mingw 产物与 MSVC 工具链存在
 CRT 与运行时符号差异；MSVC 不兼容时 Windows 产物改用 GNU 工具链构建并在 CI 增加对应 job。
@@ -182,7 +201,7 @@ miss 处理。JS 车道统一 key 语义与条目格式；存储机制（原子�
 自选实现。站点的外层 bundle 组织（identity 索引、按需重建）不在契约范围内。
 
 context 由 `engine` 与 `user` 两部分组成。`engine` 由 Rust 计算：layout / render / backend
-revision、HarfBuzz 版本、解析后 face 集合的指纹与 typography。face 指纹覆盖字体二进制与
+revision、shaping 引擎版本（Rust 侧为 `harfrust` 版本标识）、解析后 face 集合的指纹与 typography。face 指纹覆盖字体二进制与
 `@font-face` 描述符（family、style、weight、unicode-range、publicUrl），集成作者无需自算
 字体 CSS hash。`user` 由调用者提供，内容不透明，用于其自身投影代码与常量的失效。
 
@@ -201,8 +220,10 @@ prepare。
 
 1. Rust 侧与 JS 侧并行存在。差分 harness 以 `tiqian-precompute` 的 cargo 集成测试承载，
    语料期望值由现行 Kotlin/JS npm 产物生成并入库；语料为 npm 测试语料、layout golden 语料与
-   两个站点的正文。比对前 harness 先断言两侧 layout / render / backend revision 与 HarfBuzz
-   版本串逐字相等，再逐层比对 shaping 证据、plan JSON、prepared DOM、manifest 与 bundle。
+   两个站点的正文。比对前 harness 先断言两侧 layout / render / backend revision 逐字相等；
+   shaping 引擎标识两侧按设计不同（JS 侧 `harfbuzzjs` 版本、Rust 侧 `harfrust` 标识），
+   属差异豁免字段。此后逐层比对 shaping 证据、plan JSON、prepared DOM、manifest 与 bundle，
+   豁免清单为引擎标识字段。
    byte-identical 按 canonical 序列化定义：字段顺序、浮点格式与 DOM 属性顺序由契约固定；
    浮点序列化在 Kotlin/JS 与 Kotlin/Native 间的差异是首要核对项。harness 发现差异
    时先判断属于格式还是语义：格式差异修 canonical 层，语义差异阻塞。门槛按最终支持平台全集计算；
@@ -215,6 +236,11 @@ oracle 期间 Rust 侧逐字复用 `snapshot-schema.js` 的既有 revision 常�
 常量在 `@tiqian/prose` 与 Rust 侧各持一份声明，npm 测试断言两侧相等；`@tiqian/prose` 不依赖
 `@tiqian/precompute`，浏览器包不引入原生依赖。`snapshot-schema.js` 还定义 replay key 函数，
 Rust 会话产出相同的 replay key，该层一致性由差分 harness 与共享 golden 覆盖。
+字体会话层的 parity 由 `tiqian-precompute` 的 `js_session_parity` 集成测试承载。同一
+case matrix 分别经 Rust 会话与 Node 下的 `precompute-fonts.js` 执行，两侧输出 JSON
+逐字节比对。2026-08-20 起矩阵全绿：六个会话（含四个错误路径与 session 计数器语义）、
+22 次 shape、10 次 metrics、renderFamilies、beginCapture 与 evidence 捕获，豁免字段
+仅 `harfbuzzVersion`。
 
 迁移完成后 prepared DOM lowering 有 Rust 与浏览器 JS 两份实现。共享 golden 语料常驻双向
 断言：`cargo test` 与 npm 测试对同一语料断言字节一致，取代 ADR 0040 的单文件共享不变量。
@@ -247,8 +273,8 @@ Rust 会话产出相同的 replay key，该层一致性由差分 harness 与共�
 - **全平台二进制打包进单一 crate。** 否决：crates.io 单包 10MB 上限，且所有用户全量下载全部平台。
 - **napi 回调式 JS cache adapter。** 否决理由见 `TwoLaneCacheContract`。
 - **字体会话留在 Kotlin/Native 内直接链接 HarfBuzz。** 否决：字体会话属于 precompute 消费层，
-  Rust 编排与缓存也消费同一会话；vtable 安装模式保持引擎与现有 JS 架构同构，HarfBuzz 版本
-  对齐只在 Rust 一处维护。
+  Rust 编排与缓存也消费同一会话；vtable 安装模式保持引擎与现有 JS 架构同构，shaping 引擎
+  版本只在 Rust 一处维护。
 - **backend 函数表按每次调用传参。** 否决：要求改动扁平 wire 签名并让每次调用携带函数表；
   全局安装与现行全局对象协议同构，只需一次安装。
 - **napi-rs 代替 Neon。** 否决：blurest 已在 CI 验证 Neon 多平台发布流程；napi-rs 没有本
