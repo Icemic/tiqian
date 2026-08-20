@@ -343,6 +343,10 @@ lane（npm 生产路径与浏览器 worker）字节不变，只影响 JVM 与 Na
 - `tiqian` sys crate 在 `TIQIAN_NATIVE_LIB_DIR` 指向 Gradle `linkReleaseStatic*` 产物时
   链接真实引擎，`cargo test` 在 linux CI lane（`rust-engine-parity` job）跑通 plan parity。
   build script 对归档文件声明 `rerun-if-changed`，引擎归档重建后 cargo 侧强制重链接。
+- `EngineFfiModules` 落地：js 门面位于 `ffi/js`（bundle 名 `Tiqian-tiqian-ffi-js`），
+  `jsNodeTest`、npm runtime 组装任务与 parity oracle 的 bundle 路径同步；`ffi/native` 的
+  四个 `linkReleaseStatic*` 目标成为唯一 native 产物；`frontend/web-precompute` 只剩
+  Rust workspace、npm 包与 parity 脚本，不含 Kotlin。
 
 ## Alternatives considered
 
