@@ -238,7 +238,7 @@ oracle 期间 Rust 侧逐字复用 `snapshot-schema.js` 的既有 revision 常�
 Rust 会话产出相同的 replay key，该层一致性由差分 harness 与共享 golden 覆盖。
 字体会话层的 parity 由 `tiqian-precompute` 的 `js_session_parity` 集成测试承载。同一
 case matrix 分别经 Rust 会话与 Node 下的 `precompute-fonts.js` 执行，两侧输出 JSON
-逐字节比对。2026-08-20 起矩阵全绿：六个会话（含四个错误路径与 session 计数器语义）、
+逐字节比对。2026-08-20 起矩阵输出一致：六个会话（含四个错误路径与 session 计数器语义）、
 22 次 shape、10 次 metrics、renderFamilies、beginCapture 与 evidence 捕获，豁免字段
 仅 `harfbuzzVersion`。
 
@@ -263,6 +263,86 @@ case matrix 分别经 Rust 会话与 Node 下的 `precompute-fonts.js` 执行，
 - flake 开发环境引入 rust-overlay；linux 与 mingw 的 Kotlin/Native 目标为仓库首次启用。
 - 缓存契约成为公共 API。`CachedParagraph` 内部格式允许随 revision 演化，外部存储按不透明
   字节处理，格式变化经 key context 失效。
+
+## Amendment (2026-08-20)：引擎级 ABI 取代 precompute wire，出口归引擎层
+
+初版把 precompute wire 直接铺在 C ABI 上，`tiqian_precompute_paragraph` 用 15 个扁平参数
+加 U+001E/U+001D/U+001F 分隔符编码入参、plan JSON C 字符串出参。这让绑定层持有 precompute
+词汇，js 门面与 C ABI 门面留在 precompute 目录。本修订按当天的架构裁定重定层的边界。
+
+### `EngineLevelAbi`：`tiqian_layout_paragraph` 打包二进制协议
+
+- 废除初版「C ABI 保持现有 wire 契约」段与 `tiqian_precompute_paragraph`、
+  `tiqian_precompute_release_string` 两个符号。新符号为
+  `tiqian_layout_paragraph(const uint8_t* request, uintptr_t request_len,
+  uint8_t** response_out, uintptr_t* response_len, const char** error_out)` 与
+  `tiqian_release_buffer`。
+- 协议沿用 `tiqian_font_backend.h` 的形式：头文件 `tiqian_layout_abi.h` 是双侧单一事实源，
+  Rust 直接编译；Kotlin 侧常量镜像并以注释锚定，与 shaping 修订常量的既有形式一致。
+  缓冲区带 magic 与 protocol revision，版本化演进。
+- request 携带 `LayoutInput` 的引擎级字段：正文 UTF-8 字节、textStyle、paragraphStyle、
+  constraints、text spans、source boundaries、line-break spans、inline boxes。所有文本
+  索引按 UTF-16 code unit 定义，与引擎 `TextRange` 一致；Rust 侧不得按 UTF-8 重新编号。
+- response 是 plan JSON：UTF-8、NUL 结尾、nativeHeap 分配，经 `tiqian_release_buffer`
+  释放。plan JSON 的序列化只有 Kotlin 一份实现（`toPreparedParagraphJson`），prose 的
+  js 路径与 Rust 的原生路径共同消费。在 Rust 侧重写序列化被否决：双实现存在行为漂移
+  风险。这是本修订认可的唯一层间扭曲，引擎出口携带 web-core 的 plan JSON。浮点格式
+  经 Kotlin/JS 与 Kotlin/Native 两个编译后端，统一为 `PlanNumberCanonicalForm` 描述的
+  ECMAScript 形式。
+- `PackedFfiCalls` 中「plan JSON 保持单次返回的 C 字符串，Rust 解析一次」段继续有效。
+
+### `PrecomputeInRust`：precompute 词汇全部回到 Rust 消费侧
+
+初版把 wire 解析、入参校验与 `LayoutInput` 组装放在 Kotlin commonMain。修订后这三项移植为
+`tiqian-precompute` 的 Rust 代码：typed 请求结构、具名校验错误（错误名与 npm 测试断言
+一致）、ABI request 打包与调用。plan JSON 序列化留在 Kotlin 单点；Rust 侧只做反序列化，
+供后续 prepared DOM 下放消费，不提供发射器。分隔符 wire 解析不移植；该编码只在 js 门面
+内部继续服务浏览器路径。
+
+### `EngineFfiModules`：Kotlin FFI 门面归引擎层
+
+- `frontend/web-precompute` 的 Kotlin 全部迁出。C ABI 门面进入新模块 `ffi/native`，
+  四个 Kotlin/Native 目标与 `linkReleaseStatic*` 产物随之迁移；`tiqian_install_font_backend`
+  的重导出留在该模块。js 门面（`@JsExport`、wire、`HarfBuzzBuildBackend`）进入新模块
+  `ffi/js`，npm precompute-runtime 组装任务跟随。`frontend/web-precompute` 只保留
+  Rust workspace 与 npm 包，不再含一行 Kotlin。
+- `RustPrecomputeStack` 中「`frontend/rust` 持有中性引擎绑定」的表述修正为：`tiqian` crate
+  是 sys 绑定，声明 `tiqian_layout_abi.h` 的符号并链接平台静态库。ABI 升级为引擎级之后，
+  「绑定不依赖 web 概念」才真实成立。sys 层允许同时承载 web-core 契约的绑定，当前修订
+  未行使该许可；plan JSON 的 schema 常量在 `tiqian-precompute`。
+- precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定。Kotlin 出口与 sys 同属引擎
+  出口面，不留在 precompute 目录。
+
+### `JsTargetStaysBrowserSide`：LegacyJsOracleCutover 第 3 阶段修正
+
+初版第 3 阶段「删除 js 目标」与浏览器 `layout-worker.js` 的依赖冲突。修正为：js 目标长期
+保留，承担浏览器 exact-font 回退 worker 与 parity oracle 两个角色；删除的是 Node 生产路径
+对 js 产物的消费。`ffi/js` 模块因此是常驻出口，非过渡产物。
+
+### `PlanNumberCanonicalForm`：plan JSON 浮点统一为 ECMAScript 形式
+
+`appendJsonNumber` 原样使用 `Float.toString`，三个 Kotlin 后端输出三套字节：Kotlin/JS 打印
+f64 加宽值（`20.34000015258789`、整数无小数点），JVM 与 Kotlin/Native 打印 f32 最短形式
+（`20.34`、整数带 `.0`）。数值本身一致，分歧只在表示。修订后 plan 数字在 commonMain 单点
+规范化为 ECMAScript `Number::toString` 形式：位数取自 `Double.toString`，布局按 ECMA 阈值
+重排，末位从 Float 的精确十进制展开按 half-even 取整。选择 ECMAScript 形式使两个 JS 消费
+lane（npm 生产路径与浏览器 worker）字节不变，只影响 JVM 与 Native 输出；dtoa 库在精确
+十进制半值处的舍入差异由精确展开消除。JVM golden dump 不含 plan JSON，无 fixture
+变化。
+
+### Verification 增补
+
+- plan parity：同一语料经原生路径（Rust 打包 → ABI → 引擎 → Kotlin plan JSON）与 js oracle
+  （`precomputeParagraph` ESM bundle）双路输出字节一致，进入 `LegacyJsOracleCutover` 的
+  比对层清单。载体为 `tiqian-precompute` 的 `plan_parity` 集成测试与
+  `frontend/web-precompute/scripts/plan-parity-oracle.mjs`；两侧语料与 fixture 字体后端
+  数值一一对应，fixture 取自 `PrecomputeExportsTest` 的 canonical 数。2026-08-20 起
+  九个语料（标点压缩、中西混排、缩进、span、source boundaries、断行 policy、inline box、
+  ellipsis 回退、纯换行）字节一致；`plan_parity` 在无 oracle dump 时按理由跳过，
+  CI 以 `TIQIAN_REQUIRE_PARITY_ORACLE=1` 强制比对。
+- `tiqian` sys crate 在 `TIQIAN_NATIVE_LIB_DIR` 指向 Gradle `linkReleaseStatic*` 产物时
+  链接真实引擎，`cargo test` 在 linux CI lane（`rust-engine-parity` job）跑通 plan parity。
+  build script 对归档文件声明 `rerun-if-changed`，引擎归档重建后 cargo 侧强制重链接。
 
 ## Alternatives considered
 
