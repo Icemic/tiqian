@@ -546,6 +546,10 @@ test("prepared DOM carries only the supported proportional quote feature signatu
   );
   assert.match(lowered.html, /data-tq-open-type-features="pwid,palt"/u);
 
+  plan.lines[0].cells[0].openTypeFeatures = ["fwid"];
+  const fullWidth = renderPreparedParagraphArtifact(plan, "zh-Hans");
+  assert.match(fullWidth.html, /data-tq-open-type-features="fwid"/u);
+
   plan.lines[0].cells[0].openTypeFeatures = ["pwid"];
   assert.throws(
     () => renderPreparedParagraphArtifact(plan, "zh-Hans"),

@@ -333,6 +333,12 @@ function preparedSpacing(display, naturalWidth, trailingGap) {
   return { kind: "trailing-letter", px: trailingGap };
 }
 
+// The renderer replays exactly the feature sets the engine emits: Latin
+// curly quotes shape proportional (pwid,palt), CJK-context curly quotes
+// shape full-width (fwid, CjkContextCurlyQuoteFullWidthVariant). Any
+// other signature has no CSS replay rule and must not be silently painted.
+const PREPARED_OPEN_TYPE_FEATURE_SIGNATURES = new Set(["pwid,palt", "fwid"]);
+
 function preparedFeatureSignature(run) {
   return Array.from(run.openTypeFeatures ?? [], String).join(",");
 }
@@ -381,7 +387,9 @@ function renderRun(run, styleClassFor) {
     attributes["data-tq-shaping-boundary"] = "";
   }
   if (featureSignature) {
-    if (featureSignature !== "pwid,palt") throw new Error("UnsupportedPreparedOpenTypeFeatures");
+    if (!PREPARED_OPEN_TYPE_FEATURE_SIGNATURES.has(featureSignature)) {
+      throw new Error(`UnsupportedPreparedOpenTypeFeatures: ${featureSignature}`);
+    }
     attributes["data-tq-open-type-features"] = featureSignature;
   }
   if (run.source !== run.display) attributes["data-tq-src"] = run.source;

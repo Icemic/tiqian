@@ -34,6 +34,7 @@ const PARAGRAPH_CAPABILITY_ISSUES = [
   "MissingShapingFontEvidence",
   "EmptyParagraph",
   "SnapshotRenderFlowMismatch",
+  "UnsupportedPreparedOpenTypeFeatures",
 ];
 const SEMANTIC_CAPABILITY_ISSUES = [
   "UnsupportedSnapshotSemanticAttribute",
