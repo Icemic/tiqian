@@ -798,6 +798,8 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
   #connected = false;
+  #custodyReentry = false;
+  #detachAttributeSnapshot = null;
   #contentObserver = null;
   #custodyTargets = new Map();
   #contentProbeFrame = 0;
@@ -895,6 +897,10 @@ class TiqianProseElement extends HTMLElementBase {
   connectedCallback() {
     coordinator.register(this);
     this.#observeIntersection();
+    if (this.#canAdoptCustodyMoveReconnection()) {
+      this.#adoptCustodyMoveReconnection();
+      return;
+    }
     // ReconnectedSourceReclamation: detached roots keep their source backing in
     // weak runtime/snapshot state so navigation can discard them without
     // rebuilding an invisible old article. A real reconnection is the one case
@@ -1114,11 +1120,31 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   disconnectedCallback() {
+    this.#connected = false;
+    // CustodyMoveTeardownDeferral: React, Svelte and other reconcilers move a
+    // node by removing and re-inserting it inside one synchronous commit.
+    // Settling the disconnection synchronously destroys a rendered article
+    // that never left host custody, so the settle runs one microtask later.
+    // A same-task reconnection then re-enters the live lifecycle through
+    // CustodyMoveAdoption. A real navigation settles exactly as before, still
+    // before the next frame. The remount variant of
+    // resize-destroy-transient.test.mjs holds this contract.
+    this.#custodyReentry = true;
+    this.#detachAttributeSnapshot = TiqianProseElement.observedAttributes.map(
+      (name) => this.getAttribute(name),
+    );
+    queueMicrotask(() => {
+      this.#custodyReentry = false;
+      this.#detachAttributeSnapshot = null;
+      if (!this.isConnected) this.#settleDisconnection();
+    });
+  }
+
+  #settleDisconnection() {
     coordinator.unregister(this);
     coordinator.cancelFrame(this.#boundResponsiveCommit);
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
-    this.#connected = false;
     ++this.#generation;
     this.#enhanceRequest += 1;
     this.#layoutOperation += 1;
@@ -1153,6 +1179,42 @@ class TiqianProseElement extends HTMLElementBase {
     }
     this.#releaseExactFontSession();
     this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+  }
+
+  #canAdoptCustodyMoveReconnection() {
+    if (this.#connected || !this.#custodyReentry) return false;
+    if (!this.#runtimeStateActive || this.disabled) return false;
+    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+      // Snapshot custody keeps the restore and re-adopt path. Its backing is
+      // cheap to rebuild and shares document-scoped styles with the runtime.
+      return false;
+    }
+    const snapshot = this.#detachAttributeSnapshot;
+    if (snapshot == null) return false;
+    return TiqianProseElement.observedAttributes.every(
+      (name, index) => this.getAttribute(name) === snapshot[index],
+    );
+  }
+
+  // CustodyMoveAdoption: a reconnection inside the deferred settle window is
+  // a host custody move. The committed LayoutResult, the exact font session
+  // and any in-flight job stayed valid through the move, so only the
+  // observers and the geometry baseline need re-entry. A width change from
+  // the move routes through the responsive commit lane and relayouts in
+  // place; a changed font context routes through the typography check and
+  // refreshes from source. Observed attribute edits during the gap reject
+  // adoption and take the full restart path instead.
+  #adoptCustodyMoveReconnection() {
+    this.#custodyReentry = false;
+    this.#detachAttributeSnapshot = null;
+    this.#connected = true;
+    this.#ensureViewportResizeListener();
+    this.#observeWidth();
+    this.#observeTypography();
+    this.#observeContent();
+    this.#lastObservedWidth = fragmentedBorderBoxInlineSize(this);
+    this.#scheduleResponsiveGeometryCommit();
+    this.#scheduleTypographyCheck();
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
