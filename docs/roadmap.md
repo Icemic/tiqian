@@ -41,12 +41,20 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
 已经命名但尚未开工的候选：
 
 - `OpaqueInlineObjectGeometryInvalidation`：图片或静态 inline object 加载后几何变化时重新测量。
-- `JsWorkspaceMonorepo`：JS 包仓库重组（2026-08-20 记录）。`@tiqian/prose`、
+- `JsWorkspaceMonorepo`：JS 包仓库重组（2026-08-20 裁定）。`@tiqian/prose`、
   `@tiqian/precompute` 等包迁入统一 workspace，集中管理版本号、bump、lock 更新与发版，
   以 blurest 的 workspace 组织为参照；`frontend/web` 的 `src`、`npm`、`integrations`
   三目录收拢为对等源码布局；Rust 侧按 `tiqian-precompute-core` / `tiqian-precompute-binding`
-  命名分层。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录布局与命名不受它强制，
-  现行嵌套是各切片历史演化的结果。Slice 39 D 段移除 legacy JS precompute 后再评估动工。
+  命名分层。分层不变式：precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定；
+  Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 契约与
+  snapshot revision / replay 契约独立为 web-core，prose 与 precompute 共同依赖，
+  消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`frontend/rust` 同时
+  绑定引擎与 web-core，ABI 携带 web plan JSON 由此合法；除此之外各层不得互串，
+  `frontend/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
+  契约散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
+  ADR 0050 随重组出修订段。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录
+  布局与命名不受它强制。动工时机随 Slice 39 收尾确定，先于 Neon 编排接入可避免
+  在旧布局上加建。
 
 当前并行推进 **Slice 37：Compose 静态正文 selection**：只读 `CjkText` 已接入源忠实拖选、
 双击选词、三击选段、触摸长按、Foundation 平台手柄、Android 文本放大镜、系统 `ActionMode`
