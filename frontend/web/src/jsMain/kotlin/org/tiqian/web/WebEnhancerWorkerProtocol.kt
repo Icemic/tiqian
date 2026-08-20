@@ -1,7 +1,4 @@
-@file:OptIn(
-    kotlin.js.ExperimentalWasmJsInterop::class,
-    kotlin.js.ExperimentalJsExport::class,
-)
+@file:OptIn(kotlin.js.ExperimentalJsExport::class)
 
 package org.tiqian.web
 

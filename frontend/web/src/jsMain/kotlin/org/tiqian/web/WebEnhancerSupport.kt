@@ -3,7 +3,6 @@
 package org.tiqian.web
 
 import kotlin.JsFun
-import kotlin.js.JsAny
 import kotlin.js.js
 import org.tiqian.font.FontMetricsRequest
 import org.tiqian.font.FontMetricsResolver
@@ -163,18 +162,21 @@ internal external fun eventRoot(event: Event): HTMLElement?
 internal external fun eventParagraph(event: Event): HTMLElement?
 @JsFun("(event) => event.detail && event.detail.options && Array.isArray(event.detail.options.paragraphs) ? event.detail.options.paragraphs : []")
 internal external fun eventParagraphs(event: Event): Array<HTMLElement>
+// Opaque host options bag. Field reads stay in @JsFun bodies.
+internal external interface EnhanceOptionsJs
+
 @JsFun("(event) => event.detail && event.detail.options ? event.detail.options : null")
-internal external fun eventOptions(event: Event): JsAny?
+internal external fun eventOptions(event: Event): EnhanceOptionsJs?
 @JsFun("(event, value) => { if (event.detail) event.detail.result = value; }")
 internal external fun setEventResult(event: Event, value: String?)
 @JsFun("(options, name) => options && options[name] != null ? String(options[name]) : null")
-internal external fun optionString(options: JsAny?, name: String): String?
+internal external fun optionString(options: EnhanceOptionsJs?, name: String): String?
 @JsFun("(options, name) => { if (!options || options[name] == null) return NaN; const number = Number(options[name]); return Number.isFinite(number) ? number : NaN; }")
-internal external fun optionNumber(options: JsAny?, name: String): Double
+internal external fun optionNumber(options: EnhanceOptionsJs?, name: String): Double
 @JsFun("(options, name) => options && typeof options[name] === 'boolean' ? options[name] : null")
-internal external fun optionBoolean(options: JsAny?, name: String): Boolean?
+internal external fun optionBoolean(options: EnhanceOptionsJs?, name: String): Boolean?
 @JsFun("(options, name) => options && options[name] && typeof options[name] === 'object' ? options[name] : null")
-internal external fun optionObject(options: JsAny?, name: String): JsAny?
+internal external fun optionObject(options: EnhanceOptionsJs?, name: String): EnhanceOptionsJs?
 @JsFun("(element) => JSON.stringify(Array.from(element.attributes || [], (attribute) => [attribute.name, attribute.value]))")
 private external fun elementAttributesJson(element: Element): String
 @JsFun("(element, sessionKey, requestText) => globalThis.__TiqianLayoutWorker && typeof globalThis.__TiqianLayoutWorker.take === 'function' ? globalThis.__TiqianLayoutWorker.take(element, sessionKey, requestText) : null")
@@ -217,7 +219,7 @@ internal external fun renderPreparedWorkerParagraphDom(
     locale: String,
     sourceText: String,
     semanticElements: Array<Element>,
-): JsAny?
+)
 @JsFun("(host) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.release && globalThis.__TiqianPreparedDomRenderer.release(host) === true)")
 internal external fun releasePreparedParagraphDomStyles(host: HTMLElement): Boolean
 @JsFun("(root) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.releaseRoot && globalThis.__TiqianPreparedDomRenderer.releaseRoot(root) === true)")
@@ -411,12 +413,15 @@ internal external fun computedStyle(element: Element, property: String): String
     }""",
 )
 internal external fun flowParticipatingPseudoContent(element: Element, pseudo: String): String?
+// Opaque Intl.Segmenter handle. Only lowererGraphemeBoundaries reads it.
+internal external interface GraphemeSegmenterJs
+
 @JsFun(
     """() => typeof Intl !== 'undefined' && Intl.Segmenter
       ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
       : null""",
 )
-internal external fun createLowererGraphemeSegmenter(): JsAny?
+internal external fun createLowererGraphemeSegmenter(): GraphemeSegmenterJs?
 @JsFun(
     """(segmenter, text) => {
       const boundaries = [0];
@@ -435,7 +440,7 @@ internal external fun createLowererGraphemeSegmenter(): JsAny?
       return boundaries.join(',');
     }""",
 )
-internal external fun lowererGraphemeBoundaries(segmenter: JsAny?, text: String): String
+internal external fun lowererGraphemeBoundaries(segmenter: GraphemeSegmenterJs?, text: String): String
 @JsFun("(element, selector) => !!element.closest(selector)")
 internal external fun hasClosest(element: HTMLElement, selector: String): Boolean
 @JsFun(
@@ -527,7 +532,7 @@ internal external fun renderPreparedParagraphDom(
     host: HTMLElement,
     planJson: String,
     locale: String,
-): JsAny?
+)
 // ClockTierDiscipline: slices receive a millisecond budget from the caller, so
 // the runtime measures elapsed time on the cheap coarse clock.
 @JsFun("() => Date.now()")

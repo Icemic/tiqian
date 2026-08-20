@@ -1,8 +1,5 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
-import kotlin.js.JsAny
 import kotlinx.browser.document
 import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
 import org.tiqian.shaping.web.WebCjkDashCapability
@@ -462,7 +459,7 @@ internal fun TiqianWeb.reportIssue(issue: CapabilityIssue) {
     }
 }
 
-internal fun TiqianWeb.optionsFromJs(options: JsAny?): EnhanceOptions {
+internal fun TiqianWeb.optionsFromJs(options: EnhanceOptionsJs?): EnhanceOptions {
     val cjk = optionString(options, "cjkFontFamily")
     val latin = optionString(options, "latinFontFamily")
     val monospace = optionString(options, "monospaceFontFamily")
@@ -505,7 +502,7 @@ internal fun TiqianWeb.optionsFromJs(options: JsAny?): EnhanceOptions {
     )
 }
 
-internal fun TiqianWeb.optionFloat(options: JsAny?, name: String): Float? {
+internal fun TiqianWeb.optionFloat(options: EnhanceOptionsJs?, name: String): Float? {
     val value = optionNumber(options, name)
     return if (value.isFinite()) value.toFloat() else null
 }

@@ -1,8 +1,5 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
-import kotlin.js.JsAny
 import kotlin.js.js
 import kotlinx.browser.document
 import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM

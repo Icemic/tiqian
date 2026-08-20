@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
 import kotlinx.browser.document
