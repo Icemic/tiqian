@@ -99,10 +99,12 @@ harfrust 0.13.0（2026-08-13 发布）的 read-fonts 依赖为 0.43。生产栈�
 ## 对决策的影响
 
 - 选型为 `harfrust`（shaping）+ `skrifa` / `read-fonts`（metrics），采用版本
-  harfrust 0.13.0、skrifa 0.46、read-fonts 0.43。WOFF2 解码用纯 Rust 的 `woff2`
-  crate 0.3（自 2022-05 无维护，需锁 `bytes =1.9.0`），整个构建不需要 C/C++
-  工具链。选择依据：rustybuzz 的仓库于 2026-07-26 归档，README 指向 harfrust
-  作为继任；harfrust 在 HarfBuzz 官方组织与 Google fontations 生态内持续开发。
+  harfrust 0.13.0、skrifa 0.46、read-fonts 0.43。WOFF2 解码用纯 Rust 的 `wuff`
+  0.2（只开 brotli feature），整个构建不需要 C/C++ 工具链。选择依据：rustybuzz 的
+  仓库于 2026-07-26 归档，README 指向 harfrust 作为继任；harfrust 在 HarfBuzz 官方
+  组织与 Google fontations 生态内持续开发。`woff2` crate 0.3 自 2022-05 无维护，
+  严格校验 header 的 `totalCompressedSize`，拒绝 `woff2-encoder` 生成且其自身可解
+  的文件；`wuff` 解同一文件的输出与 JS 侧 wasm 解码器字节一致（sha256 相同）。
 - 生产栈组合在 1078 份对照上与 oracle 全字段一致。extents 按字形来源分派
   （见「harfrust + skrifa 组合」节）是达成一致的必要条件。
 - C 版差分结论继续有效：HB 8.4 到 14.2.1 跨版本零差异，shaping 无跨版本风险；
