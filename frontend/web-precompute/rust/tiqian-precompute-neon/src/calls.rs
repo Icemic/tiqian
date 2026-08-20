@@ -215,10 +215,12 @@ pub fn source_boundaries(mut cx: FunctionContext) -> JsResult<JsString> {
     let mut parsed: Vec<BoundaryTextSpan> = Vec::with_capacity(spans.len(&mut cx) as usize);
     for value in spans.to_vec(&mut cx)? {
         let span = value.downcast_or_throw::<JsObject, _>(&mut cx)?;
+        let style_value = span.prop(&mut cx, "style").get::<Handle<JsValue>>()?;
+        let style = style_value.downcast_or_throw::<JsObject, _>(&mut cx)?;
         parsed.push(BoundaryTextSpan {
             start: span.prop(&mut cx, "start").get::<f64>()?,
             end: span.prop(&mut cx, "end").get::<f64>()?,
-            style: read_boundary_style(&mut cx, &span)?,
+            style: read_boundary_style(&mut cx, &style)?,
         });
     }
 
