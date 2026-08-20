@@ -60,6 +60,16 @@ metrics / ink / outline replay，但不再传递进 Compose artifact。两条路
 `LayoutResult` 提供证据，能力报告不参与正文 renderer 路由。决策修订见
 [ADR 0016](adr/0016-android-textpaint-adapter.md)。
 
+当前并行推进 **Slice 39：precompute 原生迁移**（2026-08-20，
+[ADR 0050](adr/0050-native-precompute-rust-bindings.md)）。Node precompute 从 Kotlin/JS 与
+WASM 运行时迁往 Kotlin/Native 静态库与 Rust 编排：`frontend/web-precompute` 增加
+linuxX64、linuxArm64、macosArm64、mingwX64 目标并暴露扁平 C ABI；仓库根新增 Cargo
+workspace，含 `tiqian` 绑定主包、四个平台 crate、`tiqian-precompute` 与
+`tiqian-precompute-neon`；npm 侧 precompute 迁入独立的 `@tiqian/precompute` 包，现有导出
+同名同签名保留。现行 JS 实现先作差分 parity oracle，最终支持平台全集 byte-identical 后移除。
+实现按四个切片推进：A 目标与 workspace 骨架，B 字体会话，C 编排与 Neon，D 平台包发布与
+legacy 移除。
+
 最近完成的是 **Slice 35：Web 真实站点宿主接入**（2026-07-11）。`@tiqian/prose` 以
 ESM 包和 light-DOM `<tiqian-prose>` 接入真实博客；SSR、无 JavaScript、Pagefind、宿主 CSS、
 源忠实复制与客户端导航生命周期均有自动化测试和真实浏览器验证。完整取舍见
