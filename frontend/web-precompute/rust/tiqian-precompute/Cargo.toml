@@ -1,0 +1,8 @@
+[package]
+name = "tiqian-precompute"
+description = "Font session and precompute orchestration for Tiqian in Rust"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tiqian = { path = "../../../rust/tiqian", version = "0.1.0" }

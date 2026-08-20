@@ -1,0 +1,7 @@
+[package]
+name = "tiqian"
+description = "Neutral Rust bindings for the Tiqian CJK paragraph layout engine's native C ABI"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
