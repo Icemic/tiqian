@@ -333,6 +333,7 @@ internal fun custodyContentMatches(paragraph: EnhancedParagraph): Boolean {
 internal fun stampCustodyContent(paragraph: EnhancedParagraph) {
     paragraph.custodyNodes = liveChildNodes(paragraph.originalContent)
     paragraph.source.asDynamic().__tqCustodyFragment = paragraph.originalContent
+    installCustodyCommitForwarding(paragraph.source)
 }
 
 internal fun TiqianWeb.rollbackRelayoutSnapshots(snapshots: List<LiveParagraphSnapshot>) {

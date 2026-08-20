@@ -14,9 +14,21 @@
 // page, viewport, fonts, and capture plan are identical constants for both
 // sides, so the only variable is the engine build.
 //
-// Exit code 0 means identical page height, identical measured boxes (root,
-// paragraph, line-marker, run element, text node), and pixel-identical
-// screenshots (full page plus every 0.8-viewport scroll stop).
+// Every width lane below re-settles, recomputes its capture plan, and
+// compares the FULL measured surface (every root, every paragraph, every
+// line marker, every direct child element and text node of every
+// paragraph — no sampling) plus pixel-identical screenshots. The lanes are
+// driven through the demo's own width axis: the page-wrapper maxWidth
+// slider (360..1600, default 1280), so a divergence report speaks the same
+// widths designers and the perf HUD see. Screenshots cover the full page
+// plus up to MAX_SCROLL_STOPS evenly spaced scroll positions per lane;
+// box coverage is complete regardless through the geometry lanes.
+//
+// Exit code 0 means, at every width: identical page height, identical
+// measured boxes, and pixel-identical screenshots.
+
+const WIDTH_LANES = [1600, 1440, 1280, 1120, 1024, 960, 900, 820, 720, 620, 500, 360];
+const MAX_SCROLL_STOPS = 6;
 
 import { spawn, execFile } from "node:child_process";
 import { createServer } from "node:http";
@@ -86,7 +98,8 @@ class CdpClient {
           const { resolve, reject } = this.pending.get(msg.id);
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            const detail = msg.error.data ? ` (${msg.error.data})` : "";
+            reject(new Error(msg.error.message + detail));
           } else {
             resolve(msg.result);
           }
@@ -98,7 +111,10 @@ class CdpClient {
   async send(method, params) {
     const id = ++this.id;
     return withTimeout(new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, {
+        resolve,
+        reject: (err) => reject(new Error(`${method}: ${err.message}`)),
+      });
       this.ws.send(JSON.stringify({ id, method, params }));
     }), 90000, `cdp ${method}`);
   }
@@ -316,11 +332,17 @@ const PAGE_HELPERS = `
     };
     const hud = document.querySelector(".floating-benchmark-hud");
     if (hud) hud.style.display = "none";
+    globalThis.__setLaneWidth = (w) => {
+      const wrapper = document.querySelector(".page-wrapper");
+      if (wrapper) wrapper.style.maxWidth = w + "px";
+      const slider = document.getElementById("width-slider");
+      if (slider) slider.value = String(w);
+    };
     ${DEEP_GEOMETRY_HELPERS}
   })()
 `;
 
-async function captureSide({ label, pkgDir, port, cdpPort, plan }) {
+async function captureSide({ label, pkgDir, port, cdpPort, plans }) {
   const url = `http://127.0.0.1:${port}/`;
   const busy = await fetch(url).then(() => true, () => false);
   if (busy) throw new Error(`[${label}] port ${port} is busy`);
@@ -350,8 +372,8 @@ async function captureSide({ label, pkgDir, port, cdpPort, plan }) {
     await client.send("Page.navigate", { url });
     await client.evaluate("0");
     await client.send("Emulation.setDeviceMetricsOverride", {
-      width: 900,
-      height: 800,
+      width: 1600,
+      height: 900,
       deviceScaleFactor: 1,
       mobile: false,
     });
@@ -367,58 +389,74 @@ async function captureSide({ label, pkgDir, port, cdpPort, plan }) {
     if (!settled.settled || settled.enhanced === 0) {
       throw new Error(`[${label}] page did not settle (settled=${settled.settled} enhanced=${settled.enhanced})`);
     }
-    // The capture plan is computed on the base side and replayed here, so
-    // both sides photograph identical regions.
-    const shots = {};
-    await client.evaluate("window.scrollTo(0, 0)");
-    if (!plan) {
-      plan = await client.evaluate(`
-        (() => {
-          const main = document.querySelector("main") ?? document.body;
-          const rect = main.getBoundingClientRect();
-          const viewportHeight = innerHeight;
-          const pageHeight = document.documentElement.scrollHeight;
-          const step = Math.floor(viewportHeight * 0.8);
-          const maxScroll = Math.max(0, pageHeight - viewportHeight);
-          const scrolls = [];
-          for (let y = 0; y <= maxScroll; y += step) scrolls.push(y);
-          if (scrolls[scrolls.length - 1] !== maxScroll) scrolls.push(maxScroll);
-          return {
-            rect: { x: rect.left + scrollX, y: rect.top + scrollY, width: rect.width, height: rect.height },
-            viewportHeight,
-            pageHeight,
-            scrolls,
-          };
-        })()
-      `);
-    }
-    const topSettled = await client.evaluate("__settle(20000)");
-    if (!topSettled.settled) throw new Error(`[${label}] page did not re-settle at top`);
-    shots.full = await client.screenshot({
-      clip: { x: plan.rect.x, y: plan.rect.y, width: plan.rect.width, height: plan.rect.height, scale: 1 },
-      captureBeyondViewport: true,
-    });
-    for (const scroll of plan.scrolls) {
-      await client.evaluate(`window.scrollTo(0, ${scroll})`);
-      await new Promise((r) => setTimeout(r, 500));
-      const at = await client.evaluate("__settle(20000)");
-      if (!at.settled) throw new Error(`[${label}] page did not settle at scroll ${scroll}`);
-      shots["scroll" + scroll] = await client.screenshot({
-        clip: {
-          x: plan.rect.x,
-          y: scroll,
-          width: plan.rect.width,
-          height: Math.min(plan.viewportHeight, plan.pageHeight - scroll),
-          scale: 1,
-        },
+    // Each width is an independent comparison lane: resize, re-settle at the
+    // new measure, recompute or replay the capture plan, then photograph and
+    // measure the full surface. Plans travel from the base side so both
+    // sides photograph identical regions.
+    const lanes = {};
+    for (const width of WIDTH_LANES) {
+      await client.evaluate(`__setLaneWidth(${width})`);
+      await client.evaluate("window.scrollTo(0, 0)");
+      const laneSettled = await client.evaluate("__settle(30000)");
+      if (!laneSettled.settled) {
+        throw new Error(`[${label}] page did not settle at width ${width}`);
+      }
+      let plan = plans?.[width];
+      if (!plan) {
+        plan = await client.evaluate(`
+          (() => {
+            const main = document.querySelector("main") ?? document.body;
+            const rect = main.getBoundingClientRect();
+            const viewportHeight = innerHeight;
+            const pageHeight = document.documentElement.scrollHeight;
+            const maxScroll = Math.max(0, pageHeight - viewportHeight);
+            const stops = Math.max(1, Math.min(${MAX_SCROLL_STOPS}, Math.floor(maxScroll / viewportHeight) + 1));
+            const scrolls = [];
+            for (let i = 0; i < stops; i++) {
+              scrolls.push(stops === 1 ? 0 : Math.round((maxScroll * i) / (stops - 1)));
+            }
+            return {
+              rect: { x: rect.left + scrollX, y: rect.top + scrollY, width: rect.width, height: rect.height },
+              viewportHeight,
+              pageHeight,
+              scrolls,
+            };
+          })()
+        `);
+      }
+      const shots = {};
+      console.log(`[${label}] @${width} full clip=${JSON.stringify(plan.rect)}`);
+      shots.full = await client.screenshot({
+        clip: { x: plan.rect.x, y: plan.rect.y, width: plan.rect.width, height: plan.rect.height, scale: 1 },
         captureBeyondViewport: true,
       });
+      for (const scroll of plan.scrolls) {
+        await client.evaluate(`window.scrollTo(0, ${scroll})`);
+        await new Promise((r) => setTimeout(r, 500));
+        const at = await client.evaluate("__settle(20000)");
+        if (!at.settled) throw new Error(`[${label}] page did not settle at width ${width} scroll ${scroll}`);
+        console.log(`[${label}] @${width} scroll=${scroll} clip y=${scroll} h=${Math.min(plan.viewportHeight, plan.pageHeight - scroll)}`);
+        shots["scroll" + scroll] = await client.screenshot({
+          clip: {
+            x: plan.rect.x,
+            y: scroll,
+            width: plan.rect.width,
+            height: Math.min(plan.viewportHeight, plan.pageHeight - scroll),
+            scale: 1,
+          },
+          captureBeyondViewport: true,
+        });
+      }
+      await client.evaluate("window.scrollTo(0, 0)");
+      lanes[width] = {
+        shots,
+        plan,
+        geometry: await client.evaluate("__deepGeometry()"),
+        pageHeight: await client.evaluate("document.documentElement.scrollHeight"),
+      };
     }
-    await client.evaluate("window.scrollTo(0, 0)");
-    const geometry = await client.evaluate("__deepGeometry()");
-    const pageHeight = await client.evaluate("document.documentElement.scrollHeight");
     client.close();
-    return { label, shots, geometry, pageHeight, plan };
+    return { label, lanes };
   } finally {
     try { process.kill(-browser.pid, "SIGKILL"); } catch {}
     try { process.kill(browser.pid, "SIGKILL"); } catch {}
@@ -466,6 +504,12 @@ const cleanup = async () => {
 };
 
 try {
+  // A stale chromium from an aborted run would silently own a debug port and
+  // answer /json/list with a foreign page, so ports are checked up front.
+  for (const port of [9321, 9323, 9931, 9933]) {
+    const taken = await fetch(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false);
+    if (taken) throw new Error(`port ${port} is already serving CDP; kill the stale chromium first`);
+  }
   const baseDir = await mkdtemp(join(tmpdir(), "tq-ab-base-"));
   worktrees.push(baseDir);
   console.log(`[setup] git worktree for base ${baseRef} at ${baseDir}`);
@@ -492,50 +536,62 @@ try {
     pkgDir: join(baseDir, "frontend/web/npm"),
     port: 9321,
     cdpPort: 9931,
-    plan: null,
+    plans: null,
   });
   const head = await captureSide({
     label: "head",
     pkgDir: join(headDir, "frontend/web/npm"),
     port: 9323,
     cdpPort: 9933,
-    plan: base.plan,
+    plans: base.lanes && Object.fromEntries(
+      WIDTH_LANES.map((width) => [width, base.lanes[width]?.plan]),
+    ),
   });
 
   const failures = [];
-  if (base.pageHeight !== head.pageHeight) {
-    failures.push(`pageHeight ${base.pageHeight} vs ${head.pageHeight}`);
-  }
-  const geoDiff = diffDeepGeometry(base.geometry, head.geometry);
-  const geoCounts = deepGeometryCounts(base.geometry);
-  if (!geoDiff.equal) {
-    failures.push(
-      `geometry: ${geoDiff.divergentBoxes} divergent boxes of ${geoDiff.boxesCompared} compared`,
-    );
-  }
-  for (const key of Object.keys(base.shots)) {
-    const result = compareScreenshots(base.shots[key], head.shots[key]);
-    if (!result.equal) {
-      failures.push(`${key}: ${result.differentPixels} differing pixels, first ${result.detail}`);
-    }
-  }
-
   console.log("\n=== ref-vs-ref report ===");
   console.log(`base: ${baseRef} (${baseBuild.hash})`);
   console.log(`head: ${headRef ?? "working tree"} (${headBuild.hash})`);
-  console.log(`boxes compared: ${geoDiff.boxesCompared} ` +
-    `(lineMarks=${geoCounts.lineMarks} runEls=${geoCounts.runEls} texts=${geoCounts.textNodes})`);
-  console.log(`page height: ${base.pageHeight} vs ${head.pageHeight}`);
-  if (geoDiff.examples.length) {
-    console.log("geometry divergences:");
-    for (const example of geoDiff.examples) console.log("  " + example);
+  for (const width of WIDTH_LANES) {
+    const laneBase = base.lanes[width];
+    const laneHead = head.lanes[width];
+    if (laneBase.pageHeight !== laneHead.pageHeight) {
+      failures.push(`@${width}: pageHeight ${laneBase.pageHeight} vs ${laneHead.pageHeight}`);
+    }
+    const geoDiff = diffDeepGeometry(laneBase.geometry, laneHead.geometry);
+    const geoCounts = deepGeometryCounts(laneBase.geometry);
+    if (!geoDiff.equal) {
+      failures.push(
+        `@${width}: geometry ${geoDiff.divergentBoxes} divergent boxes of ${geoDiff.boxesCompared} compared`,
+      );
+    }
+    const shotFailures = [];
+    for (const key of Object.keys(laneBase.shots)) {
+      const result = compareScreenshots(laneBase.shots[key], laneHead.shots[key]);
+      if (!result.equal) {
+        shotFailures.push(`${key}: ${result.differentPixels} differing pixels, first ${result.detail}`);
+      }
+    }
+    console.log(
+      `@${width}: boxes=${geoDiff.boxesCompared} ` +
+      `(lineMarks=${geoCounts.lineMarks} runEls=${geoCounts.runEls} texts=${geoCounts.textNodes}) ` +
+      `pageHeight=${laneBase.pageHeight}${laneBase.pageHeight === laneHead.pageHeight ? "" : " vs " + laneHead.pageHeight} ` +
+      `shots=${Object.keys(laneBase.shots).length}`,
+    );
+    if (geoDiff.examples.length) {
+      console.log(`@${width}: geometry divergences:`);
+      for (const example of geoDiff.examples) console.log("  " + example);
+    }
+    for (const failure of shotFailures) {
+      failures.push(`@${width}: ${failure}`);
+    }
   }
   if (failures.length) {
     console.log("FAILURES:");
     for (const failure of failures) console.log("  " + failure);
     process.exitCode = 1;
   } else {
-    console.log("RESULT: identical (boxes and pixels)");
+    console.log(`RESULT: identical at all ${WIDTH_LANES.length} width lanes ${WIDTH_LANES[0]}..${WIDTH_LANES[WIDTH_LANES.length - 1]} (full boxes and pixels)`);
   }
 } finally {
   await cleanup();
