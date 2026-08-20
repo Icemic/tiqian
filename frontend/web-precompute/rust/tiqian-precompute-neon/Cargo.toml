@@ -1,0 +1,12 @@
+[package]
+name = "tiqian-precompute-neon"
+description = "Neon addon exposing the Tiqian font session and precompute APIs"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+neon = "1"
+tiqian-precompute = { path = "../tiqian-precompute" }

@@ -2,7 +2,7 @@
 # Depends on the neutral engine binding via path + version.
 [workspace]
 resolver = "2"
-members = ["tiqian-precompute"]
+members = ["tiqian-precompute", "tiqian-precompute-neon"]
 
 [workspace.package]
 version = "0.1.0"
