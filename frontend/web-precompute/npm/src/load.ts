@@ -45,6 +45,34 @@ export interface NativeBoundarySpan {
   style: NativeBoundaryStyle;
 }
 
+/** One styled span of the `precomputeParagraph` protocol. */
+export interface NativeTextSpan {
+  start: number;
+  end: number;
+  families: string[];
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShiftPx: number;
+}
+
+/** One inline box of the `precomputeParagraph` protocol. */
+export interface NativeInlineBox {
+  start: number;
+  end: number;
+  inlineStartPx: number;
+  inlineEndPx: number;
+  /** Omitted boxes use the `Narrow` default of the protocol. */
+  outerSpacing?: "Narrow" | "Source";
+}
+
+/** One line-break policy span of the `precomputeParagraph` protocol. */
+export interface NativeLineBreakSpan {
+  start: number;
+  end: number;
+  policy: "ProgressiveTechnical";
+}
+
 /**
  * The native surface exported by `tiqian-precompute-neon`. Structured results
  * arrive as JSON strings produced by the shared Rust emitters; flat arguments
@@ -85,6 +113,28 @@ export interface NativeAddon {
     text: string,
     baseStyle: NativeBoundaryStyle,
     textSpans: NativeBoundarySpan[],
+  ): string;
+  /**
+   * The structured form of the js facade call: arrays and span objects arrive
+   * as themselves. Returns the plan JSON. An addon built without the engine
+   * archive throws `EngineNotLinked`.
+   */
+  precomputeParagraph(
+    sessionId: string,
+    text: string,
+    maxWidthPx: number,
+    families: string[],
+    fontSizePx: number,
+    lineHeightPx: number,
+    locale: string,
+    fontWeight: number,
+    italic: boolean,
+    firstLineIndentIc: number,
+    lineLengthGridEnabled: boolean,
+    sourceBoundaries: number[],
+    textSpans: NativeTextSpan[],
+    inlineBoxes: NativeInlineBox[],
+    lineBreakSpans: NativeLineBreakSpan[],
   ): string;
   beginCapture(sessionId: string): void;
   captureEvidence(sessionId: string): string;

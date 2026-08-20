@@ -99,6 +99,95 @@ export interface BoundaryTextSpanInput {
   style: BoundaryStyleInput;
 }
 
+/** Paragraph typography of the `precomputeParagraph` call. */
+export interface ParagraphTypography {
+  fontFamilies: string[];
+  fontSizePx: number;
+  lineHeightPx: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  firstLineIndentIc: number;
+  lineLengthGridEnabled: boolean;
+}
+
+/** One styled span inside a paragraph. Indices count UTF-16 code units. */
+export interface ParagraphTextSpanInput {
+  start: number;
+  end: number;
+  families: string[];
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShiftPx: number;
+}
+
+/** One inline box inside a paragraph. */
+export interface ParagraphInlineBoxInput {
+  start: number;
+  end: number;
+  inlineStartPx: number;
+  inlineEndPx: number;
+  /** Omitted boxes use the `Narrow` default of the protocol. */
+  outerSpacing?: "Narrow" | "Source";
+}
+
+/** One line-break policy span inside a paragraph. */
+export interface ParagraphLineBreakSpanInput {
+  start: number;
+  end: number;
+  policy: "ProgressiveTechnical";
+}
+
+/** Optional span sections of a paragraph request. */
+export interface ParagraphSpans {
+  sourceBoundaries?: number[];
+  textSpans?: ParagraphTextSpanInput[];
+  inlineBoxes?: ParagraphInlineBoxInput[];
+  lineBreakSpans?: ParagraphLineBreakSpanInput[];
+}
+
+/** Why a line ended; the engine names match `LineEndReason`. */
+export type PlanEndReason = "AutoWrap" | "MandatoryBreak" | "ParagraphEnd";
+
+/** One laid-out cell of a plan line. */
+export interface PlanCell {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  naturalWidth: number;
+  leadingLayoutAdvance: number;
+  /** Present only when the cell opens a shaping boundary. */
+  shapingBoundary?: true;
+  /** Present only when the run carries OpenType features. */
+  openTypeFeatures?: string[];
+}
+
+/** One line of the plan JSON. */
+export interface PlanLine {
+  rangeStart: number;
+  rangeEnd: number;
+  top: number;
+  bottom: number;
+  baseline: number;
+  indent: number;
+  visualWidth: number;
+  hyphenAdvance: number;
+  endReason: PlanEndReason;
+  cells: PlanCell[];
+}
+
+/** The plan JSON of one paragraph, parsed at the boundary. */
+export interface PreparedPlan {
+  schema: string;
+  layoutRevision: string;
+  width: number;
+  height: number;
+  lines: PlanLine[];
+}
+
 export interface FontEvidence {
   backendRevision: string;
   harfbuzzVersion: string;
@@ -139,6 +228,17 @@ export interface FontSession {
     baseStyle: BoundaryStyleInput,
     textSpans: BoundaryTextSpanInput[],
   ): number[];
+  /**
+   * Runs one paragraph through the engine with this session as the font
+   * backend. Throws the named validation issues of the request; throws
+   * `EngineNotLinked` when the addon was built without the engine archive.
+   */
+  precomputeParagraph(
+    text: string,
+    maxWidthPx: number,
+    typography: ParagraphTypography,
+    spans?: ParagraphSpans,
+  ): PreparedPlan;
   beginCapture(): void;
   captureEvidence(): FontEvidence;
   close(): void;
@@ -233,6 +333,32 @@ export async function createFontSession(
       textSpans: BoundaryTextSpanInput[],
     ): number[] {
       return parse<number[]>(addon.sourceBoundaries(id, text, baseStyle, textSpans));
+    },
+    precomputeParagraph(
+      text: string,
+      maxWidthPx: number,
+      typography: ParagraphTypography,
+      spans: ParagraphSpans = {},
+    ): PreparedPlan {
+      return parse<PreparedPlan>(
+        addon.precomputeParagraph(
+          id,
+          text,
+          maxWidthPx,
+          typography.fontFamilies,
+          typography.fontSizePx,
+          typography.lineHeightPx,
+          typography.locale,
+          typography.fontWeight,
+          typography.italic,
+          typography.firstLineIndentIc,
+          typography.lineLengthGridEnabled,
+          spans.sourceBoundaries ?? [],
+          spans.textSpans ?? [],
+          spans.inlineBoxes ?? [],
+          spans.lineBreakSpans ?? [],
+        ),
+      );
     },
     beginCapture(): void {
       addon.beginCapture(id);
