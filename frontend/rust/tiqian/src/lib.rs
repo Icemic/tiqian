@@ -1,17 +1,21 @@
-//! Rust bindings for the Tiqian layout engine's native precompute C ABI (ADR 0050).
+//! Rust bindings for the Tiqian layout engine's native C ABI (ADR 0050).
 //!
-//! Font backend protocol types ([`font_backend`]) and the packed shape-buffer
-//! encoder ([`shape_buffer`]) are pure Rust and testable without the engine.
-//! The `extern` declarations for `tiqian_install_font_backend` and
-//! `tiqian_precompute_paragraph` link against the platform crates' static
-//! libraries and land with those crates, so this crate keeps building before
-//! they exist.
+//! [`font_backend`] and [`shape_buffer`] carry the font session protocol and
+//! its packed buffer encoder as pure Rust. [`layout_request`] packs engine
+//! layout requests. [`engine`] holds the `extern` declarations and links only
+//! when `TIQIAN_NATIVE_LIB_DIR` points at the Gradle `linkReleaseStatic*`
+//! archive of `ffi/native`.
 
 pub mod font_backend;
+pub mod layout_request;
 pub mod shape_buffer;
 
-/// A named issue reported by the engine across the C ABI. Names match the npm
-/// test assertions byte for byte (`InvalidMaximumMeasure`, `FontBackendNotInstalled`, ...).
+#[cfg(tiqian_engine_link)]
+pub mod engine;
+
+/// A named issue reported across the C ABI. Domain validation names match the
+/// npm test assertions byte for byte (`InvalidMaximumMeasure`, ...); protocol
+/// error names match `ffi/native/tiqian_layout_abi.h`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedError(pub String);
 
