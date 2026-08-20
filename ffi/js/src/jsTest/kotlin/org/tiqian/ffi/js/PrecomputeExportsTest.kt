@@ -1,6 +1,6 @@
 @file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
 
-package org.tiqian.web.precompute
+package org.tiqian.ffi.js
 
 import kotlin.JsFun
 import kotlin.test.Test

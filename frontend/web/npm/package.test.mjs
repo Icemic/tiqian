@@ -88,7 +88,7 @@ test("the release verifier accepts both assembled Kotlin/JS runtimes", async () 
     artifacts.map((artifact) => artifact.path),
     [
       "runtime/tiqian-web.js",
-      "precompute-runtime/Tiqian-tiqian-web-precompute.mjs",
+      "precompute-runtime/Tiqian-tiqian-ffi-js.mjs",
     ],
   );
   assert.ok(artifacts.every((artifact) => artifact.size > 8));
@@ -101,7 +101,7 @@ test("the release build clears both Kotlin/JS package targets and bypasses build
   assert.match(source, /"\.\.\/\.\.\/\.\.\/gradlew\.bat"/u);
   assert.match(source, /process\.env\.ComSpec/u);
   assert.match(source, /\["\/d", "\/c", "call", gradleWrapper, \.\.\.gradleArguments\]/u);
-  assert.match(source, /":frontend:web-precompute:clean"/u);
+  assert.match(source, /":ffi:js:clean"/u);
   assert.match(source, /":frontend:web:clean"/u);
   assert.match(source, /":frontend:web:assembleNpmPackage"/u);
   assert.match(source, /"--no-build-cache"/u);

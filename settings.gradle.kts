@@ -55,7 +55,7 @@ include(
     ":shaping:web-adapter",
     ":shaping:coretext",
     ":frontend:web",
-    ":frontend:web-precompute",
+    ":ffi:js",
     ":ffi:native",
     ":linebreak",
     ":clreq",

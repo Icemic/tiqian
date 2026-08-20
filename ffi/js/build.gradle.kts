@@ -4,21 +4,17 @@ plugins {
 
 kotlin {
     js {
-        outputModuleName.set("Tiqian-tiqian-web-precompute")
+        // Generated names are package internals consumed by
+        // `frontend/web/npm` (`precompute.js`, `layout-worker.js`) and the
+        // plan parity oracle (ADR 0050).
+        outputModuleName.set("Tiqian-tiqian-ffi-js")
         nodejs()
         useEsModules()
         binaries.executable()
     }
 
-    // Native precompute engine targets: each produces a static library plus the C header
-    // generated from the @CName exports (ADR 0050). macosX64 stays out per ADR 0045.
-    macosArm64 { binaries { staticLib() } }
-    linuxX64 { binaries { staticLib() } }
-    linuxArm64 { binaries { staticLib() } }
-    mingwX64 { binaries { staticLib() } }
-
     sourceSets {
-        commonMain.dependencies {
+        jsMain.dependencies {
             implementation(project(":core"))
             implementation(project(":font"))
             implementation(project(":shaping:api"))

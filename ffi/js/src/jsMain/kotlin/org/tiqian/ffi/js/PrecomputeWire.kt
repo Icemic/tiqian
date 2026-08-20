@@ -1,4 +1,4 @@
-package org.tiqian.web.precompute
+package org.tiqian.ffi.js
 
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineBoxSpan
@@ -20,12 +20,10 @@ import org.tiqian.shaping.TextShaper
 import org.tiqian.font.FontMetricsResolver
 
 /**
- * Stable, narrow wire ABI shared by every precompute host: Kotlin/JS `@JsExport`
- * (npm) and the Kotlin/Native C ABI (`tiqian_precompute_paragraph`, ADR 0050).
- *
- * Callers pass flat, separator-encoded primitives; the plan comes back as one JSON
- * string. Keeping this layer in commonMain guarantees both hosts parse identical
- * inputs into identical `LayoutInput`s.
+ * Separator-encoded wire ABI of the js export face (ADR 0050). Callers pass
+ * flat primitives; the plan comes back as one JSON string. The encoding serves
+ * the browser paths: `precompute.js`, `layout-worker.js`, and the parity
+ * oracle. Native hosts use the packed binary ABI of `ffi/native`.
  */
 
 internal const val RECORD_SEPARATOR = '\u001e'
@@ -37,8 +35,6 @@ internal class PrecomputeBackends(
     val textShaper: TextShaper,
     val fontMetricsResolver: FontMetricsResolver,
 )
-
-internal expect fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends
 
 internal fun parseBoundaries(value: String, textLength: Int): Set<Int> =
     value.split(',')

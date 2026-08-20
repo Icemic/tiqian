@@ -4,7 +4,7 @@ import {
   workerExactSubsetSourceBoundaries,
 } from "./font-face-boundaries.js";
 import { parseSnapshotManifest } from "./snapshot-manifest.js";
-import { precomputeParagraph } from "./precompute-runtime/Tiqian-tiqian-web-precompute.mjs";
+import { precomputeParagraph } from "./precompute-runtime/Tiqian-tiqian-ffi-js.mjs";
 
 const sessions = new Map();
 

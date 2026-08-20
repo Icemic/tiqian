@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundleUrl = new URL(
-  "../build/compileSync/js/main/productionExecutable/kotlin/Tiqian-tiqian-web-precompute.mjs",
+  "../../../ffi/js/build/compileSync/js/main/productionExecutable/kotlin/Tiqian-tiqian-ffi-js.mjs",
   import.meta.url,
 );
 

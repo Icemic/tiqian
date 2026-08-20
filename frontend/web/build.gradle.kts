@@ -50,9 +50,9 @@ tasks.register<Sync>("assembleNpmPackage") {
 tasks.register<Sync>("assemblePrecomputeNpmRuntime") {
     group = "distribution"
     description = "Builds the Node-only @tiqian/prose/precompute runtime."
-    dependsOn(":frontend:web-precompute:jsProductionExecutableCompileSync")
+    dependsOn(":ffi:js:jsProductionExecutableCompileSync")
     from(
-        project(":frontend:web-precompute")
+        project(":ffi:js")
             .layout.buildDirectory.dir("compileSync/js/main/productionExecutable/kotlin"),
     ) {
         include("*.mjs")

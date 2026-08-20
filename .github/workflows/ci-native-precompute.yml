@@ -58,9 +58,6 @@ jobs:
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:native:linkReleaseStaticLinuxArm64
           :ffi:native:linkReleaseStaticMingwX64
-          :frontend:web-precompute:linkReleaseStaticLinuxX64
-          :frontend:web-precompute:linkReleaseStaticLinuxArm64
-          :frontend:web-precompute:linkReleaseStaticMingwX64
 
   native-tests-linux:
     name: Kotlin/Native linuxX64 module tests
@@ -134,13 +131,10 @@ jobs:
             konan-${{ runner.os }}-link-macos-
             konan-${{ runner.os }}-
       - name: Link static libraries
-        run: >
-          ./gradlew
-          :ffi:native:linkReleaseStaticMacosArm64
-          :frontend:web-precompute:linkReleaseStaticMacosArm64
+        run: ./gradlew :ffi:native:linkReleaseStaticMacosArm64
 
   js-node:
-    name: Kotlin/JS precompute node tests
+    name: Kotlin/JS engine export node tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -162,7 +156,7 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'gradle/gradle-daemon-jvm.properties', '**/*.gradle.kts') }}
           restore-keys: gradle-${{ runner.os }}-
       - name: Run jsNodeTest
-        run: ./gradlew :frontend:web-precompute:jsNodeTest
+        run: ./gradlew :ffi:js:jsNodeTest
 
   rust:
     name: Rust workspaces build and test
@@ -216,7 +210,7 @@ jobs:
         run: >
           ./gradlew
           :ffi:native:linkReleaseStaticLinuxX64
-          :frontend:web-precompute:compileProductionExecutableKotlinJs
+          :ffi:js:compileProductionExecutableKotlinJs
       - name: Dump the js oracle
         run: node frontend/web-precompute/scripts/plan-parity-oracle.mjs
       - name: Compare the native lane against the oracle

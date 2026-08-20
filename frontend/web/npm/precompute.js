@@ -45,7 +45,7 @@ const SEMANTIC_CAPABILITY_ISSUES = [
 let runtimePromise;
 
 function loadPrecomputeRuntime() {
-  runtimePromise ??= import("./precompute-runtime/Tiqian-tiqian-web-precompute.mjs");
+  runtimePromise ??= import("./precompute-runtime/Tiqian-tiqian-ffi-js.mjs");
   return runtimePromise;
 }
 

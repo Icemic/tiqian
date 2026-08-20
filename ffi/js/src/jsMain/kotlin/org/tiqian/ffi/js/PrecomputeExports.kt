@@ -1,6 +1,6 @@
 @file:OptIn(kotlin.js.ExperimentalJsExport::class)
 
-package org.tiqian.web.precompute
+package org.tiqian.ffi.js
 
 import kotlin.js.JsExport
 
@@ -9,9 +9,8 @@ import kotlin.js.JsExport
  *
  * The caller has already prepared an immutable exact-font session. Keeping the
  * exported values primitive avoids exposing the core model through the JavaScript
- * ABI while the returned plan remains inspectable and versioned. Parsing and the
- * layout call live in commonMain (`PrecomputeWire.kt`), shared with the
- * Kotlin/Native C ABI. ADR 0050.
+ * ABI while the returned plan remains inspectable and versioned. Parsing and
+ * the layout call live in `PrecomputeWire.kt`. ADR 0050.
  */
 @JsExport
 fun precomputePlainParagraph(
@@ -80,7 +79,7 @@ fun precomputeParagraph(
     lineBreakSpans = lineBreakSpans,
 )
 
-internal actual fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
+internal fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
     PrecomputeBackends(
         textShaper = HarfBuzzBuildTextShaper(fontSessionId),
         fontMetricsResolver = HarfBuzzBuildFontMetricsResolver(fontSessionId),

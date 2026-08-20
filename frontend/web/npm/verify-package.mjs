@@ -16,7 +16,7 @@ const RUNTIMES = [
   },
   {
     directory: "precompute-runtime/",
-    path: "precompute-runtime/Tiqian-tiqian-web-precompute.mjs",
+    path: "precompute-runtime/Tiqian-tiqian-ffi-js.mjs",
     marker: "precomputePlainParagraph",
   },
 ];

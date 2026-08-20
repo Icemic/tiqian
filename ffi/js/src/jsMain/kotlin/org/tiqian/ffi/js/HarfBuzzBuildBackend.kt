@@ -1,4 +1,4 @@
-package org.tiqian.web.precompute
+package org.tiqian.ffi.js
 
 import org.tiqian.shaping.HarfBuzzSessionFontMetricsResolver
 import org.tiqian.shaping.HarfBuzzSessionTextShaper

@@ -190,7 +190,7 @@ test("Node Kotlin/JS precompute runs the real layout pipeline through a synchron
     releaseMetrics: (handle) => metrics.delete(handle),
   };
 
-  const runtime = await import(`./precompute-runtime/Tiqian-tiqian-web-precompute.mjs?test=${Date.now()}`);
+  const runtime = await import(`./precompute-runtime/Tiqian-tiqian-ffi-js.mjs?test=${Date.now()}`);
   const plan = JSON.parse(runtime.precomputePlainParagraph(
     "fixture-session",
     "中文中文",
