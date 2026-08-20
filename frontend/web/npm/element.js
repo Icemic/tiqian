@@ -75,6 +75,12 @@ const TYPOGRAPHY_PROPERTIES = [
   "column-width",
   "zoom",
 ];
+const TYPOGRAPHY_PSEUDO_SELECTORS = [
+  "::before",
+  "::after",
+  "::first-letter",
+  "::first-line",
+];
 const ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES.filter(
   (property) => property !== "margin-left" && property !== "margin-right",
 );
@@ -324,7 +330,10 @@ class TiqianLayoutCoordinator {
     this.#deferredTimer = 0;
     const now = Date.now();
     let nextDueAt = Infinity;
-    for (const [element, bucket] of Array.from(this.#deferred.entries())) {
+    const deferredBuckets = Array.from(this.#deferred.entries());
+    for (let i = 0; i < deferredBuckets.length; i++) {
+      const element = deferredBuckets[i][0];
+      const bucket = deferredBuckets[i][1];
       if (bucket.dueAt <= now) {
         this.#deferred.delete(element);
         for (const task of bucket.tasks.values()) {
@@ -538,7 +547,10 @@ class TiqianLayoutCoordinator {
 
   cancelFrame(callback) {
     this.#callbacks.delete(callback);
-    for (const [element, bucket] of Array.from(this.#deferred.entries())) {
+    const deferredBuckets = Array.from(this.#deferred.entries());
+    for (let i = 0; i < deferredBuckets.length; i++) {
+      const element = deferredBuckets[i][0];
+      const bucket = deferredBuckets[i][1];
       bucket.tasks.delete(callback);
       if (bucket.tasks.size === 0) this.#dropDeferred(element);
     }
@@ -1541,7 +1553,8 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#paragraphObserver && typeof IntersectionObserver === "undefined") return;
     this.#paragraphObserver ??= new IntersectionObserver((entries) => {
       const live = globalThis.TiqianWeb;
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
         const info = this.#paragraphTierIndex.get(entry.target);
         if (!info) continue;
         const tier = this.#paragraphTierFromEntry(entry);
@@ -1682,12 +1695,16 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkViewportTypographyEntries = captureSignatures
       ? this.#captureLayoutWorkViewportTypographyEntries()
       : [];
-    this.#layoutWorkTypographySignature = captureSignatures
-      ? this.#layoutWorkViewportTypographyEntries
-          .slice(1)
-          .map(({ signature }) => signature)
-          .join("\u001e")
-      : "";
+    this.#layoutWorkTypographySignature = "";
+    if (captureSignatures) {
+      const entries = this.#layoutWorkViewportTypographyEntries;
+      let signature = "";
+      for (let i = 1; i < entries.length; i++) {
+        if (i > 1) signature += "\u001e";
+        signature += entries[i].signature;
+      }
+      this.#layoutWorkTypographySignature = signature;
+    }
     this.#layoutWorkMaximumMeasure = captureSignatures && this.hasAttribute("snapshot-ref") &&
       loadedSnapshotMaximumMeasureMatches(this);
     this.#layoutWorkUsesCapturedMeasure = usesCapturedMeasure;
@@ -2073,7 +2090,9 @@ class TiqianProseElement extends HTMLElementBase {
       // AdoptedWidthObservation: content reconcile adopts paragraphs after
       // the observer already exists. Seed and observe targets it has not
       // seen, so an adopted paragraph responds to later width changes.
-      for (const paragraph of this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR)) {
+      const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+      for (let i = 0; i < paragraphs.length; i++) {
+        const paragraph = paragraphs[i];
         if (!belongsToRootScope(paragraph, this)) continue;
         if (this.#resizeObserverWidths.has(paragraph)) continue;
         this.#resizeObserverWidths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
@@ -2091,12 +2110,13 @@ class TiqianProseElement extends HTMLElementBase {
       ...Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR))
         .filter((paragraph) => belongsToRootScope(paragraph, this)),
     ];
-    for (const target of targets) {
-      widths.set(target, fragmentedBorderBoxInlineSize(target));
+    for (let i = 0; i < targets.length; i++) {
+      widths.set(targets[i], fragmentedBorderBoxInlineSize(targets[i]));
     }
     const observer = new ResizeObserver((entries) => {
       let changed = false;
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
         let width = 0;
         if (entry.borderBoxSize) {
           const box = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
@@ -2127,7 +2147,10 @@ class TiqianProseElement extends HTMLElementBase {
     });
     this.#resizeObserver = observer;
     this.#resizeObserverWidths = widths;
-    for (const target of targets) observer.observe(target, { box: "border-box" });
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+      observer.observe(target, { box: "border-box" });
+    }
     this.#ensureViewportResizeListener();
   }
 
@@ -2520,7 +2543,8 @@ class TiqianProseElement extends HTMLElementBase {
     const paragraphs = this.querySelectorAll(
       `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
     );
-    for (const paragraph of paragraphs) {
+    for (let i = 0; i < paragraphs.length; i++) {
+      const paragraph = paragraphs[i];
       if (!belongsToRootScope(paragraph, this)) continue;
       const fragment = paragraph.__tqCustodyFragment;
       if (fragment) desired.set(fragment, paragraph);
@@ -2576,7 +2600,8 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#hasDispatched) return;
     let paragraphSignal = false;
     let structureSignal = false;
-    for (const record of records) {
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
       // EnginePreparedStyleWritesAreNotContent: the prepared-dom renderer
       // rewrites its own <style data-tq-prepared-value-styles> text content on
       // every commit. Those records are engine output, never a host signal.
@@ -2724,7 +2749,15 @@ class TiqianProseElement extends HTMLElementBase {
       // its first viewport-near paragraphs. Reverse only those exact deltas
       // against MutationRecord.oldValue, while any concurrent host style or
       // class change still reaches the full signature check below.
-      if (records.every((record) => rendererOwnedProgressiveStyleMutation(record, this))) {
+      let rendererOwnedOnly = true;
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        if (!rendererOwnedProgressiveStyleMutation(record, this)) {
+          rendererOwnedOnly = false;
+          break;
+        }
+      }
+      if (rendererOwnedOnly) {
         // ProgressiveOutputTypographyBaseline: rendered paragraphs intentionally
         // replace host line-height/font projection and install a containing
         // block. Advance the captured baseline after that verified renderer-only
@@ -2887,7 +2920,8 @@ class TiqianProseElement extends HTMLElementBase {
       sig += "\u001f" + style.getPropertyValue(properties[i]);
     }
     if (includeGenerated) {
-      for (const selector of ["::before", "::after", "::first-letter", "::first-line"]) {
+      for (let i = 0; i < TYPOGRAPHY_PSEUDO_SELECTORS.length; i++) {
+        const selector = TYPOGRAPHY_PSEUDO_SELECTORS[i];
         const pseudo = getComputedStyle(element, selector);
         sig += "\u001f" +
           pseudo.getPropertyValue("content") + "\u001d" +
@@ -2907,17 +2941,27 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #captureLayoutWorkViewportTypographyEntries() {
-    return [this, ...this.#typographyElements()].map((element, index) => {
-      const properties = index === 0
-        ? ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES
-        : TYPOGRAPHY_PROPERTIES;
-      return {
+    const entries = [{
+      element: this,
+      includeGenerated: false,
+      properties: ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES,
+      signature: this.#elementTypographySignature(
+        this,
+        false,
+        ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES,
+      ),
+    }];
+    const elements = this.#typographyElements();
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i];
+      entries.push({
         element,
-        includeGenerated: index !== 0,
-        properties,
-        signature: this.#elementTypographySignature(element, index !== 0, properties),
-      };
-    });
+        includeGenerated: true,
+        properties: TYPOGRAPHY_PROPERTIES,
+        signature: this.#elementTypographySignature(element, true, TYPOGRAPHY_PROPERTIES),
+      });
+    }
+    return entries;
   }
 
   #layoutWorkViewportTypographyChanged() {
@@ -2926,8 +2970,9 @@ class TiqianProseElement extends HTMLElementBase {
     // not yet been replaced, using their pre-work computed typography. This
     // catches viewport media-query changes without treating Tiqian's own
     // line-height/font projection/containing-block CSS as a host mutation.
-    for (const { element, includeGenerated, properties, signature } of
-      this.#layoutWorkViewportTypographyEntries) {
+    const entries = this.#layoutWorkViewportTypographyEntries;
+    for (let i = 0; i < entries.length; i++) {
+      const { element, includeGenerated, properties, signature } = entries[i];
       if (element !== this && (
         !element.isConnected || element.closest("[data-tq-rendered='true']")
       )) continue;
@@ -2941,13 +2986,16 @@ class TiqianProseElement extends HTMLElementBase {
   #typographyElements() {
     const elements = [];
     const seenGroups = new Set();
-    for (const paragraph of this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR)) {
+    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+    for (let i = 0; i < paragraphs.length; i++) {
+      const paragraph = paragraphs[i];
       elements.push(paragraph);
       const rendered = paragraph.hasAttribute("data-tq-rendered");
       const descendants = rendered
         ? paragraph.querySelectorAll("[data-tq-source-semantic], [data-tq-inline-object]")
         : paragraph.querySelectorAll("*");
-      for (const element of descendants) {
+      for (let j = 0; j < descendants.length; j++) {
+        const element = descendants[j];
         const group =
           element.getAttribute("data-tq-link-group") ??
           element.getAttribute("data-tq-inline-group");
@@ -2962,7 +3010,8 @@ class TiqianProseElement extends HTMLElementBase {
   #observeIntersection() {
     if (this.#intersectionObserver || typeof IntersectionObserver === "undefined") return;
     this.#intersectionObserver = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
         if (entry.target === this) {
           const wasInViewport = this.#inViewport;
           this.#inViewport = entry.isIntersecting;
@@ -3001,43 +3050,58 @@ class TiqianProseElement extends HTMLElementBase {
     this.#intersectionObserver = null;
   }
 
+  // AllocationFreeSignatureIteration: the signature builders run on every
+  // responsive commit and layout-work finish. Indexed loops with direct
+  // concatenation avoid intermediate arrays and per-paragraph closures, and
+  // keep the builders on the same shape as #typographySignature.
   #paragraphWidthSignature() {
-    return Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR), (paragraph) => {
-      return fragmentedBorderBoxInlineSize(paragraph).toFixed(3);
-    }).join("\u001f");
+    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+    let signature = "";
+    for (let i = 0; i < paragraphs.length; i++) {
+      if (i > 0) signature += "\u001f";
+      signature += fragmentedBorderBoxInlineSize(paragraphs[i]).toFixed(3);
+    }
+    return signature;
   }
 
   #responsiveGeometrySignature() {
-    return [
-      fragmentedBorderBoxInlineSize(this),
-      ...Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR), (paragraph) =>
-        fragmentedBorderBoxInlineSize(paragraph)),
-    ].join("\u001f");
+    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+    let signature = String(fragmentedBorderBoxInlineSize(this));
+    for (let i = 0; i < paragraphs.length; i++) {
+      signature += "\u001f";
+      signature += fragmentedBorderBoxInlineSize(paragraphs[i]);
+    }
+    return signature;
   }
 
   #paragraphMeasureSignature() {
     const exactFontLayout = Boolean(this.#exactFontSession);
-    return Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR), (paragraph) => {
+    const layoutWidth = (element, elementStyle) => {
+      let value = fragmentedBorderBoxInlineSize(element);
+      if (!exactFontLayout) return value;
+      const number = (value) => Number.parseFloat(value) || 0;
+      value -= number(elementStyle.paddingLeft) + number(elementStyle.paddingRight) +
+        number(elementStyle.borderLeftWidth) + number(elementStyle.borderRightWidth);
+      return value;
+    };
+    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+    let signature = "";
+    for (let i = 0; i < paragraphs.length; i++) {
+      const paragraph = paragraphs[i];
+      if (i > 0) signature += "\u001f";
       const style = getComputedStyle(paragraph);
       const fontSize = Number.parseFloat(style.fontSize);
-      const layoutWidth = (element, elementStyle) => {
-        let value = fragmentedBorderBoxInlineSize(element);
-        if (!exactFontLayout) return value;
-        const number = (value) => Number.parseFloat(value) || 0;
-        value -= number(elementStyle.paddingLeft) + number(elementStyle.paddingRight) +
-          number(elementStyle.borderLeftWidth) + number(elementStyle.borderRightWidth);
-        return value;
-      };
       let width = layoutWidth(paragraph, style);
       if (!(width > 0)) {
         const parent = paragraph.parentElement;
         if (parent) width = layoutWidth(parent, getComputedStyle(parent));
       }
       const measure = lineLengthGridMeasure(width, fontSize);
-      return measure == null
+      signature += measure == null
         ? `invalid:${width.toFixed(3)}:${style.fontSize}`
         : `${Math.fround(fontSize)}:${measure}`;
-    }).join("\u001f");
+    }
+    return signature;
   }
 }
 
