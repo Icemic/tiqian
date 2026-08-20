@@ -21,6 +21,12 @@ const cases = JSON.parse(await readFile(casesPath, "utf8"));
 const { createFontSession } = await import(
   pathToFileURL(join(repoRoot, "frontend/web/npm/precompute-fonts.js")).href
 );
+const {
+  mergeSerializedSourceBoundaries,
+  workerExactSubsetSourceBoundaries,
+} = await import(
+  pathToFileURL(join(repoRoot, "frontend/web/npm/font-face-boundaries.js")).href
+);
 
 const fontBuffers = new Map();
 for (const [key, path] of Object.entries(cases.fonts)) {
@@ -160,6 +166,72 @@ for (const call of cases.calls) {
         ok: false,
         error: String(error.message),
       });
+    }
+  } else if (call.kind === "sourceBoundaries") {
+    try {
+      const baseStyle = {
+        fontFamilies: call.families,
+        fontSizePx: call.fontSizePx,
+        fontWeight: call.fontWeight,
+        italic: call.italic,
+      };
+      if (call.baselineShiftPx != null) baseStyle.baselineShiftPx = call.baselineShiftPx;
+      const spans = call.spans.map((span) => {
+        const flat = {
+          start: span.start,
+          end: span.end,
+          fontFamilies: span.fontFamilies,
+          fontSizePx: span.fontSizePx,
+          fontWeight: span.fontWeight,
+          italic: span.italic,
+        };
+        if (span.baselineShiftPx != null) flat.baselineShiftPx = span.baselineShiftPx;
+        return flat;
+      });
+      entries.push({
+        kind: "sourceBoundaries",
+        session: call.session,
+        tag: call.tag,
+        ok: true,
+        boundaries: live.sourceBoundaries(call.text, baseStyle, spans),
+      });
+    } catch (error) {
+      entries.push({
+        kind: "sourceBoundaries",
+        session: call.session,
+        tag: call.tag,
+        ok: false,
+        error: String(error.message),
+      });
+    }
+  } else if (call.kind === "workerBoundaries") {
+    try {
+      entries.push({
+        kind: "workerBoundaries",
+        tag: call.tag,
+        ok: true,
+        boundaries: workerExactSubsetSourceBoundaries(call.faces, {
+          text: call.text,
+          fontFamilies: call.fontFamilies,
+          fontSizePx: call.fontSizePx,
+          fontWeight: call.fontWeight,
+          italic: call.italic,
+          textSpans: call.textSpans,
+        }),
+      });
+    } catch (error) {
+      entries.push({ kind: "workerBoundaries", tag: call.tag, ok: false, error: String(error.message) });
+    }
+  } else if (call.kind === "mergeBoundaries") {
+    try {
+      entries.push({
+        kind: "mergeBoundaries",
+        tag: call.tag,
+        ok: true,
+        merged: mergeSerializedSourceBoundaries(call.serialized, call.additional),
+      });
+    } catch (error) {
+      entries.push({ kind: "mergeBoundaries", tag: call.tag, ok: false, error: String(error.message) });
     }
   } else if (call.kind === "beginCapture") {
     live.beginCapture();

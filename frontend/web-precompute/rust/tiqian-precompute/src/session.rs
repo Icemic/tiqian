@@ -12,8 +12,11 @@ use crate::policy::normalize_base_features;
 use crate::replay::{
     instance_axes, instance_id, metric_replay_key, normalized_replay_number, shape_replay_key,
 };
-use crate::selection::{render_families, select_shape_face};
+use crate::selection::{render_families, select_face, select_shape_face};
 use crate::shaping::{FontEngine, ShapeRecordResult};
+use crate::source_boundaries::{
+    source_boundaries_for_selected_face, BoundaryStyle, BoundaryTextSpan,
+};
 
 pub const BACKEND_REVISION: &str = "tiqian-shared-harfbuzz-v5";
 pub const FONT_REPLAY_REVISION: &str = "tiqian-server-shaping-replay-v1";
@@ -317,6 +320,26 @@ impl FontSession {
     /// `session.renderFamilies`.
     pub fn render_families(&self, requested: &[String]) -> Result<Vec<String>, String> {
         render_families(&self.records, requested)
+    }
+
+    /// `session.sourceBoundaries(text, baseStyle, textSpans)`: exact-face run
+    /// boundaries over the session's records, keyed on `faceId`.
+    pub fn source_boundaries(
+        &self,
+        text: &str,
+        base_style: &BoundaryStyle,
+        spans: &[BoundaryTextSpan],
+    ) -> Result<Vec<f64>, String> {
+        source_boundaries_for_selected_face(text, base_style, spans, |style, point| {
+            let record = select_face(
+                &self.records,
+                &style.font_families,
+                style.font_weight,
+                style.italic,
+                &[point],
+            )?;
+            Ok(record.face_id.clone())
+        })
     }
 
     /// `beginCapture`.

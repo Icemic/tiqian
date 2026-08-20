@@ -5,6 +5,7 @@
 //! lanes land slice by slice.
 
 pub mod base_table;
+pub mod emit;
 pub mod font_face;
 pub mod font_record;
 pub mod font_source;
@@ -19,3 +20,4 @@ pub mod selection;
 pub mod session;
 pub mod sfnt;
 pub mod shaping;
+pub mod source_boundaries;

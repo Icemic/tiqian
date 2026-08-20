@@ -13,14 +13,18 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use tiqian_precompute::emit;
 use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
 use tiqian_precompute::json::Json;
 use tiqian_precompute::session::{
-    create_font_session, FaceInfo, FaceUsage, FontEvidence, FontSession, MetricsInput,
-    MetricReplay, SessionFaceSpec, SessionOptions, ShapeInput, ShapeReplay,
-    FONT_REPLAY_REVISION,
+    create_font_session, FontEvidence, FontSession, MetricsInput, SessionFaceSpec,
+    SessionOptions, ShapeInput,
 };
 use tiqian_precompute::shaping::ShapeRecordResult;
+use tiqian_precompute::source_boundaries::{
+    merge_serialized_source_boundaries, worker_exact_subset_source_boundaries, BoundaryStyle,
+    BoundaryTextSpan, MetadataFaceSpec, WorkerBoundaryRequest,
+};
 
 const HAN_REGULAR: &str = "hanRegular";
 const HAN_BOLD: &str = "hanBold";
@@ -96,12 +100,72 @@ struct RenderFamiliesDef {
 }
 
 #[derive(Clone, Copy)]
+struct SpanDef {
+    start: f64,
+    end: f64,
+    families: &'static [&'static str],
+    font_size: f64,
+    font_weight: f64,
+    italic: bool,
+    baseline_shift: Option<f64>,
+}
+
+#[derive(Clone, Copy)]
+struct BoundariesDef {
+    session: &'static str,
+    tag: &'static str,
+    text: &'static str,
+    families: &'static [&'static str],
+    font_size: f64,
+    font_weight: f64,
+    italic: bool,
+    baseline_shift: Option<f64>,
+    spans: &'static [SpanDef],
+    deps: &'static [&'static str],
+}
+
+#[derive(Clone, Copy)]
+struct WorkerFaceDef {
+    family: &'static str,
+    local_names: &'static [&'static str],
+    style: &'static str,
+    weight_low: f64,
+    weight_high: f64,
+    unicode_range: Option<&'static str>,
+    public_url: &'static str,
+    face_index: f64,
+    source_order: f64,
+}
+
+#[derive(Clone, Copy)]
+struct WorkerBoundariesDef {
+    tag: &'static str,
+    text: &'static str,
+    families: &'static str,
+    font_size: f64,
+    font_weight: f64,
+    italic: bool,
+    spans: &'static str,
+    faces: &'static [WorkerFaceDef],
+}
+
+#[derive(Clone, Copy)]
+struct MergeBoundariesDef {
+    tag: &'static str,
+    serialized: &'static str,
+    additional: &'static [f64],
+}
+
+#[derive(Clone, Copy)]
 enum CallDef {
     Shape(ShapeDef),
     Metrics(MetricsDef),
     RenderFamilies(RenderFamiliesDef),
     BeginCapture(&'static str),
     Evidence(&'static str),
+    Boundaries(BoundariesDef),
+    WorkerBoundaries(WorkerBoundariesDef),
+    MergeBoundaries(MergeBoundariesDef),
 }
 
 /// Session ordering pins the counter semantics: `badBase` is rejected after
@@ -672,6 +736,373 @@ const CALLS: &[CallDef] = &[
     }),
     CallDef::Evidence("main"),
     CallDef::Evidence("lnum"),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "mixed-runs",
+        text: "汉B汉",
+        families: MIXED,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[],
+        deps: &[DELA_WOFF2, GARAMOND_REGULAR],
+    }),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "crlf-keeps-run-offsets",
+        text: "汉\r\nB",
+        families: MIXED,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[],
+        deps: &[DELA_WOFF2, GARAMOND_REGULAR],
+    }),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "span-weight-split",
+        text: "BB",
+        families: MIXED,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[SpanDef {
+            start: 1.0,
+            end: 2.0,
+            families: MIXED,
+            font_size: 18.0,
+            font_weight: 700.0,
+            italic: false,
+            baseline_shift: None,
+        }],
+        deps: &[DELA_WOFF2, GARAMOND_REGULAR],
+    }),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "span-baseline-shift-split",
+        text: "汉汉",
+        families: HAN,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[
+            SpanDef {
+                start: 0.0,
+                end: 1.0,
+                families: HAN,
+                font_size: 18.0,
+                font_weight: 400.0,
+                italic: false,
+                baseline_shift: Some(0.0),
+            },
+            SpanDef {
+                start: 1.0,
+                end: 2.0,
+                families: HAN,
+                font_size: 18.0,
+                font_weight: 400.0,
+                italic: false,
+                baseline_shift: Some(2.0),
+            },
+        ],
+        deps: &[HAN_REGULAR],
+    }),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "astral-span-offsets",
+        text: "\u{20000}B",
+        families: HAN,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[SpanDef {
+            start: 2.0,
+            end: 3.0,
+            families: MIXED,
+            font_size: 18.0,
+            font_weight: 400.0,
+            italic: false,
+            baseline_shift: None,
+        }],
+        deps: &[HAN_REGULAR, GARAMOND_REGULAR, DELA_WOFF2],
+    }),
+    CallDef::Boundaries(BoundariesDef {
+        session: "main",
+        tag: "uncovered-point-throws",
+        text: "汉”",
+        families: MIXED,
+        font_size: 18.0,
+        font_weight: 400.0,
+        italic: false,
+        baseline_shift: None,
+        spans: &[],
+        deps: &[DELA_WOFF2, GARAMOND_REGULAR],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "latin-punctuation-shard",
+        text: "B\u{201d}",
+        families: "MiSans VF\u{1f}ui-sans-serif",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0041-005A"),
+                public_url: "/fonts/latin.woff2",
+                face_index: 0.0,
+                source_order: 0.0,
+            },
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+201D"),
+                public_url: "/fonts/punctuation.woff2",
+                face_index: 0.0,
+                source_order: 1.0,
+            },
+        ],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "overlapping-declarations-follow-source-order",
+        text: "AB",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0041-005A"),
+                public_url: "/fonts/latin-a.woff2",
+                face_index: 0.0,
+                source_order: 0.0,
+            },
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0042"),
+                public_url: "/fonts/latin-b.woff2",
+                face_index: 0.0,
+                source_order: 1.0,
+            },
+        ],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "soft-break-needs-no-face",
+        text: "B\u{200b}\u{201d}",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0041-005A"),
+                public_url: "/fonts/latin.woff2",
+                face_index: 0.0,
+                source_order: 0.0,
+            },
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+201D"),
+                public_url: "/fonts/punctuation.woff2",
+                face_index: 0.0,
+                source_order: 1.0,
+            },
+        ],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "crlf-utf16-offsets",
+        text: "\u{7531}\r\nB",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+4E00-9FFF"),
+                public_url: "/fonts/cjk.woff2",
+                face_index: 0.0,
+                source_order: 0.0,
+            },
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0041-005A"),
+                public_url: "/fonts/latin.woff2",
+                face_index: 0.0,
+                source_order: 1.0,
+            },
+        ],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "span-keeps-dom-boundary",
+        text: "B\u{201d}B",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "2\u{1d}3\u{1d}MiSans VF\u{1d}18\u{1d}700\u{1d}false\u{1d}0",
+        faces: &[
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+0041-005A"),
+                public_url: "/fonts/latin.woff2",
+                face_index: 0.0,
+                source_order: 0.0,
+            },
+            WorkerFaceDef {
+                family: "MiSans VF",
+                local_names: &["MiSans VF"],
+                style: "normal",
+                weight_low: 100.0,
+                weight_high: 900.0,
+                unicode_range: Some("U+201D"),
+                public_url: "/fonts/punctuation.woff2",
+                face_index: 0.0,
+                source_order: 1.0,
+            },
+        ],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "uncovered-point-throws",
+        text: "\u{4e00}",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[WorkerFaceDef {
+            family: "MiSans VF",
+            local_names: &["MiSans VF"],
+            style: "normal",
+            weight_low: 100.0,
+            weight_high: 900.0,
+            unicode_range: Some("U+0041-005A"),
+            public_url: "/fonts/latin.woff2",
+            face_index: 0.0,
+            source_order: 0.0,
+        }],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "italic-without-italic-face-throws",
+        text: "B",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: true,
+        spans: "",
+        faces: &[WorkerFaceDef {
+            family: "MiSans VF",
+            local_names: &["MiSans VF"],
+            style: "normal",
+            weight_low: 100.0,
+            weight_high: 900.0,
+            unicode_range: Some("U+0041-005A"),
+            public_url: "/fonts/latin.woff2",
+            face_index: 0.0,
+            source_order: 0.0,
+        }],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "empty-contract-throws",
+        text: "B",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "",
+        faces: &[],
+    }),
+    CallDef::WorkerBoundaries(WorkerBoundariesDef {
+        tag: "bad-span-field-count-throws",
+        text: "B",
+        families: "MiSans VF",
+        font_size: 18.0,
+        font_weight: 460.0,
+        italic: false,
+        spans: "0\u{1d}1\u{1d}MiSans VF",
+        faces: &[WorkerFaceDef {
+            family: "MiSans VF",
+            local_names: &["MiSans VF"],
+            style: "normal",
+            weight_low: 100.0,
+            weight_high: 900.0,
+            unicode_range: Some("U+0041-005A"),
+            public_url: "/fonts/latin.woff2",
+            face_index: 0.0,
+            source_order: 0.0,
+        }],
+    }),
+    CallDef::MergeBoundaries(MergeBoundariesDef {
+        tag: "empty-serialized",
+        serialized: "",
+        additional: &[1.0],
+    }),
+    CallDef::MergeBoundaries(MergeBoundariesDef {
+        tag: "dedupes-and-sorts",
+        serialized: "2,0",
+        additional: &[1.0, 2.0],
+    }),
+    CallDef::MergeBoundaries(MergeBoundariesDef {
+        tag: "number-coercion",
+        serialized: " 3 ,0x2,1e1",
+        additional: &[],
+    }),
+    CallDef::MergeBoundaries(MergeBoundariesDef {
+        tag: "negative-throws",
+        serialized: "-1",
+        additional: &[],
+    }),
+    CallDef::MergeBoundaries(MergeBoundariesDef {
+        tag: "non-numeric-throws",
+        serialized: "x",
+        additional: &[],
+    }),
 ];
 
 fn skip(reason: &str) {
@@ -927,6 +1358,107 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                 let session = sessions.get(id).expect(&format!("matrix session {id} exists"));
                 entries.push(evidence_json(id, &session.capture_evidence()));
             }
+            CallDef::Boundaries(def) => {
+                if !def.deps.iter().all(|dep| available.contains(dep)) {
+                    continue;
+                }
+                let session = sessions.get(def.session).expect(&format!("matrix session {} exists", def.session));
+                let base_style = BoundaryStyle {
+                    font_families: def.families.iter().map(|f| f.to_string()).collect(),
+                    font_size_px: def.font_size,
+                    font_weight: def.font_weight,
+                    italic: def.italic,
+                    baseline_shift_px: def.baseline_shift,
+                };
+                let spans: Vec<BoundaryTextSpan> = def
+                    .spans
+                    .iter()
+                    .map(|span| BoundaryTextSpan {
+                        start: span.start,
+                        end: span.end,
+                        style: BoundaryStyle {
+                            font_families: span.families.iter().map(|f| f.to_string()).collect(),
+                            font_size_px: span.font_size,
+                            font_weight: span.font_weight,
+                            italic: span.italic,
+                            baseline_shift_px: span.baseline_shift,
+                        },
+                    })
+                    .collect();
+                match session.source_boundaries(def.text, &base_style, &spans) {
+                    Ok(boundaries) => entries.push(Json::Obj(vec![
+                        ("kind".into(), Json::str("sourceBoundaries")),
+                        ("session".into(), Json::str(def.session)),
+                        ("tag".into(), Json::str(def.tag)),
+                        ("ok".into(), Json::Bool(true)),
+                        (
+                            "boundaries".into(),
+                            Json::Arr(boundaries.iter().map(|value| Json::Num(*value)).collect()),
+                        ),
+                    ])),
+                    Err(error) => entries.push(call_error_json(
+                        "sourceBoundaries",
+                        def.session,
+                        def.tag,
+                        &error,
+                    )),
+                }
+            }
+            CallDef::WorkerBoundaries(def) => {
+                let faces: Vec<MetadataFaceSpec> = def
+                    .faces
+                    .iter()
+                    .map(|face| MetadataFaceSpec {
+                        family: face.family.to_string(),
+                        local_names: face.local_names.iter().map(|n| n.to_string()).collect(),
+                        style: face.style.to_string(),
+                        weight: (face.weight_low, face.weight_high),
+                        unicode_range: face.unicode_range.map(str::to_string),
+                        public_url: face.public_url.to_string(),
+                        face_index: face.face_index,
+                        source_order: face.source_order,
+                    })
+                    .collect();
+                let request = WorkerBoundaryRequest {
+                    text: def.text,
+                    font_families: def.families,
+                    font_size_px: def.font_size,
+                    font_weight: def.font_weight,
+                    italic: def.italic,
+                    text_spans: def.spans,
+                };
+                let result = worker_exact_subset_source_boundaries(&faces, &request);
+                let boundaries = match result {
+                    Ok(boundaries) => boundaries,
+                    Err(error) => {
+                        entries.push(call_error_no_session_json("workerBoundaries", def.tag, &error));
+                        continue;
+                    }
+                };
+                entries.push(Json::Obj(vec![
+                    ("kind".into(), Json::str("workerBoundaries")),
+                    ("tag".into(), Json::str(def.tag)),
+                    ("ok".into(), Json::Bool(true)),
+                    (
+                        "boundaries".into(),
+                        Json::Arr(boundaries.iter().map(|value| Json::Num(*value)).collect()),
+                    ),
+                ]));
+            }
+            CallDef::MergeBoundaries(def) => {
+                let kind = "mergeBoundaries";
+                match merge_serialized_source_boundaries(def.serialized, def.additional) {
+                    Ok(merged) => entries.push(Json::Obj(vec![
+                        ("kind".into(), Json::str(kind)),
+                        ("tag".into(), Json::str(def.tag)),
+                        ("ok".into(), Json::Bool(true)),
+                        ("merged".into(), Json::str(merged)),
+                    ])),
+                    Err(error) => {
+                        entries.push(call_error_no_session_json(kind, def.tag, &error))
+                    }
+                }
+            }
         }
     }
     entries
@@ -1072,79 +1604,134 @@ fn call_to_json(call: &CallDef, fonts: &HashMap<&str, PathBuf>) -> Option<Json> 
             ("kind".to_string(), Json::str("evidence")),
             ("session".to_string(), Json::str(*id)),
         ])),
+        CallDef::Boundaries(def) => {
+            if !def.deps.iter().all(|dep| fonts.contains_key(dep)) {
+                return None;
+            }
+            let fields = vec![
+                ("kind".to_string(), Json::str("sourceBoundaries")),
+                ("session".to_string(), Json::str(def.session)),
+                ("tag".to_string(), Json::str(def.tag)),
+                ("text".to_string(), Json::str(def.text)),
+                (
+                    "families".to_string(),
+                    Json::Arr(def.families.iter().map(|f| Json::str(*f)).collect()),
+                ),
+                ("fontSizePx".to_string(), Json::Num(def.font_size)),
+                ("fontWeight".to_string(), Json::Num(def.font_weight)),
+                ("italic".to_string(), Json::Bool(def.italic)),
+                (
+                    "baselineShiftPx".to_string(),
+                    match def.baseline_shift {
+                        None => Json::Null,
+                        Some(value) => Json::Num(value),
+                    },
+                ),
+                (
+                    "spans".to_string(),
+                    Json::Arr(
+                        def.spans
+                            .iter()
+                            .map(|span| {
+                                let mut fields = vec![
+                                    ("start".to_string(), Json::Num(span.start)),
+                                    ("end".to_string(), Json::Num(span.end)),
+                                    (
+                                        "fontFamilies".to_string(),
+                                        Json::Arr(
+                                            span.families.iter().map(|f| Json::str(*f)).collect(),
+                                        ),
+                                    ),
+                                    ("fontSizePx".to_string(), Json::Num(span.font_size)),
+                                    ("fontWeight".to_string(), Json::Num(span.font_weight)),
+                                    ("italic".to_string(), Json::Bool(span.italic)),
+                                ];
+                                if let Some(value) = span.baseline_shift {
+                                    fields.push(("baselineShiftPx".to_string(), Json::Num(value)));
+                                }
+                                Json::Obj(fields)
+                            })
+                            .collect(),
+                    ),
+                ),
+            ];
+            Some(Json::Obj(fields))
+        }
+        CallDef::WorkerBoundaries(def) => Some(Json::Obj(vec![
+            ("kind".to_string(), Json::str("workerBoundaries")),
+            ("tag".to_string(), Json::str(def.tag)),
+            ("text".to_string(), Json::str(def.text)),
+            ("fontFamilies".to_string(), Json::str(def.families)),
+            ("fontSizePx".to_string(), Json::Num(def.font_size)),
+            ("fontWeight".to_string(), Json::Num(def.font_weight)),
+            ("italic".to_string(), Json::Bool(def.italic)),
+            ("textSpans".to_string(), Json::str(def.spans)),
+            (
+                "faces".to_string(),
+                Json::Arr(
+                    def.faces
+                        .iter()
+                        .map(|face| {
+                            Json::Obj(vec![
+                                ("family".to_string(), Json::str(face.family)),
+                                (
+                                    "localNames".to_string(),
+                                    Json::Arr(
+                                        face.local_names.iter().map(|n| Json::str(*n)).collect(),
+                                    ),
+                                ),
+                                ("style".to_string(), Json::str(face.style)),
+                                (
+                                    "weight".to_string(),
+                                    Json::Arr(vec![
+                                        Json::Num(face.weight_low),
+                                        Json::Num(face.weight_high),
+                                    ]),
+                                ),
+                                (
+                                    "unicodeRange".to_string(),
+                                    match face.unicode_range {
+                                        None => Json::Null,
+                                        Some(value) => Json::str(value),
+                                    },
+                                ),
+                                ("publicUrl".to_string(), Json::str(face.public_url)),
+                                ("faceIndex".to_string(), Json::Num(face.face_index)),
+                                ("sourceOrder".to_string(), Json::Num(face.source_order)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+        ])),
+        CallDef::MergeBoundaries(def) => Some(Json::Obj(vec![
+            ("kind".to_string(), Json::str("mergeBoundaries")),
+            ("tag".to_string(), Json::str(def.tag)),
+            ("serialized".to_string(), Json::str(def.serialized)),
+            (
+                "additional".to_string(),
+                Json::Arr(def.additional.iter().map(|value| Json::Num(*value)).collect()),
+            ),
+        ])),
     }
 }
 
-fn face_info_json(face: &FaceInfo) -> Json {
-    Json::Obj(vec![
-        ("family".into(), Json::str(face.family.clone())),
-        ("style".into(), Json::str(face.style)),
-        (
-            "weight".into(),
-            Json::Arr(vec![Json::Num(face.weight[0]), Json::Num(face.weight[1])]),
-        ),
-        ("unicodeRange".into(), Json::str(face.unicode_range.clone())),
-        ("publicUrl".into(), Json::str(face.public_url.clone())),
-        ("sourceSha256".into(), Json::str(face.source_sha256.clone())),
-        ("sfntSha256".into(), Json::str(face.sfnt_sha256.clone())),
-        ("faceIndex".into(), Json::Num(face.face_index)),
-        ("sourceOrder".into(), Json::Num(face.source_order as f64)),
-        (
-            "axisTags".into(),
-            Json::Arr(face.axis_tags.iter().map(|tag| Json::str(tag.clone())).collect()),
-        ),
-        (
-            "localNames".into(),
-            Json::Arr(face.local_names.iter().map(|name| Json::str(name.clone())).collect()),
-        ),
-    ])
+fn face_info_json(face: &tiqian_precompute::session::FaceInfo) -> Json {
+    emit::face_info_json(face)
 }
 
 fn shape_ok_json(session: &str, tag: &str, result: &ShapeRecordResult) -> Json {
-    Json::Obj(vec![
+    let mut entry = vec![
         ("kind".into(), Json::str("shape")),
         ("session".into(), Json::str(session)),
         ("tag".into(), Json::str(tag)),
         ("ok".into(), Json::Bool(true)),
-        ("faceId".into(), Json::str(result.face_id.clone())),
-        ("fontInstanceId".into(), Json::str(result.font_instance_id.clone())),
-        ("script".into(), Json::str(result.script.clone())),
-        (
-            "features".into(),
-            Json::Arr(result.features.iter().map(|f| Json::str(f.clone())).collect()),
-        ),
-        (
-            "probeFeatures".into(),
-            Json::Arr(result.probe_features.iter().map(|f| Json::str(f.clone())).collect()),
-        ),
-        ("unsafeBreakCount".into(), Json::Num(result.unsafe_break_count as f64)),
-        ("advance".into(), Json::Num(result.advance)),
-        (
-            "glyphs".into(),
-            Json::Arr(
-                result
-                    .glyphs
-                    .iter()
-                    .map(|glyph| {
-                        let mut fields = vec![
-                            ("id".into(), Json::Num(glyph.id as f64)),
-                            ("cluster".into(), Json::Num(glyph.cluster as f64)),
-                            ("advance".into(), Json::Num(glyph.advance)),
-                            ("x".into(), Json::Num(glyph.x)),
-                            ("y".into(), Json::Num(glyph.y)),
-                        ];
-                        if let Some(bounds) = &glyph.bounds {
-                            fields.push((
-                                "bounds".into(),
-                                Json::Arr(bounds.iter().map(|v| Json::Num(*v)).collect()),
-                            ));
-                        }
-                        Json::Obj(fields)
-                    })
-                    .collect(),
-            ),
-        ),
-    ])
+    ];
+    let Json::Obj(fields) = emit::shape_result_json(result) else {
+        unreachable!("shape_result_json always builds an object");
+    };
+    entry.extend(fields);
+    Json::Obj(entry)
 }
 
 fn call_error_json(kind: &str, session: &str, tag: &str, error: &str) -> Json {
@@ -1157,142 +1744,27 @@ fn call_error_json(kind: &str, session: &str, tag: &str, error: &str) -> Json {
     ])
 }
 
-fn evidence_json(session: &str, evidence: &FontEvidence) -> Json {
+/// Error entry for calls that run outside any session.
+fn call_error_no_session_json(kind: &str, tag: &str, error: &str) -> Json {
     Json::Obj(vec![
+        ("kind".into(), Json::str(kind)),
+        ("tag".into(), Json::str(tag)),
+        ("ok".into(), Json::Bool(false)),
+        ("error".into(), Json::str(error)),
+    ])
+}
+
+fn evidence_json(session: &str, evidence: &FontEvidence) -> Json {
+    let mut entry = vec![
         ("kind".into(), Json::str("evidence")),
         ("session".into(), Json::str(session)),
         ("ok".into(), Json::Bool(true)),
-        ("backendRevision".into(), Json::str(evidence.backend_revision)),
-        ("harfbuzzVersion".into(), Json::str(evidence.harfbuzz_version)),
-        (
-            "faces".into(),
-            Json::Arr(evidence.faces.iter().map(usage_json).collect()),
-        ),
-        (
-            "replay".into(),
-            Json::Obj(vec![
-                ("revision".into(), Json::str(FONT_REPLAY_REVISION)),
-                (
-                    "shapes".into(),
-                    Json::Arr(evidence.replay_shapes.iter().map(shape_replay_json).collect()),
-                ),
-                (
-                    "metrics".into(),
-                    Json::Arr(evidence.replay_metrics.iter().map(metric_replay_json).collect()),
-                ),
-            ]),
-        ),
-    ])
-}
-
-fn usage_json(usage: &FaceUsage) -> Json {
-    Json::Obj(vec![
-        ("family".into(), Json::str(usage.family.clone())),
-        ("style".into(), Json::str(usage.style)),
-        (
-            "weight".into(),
-            Json::Arr(vec![Json::Num(usage.weight[0]), Json::Num(usage.weight[1])]),
-        ),
-        ("unicodeRange".into(), Json::str(usage.unicode_range.clone())),
-        ("publicUrl".into(), Json::str(usage.public_url.clone())),
-        ("sourceSha256".into(), Json::str(usage.source_sha256.clone())),
-        ("sfntSha256".into(), Json::str(usage.sfnt_sha256.clone())),
-        ("faceIndex".into(), Json::Num(usage.face_index)),
-        ("sourceOrder".into(), Json::Num(usage.source_order as f64)),
-        (
-            "axes".into(),
-            Json::Obj(
-                usage.axes.iter().map(|(tag, value)| (tag.clone(), Json::Num(*value))).collect(),
-            ),
-        ),
-        (
-            "localNames".into(),
-            Json::Arr(usage.local_names.iter().map(|name| Json::str(name.clone())).collect()),
-        ),
-        (
-            "coverageText".into(),
-            Json::str(usage.coverage_text.iter().collect::<String>()),
-        ),
-        (
-            "probe".into(),
-            Json::Obj(vec![
-                ("text".into(), Json::str(usage.probe_text.clone())),
-                ("advancePx".into(), Json::Num(usage.probe_advance_px)),
-                ("fontSizePx".into(), Json::Num(usage.probe_font_size_px)),
-                ("fontWeight".into(), Json::Num(usage.probe_font_weight)),
-                ("italic".into(), Json::Bool(usage.probe_italic)),
-                ("script".into(), Json::str(usage.probe_script.clone())),
-                ("language".into(), Json::str(usage.probe_language.clone())),
-                (
-                    "features".into(),
-                    Json::Arr(usage.probe_features.iter().map(|f| Json::str(f.clone())).collect()),
-                ),
-            ]),
-        ),
-    ])
-}
-
-fn shape_replay_json(replay: &ShapeReplay) -> Json {
-    Json::Obj(vec![
-        ("key".into(), Json::str(replay.key.clone())),
-        (
-            "result".into(),
-            Json::Obj(vec![
-                ("faceId".into(), Json::str(replay.face_id.clone())),
-                ("fontInstanceId".into(), Json::str(replay.font_instance_id.clone())),
-                ("script".into(), Json::str(replay.script.clone())),
-                (
-                    "features".into(),
-                    Json::Arr(replay.features.iter().map(|f| Json::str(f.clone())).collect()),
-                ),
-                ("unsafeBreakCount".into(), Json::Num(replay.unsafe_break_count as f64)),
-                ("advanceEm".into(), opt_num(replay.advance_em)),
-                (
-                    "glyphs".into(),
-                    Json::Arr(
-                        replay
-                            .glyphs
-                            .iter()
-                            .map(|glyph| {
-                                Json::Obj(vec![
-                                    ("id".into(), Json::Num(glyph.id as f64)),
-                                    ("advanceEm".into(), opt_num(glyph.advance_em)),
-                                    ("xEm".into(), opt_num(glyph.x_em)),
-                                    ("yEm".into(), opt_num(glyph.y_em)),
-                                    (
-                                        "boundsEm".into(),
-                                        match &glyph.bounds_em {
-                                            None => Json::Null,
-                                            Some(bounds) => Json::Arr(
-                                                bounds.iter().map(|v| opt_num(*v)).collect(),
-                                            ),
-                                        },
-                                    ),
-                                ])
-                            })
-                            .collect(),
-                    ),
-                ),
-            ]),
-        ),
-    ])
-}
-
-fn metric_replay_json(replay: &MetricReplay) -> Json {
-    Json::Obj(vec![
-        ("key".into(), Json::str(replay.key.clone())),
-        (
-            "valuesEm".into(),
-            Json::Arr(replay.values_em.iter().map(|v| opt_num(*v)).collect()),
-        ),
-    ])
-}
-
-fn opt_num(value: Option<f64>) -> Json {
-    match value {
-        Some(value) => Json::Num(value),
-        None => Json::Null,
-    }
+    ];
+    let Json::Obj(fields) = emit::evidence_json(evidence) else {
+        unreachable!("evidence_json always builds an object");
+    };
+    entry.extend(fields);
+    Json::Obj(entry)
 }
 
 /// Replaces every `"harfbuzzVersion":"…"` value with a token before the

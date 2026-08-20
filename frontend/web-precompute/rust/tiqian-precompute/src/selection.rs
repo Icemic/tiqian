@@ -93,6 +93,20 @@ pub fn find_face<'a>(
     None
 }
 
+/// `selectFace`: `findFace` with the `NoExactFontFace` throw on a miss.
+pub fn select_face<'a>(
+    records: &'a [FontRecord],
+    families: &[String],
+    requested_weight: f64,
+    italic: bool,
+    text: &[char],
+) -> Result<&'a FontRecord, String> {
+    find_face(records, families, requested_weight, italic, text).ok_or_else(|| {
+        let joined: String = text.iter().collect();
+        no_exact_font_face_message(families, requested_weight, italic, &joined)
+    })
+}
+
 /// `selectShapeFace` (ExactDisplaySubstitutionCoverage): try the display
 /// text, then the source text with `displayCovered: false`, then fail
 /// through `selectFace`'s error.

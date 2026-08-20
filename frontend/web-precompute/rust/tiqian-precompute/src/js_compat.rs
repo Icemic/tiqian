@@ -70,6 +70,95 @@ pub fn cmp_utf16(left: &str, right: &str) -> std::cmp::Ordering {
     left.encode_utf16().cmp(right.encode_utf16())
 }
 
+/// Converts a string the way `Number(value)` does: trimmed input, empty to 0,
+/// `Infinity`/`NaN` tokens, `0x`/`0o`/`0b` literals, decimal with optional
+/// exponent, anything else to NaN.
+pub fn js_to_number(value: &str) -> f64 {
+    let text = js_trim(value);
+    if text.is_empty() {
+        return 0.0;
+    }
+    let (sign, body) = match text.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, text.strip_prefix('+').unwrap_or(text)),
+    };
+    if body == "Infinity" {
+        return sign * f64::INFINITY;
+    }
+    if body == "NaN" {
+        return f64::NAN;
+    }
+    if let Some(digits) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+        return match i64::from_str_radix(digits, 16) {
+            Ok(value) => sign * value as f64,
+            Err(_) => f64::NAN,
+        };
+    }
+    if let Some(digits) = body.strip_prefix("0o").or_else(|| body.strip_prefix("0O")) {
+        return match i64::from_str_radix(digits, 8) {
+            Ok(value) => sign * value as f64,
+            Err(_) => f64::NAN,
+        };
+    }
+    if let Some(digits) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
+        return match i64::from_str_radix(digits, 2) {
+            Ok(value) => sign * value as f64,
+            Err(_) => f64::NAN,
+        };
+    }
+    // Decimal: digits [. digits] [e sign digits]; a bare "." or "e" is NaN.
+    let invalid = body
+        .strip_prefix(['e', 'E'])
+        .is_some() || body.starts_with(|c: char| !c.is_ascii_digit() && c != '.');
+    if invalid {
+        return f64::NAN;
+    }
+    let mut mantissa = String::new();
+    let mut rest = body;
+    let mut seen_digit = false;
+    for c in rest.chars() {
+        if c.is_ascii_digit() {
+            mantissa.push(c);
+            seen_digit = true;
+        } else {
+            break;
+        }
+    }
+    rest = &rest[mantissa.len()..];
+    if let Some(after_dot) = rest.strip_prefix('.') {
+        let mut fraction = String::new();
+        for c in after_dot.chars() {
+            if c.is_ascii_digit() {
+                fraction.push(c);
+                seen_digit = true;
+            } else {
+                break;
+            }
+        }
+        mantissa.push('.');
+        mantissa.push_str(&fraction);
+        rest = &after_dot[fraction.len()..];
+    }
+    if !seen_digit {
+        return f64::NAN;
+    }
+    let mut number_text = mantissa;
+    if let Some(exponent) = rest.strip_prefix(['e', 'E']) {
+        let exponent_text = exponent
+            .strip_prefix('+')
+            .or_else(|| exponent.strip_prefix('-'))
+            .unwrap_or(exponent);
+        if exponent_text.is_empty() || !exponent_text.bytes().all(|b| b.is_ascii_digit()) {
+            return f64::NAN;
+        }
+        number_text.push('e');
+        number_text.push_str(exponent);
+    } else if !rest.is_empty() {
+        return f64::NAN;
+    }
+    sign * number_text.parse::<f64>().unwrap_or(f64::NAN)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
