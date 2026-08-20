@@ -48,7 +48,9 @@ jobs:
           package-manager-cache: false
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm ci --no-audit --no-fund
+        # npm install, not npm ci: the platform binary packages are not on the
+        # registry yet, so no lockfile can carry entries for them.
+        run: npm install --no-audit --no-fund
       - name: Look up matrix data
         id: matrixData
         working-directory: frontend/web-precompute/npm
@@ -124,7 +126,7 @@ jobs:
           package-manager-cache: false
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
       - name: Build addon and place platform binary
         working-directory: frontend/web-precompute/npm
         shell: bash
@@ -175,7 +177,7 @@ jobs:
           package-manager-cache: false
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
       - name: Lint, typecheck, and build the JS entry
         working-directory: frontend/web-precompute/npm
         run: |
