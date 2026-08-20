@@ -243,7 +243,8 @@ body {
   display: inline-block;
 }
 
-/* Prose Typography */
+/* Prose Typography. No overflow clip here: hanging punctuation extends past
+   the content edge, and .article-card clips with padding as the safety zone. */
 tiqian-prose, .prose {
   display: block;
   font-size: 16px;
@@ -252,7 +253,6 @@ tiqian-prose, .prose {
   min-width: 0;
   max-width: 100%;
   width: 100%;
-  overflow: clip;
 }
 
 tiqian-prose p, .prose p {
