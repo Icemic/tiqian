@@ -1,8 +1,14 @@
 //! Rust bindings for the Tiqian layout engine's native precompute C ABI (ADR 0050).
 //!
-//! Slice A skeleton: this crate fixes the workspace layout and the shared error
-//! vocabulary. Static-library linkage, `precompute_paragraph` and
-//! `install_font_backend` land with the Rust font session slice.
+//! Font backend protocol types ([`font_backend`]) and the packed shape-buffer
+//! encoder ([`shape_buffer`]) are pure Rust and testable without the engine.
+//! The `extern` declarations for `tiqian_install_font_backend` and
+//! `tiqian_precompute_paragraph` link against the platform crates' static
+//! libraries and land with those crates, so this crate keeps building before
+//! they exist.
+
+pub mod font_backend;
+pub mod shape_buffer;
 
 /// A named issue reported by the engine across the C ABI. Names match the npm
 /// test assertions byte for byte (`InvalidMaximumMeasure`, `FontBackendNotInstalled`, ...).
