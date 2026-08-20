@@ -482,11 +482,14 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     // Timing instrumentation attributes differ per run (enhance-ms, load-ms,
     // relayout-ms) and their position in the attribute order shifts; they are
     // performance telemetry, not layout truth, so they are stripped for the
-    // DOM identity check.
+    // DOM identity check. Capability detail records which code path produced
+    // the verdict (reconcile reuse vs relayout re-enhance), so it is equally
+    // timing-dependent; the capability issue name itself stays compared.
     const normalizedMainHtml = `(
       document.querySelector("main") ?? document.body
     ).outerHTML
       .replace(/data-tiqian-(enhance|max-slice|load|relayout|relayout-max-slice)-ms="[^"]*"/g, "")
+      .replace(/data-tiqian-capability-detail="[^"]*"/g, "")
       .replace(/\\s+/g, " ")
       .replace(/\\s>/g, ">")`;
 
@@ -579,6 +582,12 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
           [],
           `${label}: published and dev screenshots must be pixel-identical (full page + every scrolled viewport):\n${failures.join("\n")}`,
         );
+      }
+      if (domHtml[1] !== domHtml[0] && process.env.TIQIAN_DOM_DUMP_DIR) {
+        const { writeFile } = await import("node:fs/promises");
+        const slug = label.replace(/[^a-z0-9]+/gi, "-");
+        await writeFile(join(process.env.TIQIAN_DOM_DUMP_DIR, `${slug}-dev.html`), domHtml[0]);
+        await writeFile(join(process.env.TIQIAN_DOM_DUMP_DIR, `${slug}-pub.html`), domHtml[1]);
       }
       assert.strictEqual(
         domHtml[1],
