@@ -37,6 +37,16 @@ class ParagraphScaleBenchmarkProbe {
 
     @Test
     fun benchmarkScaleFrom100To50000Chars() {
+        // Wall-clock probe: the resize<=cold ordering compares a single cold
+        // sample against an averaged loop and the 5ms budget assumes an idle
+        // desktop-class host, so a loaded CI runner can fail both without any
+        // code regression. Gate behind the experiments flag like the sibling
+        // probes in this directory; LayoutBenchmarkProbe keeps the always-on
+        // catastrophic-regression ceiling.
+        if (System.getenv("TIQIAN_RUN_EXPERIMENTS") != "1") {
+            println("ParagraphScaleBenchmarkProbe: set TIQIAN_RUN_EXPERIMENTS=1 to run.")
+            return
+        }
         val lengths = listOf(100, 500, 2_000, 10_000, 50_000)
         val widths = floatArrayOf(800f, 760f, 720f, 680f, 640f, 600f)
 

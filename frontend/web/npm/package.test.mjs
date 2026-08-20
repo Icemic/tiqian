@@ -531,10 +531,21 @@ test("layout coordinator implements visual prominence scoring, proportional back
     /visibleScore[AB] = entry[AB][\s\S]*?\(entry[AB]\.visibleArea \|\| entry[AB]\.area \|\| 0\) \* \(1\.0 \+ \(entry[AB]\.intersectionRatio \|\| 0\)\) \+ \(entry[AB]\.inlineSize \|\| 0\)/u,
   );
 
-  // 2. Anti-starvation aging priority: inView * 1000000 + visibleScore + deferCount * 50000
+  // 2. VisibleClassBeforeScore: visibility is a strict class comparison —
+  // the off-screen `visibleArea || area` fallback can exceed any additive
+  // in-viewport bonus, and pollWorkers derives visibleCount from the sorted
+  // prefix — with anti-starvation aging ordering only within a class.
   assert.match(
     elementSource,
-    /priority[AB] = inView[AB] \* 1000000 \+ visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
+    /if \(inViewA !== inViewB\) return inViewB - inViewA;/u,
+  );
+  assert.match(
+    elementSource,
+    /priority[AB] = visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
+  );
+  assert.match(
+    elementSource,
+    /priority[AB] = visibleScore[AB] \+ Math\.min\([ab]\.deferCount \* 50000, 900000\)/u,
   );
 
   // 3. RefreshAnchoredFrameBudget: the budget follows the measured cadence

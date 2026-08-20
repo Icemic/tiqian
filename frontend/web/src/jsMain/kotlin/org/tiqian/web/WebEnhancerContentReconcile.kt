@@ -80,7 +80,7 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
             element.hasAttribute("data-tq-rendered")
     }
     if (drifted.isEmpty() && custodyDrifted.isEmpty() && taintedTracked.isEmpty() && stranded.isEmpty()) {
-        return """{"outcome":"idle","drifted":0,"tainted":0,"stranded":0,"dead":${dead.size}}"""
+        return """{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":${dead.size}}"""
     }
     class ReconcileAction(val element: HTMLElement, val run: () -> Unit)
     val actions = mutableListOf<ReconcileAction>()
