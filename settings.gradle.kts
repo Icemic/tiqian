@@ -56,6 +56,7 @@ include(
     ":shaping:coretext",
     ":frontend:web",
     ":frontend:web-precompute",
+    ":ffi:native",
     ":linebreak",
     ":clreq",
     ":layout",
