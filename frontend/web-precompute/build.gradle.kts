@@ -10,8 +10,15 @@ kotlin {
         binaries.executable()
     }
 
+    // Native precompute engine targets: each produces a static library plus the C header
+    // generated from the @CName exports (ADR 0050). macosX64 stays out per ADR 0045.
+    macosArm64 { binaries { staticLib() } }
+    linuxX64 { binaries { staticLib() } }
+    linuxArm64 { binaries { staticLib() } }
+    mingwX64 { binaries { staticLib() } }
+
     sourceSets {
-        jsMain.dependencies {
+        commonMain.dependencies {
             implementation(project(":core"))
             implementation(project(":font"))
             implementation(project(":shaping:api"))
