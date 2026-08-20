@@ -15,6 +15,14 @@ use tiqian_precompute::session::{
 };
 use tiqian_precompute::source_boundaries::{BoundaryStyle, BoundaryTextSpan};
 
+#[cfg(tiqian_engine_link)]
+use tiqian_precompute::engine_bridge;
+#[cfg(tiqian_engine_link)]
+use tiqian_precompute::paragraph::{
+    InlineBoxInput, InlineBoxOuterSpacingCode, LineBreakPolicyCode, LineBreakSpanInput,
+    ParagraphRequest, TextSpanInput,
+};
+
 use crate::registry;
 
 pub fn backend_revision(mut cx: FunctionContext) -> JsResult<JsString> {
@@ -243,6 +251,150 @@ fn read_boundary_style(cx: &mut FunctionContext, style: &Handle<JsObject>) -> Ne
         italic: style.prop(&mut *cx, "italic").get::<bool>()?,
         baseline_shift_px: style.prop(&mut *cx, "baselineShiftPx").get::<Option<f64>>()?,
     })
+}
+
+/// `precomputeParagraph(sessionId, text, maxWidthPx, families, fontSizePx,
+/// lineHeightPx, locale, fontWeight, italic, firstLineIndentIc,
+/// lineLengthGridEnabled, sourceBoundaries, textSpans, inlineBoxes,
+/// lineBreakSpans)`: the structured form of the js facade call. Arrays and
+/// span objects arrive as themselves; the delimiter wire encoding stays on
+/// the js side. Returns the plan JSON. The engine link is a build time
+/// property; an addon built without the archive reports `EngineNotLinked`.
+pub fn precompute_paragraph(mut cx: FunctionContext) -> JsResult<JsString> {
+    #[cfg(not(tiqian_engine_link))]
+    {
+        return cx.throw_error("EngineNotLinked");
+    }
+    #[cfg(tiqian_engine_link)]
+    {
+        let session_id = cx.argument::<JsString>(0)?.value(&mut cx);
+        let request = read_paragraph_request(&mut cx, session_id.clone())?;
+        match registry::with_session(&session_id, |session| {
+            engine_bridge::precompute_paragraph(session, &request)
+        }) {
+            Ok(Ok(plan)) => Ok(cx.string(plan)),
+            Ok(Err(error)) => cx.throw_error(error),
+            Err(error) => cx.throw_error(error),
+        }
+    }
+}
+
+#[cfg(tiqian_engine_link)]
+fn read_paragraph_request(
+    cx: &mut FunctionContext,
+    session_id: String,
+) -> NeonResult<ParagraphRequest> {
+    let text = cx.argument::<JsString>(1)?.value(&mut *cx);
+    let max_width_px = cx.argument::<JsNumber>(2)?.value(&mut *cx);
+    let families = cx.argument::<JsArray>(3)?;
+    let font_size_px = cx.argument::<JsNumber>(4)?.value(&mut *cx);
+    let line_height_px = cx.argument::<JsNumber>(5)?.value(&mut *cx);
+    let locale = cx.argument::<JsString>(6)?.value(&mut *cx);
+    let font_weight = cx.argument::<JsNumber>(7)?.value(&mut *cx) as i32;
+    let italic = cx.argument::<JsBoolean>(8)?.value(&mut *cx);
+    let first_line_indent_ic = cx.argument::<JsNumber>(9)?.value(&mut *cx);
+    let line_length_grid_enabled = cx.argument::<JsBoolean>(10)?.value(&mut *cx);
+    let source_boundaries = cx.argument::<JsArray>(11)?;
+    let text_spans = cx.argument::<JsArray>(12)?;
+    let inline_boxes = cx.argument::<JsArray>(13)?;
+    let line_break_spans = cx.argument::<JsArray>(14)?;
+
+    Ok(ParagraphRequest {
+        font_session_id: session_id,
+        text,
+        max_width_px,
+        font_families: read_string_elements(&mut *cx, &families)?,
+        font_size_px,
+        line_height_px,
+        locale,
+        font_weight,
+        italic,
+        first_line_indent_ic,
+        line_length_grid_enabled,
+        source_boundaries: read_int_elements(&mut *cx, &source_boundaries)?,
+        text_spans: read_text_spans(&mut *cx, &text_spans)?,
+        line_break_spans: read_line_break_spans(&mut *cx, &line_break_spans)?,
+        inline_boxes: read_inline_boxes(&mut *cx, &inline_boxes)?,
+    })
+}
+
+/// Index and boundary values are integers on the js side; the truncating cast
+/// matches the `toInt` reads of the wire lane.
+#[cfg(tiqian_engine_link)]
+fn read_int_elements(cx: &mut FunctionContext, array: &Handle<JsArray>) -> NeonResult<Vec<i32>> {
+    let mut items = Vec::with_capacity(array.len(&mut *cx) as usize);
+    for value in array.to_vec(&mut *cx)? {
+        let number = value.downcast_or_throw::<JsNumber, _>(&mut *cx)?.value(&mut *cx);
+        items.push(number as i32);
+    }
+    Ok(items)
+}
+
+#[cfg(tiqian_engine_link)]
+fn read_text_spans(
+    cx: &mut FunctionContext,
+    spans: &Handle<JsArray>,
+) -> NeonResult<Vec<TextSpanInput>> {
+    let mut parsed = Vec::with_capacity(spans.len(&mut *cx) as usize);
+    for value in spans.to_vec(&mut *cx)? {
+        let span = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
+        let families = span.prop(&mut *cx, "families").get::<Handle<JsArray>>()?;
+        parsed.push(TextSpanInput {
+            start: span.prop(&mut *cx, "start").get::<f64>()? as i32,
+            end: span.prop(&mut *cx, "end").get::<f64>()? as i32,
+            families: read_string_elements(&mut *cx, &families)?,
+            font_size_px: span.prop(&mut *cx, "fontSizePx").get::<f64>()?,
+            font_weight: span.prop(&mut *cx, "fontWeight").get::<f64>()? as i32,
+            italic: span.prop(&mut *cx, "italic").get::<bool>()?,
+            baseline_shift: span.prop(&mut *cx, "baselineShiftPx").get::<f64>()?,
+        });
+    }
+    Ok(parsed)
+}
+
+#[cfg(tiqian_engine_link)]
+fn read_inline_boxes(
+    cx: &mut FunctionContext,
+    boxes: &Handle<JsArray>,
+) -> NeonResult<Vec<InlineBoxInput>> {
+    let mut parsed = Vec::with_capacity(boxes.len(&mut *cx) as usize);
+    for value in boxes.to_vec(&mut *cx)? {
+        let inline_box = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
+        let outer_spacing = inline_box.prop(&mut *cx, "outerSpacing").get::<Option<String>>()?;
+        parsed.push(InlineBoxInput {
+            start: inline_box.prop(&mut *cx, "start").get::<f64>()? as i32,
+            end: inline_box.prop(&mut *cx, "end").get::<f64>()? as i32,
+            inline_start: inline_box.prop(&mut *cx, "inlineStartPx").get::<f64>()?,
+            inline_end: inline_box.prop(&mut *cx, "inlineEndPx").get::<f64>()?,
+            outer_spacing: match outer_spacing.as_deref() {
+                None | Some("Narrow") => InlineBoxOuterSpacingCode::Narrow,
+                Some("Source") => InlineBoxOuterSpacingCode::Source,
+                Some(_) => return cx.throw_error("InvalidInlineBoxOuterSpacing"),
+            },
+        });
+    }
+    Ok(parsed)
+}
+
+#[cfg(tiqian_engine_link)]
+fn read_line_break_spans(
+    cx: &mut FunctionContext,
+    spans: &Handle<JsArray>,
+) -> NeonResult<Vec<LineBreakSpanInput>> {
+    let mut parsed = Vec::with_capacity(spans.len(&mut *cx) as usize);
+    for value in spans.to_vec(&mut *cx)? {
+        let span = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
+        let policy = span.prop(&mut *cx, "policy").get::<String>()?;
+        parsed.push(LineBreakSpanInput {
+            start: span.prop(&mut *cx, "start").get::<f64>()? as i32,
+            end: span.prop(&mut *cx, "end").get::<f64>()? as i32,
+            policy: match policy.as_str() {
+                "ProgressiveTechnical" => LineBreakPolicyCode::ProgressiveTechnical,
+                _ => return cx.throw_error("InvalidLineBreakPolicy"),
+            },
+        });
+    }
+    Ok(parsed)
 }
 
 pub fn begin_capture(mut cx: FunctionContext) -> JsResult<JsUndefined> {

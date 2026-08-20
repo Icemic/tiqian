@@ -7,11 +7,12 @@
 //! first failure names the same issue on both sides. Validation works without
 //! the engine archive; the engine call exists only when build.rs linked it.
 
-use tiqian::layout_request::{
-    InlineBoxOuterSpacingCode, InlineBoxSpec, LayoutRequest, LineBreakPolicyCode,
-    LineBreakSpanSpec, TextSpanSpec,
-};
+use tiqian::layout_request::{InlineBoxSpec, LayoutRequest, LineBreakSpanSpec, TextSpanSpec};
 use tiqian::NamedError;
+
+// The request's own field types; callers building a `ParagraphRequest` take
+// the codes from here.
+pub use tiqian::layout_request::{InlineBoxOuterSpacingCode, LineBreakPolicyCode};
 
 #[cfg(tiqian_engine_link)]
 use crate::plan::Plan;

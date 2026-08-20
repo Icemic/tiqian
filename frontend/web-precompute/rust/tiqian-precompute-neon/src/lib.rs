@@ -16,6 +16,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("metrics", calls::metrics)?;
     cx.export_function("renderFamilies", calls::render_families)?;
     cx.export_function("sourceBoundaries", calls::source_boundaries)?;
+    cx.export_function("precomputeParagraph", calls::precompute_paragraph)?;
     cx.export_function("beginCapture", calls::begin_capture)?;
     cx.export_function("captureEvidence", calls::capture_evidence)?;
     cx.export_function("closeSession", calls::close_session)?;
