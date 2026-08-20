@@ -54,7 +54,10 @@ backend revision，证据范围与 `__TiqianFontBackend` 相同，数据形态�
 
 ### `RustPrecomputeStack`：字体会话与编排迁入 Rust
 
-仓库根新增 Cargo workspace，crate 划分：
+Rust 侧分两个 Cargo workspace，都在 `frontend` 下。`frontend/rust` 持有中性引擎绑定：`tiqian`
+与后续的平台 crate；绑定不依赖 web 概念，Rust 使用者可不引入 precompute 直接消费引擎。
+`frontend/web-precompute/rust` 持有 web 域的 `tiqian-precompute` 与 `tiqian-precompute-neon`，
+以 path 加版本依赖 `tiqian`。crate 划分：
 
 - `tiqian`：引擎绑定主包。暴露 `precompute_paragraph`、`install_font_backend` 与具名错误
   类型，链接平台 crate 提供的静态库。crates.io 上 `tiqian` 名称当前未被占用，发布前先注册。
