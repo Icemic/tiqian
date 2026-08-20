@@ -207,7 +207,7 @@ fn valid_range(start: i32, end: i32, text_length: i32) -> bool {
 
 /// Kotlin `String.length`: UTF-16 code units. Every engine range and boundary
 /// lives in this space.
-fn utf16_length(text: &str) -> i32 {
+pub fn utf16_length(text: &str) -> i32 {
     text.chars().map(|c| c.len_utf16() as i32).sum()
 }
 
