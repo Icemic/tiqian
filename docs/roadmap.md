@@ -41,6 +41,12 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
 已经命名但尚未开工的候选：
 
 - `OpaqueInlineObjectGeometryInvalidation`：图片或静态 inline object 加载后几何变化时重新测量。
+- `JsWorkspaceMonorepo`：JS 包仓库重组（2026-08-20 记录）。`@tiqian/prose`、
+  `@tiqian/precompute` 等包迁入统一 workspace，集中管理版本号、bump、lock 更新与发版，
+  以 blurest 的 workspace 组织为参照；`frontend/web` 的 `src`、`npm`、`integrations`
+  三目录收拢为对等源码布局；Rust 侧按 `tiqian-precompute-core` / `tiqian-precompute-binding`
+  命名分层。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录布局与命名不受它强制，
+  现行嵌套是各切片历史演化的结果。Slice 39 D 段移除 legacy JS precompute 后再评估动工。
 
 当前并行推进 **Slice 37：Compose 静态正文 selection**：只读 `CjkText` 已接入源忠实拖选、
 双击选词、三击选段、触摸长按、Foundation 平台手柄、Android 文本放大镜、系统 `ActionMode`
