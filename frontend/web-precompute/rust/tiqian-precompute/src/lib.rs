@@ -6,6 +6,8 @@
 
 pub mod base_table;
 pub mod emit;
+#[cfg(tiqian_engine_link)]
+pub mod engine_bridge;
 pub mod font_face;
 pub mod font_record;
 pub mod font_source;
