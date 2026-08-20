@@ -11,6 +11,11 @@
 // every step that the paragraph re-rendered from the framework's current
 // content with no framework commit errors.
 //
+// Long-page scenarios mount several concurrent roots on a tall page and edit
+// paragraphs in all three engine tiers: inside the viewport, inside the
+// observer band but off-screen, and beyond the band. Roots and paragraphs
+// both enter and leave the DOM and the viewport mid-test.
+//
 // Svelte components are compiled once at test start with the local
 // svelte/compiler. The page loads frameworks through a small in-page
 // CommonJS loader (react-dom 19 ships no UMD) and an import map that maps
@@ -65,16 +70,54 @@ const SVELTE_SOURCE = `
 <p id="list">{#each items as item (item.id)}<span>{item.t}</span>{/each}</p>
 `;
 
+// Long-page fixture: the component itself owns several tiqian-prose roots
+// separated by tall spacers, so one mount yields a page with roots in every
+// tier. Spacers of 1200px and 2800px put the second root inside the observer
+// band (viewport 900px plus one viewport each way) and the third beyond it.
+const SVELTE_MULTI_SOURCE = `
+<script>
+  let { bind } = $props();
+  let a1 = $state("甲根首段原稿文本。");
+  let b1 = $state("乙根近带段原稿。");
+  let c1 = $state("丙根远带段原稿。");
+  let showB = $state(true);
+  let showC = $state(true);
+  let extraA = $state(false);
+  bind({
+    set a1(v) { a1 = v; },
+    set b1(v) { b1 = v; },
+    set c1(v) { c1 = v; },
+    set showB(v) { showB = v; },
+    set showC(v) { showC = v; },
+    set extraA(v) { extraA = v; },
+  });
+</script>
+
+<tiqian-prose data-fixture="s-multi-a"><div><p>{a1}</p>{#if extraA}<p>追加段落进入甲根。</p>{/if}</div></tiqian-prose>
+<div style="height:1200px"></div>
+{#if showB}
+  <tiqian-prose data-fixture="s-multi-b"><div><p>{b1}</p></div></tiqian-prose>
+{/if}
+<div style="height:2800px"></div>
+{#if showC}
+  <tiqian-prose data-fixture="s-multi-c"><div><p>{c1}</p></div></tiqian-prose>
+{/if}
+`;
+
 // The compiled component keeps its bare svelte/internal/* specifiers: the
 // page import map resolves them (a path rewrite would bypass the map, since
 // leading-slash URLs are never looked up in it).
-async function compileSvelteComponent() {
-  const out = compile(SVELTE_SOURCE, {
-    generate: "client",
-    css: "injected",
-    name: "FrameworkFixture",
-  });
+function compileSvelteSource(source, name) {
+  const out = compile(source, { generate: "client", css: "injected", name });
   return out.js.code;
+}
+
+async function compileSvelteComponent() {
+  return compileSvelteSource(SVELTE_SOURCE, "FrameworkFixture");
+}
+
+async function compileSvelteMultiComponent() {
+  return compileSvelteSource(SVELTE_MULTI_SOURCE, "FrameworkMultiFixture");
 }
 
 // The in-page driver: framework loaders, scenario registry, settle helpers,
@@ -177,7 +220,27 @@ const PAGE_DRIVER = `
   globalThis.__quiet = async (ms) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   };
+  // Long-page helpers. __zoneOf mirrors the engine's IntersectionObserver
+  // band (viewport plus one full viewport each way): 1 intersects the
+  // viewport, 2 sits inside the band but off-screen, 3 lies beyond the band.
+  globalThis.__rootOf = (fixture) =>
+    document.querySelector('tiqian-prose[data-fixture="' + fixture + '"]');
+  globalThis.__zoneOf = (el) => {
+    const rect = el.getBoundingClientRect();
+    const vh = innerHeight;
+    if (rect.bottom >= 0 && rect.top <= vh) return 1;
+    if (rect.bottom >= -vh && rect.top <= vh * 2) return 2;
+    return 3;
+  };
+  globalThis.__zonesOf = (root) => __paras(root).map((p) => __zoneOf(p));
+  globalThis.__scrollToEl = (el) => {
+    el.scrollIntoView({ block: "center" });
+  };
+  globalThis.__scrollTop = () => {
+    window.scrollTo(0, 0);
+  };
   globalThis.__clearStage = () => {
+    window.scrollTo(0, 0);
     stage.innerHTML = "";
     return __quiet(600);
   };
@@ -206,6 +269,28 @@ const REACT_APP = `
       await new Promise((resolve) => setTimeout(resolve, 60));
     };
     return { root, container, reactRoot, api, flush };
+  };
+
+  // Stage-level mount for long-page scenarios: React renders the whole page
+  // including several tiqian-prose custom elements and the spacers between
+  // them, so roots entering and leaving the render tree are plain React
+  // commits against the live document.
+  globalThis.__mountReactStage = async (render, initialState) => {
+    const { React, ReactDOMClient } = await __loadReact();
+    const container = document.createElement("div");
+    stage.appendChild(container);
+    const api = { state: initialState, set: null };
+    const App = () => {
+      const [state, setState] = React.useState(api.state);
+      api.set = setState;
+      return render(state);
+    };
+    const reactRoot = ReactDOMClient.createRoot(container);
+    reactRoot.render(React.createElement(App));
+    const flush = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    };
+    return { container, reactRoot, api, flush };
   };
 `;
 
@@ -279,7 +364,7 @@ async function waitForCdpEndpoint(port, timeoutMs = 15000) {
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-function startFixtureServer(svelteComponentSource) {
+function startFixtureServer(svelteComponents) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     const send = (data, type) => {
@@ -334,7 +419,11 @@ function startFixtureServer(svelteComponentSource) {
         return;
       }
       if (path === "/svelte-component/main.js") {
-        send(svelteComponentSource, "text/javascript");
+        send(svelteComponents.main, "text/javascript");
+        return;
+      }
+      if (path === "/svelte-component/multi.js") {
+        send(svelteComponents.multi, "text/javascript");
         return;
       }
       if (path === "/shims/esm-env.mjs") {
@@ -385,13 +474,13 @@ function startFixtureServer(svelteComponentSource) {
 }
 
 test("FrameworkCommitConflict: framework commits survive and re-render through tiqian custody", async () => {
-  const svelteComponent = await compileSvelteComponent();
-  assert.match(svelteComponent, /svelte\/internal\/client/, "compiled fixture must use the svelte client runtime");
+  const svelteMain = await compileSvelteComponent();
+  assert.match(svelteMain, /svelte\/internal\/client/, "compiled fixture must use the svelte client runtime");
 
   const portBusy = await fetch(demoUrl).then(() => true, () => false);
   assert.ok(!portBusy, `Port ${demoPort} must be free before the test starts`);
 
-  const server = await startFixtureServer(svelteComponent);
+  const server = await startFixtureServer({ main: svelteMain, multi: await compileSvelteMultiComponent() });
   let browserProc = null;
   let client = null;
 
@@ -689,6 +778,161 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       await run("await __clearStage()");
     }
 
+    // -------- React: long page, two concurrent roots, edits in every tier
+    {
+      const result = await run(`
+        const { React } = await __loadReact();
+        const h = React.createElement;
+        const filler = "正文填充句读测试。";
+        const paraText = (tag) => tag + "开头。" + filler.repeat(60);
+        let a0 = paraText("甲零");
+        let a5 = paraText("甲五");
+        let b0 = "乙段远带原稿文本。" + filler.repeat(3);
+        const expectA = () => [
+          a0, paraText("甲一"), paraText("甲二"), paraText("甲三"), paraText("甲四"), a5,
+        ];
+        const render = (s) => h("div", null,
+          h("tiqian-prose", { "data-fixture": "r-zone-a" }, h("div", null,
+            h("p", null, s.a0),
+            h("p", null, paraText("甲一")),
+            h("p", null, paraText("甲二")),
+            h("p", null, paraText("甲三")),
+            h("p", null, paraText("甲四")),
+            h("p", null, s.a5))),
+          h("div", { style: { height: "1200px" } }),
+          h("tiqian-prose", { "data-fixture": "r-zone-b" }, h("div", null, h("p", null, s.b0))));
+        const app = await __mountReactStage(render, { a0, a5, b0 });
+        await app.flush();
+        const rootA = __rootOf("r-zone-a");
+        const rootB = __rootOf("r-zone-b");
+        if (!rootA || !rootB) throw new Error("long-page roots missing after mount");
+        if (!await __waitRendered(rootA, 60000)) throw new Error("root A never rendered");
+        if (!await __waitRendered(rootB, 60000)) throw new Error("root B never rendered");
+        const initial = await __waitContent(rootA, expectA(), 60000);
+        const zonesA = __zonesOf(rootA);
+        const zoneB = __zoneOf(__paras(rootB)[0]);
+        // Tier 1: in-viewport paragraph, no scroll involved.
+        app.api.set({ a0: a0 = paraText("甲零改"), a5, b0 });
+        await app.flush();
+        const inView = await __waitContent(rootA, expectA(), 30000);
+        // Tier 2: off-screen but inside the observer band.
+        app.api.set({ a0, a5: a5 = paraText("甲五改"), b0 });
+        await app.flush();
+        const near = await __waitContent(rootA, expectA(), 30000);
+        // Tier 3: beyond the band. Whether it re-renders in place is
+        // scheduling policy; the edit must not be lost either way.
+        app.api.set({ a0, a5, b0: b0 = "乙段远带改写文本。" + filler.repeat(2) });
+        await app.flush();
+        await __quiet(1200);
+        const earlyB = __snapshot(rootB)[0].live;
+        __scrollToEl(__paras(rootB)[0]);
+        const far = await __waitContent(rootB, [b0], 45000);
+        // Root B now holds the viewport; A's last paragraph sits above it
+        // inside the band and an edit there must still re-render.
+        const zoneA5Scrolled = __zoneOf(__paras(rootA)[5]);
+        app.api.set({ a0, a5: a5 = paraText("甲五再改"), b0 });
+        await app.flush();
+        const above = await __waitContent(rootA, expectA(), 45000);
+        __scrollTop();
+        const finalA = await __waitContent(rootA, expectA(), 30000);
+        const finalB = await __waitContent(rootB, [b0], 30000);
+        return {
+          initial: initial.ok, inView: inView.ok, near: near.ok, far: far.ok,
+          above: above.ok, finalA: finalA.ok, finalB: finalB.ok,
+          zonesA, zoneB, zoneA5Scrolled,
+          farRenderedBeforeScroll: earlyB === __norm(b0),
+        };
+      `);
+      assert.ok(result.zonesA[0] === 1 && result.zonesA[5] === 2 && result.zoneB === 3,
+        `long-page paragraphs must start in all three tiers: ${JSON.stringify(result)}`);
+      assert.equal(result.zoneA5Scrolled, 2,
+        `scrolling to root B must leave A's tail in the near band: ${JSON.stringify(result)}`);
+      assert.ok(result.initial && result.inView && result.near && result.far,
+        `tier edits must re-render: ${JSON.stringify(result)}`);
+      assert.ok(result.above && result.finalA && result.finalB,
+        `edits around viewport crossings must converge: ${JSON.stringify(result)}`);
+      console.log(
+        `[react-zones] tiers p0=${result.zonesA[0]} p5=${result.zonesA[5]} b=${result.zoneB} ` +
+        `p5AfterScroll=${result.zoneA5Scrolled} farRenderedBeforeScroll=${result.farRenderedBeforeScroll}`,
+      );
+      await errorsOf("react-zones");
+      await run("await __clearStage()");
+    }
+
+    // -------- React: roots and paragraphs enter and leave the document
+    {
+      const result = await run(`
+        const { React } = await __loadReact();
+        const h = React.createElement;
+        let aParas = ["甲段首行文本。", "甲段中间行文本。", "甲段末行文本。"];
+        let showB = true;
+        let b1 = "乙根首段文本。";
+        let showD = false;
+        let d1 = "丁根新到文本。";
+        const render = (s) => h("div", null,
+          h("tiqian-prose", { "data-fixture": "r-flow-a" }, h("div", null,
+            s.aParas.map((t) => h("p", { key: t }, t)))),
+          h("div", { style: { height: "1100px" } }),
+          s.showB ? h("tiqian-prose", { "data-fixture": "r-flow-b" }, h("div", null, h("p", null, s.b1))) : null,
+          h("div", { style: { height: "2600px" } }),
+          s.showD ? h("tiqian-prose", { "data-fixture": "r-flow-d" }, h("div", null, h("p", null, s.d1))) : null);
+        const app = await __mountReactStage(render, { aParas, showB, b1, showD, d1 });
+        await app.flush();
+        const rootA = __rootOf("r-flow-a");
+        const rootB = __rootOf("r-flow-b");
+        if (!rootA || !rootB) throw new Error("flow roots missing after mount");
+        if (!await __waitRendered(rootA, 60000)) throw new Error("root A never rendered");
+        if (!await __waitRendered(rootB, 60000)) throw new Error("root B never rendered");
+        const initialA = await __waitContent(rootA, aParas, 60000);
+        // Root B leaves the document; A must keep its rendered content.
+        const beforeA = __snapshot(rootA);
+        app.api.set({ aParas, showB: false, b1, showD, d1 });
+        await app.flush();
+        await __quiet(1200);
+        const bGone = !__rootOf("r-flow-b");
+        const aStable = JSON.stringify(beforeA) === JSON.stringify(__snapshot(rootA));
+        // The paragraph set inside the surviving root rewrites and shrinks.
+        aParas = ["甲段改写首行。", "甲段末行文本。"];
+        app.api.set({ aParas, showB: false, b1, showD, d1 });
+        await app.flush();
+        const shrunk = await __waitContent(rootA, aParas, 45000);
+        // A brand-new root enters far below the fold.
+        showD = true;
+        app.api.set({ aParas, showB: false, b1, showD, d1 });
+        await app.flush();
+        const rootD = __rootOf("r-flow-d");
+        if (!rootD) throw new Error("root D missing after join");
+        const dRendered = await __waitRendered(rootD, 60000);
+        const dContent = await __waitContent(rootD, [d1], 60000);
+        // Root B re-enters with fresh content.
+        b1 = "乙根重挂文本。";
+        showB = true;
+        app.api.set({ aParas, showB, b1, showD, d1 });
+        await app.flush();
+        const rootB2 = __rootOf("r-flow-b");
+        if (!rootB2) throw new Error("root B missing after re-entry: " + JSON.stringify({
+          fixtures: Array.from(document.querySelectorAll("tiqian-prose")).map((e) => e.dataset.fixture),
+          errors: __pageErrors.slice(-3),
+          html: app.container.innerHTML.slice(0, 300),
+        }));
+        const bBack = await __waitContent(rootB2, [b1], 60000);
+        const finalA = await __waitContent(rootA, aParas, 30000);
+        return {
+          initialA: initialA.ok, bGone, aStable, shrunk: shrunk.ok,
+          dRendered, dContent: dContent.ok, bBack: bBack.ok, finalA: finalA.ok,
+          snapshotA: __snapshot(rootA),
+        };
+      `);
+      assert.ok(result.initialA && result.bGone && result.aStable,
+        `root removal must be clean: ${JSON.stringify(result)}`);
+      assert.ok(result.shrunk && result.finalA,
+        `paragraph set changes must re-render: ${JSON.stringify(result)}`);
+      assert.ok(result.dRendered && result.dContent && result.bBack,
+        `entering roots must enhance and render: ${JSON.stringify(result)}`);
+      await errorsOf("react-rootflow");
+      await run("await __clearStage()");
+    }
+
     // -------- Svelte: mount and reactive text update
     {
       const result = await run(`
@@ -841,6 +1085,84 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       `);
       assert.equal(result.remaining, 0, "svelte unmount must remove every paragraph");
       await errorsOf("svelte-unmount");
+      await run("await __clearStage()");
+    }
+
+    // -------- Svelte: owned roots on a long page, tier edits, re-entry
+    {
+      const result = await run(`
+        const { default: Multi } = await import("/svelte-component/multi.js");
+        const { mount } = await import("svelte");
+        const host = document.createElement("div");
+        document.getElementById("stage").appendChild(host);
+        let api = null;
+        const app = mount(Multi, { target: host, props: { bind: (x) => (api = x) } });
+        if (!api) throw new Error("multi fixture never handed back its api");
+        const rootA = __rootOf("s-multi-a");
+        const rootB = __rootOf("s-multi-b");
+        const rootC = __rootOf("s-multi-c");
+        if (!rootA || !rootB || !rootC) throw new Error("svelte long-page roots missing");
+        if (!await __waitRendered(rootA, 60000)) throw new Error("root A never rendered");
+        if (!await __waitRendered(rootB, 60000)) throw new Error("root B never rendered");
+        if (!await __waitRendered(rootC, 60000)) throw new Error("root C never rendered");
+        const initialA = await __waitContent(rootA, ["甲根首段原稿文本。"], 60000);
+        const initialB = await __waitContent(rootB, ["乙根近带段原稿。"], 60000);
+        const initialC = await __waitContent(rootC, ["丙根远带段原稿。"], 60000);
+        const zones = {
+          a: __zoneOf(__paras(rootA)[0]),
+          b: __zoneOf(__paras(rootB)[0]),
+          c: __zoneOf(__paras(rootC)[0]),
+        };
+        // Tier-3 edit from the top of the page, then promotion by scroll.
+        api.c1 = "丙根远带改写文本。";
+        await __quiet(1200);
+        const earlyC = __snapshot(rootC)[0].live;
+        __scrollToEl(__paras(rootC)[0]);
+        const far = await __waitContent(rootC, ["丙根远带改写文本。"], 45000);
+        __scrollTop();
+        // Tier-2 edit without any scroll.
+        api.b1 = "乙根近带改写文本。";
+        const near = await __waitContent(rootB, ["乙根近带改写文本。"], 45000);
+        // Root B leaves the document; A and C keep their content.
+        const beforeA = __snapshot(rootA);
+        const beforeC = __snapshot(rootC);
+        api.showB = false;
+        await __quiet(1200);
+        const bGone = !__rootOf("s-multi-b");
+        const aStable = JSON.stringify(beforeA) === JSON.stringify(__snapshot(rootA));
+        const cStable = JSON.stringify(beforeC) === JSON.stringify(__snapshot(rootC));
+        // A paragraph enters root A in place.
+        api.extraA = true;
+        const grown = await __waitContent(rootA, ["甲根首段原稿文本。", "追加段落进入甲根。"], 45000);
+        // Root B re-enters with fresh content. Svelte flushes effects in a
+        // microtask, so the re-created element needs one before the query.
+        api.b1 = "乙根重挂文本。";
+        api.showB = true;
+        await __quiet(100);
+        const rootB2 = __rootOf("s-multi-b");
+        if (!rootB2) throw new Error("svelte root B missing after re-entry");
+        const bBack = await __waitContent(rootB2, ["乙根重挂文本。"], 60000);
+        const finalC = await __waitContent(rootC, ["丙根远带改写文本。"], 30000);
+        return {
+          initialA: initialA.ok, initialB: initialB.ok, initialC: initialC.ok,
+          zones, far: far.ok, near: near.ok, bGone, aStable, cStable,
+          grown: grown.ok, bBack: bBack.ok, finalC: finalC.ok,
+          farRenderedBeforeScroll: earlyC === __norm("丙根远带改写文本。"),
+        };
+      `);
+      assert.ok(result.zones.a === 1 && result.zones.b === 2 && result.zones.c === 3,
+        `svelte roots must start in all three tiers: ${JSON.stringify(result)}`);
+      assert.ok(result.initialA && result.initialB && result.initialC,
+        `all three roots must render initially: ${JSON.stringify(result)}`);
+      assert.ok(result.far && result.near && result.grown && result.bBack && result.finalC,
+        `tier edits and re-entry must re-render: ${JSON.stringify(result)}`);
+      assert.ok(result.bGone && result.aStable && result.cStable,
+        `root removal must leave siblings untouched: ${JSON.stringify(result)}`);
+      console.log(
+        `[svelte-multiroot] tiers a=${result.zones.a} b=${result.zones.b} c=${result.zones.c} ` +
+        `farRenderedBeforeScroll=${result.farRenderedBeforeScroll}`,
+      );
+      await errorsOf("svelte-multiroot");
       await run("await __clearStage()");
     }
 
