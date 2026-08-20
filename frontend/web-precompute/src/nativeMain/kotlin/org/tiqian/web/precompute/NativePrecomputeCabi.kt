@@ -11,12 +11,19 @@ import kotlinx.cinterop.set
 import kotlinx.cinterop.value
 import platform.posix.free
 import platform.posix.malloc
-import org.tiqian.font.FontMetricsRequest
-import org.tiqian.font.FontMetricsResolver
-import org.tiqian.font.RawFontMetrics
-import org.tiqian.shaping.ShapingInput
-import org.tiqian.shaping.ShapingResult
-import org.tiqian.shaping.TextShaper
+import org.tiqian.shaping.NativeFontBackendFontMetricsResolver
+import org.tiqian.shaping.NativeFontBackendTextShaper
+import org.tiqian.shaping.tiqianInstallFontBackend as installFontBackend
+import org.tiqian.shaping.backend.tiqian_font_backend_vtable_t
+
+/**
+ * The static library only exports `@CName` symbols defined in this module, so
+ * the font backend install entry (registry lives in shaping:api) is re-exported
+ * here. Signature and result codes: tiqian_font_backend.h.
+ */
+@CName("tiqian_install_font_backend")
+fun tiqianInstallFontBackendCabi(vtable: CPointer<tiqian_font_backend_vtable_t>?): Int =
+    installFontBackend(vtable)
 
 /**
  * Flat C ABI over the shared wire layer (`PrecomputeWire.kt`). ADR 0050.
@@ -86,23 +93,12 @@ private fun String.copyToNativeCString(): CPointer<ByteVar> {
 }
 
 /**
- * `UninstalledNativeFontBackend`: ADR 0050 font backend vtable consumer lands with
- * the Rust font session (Slice B). Until `tiqian_install_font_backend` exists,
- * every shaping and metrics request reports the named error `FontBackendNotInstalled`
- * instead of guessing glyph geometry.
+ * The font session lives in the host binding (Rust in ADR 0050); the engine
+ * reaches it through the vtable installed via `tiqian_install_font_backend`.
+ * Requests before installation report the named error `FontBackendNotInstalled`.
  */
 internal actual fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
     PrecomputeBackends(
-        textShaper = UninstalledNativeFontBackendShaper,
-        fontMetricsResolver = UninstalledNativeFontBackendMetricsResolver,
+        textShaper = NativeFontBackendTextShaper(fontSessionId),
+        fontMetricsResolver = NativeFontBackendFontMetricsResolver(fontSessionId),
     )
-
-private object UninstalledNativeFontBackendShaper : TextShaper {
-    override fun shape(input: ShapingInput): ShapingResult =
-        error("FontBackendNotInstalled")
-}
-
-private object UninstalledNativeFontBackendMetricsResolver : FontMetricsResolver {
-    override fun resolve(request: FontMetricsRequest): RawFontMetrics =
-        error("FontBackendNotInstalled")
-}
