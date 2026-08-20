@@ -130,6 +130,13 @@ cargo 用户经 crates.io 获得预编译静态库，无需 JDK 或 Gradle。`ti
 平台 crate，见 Consequences。平台 crate 与主包同版本发布，内嵌静态库携带引擎 revision，
 绑定层加载时校验；revision 不一致时报具名错误。
 
+平台矩阵按需扩展，四个初始目标不构成封闭清单。`tiqian` 绑定不绑定 web 用途，
+Kotlin/Native 与 Rust 的目标交集还覆盖 iOS、tvOS、watchOS 的设备与 simulator 变体，以及
+Android native 的 aarch64、x86_64、x86、armv7（需 NDK sysroot）。新增目标按既有模式扩展：
+`frontend/web-precompute` 补编译目标，发布对应平台 crate，CI 补链接 job 与二进制审计。
+没有消费者需求时不预先发布，也不在文档宣称支持。Intel macOS 与 Intel iOS simulator 沿用
+ADR 0045 的排除。
+
 ### `NpmPrecomputePackage`：precompute 从 `@tiqian/prose` 迁出
 
 npm 侧新增 `@tiqian/precompute`。主包持有 JS 入口、`.d.ts` 与 Neon 加载器；四个 npm 平台包
