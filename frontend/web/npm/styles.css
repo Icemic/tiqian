@@ -99,9 +99,17 @@ tiqian-prose [data-tq-rendered="true"] {
 
 [data-tq-rendered="true"][data-tq-canonical-source="true"] {
   /* ExactPreparedShapingCss: HarfBuzz enables normal kerning while the CSS
-     `auto` value lets the browser choose a size-dependent policy. Force the
-     same stable shaping inputs used by build-time and browser runtime probes. */
+     `auto` value lets the browser choose a size-dependent policy, and canvas
+     measureText kerns at its own default — pin the DOM to one stable policy
+     for every canonical paragraph so a host font-kerning override cannot
+     split paint from either measurement path. */
   font-kerning: normal !important;
+}
+
+:is(tiqian-prose, [data-tiqian-root])[data-tiqian-exact-render-font="true"]:not([data-tiqian-exact-layout-fallback]) [data-tq-rendered="true"][data-tq-canonical-source="true"] {
+  /* MeasurePaintOpticalSizingParity: exact sessions pin optical sizing off
+     because HarfBuzz advances carry no opsz axis; canvas-measured paragraphs
+     must keep painting at `auto`, the only value measureText can express. */
   font-optical-sizing: none !important;
 }
 
