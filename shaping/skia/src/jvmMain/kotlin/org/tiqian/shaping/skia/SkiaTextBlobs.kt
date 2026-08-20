@@ -401,6 +401,7 @@ object SkiaSystemTypefaces {
         "SF Pro Text",
         "SF Pro",
         "Roboto",
+        "Noto Sans",
         "Helvetica Neue",
     )
 

@@ -1,0 +1,21 @@
+{
+  "name": "tiqian-web-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "parcel index.html --port 8888",
+    "build": "parcel build index.html",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@tiqian/prose": "file:../../frontend/web/npm"
+  },
+  "devDependencies": {
+    "parcel": "^2.16.4",
+    "process": "^0.11.10",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "svelte": "^5.56.9"
+  }
+}

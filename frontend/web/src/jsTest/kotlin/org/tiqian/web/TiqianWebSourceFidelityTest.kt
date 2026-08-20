@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
 import kotlinx.browser.document
@@ -19,10 +17,39 @@ class TiqianWebSourceFidelityTest {
     fun cleanup() {
         for (root in mounted) {
             TiqianWeb.destroy(root)
+            with(TiqianWeb) { workerDetach(root) }
             root.parentNode?.removeChild(root)
         }
         mounted.clear()
         restoreTestAnimationFrames()
+    }
+
+    // WorkerPolledScheduling test harness: an attached root never runs on its
+    // own, so these helpers stand in for the page coordinator's per-frame
+    // grants. The grant deadline defaults to 0, already in the past, so one
+    // slice commits one paragraph.
+    private fun attachWorker(root: HTMLElement) {
+        with(TiqianWeb) { workerAttach(root) }
+    }
+
+    private fun grantWorkerSlice(root: HTMLElement, deadlineMs: Double = 0.0): Int {
+        val controller = testGrantController(
+            root,
+            with(TiqianWeb) { workerJobGeneration(root) },
+            deadlineMs,
+            Int.MAX_VALUE,
+        )
+        return with(TiqianWeb) { workerRunSlice(controller, PROGRESSIVE_TIER_COUNT) }
+    }
+
+    private fun runWorkerJobToCompletion(root: HTMLElement, deadlineMs: Double = 0.0): Int {
+        var slices = 0
+        while (with(TiqianWeb) { workerHasJob(root) }) {
+            grantWorkerSlice(root, deadlineMs)
+            slices += 1
+            if (slices > 1000) throw AssertionError("attached worker job did not settle")
+        }
+        return slices
     }
 
     @Test
@@ -169,11 +196,15 @@ class TiqianWebSourceFidelityTest {
         installTestAnimationFrames()
         root.style.width = "120px"
         dispatchRelayout(root)
-        assertEquals(initial, renderedLineSignature(paragraph), "relayout must wait for an animation frame")
-        assertEquals(1, pendingTestAnimationFrameCount())
-        flushAllTestAnimationFrames()
+        // SyncFirstSlice: the relayout commits inside the dispatch task. The
+        // narrow result is already live with no frame delay, and there is no
+        // intermediate state where the old line boxes are gone but the new
+        // ones are not attached yet.
         val narrow = renderedLineSignature(paragraph)
         assertNotEquals(initial, narrow, "narrow width must exercise a real reflow")
+        assertEquals(0, pendingTestAnimationFrameCount())
+        flushAllTestAnimationFrames()
+        assertEquals(narrow, renderedLineSignature(paragraph))
 
         root.style.width = "220px"
         dispatchRelayout(root)
@@ -220,9 +251,10 @@ class TiqianWebSourceFidelityTest {
         assertEquals("true", plainParagraph.getAttribute("data-tq-rendered"))
 
         installTestAnimationFrames()
+        attachWorker(root)
         root.style.width = "90px"
         dispatchRelayout(root)
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(originalHtml, cloneParagraph.innerHTML)
         assertNull(cloneParagraph.getAttribute("data-tq-rendered"))
@@ -238,7 +270,6 @@ class TiqianWebSourceFidelityTest {
         root.style.width = "520px"
         dispatchRelayout(root)
 
-        assertEquals(1, pendingTestAnimationFrameCount())
         assertEquals(1, relayoutReadyCount)
         assertNull(cloneParagraph.getAttribute("data-tq-rendered"))
         assertNull(plainParagraph.getAttribute("data-tq-rendered"))
@@ -246,7 +277,7 @@ class TiqianWebSourceFidelityTest {
         assertFalse(plainParagraph.firstChild === narrowRenderedChild)
         assertEquals("0", root.getAttribute("data-tiqian-enhanced-count"))
 
-        flushAllTestAnimationFrames()
+        runWorkerJobToCompletion(root)
 
         assertEquals(2, relayoutReadyCount)
         assertEquals("true", cloneParagraph.getAttribute("data-tq-rendered"))
@@ -281,13 +312,16 @@ class TiqianWebSourceFidelityTest {
         root.style.width = "120px"
         dispatchRelayout(root)
 
-        assertTrue(plainParagraph.firstChild === renderedChild, "relayout preparation must keep rendered DOM live")
+        // SyncFirstSlice: both paragraphs are handled inside the dispatch
+        // task. The plain paragraph swaps its rendered DOM atomically, while
+        // the paragraph with a stable capability issue keeps its native
+        // source child.
+        assertFalse(plainParagraph.firstChild === renderedChild, "relayout must commit its first slice synchronously")
         assertTrue(issueParagraph.firstChild === issueSourceChild)
-        assertEquals(1, pendingTestAnimationFrameCount())
+        assertEquals(0, pendingTestAnimationFrameCount())
 
         flushAllTestAnimationFrames()
 
-        assertFalse(plainParagraph.firstChild === renderedChild)
         assertNotEquals(initial, renderedLineSignature(plainParagraph))
         assertTrue(issueParagraph.firstChild === issueSourceChild)
         assertNull(issueParagraph.getAttribute("data-tq-rendered"))

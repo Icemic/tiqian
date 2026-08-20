@@ -307,7 +307,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /observer\.observe\(target, \{ box: "border-box" \}\)/u);
   assert.match(
     elementSource,
-    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?observer\.disconnect\(\)[\s\S]*?#resizeObserverFrame = requestAnimationFrame/u,
+    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?#scheduleResponsiveGeometryCommit/u,
   );
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
@@ -333,11 +333,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?#restoreRuntimeSourceForRetarget\(\)[\s\S]*?#responsiveRelayoutRequired = true/u,
-  );
-  assert.match(
-    elementSource,
-    /TypographyRetargetMustRestart[\s\S]*?#responsiveRelayoutRequired = true/u,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?"tiqian:cancel-layout-work"[\s\S]*?#responsiveRelayoutRequired = true/u,
   );
   assert.match(
     elementSource,
@@ -357,7 +353,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?if \(this\.#resizeFrame\) return;[\s\S]*?this\.#resizeFrame = requestAnimationFrame/u,
+    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinator\.requestFrame/u,
   );
   assert.ok(invalidationRuntimeLoad >= 0);
   assert.ok(invalidationDispatch > invalidationRuntimeLoad);
@@ -373,7 +369,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveRuntimeRollbackAtFirstSafeSignal[\s\S]*?#restoreRuntimeSourceForRetarget\(\)[\s\S]*?#scheduleResponsiveGeometryCommit\(\)/u,
+    /ResponsiveRuntimeDirectInPlaceRelayout[\s\S]*?#scheduleResponsiveGeometryCommit\(\)/u,
   );
   assert.match(
     elementSource,
@@ -411,7 +407,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /ObserverBaselineAfterUncapturedLayout/u);
   assert.match(
     elementSource,
-    /const currentParagraphWidths = this\.#paragraphWidthSignature\(\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
+    /const currentParagraphWidths =[\s\S]*?this\.#paragraphWidthSignature\(\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
   );
   assert.match(elementSource, /!widthsChanged && !measuresChanged/u);
   assert.match(
@@ -495,7 +491,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(stylesSource, /text-spacing-trim: space-all !important/u);
   assert.match(
     stylesSource,
-    /\[data-tq-rendered="true"\] \{[\s\S]*?font-feature-settings: "halt" 0, "chws" 0, "palt" 0 !important/u,
+    /\[data-tq-rendered="true"\] \{[\s\S]*?text-align: start !important;[\s\S]*?text-justify: none !important;/u,
   );
   assert.match(
     stylesSource,
@@ -524,4 +520,81 @@ test("the custom element validates a snapshot before dynamically loading the bro
     stylesSource,
     /font-feature-settings: "halt" 0, "chws" 0, "palt" 1 !important/u,
   );
+});
+
+test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
+  const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+
+  // 1. Visual prominence scoring formula: visibleArea * (1 + ratio) + inlineSize
+  assert.match(
+    elementSource,
+    /visibleScore[AB] = entry[AB][\s\S]*?\(entry[AB]\.visibleArea \|\| entry[AB]\.area \|\| 0\) \* \(1\.0 \+ \(entry[AB]\.intersectionRatio \|\| 0\)\) \+ \(entry[AB]\.inlineSize \|\| 0\)/u,
+  );
+
+  // 2. VisibleClassBeforeScore: visibility is a strict class comparison —
+  // the off-screen `visibleArea || area` fallback can exceed any additive
+  // in-viewport bonus, and pollWorkers derives visibleCount from the sorted
+  // prefix — with anti-starvation aging ordering only within a class.
+  assert.match(
+    elementSource,
+    /if \(inViewA !== inViewB\) return inViewB - inViewA;/u,
+  );
+  assert.match(
+    elementSource,
+    /priority[AB] = visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
+  );
+  assert.match(
+    elementSource,
+    /priority[AB] = visibleScore[AB] \+ Math\.min\([ab]\.deferCount \* 50000, 900000\)/u,
+  );
+
+  // 3. RefreshAnchoredFrameBudget: the budget follows the measured cadence
+  // only; the event-driven regulator and the shared slice EMA are gone.
+  assert.match(
+    elementSource,
+    /this\.#budgetMs = Math\.min\(6\.0, Math\.max\(2\.5, this\.#measuredFrameInterval \* 0\.4\)\);/u,
+  );
+  assert.doesNotMatch(elementSource, /#estimatedSliceMs/u);
+  assert.doesNotMatch(elementSource, /#consecutiveIdleFrames/u);
+
+  // 4. DeadlineGate: grants stop on the real deadline, and a workless frame
+  // still grants once so oversized slices keep making progress.
+  assert.match(
+    elementSource,
+    /const guaranteeForwardProgress = workDone === 0;/u,
+  );
+  assert.match(
+    elementSource,
+    /if \(!guaranteeForwardProgress && now >= deadline\) \{/u,
+  );
+
+  // 5. Lifecycle ready events bubble up for document-level observation
+  assert.match(
+    elementSource,
+    /new CustomEvent\("tiqian:relayout-ready", \{[\s\S]*?bubbles: true,[\s\S]*?composed: true,/u,
+  );
+});
+
+test("offscreen deferred lane keeps every pending callback per element", async () => {
+  const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+
+  // OffscreenRequestQueue: an element can queue distinct callbacks while off
+  // screen (initial enhance plus responsive commits). The deferred lane must
+  // bucket tasks per element; a single task per element lets the newest
+  // request silently drop the older ones, which stalled initial enhancement
+  // for every root below the fold when a resize re-queued a commit.
+  // 1. A request lands in the element's bucket, not a single task slot.
+  assert.match(elementSource, /bucket\.tasks\.set\(callback, task\);/u);
+  // 2. A due or promoted bucket moves every task it holds.
+  const promoted = elementSource.match(
+    /for \(const task of bucket\.tasks\.values\(\)\) \{\s*this\.#callbacks\.set\(task\.callback, task\);/gu,
+  );
+  assert.ok(
+    promoted && promoted.length >= 2,
+    "flush and promote must both drain the whole bucket",
+  );
+  // 3. Cancelling one callback must not drop the element's other tasks.
+  assert.match(elementSource, /bucket\.tasks\.delete\(callback\);/u);
+  // 4. The single-slot regression must stay gone.
+  assert.doesNotMatch(elementSource, /this\.#deferred\.set\(element, task\);/u);
 });

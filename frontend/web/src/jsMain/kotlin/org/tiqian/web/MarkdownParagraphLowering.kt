@@ -1,8 +1,5 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
-import kotlin.js.JsAny
 import org.tiqian.core.DecorationKind
 import org.tiqian.core.DecorationSpan
 import org.tiqian.core.INLINE_OBJECT_REPLACEMENT_CHAR
@@ -22,7 +19,7 @@ import org.w3c.dom.Node
 
 internal object MarkdownParagraphLowerer {
     private val fontRoleClassifier = CjkFontRoleClassifier()
-    private val graphemeSegmenter: JsAny? = createLowererGraphemeSegmenter()
+    private val graphemeSegmenter: GraphemeSegmenterJs? = createLowererGraphemeSegmenter()
 
     var lastIssue: TiqianWeb.CapabilityIssue? = null
         private set

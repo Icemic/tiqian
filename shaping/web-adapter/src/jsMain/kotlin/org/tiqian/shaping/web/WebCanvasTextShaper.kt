@@ -4,6 +4,7 @@ package org.tiqian.shaping.web
 
 import kotlin.JsFun
 import kotlinx.browser.document
+import org.khronos.webgl.get
 import org.tiqian.core.Cluster
 import org.tiqian.core.Glyph
 import org.tiqian.core.GlyphRun
@@ -235,9 +236,13 @@ class WebCanvasTextShaper(
     private val cjkDashCapability: WebCjkDashCapability? = null,
 ) : TextShaper {
 
+    init {
+        installFontLoadInvalidation()
+    }
+
     private data class MeasuredText(
         val advance: Float,
-        val bounds: Rect,
+        val bounds: Rect?,
         val requestedFont: String,
         val actualFont: String,
         val boundsAdjustment: String?,
@@ -250,7 +255,6 @@ class WebCanvasTextShaper(
         val role: FontRole,
     )
 
-    private val measurementCache = mutableMapOf<MeasurementKey, MeasuredText>()
     private var currentCanvasFont: String? = null
 
     private val ctx: CanvasRenderingContext2D by lazy {
@@ -394,7 +398,7 @@ class WebCanvasTextShaper(
                     append(detail)
                 }
             },
-            glyphsWithoutInkBounds = 0,
+            glyphsWithoutInkBounds = if (bounds == null) 1 else 0,
             capabilityIssue = capabilityIssue?.first,
             featureEvidence = openTypeFeatures.takeIf { it.isNotEmpty() }?.joinToString(","),
         )
@@ -413,12 +417,42 @@ class WebCanvasTextShaper(
         }
         val actualFont = ctx.font
         val featureSignature = openTypeFeatures.joinToString(",")
-        return measurementCache.getOrPut(MeasurementKey(actualFont, display, featureSignature, role)) {
+        return measurementCacheGetOrPut(MeasurementKey(actualFont, display, featureSignature, role)) {
+            if (featureSignature != PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE &&
+                !canvasAdvanceTrusted(role, cssFont, actualFont)
+            ) {
+                return@measurementCacheGetOrPut MeasuredText(
+                    advance = measureViaHiddenDom(display, cssFont).toFloat(),
+                    bounds = null,
+                    requestedFont = cssFont,
+                    actualFont = actualFont,
+                    boundsAdjustment = "CanvasDomAdvanceParityGate",
+                )
+            }
             val m = ctx.measureText(display)
             val advance = if (featureSignature == PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE) {
                 measureProportionalCurlyQuote(display, cssFont)
             } else {
                 m.width
+            }
+            if (role == FontRole.CjkPunctuation && canvasInkBoundsDegenerate(actualFont)) {
+                val fontSizePx = FONT_PX_SIZE_REGEX.find(actualFont)?.groupValues?.get(1)?.toFloatOrNull()
+                val rasterized = if (fontSizePx != null && fontSizePx > 0f) {
+                    rasterizedInlineInkBounds(display, advance, fontSizePx)
+                } else {
+                    null
+                }
+                return@measurementCacheGetOrPut MeasuredText(
+                    advance = advance.toFloat(),
+                    bounds = rasterized,
+                    requestedFont = cssFont,
+                    actualFont = actualFont,
+                    boundsAdjustment = if (rasterized != null) {
+                        "DegenerateCanvasInkBoundsProbe;RasterizedInkBoundsMeasure"
+                    } else {
+                        "DegenerateCanvasInkBoundsProbe"
+                    },
+                )
             }
             val canvasBounds = Rect(
                 left = -m.actualBoundingBoxLeft.toFloat(),
@@ -441,6 +475,154 @@ class WebCanvasTextShaper(
         }
     }
 
+    /**
+     * `DegenerateCanvasInkBoundsProbe`: WebKit's `actualBoundingBox*`
+     * mirrors the advance box for CJK text, which drives the
+     * ink-containment floor to the full cell and disables every compression
+     * decision. Probe U+3002 (real ink is a corner dot) once per resolved
+     * font; degenerate fonts get their punctuation ink measured through
+     * `RasterizedInkBoundsMeasure` below instead.
+     */
+    private fun canvasInkBoundsDegenerate(actualFont: String): Boolean =
+        degenerateInkBoundsByFont.getOrPut(actualFont) {
+            val probe = ctx.measureText(DEGENERATE_INK_PROBE_TEXT)
+            val advance = probe.width
+            advance > 0.0 &&
+                kotlin.math.abs(probe.actualBoundingBoxLeft) <= DEGENERATE_INK_EPSILON_PX &&
+                kotlin.math.abs(probe.actualBoundingBoxRight - advance) <= DEGENERATE_INK_EPSILON_PX
+        }
+
+    /**
+     * `RasterizedInkBoundsMeasure`: when the metrics API cannot be trusted,
+     * draw the glyph into a scratch canvas at RASTER_INK_SCALE× (advance
+     * plus one em of overhang margin per side) and scan alpha for the true
+     * ink extents on both axes. One rasterization per (font, glyph), shared
+     * through the measurement cache.
+     */
+    private val inkProbeCanvas: HTMLCanvasElement by lazy {
+        document.createElement("canvas") as HTMLCanvasElement
+    }
+
+    private fun rasterizedInlineInkBounds(display: String, advance: Double, fontSizePx: Float): Rect? {
+        val scale = RASTER_INK_SCALE
+        val margin = fontSizePx.toDouble()
+        val width = ((advance + 2 * margin) * scale).toInt().coerceAtLeast(1)
+        val height = (fontSizePx * 2.0 * scale).toInt().coerceAtLeast(1)
+        val canvas = inkProbeCanvas
+        if (canvas.width < width) canvas.width = width
+        if (canvas.height < height) canvas.height = height
+        val probeCtx = canvas.getContext("2d") as? CanvasRenderingContext2D ?: return null
+        probeCtx.setTransform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        probeCtx.clearRect(0.0, 0.0, canvas.width.toDouble(), canvas.height.toDouble())
+        probeCtx.setTransform(scale, 0.0, 0.0, scale, margin * scale, fontSizePx * 1.25 * scale)
+        probeCtx.font = currentCanvasFont ?: return null
+        probeCtx.fillText(display, 0.0, 0.0)
+        val image = try {
+            probeCtx.getImageData(0.0, 0.0, width.toDouble(), height.toDouble())
+        } catch (error: Throwable) {
+            return null
+        }
+        val data = image.data
+        var minX = -1
+        var maxX = -1
+        val stride = width * 4
+        for (x in 0 until width) {
+            var inked = false
+            var offset = x * 4 + 3
+            val end = height * stride
+            while (offset < end) {
+                if (data[offset].toInt() != 0) {
+                    inked = true
+                    break
+                }
+                offset += stride
+            }
+            if (!inked) continue
+            if (minX < 0) minX = x
+            maxX = x
+        }
+        if (minX < 0) return null
+        // Vertical extents come from the same pixels: scan rows across the
+        // inked column range so the block axis is measured, not assumed.
+        var minY = -1
+        var maxY = -1
+        for (y in 0 until height) {
+            var inked = false
+            var offset = y * stride + minX * 4 + 3
+            val rowEnd = y * stride + (maxX + 1) * 4
+            while (offset < rowEnd) {
+                if (data[offset].toInt() != 0) {
+                    inked = true
+                    break
+                }
+                offset += 4
+            }
+            if (!inked) continue
+            if (minY < 0) minY = y
+            maxY = y
+        }
+        val baseline = fontSizePx * 1.25
+        val left = minX / scale - margin
+        val right = (maxX + 1) / scale - margin
+        return Rect(
+            left = left.toFloat(),
+            top = (minY / scale - baseline).toFloat(),
+            right = right.toFloat(),
+            bottom = ((maxY + 1) / scale - baseline).toFloat(),
+        )
+    }
+
+    /**
+     * `CanvasDomAdvanceParityGate`: Firefox resolves the font stack
+     * differently between the canvas parser and DOM style, so `measureText`
+     * can report Latin advances from a face the DOM never paints. Probe
+     * each resolved font once (canvas vs hidden DOM, same string); past one
+     * percent divergence every measurement for that font routes through the
+     * hidden-DOM path, still keyed into the bounded measurement cache.
+     */
+    private fun canvasAdvanceTrusted(role: FontRole, cssFont: String, actualFont: String): Boolean {
+        // Gated by role, not code points: the divergence lives in the
+        // Latin-side stack every non-CJK role shares. CJK roles are exempt —
+        // their advances agree across parsers, a Latin probe string would
+        // measure a CJK face's fallback instead of what the run paints, and
+        // the exemption keeps CjkPunctuation on the canvas path where the
+        // raster ink measurement stays reachable.
+        if (role == FontRole.CjkText || role == FontRole.CjkPunctuation) return true
+        return canvasAdvanceParityByFont.getOrPut(actualFont) {
+            val canvasWidth = ctx.measureText(ADVANCE_PARITY_PROBE_TEXT).width
+            val domWidth = measureViaHiddenDom(ADVANCE_PARITY_PROBE_TEXT, cssFont)
+            domWidth <= 0.0 ||
+                kotlin.math.abs(canvasWidth - domWidth) <=
+                domWidth * ADVANCE_PARITY_RELATIVE_EPSILON + ADVANCE_PARITY_ABSOLUTE_EPSILON_PX
+        }
+    }
+
+    // A dedicated probe element: sharing featureMeasureProbe with the
+    // curly-quote feature measurement would leave each function's style
+    // pins visible to the other in browsers whose font shorthand does not
+    // reset every longhand. Kerning is left at the browser default (`auto`)
+    // to match how non-canonical paragraphs paint; canonical paragraphs pin
+    // `normal`, which resolves identically in the engines this gate serves.
+    private val parityMeasureProbe: HTMLElement by lazy {
+        (document.createElement("span") as HTMLElement).also { probe ->
+            probe.setAttribute("aria-hidden", "true")
+            probe.style.apply {
+                setProperty("position", "absolute", "important")
+                setProperty("left", "-100000px", "important")
+                setProperty("visibility", "hidden", "important")
+                setProperty("white-space", "pre", "important")
+            }
+        }
+    }
+
+    private fun measureViaHiddenDom(display: String, cssFont: String): Double {
+        val probe = parityMeasureProbe
+        if (probe.parentNode == null) document.body?.appendChild(probe)
+        probe.textContent = display
+        probe.style.setProperty("font", cssFont, "important")
+        return probe.getBoundingClientRect().width
+    }
+
     private fun measureProportionalCurlyQuote(display: String, cssFont: String): Double {
         val probe = featureMeasureProbe
         if (probe.parentNode == null) document.body?.appendChild(probe)
@@ -456,11 +638,78 @@ class WebCanvasTextShaper(
     private fun MeasuredText.hasUsableAdvance(): Boolean =
         advance.isFinite() && advance > ZERO_ADVANCE_EPSILON
 
-    private companion object {
+    companion object {
+        // Probe verdicts live beside the shared measurement cache they
+        // qualify, and both invalidate together on webfont arrival below.
+        private val degenerateInkBoundsByFont = mutableMapOf<String, Boolean>()
+        private val canvasAdvanceParityByFont = mutableMapOf<String, Boolean>()
+        private var fontLoadInvalidationInstalled = false
+
+        /**
+         * `WebfontArrivalMeasurementInvalidation`: cache keys carry the
+         * serialized font string, which cannot tell a fallback-face
+         * measurement taken mid-load from one against the loaded face. One
+         * FontFaceSet listener drops the cache and probe verdicts when a
+         * load batch completes; the runtime's loadingdone re-enhancement
+         * re-measures.
+         */
+        internal fun installFontLoadInvalidation() {
+            if (fontLoadInvalidationInstalled) return
+            fontLoadInvalidationInstalled = true
+            val fonts = document.asDynamic().fonts ?: return
+            fonts.addEventListener("loadingdone") { _: dynamic ->
+                clearMeasurementCache()
+            }
+        }
+
+        private const val DEGENERATE_INK_PROBE_TEXT = "\u3002"
+        private const val DEGENERATE_INK_EPSILON_PX = 0.1
+        private const val RASTER_INK_SCALE = 4.0
+        private const val ADVANCE_PARITY_PROBE_TEXT = "Benjamini-Hochberg WAVE fjord, 0x7f."
+        private const val ADVANCE_PARITY_RELATIVE_EPSILON = 0.01
+        private const val ADVANCE_PARITY_ABSOLUTE_EPSILON_PX = 0.25
+        private val FONT_PX_SIZE_REGEX = Regex("""(\d+(?:\.\d+)?)px""")
         private const val CJK_DASH_SOURCE = "——"
         private const val TWO_EM_DASH = "⸺"
         private const val ZERO_ADVANCE_EPSILON = 0.01f
         private const val PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE = "pwid,palt"
+        // BoundedSharedMeasurementCache: shared across every shaper
+        // instance so cross-root resizes stay warm (ADR 0039), and bounded
+        // so a long-lived page cannot retain every glyph run it has ever
+        // measured. A hit reinserts its entry, so eviction drops the least
+        // recently used key.
+        private const val MEASUREMENT_CACHE_MAX_ENTRIES = 2048
+        private val measurementCache = LinkedHashMap<MeasurementKey, MeasuredText>()
+
+        private inline fun measurementCacheGetOrPut(
+            key: MeasurementKey,
+            compute: () -> MeasuredText,
+        ): MeasuredText {
+            val hit = measurementCache.remove(key)
+            if (hit != null) {
+                measurementCache[key] = hit
+                return hit
+            }
+            val value = compute()
+            measurementCache[key] = value
+            if (measurementCache.size > MEASUREMENT_CACHE_MAX_ENTRIES) {
+                val eldest = measurementCache.keys.iterator()
+                while (measurementCache.size > MEASUREMENT_CACHE_MAX_ENTRIES && eldest.hasNext()) {
+                    eldest.next()
+                    eldest.remove()
+                }
+            }
+            return value
+        }
+
+        fun clearMeasurementCache() {
+            measurementCache.clear()
+            degenerateInkBoundsByFont.clear()
+            canvasAdvanceParityByFont.clear()
+        }
+
+        val measurementCacheSize: Int
+            get() = measurementCache.size
     }
 }
 

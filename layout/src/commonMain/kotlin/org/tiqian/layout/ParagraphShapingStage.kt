@@ -121,6 +121,7 @@ internal data class ParagraphShapingStageResult(
     val breakOpportunityDecisions: List<BreakOpportunityDecisionInfo>,
     val emergencyTrackingEligibilityDecisions: List<EmergencyTrackingEligibilityDecisionInfo>,
     val progressiveBreakOffsets: Map<Int, ProgressiveBreakOpportunity>,
+    val segmentShapingCache: Map<TextRange, ShapingResult> = emptyMap(),
 )
 
 /**
@@ -140,19 +141,11 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
     styleAt: (Int) -> TextStyle,
     emphasisItalicAt: (Int) -> Boolean,
     rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
+    cachedSegmentShaping: Map<TextRange, ShapingResult> = emptyMap(),
+    cachedSubstitutionRollbacks: Map<TextRange, String> = emptyMap(),
 ): ParagraphShapingStageResult {
-    // A CLREQ display substitution (ADR 0003, e.g. `——` → `⸺`) is only an
-    // improvement if the resolved font can actually DRAW it well; otherwise
-    // re-shape with the source text and record the rollback + its cause:
-    // - SubstitutionRollbackOnMissingGlyph: the font lacks the codepoint —
-    //   `⸺` U+2E3A is absent from PingFang SC / Hiragino / Heiti (tofu).
-    // - DashSubstitutionInkCoverageRollback: the font HAS `⸺` but its ink
-    //   does not fill the two-em advance (Pixel's Noto CJK carries a
-    //   ~1.6em-ink glyph left-aligned in a 2em advance → a ~0.35em hole
-    //   against the next character). The source `——` tiles two full-width
-    //   em dashes instead. Only judged when the shaper reports ink bounds;
-    //   stub/AWT (no ink) keep the substitution.
-    val substitutionRollbacks = mutableMapOf<TextRange, String>()
+    val segmentShapingCache = cachedSegmentShaping.toMutableMap()
+    val substitutionRollbacks = cachedSubstitutionRollbacks.toMutableMap()
     fun ShapingResult.dashInkCoverageDeficient(displayText: String, segmentFontSize: Float): Boolean {
         if (!displayText.contains('\u2E3A')) return false
         val glyph = glyphRuns.flatMap { it.glyphs }.singleOrNull() ?: return false
@@ -166,6 +159,8 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
         return (ink.right - ink.left) < targetAdvance * DASH_SUBSTITUTION_MIN_INK_COVERAGE
     }
     fun shapeSegment(decision: FontDecision, segmentRange: TextRange): ShapingResult {
+        val cached = segmentShapingCache[segmentRange]
+        if (cached != null) return cached
         val sourceText = text.substring(segmentRange.start, segmentRange.end)
         val substitution = punctuationGlyphSubstitutor.substitute(sourceText)
         val baseSegmentStyle = styleAt(segmentRange.start)
@@ -197,7 +192,7 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
                 "DashSubstitutionInkCoverageRollback"
             else -> null
         }
-        return if (rollbackCause == null) {
+        val result = if (rollbackCause == null) {
             shaped
         } else {
             substitutionRollbacks[segmentRange] = rollbackCause
@@ -215,6 +210,8 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
                 ),
             )
         }
+        segmentShapingCache[segmentRange] = result
+        return result
     }
     fun shapeSegmentWithPointMarkPrefix(
         decision: FontDecision,
@@ -750,6 +747,7 @@ internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
         breakOpportunityDecisions = breakOpportunityDecisions.toList(),
         emergencyTrackingEligibilityDecisions = emergencyTrackingEligibilityDecisions.toList(),
         progressiveBreakOffsets = progressiveBreakOffsets.toMap(),
+        segmentShapingCache = segmentShapingCache.toMap(),
     )
 }
 

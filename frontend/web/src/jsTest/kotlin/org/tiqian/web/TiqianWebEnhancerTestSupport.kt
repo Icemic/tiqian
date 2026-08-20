@@ -528,3 +528,24 @@ internal fun assertEnginePunctuationFeatureLock(
 
 internal fun cssPx(value: String): Float = value.removeSuffix("px").toFloatOrNull() ?: 0f
 
+// GrantController test double: a plain object shaped like the coordinator's
+// per-grant controller. Its shouldStop closure mirrors the coordinator's
+// (paragraph quota plus coarse-clock deadline); tests pass a deadline of 0,
+// already in the past, so one slice commits one paragraph.
+@JsFun(
+    """(root, generation, deadlineMs, quota) => ({
+      root: root,
+      generation: generation,
+      deadline: deadlineMs,
+      quota: quota,
+      shouldStop: function (processed) {
+        return processed >= quota || Date.now() >= deadlineMs;
+      },
+    })""",
+)
+internal external fun testGrantController(
+    root: HTMLElement,
+    generation: Int,
+    deadlineMs: Double,
+    quota: Int,
+): GrantController

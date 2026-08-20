@@ -414,9 +414,10 @@ CSS `hyphens` 恒为 `manual`(即不自动断词)。断词开不开、用哪套�
 ### `ReflowByRebreak` + `WidthIndependentAnnotationCache` —— resize 只重跑折行
 
 放弃「浏览器免费 reflow」，换成 `ResizeObserver` 驱动引擎重排。目标仍是只重跑折行那一趟：
-cluster advance、locl 字形、基础 autospace 等宽度无关量应缓存，再喂给断行 / 推入推出 /
-justify。**当前 Slice 34/35 实现仍按段重跑完整 pipeline**；`WidthIndependentAnnotationCache`
-是已命名的性能缺口，不能把理想目标写成既成事实。
+cluster advance、locl 字形、基础 autospace、标点原子与几何账本等宽度无关量由引擎内部的
+`WidthIndependentAnnotationCache`（默认 `LruWidthIndependentAnnotationCache`）缓存，resize 时
+重排跳过 font resolution、shaping、autospace 与 punctuation atomization 阶段，直接基于已注记数据
+进行字格量化、断行与 justify。结合 Web 端全局 `WebCanvasTextShaper` 测量缓存，保证了跨端跟手响应。
 
 响应式 invalidation 采用 `LineLengthGridResponsiveInvalidation`：当前 Web 正文只呈现 Start-aligned
 body，有效行长按 `floor(contentWidth / fontSize)` 个字格向下取整（不足一格时仍保留实际宽度）。
@@ -569,5 +570,257 @@ Web 不为逐角 1 px / 3 px 圆角拆分一个跨行 `<code>`。源元素继续
 `ContinuousSemanticFlow` 节点跨过核心插入的软换行，并保留宿主的 computed
 `box-decoration-break`；默认 `slice` 因而在延续侧形成方角，真实首尾仍由宿主的圆角样式决定。
 这与 Compose 的 1 dp 延续圆角不是像素同形，而是 Web 保留 hover/focus、伪元素、border、padding
-和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制每段盒模型，仍按既有 capability 契约回退原生，
+和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制盒模型，仍按既有 capability 契约回退原生，
 不能用多份伪语义元素冒充支持。
+
+## Amendment (2026-08-18): atomic commit, same-grid retarget, per-slice stale guard
+
+Firefox profile（拖动 width-slider，25 个 `<tiqian-prose>`）显示：每次 relayout 的逐节点
+`removeChild` / `appendChild` 让每段产生约 44 条 mutation 记录，每条记录附带一次 Firefox
+a11y 树同步与父进程 IPC；快速拖动下累计为内容进程 94k marker、270–550 MB/s 分配流失与
+365ms eventDelay 峰值。本修订调整三处提交与守卫的粒度：
+
+1. **`AtomicParagraphDomSwap`**：renderer 先把全部行盒构建进 `DocumentFragment`，再对宿主
+   段落执行一次 `replaceChildren`。构建期间不读布局量，几何全部来自 `LayoutResult`，
+   所以交换是纯 DOM 写。每段 mutation 记录从约 44 条降到 2 条，并且消灭「旧行盒已拆、
+   新行盒未接」的裸 DOM 闪变窗口。异常路径的 rollback 仍逐节点恢复；该路径执行频率低，
+   不计入 mutation 预算。
+2. **`SameGridRetargetWithoutRestart`**：`LineLengthGridResponsiveInvalidation` 的同字格
+   零作业语义延伸到在途 job。responsive relayout dispatch 使用 `captureSignatures:false`，
+   捕获到的签名为空，原来的比较逻辑因此会在每次宽度事件时取消在途 job。现改为与最近一次
+   完成提交的量化 measure 比较：宽度仍在同一字格时任务继续跑完，未变化段落由
+   `ParagraphLayoutPreparation.Unchanged` 零成本跳过；宽度跨入新字格时才取消任务，
+   并按最新宽度重启。
+3. **`StaleMeasureGuardPerSlice`**：555a956 删除了逐段宽度守卫，因为该守卫在每段提交后
+   读一次布局，读与写交错，是 profile 中 910 次同步 reflow 的直接来源；删除后 `job.stale`
+   只在收尾求值，任务中途跨格时过期段落按旧宽度提交，违反「即便只落后一个字格也不得
+   提交」。本修订把守卫放回 **slice 头部**：每个 animation-frame slice 开始时求值一次
+   `job.stale()`，root 量化 measure 与 job 目标 drift ≥0.5px 即判定过期，跳过本 slice
+   剩余 item 并按 stale 收尾，由 element.js 以最新宽度派发后续 job。读取频率从每段一次降为
+   每 slice 一次，并且发生在两批 DOM 写之间，不再与写交错。同步首片提交时使用的宽度就是
+   当时的实时宽度，符合 `ParagraphCurrentMeasureCommit`；首片之后的漂移由逐 slice 守卫拦截。
+
+## Amendment (2026-08-18): offscreen debounce with visibility wake and kill
+
+coordinator 原先对离屏元素只做降优先级，快速拖动时视口外的段落仍每帧消耗 8ms 预算。
+`OffscreenDebounceGate` 改为：离屏元素的请求不立即执行，先挂起等 200ms；等待期间该
+元素再来新请求就重新计满 200ms。这样快速拖动时视口外的区块不会跟着每次宽度变化重排，
+只在宽度稳定后执行一次。挂起到期后任务照常进入每帧循环；元素回到视口时立即执行；
+`cancelFrame` 与 `unregister` 会同步清掉该元素还在挂起的任务。在屏元素的请求不受
+影响，照常执行。
+
+挂起队列初版按元素只保存一个待办任务，后来的请求会覆盖先前的。页面初次排版期间的
+一次视口变化会让视口外的区块被 IntersectionObserver 判为离屏，这些区块刚排入的初次
+排版请求因此被挂起。紧接着 ResizeObserver 报告宽度变化，每个区块又请求一次响应式
+提交，新请求把初次排版请求从挂起队列里覆盖掉。顶替它的提交任务运行时发现区块尚未
+排过版，按设计直接返回；初次排版请求已经不存在，这些区块从此不再有任何排版。修正
+（`OffscreenRequestQueue`）：挂起队列按元素持有一组待办任务，以回调为 key。到期、
+回到视口、取消三种操作都只影响组内对应的单个任务，同一区块的多个请求互不覆盖。
+
+`OffscreenLayoutWorkKill`：IntersectionObserver 观察到可见→离屏且元素 busy 时，复用
+`tiqian:cancel-layout-work` 通道停止在飞 slice。取消操作不会回滚 DOM，已经提交的可见
+成果保持不变。元素从离屏回到可见时，既有的 pending-responsive 分支会立即拉起其挂起的
+工作，与挂起队列的立即执行一起完成唤醒。两处逻辑集中在 coordinator 与
+IntersectionObserver 转换分支中，没有散落各处的独立计时器。
+
+挂起是否到期取决于**每个元素自身的宽度**是否稳定。快速拖动中，某个离屏 root 的宽度
+可能因视口宽度封顶或列宽上限而提前稳定，其 ResizeObserver 不再交付变化；200ms 等待
+从最后一次真实宽度变化起算，期满后该元素完成一次最终布局。同一手势里宽度仍在变化的
+元素继续等待。drag 测试的违规判据是：某次离屏 relayout 完成时，距该元素最后一次宽度
+变化不足 180ms。
+
+## Amendment (2026-08-18): fractional fragment-aware content measure
+
+555a956 把 `elementContentWidth` 改为 `clientWidth` 快路径时引入三个回归：整数舍入带来
+最多 `0.5px` 的误差，小数宽度上跨字格边界的变化可能被吞掉，违反
+`LineLengthGridResponsiveInvalidation` 的小数语义；stylesheet 声明的 padding（如
+`li { padding-inline-start }`）对 inline style 探针不可见；`getBoundingClientRect()` 在
+CSS 多列容器上取所有 fragment 的水平并集。现恢复 fragment-aware 实现：取
+`getClientRects()` 中最宽的 live fragment 作为单一 fragmentainer 的 border-box，减去
+computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain gBCR，仅用于
+≥0.5px 的粗粒度 drift 检测，整数级舍入误差在该容差下无影响；该函数注释与实现的不一致
+是历史遗留。
+
+## Amendment (2026-08-18): coordinator-owned polled scheduling
+
+前两处修订落地后，快速拖动仍暴露三层缺陷：stale 收尾会把已提交段落整批回滚成
+   native，造成裸 DOM 闪变；离屏挂起会在宽度仍在移动时到期；被取消任务夹带的
+   bare 段落无人补齐。
+三层缺陷同出一源：调度权分裂。Kotlin job 自排 animation frame，element.js coordinator
+又按自己的节奏派发，两边对「同一帧内谁先谁后、宽度何时算稳定」各有一份判断。
+本修订把调度权收归 coordinator。
+
+1. **`WorkerPolledScheduling`**：custom element 在派发 progressive job 前 attach root，
+   job 的每个 slice 都由 coordinator 授予。coordinator 每帧轮询：读每个 root 的
+   job generation（第几代 job，每次派发新 job 递增）与三层 pending 计数，按 tier
+   授予一个有界 slice，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回
+   job。授予的单位是一张凭证：一个 controller 对象，只发给一个收件人（已实施形态见
+   「调度架构弱点留档」第 2 条）；其余参数与返回值都是 primitive。`ParagraphTierGating` 把段落分为在视口、近视口、
+   远三层；`TierOrderedGrants` 让所有可见 root 先排干 tier 1，再 tier 2 与 tier 3；
+   视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 拿排版凭证前也等满同样的
+   200ms。coordinated job 的第一个 slice 同样来自第一张凭证，可以与 dispatch 任务落在
+   同一帧，共用同一帧预算。
+2. **`RunToCompletionWithoutCoordinator`**：standalone rAF 自调度路径整体删除。无
+   coordinator 的 root 一口气同步跑完，低层 API 直调与测试直接驱动都走这条路；detach
+   发生时，仍有剩余 item 的 job 同样同步跑完再返回。正常部署中 coordinator 必然存在；
+   保留第二套调度只制造时序 bug。
+3. **`StaleFinishKeepsCommittedParagraphs`**：job 以 stale 收尾时不回滚已提交段落。
+   逐 item 提交守卫已保证每个落地的段落与当时的实时量化 measure 一致；把整批回滚到
+   native 只会在跨帧、跨宽度变化的 job 上制造闪变。stale 事件仍照常派发，element.js 以
+   最新宽度派发一次后续 job。
+4. **`StrandedEnhanceResume`**：relayout job 的工作集并入「候选集合中存在、state 中没有」
+   的 bare 段落，bare 走实时宽度路径、rendered 走快照准备路径，同一 job 内混合推进。
+   任务取消后段落不会永久遗漏。
+5. **`OffscreenTrailingWidthCheck`**：ResizeObserver 的交付挂在 animation frame 边界；
+   coordinator 无任务时帧循环停摆，宽度变化停止送达，离屏 200ms 挂起可能在宽度仍在移动时
+   到期。放行 commit 前同步读一次实际宽度，确认宽度确已静止；仍在移动则刷新基线并重新
+   进入挂起等待。
+6. **`ClockTierDiscipline`**：帧预算 deadline 读 `performance.now`。rAF 回调参数是帧起点
+   时间戳，长帧内回调执行时它早已落后；以它起算预算窗口会让整段拖动中一张凭证都
+   发不出去。当时跨边界传的是剩余毫秒数，Kotlin 侧在自己的 `Date.now` 时间线上量测
+   耗时，两条时钟不做比较；后续 GrantController 修订改为携带换算到 `Date.now` 域的
+   截止时间戳，两条时钟在构造凭证时对齐一次。200ms 级防抖到期时间与时长统计同用
+   `Date.now`，毫秒精度足够。
+
+## Amendment (2026-08-18): skip discarded finish reads
+
+2026-08-18 的 Zen profile（快拖，172 次字格穿越）把最大单一可归因项定位到
+`fragmentedBorderBoxInlineSize`（gBCR）23.1%、1483ms：每个 relayout job 完成时
+`#finishLayoutWorkAndObserve` 对 root 内每段读一次布局签名。审计发现这些读取没有消费者：
+
+1. 宽度移动中的 relayout finish 走 responsive-commit 分支，该分支不存储任何段落 baseline。
+2. relayout job 以 `captureSignatures: false` 派发，`#layoutWorkMeasureSignature` 为空串，
+   live 签名与空串比较恒为真，`layoutInputsChangedDuringWork` 的判定不需要 live 读数。
+3. 比较结果与签名值都被丢弃；每段一次 gBCR 加一次 getComputedStyle 花在 job 刚弄脏的
+   DOM 上。commit 任务在宽度移动时本就使用缓存 baseline，拖动全程没有任何路径消费该读数。
+
+**`ResponsiveFinishSkipsDoomedSignatureReads`**：finish 只在两种情况下读段落签名：与
+捕获签名比较（enhance 路径，`CapturedMeasureFollowUpCoalescing` 语义不变），或走
+unchanged 路径存储 baseline（宽度静止时的收尾一次读完）。宽度移动中的 finish 以缓存
+baseline 进入 responsive-commit 分支。finish 无条件的 typography 签名刷新保留，它是
+settle 后 commit 比较的基准。
+
+demo CDP burst 基线（1500×6000 视口、12 root 全可见、900ms 逐帧宽度振荡）：段落 gBCR
+读取从 610-624 降到 335-419；`drag-responsiveness-metrics` 以 500 为预算固定该行为。
+后续 enhance 停摆修复让 burst 内完成次数接近翻倍，绝对预算随机器吞吐漂移，2026-08-18
+改为按完成次数归一（每次完成 gBCR ≤ 4、gCS ≤ 24，实测基线 3.0 与 18.2），被固定的
+行为仍是 finish 路径的单次成本。
+
+## Amendment (2026-08-18): coordinator 不再预估排版耗时
+
+coordinator 每帧做两件事：跑回调队列里的轻量任务（派发排版作业、提交几何变化）；
+给已挂载的区块授予排版切片。每次授予一张凭证（一个 GrantController 对象：收件人、
+job generation、换算到 `Date.now` 域的截止时间戳、段数配额），排版循环每排完一段问
+一次准入，至少排一段。
+
+初版在此之上还维护一个全页共享的「切片耗时估计」（滑动平均）：授予凭证前先按估计值
+预判这次切片会不会超出帧预算，会则不授予；帧预算下限与轻量任务的让路判断也都参考
+它。帧级追踪（`__tqFrameTrace`）证实这套预判会失效：冷启动的一个慢切片把估计值抬过
+帧预算后，发放凭证的门槛在预算远未耗尽时就一直成立，所有区块一张凭证都拿不到，只剩
+「连续两帧毫无产出」的兜底通道，节奏退化成三帧排一段。估计值全页共享，一个慢切片
+惩罚所有区块。
+
+决定：删除整个预估层，coordinator 只切分帧和排序。
+
+1. `RefreshAnchoredFrameBudget`：帧预算每帧由实测帧间隔直接算出
+   `clamp(帧间隔 × 0.4, 2.5, 6.0)`，不随压力事件调节。帧来得晚，截止时刻不变，
+   能装的工作自然变少。
+2. `DeadlineGate`：发不发凭证只看真实时间，预算耗尽即停。兜底改成结构性的：一帧里
+   轻量任务与凭证发放都毫无产出时仍发放一张，保证再慢的切片也有前向推进。
+3. 删除切片耗时估计、三处预判消费点、压力反比调节与连续空转帧计数。轻量任务的
+   让路只看已耗时间，每帧第一个任务恒执行。
+
+排版循环内部的时间治理不变：每排完一段问一次凭证携带的准入条件，到限即停，至少排
+一段，`MAX_PROGRESSIVE_SLICE_MS` 与 `MAX_PROGRESSIVE_ITEMS_PER_SLICE` 仍是无协调
+路径的上限。分工固定为：coordinator 决定每帧给排版多少时间、给谁；排版循环决定这段
+时间怎么用。
+
+## Amendment (2026-08-18): 调度架构弱点留档
+
+2026-08-18 调度重构（轮询调度、预算层拆除、挂起队列修正）期间的讨论收敛出三个
+长期架构弱点。每个弱点写清它在现行实现里的形态、已处理的部分、剩余部分要什么
+证据才值得动。
+
+1. **调度者与被调度的工作在同一条线程。** 排版计算、DOM 提交、布局量读取、浏览器
+   回流、coordinator 的帧循环全部在主线程。coordinator 用帧预算分时，但分时者自己
+   也在被分时的线程里：宿主脚本的长任务会挤掉帧循环，被挤之后 rAF 回调参数（帧
+   起点时间戳）在回调真正执行时早已落后，就是这条链的实例（`ClockTierDiscipline`
+   已处理时钟一侧）。预算层拆除后 coordinator 不再依赖跨帧历史做预判，帧晚到时
+   截止时刻不变、装得下的工作自然变少，这条链上的连锁失效少了一层。剩余部分：
+   主线程被宿主长任务占满时排版整体让路，没有机制能抢回时间。根治方向是把排版
+   计算挪进真 Worker，请求与结果都是纯数据，`worker-layout.js` 的快照排版已是
+   雏形；代价是 Worker 内拿不到 DOM 与计算样式，度量正确性只能靠构建期证据链
+   （ADR 0040）。这是独立的 ADR 级决策，本文件不预设结论。
+
+2. **取消与预算的最小作用单位是整个段落。** 排版作业按段落推进：断行、准备、
+   DOM 提交对一个段落一次做完，停止检查只在段落之间生效。段落成本方差很大：
+   实测短段不足 1ms，首次 enhance 的长段 5 到 20ms，单个超重段落可以吃掉整帧
+   预算，帧的截止时间拦不住进行中的那一段。
+
+   「该不该停」的判断当时有两份副本：coordinator 发放凭证前比较 deadline 与
+   performance.now，排版循环在每个段落后比较 sliceDeadline 与 Date.now，后者
+   的数字来自发放时传入的剩余毫秒。两份副本可能给出不同答案。预算 deadline
+   误用 rAF 回调参数（帧起点时间戳）导致凭证长期发不出去的事故就是时钟口径不一致
+   的实例，ClockTierDiscipline 修正了时钟选择，副本本身仍待合并。
+
+   讨论收敛的目标形态已于当天实施（GrantController）。停止检查收拢为一个准入判断：
+   coordinator 每次发放都构造一张凭证（一个 GrantController 对象）派下去，携带收件人
+   root、job generation、换算到 Date.now 域的截止时间戳与段数配额，外加一个
+   shouldStop 闭包；闭包只捕获这些数字，不捕获 coordinator 状态。排版循环不认识
+   时钟、策略与身份，每个段落边界问一次准入；问题在提交一个段落之后才问，所以
+   一张凭证至少提交一段。两份副本就此合并：循环回答问题依据的条款就是凭证携带的
+   条款，coordinator 侧的 `DeadlineGate` 只决定是否再发下一张。时间戳换算：每帧
+   轮询开头把两个时钟各读一次，得到 offset = Date.now() - performance.now()，帧的
+   截止时间加 offset 就换算到 Date.now 的读数上，之后循环内是同一读数上的数值比较；
+   两个时钟走速相同的假设与传时长的旧做法共用。配额补截止的盲区：Date.now 截断到
+   毫秒，亚毫秒的剩余时间可放行大量廉价段落，配额按段数封顶。job generation 在
+   每个 startProgressiveJob 时盖章，凭证携带的 generation 与现行 job 不符时静默
+   拒绝，发给已替换 job 的旧凭证不会跑到新 job 上。无 coordinator 的路径（detach
+   收尾、未 attach 的同步跑完）在 slice 开头构造本地准入，沿用毫秒与段数上限。
+   单线程的事实不变：slice 运行期间收件人的其余状态冻结，循环中途真正推进的量
+   只有时间。多个 root 之间的排序、预算切分与前向推进兜底依赖全局页面状态，
+   计算留在 coordinator，算出的值随凭证下行，本张凭证的截止与配额就是预算切分的
+   产物；全局状态本身不跨线，执行侧零全局知识。
+
+   剩余部分：把检查点下沉进断行循环、让段落做到一半能停且能恢复，仍是替换
+   治理模型的 ADR 级变更，只在单段超重场景有收益，demo 规模未观测到失控。
+   触发条件：真实页面出现单段超帧的可归因卡顿证据。
+
+3. **每条停止路径必须带上重派义务。** 协议要求：任何取消、挂起、掐死排版工作的
+   路径，必须能指出谁负责重新唤醒工作；说不出唤醒者的沉默只允许出现在元素断连
+   或宿主显式禁用。2026-08-18 逐路径审计的配对：排版变化取消与几何变化取消在
+   取消后显式重排一次几何提交；工作进行中收到新几何需求时记下「需要提交」标志，
+   收尾路径与回屏分支都会消费它；离屏掐死在回到视口时清除挂起并按标志重排；帧
+   任务挂起 200ms 到期由计时器整桶放行；排版凭证的发放挂起有独立的唤醒计时器，到点
+   重启帧循环；两种挂起的唤醒都不依赖新输入到达。断连与禁用的沉默有意。曾发生的缺口：
+   挂起队列初版按元素只保存一个待办任务，后到请求覆盖先到请求，初次排版请求被
+   宽度提交请求覆盖后永久丢失，即 enhance 停摆事故（`OffscreenRequestQueue` 修正，
+   见 offscreen debounce 修订）。新增停止路径时按此协议审查。
+
+## Amendment (2026-08-18): 凭证段数按 root 自适应（AdaptiveGrantQuota）
+
+Firefox 隐私模式录得的纯悬停加滚动会话（零拖动输入、零 relayout 派发）暴露了
+GrantController 的盲区：我们的 JS 全程 1.17s（主线程 17.8%），LongTask 却有 55 个
+共 5.4s（最大 171ms）；28k 次 a11y 移除中 16k 落在 LongTask 窗口内。提交批次的
+原生后续（a11y 记账与 style/layout flush）在 JS 归还后同一个任务内结算，凭证的
+截止时间只约束 JS 切片时长，约束不了一段凭证放行多少段提交、带出多少原生后续。
+
+治理对象因此从「每帧给多少毫秒」扩到「每张凭证放行多少段」：quota 从常量 8 改为
+每 root 自适应。slot 记录当前 quota，起步 2；上一帧有提交的 root 在本帧头部接受
+判定，帧距超过节奏 1.5 倍判慢帧，quota 减半（地板 1）；低于节奏 1.1 倍判健康帧，
+quota 加一（上限 8，原常量变成上限）。帧距 ≤ 4 或 ≥ 150 不判，标签页挂起间隙
+不惩罚任何人。节奏基准沿用 `RefreshAnchoredFrameBudget` 的 EMA：只吸收快帧，
+慢帧不污染基准。
+
+信号选帧距而非切片 JS 耗时，因为原生后续的成本不在我们的 JS 栈下，帧距是唯一
+覆盖全账的测量，代价是判决晚一帧生效。与上午拆除的切片耗时估计层有三点区别：
+作用在凭证段数不在帧预算，慢帧不再关门所有 root 的发放通道；判定按 root 独立，
+一个重 root 收敛到小批，无辜邻居每帧加一爬回；信号是帧距含原生后续，旧估计层
+只见 JS 耗时。帧距无法按 root 拆分，慢帧判所有上一帧提交者，这是量测粒度的
+代价，由每帧加一的恢复速度兜住。
+
+Kotlin 侧不变：quota 是凭证携带的条款，排版循环照读。冷启动 2、逐帧增减、
+地板与上限、挂起豁免、按 root 隔离由 `coordinator.test.mjs` 逐帧断言。demo 的
+scroll 套件是灾难级护栏：headless Chromium 的原生后续远低于 Gecko 的逐节点 a11y
+记账，实测拆掉自适应后帧距仅 16.8 升到 33.4ms，无法在此环境做灵敏度断言，
+方向性验证留在 npm 单测。

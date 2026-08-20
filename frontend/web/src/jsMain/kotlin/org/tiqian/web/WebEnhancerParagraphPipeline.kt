@@ -1,5 +1,3 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
-
 package org.tiqian.web
 
 import kotlinx.browser.document
@@ -200,6 +198,7 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
         hostInlineSizeApplied = hostInlineSizeApplied,
         hostFontSizeApplied = hostFontSizeApplied,
     )
+    stampCustodyContent(item)
     val layoutIssue = try {
         if (workerPlan == null) {
             layoutParagraph(
@@ -318,6 +317,7 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
         )
     }
     paragraph.lastMeasure = effectiveLineMeasure(width, paragraph.lowered.textStyle.fontSize)
+    stampRenderedContent(paragraph)
     return null
 }
 
@@ -583,5 +583,6 @@ internal fun TiqianWeb.commitPreparedParagraph(
             )
         }
     }
+    stampRenderedContent(paragraph)
     return ParagraphCommitResult.Success(preparation.measure)
 }

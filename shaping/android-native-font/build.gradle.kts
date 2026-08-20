@@ -16,7 +16,7 @@ tasks.withType<Test>().configureEach {
 android {
     namespace = "org.tiqian.shaping.android.nativefont"
     compileSdk = 36
-    ndkVersion = "29.0.13599879"
+    ndkVersion = "29.0.13599879-rc2"
 
     defaultConfig {
         minSdk = 23
@@ -31,7 +31,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "4.3.2"
+            version = "3.22.1"
         }
     }
 

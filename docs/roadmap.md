@@ -40,7 +40,6 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
 
 已经命名但尚未开工的候选：
 
-- `WidthIndependentAnnotationCache`：让不依赖行宽的 annotation 结果在 resize 重排时复用。
 - `OpaqueInlineObjectGeometryInvalidation`：图片或静态 inline object 加载后几何变化时重新测量。
 
 当前并行推进 **Slice 37：Compose 静态正文 selection**：只读 `CjkText` 已接入源忠实拖选、

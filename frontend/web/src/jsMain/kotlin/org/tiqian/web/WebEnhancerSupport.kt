@@ -3,7 +3,6 @@
 package org.tiqian.web
 
 import kotlin.JsFun
-import kotlin.js.JsAny
 import kotlin.js.js
 import org.tiqian.font.FontMetricsRequest
 import org.tiqian.font.FontMetricsResolver
@@ -161,24 +160,23 @@ internal class ExactSessionBrowserFallbackFontMetricsResolver(
 internal external fun eventRoot(event: Event): HTMLElement?
 @JsFun("(event) => event.detail && event.detail.paragraph ? event.detail.paragraph : null")
 internal external fun eventParagraph(event: Event): HTMLElement?
+@JsFun("(event) => event.detail && event.detail.options && Array.isArray(event.detail.options.paragraphs) ? event.detail.options.paragraphs : []")
+internal external fun eventParagraphs(event: Event): Array<HTMLElement>
+// Opaque host options bag. Field reads stay in @JsFun bodies.
+internal external interface EnhanceOptionsJs
+
 @JsFun("(event) => event.detail && event.detail.options ? event.detail.options : null")
-internal external fun eventOptions(event: Event): JsAny?
+internal external fun eventOptions(event: Event): EnhanceOptionsJs?
 @JsFun("(event, value) => { if (event.detail) event.detail.result = value; }")
 internal external fun setEventResult(event: Event, value: String?)
 @JsFun("(options, name) => options && options[name] != null ? String(options[name]) : null")
-internal external fun optionString(options: JsAny?, name: String): String?
+internal external fun optionString(options: EnhanceOptionsJs?, name: String): String?
 @JsFun("(options, name) => { if (!options || options[name] == null) return NaN; const number = Number(options[name]); return Number.isFinite(number) ? number : NaN; }")
-internal external fun optionNumber(options: JsAny?, name: String): Double
+internal external fun optionNumber(options: EnhanceOptionsJs?, name: String): Double
 @JsFun("(options, name) => options && typeof options[name] === 'boolean' ? options[name] : null")
-internal external fun optionBoolean(options: JsAny?, name: String): Boolean?
+internal external fun optionBoolean(options: EnhanceOptionsJs?, name: String): Boolean?
 @JsFun("(options, name) => options && options[name] && typeof options[name] === 'object' ? options[name] : null")
-internal external fun optionObject(options: JsAny?, name: String): JsAny?
-@JsFun("(host, planJson, locale) => globalThis.__TiqianPreparedDomRenderer.render(host, planJson, locale)")
-internal external fun renderPreparedParagraphDom(
-    host: HTMLElement,
-    planJson: String,
-    locale: String,
-): JsAny?
+internal external fun optionObject(options: EnhanceOptionsJs?, name: String): EnhanceOptionsJs?
 @JsFun("(element) => JSON.stringify(Array.from(element.attributes || [], (attribute) => [attribute.name, attribute.value]))")
 private external fun elementAttributesJson(element: Element): String
 @JsFun("(element, sessionKey, requestText) => globalThis.__TiqianLayoutWorker && typeof globalThis.__TiqianLayoutWorker.take === 'function' ? globalThis.__TiqianLayoutWorker.take(element, sessionKey, requestText) : null")
@@ -194,21 +192,26 @@ internal external fun preparedWorkerLayoutIssue(
     requestText: String,
 ): String?
 @JsFun(
-    """(host, recordJson, locale, sourceText, semanticElements) => {
+    """(host, recordJson, locale, sourceText, semanticElements) => (function () {
       const record = JSON.parse(recordJson);
-      return globalThis.__TiqianPreparedDomRenderer.render(
-        host,
-        record.plan,
-        locale,
-        {
-          sourceText,
-          semanticReplay: record.semanticReplay || "snapshot-safe",
-          semantics: record.semantics || [],
-          inlineBoxes: record.inlineBoxes || [],
-          liveSemanticElements: semanticElements || []
-        }
-      );
-    }""",
+      host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
+      try {
+        return globalThis.__TiqianPreparedDomRenderer.render(
+          host,
+          record.plan,
+          locale,
+          {
+            sourceText,
+            semanticReplay: record.semanticReplay || "snapshot-safe",
+            semantics: record.semantics || [],
+            inlineBoxes: record.inlineBoxes || [],
+            liveSemanticElements: semanticElements || []
+          }
+        );
+      } finally {
+        host.__tqCustodyEngineWrites -= 1;
+      }
+    })()""",
 )
 internal external fun renderPreparedWorkerParagraphDom(
     host: HTMLElement,
@@ -216,7 +219,7 @@ internal external fun renderPreparedWorkerParagraphDom(
     locale: String,
     sourceText: String,
     semanticElements: Array<Element>,
-): JsAny?
+)
 @JsFun("(host) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.release && globalThis.__TiqianPreparedDomRenderer.release(host) === true)")
 internal external fun releasePreparedParagraphDomStyles(host: HTMLElement): Boolean
 @JsFun("(root) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.releaseRoot && globalThis.__TiqianPreparedDomRenderer.releaseRoot(root) === true)")
@@ -240,93 +243,32 @@ internal external fun paragraphViewportDistance(element: HTMLElement): Double
     }""",
 )
 internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLElement): Boolean
-@JsFun(
-    """() => {
-      try {
-        return typeof navigator !== "undefined" && navigator.scheduling &&
-          typeof navigator.scheduling.isInputPending === "function" &&
-          navigator.scheduling.isInputPending({ includeContinuous: true }) === true;
-      } catch (error) {
-        return false;
-      }
-    }""",
-)
-internal external fun progressiveInputIsPending(): Boolean
-@JsFun(
-    """(callback, idle) => {
-      const MINIMUM_IDLE_BUDGET_MS = 8;
-      const token = { kind: "cooperative", idleId: 0, frameId: 0 };
-      const inputIsPending = () => {
-        try {
-          return typeof navigator !== "undefined" && navigator.scheduling &&
-            typeof navigator.scheduling.isInputPending === "function" &&
-            navigator.scheduling.isInputPending({ includeContinuous: true }) === true;
-        } catch (error) {
-          return false;
-        }
-      };
-      const scheduleFrame = (continuation) => {
-        token.frameId = requestAnimationFrame(() => {
-          token.frameId = 0;
-          if (inputIsPending()) scheduleFrame(continuation);
-          else continuation();
-        });
-      };
-      if (idle) {
-        // PendingInputAwareIdleTail: layout is already complete in the Worker;
-        // each callback commits at most one offscreen paragraph. A normal
-        // 60 Hz idle period cannot provide the old 20 ms threshold, so waiting
-        // for it made a quiet resized article advance only once per timeout.
-        // Require one 8 ms commit slice, and yield only to input that is still
-        // pending rather than to an arbitrary post-scroll quiet window.
-        const requestWhenIdle = () => {
-          if (typeof requestIdleCallback === "function" &&
-              typeof cancelIdleCallback === "function") {
-            token.idleId = requestIdleCallback((deadline) => {
-              token.idleId = 0;
-              if (inputIsPending() || (!deadline.didTimeout &&
-                  deadline.timeRemaining() < MINIMUM_IDLE_BUDGET_MS)) {
-                scheduleFrame(requestWhenIdle);
-              } else {
-                callback();
-              }
-            }, { timeout: 1000 });
-          } else {
-            scheduleFrame(callback);
-          }
-        };
-        requestWhenIdle();
-        return token;
-      }
-      scheduleFrame(callback);
-      return token;
-    }""",
-)
-internal external fun scheduleProgressiveCallback(callback: () -> Unit, idle: Boolean): JsAny
-@JsFun(
-    """(token) => {
-      if (token.idleId && typeof cancelIdleCallback === "function") cancelIdleCallback(token.idleId);
-      if (token.frameId) cancelAnimationFrame(token.frameId);
-    }""",
-)
-internal external fun cancelProgressiveCallback(token: JsAny)
-// CssFragmentedBlockInlineMeasure: getBoundingClientRect() unions every CSS
-// multi-column fragment and therefore grows horizontally with the number of
-// occupied columns. A paragraph is still laid out against one fragmentainer;
-// use the widest live fragment as its stable horizontal border-box measure.
+// CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width — for
+// a block fragmented by CSS columns this is the union of every fragment, not
+// a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
+// detection, where the union error is dwarfed by the tolerance (see the ADR
+// 0039 fractional fragment-aware amendment). A caller that needs the widest
+// live fragment must use the elementContentWidth pattern below instead.
 @JsFun(
     """(element) => {
-      const fallback = element.getBoundingClientRect().width;
-      const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
-      if (rects.length <= 1) return fallback;
-      return Math.max(...rects.map((rect) => rect.width));
+      if (!element) return 0;
+      return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
     }""",
 )
 internal external fun elementFragmentBorderBoxInlineSize(element: HTMLElement): Double
 @JsFun(
     """(element) => {
+      if (!element) return 0;
       const style = getComputedStyle(element);
       const number = (value) => Number.parseFloat(value) || 0;
+      // FractionalFragmentContentMeasure: clientWidth rounds to integer
+      // pixels, so a width change below 0.5px can go undetected and a
+      // font-size grid crossing at a fractional width can be missed.
+      // Inline-style probes cannot see padding declared in a stylesheet,
+      // such as li { padding-inline-start }. getBoundingClientRect()
+      // returns the union of all CSS column fragments. Take the widest
+      // live client rect instead; it is the border box of a single
+      // fragment. Then subtract the computed padding and borders.
       const fallback = element.getBoundingClientRect().width;
       const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
       const borderBoxWidth = rects.length <= 1
@@ -473,12 +415,15 @@ internal external fun computedStyle(element: Element, property: String): String
     }""",
 )
 internal external fun flowParticipatingPseudoContent(element: Element, pseudo: String): String?
+// Opaque Intl.Segmenter handle. Only lowererGraphemeBoundaries reads it.
+internal external interface GraphemeSegmenterJs
+
 @JsFun(
     """() => typeof Intl !== 'undefined' && Intl.Segmenter
       ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
       : null""",
 )
-internal external fun createLowererGraphemeSegmenter(): JsAny?
+internal external fun createLowererGraphemeSegmenter(): GraphemeSegmenterJs?
 @JsFun(
     """(segmenter, text) => {
       const boundaries = [0];
@@ -497,7 +442,7 @@ internal external fun createLowererGraphemeSegmenter(): JsAny?
       return boundaries.join(',');
     }""",
 )
-internal external fun lowererGraphemeBoundaries(segmenter: JsAny?, text: String): String
+internal external fun lowererGraphemeBoundaries(segmenter: GraphemeSegmenterJs?, text: String): String
 @JsFun("(element, selector) => !!element.closest(selector)")
 internal external fun hasClosest(element: HTMLElement, selector: String): Boolean
 @JsFun(
@@ -506,11 +451,97 @@ internal external fun hasClosest(element: HTMLElement, selector: String): Boolea
 internal external fun belongsToRootScope(paragraph: HTMLElement, root: HTMLElement, selector: String): Boolean
 @JsFun("(message) => console.warn(message)")
 internal external fun consoleWarn(message: String)
-@JsFun("() => performance.now()")
-internal external fun performanceNow(): Double
+// CustodyAnchoredCommitForwarding: React and Svelte hold the paragraph element
+// as their commit parent and mutate children through removeChild, insertBefore,
+// replaceChild and appendChild. Takeover moved those children into the custody
+// fragment, so the anchored calls would throw NotFoundError, and the append
+// forms would drop the node into the live paragraph where the next restore
+// drains it as engine output. Forward each host operation into the current
+// custody fragment. Engine writes stay native: the renderer swaps output with
+// replaceChildren, the custody restore and the rollback snapshot append
+// DocumentFragment arguments, and the prepared DOM bridge raises
+// __tqCustodyEngineWrites around its own host writes (innerHTML plus per-node
+// appends of live clones). The overrides read the published fragment at call
+// time, so a re-take with a fresh fragment needs no re-install. An empty
+// fragment means the paragraph is not under custody, and every branch then
+// falls through to native.
+@JsFun(
+    """(paragraph) => {
+      if (!paragraph.__tqCustodyForwarding) {
+        const nativeRemoveChild = Node.prototype.removeChild;
+        const nativeInsertBefore = Node.prototype.insertBefore;
+        const nativeReplaceChild = Node.prototype.replaceChild;
+        const nativeAppendChild = Node.prototype.appendChild;
+        const activeCustody = () => {
+          const fragment = paragraph.__tqCustodyFragment;
+          return fragment && fragment.childNodes.length > 0 ? fragment : null;
+        };
+        const heldInCustody = (node) => {
+          const fragment = paragraph.__tqCustodyFragment;
+          return !!fragment && !!node && node.parentNode === fragment;
+        };
+        const engineWriting = () => paragraph.__tqCustodyEngineWrites > 0;
+        paragraph.removeChild = (child) => {
+          if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
+          if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
+          return nativeRemoveChild.call(paragraph, child);
+        };
+        paragraph.insertBefore = (node, ref) => {
+          if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
+          if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
+          if (!ref && node && node.nodeType !== 11) {
+            const fragment = activeCustody();
+            if (fragment) return fragment.appendChild(node);
+          }
+          return nativeInsertBefore.call(paragraph, node, ref);
+        };
+        paragraph.replaceChild = (next, prev) => {
+          if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
+          if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
+          return nativeReplaceChild.call(paragraph, next, prev);
+        };
+        paragraph.appendChild = (node) => {
+          if (engineWriting()) return nativeAppendChild.call(paragraph, node);
+          if (node && node.nodeType !== 11) {
+            const fragment = activeCustody();
+            if (fragment) return fragment.appendChild(node);
+          }
+          return nativeAppendChild.call(paragraph, node);
+        };
+        paragraph.__tqCustodyForwarding = true;
+      }
+    }""",
+)
+internal external fun installCustodyCommitForwarding(paragraph: HTMLElement)
+// CustodyEngineWriteSuspension: the prepared DOM bridge writes engine output
+// into the live paragraph with plain element and text arguments, which the
+// forwarding overrides would otherwise redirect into custody. The two bridge
+// entry points below raise __tqCustodyEngineWrites for the duration of their
+// synchronous render, and the overrides above run native while it is positive.
+// @JsFun bodies inline into their Kotlin callers, so each body is a single
+// IIFE expression: a bare return statement would return from the caller.
+@JsFun(
+    """(host, planJson, locale) => (function () {
+      host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
+      try {
+        return globalThis.__TiqianPreparedDomRenderer.render(host, planJson, locale);
+      } finally {
+        host.__tqCustodyEngineWrites -= 1;
+      }
+    })()""",
+)
+internal external fun renderPreparedParagraphDom(
+    host: HTMLElement,
+    planJson: String,
+    locale: String,
+)
+// ClockTierDiscipline: slices receive a millisecond budget from the caller, so
+// the runtime measures elapsed time on the cheap coarse clock.
+@JsFun("() => Date.now()")
+internal external fun dateNow(): Double
 @JsFun("(root) => { const value = Number(root.getAttribute('data-tiqian-snapshot-count')); return Number.isSafeInteger(value) && value > 0 ? value : 0; }")
 internal external fun observableSnapshotCount(root: HTMLElement): Int
-@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale) => root.dispatchEvent(new CustomEvent('tiqian:ready', { detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale } }))")
+@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale) => root.dispatchEvent(new CustomEvent('tiqian:ready', { bubbles: true, composed: true, detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, stale } }))")
 internal external fun dispatchTiqianReady(
     root: HTMLElement,
     enhancedCount: Int,
@@ -521,7 +552,7 @@ internal external fun dispatchTiqianReady(
     maxSliceMs: Double,
     stale: Boolean,
 )
-@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, failed, error, stale) => root.dispatchEvent(new CustomEvent('tiqian:relayout-ready', { detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, relayout: true, failed, error, stale } }))")
+@JsFun("(root, enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, failed, error, stale) => root.dispatchEvent(new CustomEvent('tiqian:relayout-ready', { bubbles: true, composed: true, detail: { enhancedCount, runtimeEnhancedCount, snapshotCount, issueCount, durationMs, maxSliceMs, relayout: true, failed, error, stale } }))")
 internal external fun dispatchTiqianRelayoutReady(
     root: HTMLElement,
     enhancedCount: Int,
@@ -534,7 +565,7 @@ internal external fun dispatchTiqianRelayoutReady(
     error: String?,
     stale: Boolean,
 )
-@JsFun("(root, kind, detail, durationMs, maxSliceMs) => root.dispatchEvent(new CustomEvent(kind === 'Relayout' ? 'tiqian:relayout-error' : 'tiqian:error', { detail: { kind, error: detail, durationMs, maxSliceMs } }))")
+@JsFun("(root, kind, detail, durationMs, maxSliceMs) => root.dispatchEvent(new CustomEvent(kind === 'Relayout' ? 'tiqian:relayout-error' : 'tiqian:error', { bubbles: true, composed: true, detail: { kind, error: detail, durationMs, maxSliceMs } }))")
 internal external fun dispatchTiqianProgressiveError(
     root: HTMLElement,
     kind: String,
@@ -723,8 +754,18 @@ internal const val DEFAULT_FONT_SIZE = 19f
 internal const val INLINE_EDGE_EPSILON = 0.01f
 internal const val ZERO_ADVANCE_EPSILON = 0.01f
 internal const val CAPABILITY_DETAIL_LIMIT = 512
+// StandaloneGrantAdmission caps for slices without a coordinator grant:
+// the millisecond cap bounds wall time, the item cap backs it up against
+// coarse-clock truncation. Coordinated grants carry their own deadline and
+// quota inside the grant controller.
 internal const val MAX_PROGRESSIVE_SLICE_MS = 8.0
 internal const val MAX_PROGRESSIVE_ITEMS_PER_SLICE = 8
+// ParagraphTierGating: three paragraph priority bands the coordinator polls
+// per attached root. Tier 1 is in viewport, tier 2 near viewport, tier 3 far.
+// A gate of PROGRESSIVE_TIER_COUNT admits every tier; run-to-completion jobs
+// use it as their default gate.
+internal const val PROGRESSIVE_TIER_COUNT = 3
+internal const val PROGRESSIVE_TIER_IN_VIEWPORT = 1
 // ViewportForegroundIdleTail: visible and one-viewport-adjacent paragraphs
 // receive frame-budgeted work. The remaining native source stays responsive
 // and advances one paragraph per input-gapped idle callback so long articles
@@ -779,4 +820,3 @@ internal val NON_TEXT_INLINE_TAGS = setOf(
 
 internal val OPAQUE_INLINE_DISPLAYS = setOf("inline-block", "inline-flex", "inline-grid")
 internal val OPAQUE_INLINE_LEVEL_DISPLAYS = OPAQUE_INLINE_DISPLAYS + "inline"
-
