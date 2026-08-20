@@ -97,13 +97,30 @@ function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
-// CssFragmentedBlockInlineMeasure: a block fragmented by CSS columns has one
-// layout inline-size even though getBoundingClientRect() returns the union of
-// every horizontally separated fragment. Custom-element invalidation and the
-// Kotlin runtime must compare the same per-fragment border-box measure.
+// CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width — for
+// a block fragmented by CSS columns this is the union of every fragment, not
+// a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
+// detection, where the union error is dwarfed by the tolerance (see the ADR
+// 0039 fractional fragment-aware amendment). A caller that needs the widest
+// live fragment must use the elementContentWidth pattern in
+// WebEnhancerSupport.kt instead of this function.
 function fragmentedBorderBoxInlineSize(element) {
   if (!element) return 0;
   return Number(element.getBoundingClientRect?.().width) || 0;
+}
+
+function styleLengthPx(value) {
+  return Number.parseFloat(value) || 0;
+}
+
+// Shared by the measure-signature builders: exact-font sessions measure the
+// content box, browser-metric sessions the border box. Module scope keeps
+// the AllocationFreeSignatureIteration promise — no per-paragraph closures.
+function paragraphLayoutWidth(element, elementStyle, exactFontLayout) {
+  const value = fragmentedBorderBoxInlineSize(element);
+  if (!exactFontLayout) return value;
+  return value - styleLengthPx(elementStyle.paddingLeft) - styleLengthPx(elementStyle.paddingRight) -
+    styleLengthPx(elementStyle.borderLeftWidth) - styleLengthPx(elementStyle.borderRightWidth);
 }
 
 function belongsToRootScope(element, root) {
@@ -237,6 +254,12 @@ const GRANT_QUOTA_HEALTHY_FRAME_RATIO = 1.1;
 const GRANT_QUOTA_MIN_FRAME_DELTA = 4.0;
 const GRANT_QUOTA_MAX_FRAME_DELTA = 150.0;
 
+// PrePaintResponsiveCommit allowance window: immediate grants issued from
+// ResizeObserver callbacks share one allowance per rendering update. Two
+// deliveries further apart than this cannot belong to the same update, so
+// the allowance resets. 8ms sits between one 120Hz frame and one 60Hz frame.
+const IMMEDIATE_GRANT_WINDOW_MS = 8;
+
 // WorkerPolledScheduling: the coordinator owns every layout slice of an
 // attached root. Each slot caches liveness plus the three tier counters the
 // Kotlin facade reports, so a polled frame allocates nothing beyond the one
@@ -357,6 +380,8 @@ class TiqianLayoutCoordinator {
   #lastFrameTimestamp = 0;
   #hasFrameTimestamp = false;
   #measuredFrameInterval = 16.67;
+  #immediateWindowStart = -Infinity;
+  #immediateSpentMs = 0;
 
   #runFrameLoop = (now) => {
     this.#rafId = 0;
@@ -406,9 +431,13 @@ class TiqianLayoutCoordinator {
           ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) + (entryB.inlineSize || 0))
           : 0;
 
-        // Anti-Starvation aging: each frame a task is deferred gives it priority boost
-        const priorityA = inViewA * 1000000 + visibleScoreA + (a.deferCount || 0) * 50000;
-        const priorityB = inViewB * 1000000 + visibleScoreB + (b.deferCount || 0) * 50000;
+        // VisibleClassBeforeScore, same as the worker comparator: the
+        // off-screen `visibleArea || area` fallback can exceed any additive
+        // in-viewport bonus, so visibility is a strict class comparison and
+        // score plus anti-starvation aging order only within a class.
+        if (inViewA !== inViewB) return inViewB - inViewA;
+        const priorityA = visibleScoreA + (a.deferCount || 0) * 50000;
+        const priorityB = visibleScoreB + (b.deferCount || 0) * 50000;
 
         return priorityB - priorityA;
       });
@@ -580,6 +609,72 @@ class TiqianLayoutCoordinator {
     });
   }
 
+  // PrePaintResponsiveCommit: a width-only relayout dispatched from inside a
+  // ResizeObserver callback still runs before the browser paints the resized
+  // frame, so draining the job's in-viewport tier here removes the one
+  // painted frame in which stale lines overflow the narrowed container. The
+  // grant copies the polled-grant contract (job generation, per-root quota,
+  // deadline in the Date.now domain) and draws from a shared per-update
+  // allowance; once it is spent, later callers fall back to the scheduled
+  // lane. Remaining tiers stay with the polled frame loop.
+  grantImmediate(element) {
+    let slot = null;
+    for (let i = 0; i < this.#workerSlots.length; i++) {
+      if (this.#workerSlots[i].element === element) {
+        slot = this.#workerSlots[i];
+        break;
+      }
+    }
+    if (!slot || typeof slot.runtime?.workerRunSlice !== "function") return false;
+    if (!slot.runtime.workerHasJob(element)) return false;
+    const now = performance.now();
+    if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
+      this.#immediateWindowStart = now;
+      this.#immediateSpentMs = 0;
+    }
+    // The pre-paint lane trades directly against this frame's paint
+    // headroom, so it may spend up to half the measured frame interval;
+    // the shared window serializes concurrent roots.
+    const ceiling = Math.max(this.#budgetMs, this.#measuredFrameInterval * 0.5);
+    const allowance = ceiling - this.#immediateSpentMs;
+    if (allowance <= 0) return false;
+    const generation = slot.runtime.workerJobGeneration(element);
+    const quota = slot.quota;
+    const grantDeadline = Date.now() + allowance;
+    let processed = 0;
+    try {
+      // Drain the in-viewport tier like a polled grant round: one slice per
+      // quota batch until the tier is empty or the allowance is spent, so a
+      // root whose visible paragraph count exceeds the adaptive quota still
+      // commits atomically before this frame paints.
+      while (Date.now() < grantDeadline) {
+        const sliceProcessed = slot.runtime.workerRunSlice({
+          root: element,
+          generation,
+          deadline: grantDeadline,
+          quota,
+          shouldStop(processedCount) {
+            return processedCount >= quota || Date.now() >= grantDeadline;
+          },
+        }, 1);
+        processed += sliceProcessed;
+        if (sliceProcessed === 0) break;
+        if (slot.runtime.workerPendingInTier(element, 1) === 0) break;
+      }
+    } finally {
+      this.#immediateSpentMs += performance.now() - now;
+    }
+    if (processed > 0) {
+      slot.deferCount = 0;
+      slot.lastGrantFrame = this.#frameCounter;
+    }
+    slot.active = slot.runtime.workerHasJob(element);
+    slot.pendingByTier[0] = slot.runtime.workerPendingInTier(element, 1);
+    slot.pendingByTier[1] = slot.runtime.workerPendingInTier(element, 2);
+    slot.pendingByTier[2] = slot.runtime.workerPendingInTier(element, 3);
+    return processed > 0;
+  }
+
   #removeWorkerSlot(element) {
     const slots = this.#workerSlots;
     for (let i = 0; i < slots.length; i++) {
@@ -647,10 +742,15 @@ class TiqianLayoutCoordinator {
       ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) +
         (entryB.inlineSize || 0))
       : 0;
-    // WorkerStarvationAging mirrors the task loop: a worker that keeps having
-    // pending work but never wins a grant climbs the order.
-    const priorityA = inViewA * 1000000 + visibleScoreA + a.deferCount * 50000;
-    const priorityB = inViewB * 1000000 + visibleScoreB + b.deferCount * 50000;
+    // VisibleClassBeforeScore: pollWorkers derives visibleCount from the
+    // sorted prefix, so the in-viewport class must strictly precede the
+    // off-screen class no matter how large any score term grows — an
+    // additive bonus cannot guarantee that, because `visibleArea || area`
+    // falls back to the element's FULL area for off-screen entries. Aging
+    // stays capped for the same reason and orders only within a class.
+    if (inViewA !== inViewB) return inViewB - inViewA;
+    const priorityA = visibleScoreA + Math.min(a.deferCount * 50000, 900000);
+    const priorityB = visibleScoreB + Math.min(b.deferCount * 50000, 900000);
     return priorityB - priorityA;
   };
 
@@ -757,9 +857,17 @@ class TiqianLayoutCoordinator {
     let nextWakeAt = Infinity;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
-      if (!slot.active) continue;
+      if (!slot.active) {
+        // deferCount otherwise resets only on a successful grant, so a slot
+        // whose job is gone would keep its aging boost forever.
+        slot.deferCount = 0;
+        continue;
+      }
       const total = slot.pendingByTier[0] + slot.pendingByTier[1] + slot.pendingByTier[2];
-      if (total === 0) continue;
+      if (total === 0) {
+        slot.deferCount = 0;
+        continue;
+      }
       if (this.#entries.get(slot.element)?.inViewport) {
         keepFrames = true;
       } else if (!slot.deferredUntil) {
@@ -812,6 +920,8 @@ class TiqianProseElement extends HTMLElementBase {
   #connected = false;
   #custodyReentry = false;
   #detachAttributeSnapshot = null;
+  #layoutWorkIsRelayout = false;
+  #lastCommittedParagraphMeasures = "";
   #contentObserver = null;
   #custodyTargets = new Map();
   #contentProbeFrame = 0;
@@ -855,6 +965,9 @@ class TiqianProseElement extends HTMLElementBase {
   #resizeObserver = null;
   #resizeObserverFrame = 0;
   #resizeObserverWidths = null;
+  #paragraphGridMetrics = null;
+  #paragraphGridRootFontSize = "";
+  #pendingCommittedMeasures = "";
   #responsiveCommitRequired = false;
   #responsiveRetargetFrame = 0;
   #responsiveRelayoutRequired = false;
@@ -988,6 +1101,24 @@ class TiqianProseElement extends HTMLElementBase {
         if (Number.isFinite(maxSliceMs)) {
           this.dataset.tiqianRelayoutMaxSliceMs = maxSliceMs.toFixed(1);
         }
+        // CommittedMeasureLedger: forced commits (viewport revalidation,
+        // stale follow-ups) skip against what the last clean relayout
+        // actually committed, never against dispatch-time bookkeeping. The
+        // runtime reports content reconciles through this same event kind,
+        // so only jobs this element dispatched as width relayouts may move
+        // the ledger.
+        if (this.#layoutWorkIsRelayout) {
+          if (!stale) {
+            this.#lastCommittedParagraphMeasures = this.#pendingCommittedMeasures;
+          } else {
+            // A stale finish leaves a mix of old- and new-measure
+            // paragraphs, which no single signature describes — a ledger
+            // still holding the pre-mix cell would let a forced convergence
+            // pass skip and strand the mix. Invalidate so the next forced
+            // pass always dispatches.
+            this.#lastCommittedParagraphMeasures = "";
+          }
+        }
       } else {
         if (Number.isFinite(durationMs)) this.dataset.tiqianEnhanceMs = durationMs.toFixed(1);
         if (Number.isFinite(maxSliceMs)) this.dataset.tiqianMaxSliceMs = maxSliceMs.toFixed(1);
@@ -1007,6 +1138,7 @@ class TiqianProseElement extends HTMLElementBase {
         // font proof are still valid; only this line measure failed DOM replay.
         // Retain the session so a later grid can revalidate without rebuilding
         // the replay corpus. Disconnect and snapshot adoption remain the owners
+        // of final release.
         this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
       }
       if (stale) this.#responsiveCommitRequired = true;
@@ -1017,6 +1149,26 @@ class TiqianProseElement extends HTMLElementBase {
     this.addEventListener("tiqian:relayout-ready", this.#readyListener);
     this.#ensureViewportResizeListener();
 
+    // DeferredEnhanceErrorContract: one failure handler serves the load chain
+    // below and the frame task it queues. The coordinator's frame loop guards
+    // its callbacks with a synchronous try/catch, which cannot observe an
+    // async task's rejection, and the chain's own .catch resolved the moment
+    // the task was queued — so without routing the task's rejection here, a
+    // runtime import or enhance failure inside the frame task became an
+    // unhandled rejection: no RuntimeLoadFailed marker, the ready listener
+    // left attached, and consumers awaiting tiqian:ready hanging forever.
+    const failInitialEnhance = (error) => {
+      if (generation !== this.#generation) return;
+      this.#acceptLayoutCompletion = false;
+      this.#layoutWorkInFlight = false;
+      this.#layoutWorkViewportTypographyEntries = [];
+      this.#clearResponsiveRetarget();
+      this.#releaseExactFontSession();
+      if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+      this.#removeReadyListener();
+      this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
+      console.warn("Tiqian Web runtime failed to load", error);
+    };
     // HostCascadeReadyGate: connectedCallback may run before an app's
     // module-loaded styles have reached the cascade. Once Tiqian's own stylesheet
     // is ready, one frame lets the parser and host cascade settle; then load only
@@ -1100,6 +1252,8 @@ class TiqianProseElement extends HTMLElementBase {
             this.#acceptLayoutCompletion = true;
             this.#acceptValidatedSnapshotGeometry();
             this.dispatchEvent(new CustomEvent("tiqian:ready", {
+              bubbles: true,
+              composed: true,
               detail: {
                 enhancedCount: snapshot.count,
                 issueCount: 0,
@@ -1115,20 +1269,11 @@ class TiqianProseElement extends HTMLElementBase {
           if (!this.isConnected || generation !== this.#generation) return;
           if (!(await this.#dispatchProgressiveEnhance(generation))) return;
         };
-        coordinator.requestFrame(runInitialEnhance, this);
+        coordinator.requestFrame(() => {
+          runInitialEnhance().catch(failInitialEnhance);
+        }, this);
       })
-      .catch((error) => {
-        if (generation !== this.#generation) return;
-        this.#acceptLayoutCompletion = false;
-        this.#layoutWorkInFlight = false;
-        this.#layoutWorkViewportTypographyEntries = [];
-        this.#clearResponsiveRetarget();
-        this.#releaseExactFontSession();
-        if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
-        this.#removeReadyListener();
-        this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
-        console.warn("Tiqian Web runtime failed to load", error);
-      });
+      .catch(failInitialEnhance);
   }
 
   disconnectedCallback() {
@@ -1684,6 +1829,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#clearResponsiveRetarget();
     const operation = ++this.#layoutOperation;
     this.#layoutWorkInFlight = true;
+    this.#layoutWorkIsRelayout = false;
+    this.#pendingCommittedMeasures = "";
     this.#layoutWorkRevision = this.#geometryRevision;
     this.#layoutWorkSignaturesCaptured = captureSignatures;
     this.#layoutWorkGeometrySignature = captureSignatures
@@ -2042,12 +2189,17 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #dispatchRelayout() {
+  #dispatchRelayout(observedMeasures = null) {
     if (!this.#runtimeStateActive) {
       this.#finishLayoutWorkAndObserve();
       return;
     }
     this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
+    this.#layoutWorkIsRelayout = true;
+    // Callers on the commit paths pass the signature they just computed;
+    // recomputing here is reserved for dispatches that never went through a
+    // commit pass (snapshot-miss recovery).
+    this.#pendingCommittedMeasures = observedMeasures ?? this.#paragraphMeasureSignatureFromObserved();
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
@@ -2061,6 +2213,10 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #refreshRuntimeFromSource({ revalidateExactFont = true } = {}) {
+    // A source refresh replaces the rendered paragraphs, so the seeded grid
+    // metrics are for nodes about to leave the tree; drop them and let the
+    // observer re-seed the rebuilt paragraphs.
+    this.#paragraphGridMetrics = null;
     const generation = this.#generation;
     if (this.#runtimeStateActive) {
       // ResponsiveNativeBacking: pre-broken Tiqian lines cannot reflow while a
@@ -2094,6 +2250,11 @@ class TiqianProseElement extends HTMLElementBase {
       for (let i = 0; i < paragraphs.length; i++) {
         const paragraph = paragraphs[i];
         if (!belongsToRootScope(paragraph, this)) continue;
+        // Metrics seeding is decoupled from the width map: a source refresh
+        // drops the seeds while surviving paragraph nodes stay in the width
+        // map, and the width gate alone would then strand them on the
+        // read-based fallback for every commit.
+        if (!this.#paragraphGridMetrics?.has(paragraph)) this.#seedParagraphGridMetrics(paragraph);
         if (this.#resizeObserverWidths.has(paragraph)) continue;
         this.#resizeObserverWidths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
         this.#resizeObserver.observe(paragraph, { box: "border-box" });
@@ -2111,7 +2272,9 @@ class TiqianProseElement extends HTMLElementBase {
         .filter((paragraph) => belongsToRootScope(paragraph, this)),
     ];
     for (let i = 0; i < targets.length; i++) {
-      widths.set(targets[i], fragmentedBorderBoxInlineSize(targets[i]));
+      const target = targets[i];
+      widths.set(target, fragmentedBorderBoxInlineSize(target));
+      if (target !== this) this.#seedParagraphGridMetrics(target);
     }
     const observer = new ResizeObserver((entries) => {
       let changed = false;
@@ -2143,6 +2306,7 @@ class TiqianProseElement extends HTMLElementBase {
         if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
       }
       if (!changed) return;
+      if (this.#commitResponsiveGeometryPrePaint()) return;
       this.#scheduleResponsiveGeometryCommit();
     });
     this.#resizeObserver = observer;
@@ -2239,6 +2403,56 @@ class TiqianProseElement extends HTMLElementBase {
     coordinator.requestFrame(this.#boundResponsiveCommit, this);
   }
 
+  // PrePaintResponsiveCommit: ResizeObserver delivers after layout and
+  // before paint, so a width-only commit that completes synchronously here
+  // paints with the new width in the same frame; the scheduled lane paints
+  // one frame of old lines first. Only the steady width-only case
+  // qualifies — every other case keeps the scheduled lane's ordering
+  // guarantees. Verified by demo/web/tests/resize-prepaint-commit.test.mjs.
+  #commitResponsiveGeometryPrePaint() {
+    if (!this.isConnected || !this.#inViewport) return false;
+    if (!this.#runtimeStateActive || !this.#hasDispatched) return false;
+    if (this.#contentProbeFrame) return false;
+    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) return false;
+    if (document.fonts?.status === "loading") return false;
+    if (this.#layoutWorkInFlight) {
+      // PreemptiveCrossingRelayout: without preemption only a drag's first
+      // crossing reaches the pre-paint lane; later ones wait out the
+      // scheduled cadence behind the in-flight job. A width-only relayout
+      // is safe to replace — the runtime cancels it and rebuilds at the
+      // latest width (WidthSnapshotPerRelayoutJob). Preempt only on a real
+      // cell crossing; enhance and reconcile jobs are never replaced here.
+      if (!this.#layoutWorkIsRelayout) return false;
+      // ContentBeforeGeometry still rules: a pending reconcile keeps the
+      // scheduled lane, whose commit re-lowers drifted content before any
+      // width pass; a geometry-only preempt would relay stale text for the
+      // rest of the drag.
+      if (this.#contentReconcileRequired) return false;
+      const measures = this.#paragraphMeasureSignatureFromObserved();
+      if (measures === this.#lastParagraphMeasures) return false;
+      this.#lastWidth = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
+      this.#lastParagraphMeasures = measures;
+      return this.#withRootObservationPaused(() => this.#dispatchRelayout(measures));
+    }
+    return this.#withRootObservationPaused(() => this.#commitResponsiveGeometryChange());
+  }
+
+  // One pause/resume protocol for both pre-paint lanes: the root is
+  // unobserved around the synchronous commit so its own height change
+  // cannot queue a same-depth observation for the browser's ResizeObserver
+  // loop guard to report, then re-observed with the original box option.
+  #withRootObservationPaused(commit) {
+    const observer = this.#resizeObserver;
+    observer?.unobserve(this);
+    try {
+      commit();
+      coordinator.grantImmediate(this);
+    } finally {
+      observer?.observe(this, { box: "border-box" });
+    }
+    return true;
+  }
+
   #commitResponsiveGeometryChange() {
     if (!this.isConnected) return;
     if (this.#layoutWorkInFlight) {
@@ -2297,10 +2511,16 @@ class TiqianProseElement extends HTMLElementBase {
     this.#lastObservedWidth = width;
     const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
     const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : this.#paragraphWidthSignature();
-    const paragraphMeasures = widthsChanged ? this.#lastParagraphMeasures : this.#paragraphMeasureSignature();
+    // LineLengthGridResponsiveInvalidation: the quantized measure signature
+    // is computed on every commit, width changes included, so the same-named
+    // gate below can skip in-cell width motion instead of dispatching a job
+    // that reproduces identical paragraph DOM. Layout is clean at commit
+    // time (the width read above already forced it), so the per-paragraph
+    // reads here do not thrash.
+    const paragraphMeasures = this.#paragraphMeasureSignatureFromObserved();
     const hostInlineSizeRefresh = widthsChanged &&
       this.querySelector("[data-tq-host-inline-size]") !== null;
-    const measuresChanged = widthsChanged || paragraphMeasures !== this.#lastParagraphMeasures;
+    const measuresChanged = paragraphMeasures !== this.#lastParagraphMeasures;
     const signature = (widthsChanged && !this.#forceTypographyRefresh)
       ? this.#lastTypography
       : this.#typographySignature();
@@ -2349,12 +2569,23 @@ class TiqianProseElement extends HTMLElementBase {
       this.#tryReadoptSnapshotAtMaximumMeasure();
       return;
     }
-    if (!forceLatestWidth && !measuresChanged && !typographyChanged && !hostInlineSizeRefresh) {
+    // A forced pass (viewport revalidation, stale follow-up) may only skip
+    // against the CommittedMeasureLedger; a normal pass dedups against the
+    // dispatch bookkeeping.
+    const measureSettled = forceLatestWidth
+      ? paragraphMeasures === this.#lastCommittedParagraphMeasures
+      : !measuresChanged;
+    if (!typographyChanged && !hostInlineSizeRefresh && measureSettled) {
       // LineLengthGridResponsiveInvalidation: Web currently exposes the
       // engine's Start-aligned body only. Within one N×fontSize cell count,
       // the measure, line breaks, placements, and body offset are unchanged.
       // Keep observing exact geometry for snapshot evidence, but do not ask
-      // the engine to reproduce identical paragraph DOM.
+      // the engine to reproduce identical paragraph DOM. A forced pass
+      // (viewport revalidation, stale follow-up) skips only against the
+      // CommittedMeasureLedger: dispatch-time bookkeeping is optimistic and
+      // a stale-died job must still get its convergence pass, but a ledger
+      // hit proves the committed layout already matches this cell — during
+      // a window drag nearly every viewport-forced pass lands here.
       this.#lastTypography = signature;
       this.#observeWidth();
       this.#observeTypography();
@@ -2376,7 +2607,7 @@ class TiqianProseElement extends HTMLElementBase {
       return;
     }
     if (this.#runtimeStateActive) {
-      this.#dispatchRelayout();
+      this.#dispatchRelayout(paragraphMeasures);
       return;
     }
     this.#refreshRuntimeFromSource({ revalidateExactFont: false });
@@ -2394,6 +2625,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
     this.#resizeObserverWidths = null;
+    this.#paragraphGridMetrics = null;
     this.#lastObservedWidth = 0;
     if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
     this.#resizeObserverFrame = 0;
@@ -2821,6 +3053,10 @@ class TiqianProseElement extends HTMLElementBase {
     this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
+    // CommittedMeasureLedger: a cancelled captured job may have committed
+    // part of its paragraphs; no single signature describes the mix, so the
+    // forced follow-up must not be skippable against a stale ledger value.
+    this.#lastCommittedParagraphMeasures = "";
     this.#stopLayoutWorkInputObservation();
     dispatch("tiqian:cancel-layout-work", this);
     this.#deactivateLayoutWorker();
@@ -2841,6 +3077,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
     this.#responsiveRelayoutRequired = true;
+    this.#lastCommittedParagraphMeasures = "";
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
   }
@@ -3076,32 +3313,85 @@ class TiqianProseElement extends HTMLElementBase {
 
   #paragraphMeasureSignature() {
     const exactFontLayout = Boolean(this.#exactFontSession);
-    const layoutWidth = (element, elementStyle) => {
-      let value = fragmentedBorderBoxInlineSize(element);
-      if (!exactFontLayout) return value;
-      const number = (value) => Number.parseFloat(value) || 0;
-      value -= number(elementStyle.paddingLeft) + number(elementStyle.paddingRight) +
-        number(elementStyle.borderLeftWidth) + number(elementStyle.borderRightWidth);
-      return value;
-    };
+    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+    let signature = "";
+    for (let i = 0; i < paragraphs.length; i++) {
+      if (i > 0) signature += "\u001f";
+      signature += this.#paragraphMeasureEntry(paragraphs[i], exactFontLayout);
+    }
+    return signature;
+  }
+
+  #paragraphMeasureEntry(paragraph, exactFontLayout) {
+    const style = getComputedStyle(paragraph);
+    const fontSize = Number.parseFloat(style.fontSize);
+    let width = paragraphLayoutWidth(paragraph, style, exactFontLayout);
+    if (!(width > 0)) {
+      const parent = paragraph.parentElement;
+      if (parent) width = paragraphLayoutWidth(parent, getComputedStyle(parent), exactFontLayout);
+    }
+    const measure = lineLengthGridMeasure(width, fontSize);
+    return measure == null
+      ? `invalid:${width.toFixed(3)}:${style.fontSize}`
+      : `${Math.fround(fontSize)}:${measure}`;
+  }
+
+  // ObservedMeasureSignature: the same entries as
+  // #paragraphMeasureSignature, built from ResizeObserver-delivered widths
+  // and seeded font metrics — zero layout reads on the per-width-event hot
+  // paths (the ResponsiveFinishSkipsDoomedSignatureReads budget). Unseeded
+  // or zero-width paragraphs fall back to the read-based entry; observed
+  // widths may trail live layout by one delivery, so a crossing commits at
+  // most one frame later than the pre-paint lane.
+  #paragraphMeasureSignatureFromObserved() {
+    // Seeded metrics freeze each paragraph's fontSize at observation time,
+    // which goes blind when a media or container breakpoint rescales type in
+    // the same resize that crosses it. One root read per call catches the
+    // inherited case and drops the seeds so this pass reads live values; a
+    // paragraph whose font responds independently of the root still goes
+    // through the typography lane.
+    const rootFontSize = getComputedStyle(this).fontSize;
+    if (rootFontSize !== this.#paragraphGridRootFontSize) {
+      this.#paragraphGridRootFontSize = rootFontSize;
+      this.#paragraphGridMetrics = null;
+    }
+    const widths = this.#resizeObserverWidths;
+    const metrics = this.#paragraphGridMetrics;
+    if (!widths || !metrics) return this.#paragraphMeasureSignature();
+    const exactFontLayout = Boolean(this.#exactFontSession);
     const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
     let signature = "";
     for (let i = 0; i < paragraphs.length; i++) {
       const paragraph = paragraphs[i];
       if (i > 0) signature += "\u001f";
-      const style = getComputedStyle(paragraph);
-      const fontSize = Number.parseFloat(style.fontSize);
-      let width = layoutWidth(paragraph, style);
-      if (!(width > 0)) {
-        const parent = paragraph.parentElement;
-        if (parent) width = layoutWidth(parent, getComputedStyle(parent));
+      const m = metrics.get(paragraph);
+      let width = widths.get(paragraph);
+      if (m == null || width == null) {
+        signature += this.#paragraphMeasureEntry(paragraph, exactFontLayout);
+        continue;
       }
-      const measure = lineLengthGridMeasure(width, fontSize);
+      if (exactFontLayout) width -= m.inset;
+      if (!(width > 0)) {
+        signature += this.#paragraphMeasureEntry(paragraph, exactFontLayout);
+        continue;
+      }
+      const measure = lineLengthGridMeasure(width, m.fontSize);
       signature += measure == null
-        ? `invalid:${width.toFixed(3)}:${style.fontSize}`
-        : `${Math.fround(fontSize)}:${measure}`;
+        ? `invalid:${width.toFixed(3)}:${m.fontSizePx}`
+        : `${Math.fround(m.fontSize)}:${measure}`;
     }
     return signature;
+  }
+
+  #seedParagraphGridMetrics(paragraph) {
+    const style = getComputedStyle(paragraph);
+    const number = (value) => Number.parseFloat(value) || 0;
+    (this.#paragraphGridMetrics ??= new WeakMap()).set(paragraph, {
+      fontSize: Number.parseFloat(style.fontSize),
+      fontSizePx: style.fontSize,
+      inset: number(style.paddingLeft) + number(style.paddingRight) +
+        number(style.borderLeftWidth) + number(style.borderRightWidth),
+    });
   }
 }
 
