@@ -14,6 +14,8 @@ pub mod js_compat;
 pub mod metrics;
 pub mod name_language;
 pub mod name_table;
+pub mod paragraph;
+pub mod plan;
 pub mod policy;
 pub mod replay;
 pub mod selection;

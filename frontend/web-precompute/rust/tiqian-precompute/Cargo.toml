@@ -4,6 +4,11 @@ description = "Font session and precompute orchestration for Tiqian in Rust"
 version.workspace = true
 edition.workspace = true
 
+[lints.rust]
+# The tiqian sys crate's build.rs emits this cfg when TIQIAN_NATIVE_LIB_DIR
+# provides the engine archive.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tiqian_engine_link)'] }
+
 [dependencies]
 tiqian = { path = "../../../rust/tiqian", version = "0.1.0" }
 harfrust = "0.13"
