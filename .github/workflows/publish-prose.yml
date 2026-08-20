@@ -73,6 +73,10 @@ jobs:
           fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
       - name: Install package dependencies
         run: npm ci
 
