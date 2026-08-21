@@ -130,37 +130,40 @@ pub fn source_artifact_string(text: &str, semantics: &[SemanticSpan]) -> String 
 fn artifact_json(text: &str, semantics: &[SemanticSpan]) -> Json {
     Json::Obj(vec![
         ("text".to_string(), Json::str(text)),
-        (
-            "semantics".to_string(),
-            Json::Arr(
-                semantics
-                    .iter()
-                    .map(|span| {
-                        Json::Obj(vec![
-                            ("start".to_string(), Json::Num(span.start as f64)),
-                            ("end".to_string(), Json::Num(span.end as f64)),
-                            ("tagName".to_string(), Json::str(&span.tag_name)),
-                            (
-                                "attributes".to_string(),
-                                Json::Arr(
-                                    span
-                                        .attributes
-                                        .iter()
-                                        .map(|(name, value)| {
-                                            Json::Arr(vec![
-                                                Json::str(name.clone()),
-                                                Json::str(value.clone()),
-                                            ])
-                                        })
-                                        .collect(),
-                                ),
-                            ),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
+        ("semantics".to_string(), semantics_json(semantics)),
     ])
+}
+
+/// The `semantics` array the prepared entry publishes. Field order and value
+/// forms match the js object literal.
+pub fn semantics_json(semantics: &[SemanticSpan]) -> Json {
+    Json::Arr(
+        semantics
+            .iter()
+            .map(|span| {
+                Json::Obj(vec![
+                    ("start".to_string(), Json::Num(span.start as f64)),
+                    ("end".to_string(), Json::Num(span.end as f64)),
+                    ("tagName".to_string(), Json::str(&span.tag_name)),
+                    (
+                        "attributes".to_string(),
+                        Json::Arr(
+                            span
+                                .attributes
+                                .iter()
+                                .map(|(name, value)| {
+                                    Json::Arr(vec![
+                                        Json::str(name.clone()),
+                                        Json::str(value.clone()),
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    ),
+                ])
+            })
+            .collect(),
+    )
 }
 
 /// `snapshotSemanticMetricContractIssue`: inline `code` publishes its metric

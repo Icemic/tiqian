@@ -39,7 +39,7 @@ pub const SEMANTIC_CAPABILITY_ISSUES: &[&str] = &[
 ];
 
 /// Loose typography input: every field is optional the way the js object is.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TypographyInput {
     pub font_families: Option<Vec<String>>,
     pub font_size_px: Option<f64>,

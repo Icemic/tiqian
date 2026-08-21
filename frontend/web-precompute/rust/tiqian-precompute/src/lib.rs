@@ -8,6 +8,7 @@ pub mod base_table;
 pub mod emit;
 #[cfg(tiqian_engine_link)]
 pub mod engine_bridge;
+pub mod font_contract;
 pub mod font_face;
 pub mod font_record;
 pub mod font_source;
@@ -20,6 +21,7 @@ pub mod normalize;
 pub mod paragraph;
 pub mod plan;
 pub mod policy;
+pub mod precomputer;
 pub mod prepared_dom;
 pub mod replay;
 pub mod selection;

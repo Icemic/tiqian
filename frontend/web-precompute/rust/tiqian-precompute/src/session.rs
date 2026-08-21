@@ -422,7 +422,12 @@ impl FontSession {
             source_order: record.source_order,
             axes: instance_axes(record, input.font_weight),
             local_names: record.local_names.clone(),
-            coverage_text: display_chars.clone(),
+            coverage_text: {
+                // The js seeds `coverageText` as a Set of the display text,
+                // so a repeated code point counts once even on first use.
+                let mut seen = std::collections::HashSet::new();
+                display_chars.iter().copied().filter(|point| seen.insert(*point)).collect()
+            },
             probe_text: input.display_text.to_string(),
             probe_advance_px: result.advance,
             probe_font_size_px: input.font_size,
