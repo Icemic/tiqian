@@ -34,17 +34,15 @@ Compose 前端支持 Compose Desktop 和 Android 23 及以上版本：
 
 ```kotlin
 implementation("org.tiqian:tiqian-compose:<version>")
+
+// Material 3 项目可以改为依赖 tiqian-compose-material3，以便读取 `LocalTextStyle` 与 `LocalContentColor` 等
+implementation("org.tiqian:tiqian-compose-material3:<version>")
 ```
 
 普通文本可以直接把 Compose 的 `Text` 换成 `CjkText`，已有的 `AnnotatedString` 和
 `TextStyle` 也可以继续使用。
 
 ```kotlin
-implementation("org.tiqian:tiqian-compose:$tiqianVersion")
-
-// Material 3 项目可以改为依赖 tiqian-compose-material3，以便读取 `LocalTextStyle` 与 `LocalContentColor` 等
-implementation("org.tiqian:tiqian-compose-material3:$tiqianVersion")
-
 val paragraph = buildAnnotatedString {
     append("编号 A-17 的青铜")
     ruby("盉", "hé")
