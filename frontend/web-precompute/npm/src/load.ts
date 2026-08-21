@@ -151,6 +151,8 @@ export interface NativeAddon {
   /** The batch snapshot lane; the paragraph loop stays inside Rust. */
   prepareParagraphs(handle: string, inputsJson: string): string;
   prepareFontContract(handle: string, inputJson: string): string;
+  /** The batch contract lane; the loop stays inside Rust. */
+  prepareFontContracts(handle: string, inputsJson: string): string;
   closePrecomputer(handle: string): void;
   htmlPreparerInfo(handle: string): string;
   createHtmlPreparer(

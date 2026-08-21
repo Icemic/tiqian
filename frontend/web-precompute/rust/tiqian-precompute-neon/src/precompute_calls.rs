@@ -133,6 +133,28 @@ pub fn prepare_font_contract(mut cx: FunctionContext) -> JsResult<JsString> {
     })
 }
 
+/// `prepareFontContracts(handle, inputsJson)`: the batch contract lane. One
+/// call prepares every contract in input order; the loop stays here and
+/// spreads over the configured workers. Each item owns its capture window
+/// and its CJK dash retry, so the entries match the singular lane byte for
+/// byte.
+pub fn prepare_font_contracts(mut cx: FunctionContext) -> JsResult<JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    let inputs = json_argument(&mut cx, 1, "inputs")?;
+    let Json::Arr(items) = &inputs else {
+        return cx.throw_error("InvalidJsonArgument:inputs");
+    };
+    let prepared_inputs: Vec<PrepareInput> = items.iter().map(PrepareInput::from_json).collect();
+    let result = registry::with_precomputer(&handle, |precomputer| {
+        precomputer.prepare_font_contracts(&prepared_inputs)
+    });
+    match result {
+        Ok(Ok(entries)) => Ok(cx.string(Json::Arr(entries).render())),
+        Ok(Err(error)) => cx.throw_error(error.0),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
 /// `prepareParagraphs(handle, inputsJson)`: the batch snapshot lane. One
 /// call prepares every paragraph in input order; the loop stays here and
 /// spreads over the configured workers. Each paragraph owns its capture

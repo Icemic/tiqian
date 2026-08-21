@@ -307,6 +307,13 @@ export interface Precomputer {
   prepareParagraphs(inputs: readonly SnapshotParagraphInput[]): Promise<PreparedEntry[]>;
   /** Capture exact-font and server-replay evidence for runtime-only or semantic prose. */
   prepareFontContract(input: FontContractInput): Promise<PreparedEntry>;
+  /**
+   * The batch contract lane: every contract in one native call, the loop in
+   * Rust. Entries come back in input order with the lowest failing index
+   * reported as an error, matching the sequence of individual
+   * `prepareFontContract` calls.
+   */
+  prepareFontContracts(inputs: readonly FontContractInput[]): Promise<PreparedEntry[]>;
   close(): void;
 }
 
@@ -367,6 +374,13 @@ export async function createPrecomputer(options: CreatePrecomputerOptions): Prom
       return freezeEntry(
         parse<PreparedEntry>(addon.prepareFontContract(handle, JSON.stringify(input ?? {}))),
       );
+    },
+    async prepareFontContracts(
+      inputs: readonly FontContractInput[],
+    ): Promise<PreparedEntry[]> {
+      return parse<PreparedEntry[]>(
+        addon.prepareFontContracts(handle, JSON.stringify(Array.from(inputs ?? []))),
+      ).map(freezeEntry);
     },
     close(): void {
       addon.closePrecomputer(handle);

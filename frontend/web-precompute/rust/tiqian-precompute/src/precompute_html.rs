@@ -632,10 +632,22 @@ impl HtmlPreparer {
             projector,
             ..
         } = self;
-        let mut prepared_paragraphs: Vec<Json> = Vec::new();
-        let mut font_contracts: Vec<Json> = Vec::new();
-        let mut insertions: Vec<Json> = Vec::new();
-        let mut issues: Vec<Json> = Vec::new();
+        // Phase one walks the document in order: the projector is mutable
+        // state and the source order check reports by index, so validation
+        // and projection stay sequential. The plans own their projected
+        // values, which frees the shaping calls for the worker spread.
+        let typography = precomputer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .typography()
+            .clone();
+        struct ElementPlan {
+            index: usize,
+            opening_tag_end: usize,
+            snapshot: Option<ProjectedParagraph>,
+            text: String,
+        }
+        let mut plans: Vec<ElementPlan> = Vec::new();
         for (index, element) in source_elements.iter().copied().enumerate() {
             let opening_tag = &opening_tags[index];
             if opening_tag.tag_name != parser.tag_name(element) {
@@ -647,10 +659,6 @@ impl HtmlPreparer {
                 continue;
             }
             let element_node = parser.to_dom_node(element);
-            let shared = precomputer
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let typography = shared.typography().clone();
             let projected =
                 snapshot_projection(&element_node, &typography, projector.as_deref_mut());
             let text = match &projected {
@@ -660,12 +668,37 @@ impl HtmlPreparer {
             if js_trim(&text).is_empty() {
                 continue;
             }
+            plans.push(ElementPlan {
+                index,
+                opening_tag_end: opening_tag.end,
+                snapshot: projected,
+                text,
+            });
+        }
 
-            let snapshot_key = format!("p-{index}");
-            if let (Some(width), Some(projected)) = (snapshot_width, projected.as_ref()) {
-                let width_number = Json::Num(js_number_value(width));
+        // Phase two spreads one whole element sequence per worker: the
+        // snapshot attempt runs first and the contract fallback runs after
+        // it, so an element keeps the sequential lane's branching, issue
+        // order, and error identity. The spread only interleaves elements,
+        // and every paragraph owns its capture window.
+        struct ElementOutcome {
+            snapshot: Option<(Json, Json)>,
+            contract: Option<Json>,
+            issues: Vec<Json>,
+        }
+        let shared = precomputer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let precomputer_ref: &Precomputer = &*shared;
+        let workers = crate::parallel::worker_count();
+        let outcomes = crate::parallel::indexed_collect(plans.len(), workers, |slot| {
+            let plan = &plans[slot];
+            let mut issues: Vec<Json> = Vec::new();
+            if let (Some(width), Some(projected)) = (snapshot_width, plan.snapshot.as_ref()) {
+                let snapshot_key = format!("p-{}", plan.index);
                 let key_value = Json::str(snapshot_key.clone());
                 let text_value = Json::str(projected.text.clone());
+                let width_number = Json::Num(js_number_value(width));
                 let input = PrepareInput {
                     key: Some(&key_value),
                     text: Some(&text_value),
@@ -675,49 +708,85 @@ impl HtmlPreparer {
                     max_width_px: Some(&width_number),
                     source_boundaries: Some(&projected.source_boundaries),
                 };
-                let prepared = shared.prepare_paragraph(&input)?;
+                let prepared = precomputer_ref.prepare_paragraph(&input)?;
                 if entry_status(&prepared) == Some("prepared") {
-                    prepared_paragraphs.push(prepared);
-                    insertions.push(Json::Obj(vec![
-                        (
-                            "offset".to_string(),
-                            Json::Num(js_int_to_number(to_offset(opening_tag.end)?)),
-                        ),
-                        (
-                            "attribute".to_string(),
-                            Json::str(format!(" data-tq-snapshot-key=\"{snapshot_key}\"")),
-                        ),
-                    ]));
-                    continue;
+                    return Ok(ElementOutcome {
+                        snapshot: Some((
+                            prepared,
+                            Json::Obj(vec![
+                                (
+                                    "offset".to_string(),
+                                    Json::Num(js_int_to_number(to_offset(plan.opening_tag_end)?)),
+                                ),
+                                (
+                                    "attribute".to_string(),
+                                    Json::str(format!(" data-tq-snapshot-key=\"{snapshot_key}\"")),
+                                ),
+                            ]),
+                        )),
+                        contract: None,
+                        issues,
+                    });
                 }
-                issues.push(issue_json(index, &snapshot_key, "snapshot", &prepared)?);
+                issues.push(issue_json(
+                    plan.index,
+                    &snapshot_key,
+                    "snapshot",
+                    &prepared,
+                )?);
             }
 
-            let contract_key = format!("f-{index}");
+            let contract_key = format!("f-{}", plan.index);
             let key_value = Json::str(contract_key.clone());
-            let text_value = Json::str(text.clone());
+            let text_value = Json::str(plan.text.clone());
             let mut input = PrepareInput {
                 key: Some(&key_value),
                 text: Some(&text_value),
                 ..Default::default()
             };
-            if let Some(projected) = &projected {
+            if let Some(projected) = &plan.snapshot {
                 input.semantics = Some(&projected.semantics);
                 input.text_spans = Some(&projected.text_spans);
                 input.inline_boxes = Some(&projected.inline_boxes);
                 input.source_boundaries = Some(&projected.source_boundaries);
             }
-            let contract = shared.prepare_font_contract(&input)?;
+            let contract = precomputer_ref.prepare_font_contract(&input)?;
             if entry_status(&contract) == Some("prepared") {
-                font_contracts.push(contract);
-            } else {
-                issues.push(issue_json(
-                    index,
-                    &contract_key,
-                    "font-contract",
-                    &contract,
-                )?);
+                return Ok(ElementOutcome {
+                    snapshot: None,
+                    contract: Some(contract),
+                    issues,
+                });
             }
+            issues.push(issue_json(
+                plan.index,
+                &contract_key,
+                "font-contract",
+                &contract,
+            )?);
+            Ok(ElementOutcome {
+                snapshot: None,
+                contract: None,
+                issues,
+            })
+        })?;
+
+        // Phase three rebuilds the sequential arrays: every collection keeps
+        // document order, and an element's snapshot issue stays ahead of its
+        // contract issue.
+        let mut prepared_paragraphs: Vec<Json> = Vec::new();
+        let mut font_contracts: Vec<Json> = Vec::new();
+        let mut insertions: Vec<Json> = Vec::new();
+        let mut issues: Vec<Json> = Vec::new();
+        for outcome in outcomes {
+            if let Some((prepared, insertion)) = outcome.snapshot {
+                prepared_paragraphs.push(prepared);
+                insertions.push(insertion);
+            }
+            if let Some(contract) = outcome.contract {
+                font_contracts.push(contract);
+            }
+            issues.extend(outcome.issues);
         }
 
         let bundle = if !prepared_paragraphs.is_empty() {

@@ -95,6 +95,8 @@ test("HTML projectors and foreign precomputers are rejected by name", { skip: pr
     prepareParagraphs: async (inputs) =>
       inputs.map((input) => ({ status: "unsupported", key: input.key, issue: "fixture" })),
     prepareFontContract: async (input) => ({ status: "unsupported", key: input.key, issue: "fixture" }),
+    prepareFontContracts: async (inputs) =>
+      inputs.map((input) => ({ status: "unsupported", key: input.key, issue: "fixture" })),
     close() {},
   };
   await assert.rejects(

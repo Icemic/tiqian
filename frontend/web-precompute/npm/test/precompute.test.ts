@@ -488,5 +488,26 @@ test("prepareParagraph plans through the engine or reports PrecomputeEngineNotLi
 
   const contract = await precomputer.prepareFontContract({ key: "f-0", text: "正文契约正文" });
   assert.equal(assertPrepared(contract).key, "f-0");
+  // The batch contract lane returns the same entries in input order.
+  const secondContract = { key: "f-1", text: "第二段落契约正文" };
+  const contractBatch = await precomputer.prepareFontContracts([
+    { key: "f-0", text: "正文契约正文" },
+    secondContract,
+  ]);
+  assert.deepEqual(
+    contractBatch.map((item) => [item.status, item.key]),
+    [["prepared", "f-0"], ["prepared", "f-1"]],
+  );
+  assert.equal(assertPrepared(contractBatch[0]).html, assertPrepared(contract).html);
+  const sequentialContract = await precomputer.prepareFontContract(secondContract);
+  assert.equal(
+    assertPrepared(sequentialContract).html,
+    assertPrepared(contractBatch[1]).html,
+  );
+  // The batch reports the lowest failing index, the sequential `?` order.
+  await assert.rejects(
+    () => precomputer.prepareFontContracts([{ key: "f-2", text: "正文" }, { key: "", text: "正文" }]),
+    /MissingSnapshotKey/u,
+  );
   precomputer.close();
 });

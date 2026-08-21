@@ -51,8 +51,9 @@ session.close();
 
 ## Worker threads
 
-The batch entries (`prepareParagraphs`, `prepareHtml`) spread their items over
-worker threads. `TIQIAN_PRECOMPUTE_THREADS` sets the worker count:
+The batch entries (`prepareParagraphs`, `prepareFontContracts`, `prepareHtml`)
+spread their items over worker threads. `TIQIAN_PRECOMPUTE_THREADS` sets the
+worker count:
 
 - unset or malformed: the machine's available parallelism
 - `1`: the plain sequential loop
@@ -70,7 +71,13 @@ import { createPrecomputer } from "@tiqian/precompute/precompute";
 
 const precomputer = await createPrecomputer({ typography, fonts });
 const entries = await precomputer.prepareParagraphs(paragraphs);
+const contracts = await precomputer.prepareFontContracts(contractInputs);
 ```
+
+`prepareHtml` spreads inside one call: the document walk, the projection, and
+the output reassembly stay sequential in document order, while each element's
+snapshot attempt and contract fallback run over the workers with the same
+guarantees as the explicit batch entries.
 
 Singular entries (`prepareParagraph`, `prepareFontContract`) stay sequential;
 font contract retries are rare and their evidence windows belong to one

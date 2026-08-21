@@ -177,6 +177,19 @@ impl Precomputer {
         self.prepare(&replay, false)
     }
 
+    /// `prepareFontContracts`: the batch contract lane. The items spread
+    /// over the configured workers with the same guarantees as the snapshot
+    /// batch: entries come back in input order and the reported error is the
+    /// one of the lowest failing index, the sequential loop's `?` order.
+    /// Every item owns its capture window and its CJK dash retry, so the
+    /// entries match the singular lane exactly.
+    pub fn prepare_font_contracts(&self, inputs: &[PrepareInput]) -> Result<Vec<Json>, NamedError> {
+        let workers = crate::parallel::worker_count();
+        crate::parallel::indexed_collect(inputs.len(), workers, |index| {
+            self.prepare_font_contract(&inputs[index])
+        })
+    }
+
     pub fn close(&self) {
         if self.closed.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;

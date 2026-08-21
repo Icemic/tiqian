@@ -35,6 +35,10 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
         "prepareFontContract",
         precompute_calls::prepare_font_contract,
     )?;
+    cx.export_function(
+        "prepareFontContracts",
+        precompute_calls::prepare_font_contracts,
+    )?;
     cx.export_function("closePrecomputer", precompute_calls::close_precomputer)?;
     cx.export_function("createHtmlPreparer", precompute_calls::create_html_preparer)?;
     cx.export_function("prepareHtml", precompute_calls::prepare_html)?;
