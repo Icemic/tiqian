@@ -7,7 +7,10 @@ use std::env;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=TIQIAN_NATIVE_LIB_DIR");
-    if let Some(dir) = env::var("TIQIAN_NATIVE_LIB_DIR").ok().filter(|dir| !dir.is_empty()) {
+    if let Some(dir) = env::var("TIQIAN_NATIVE_LIB_DIR")
+        .ok()
+        .filter(|dir| !dir.is_empty())
+    {
         // The engine archive decides whether the paragraph entry exists; a
         // rebuilt archive must recompile this crate too.
         println!("cargo:rerun-if-changed={dir}/libnative.a");

@@ -35,62 +35,61 @@ pub fn harfbuzz_version(mut cx: FunctionContext) -> JsResult<JsString> {
 
 /// One face entry read from the `faces` array, with the font bytes it points
 /// at held in the caller's `sources` list.
-struct FaceSpecOwned {
-    family: String,
-    public_url: String,
-    source_index: usize,
-    face_index: Option<f64>,
-    weight: FontWeightSpec,
-    style: String,
-    unicode_range: Option<String>,
-    source_order: Option<f64>,
+pub(crate) struct FaceSpecOwned {
+    pub family: String,
+    pub public_url: String,
+    pub source_index: usize,
+    pub face_index: Option<f64>,
+    pub weight: FontWeightSpec,
+    pub style: String,
+    pub unicode_range: Option<String>,
+    pub source_order: Option<f64>,
 }
 
-pub fn create_font_session(mut cx: FunctionContext) -> JsResult<JsString> {
-    let faces = cx.argument::<JsArray>(0)?;
-    let sources = cx.argument::<JsArray>(1)?;
-    let options = cx.argument::<JsObject>(2)?;
-
-    // Font bytes are copied out of their buffers up front: the session
-    // outlives the call, and the napi borrows end here.
-    let mut fonts: Vec<Vec<u8>> = Vec::with_capacity(sources.len(&mut cx) as usize);
-    for value in sources.to_vec(&mut cx)? {
-        let buffer = value.downcast_or_throw::<JsBuffer, _>(&mut cx)?;
-        fonts.push(buffer.as_slice(&cx).to_vec());
+/// Reads the `faces` and `sources` array pair of the create calls. Font
+/// bytes are copied out of their buffers up front: the session outlives the
+/// call, and the napi borrows end here.
+pub(crate) fn read_face_arguments(
+    cx: &mut FunctionContext,
+    faces: &Handle<JsArray>,
+    sources: &Handle<JsArray>,
+) -> NeonResult<(Vec<FaceSpecOwned>, Vec<Vec<u8>>)> {
+    let mut fonts: Vec<Vec<u8>> = Vec::with_capacity(sources.len(cx) as usize);
+    for value in sources.to_vec(cx)? {
+        let buffer = value.downcast_or_throw::<JsBuffer, _>(cx)?;
+        fonts.push(buffer.as_slice(cx).to_vec());
     }
 
-    let mut owned: Vec<FaceSpecOwned> = Vec::with_capacity(faces.len(&mut cx) as usize);
-    for value in faces.to_vec(&mut cx)? {
-        let face = value.downcast_or_throw::<JsObject, _>(&mut cx)?;
-        let source_index = face.prop(&mut cx, "font").get::<f64>()? as usize;
+    let mut owned: Vec<FaceSpecOwned> = Vec::with_capacity(faces.len(cx) as usize);
+    for value in faces.to_vec(cx)? {
+        let face = value.downcast_or_throw::<JsObject, _>(cx)?;
+        let source_index = face.prop(cx, "font").get::<f64>()? as usize;
         if source_index >= fonts.len() {
             return cx.throw_error(format!("FontSourceOutOfRange:{source_index}"));
         }
         owned.push(FaceSpecOwned {
-            family: face.prop(&mut cx, "family").get::<String>()?,
-            public_url: face.prop(&mut cx, "publicUrl").get::<String>()?,
+            family: face.prop(cx, "family").get::<String>()?,
+            public_url: face.prop(cx, "publicUrl").get::<String>()?,
             source_index,
-            face_index: face.prop(&mut cx, "faceIndex").get::<Option<f64>>()?,
-            weight: read_weight_spec(&mut cx, &face)?,
+            face_index: face.prop(cx, "faceIndex").get::<Option<f64>>()?,
+            weight: read_weight_spec(cx, &face)?,
             style: face
-                .prop(&mut cx, "style")
+                .prop(cx, "style")
                 .get::<Option<String>>()?
                 .unwrap_or_else(|| "normal".to_string()),
-            unicode_range: face.prop(&mut cx, "unicodeRange").get::<Option<String>>()?,
-            source_order: face.prop(&mut cx, "sourceOrder").get::<Option<f64>>()?,
+            unicode_range: face.prop(cx, "unicodeRange").get::<Option<String>>()?,
+            source_order: face.prop(cx, "sourceOrder").get::<Option<f64>>()?,
         });
     }
+    Ok((owned, fonts))
+}
 
-    let session_prefix = options
-        .prop(&mut cx, "sessionPrefix")
-        .get::<Option<String>>()?
-        .unwrap_or_else(|| "tq-font".to_string());
-    let base_features = match options.prop(&mut cx, "baseFeatures").get::<Option<Handle<JsArray>>>()? {
-        Some(array) => Some(read_string_elements(&mut cx, &array)?),
-        None => None,
-    };
-
-    let specs: Vec<SessionFaceSpec> = owned
+/// Builds the borrowed face specs the library consumes.
+pub(crate) fn session_face_specs<'a>(
+    owned: &'a [FaceSpecOwned],
+    fonts: &'a [Vec<u8>],
+) -> Vec<SessionFaceSpec<'a>> {
+    owned
         .iter()
         .map(|face| SessionFaceSpec {
             spec: FontFaceSpec {
@@ -105,15 +104,45 @@ pub fn create_font_session(mut cx: FunctionContext) -> JsResult<JsString> {
             },
             source_order: face.source_order,
         })
-        .collect();
+        .collect()
+}
 
-    match create_session_impl(specs, SessionOptions { session_prefix, base_features }) {
+pub fn create_font_session(mut cx: FunctionContext) -> JsResult<JsString> {
+    let faces = cx.argument::<JsArray>(0)?;
+    let sources = cx.argument::<JsArray>(1)?;
+    let options = cx.argument::<JsObject>(2)?;
+
+    let (owned, fonts) = read_face_arguments(&mut cx, &faces, &sources)?;
+    let specs = session_face_specs(&owned, &fonts);
+
+    let session_prefix = options
+        .prop(&mut cx, "sessionPrefix")
+        .get::<Option<String>>()?
+        .unwrap_or_else(|| "tq-font".to_string());
+    let base_features = match options
+        .prop(&mut cx, "baseFeatures")
+        .get::<Option<Handle<JsArray>>>()?
+    {
+        Some(array) => Some(read_string_elements(&mut cx, &array)?),
+        None => None,
+    };
+
+    match create_session_impl(
+        specs,
+        SessionOptions {
+            session_prefix,
+            base_features,
+        },
+    ) {
         Ok(session) => Ok(cx.string(registry::insert(session))),
         Err(error) => cx.throw_error(error.to_string()),
     }
 }
 
-fn read_weight_spec(cx: &mut FunctionContext, face: &Handle<JsObject>) -> NeonResult<FontWeightSpec> {
+pub(crate) fn read_weight_spec(
+    cx: &mut FunctionContext,
+    face: &Handle<JsObject>,
+) -> NeonResult<FontWeightSpec> {
     let value = face.prop(&mut *cx, "weight").get::<Handle<JsValue>>()?;
     if value.is_a::<JsArray, _>(cx) {
         let array = value.downcast_or_throw::<JsArray, _>(cx)?;
@@ -192,7 +221,8 @@ pub fn metrics(mut cx: FunctionContext) -> JsResult<JsString> {
     };
     match registry::with_session(&session_id, |session| session.metrics(&input)) {
         Ok(Ok(values)) => {
-            Ok(cx.string(Json::Arr(values.iter().map(|value| Json::Num(*value)).collect()).render()))
+            Ok(cx
+                .string(Json::Arr(values.iter().map(|value| Json::Num(*value)).collect()).render()))
         }
         Ok(Err(error)) => cx.throw_error(error),
         Err(error) => cx.throw_error(error),
@@ -204,9 +234,15 @@ pub fn render_families(mut cx: FunctionContext) -> JsResult<JsString> {
     let requested = cx.argument::<JsArray>(1)?;
     let names = read_string_elements(&mut cx, &requested)?;
     match registry::with_session(&session_id, |session| session.render_families(&names)) {
-        Ok(Ok(families)) => Ok(
-            cx.string(Json::Arr(families.iter().map(|name| Json::str(name.clone())).collect()).render()),
-        ),
+        Ok(Ok(families)) => Ok(cx.string(
+            Json::Arr(
+                families
+                    .iter()
+                    .map(|name| Json::str(name.clone()))
+                    .collect(),
+            )
+            .render(),
+        )),
         Ok(Err(error)) => cx.throw_error(error),
         Err(error) => cx.throw_error(error),
     }
@@ -235,21 +271,26 @@ pub fn source_boundaries(mut cx: FunctionContext) -> JsResult<JsString> {
     match registry::with_session(&session_id, |session| {
         session.source_boundaries(&text, &base, &parsed)
     }) {
-        Ok(Ok(boundaries)) => Ok(
-            cx.string(Json::Arr(boundaries.iter().map(|v| Json::Num(*v)).collect()).render()),
-        ),
+        Ok(Ok(boundaries)) => {
+            Ok(cx.string(Json::Arr(boundaries.iter().map(|v| Json::Num(*v)).collect()).render()))
+        }
         Ok(Err(error)) => cx.throw_error(error),
         Err(error) => cx.throw_error(error),
     }
 }
 
-fn read_boundary_style(cx: &mut FunctionContext, style: &Handle<JsObject>) -> NeonResult<BoundaryStyle> {
+fn read_boundary_style(
+    cx: &mut FunctionContext,
+    style: &Handle<JsObject>,
+) -> NeonResult<BoundaryStyle> {
     Ok(BoundaryStyle {
         font_families: read_property_string_array(cx, style, "fontFamilies")?,
         font_size_px: style.prop(&mut *cx, "fontSizePx").get::<f64>()?,
         font_weight: style.prop(&mut *cx, "fontWeight").get::<f64>()?,
         italic: style.prop(&mut *cx, "italic").get::<bool>()?,
-        baseline_shift_px: style.prop(&mut *cx, "baselineShiftPx").get::<Option<f64>>()?,
+        baseline_shift_px: style
+            .prop(&mut *cx, "baselineShiftPx")
+            .get::<Option<f64>>()?,
     })
 }
 
@@ -324,7 +365,9 @@ fn read_paragraph_request(
 fn read_int_elements(cx: &mut FunctionContext, array: &Handle<JsArray>) -> NeonResult<Vec<i32>> {
     let mut items = Vec::with_capacity(array.len(&mut *cx) as usize);
     for value in array.to_vec(&mut *cx)? {
-        let number = value.downcast_or_throw::<JsNumber, _>(&mut *cx)?.value(&mut *cx);
+        let number = value
+            .downcast_or_throw::<JsNumber, _>(&mut *cx)?
+            .value(&mut *cx);
         items.push(number as i32);
     }
     Ok(items)
@@ -360,7 +403,9 @@ fn read_inline_boxes(
     let mut parsed = Vec::with_capacity(boxes.len(&mut *cx) as usize);
     for value in boxes.to_vec(&mut *cx)? {
         let inline_box = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
-        let outer_spacing = inline_box.prop(&mut *cx, "outerSpacing").get::<Option<String>>()?;
+        let outer_spacing = inline_box
+            .prop(&mut *cx, "outerSpacing")
+            .get::<Option<String>>()?;
         parsed.push(InlineBoxInput {
             start: inline_box.prop(&mut *cx, "start").get::<f64>()? as i32,
             end: inline_box.prop(&mut *cx, "end").get::<f64>()? as i32,
@@ -407,7 +452,9 @@ pub fn begin_capture(mut cx: FunctionContext) -> JsResult<JsUndefined> {
 
 pub fn capture_evidence(mut cx: FunctionContext) -> JsResult<JsString> {
     let session_id = cx.argument::<JsString>(0)?.value(&mut cx);
-    match registry::with_session(&session_id, |session| emit::evidence_json(&session.capture_evidence())) {
+    match registry::with_session(&session_id, |session| {
+        emit::evidence_json(&session.capture_evidence())
+    }) {
         Ok(json) => Ok(cx.string(json.render())),
         Err(error) => cx.throw_error(error),
     }
@@ -421,7 +468,10 @@ pub fn close_session(mut cx: FunctionContext) -> JsResult<JsUndefined> {
     }
 }
 
-fn optional_string(cx: &mut FunctionContext, index: usize) -> NeonResult<Option<String>> {
+pub(crate) fn optional_string(
+    cx: &mut FunctionContext,
+    index: usize,
+) -> NeonResult<Option<String>> {
     let Some(value) = cx.argument_opt(index) else {
         return Ok(None);
     };
@@ -431,7 +481,10 @@ fn optional_string(cx: &mut FunctionContext, index: usize) -> NeonResult<Option<
     Ok(Some(value.downcast_or_throw::<JsString, _>(cx)?.value(cx)))
 }
 
-fn read_string_elements(cx: &mut FunctionContext, array: &Handle<JsArray>) -> NeonResult<Vec<String>> {
+pub(crate) fn read_string_elements(
+    cx: &mut FunctionContext,
+    array: &Handle<JsArray>,
+) -> NeonResult<Vec<String>> {
     let mut items = Vec::with_capacity(array.len(&mut *cx) as usize);
     for value in array.to_vec(&mut *cx)? {
         items.push(value.downcast_or_throw::<JsString, _>(cx)?.value(cx));

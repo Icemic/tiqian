@@ -1,0 +1,457 @@
+//! The precompute and precompute-html export lanes (ADR 0050). Flat
+//! arguments in, JSON strings out: the wrapper owns every js object shape,
+//! these calls carry the same values the js entry points exchange with their
+//! callers. `prepareHtml` and `prepareParagraphs` are the batch entries; the
+//! paragraph loops stay inside Rust.
+
+use neon::prelude::*;
+
+use tiqian_precompute::build_fonts::StylesheetFace;
+use tiqian_precompute::font_record::FontWeightSpec;
+use tiqian_precompute::json::{member, parse_json, Json};
+use tiqian_precompute::normalize::TypographyInput;
+use tiqian_precompute::precompute_html::{
+    HtmlPrepareOptions, HtmlPreparerOptions, SnapshotServerAssets,
+};
+use tiqian_precompute::precomputer::{Precomputer, PrecomputerOptions, PrepareInput};
+use tiqian_precompute::snapshot_bundle::{SnapshotBundle, SnapshotBundleOptions};
+use tiqian_precompute::snapshot_source::js_string_value;
+use tiqian_precompute::NamedError;
+
+use crate::calls::{read_face_arguments, session_face_specs};
+use crate::registry;
+
+/// Parses one JSON string argument; the wrapper serializes every structured
+/// value, so a parse failure is a wrapper bug and reports as one.
+fn json_argument(cx: &mut FunctionContext, index: usize, name: &str) -> NeonResult<Json> {
+    let text = cx.argument::<JsString>(index)?.value(cx);
+    match parse_json(&text) {
+        Ok(value) => Ok(value),
+        Err(_) => cx.throw_error(format!("InvalidJsonArgument:{name}")),
+    }
+}
+
+fn member_str<'a>(value: &'a Json, name: &str) -> Option<&'a str> {
+    match member(value, name) {
+        Some(Json::Str(inner)) => Some(inner),
+        _ => None,
+    }
+}
+
+fn member_string(value: &Json, name: &str) -> String {
+    member(value, name).map(js_string_value).unwrap_or_default()
+}
+
+/// `normalizeTypography(typographyJson)`: the first js step of the create
+/// calls. The wrapper calls it before reading any font file, so a bad
+/// typography reports its named issue first, the js order; the create calls
+/// normalize the same value again behind their own boundary.
+pub fn normalize_typography(mut cx: FunctionContext) -> JsResult<JsString> {
+    let typography = TypographyInput::from_json(&json_argument(&mut cx, 0, "typography")?);
+    match tiqian_precompute::normalize::normalize_typography(typography) {
+        Ok(normalized) => Ok(
+            cx.string(tiqian_precompute::precomputer::typography_value_json(&normalized).render())
+        ),
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `createPrecomputer(typographyJson, faces, sources)`: registers the
+/// precomputer and returns its handle.
+pub fn create_precomputer(mut cx: FunctionContext) -> JsResult<JsString> {
+    let typography = TypographyInput::from_json(&json_argument(&mut cx, 0, "typography")?);
+    let faces = cx.argument::<JsArray>(1)?;
+    let sources = cx.argument::<JsArray>(2)?;
+    let (owned, fonts) = read_face_arguments(&mut cx, &faces, &sources)?;
+    let specs = session_face_specs(&owned, &fonts);
+    match tiqian_precompute::precomputer::create_precomputer(PrecomputerOptions::new(
+        typography, specs,
+    )) {
+        Ok(precomputer) => {
+            let (handle, _) = registry::insert_precomputer(precomputer);
+            Ok(cx.string(handle))
+        }
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `precomputerInfo(handle)`: the normalized typography and the resolved
+/// render families of one precomputer.
+pub fn precomputer_info(mut cx: FunctionContext) -> JsResult<JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    let info = registry::with_precomputer(&handle, |precomputer| {
+        Json::Obj(vec![
+            (
+                "typography".to_string(),
+                tiqian_precompute::precomputer::typography_value_json(precomputer.typography()),
+            ),
+            (
+                "renderFontFamilies".to_string(),
+                Json::Arr(
+                    precomputer
+                        .render_font_families()
+                        .iter()
+                        .map(|family| Json::str(family.clone()))
+                        .collect(),
+                ),
+            ),
+        ])
+    });
+    match info {
+        Ok(json) => Ok(cx.string(json.render())),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+fn prepare_entry<'a>(
+    cx: &mut FunctionContext<'a>,
+    call: impl Fn(&mut Precomputer, &PrepareInput) -> Result<Json, NamedError>,
+) -> JsResult<'a, JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(cx);
+    let input = json_argument(cx, 1, "input")?;
+    let prepared = PrepareInput::from_json(&input);
+    let result = registry::with_precomputer(&handle, |precomputer| call(precomputer, &prepared));
+    match result {
+        Ok(Ok(entry)) => Ok(cx.string(entry.render())),
+        Ok(Err(error)) => cx.throw_error(error.0),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+/// `prepareParagraph(handle, inputJson)`: the snapshot lane of one paragraph.
+pub fn prepare_paragraph(mut cx: FunctionContext) -> JsResult<JsString> {
+    prepare_entry(&mut cx, |precomputer, input| {
+        precomputer.prepare_paragraph(input)
+    })
+}
+
+/// `prepareFontContract(handle, inputJson)`: the contract lane of one
+/// paragraph, including the CJK dash retry.
+pub fn prepare_font_contract(mut cx: FunctionContext) -> JsResult<JsString> {
+    prepare_entry(&mut cx, |precomputer, input| {
+        precomputer.prepare_font_contract(input)
+    })
+}
+
+/// `prepareParagraphs(handle, inputsJson)`: the batch snapshot lane. One
+/// call prepares every paragraph in input order; the loop stays here. The
+/// order matches the js sequence exactly, so session evidence accumulates
+/// the same way.
+pub fn prepare_paragraphs(mut cx: FunctionContext) -> JsResult<JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    let inputs = json_argument(&mut cx, 1, "inputs")?;
+    let Json::Arr(items) = &inputs else {
+        return cx.throw_error("InvalidJsonArgument:inputs");
+    };
+    let mut entries = Vec::with_capacity(items.len());
+    let result = registry::with_precomputer(&handle, |precomputer| {
+        for item in items {
+            let input = PrepareInput::from_json(item);
+            entries.push(precomputer.prepare_paragraph(&input)?);
+        }
+        Ok::<(), NamedError>(())
+    });
+    match result {
+        Ok(Ok(())) => Ok(cx.string(Json::Arr(entries).render())),
+        Ok(Err(error)) => cx.throw_error(error.0),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+/// `closePrecomputer(handle)`: idempotent, the entry stays addressable.
+pub fn close_precomputer(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    match registry::with_precomputer(&handle, |precomputer| precomputer.close()) {
+        Ok(()) => Ok(cx.undefined()),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+/// `createHtmlPreparer(precomputerHandle, typographyJson, faces, sources,
+/// paragraphSelector, skippedAncestorSelector, sharedRuntimeStyle)`: the
+/// precomputer comes from the registry when the handle is present, otherwise
+/// one is created from the typography and faces; the shared lane reads null
+/// typography and empty arrays. Creation runs before the selectors validate,
+/// the js order.
+pub fn create_html_preparer(mut cx: FunctionContext) -> JsResult<JsString> {
+    let precomputer_handle = crate::calls::optional_string(&mut cx, 0)?;
+    let shared = match precomputer_handle {
+        Some(handle) => match registry::shared_precomputer(&handle) {
+            Ok(shared) => Some(shared),
+            Err(error) => return cx.throw_error(error),
+        },
+        None => None,
+    };
+    let typography_json = json_argument(&mut cx, 1, "typography")?;
+    let faces = cx.argument::<JsArray>(2)?;
+    let sources = cx.argument::<JsArray>(3)?;
+    let (owned, fonts) = read_face_arguments(&mut cx, &faces, &sources)?;
+    let paragraph_selector = crate::calls::optional_string(&mut cx, 4)?;
+    let skipped_ancestor_selector = crate::calls::optional_string(&mut cx, 5)?;
+    let shared_runtime_style = cx.argument::<JsString>(6)?.value(&mut cx);
+    let options = HtmlPreparerOptions {
+        precomputer: shared,
+        create: PrecomputerOptions::new(
+            TypographyInput::from_json(&typography_json),
+            session_face_specs(&owned, &fonts),
+        ),
+        paragraph_selector: paragraph_selector.as_deref(),
+        skipped_ancestor_selector: skipped_ancestor_selector.as_deref(),
+        shared_runtime_style: &shared_runtime_style,
+        projector: None,
+    };
+    match tiqian_precompute::precompute_html::create_html_preparer(options) {
+        Ok(preparer) => Ok(cx.string(registry::insert_preparer(preparer))),
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `prepareHtml(handle, html, optionsJson)`: the whole document in one call;
+/// the paragraph loop stays inside Rust.
+pub fn prepare_html(mut cx: FunctionContext) -> JsResult<JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    let html = cx.argument::<JsString>(1)?.value(&mut cx);
+    let options_json = json_argument(&mut cx, 2, "options")?;
+    let options = HtmlPrepareOptions {
+        id: member_str(&options_json, "id"),
+        snapshot_max_width_px: member(&options_json, "snapshot")
+            .and_then(|snapshot| member(snapshot, "maxWidthPx")),
+    };
+    let result = registry::with_preparer(&handle, |preparer| preparer.prepare(&html, &options));
+    match result {
+        Ok(Ok(value)) => Ok(cx.string(value.render())),
+        Ok(Err(error)) => cx.throw_error(error.0),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+/// `closeHtmlPreparer(handle)`: closes the owned precomputer with it; a
+/// shared one stays open for its other holders.
+pub fn close_html_preparer(mut cx: FunctionContext) -> JsResult<JsUndefined> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    match registry::with_preparer(&handle, |preparer| preparer.close()) {
+        Ok(()) => Ok(cx.undefined()),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+/// `htmlPreparerInfo(handle)`: the normalized typography of the preparer's
+/// precomputer, for the wrapper's `typography` property.
+pub fn html_preparer_info(mut cx: FunctionContext) -> JsResult<JsString> {
+    let handle = cx.argument::<JsString>(0)?.value(&mut cx);
+    let info = registry::with_preparer(&handle, |preparer| {
+        Json::Obj(vec![(
+            "typography".to_string(),
+            tiqian_precompute::precomputer::typography_value_json(&preparer.typography()),
+        )])
+    });
+    match info {
+        Ok(json) => Ok(cx.string(json.render())),
+        Err(error) => cx.throw_error(error),
+    }
+}
+
+fn bundle_options<'a>(options: &'a Json, style: &'a str) -> SnapshotBundleOptions<'a> {
+    SnapshotBundleOptions {
+        id: member_str(options, "id"),
+        paragraph_selector: member_str(options, "paragraphSelector"),
+        font_contract_paragraphs: member(options, "fontContractParagraphs")
+            .filter(|value| !matches!(value, Json::Null)),
+        shared_runtime_style: style,
+    }
+}
+
+/// `renderSnapshotBundle(preparedParagraphsJson, optionsJson,
+/// sharedRuntimeStyle)`.
+pub fn render_snapshot_bundle(mut cx: FunctionContext) -> JsResult<JsString> {
+    let prepared = json_argument(&mut cx, 0, "preparedParagraphs")?;
+    let options_json = json_argument(&mut cx, 1, "options")?;
+    let style = cx.argument::<JsString>(2)?.value(&mut cx);
+    let options = bundle_options(&options_json, &style);
+    match tiqian_precompute::snapshot_bundle::render_snapshot_bundle(Some(&prepared), &options) {
+        Ok(bundle) => {
+            Ok(cx.string(tiqian_precompute::precompute_html::bundle_json(&bundle).render()))
+        }
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `renderFontContractBundle(preparedParagraphsJson, optionsJson,
+/// sharedRuntimeStyle)`.
+pub fn render_font_contract_bundle(mut cx: FunctionContext) -> JsResult<JsString> {
+    let prepared = json_argument(&mut cx, 0, "preparedParagraphs")?;
+    let options_json = json_argument(&mut cx, 1, "options")?;
+    let style = cx.argument::<JsString>(2)?.value(&mut cx);
+    let options = bundle_options(&options_json, &style);
+    match tiqian_precompute::snapshot_bundle::render_font_contract_bundle(Some(&prepared), &options)
+    {
+        Ok(bundle) => {
+            Ok(cx.string(tiqian_precompute::precompute_html::bundle_json(&bundle).render()))
+        }
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `renderSnapshotTemplate(preparedParagraphsJson, optionsJson,
+/// sharedRuntimeStyle)`: the inert template alone.
+pub fn render_snapshot_template(mut cx: FunctionContext) -> JsResult<JsString> {
+    let prepared = json_argument(&mut cx, 0, "preparedParagraphs")?;
+    let options_json = json_argument(&mut cx, 1, "options")?;
+    let style = cx.argument::<JsString>(2)?.value(&mut cx);
+    let options = bundle_options(&options_json, &style);
+    match tiqian_precompute::snapshot_bundle::render_snapshot_template(Some(&prepared), &options) {
+        Ok(template) => Ok(cx.string(template)),
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+/// `snapshotPlainTextIssue(text)`: the named issue or null.
+pub fn snapshot_plain_text_issue(mut cx: FunctionContext) -> JsResult<JsString> {
+    let text = cx.argument::<JsString>(0)?.value(&mut cx);
+    let issue = match tiqian_precompute::normalize::snapshot_plain_text_issue(&text) {
+        Some(issue) => Json::str(issue),
+        None => Json::Null,
+    };
+    Ok(cx.string(issue.render()))
+}
+
+/// `findHtmlOpeningTags(html, tagNamesJson)`.
+pub fn find_html_opening_tags(mut cx: FunctionContext) -> JsResult<JsString> {
+    let html = cx.argument::<JsString>(0)?.value(&mut cx);
+    let names_json = json_argument(&mut cx, 1, "tagNames")?;
+    let names: Vec<String> = match &names_json {
+        Json::Arr(items) => items.iter().map(js_string_value).collect(),
+        _ => Vec::new(),
+    };
+    let references: Vec<&str> = names.iter().map(String::as_str).collect();
+    let tags = tiqian_precompute::precompute_html::find_html_opening_tags(&html, &references);
+    let dumped = Json::Arr(
+        tags.iter()
+            .map(|tag| {
+                Json::Obj(vec![
+                    ("end".to_string(), Json::Num(tag.end as f64)),
+                    ("source".to_string(), Json::str(tag.source.clone())),
+                    ("tagName".to_string(), Json::str(tag.tag_name.clone())),
+                ])
+            })
+            .collect(),
+    );
+    Ok(cx.string(dumped.render()))
+}
+
+/// `injectHtmlAttributes(html, insertionsJson)`.
+pub fn inject_html_attributes(mut cx: FunctionContext) -> JsResult<JsString> {
+    let html = cx.argument::<JsString>(0)?.value(&mut cx);
+    let insertions = json_argument(&mut cx, 1, "insertions")?;
+    match tiqian_precompute::precompute_html::inject_html_attributes(&html, Some(&insertions)) {
+        Ok(result) => Ok(cx.string(result)),
+        Err(error) => cx.throw_error(error.0),
+    }
+}
+
+fn bundle_from_json(value: &Json) -> SnapshotBundle {
+    SnapshotBundle {
+        id: member_string(value, "id"),
+        template: member_string(value, "template"),
+        client_template: member_string(value, "clientTemplate"),
+        inert_template: member_string(value, "inertTemplate"),
+        initial_style: member_string(value, "initialStyle"),
+        render_font_families: member(value, "renderFontFamilies")
+            .cloned()
+            .unwrap_or(Json::Null),
+        font_preloads: member(value, "fontPreloads").cloned().unwrap_or(Json::Null),
+        root_attributes: member(value, "rootAttributes")
+            .cloned()
+            .unwrap_or(Json::Null),
+        entries: member(value, "entries").cloned().unwrap_or(Json::Null),
+    }
+}
+
+/// `snapshotServerAssets(bundleJson | null)`.
+pub fn snapshot_server_assets(mut cx: FunctionContext) -> JsResult<JsString> {
+    let bundle = json_argument(&mut cx, 0, "bundle")?;
+    let parsed = if matches!(bundle, Json::Null) {
+        None
+    } else {
+        Some(bundle_from_json(&bundle))
+    };
+    let dumped = match tiqian_precompute::precompute_html::snapshot_server_assets(parsed.as_ref()) {
+        Some(assets) => Json::Obj(vec![
+            ("id".to_string(), Json::str(assets.id.clone())),
+            (
+                "initialStyle".to_string(),
+                Json::str(assets.initial_style.clone()),
+            ),
+            (
+                "inertTemplate".to_string(),
+                Json::str(assets.inert_template.clone()),
+            ),
+            ("fontPreloads".to_string(), assets.font_preloads.clone()),
+        ]),
+        None => Json::Null,
+    };
+    Ok(cx.string(dumped.render()))
+}
+
+fn assets_from_json(value: &Json) -> SnapshotServerAssets {
+    SnapshotServerAssets {
+        id: member_string(value, "id"),
+        initial_style: member_string(value, "initialStyle"),
+        inert_template: member_string(value, "inertTemplate"),
+        font_preloads: member(value, "fontPreloads").cloned().unwrap_or(Json::Null),
+    }
+}
+
+/// `renderSnapshotServerAssets(assetsJson | null)`.
+pub fn render_snapshot_server_assets(mut cx: FunctionContext) -> JsResult<JsString> {
+    let assets = json_argument(&mut cx, 0, "assets")?;
+    let rendered = if matches!(assets, Json::Null) {
+        None
+    } else {
+        Some(assets_from_json(&assets))
+    };
+    Ok(cx.string(
+        tiqian_precompute::precompute_html::render_snapshot_server_assets(rendered.as_ref()),
+    ))
+}
+
+fn weight_json(weight: &FontWeightSpec) -> Json {
+    match weight {
+        FontWeightSpec::Single(Some(value)) => Json::Num(*value),
+        FontWeightSpec::Single(None) => Json::Null,
+        FontWeightSpec::Range(low, high) => Json::Arr(vec![Json::Num(*low), Json::Num(*high)]),
+    }
+}
+
+fn stylesheet_face_json(face: &StylesheetFace) -> Json {
+    Json::Obj(vec![
+        ("family".to_string(), Json::str(face.family.clone())),
+        ("source".to_string(), Json::str(face.source_path.clone())),
+        ("publicUrl".to_string(), Json::str(face.public_url.clone())),
+        ("weight".to_string(), weight_json(&face.weight)),
+        ("style".to_string(), Json::str(face.style.clone())),
+        (
+            "unicodeRange".to_string(),
+            Json::str(face.unicode_range.clone()),
+        ),
+    ])
+}
+
+/// `parseBuildFontStylesheet(css, sourceFileUrl, publicUrl)`: the resolved
+/// faces; `source` is the font file path the wrapper reads.
+pub fn parse_build_font_stylesheet(mut cx: FunctionContext) -> JsResult<JsString> {
+    let css = cx.argument::<JsString>(0)?.value(&mut cx);
+    let source = cx.argument::<JsString>(1)?.value(&mut cx);
+    let public_url = crate::calls::optional_string(&mut cx, 2)?;
+    match tiqian_precompute::build_fonts::parse_build_font_stylesheet(
+        &css,
+        &source,
+        public_url.as_deref(),
+    ) {
+        Ok(faces) => {
+            let dumped = Json::Arr(faces.iter().map(stylesheet_face_json).collect());
+            Ok(cx.string(dumped.render()))
+        }
+        Err(error) => cx.throw_error(error.0),
+    }
+}
