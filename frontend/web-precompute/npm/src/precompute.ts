@@ -1,8 +1,8 @@
 // The precompute entry over the native addon (ADR 0050). The exported
-// surface matches `@tiqian/prose/precompute`; every computation runs in
-// Rust behind registry handles, and this file owns the object shapes the
-// js API promises. File reading and URL resolution stay here: the crate
-// never touches the filesystem.
+// surface matches the former `@tiqian/prose/precompute` module; every
+// computation runs in Rust behind registry handles, and this file owns the
+// object shapes the js API promises. File reading and URL resolution stay
+// here: the crate never touches the filesystem.
 
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";

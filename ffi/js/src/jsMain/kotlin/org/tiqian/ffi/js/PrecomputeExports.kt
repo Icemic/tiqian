@@ -5,7 +5,7 @@ package org.tiqian.ffi.js
 import kotlin.js.JsExport
 
 /**
- * Stable, narrow JSON ABI consumed by `@tiqian/prose/precompute`.
+ * Stable, narrow JSON ABI consumed by `@tiqian/precompute`.
  *
  * The caller has already prepared an immutable exact-font session. Keeping the
  * exported values primitive avoids exposing the core model through the JavaScript

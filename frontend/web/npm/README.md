@@ -136,7 +136,12 @@ await destroy(article);
 首屏从原生排版切换到提椠排版时的变化。普通接入不需要使用这项能力。
 
 构建期预排在 Node 里直接读取网站已有的 `@font-face` 样式表和字体文件，不需要 Headless 浏览器，
-也不改变网站自己的字体交付方式：
+也不改变网站自己的字体交付方式。入口在独立的 `@tiqian/precompute` 包中，通过 Neon 原生插件
+执行；安装时会按平台带入对应的二进制可选依赖：
+
+```sh
+npm install @tiqian/prose @tiqian/precompute
+```
 
 ```js
 import {
@@ -144,7 +149,7 @@ import {
   renderFontContractBundle,
   renderSnapshotBundle,
   renderSnapshotTemplate,
-} from "@tiqian/prose/precompute";
+} from "@tiqian/precompute/precompute";
 
 const precomputer = await createPrecomputer({
   fontStylesheets: [{
@@ -237,12 +242,13 @@ const fontBundle = renderFontContractBundle(
 exact-font replay 时再配置宿主字体，只有主动开启 fixed-measure snapshot 时才传 `maxWidthPx`。
 
 框架包保持独立，是为了不让普通 `@tiqian/prose` 用户安装 Svelte 或 Astro；它们与核心放在同一仓库，
-以便 snapshot wire 和发布版本始终一起验证。
+以便 snapshot wire 和发布版本始终一起验证。开启构建期预排时，框架包的服务端入口同样来自
+`@tiqian/precompute`，需要一并安装。
 
 ## 运行环境
 
 - 包是 ESM-only；CommonJS 宿主需要使用动态 `import()`。
-- `@tiqian/prose/precompute` 与 `@tiqian/prose/precompute-html` 需要 Node.js 22 或更高版本。
+- 构建期预排入口在 `@tiqian/precompute`，需要 Node.js 22 或更高版本。
 - 浏览器端 runtime 是纯 JavaScript，不加载 WebAssembly，也不需要特殊的服务器配置。
 
 ## 了解提椠

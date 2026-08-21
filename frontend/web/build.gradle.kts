@@ -49,7 +49,7 @@ tasks.register<Sync>("assembleNpmPackage") {
 
 tasks.register<Sync>("assemblePrecomputeNpmRuntime") {
     group = "distribution"
-    description = "Builds the Node-only @tiqian/prose/precompute runtime."
+    description = "Builds the Node-only engine runtime for the prose layout worker."
     dependsOn(":ffi:js:jsProductionExecutableCompileSync")
     from(
         project(":ffi:js")

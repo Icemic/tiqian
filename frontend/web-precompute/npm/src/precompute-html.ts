@@ -1,7 +1,8 @@
 // The HTML preparer entry over the native addon (ADR 0050). The exported
-// surface matches `@tiqian/prose/precompute-html`; the whole document is
-// prepared in one native call with the paragraph loop in Rust. The DOM
-// projection callback needs a host DOM, so this lane rejects it by name.
+// surface matches the former `@tiqian/prose/precompute-html` module; the
+// whole document is prepared in one native call with the paragraph loop in
+// Rust. The DOM projection callback needs a host DOM, so this lane rejects
+// it by name.
 
 import { readFileSync } from "node:fs";
 
