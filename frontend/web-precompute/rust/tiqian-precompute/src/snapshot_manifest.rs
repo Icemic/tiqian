@@ -514,58 +514,53 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         if harfbuzz_version != version {
             return Err(named("SnapshotFontEvidenceVersionConflict"));
         }
+        // js drops `undefined` fields from the table row; explicit nulls stay.
+        let mut typography_row: Vec<(String, Json)> = Vec::new();
+        if let Some(value) = field(entry, "typographySha256") {
+            typography_row.push(("sha256".to_string(), value.clone()));
+        }
+        if let Some(value) = field(entry, "typography") {
+            typography_row.push(("value".to_string(), value.clone()));
+        }
         let typography_ref = table_index(
             &mut typographies,
             &mut typography_indexes,
-            Json::Obj(vec![
-                (
-                    "sha256".to_string(),
-                    field(entry, "typographySha256").cloned().unwrap_or(Json::Null),
-                ),
-                (
-                    "value".to_string(),
-                    field(entry, "typography").cloned().unwrap_or(Json::Null),
-                ),
-            ]),
+            Json::Obj(typography_row),
         );
         let mut font_face_evidence = Vec::with_capacity(faces_list.len());
         for face in faces_list {
             let descriptor = face_descriptor(face, &entry_key)?;
             let face_ref = table_index(&mut faces, &mut face_indexes, descriptor);
-            font_face_evidence.push(Json::Obj(vec![
-                ("faceRef".to_string(), Json::Num(face_ref as f64)),
-                (
-                    "coverageText".to_string(),
-                    field(face, "coverageText").cloned().unwrap_or(Json::Null),
-                ),
-                ("probe".to_string(), field(face, "probe").cloned().unwrap_or(Json::Null)),
-            ]));
+            let mut row = vec![("faceRef".to_string(), Json::Num(face_ref as f64))];
+            if let Some(value) = field(face, "coverageText") {
+                row.push(("coverageText".to_string(), value.clone()));
+            }
+            if let Some(value) = field(face, "probe") {
+                row.push(("probe".to_string(), value.clone()));
+            }
+            font_face_evidence.push(Json::Obj(row));
         }
-        let mut compact = vec![
-            ("key".to_string(), field(entry, "key").cloned().unwrap_or(Json::Null)),
-            (
-                "sourceSha256".to_string(),
-                field(entry, "sourceSha256").cloned().unwrap_or(Json::Null),
-            ),
-        ];
+        let mut compact = Vec::new();
+        if let Some(value) = field(entry, "key") {
+            compact.push(("key".to_string(), value.clone()));
+        }
+        if let Some(value) = field(entry, "sourceSha256") {
+            compact.push(("sourceSha256".to_string(), value.clone()));
+        }
         if let Some(Json::Str(artifact)) = field(entry, "sourceArtifactSha256") {
             compact.push(("sourceArtifactSha256".to_string(), Json::str(artifact.clone())));
         }
         if matches!(field(entry, "semantics"), Some(Json::Arr(list)) if !list.is_empty()) {
             compact.push(("semantic".to_string(), Json::Bool(true)));
         }
-        compact.extend([
-            ("typographyRef".to_string(), Json::Num(typography_ref as f64)),
-            (
-                "maxWidthPx".to_string(),
-                field(entry, "maxWidthPx").cloned().unwrap_or(Json::Null),
-            ),
-            ("fontFaceEvidence".to_string(), Json::Arr(font_face_evidence)),
-            (
-                "renderArtifactSha256".to_string(),
-                field(entry, "renderArtifactSha256").cloned().unwrap_or(Json::Null),
-            ),
-        ]);
+        compact.push(("typographyRef".to_string(), Json::Num(typography_ref as f64)));
+        if let Some(value) = field(entry, "maxWidthPx") {
+            compact.push(("maxWidthPx".to_string(), value.clone()));
+        }
+        compact.push(("fontFaceEvidence".to_string(), Json::Arr(font_face_evidence)));
+        if let Some(value) = field(entry, "renderArtifactSha256") {
+            compact.push(("renderArtifactSha256".to_string(), value.clone()));
+        }
         compact_entries.push(Json::Obj(compact));
     }
 
@@ -622,43 +617,38 @@ fn expanded_entry(
             Json::Obj(fields) => fields.to_vec(),
             _ => Vec::new(),
         };
-        face.push((
-            "coverageText".to_string(),
-            field(evidence, "coverageText").cloned().unwrap_or(Json::Null),
-        ));
-        face.push((
-            "probe".to_string(),
-            field(evidence, "probe").cloned().unwrap_or(Json::Null),
-        ));
+        if let Some(value) = field(evidence, "coverageText") {
+            face.push(("coverageText".to_string(), value.clone()));
+        }
+        if let Some(value) = field(evidence, "probe") {
+            face.push(("probe".to_string(), value.clone()));
+        }
         faces.push(Json::Obj(face));
     }
-    let mut expanded = vec![
-        ("key".to_string(), field(entry, "key").cloned().unwrap_or(Json::Null)),
-        (
-            "sourceSha256".to_string(),
-            field(entry, "sourceSha256").cloned().unwrap_or(Json::Null),
-        ),
-    ];
+    let mut expanded = Vec::new();
+    if let Some(value) = field(entry, "key") {
+        expanded.push(("key".to_string(), value.clone()));
+    }
+    if let Some(value) = field(entry, "sourceSha256") {
+        expanded.push(("sourceSha256".to_string(), value.clone()));
+    }
     if let Some(Json::Str(artifact)) = field(entry, "sourceArtifactSha256") {
         expanded.push(("sourceArtifactSha256".to_string(), Json::str(artifact.clone())));
     }
     if field(entry, "semantic") == Some(&Json::Bool(true)) {
         expanded.push(("semantic".to_string(), Json::Bool(true)));
     }
-    expanded.extend([
-        (
-            "typographySha256".to_string(),
-            field(typography, "sha256").cloned().unwrap_or(Json::Null),
-        ),
-        (
-            "typography".to_string(),
-            field(typography, "value").cloned().unwrap_or(Json::Null),
-        ),
-        (
-            "maxWidthPx".to_string(),
-            field(entry, "maxWidthPx").cloned().unwrap_or(Json::Null),
-        ),
-    ]);
+    expanded.push((
+        "typographySha256".to_string(),
+        field(typography, "sha256").cloned().unwrap_or(Json::Null),
+    ));
+    expanded.push((
+        "typography".to_string(),
+        field(typography, "value").cloned().unwrap_or(Json::Null),
+    ));
+    if let Some(value) = field(entry, "maxWidthPx") {
+        expanded.push(("maxWidthPx".to_string(), value.clone()));
+    }
     // Version evidence copies through only when the manifest carries it.
     let mut evidence_obj: Vec<(String, Json)> = Vec::new();
     if let Some(value) = field(manifest_evidence, "backendRevision") {
@@ -669,10 +659,9 @@ fn expanded_entry(
     }
     evidence_obj.push(("faces".to_string(), Json::Arr(faces)));
     expanded.push(("fontEvidence".to_string(), Json::Obj(evidence_obj)));
-    expanded.push((
-        "renderArtifactSha256".to_string(),
-        field(entry, "renderArtifactSha256").cloned().unwrap_or(Json::Null),
-    ));
+    if let Some(value) = field(entry, "renderArtifactSha256") {
+        expanded.push(("renderArtifactSha256".to_string(), value.clone()));
+    }
     Ok(Json::Obj(expanded))
 }
 

@@ -183,6 +183,21 @@ fn empty_entries_keep_null_versions() {
     assert_eq!(compact.render(), COMPACT_EMPTY);
 }
 
+/// js leaves `undefined` fields out of the wire objects; explicit nulls stay.
+/// The first face misses coverageText and probe, the second carries nulls,
+/// and the entry misses every optional passthrough field.
+#[test]
+fn compact_omits_missing_fields_and_keeps_explicit_nulls() {
+    let entry = r#"{"key":"p1","fontEvidence":{"backendRevision":"b1","faces":[{"family":"F","weight":400},{"family":"G","coverageText":null,"probe":null}],"replay":{"revision":"tiqian-server-shaping-replay-v1","shapes":[],"metrics":[]}}}"#;
+    let entries = parse_json(&format!("[{entry}]")).expect("entries parse");
+    let metadata = parse_json(r#"{"schema":1}"#).expect("metadata parses");
+    let compact = compact_snapshot_manifest(&entries, &metadata).expect("compact sparse");
+    assert_eq!(
+        compact.render(),
+        r#"{"schema":1,"typographies":[{}],"fontEvidence":{"backendRevision":"b1","faces":[{"family":"F","weight":400},{"family":"G"}]},"fontReplay":{"revision":"tiqian-server-shaping-replay-v1","encoding":"shared-strings-v1","strings":[],"shapes":[],"metrics":[]},"entries":[{"key":"p1","typographyRef":0,"fontFaceEvidence":[{"faceRef":0},{"faceRef":1,"coverageText":null,"probe":null}]}]}"#
+    );
+}
+
 #[test]
 fn compact_reports_replay_damage_with_js_issue_names() {
     let short_metrics = r#"{"key":"[\"Tiqian Han\",400,false,\"body\",\"永\"]","valuesEm":[1,2,3,4]}"#;
