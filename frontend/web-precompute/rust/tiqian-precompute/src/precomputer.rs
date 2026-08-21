@@ -9,6 +9,7 @@ use tiqian::NamedError;
 
 use crate::emit::evidence_json;
 use crate::font_source::sha256_hex;
+use crate::js_compat::{js_int_to_number, trunc_sat_i32};
 use crate::json::{member, parse_json, Json};
 use crate::normalize::{
     font_contract_capture_width, normalize_inline_boxes, normalize_text_spans,
@@ -284,7 +285,10 @@ impl Precomputer {
 
         Ok(Json::Obj(vec![
             ("status".to_string(), Json::str("prepared")),
-            ("schema".to_string(), Json::Num(SNAPSHOT_SCHEMA as f64)),
+            (
+                "schema".to_string(),
+                Json::Num(js_int_to_number(SNAPSHOT_SCHEMA)),
+            ),
             ("layoutRevision".to_string(), Json::str(LAYOUT_REVISION)),
             ("renderRevision".to_string(), Json::str(RENDER_REVISION)),
             ("key".to_string(), Json::str(key)),
@@ -314,7 +318,7 @@ impl Precomputer {
             ),
             ("typographySha256".to_string(), Json::str(typography_sha256)),
             ("maxWidthPx".to_string(), Json::Num(max_width_px)),
-            ("fontEvidence".to_string(), evidence_json(&evidence)),
+            ("fontEvidence".to_string(), evidence_json(&evidence)?),
             (
                 "plan".to_string(),
                 parse_json(&plan_json).map_err(|_| named("InvalidPlanJson"))?,
@@ -352,33 +356,33 @@ fn capture(
         }
     }
     for span in semantics {
-        push_boundary(&mut boundaries, span.start as f64);
-        push_boundary(&mut boundaries, span.end as f64);
+        push_boundary(&mut boundaries, js_int_to_number(span.start));
+        push_boundary(&mut boundaries, js_int_to_number(span.end));
     }
     for span in text_spans {
-        push_boundary(&mut boundaries, span.start as f64);
-        push_boundary(&mut boundaries, span.end as f64);
+        push_boundary(&mut boundaries, f64::from(span.start));
+        push_boundary(&mut boundaries, f64::from(span.end));
     }
     for inline_box in inline_boxes {
-        push_boundary(&mut boundaries, inline_box.start as f64);
-        push_boundary(&mut boundaries, inline_box.end as f64);
+        push_boundary(&mut boundaries, f64::from(inline_box.start));
+        push_boundary(&mut boundaries, f64::from(inline_box.end));
     }
     let base_style = BoundaryStyle {
         font_families: typography.font_families.clone(),
         font_size_px: typography.font_size_px,
-        font_weight: typography.font_weight as f64,
+        font_weight: f64::from(typography.font_weight),
         italic: typography.italic,
         baseline_shift_px: Some(0.0),
     };
     let boundary_spans: Vec<BoundaryTextSpan> = text_spans
         .iter()
         .map(|span| BoundaryTextSpan {
-            start: span.start as f64,
-            end: span.end as f64,
+            start: f64::from(span.start),
+            end: f64::from(span.end),
             style: BoundaryStyle {
                 font_families: span.families.clone(),
                 font_size_px: span.font_size_px,
-                font_weight: span.font_weight as f64,
+                font_weight: f64::from(span.font_weight),
                 italic: span.italic,
                 baseline_shift_px: Some(span.baseline_shift),
             },
@@ -391,14 +395,13 @@ fn capture(
         push_boundary(&mut boundaries, value);
     }
     for value in &boundaries {
-        if !is_safe_integer(*value) || *value < 0.0 || *value > text_length as f64 {
+        if !is_safe_integer(*value) || *value < 0.0 || *value > f64::from(text_length) {
             return Err(named("InvalidSourceBoundary"));
         }
     }
-    boundaries.sort_by(|left, right| {
-        left.partial_cmp(right)
-            .expect("boundaries are validated finite")
-    });
+    // The gate above passed every boundary as a safe integer, so partial_cmp
+    // is total; Equal covers a NaN that cannot occur.
+    boundaries.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
 
     let line_break_spans: Vec<LineBreakSpanInput> = semantics
         .iter()
@@ -406,12 +409,17 @@ fn capture(
             let tag = span.tag_name.to_lowercase();
             tag == "a" || tag == "code"
         })
-        .map(|span| LineBreakSpanInput {
-            start: span.start as i32,
-            end: span.end as i32,
-            policy: LineBreakPolicyCode::ProgressiveTechnical,
+        .map(|span| {
+            // Offsets were validated against the text length; the error arm
+            // keeps the conversion total.
+            Ok(LineBreakSpanInput {
+                start: i32::try_from(span.start)
+                    .map_err(|_| named("InvalidSnapshotSemanticRange"))?,
+                end: i32::try_from(span.end).map_err(|_| named("InvalidSnapshotSemanticRange"))?,
+                policy: LineBreakPolicyCode::ProgressiveTechnical,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let request = ParagraphRequest {
         font_session_id: session.session_id.clone(),
         text: text.to_string(),
@@ -424,7 +432,10 @@ fn capture(
         italic: typography.italic,
         first_line_indent_ic: typography.first_line_indent_ic,
         line_length_grid_enabled: typography.line_length_grid_enabled,
-        source_boundaries: boundaries.iter().map(|value| *value as i32).collect(),
+        source_boundaries: boundaries
+            .iter()
+            .map(|value| trunc_sat_i32(*value))
+            .collect(),
         text_spans: text_spans.to_vec(),
         line_break_spans,
         inline_boxes: inline_boxes.to_vec(),
@@ -517,7 +528,7 @@ pub fn typography_value_json(typography: &SnapshotTypography) -> Json {
         ("locale".to_string(), Json::str(typography.locale.clone())),
         (
             "fontWeight".to_string(),
-            Json::Num(typography.font_weight as f64),
+            Json::Num(f64::from(typography.font_weight)),
         ),
         ("italic".to_string(), Json::Bool(typography.italic)),
         (
@@ -553,8 +564,8 @@ fn render_text_spans_value(spans: &[(i32, i32, Vec<String>)]) -> Json {
             .iter()
             .map(|(start, end, families)| {
                 Json::Obj(vec![
-                    ("start".to_string(), Json::Num(*start as f64)),
-                    ("end".to_string(), Json::Num(*end as f64)),
+                    ("start".to_string(), Json::Num(f64::from(*start))),
+                    ("end".to_string(), Json::Num(f64::from(*end))),
                     (
                         "fontFamilies".to_string(),
                         Json::Arr(
@@ -576,8 +587,8 @@ fn inline_boxes_value(inline_boxes: &[InlineBoxInput]) -> Json {
             .iter()
             .map(|inline_box| {
                 Json::Obj(vec![
-                    ("start".to_string(), Json::Num(inline_box.start as f64)),
-                    ("end".to_string(), Json::Num(inline_box.end as f64)),
+                    ("start".to_string(), Json::Num(f64::from(inline_box.start))),
+                    ("end".to_string(), Json::Num(f64::from(inline_box.end))),
                     (
                         "inlineStartPx".to_string(),
                         Json::Num(inline_box.inline_start),

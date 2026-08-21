@@ -5,8 +5,9 @@
 //! against the harfbuzzjs oracle.
 
 use crate::font_record::FontRecord;
-use crate::js_compat::js_number_string;
+use crate::js_compat::{js_int_to_number, js_number_string, kotlin_to_float, round_sat_i32};
 use crate::policy::shaping_policy_for_role;
+use crate::NamedError;
 use read_fonts::TableProvider;
 use skrifa::instance::{Location, LocationRef, Size};
 use skrifa::{MetadataProvider, OutlineGlyphCollection};
@@ -45,6 +46,9 @@ pub struct ShapeRecordResult {
 /// `createFont` builds a fresh `hb.Font` per call.
 pub struct FontEngine<'a> {
     record: &'a FontRecord,
+    /// The decoded face; every table read below goes through it, so the
+    /// decode runs once at construction and the methods stay total.
+    font: skrifa::FontRef<'a>,
     /// Normalized variation coordinates; empty for static faces.
     location: Location,
     outlines: OutlineGlyphCollection<'a>,
@@ -59,9 +63,15 @@ pub struct FontEngine<'a> {
 impl<'a> FontEngine<'a> {
     /// Builds the engine for `requested_weight`. Faces with a `wght` axis
     /// clamp the weight into the axis range and carry variation coordinates;
-    /// static faces carry none.
-    pub fn new(record: &'a FontRecord, requested_weight: f64) -> FontEngine<'a> {
-        let font = skrifa::FontRef::new(&record.sfnt).expect("sfnt decoded at load");
+    /// static faces carry none. Fails with `SfntDecode` when skrifa rejects
+    /// the record bytes; the load path validates them with this crate's own
+    /// parser, and the two may disagree.
+    pub fn new(
+        record: &'a FontRecord,
+        requested_weight: f64,
+    ) -> Result<FontEngine<'a>, NamedError> {
+        let font =
+            skrifa::FontRef::new(&record.sfnt).map_err(|_| NamedError("SfntDecode".to_string()))?;
         let location = match variation_weight(record, requested_weight) {
             Some(weight) => font.axes().location([("wght", weight)]),
             None => font.axes().location(Vec::<(&str, f32)>::new()),
@@ -70,14 +80,24 @@ impl<'a> FontEngine<'a> {
             (Ok(glyf), Ok(loca)) => Some((glyf, loca)),
             _ => None,
         };
-        FontEngine {
+        let outlines = font.outline_glyphs();
+        let charmap = skrifa::charmap::Charmap::new(&font);
+        let glyph_count = font
+            .maxp()
+            .map(|table| u32::from(table.num_glyphs()))
+            // A face without maxp claims no glyphs, so every extents probe
+            // reports out of range; hb reports the same through its face
+            // count of zero, while shaping still works off the cmap.
+            .unwrap_or(0);
+        Ok(FontEngine {
             record,
+            font,
             location,
-            outlines: font.outline_glyphs(),
-            charmap: skrifa::charmap::Charmap::new(&font),
-            glyph_count: font.maxp().map(|t| u32::from(t.num_glyphs())).unwrap_or(0),
+            outlines,
+            charmap,
+            glyph_count,
             glyf,
-        }
+        })
     }
 
     pub fn record(&self) -> &FontRecord {
@@ -100,10 +120,10 @@ impl<'a> FontEngine<'a> {
                 return match loca.get_glyf(read_fonts::types::GlyphId::new(gid), glyf) {
                     Ok(None) => Some([0, 0, 0, 0]),
                     Ok(Some(glyph)) => Some([
-                        glyph.x_min() as i32,
-                        glyph.y_max() as i32,
-                        (glyph.x_max() - glyph.x_min()) as i32,
-                        (glyph.y_min() - glyph.y_max()) as i32,
+                        i32::from(glyph.x_min()),
+                        i32::from(glyph.y_max()),
+                        i32::from(glyph.x_max() - glyph.x_min()),
+                        i32::from(glyph.y_min() - glyph.y_max()),
                     ]),
                     Err(_) => None,
                 };
@@ -127,8 +147,8 @@ impl<'a> FontEngine<'a> {
         match pen.bounding_box() {
             None => Some([0, 0, 0, 0]),
             Some(bb) => {
-                let (x0, y1) = (bb.x_min.round() as i32, bb.y_max.round() as i32);
-                let (x1, y0) = (bb.x_max.round() as i32, bb.y_min.round() as i32);
+                let (x0, y1) = (round_sat_i32(bb.x_min), round_sat_i32(bb.y_max));
+                let (x1, y0) = (round_sat_i32(bb.x_max), round_sat_i32(bb.y_min));
                 Some([x0, y1, x1 - x0, y0 - y1])
             }
         }
@@ -136,14 +156,13 @@ impl<'a> FontEngine<'a> {
 
     /// `font.hExtents()`: hhea values in font units (`setScale(upem, upem)`
     /// is identity). Faces the parity corpus covers all carry hhea; a face
-    /// without one reads as zeroes here.
+    /// without one reads as zeroes here, the oracle behavior.
     pub fn h_extents(&self) -> (i32, i32, i32) {
-        let font = skrifa::FontRef::new(&self.record.sfnt).expect("sfnt decoded at load");
-        match font.hhea() {
+        match self.font.hhea() {
             Ok(hhea) => (
-                hhea.ascender().to_i16() as i32,
-                hhea.descender().to_i16() as i32,
-                hhea.line_gap().to_i16() as i32,
+                i32::from(hhea.ascender().to_i16()),
+                i32::from(hhea.descender().to_i16()),
+                i32::from(hhea.line_gap().to_i16()),
             ),
             Err(_) => (0, 0, 0),
         }
@@ -151,6 +170,7 @@ impl<'a> FontEngine<'a> {
 
     /// `shapeRecord`: shape `display_text` at `font_size`/`font_weight` under
     /// `locale` and `role`, with the session's base features folded in.
+    /// Fails with `SfntDecode` when harfrust rejects the record bytes.
     pub fn shape_record(
         &self,
         display_text: &str,
@@ -159,7 +179,7 @@ impl<'a> FontEngine<'a> {
         locale: &str,
         role: Option<&str>,
         base_features: &[String],
-    ) -> ShapeRecordResult {
+    ) -> Result<ShapeRecordResult, NamedError> {
         let (script, policy_features) = shaping_policy_for_role(role, display_text);
         let mut applied: Vec<String> = base_features.to_vec();
         for tag in &policy_features {
@@ -168,7 +188,8 @@ impl<'a> FontEngine<'a> {
             }
         }
 
-        let font = harfrust::FontRef::new(&self.record.sfnt).expect("sfnt decoded at load");
+        let font = harfrust::FontRef::new(&self.record.sfnt)
+            .map_err(|_| NamedError("SfntDecode".to_string()))?;
         let data = harfrust::ShaperData::new(&font);
         let instance = variation_weight(self.record, font_weight).map(|weight| {
             harfrust::ShaperInstance::from_variations(
@@ -185,14 +206,15 @@ impl<'a> FontEngine<'a> {
         buffer.push_str(display_text);
         buffer.guess_segment_properties();
         buffer.set_direction(harfrust::Direction::LeftToRight);
-        buffer.set_language(
-            locale
-                .parse()
-                .unwrap_or_else(|_| "c".parse().expect("language")),
-        );
+        if let Ok(language) = locale.parse() {
+            buffer.set_language(language);
+        } else if let Ok(fallback) = "c".parse() {
+            // "c" never fails to parse; the guard exists for the Result type.
+            buffer.set_language(fallback);
+        }
         buffer.set_script(
             harfrust::Script::from_iso15924_tag(harfrust::Tag::new(&tag_bytes(script)))
-                .expect("script tag"),
+                .unwrap_or(harfrust::script::UNKNOWN),
         );
         let features: Vec<harfrust::Feature> = applied
             .iter()
@@ -202,18 +224,18 @@ impl<'a> FontEngine<'a> {
 
         let infos = out.glyph_infos();
         let positions = out.glyph_positions();
-        let scale = font_size / self.record.upem as f64;
+        let scale = font_size / f64::from(self.record.upem);
         let mut glyphs: Vec<ShapeGlyph> = Vec::with_capacity(infos.len());
         let mut cursor_x: i64 = 0;
         for (info, position) in infos.iter().zip(positions.iter()) {
             let extents = self.glyph_extents(info.glyph_id);
-            let origin_x = cursor_x + position.x_offset as i64;
+            let origin_x = cursor_x + i64::from(position.x_offset);
             let bounds = extents.map(|[xb, yb, w, h]| {
                 [
-                    xb as f64 * scale,
-                    -(yb as f64) * scale,
-                    (xb + w) as f64 * scale,
-                    -(yb + h) as f64 * scale,
+                    f64::from(xb) * scale,
+                    -f64::from(yb) * scale,
+                    f64::from(xb + w) * scale,
+                    -(f64::from(yb + h) * scale),
                 ]
             });
             let unsafe_to_break = info.unsafe_to_break();
@@ -221,16 +243,16 @@ impl<'a> FontEngine<'a> {
                 id: info.glyph_id,
                 cluster: info.cluster, // UTF-8 byte offset; remapped below
                 flags: if unsafe_to_break { 1 } else { 0 },
-                advance: position.x_advance as f64 * scale,
-                x: origin_x as f64 * scale,
-                y: -(position.y_offset as f64) * scale,
+                advance: f64::from(position.x_advance) * scale,
+                x: js_int_to_number(origin_x) * scale,
+                y: -f64::from(position.y_offset) * scale,
                 bounds,
             });
-            cursor_x += position.x_advance as i64;
+            cursor_x += i64::from(position.x_advance);
         }
         remap_clusters_to_utf16(&mut glyphs, display_text);
         let unsafe_break_count = glyphs.iter().filter(|glyph| glyph.flags & 1 != 0).count();
-        ShapeRecordResult {
+        Ok(ShapeRecordResult {
             script: script.to_string(),
             features: policy_features
                 .iter()
@@ -238,12 +260,12 @@ impl<'a> FontEngine<'a> {
                 .collect(),
             probe_features: applied,
             display_text: display_text.to_string(),
-            advance: cursor_x as f64 * scale,
+            advance: js_int_to_number(cursor_x) * scale,
             unsafe_break_count,
             font_instance_id: crate::replay::instance_id(self.record, font_weight),
             face_id: self.record.face_id.clone(),
             glyphs,
-        }
+        })
     }
 }
 
@@ -262,7 +284,7 @@ fn variation_weight(record: &FontRecord, requested_weight: f64) -> Option<f32> {
         return None;
     }
     let text = js_number_string(clamped);
-    text.parse::<f64>().ok().map(|value| value as f32)
+    text.parse::<f64>().ok().map(kotlin_to_float)
 }
 
 fn tag_bytes(tag: &str) -> [u8; 4] {
@@ -276,15 +298,26 @@ fn tag_bytes(tag: &str) -> [u8; 4] {
 /// harfbuzzjs feeds UTF-16 so clusters are UTF-16 code-unit offsets; harfrust
 /// clusters by UTF-8 bytes. Remap in place.
 fn remap_clusters_to_utf16(glyphs: &mut [ShapeGlyph], text: &str) {
+    // Byte and UTF-16 offsets stay u32 to match the u32 cluster domain.
     let mut map = std::collections::HashMap::new();
-    let mut u16_position = 0usize;
-    for (byte_position, ch) in text.char_indices() {
+    let mut byte_position = 0u32;
+    let mut u16_position = 0u32;
+    for ch in text.chars() {
         map.insert(byte_position, u16_position);
-        u16_position += ch.len_utf16();
+        byte_position += match ch {
+            '\0'..='\u{7f}' => 1,
+            '\u{80}'..='\u{7ff}' => 2,
+            '\u{800}'..='\u{ffff}' => 3,
+            _ => 4,
+        };
+        u16_position += match ch {
+            '\0'..='\u{ffff}' => 1,
+            _ => 2,
+        };
     }
     for glyph in glyphs.iter_mut() {
-        if let Some(&u16) = map.get(&(glyph.cluster as usize)) {
-            glyph.cluster = u16 as u32;
+        if let Some(&u16_offset) = map.get(&glyph.cluster) {
+            glyph.cluster = u16_offset;
         }
     }
 }

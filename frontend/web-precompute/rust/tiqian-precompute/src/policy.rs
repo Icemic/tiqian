@@ -19,7 +19,7 @@ pub fn script_for_text(text: &str) -> &'static str {
             || (0x30000..=0x323af).contains(&point)
     };
     // Array.from(text) iterates code points, so astral Han ranges work.
-    if text.chars().any(|c| is_han(c as u32)) {
+    if text.chars().any(|c| is_han(u32::from(c))) {
         return "Hani";
     }
     // /[A-Za-zÀ-ɏ]/u

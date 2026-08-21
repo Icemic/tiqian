@@ -31,10 +31,12 @@ fn str_field<'a>(value: &'a Json, key: &str) -> Option<&'a str> {
     }
 }
 
-fn count_field(value: &Json, key: &str) -> usize {
+/// Counts are read as JSON numbers and compared in that type; the render
+/// counts are narrowed first.
+fn count_field(value: &Json, key: &str) -> f64 {
     match field(value, key) {
-        Some(Json::Num(number)) => *number as usize,
-        _ => 0,
+        Some(Json::Num(number)) => *number,
+        _ => 0.0,
     }
 }
 
@@ -91,13 +93,16 @@ fn prepared_dom_corpus_matches_the_js_oracle_fixture() {
                     "case {name}: artifact"
                 );
                 assert_eq!(
-                    lowered.live_semantic_count,
                     count_field(expect, "liveSemanticCount"),
+                    f64::from(
+                        u32::try_from(lowered.live_semantic_count)
+                            .expect("live semantic count fits u32")
+                    ),
                     "case {name}: live semantic count"
                 );
                 assert_eq!(
-                    lowered.marker_count,
                     count_field(expect, "markerCount"),
+                    f64::from(u32::try_from(lowered.marker_count).expect("marker count fits u32")),
                     "case {name}: marker count"
                 );
             }

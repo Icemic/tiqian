@@ -61,6 +61,14 @@ pub fn pin_once() {
     PIN.call_once(pin);
 }
 
+// A static in this module anchors the library lookup: dladdr and
+// GetModuleHandleExW accept any address inside the module's mapping.
+static ANCHOR: u8 = 0;
+
+fn anchor_address() -> *const core::ffi::c_void {
+    std::ptr::from_ref(&ANCHOR).cast::<core::ffi::c_void>()
+}
+
 #[cfg(unix)]
 fn pin() {
     // unsafe boundary and obligations: see the AddonMappingPin section in
@@ -75,7 +83,7 @@ fn pin() {
             dli_sname: std::ptr::null(),
             dli_saddr: std::ptr::null_mut(),
         };
-        if dladdr(pin as *const core::ffi::c_void, &mut info) == 0 {
+        if dladdr(anchor_address(), &mut info) == 0 {
             return;
         }
         if info.dli_fname.is_null() {
@@ -94,7 +102,7 @@ fn pin() {
         let mut module: *mut core::ffi::c_void = std::ptr::null_mut();
         GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-            pin as *const core::ffi::c_void,
+            anchor_address(),
             &mut module,
         );
     }

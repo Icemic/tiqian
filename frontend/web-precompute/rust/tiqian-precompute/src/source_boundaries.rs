@@ -50,7 +50,10 @@ pub fn source_boundaries_for_selected_face(
     let mut previous_signature: Option<String> = None;
     for point in text.chars() {
         if is_structural_no_shape_control(point) {
-            offset += point.len_utf16() as f64;
+            offset += match point {
+                '\0'..='\u{ffff}' => 1.0,
+                _ => 2.0,
+            };
             continue;
         }
         let style = spans
@@ -75,7 +78,10 @@ pub fn source_boundaries_for_selected_face(
             }
         }
         previous_signature = Some(signature);
-        offset += point.len_utf16() as f64;
+        offset += match point {
+            '\0'..='\u{ffff}' => 1.0,
+            _ => 2.0,
+        };
     }
     Ok(boundaries)
 }
@@ -181,7 +187,7 @@ fn select_metadata_face<'a>(
         let weight_matched =
             css_weight_matched(&family_matches, style.font_weight, |face| face.weight);
         for face in weight_matched.into_iter().rev() {
-            if unicode_range_contains(&face.unicode_ranges, point as u32) {
+            if unicode_range_contains(&face.unicode_ranges, u32::from(point)) {
                 return Ok(face);
             }
         }
@@ -331,7 +337,7 @@ pub fn merge_serialized_source_boundaries(
     {
         return Err("InvalidSourceBoundary".to_string());
     }
-    boundaries.sort_by(|left, right| left.partial_cmp(right).unwrap());
+    boundaries.sort_by(|left, right| left.total_cmp(right));
     Ok(boundaries
         .iter()
         .map(|value| js_number_string(*value))

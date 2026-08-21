@@ -45,7 +45,9 @@ pub fn normalized_replay_number(value: f64, font_size: f64) -> Option<f64> {
         return None;
     }
     let text = format!("{:.12}", value / font_size);
-    let normalized: f64 = text.parse().expect("fixed-point digits parse");
+    // The text comes from Rust's own {:.12} formatter, so parsing it back
+    // always succeeds; ok() maps the impossible failure onto the null path.
+    let normalized: f64 = text.parse().ok()?;
     Some(if normalized == 0.0 { 0.0 } else { normalized })
 }
 

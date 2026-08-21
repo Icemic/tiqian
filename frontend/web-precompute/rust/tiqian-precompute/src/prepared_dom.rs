@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use tiqian::NamedError;
 
-use crate::js_compat::{cmp_utf16, js_number_string, js_trim};
+use crate::js_compat::{cmp_utf16, js_int_to_number, js_number_string, js_trim, trunc_sat_i64};
 use crate::json::{json_string, Json};
 use crate::paragraph::utf16_length;
 use crate::plan::{Plan, PlanCell, PlanEndReason, PlanLine};
@@ -302,17 +302,20 @@ fn js_to_fixed5(value: f64) -> String {
     let negative = value < 0.0;
     let magnitude = value.abs();
     let raw = magnitude.to_bits();
-    let biased = ((raw >> 52) & 0x7ff) as i32;
+    // The sign bit is clear after abs, so reading the same bytes as i64 keeps
+    // the field extraction in the signed type the arithmetic uses.
+    let bits = i64::from_ne_bytes(raw.to_ne_bytes());
+    let biased = (bits >> 52) & 0x7ff;
     let exponent = biased - 1075;
     let mantissa = if biased == 0 {
-        raw & 0xf_ffff_ffff_ffff
+        bits & 0xf_ffff_ffff_ffff
     } else {
-        (raw & 0xf_ffff_ffff_ffff) | 0x10_0000_0000_0000
+        (bits & 0xf_ffff_ffff_ffff) | 0x10_0000_0000_0000
     };
     // The scaled value is the dyadic rational mantissa * 5^5 over
     // 2^(-exponent - 5); round it to an integer with ties toward the larger
     // integer.
-    let signed_scaled = mantissa as i128 * 3125;
+    let signed_scaled = i128::from(mantissa) * 3125;
     let power = exponent + 5;
     let n: i128 = if power >= 0 {
         if power > 40 {
@@ -321,7 +324,7 @@ fn js_to_fixed5(value: f64) -> String {
             signed_scaled << power
         }
     } else {
-        let d = (-power) as u32;
+        let d = -power;
         if d >= 120 {
             0
         } else {
@@ -411,13 +414,13 @@ enum Semantics {
 impl Semantics {
     /// `semanticSpansFor`: spans containing the whole range, in sorted order.
     fn path_for(&self, range_start: i32, range_end: i32) -> Vec<usize> {
-        let (start, end) = (range_start as i64, range_end as i64);
+        let (start, end) = (i64::from(range_start), i64::from(range_end));
         self.indices(|span_start, span_end| start >= span_start && end <= span_end)
     }
 
     /// `semanticSpansCrossing`: spans strictly containing the offset.
     fn crossing(&self, offset: i32) -> Vec<usize> {
-        let offset = offset as i64;
+        let offset = i64::from(offset);
         self.indices(|span_start, span_end| offset > span_start && offset < span_end)
     }
 
@@ -452,8 +455,8 @@ impl Semantics {
                         .join(",");
                     format!(
                         "{{\"start\":{},\"end\":{},\"tagName\":{},\"attributes\":[{}]}}",
-                        js_number_string(span.start as f64),
-                        js_number_string(span.end as f64),
+                        js_number_string(js_int_to_number(span.start)),
+                        js_number_string(js_int_to_number(span.end)),
                         json_string(&span.tag_name),
                         attributes
                     )
@@ -465,10 +468,10 @@ impl Semantics {
                     let span = &spans[index];
                     format!(
                         "{{\"start\":{},\"end\":{},\"tagName\":{},\"sourceIndex\":{}}}",
-                        js_number_string(span.start as f64),
-                        js_number_string(span.end as f64),
+                        js_number_string(js_int_to_number(span.start)),
+                        js_number_string(js_int_to_number(span.end)),
                         json_string(&span.tag_name),
-                        js_number_string(span.source_index as f64)
+                        js_number_string(js_int_to_number(span.source_index))
                     )
                 })
                 .collect(),
@@ -495,7 +498,9 @@ impl Semantics {
                 "span".to_string(),
                 vec![(
                     LIVE_SEMANTIC_INDEX_ATTRIBUTE.to_string(),
-                    Some(js_number_string(spans[index].source_index as f64)),
+                    Some(js_number_string(js_int_to_number(
+                        spans[index].source_index,
+                    ))),
                 )],
             ),
         }
@@ -586,12 +591,11 @@ fn validate_live_semantic_elements(options: &PreparedRenderOptions) -> Result<()
     let semantics = normalize_live_semantics(&text, options.semantics)?;
     let mut seen: Vec<i64> = Vec::new();
     for semantic in &semantics {
-        let source = if semantic.source_index >= 0 {
-            options
-                .live_semantic_elements
-                .get(semantic.source_index as usize)
-        } else {
-            None
+        // A negative source index selects no element; the mismatch error
+        // follows.
+        let source = match usize::try_from(semantic.source_index) {
+            Ok(index) => options.live_semantic_elements.get(index),
+            Err(_) => None,
         };
         let matches =
             source.is_some_and(|element| element.tag_name.to_lowercase() == semantic.tag_name);
@@ -629,7 +633,7 @@ fn read_render_text_spans(
         Some(Json::Arr(items)) => items,
         _ => return Ok(spans),
     };
-    let source_length = utf16_length(source_text) as f64;
+    let source_length = f64::from(utf16_length(source_text));
     for item in items {
         let start = number_of_field(item, "start");
         let end = number_of_field(item, "end");
@@ -669,8 +673,8 @@ fn read_render_text_spans(
             return Err(NamedError("InvalidPreparedRenderTextSpan".to_string()));
         }
         spans.push(RenderTextSpan {
-            start: start as i64,
-            end: end as i64,
+            start: trunc_sat_i64(start),
+            end: trunc_sat_i64(end),
             font_families: families,
         });
     }
@@ -703,12 +707,12 @@ fn normalized_key(value: f64) -> i64 {
     if value == 0.0 {
         0
     } else {
-        value.to_bits() as i64
+        i64::from_ne_bytes(value.to_bits().to_ne_bytes())
     }
 }
 
 fn edge_at(map: &HashMap<i64, f64>, offset: i32) -> f64 {
-    map.get(&normalized_key(offset as f64))
+    map.get(&normalized_key(f64::from(offset)))
         .copied()
         .unwrap_or(0.0)
 }
@@ -818,12 +822,15 @@ fn render_plan(
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
 ) -> Result<PreparedParagraphRender, NamedError> {
     let mut draft = Draft::new();
-    for (line_index, line) in plan.lines.iter().enumerate() {
+    // The counter runs in i64 because the marker attributes carry the line
+    // number as a JS number; the iterator removes any narrowing.
+    let mut lines = (0i64..).zip(&plan.lines).peekable();
+    while let Some((line_index, line)) = lines.next() {
         render_line(
             &mut draft,
             line,
             line_index,
-            plan.lines.len(),
+            lines.peek().is_some(),
             plan.height,
             locale,
             semantics,
@@ -866,8 +873,8 @@ fn render_plan(
 fn render_line(
     draft: &mut Draft,
     line: &PlanLine,
-    line_index: usize,
-    line_count: usize,
+    line_index: i64,
+    has_following: bool,
     paragraph_height: f64,
     locale: &str,
     semantics: &Semantics,
@@ -985,7 +992,7 @@ fn render_line(
         ),
         (
             "data-tq-line-index".to_string(),
-            Some(js_number_string(line_index as f64)),
+            Some(js_number_string(js_int_to_number(line_index))),
         ),
         (
             "data-tq-line-range".to_string(),
@@ -1057,7 +1064,7 @@ fn render_line(
             ("data-tq-geometry".to_string(), Some("true".to_string())),
             (
                 "data-tq-line-end-sentinel".to_string(),
-                Some(js_number_string(line_index as f64)),
+                Some(js_number_string(js_int_to_number(line_index))),
             ),
         ],
         false,
@@ -1075,7 +1082,7 @@ fn render_line(
         );
         draft.append_child(boundary, hard_break);
     }
-    if line_index < line_count - 1 {
+    if has_following {
         let mut break_attributes: Vec<(String, Option<String>)> = vec![(
             "data-tq-engine-break".to_string(),
             Some(end_reason.to_string()),
@@ -1151,7 +1158,7 @@ fn render_font_families_for(
 ) -> Result<Vec<String>, NamedError> {
     let owners: Vec<&RenderTextSpan> = render_text_spans
         .iter()
-        .filter(|span| range_start as i64 >= span.start && range_end as i64 <= span.end)
+        .filter(|span| i64::from(range_start) >= span.start && i64::from(range_end) <= span.end)
         .collect();
     let Some(first) = owners.first() else {
         return Ok(Vec::new());

@@ -325,17 +325,19 @@ pub fn find_html_opening_tags(mut cx: FunctionContext) -> JsResult<JsString> {
     };
     let references: Vec<&str> = names.iter().map(String::as_str).collect();
     let tags = tiqian_precompute::precompute_html::find_html_opening_tags(&html, &references);
-    let dumped = Json::Arr(
-        tags.iter()
-            .map(|tag| {
-                Json::Obj(vec![
-                    ("end".to_string(), Json::Num(tag.end as f64)),
-                    ("source".to_string(), Json::str(tag.source.clone())),
-                    ("tagName".to_string(), Json::str(tag.tag_name.clone())),
-                ])
-            })
-            .collect(),
-    );
+    let mut objects = Vec::with_capacity(tags.len());
+    for tag in &tags {
+        let end = match u32::try_from(tag.end) {
+            Ok(end) => end,
+            Err(_) => return cx.throw_error("HtmlOffsetOutOfRange"),
+        };
+        objects.push(Json::Obj(vec![
+            ("end".to_string(), Json::Num(f64::from(end))),
+            ("source".to_string(), Json::str(tag.source.clone())),
+            ("tagName".to_string(), Json::str(tag.tag_name.clone())),
+        ]));
+    }
+    let dumped = Json::Arr(objects);
     Ok(cx.string(dumped.render()))
 }
 

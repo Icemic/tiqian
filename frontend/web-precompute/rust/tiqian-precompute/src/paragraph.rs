@@ -14,6 +14,8 @@ use tiqian::NamedError;
 // the codes from here.
 pub use tiqian::layout_request::{InlineBoxOuterSpacingCode, LineBreakPolicyCode};
 
+use crate::js_compat::kotlin_to_float;
+
 #[cfg(tiqian_engine_link)]
 use crate::plan::Plan;
 
@@ -134,10 +136,10 @@ impl ParagraphRequest {
     pub fn to_layout_request(&self) -> Result<LayoutRequest, NamedError> {
         self.validate()?;
         Ok(LayoutRequest {
-            max_width_px: self.max_width_px as f32,
-            font_size_px: self.font_size_px as f32,
-            line_height_px: self.line_height_px as f32,
-            first_line_indent_ic: self.first_line_indent_ic as f32,
+            max_width_px: kotlin_to_float(self.max_width_px),
+            font_size_px: kotlin_to_float(self.font_size_px),
+            line_height_px: kotlin_to_float(self.line_height_px),
+            first_line_indent_ic: kotlin_to_float(self.first_line_indent_ic),
             font_weight: self.font_weight,
             italic: self.italic,
             line_length_grid_enabled: self.line_length_grid_enabled,
@@ -150,10 +152,10 @@ impl ParagraphRequest {
                 .map(|span| TextSpanSpec {
                     start: span.start,
                     end: span.end,
-                    font_size_px: span.font_size_px as f32,
+                    font_size_px: kotlin_to_float(span.font_size_px),
                     font_weight: span.font_weight,
                     italic: span.italic,
-                    baseline_shift: span.baseline_shift as f32,
+                    baseline_shift: kotlin_to_float(span.baseline_shift),
                     families: span.families.clone(),
                 })
                 .collect(),
@@ -173,8 +175,8 @@ impl ParagraphRequest {
                 .map(|inline_box| InlineBoxSpec {
                     start: inline_box.start,
                     end: inline_box.end,
-                    inline_start: inline_box.inline_start as f32,
-                    inline_end: inline_box.inline_end as f32,
+                    inline_start: kotlin_to_float(inline_box.inline_start),
+                    inline_end: kotlin_to_float(inline_box.inline_end),
                     outer_spacing: inline_box.outer_spacing,
                 })
                 .collect(),
@@ -188,7 +190,7 @@ impl ParagraphRequest {
 /// build time); the font backend must already be installed.
 #[cfg(tiqian_engine_link)]
 pub fn precompute_paragraph(request: &ParagraphRequest) -> Result<Plan, NamedError> {
-    let packed = request.to_layout_request()?.pack();
+    let packed = request.to_layout_request()?.pack()?;
     let plan_json = tiqian::engine::layout_paragraph(&packed)?;
     Plan::from_json_str(&plan_json)
 }
@@ -211,7 +213,12 @@ fn valid_range(start: i32, end: i32, text_length: i32) -> bool {
 /// Kotlin `String.length`: UTF-16 code units. Every engine range and boundary
 /// lives in this space.
 pub fn utf16_length(text: &str) -> i32 {
-    text.chars().map(|c| c.len_utf16() as i32).sum()
+    text.chars()
+        .map(|c| match c {
+            '\0'..='\u{ffff}' => 1,
+            _ => 2,
+        })
+        .sum()
 }
 
 #[cfg(test)]
@@ -380,7 +387,7 @@ mod tests {
             inline_end: 2.0,
             outer_spacing: InlineBoxOuterSpacingCode::Source,
         }];
-        let packed = request.to_layout_request().unwrap().pack();
+        let packed = request.to_layout_request().unwrap().pack().unwrap();
         assert_eq!(
             tiqian::layout_request::LAYOUT_REQUEST_MAGIC,
             u32::from_le_bytes(packed[0..4].try_into().unwrap())

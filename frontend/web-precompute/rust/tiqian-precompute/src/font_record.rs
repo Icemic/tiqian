@@ -237,7 +237,11 @@ mod tests {
     fn sfnt_with(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&0x00010000u32.to_be_bytes());
-        bytes.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        bytes.extend_from_slice(
+            &u16::try_from(tables.len())
+                .expect("fixture table count fits u16")
+                .to_be_bytes(),
+        );
         bytes.extend_from_slice(&0u16.to_be_bytes());
         bytes.extend_from_slice(&0u16.to_be_bytes());
         bytes.extend_from_slice(&0u16.to_be_bytes());
@@ -246,8 +250,16 @@ mod tests {
         for (tag, data) in tables {
             bytes.extend_from_slice(tag.as_slice());
             bytes.extend_from_slice(&0u32.to_be_bytes());
-            bytes.extend_from_slice(&(offset as u32).to_be_bytes());
-            bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(
+                &u32::try_from(offset)
+                    .expect("fixture offset fits u32")
+                    .to_be_bytes(),
+            );
+            bytes.extend_from_slice(
+                &u32::try_from(data.len())
+                    .expect("fixture table size fits u32")
+                    .to_be_bytes(),
+            );
             body.extend_from_slice(data);
             offset += data.len();
         }
@@ -278,9 +290,9 @@ mod tests {
         fvar.extend_from_slice(&0u16.to_be_bytes()); // instanceCount
         fvar.extend_from_slice(&8u16.to_be_bytes()); // instanceSize
         fvar.extend_from_slice(b"wght");
-        fvar.extend_from_slice(&((min << 16) as u32).to_be_bytes());
-        fvar.extend_from_slice(&((default << 16) as u32).to_be_bytes());
-        fvar.extend_from_slice(&((max << 16) as u32).to_be_bytes());
+        fvar.extend_from_slice(&(min << 16).to_be_bytes());
+        fvar.extend_from_slice(&(default << 16).to_be_bytes());
+        fvar.extend_from_slice(&(max << 16).to_be_bytes());
         fvar.extend_from_slice(&0u16.to_be_bytes());
         fvar.extend_from_slice(&0u16.to_be_bytes());
         fvar
@@ -365,11 +377,13 @@ mod tests {
         wide.extend_from_slice(&20u16.to_be_bytes()); // axisSize
         wide.extend_from_slice(&0u16.to_be_bytes()); // instanceCount
         wide.extend_from_slice(&12u16.to_be_bytes()); // instanceSize
-        for (tag, min, default, max) in [(b"wght", 100i32, 400, 900), (b"wdth", 100, 100, 200)] {
+        for (tag, min, default, max) in
+            [(b"wght", 100i32, 400i32, 900i32), (b"wdth", 100, 100, 200)]
+        {
             wide.extend_from_slice(tag.as_slice());
-            wide.extend_from_slice(&((min << 16) as u32).to_be_bytes());
-            wide.extend_from_slice(&((default << 16) as u32).to_be_bytes());
-            wide.extend_from_slice(&((max << 16) as u32).to_be_bytes());
+            wide.extend_from_slice(&(min << 16).to_be_bytes());
+            wide.extend_from_slice(&(default << 16).to_be_bytes());
+            wide.extend_from_slice(&(max << 16).to_be_bytes());
             wide.extend_from_slice(&0u16.to_be_bytes());
             wide.extend_from_slice(&0u16.to_be_bytes());
         }

@@ -28,6 +28,7 @@ use tiqian::layout_request::{InlineBoxOuterSpacingCode, LineBreakPolicyCode};
 use tiqian::shape_buffer::{
     required_shape_buffer_size, write_shape_buffer, ShapeEvidence, ShapeGlyphRecord,
 };
+use tiqian_precompute::js_compat::js_int_to_number;
 use tiqian_precompute::json::Json;
 use tiqian_precompute::paragraph::{
     InlineBoxInput, LineBreakSpanInput, ParagraphRequest, TextSpanInput,
@@ -42,15 +43,20 @@ static INSTALL: Once = Once::new();
 
 fn install_fixture_backend() {
     INSTALL.call_once(|| {
-        static VTABLE: FontBackendVtable = FontBackendVtable {
-            size: std::mem::size_of::<FontBackendVtable>() as u32,
+        // The engine keeps the pointer for the process lifetime, so the
+        // vtable lives in static storage; get_or_init runs the conversion
+        // outside a const context.
+        static VTABLE: std::sync::OnceLock<FontBackendVtable> = std::sync::OnceLock::new();
+        let vtable = VTABLE.get_or_init(|| FontBackendVtable {
+            size: u32::try_from(std::mem::size_of::<FontBackendVtable>())
+                .expect("vtable size fits u32"),
             protocol_revision: FONT_BACKEND_PROTOCOL_REVISION,
             shape: Some(fixture_shape),
             metrics: Some(fixture_metrics),
             release_string: Some(fixture_release_string),
-        };
+        });
         assert_eq!(
-            tiqian::engine::install_font_backend(&VTABLE),
+            tiqian::engine::install_font_backend(vtable),
             InstallOutcome::Installed
         );
     });
@@ -85,9 +91,14 @@ unsafe extern "C" fn fixture_shape(
         .chars()
         .enumerate()
         .map(|(index, _)| ShapeGlyphRecord {
-            id: if missing { 0 } else { 100 + index as u32 },
+            id: if missing {
+                0
+            } else {
+                100 + u32::try_from(index).expect("fixture glyph index fits u32")
+            },
             advance: font_size,
-            x: index as f64 * font_size,
+            x: js_int_to_number(i64::try_from(index).expect("fixture glyph index fits i64"))
+                * font_size,
             y: 0.0,
             bounds: Some([0.0, -font_size * 0.88, font_size, font_size * 0.12]),
         })
@@ -97,17 +108,20 @@ unsafe extern "C" fn fixture_shape(
         instance_id: FIXTURE_INSTANCE_ID.to_string(),
         script: FIXTURE_SCRIPT.to_string(),
         features: Vec::new(),
-        total_advance: glyphs.len() as f64 * font_size,
+        total_advance: js_int_to_number(
+            i64::try_from(glyphs.len()).expect("fixture glyph count fits i64"),
+        ) * font_size,
         unsafe_break_count: 0,
     };
     let needed = required_shape_buffer_size(glyphs.len(), &evidence);
-    if buffer.is_null() || (capacity as usize) < needed {
-        return needed as i64;
+    let capacity = usize::try_from(capacity).expect("shape buffer capacity fits usize");
+    if buffer.is_null() || capacity < needed {
+        return i64::try_from(needed).expect("shape buffer size fits i64");
     }
     // SAFETY: the engine passes `capacity` live bytes at `buffer`.
     let out = unsafe { std::slice::from_raw_parts_mut(buffer, needed) };
-    write_shape_buffer(out, &glyphs, &evidence);
-    needed as i64
+    write_shape_buffer(out, &glyphs, &evidence).expect("fixture shape buffer write succeeds");
+    i64::try_from(needed).expect("shape buffer size fits i64")
 }
 
 /// [ascent, descent, leading, typo ascent, typo descent] scaled by the font
@@ -245,7 +259,8 @@ fn native_plans_match_the_js_oracle_byte_for_byte() {
         let packed = request
             .to_layout_request()
             .unwrap_or_else(|error| panic!("{name}: request invalid: {error}"))
-            .pack();
+            .pack()
+            .unwrap_or_else(|error| panic!("{name}: request pack failed: {error}"));
         let plan_json = tiqian::engine::layout_paragraph(&packed)
             .unwrap_or_else(|error| panic!("{name}: precompute failed: {error}"));
         let plan = Plan::from_json_str(&plan_json)

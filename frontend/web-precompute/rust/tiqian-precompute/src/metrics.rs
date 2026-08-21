@@ -8,6 +8,7 @@ use crate::font_record::FontRecord;
 use crate::js_compat::js_number_string;
 use crate::selection::{face_candidates, find_face, no_exact_font_face_message};
 use crate::shaping::FontEngine;
+use crate::NamedError;
 
 /// The face a metrics call resolves to, plus the `metricsFor` cache key.
 pub struct MetricSelection<'a> {
@@ -29,7 +30,7 @@ pub fn select_metrics_face<'a>(
     let selected: &FontRecord = match face_selection_text.filter(|text| !text.is_empty()) {
         Some(text) => {
             let points: Vec<char> = text.chars().collect();
-            find_face(records, families, font_weight, italic, &points)
+            find_face(records, families, font_weight, italic, &points)?
                 .ok_or_else(|| no_exact_font_face_message(families, font_weight, italic, text))?
         }
         None => face_candidates(records, families, font_weight, italic)
@@ -59,25 +60,26 @@ pub fn select_metrics_face<'a>(
 
 /// `normalizedMetrics`: font units over the em. The typo metrics cross-
 /// assigned from BASE read as NaN when the table exposes no coordinate.
-pub fn normalized_metrics(record: &FontRecord, font_weight: f64) -> [f64; 5] {
-    let engine = FontEngine::new(record, font_weight);
+/// Fails with `SfntDecode` when skrifa rejects the record bytes.
+pub fn normalized_metrics(record: &FontRecord, font_weight: f64) -> Result<[f64; 5], NamedError> {
+    let engine = FontEngine::new(record, font_weight)?;
     let (ascender, descender, line_gap) = engine.h_extents();
-    let upem = record.upem as f64;
+    let upem = f64::from(record.upem);
     let typo_ascender = match record.table_metrics.typo_ascender {
-        Some(value) => value as f64 / upem,
+        Some(value) => f64::from(value) / upem,
         None => f64::NAN,
     };
     let typo_descender = match record.table_metrics.typo_descender {
-        Some(value) => -(value as f64) / upem,
+        Some(value) => -f64::from(value) / upem,
         None => f64::NAN,
     };
-    [
-        ascender as f64 / upem,
-        -(descender as f64) / upem,
-        line_gap as f64 / upem,
+    Ok([
+        f64::from(ascender) / upem,
+        -f64::from(descender) / upem,
+        f64::from(line_gap) / upem,
         typo_ascender,
         typo_descender,
-    ]
+    ])
 }
 
 /// `metricsEqual`: NaN pairs count as equal, everything else within 1e-6.
@@ -106,16 +108,16 @@ pub fn resolve_metrics(
     let candidates = css_weight_matched(&family_candidates, font_weight, |record| {
         (record.weight_range[0], record.weight_range[1])
     });
-    let selected_metrics = normalized_metrics(selected, font_weight);
-    if !candidates
-        .iter()
-        .all(|record| metrics_equal(&selected_metrics, &normalized_metrics(record, font_weight)))
-    {
-        return Err(format!(
-            "NonUniformUnicodeRangeMetrics:family={};weight={}",
-            selected.family,
-            js_number_string(font_weight)
-        ));
+    let selected_metrics = normalized_metrics(selected, font_weight).map_err(|error| error.0)?;
+    for record in &candidates {
+        let record_metrics = normalized_metrics(record, font_weight).map_err(|error| error.0)?;
+        if !metrics_equal(&selected_metrics, &record_metrics) {
+            return Err(format!(
+                "NonUniformUnicodeRangeMetrics:family={};weight={}",
+                selected.family,
+                js_number_string(font_weight)
+            ));
+        }
     }
     Ok(selected_metrics.map(|value| {
         if value.is_nan() {

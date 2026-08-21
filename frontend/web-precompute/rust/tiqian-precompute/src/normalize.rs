@@ -5,6 +5,7 @@
 
 use tiqian::NamedError;
 
+use crate::js_compat::{trunc_sat_i32, trunc_sat_i64};
 use crate::json::{member, Json};
 use crate::paragraph::{utf16_length, InlineBoxInput, InlineBoxOuterSpacingCode, TextSpanInput};
 use crate::snapshot_source::{js_number_value, js_string_value};
@@ -233,9 +234,11 @@ pub fn normalize_text_spans(
         if !font_size_px.is_finite() || font_size_px <= 0.0 {
             return Err(named("InvalidSnapshotTextSpanFontSize"));
         }
-        let font_weight =
-            safe_integer_weight(span.font_weight.unwrap_or(typography.font_weight as f64))
-                .ok_or_else(|| named("InvalidSnapshotTextSpanFontWeight"))?;
+        let font_weight = safe_integer_weight(
+            span.font_weight
+                .unwrap_or(f64::from(typography.font_weight)),
+        )
+        .ok_or_else(|| named("InvalidSnapshotTextSpanFontWeight"))?;
         let baseline_shift_px = span.baseline_shift_px.unwrap_or(0.0);
         if !baseline_shift_px.is_finite() {
             return Err(named("InvalidSnapshotTextSpanBaselineShift"));
@@ -308,7 +311,7 @@ pub fn font_contract_capture_width(
         .map(|inline_box| inline_box.inline_start.abs() + inline_box.inline_end.abs())
         .sum::<f64>();
     let estimated_unbroken_advance =
-        1.0_f64.max(text_utf16_length as f64) * largest_font_size * 2.0 + inline_advance;
+        1.0_f64.max(f64::from(text_utf16_length)) * largest_font_size * 2.0 + inline_advance;
     FONT_CONTRACT_CAPTURE_MAX_WIDTH_PX.min(largest_font_size.max(estimated_unbroken_advance))
 }
 
@@ -327,12 +330,12 @@ pub fn snapshot_plain_text_issue(text: &str) -> Option<&'static str> {
     }
     if text
         .chars()
-        .any(|point| tables::table_contains(tables::EXTENDED_PICTOGRAPHIC, point as u32))
+        .any(|point| tables::table_contains(tables::EXTENDED_PICTOGRAPHIC, u32::from(point)))
     {
         return Some("UnsupportedEmojiFallback");
     }
     if text.chars().any(|point| {
-        tables::table_contains(tables::FORMAT_CHARACTERS, point as u32)
+        tables::table_contains(tables::FORMAT_CHARACTERS, u32::from(point))
             || (point.is_control() && point != '\n')
     }) {
         return Some("UnsupportedControlCharacter");
@@ -366,7 +369,7 @@ fn capability_issue(issues: &[&'static str], message: &str) -> Option<&'static s
 /// The allowed class of the script check: Han, Common, ASCII letters and the
 /// Latin Extended range the js regex spells out.
 fn snapshot_script_allowed(point: char) -> bool {
-    let value = point as u32;
+    let value = u32::from(point);
     point.is_ascii_alphabetic()
         || ('\u{00C0}'..='\u{024F}').contains(&point)
         || tables::table_contains(tables::SCRIPT_HAN, value)
@@ -388,9 +391,10 @@ fn safe_integer_weight(value: f64) -> Option<i32> {
     if value.fract() != 0.0 || value.abs() > MAX_SAFE_INTEGER {
         return None;
     }
-    let weight = value as i64;
+    let weight = trunc_sat_i64(value);
     if (1..=1000).contains(&weight) {
-        Some(weight as i32)
+        // The window check bounds value, so the i32 step keeps it unchanged.
+        Some(trunc_sat_i32(value))
     } else {
         None
     }
@@ -405,23 +409,27 @@ fn valid_range(
     issue: &str,
 ) -> Result<(i32, i32), NamedError> {
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-    let checked = |value: Option<f64>| -> Option<i64> {
+    let checked = |value: Option<f64>| -> Option<f64> {
         let value = value?;
         if value.fract() != 0.0 || value.abs() > MAX_SAFE_INTEGER {
             return None;
         }
-        Some(value as i64)
+        Some(value)
     };
-    let Some(start) = checked(start) else {
+    let Some(start_value) = checked(start) else {
         return Err(named(issue));
     };
-    let Some(end) = checked(end) else {
+    let Some(end_value) = checked(end) else {
         return Err(named(issue));
     };
-    if start < 0 || end <= start || end > text_length as i64 {
+    let start = trunc_sat_i64(start_value);
+    let end = trunc_sat_i64(end_value);
+    if start < 0 || end <= start || end > i64::from(text_length) {
         return Err(named(issue));
     }
-    Ok((start as i32, end as i32))
+    // The window check bounds both values by the i32 text length, so the
+    // final conversions cannot saturate.
+    Ok((trunc_sat_i32(start_value), trunc_sat_i32(end_value)))
 }
 
 fn named(name: &str) -> NamedError {

@@ -83,8 +83,8 @@ pub fn json_string(value: &str) -> String {
             '\u{000a}' => out.push_str("\\n"),
             '\u{000c}' => out.push_str("\\f"),
             '\u{000d}' => out.push_str("\\r"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+            c if u32::from(c) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", u32::from(c)));
             }
             c => out.push(c),
         }
@@ -152,12 +152,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect(&mut self, byte: u8) -> Result<(), JsonParseError> {
+    fn expect_byte(&mut self, byte: u8) -> Result<(), JsonParseError> {
         if self.peek() == Some(byte) {
             self.offset += 1;
             Ok(())
         } else {
-            Err(self.fail(&format!("expected '{}'", byte as char)))
+            Err(self.fail(&format!("expected '{}'", char::from(byte))))
         }
     }
 
@@ -194,7 +194,7 @@ impl<'a> Parser<'a> {
 
     fn object(&mut self) -> Result<Json, JsonParseError> {
         self.enter()?;
-        self.expect(b'{')?;
+        self.expect_byte(b'{')?;
         let mut fields = Vec::new();
         self.skip_whitespace();
         if self.peek() == Some(b'}') {
@@ -206,7 +206,7 @@ impl<'a> Parser<'a> {
             self.skip_whitespace();
             let key = self.string()?;
             self.skip_whitespace();
-            self.expect(b':')?;
+            self.expect_byte(b':')?;
             self.skip_whitespace();
             let value = self.value()?;
             fields.push((key, value));
@@ -225,7 +225,7 @@ impl<'a> Parser<'a> {
 
     fn array(&mut self) -> Result<Json, JsonParseError> {
         self.enter()?;
-        self.expect(b'[')?;
+        self.expect_byte(b'[')?;
         let mut items = Vec::new();
         self.skip_whitespace();
         if self.peek() == Some(b']') {
@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
     }
 
     fn string(&mut self) -> Result<String, JsonParseError> {
-        self.expect(b'"')?;
+        self.expect_byte(b'"')?;
         let mut out = String::new();
         loop {
             let byte = self
@@ -331,9 +331,9 @@ impl<'a> Parser<'a> {
                 .peek()
                 .ok_or_else(|| self.fail("truncated \\u escape"))?;
             let nibble = match digit {
-                b'0'..=b'9' => (digit - b'0') as u32,
-                b'a'..=b'f' => (digit - b'a' + 10) as u32,
-                b'A'..=b'F' => (digit - b'A' + 10) as u32,
+                b'0'..=b'9' => u32::from(digit - b'0'),
+                b'a'..=b'f' => u32::from(digit - b'a' + 10),
+                b'A'..=b'F' => u32::from(digit - b'A' + 10),
                 _ => return Err(self.fail("invalid \\u escape")),
             };
             value = value * 16 + nibble;

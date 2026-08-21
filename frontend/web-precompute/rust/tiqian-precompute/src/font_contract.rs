@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use crate::js_compat::js_int_to_number;
 use crate::json::Json;
 use crate::normalize::SnapshotTypography;
 use crate::paragraph::utf16_length;
@@ -76,7 +77,7 @@ fn resolved_style_at(
         },
         font_weight: match field_non_null(span, "fontWeight") {
             Some(value) => js_number_value(value),
-            None => typography.font_weight as f64,
+            None => f64::from(typography.font_weight),
         },
         italic: match field_non_null(span, "italic") {
             Some(value) => value.clone(),
@@ -108,7 +109,7 @@ pub fn required_cjk_dash_contract_input(
     let mut signatures: HashMap<String, usize> = HashMap::new();
     let mut styles: Vec<DashStyle> = Vec::new();
     let mut dashes_per_group: Vec<Vec<&str>> = Vec::new();
-    let mut offset = 0usize;
+    let mut offset = 0i64;
     let mut chars = text.chars().peekable();
     while let Some(current) = chars.next() {
         let dash = if current == '—' && chars.peek() == Some(&'—') {
@@ -120,7 +121,7 @@ pub fn required_cjk_dash_contract_input(
             None
         };
         if let Some(dash) = dash {
-            let style = resolved_style_at(offset as f64, &spans, typography);
+            let style = resolved_style_at(js_int_to_number(offset), &spans, typography);
             let signature = style.to_json().render();
             let index = match signatures.get(&signature) {
                 Some(&index) => index,
@@ -137,7 +138,15 @@ pub fn required_cjk_dash_contract_input(
                 dashes_per_group[index].push(dash);
             }
         }
-        offset += dash.map_or(current.len_utf16(), |dash| utf16_length(dash) as usize);
+        // Each char is one or two UTF-16 units; the bool step counts units
+        // in i64.
+        offset += match dash {
+            Some(dash) => dash
+                .chars()
+                .map(|c| 1 + i64::from(c.len_utf16() == 2))
+                .sum::<i64>(),
+            None => 1 + i64::from(current.len_utf16() == 2),
+        };
     }
     if styles.is_empty() {
         return None;
@@ -155,8 +164,8 @@ pub fn required_cjk_dash_contract_input(
                 unreachable!("dash style serializes as an object");
             };
             let mut fields = vec![
-                ("start".to_string(), Json::Num(start as f64)),
-                ("end".to_string(), Json::Num(end as f64)),
+                ("start".to_string(), Json::Num(f64::from(start))),
+                ("end".to_string(), Json::Num(f64::from(end))),
             ];
             fields.extend(style_fields.iter().cloned());
             text_spans.push(Json::Obj(fields));

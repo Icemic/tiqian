@@ -8,6 +8,7 @@ use crate::font_record::FontRecord;
 use crate::js_compat::js_number_string;
 use crate::json::json_string;
 use crate::shaping::FontEngine;
+use crate::NamedError;
 
 /// `NoExactFontFace:families=...;weight=...;italic=...;text=...`
 pub fn no_exact_font_face_message(
@@ -27,18 +28,19 @@ pub fn no_exact_font_face_message(
 
 /// `faceCovers`: every point inside the declared unicode-range and mapped by
 /// the face's cmap. The coverage probe runs at the range's low weight, the
-/// way `createFont(record, record.weightRange[0])` does.
-pub fn face_covers(record: &FontRecord, points: &[char]) -> bool {
+/// way `createFont(record, record.weightRange[0])` does. Fails with
+/// `SfntDecode` when skrifa rejects the record bytes.
+pub fn face_covers(record: &FontRecord, points: &[char]) -> Result<bool, NamedError> {
     if !points
         .iter()
-        .all(|point| unicode_range_contains(&record.unicode_ranges, *point as u32))
+        .all(|point| unicode_range_contains(&record.unicode_ranges, u32::from(*point)))
     {
-        return false;
+        return Ok(false);
     }
-    let engine = FontEngine::new(record, record.weight_range[0]);
-    points
+    let engine = FontEngine::new(record, record.weight_range[0])?;
+    Ok(points
         .iter()
-        .all(|point| engine.nominal_glyph(*point).is_some())
+        .all(|point| engine.nominal_glyph(*point).is_some()))
 }
 
 /// `faceCandidates`: first family with style and weight matches wins; the
@@ -69,14 +71,15 @@ pub fn face_candidates<'a>(
 }
 
 /// `findFace`: like `faceCandidates`, but the candidate that covers all
-/// points wins; composite faces prefer the later record.
+/// points wins; composite faces prefer the later record. Fails with
+/// `SfntDecode` when the coverage probe cannot decode a record.
 pub fn find_face<'a>(
     records: &'a [FontRecord],
     families: &[String],
     requested_weight: f64,
     italic: bool,
     text: &[char],
-) -> Option<&'a FontRecord> {
+) -> Result<Option<&'a FontRecord>, String> {
     let desired_style = if italic { "italic" } else { "normal" };
     for family in families {
         let family_matches: Vec<&FontRecord> = records
@@ -92,12 +95,12 @@ pub fn find_face<'a>(
         // CSS Fonts composite faces with the same descriptors use the later
         // @font-face rule for overlapping unicode-range coverage.
         for record in weight_matched.into_iter().rev() {
-            if face_covers(record, text) {
-                return Some(record);
+            if face_covers(record, text).map_err(|error| error.0)? {
+                return Ok(Some(record));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// `selectFace`: `findFace` with the `NoExactFontFace` throw on a miss.
@@ -108,7 +111,7 @@ pub fn select_face<'a>(
     italic: bool,
     text: &[char],
 ) -> Result<&'a FontRecord, String> {
-    find_face(records, families, requested_weight, italic, text).ok_or_else(|| {
+    find_face(records, families, requested_weight, italic, text)?.ok_or_else(|| {
         let joined: String = text.iter().collect();
         no_exact_font_face_message(families, requested_weight, italic, &joined)
     })
@@ -125,11 +128,11 @@ pub fn select_shape_face<'a>(
     display_text: &[char],
     source_text: &[char],
 ) -> Result<(&'a FontRecord, bool), String> {
-    if let Some(record) = find_face(records, families, requested_weight, italic, display_text) {
+    if let Some(record) = find_face(records, families, requested_weight, italic, display_text)? {
         return Ok((record, true));
     }
     if source_text != display_text {
-        if let Some(record) = find_face(records, families, requested_weight, italic, source_text) {
+        if let Some(record) = find_face(records, families, requested_weight, italic, source_text)? {
             return Ok((record, false));
         }
     }

@@ -2,6 +2,8 @@
 //! Collections are rejected earlier in `font_source`; this module only
 //! walks the directory of a single-font sfnt.
 
+use crate::js_compat::kotlin_to_float;
+
 fn u16_at(bytes: &[u8], offset: usize) -> u16 {
     let high = *bytes.get(offset).unwrap_or(&0);
     let low = *bytes.get(offset + 1).unwrap_or(&0);
@@ -20,14 +22,14 @@ pub fn table<'a>(sfnt: &'a [u8], tag: &[u8; 4]) -> Option<&'a [u8]> {
     if sfnt.len() < 12 {
         return None;
     }
-    let count = u16_at(sfnt, 4) as usize;
+    let count = usize::from(u16_at(sfnt, 4));
     for index in 0..count {
         let record = 12 + index * 16;
         if sfnt.get(record..record + 4)? != tag {
             continue;
         }
-        let offset = u32_at(sfnt, record + 8) as usize;
-        let length = u32_at(sfnt, record + 12) as usize;
+        let offset = usize::try_from(u32_at(sfnt, record + 8)).ok()?;
+        let length = usize::try_from(u32_at(sfnt, record + 12)).ok()?;
         let end = offset.checked_add(length)?;
         return sfnt.get(offset..end);
     }
@@ -37,7 +39,7 @@ pub fn table<'a>(sfnt: &'a [u8], tag: &[u8; 4]) -> Option<&'a [u8]> {
 /// Signed 16-bit read inside a table, 0 past the end (same convention as the
 /// BASE-table reader).
 pub fn s16_at(bytes: &[u8], offset: usize) -> i16 {
-    u16_at(bytes, offset) as i16
+    i16::from_be_bytes(u16_at(bytes, offset).to_be_bytes())
 }
 
 /// head.unitsPerEm with HarfBuzz's coercion: values outside 16..=16384 (and
@@ -68,8 +70,11 @@ pub struct AxisInfo {
 }
 
 fn fixed_at(bytes: &[u8], offset: usize) -> f64 {
-    let raw = u32_at(bytes, offset) as i32;
-    f64::from(raw as f32 / 65536.0)
+    let raw = i32::from_be_bytes(u32_at(bytes, offset).to_be_bytes());
+    // kotlin_to_float narrows with round-to-nearest-even to binary32. The
+    // name documents the Kotlin parity use; the HarfBuzz Fixed 16.16 read
+    // narrows the same way before the division by 65536.
+    f64::from(kotlin_to_float(f64::from(raw)) / 65536.0)
 }
 
 /// fvar axes in table order. Validation mirrors the HarfBuzz sanitizer:
@@ -84,11 +89,11 @@ pub fn fvar_axes(sfnt: &[u8]) -> Vec<AxisInfo> {
     if fvar.len() < 16 || u16_at(fvar, 0) != 1 {
         return Vec::new();
     }
-    let data_offset = u16_at(fvar, 4) as usize;
-    let count = u16_at(fvar, 8) as usize;
-    let axis_size = u16_at(fvar, 10) as usize;
-    let instance_count = u16_at(fvar, 12) as usize;
-    let instance_size = u16_at(fvar, 14) as usize;
+    let data_offset = usize::from(u16_at(fvar, 4));
+    let count = usize::from(u16_at(fvar, 8));
+    let axis_size = usize::from(u16_at(fvar, 10));
+    let instance_count = usize::from(u16_at(fvar, 12));
+    let instance_size = usize::from(u16_at(fvar, 14));
     if axis_size != 20 || instance_size < count * 4 + 4 {
         return Vec::new();
     }
@@ -124,7 +129,11 @@ mod tests {
     fn sfnt_with(tables: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&0x00010000u32.to_be_bytes());
-        bytes.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        bytes.extend_from_slice(
+            &u16::try_from(tables.len())
+                .expect("fixture table count fits u16")
+                .to_be_bytes(),
+        );
         bytes.extend_from_slice(&0u16.to_be_bytes()); // searchRange
         bytes.extend_from_slice(&0u16.to_be_bytes()); // entrySelector
         bytes.extend_from_slice(&0u16.to_be_bytes()); // rangeShift
@@ -134,8 +143,16 @@ mod tests {
         for (tag, data) in tables {
             bytes.extend_from_slice(tag.as_slice());
             bytes.extend_from_slice(&0u32.to_be_bytes()); // checksum
-            bytes.extend_from_slice(&(offset as u32).to_be_bytes());
-            bytes.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            bytes.extend_from_slice(
+                &u32::try_from(offset)
+                    .expect("fixture offset fits u32")
+                    .to_be_bytes(),
+            );
+            bytes.extend_from_slice(
+                &u32::try_from(data.len())
+                    .expect("fixture table size fits u32")
+                    .to_be_bytes(),
+            );
             body.extend_from_slice(data);
             offset += data.len();
         }
@@ -197,11 +214,13 @@ mod tests {
         fvar.extend_from_slice(&20u16.to_be_bytes()); // axisSize
         fvar.extend_from_slice(&0u16.to_be_bytes()); // instanceCount
         fvar.extend_from_slice(&12u16.to_be_bytes()); // instanceSize
-        for (tag, min, default, max) in [(b"wght", 100i32, 400, 900), (b"wdth", 100, 100, 200)] {
+        for (tag, min, default, max) in
+            [(b"wght", 100i32, 400i32, 900i32), (b"wdth", 100, 100, 200)]
+        {
             fvar.extend_from_slice(tag.as_slice());
-            fvar.extend_from_slice(&((min << 16) as u32).to_be_bytes());
-            fvar.extend_from_slice(&((default << 16) as u32).to_be_bytes());
-            fvar.extend_from_slice(&((max << 16) as u32).to_be_bytes());
+            fvar.extend_from_slice(&(min << 16).to_be_bytes());
+            fvar.extend_from_slice(&(default << 16).to_be_bytes());
+            fvar.extend_from_slice(&(max << 16).to_be_bytes());
             fvar.extend_from_slice(&0u16.to_be_bytes()); // flags
             fvar.extend_from_slice(&0u16.to_be_bytes()); // nameID
         }
@@ -237,9 +256,9 @@ mod tests {
         fvar.extend_from_slice(&0u16.to_be_bytes()); // instanceCount
         fvar.extend_from_slice(&8u16.to_be_bytes()); // instanceSize
         fvar.extend_from_slice(b"wght");
-        fvar.extend_from_slice(&((900i32 << 16) as u32).to_be_bytes()); // min above default
-        fvar.extend_from_slice(&((400i32 << 16) as u32).to_be_bytes()); // default
-        fvar.extend_from_slice(&((100i32 << 16) as u32).to_be_bytes()); // max below default
+        fvar.extend_from_slice(&(900i32 << 16).to_be_bytes()); // min above default
+        fvar.extend_from_slice(&(400i32 << 16).to_be_bytes()); // default
+        fvar.extend_from_slice(&(100i32 << 16).to_be_bytes()); // max below default
         fvar.extend_from_slice(&0u16.to_be_bytes());
         fvar.extend_from_slice(&0u16.to_be_bytes());
         let sfnt = sfnt_with(&[(b"fvar", fvar)]);

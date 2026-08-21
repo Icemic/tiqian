@@ -5,6 +5,7 @@
 //! emits nothing. Field names and value shapes mirror the Kotlin emitter
 //! one to one.
 
+use crate::js_compat::{trunc_sat_i32, trunc_sat_i64};
 use crate::json::{parse_json, Json};
 use tiqian::NamedError;
 
@@ -70,7 +71,7 @@ impl Plan {
         };
         let schema = number_field(&fields, "schema")
             .map_err(|_| NamedError("InvalidPlanSchema".to_string()))?;
-        if schema as i64 != PLAN_SCHEMA {
+        if trunc_sat_i64(schema) != PLAN_SCHEMA {
             return Err(NamedError("InvalidPlanSchema".to_string()));
         }
         let revision = string_field(&fields, "layoutRevision")
@@ -201,10 +202,10 @@ fn number_field(fields: &[(String, Json)], key: &str) -> Result<f64, NamedError>
 
 fn integer_field(fields: &[(String, Json)], key: &str) -> Result<i32, NamedError> {
     let value = number_field(fields, key)?;
-    if value.fract() != 0.0 || !(i32::MIN as f64..=i32::MAX as f64).contains(&value) {
+    if value.fract() != 0.0 || !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&value) {
         return Err(NamedError(format!("InvalidPlanJsonField:{key}")));
     }
-    Ok(value as i32)
+    Ok(trunc_sat_i32(value))
 }
 
 fn string_field(fields: &[(String, Json)], key: &str) -> Result<String, NamedError> {

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use tiqian::NamedError;
 
+use crate::js_compat::{js_int_to_number, trunc_sat_usize};
 use crate::json::{parse_json, Json};
 use crate::replay::{metric_replay_key, shape_replay_key};
 use crate::schema::{stable_stringify, FONT_REPLAY_REVISION, FONT_REPLAY_TRANSPORT};
@@ -55,6 +56,13 @@ fn truthy(value: &Json) -> bool {
 fn is_safe_integer(value: f64) -> bool {
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
     value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER
+}
+
+/// A table index on the wire. The index addresses a table this module built,
+/// so the conversion fails only when the table outgrows i64.
+fn index_number(index: usize) -> Result<Json, NamedError> {
+    let number = i64::try_from(index).map_err(|_| named("SnapshotManifestIndexConversion"))?;
+    Ok(Json::Num(js_int_to_number(number)))
 }
 
 fn key_string_of(value: &Json) -> String {
@@ -198,35 +206,34 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
         }
         let part = |index: usize| parts.get(index).cloned().unwrap_or(Json::Null);
         let mut row = vec![
-            Json::Num(string_ref(&part(0), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(string_ref(&part(1), &mut strings, &mut string_indexes)? as f64),
+            index_number(string_ref(&part(0), &mut strings, &mut string_indexes)?)?,
+            index_number(string_ref(&part(1), &mut strings, &mut string_indexes)?)?,
             part(2),
-            Json::Num(truthy(&part(3)) as u8 as f64),
-            Json::Num(string_ref(&part(4), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(string_ref(&part(5), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(string_ref(&part(6), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(string_ref(
+            Json::Num(f64::from(u8::from(truthy(&part(3))))),
+            index_number(string_ref(&part(4), &mut strings, &mut string_indexes)?)?,
+            index_number(string_ref(&part(5), &mut strings, &mut string_indexes)?)?,
+            index_number(string_ref(&part(6), &mut strings, &mut string_indexes)?)?,
+            index_number(string_ref(
                 field(result, "faceId").unwrap_or(&Json::Null),
                 &mut strings,
                 &mut string_indexes,
-            )? as f64),
-            Json::Num(string_ref(
+            )?)?,
+            index_number(string_ref(
                 field(result, "fontInstanceId").unwrap_or(&Json::Null),
                 &mut strings,
                 &mut string_indexes,
-            )? as f64),
-            Json::Num(string_ref(
+            )?)?,
+            index_number(string_ref(
                 field(result, "script").unwrap_or(&Json::Null),
                 &mut strings,
                 &mut string_indexes,
-            )? as f64),
+            )?)?,
         ];
         row.push(Json::Arr(
             features
                 .iter()
                 .map(|feature| {
-                    string_ref(feature, &mut strings, &mut string_indexes)
-                        .map(|index| Json::Num(index as f64))
+                    string_ref(feature, &mut strings, &mut string_indexes).and_then(index_number)
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         ));
@@ -251,11 +258,11 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
         let parts = replay_key_parts(key, 5, "SnapshotFontReplayMetricsKeyInvalid")?;
         let part = |index: usize| parts.get(index).cloned().unwrap_or(Json::Null);
         let mut row = vec![
-            Json::Num(string_ref(&part(0), &mut strings, &mut string_indexes)? as f64),
+            index_number(string_ref(&part(0), &mut strings, &mut string_indexes)?)?,
             part(1),
-            Json::Num(truthy(&part(2)) as u8 as f64),
-            Json::Num(string_ref(&part(3), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(string_ref(&part(4), &mut strings, &mut string_indexes)? as f64),
+            Json::Num(f64::from(u8::from(truthy(&part(2))))),
+            index_number(string_ref(&part(3), &mut strings, &mut string_indexes)?)?,
+            index_number(string_ref(&part(4), &mut strings, &mut string_indexes)?)?,
         ];
         row.extend(values.iter().cloned());
         compact_metrics.push(Json::Arr(row));
@@ -279,10 +286,13 @@ fn table_reference<'a>(
     let Json::Num(value) = index.cloned().unwrap_or(Json::Null) else {
         return Err(named(issue));
     };
-    if !is_safe_integer(value) || value < 0.0 || value >= table.len() as f64 {
+    let length =
+        i64::try_from(table.len()).map_err(|_| named("SnapshotManifestIndexConversion"))?;
+    if !is_safe_integer(value) || value < 0.0 || value >= js_int_to_number(length) {
         return Err(named(issue));
     }
-    Ok(&table[value as usize])
+    // The checks above gate the value to a safe integer inside the table.
+    Ok(&table[trunc_sat_usize(value)])
 }
 
 fn string_at<'a>(strings: &'a [Json], index: &Json) -> Result<&'a str, NamedError> {
@@ -379,7 +389,9 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
         };
         let display_text = string_at(strings, &row[0])?;
         let serialized_families = string_at(strings, &row[1])?;
-        let italic = flag_row_value(&row[3]).expect("checked above");
+        let Some(italic) = flag_row_value(&row[3]) else {
+            return Err(named("SnapshotFontReplayShapeTransportInvalid"));
+        };
         let locale = string_at(strings, &row[4])?;
         let role = string_at(strings, &row[5])?;
         let source_text = string_at(strings, &row[6])?;
@@ -435,7 +447,9 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
             return Err(named("SnapshotFontReplayMetricsTransportInvalid"));
         }
         let serialized_families = string_at(strings, &row[0])?;
-        let italic = flag_row_value(&row[2]).expect("checked above");
+        let Some(italic) = flag_row_value(&row[2]) else {
+            return Err(named("SnapshotFontReplayMetricsTransportInvalid"));
+        };
         let role = string_at(strings, &row[3])?;
         let face_selection_text = string_at(strings, &row[4])?;
         let key = metric_replay_key(
@@ -486,8 +500,9 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         if !evidence_ok {
             return Err(named(format!("SnapshotFontEvidenceInvalid:{entry_key}")));
         }
-        let evidence = evidence.expect("checked above");
-        let faces_list = faces_list.expect("checked above");
+        let (Some(evidence), Some(faces_list)) = (evidence, faces_list) else {
+            return Err(named(format!("SnapshotFontEvidenceInvalid:{entry_key}")));
+        };
         let replay = field(evidence, "replay");
         let replay_ok = replay.is_some_and(|value| {
             field(value, "revision") == Some(&Json::str(FONT_REPLAY_REVISION))
@@ -497,8 +512,16 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         if !replay_ok {
             return Err(named(format!("SnapshotFontReplayInvalid:{entry_key}")));
         }
-        let replay = replay.expect("checked above");
-        for shape in arr_of(field(replay, "shapes")).expect("checked above") {
+        let Some(replay) = replay else {
+            return Err(named(format!("SnapshotFontReplayInvalid:{entry_key}")));
+        };
+        let (Some(shapes), Some(metrics)) = (
+            arr_of(field(replay, "shapes")),
+            arr_of(field(replay, "metrics")),
+        ) else {
+            return Err(named(format!("SnapshotFontReplayInvalid:{entry_key}")));
+        };
+        for shape in shapes {
             replay_table_index(
                 &mut replay_shapes,
                 &mut replay_shape_indexes,
@@ -506,7 +529,7 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
                 "SnapshotFontReplayShapeConflict",
             )?;
         }
-        for metric in arr_of(field(replay, "metrics")).expect("checked above") {
+        for metric in metrics {
             replay_table_index(
                 &mut replay_metrics,
                 &mut replay_metric_indexes,
@@ -547,7 +570,7 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         for face in faces_list {
             let descriptor = face_descriptor(face, &entry_key)?;
             let face_ref = table_index(&mut faces, &mut face_indexes, descriptor);
-            let mut row = vec![("faceRef".to_string(), Json::Num(face_ref as f64))];
+            let mut row = vec![("faceRef".to_string(), index_number(face_ref)?)];
             if let Some(value) = field(face, "coverageText") {
                 row.push(("coverageText".to_string(), value.clone()));
             }
@@ -572,10 +595,7 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         if matches!(field(entry, "semantics"), Some(Json::Arr(list)) if !list.is_empty()) {
             compact.push(("semantic".to_string(), Json::Bool(true)));
         }
-        compact.push((
-            "typographyRef".to_string(),
-            Json::Num(typography_ref as f64),
-        ));
+        compact.push(("typographyRef".to_string(), index_number(typography_ref)?));
         if let Some(value) = field(entry, "maxWidthPx") {
             compact.push(("maxWidthPx".to_string(), value.clone()));
         }
@@ -725,8 +745,13 @@ pub fn expand_snapshot_manifest(manifest: &Json) -> Result<Json, NamedError> {
     if font_evidence.is_none() || descriptors.is_none() {
         return Err(named("SnapshotManifestTablesInvalid"));
     }
-    let font_evidence = field(manifest, "fontEvidence").expect("checked above");
-    let descriptors = descriptors.expect("checked above");
+    // The check above passed, so both lookups succeed; the error arms keep
+    // the conversions total.
+    let font_evidence =
+        field(manifest, "fontEvidence").ok_or_else(|| named("SnapshotManifestTablesInvalid"))?;
+    let Some(descriptors) = descriptors else {
+        return Err(named("SnapshotManifestTablesInvalid"));
+    };
 
     let font_replay = match field(manifest, "fontReplay") {
         None | Some(Json::Null) => None,

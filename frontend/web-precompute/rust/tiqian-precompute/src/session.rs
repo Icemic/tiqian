@@ -5,7 +5,7 @@
 //! directly, which is the surface the vtable protocol replays.
 
 use crate::font_record::{load_record, FontFaceSpec, FontRecord, LoadRecordError};
-use crate::js_compat::{js_number_string, js_trim};
+use crate::js_compat::{js_number_string, js_trim, trunc_sat_u32};
 use crate::json::Json;
 use crate::metrics::{resolve_metrics, select_metrics_face};
 use crate::policy::normalize_base_features;
@@ -235,8 +235,10 @@ pub struct FontSession {
 fn ordered_face_specs(specs: &[SessionFaceSpec]) -> Result<Vec<(usize, u32)>, SessionError> {
     let mut seen = std::collections::HashSet::new();
     let mut resolved: Vec<(usize, u32)> = Vec::new();
+    // The js default sourceOrder is the input index held as a Number.
+    let mut input_order_number = 0.0_f64;
     for (input_order, entry) in specs.iter().enumerate() {
-        let source_order = entry.source_order.unwrap_or(input_order as f64);
+        let source_order = entry.source_order.unwrap_or(input_order_number);
         let is_safe_integer =
             source_order.fract() == 0.0 && source_order.abs() <= 9_007_199_254_740_992.0;
         if !is_safe_integer || source_order < 0.0 {
@@ -245,11 +247,12 @@ fn ordered_face_specs(specs: &[SessionFaceSpec]) -> Result<Vec<(usize, u32)>, Se
                 source_order: js_number_string(source_order),
             });
         }
-        let order = source_order as u32;
+        let order = trunc_sat_u32(source_order);
         if !seen.insert(order) {
             return Err(SessionError::DuplicateFontFaceSourceOrder(order));
         }
         resolved.push((input_order, order));
+        input_order_number += 1.0;
     }
     resolved.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
     Ok(resolved)
@@ -391,15 +394,17 @@ impl FontSession {
             &display_chars,
             &source_chars,
         )?;
-        let engine = FontEngine::new(record, input.font_weight);
-        let mut result = engine.shape_record(
-            input.display_text,
-            input.font_size,
-            input.font_weight,
-            input.locale,
-            input.role,
-            &self.base_features,
-        );
+        let engine = FontEngine::new(record, input.font_weight).map_err(|error| error.0)?;
+        let mut result = engine
+            .shape_record(
+                input.display_text,
+                input.font_size,
+                input.font_weight,
+                input.locale,
+                input.role,
+                &self.base_features,
+            )
+            .map_err(|error| error.0)?;
         if !display_covered {
             // The exact CSS face contract rejected the display codepoint even
             // if the raw sfnt happens to retain an unreachable glyph; the
@@ -465,14 +470,11 @@ impl FontSession {
         if missing_glyph {
             return Ok(result);
         }
-        if self.used.iter().all(|(existing, _)| *existing != key) {
-            self.used.push((key, usage));
-        } else {
-            let (_, existing) = self
-                .used
-                .iter_mut()
-                .find(|(candidate, _)| *candidate == key)
-                .expect("presence checked above");
+        if let Some((_, existing)) = self
+            .used
+            .iter_mut()
+            .find(|(candidate, _)| *candidate == key)
+        {
             let mut seen: std::collections::HashSet<char> =
                 existing.coverage_text.iter().copied().collect();
             for point in &display_chars {
@@ -480,6 +482,8 @@ impl FontSession {
                     existing.coverage_text.push(*point);
                 }
             }
+        } else {
+            self.used.push((key, usage));
         }
         Ok(result)
     }

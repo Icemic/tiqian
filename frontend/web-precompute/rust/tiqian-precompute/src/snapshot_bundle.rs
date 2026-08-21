@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use tiqian::NamedError;
 
 use crate::font_source::sha256_hex;
-use crate::js_compat::{js_number_string, js_trim};
+use crate::js_compat::{js_int_to_number, js_number_string, js_trim};
 use crate::json::Json;
 use crate::prepared_dom::{render_prepared_paragraph_artifact, PreparedRenderOptions};
 use crate::schema::{
@@ -171,7 +171,7 @@ fn build_snapshot_bundle(
         return Err(named("SnapshotTemplateContainsUnsupportedParagraph"));
     }
     if corpus.iter().any(|entry| {
-        field(entry, "schema") != Some(&Json::Num(SNAPSHOT_SCHEMA as f64))
+        field(entry, "schema") != Some(&Json::Num(js_int_to_number(SNAPSHOT_SCHEMA)))
             || field(entry, "layoutRevision") != Some(&Json::str(LAYOUT_REVISION))
             || field(entry, "renderRevision") != Some(&Json::str(RENDER_REVISION))
             || !matches!(field(entry, "renderArtifactSha256"), Some(Json::Str(_)))
@@ -278,7 +278,10 @@ fn build_snapshot_bundle(
 
     let value_styles_json = Json::Arr(value_styles.iter().map(|item| Json::str(item)).collect());
     let metadata = Json::Obj(vec![
-        ("schema".to_string(), Json::Num(SNAPSHOT_SCHEMA as f64)),
+        (
+            "schema".to_string(),
+            Json::Num(js_int_to_number(SNAPSHOT_SCHEMA)),
+        ),
         ("layoutRevision".to_string(), Json::str(LAYOUT_REVISION)),
         ("renderRevision".to_string(), Json::str(RENDER_REVISION)),
         (
@@ -400,7 +403,9 @@ fn split_contract_entries(compact: Json, rendered_count: usize) -> Json {
     let mut main = Some(main);
     for (name, value) in fields.iter_mut() {
         if name == "entries" {
-            *value = main.take().expect("entries value is present");
+            if let Some(main) = main.take() {
+                *value = main;
+            }
             break;
         }
     }
@@ -578,17 +583,18 @@ fn valid_template_id(id: &str) -> bool {
 /// `index.toString(36)` of the non-negative class indexes.
 fn to_string_36(index: usize) -> String {
     const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut digits = Vec::new();
+    // The digit table holds ascii, so char::from is total on each byte.
+    let mut digits: Vec<char> = Vec::new();
     let mut value = index;
     loop {
-        digits.push(DIGITS[value % 36]);
+        digits.push(char::from(DIGITS[value % 36]));
         value /= 36;
         if value == 0 {
             break;
         }
     }
     digits.reverse();
-    String::from_utf8(digits).expect("base-36 digits are ascii")
+    digits.into_iter().collect()
 }
 
 fn escape_text(value: &str) -> String {

@@ -55,9 +55,8 @@ pub fn css_weight_matched<T>(
     ranked.sort_by(|left, right| {
         left.1
              .0
-            .partial_cmp(&right.1 .0)
-            .unwrap()
-            .then(left.1.partial_cmp(&right.1).unwrap())
+            .total_cmp(&right.1 .0)
+            .then_with(|| left.1 .1.total_cmp(&right.1 .1))
     });
     let best = ranked[0].1;
     ranked

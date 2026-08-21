@@ -13,7 +13,6 @@
 
 use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
-use std::sync::Once;
 
 use tiqian::font_backend::{FontBackendVtable, InstallOutcome, FONT_BACKEND_PROTOCOL_REVISION};
 use tiqian::shape_buffer::{
@@ -55,27 +54,40 @@ pub fn precompute_paragraph(
     session: &mut FontSession,
     request: &ParagraphRequest,
 ) -> Result<String, String> {
-    install_session_backend();
-    let packed = request.to_layout_request().map_err(|error| error.0)?.pack();
+    install_session_backend()?;
+    let packed = request
+        .to_layout_request()
+        .map_err(|error| error.0)?
+        .pack()
+        .map_err(|error| error.0)?;
     let _slot = SessionSlot::set(session);
     tiqian::engine::layout_paragraph(&packed).map_err(|error| error.0)
 }
 
-fn install_session_backend() {
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| {
-        static VTABLE: FontBackendVtable = FontBackendVtable {
-            size: std::mem::size_of::<FontBackendVtable>() as u32,
-            protocol_revision: FONT_BACKEND_PROTOCOL_REVISION,
-            shape: Some(session_shape),
-            metrics: Some(session_metrics),
-            release_string: Some(session_release_string),
-        };
-        assert_eq!(
-            tiqian::engine::install_font_backend(&VTABLE),
-            InstallOutcome::Installed
-        );
-    });
+fn install_session_backend() -> Result<(), String> {
+    static VTABLE: std::sync::OnceLock<FontBackendVtable> = std::sync::OnceLock::new();
+    static INSTALL: std::sync::OnceLock<Result<(), String>> = std::sync::OnceLock::new();
+    INSTALL
+        .get_or_init(|| {
+            // The struct is a revision field plus three function pointers,
+            // so the conversion is total; the error arm keeps the function
+            // panic-free.
+            let Ok(size) = u32::try_from(std::mem::size_of::<FontBackendVtable>()) else {
+                return Err("FontBackendVtableSize".to_string());
+            };
+            let vtable = VTABLE.get_or_init(|| FontBackendVtable {
+                size,
+                protocol_revision: FONT_BACKEND_PROTOCOL_REVISION,
+                shape: Some(session_shape),
+                metrics: Some(session_metrics),
+                release_string: Some(session_release_string),
+            });
+            match tiqian::engine::install_font_backend(vtable) {
+                InstallOutcome::Installed => Ok(()),
+                outcome => Err(format!("FontBackendInstall{outcome:?}")),
+            }
+        })
+        .clone()
 }
 
 /// The lent session of the running engine call. The pointer is valid because
@@ -107,8 +119,11 @@ fn set_error(error_out: *mut *mut c_char, message: &str) {
     if error_out.is_null() {
         return;
     }
+    // The replace strips every NUL byte, so the first conversion succeeds;
+    // the fallbacks keep the function total without a panic.
     let cstring = CString::new(message.replace('\0', " "))
-        .unwrap_or_else(|_| CString::new("FontBackendError").expect("static message encodes"));
+        .or_else(|_| CString::new("FontBackendError"))
+        .unwrap_or_default();
     // SAFETY: the string crosses to the engine here and returns through
     // `session_release_string`, same allocator on both ends.
     unsafe { *error_out = cstring.into_raw() };
@@ -142,7 +157,7 @@ unsafe extern "C" fn session_shape(
         display_text,
         serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
         font_size,
-        font_weight: font_weight as f64,
+        font_weight: f64::from(font_weight),
         italic: italic != 0,
         locale: unsafe { c_str(locale) }.unwrap_or(""),
         role: unsafe { c_str(role) },
@@ -176,17 +191,33 @@ unsafe extern "C" fn session_shape(
         script: record.script,
         features: record.features,
         total_advance: record.advance,
-        unsafe_break_count: record.unsafe_break_count as u32,
+        unsafe_break_count: match u32::try_from(record.unsafe_break_count) {
+            Ok(count) => count,
+            Err(_) => {
+                set_error(error_out, "FontBackendUnsafeBreakCountOverflow");
+                return -1;
+            }
+        },
     };
     let needed = required_shape_buffer_size(glyphs.len(), &evidence);
-    if buffer.is_null() || (capacity as usize) < needed {
-        return needed as i64;
+    // The capacity probe compares in u64 and the retry protocol returns the
+    // size as i64; both conversions are total for any buffer this process
+    // can build, and a violation reports a named error instead of a panic.
+    let (Ok(needed_u64), Ok(needed_i64)) = (u64::try_from(needed), i64::try_from(needed)) else {
+        set_error(error_out, "FontBackendShapeBufferSizeOverflow");
+        return -1;
+    };
+    if buffer.is_null() || capacity < needed_u64 {
+        return needed_i64;
     }
     // SAFETY: the engine passes `capacity` live bytes at `buffer`; the
     // capacity probe above returns `needed` for a single retry.
     let out = unsafe { std::slice::from_raw_parts_mut(buffer, needed) };
-    write_shape_buffer(out, &glyphs, &evidence);
-    needed as i64
+    if let Err(error) = write_shape_buffer(out, &glyphs, &evidence) {
+        set_error(error_out, &error.0);
+        return -1;
+    }
+    needed_i64
 }
 
 // Vtable callback; see the comment above `session_shape`.
@@ -209,7 +240,7 @@ unsafe extern "C" fn session_metrics(
     let input = MetricsInput {
         serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
         font_size,
-        font_weight: font_weight as f64,
+        font_weight: f64::from(font_weight),
         italic: italic != 0,
         role: unsafe { c_str(role) },
         face_selection_text: unsafe { c_str(face_selection_text) },

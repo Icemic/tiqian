@@ -33,21 +33,24 @@ fn next_handle(prefix: &str) -> String {
     format!("{prefix}-{value}")
 }
 
+/// Locks a registry mutex, recovering the guard after a panic in another
+/// thread: the maps stay structurally valid, so lookups and inserts on the
+/// recovered guard remain safe and no call panics on poisoning.
+fn recover<T>(lock: Result<T, std::sync::PoisonError<T>>) -> T {
+    lock.unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Registers a created session and returns its id.
 pub fn insert(session: FontSession) -> String {
     let id = session.session_id.clone();
-    let mut map = sessions()
-        .lock()
-        .expect("font session registry mutex poisoned");
+    let mut map = recover(sessions().lock());
     map.insert(id.clone(), session);
     id
 }
 
 /// Runs `call` with the session for `id`, holding the registry lock.
 pub fn with_session<T>(id: &str, call: impl FnOnce(&mut FontSession) -> T) -> Result<T, String> {
-    let mut map = sessions()
-        .lock()
-        .expect("font session registry mutex poisoned");
+    let mut map = recover(sessions().lock());
     match map.get_mut(id) {
         Some(session) => Ok(call(session)),
         None => Err(format!("UnknownFontSession:{id}")),
@@ -59,18 +62,13 @@ pub fn with_session<T>(id: &str, call: impl FnOnce(&mut FontSession) -> T) -> Re
 pub fn insert_precomputer(precomputer: Precomputer) -> (String, Arc<Mutex<Precomputer>>) {
     let shared = Arc::new(Mutex::new(precomputer));
     let handle = next_handle("tq-precomputer");
-    precomputers()
-        .lock()
-        .expect("precomputer registry mutex poisoned")
-        .insert(handle.clone(), Arc::clone(&shared));
+    recover(precomputers().lock()).insert(handle.clone(), Arc::clone(&shared));
     (handle, shared)
 }
 
 /// The shared precomputer behind `handle`.
 pub fn shared_precomputer(handle: &str) -> Result<Arc<Mutex<Precomputer>>, String> {
-    precomputers()
-        .lock()
-        .expect("precomputer registry mutex poisoned")
+    recover(precomputers().lock())
         .get(handle)
         .cloned()
         .ok_or_else(|| format!("UnknownPrecomputer:{handle}"))
@@ -83,17 +81,14 @@ pub fn with_precomputer<T>(
     call: impl FnOnce(&mut Precomputer) -> T,
 ) -> Result<T, String> {
     let shared = shared_precomputer(handle)?;
-    let mut precomputer = shared.lock().expect("precomputer mutex poisoned");
+    let mut precomputer = recover(shared.lock());
     Ok(call(&mut precomputer))
 }
 
 /// Registers a created HTML preparer and returns its handle.
 pub fn insert_preparer(preparer: HtmlPreparer) -> String {
     let handle = next_handle("tq-html-preparer");
-    html_preparers()
-        .lock()
-        .expect("html preparer registry mutex poisoned")
-        .insert(handle.clone(), preparer);
+    recover(html_preparers().lock()).insert(handle.clone(), preparer);
     handle
 }
 
@@ -102,9 +97,7 @@ pub fn with_preparer<T>(
     handle: &str,
     call: impl FnOnce(&mut HtmlPreparer) -> T,
 ) -> Result<T, String> {
-    let mut map = html_preparers()
-        .lock()
-        .expect("html preparer registry mutex poisoned");
+    let mut map = recover(html_preparers().lock());
     match map.get_mut(handle) {
         Some(preparer) => Ok(call(preparer)),
         None => Err(format!("UnknownHtmlPreparer:{handle}")),

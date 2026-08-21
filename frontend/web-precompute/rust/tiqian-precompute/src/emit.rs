@@ -2,6 +2,9 @@
 //! results in the exact byte shape the JS oracle emits, built with the
 //! `JSON.stringify` semantics of `json.rs`.
 
+use tiqian::NamedError;
+
+use crate::js_compat::js_int_to_number;
 use crate::json::Json;
 use crate::session::{
     FaceInfo, FaceUsage, FontEvidence, MetricReplay, ShapeReplay, FONT_REPLAY_REVISION,
@@ -22,7 +25,10 @@ pub fn face_info_json(face: &FaceInfo) -> Json {
         ("sourceSha256".into(), Json::str(face.source_sha256.clone())),
         ("sfntSha256".into(), Json::str(face.sfnt_sha256.clone())),
         ("faceIndex".into(), Json::Num(face.face_index)),
-        ("sourceOrder".into(), Json::Num(face.source_order as f64)),
+        (
+            "sourceOrder".into(),
+            Json::Num(f64::from(face.source_order)),
+        ),
         (
             "axisTags".into(),
             Json::Arr(
@@ -44,9 +50,10 @@ pub fn face_info_json(face: &FaceInfo) -> Json {
     ])
 }
 
-/// A `shape(...)` result in oracle field order.
-pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
-    Json::Obj(vec![
+/// A `shape(...)` result in oracle field order. The count conversion fails
+/// only when a shape produced more unsafe breaks than i64 holds.
+pub fn shape_result_json(result: &ShapeRecordResult) -> Result<Json, NamedError> {
+    Ok(Json::Obj(vec![
         ("faceId".into(), Json::str(result.face_id.clone())),
         (
             "fontInstanceId".into(),
@@ -75,7 +82,10 @@ pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
         ),
         (
             "unsafeBreakCount".into(),
-            Json::Num(result.unsafe_break_count as f64),
+            Json::Num(js_int_to_number(
+                i64::try_from(result.unsafe_break_count)
+                    .map_err(|_| NamedError("EmitUnsafeBreakCountConversion".to_string()))?,
+            )),
         ),
         ("advance".into(), Json::Num(result.advance)),
         (
@@ -86,8 +96,8 @@ pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
                     .iter()
                     .map(|glyph| {
                         let mut fields = vec![
-                            ("id".into(), Json::Num(glyph.id as f64)),
-                            ("cluster".into(), Json::Num(glyph.cluster as f64)),
+                            ("id".into(), Json::Num(f64::from(glyph.id))),
+                            ("cluster".into(), Json::Num(f64::from(glyph.cluster))),
                             ("advance".into(), Json::Num(glyph.advance)),
                             ("x".into(), Json::Num(glyph.x)),
                             ("y".into(), Json::Num(glyph.y)),
@@ -103,12 +113,13 @@ pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
                     .collect(),
             ),
         ),
-    ])
+    ]))
 }
 
-/// `captureEvidence()` in oracle field order.
-pub fn evidence_json(evidence: &FontEvidence) -> Json {
-    Json::Obj(vec![
+/// `captureEvidence()` in oracle field order. The count conversion fails
+/// only when a shape produced more unsafe breaks than i64 holds.
+pub fn evidence_json(evidence: &FontEvidence) -> Result<Json, NamedError> {
+    Ok(Json::Obj(vec![
         (
             "backendRevision".into(),
             Json::str(evidence.backend_revision),
@@ -132,7 +143,7 @@ pub fn evidence_json(evidence: &FontEvidence) -> Json {
                             .replay_shapes
                             .iter()
                             .map(shape_replay_json)
-                            .collect(),
+                            .collect::<Result<Vec<_>, _>>()?,
                     ),
                 ),
                 (
@@ -147,7 +158,7 @@ pub fn evidence_json(evidence: &FontEvidence) -> Json {
                 ),
             ]),
         ),
-    ])
+    ]))
 }
 
 fn usage_json(usage: &FaceUsage) -> Json {
@@ -169,7 +180,10 @@ fn usage_json(usage: &FaceUsage) -> Json {
         ),
         ("sfntSha256".into(), Json::str(usage.sfnt_sha256.clone())),
         ("faceIndex".into(), Json::Num(usage.face_index)),
-        ("sourceOrder".into(), Json::Num(usage.source_order as f64)),
+        (
+            "sourceOrder".into(),
+            Json::Num(f64::from(usage.source_order)),
+        ),
         (
             "axes".into(),
             Json::Obj(
@@ -219,8 +233,8 @@ fn usage_json(usage: &FaceUsage) -> Json {
     ])
 }
 
-fn shape_replay_json(replay: &ShapeReplay) -> Json {
-    Json::Obj(vec![
+fn shape_replay_json(replay: &ShapeReplay) -> Result<Json, NamedError> {
+    Ok(Json::Obj(vec![
         ("key".into(), Json::str(replay.key.clone())),
         (
             "result".into(),
@@ -243,7 +257,11 @@ fn shape_replay_json(replay: &ShapeReplay) -> Json {
                 ),
                 (
                     "unsafeBreakCount".into(),
-                    Json::Num(replay.unsafe_break_count as f64),
+                    Json::Num(js_int_to_number(
+                        i64::try_from(replay.unsafe_break_count).map_err(|_| {
+                            NamedError("EmitUnsafeBreakCountConversion".to_string())
+                        })?,
+                    )),
                 ),
                 ("advanceEm".into(), opt_num(replay.advance_em)),
                 (
@@ -254,7 +272,7 @@ fn shape_replay_json(replay: &ShapeReplay) -> Json {
                             .iter()
                             .map(|glyph| {
                                 Json::Obj(vec![
-                                    ("id".into(), Json::Num(glyph.id as f64)),
+                                    ("id".into(), Json::Num(f64::from(glyph.id))),
                                     ("advanceEm".into(), opt_num(glyph.advance_em)),
                                     ("xEm".into(), opt_num(glyph.x_em)),
                                     ("yEm".into(), opt_num(glyph.y_em)),
@@ -274,7 +292,7 @@ fn shape_replay_json(replay: &ShapeReplay) -> Json {
                 ),
             ]),
         ),
-    ])
+    ]))
 }
 
 fn metric_replay_json(replay: &MetricReplay) -> Json {

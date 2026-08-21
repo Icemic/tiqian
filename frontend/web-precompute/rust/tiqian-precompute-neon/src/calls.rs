@@ -8,6 +8,9 @@ use neon::types::buffer::TypedArray;
 
 use tiqian_precompute::emit;
 use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
+#[cfg(tiqian_engine_link)]
+use tiqian_precompute::js_compat::trunc_sat_i32;
+use tiqian_precompute::js_compat::trunc_sat_usize;
 use tiqian_precompute::json::Json;
 use tiqian_precompute::session::{
     create_font_session as create_session_impl, MetricsInput, SessionFaceSpec, SessionOptions,
@@ -46,6 +49,12 @@ pub(crate) struct FaceSpecOwned {
     pub source_order: Option<f64>,
 }
 
+/// Capacity hint from a js array length. usize covers u32 on every neon
+/// host; the zero fallback only guards narrower widths.
+fn array_capacity(len: u32) -> usize {
+    usize::try_from(len).unwrap_or(0)
+}
+
 /// Reads the `faces` and `sources` array pair of the create calls. Font
 /// bytes are copied out of their buffers up front: the session outlives the
 /// call, and the napi borrows end here.
@@ -54,16 +63,16 @@ pub(crate) fn read_face_arguments(
     faces: &Handle<JsArray>,
     sources: &Handle<JsArray>,
 ) -> NeonResult<(Vec<FaceSpecOwned>, Vec<Vec<u8>>)> {
-    let mut fonts: Vec<Vec<u8>> = Vec::with_capacity(sources.len(cx) as usize);
+    let mut fonts: Vec<Vec<u8>> = Vec::with_capacity(array_capacity(sources.len(cx)));
     for value in sources.to_vec(cx)? {
         let buffer = value.downcast_or_throw::<JsBuffer, _>(cx)?;
         fonts.push(buffer.as_slice(cx).to_vec());
     }
 
-    let mut owned: Vec<FaceSpecOwned> = Vec::with_capacity(faces.len(cx) as usize);
+    let mut owned: Vec<FaceSpecOwned> = Vec::with_capacity(array_capacity(faces.len(cx)));
     for value in faces.to_vec(cx)? {
         let face = value.downcast_or_throw::<JsObject, _>(cx)?;
-        let source_index = face.prop(cx, "font").get::<f64>()? as usize;
+        let source_index = trunc_sat_usize(face.prop(cx, "font").get::<f64>()?);
         if source_index >= fonts.len() {
             return cx.throw_error(format!("FontSourceOutOfRange:{source_index}"));
         }
@@ -196,7 +205,10 @@ pub fn shape(mut cx: FunctionContext) -> JsResult<JsString> {
         source_text: source_text.as_deref(),
     };
     match registry::with_session(&session_id, |session| session.shape(&input)) {
-        Ok(Ok(result)) => Ok(cx.string(emit::shape_result_json(&result).render())),
+        Ok(Ok(result)) => match emit::shape_result_json(&result) {
+            Ok(json) => Ok(cx.string(json.render())),
+            Err(error) => cx.throw_error(error.0),
+        },
         Ok(Err(error)) => cx.throw_error(error),
         Err(error) => cx.throw_error(error),
     }
@@ -256,7 +268,7 @@ pub fn source_boundaries(mut cx: FunctionContext) -> JsResult<JsString> {
     let spans = cx.argument::<JsArray>(3)?;
 
     let base = read_boundary_style(&mut cx, &base_style)?;
-    let mut parsed: Vec<BoundaryTextSpan> = Vec::with_capacity(spans.len(&mut cx) as usize);
+    let mut parsed: Vec<BoundaryTextSpan> = Vec::with_capacity(array_capacity(spans.len(&mut cx)));
     for value in spans.to_vec(&mut cx)? {
         let span = value.downcast_or_throw::<JsObject, _>(&mut cx)?;
         let style_value = span.prop(&mut cx, "style").get::<Handle<JsValue>>()?;
@@ -331,7 +343,7 @@ fn read_paragraph_request(
     let font_size_px = cx.argument::<JsNumber>(4)?.value(&mut *cx);
     let line_height_px = cx.argument::<JsNumber>(5)?.value(&mut *cx);
     let locale = cx.argument::<JsString>(6)?.value(&mut *cx);
-    let font_weight = cx.argument::<JsNumber>(7)?.value(&mut *cx) as i32;
+    let font_weight = trunc_sat_i32(cx.argument::<JsNumber>(7)?.value(&mut *cx));
     let italic = cx.argument::<JsBoolean>(8)?.value(&mut *cx);
     let first_line_indent_ic = cx.argument::<JsNumber>(9)?.value(&mut *cx);
     let line_length_grid_enabled = cx.argument::<JsBoolean>(10)?.value(&mut *cx);
@@ -359,16 +371,16 @@ fn read_paragraph_request(
     })
 }
 
-/// Index and boundary values are integers on the js side; the truncating cast
-/// matches the `toInt` reads of the wire lane.
+/// Index and boundary values are integers on the js side. The conversion
+/// truncates toward zero, maps NaN to 0, and saturates at the i32 bounds.
 #[cfg(tiqian_engine_link)]
 fn read_int_elements(cx: &mut FunctionContext, array: &Handle<JsArray>) -> NeonResult<Vec<i32>> {
-    let mut items = Vec::with_capacity(array.len(&mut *cx) as usize);
+    let mut items = Vec::with_capacity(array_capacity(array.len(&mut *cx)));
     for value in array.to_vec(&mut *cx)? {
         let number = value
             .downcast_or_throw::<JsNumber, _>(&mut *cx)?
             .value(&mut *cx);
-        items.push(number as i32);
+        items.push(trunc_sat_i32(number));
     }
     Ok(items)
 }
@@ -378,16 +390,16 @@ fn read_text_spans(
     cx: &mut FunctionContext,
     spans: &Handle<JsArray>,
 ) -> NeonResult<Vec<TextSpanInput>> {
-    let mut parsed = Vec::with_capacity(spans.len(&mut *cx) as usize);
+    let mut parsed = Vec::with_capacity(array_capacity(spans.len(&mut *cx)));
     for value in spans.to_vec(&mut *cx)? {
         let span = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
         let families = span.prop(&mut *cx, "families").get::<Handle<JsArray>>()?;
         parsed.push(TextSpanInput {
-            start: span.prop(&mut *cx, "start").get::<f64>()? as i32,
-            end: span.prop(&mut *cx, "end").get::<f64>()? as i32,
+            start: trunc_sat_i32(span.prop(&mut *cx, "start").get::<f64>()?),
+            end: trunc_sat_i32(span.prop(&mut *cx, "end").get::<f64>()?),
             families: read_string_elements(&mut *cx, &families)?,
             font_size_px: span.prop(&mut *cx, "fontSizePx").get::<f64>()?,
-            font_weight: span.prop(&mut *cx, "fontWeight").get::<f64>()? as i32,
+            font_weight: trunc_sat_i32(span.prop(&mut *cx, "fontWeight").get::<f64>()?),
             italic: span.prop(&mut *cx, "italic").get::<bool>()?,
             baseline_shift: span.prop(&mut *cx, "baselineShiftPx").get::<f64>()?,
         });
@@ -400,15 +412,15 @@ fn read_inline_boxes(
     cx: &mut FunctionContext,
     boxes: &Handle<JsArray>,
 ) -> NeonResult<Vec<InlineBoxInput>> {
-    let mut parsed = Vec::with_capacity(boxes.len(&mut *cx) as usize);
+    let mut parsed = Vec::with_capacity(array_capacity(boxes.len(&mut *cx)));
     for value in boxes.to_vec(&mut *cx)? {
         let inline_box = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
         let outer_spacing = inline_box
             .prop(&mut *cx, "outerSpacing")
             .get::<Option<String>>()?;
         parsed.push(InlineBoxInput {
-            start: inline_box.prop(&mut *cx, "start").get::<f64>()? as i32,
-            end: inline_box.prop(&mut *cx, "end").get::<f64>()? as i32,
+            start: trunc_sat_i32(inline_box.prop(&mut *cx, "start").get::<f64>()?),
+            end: trunc_sat_i32(inline_box.prop(&mut *cx, "end").get::<f64>()?),
             inline_start: inline_box.prop(&mut *cx, "inlineStartPx").get::<f64>()?,
             inline_end: inline_box.prop(&mut *cx, "inlineEndPx").get::<f64>()?,
             outer_spacing: match outer_spacing.as_deref() {
@@ -426,13 +438,13 @@ fn read_line_break_spans(
     cx: &mut FunctionContext,
     spans: &Handle<JsArray>,
 ) -> NeonResult<Vec<LineBreakSpanInput>> {
-    let mut parsed = Vec::with_capacity(spans.len(&mut *cx) as usize);
+    let mut parsed = Vec::with_capacity(array_capacity(spans.len(&mut *cx)));
     for value in spans.to_vec(&mut *cx)? {
         let span = value.downcast_or_throw::<JsObject, _>(&mut *cx)?;
         let policy = span.prop(&mut *cx, "policy").get::<String>()?;
         parsed.push(LineBreakSpanInput {
-            start: span.prop(&mut *cx, "start").get::<f64>()? as i32,
-            end: span.prop(&mut *cx, "end").get::<f64>()? as i32,
+            start: trunc_sat_i32(span.prop(&mut *cx, "start").get::<f64>()?),
+            end: trunc_sat_i32(span.prop(&mut *cx, "end").get::<f64>()?),
             policy: match policy.as_str() {
                 "ProgressiveTechnical" => LineBreakPolicyCode::ProgressiveTechnical,
                 _ => return cx.throw_error("InvalidLineBreakPolicy"),
@@ -455,7 +467,8 @@ pub fn capture_evidence(mut cx: FunctionContext) -> JsResult<JsString> {
     match registry::with_session(&session_id, |session| {
         emit::evidence_json(&session.capture_evidence())
     }) {
-        Ok(json) => Ok(cx.string(json.render())),
+        Ok(Ok(json)) => Ok(cx.string(json.render())),
+        Ok(Err(error)) => cx.throw_error(error.0),
         Err(error) => cx.throw_error(error),
     }
 }
@@ -485,7 +498,7 @@ pub(crate) fn read_string_elements(
     cx: &mut FunctionContext,
     array: &Handle<JsArray>,
 ) -> NeonResult<Vec<String>> {
-    let mut items = Vec::with_capacity(array.len(&mut *cx) as usize);
+    let mut items = Vec::with_capacity(array_capacity(array.len(&mut *cx)));
     for value in array.to_vec(&mut *cx)? {
         items.push(value.downcast_or_throw::<JsString, _>(cx)?.value(cx));
     }

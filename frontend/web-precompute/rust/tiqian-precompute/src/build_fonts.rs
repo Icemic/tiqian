@@ -352,7 +352,8 @@ fn resolve_public_asset_url(
             "MissingFontStylesheetPublicUrl:{asset_url}"
         )));
     }
-    let dummy = Url::parse(DUMMY_PUBLIC_ORIGIN).expect("dummy origin parses");
+    let dummy = Url::parse(DUMMY_PUBLIC_ORIGIN)
+        .map_err(|_| NamedError("InvalidDummyPublicOrigin".to_string()))?;
     let base = join_url(&dummy, &stylesheet_public_url)?;
     let resolved = join_url(&base, asset_url)?;
     if resolved.origin() == dummy.origin() {

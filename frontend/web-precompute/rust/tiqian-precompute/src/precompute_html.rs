@@ -16,10 +16,9 @@ use crate::font_source::sha256_hex;
 use crate::html_parse::{
     parse_compound_selector_list, parse_html_document, CompoundSelector, DomParser,
 };
-use crate::js_compat::{is_js_whitespace, js_trim};
+use crate::js_compat::{is_js_whitespace, js_int_to_number, js_trim, trunc_sat_usize};
 use crate::json::{member, Json};
 use crate::normalize::SnapshotTypography;
-use crate::paragraph::utf16_length;
 use std::sync::{Arc, Mutex};
 
 use crate::precomputer::{create_precomputer, Precomputer, PrecomputerOptions, PrepareInput};
@@ -191,7 +190,7 @@ fn parse_tag_source(source: &str) -> Option<(bool, String)> {
             break;
         }
     }
-    let tag_name: String = characters[(closing as usize) + 1..position]
+    let tag_name: String = characters[usize::from(u8::from(closing)) + 1..position]
         .iter()
         .collect::<String>()
         .to_lowercase();
@@ -201,6 +200,12 @@ fn parse_tag_source(source: &str) -> Option<(bool, String)> {
         Some('/') if characters.get(position + 1) == Some(&'>') => Some((closing, tag_name)),
         _ => None,
     }
+}
+
+/// A UTF-16 offset on the wire. The html cannot outgrow i64; the error arm
+/// keeps the conversion total.
+fn to_offset(value: usize) -> Result<i64, NamedError> {
+    i64::try_from(value).map_err(|_| named("HtmlOffsetConversion"))
 }
 
 /// `injectHtmlAttributes`: insertions sorted by descending UTF-16 offset,
@@ -236,10 +241,13 @@ pub fn inject_html_attributes(html: &str, insertions: Option<&Json>) -> Result<S
     });
     for (offset, attribute) in rows {
         let safe_integer = offset.fract() == 0.0 && offset.abs() <= 9_007_199_254_740_991.0;
-        if !safe_integer || offset < 0.0 || offset > units.len() as f64 {
+        let length = js_int_to_number(to_offset(units.len())?);
+        if !safe_integer || offset < 0.0 || offset > length {
             return Err(named("InvalidHtmlAttributeInsertionOffset"));
         }
-        let at = offset as usize;
+        // The checks above gate the value to a safe integer within the unit
+        // vector.
+        let at = trunc_sat_usize(offset);
         let attribute_units: Vec<u16> = attribute.encode_utf16().collect();
         units.splice(at..at, attribute_units);
     }
@@ -278,7 +286,7 @@ fn append_projected_raw(node: &DomNode, raw: &mut String, hard_break_offsets: &m
     match node {
         DomNode::Text(value) => raw.push_str(value),
         DomNode::Element { tag_name, .. } if tag_name == "br" => {
-            hard_break_offsets.insert(utf16_length(raw) as usize);
+            hard_break_offsets.insert(raw.encode_utf16().count());
             raw.push('\n');
         }
         DomNode::Element { tag_name, .. }
@@ -538,7 +546,7 @@ impl HtmlPreparer {
     pub fn typography(&self) -> SnapshotTypography {
         self.precomputer
             .lock()
-            .expect("precomputer mutex poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .typography()
             .clone()
     }
@@ -551,7 +559,7 @@ impl HtmlPreparer {
         if self.owns_precomputer {
             self.precomputer
                 .lock()
-                .expect("precomputer mutex poisoned")
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .close();
         }
     }
@@ -639,7 +647,9 @@ impl HtmlPreparer {
                 continue;
             }
             let element_node = parser.to_dom_node(element);
-            let mut shared = precomputer.lock().expect("precomputer mutex poisoned");
+            let mut shared = precomputer
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let typography = shared.typography().clone();
             let projected =
                 snapshot_projection(&element_node, &typography, projector.as_deref_mut());
@@ -669,7 +679,10 @@ impl HtmlPreparer {
                 if entry_status(&prepared) == Some("prepared") {
                     prepared_paragraphs.push(prepared);
                     insertions.push(Json::Obj(vec![
-                        ("offset".to_string(), Json::Num(opening_tag.end as f64)),
+                        (
+                            "offset".to_string(),
+                            Json::Num(js_int_to_number(to_offset(opening_tag.end)?)),
+                        ),
                         (
                             "attribute".to_string(),
                             Json::str(format!(" data-tq-snapshot-key=\"{snapshot_key}\"")),
@@ -677,7 +690,7 @@ impl HtmlPreparer {
                     ]));
                     continue;
                 }
-                issues.push(issue_json(index, &snapshot_key, "snapshot", &prepared));
+                issues.push(issue_json(index, &snapshot_key, "snapshot", &prepared)?);
             }
 
             let contract_key = format!("f-{index}");
@@ -698,7 +711,12 @@ impl HtmlPreparer {
             if entry_status(&contract) == Some("prepared") {
                 font_contracts.push(contract);
             } else {
-                issues.push(issue_json(index, &contract_key, "font-contract", &contract));
+                issues.push(issue_json(
+                    index,
+                    &contract_key,
+                    "font-contract",
+                    &contract,
+                )?);
             }
         }
 
@@ -785,7 +803,7 @@ impl HtmlPreparer {
 }
 
 /// One `{ index, key, stage, issue }` issues row.
-fn issue_json(index: usize, key: &str, stage: &str, entry: &Json) -> Json {
+fn issue_json(index: usize, key: &str, stage: &str, entry: &Json) -> Result<Json, NamedError> {
     let issue = match entry {
         Json::Obj(fields) => fields
             .iter()
@@ -794,12 +812,15 @@ fn issue_json(index: usize, key: &str, stage: &str, entry: &Json) -> Json {
             .unwrap_or(Json::Null),
         _ => Json::Null,
     };
-    Json::Obj(vec![
-        ("index".to_string(), Json::Num(index as f64)),
+    Ok(Json::Obj(vec![
+        (
+            "index".to_string(),
+            Json::Num(js_int_to_number(to_offset(index)?)),
+        ),
         ("key".to_string(), Json::str(key)),
         ("stage".to_string(), Json::str(stage)),
         ("issue".to_string(), issue),
-    ])
+    ]))
 }
 
 /// `entry.status` of a prepare result.

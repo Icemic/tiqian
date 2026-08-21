@@ -1775,7 +1775,7 @@ fn shape_ok_json(session: &str, tag: &str, result: &ShapeRecordResult) -> Json {
         ("tag".into(), Json::str(tag)),
         ("ok".into(), Json::Bool(true)),
     ];
-    let Json::Obj(fields) = emit::shape_result_json(result) else {
+    let Ok(Json::Obj(fields)) = emit::shape_result_json(result) else {
         unreachable!("shape_result_json always builds an object");
     };
     entry.extend(fields);
@@ -1808,7 +1808,7 @@ fn evidence_json(session: &str, evidence: &FontEvidence) -> Json {
         ("session".into(), Json::str(session)),
         ("ok".into(), Json::Bool(true)),
     ];
-    let Json::Obj(fields) = emit::evidence_json(evidence) else {
+    let Ok(Json::Obj(fields)) = emit::evidence_json(evidence) else {
         unreachable!("evidence_json always builds an object");
     };
     entry.extend(fields);

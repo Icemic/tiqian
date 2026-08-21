@@ -16,9 +16,11 @@ use tiqian_precompute::normalize::snapshot_plain_text_issue;
 
 const MAX_CODE_POINT: u32 = 0x10ffff;
 
+/// Range bounds stay f64 because the oracle dump is read back as JSON
+/// numbers; comparing in the read type avoids a float to integer cast.
 struct IssueRange {
-    start: u32,
-    end: u32,
+    start: f64,
+    end: f64,
     issue: Option<String>,
 }
 
@@ -35,8 +37,8 @@ fn native_ranges() -> Vec<IssueRange> {
         let issue = issue_at(point);
         if issue != current {
             ranges.push(IssueRange {
-                start,
-                end: point - 1,
+                start: f64::from(start),
+                end: f64::from(point - 1),
                 issue: current,
             });
             start = point;
@@ -44,8 +46,8 @@ fn native_ranges() -> Vec<IssueRange> {
         }
     }
     ranges.push(IssueRange {
-        start,
-        end: MAX_CODE_POINT,
+        start: f64::from(start),
+        end: f64::from(MAX_CODE_POINT),
         issue: current,
     });
     ranges
@@ -74,14 +76,14 @@ fn oracle_ranges(json: &Json) -> Vec<IssueRange> {
                 panic!("oracle entry is not an object");
             };
             let mut range = IssueRange {
-                start: 0,
-                end: 0,
+                start: 0.0,
+                end: 0.0,
                 issue: None,
             };
             for (key, value) in fields {
                 match (key.as_str(), value) {
-                    ("start", Json::Num(value)) => range.start = *value as u32,
-                    ("end", Json::Num(value)) => range.end = *value as u32,
+                    ("start", Json::Num(value)) => range.start = *value,
+                    ("end", Json::Num(value)) => range.end = *value,
                     ("issue", Json::Str(value)) => range.issue = Some(value.clone()),
                     ("issue", Json::Null) => range.issue = None,
                     _ => panic!("unexpected oracle field {key}"),

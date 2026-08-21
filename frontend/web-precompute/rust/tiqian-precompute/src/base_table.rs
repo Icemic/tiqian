@@ -35,7 +35,7 @@ fn u16_at(bytes: &[u8], offset: usize) -> u16 {
 }
 
 fn s16_at(bytes: &[u8], offset: usize) -> i16 {
-    u16_at(bytes, offset) as i16
+    i16::from_be_bytes(u16_at(bytes, offset).to_be_bytes())
 }
 
 /// Four-byte tag built from the bytes that exist; a tag cut short by the end
@@ -54,13 +54,13 @@ pub fn base_ideo_idtp(bytes: Option<&[u8]>) -> BaseIdeoIdtp {
         Some(bytes) if bytes.len() >= 6 => bytes,
         _ => return BaseIdeoIdtp::empty(),
     };
-    let axis = u16_at(bytes, 4) as usize;
+    let axis = usize::from(u16_at(bytes, 4));
     if axis == 0 {
         return BaseIdeoIdtp::empty();
     }
-    let tag_list = axis + u16_at(bytes, axis) as usize;
-    let script_list = axis + u16_at(bytes, axis + 2) as usize;
-    let tag_count = u16_at(bytes, tag_list) as usize;
+    let tag_list = axis + usize::from(u16_at(bytes, axis));
+    let script_list = axis + usize::from(u16_at(bytes, axis + 2));
+    let tag_count = usize::from(u16_at(bytes, tag_list));
     let tags: Vec<String> = (0..tag_count)
         .map(|index| tag_at(bytes, tag_list + 2 + index * 4))
         .collect();
@@ -68,10 +68,13 @@ pub fn base_ideo_idtp(bytes: Option<&[u8]>) -> BaseIdeoIdtp {
     if script_count == 0 {
         return BaseIdeoIdtp::empty();
     }
-    let scripts: Vec<(String, usize)> = (0..script_count as usize)
+    let scripts: Vec<(String, usize)> = (0..usize::from(script_count))
         .map(|index| {
             let record = script_list + 2 + index * 6;
-            (tag_at(bytes, record), u16_at(bytes, record + 4) as usize)
+            (
+                tag_at(bytes, record),
+                usize::from(u16_at(bytes, record + 4)),
+            )
         })
         .collect();
     let selected = scripts
@@ -84,8 +87,8 @@ pub fn base_ideo_idtp(bytes: Option<&[u8]>) -> BaseIdeoIdtp {
     if base_values_offset == 0 {
         return BaseIdeoIdtp::empty();
     }
-    let base_values = script + base_values_offset as usize;
-    let coord_count = u16_at(bytes, base_values + 2) as usize;
+    let base_values = script + usize::from(base_values_offset);
+    let coord_count = usize::from(u16_at(bytes, base_values + 2));
     let mut has_variation_index = false;
     let mut coord = |tag: &str| -> Option<i16> {
         let index = tags.iter().position(|candidate| candidate == tag)?;
@@ -96,7 +99,7 @@ pub fn base_ideo_idtp(bytes: Option<&[u8]>) -> BaseIdeoIdtp {
         if coordinate_offset == 0 {
             return None;
         }
-        let coordinate = base_values + coordinate_offset as usize;
+        let coordinate = base_values + usize::from(coordinate_offset);
         if u16_at(bytes, coordinate) == 3 {
             has_variation_index = true;
         }
@@ -124,7 +127,11 @@ pub(crate) fn base_table_bytes(tags: &[&str], script_tag: &str, coords: &[(u16, 
     bytes.extend_from_slice(&4u16.to_be_bytes()); // axis + 0: tagList offset
     bytes.extend_from_slice(&14u16.to_be_bytes()); // axis + 2: scriptList offset
                                                    // tagList @ 10
-    bytes.extend_from_slice(&(tags.len() as u16).to_be_bytes());
+    bytes.extend_from_slice(
+        &u16::try_from(tags.len())
+            .expect("fixture tag count fits u16")
+            .to_be_bytes(),
+    );
     for tag in tags {
         // tag records are fixed 4 bytes; pad shorter tags with NUL
         let mut record = [0u8; 4];
@@ -146,7 +153,11 @@ pub(crate) fn base_table_bytes(tags: &[&str], script_tag: &str, coords: &[(u16, 
     bytes.extend_from_slice(&0u16.to_be_bytes()); // defaultMinMax offset
                                                   // BaseValues @ 32: defaultIndex, coordCount, offsets
     bytes.extend_from_slice(&0u16.to_be_bytes());
-    bytes.extend_from_slice(&(coords.len() as u16).to_be_bytes());
+    bytes.extend_from_slice(
+        &u16::try_from(coords.len())
+            .expect("fixture coord count fits u16")
+            .to_be_bytes(),
+    );
     let base_values = 32usize;
     let first_offset_slot = base_values + 4;
     let coordinates_start = first_offset_slot + coords.len() * 2;
@@ -154,7 +165,8 @@ pub(crate) fn base_table_bytes(tags: &[&str], script_tag: &str, coords: &[(u16, 
         bytes.push(0);
     }
     for (index, _) in coords.iter().enumerate() {
-        let offset = (coordinates_start + index * 4 - base_values) as u16;
+        let offset = u16::try_from(coordinates_start + index * 4 - base_values)
+            .expect("fixture coord offset fits u16");
         let slot = first_offset_slot + index * 2;
         bytes[slot..slot + 2].copy_from_slice(&offset.to_be_bytes());
     }

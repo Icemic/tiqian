@@ -59,7 +59,9 @@ fn ltag_valid(table: &[u8]) -> bool {
     let Some(count) = u32_at(table, 8) else {
         return false;
     };
-    let count = count as usize;
+    let Some(count) = usize::try_from(count).ok() else {
+        return false;
+    };
     let Some(ranges_end) = 12usize.checked_add(count.saturating_mul(4)) else {
         return false;
     };
@@ -68,8 +70,8 @@ fn ltag_valid(table: &[u8]) -> bool {
     }
     for index in 0..count {
         let record = 12 + index * 4;
-        let offset = u16_at(table, record).unwrap_or(u16::MAX) as usize;
-        let length = u16_at(table, record + 2).unwrap_or(u16::MAX) as usize;
+        let offset = usize::from(u16_at(table, record).unwrap_or(u16::MAX));
+        let length = usize::from(u16_at(table, record + 2).unwrap_or(u16::MAX));
         let Some(end) = offset.checked_add(length) else {
             return false;
         };
@@ -86,13 +88,13 @@ fn ltag_valid(table: &[u8]) -> bool {
 /// absolute from the table start.
 fn ltag_language(ltag: Option<&[u8]>, index: u16) -> Option<String> {
     let table = ltag?;
-    let count = u32_at(table, 8)? as usize;
-    if index as usize >= count {
+    let count = usize::try_from(u32_at(table, 8)?).ok()?;
+    if usize::from(index) >= count {
         return None;
     }
-    let record = 12 + index as usize * 4;
-    let offset = u16_at(table, record)? as usize;
-    let length = u16_at(table, record + 2)? as usize;
+    let record = 12 + usize::from(index) * 4;
+    let offset = usize::from(u16_at(table, record)?);
+    let length = usize::from(u16_at(table, record + 2)?);
     let end = offset.checked_add(length)?;
     Some(String::from_utf8_lossy(table.get(offset..end)?).into_owned())
 }
@@ -127,7 +129,7 @@ fn decode_string(score: u16, bytes: &[u8]) -> String {
         .iter()
         .map(|byte| {
             if *byte < 0x80 {
-                *byte as char
+                char::from(*byte)
             } else {
                 '\u{fffd}'
             }
@@ -148,8 +150,8 @@ pub fn local_names(name: Option<&[u8]>, ltag: Option<&[u8]>) -> Vec<String> {
     if format > 1 {
         return Vec::new();
     }
-    let count = u16_at(table, 2).unwrap_or(0) as usize;
-    let storage_offset = u16_at(table, 4).unwrap_or(0) as usize;
+    let count = usize::from(u16_at(table, 2).unwrap_or(0));
+    let storage_offset = usize::from(u16_at(table, 4).unwrap_or(0));
     if storage_offset > table.len() || 6 + count * 12 > table.len() {
         return Vec::new();
     }
@@ -161,8 +163,8 @@ pub fn local_names(name: Option<&[u8]>, ltag: Option<&[u8]>) -> Vec<String> {
         let encoding = u16_at(table, record + 2).unwrap_or(0);
         let language_id = u16_at(table, record + 4).unwrap_or(0);
         let name_id = u16_at(table, record + 6).unwrap_or(0);
-        let length = u16_at(table, record + 8).unwrap_or(0) as usize;
-        let offset = u16_at(table, record + 10).unwrap_or(0) as usize;
+        let length = usize::from(u16_at(table, record + 8).unwrap_or(0));
+        let offset = usize::from(u16_at(table, record + 10).unwrap_or(0));
         // A record whose string runs past the table's storage nulls the
         // whole table in the HarfBuzz sanitizer.
         let start = storage_offset + offset;
@@ -248,8 +250,16 @@ mod tests {
             let storage_start = 6 + self.records.len() * 12;
             let mut bytes = Vec::new();
             bytes.extend_from_slice(&0u16.to_be_bytes()); // format
-            bytes.extend_from_slice(&(self.records.len() as u16).to_be_bytes());
-            bytes.extend_from_slice(&(storage_start as u16).to_be_bytes());
+            bytes.extend_from_slice(
+                &u16::try_from(self.records.len())
+                    .expect("fixture record count fits u16")
+                    .to_be_bytes(),
+            );
+            bytes.extend_from_slice(
+                &u16::try_from(storage_start)
+                    .expect("fixture storage offset fits u16")
+                    .to_be_bytes(),
+            );
             let mut storage = Vec::new();
             for (platform, encoding, language, name_id, string) in &self.records {
                 let offset = storage.len();
@@ -257,8 +267,16 @@ mod tests {
                 bytes.extend_from_slice(&encoding.to_be_bytes());
                 bytes.extend_from_slice(&language.to_be_bytes());
                 bytes.extend_from_slice(&name_id.to_be_bytes());
-                bytes.extend_from_slice(&(string.len() as u16).to_be_bytes());
-                bytes.extend_from_slice(&(offset as u16).to_be_bytes());
+                bytes.extend_from_slice(
+                    &u16::try_from(string.len())
+                        .expect("fixture string size fits u16")
+                        .to_be_bytes(),
+                );
+                bytes.extend_from_slice(
+                    &u16::try_from(offset)
+                        .expect("fixture storage offset fits u16")
+                        .to_be_bytes(),
+                );
                 storage.extend_from_slice(string);
             }
             bytes.extend_from_slice(&storage);

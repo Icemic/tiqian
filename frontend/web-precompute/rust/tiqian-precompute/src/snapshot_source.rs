@@ -7,7 +7,9 @@ use std::collections::HashSet;
 
 use tiqian::NamedError;
 
-use crate::js_compat::{cmp_utf16, js_number_string, js_to_number, js_trim};
+use crate::js_compat::{
+    cmp_utf16, js_int_to_number, js_number_string, js_to_number, js_trim, trunc_sat_i64,
+};
 use crate::json::Json;
 use crate::schema::stable_stringify;
 
@@ -141,8 +143,8 @@ pub fn semantics_json(semantics: &[SemanticSpan]) -> Json {
             .iter()
             .map(|span| {
                 Json::Obj(vec![
-                    ("start".to_string(), Json::Num(span.start as f64)),
-                    ("end".to_string(), Json::Num(span.end as f64)),
+                    ("start".to_string(), Json::Num(js_int_to_number(span.start))),
+                    ("end".to_string(), Json::Num(js_int_to_number(span.end))),
                     ("tagName".to_string(), Json::str(&span.tag_name)),
                     (
                         "attributes".to_string(),
@@ -215,7 +217,7 @@ fn normalize_semantic_ranges(
     value: Option<&Json>,
     live: bool,
 ) -> Result<Vec<RawSemantic>, NamedError> {
-    let text_length = text.encode_utf16().count() as i64;
+    let text_length = to_offset(text.encode_utf16().count())?;
     const NO_SPANS: &[Json] = &[];
     let items = match value {
         None => NO_SPANS,
@@ -242,16 +244,16 @@ fn normalize_semantic_ranges(
         // order field and the array position.
         let order = field(span, "order")
             .filter(|value| is_safe_integer_json(value))
-            .map(|value| js_number_value(value) as i64)
-            .unwrap_or(source_index as i64);
+            .map(|value| trunc_sat_i64(js_number_value(value)))
+            .unwrap_or(to_offset(source_index)?);
         if live {
             if tag_name.is_empty() {
                 return Err(named("InvalidLiveSemanticTag"));
             }
             let source_index = field(span, "sourceIndex")
                 .filter(|value| is_safe_integer_json(value))
-                .map(|value| js_number_value(value) as i64)
-                .unwrap_or(source_index as i64);
+                .map(|value| trunc_sat_i64(js_number_value(value)))
+                .unwrap_or(to_offset(source_index)?);
             collected.push(RawSemantic {
                 start,
                 end,
@@ -272,7 +274,7 @@ fn normalize_semantic_ranges(
                 end,
                 tag_name,
                 attributes,
-                source_index: source_index as i64,
+                source_index: to_offset(source_index)?,
                 order,
             });
         }
@@ -405,14 +407,14 @@ fn js_regex_space(c: char) -> bool {
 /// `assertUtf16Boundary`: a safe integer inside the text, not splitting a
 /// surrogate pair.
 fn assert_utf16_boundary(text: &str, text_length: i64, offset: f64) -> Result<i64, NamedError> {
-    if !is_safe_integer(offset) || offset < 0.0 || offset > text_length as f64 {
+    if !is_safe_integer(offset) || offset < 0.0 || offset > js_int_to_number(text_length) {
         return Err(named("InvalidSnapshotSemanticRange"));
     }
-    let offset = offset as i64;
+    let offset = trunc_sat_i64(offset);
     if offset > 0 && offset < text_length {
         let units: Vec<u16> = text.encode_utf16().collect();
-        let before = units[(offset - 1) as usize];
-        let at = units[offset as usize];
+        let before = units[unit_index(offset - 1)?];
+        let at = units[unit_index(offset)?];
         if (0xD800..0xDC00).contains(&before) && (0xDC00..0xE000).contains(&at) {
             return Err(named("SnapshotSemanticRangeSplitsSurrogatePair"));
         }
@@ -432,8 +434,8 @@ fn exact_range_contract(
         return false;
     };
     items.iter().any(|span| {
-        js_number_value_or(field(span, "start"), f64::NAN) == start as f64
-            && js_number_value_or(field(span, "end"), f64::NAN) == end as f64
+        js_number_value_or(field(span, "start"), f64::NAN) == js_int_to_number(start)
+            && js_number_value_or(field(span, "end"), f64::NAN) == js_int_to_number(end)
             && predicate(span)
     })
 }
@@ -454,7 +456,7 @@ pub fn snapshot_source_artifact_from_dom(
 ) -> Result<SourceArtifact, NamedError> {
     let mut text = String::new();
     let mut spans: Vec<DomSpan> = Vec::new();
-    let mut hard_break_offsets: HashSet<i64> = HashSet::new();
+    let mut hard_break_offsets: HashSet<usize> = HashSet::new();
     let mut order = 0i64;
     // The paragraph itself stays outside the walk; js iterates its children.
     if let DomNode::Element { children, .. } = paragraph {
@@ -475,7 +477,7 @@ fn append_dom_node(
     node: &DomNode,
     text: &mut String,
     spans: &mut Vec<DomSpan>,
-    hard_break_offsets: &mut HashSet<i64>,
+    hard_break_offsets: &mut HashSet<usize>,
     order: &mut i64,
 ) -> Result<(), NamedError> {
     match node {
@@ -489,7 +491,7 @@ fn append_dom_node(
         } => {
             let tag_name = tag_name.to_lowercase();
             if tag_name == "br" {
-                hard_break_offsets.insert(text.encode_utf16().count() as i64);
+                hard_break_offsets.insert(text.encode_utf16().count());
                 text.push('\n');
                 return Ok(());
             }
@@ -498,13 +500,13 @@ fn append_dom_node(
                     "UnsupportedSnapshotSemanticTag:{tag_name}"
                 )));
             }
-            let start = text.encode_utf16().count() as i64;
+            let start = to_offset(text.encode_utf16().count())?;
             let source_order = *order;
             *order += 1;
             for child in children {
                 append_dom_node(child, text, spans, hard_break_offsets, order)?;
             }
-            let end = text.encode_utf16().count() as i64;
+            let end = to_offset(text.encode_utf16().count())?;
             if end > start {
                 spans.push(DomSpan {
                     start,
@@ -524,7 +526,7 @@ fn append_dom_node(
 fn projected_normal_flow(
     text: &str,
     spans: &[DomSpan],
-    hard_break_offsets: &HashSet<i64>,
+    hard_break_offsets: &HashSet<usize>,
 ) -> Result<SourceArtifact, NamedError> {
     let units: Vec<u16> = text.encode_utf16().collect();
     let mut boundary_map: Vec<i64> = vec![0; units.len() + 1];
@@ -538,42 +540,43 @@ fn projected_normal_flow(
         emit: bool,
         pending_start: &mut i64,
         pending_end: &mut i64,
-    ) {
+    ) -> Result<(), NamedError> {
         if *pending_start < 0 {
-            return;
+            return Ok(());
         }
-        let before = projected.len() as i64;
-        if emit && !projected.is_empty() && *projected.last().unwrap() != 0x0A {
-            projected.push(b' ' as u16);
+        let before = to_offset(projected.len())?;
+        if emit && projected.last().is_some_and(|last| *last != 0x0A) {
+            projected.push(u16::from(b' '));
         }
-        let after = projected.len() as i64;
-        boundary_map[*pending_start as usize] = before;
+        let after = to_offset(projected.len())?;
+        boundary_map[unit_index(*pending_start)?] = before;
         for boundary in (*pending_start + 1)..=*pending_end {
-            boundary_map[boundary as usize] = after;
+            boundary_map[unit_index(boundary)?] = after;
         }
         *pending_start = -1;
         *pending_end = -1;
+        Ok(())
     }
 
     for index in 0..units.len() {
         let character = units[index];
-        if character == 0x0A && hard_break_offsets.contains(&(index as i64)) {
+        if character == 0x0A && hard_break_offsets.contains(&index) {
             resolve_pending(
                 &mut projected,
                 &mut boundary_map,
                 false,
                 &mut pending_start,
                 &mut pending_end,
-            );
-            boundary_map[index] = projected.len() as i64;
+            )?;
+            boundary_map[index] = to_offset(projected.len())?;
             projected.push(character);
-            boundary_map[index + 1] = projected.len() as i64;
+            boundary_map[index + 1] = to_offset(projected.len())?;
         } else if matches!(character, 0x20 | 0x09 | 0x0A | 0x0D | 0x0C) {
             if pending_start < 0 {
-                pending_start = index as i64;
-                boundary_map[index] = projected.len() as i64;
+                pending_start = to_offset(index)?;
+                boundary_map[index] = to_offset(projected.len())?;
             }
-            pending_end = index as i64 + 1;
+            pending_end = to_offset(index)? + 1;
         } else {
             resolve_pending(
                 &mut projected,
@@ -581,10 +584,10 @@ fn projected_normal_flow(
                 true,
                 &mut pending_start,
                 &mut pending_end,
-            );
-            boundary_map[index] = projected.len() as i64;
+            )?;
+            boundary_map[index] = to_offset(projected.len())?;
             projected.push(character);
-            boundary_map[index + 1] = projected.len() as i64;
+            boundary_map[index + 1] = to_offset(projected.len())?;
         }
     }
     resolve_pending(
@@ -593,37 +596,35 @@ fn projected_normal_flow(
         false,
         &mut pending_start,
         &mut pending_end,
-    );
-    boundary_map[units.len()] = projected.len() as i64;
+    )?;
+    boundary_map[units.len()] = to_offset(projected.len())?;
 
-    let projected_text = String::from_utf16(&projected).expect("projection keeps pairs whole");
-    let mapped = spans
-        .iter()
-        .filter(|span| boundary_map[span.end as usize] > boundary_map[span.start as usize])
-        .map(|span| {
-            Json::Obj(vec![
-                (
-                    "start".to_string(),
-                    Json::Num(boundary_map[span.start as usize] as f64),
+    // The projection never splits surrogate pairs, so the decode cannot fail.
+    let projected_text =
+        String::from_utf16(&projected).map_err(|_| named("SnapshotSourceProjectionUtf16"))?;
+    let mut mapped: Vec<Json> = Vec::new();
+    for span in spans {
+        let start = boundary_map[unit_index(span.start)?];
+        let end = boundary_map[unit_index(span.end)?];
+        if end <= start {
+            continue;
+        }
+        mapped.push(Json::Obj(vec![
+            ("start".to_string(), Json::Num(js_int_to_number(start))),
+            ("end".to_string(), Json::Num(js_int_to_number(end))),
+            ("tagName".to_string(), Json::str(&span.tag_name)),
+            (
+                "attributes".to_string(),
+                Json::Arr(
+                    span.attributes
+                        .iter()
+                        .map(|(name, value)| Json::Arr(vec![Json::str(name), Json::str(value)]))
+                        .collect(),
                 ),
-                (
-                    "end".to_string(),
-                    Json::Num(boundary_map[span.end as usize] as f64),
-                ),
-                ("tagName".to_string(), Json::str(&span.tag_name)),
-                (
-                    "attributes".to_string(),
-                    Json::Arr(
-                        span.attributes
-                            .iter()
-                            .map(|(name, value)| Json::Arr(vec![Json::str(name), Json::str(value)]))
-                            .collect(),
-                    ),
-                ),
-                ("order".to_string(), Json::Num(span.order as f64)),
-            ])
-        })
-        .collect::<Vec<_>>();
+            ),
+            ("order".to_string(), Json::Num(js_int_to_number(span.order))),
+        ]));
+    }
     snapshot_source_artifact(&projected_text, Some(&Json::Arr(mapped)))
 }
 
@@ -682,6 +683,18 @@ fn is_safe_integer_json(value: &Json) -> bool {
 fn is_safe_integer(value: f64) -> bool {
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
     value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER
+}
+
+/// Converts a length or index of in-memory data to the offset form the js
+/// functions use. The conversion fails only when a length exceeds i64.
+fn to_offset(value: usize) -> Result<i64, NamedError> {
+    i64::try_from(value).map_err(|_| named("SnapshotSourceOffsetConversion"))
+}
+
+/// Converts an offset already validated against the text length to a unit
+/// index. A negative offset fails.
+fn unit_index(offset: i64) -> Result<usize, NamedError> {
+    usize::try_from(offset).map_err(|_| named("SnapshotSourceIndexConversion"))
 }
 
 fn field<'a>(value: &'a Json, key: &str) -> Option<&'a Json> {
