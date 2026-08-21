@@ -16,11 +16,13 @@ use crate::font_source::sha256_hex;
 use crate::html_parse::{
     parse_compound_selector_list, parse_html_document, CompoundSelector, DomParser,
 };
-use crate::js_compat::js_trim;
-use crate::json::Json;
+use crate::js_compat::{is_js_whitespace, js_trim};
+use crate::json::{member, Json};
 use crate::normalize::SnapshotTypography;
 use crate::paragraph::utf16_length;
-use crate::precomputer::{create_precomputer, PrepareInput, Precomputer, PrecomputerOptions};
+use std::sync::{Arc, Mutex};
+
+use crate::precomputer::{create_precomputer, Precomputer, PrecomputerOptions, PrepareInput};
 use crate::snapshot_bundle::{
     render_font_contract_bundle, render_snapshot_bundle, SnapshotBundle, SnapshotBundleOptions,
 };
@@ -64,9 +66,8 @@ pub fn selected_tag_names(selector: &str) -> Result<Vec<String>, NamedError> {
     let valid = |name: &str| {
         let mut characters = name.chars();
         matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
-            && characters.all(|rest| {
-                rest.is_ascii_lowercase() || rest.is_ascii_digit() || rest == '-'
-            })
+            && characters
+                .all(|rest| rest.is_ascii_lowercase() || rest.is_ascii_digit() || rest == '-')
     };
     if names.iter().any(|name| !valid(name)) {
         return Err(named("UnsupportedHtmlParagraphSelector"));
@@ -155,7 +156,11 @@ pub fn find_html_opening_tags(html: &str, tag_names: &[&str]) -> Vec<HtmlOpening
                 template_depth += 1;
             }
         } else if !closing && selected.contains(&tag_name) && template_depth == 0 {
-            tags.push(HtmlOpeningTag { end, source, tag_name });
+            tags.push(HtmlOpeningTag {
+                end,
+                source,
+                tag_name,
+            });
         }
         cursor = utf16_find_str(&units, "<", end + 1);
     }
@@ -196,27 +201,6 @@ fn parse_tag_source(source: &str) -> Option<(bool, String)> {
         Some('/') if characters.get(position + 1) == Some(&'>') => Some((closing, tag_name)),
         _ => None,
     }
-}
-
-/// ECMAScript `\s`: WhiteSpace plus LineTerminator, including U+FEFF.
-fn is_js_whitespace(character: char) -> bool {
-    matches!(
-        character,
-        '\u{9}' | '\u{a}'
-            | '\u{b}'
-            | '\u{c}'
-            | '\u{d}'
-            | '\u{20}'
-            | '\u{a0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
-            | '\u{feff}'
-    )
 }
 
 /// `injectHtmlAttributes`: insertions sorted by descending UTF-16 offset,
@@ -290,11 +274,7 @@ pub fn projected_text_only(paragraph: &DomNode) -> String {
     output
 }
 
-fn append_projected_raw(
-    node: &DomNode,
-    raw: &mut String,
-    hard_break_offsets: &mut HashSet<usize>,
-) {
+fn append_projected_raw(node: &DomNode, raw: &mut String, hard_break_offsets: &mut HashSet<usize>) {
     match node {
         DomNode::Text(value) => raw.push_str(value),
         DomNode::Element { tag_name, .. } if tag_name == "br" => {
@@ -341,8 +321,9 @@ pub struct HtmlProjectionContext<'a> {
 }
 
 /// The host hook behind `projectSnapshotParagraph`. Returning `None`
-/// declines the snapshot the way a null or false return value does.
-pub trait SnapshotParagraphProjector {
+/// declines the snapshot the way a null or false return value does. Stored
+/// inside the preparer, so it must move across threads with it.
+pub trait SnapshotParagraphProjector: Send {
     fn project(&mut self, context: HtmlProjectionContext) -> Option<SnapshotProjection>;
 }
 
@@ -458,7 +439,7 @@ fn client_bundle_json(bundle: &SnapshotBundle) -> Json {
 }
 
 /// The bundle in the js object literal field order.
-fn bundle_json(bundle: &SnapshotBundle) -> Json {
+pub fn bundle_json(bundle: &SnapshotBundle) -> Json {
     Json::Obj(vec![
         ("id".to_string(), Json::str(bundle.id.clone())),
         ("template".to_string(), Json::str(bundle.template.clone())),
@@ -494,16 +475,20 @@ pub struct HtmlPrepareOptions<'a> {
 
 impl<'a> Default for HtmlPrepareOptions<'a> {
     fn default() -> Self {
-        HtmlPrepareOptions { id: None, snapshot_max_width_px: None }
+        HtmlPrepareOptions {
+            id: None,
+            snapshot_max_width_px: None,
+        }
     }
 }
 
 /// Options of [`create_html_preparer`]. `precomputer` reuses an open
-/// session; otherwise one is created from `create` and closed together with
-/// the preparer. `shared_runtime_style` is the package stylesheet the
+/// session; several preparers may share one handle while the caller keeps
+/// addressing it. Otherwise one is created from `create` and closed together
+/// with the preparer. `shared_runtime_style` is the package stylesheet the
 /// bundle inlines; the crate never reads files.
 pub struct HtmlPreparerOptions<'a> {
-    pub precomputer: Option<Precomputer>,
+    pub precomputer: Option<Arc<Mutex<Precomputer>>>,
     pub create: PrecomputerOptions<'a>,
     pub paragraph_selector: Option<&'a str>,
     pub skipped_ancestor_selector: Option<&'a str>,
@@ -516,10 +501,12 @@ pub struct HtmlPreparerOptions<'a> {
 pub fn create_html_preparer(options: HtmlPreparerOptions) -> Result<HtmlPreparer, NamedError> {
     let owns_precomputer = options.precomputer.is_none();
     let precomputer = match options.precomputer {
-        Some(precomputer) => precomputer,
-        None => create_precomputer(options.create)?,
+        Some(shared) => shared,
+        None => Arc::new(Mutex::new(create_precomputer(options.create)?)),
     };
-    let paragraph_selector = options.paragraph_selector.unwrap_or(DEFAULT_PARAGRAPH_SELECTOR);
+    let paragraph_selector = options
+        .paragraph_selector
+        .unwrap_or(DEFAULT_PARAGRAPH_SELECTOR);
     let tag_names = selected_tag_names(paragraph_selector)?;
     let skipped = options
         .skipped_ancestor_selector
@@ -540,7 +527,7 @@ pub struct HtmlPreparer {
     source_map_ignored: Vec<CompoundSelector>,
     tag_names: Vec<String>,
     skipped_ancestor_selector: Vec<CompoundSelector>,
-    precomputer: Precomputer,
+    precomputer: Arc<Mutex<Precomputer>>,
     owns_precomputer: bool,
     shared_runtime_style: String,
     projector: Option<Box<dyn SnapshotParagraphProjector>>,
@@ -548,8 +535,12 @@ pub struct HtmlPreparer {
 }
 
 impl HtmlPreparer {
-    pub fn typography(&self) -> &SnapshotTypography {
-        self.precomputer.typography()
+    pub fn typography(&self) -> SnapshotTypography {
+        self.precomputer
+            .lock()
+            .expect("precomputer mutex poisoned")
+            .typography()
+            .clone()
     }
 
     pub fn close(&mut self) {
@@ -558,7 +549,10 @@ impl HtmlPreparer {
         }
         self.closed = true;
         if self.owns_precomputer {
-            self.precomputer.close();
+            self.precomputer
+                .lock()
+                .expect("precomputer mutex poisoned")
+                .close();
         }
     }
 
@@ -645,11 +639,10 @@ impl HtmlPreparer {
                 continue;
             }
             let element_node = parser.to_dom_node(element);
-            let projected = snapshot_projection(
-                &element_node,
-                precomputer.typography(),
-                projector.as_deref_mut(),
-            );
+            let mut shared = precomputer.lock().expect("precomputer mutex poisoned");
+            let typography = shared.typography().clone();
+            let projected =
+                snapshot_projection(&element_node, &typography, projector.as_deref_mut());
             let text = match &projected {
                 Some(value) => value.text.clone(),
                 None => projected_text_only(&element_node),
@@ -672,7 +665,7 @@ impl HtmlPreparer {
                     max_width_px: Some(&width_number),
                     source_boundaries: Some(&projected.source_boundaries),
                 };
-                let prepared = precomputer.prepare_paragraph(&input)?;
+                let prepared = shared.prepare_paragraph(&input)?;
                 if entry_status(&prepared) == Some("prepared") {
                     prepared_paragraphs.push(prepared);
                     insertions.push(Json::Obj(vec![
@@ -701,7 +694,7 @@ impl HtmlPreparer {
                 input.inline_boxes = Some(&projected.inline_boxes);
                 input.source_boundaries = Some(&projected.source_boundaries);
             }
-            let contract = precomputer.prepare_font_contract(&input)?;
+            let contract = shared.prepare_font_contract(&input)?;
             if entry_status(&contract) == Some("prepared") {
                 font_contracts.push(contract);
             } else {
@@ -816,15 +809,6 @@ fn entry_status(entry: &Json) -> Option<&str> {
             Some((_, Json::Str(status))) => Some(status.as_str()),
             _ => None,
         },
-        _ => None,
-    }
-}
-
-fn member<'a>(value: &'a Json, name: &str) -> Option<&'a Json> {
-    match value {
-        Json::Obj(fields) => {
-            fields.iter().find(|(key, _)| key == name).map(|(_, inner)| inner)
-        }
         _ => None,
     }
 }

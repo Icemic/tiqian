@@ -47,13 +47,20 @@ fn prepared_dom_corpus_matches_the_js_oracle_fixture() {
         Some(Json::Arr(cases)) => cases,
         _ => panic!("the corpus fixture carries a cases array"),
     };
-    assert!(cases.len() >= 20, "the corpus keeps covering the lowering paths");
+    assert!(
+        cases.len() >= 20,
+        "the corpus keeps covering the lowering paths"
+    );
 
     for case in cases {
         let name = str_field(case, "name").unwrap_or_default().to_string();
-        let plan = str_field(case, "plan").expect("each case carries plan JSON").to_string();
+        let plan = str_field(case, "plan")
+            .expect("each case carries plan JSON")
+            .to_string();
         let locale = str_field(case, "locale").unwrap_or("zh-Hans");
-        let options_json = field(case, "options").cloned().unwrap_or(Json::Obj(Vec::new()));
+        let options_json = field(case, "options")
+            .cloned()
+            .unwrap_or(Json::Obj(Vec::new()));
         let expect = field(case, "expect").expect("each case carries an expectation");
 
         let mut style_callback = |declaration: &str| format!("tqc-{}", declaration.len());

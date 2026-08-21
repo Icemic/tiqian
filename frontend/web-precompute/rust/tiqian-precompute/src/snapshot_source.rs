@@ -13,9 +13,8 @@ use crate::schema::stable_stringify;
 
 /// `SAFE_SEMANTIC_TAGS`: the inline tags the snapshot path can serialize.
 pub const SAFE_SEMANTIC_TAGS: &[&str] = &[
-    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em",
-    "i", "ins", "kbd", "mark", "q", "s", "samp", "small", "span", "strong", "sub",
-    "sup", "time", "u", "var",
+    "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em", "i", "ins", "kbd",
+    "mark", "q", "s", "samp", "small", "span", "strong", "sub", "sup", "time", "u", "var",
 ];
 
 const INTERNAL_ATTRIBUTE_PREFIX: &str = "data-tq-";
@@ -148,8 +147,7 @@ pub fn semantics_json(semantics: &[SemanticSpan]) -> Json {
                     (
                         "attributes".to_string(),
                         Json::Arr(
-                            span
-                                .attributes
+                            span.attributes
                                 .iter()
                                 .map(|(name, value)| {
                                     Json::Arr(vec![
@@ -174,13 +172,18 @@ pub fn snapshot_semantic_metric_contract_issue(
     inline_boxes: Option<&Json>,
 ) -> Option<&'static str> {
     for semantic in semantics.iter().filter(|span| span.tag_name == "code") {
-        let has_text_style = exact_range_contract(text_spans, semantic.start, semantic.end, |span| {
-            matches!(field(span, "fontFamilies"), Some(Json::Arr(families)) if !families.is_empty())
-                && js_number_value_or(field(span, "fontSizePx"), f64::NAN).is_finite()
-                && field(span, "fontWeight").is_some_and(is_safe_integer_json)
-                && matches!(field(span, "italic"), Some(Json::Bool(_)))
-                && js_number_value_or(field(span, "baselineShiftPx"), f64::NAN).is_finite()
-        });
+        let has_text_style = exact_range_contract(
+            text_spans,
+            semantic.start,
+            semantic.end,
+            |span| {
+                matches!(field(span, "fontFamilies"), Some(Json::Arr(families)) if !families.is_empty())
+                    && js_number_value_or(field(span, "fontSizePx"), f64::NAN).is_finite()
+                    && field(span, "fontWeight").is_some_and(is_safe_integer_json)
+                    && matches!(field(span, "italic"), Some(Json::Bool(_)))
+                    && js_number_value_or(field(span, "baselineShiftPx"), f64::NAN).is_finite()
+            },
+        );
         if !has_text_style {
             return Some("InlineCodeFontContractUnavailable");
         }
@@ -341,7 +344,10 @@ fn normalized_attributes(value: Option<&Json>) -> Result<Vec<(String, String)>, 
     }
     attributes.sort_by(|left, right| cmp_utf16(&left.0, &right.0));
     let mut seen = HashSet::new();
-    if attributes.iter().any(|(name, _)| !seen.insert(name.clone())) {
+    if attributes
+        .iter()
+        .any(|(name, _)| !seen.insert(name.clone()))
+    {
         return Err(named("DuplicateSnapshotSemanticAttribute"));
     }
     Ok(attributes)
@@ -357,9 +363,7 @@ fn valid_attribute_name(name: &str) -> bool {
     if !(first.is_ascii_alphabetic() || first == '_' || first == ':') {
         return false;
     }
-    chars.all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-')
-    })
+    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | '-'))
 }
 
 /// `/^\s*javascript:/iu`: leading js whitespace, then the scheme under
@@ -385,18 +389,22 @@ fn unsafe_href(value: &str) -> bool {
 /// The `\s` class of the js regex engine: the explicit ECMA set, which
 /// differs from Unicode White_Space by excluding U+0085.
 fn js_regex_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}'
-        | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}'
-        | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{000b}' | '\u{000c}' | '\r' | ' ' | '\u{00a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
 }
 
 /// `assertUtf16Boundary`: a safe integer inside the text, not splitting a
 /// surrogate pair.
-fn assert_utf16_boundary(
-    text: &str,
-    text_length: i64,
-    offset: f64,
-) -> Result<i64, NamedError> {
+fn assert_utf16_boundary(text: &str, text_length: i64, offset: f64) -> Result<i64, NamedError> {
     if !is_safe_integer(offset) || offset < 0.0 || offset > text_length as f64 {
         return Err(named("InvalidSnapshotSemanticRange"));
     }
@@ -451,7 +459,13 @@ pub fn snapshot_source_artifact_from_dom(
     // The paragraph itself stays outside the walk; js iterates its children.
     if let DomNode::Element { children, .. } = paragraph {
         for child in children {
-            append_dom_node(child, &mut text, &mut spans, &mut hard_break_offsets, &mut order)?;
+            append_dom_node(
+                child,
+                &mut text,
+                &mut spans,
+                &mut hard_break_offsets,
+                &mut order,
+            )?;
         }
     }
     projected_normal_flow(&text, &spans, &hard_break_offsets)
@@ -468,7 +482,11 @@ fn append_dom_node(
         DomNode::Text(value) => {
             text.push_str(value);
         }
-        DomNode::Element { tag_name, attributes, children } => {
+        DomNode::Element {
+            tag_name,
+            attributes,
+            children,
+        } => {
             let tag_name = tag_name.to_lowercase();
             if tag_name == "br" {
                 hard_break_offsets.insert(text.encode_utf16().count() as i64);
@@ -598,9 +616,7 @@ fn projected_normal_flow(
                     Json::Arr(
                         span.attributes
                             .iter()
-                            .map(|(name, value)| {
-                                Json::Arr(vec![Json::str(name), Json::str(value)])
-                            })
+                            .map(|(name, value)| Json::Arr(vec![Json::str(name), Json::str(value)]))
                             .collect(),
                     ),
                 ),
@@ -637,7 +653,7 @@ pub(crate) fn js_number_value(value: &Json) -> f64 {
 }
 
 /// `String(value)` over a wire value.
-pub(crate) fn js_string_value(value: &Json) -> String {
+pub fn js_string_value(value: &Json) -> String {
     match value {
         Json::Str(inner) => inner.clone(),
         Json::Num(inner) => js_number_string(*inner),
@@ -755,35 +771,44 @@ mod tests {
             "[{\"start\":0,\"end\":3,\"tagName\":\"a\",\"attributes\":{\"href\":\"/a\"}},{\"start\":2,\"end\":4,\"tagName\":\"em\",\"attributes\":{}}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("中文正文", Some(&crossing)).unwrap_err().0,
+            normalize_snapshot_semantics("中文正文", Some(&crossing))
+                .unwrap_err()
+                .0,
             "CrossingSnapshotSemanticRanges"
         );
         let active = json(
             "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"onclick\":\"alert(1)\"}}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&active)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&active))
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticAttribute:onclick"
         );
-        let style = json(
-            "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"style\":\"x\"}}]",
-        );
+        let style =
+            json("[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"style\":\"x\"}}]");
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&style)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&style))
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticAttribute:style"
         );
         let internal = json(
             "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"data-tq-x\":\"1\"}}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&internal)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&internal))
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticAttribute:data-tq-x"
         );
         let unsafe_href = json(
             "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"href\":\"JavaScript:alert(1)\"}}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&unsafe_href)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&unsafe_href))
+                .unwrap_err()
+                .0,
             "UnsafeSnapshotSemanticHref"
         );
     }
@@ -794,66 +819,68 @@ mod tests {
             "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":[[\" href \",\"/x\"],[\"HREF\",\"/y\"]]}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&pairs)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&pairs))
+                .unwrap_err()
+                .0,
             "DuplicateSnapshotSemanticAttribute"
         );
-        let malformed = json(
-            "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":[[\"href\"]]}]",
-        );
+        let malformed =
+            json("[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":[[\"href\"]]}]");
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&malformed)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&malformed))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotSemanticAttributes"
         );
-        let bad_name = json(
-            "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"1bad\":\"x\"}}]",
-        );
+        let bad_name =
+            json("[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{\"1bad\":\"x\"}}]");
         assert_eq!(
-            normalize_snapshot_semantics("链接", Some(&bad_name)).unwrap_err().0,
+            normalize_snapshot_semantics("链接", Some(&bad_name))
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticAttribute:1bad"
         );
     }
 
     #[test]
     fn ranges_validate_boundaries_and_surrogate_pairs() {
-        let split = json(
-            "[{\"start\":1,\"end\":3,\"tagName\":\"a\",\"attributes\":{}}]",
-        );
+        let split = json("[{\"start\":1,\"end\":3,\"tagName\":\"a\",\"attributes\":{}}]");
         assert_eq!(
-            normalize_snapshot_semantics("😀字", Some(&split)).unwrap_err().0,
+            normalize_snapshot_semantics("😀字", Some(&split))
+                .unwrap_err()
+                .0,
             "SnapshotSemanticRangeSplitsSurrogatePair"
         );
-        let emoji_only = json(
-            "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{}}]",
-        );
+        let emoji_only = json("[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{}}]");
         assert_eq!(
             normalize_snapshot_semantics("😀字", Some(&emoji_only)).unwrap()[0].end,
             2
         );
-        let whole = json(
-            "[{\"start\":0,\"end\":3,\"tagName\":\"a\",\"attributes\":{}}]",
-        );
+        let whole = json("[{\"start\":0,\"end\":3,\"tagName\":\"a\",\"attributes\":{}}]");
         // "😀字" is three UTF-16 units, so 0..3 covers the whole text.
         let normalized = normalize_snapshot_semantics("😀字", Some(&whole)).unwrap();
         assert_eq!((normalized[0].start, normalized[0].end), (0, 3));
-        let out_of_range = json(
-            "[{\"start\":0,\"end\":4,\"tagName\":\"a\",\"attributes\":{}}]",
-        );
+        let out_of_range = json("[{\"start\":0,\"end\":4,\"tagName\":\"a\",\"attributes\":{}}]");
         assert_eq!(
-            normalize_snapshot_semantics("😀字", Some(&out_of_range)).unwrap_err().0,
+            normalize_snapshot_semantics("😀字", Some(&out_of_range))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotSemanticRange"
         );
-        let astral_ok = json(
-            "[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{}}]",
-        );
+        let astral_ok = json("[{\"start\":0,\"end\":2,\"tagName\":\"a\",\"attributes\":{}}]");
         let normalized = normalize_snapshot_semantics("😀", Some(&astral_ok)).unwrap();
         assert_eq!((normalized[0].start, normalized[0].end), (0, 2));
         let not_array = json("{}");
         assert_eq!(
-            normalize_snapshot_semantics("中文", Some(&not_array)).unwrap_err().0,
+            normalize_snapshot_semantics("中文", Some(&not_array))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotSemantics"
         );
         assert_eq!(
-            normalize_snapshot_semantics("中文", Some(&Json::Null)).unwrap_err().0,
+            normalize_snapshot_semantics("中文", Some(&Json::Null))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotSemantics"
         );
     }
@@ -864,7 +891,9 @@ mod tests {
             "[{\"start\":1,\"end\":3,\"tagName\":\"spoiler\",\"attributes\":{\"style\":\"padding:4px\",\"onclick\":\"reveal()\"}}]",
         );
         assert_eq!(
-            normalize_snapshot_semantics("前秘密后", Some(&spoiler)).unwrap_err().0,
+            normalize_snapshot_semantics("前秘密后", Some(&spoiler))
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticTag:spoiler"
         );
         let live = normalize_live_semantics("前秘密后", Some(&spoiler)).unwrap();
@@ -881,12 +910,16 @@ mod tests {
             "[{\"start\":0,\"end\":3,\"tagName\":\"spoiler\"},{\"start\":2,\"end\":4,\"tagName\":\"span\"}]",
         );
         assert_eq!(
-            normalize_live_semantics("中文正文", Some(&crossing)).unwrap_err().0,
+            normalize_live_semantics("中文正文", Some(&crossing))
+                .unwrap_err()
+                .0,
             "CrossingSnapshotSemanticRanges"
         );
         let empty_tag = json("[{\"start\":0,\"end\":2,\"tagName\":\"\"}]");
         assert_eq!(
-            normalize_live_semantics("中文", Some(&empty_tag)).unwrap_err().0,
+            normalize_live_semantics("中文", Some(&empty_tag))
+                .unwrap_err()
+                .0,
             "InvalidLiveSemanticTag"
         );
     }
@@ -913,19 +946,25 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            snapshot_semantic_metric_contract_issue(&semantics, Some(&json("[]")), Some(&json("[]"))),
+            snapshot_semantic_metric_contract_issue(
+                &semantics,
+                Some(&json("[]")),
+                Some(&json("[]"))
+            ),
             Some("InlineCodeFontContractUnavailable")
         );
         let text_spans = json(
             "[{\"start\":1,\"end\":5,\"fontFamilies\":[\"Host Exact Mono\"],\"fontSizePx\":14,\"fontWeight\":400,\"italic\":false,\"baselineShiftPx\":0}]",
         );
         assert_eq!(
-            snapshot_semantic_metric_contract_issue(&semantics, Some(&text_spans), Some(&json("[]"))),
+            snapshot_semantic_metric_contract_issue(
+                &semantics,
+                Some(&text_spans),
+                Some(&json("[]"))
+            ),
             Some("InlineCodeBoxContractUnavailable")
         );
-        let boxes = json(
-            "[{\"start\":1,\"end\":5,\"inlineStartPx\":5.6,\"inlineEndPx\":5.6}]",
-        );
+        let boxes = json("[{\"start\":1,\"end\":5,\"inlineStartPx\":5.6,\"inlineEndPx\":5.6}]");
         assert_eq!(
             snapshot_semantic_metric_contract_issue(&semantics, Some(&text_spans), Some(&boxes)),
             None
@@ -933,7 +972,9 @@ mod tests {
         // non-code semantics never require the contract
         let plain = normalize_snapshot_semantics(
             "中code文",
-            Some(&json("[{\"start\":1,\"end\":5,\"tagName\":\"em\",\"attributes\":{}}]")),
+            Some(&json(
+                "[{\"start\":1,\"end\":5,\"tagName\":\"em\",\"attributes\":{}}]",
+            )),
         )
         .unwrap();
         assert_eq!(
@@ -1009,7 +1050,9 @@ mod tests {
             }],
         };
         assert_eq!(
-            snapshot_source_artifact_from_dom(&unsafe_paragraph).unwrap_err().0,
+            snapshot_source_artifact_from_dom(&unsafe_paragraph)
+                .unwrap_err()
+                .0,
             "UnsupportedSnapshotSemanticTag:ruby"
         );
     }
@@ -1034,7 +1077,10 @@ mod tests {
         // The whitespace-only span survives: its projected range owns the
         // materialized space.
         assert_eq!(artifact.semantics.len(), 1);
-        assert_eq!((artifact.semantics[0].start, artifact.semantics[0].end), (1, 2));
+        assert_eq!(
+            (artifact.semantics[0].start, artifact.semantics[0].end),
+            (1, 2)
+        );
         let leading = DomNode::Element {
             tag_name: "p".to_string(),
             attributes: Vec::new(),

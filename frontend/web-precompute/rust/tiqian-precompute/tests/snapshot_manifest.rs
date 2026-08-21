@@ -16,7 +16,8 @@ const SHAPE_KEY: &str = r#"["排","Tiqian Han",400,false,"zh-Hans","body","排"]
 const METRIC_KEY: &str = r#"["Tiqian Han",400,false,"body","永"]"#;
 
 const SHAPE_ITEM: &str = r#"{"key":"[\"排\",\"Tiqian Han\",400,false,\"zh-Hans\",\"body\",\"排\"]","result":{"faceId":"face-1","fontInstanceId":"fi-1","script":"hani","features":["pwid","palt"],"unsafeBreakCount":0,"advanceEm":1000,"glyphs":[{"id":1,"advanceEm":500,"xEm":10,"yEm":-2,"boundsEm":[0,-2,500,700]},{"id":2,"advanceEm":500,"xEm":5,"yEm":0,"boundsEm":null}]}}"#;
-const METRIC_ITEM: &str = r#"{"key":"[\"Tiqian Han\",400,false,\"body\",\"永\"]","valuesEm":[1.5,2,3,4,5]}"#;
+const METRIC_ITEM: &str =
+    r#"{"key":"[\"Tiqian Han\",400,false,\"body\",\"永\"]","valuesEm":[1.5,2,3,4,5]}"#;
 
 const COMPACT_A: &str = r#"{"createdAt":"2026-08-20","locale":"zh-Hans","typographies":[{"sha256":"typ-typo-a","value":{"value":"typo-a","lineHeight":1.6}},{"sha256":"typ-typo-b","value":{"value":"typo-b","lineHeight":1.6}}],"fontEvidence":{"backendRevision":"backend-7","faces":[{"family":"Tiqian Han","style":"normal","weight":400}]},"fontReplay":{"revision":"tiqian-server-shaping-replay-v1","encoding":"shared-strings-v1","strings":["排","Tiqian Han","zh-Hans","body","face-1","fi-1","hani","pwid","palt","永"],"shapes":[[0,1,400,0,2,3,0,4,5,6,[7,8],0,1000,[1,500,10,-2,0,-2,500,700,2,500,5,0,null,null,null,null]]],"metrics":[[1,400,0,3,9,1.5,2,3,4,5]]},"entries":[{"key":"p1","sourceSha256":"sha-p1","typographyRef":0,"maxWidthPx":320,"fontFaceEvidence":[{"faceRef":0,"coverageText":"永中","probe":1}],"renderArtifactSha256":"render-p1"},{"key":"p2","sourceSha256":"sha-p2","sourceArtifactSha256":"art-p2","semantic":true,"typographyRef":0,"maxWidthPx":320,"fontFaceEvidence":[{"faceRef":0,"coverageText":"永中","probe":1}],"renderArtifactSha256":"render-p2"},{"key":"p3","sourceSha256":"sha-p3","typographyRef":1,"maxWidthPx":320,"fontFaceEvidence":[{"faceRef":0,"coverageText":"永中","probe":1}],"renderArtifactSha256":"render-p3"}]}"#;
 
@@ -77,7 +78,10 @@ fn obj_field_mut<'a>(value: &'a mut Json, key: &str) -> Option<&'a mut Json> {
     let Json::Obj(fields) = value else {
         return None;
     };
-    fields.iter_mut().find(|(name, _)| name == key).map(|(_, v)| v)
+    fields
+        .iter_mut()
+        .find(|(name, _)| name == key)
+        .map(|(_, v)| v)
 }
 
 fn field<'a>(value: &'a Json, key: &str) -> Option<&'a Json> {
@@ -90,7 +94,9 @@ fn field<'a>(value: &'a Json, key: &str) -> Option<&'a Json> {
 fn edit_shape_row(manifest: &mut Json, edit: impl FnOnce(&mut Vec<Json>)) {
     let replay = obj_field_mut(manifest, "fontReplay").expect("fontReplay");
     let shapes = obj_field_mut(replay, "shapes").expect("shapes");
-    let Json::Arr(rows) = shapes else { panic!("shape rows") };
+    let Json::Arr(rows) = shapes else {
+        panic!("shape rows")
+    };
     let Json::Arr(cells) = rows.get_mut(0).expect("first row") else {
         panic!("row cells")
     };
@@ -100,7 +106,9 @@ fn edit_shape_row(manifest: &mut Json, edit: impl FnOnce(&mut Vec<Json>)) {
 fn edit_metric_row(manifest: &mut Json, edit: impl FnOnce(&mut Vec<Json>)) {
     let replay = obj_field_mut(manifest, "fontReplay").expect("fontReplay");
     let metrics = obj_field_mut(replay, "metrics").expect("metrics");
-    let Json::Arr(rows) = metrics else { panic!("metric rows") };
+    let Json::Arr(rows) = metrics else {
+        panic!("metric rows")
+    };
     let Json::Arr(cells) = rows.get_mut(0).expect("first row") else {
         panic!("row cells")
     };
@@ -109,7 +117,9 @@ fn edit_metric_row(manifest: &mut Json, edit: impl FnOnce(&mut Vec<Json>)) {
 
 fn edit_entry(manifest: &mut Json, index: usize, edit: impl FnOnce(&mut Json)) {
     let entries = obj_field_mut(manifest, "entries").expect("entries");
-    let Json::Arr(list) = entries else { panic!("entry list") };
+    let Json::Arr(list) = entries else {
+        panic!("entry list")
+    };
     edit(list.get_mut(index).expect("entry"));
 }
 
@@ -135,7 +145,15 @@ fn expand_matches_the_js_oracle_bytes() {
 #[test]
 fn replay_keys_round_trip_through_the_compact_transport() {
     assert_eq!(
-        shape_replay_key("排", "Tiqian Han", 400.0, false, "zh-Hans", Some("body"), "排"),
+        shape_replay_key(
+            "排",
+            "Tiqian Han",
+            400.0,
+            false,
+            "zh-Hans",
+            Some("body"),
+            "排"
+        ),
         SHAPE_KEY
     );
     assert_eq!(
@@ -200,7 +218,8 @@ fn compact_omits_missing_fields_and_keeps_explicit_nulls() {
 
 #[test]
 fn compact_reports_replay_damage_with_js_issue_names() {
-    let short_metrics = r#"{"key":"[\"Tiqian Han\",400,false,\"body\",\"永\"]","valuesEm":[1,2,3,4]}"#;
+    let short_metrics =
+        r#"{"key":"[\"Tiqian Han\",400,false,\"body\",\"永\"]","valuesEm":[1,2,3,4]}"#;
     let entry = entry_text_with(SHAPE_ITEM, short_metrics, "p1", "typo-a", "", BACKEND_7);
     let entries = parse_json(&format!("[{entry}]")).expect("entries parse");
     assert_eq!(
@@ -244,55 +263,79 @@ fn compact_reports_replay_damage_with_js_issue_names() {
 #[test]
 fn expand_reports_transport_damage_with_js_issue_names() {
     let cases: Vec<(&str, Box<dyn FnOnce(&mut Json)>)> = vec![
-        ("SnapshotFontReplayStringReferenceInvalid", Box::new(|m: &mut Json| {
-            edit_shape_row(m, |cells| cells[0] = Json::Num(99.0));
-        })),
-        ("SnapshotFontReplayShapeTransportInvalid", Box::new(|m: &mut Json| {
-            edit_shape_row(m, |cells| cells[3] = Json::Num(2.0));
-        })),
-        ("SnapshotFontReplayShapeTransportInvalid", Box::new(|m: &mut Json| {
-            edit_shape_row(m, |cells| {
-                cells.pop();
-            });
-        })),
-        ("SnapshotFontReplayGlyphBoundsInvalid", Box::new(|m: &mut Json| {
-            edit_shape_row(m, |cells| {
-                cells[13] = Json::Arr(vec![
-                    Json::Num(1.0),
-                    Json::Num(100.0),
-                    Json::Num(50.0),
-                    Json::Null,
-                    Json::Null,
-                    Json::Num(500.0),
-                    Json::Num(0.0),
-                    Json::Num(700.0),
-                ]);
-            });
-        })),
-        ("SnapshotFontReplayMetricsTransportInvalid", Box::new(|m: &mut Json| {
-            edit_metric_row(m, |cells| {
-                cells.pop();
-            });
-        })),
-        ("SnapshotTypographyReferenceInvalid", Box::new(|m: &mut Json| {
-            edit_entry(m, 0, |entry| {
-                obj_field_mut(entry, "typographyRef").map(|v| *v = Json::Num(9.0));
-            });
-        })),
-        ("SnapshotFontEvidenceReferenceInvalid", Box::new(|m: &mut Json| {
-            edit_entry(m, 0, |entry| {
-                obj_field_mut(entry, "fontFaceEvidence").map(|v| *v = Json::Arr(vec![]));
-            });
-        })),
-        ("SnapshotFontFaceReferenceInvalid", Box::new(|m: &mut Json| {
-            edit_entry(m, 0, |entry| {
-                if let Some(Json::Arr(list)) = obj_field_mut(entry, "fontFaceEvidence") {
-                    if let Some(first) = list.get_mut(0) {
-                        obj_field_mut(first, "faceRef").map(|v| *v = Json::Num(9.0));
+        (
+            "SnapshotFontReplayStringReferenceInvalid",
+            Box::new(|m: &mut Json| {
+                edit_shape_row(m, |cells| cells[0] = Json::Num(99.0));
+            }),
+        ),
+        (
+            "SnapshotFontReplayShapeTransportInvalid",
+            Box::new(|m: &mut Json| {
+                edit_shape_row(m, |cells| cells[3] = Json::Num(2.0));
+            }),
+        ),
+        (
+            "SnapshotFontReplayShapeTransportInvalid",
+            Box::new(|m: &mut Json| {
+                edit_shape_row(m, |cells| {
+                    cells.pop();
+                });
+            }),
+        ),
+        (
+            "SnapshotFontReplayGlyphBoundsInvalid",
+            Box::new(|m: &mut Json| {
+                edit_shape_row(m, |cells| {
+                    cells[13] = Json::Arr(vec![
+                        Json::Num(1.0),
+                        Json::Num(100.0),
+                        Json::Num(50.0),
+                        Json::Null,
+                        Json::Null,
+                        Json::Num(500.0),
+                        Json::Num(0.0),
+                        Json::Num(700.0),
+                    ]);
+                });
+            }),
+        ),
+        (
+            "SnapshotFontReplayMetricsTransportInvalid",
+            Box::new(|m: &mut Json| {
+                edit_metric_row(m, |cells| {
+                    cells.pop();
+                });
+            }),
+        ),
+        (
+            "SnapshotTypographyReferenceInvalid",
+            Box::new(|m: &mut Json| {
+                edit_entry(m, 0, |entry| {
+                    obj_field_mut(entry, "typographyRef").map(|v| *v = Json::Num(9.0));
+                });
+            }),
+        ),
+        (
+            "SnapshotFontEvidenceReferenceInvalid",
+            Box::new(|m: &mut Json| {
+                edit_entry(m, 0, |entry| {
+                    obj_field_mut(entry, "fontFaceEvidence").map(|v| *v = Json::Arr(vec![]));
+                });
+            }),
+        ),
+        (
+            "SnapshotFontFaceReferenceInvalid",
+            Box::new(|m: &mut Json| {
+                edit_entry(m, 0, |entry| {
+                    if let Some(Json::Arr(list)) = obj_field_mut(entry, "fontFaceEvidence") {
+                        if let Some(first) = list.get_mut(0) {
+                            obj_field_mut(first, "faceRef").map(|v| *v = Json::Num(9.0));
+                        }
                     }
-                }
-            });
-        })),
+                });
+            }),
+        ),
     ];
     for (expected, edit) in cases {
         let mut manifest = compact_a();
@@ -322,8 +365,13 @@ fn font_contract_entries_expand_through_the_same_tables() {
         Some(Json::Arr(list)) => list[0].clone(),
         _ => panic!("entries"),
     };
-    let Json::Obj(mut fields) = manifest else { panic!("compact manifest") };
-    fields.push(("fontContractEntries".to_string(), Json::Arr(vec![first_entry])));
+    let Json::Obj(mut fields) = manifest else {
+        panic!("compact manifest")
+    };
+    fields.push((
+        "fontContractEntries".to_string(),
+        Json::Arr(vec![first_entry]),
+    ));
     let manifest = Json::Obj(fields);
     let expanded = expand_snapshot_manifest(&manifest).expect("expand contract");
     assert_eq!(expanded.render(), EXPAND_CONTRACT);

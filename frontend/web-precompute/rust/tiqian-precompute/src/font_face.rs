@@ -54,8 +54,8 @@ pub fn css_weight_matched<T>(
         .collect();
     ranked.sort_by(|left, right| {
         left.1
-            .0
-            .partial_cmp(&right.1.0)
+             .0
+            .partial_cmp(&right.1 .0)
             .unwrap()
             .then(left.1.partial_cmp(&right.1).unwrap())
     });
@@ -82,7 +82,10 @@ pub fn parse_unicode_range(value: &str) -> Option<Vec<(u32, u32)>> {
             Some(body) => body,
             None => continue,
         };
-        if body.len() <= 6 && body.contains('?') && body.bytes().all(|b| b.is_ascii_hexdigit() || b == b'?') {
+        if body.len() <= 6
+            && body.contains('?')
+            && body.bytes().all(|b| b.is_ascii_hexdigit() || b == b'?')
+        {
             let start = u32::from_str_radix(&body.replace('?', "0"), 16).ok();
             let end = u32::from_str_radix(&body.replace('?', "F"), 16).ok();
             if let (Some(start), Some(end)) = (start, end) {
@@ -231,7 +234,11 @@ mod tests {
 
     #[test]
     fn family_matches_by_declared_or_local_name() {
-        assert!(font_record_matches_family("Source Han Sans CN", &[], "source han sans cn"));
+        assert!(font_record_matches_family(
+            "Source Han Sans CN",
+            &[],
+            "source han sans cn"
+        ));
         assert!(font_record_matches_family(
             "Source Han Sans CN",
             &["思源黑体".to_string()],

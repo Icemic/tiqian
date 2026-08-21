@@ -74,7 +74,12 @@ pub fn render_snapshot_bundle(
 ) -> Result<SnapshotBundle, NamedError> {
     let entries = array_input(prepared_paragraphs)?;
     let font_contract_entries = array_input(options.font_contract_paragraphs)?;
-    build_snapshot_bundle(&entries, &font_contract_entries, options, PLAIN_PARAGRAPH_SELECTOR)
+    build_snapshot_bundle(
+        &entries,
+        &font_contract_entries,
+        options,
+        PLAIN_PARAGRAPH_SELECTOR,
+    )
 }
 
 /// `renderFontContractBundle`: the compact exact-font contract for roots that
@@ -106,8 +111,13 @@ pub fn render_snapshot_template(
 ) -> Result<String, NamedError> {
     let entries = array_input(prepared_paragraphs)?;
     let font_contract_entries = array_input(options.font_contract_paragraphs)?;
-    build_snapshot_bundle(&entries, &font_contract_entries, options, PLAIN_PARAGRAPH_SELECTOR)
-        .map(|bundle| bundle.inert_template)
+    build_snapshot_bundle(
+        &entries,
+        &font_contract_entries,
+        options,
+        PLAIN_PARAGRAPH_SELECTOR,
+    )
+    .map(|bundle| bundle.inert_template)
 }
 
 fn named(message: &str) -> NamedError {
@@ -116,7 +126,10 @@ fn named(message: &str) -> NamedError {
 
 fn field<'a>(value: &'a Json, key: &str) -> Option<&'a Json> {
     match value {
-        Json::Obj(fields) => fields.iter().find(|(name, _)| name == key).map(|(_, value)| value),
+        Json::Obj(fields) => fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value),
         _ => None,
     }
 }
@@ -199,7 +212,9 @@ fn build_snapshot_bundle(
     if !valid_template_id(&id) {
         return Err(named("InvalidSnapshotTemplateId"));
     }
-    let paragraph_selector = options.paragraph_selector.unwrap_or(supported_paragraph_selector);
+    let paragraph_selector = options
+        .paragraph_selector
+        .unwrap_or(supported_paragraph_selector);
     if paragraph_selector != supported_paragraph_selector {
         return Err(named("UnsupportedSnapshotParagraphSelector"));
     }
@@ -232,9 +247,9 @@ fn build_snapshot_bundle(
         if let Some(Json::Str(text)) = field(entry, "sourceText") {
             render_options.source_text = Some(text.as_str());
         }
-        let rendered = render_prepared_paragraph_artifact(&plan_json, &locale, &mut render_options)?;
-        let artifact_sha =
-            sha256_hex(stable_stringify(&rendered.artifact).as_bytes());
+        let rendered =
+            render_prepared_paragraph_artifact(&plan_json, &locale, &mut render_options)?;
+        let artifact_sha = sha256_hex(stable_stringify(&rendered.artifact).as_bytes());
         let mut fields = match entry {
             Json::Obj(fields) => fields.clone(),
             _ => Vec::new(),
@@ -266,14 +281,23 @@ fn build_snapshot_bundle(
         ("schema".to_string(), Json::Num(SNAPSHOT_SCHEMA as f64)),
         ("layoutRevision".to_string(), Json::str(LAYOUT_REVISION)),
         ("renderRevision".to_string(), Json::str(RENDER_REVISION)),
-        ("fontSourcePolicy".to_string(), Json::str(FONT_SOURCE_POLICY)),
-        ("paragraphSelector".to_string(), Json::str(paragraph_selector)),
+        (
+            "fontSourcePolicy".to_string(),
+            Json::str(FONT_SOURCE_POLICY),
+        ),
+        (
+            "paragraphSelector".to_string(),
+            Json::str(paragraph_selector),
+        ),
         ("valueStyles".to_string(), value_styles_json.clone()),
         (
             "valueStylesSha256".to_string(),
             Json::str(sha256_hex(stable_stringify(&value_styles_json).as_bytes())),
         ),
-        ("renderFontFamilies".to_string(), Json::Arr(families.to_vec())),
+        (
+            "renderFontFamilies".to_string(),
+            Json::Arr(families.to_vec()),
+        ),
     ]);
     let mut corpus_entries = rendered_entries.clone();
     corpus_entries.extend(font_contract_entries.iter().cloned());
@@ -288,7 +312,11 @@ fn build_snapshot_bundle(
     let body = rendered_pairs
         .iter()
         .map(|(key, html)| {
-            format!("<div data-tq-entry=\"{}\">{}</div>", escape_attribute(key), html)
+            format!(
+                "<div data-tq-entry=\"{}\">{}</div>",
+                escape_attribute(key),
+                html
+            )
         })
         .collect::<String>();
     let inert_template = format!(
@@ -435,7 +463,11 @@ fn client_font_contract_manifest(manifest: &Json) -> Result<Json, NamedError> {
             }
             let probe = field(evidence, "probe").cloned();
             let signature = probe.as_ref().map(stable_stringify);
-            if !group.probes.iter().any(|(existing, _)| *existing == signature) {
+            if !group
+                .probes
+                .iter()
+                .any(|(existing, _)| *existing == signature)
+            {
                 group.probes.push((signature, probe));
             }
         }
@@ -443,8 +475,7 @@ fn client_font_contract_manifest(manifest: &Json) -> Result<Json, NamedError> {
     let mut contract_entries: Vec<Json> = Vec::new();
     for group in &groups {
         for (_, probe) in &group.probes {
-            let mut evidence_row =
-                vec![("faceRef".to_string(), group.face_ref.clone())];
+            let mut evidence_row = vec![("faceRef".to_string(), group.face_ref.clone())];
             evidence_row.push((
                 "coverageText".to_string(),
                 Json::str(group.coverage.iter().collect::<String>()),
@@ -464,7 +495,10 @@ fn client_font_contract_manifest(manifest: &Json) -> Result<Json, NamedError> {
                     "fontFaceEvidence".to_string(),
                     Json::Arr(vec![Json::Obj(evidence_row)]),
                 ),
-                ("renderArtifactSha256".to_string(), Json::str("0".repeat(64))),
+                (
+                    "renderArtifactSha256".to_string(),
+                    Json::str("0".repeat(64)),
+                ),
             ]));
         }
     }

@@ -83,9 +83,7 @@ fn face_descriptor(face: &Json, entry_key: &str) -> Result<Json, NamedError> {
             .filter(|(name, _)| name != "coverageText" && name != "probe")
             .cloned()
             .collect(),
-        Json::Null => {
-            return Err(named(format!("SnapshotFontEvidenceInvalid:{entry_key}")))
-        }
+        Json::Null => return Err(named(format!("SnapshotFontEvidenceInvalid:{entry_key}"))),
         _ => Vec::new(),
     };
     Ok(Json::Obj(filtered))
@@ -128,7 +126,11 @@ fn replay_table_index(
 }
 
 /// `replayKeyParts`: the key is a JSON array of a fixed length.
-fn replay_key_parts(key: &str, expected_length: usize, issue: &str) -> Result<Vec<Json>, NamedError> {
+fn replay_key_parts(
+    key: &str,
+    expected_length: usize,
+    issue: &str,
+) -> Result<Vec<Json>, NamedError> {
     let parsed = parse_json(key).map_err(|_| named(issue))?;
     match parsed {
         Json::Arr(parts) if parts.len() == expected_length => Ok(parts),
@@ -140,7 +142,8 @@ fn replay_key_parts(key: &str, expected_length: usize, issue: &str) -> Result<Ve
 pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, NamedError> {
     let mut strings: Vec<Json> = Vec::new();
     let mut string_indexes: HashMap<String, usize> = HashMap::new();
-    let string_ref = |value: &Json, strings: &mut Vec<Json>,
+    let string_ref = |value: &Json,
+                      strings: &mut Vec<Json>,
                       indexes: &mut HashMap<String, usize>|
      -> Result<usize, NamedError> {
         let Json::Str(text) = value else {
@@ -169,8 +172,7 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
         else {
             return Err(named("SnapshotFontReplayShapeInvalid"));
         };
-        let parts =
-            replay_key_parts(key, 7, "SnapshotFontReplayShapeKeyInvalid")?;
+        let parts = replay_key_parts(key, 7, "SnapshotFontReplayShapeKeyInvalid")?;
         let mut glyphs_flat = Vec::with_capacity(glyphs.len() * 8);
         for glyph in glyphs {
             let glyph_fields: &[(String, Json)] = match glyph {
@@ -203,27 +205,21 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
             Json::Num(string_ref(&part(4), &mut strings, &mut string_indexes)? as f64),
             Json::Num(string_ref(&part(5), &mut strings, &mut string_indexes)? as f64),
             Json::Num(string_ref(&part(6), &mut strings, &mut string_indexes)? as f64),
-            Json::Num(
-                string_ref(
-                    field(result, "faceId").unwrap_or(&Json::Null),
-                    &mut strings,
-                    &mut string_indexes,
-                )? as f64,
-            ),
-            Json::Num(
-                string_ref(
-                    field(result, "fontInstanceId").unwrap_or(&Json::Null),
-                    &mut strings,
-                    &mut string_indexes,
-                )? as f64,
-            ),
-            Json::Num(
-                string_ref(
-                    field(result, "script").unwrap_or(&Json::Null),
-                    &mut strings,
-                    &mut string_indexes,
-                )? as f64,
-            ),
+            Json::Num(string_ref(
+                field(result, "faceId").unwrap_or(&Json::Null),
+                &mut strings,
+                &mut string_indexes,
+            )? as f64),
+            Json::Num(string_ref(
+                field(result, "fontInstanceId").unwrap_or(&Json::Null),
+                &mut strings,
+                &mut string_indexes,
+            )? as f64),
+            Json::Num(string_ref(
+                field(result, "script").unwrap_or(&Json::Null),
+                &mut strings,
+                &mut string_indexes,
+            )? as f64),
         ];
         row.push(Json::Arr(
             features
@@ -252,8 +248,7 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
         let values = arr_of(field(item, "valuesEm"))
             .filter(|values| values.len() == 5)
             .ok_or_else(|| named("SnapshotFontReplayMetricsInvalid"))?;
-        let parts =
-            replay_key_parts(key, 5, "SnapshotFontReplayMetricsKeyInvalid")?;
+        let parts = replay_key_parts(key, 5, "SnapshotFontReplayMetricsKeyInvalid")?;
         let part = |index: usize| parts.get(index).cloned().unwrap_or(Json::Null);
         let mut row = vec![
             Json::Num(string_ref(&part(0), &mut strings, &mut string_indexes)? as f64),
@@ -276,7 +271,11 @@ pub fn compact_font_replay(shapes: &[Json], metrics: &[Json]) -> Result<Json, Na
 }
 
 /// `tableReference`: a table index must be a safe integer inside the table.
-fn table_reference<'a>(table: &'a [Json], index: Option<&Json>, issue: &str) -> Result<&'a Json, NamedError> {
+fn table_reference<'a>(
+    table: &'a [Json],
+    index: Option<&Json>,
+    issue: &str,
+) -> Result<&'a Json, NamedError> {
     let Json::Num(value) = index.cloned().unwrap_or(Json::Null) else {
         return Err(named(issue));
     };
@@ -287,8 +286,11 @@ fn table_reference<'a>(table: &'a [Json], index: Option<&Json>, issue: &str) -> 
 }
 
 fn string_at<'a>(strings: &'a [Json], index: &Json) -> Result<&'a str, NamedError> {
-    let referenced =
-        table_reference(strings, Some(index), "SnapshotFontReplayStringReferenceInvalid")?;
+    let referenced = table_reference(
+        strings,
+        Some(index),
+        "SnapshotFontReplayStringReferenceInvalid",
+    )?;
     let Json::Str(text) = referenced else {
         return Err(named("SnapshotFontReplayStringReferenceInvalid"));
     };
@@ -336,9 +338,7 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
         let Json::Arr(row) = row else {
             return Err(named("SnapshotFontReplayShapeTransportInvalid"));
         };
-        if row.len() != 14
-            || !matches!(row[10], Json::Arr(_))
-            || flag_row_value(&row[3]).is_none()
+        if row.len() != 14 || !matches!(row[10], Json::Arr(_)) || flag_row_value(&row[3]).is_none()
         {
             return Err(named("SnapshotFontReplayShapeTransportInvalid"));
         }
@@ -364,7 +364,14 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
                 ("advanceEm".to_string(), glyph[1].clone()),
                 ("xEm".to_string(), glyph[2].clone()),
                 ("yEm".to_string(), glyph[3].clone()),
-                ("boundsEm".to_string(), if all_null { Json::Null } else { Json::Arr(bounds) }),
+                (
+                    "boundsEm".to_string(),
+                    if all_null {
+                        Json::Null
+                    } else {
+                        Json::Arr(bounds)
+                    },
+                ),
             ]));
         }
         let Json::Arr(features) = &row[10] else {
@@ -390,12 +397,18 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
             (
                 "result".to_string(),
                 Json::Obj(vec![
-                    ("faceId".to_string(), Json::str(string_at(strings, &row[7])?)),
+                    (
+                        "faceId".to_string(),
+                        Json::str(string_at(strings, &row[7])?),
+                    ),
                     (
                         "fontInstanceId".to_string(),
                         Json::str(string_at(strings, &row[8])?),
                     ),
-                    ("script".to_string(), Json::str(string_at(strings, &row[9])?)),
+                    (
+                        "script".to_string(),
+                        Json::str(string_at(strings, &row[9])?),
+                    ),
                     (
                         "features".to_string(),
                         Json::Arr(
@@ -439,7 +452,10 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
     }
 
     Ok(Json::Obj(vec![
-        ("revision".to_string(), field(replay, "revision").cloned().unwrap_or(Json::Null)),
+        (
+            "revision".to_string(),
+            field(replay, "revision").cloned().unwrap_or(Json::Null),
+        ),
         ("shapes".to_string(), Json::Arr(expanded_shapes)),
         ("metrics".to_string(), Json::Arr(expanded_metrics)),
     ]))
@@ -447,8 +463,8 @@ pub fn expand_font_replay(replay: &Json) -> Result<Json, NamedError> {
 
 /// `compactSnapshotManifest`: shared tables plus per-paragraph references.
 pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json, NamedError> {
-    let entry_list = arr_of(Some(entries))
-        .ok_or_else(|| named("SnapshotFontEvidenceInvalid:undefined"))?;
+    let entry_list =
+        arr_of(Some(entries)).ok_or_else(|| named("SnapshotFontEvidenceInvalid:undefined"))?;
     let mut typographies: Vec<Json> = Vec::new();
     let mut typography_indexes: HashMap<String, usize> = HashMap::new();
     let mut faces: Vec<Json> = Vec::new();
@@ -465,8 +481,8 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
         let entry_key = key_string_of(entry);
         let evidence = field(entry, "fontEvidence");
         let faces_list = evidence.and_then(|value| arr_of(field(value, "faces")));
-        let evidence_ok = evidence.is_some_and(truthy)
-            && faces_list.is_some_and(|list| !list.is_empty());
+        let evidence_ok =
+            evidence.is_some_and(truthy) && faces_list.is_some_and(|list| !list.is_empty());
         if !evidence_ok {
             return Err(named(format!("SnapshotFontEvidenceInvalid:{entry_key}")));
         }
@@ -548,16 +564,25 @@ pub fn compact_snapshot_manifest(entries: &Json, metadata: &Json) -> Result<Json
             compact.push(("sourceSha256".to_string(), value.clone()));
         }
         if let Some(Json::Str(artifact)) = field(entry, "sourceArtifactSha256") {
-            compact.push(("sourceArtifactSha256".to_string(), Json::str(artifact.clone())));
+            compact.push((
+                "sourceArtifactSha256".to_string(),
+                Json::str(artifact.clone()),
+            ));
         }
         if matches!(field(entry, "semantics"), Some(Json::Arr(list)) if !list.is_empty()) {
             compact.push(("semantic".to_string(), Json::Bool(true)));
         }
-        compact.push(("typographyRef".to_string(), Json::Num(typography_ref as f64)));
+        compact.push((
+            "typographyRef".to_string(),
+            Json::Num(typography_ref as f64),
+        ));
         if let Some(value) = field(entry, "maxWidthPx") {
             compact.push(("maxWidthPx".to_string(), value.clone()));
         }
-        compact.push(("fontFaceEvidence".to_string(), Json::Arr(font_face_evidence)));
+        compact.push((
+            "fontFaceEvidence".to_string(),
+            Json::Arr(font_face_evidence),
+        ));
         if let Some(value) = field(entry, "renderArtifactSha256") {
             compact.push(("renderArtifactSha256".to_string(), value.clone()));
         }
@@ -633,7 +658,10 @@ fn expanded_entry(
         expanded.push(("sourceSha256".to_string(), value.clone()));
     }
     if let Some(Json::Str(artifact)) = field(entry, "sourceArtifactSha256") {
-        expanded.push(("sourceArtifactSha256".to_string(), Json::str(artifact.clone())));
+        expanded.push((
+            "sourceArtifactSha256".to_string(),
+            Json::str(artifact.clone()),
+        ));
     }
     if field(entry, "semantic") == Some(&Json::Bool(true)) {
         expanded.push(("semantic".to_string(), Json::Bool(true)));
@@ -692,8 +720,8 @@ pub fn expand_snapshot_manifest(manifest: &Json) -> Result<Json, NamedError> {
                 .map(|(_, value)| value)
         })
         .and_then(|faces| arr_of(Some(faces)));
-    let entries = arr_of(field(manifest, "entries"))
-        .ok_or_else(|| named("SnapshotManifestTablesInvalid"))?;
+    let entries =
+        arr_of(field(manifest, "entries")).ok_or_else(|| named("SnapshotManifestTablesInvalid"))?;
     if font_evidence.is_none() || descriptors.is_none() {
         return Err(named("SnapshotManifestTablesInvalid"));
     }
@@ -704,8 +732,7 @@ pub fn expand_snapshot_manifest(manifest: &Json) -> Result<Json, NamedError> {
         None | Some(Json::Null) => None,
         Some(replay) => Some(expand_font_replay(replay)?),
     };
-    let expanded_entries =
-        expand_entries_list(entries, typographies, descriptors, font_evidence)?;
+    let expanded_entries = expand_entries_list(entries, typographies, descriptors, font_evidence)?;
     let font_contract_entries = match field(manifest, "fontContractEntries") {
         Some(Json::Arr(list)) => Some(expand_entries_list(
             list,
@@ -728,13 +755,17 @@ pub fn expand_snapshot_manifest(manifest: &Json) -> Result<Json, NamedError> {
     };
     replace(&mut output, "fontReplay", font_replay);
     replace(&mut output, "entries", Some(Json::Arr(expanded_entries)));
-    replace(&mut output, "fontContractEntries", font_contract_entries.map(Json::Arr));
+    replace(
+        &mut output,
+        "fontContractEntries",
+        font_contract_entries.map(Json::Arr),
+    );
     Ok(Json::Obj(output))
 }
 
 /// `parseSnapshotManifest`: parse the wire text and expand.
 pub fn parse_snapshot_manifest(text: &str) -> Result<Json, NamedError> {
-    let parsed = parse_json(text)
-        .map_err(|error| named(format!("InvalidSnapshotManifestJson:{error}")))?;
+    let parsed =
+        parse_json(text).map_err(|error| named(format!("InvalidSnapshotManifestJson:{error}")))?;
     expand_snapshot_manifest(&parsed)
 }

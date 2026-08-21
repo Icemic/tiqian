@@ -111,7 +111,13 @@ impl<'a> FontEngine<'a> {
         }
         let glyph = match self.outlines.get(skrifa::GlyphId::new(gid)) {
             Some(glyph) => glyph,
-            None => return if gid < self.glyph_count { Some([0, 0, 0, 0]) } else { None },
+            None => {
+                return if gid < self.glyph_count {
+                    Some([0, 0, 0, 0])
+                } else {
+                    None
+                }
+            }
         };
         let mut pen = read_fonts::model::pen::ControlBoundsPen::new();
         let coords = self.location.coords();
@@ -167,7 +173,10 @@ impl<'a> FontEngine<'a> {
         let instance = variation_weight(self.record, font_weight).map(|weight| {
             harfrust::ShaperInstance::from_variations(
                 &font,
-                [harfrust::Variation { tag: harfrust::Tag::new(b"wght"), value: weight }],
+                [harfrust::Variation {
+                    tag: harfrust::Tag::new(b"wght"),
+                    value: weight,
+                }],
             )
         });
         let shaper = data.shaper(&font).instance(instance.as_ref()).build();
@@ -176,7 +185,11 @@ impl<'a> FontEngine<'a> {
         buffer.push_str(display_text);
         buffer.guess_segment_properties();
         buffer.set_direction(harfrust::Direction::LeftToRight);
-        buffer.set_language(locale.parse().unwrap_or_else(|_| "c".parse().expect("language")));
+        buffer.set_language(
+            locale
+                .parse()
+                .unwrap_or_else(|_| "c".parse().expect("language")),
+        );
         buffer.set_script(
             harfrust::Script::from_iso15924_tag(harfrust::Tag::new(&tag_bytes(script)))
                 .expect("script tag"),
@@ -219,7 +232,10 @@ impl<'a> FontEngine<'a> {
         let unsafe_break_count = glyphs.iter().filter(|glyph| glyph.flags & 1 != 0).count();
         ShapeRecordResult {
             script: script.to_string(),
-            features: policy_features.iter().map(|tag| (*tag).to_string()).collect(),
+            features: policy_features
+                .iter()
+                .map(|tag| (*tag).to_string())
+                .collect(),
             probe_features: applied,
             display_text: display_text.to_string(),
             advance: cursor_x as f64 * scale,
@@ -238,7 +254,10 @@ impl<'a> FontEngine<'a> {
 /// failed `Variation.fromString` leaves `variations` empty.
 fn variation_weight(record: &FontRecord, requested_weight: f64) -> Option<f32> {
     let axis = record.wght_axis()?;
-    let clamped = crate::js_compat::js_max(axis.min, crate::js_compat::js_min(axis.max, requested_weight));
+    let clamped = crate::js_compat::js_max(
+        axis.min,
+        crate::js_compat::js_min(axis.max, requested_weight),
+    );
     if !clamped.is_finite() {
         return None;
     }
@@ -283,9 +302,33 @@ mod tests {
     #[test]
     fn utf16_cluster_remap_handles_astral_text() {
         let mut glyphs = vec![
-            ShapeGlyph { id: 1, cluster: 0, flags: 0, advance: 0.0, x: 0.0, y: 0.0, bounds: None },
-            ShapeGlyph { id: 2, cluster: 1, flags: 0, advance: 0.0, x: 0.0, y: 0.0, bounds: None },
-            ShapeGlyph { id: 3, cluster: 5, flags: 0, advance: 0.0, x: 0.0, y: 0.0, bounds: None },
+            ShapeGlyph {
+                id: 1,
+                cluster: 0,
+                flags: 0,
+                advance: 0.0,
+                x: 0.0,
+                y: 0.0,
+                bounds: None,
+            },
+            ShapeGlyph {
+                id: 2,
+                cluster: 1,
+                flags: 0,
+                advance: 0.0,
+                x: 0.0,
+                y: 0.0,
+                bounds: None,
+            },
+            ShapeGlyph {
+                id: 3,
+                cluster: 5,
+                flags: 0,
+                advance: 0.0,
+                x: 0.0,
+                y: 0.0,
+                bounds: None,
+            },
         ];
         // "a😀你" → byte offsets 0, 1, 5; UTF-16 offsets 0, 1, 3.
         remap_clusters_to_utf16(&mut glyphs, "a\u{1f600}你");

@@ -123,7 +123,7 @@ pub(crate) fn base_table_bytes(tags: &[&str], script_tag: &str, coords: &[(u16, 
     bytes.extend_from_slice(&6u16.to_be_bytes()); // header @4: axis table offset
     bytes.extend_from_slice(&4u16.to_be_bytes()); // axis + 0: tagList offset
     bytes.extend_from_slice(&14u16.to_be_bytes()); // axis + 2: scriptList offset
-    // tagList @ 10
+                                                   // tagList @ 10
     bytes.extend_from_slice(&(tags.len() as u16).to_be_bytes());
     for tag in tags {
         // tag records are fixed 4 bytes; pad shorter tags with NUL
@@ -144,7 +144,7 @@ pub(crate) fn base_table_bytes(tags: &[&str], script_tag: &str, coords: &[(u16, 
     // script @ 28: baseValuesOffset = 4 → baseValues @ 32
     bytes.extend_from_slice(&4u16.to_be_bytes());
     bytes.extend_from_slice(&0u16.to_be_bytes()); // defaultMinMax offset
-    // BaseValues @ 32: defaultIndex, coordCount, offsets
+                                                  // BaseValues @ 32: defaultIndex, coordCount, offsets
     bytes.extend_from_slice(&0u16.to_be_bytes());
     bytes.extend_from_slice(&(coords.len() as u16).to_be_bytes());
     let base_values = 32usize;

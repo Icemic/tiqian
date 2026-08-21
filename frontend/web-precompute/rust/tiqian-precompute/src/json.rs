@@ -66,7 +66,6 @@ impl Json {
             }
         }
     }
-
 }
 
 /// `JSON.stringify(string)`: escapes `"`, `\`, the C0 shorthands and other
@@ -254,7 +253,9 @@ impl<'a> Parser<'a> {
         self.expect(b'"')?;
         let mut out = String::new();
         loop {
-            let byte = self.peek().ok_or_else(|| self.fail("unterminated string"))?;
+            let byte = self
+                .peek()
+                .ok_or_else(|| self.fail("unterminated string"))?;
             match byte {
                 b'"' => {
                     self.offset += 1;
@@ -262,8 +263,9 @@ impl<'a> Parser<'a> {
                 }
                 b'\\' => {
                     self.offset += 1;
-                    let escape =
-                        self.peek().ok_or_else(|| self.fail("unterminated escape"))?;
+                    let escape = self
+                        .peek()
+                        .ok_or_else(|| self.fail("unterminated escape"))?;
                     self.offset += 1;
                     match escape {
                         b'"' => out.push('"'),
@@ -325,8 +327,9 @@ impl<'a> Parser<'a> {
     fn hex4(&mut self) -> Result<u32, JsonParseError> {
         let mut value = 0u32;
         for _ in 0..4 {
-            let digit =
-                self.peek().ok_or_else(|| self.fail("truncated \\u escape"))?;
+            let digit = self
+                .peek()
+                .ok_or_else(|| self.fail("truncated \\u escape"))?;
             let nibble = match digit {
                 b'0'..=b'9' => (digit - b'0') as u32,
                 b'a'..=b'f' => (digit - b'a' + 10) as u32,
@@ -393,6 +396,17 @@ fn utf8_width(byte: u8) -> usize {
     }
 }
 
+/// Reads one object member; non-objects and missing keys read as absent.
+pub fn member<'a>(value: &'a Json, name: &str) -> Option<&'a Json> {
+    let Json::Obj(fields) = value else {
+        return None;
+    };
+    fields
+        .iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, inner)| inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,15 +459,13 @@ mod tests {
         assert_eq!(parse_json("\"a\\nb\"").unwrap(), Json::str("a\nb"));
         assert_eq!(
             parse_json("{\"lines\":[1,{\"end\":\"AutoWrap\"}]}").unwrap(),
-            Json::Obj(vec![
-                ("lines".to_string(), Json::Arr(vec![
+            Json::Obj(vec![(
+                "lines".to_string(),
+                Json::Arr(vec![
                     Json::Num(1.0),
-                    Json::Obj(vec![(
-                        "end".to_string(),
-                        Json::str("AutoWrap"),
-                    )]),
-                ])),
-            ])
+                    Json::Obj(vec![("end".to_string(), Json::str("AutoWrap"),)]),
+                ])
+            ),])
         );
     }
 
@@ -484,6 +496,9 @@ mod tests {
             "{\"schema\":1,\"width\":80.0,\"cells\":[{\"source\":\"正文\",\"flag\":true}]}",
         )
         .unwrap();
-        assert_eq!(value.render(), "{\"schema\":1,\"width\":80,\"cells\":[{\"source\":\"正文\",\"flag\":true}]}");
+        assert_eq!(
+            value.render(),
+            "{\"schema\":1,\"width\":80,\"cells\":[{\"source\":\"正文\",\"flag\":true}]}"
+        );
     }
 }

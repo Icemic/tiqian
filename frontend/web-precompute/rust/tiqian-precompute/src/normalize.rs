@@ -5,7 +5,9 @@
 
 use tiqian::NamedError;
 
+use crate::json::{member, Json};
 use crate::paragraph::{utf16_length, InlineBoxInput, InlineBoxOuterSpacingCode, TextSpanInput};
+use crate::snapshot_source::{js_number_value, js_string_value};
 use crate::unicode_tables::{self as tables};
 
 /// The only locale the snapshot path typesets.
@@ -53,6 +55,42 @@ pub struct TypographyInput {
     pub font_feature_settings: Option<String>,
     pub font_variation_settings: Option<String>,
     pub font_variant_numeric: Option<String>,
+}
+
+impl TypographyInput {
+    /// Reads the wire form `JSON.stringify(options.typography)` produced.
+    /// Every member follows its js coercion: families map over `String`,
+    /// numbers go through `Number`, `null` reads the same as absent for the
+    /// `??` defaults.
+    pub fn from_json(value: &Json) -> TypographyInput {
+        let read = |name: &str| member(value, name);
+        let number = |name: &str| read(name).map(js_number_value);
+        let string = |name: &str| read(name).map(js_string_value);
+        let font_families = match read("fontFamilies") {
+            Some(Json::Arr(items)) => Some(items.iter().map(js_string_value).collect::<Vec<_>>()),
+            _ => None,
+        };
+        TypographyInput {
+            font_families,
+            font_size_px: number("fontSizePx"),
+            line_height_px: number("lineHeightPx"),
+            font_weight: number("fontWeight"),
+            first_line_indent_ic: number("firstLineIndentIc"),
+            letter_spacing_px: number("letterSpacingPx"),
+            locale: string("locale"),
+            line_length_grid_enabled: match read("lineLengthGridEnabled") {
+                Some(Json::Bool(enabled)) => Some(*enabled),
+                _ => None,
+            },
+            italic: match read("italic") {
+                Some(Json::Bool(true)) => Some(true),
+                _ => None,
+            },
+            font_feature_settings: string("fontFeatureSettings"),
+            font_variation_settings: string("fontVariationSettings"),
+            font_variant_numeric: string("fontVariantNumeric"),
+        }
+    }
 }
 
 /// The canonical typography of one precomputer. The fixed fields carry their
@@ -137,7 +175,9 @@ pub fn normalize_typography(value: TypographyInput) -> Result<SnapshotTypography
             return Err(named("UnsupportedFontVariationSettings"));
         }
     }
-    let font_variant_numeric = value.font_variant_numeric.unwrap_or_else(|| "normal".to_string());
+    let font_variant_numeric = value
+        .font_variant_numeric
+        .unwrap_or_else(|| "normal".to_string());
     if font_variant_numeric != "normal" && font_variant_numeric != "lining-nums" {
         return Err(named("UnsupportedFontVariantNumeric"));
     }
@@ -170,17 +210,22 @@ pub fn normalize_text_spans(
     let text_length = utf16_length(text);
     let mut normalized = Vec::with_capacity(spans.len());
     for span in spans {
-        let (start, end) =
-            valid_range(span.start, span.end, text_length, "InvalidSnapshotTextSpanRange")?;
+        let (start, end) = valid_range(
+            span.start,
+            span.end,
+            text_length,
+            "InvalidSnapshotTextSpanRange",
+        )?;
         let families = match span.font_families.as_deref() {
             Some(list) => normalized_families(list),
             None => typography.font_families.clone(),
         };
         if families.is_empty()
-            || families
-                .iter()
-                .any(|family| family.contains(FAMILY_SEPARATOR) || family.contains(FIELD_SEPARATOR)
-                    || family.contains(RECORD_SEPARATOR))
+            || families.iter().any(|family| {
+                family.contains(FAMILY_SEPARATOR)
+                    || family.contains(FIELD_SEPARATOR)
+                    || family.contains(RECORD_SEPARATOR)
+            })
         {
             return Err(named("InvalidSnapshotTextSpanFontFamilies"));
         }
@@ -188,8 +233,9 @@ pub fn normalize_text_spans(
         if !font_size_px.is_finite() || font_size_px <= 0.0 {
             return Err(named("InvalidSnapshotTextSpanFontSize"));
         }
-        let font_weight = safe_integer_weight(span.font_weight.unwrap_or(typography.font_weight as f64))
-            .ok_or_else(|| named("InvalidSnapshotTextSpanFontWeight"))?;
+        let font_weight =
+            safe_integer_weight(span.font_weight.unwrap_or(typography.font_weight as f64))
+                .ok_or_else(|| named("InvalidSnapshotTextSpanFontWeight"))?;
         let baseline_shift_px = span.baseline_shift_px.unwrap_or(0.0);
         if !baseline_shift_px.is_finite() {
             return Err(named("InvalidSnapshotTextSpanBaselineShift"));
@@ -218,8 +264,12 @@ pub fn normalize_inline_boxes(
     let text_length = utf16_length(text);
     let mut normalized = Vec::with_capacity(boxes.len());
     for inline_box in boxes {
-        let (start, end) =
-            valid_range(inline_box.start, inline_box.end, text_length, "InvalidSnapshotInlineBoxRange")?;
+        let (start, end) = valid_range(
+            inline_box.start,
+            inline_box.end,
+            text_length,
+            "InvalidSnapshotInlineBoxRange",
+        )?;
         let inline_start_px = inline_box.inline_start_px.unwrap_or(0.0);
         let inline_end_px = inline_box.inline_end_px.unwrap_or(0.0);
         if !inline_start_px.is_finite() || !inline_end_px.is_finite() {
@@ -259,8 +309,7 @@ pub fn font_contract_capture_width(
         .sum::<f64>();
     let estimated_unbroken_advance =
         1.0_f64.max(text_utf16_length as f64) * largest_font_size * 2.0 + inline_advance;
-    FONT_CONTRACT_CAPTURE_MAX_WIDTH_PX
-        .min(largest_font_size.max(estimated_unbroken_advance))
+    FONT_CONTRACT_CAPTURE_MAX_WIDTH_PX.min(largest_font_size.max(estimated_unbroken_advance))
 }
 
 /// `snapshotPlainTextIssue`: the ordered plain-text gate of the snapshot
@@ -270,7 +319,9 @@ pub fn snapshot_plain_text_issue(text: &str) -> Option<&'static str> {
         return Some("UnsupportedInlineObject");
     }
     if text.contains('\u{200D}')
-        || text.chars().any(|point| ('\u{FE00}'..='\u{FE0F}').contains(&point))
+        || text
+            .chars()
+            .any(|point| ('\u{FE00}'..='\u{FE0F}').contains(&point))
     {
         return Some("UnsupportedEmojiSequence");
     }
@@ -486,7 +537,9 @@ mod tests {
     #[test]
     fn absent_span_input_is_empty_and_ranges_validate() {
         let base = typography();
-        assert!(normalize_text_spans("正文", None, &base).unwrap().is_empty());
+        assert!(normalize_text_spans("正文", None, &base)
+            .unwrap()
+            .is_empty());
         let bad_range = vec![TextSpanRaw {
             start: Some(2.0),
             end: Some(1.0),
@@ -497,7 +550,9 @@ mod tests {
             baseline_shift_px: None,
         }];
         assert_eq!(
-            normalize_text_spans("正文", Some(bad_range), &base).unwrap_err().0,
+            normalize_text_spans("正文", Some(bad_range), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanRange"
         );
         let astral = vec![TextSpanRaw {
@@ -510,7 +565,9 @@ mod tests {
             baseline_shift_px: None,
         }];
         assert_eq!(
-            normalize_text_spans("😀字", Some(astral), &base).unwrap_err().0,
+            normalize_text_spans("😀字", Some(astral), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanRange"
         );
     }
@@ -539,7 +596,9 @@ mod tests {
             baseline_shift_px: None,
         }];
         assert_eq!(
-            normalize_text_spans("正文", Some(separator), &base).unwrap_err().0,
+            normalize_text_spans("正文", Some(separator), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanFontFamilies"
         );
     }
@@ -562,19 +621,25 @@ mod tests {
         assert!(!normalized[0].italic, "explicit false must not inherit");
         span.font_size_px = Some(0.0);
         assert_eq!(
-            normalize_text_spans("正文", Some(vec![span.clone()]), &base).unwrap_err().0,
+            normalize_text_spans("正文", Some(vec![span.clone()]), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanFontSize"
         );
         span.font_size_px = None;
         span.font_weight = Some(0.0);
         assert_eq!(
-            normalize_text_spans("正文", Some(vec![span.clone()]), &base).unwrap_err().0,
+            normalize_text_spans("正文", Some(vec![span.clone()]), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanFontWeight"
         );
         span.font_weight = None;
         span.baseline_shift_px = Some(f64::NAN);
         assert_eq!(
-            normalize_text_spans("正文", Some(vec![span]), &base).unwrap_err().0,
+            normalize_text_spans("正文", Some(vec![span]), &base)
+                .unwrap_err()
+                .0,
             "InvalidSnapshotTextSpanBaselineShift"
         );
     }
@@ -590,22 +655,31 @@ mod tests {
         };
         let normalized = normalize_inline_boxes("正文", Some(vec![box_input.clone()])).unwrap();
         assert_eq!(normalized[0].inline_start, 0.0);
-        assert_eq!(normalized[0].outer_spacing, InlineBoxOuterSpacingCode::Narrow);
+        assert_eq!(
+            normalized[0].outer_spacing,
+            InlineBoxOuterSpacingCode::Narrow
+        );
         box_input.end = Some(5.0);
         assert_eq!(
-            normalize_inline_boxes("正文", Some(vec![box_input.clone()])).unwrap_err().0,
+            normalize_inline_boxes("正文", Some(vec![box_input.clone()]))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotInlineBoxRange"
         );
         box_input.end = Some(1.0);
         box_input.inline_end_px = Some(f64::NAN);
         assert_eq!(
-            normalize_inline_boxes("正文", Some(vec![box_input.clone()])).unwrap_err().0,
+            normalize_inline_boxes("正文", Some(vec![box_input.clone()]))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotInlineBoxGeometry"
         );
         box_input.inline_end_px = None;
         box_input.outer_spacing = Some("Wide".to_string());
         assert_eq!(
-            normalize_inline_boxes("正文", Some(vec![box_input.clone()])).unwrap_err().0,
+            normalize_inline_boxes("正文", Some(vec![box_input.clone()]))
+                .unwrap_err()
+                .0,
             "InvalidSnapshotInlineBoxOuterSpacing"
         );
         box_input.outer_spacing = Some("Source".to_string());
@@ -680,15 +754,29 @@ mod tests {
             Some("UnsupportedSnapshotScript"),
             "kana is its own script"
         );
-        assert_eq!(snapshot_plain_text_issue("中—文"), Some("CjkDashRequiresBrowserFaceVerification"));
-        assert_eq!(snapshot_plain_text_issue("中⸺文"), Some("CjkDashRequiresBrowserFaceVerification"));
+        assert_eq!(
+            snapshot_plain_text_issue("中—文"),
+            Some("CjkDashRequiresBrowserFaceVerification")
+        );
+        assert_eq!(
+            snapshot_plain_text_issue("中⸺文"),
+            Some("CjkDashRequiresBrowserFaceVerification")
+        );
         assert_eq!(
             snapshot_plain_text_issue("中文ＡＢ"),
             Some("UnsupportedSnapshotScript"),
             "fullwidth latin letters are Latin script, outside the allowed class"
         );
-        assert_eq!(snapshot_plain_text_issue("中文１２"), None, "fullwidth digits are Common");
-        assert_eq!(snapshot_plain_text_issue("中文Àéñ"), None, "Latin Extended range is allowed");
+        assert_eq!(
+            snapshot_plain_text_issue("中文１２"),
+            None,
+            "fullwidth digits are Common"
+        );
+        assert_eq!(
+            snapshot_plain_text_issue("中文Àéñ"),
+            None,
+            "Latin Extended range is allowed"
+        );
     }
 
     #[test]

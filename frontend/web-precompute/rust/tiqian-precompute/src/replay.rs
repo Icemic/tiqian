@@ -147,7 +147,15 @@ mod tests {
     #[test]
     fn replay_keys_match_json_stringify_forms() {
         assert_eq!(
-            shape_replay_key("你好", "A\u{001f}B", 400.0, false, "zh-cn", Some("CjkText"), "你好"),
+            shape_replay_key(
+                "你好",
+                "A\u{001f}B",
+                400.0,
+                false,
+                "zh-cn",
+                Some("CjkText"),
+                "你好"
+            ),
             "[\"你好\",\"A\\u001fB\",400,false,\"zh-cn\",\"CjkText\",\"你好\"]"
         );
         // String(null) is "null"; JSON.stringify writes it as a string.

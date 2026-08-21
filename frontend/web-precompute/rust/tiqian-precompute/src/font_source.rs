@@ -22,20 +22,12 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// `77 4F 46 32` ("wOF2"). Mirrors `isWoff2`; wuff has no exported magic
 /// check, so the four bytes are compared directly.
 fn is_woff2(bytes: &[u8]) -> bool {
-    bytes.len() >= 4
-        && bytes[0] == 0x77
-        && bytes[1] == 0x4f
-        && bytes[2] == 0x46
-        && bytes[3] == 0x32
+    bytes.len() >= 4 && bytes[0] == 0x77 && bytes[1] == 0x4f && bytes[2] == 0x46 && bytes[3] == 0x32
 }
 
 /// `74 74 63 66` ("ttcf"). Mirrors `isFontCollection`.
 fn is_font_collection(bytes: &[u8]) -> bool {
-    bytes.len() >= 4
-        && bytes[0] == 0x74
-        && bytes[1] == 0x74
-        && bytes[2] == 0x63
-        && bytes[3] == 0x66
+    bytes.len() >= 4 && bytes[0] == 0x74 && bytes[1] == 0x74 && bytes[2] == 0x63 && bytes[3] == 0x66
 }
 
 /// Errors of the decode step. The record layer appends family context so the

@@ -197,9 +197,7 @@ mod tests {
         fvar.extend_from_slice(&20u16.to_be_bytes()); // axisSize
         fvar.extend_from_slice(&0u16.to_be_bytes()); // instanceCount
         fvar.extend_from_slice(&12u16.to_be_bytes()); // instanceSize
-        for (tag, min, default, max) in
-            [(b"wght", 100i32, 400, 900), (b"wdth", 100, 100, 200)]
-        {
+        for (tag, min, default, max) in [(b"wght", 100i32, 400, 900), (b"wdth", 100, 100, 200)] {
             fvar.extend_from_slice(tag.as_slice());
             fvar.extend_from_slice(&((min << 16) as u32).to_be_bytes());
             fvar.extend_from_slice(&((default << 16) as u32).to_be_bytes());
@@ -211,8 +209,18 @@ mod tests {
         assert_eq!(
             fvar_axes(&sfnt),
             vec![
-                AxisInfo { tag: "wght".into(), min: 100.0, default: 400.0, max: 900.0 },
-                AxisInfo { tag: "wdth".into(), min: 100.0, default: 100.0, max: 200.0 },
+                AxisInfo {
+                    tag: "wght".into(),
+                    min: 100.0,
+                    default: 400.0,
+                    max: 900.0
+                },
+                AxisInfo {
+                    tag: "wdth".into(),
+                    min: 100.0,
+                    default: 100.0,
+                    max: 200.0
+                },
             ]
         );
     }
@@ -237,7 +245,12 @@ mod tests {
         let sfnt = sfnt_with(&[(b"fvar", fvar)]);
         assert_eq!(
             fvar_axes(&sfnt),
-            vec![AxisInfo { tag: "wght".into(), min: 400.0, default: 400.0, max: 400.0 }]
+            vec![AxisInfo {
+                tag: "wght".into(),
+                min: 400.0,
+                default: 400.0,
+                max: 400.0
+            }]
         );
     }
 

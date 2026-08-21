@@ -25,11 +25,21 @@ pub fn face_info_json(face: &FaceInfo) -> Json {
         ("sourceOrder".into(), Json::Num(face.source_order as f64)),
         (
             "axisTags".into(),
-            Json::Arr(face.axis_tags.iter().map(|tag| Json::str(tag.clone())).collect()),
+            Json::Arr(
+                face.axis_tags
+                    .iter()
+                    .map(|tag| Json::str(tag.clone()))
+                    .collect(),
+            ),
         ),
         (
             "localNames".into(),
-            Json::Arr(face.local_names.iter().map(|name| Json::str(name.clone())).collect()),
+            Json::Arr(
+                face.local_names
+                    .iter()
+                    .map(|name| Json::str(name.clone()))
+                    .collect(),
+            ),
         ),
     ])
 }
@@ -38,17 +48,35 @@ pub fn face_info_json(face: &FaceInfo) -> Json {
 pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
     Json::Obj(vec![
         ("faceId".into(), Json::str(result.face_id.clone())),
-        ("fontInstanceId".into(), Json::str(result.font_instance_id.clone())),
+        (
+            "fontInstanceId".into(),
+            Json::str(result.font_instance_id.clone()),
+        ),
         ("script".into(), Json::str(result.script.clone())),
         (
             "features".into(),
-            Json::Arr(result.features.iter().map(|f| Json::str(f.clone())).collect()),
+            Json::Arr(
+                result
+                    .features
+                    .iter()
+                    .map(|f| Json::str(f.clone()))
+                    .collect(),
+            ),
         ),
         (
             "probeFeatures".into(),
-            Json::Arr(result.probe_features.iter().map(|f| Json::str(f.clone())).collect()),
+            Json::Arr(
+                result
+                    .probe_features
+                    .iter()
+                    .map(|f| Json::str(f.clone()))
+                    .collect(),
+            ),
         ),
-        ("unsafeBreakCount".into(), Json::Num(result.unsafe_break_count as f64)),
+        (
+            "unsafeBreakCount".into(),
+            Json::Num(result.unsafe_break_count as f64),
+        ),
         ("advance".into(), Json::Num(result.advance)),
         (
             "glyphs".into(),
@@ -81,8 +109,14 @@ pub fn shape_result_json(result: &ShapeRecordResult) -> Json {
 /// `captureEvidence()` in oracle field order.
 pub fn evidence_json(evidence: &FontEvidence) -> Json {
     Json::Obj(vec![
-        ("backendRevision".into(), Json::str(evidence.backend_revision)),
-        ("harfbuzzVersion".into(), Json::str(evidence.harfbuzz_version)),
+        (
+            "backendRevision".into(),
+            Json::str(evidence.backend_revision),
+        ),
+        (
+            "harfbuzzVersion".into(),
+            Json::str(evidence.harfbuzz_version),
+        ),
         (
             "faces".into(),
             Json::Arr(evidence.faces.iter().map(usage_json).collect()),
@@ -93,11 +127,23 @@ pub fn evidence_json(evidence: &FontEvidence) -> Json {
                 ("revision".into(), Json::str(FONT_REPLAY_REVISION)),
                 (
                     "shapes".into(),
-                    Json::Arr(evidence.replay_shapes.iter().map(shape_replay_json).collect()),
+                    Json::Arr(
+                        evidence
+                            .replay_shapes
+                            .iter()
+                            .map(shape_replay_json)
+                            .collect(),
+                    ),
                 ),
                 (
                     "metrics".into(),
-                    Json::Arr(evidence.replay_metrics.iter().map(metric_replay_json).collect()),
+                    Json::Arr(
+                        evidence
+                            .replay_metrics
+                            .iter()
+                            .map(metric_replay_json)
+                            .collect(),
+                    ),
                 ),
             ]),
         ),
@@ -112,21 +158,37 @@ fn usage_json(usage: &FaceUsage) -> Json {
             "weight".into(),
             Json::Arr(vec![Json::Num(usage.weight[0]), Json::Num(usage.weight[1])]),
         ),
-        ("unicodeRange".into(), Json::str(usage.unicode_range.clone())),
+        (
+            "unicodeRange".into(),
+            Json::str(usage.unicode_range.clone()),
+        ),
         ("publicUrl".into(), Json::str(usage.public_url.clone())),
-        ("sourceSha256".into(), Json::str(usage.source_sha256.clone())),
+        (
+            "sourceSha256".into(),
+            Json::str(usage.source_sha256.clone()),
+        ),
         ("sfntSha256".into(), Json::str(usage.sfnt_sha256.clone())),
         ("faceIndex".into(), Json::Num(usage.face_index)),
         ("sourceOrder".into(), Json::Num(usage.source_order as f64)),
         (
             "axes".into(),
             Json::Obj(
-                usage.axes.iter().map(|(tag, value)| (tag.clone(), Json::Num(*value))).collect(),
+                usage
+                    .axes
+                    .iter()
+                    .map(|(tag, value)| (tag.clone(), Json::Num(*value)))
+                    .collect(),
             ),
         ),
         (
             "localNames".into(),
-            Json::Arr(usage.local_names.iter().map(|name| Json::str(name.clone())).collect()),
+            Json::Arr(
+                usage
+                    .local_names
+                    .iter()
+                    .map(|name| Json::str(name.clone()))
+                    .collect(),
+            ),
         ),
         (
             "coverageText".into(),
@@ -144,7 +206,13 @@ fn usage_json(usage: &FaceUsage) -> Json {
                 ("language".into(), Json::str(usage.probe_language.clone())),
                 (
                     "features".into(),
-                    Json::Arr(usage.probe_features.iter().map(|f| Json::str(f.clone())).collect()),
+                    Json::Arr(
+                        usage
+                            .probe_features
+                            .iter()
+                            .map(|f| Json::str(f.clone()))
+                            .collect(),
+                    ),
                 ),
             ]),
         ),
@@ -158,13 +226,25 @@ fn shape_replay_json(replay: &ShapeReplay) -> Json {
             "result".into(),
             Json::Obj(vec![
                 ("faceId".into(), Json::str(replay.face_id.clone())),
-                ("fontInstanceId".into(), Json::str(replay.font_instance_id.clone())),
+                (
+                    "fontInstanceId".into(),
+                    Json::str(replay.font_instance_id.clone()),
+                ),
                 ("script".into(), Json::str(replay.script.clone())),
                 (
                     "features".into(),
-                    Json::Arr(replay.features.iter().map(|f| Json::str(f.clone())).collect()),
+                    Json::Arr(
+                        replay
+                            .features
+                            .iter()
+                            .map(|f| Json::str(f.clone()))
+                            .collect(),
+                    ),
                 ),
-                ("unsafeBreakCount".into(), Json::Num(replay.unsafe_break_count as f64)),
+                (
+                    "unsafeBreakCount".into(),
+                    Json::Num(replay.unsafe_break_count as f64),
+                ),
                 ("advanceEm".into(), opt_num(replay.advance_em)),
                 (
                     "glyphs".into(),

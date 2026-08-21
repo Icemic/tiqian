@@ -125,7 +125,13 @@ fn decode_string(score: u16, bytes: &[u8]) -> String {
     }
     bytes
         .iter()
-        .map(|byte| if *byte < 0x80 { *byte as char } else { '\u{fffd}' })
+        .map(|byte| {
+            if *byte < 0x80 {
+                *byte as char
+            } else {
+                '\u{fffd}'
+            }
+        })
         .collect()
 }
 
@@ -160,7 +166,10 @@ pub fn local_names(name: Option<&[u8]>, ltag: Option<&[u8]>) -> Vec<String> {
         // A record whose string runs past the table's storage nulls the
         // whole table in the HarfBuzz sanitizer.
         let start = storage_offset + offset;
-        if start.checked_add(length).map_or(true, |end| end > table.len()) {
+        if start
+            .checked_add(length)
+            .map_or(true, |end| end > table.len())
+        {
             return Vec::new();
         }
         let Some(score) = record_score(platform, encoding) else {
@@ -177,7 +186,8 @@ pub fn local_names(name: Option<&[u8]>, ltag: Option<&[u8]>) -> Vec<String> {
     // HarfBuzz fetches, per (nameID, language), the first record in
     // (nameID, language, score, index) order.
     candidates.sort_by(|left, right| {
-        left.0.cmp(&right.0)
+        left.0
+            .cmp(&right.0)
             .then_with(|| left.1.cmp(&right.1))
             .then_with(|| left.2.cmp(&right.2))
             .then_with(|| left.3.cmp(&right.3))
@@ -215,12 +225,22 @@ mod tests {
 
     impl NameTableBuilder {
         fn new() -> NameTableBuilder {
-            NameTableBuilder { records: Vec::new() }
+            NameTableBuilder {
+                records: Vec::new(),
+            }
         }
 
         /// (platform, encoding, languageID, nameID, string bytes)
-        fn record(mut self, platform: u16, encoding: u16, language: u16, name_id: u16, bytes: &[u8]) -> Self {
-            self.records.push((platform, encoding, language, name_id, bytes.to_vec()));
+        fn record(
+            mut self,
+            platform: u16,
+            encoding: u16,
+            language: u16,
+            name_id: u16,
+            bytes: &[u8],
+        ) -> Self {
+            self.records
+                .push((platform, encoding, language, name_id, bytes.to_vec()));
             self
         }
 
@@ -276,7 +296,10 @@ mod tests {
             .record(3, 1, 0x0409, 1, &utf16("Windows Family"))
             .record(1, 0, 0, 1, b"Mac Family")
             .build();
-        assert_eq!(local_names(Some(&table), None), vec!["Windows Family".to_string()]);
+        assert_eq!(
+            local_names(Some(&table), None),
+            vec!["Windows Family".to_string()]
+        );
     }
 
     #[test]
@@ -284,7 +307,10 @@ mod tests {
         let table = NameTableBuilder::new()
             .record(1, 0, 0, 1, b"caf\xe9")
             .build();
-        assert_eq!(local_names(Some(&table), None), vec!["caf\u{fffd}".to_string()]);
+        assert_eq!(
+            local_names(Some(&table), None),
+            vec!["caf\u{fffd}".to_string()]
+        );
     }
 
     #[test]
@@ -293,7 +319,10 @@ mod tests {
             .record(3, 1, 0x04ff, 1, &utf16("Unknown LCID"))
             .record(3, 1, 0x0804, 1, &utf16("思源黑体"))
             .build();
-        assert_eq!(local_names(Some(&table), None), vec!["思源黑体".to_string()]);
+        assert_eq!(
+            local_names(Some(&table), None),
+            vec!["思源黑体".to_string()]
+        );
     }
 
     #[test]
@@ -317,7 +346,10 @@ mod tests {
             .chain([16u16, 2u16].iter().flat_map(|value| value.to_be_bytes()))
             .chain(b"en".iter().copied())
             .collect();
-        assert_eq!(local_names(Some(&table), Some(&ltag)), vec!["Ltag Family".to_string()]);
+        assert_eq!(
+            local_names(Some(&table), Some(&ltag)),
+            vec!["Ltag Family".to_string()]
+        );
         // Without ltag the record has no language and is dropped.
         assert!(local_names(Some(&table), None).is_empty());
     }
@@ -346,7 +378,10 @@ mod tests {
             .record(3, 1, 0x0409, 1, &utf16("   "))
             .record(3, 1, 0x0409, 4, &utf16("Real Name"))
             .build();
-        assert_eq!(local_names(Some(&table), None), vec!["Real Name".to_string()]);
+        assert_eq!(
+            local_names(Some(&table), None),
+            vec!["Real Name".to_string()]
+        );
     }
 
     #[test]

@@ -22,8 +22,8 @@ use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
 use tiqian_precompute::json::Json;
 use tiqian_precompute::normalize::TypographyInput;
 use tiqian_precompute::precompute_html::{
-    create_html_preparer, HtmlPrepareOptions, HtmlPreparerOptions,
-    HtmlProjectionContext, SnapshotParagraphProjector, SnapshotProjection,
+    create_html_preparer, HtmlPrepareOptions, HtmlPreparerOptions, HtmlProjectionContext,
+    SnapshotParagraphProjector, SnapshotProjection,
 };
 use tiqian_precompute::precomputer::PrecomputerOptions;
 use tiqian_precompute::schema::stable_stringify;
@@ -106,7 +106,11 @@ fn case_matrix() -> (Vec<Json>, Vec<Json>) {
             "<div data-tiqian-skip><p>跳过段落</p></div><p>保留段落</p>",
             width(),
         ),
-        case("bundleNull", "<div data-tiqian-skip><p>跳过段落</p></div>", width()),
+        case(
+            "bundleNull",
+            "<div data-tiqian-skip><p>跳过段落</p></div>",
+            width(),
+        ),
         case(
             "templateLiteral",
             "<template><p>模板文字</p></template><p>排版段落</p>",
@@ -117,7 +121,11 @@ fn case_matrix() -> (Vec<Json>, Vec<Json>) {
             "<script>var s = \"<p>脚本假段落</p>\";</script><p>排版段落</p>",
             width(),
         ),
-        case("commentLiteral", "<!-- <p>注释假段落</p> --><p>排版段落</p>", width()),
+        case(
+            "commentLiteral",
+            "<!-- <p>注释假段落</p> --><p>排版段落</p>",
+            width(),
+        ),
         case(
             "noscriptLiteral",
             "<noscript><p>无脚本段落</p></noscript><p>排版段落</p>",
@@ -136,7 +144,11 @@ fn case_matrix() -> (Vec<Json>, Vec<Json>) {
         case("emptyParagraph", "<p>  </p><p>中文</p>", width()),
         case("emojiIssue", "<p>中🦀文</p>", width()),
         explicit_id_case(),
-        case("anchorFree", "<p>中文<a href=\"https://example.com\">链接</a>排版</p>", None),
+        case(
+            "anchorFree",
+            "<p>中文<a href=\"https://example.com\">链接</a>排版</p>",
+            None,
+        ),
         case("invalidWidth", "<p>中文</p>", Some(Json::Num(0.0))),
         case("nanWidth", "<p>中文</p>", Some(Json::str("abc"))),
         closing_case("closedPreparer", "<p>中文</p>", width()),
@@ -264,12 +276,18 @@ fn run_rust_side(font_bytes: &[u8], plan: &Json) -> Vec<String> {
         let name = fields
             .iter()
             .find(|(key, _)| key == "name")
-            .and_then(|(_, value)| match value { Json::Str(name) => Some(name.clone()), _ => None })
+            .and_then(|(_, value)| match value {
+                Json::Str(name) => Some(name.clone()),
+                _ => None,
+            })
             .expect("case name");
         let html = fields
             .iter()
             .find(|(key, _)| key == "html")
-            .and_then(|(_, value)| match value { Json::Str(html) => Some(html.clone()), _ => None })
+            .and_then(|(_, value)| match value {
+                Json::Str(html) => Some(html.clone()),
+                _ => None,
+            })
             .expect("case html");
         let (id, width) = prepare_options(entry);
         let options = HtmlPrepareOptions {
@@ -306,12 +324,18 @@ fn run_rust_side(font_bytes: &[u8], plan: &Json) -> Vec<String> {
         let name = fields
             .iter()
             .find(|(key, _)| key == "name")
-            .and_then(|(_, value)| match value { Json::Str(name) => Some(name.clone()), _ => None })
+            .and_then(|(_, value)| match value {
+                Json::Str(name) => Some(name.clone()),
+                _ => None,
+            })
             .expect("case name");
         let html = fields
             .iter()
             .find(|(key, _)| key == "html")
-            .and_then(|(_, value)| match value { Json::Str(html) => Some(html.clone()), _ => None })
+            .and_then(|(_, value)| match value {
+                Json::Str(html) => Some(html.clone()),
+                _ => None,
+            })
             .expect("case html");
         let (id, width) = prepare_options(entry);
         let options = HtmlPrepareOptions {
@@ -374,8 +398,8 @@ fn precompute_html_matches_the_js_oracle() {
     let cases_path = workdir.join("cases.json");
     std::fs::write(&cases_path, plan.render()).expect("cases.json writes");
 
-    let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/oracle/precompute_html_oracle.mjs");
+    let oracle =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/precompute_html_oracle.mjs");
     let oracle_run = Command::new("node")
         .arg(&oracle)
         .arg(&cases_path)
@@ -388,7 +412,9 @@ fn precompute_html_matches_the_js_oracle() {
             String::from_utf8_lossy(&oracle_run.stderr)
         );
     }
-    let js_dump = String::from_utf8_lossy(&oracle_run.stdout).trim().to_string();
+    let js_dump = String::from_utf8_lossy(&oracle_run.stdout)
+        .trim()
+        .to_string();
     let js_lines: Vec<String> = js_dump
         .lines()
         .map(|line| normalize_engine_versions(line))

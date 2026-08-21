@@ -17,3 +17,4 @@ read-fonts = "0.43"
 wuff = { version = "0.2", default-features = false, features = ["brotli"] }
 sha2 = "0.10"
 html5ever = "0.39.0"
+url = "2"

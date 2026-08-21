@@ -63,8 +63,12 @@ pub struct TableMetrics {
 
 fn table_metrics(sfnt: &[u8]) -> TableMetrics {
     let os2 = table(sfnt, b"OS/2");
-    let typo_ascender = os2.filter(|bytes| bytes.len() >= 72).map(|bytes| s16_at(bytes, 68));
-    let typo_descender = os2.filter(|bytes| bytes.len() >= 72).map(|bytes| s16_at(bytes, 70));
+    let typo_ascender = os2
+        .filter(|bytes| bytes.len() >= 72)
+        .map(|bytes| s16_at(bytes, 68));
+    let typo_descender = os2
+        .filter(|bytes| bytes.len() >= 72)
+        .map(|bytes| s16_at(bytes, 70));
     let base = base_ideo_idtp(table(sfnt, b"BASE"));
     TableMetrics {
         typo_ascender: base.idtp.or(typo_ascender),
@@ -182,7 +186,9 @@ pub fn load_record(spec: &FontFaceSpec) -> Result<FontRecord, LoadRecordError> {
     if !axis_infos.is_empty()
         && (table(&sfnt, b"MVAR").is_some() || metrics.base_has_variation_index)
     {
-        return Err(LoadRecordError::UnsupportedVariableFontMetrics(family.clone()));
+        return Err(LoadRecordError::UnsupportedVariableFontMetrics(
+            family.clone(),
+        ));
     }
     let source_sha256 = sha256_hex(spec.source);
     let sfnt_sha256 = sha256_hex(&sfnt);
@@ -388,7 +394,9 @@ mod tests {
         ]);
         assert_eq!(
             load_record(&spec("Body", &variable)),
-            Err(LoadRecordError::UnsupportedVariableFontMetrics("Body".into()))
+            Err(LoadRecordError::UnsupportedVariableFontMetrics(
+                "Body".into()
+            ))
         );
     }
 
@@ -396,8 +404,11 @@ mod tests {
     fn base_coordinates_cross_assign_into_typo_metrics() {
         let base =
             crate::base_table::base_table_bytes(&["ideo", "idtp"], "hani", &[(1, 770), (1, -230)]);
-        let font =
-            sfnt_with(&[(b"head", head(1000)), (b"OS/2", os2(880, -120)), (b"BASE", base)]);
+        let font = sfnt_with(&[
+            (b"head", head(1000)),
+            (b"OS/2", os2(880, -120)),
+            (b"BASE", base),
+        ]);
         let record = load_record(&spec("Body", &font)).unwrap();
         assert_eq!(record.table_metrics.typo_ascender, Some(-230)); // idtp
         assert_eq!(record.table_metrics.typo_descender, Some(770)); // ideo
@@ -417,7 +428,10 @@ mod tests {
         );
         let mut zero = spec("Body", &source);
         zero.weight = FontWeightSpec::Single(Some(0.0));
-        assert_eq!(load_record(&zero), Err(LoadRecordError::InvalidFontFaceWeight));
+        assert_eq!(
+            load_record(&zero),
+            Err(LoadRecordError::InvalidFontFaceWeight)
+        );
         let mut absent = spec("Body", &source);
         absent.weight = FontWeightSpec::Single(None);
         assert_eq!(load_record(&absent).unwrap().weight_range, [400.0, 400.0]);

@@ -12,9 +12,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 
-use html5ever::interface::tree_builder::{
-    ElementFlags, NodeOrText, QuirksMode, TreeSink,
-};
+use html5ever::interface::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
 use html5ever::interface::ElemName;
 use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tree_builder::TreeBuilderOpts;
@@ -76,12 +74,19 @@ impl DomParser {
             parent: None,
             children: RefCell::new(Vec::new()),
         }];
-        DomParser { nodes: RefCell::new(nodes), document: 0 }
+        DomParser {
+            nodes: RefCell::new(nodes),
+            document: 0,
+        }
     }
 
     fn push(&self, slot: Slot) -> usize {
         let mut nodes = self.nodes.borrow_mut();
-        nodes.push(ArenaNode { slot, parent: None, children: RefCell::new(Vec::new()) });
+        nodes.push(ArenaNode {
+            slot,
+            parent: None,
+            children: RefCell::new(Vec::new()),
+        });
         nodes.len() - 1
     }
 
@@ -170,15 +175,17 @@ impl TreeSink for DomParser {
         }
     }
 
-    fn create_element(
-        &self,
-        name: QualName,
-        attrs: Vec<Attribute>,
-        flags: ElementFlags,
-    ) -> usize {
-        let template_contents =
-            if flags.template { Some(self.push(Slot::Document)) } else { None };
-        self.push(Slot::Element { name, attributes: attrs, template_contents })
+    fn create_element(&self, name: QualName, attrs: Vec<Attribute>, flags: ElementFlags) -> usize {
+        let template_contents = if flags.template {
+            Some(self.push(Slot::Document))
+        } else {
+            None
+        };
+        self.push(Slot::Element {
+            name,
+            attributes: attrs,
+            template_contents,
+        })
     }
 
     fn create_comment(&self, _text: StrTendril) -> usize {
@@ -196,7 +203,10 @@ impl TreeSink for DomParser {
             || self.last_child(parent),
             |node| {
                 self.set_parent(node, parent);
-                self.nodes.borrow_mut()[parent].children.borrow_mut().push(node);
+                self.nodes.borrow_mut()[parent]
+                    .children
+                    .borrow_mut()
+                    .push(node);
             },
         );
     }
@@ -217,9 +227,7 @@ impl TreeSink for DomParser {
                     .iter()
                     .position(|candidate| *candidate == sibling);
                 match position {
-                    Some(position) => {
-                        nodes[parent].children.borrow_mut().insert(position, node)
-                    }
+                    Some(position) => nodes[parent].children.borrow_mut().insert(position, node),
                     None => nodes[parent].children.borrow_mut().push(node),
                 }
             },
@@ -256,9 +264,7 @@ impl TreeSink for DomParser {
             panic!("add_attrs_if_missing on a non-element node");
         };
         for attr in attrs {
-            let present = attributes
-                .iter()
-                .any(|existing| existing.name == attr.name);
+            let present = attributes.iter().any(|existing| existing.name == attr.name);
             if !present {
                 attributes.push(attr);
             }
@@ -268,7 +274,10 @@ impl TreeSink for DomParser {
     fn get_template_contents(&self, target: &usize) -> usize {
         let nodes = self.nodes.borrow();
         match &nodes[*target].slot {
-            Slot::Element { template_contents: Some(contents), .. } => *contents,
+            Slot::Element {
+                template_contents: Some(contents),
+                ..
+            } => *contents,
             _ => panic!("get_template_contents on a non-template node"),
         }
     }
@@ -287,8 +296,7 @@ impl TreeSink for DomParser {
     fn reparent_children(&self, node: &usize, new_parent: &usize) {
         let moved: Vec<usize> = {
             let nodes = self.nodes.borrow_mut();
-            let moved =
-                std::mem::take(&mut *nodes[*node].children.borrow_mut());
+            let moved = std::mem::take(&mut *nodes[*node].children.borrow_mut());
             drop(nodes);
             moved
         };
@@ -306,7 +314,10 @@ impl TreeSink for DomParser {
 pub fn parse_html_document(markup: &str) -> DomParser {
     let sink = DomParser::new();
     let options = ParseOpts {
-        tree_builder: TreeBuilderOpts { scripting_enabled: false, ..Default::default() },
+        tree_builder: TreeBuilderOpts {
+            scripting_enabled: false,
+            ..Default::default()
+        },
         ..Default::default()
     };
     parse_document(sink, options)
@@ -375,12 +386,13 @@ impl DomParser {
         while let Some(node) = stack.pop() {
             if node != root
                 && self.is_element(node)
-                && names.iter().any(|name| name.eq_ignore_ascii_case(&self.tag_name(node)))
+                && names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&self.tag_name(node)))
             {
                 matched.push(node);
             }
-            let children: Vec<usize> =
-                self.nodes.borrow()[node].children.borrow().clone();
+            let children: Vec<usize> = self.nodes.borrow()[node].children.borrow().clone();
             for child in children.iter().rev() {
                 stack.push(*child);
             }
@@ -394,7 +406,9 @@ impl DomParser {
         let mut current = Some(element);
         while let Some(node) = current {
             if self.is_element(node)
-                && selectors.iter().any(|selector| selector.matches(self, node))
+                && selectors
+                    .iter()
+                    .any(|selector| selector.matches(self, node))
             {
                 return true;
             }
@@ -418,7 +432,9 @@ impl DomParser {
             .collect();
         let nodes = self.nodes.borrow();
         match &nodes[index].slot {
-            Slot::Element { name, attributes, .. } => DomNode::Element {
+            Slot::Element {
+                name, attributes, ..
+            } => DomNode::Element {
                 tag_name: name.local.to_string(),
                 attributes: attributes
                     .iter()
@@ -446,10 +462,9 @@ pub struct CompoundSelector {
 
 impl CompoundSelector {
     fn matches(&self, parser: &DomParser, element: usize) -> bool {
-        let tag_ok = self
-            .tag
-            .as_ref()
-            .map_or(true, |tag| tag.eq_ignore_ascii_case(&parser.tag_name(element)));
+        let tag_ok = self.tag.as_ref().map_or(true, |tag| {
+            tag.eq_ignore_ascii_case(&parser.tag_name(element))
+        });
         if !tag_ok {
             return false;
         }
@@ -459,10 +474,8 @@ impl CompoundSelector {
             }
         }
         if !self.classes.is_empty() {
-            let class_attribute =
-                parser.attribute_value(element, "class").unwrap_or_default();
-            let present: Vec<&str> =
-                class_attribute.split_ascii_whitespace().collect();
+            let class_attribute = parser.attribute_value(element, "class").unwrap_or_default();
+            let present: Vec<&str> = class_attribute.split_ascii_whitespace().collect();
             if self
                 .classes
                 .iter()
@@ -488,9 +501,7 @@ impl CompoundSelector {
 }
 
 /// Parses a comma separated selector list for `closest`.
-pub fn parse_compound_selector_list(
-    selector: &str,
-) -> Result<Vec<CompoundSelector>, NamedError> {
+pub fn parse_compound_selector_list(selector: &str) -> Result<Vec<CompoundSelector>, NamedError> {
     let mut compounds = Vec::new();
     for part in selector.split(',') {
         let trimmed = js_selector_trim(part);
@@ -504,10 +515,7 @@ pub fn parse_compound_selector_list(
 
 fn js_selector_trim(value: &str) -> &str {
     value.trim_matches(|character: char| {
-        matches!(
-            character,
-            '\u{9}' | '\u{a}' | '\u{c}' | '\u{d}' | '\u{20}'
-        )
+        matches!(character, '\u{9}' | '\u{a}' | '\u{c}' | '\u{d}' | '\u{20}')
     })
 }
 
@@ -632,8 +640,7 @@ fn read_selector_word(
     }
     let mut word = String::new();
     let mut index = position;
-    while index < characters.len()
-        && is_selector_word_character(characters[index], attribute_name)
+    while index < characters.len() && is_selector_word_character(characters[index], attribute_name)
     {
         word.push(characters[index]);
         index += 1;
@@ -646,7 +653,10 @@ mod tests {
     use super::*;
 
     fn tags(parser: &DomParser, indices: &[usize]) -> Vec<String> {
-        indices.iter().map(|index| parser.tag_name(*index)).collect()
+        indices
+            .iter()
+            .map(|index| parser.tag_name(*index))
+            .collect()
     }
 
     #[test]
@@ -658,25 +668,24 @@ mod tests {
         assert_eq!(mains.len(), 1);
         let matched = parser.descendants_by_tag(mains[0], &["p".to_string(), "li".to_string()]);
         assert_eq!(tags(&parser, &matched), ["p", "p", "li", "p"]);
-        assert_eq!(parser.to_dom_node(matched[0]), DomNode::Element {
-            tag_name: "p".to_string(),
-            attributes: Vec::new(),
-            children: vec![
-                DomNode::Text("a & b".to_string()),
-            ],
-        });
+        assert_eq!(
+            parser.to_dom_node(matched[0]),
+            DomNode::Element {
+                tag_name: "p".to_string(),
+                attributes: Vec::new(),
+                children: vec![DomNode::Text("a & b".to_string()),],
+            }
+        );
     }
 
     #[test]
     fn template_contents_stay_outside_the_tree() {
-        let parser = parse_html_document(
-            "<main><template><p>inert</p></template><p>live</p></main>",
-        );
+        let parser =
+            parse_html_document("<main><template><p>inert</p></template><p>live</p></main>");
         let mains = parser.descendants_by_tag(parser.document(), &["main".to_string()]);
         let matched = parser.descendants_by_tag(mains[0], &["p".to_string()]);
         assert_eq!(matched.len(), 1);
-        let templates =
-            parser.descendants_by_tag(mains[0], &["template".to_string()]);
+        let templates = parser.descendants_by_tag(mains[0], &["template".to_string()]);
         match parser.to_dom_node(templates[0]) {
             DomNode::Element { children, .. } => assert!(children.is_empty()),
             other => panic!("template stays an element: {other:?}"),
@@ -685,8 +694,7 @@ mod tests {
 
     #[test]
     fn noscript_children_are_real_elements() {
-        let parser =
-            parse_html_document("<main><noscript><p>a</p></noscript></main>");
+        let parser = parse_html_document("<main><noscript><p>a</p></noscript></main>");
         let mains = parser.descendants_by_tag(parser.document(), &["main".to_string()]);
         let matched = parser.descendants_by_tag(mains[0], &["p".to_string()]);
         assert_eq!(matched.len(), 1);

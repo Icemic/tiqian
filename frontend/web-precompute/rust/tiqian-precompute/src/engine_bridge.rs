@@ -12,9 +12,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
 use std::sync::Once;
 
-use tiqian::font_backend::{
-    FontBackendVtable, InstallOutcome, FONT_BACKEND_PROTOCOL_REVISION,
-};
+use tiqian::font_backend::{FontBackendVtable, InstallOutcome, FONT_BACKEND_PROTOCOL_REVISION};
 use tiqian::shape_buffer::{
     required_shape_buffer_size, write_shape_buffer, ShapeEvidence, ShapeGlyphRecord,
 };
@@ -53,10 +51,7 @@ pub fn precompute_paragraph(
     request: &ParagraphRequest,
 ) -> Result<String, String> {
     install_session_backend();
-    let packed = request
-        .to_layout_request()
-        .map_err(|error| error.0)?
-        .pack();
+    let packed = request.to_layout_request().map_err(|error| error.0)?.pack();
     let _slot = SessionSlot::set(session);
     tiqian::engine::layout_paragraph(&packed).map_err(|error| error.0)
 }

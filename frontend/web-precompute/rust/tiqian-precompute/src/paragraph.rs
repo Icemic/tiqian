@@ -198,7 +198,10 @@ fn named(name: &str) -> NamedError {
 }
 
 fn families(values: &[String]) -> Vec<&String> {
-    values.iter().filter(|value| !value.trim().is_empty()).collect()
+    values
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect()
 }
 
 fn valid_range(start: i32, end: i32, text_length: i32) -> bool {
@@ -378,7 +381,10 @@ mod tests {
             outer_spacing: InlineBoxOuterSpacingCode::Source,
         }];
         let packed = request.to_layout_request().unwrap().pack();
-        assert_eq!(tiqian::layout_request::LAYOUT_REQUEST_MAGIC, u32::from_le_bytes(packed[0..4].try_into().unwrap()));
+        assert_eq!(
+            tiqian::layout_request::LAYOUT_REQUEST_MAGIC,
+            u32::from_le_bytes(packed[0..4].try_into().unwrap())
+        );
         // The sections exist as counts: textSpans 1, lineBreakSpans 1, inlineBoxes 1.
         assert!(packed.windows(4).any(|window| window == 1u32.to_le_bytes()));
         let invalid = ParagraphRequest {

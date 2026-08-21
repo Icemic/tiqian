@@ -39,6 +39,50 @@ pub fn js_trim(value: &str) -> &str {
     value.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
 }
 
+/// ECMAScript `\s`: WhiteSpace plus LineTerminator, including U+FEFF.
+pub fn is_js_whitespace(character: char) -> bool {
+    matches!(
+        character,
+        '\u{9}'
+            | '\u{a}'
+            | '\u{b}'
+            | '\u{c}'
+            | '\u{d}'
+            | '\u{20}'
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+    )
+}
+
+/// Splits on ECMAScript `\s+` the way `String.prototype.split(/\s+/u)` does.
+pub fn split_js_whitespace(value: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = None;
+    let mut index = 0;
+    for character in value.chars() {
+        if is_js_whitespace(character) {
+            if let Some(begin) = start.take() {
+                parts.push(&value[begin..index]);
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+        index += character.len_utf8();
+    }
+    if let Some(begin) = start {
+        parts.push(&value[begin..]);
+    }
+    parts
+}
+
 /// `Math.min`: NaN propagates (Rust's `f64::min` drops it); `-0` wins over
 /// `+0` (Rust's may return either).
 pub fn js_min(left: f64, right: f64) -> f64 {
@@ -46,9 +90,17 @@ pub fn js_min(left: f64, right: f64) -> f64 {
         return f64::NAN;
     }
     if left == right {
-        return if left.is_sign_negative() || right.is_sign_negative() { -0.0 } else { left };
+        return if left.is_sign_negative() || right.is_sign_negative() {
+            -0.0
+        } else {
+            left
+        };
     }
-    if left < right { left } else { right }
+    if left < right {
+        left
+    } else {
+        right
+    }
 }
 
 /// `Math.max`: NaN propagates; `+0` wins over `-0`.
@@ -57,9 +109,17 @@ pub fn js_max(left: f64, right: f64) -> f64 {
         return f64::NAN;
     }
     if left == right {
-        return if left.is_sign_negative() && right.is_sign_negative() { left } else { left.abs() };
+        return if left.is_sign_negative() && right.is_sign_negative() {
+            left
+        } else {
+            left.abs()
+        };
     }
-    if left > right { left } else { right }
+    if left > right {
+        left
+    } else {
+        right
+    }
 }
 
 /// Orders strings by UTF-16 code units, the comparison `Array.prototype.sort`
@@ -107,9 +167,8 @@ pub fn js_to_number(value: &str) -> f64 {
         };
     }
     // Decimal: digits [. digits] [e sign digits]; a bare "." or "e" is NaN.
-    let invalid = body
-        .strip_prefix(['e', 'E'])
-        .is_some() || body.starts_with(|c: char| !c.is_ascii_digit() && c != '.');
+    let invalid = body.strip_prefix(['e', 'E']).is_some()
+        || body.starts_with(|c: char| !c.is_ascii_digit() && c != '.');
     if invalid {
         return f64::NAN;
     }

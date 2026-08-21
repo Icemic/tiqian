@@ -30,7 +30,10 @@ pub const HARFBUZZ_VERSION: &str = "harfrust-0.13.0";
 #[derive(Debug, PartialEq)]
 pub enum SessionError {
     MissingExplicitFontFaces,
-    InvalidFontFaceSourceOrder { input_order: usize, source_order: String },
+    InvalidFontFaceSourceOrder {
+        input_order: usize,
+        source_order: String,
+    },
     DuplicateFontFaceSourceOrder(u32),
     UnsupportedFontSessionBaseFeatures,
     Load(LoadRecordError),
@@ -40,8 +43,15 @@ impl std::fmt::Display for SessionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SessionError::MissingExplicitFontFaces => write!(f, "MissingExplicitFontFaces"),
-            SessionError::InvalidFontFaceSourceOrder { input_order, source_order } => {
-                write!(f, "InvalidFontFaceSourceOrder:{}:{}", input_order, source_order)
+            SessionError::InvalidFontFaceSourceOrder {
+                input_order,
+                source_order,
+            } => {
+                write!(
+                    f,
+                    "InvalidFontFaceSourceOrder:{}:{}",
+                    input_order, source_order
+                )
             }
             SessionError::DuplicateFontFaceSourceOrder(order) => {
                 write!(f, "DuplicateFontFaceSourceOrder:{}", order)
@@ -96,7 +106,10 @@ pub struct SessionOptions {
 
 impl Default for SessionOptions {
     fn default() -> Self {
-        SessionOptions { session_prefix: "tq-font".to_string(), base_features: None }
+        SessionOptions {
+            session_prefix: "tq-font".to_string(),
+            base_features: None,
+        }
     }
 }
 
@@ -259,7 +272,11 @@ pub fn create_font_session(
     }
     let prefix = {
         let trimmed = js_trim(&options.session_prefix);
-        if trimmed.is_empty() { "tq-font" } else { trimmed }
+        if trimmed.is_empty() {
+            "tq-font"
+        } else {
+            trimmed
+        }
     };
     // The JS reads the counter before the session literal normalizes
     // baseFeatures, so a session rejected for UnsupportedFontSessionBaseFeatures
@@ -292,8 +309,11 @@ impl FontSession {
         self.records
             .iter()
             .map(|record| {
-                let mut axis_tags: Vec<String> =
-                    record.axis_infos.iter().map(|axis| axis.tag.clone()).collect();
+                let mut axis_tags: Vec<String> = record
+                    .axis_infos
+                    .iter()
+                    .map(|axis| axis.tag.clone())
+                    .collect();
                 // JS `.sort()` compares UTF-16 code units.
                 axis_tags.sort_by(|left, right| crate::js_compat::cmp_utf16(left, right));
                 FaceInfo {
@@ -426,7 +446,11 @@ impl FontSession {
                 // The js seeds `coverageText` as a Set of the display text,
                 // so a repeated code point counts once even on first use.
                 let mut seen = std::collections::HashSet::new();
-                display_chars.iter().copied().filter(|point| seen.insert(*point)).collect()
+                display_chars
+                    .iter()
+                    .copied()
+                    .filter(|point| seen.insert(*point))
+                    .collect()
             },
             probe_text: input.display_text.to_string(),
             probe_advance_px: result.advance,
@@ -480,7 +504,8 @@ impl FontSession {
                     input.font_size,
                     input.font_weight,
                 )?;
-                self.metric_cache.insert(selection.cache_key.clone(), computed);
+                self.metric_cache
+                    .insert(selection.cache_key.clone(), computed);
                 computed
             }
         };

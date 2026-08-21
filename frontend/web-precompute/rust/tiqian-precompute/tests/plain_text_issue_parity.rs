@@ -23,8 +23,7 @@ struct IssueRange {
 }
 
 fn oracle_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../build/plain-text-issue/oracle.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../build/plain-text-issue/oracle.json")
 }
 
 /// The Rust dump over the same single-character corpus.
@@ -35,12 +34,20 @@ fn native_ranges() -> Vec<IssueRange> {
     for point in 1..=MAX_CODE_POINT {
         let issue = issue_at(point);
         if issue != current {
-            ranges.push(IssueRange { start, end: point - 1, issue: current });
+            ranges.push(IssueRange {
+                start,
+                end: point - 1,
+                issue: current,
+            });
             start = point;
             current = issue;
         }
     }
-    ranges.push(IssueRange { start, end: MAX_CODE_POINT, issue: current });
+    ranges.push(IssueRange {
+        start,
+        end: MAX_CODE_POINT,
+        issue: current,
+    });
     ranges
 }
 
@@ -66,7 +73,11 @@ fn oracle_ranges(json: &Json) -> Vec<IssueRange> {
             let Json::Obj(fields) = entry else {
                 panic!("oracle entry is not an object");
             };
-            let mut range = IssueRange { start: 0, end: 0, issue: None };
+            let mut range = IssueRange {
+                start: 0,
+                end: 0,
+                issue: None,
+            };
             for (key, value) in fields {
                 match (key.as_str(), value) {
                     ("start", Json::Num(value)) => range.start = *value as u32,

@@ -10,7 +10,12 @@ use crate::json::json_string;
 use crate::shaping::FontEngine;
 
 /// `NoExactFontFace:families=...;weight=...;italic=...;text=...`
-pub fn no_exact_font_face_message(families: &[String], weight: f64, italic: bool, text: &str) -> String {
+pub fn no_exact_font_face_message(
+    families: &[String],
+    weight: f64,
+    italic: bool,
+    text: &str,
+) -> String {
     format!(
         "NoExactFontFace:families={};weight={};italic={};text={}",
         families.join(","),
@@ -31,7 +36,9 @@ pub fn face_covers(record: &FontRecord, points: &[char]) -> bool {
         return false;
     }
     let engine = FontEngine::new(record, record.weight_range[0]);
-    points.iter().all(|point| engine.nominal_glyph(*point).is_some())
+    points
+        .iter()
+        .all(|point| engine.nominal_glyph(*point).is_some())
 }
 
 /// `faceCandidates`: first family with style and weight matches wins; the
@@ -127,12 +134,20 @@ pub fn select_shape_face<'a>(
         }
     }
     let display: String = display_text.iter().collect();
-    Err(no_exact_font_face_message(families, requested_weight, italic, &display))
+    Err(no_exact_font_face_message(
+        families,
+        requested_weight,
+        italic,
+        &display,
+    ))
 }
 
 /// `renderFamiliesFor`: host families backed by the corpus, in the host's
 /// order, deduped per canonical family.
-pub fn render_families(records: &[FontRecord], requested_families: &[String]) -> Result<Vec<String>, String> {
+pub fn render_families(
+    records: &[FontRecord],
+    requested_families: &[String],
+) -> Result<Vec<String>, String> {
     let mut result: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for requested_family in requested_families {

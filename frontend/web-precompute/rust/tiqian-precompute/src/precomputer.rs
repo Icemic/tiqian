@@ -9,7 +9,7 @@ use tiqian::NamedError;
 
 use crate::emit::evidence_json;
 use crate::font_source::sha256_hex;
-use crate::json::{parse_json, Json};
+use crate::json::{member, parse_json, Json};
 use crate::normalize::{
     font_contract_capture_width, normalize_inline_boxes, normalize_text_spans,
     normalize_typography, paragraph_capability_issue, semantic_capability_issue,
@@ -497,7 +497,7 @@ fn entry_status(entry: &Json) -> Option<&str> {
 
 /// The wire typography of the prepared entry; `stableStringify` of this form
 /// feeds `typographySha256`.
-fn typography_value_json(typography: &SnapshotTypography) -> Json {
+pub fn typography_value_json(typography: &SnapshotTypography) -> Json {
     Json::Obj(vec![
         (
             "fontFamilies".to_string(),
@@ -649,16 +649,6 @@ fn inline_boxes_raw(value: Option<&Json>) -> Result<Option<Vec<InlineBoxRaw>>, N
 }
 
 /// A member of a wire object, whatever its value.
-fn member<'a>(value: &'a Json, name: &str) -> Option<&'a Json> {
-    let Json::Obj(fields) = value else {
-        return None;
-    };
-    fields
-        .iter()
-        .find(|(key, _)| key == name)
-        .map(|(_, inner)| inner)
-}
-
 /// The `??` step: absent and null both read as absent.
 fn coalesce(value: Option<&Json>) -> Option<&Json> {
     value.filter(|value| !matches!(value, Json::Null))

@@ -72,7 +72,9 @@ fn error_name(result: Result<SnapshotBundle, NamedError>) -> String {
 
 fn set_field(entry: &mut Json, key: &str, value_text: &str) {
     let value = parse_json(value_text).expect("value parses");
-    let Json::Obj(fields) = entry else { panic!("entry object") };
+    let Json::Obj(fields) = entry else {
+        panic!("entry object")
+    };
     for (name, slot) in fields.iter_mut() {
         if name == key {
             *slot = value;
@@ -82,15 +84,20 @@ fn set_field(entry: &mut Json, key: &str, value_text: &str) {
     panic!("key {key} missing");
 }
 
-
 #[test]
 fn snapshot_bundle_matches_the_js_oracle_bytes() {
-    let bundle = bundle(render_snapshot_bundle(Some(&paragraphs()), &options("tq-page")));
+    let bundle = bundle(render_snapshot_bundle(
+        Some(&paragraphs()),
+        &options("tq-page"),
+    ));
     assert_eq!(bundle.id, "tq-page");
     assert_eq!(bundle.template, TEMPLATE_A);
     assert_eq!(bundle.inert_template, TEMPLATE_A);
     assert_eq!(bundle.client_template, CLIENT_TEMPLATE_A);
-    assert_eq!(bundle.initial_style, format!("{SHARED_STYLE}{INITIAL_STYLE_SUFFIX_A}"));
+    assert_eq!(
+        bundle.initial_style,
+        format!("{SHARED_STYLE}{INITIAL_STYLE_SUFFIX_A}")
+    );
     assert_eq!(bundle.entries.render(), ENTRIES_A);
     assert_eq!(bundle.render_font_families.render(), r#"["Snapshot Sans"]"#);
     assert_eq!(bundle.font_preloads.render(), "[]");
@@ -102,8 +109,8 @@ fn snapshot_bundle_matches_the_js_oracle_bytes() {
 
 #[test]
 fn snapshot_template_alone_matches_the_inert_template() {
-    let template =
-        render_snapshot_template(Some(&paragraphs()), &options("tq-page")).expect("template renders");
+    let template = render_snapshot_template(Some(&paragraphs()), &options("tq-page"))
+        .expect("template renders");
     assert_eq!(template, TEMPLATE_A);
 }
 
@@ -112,7 +119,10 @@ fn font_contract_paragraphs_split_their_own_manifest_entries() {
     let mut options = options("tq-sem");
     let contract = entry_alone(CONTRACT_FACE);
     options.font_contract_paragraphs = Some(&contract);
-    let bundle = bundle(render_snapshot_bundle(Some(&entry_alone(ENTRY_A)), &options));
+    let bundle = bundle(render_snapshot_bundle(
+        Some(&entry_alone(ENTRY_A)),
+        &options,
+    ));
     assert_eq!(bundle.template, TEMPLATE_CONTRACT);
     assert_eq!(bundle.client_template, CLIENT_TEMPLATE_CONTRACT);
     assert!(bundle.template.contains("fontContractEntries"));
@@ -120,7 +130,10 @@ fn font_contract_paragraphs_split_their_own_manifest_entries() {
 
 #[test]
 fn font_contract_bundle_matches_the_js_oracle_bytes() {
-    let bundle = bundle(render_font_contract_bundle(Some(&paragraphs()), &options("tq-fc")));
+    let bundle = bundle(render_font_contract_bundle(
+        Some(&paragraphs()),
+        &options("tq-fc"),
+    ));
     assert_eq!(bundle.template, FONT_CONTRACT_TEMPLATE);
     assert_eq!(bundle.inert_template, FONT_CONTRACT_TEMPLATE);
     assert_eq!(bundle.client_template, FONT_CONTRACT_TEMPLATE);
@@ -138,25 +151,37 @@ fn bundle_input_damage_reports_the_paragraph_list_gate_name() {
         "MissingPreparedParagraphs"
     );
     assert_eq!(
-        error_name(render_snapshot_bundle(Some(&Json::Null), &options("tq-page"))),
+        error_name(render_snapshot_bundle(
+            Some(&Json::Null),
+            &options("tq-page")
+        )),
         "MissingPreparedParagraphs"
     );
     assert_eq!(
-        error_name(render_snapshot_bundle(Some(&Json::Num(3.0)), &options("tq-page"))),
+        error_name(render_snapshot_bundle(
+            Some(&Json::Num(3.0)),
+            &options("tq-page")
+        )),
         "MissingPreparedParagraphs"
     );
     assert_eq!(
-        error_name(render_snapshot_bundle(Some(&Json::str("p")), &options("tq-page"))),
+        error_name(render_snapshot_bundle(
+            Some(&Json::str("p")),
+            &options("tq-page")
+        )),
         "MissingPreparedParagraphs"
     );
 }
-
 
 #[test]
 fn unsupported_status_reports_unsupported_paragraph() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if true { &mut second } else { &mut first }, "status", r#""unsupported""#);
+    set_field(
+        if true { &mut second } else { &mut first },
+        "status",
+        r#""unsupported""#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -166,12 +191,15 @@ fn unsupported_status_reports_unsupported_paragraph() {
     );
 }
 
-
 #[test]
 fn wrong_schema_reports_stale_paragraph() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "schema", r#"2"#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "schema",
+        r#"2"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -180,13 +208,16 @@ fn wrong_schema_reports_stale_paragraph() {
         "SnapshotTemplateContainsStalePreparedParagraph",
     );
 }
-
 
 #[test]
 fn wrong_layout_revision_reports_stale_paragraph() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "layoutRevision", r#""old""#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "layoutRevision",
+        r#""old""#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -195,13 +226,16 @@ fn wrong_layout_revision_reports_stale_paragraph() {
         "SnapshotTemplateContainsStalePreparedParagraph",
     );
 }
-
 
 #[test]
 fn wrong_render_revision_reports_stale_paragraph() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "renderRevision", r#""old""#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "renderRevision",
+        r#""old""#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -210,13 +244,16 @@ fn wrong_render_revision_reports_stale_paragraph() {
         "SnapshotTemplateContainsStalePreparedParagraph",
     );
 }
-
 
 #[test]
 fn numeric_render_artifact_sha_reports_stale_paragraph() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "renderArtifactSha256", r#"1"#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "renderArtifactSha256",
+        r#"1"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -226,12 +263,15 @@ fn numeric_render_artifact_sha_reports_stale_paragraph() {
     );
 }
 
-
 #[test]
 fn duplicate_key_reports_duplicate_snapshot_key() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if true { &mut second } else { &mut first }, "key", r#""p-1""#);
+    set_field(
+        if true { &mut second } else { &mut first },
+        "key",
+        r#""p-1""#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -241,12 +281,15 @@ fn duplicate_key_reports_duplicate_snapshot_key() {
     );
 }
 
-
 #[test]
 fn empty_render_font_families_report_missing_exact_families() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "renderFontFamilies", r#"[]"#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "renderFontFamilies",
+        r#"[]"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -255,13 +298,16 @@ fn empty_render_font_families_report_missing_exact_families() {
         "MissingExactRenderFontFamilies",
     );
 }
-
 
 #[test]
 fn blank_render_font_family_reports_missing_exact_families() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "renderFontFamilies", r#"[" "]"#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "renderFontFamilies",
+        r#"[" "]"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -270,13 +316,16 @@ fn blank_render_font_family_reports_missing_exact_families() {
         "MissingExactRenderFontFamilies",
     );
 }
-
 
 #[test]
 fn numeric_render_font_family_reports_missing_exact_families() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if false { &mut second } else { &mut first }, "renderFontFamilies", r#"[1]"#);
+    set_field(
+        if false { &mut second } else { &mut first },
+        "renderFontFamilies",
+        r#"[1]"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -286,12 +335,15 @@ fn numeric_render_font_family_reports_missing_exact_families() {
     );
 }
 
-
 #[test]
 fn conflicting_render_font_families_report_a_conflict() {
     let mut first = parse_json(ENTRY_A).expect("entry A");
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    set_field(if true { &mut second } else { &mut first }, "renderFontFamilies", r#"["Other Sans"]"#);
+    set_field(
+        if true { &mut second } else { &mut first },
+        "renderFontFamilies",
+        r#"["Other Sans"]"#,
+    );
     assert_eq!(
         error_name(render_snapshot_bundle(
             Some(&two_entries(&first.render(), &second.render())),
@@ -301,11 +353,12 @@ fn conflicting_render_font_families_report_a_conflict() {
     );
 }
 
-
 #[test]
 fn missing_render_font_families_report_a_conflict() {
     let mut second = parse_json(ENTRY_B).expect("entry B");
-    let Json::Obj(fields) = &mut second else { panic!("entry object") };
+    let Json::Obj(fields) = &mut second else {
+        panic!("entry object")
+    };
     fields.retain(|(name, _)| name != "renderFontFamilies");
     assert_eq!(
         error_name(render_snapshot_bundle(
@@ -316,7 +369,6 @@ fn missing_render_font_families_report_a_conflict() {
     );
 }
 
-
 #[test]
 fn template_id_and_selector_damage_reports_the_js_gate_names() {
     let paragraphs = paragraphs();
@@ -326,7 +378,10 @@ fn template_id_and_selector_damage_reports_the_js_gate_names() {
         } else {
             "InvalidSnapshotTemplateId"
         };
-        assert_eq!(error_name(render_snapshot_bundle(Some(&paragraphs), &options(id))), expected);
+        assert_eq!(
+            error_name(render_snapshot_bundle(Some(&paragraphs), &options(id))),
+            expected
+        );
     }
     let mut selector_options = options("tq-page");
     selector_options.paragraph_selector = Some(":is(p)");
@@ -337,7 +392,10 @@ fn template_id_and_selector_damage_reports_the_js_gate_names() {
     let mut plain_options = options("tq-fc-plain");
     plain_options.paragraph_selector = Some(PLAIN_PARAGRAPH_SELECTOR);
     assert_eq!(
-        error_name(render_font_contract_bundle(Some(&paragraphs), &plain_options)),
+        error_name(render_font_contract_bundle(
+            Some(&paragraphs),
+            &plain_options
+        )),
         "UnsupportedSnapshotParagraphSelector"
     );
 }
@@ -350,7 +408,10 @@ fn unsupported_contract_paragraph_reports_unsupported_paragraph() {
     let contract = parse_json(&format!("[{}]", damage.render())).expect("contract parses");
     options.font_contract_paragraphs = Some(&contract);
     assert_eq!(
-        error_name(render_snapshot_bundle(Some(&entry_alone(ENTRY_A)), &options)),
+        error_name(render_snapshot_bundle(
+            Some(&entry_alone(ENTRY_A)),
+            &options
+        )),
         "SnapshotTemplateContainsUnsupportedParagraph"
     );
 }

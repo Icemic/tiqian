@@ -210,7 +210,12 @@ impl Draft {
     fn write_html(&self, node: usize, out: &mut String) {
         match &self.nodes[node] {
             NodeDraft::Text(text) => out.push_str(&escape_text(text)),
-            NodeDraft::Element { tag, entries, children, void_element } => {
+            NodeDraft::Element {
+                tag,
+                entries,
+                children,
+                void_element,
+            } => {
                 out.push('<');
                 out.push_str(tag);
                 let serialized = serialize_entries(entries);
@@ -243,7 +248,12 @@ impl Draft {
     fn artifact_of(&self, node: usize) -> Json {
         match &self.nodes[node] {
             NodeDraft::Text(text) => Json::Arr(vec![Json::str("#"), Json::str(text.clone())]),
-            NodeDraft::Element { tag, entries, children, .. } => Json::Arr(vec![
+            NodeDraft::Element {
+                tag,
+                entries,
+                children,
+                ..
+            } => Json::Arr(vec![
                 Json::str(tag.clone()),
                 entries_json(entries),
                 Json::Arr(
@@ -413,14 +423,8 @@ impl Semantics {
 
     fn indices(&self, covers: impl Fn(i64, i64) -> bool) -> Vec<usize> {
         let bounds: Vec<(i64, i64)> = match self {
-            Semantics::Snapshot(spans) => spans
-                .iter()
-                .map(|span| (span.start, span.end))
-                .collect(),
-            Semantics::Live(spans) => spans
-                .iter()
-                .map(|span| (span.start, span.end))
-                .collect(),
+            Semantics::Snapshot(spans) => spans.iter().map(|span| (span.start, span.end)).collect(),
+            Semantics::Live(spans) => spans.iter().map(|span| (span.start, span.end)).collect(),
         };
         bounds
             .iter()
@@ -516,13 +520,11 @@ pub fn render_prepared_paragraph_artifact(
     locale: &str,
     options: &mut PreparedRenderOptions,
 ) -> Result<PreparedParagraphRender, NamedError> {
-    let plan = Plan::from_json_str(plan_json).map_err(|error| {
-        match error.name() {
-            "InvalidPlanSchema" | "InvalidPlanLayoutRevision" => {
-                NamedError("UnsupportedPreparedLayoutRevision".to_string())
-            }
-            _ => NamedError("InvalidPreparedParagraphGeometry".to_string()),
+    let plan = Plan::from_json_str(plan_json).map_err(|error| match error.name() {
+        "InvalidPlanSchema" | "InvalidPlanLayoutRevision" => {
+            NamedError("UnsupportedPreparedLayoutRevision".to_string())
         }
+        _ => NamedError("InvalidPreparedParagraphGeometry".to_string()),
     })?;
     if !plan.height.is_finite() || plan.height < 0.0 {
         return Err(NamedError("InvalidPreparedParagraphGeometry".to_string()));
@@ -548,15 +550,20 @@ pub fn render_prepared_paragraph_artifact(
     };
     let text_for_semantics = options.source_text.unwrap_or(&source_text).to_string();
     let semantics = if live {
-        Semantics::Live(normalize_live_semantics(&text_for_semantics, semantics_json)?)
+        Semantics::Live(normalize_live_semantics(
+            &text_for_semantics,
+            semantics_json,
+        )?)
     } else {
-        Semantics::Snapshot(normalize_snapshot_semantics(&text_for_semantics, semantics_json)?)
+        Semantics::Snapshot(normalize_snapshot_semantics(
+            &text_for_semantics,
+            semantics_json,
+        )?)
     };
     if live {
         validate_live_semantic_elements(options)?;
     }
-    let render_text_spans =
-        read_render_text_spans(options.render_text_spans, &text_for_semantics)?;
+    let render_text_spans = read_render_text_spans(options.render_text_spans, &text_for_semantics)?;
     let (inline_start_by_offset, inline_end_by_offset) =
         read_inline_box_edges(options.inline_boxes);
     let mut style_class_for = options.style_class_for.take();
@@ -677,10 +684,9 @@ fn read_inline_box_edges(value: Option<&Json>) -> (HashMap<i64, f64>, HashMap<i6
     let mut ends: HashMap<i64, f64> = HashMap::new();
     if let Some(Json::Arr(items)) = value {
         for item in items {
-            let (Some(Json::Num(start_key)), Some(Json::Num(end_key))) = (
-                item_field(item, "start"),
-                item_field(item, "end"),
-            ) else {
+            let (Some(Json::Num(start_key)), Some(Json::Num(end_key))) =
+                (item_field(item, "start"), item_field(item, "end"))
+            else {
                 continue;
             };
             *starts.entry(normalized_key(*start_key)).or_insert(0.0) +=
@@ -729,22 +735,34 @@ fn is_safe_integer(value: f64) -> bool {
 
 fn prepared_spacing(display: &str, natural_width: f64, trailing_gap: f64) -> Spacing {
     if trailing_gap.abs() < SPACING_EPSILON {
-        return Spacing { kind: SpacingKind::None, px: 0.0 };
+        return Spacing {
+            kind: SpacingKind::None,
+            px: 0.0,
+        };
     }
     // NegativeSingleCellFlowAdvance: browsers clamp the border-box width of a
     // one-character inline span at zero when negative letter-spacing exceeds
     // the glyph advance. Preserve the selectable source glyph at its natural
     // width and carry the overtake in margin-right.
     if utf16_length(display) == 1 && natural_width + trailing_gap >= 0.0 {
-        return Spacing { kind: SpacingKind::Letter, px: trailing_gap };
+        return Spacing {
+            kind: SpacingKind::Letter,
+            px: trailing_gap,
+        };
     }
     if trailing_gap < 0.0 {
-        return Spacing { kind: SpacingKind::Overlap, px: trailing_gap };
+        return Spacing {
+            kind: SpacingKind::Overlap,
+            px: trailing_gap,
+        };
     }
     // MultiCharacterSelectableGapCarrier: the gap follows the whole shaping
     // cluster. A dedicated selectable carrier owns the full flow advance;
     // splitting off the final grapheme would break kerning.
-    Spacing { kind: SpacingKind::TrailingLetter, px: trailing_gap }
+    Spacing {
+        kind: SpacingKind::TrailingLetter,
+        px: trailing_gap,
+    }
 }
 
 fn feature_signature(run: &CellRun) -> String {
@@ -825,7 +843,10 @@ fn render_plan(
             vec![
                 ("aria-hidden".to_string(), Some("true".to_string())),
                 ("data-tq-copy-ignore".to_string(), Some("true".to_string())),
-                ("data-tq-selection-end".to_string(), Some("true".to_string())),
+                (
+                    "data-tq-selection-end".to_string(),
+                    Some("true".to_string()),
+                ),
             ],
             false,
         );
@@ -946,7 +967,10 @@ fn render_line(
             Some((line.cells.is_empty()).to_string()),
         ),
         ("data-tq-line-end".to_string(), Some(end_reason.to_string())),
-        ("data-tq-line-top".to_string(), Some(js_number_string(line.top))),
+        (
+            "data-tq-line-top".to_string(),
+            Some(js_number_string(line.top)),
+        ),
         (
             "data-tq-line-bottom".to_string(),
             Some(js_number_string(line.bottom)),
@@ -1000,7 +1024,10 @@ fn render_line(
                 Some(js_number_string(line.hyphen_advance)),
             ),
             ("data-tq-copy-ignore".to_string(), Some("true".to_string())),
-            ("data-tq-engine-hyphen".to_string(), Some("true".to_string())),
+            (
+                "data-tq-engine-hyphen".to_string(),
+                Some("true".to_string()),
+            ),
             ("data-tq-geometry".to_string(), Some("true".to_string())),
             (
                 "data-tq-x".to_string(),
@@ -1058,10 +1085,7 @@ fn render_line(
             // source newline. Other BRs replay visual geometry and stay out of
             // AX and source-faithful copy semantics.
             break_attributes.push(("aria-hidden".to_string(), Some("true".to_string())));
-            break_attributes.push((
-                "data-tq-copy-ignore".to_string(),
-                Some("true".to_string()),
-            ));
+            break_attributes.push(("data-tq-copy-ignore".to_string(), Some("true".to_string())));
         }
         let br = draft.push_element("br", break_attributes, true);
         draft.append_child(boundary, br);
@@ -1086,12 +1110,17 @@ fn prepared_cell(
         .unwrap_or(0.0);
     let trailing_gap = match next {
         Some(next) => {
-            next.draw_x - cell.draw_x - cell.natural_width - trailing_inline_edge
+            next.draw_x
+                - cell.draw_x
+                - cell.natural_width
+                - trailing_inline_edge
                 - next_leading_inline_edge
         }
         None if line.hyphen_advance > 0.0 => 0.0,
         None => {
-            line.indent + line.visual_width - cell.draw_x - cell.natural_width
+            line.indent + line.visual_width
+                - cell.draw_x
+                - cell.natural_width
                 - trailing_inline_edge
         }
     };
@@ -1127,7 +1156,10 @@ fn render_font_families_for(
     let Some(first) = owners.first() else {
         return Ok(Vec::new());
     };
-    if owners.iter().any(|span| span.font_families != first.font_families) {
+    if owners
+        .iter()
+        .any(|span| span.font_families != first.font_families)
+    {
         return Err(NamedError("ConflictingPreparedRenderTextSpan".to_string()));
     }
     Ok(first.font_families.clone())
@@ -1166,14 +1198,13 @@ fn render_run(
         ("data-tq-x".to_string(), Some(js_number_string(run.draw_x))),
     ];
     if run.shaping_boundary || !feature_signature.is_empty() {
-        attributes.push((
-            "data-tq-shaping-boundary".to_string(),
-            Some(String::new()),
-        ));
+        attributes.push(("data-tq-shaping-boundary".to_string(), Some(String::new())));
     }
     if !feature_signature.is_empty() {
         if feature_signature != "pwid,palt" {
-            return Err(NamedError("UnsupportedPreparedOpenTypeFeatures".to_string()));
+            return Err(NamedError(
+                "UnsupportedPreparedOpenTypeFeatures".to_string(),
+            ));
         }
         attributes.push((
             "data-tq-open-type-features".to_string(),
@@ -1216,7 +1247,10 @@ fn render_run(
             ("aria-hidden".to_string(), Some("true".to_string())),
             ("data-tq-copy-ignore".to_string(), Some("true".to_string())),
             ("data-tq-geometry".to_string(), Some("true".to_string())),
-            ("data-tq-spacing-carrier".to_string(), Some("true".to_string())),
+            (
+                "data-tq-spacing-carrier".to_string(),
+                Some("true".to_string()),
+            ),
         ];
         apply_dynamic_styles(
             &mut carrier_attributes,

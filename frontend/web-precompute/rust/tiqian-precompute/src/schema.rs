@@ -78,10 +78,19 @@ mod tests {
     fn stable_stringify_sorts_object_keys_and_keeps_array_order() {
         let value = Json::Obj(vec![
             ("z".to_string(), Json::Num(1.0)),
-            ("a".to_string(), Json::Arr(vec![Json::Num(2.0), Json::Num(1.0)])),
-            ("m".to_string(), Json::Obj(vec![("k".to_string(), Json::str("v"))])),
+            (
+                "a".to_string(),
+                Json::Arr(vec![Json::Num(2.0), Json::Num(1.0)]),
+            ),
+            (
+                "m".to_string(),
+                Json::Obj(vec![("k".to_string(), Json::str("v"))]),
+            ),
         ]);
-        assert_eq!(stable_stringify(&value), "{\"a\":[2,1],\"m\":{\"k\":\"v\"},\"z\":1}");
+        assert_eq!(
+            stable_stringify(&value),
+            "{\"a\":[2,1],\"m\":{\"k\":\"v\"},\"z\":1}"
+        );
     }
 
     #[test]

@@ -17,8 +17,8 @@ use tiqian_precompute::emit;
 use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
 use tiqian_precompute::json::Json;
 use tiqian_precompute::session::{
-    create_font_session, FontEvidence, FontSession, MetricsInput, SessionFaceSpec,
-    SessionOptions, ShapeInput,
+    create_font_session, FontEvidence, FontSession, MetricsInput, SessionFaceSpec, SessionOptions,
+    ShapeInput,
 };
 use tiqian_precompute::shaping::ShapeRecordResult;
 use tiqian_precompute::source_boundaries::{
@@ -310,7 +310,12 @@ const SESSIONS: &[SessionDef] = &[
             source_order: None,
         }],
     },
-    SessionDef { id: "empty", prefix: "tq-font", base_features: None, faces: &[] },
+    SessionDef {
+        id: "empty",
+        prefix: "tq-font",
+        base_features: None,
+        faces: &[],
+    },
 ];
 
 const HAN: &[&str] = &["Source Han Sans SC"];
@@ -1118,13 +1123,19 @@ fn session_outputs_match_the_js_precompute_oracle() {
         .to_path_buf();
     let npm_dir = repo_root.join("frontend/web/npm");
 
-    if !Command::new("node").arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+    if !Command::new("node")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
     {
         return skip("node is not available");
     }
     for package in ["harfbuzzjs", "woff2-encoder"] {
         if !npm_dir.join("node_modules").join(package).is_dir() {
-            return skip(&format!("frontend/web/npm/node_modules/{package} is missing"));
+            return skip(&format!(
+                "frontend/web/npm/node_modules/{package} is missing"
+            ));
         }
     }
 
@@ -1184,15 +1195,16 @@ fn session_outputs_match_the_js_precompute_oracle() {
         eprintln!("note: NotoSansSC-VF.ttf absent, variable-font cases drop out");
     }
 
-    let sources: HashMap<&str, Vec<u8>> =
-        fonts.iter().map(|(key, path)| (*key, std::fs::read(path).expect("font reads"))).collect();
+    let sources: HashMap<&str, Vec<u8>> = fonts
+        .iter()
+        .map(|(key, path)| (*key, std::fs::read(path).expect("font reads")))
+        .collect();
 
     let entries = run_rust_side(&sources);
     let cases_path = workdir.join("cases.json");
     std::fs::write(&cases_path, build_cases_json(&fonts).render()).expect("cases.json writes");
 
-    let oracle =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/session_oracle.mjs");
+    let oracle = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/session_oracle.mjs");
     let oracle_run = Command::new("node")
         .arg(&oracle)
         .arg(&cases_path)
@@ -1200,10 +1212,12 @@ fn session_outputs_match_the_js_precompute_oracle() {
         .output()
         .expect("node spawns");
     if !oracle_run.status.success() {
-        panic!("session oracle failed:\n{}", String::from_utf8_lossy(&oracle_run.stderr));
+        panic!(
+            "session oracle failed:\n{}",
+            String::from_utf8_lossy(&oracle_run.stderr)
+        );
     }
-    let js_dump =
-        normalize_engine_versions(String::from_utf8_lossy(&oracle_run.stdout).trim());
+    let js_dump = normalize_engine_versions(String::from_utf8_lossy(&oracle_run.stdout).trim());
     let rust_dump = normalize_engine_versions(&Json::Arr(entries).render());
 
     if rust_dump != js_dump {
@@ -1254,8 +1268,14 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                     ("id".into(), Json::str(def.id)),
                     ("ok".into(), Json::Bool(true)),
                     ("sessionId".into(), Json::str(session.session_id.clone())),
-                    ("backendRevision".into(), Json::str(session.backend_revision)),
-                    ("harfbuzzVersion".into(), Json::str(session.harfbuzz_version)),
+                    (
+                        "backendRevision".into(),
+                        Json::str(session.backend_revision),
+                    ),
+                    (
+                        "harfbuzzVersion".into(),
+                        Json::str(session.harfbuzz_version),
+                    ),
                     (
                         "faces".into(),
                         Json::Arr(session.faces().iter().map(face_info_json).collect()),
@@ -1278,7 +1298,9 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                 if !def.deps.iter().all(|dep| available.contains(dep)) {
                     continue;
                 }
-                let session = sessions.get_mut(def.session).expect(&format!("matrix session {} exists", def.session));
+                let session = sessions
+                    .get_mut(def.session)
+                    .expect(&format!("matrix session {} exists", def.session));
                 let serialized = def.families.join("\u{1f}");
                 let input = ShapeInput {
                     display_text: def.display_text,
@@ -1301,7 +1323,9 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                 if !def.deps.iter().all(|dep| available.contains(dep)) {
                     continue;
                 }
-                let session = sessions.get_mut(def.session).expect(&format!("matrix session {} exists", def.session));
+                let session = sessions
+                    .get_mut(def.session)
+                    .expect(&format!("matrix session {} exists", def.session));
                 let serialized = def.families.join("\u{1f}");
                 let input = MetricsInput {
                     serialized_families: &serialized,
@@ -1328,9 +1352,14 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                 }
             }
             CallDef::RenderFamilies(def) => {
-                let session = sessions.get_mut(def.session).expect(&format!("matrix session {} exists", def.session));
-                let requested: Vec<String> =
-                    def.requested.iter().map(|family| family.to_string()).collect();
+                let session = sessions
+                    .get_mut(def.session)
+                    .expect(&format!("matrix session {} exists", def.session));
+                let requested: Vec<String> = def
+                    .requested
+                    .iter()
+                    .map(|family| family.to_string())
+                    .collect();
                 match session.render_families(&requested) {
                     Ok(families) => entries.push(Json::Obj(vec![
                         ("kind".into(), Json::str("renderFamilies")),
@@ -1342,27 +1371,37 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                             Json::Arr(families.iter().map(|f| Json::str(f.clone())).collect()),
                         ),
                     ])),
-                    Err(error) => {
-                        entries.push(call_error_json("renderFamilies", def.session, def.tag, &error))
-                    }
+                    Err(error) => entries.push(call_error_json(
+                        "renderFamilies",
+                        def.session,
+                        def.tag,
+                        &error,
+                    )),
                 }
             }
             CallDef::BeginCapture(id) => {
-                sessions.get_mut(id).expect(&format!("matrix session {id} exists")).begin_capture();
+                sessions
+                    .get_mut(id)
+                    .expect(&format!("matrix session {id} exists"))
+                    .begin_capture();
                 entries.push(Json::Obj(vec![
                     ("kind".into(), Json::str("beginCapture")),
                     ("session".into(), Json::str(id)),
                 ]));
             }
             CallDef::Evidence(id) => {
-                let session = sessions.get(id).expect(&format!("matrix session {id} exists"));
+                let session = sessions
+                    .get(id)
+                    .expect(&format!("matrix session {id} exists"));
                 entries.push(evidence_json(id, &session.capture_evidence()));
             }
             CallDef::Boundaries(def) => {
                 if !def.deps.iter().all(|dep| available.contains(dep)) {
                     continue;
                 }
-                let session = sessions.get(def.session).expect(&format!("matrix session {} exists", def.session));
+                let session = sessions
+                    .get(def.session)
+                    .expect(&format!("matrix session {} exists", def.session));
                 let base_style = BoundaryStyle {
                     font_families: def.families.iter().map(|f| f.to_string()).collect(),
                     font_size_px: def.font_size,
@@ -1431,7 +1470,11 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                 let boundaries = match result {
                     Ok(boundaries) => boundaries,
                     Err(error) => {
-                        entries.push(call_error_no_session_json("workerBoundaries", def.tag, &error));
+                        entries.push(call_error_no_session_json(
+                            "workerBoundaries",
+                            def.tag,
+                            &error,
+                        ));
                         continue;
                     }
                 };
@@ -1454,9 +1497,7 @@ fn run_rust_side(sources: &HashMap<&str, Vec<u8>>) -> Vec<Json> {
                         ("ok".into(), Json::Bool(true)),
                         ("merged".into(), Json::str(merged)),
                     ])),
-                    Err(error) => {
-                        entries.push(call_error_no_session_json(kind, def.tag, &error))
-                    }
+                    Err(error) => entries.push(call_error_no_session_json(kind, def.tag, &error)),
                 }
             }
         }
@@ -1512,8 +1553,10 @@ fn build_cases_json(fonts: &HashMap<&str, PathBuf>) -> Json {
             ])
         })
         .collect();
-    let call_fields: Vec<Json> =
-        CALLS.iter().filter_map(|call| call_to_json(call, fonts)).collect();
+    let call_fields: Vec<Json> = CALLS
+        .iter()
+        .filter_map(|call| call_to_json(call, fonts))
+        .collect();
     Json::Obj(vec![
         ("fonts".to_string(), Json::Obj(font_fields)),
         ("sessions".to_string(), Json::Arr(session_fields)),
@@ -1710,7 +1753,12 @@ fn call_to_json(call: &CallDef, fonts: &HashMap<&str, PathBuf>) -> Option<Json> 
             ("serialized".to_string(), Json::str(def.serialized)),
             (
                 "additional".to_string(),
-                Json::Arr(def.additional.iter().map(|value| Json::Num(*value)).collect()),
+                Json::Arr(
+                    def.additional
+                        .iter()
+                        .map(|value| Json::Num(*value))
+                        .collect(),
+                ),
             ),
         ])),
     }
@@ -1807,8 +1855,14 @@ fn report_first_diff(rust_dump: &str, js_dump: &str, workdir: &Path) {
     let rust_high = (index + 120).min(rust_bytes.len());
     let js_high = (index + 120).min(js_bytes.len());
     eprintln!("divergence at byte {index} (entry #{entry}, 1-based over emitted kinds):");
-    eprintln!("  rust: …{}…", String::from_utf8_lossy(&rust_bytes[low..rust_high]));
-    eprintln!("  js:   …{}…", String::from_utf8_lossy(&js_bytes[low..js_high]));
+    eprintln!(
+        "  rust: …{}…",
+        String::from_utf8_lossy(&rust_bytes[low..rust_high])
+    );
+    eprintln!(
+        "  js:   …{}…",
+        String::from_utf8_lossy(&js_bytes[low..js_high])
+    );
 
     let rust_path = workdir.join("rust-dump.json");
     let js_path = workdir.join("js-dump.json");

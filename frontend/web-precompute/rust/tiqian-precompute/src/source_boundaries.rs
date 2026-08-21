@@ -258,16 +258,21 @@ pub fn worker_exact_subset_source_boundaries(
     faces: &[MetadataFaceSpec],
     request: &WorkerBoundaryRequest<'_>,
 ) -> Result<Vec<f64>, String> {
-    let faces: Vec<MetadataFace> = faces.iter().map(|spec| MetadataFace::from_contract(MetadataFaceSpec {
-        family: spec.family.clone(),
-        local_names: spec.local_names.clone(),
-        style: spec.style.clone(),
-        weight: spec.weight,
-        unicode_range: spec.unicode_range.clone(),
-        public_url: spec.public_url.clone(),
-        face_index: spec.face_index,
-        source_order: spec.source_order,
-    })).collect();
+    let faces: Vec<MetadataFace> = faces
+        .iter()
+        .map(|spec| {
+            MetadataFace::from_contract(MetadataFaceSpec {
+                family: spec.family.clone(),
+                local_names: spec.local_names.clone(),
+                style: spec.style.clone(),
+                weight: spec.weight,
+                unicode_range: spec.unicode_range.clone(),
+                public_url: spec.public_url.clone(),
+                face_index: spec.face_index,
+                source_order: spec.source_order,
+            })
+        })
+        .collect();
     let base_style = BoundaryStyle {
         font_families: request
             .font_families
@@ -292,7 +297,11 @@ pub fn worker_exact_subset_source_boundaries(
         request.text,
         &base_style,
         &worker_text_spans(request.text_spans)?,
-        |style, point| Ok(metadata_face_identity(select_metadata_face(&faces, style, point)?)),
+        |style, point| {
+            Ok(metadata_face_identity(select_metadata_face(
+                &faces, style, point,
+            )?))
+        },
     )
 }
 
@@ -352,11 +361,7 @@ mod tests {
         }
     }
 
-    fn request<'a>(
-        text: &'a str,
-        families: &'a str,
-        spans: &'a str,
-    ) -> WorkerBoundaryRequest<'a> {
+    fn request<'a>(text: &'a str, families: &'a str, spans: &'a str) -> WorkerBoundaryRequest<'a> {
         WorkerBoundaryRequest {
             text,
             font_families: families,
@@ -378,10 +383,7 @@ mod tests {
             worker_exact_subset_source_boundaries(&faces, &request).unwrap(),
             vec![1.0]
         );
-        assert_eq!(
-            merge_serialized_source_boundaries("", &[1.0]).unwrap(),
-            "1"
-        );
+        assert_eq!(merge_serialized_source_boundaries("", &[1.0]).unwrap(), "1");
     }
 
     #[test]

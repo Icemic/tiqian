@@ -274,9 +274,7 @@ fn native_plans_match_the_js_oracle_byte_for_byte() {
     if oracle != dump {
         for (oracle_case, native_case) in oracle.split("},{").zip(dump.split("},{")) {
             if oracle_case != native_case {
-                panic!(
-                    "plan divergence:\noracle: {oracle_case}\nnative: {native_case}"
-                );
+                panic!("plan divergence:\noracle: {oracle_case}\nnative: {native_case}");
             }
         }
         panic!("plan dumps differ in structure");

@@ -62,7 +62,8 @@ impl Plan {
     /// this revision's constants; failures carry named issues so callers can
     /// surface them the way engine errors surface.
     pub fn from_json_str(text: &str) -> Result<Plan, NamedError> {
-        let value = parse_json(text).map_err(|error| NamedError(format!("InvalidPlanJson:{error}")))?;
+        let value =
+            parse_json(text).map_err(|error| NamedError(format!("InvalidPlanJson:{error}")))?;
         let fields = match value {
             Json::Obj(fields) => fields,
             _ => return Err(NamedError("InvalidPlanJson:not an object".to_string())),
@@ -77,7 +78,12 @@ impl Plan {
         if revision != PLAN_LAYOUT_REVISION {
             return Err(NamedError("InvalidPlanLayoutRevision".to_string()));
         }
-        let width = number_field(&fields, "width").map_err(field_error("width"))?;
+        // The js plan reader treats `width` as optional and no render path
+        // reads it; hand-built plans without it must lower the same way.
+        let width = match find(&fields, "width") {
+            Some(_) => number_field(&fields, "width").map_err(field_error("width"))?,
+            None => 0.0,
+        };
         let height = number_field(&fields, "height").map_err(field_error("height"))?;
         let lines = array_field(&fields, "lines").map_err(field_error("lines"))?;
         let lines = lines
@@ -108,7 +114,8 @@ impl PlanLine {
             bottom: number_field(&fields, "bottom").map_err(field_error("bottom"))?,
             baseline: number_field(&fields, "baseline").map_err(field_error("baseline"))?,
             indent: number_field(&fields, "indent").map_err(field_error("indent"))?,
-            visual_width: number_field(&fields, "visualWidth").map_err(field_error("visualWidth"))?,
+            visual_width: number_field(&fields, "visualWidth")
+                .map_err(field_error("visualWidth"))?,
             hyphen_advance: number_field(&fields, "hyphenAdvance")
                 .map_err(field_error("hyphenAdvance"))?,
             end_reason: match end_reason.as_str() {
@@ -130,10 +137,16 @@ impl PlanCell {
                 .iter()
                 .map(|item| match item {
                     Json::Str(text) => Ok(text.clone()),
-                    _ => Err(NamedError("InvalidPlanJsonField:openTypeFeatures".to_string())),
+                    _ => Err(NamedError(
+                        "InvalidPlanJsonField:openTypeFeatures".to_string(),
+                    )),
                 })
                 .collect::<Result<Vec<_>, _>>()?,
-            Some(_) => return Err(NamedError("InvalidPlanJsonField:openTypeFeatures".to_string())),
+            Some(_) => {
+                return Err(NamedError(
+                    "InvalidPlanJsonField:openTypeFeatures".to_string(),
+                ))
+            }
             None => Vec::new(),
         };
         Ok(PlanCell {
@@ -148,7 +161,11 @@ impl PlanCell {
                 .map_err(field_error("leadingLayoutAdvance"))?,
             shaping_boundary: match find(&fields, "shapingBoundary") {
                 Some(Json::Bool(value)) => *value,
-                Some(_) => return Err(NamedError("InvalidPlanJsonField:shapingBoundary".to_string())),
+                Some(_) => {
+                    return Err(NamedError(
+                        "InvalidPlanJsonField:shapingBoundary".to_string(),
+                    ))
+                }
                 None => false,
             },
             open_type_features,
@@ -157,7 +174,10 @@ impl PlanCell {
 }
 
 fn find<'a>(fields: &'a [(String, Json)], key: &str) -> Option<&'a Json> {
-    fields.iter().find(|(name, _)| name == key).map(|(_, value)| value)
+    fields
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value)
 }
 
 fn field_error(field: &str) -> impl Fn(NamedError) -> NamedError {
@@ -242,11 +262,15 @@ mod tests {
     fn rejects_schema_and_revision_damage() {
         let plan = two_line_plan();
         assert_eq!(
-            Plan::from_json_str(&plan.replace("\"schema\":1", "\"schema\":2")).unwrap_err().name(),
+            Plan::from_json_str(&plan.replace("\"schema\":1", "\"schema\":2"))
+                .unwrap_err()
+                .name(),
             "InvalidPlanSchema"
         );
         assert_eq!(
-            Plan::from_json_str(&plan.replace("tiqian-layout-v2", "other")).unwrap_err().name(),
+            Plan::from_json_str(&plan.replace("tiqian-layout-v2", "other"))
+                .unwrap_err()
+                .name(),
             "InvalidPlanLayoutRevision"
         );
     }
@@ -254,12 +278,23 @@ mod tests {
     #[test]
     fn rejects_structural_damage_with_field_names() {
         let plan = two_line_plan();
-        let error = Plan::from_json_str(&plan.replace("\"width\":80.0,", "")).unwrap_err();
+        let error =
+            Plan::from_json_str(&plan.replace("\"width\":80.0", "\"width\":\"80\"")).unwrap_err();
         assert_eq!(error.name(), "InvalidPlanJsonField:width");
-        let error = Plan::from_json_str(&plan.replace("\"endReason\":\"AutoWrap\"", "\"endReason\":\"New\""))
-            .unwrap_err();
+        let error = Plan::from_json_str(
+            &plan.replace("\"endReason\":\"AutoWrap\"", "\"endReason\":\"New\""),
+        )
+        .unwrap_err();
         assert_eq!(error.name(), "InvalidPlanEndReason");
         let error = Plan::from_json_str("{").unwrap_err();
         assert!(error.name().starts_with("InvalidPlanJson"));
+    }
+
+    #[test]
+    fn reads_plans_without_width() {
+        let plan = Plan::from_json_str(&two_line_plan().replace("\"width\":80.0,", "")).unwrap();
+        assert_eq!(plan.width, 0.0);
+        assert_eq!(plan.height, 48.0);
+        assert_eq!(plan.lines.len(), 2);
     }
 }

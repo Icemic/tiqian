@@ -369,11 +369,17 @@ pub static MAC_LANGUAGE_MAP: &[(u16, &str)] = &[
 /// Maps a Windows LCID to its BCP-47 tag; `None` mirrors HarfBuzz returning
 /// HB_LANGUAGE_INVALID, which drops the name record from listings.
 pub fn ms_language(code: u16) -> Option<&'static str> {
-    MS_LANGUAGE_MAP.iter().find(|(c, _)| *c == code).map(|(_, lang)| *lang)
+    MS_LANGUAGE_MAP
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, lang)| *lang)
 }
 
 /// Maps a Macintosh language code to its BCP-47 tag; same `None` semantics
 /// as [`ms_language`].
 pub fn mac_language(code: u16) -> Option<&'static str> {
-    MAC_LANGUAGE_MAP.iter().find(|(c, _)| *c == code).map(|(_, lang)| *lang)
+    MAC_LANGUAGE_MAP
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, lang)| *lang)
 }

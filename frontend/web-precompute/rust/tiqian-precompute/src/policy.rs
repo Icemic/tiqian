@@ -39,7 +39,10 @@ pub fn has_curly_quote(text: &str) -> bool {
 
 /// `shapingPolicyForRole`: the role resolves to a script and a feature set
 /// (ContextualSharedQuoteShaping).
-pub fn shaping_policy_for_role(role: Option<&str>, display_text: &str) -> (&'static str, Vec<&'static str>) {
+pub fn shaping_policy_for_role(
+    role: Option<&str>,
+    display_text: &str,
+) -> (&'static str, Vec<&'static str>) {
     let role = role.unwrap_or("");
     match role {
         "LatinText" => (
@@ -109,7 +112,10 @@ mod tests {
         let (script, features) = shaping_policy_for_role(Some("LatinText"), "plain");
         assert_eq!((script, features.as_slice()), ("Latn", &[] as &[&str]));
         let (script, features) = shaping_policy_for_role(Some("LatinText"), "‘x’");
-        assert_eq!((script, features.as_slice()), ("Latn", ["pwid", "palt"].as_slice()));
+        assert_eq!(
+            (script, features.as_slice()),
+            ("Latn", ["pwid", "palt"].as_slice())
+        );
         let (script, features) = shaping_policy_for_role(Some("CjkPunctuation"), "“”");
         assert_eq!((script, features.as_slice()), ("Hani", ["fwid"].as_slice()));
         let (script, features) = shaping_policy_for_role(Some("CjkText"), "‘x’");
@@ -127,6 +133,9 @@ mod tests {
             normalize_base_features(Some(&["lnum".to_string(), "lnum".to_string()])),
             Ok(vec!["lnum".to_string()])
         );
-        assert_eq!(normalize_base_features(Some(&["kern".to_string()])), Err(()));
+        assert_eq!(
+            normalize_base_features(Some(&["kern".to_string()])),
+            Err(())
+        );
     }
 }

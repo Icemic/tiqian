@@ -51,7 +51,10 @@ pub fn select_metrics_face<'a>(
         js_number_string(font_weight),
         js_number_string(font_size)
     );
-    Ok(MetricSelection { record: selected, cache_key })
+    Ok(MetricSelection {
+        record: selected,
+        cache_key,
+    })
 }
 
 /// `normalizedMetrics`: font units over the em. The typo metrics cross-
@@ -114,5 +117,11 @@ pub fn resolve_metrics(
             js_number_string(font_weight)
         ));
     }
-    Ok(selected_metrics.map(|value| if value.is_nan() { value } else { value * font_size }))
+    Ok(selected_metrics.map(|value| {
+        if value.is_nan() {
+            value
+        } else {
+            value * font_size
+        }
+    }))
 }
