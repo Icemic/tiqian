@@ -1,14 +1,16 @@
-//! Build-font stylesheet parity against the js oracle (ADR 0050 amendment
-//! `PrecomputeInRust`). The oracle is `parseBuildFontStylesheet` from
-//! `frontend/web/npm/precompute-node-fonts.js`; the matrix lives in this
-//! file, is written to cases.json for the node oracle, and produces one
-//! `name\tdump` line per case on both sides (stableStringify of the face
-//! list, or `ERROR:<message>` for throws). Every case names its stylesheet
-//! as a `file:` URL string, so Node path resolution stays out of the
-//! comparison. Pure parsing; the engine link is not required.
+//! Build-font stylesheet parity against the frozen js oracle dump (ADR 0050
+//! amendment `PrecomputeInRust`). The js implementation was removed with the
+//! legacy cutover, so the matrix in this file compares against
+//! `tests/build-fonts-golden.txt`: one `name\tdump` line per case
+//! (stableStringify of the face list, or `ERROR:<message>` for throws),
+//! recorded when the lane still ran the js oracle and matched byte for byte.
+//! Regenerate with `TIQIAN_UPDATE_GOLDEN=1 cargo test --test
+//! build_fonts_parity` after reviewing the diff. Every case names its
+//! stylesheet as a `file:` URL string, so Node path resolution stayed out of
+//! the comparison when the golden was recorded. Pure parsing; the engine link
+//! is not required.
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use tiqian_precompute::build_fonts::parse_build_font_stylesheet;
 use tiqian_precompute::font_record::FontWeightSpec;
@@ -236,50 +238,41 @@ fn run_rust_side(cases: &[Json]) -> Vec<String> {
 }
 
 #[test]
-fn build_font_stylesheet_matches_the_js_oracle() {
+fn build_font_stylesheet_matches_the_frozen_oracle_dump() {
     let cases = case_matrix();
-    let workdir = std::env::temp_dir().join("tiqian-build-fonts-parity");
-    std::fs::create_dir_all(&workdir).expect("workdir creates");
-    let cases_path = workdir.join("cases.json");
-    std::fs::write(&cases_path, Json::Arr(cases.clone()).render()).expect("cases.json writes");
-
-    let oracle =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/build_fonts_oracle.mjs");
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../");
-    let oracle_run = Command::new("node")
-        .arg(&oracle)
-        .arg(&cases_path)
-        .arg(&repo_root)
-        .output()
-        .expect("node spawns");
-    if !oracle_run.status.success() {
-        panic!(
-            "build-fonts oracle failed:\n{}",
-            String::from_utf8_lossy(&oracle_run.stderr)
-        );
-    }
-    let js_dump = String::from_utf8_lossy(&oracle_run.stdout)
-        .trim()
-        .to_string();
-    let js_lines: Vec<&str> = js_dump.lines().collect();
     let rust_lines = run_rust_side(&cases);
-
-    if js_lines.len() != rust_lines.len() {
+    let golden_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/build-fonts-golden.txt");
+    let golden = format!("{}\n", rust_lines.join("\n"));
+    if std::env::var("TIQIAN_UPDATE_GOLDEN").is_ok_and(|value| value == "1") {
+        std::fs::write(&golden_path, &golden).expect("golden writes");
+        return;
+    }
+    let recorded = match std::fs::read_to_string(&golden_path) {
+        Ok(recorded) => recorded,
+        Err(error) => panic!(
+            "build-fonts golden unreadable at {}: {error}; record it with \
+             TIQIAN_UPDATE_GOLDEN=1 cargo test --test build_fonts_parity",
+            golden_path.display()
+        ),
+    };
+    let recorded_lines: Vec<&str> = recorded.trim().lines().collect();
+    if recorded_lines.len() != rust_lines.len() {
         panic!(
-            "line count differs: js {} rust {}",
-            js_lines.len(),
+            "line count differs: golden {} rust {}",
+            recorded_lines.len(),
             rust_lines.len()
         );
     }
     let mut failed = false;
-    for (js_line, rust_line) in js_lines.iter().zip(rust_lines.iter()) {
-        if js_line == rust_line {
+    for (golden_line, rust_line) in recorded_lines.iter().zip(rust_lines.iter()) {
+        if golden_line == rust_line {
             continue;
         }
         failed = true;
-        eprintln!("js:   {js_line}\nrust: {rust_line}");
+        eprintln!("golden: {golden_line}\nrust:   {rust_line}");
     }
     if failed {
-        panic!("build-font stylesheet dump differs from the js oracle");
+        panic!("build-font stylesheet dump differs from the frozen oracle dump");
     }
 }

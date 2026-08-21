@@ -211,10 +211,8 @@ jobs:
           ./gradlew
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:js:compileProductionExecutableKotlinJs
-      - name: Dump the js oracles
-        run: |
-          node frontend/web-precompute/scripts/plan-parity-oracle.mjs
-          node frontend/web-precompute/scripts/plain-text-issue-oracle.mjs
+      - name: Dump the js oracle
+        run: node frontend/web-precompute/scripts/plan-parity-oracle.mjs
       - name: Compare the native lane against the oracle
         run: >
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic

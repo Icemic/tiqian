@@ -1,13 +1,13 @@
-//! Plain-text issue parity: the Rust checks against the js oracle over every
+//! Plain-text issue parity against the frozen js oracle dump over every
 //! Unicode code point (ADR 0050 amendment `PrecomputeInRust`).
 //!
-//! `scripts/plain-text-issue-oracle.mjs` runs the js `snapshotPlainTextIssue`
-//! on each code point as a single-character text and stores a run-length dump;
-//! this test rebuilds the same dump from `snapshot_plain_text_issue` and
-//! compares the ranges. A mismatch means the generated Unicode tables drifted
-//! from the js engine data; regenerate the tables and re-run the oracle.
-//!
-//! The comparison skips with a reason when the oracle dump is absent.
+//! The js implementation was removed with the legacy cutover, so this test
+//! compares the run-length dump of `snapshot_plain_text_issue` against
+//! `tests/plain-text-issue-golden.json`, recorded when the lane still ran the
+//! js `snapshotPlainTextIssue` over each code point as a single-character
+//! text. Regenerate with `TIQIAN_UPDATE_GOLDEN=1 cargo test --test
+//! plain_text_issue_parity` after reviewing the diff; a mismatch means the
+//! generated Unicode tables drifted from the recorded data.
 
 use std::path::PathBuf;
 
@@ -25,7 +25,7 @@ struct IssueRange {
 }
 
 fn oracle_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../build/plain-text-issue/oracle.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/plain-text-issue-golden.json")
 }
 
 /// The Rust dump over the same single-character corpus.
@@ -95,23 +95,39 @@ fn oracle_ranges(json: &Json) -> Vec<IssueRange> {
 }
 
 #[test]
-fn plain_text_issue_matches_the_js_oracle_over_all_code_points() {
-    let Ok(oracle) = std::fs::read_to_string(oracle_path()) else {
-        if std::env::var("TIQIAN_REQUIRE_PARITY_ORACLE").is_ok_and(|value| value == "1") {
-            panic!(
-                "TIQIAN_REQUIRE_PARITY_ORACLE=1 but no oracle dump at {}; \
-                 run node scripts/plain-text-issue-oracle.mjs in frontend/web-precompute",
-                oracle_path().display()
-            );
-        }
-        eprintln!(
-            "skipped: no oracle dump at {}; run node scripts/plain-text-issue-oracle.mjs in frontend/web-precompute to produce it",
-            oracle_path().display()
+fn plain_text_issue_matches_the_frozen_oracle_dump_over_all_code_points() {
+    let native = native_ranges();
+    if std::env::var("TIQIAN_UPDATE_GOLDEN").is_ok_and(|value| value == "1") {
+        let dump = Json::Arr(
+            native
+                .iter()
+                .map(|range| {
+                    Json::Obj(vec![
+                        ("start".to_string(), Json::Num(range.start)),
+                        ("end".to_string(), Json::Num(range.end)),
+                        (
+                            "issue".to_string(),
+                            match &range.issue {
+                                Some(issue) => Json::str(issue.clone()),
+                                None => Json::Null,
+                            },
+                        ),
+                    ])
+                })
+                .collect(),
         );
+        std::fs::write(oracle_path(), format!("{}\n", dump.render())).expect("golden writes");
         return;
+    }
+    let oracle = match std::fs::read_to_string(oracle_path()) {
+        Ok(oracle) => oracle,
+        Err(error) => panic!(
+            "plain-text-issue golden unreadable at {}: {error}; record it with \
+             TIQIAN_UPDATE_GOLDEN=1 cargo test --test plain_text_issue_parity",
+            oracle_path().display()
+        ),
     };
     let expected = oracle_ranges(&parse_json(&oracle).expect("oracle json parses"));
-    let native = native_ranges();
     assert_eq!(native.len(), expected.len(), "range count differs");
     for (index, (left, right)) in native.iter().zip(&expected).enumerate() {
         assert_eq!(left.start, right.start, "range {index} start differs");

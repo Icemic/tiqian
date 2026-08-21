@@ -1,14 +1,17 @@
-//! Precompute-html parity against the js oracle (ADR 0050 amendment
-//! `PrecomputeInRust`). The oracle is `createHtmlPreparer` from
-//! `frontend/web/npm/precompute-html.js` over the fixture font; the matrix
-//! lives in this file, is written to cases.json for the node oracle, and is
-//! walked in the same order by both harnesses so session usage accumulation
-//! matches. Every case dumps `stableStringify(result)` (or `ERROR:<message>`
-//! for throws). The one exempt engine-identity field,
-//! `fontEvidence.harfbuzzVersion`, is aligned before the byte comparison.
+//! Precompute-html parity against the frozen js oracle dump (ADR 0050
+//! amendment `PrecomputeInRust`). The js implementation was removed with the
+//! legacy cutover, so this harness walks the matrix in this file through
+//! tiqian-precompute and compares against `tests/precompute-html-golden.txt`:
+//! one `name\tdump` line per case (`stableStringify(result)`, or
+//! `ERROR:<message>` for throws), recorded when the lane still ran the js
+//! oracle and matched byte for byte. Regenerate with
+//! `TIQIAN_UPDATE_GOLDEN=1 cargo test --test precompute_html_parity` after
+//! reviewing the diff. The one exempt engine-identity field,
+//! `fontEvidence.harfbuzzVersion`, is rewritten to a placeholder before the
+//! byte comparison, so the dump stays valid across engine upgrades.
 //! The engine archive must be linked.
 //!
-//! The matrix sticks to inputs where linkedom and html5ever build the same
+//! The matrix sticks to inputs where linkedom and html5ever built the same
 //! tree. `<p>` inside `<select>`, fostered table content, and markup after
 //! `<plaintext>` diverge between the two parsers; prose hosts do not produce
 //! them and the mismatch/order errors they induce stay out of parity scope.
@@ -16,7 +19,6 @@
 #![cfg(tiqian_engine_link)]
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
 use tiqian_precompute::json::Json;
@@ -385,7 +387,7 @@ fn rewrite_version_values(dump: &str, marker: &str, terminator: &str) -> String 
 }
 
 #[test]
-fn precompute_html_matches_the_js_oracle() {
+fn precompute_html_matches_the_frozen_oracle_dump() {
     let Some(font_path) = dela_gothic_path() else {
         eprintln!("skipped: DelaGothicOne-Regular.ttf absent under $HOME");
         return;
@@ -393,64 +395,53 @@ fn precompute_html_matches_the_js_oracle() {
     let font_bytes = std::fs::read(&font_path).expect("fixture font reads");
     let plan = plan_json(font_path.to_str().expect("font path is utf8"));
 
-    let workdir = std::env::temp_dir().join("tiqian-precompute-html-parity");
-    std::fs::create_dir_all(&workdir).expect("workdir creates");
-    let cases_path = workdir.join("cases.json");
-    std::fs::write(&cases_path, plan.render()).expect("cases.json writes");
-
-    let oracle =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/precompute_html_oracle.mjs");
-    let oracle_run = Command::new("node")
-        .arg(&oracle)
-        .arg(&cases_path)
-        .arg(repo_root())
-        .output()
-        .expect("node spawns");
-    if !oracle_run.status.success() {
-        panic!(
-            "precompute-html oracle failed:\n{}",
-            String::from_utf8_lossy(&oracle_run.stderr)
-        );
-    }
-    let js_dump = String::from_utf8_lossy(&oracle_run.stdout)
-        .trim()
-        .to_string();
-    let js_lines: Vec<String> = js_dump
-        .lines()
-        .map(|line| normalize_engine_versions(line))
-        .collect();
     let rust_lines: Vec<String> = run_rust_side(&font_bytes, &plan)
         .into_iter()
         .map(|line| normalize_engine_versions(&line))
         .collect();
-
-    if js_lines.len() != rust_lines.len() {
+    let golden_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/precompute-html-golden.txt");
+    let golden = format!("{}\n", rust_lines.join("\n"));
+    if std::env::var("TIQIAN_UPDATE_GOLDEN").is_ok_and(|value| value == "1") {
+        std::fs::write(&golden_path, &golden).expect("golden writes");
+        return;
+    }
+    let recorded = match std::fs::read_to_string(&golden_path) {
+        Ok(recorded) => recorded,
+        Err(error) => panic!(
+            "precompute-html golden unreadable at {}: {error}; record it with \
+             TIQIAN_UPDATE_GOLDEN=1 cargo test --test precompute_html_parity",
+            golden_path.display()
+        ),
+    };
+    let recorded_lines: Vec<&str> = recorded.trim().lines().collect();
+    if recorded_lines.len() != rust_lines.len() {
         panic!(
-            "line count differs: js {} rust {}",
-            js_lines.len(),
+            "line count differs: golden {} rust {}",
+            recorded_lines.len(),
             rust_lines.len()
         );
     }
     let mut failed = false;
-    for (js_line, rust_line) in js_lines.iter().zip(rust_lines.iter()) {
-        if js_line == rust_line {
+    for (golden_line, rust_line) in recorded_lines.iter().zip(rust_lines.iter()) {
+        if golden_line == rust_line {
             continue;
         }
         failed = true;
-        let name = js_line.split('\t').next().unwrap_or("?");
-        let common = js_line
+        let name = golden_line.split('\t').next().unwrap_or("?");
+        let common = golden_line
             .bytes()
             .zip(rust_line.bytes())
             .take_while(|(left, right)| left == right)
             .count();
         let window = common.saturating_sub(60);
         eprintln!(
-            "case {name} differs near byte {common}:\n  js:   {}\n  rust: {}",
-            &js_line[window..(common + 120).min(js_line.len())],
+            "case {name} differs near byte {common}:\n  golden: {}\n  rust:   {}",
+            &golden_line[window..(common + 120).min(golden_line.len())],
             &rust_line[window..(common + 120).min(rust_line.len())],
         );
     }
     if failed {
-        panic!("precompute-html dump differs from the js oracle");
+        panic!("precompute-html dump differs from the frozen oracle dump");
     }
 }
