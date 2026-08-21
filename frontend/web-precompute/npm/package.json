@@ -27,6 +27,14 @@
     ".": {
       "types": "./lib/fonts.d.ts",
       "default": "./lib/fonts.js"
+    },
+    "./precompute": {
+      "types": "./lib/precompute.d.ts",
+      "default": "./lib/precompute.js"
+    },
+    "./precompute-html": {
+      "types": "./lib/precompute-html.d.ts",
+      "default": "./lib/precompute-html.js"
     }
   },
   "engines": {
@@ -43,7 +51,9 @@
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.ts\"",
     "debug:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon --platform $(neon current-platform) < cargo.log",
-    "build:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --release --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon < cargo.log"
+    "build:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --release --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon < cargo.log",
+    "sync:shared": "cp ../../web/npm/prepared-dom.js ../../web/npm/snapshot-source.js ../../web/npm/snapshot-schema.js ../../web/npm/styles.css shared/",
+    "check:shared": "npm run sync:shared && git diff --exit-code -- shared"
   },
   "neon": {
     "type": "library",
@@ -60,7 +70,8 @@
   "files": [
     "LICENSE",
     "README.md",
-    "lib"
+    "lib",
+    "shared"
   ],
   "dependencies": {
     "@neon-rs/load": "^0.1.82"

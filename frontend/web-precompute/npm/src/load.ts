@@ -17,7 +17,7 @@ export interface NativeFaceSpec {
   /** Index into the `sources` array passed alongside the face list. */
   font: number;
   faceIndex: number | null;
-  weight?: number | [number, number];
+  weight?: number | readonly [number, number];
   style?: string;
   unicodeRange: string | null;
   sourceOrder: number | null;
@@ -139,6 +139,53 @@ export interface NativeAddon {
   beginCapture(sessionId: string): void;
   captureEvidence(sessionId: string): string;
   closeSession(sessionId: string): void;
+  /**
+   * The precompute lane (ADR 0050). Structured values cross as JSON strings;
+   * every object shape belongs to the wrapper entries in `precompute.ts` and
+   * `precompute-html.ts`. Handles address the process-wide registries.
+   */
+  normalizeTypography(typographyJson: string): string;
+  createPrecomputer(typographyJson: string, faces: NativeFaceSpec[], sources: Buffer[]): string;
+  precomputerInfo(handle: string): string;
+  prepareParagraph(handle: string, inputJson: string): string;
+  /** The batch snapshot lane; the paragraph loop stays inside Rust. */
+  prepareParagraphs(handle: string, inputsJson: string): string;
+  prepareFontContract(handle: string, inputJson: string): string;
+  closePrecomputer(handle: string): void;
+  htmlPreparerInfo(handle: string): string;
+  createHtmlPreparer(
+    precomputerHandle: string | null,
+    typographyJson: string,
+    faces: NativeFaceSpec[],
+    sources: Buffer[],
+    paragraphSelector: string | null,
+    skippedAncestorSelector: string | null,
+    sharedRuntimeStyle: string,
+  ): string;
+  /** The whole document in one call; the paragraph loop stays inside Rust. */
+  prepareHtml(handle: string, html: string, optionsJson: string): string;
+  closeHtmlPreparer(handle: string): void;
+  renderSnapshotBundle(
+    preparedParagraphsJson: string,
+    optionsJson: string,
+    sharedRuntimeStyle: string,
+  ): string;
+  renderFontContractBundle(
+    preparedParagraphsJson: string,
+    optionsJson: string,
+    sharedRuntimeStyle: string,
+  ): string;
+  renderSnapshotTemplate(
+    preparedParagraphsJson: string,
+    optionsJson: string,
+    sharedRuntimeStyle: string,
+  ): string;
+  snapshotPlainTextIssue(text: string): string;
+  findHtmlOpeningTags(html: string, tagNamesJson: string): string;
+  injectHtmlAttributes(html: string, insertionsJson: string): string;
+  snapshotServerAssets(bundleJson: string): string;
+  renderSnapshotServerAssets(assetsJson: string): string;
+  parseBuildFontStylesheet(css: string, sourceFileUrl: string, publicUrl: string | null): string;
 }
 
 export const addon: NativeAddon = proxy({

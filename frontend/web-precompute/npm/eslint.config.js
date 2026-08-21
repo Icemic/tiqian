@@ -9,6 +9,7 @@ export default tseslint.config(
   {
     ignores: [
       "lib/",
+      "shared/",
       "node_modules/",
       "pack-output/",
       "platforms/",
