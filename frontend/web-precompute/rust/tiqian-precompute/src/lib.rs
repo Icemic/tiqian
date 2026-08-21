@@ -27,6 +27,7 @@ pub mod schema;
 pub mod session;
 pub mod sfnt;
 pub mod shaping;
+pub mod snapshot_manifest;
 pub mod snapshot_source;
 pub mod source_boundaries;
 pub mod unicode_tables;
