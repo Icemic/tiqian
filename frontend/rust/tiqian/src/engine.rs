@@ -28,7 +28,9 @@ extern "C" {
 static RUNTIME_INIT: Once = Once::new();
 
 fn ensure_runtime() {
-    RUNTIME_INIT.call_once(|| unsafe { libnative_symbols(); });
+    RUNTIME_INIT.call_once(|| unsafe {
+        libnative_symbols();
+    });
 }
 
 /// Installs the process-wide font backend. The vtable stays owned by the
@@ -52,7 +54,12 @@ pub fn layout_paragraph(request: &[u8]) -> Result<String, NamedError> {
     let mut plan: *mut c_char = std::ptr::null_mut();
     let mut error: *mut c_char = std::ptr::null_mut();
     let status = unsafe {
-        tiqian_layout_paragraph(request.as_ptr(), request.len() as u64, &mut plan, &mut error)
+        tiqian_layout_paragraph(
+            request.as_ptr(),
+            request.len() as u64,
+            &mut plan,
+            &mut error,
+        )
     };
     match status {
         0 => {
@@ -62,7 +69,9 @@ pub fn layout_paragraph(request: &[u8]) -> Result<String, NamedError> {
                 .map_err(|_| NamedError("InvalidLayoutResponseUtf8".to_string()))
         }
         1 => {
-            let name = unsafe { CStr::from_ptr(error) }.to_string_lossy().into_owned();
+            let name = unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned();
             unsafe { tiqian_release_buffer(error) };
             Err(NamedError(name))
         }
@@ -83,7 +92,10 @@ mod tests {
             metrics: None,
             release_string: None,
         };
-        assert_eq!(install_font_backend(&vtable), InstallOutcome::RevisionMismatch);
+        assert_eq!(
+            install_font_backend(&vtable),
+            InstallOutcome::RevisionMismatch
+        );
     }
 
     #[test]

@@ -7,7 +7,10 @@ use std::env;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=TIQIAN_NATIVE_LIB_DIR");
-    let Some(dir) = env::var("TIQIAN_NATIVE_LIB_DIR").ok().filter(|dir| !dir.is_empty()) else {
+    let Some(dir) = env::var("TIQIAN_NATIVE_LIB_DIR")
+        .ok()
+        .filter(|dir| !dir.is_empty())
+    else {
         return;
     };
     // A rebuilt engine archive must relink this crate; the env var alone does

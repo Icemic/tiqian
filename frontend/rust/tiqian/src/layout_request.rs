@@ -260,11 +260,17 @@ mod tests {
         assert_eq!(u32_at(&buffer, 102), 1);
         assert_eq!(u32_at(&buffer, 106) as i32, 2);
         assert_eq!(u32_at(&buffer, 110), 1);
-        assert_eq!(u32_at(&buffer, 122) as i32, LineBreakPolicyCode::ProgressiveTechnical as i32);
+        assert_eq!(
+            u32_at(&buffer, 122) as i32,
+            LineBreakPolicyCode::ProgressiveTechnical as i32
+        );
         assert_eq!(u32_at(&buffer, 126), 1);
         assert_eq!(f32_at(&buffer, 138), 1.0);
         assert_eq!(f32_at(&buffer, 142), 2.0);
-        assert_eq!(u32_at(&buffer, 146) as i32, InlineBoxOuterSpacingCode::Source as i32);
+        assert_eq!(
+            u32_at(&buffer, 146) as i32,
+            InlineBoxOuterSpacingCode::Source as i32
+        );
         // fontSessionId at 150, buffer ends right after it.
         assert_eq!(u32_at(&buffer, 150), 2);
         assert_eq!(&buffer[154..156], b"s1");

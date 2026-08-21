@@ -81,7 +81,11 @@ pub fn write_shape_buffer(out: &mut [u8], glyphs: &[ShapeGlyphRecord], evidence:
     let string_area_start = HEADER_BYTES + glyphs.len() * RECORD_BYTES;
 
     write_u32(out, offset::MAGIC, SHAPE_BUFFER_MAGIC);
-    write_u32(out, offset::VERSION, crate::font_backend::FONT_BACKEND_PROTOCOL_REVISION);
+    write_u32(
+        out,
+        offset::VERSION,
+        crate::font_backend::FONT_BACKEND_PROTOCOL_REVISION,
+    );
     write_u32(out, offset::GLYPH_COUNT, glyphs.len() as u32);
     write_u32(out, offset::FEATURE_COUNT, evidence.features.len() as u32);
     write_u32(out, offset::UNSAFE_BREAK_COUNT, evidence.unsafe_break_count);
