@@ -2,6 +2,7 @@
 //! API runs in Rust; this crate only wires the exported names to it.
 
 mod calls;
+mod pin;
 mod precompute_calls;
 mod registry;
 
@@ -9,6 +10,7 @@ use neon::prelude::*;
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
+    pin::pin_once();
     cx.export_function("backendRevision", calls::backend_revision)?;
     cx.export_function("harfbuzzVersion", calls::harfbuzz_version)?;
     cx.export_function("createFontSession", calls::create_font_session)?;
