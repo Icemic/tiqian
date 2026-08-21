@@ -220,3 +220,21 @@ jobs:
           TIQIAN_NATIVE_LIB_DIR=$GITHUB_WORKSPACE/ffi/native/build/bin/linuxX64/releaseStatic
           TIQIAN_REQUIRE_PARITY_ORACLE=1
           cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
+      # The npm loader over an engine-linked addon; the font-dependent lanes
+      # self-skip on runners without fonts, so this exercises the wiring and
+      # the pure entries, while the parity tests above exercise the engine.
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install npm dependencies
+        working-directory: frontend/web-precompute/npm
+        run: npm install --no-audit --no-fund
+      - name: Run the npm suite engine-linked
+        working-directory: frontend/web-precompute/npm
+        env:
+          TIQIAN_NATIVE_LIB_DIR: ${{ github.workspace }}/ffi/native/build/bin/linuxX64/releaseStatic
+        run: |
+          npm run debug:native
+          npm test

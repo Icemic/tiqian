@@ -184,6 +184,11 @@ jobs:
           npm run lint
           npm run build
           npm run typecheck
+      # The packed package vendors the browser-shared modules; a stale copy
+      # would fork the render contract between server and browser.
+      - name: Check vendored shared modules
+        working-directory: frontend/web-precompute/npm
+        run: npm run check:shared
       - name: Pack
         working-directory: frontend/web-precompute/npm
         shell: bash
