@@ -3,10 +3,12 @@
 //! The engine consumes fonts exclusively through the vtable protocol. This
 //! module presents a [`FontSession`] as that backend and runs one paragraph
 //! request through `tiqian_layout_paragraph`. The vtable callbacks are free
-//! functions, so the active session travels in a thread local; the engine
-//! call is synchronous and the borrow ends when the call returns. The session
-//! id the engine passes back is the id of the lent session and needs no
-//! second lookup.
+//! functions, so the active session and its capture window travel in a
+//! thread local; the engine call is synchronous, its callbacks re-enter on
+//! the calling thread, and the borrow ends when the call returns. The
+//! session id the engine passes back is the id of the lent session and needs
+//! no second lookup. Batch paragraphs on worker threads lend their own
+//! window, so concurrent engine calls keep their evidence apart.
 //!
 //! Every `unsafe` in this module sits on the vtable boundary; the obligation
 //! list lives in docs/rust-unsafe-inventory.md, section "engine_bridge.rs".
@@ -20,38 +22,50 @@ use tiqian::shape_buffer::{
 };
 
 use crate::paragraph::ParagraphRequest;
-use crate::session::{FontSession, MetricsInput, ShapeInput};
+use crate::session::{CaptureEvidence, FontSession, MetricsInput, ShapeInput};
+
+/// The session and capture window lent to one engine call.
+#[derive(Clone, Copy)]
+struct SessionLend {
+    session: *const FontSession,
+    evidence: *mut CaptureEvidence,
+}
 
 thread_local! {
-    static CURRENT_SESSION: RefCell<Option<*mut FontSession>> =
-        const { RefCell::new(None) };
+    static CURRENT_LEND: RefCell<Option<SessionLend>> = const { RefCell::new(None) };
 }
 
 /// Clears the thread local when the engine call ends, including the panic
 /// path.
-struct SessionSlot;
+struct LendSlot;
 
-impl SessionSlot {
-    fn set(session: &mut FontSession) -> Self {
-        // unsafe: the thread local stores a raw pointer; the borrow rules are
+impl LendSlot {
+    fn set(session: &FontSession, evidence: &mut CaptureEvidence) -> Self {
+        // unsafe: the thread local stores raw pointers; the borrow rules are
         // held by `precompute_paragraph`, see docs/rust-unsafe-inventory.md.
-        CURRENT_SESSION.with_borrow_mut(|slot| *slot = Some(session as *mut FontSession));
-        SessionSlot
+        CURRENT_LEND.with_borrow_mut(|slot| {
+            *slot = Some(SessionLend {
+                session: std::ptr::from_ref(session),
+                evidence: std::ptr::from_mut(evidence),
+            })
+        });
+        LendSlot
     }
 }
 
-impl Drop for SessionSlot {
+impl Drop for LendSlot {
     fn drop(&mut self) {
-        CURRENT_SESSION.with_borrow_mut(|slot| *slot = None);
+        CURRENT_LEND.with_borrow_mut(|slot| *slot = None);
     }
 }
 
-/// Runs one paragraph request through the engine with `session` as the font
-/// backend. The session stays borrowed for the duration of the call; nested
-/// engine calls on the same thread are not supported. Errors are the named
-/// validation issues of the request and the engine.
+/// Runs one paragraph request through the engine with `session` and its
+/// capture window as the font backend. Both stay borrowed for the duration
+/// of the call; nested engine calls on the same thread are not supported.
+/// Errors are the named validation issues of the request and the engine.
 pub fn precompute_paragraph(
-    session: &mut FontSession,
+    session: &FontSession,
+    evidence: &mut CaptureEvidence,
     request: &ParagraphRequest,
 ) -> Result<String, String> {
     install_session_backend()?;
@@ -60,7 +74,7 @@ pub fn precompute_paragraph(
         .map_err(|error| error.0)?
         .pack()
         .map_err(|error| error.0)?;
-    let _slot = SessionSlot::set(session);
+    let _slot = LendSlot::set(session, evidence);
     tiqian::engine::layout_paragraph(&packed).map_err(|error| error.0)
 }
 
@@ -90,15 +104,18 @@ fn install_session_backend() -> Result<(), String> {
         .clone()
 }
 
-/// The lent session of the running engine call. The pointer is valid because
-/// [`precompute_paragraph`] holds the borrow for the whole call.
-fn with_current_session<T>(call: impl FnOnce(&mut FontSession) -> T) -> Option<T> {
-    let pointer = CURRENT_SESSION.with_borrow(|slot| *slot)?;
+/// The lent session and capture window of the running engine call. Both
+/// pointers are valid because [`precompute_paragraph`] holds the borrows for
+/// the whole call.
+fn with_current_lend<T>(call: impl FnOnce(&FontSession, &mut CaptureEvidence) -> T) -> Option<T> {
+    let lend = CURRENT_LEND.with_borrow(|slot| *slot)?;
     // SAFETY: the slot is set only inside `precompute_paragraph`, which holds
-    // `&mut FontSession` across the engine call, and the engine invokes
-    // callbacks on the same call stack. Obligations:
+    // `&FontSession` and `&mut CaptureEvidence` across the engine call, and
+    // the engine invokes callbacks on the same call stack. Obligations:
     // docs/rust-unsafe-inventory.md, "engine_bridge.rs".
-    Some(call(unsafe { &mut *pointer }))
+    Some(call(unsafe { &*lend.session }, unsafe {
+        &mut *lend.evidence
+    }))
 }
 
 /// Reads a C string argument; null maps to `None`, undecodable bytes map to
@@ -163,7 +180,8 @@ unsafe extern "C" fn session_shape(
         role: unsafe { c_str(role) },
         source_text: unsafe { c_str(source_text) },
     };
-    let Some(record) = with_current_session(|session| session.shape(&input)) else {
+    let Some(record) = with_current_lend(|session, evidence| session.shape_into(evidence, &input))
+    else {
         set_error(error_out, "FontBackendSessionMissing");
         return -1;
     };
@@ -245,7 +263,9 @@ unsafe extern "C" fn session_metrics(
         role: unsafe { c_str(role) },
         face_selection_text: unsafe { c_str(face_selection_text) },
     };
-    let Some(values) = with_current_session(|session| session.metrics(&input)) else {
+    let Some(values) =
+        with_current_lend(|session, evidence| session.metrics_into(evidence, &input))
+    else {
         set_error(error_out, "FontBackendSessionMissing");
         return -1;
     };

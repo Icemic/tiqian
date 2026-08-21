@@ -10,7 +10,9 @@ use tiqian_precompute::engine_bridge;
 use tiqian_precompute::font_record::{FontFaceSpec, FontWeightSpec};
 use tiqian_precompute::paragraph::ParagraphRequest;
 use tiqian_precompute::plan::Plan;
-use tiqian_precompute::session::{create_font_session, SessionFaceSpec, SessionOptions};
+use tiqian_precompute::session::{
+    create_font_session, CaptureEvidence, SessionFaceSpec, SessionOptions,
+};
 
 fn dela_gothic_path() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
@@ -67,10 +69,11 @@ fn session_lends_the_engine_a_real_font_backend() {
         create_font_session(specs, SessionOptions::default()).expect("fixture session builds");
 
     let request = request(&session.session_id);
-    session.begin_capture();
-    let plan_json = engine_bridge::precompute_paragraph(&mut session, &request)
-        .expect("engine precompute succeeds");
-    let evidence = session.capture_evidence();
+    let mut evidence_window = CaptureEvidence::new();
+    let plan_json =
+        engine_bridge::precompute_paragraph(&mut session, &mut evidence_window, &request)
+            .expect("engine precompute succeeds");
+    let evidence = evidence_window.snapshot();
 
     let plan = Plan::from_json_str(&plan_json).expect("plan json parses");
     assert!(!plan.lines.is_empty(), "no lines");

@@ -647,7 +647,7 @@ impl HtmlPreparer {
                 continue;
             }
             let element_node = parser.to_dom_node(element);
-            let mut shared = precomputer
+            let shared = precomputer
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let typography = shared.typography().clone();

@@ -23,6 +23,7 @@ pub mod name_language;
 pub mod name_table;
 pub mod normalize;
 pub mod paragraph;
+pub mod parallel;
 pub mod plan;
 pub mod policy;
 pub mod precompute_html;

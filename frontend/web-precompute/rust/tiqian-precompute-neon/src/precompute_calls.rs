@@ -134,25 +134,21 @@ pub fn prepare_font_contract(mut cx: FunctionContext) -> JsResult<JsString> {
 }
 
 /// `prepareParagraphs(handle, inputsJson)`: the batch snapshot lane. One
-/// call prepares every paragraph in input order; the loop stays here. The
-/// order matches the js sequence exactly, so session evidence accumulates
-/// the same way.
+/// call prepares every paragraph in input order; the loop stays here and
+/// spreads over the configured workers. Each paragraph owns its capture
+/// window, so the entries match the singular lane byte for byte.
 pub fn prepare_paragraphs(mut cx: FunctionContext) -> JsResult<JsString> {
     let handle = cx.argument::<JsString>(0)?.value(&mut cx);
     let inputs = json_argument(&mut cx, 1, "inputs")?;
     let Json::Arr(items) = &inputs else {
         return cx.throw_error("InvalidJsonArgument:inputs");
     };
-    let mut entries = Vec::with_capacity(items.len());
+    let prepared_inputs: Vec<PrepareInput> = items.iter().map(PrepareInput::from_json).collect();
     let result = registry::with_precomputer(&handle, |precomputer| {
-        for item in items {
-            let input = PrepareInput::from_json(item);
-            entries.push(precomputer.prepare_paragraph(&input)?);
-        }
-        Ok::<(), NamedError>(())
+        precomputer.prepare_paragraphs(&prepared_inputs)
     });
     match result {
-        Ok(Ok(())) => Ok(cx.string(Json::Arr(entries).render())),
+        Ok(Ok(entries)) => Ok(cx.string(Json::Arr(entries).render())),
         Ok(Err(error)) => cx.throw_error(error.0),
         Err(error) => cx.throw_error(error),
     }

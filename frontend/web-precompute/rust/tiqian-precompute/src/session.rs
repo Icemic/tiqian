@@ -220,13 +220,100 @@ pub struct FontSession {
     pub harfbuzz_version: &'static str,
     records: Vec<FontRecord>,
     base_features: Vec<String>,
+    /// Evidence of the standalone session lane; `begin_capture` clears it.
+    /// The batch lanes keep one [`CaptureEvidence`] per paragraph instead,
+    /// so concurrent paragraphs never mix their capture windows.
+    evidence: std::sync::Mutex<CaptureEvidence>,
+    /// Value cache keyed by metric selection. Every write stores the
+    /// deterministic resolution of the same key, so the batch lanes may
+    /// share it across workers.
+    metric_cache: std::sync::Mutex<std::collections::HashMap<String, [f64; 5]>>,
+}
+
+/// One capture window: `beginCapture` clears it and every shape and metrics
+/// call of the window records into it. A batch paragraph owns one for the
+/// duration of its engine call.
+pub struct CaptureEvidence {
     /// Insertion-ordered like the JS `Map`s; usage entries carry their key.
     used: Vec<(String, FaceUsage)>,
-    metric_cache: std::collections::HashMap<String, [f64; 5]>,
     replay_shapes: Vec<ShapeReplay>,
     replay_shape_keys: std::collections::HashSet<String>,
     replay_metrics: Vec<MetricReplay>,
     replay_metric_keys: std::collections::HashSet<String>,
+}
+
+impl CaptureEvidence {
+    pub fn new() -> Self {
+        CaptureEvidence {
+            used: Vec::new(),
+            replay_shapes: Vec::new(),
+            replay_shape_keys: std::collections::HashSet::new(),
+            replay_metrics: Vec::new(),
+            replay_metric_keys: std::collections::HashSet::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.used.clear();
+        self.replay_shapes.clear();
+        self.replay_shape_keys.clear();
+        self.replay_metrics.clear();
+        self.replay_metric_keys.clear();
+    }
+
+    /// `captureEvidence`: the snapshot of the capture window.
+    pub fn snapshot(&self) -> FontEvidence {
+        FontEvidence {
+            backend_revision: BACKEND_REVISION,
+            harfbuzz_version: HARFBUZZ_VERSION,
+            faces: self.used.iter().map(|(_, usage)| usage.clone()).collect(),
+            replay_shapes: self.replay_shapes.clone(),
+            replay_metrics: self.replay_metrics.clone(),
+        }
+    }
+
+    /// Stores a shape replay when the key is new and the size gate passes; a
+    /// rejected size leaves the key uncaptured, the way the JS early return
+    /// does.
+    fn store_shape_replay(&mut self, key: String, mut entry: ShapeReplay, font_size: f64) {
+        if self.replay_shape_keys.contains(&key) {
+            return;
+        }
+        if !font_size.is_finite() || font_size <= 0.0 {
+            return;
+        }
+        self.replay_shape_keys.insert(key.clone());
+        entry.key = key;
+        self.replay_shapes.push(entry);
+    }
+
+    fn capture_metric_replay(&mut self, input: &MetricsInput, result: &[f64; 5]) {
+        let key = metric_replay_key(
+            input.serialized_families,
+            input.font_weight,
+            input.italic,
+            input.role,
+            input.face_selection_text,
+        );
+        if self.replay_metric_keys.contains(&key) {
+            return;
+        }
+        if !input.font_size.is_finite() || input.font_size <= 0.0 {
+            return;
+        }
+        let font_size = input.font_size;
+        self.replay_metric_keys.insert(key.clone());
+        self.replay_metrics.push(MetricReplay {
+            key,
+            values_em: result.map(|value| normalized_replay_number(value, font_size)),
+        });
+    }
+}
+
+impl Default for CaptureEvidence {
+    fn default() -> Self {
+        CaptureEvidence::new()
+    }
 }
 
 /// `orderedFaceSpecs`: resolve `sourceOrder` (defaulting to the input
@@ -267,12 +354,16 @@ pub fn create_font_session(
         return Err(SessionError::MissingExplicitFontFaces);
     }
     let ordered = ordered_face_specs(&specs)?;
-    let mut records = Vec::with_capacity(ordered.len());
-    for (input_index, order) in ordered {
+    // The records spread over the configured workers; record loading shares
+    // no state, and the first load error by processing order wins, the
+    // sequential loop's `?` order.
+    let workers = crate::parallel::worker_count();
+    let records = crate::parallel::indexed_collect(ordered.len(), workers, |position| {
+        let (input_index, order) = ordered[position];
         let mut spec = specs[input_index].spec.clone();
         spec.source_order = order;
-        records.push(load_record(&spec).map_err(SessionError::Load)?);
-    }
+        load_record(&spec).map_err(SessionError::Load)
+    })?;
     let prefix = {
         let trimmed = js_trim(&options.session_prefix);
         if trimmed.is_empty() {
@@ -297,12 +388,8 @@ pub fn create_font_session(
         harfbuzz_version: HARFBUZZ_VERSION,
         records,
         base_features,
-        used: Vec::new(),
-        metric_cache: std::collections::HashMap::new(),
-        replay_shapes: Vec::new(),
-        replay_shape_keys: std::collections::HashSet::new(),
-        replay_metrics: Vec::new(),
-        replay_metric_keys: std::collections::HashSet::new(),
+        evidence: std::sync::Mutex::new(CaptureEvidence::new()),
+        metric_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
     })
 }
 
@@ -366,22 +453,30 @@ impl FontSession {
     }
 
     /// `beginCapture`.
-    pub fn begin_capture(&mut self) {
-        self.used.clear();
-        self.replay_shapes.clear();
-        self.replay_shape_keys.clear();
-        self.replay_metrics.clear();
-        self.replay_metric_keys.clear();
+    pub fn begin_capture(&self) {
+        crate::parallel::recover(self.evidence.lock()).clear();
     }
 
     /// `close`.
-    pub fn close(&mut self) {
+    pub fn close(&self) {
         self.begin_capture();
-        self.metric_cache.clear();
+        crate::parallel::recover(self.metric_cache.lock()).clear();
     }
 
-    /// The `shape(...)` backend call.
-    pub fn shape(&mut self, input: &ShapeInput) -> Result<ShapeRecordResult, String> {
+    /// The `shape(...)` backend call of the standalone session lane; the
+    /// evidence lock serializes the window the way the js single thread did.
+    pub fn shape(&self, input: &ShapeInput) -> Result<ShapeRecordResult, String> {
+        let mut evidence = crate::parallel::recover(self.evidence.lock());
+        self.shape_into(&mut evidence, input)
+    }
+
+    /// The shape call recording into an explicit capture window. The engine
+    /// callbacks of a batch paragraph pass their per-paragraph window here.
+    pub fn shape_into(
+        &self,
+        evidence: &mut CaptureEvidence,
+        input: &ShapeInput,
+    ) -> Result<ShapeRecordResult, String> {
         let families = split_families(input.serialized_families);
         let display_chars: Vec<char> = input.display_text.chars().collect();
         let source_text = input.source_text.unwrap_or(input.display_text);
@@ -466,11 +561,11 @@ impl FontSession {
             probe_language: input.locale.to_string(),
             probe_features: result.probe_features.clone(),
         };
-        self.store_shape_replay(replay_key, replay_entry, input.font_size);
+        evidence.store_shape_replay(replay_key, replay_entry, input.font_size);
         if missing_glyph {
             return Ok(result);
         }
-        if let Some((_, existing)) = self
+        if let Some((_, existing)) = evidence
             .used
             .iter_mut()
             .find(|(candidate, _)| *candidate == key)
@@ -483,13 +578,25 @@ impl FontSession {
                 }
             }
         } else {
-            self.used.push((key, usage));
+            evidence.used.push((key, usage));
         }
         Ok(result)
     }
 
-    /// The `metrics(...)` backend call.
-    pub fn metrics(&mut self, input: &MetricsInput) -> Result<[f64; 5], String> {
+    /// The `metrics(...)` backend call of the standalone session lane.
+    pub fn metrics(&self, input: &MetricsInput) -> Result<[f64; 5], String> {
+        let mut evidence = crate::parallel::recover(self.evidence.lock());
+        self.metrics_into(&mut evidence, input)
+    }
+
+    /// The metrics call recording into an explicit capture window. The cache
+    /// lock spans the get-or-compute step, so concurrent batch paragraphs
+    /// resolve one selection once, the value the sequential loop stored.
+    pub fn metrics_into(
+        &self,
+        evidence: &mut CaptureEvidence,
+        input: &MetricsInput,
+    ) -> Result<[f64; 5], String> {
         let families = split_families(input.serialized_families);
         let selection = select_metrics_face(
             &self.records,
@@ -499,7 +606,8 @@ impl FontSession {
             input.italic,
             input.face_selection_text,
         )?;
-        let result = match self.metric_cache.get(&selection.cache_key) {
+        let mut cache = crate::parallel::recover(self.metric_cache.lock());
+        let result = match cache.get(&selection.cache_key) {
             Some(cached) => *cached,
             None => {
                 let computed = resolve_metrics(
@@ -508,61 +616,18 @@ impl FontSession {
                     input.font_size,
                     input.font_weight,
                 )?;
-                self.metric_cache
-                    .insert(selection.cache_key.clone(), computed);
+                cache.insert(selection.cache_key.clone(), computed);
                 computed
             }
         };
-        self.capture_metric_replay(input, &result);
+        drop(cache);
+        evidence.capture_metric_replay(input, &result);
         Ok(result)
     }
 
     /// `captureEvidence`.
     pub fn capture_evidence(&self) -> FontEvidence {
-        FontEvidence {
-            backend_revision: BACKEND_REVISION,
-            harfbuzz_version: HARFBUZZ_VERSION,
-            faces: self.used.iter().map(|(_, usage)| usage.clone()).collect(),
-            replay_shapes: self.replay_shapes.clone(),
-            replay_metrics: self.replay_metrics.clone(),
-        }
-    }
-
-    /// Stores a shape replay when the key is new and the size gate passes;
-    /// a rejected size leaves the key uncaptured, the way the JS early
-    /// return does.
-    fn store_shape_replay(&mut self, key: String, mut entry: ShapeReplay, font_size: f64) {
-        if self.replay_shape_keys.contains(&key) {
-            return;
-        }
-        if !font_size.is_finite() || font_size <= 0.0 {
-            return;
-        }
-        self.replay_shape_keys.insert(key.clone());
-        entry.key = key;
-        self.replay_shapes.push(entry);
-    }
-
-    fn capture_metric_replay(&mut self, input: &MetricsInput, result: &[f64; 5]) {
-        let key = metric_replay_key(
-            input.serialized_families,
-            input.font_weight,
-            input.italic,
-            input.role,
-            input.face_selection_text,
-        );
-        if self.replay_metric_keys.contains(&key) {
-            return;
-        }
-        if !input.font_size.is_finite() || input.font_size <= 0.0 {
-            return;
-        }
-        let font_size = input.font_size;
-        self.replay_metric_keys.insert(key.clone());
-        self.replay_metrics.push(MetricReplay {
-            key,
-            values_em: result.map(|value| normalized_replay_number(value, font_size)),
-        });
+        crate::parallel::recover(self.evidence.lock()).snapshot()
     }
 }
 

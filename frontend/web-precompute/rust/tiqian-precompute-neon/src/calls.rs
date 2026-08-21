@@ -13,8 +13,8 @@ use tiqian_precompute::js_compat::trunc_sat_i32;
 use tiqian_precompute::js_compat::trunc_sat_usize;
 use tiqian_precompute::json::Json;
 use tiqian_precompute::session::{
-    create_font_session as create_session_impl, MetricsInput, SessionFaceSpec, SessionOptions,
-    ShapeInput, BACKEND_REVISION, HARFBUZZ_VERSION,
+    create_font_session as create_session_impl, CaptureEvidence, MetricsInput, SessionFaceSpec,
+    SessionOptions, ShapeInput, BACKEND_REVISION, HARFBUZZ_VERSION,
 };
 use tiqian_precompute::source_boundaries::{BoundaryStyle, BoundaryTextSpan};
 
@@ -323,7 +323,10 @@ pub fn precompute_paragraph(mut cx: FunctionContext) -> JsResult<JsString> {
         let session_id = cx.argument::<JsString>(0)?.value(&mut cx);
         let request = read_paragraph_request(&mut cx, session_id.clone())?;
         match registry::with_session(&session_id, |session| {
-            engine_bridge::precompute_paragraph(session, &request)
+            // One capture window per call. The singular entries keep this
+            // shape.
+            let mut evidence_window = CaptureEvidence::new();
+            engine_bridge::precompute_paragraph(session, &mut evidence_window, &request)
         }) {
             Ok(Ok(plan)) => Ok(cx.string(plan)),
             Ok(Err(error)) => cx.throw_error(error),

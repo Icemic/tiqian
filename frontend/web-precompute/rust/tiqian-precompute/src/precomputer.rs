@@ -72,7 +72,7 @@ pub fn create_precomputer(options: PrecomputerOptions) -> Result<Precomputer, Na
         typography,
         render_font_families: Vec::new(),
         session,
-        closed: false,
+        closed: std::sync::atomic::AtomicBool::new(false),
     };
     precomputer.render_font_families = precomputer
         .session
@@ -85,7 +85,7 @@ pub struct Precomputer {
     typography: SnapshotTypography,
     render_font_families: Vec<String>,
     session: FontSession,
-    closed: bool,
+    closed: std::sync::atomic::AtomicBool,
 }
 
 /// One `prepare(input, snapshotCandidate)` call. Every field is the loose js
@@ -145,13 +145,25 @@ impl Precomputer {
 
     /// `prepareParagraph`: the snapshot path with the plain-text gate and the
     /// caller's measure.
-    pub fn prepare_paragraph(&mut self, input: &PrepareInput) -> Result<Json, NamedError> {
+    pub fn prepare_paragraph(&self, input: &PrepareInput) -> Result<Json, NamedError> {
         self.prepare(input, true)
+    }
+
+    /// `prepareParagraphs`: the batch snapshot lane. The items spread over
+    /// the configured workers; entries come back in input order and the
+    /// reported error is the one of the lowest failing index, the sequential
+    /// loop's `?` order. Every paragraph owns its capture window, so the
+    /// entries match the singular lane exactly.
+    pub fn prepare_paragraphs(&self, inputs: &[PrepareInput]) -> Result<Vec<Json>, NamedError> {
+        let workers = crate::parallel::worker_count();
+        crate::parallel::indexed_collect(inputs.len(), workers, |index| {
+            self.prepare_paragraph(&inputs[index])
+        })
     }
 
     /// `prepareFontContract`: the wide capture measure, and when the source
     /// cannot be prepared at all, one retry over the CJK dash probes it owns.
-    pub fn prepare_font_contract(&mut self, input: &PrepareInput) -> Result<Json, NamedError> {
+    pub fn prepare_font_contract(&self, input: &PrepareInput) -> Result<Json, NamedError> {
         let prepared = self.prepare(input, false)?;
         if entry_status(&prepared) == Some("prepared") {
             return Ok(prepared);
@@ -165,29 +177,24 @@ impl Precomputer {
         self.prepare(&replay, false)
     }
 
-    pub fn close(&mut self) {
-        if self.closed {
+    pub fn close(&self) {
+        if self.closed.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        self.closed = true;
         self.session.close();
     }
 
     /// The `prepare` closure of the js. Returns the frozen entry value:
     /// `status: "prepared"` with the nineteen fields, or `status:
     /// "unsupported"` with the classified issue.
-    fn prepare(
-        &mut self,
-        input: &PrepareInput,
-        snapshot_candidate: bool,
-    ) -> Result<Json, NamedError> {
+    fn prepare(&self, input: &PrepareInput, snapshot_candidate: bool) -> Result<Json, NamedError> {
         let Precomputer {
             typography,
             render_font_families,
             session,
-            closed,
+            ..
         } = self;
-        if *closed {
+        if self.closed.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(named("PrecomputerClosed"));
         }
         let key = input.key_string().trim().to_string();
@@ -332,13 +339,13 @@ impl Precomputer {
     }
 }
 
-/// The capture and engine phase of `prepare`: begin the capture, gather the
-/// source boundary set, run the engine and read the evidence. Every error
-/// here reaches the `paragraphCapabilityIssue` classifier.
+/// The capture and engine phase of `prepare`: open the capture window,
+/// gather the source boundary set, run the engine and read the evidence.
+/// Every error here reaches the `paragraphCapabilityIssue` classifier.
 type Captured = Result<(String, crate::session::FontEvidence), NamedError>;
 
 fn capture(
-    session: &mut FontSession,
+    session: &FontSession,
     input: &PrepareInput,
     text: &str,
     typography: &SnapshotTypography,
@@ -347,7 +354,10 @@ fn capture(
     inline_boxes: &[InlineBoxInput],
     max_width_px: f64,
 ) -> Captured {
-    session.begin_capture();
+    // One capture window per paragraph; engine callbacks reach it through
+    // the thread-local lend, so a batch paragraph never sees another
+    // paragraph's evidence.
+    let mut evidence_window = crate::session::CaptureEvidence::new();
     let text_length = utf16_length(text);
     let mut boundaries: Vec<f64> = Vec::new();
     if let Some(Json::Arr(items)) = input.source_boundaries {
@@ -440,27 +450,30 @@ fn capture(
         line_break_spans,
         inline_boxes: inline_boxes.to_vec(),
     };
-    let plan_json = engine_call(session, &request)?;
-    let evidence = session.capture_evidence();
+    let plan_json = engine_call(session, &mut evidence_window, &request)?;
+    let evidence = evidence_window.snapshot();
     if evidence.faces.is_empty() {
         return Err(named("MissingShapingFontEvidence"));
     }
     Ok((plan_json, evidence))
 }
 
-/// `runtime.precomputeParagraph`: the engine runs with the session as its
-/// font backend. Without the linked archive no paragraph can be prepared.
+/// `runtime.precomputeParagraph`: the engine runs with the session and the
+/// paragraph's capture window as its font backend. Without the linked
+/// archive no paragraph can be prepared.
 #[cfg(tiqian_engine_link)]
 fn engine_call(
-    session: &mut FontSession,
+    session: &FontSession,
+    evidence: &mut crate::session::CaptureEvidence,
     request: &ParagraphRequest,
 ) -> Result<String, NamedError> {
-    crate::engine_bridge::precompute_paragraph(session, request).map_err(NamedError)
+    crate::engine_bridge::precompute_paragraph(session, evidence, request).map_err(NamedError)
 }
 
 #[cfg(not(tiqian_engine_link))]
 fn engine_call(
-    _session: &mut FontSession,
+    _session: &FontSession,
+    _evidence: &mut crate::session::CaptureEvidence,
     _request: &ParagraphRequest,
 ) -> Result<String, NamedError> {
     Err(named("PrecomputeEngineNotLinked"))

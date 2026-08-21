@@ -49,6 +49,33 @@ session.captureEvidence();
 session.close();
 ```
 
+## Worker threads
+
+The batch entries (`prepareParagraphs`, `prepareHtml`) spread their items over
+worker threads. `TIQIAN_PRECOMPUTE_THREADS` sets the worker count:
+
+- unset or malformed: the machine's available parallelism
+- `1`: the plain sequential loop
+- `n > 1`: at most `n` scoped threads; batches smaller than two items always
+  run inline
+
+Every value produces identical output. Results land in input order, the
+reported error is the one of the lowest failing index, and a worker panic
+leaves the batch instead of vanishing. Paragraph-level evidence capture and
+the metric cache are shared across workers; each paragraph owns its capture
+window.
+
+```js
+import { createPrecomputer } from "@tiqian/precompute/precompute";
+
+const precomputer = await createPrecomputer({ typography, fonts });
+const entries = await precomputer.prepareParagraphs(paragraphs);
+```
+
+Singular entries (`prepareParagraph`, `prepareFontContract`) stay sequential;
+font contract retries are rare and their evidence windows belong to one
+paragraph each.
+
 ## Local development
 
 From this directory:
