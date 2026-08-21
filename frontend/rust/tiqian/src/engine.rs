@@ -44,8 +44,8 @@ pub fn install_font_backend(vtable: &FontBackendVtable) -> InstallOutcome {
     ensure_runtime();
     // unsafe: the C ABI takes the vtable as a raw pointer; the vtable is a
     // process-wide static, see docs/rust-unsafe-inventory.md, "engine.rs".
-    let code = unsafe { tiqian_install_font_backend(vtable as *const FontBackendVtable) };
-    InstallOutcome::from_code(code).expect("install codes are a closed set")
+    let code = unsafe { tiqian_install_font_backend(std::ptr::from_ref(vtable)) };
+    InstallOutcome::from_code(code)
 }
 
 /// Runs the layout for one packed request ([`crate::layout_request`]) and
@@ -59,17 +59,15 @@ pub fn layout_paragraph(request: &[u8]) -> Result<String, NamedError> {
     }
     let mut plan: *mut c_char = std::ptr::null_mut();
     let mut error: *mut c_char = std::ptr::null_mut();
+    // usize fits u64 on every supported target; the error arm keeps the
+    // entry point total without a panic.
+    let request_len = u64::try_from(request.len())
+        .map_err(|_| NamedError("InvalidLayoutRequestLength".to_string()))?;
     // unsafe: the call crosses the C ABI; both out pointers are null before
     // the call and the status decides which buffer to release, see
     // docs/rust-unsafe-inventory.md, "engine.rs".
-    let status = unsafe {
-        tiqian_layout_paragraph(
-            request.as_ptr(),
-            request.len() as u64,
-            &mut plan,
-            &mut error,
-        )
-    };
+    let status =
+        unsafe { tiqian_layout_paragraph(request.as_ptr(), request_len, &mut plan, &mut error) };
     match status {
         0 => {
             // unsafe: the engine returns a NUL-terminated buffer on status 0;
@@ -99,7 +97,8 @@ mod tests {
     #[test]
     fn engine_reports_revision_mismatch_without_fonts() {
         let vtable = FontBackendVtable {
-            size: std::mem::size_of::<FontBackendVtable>() as u32,
+            size: u32::try_from(std::mem::size_of::<FontBackendVtable>())
+                .expect("vtable size fits u32"),
             protocol_revision: 0,
             shape: None,
             metrics: None,

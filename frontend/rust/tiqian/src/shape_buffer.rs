@@ -5,6 +5,7 @@
 //! encoder so every session path produces one byte layout.
 
 use crate::font_backend::SHAPE_BUFFER_MAGIC;
+use crate::NamedError;
 
 const HEADER_BYTES: usize = 64;
 const RECORD_BYTES: usize = 64;
@@ -66,16 +67,20 @@ fn joined_features(evidence: &ShapeEvidence) -> String {
     evidence.features.join("\u{001f}")
 }
 
-/// Writes the packed buffer. Panics when `out` is smaller than
-/// [`required_shape_buffer_size`] returned for the same inputs; sessions probe
-/// with that function first, matching the engine's capacity contract.
-pub fn write_shape_buffer(out: &mut [u8], glyphs: &[ShapeGlyphRecord], evidence: &ShapeEvidence) {
+/// Writes the packed buffer. Fails with `ShapeBufferCapacity:<needed>` when
+/// `out` is smaller than [`required_shape_buffer_size`] returned for the same
+/// inputs; sessions probe with that function first, matching the engine's
+/// capacity contract. Fails with `ShapeBufferTooLarge` when a count, offset,
+/// or string length exceeds the u32 header fields.
+pub fn write_shape_buffer(
+    out: &mut [u8],
+    glyphs: &[ShapeGlyphRecord],
+    evidence: &ShapeEvidence,
+) -> Result<(), NamedError> {
     let needed = required_shape_buffer_size(glyphs.len(), evidence);
-    assert!(
-        out.len() >= needed,
-        "shape buffer needs {needed} bytes, got {}",
-        out.len()
-    );
+    if out.len() < needed {
+        return Err(NamedError(format!("ShapeBufferCapacity:{needed}")));
+    }
 
     let features = joined_features(evidence);
     let string_area_start = HEADER_BYTES + glyphs.len() * RECORD_BYTES;
@@ -86,31 +91,36 @@ pub fn write_shape_buffer(out: &mut [u8], glyphs: &[ShapeGlyphRecord], evidence:
         offset::VERSION,
         crate::font_backend::FONT_BACKEND_PROTOCOL_REVISION,
     );
-    write_u32(out, offset::GLYPH_COUNT, glyphs.len() as u32);
-    write_u32(out, offset::FEATURE_COUNT, evidence.features.len() as u32);
+    write_u32(out, offset::GLYPH_COUNT, header_u32(glyphs.len())?);
+    write_u32(
+        out,
+        offset::FEATURE_COUNT,
+        header_u32(evidence.features.len())?,
+    );
     write_u32(out, offset::UNSAFE_BREAK_COUNT, evidence.unsafe_break_count);
     write_u32(out, offset::RESERVED, 0);
     write_f64(out, offset::TOTAL_ADVANCE, evidence.total_advance);
 
     let mut cursor = string_area_start;
-    let mut put = |out: &mut [u8], field: usize, bytes: &[u8]| {
+    let mut put = |out: &mut [u8], field: usize, bytes: &[u8]| -> Result<(), NamedError> {
         out[cursor..cursor + bytes.len()].copy_from_slice(bytes);
-        write_u32(out, field, cursor as u32);
-        write_u32(out, field + 4, bytes.len() as u32);
+        write_u32(out, field, header_u32(cursor)?);
+        write_u32(out, field + 4, header_u32(bytes.len())?);
         cursor += bytes.len();
+        Ok(())
     };
     let face_id = evidence.face_id.as_bytes();
     let instance_id = evidence.instance_id.as_bytes();
     let script = evidence.script.as_bytes();
     let features_bytes = features.as_bytes();
-    put(out, offset::FACE_ID, face_id);
-    put(out, offset::INSTANCE_ID, instance_id);
-    put(out, offset::SCRIPT, script);
-    put(out, offset::FEATURES, features_bytes);
+    put(out, offset::FACE_ID, face_id)?;
+    put(out, offset::INSTANCE_ID, instance_id)?;
+    put(out, offset::SCRIPT, script)?;
+    put(out, offset::FEATURES, features_bytes)?;
 
     for (index, glyph) in glyphs.iter().enumerate() {
         let base = HEADER_BYTES + index * RECORD_BYTES;
-        write_f64(out, base, glyph.id as f64);
+        write_f64(out, base, f64::from(glyph.id));
         write_f64(out, base + FIELD_BYTES, glyph.advance);
         write_f64(out, base + FIELD_BYTES * 2, glyph.x);
         write_f64(out, base + FIELD_BYTES * 3, glyph.y);
@@ -119,6 +129,12 @@ pub fn write_shape_buffer(out: &mut [u8], glyphs: &[ShapeGlyphRecord], evidence:
             write_f64(out, base + FIELD_BYTES * 4 + edge * FIELD_BYTES, *value);
         }
     }
+    Ok(())
+}
+
+/// Converts a usize value to the u32 header field; the error names the overflow.
+fn header_u32(value: usize) -> Result<u32, NamedError> {
+    u32::try_from(value).map_err(|_| NamedError("ShapeBufferTooLarge".to_string()))
 }
 
 fn write_u32(out: &mut [u8], offset: usize, value: u32) {
@@ -167,7 +183,8 @@ mod tests {
     fn header_holds_the_documented_fields() {
         let evidence = evidence();
         let mut buffer = vec![0u8; required_shape_buffer_size(2, &evidence)];
-        write_shape_buffer(&mut buffer, &glyphs(), &evidence);
+        write_shape_buffer(&mut buffer, &glyphs(), &evidence)
+            .expect("fixture strings and counts fit the u32 header fields");
         assert_eq!(read_u32(&buffer, 0), SHAPE_BUFFER_MAGIC);
         assert_eq!(read_u32(&buffer, 4), FONT_BACKEND_PROTOCOL_REVISION);
         assert_eq!(read_u32(&buffer, 8), 2);
@@ -181,7 +198,8 @@ mod tests {
     fn glyph_records_are_fixed_width_little_endian() {
         let evidence = evidence();
         let mut buffer = vec![0u8; required_shape_buffer_size(2, &evidence)];
-        write_shape_buffer(&mut buffer, &glyphs(), &evidence);
+        write_shape_buffer(&mut buffer, &glyphs(), &evidence)
+            .expect("fixture strings and counts fit the u32 header fields");
         assert_eq!(read_f64(&buffer, 64), 111.0);
         assert_eq!(read_f64(&buffer, 72), 10.5);
         assert_eq!(read_f64(&buffer, 80), 0.0);
@@ -199,7 +217,8 @@ mod tests {
     fn string_offsets_are_absolute_from_buffer_start() {
         let evidence = evidence();
         let mut buffer = vec![0u8; required_shape_buffer_size(2, &evidence)];
-        write_shape_buffer(&mut buffer, &glyphs(), &evidence);
+        write_shape_buffer(&mut buffer, &glyphs(), &evidence)
+            .expect("fixture strings and counts fit the u32 header fields");
         let face = read_string(&buffer, 32);
         assert_eq!(face, evidence.face_id);
         let instance = read_string(&buffer, 40);
@@ -209,7 +228,7 @@ mod tests {
         let features = read_string(&buffer, 56);
         assert_eq!(features, "fwid\u{001f}palt");
         // The string area starts right after the last record.
-        assert_eq!(read_u32(&buffer, 32) as usize, 64 + 2 * RECORD_BYTES);
+        assert_eq!(read_u32(&buffer, 32), 192);
     }
 
     #[test]
@@ -217,11 +236,15 @@ mod tests {
         let evidence = evidence();
         let needed = required_shape_buffer_size(2, &evidence);
         let mut buffer = vec![0u8; needed];
-        write_shape_buffer(&mut buffer, &glyphs(), &evidence);
+        write_shape_buffer(&mut buffer, &glyphs(), &evidence)
+            .expect("fixture strings and counts fit the u32 header fields");
         // Every byte is accounted for: strings end exactly at the buffer end.
-        let features_offset = read_u32(&buffer, 56) as usize;
-        let features_length = read_u32(&buffer, 60) as usize;
-        assert_eq!(features_offset + features_length, needed);
+        let features_offset = read_u32(&buffer, 56);
+        let features_length = read_u32(&buffer, 60);
+        assert_eq!(
+            u64::from(features_offset) + u64::from(features_length),
+            u64::try_from(needed).expect("fixture buffer size fits u64")
+        );
     }
 
     fn read_u32(buffer: &[u8], offset: usize) -> u32 {
@@ -237,8 +260,9 @@ mod tests {
     }
 
     fn read_string(buffer: &[u8], field: usize) -> String {
-        let offset = read_u32(buffer, field) as usize;
-        let length = read_u32(buffer, field + 4) as usize;
+        let offset = usize::try_from(read_u32(buffer, field)).expect("string offset fits usize");
+        let length =
+            usize::try_from(read_u32(buffer, field + 4)).expect("string length fits usize");
         String::from_utf8(buffer[offset..offset + length].to_vec()).unwrap()
     }
 

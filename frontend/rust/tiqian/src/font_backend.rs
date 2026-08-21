@@ -31,16 +31,19 @@ pub enum InstallOutcome {
     RevisionMismatch,
     /// The vtable pointer was NULL or a callback was missing.
     Invalid,
+    /// The engine returned a code outside the documented set; the engine
+    /// archive and this crate disagree on the protocol.
+    Unknown(i32),
 }
 
 impl InstallOutcome {
-    pub fn from_code(code: i32) -> Option<Self> {
+    pub fn from_code(code: i32) -> Self {
         match code {
-            0 => Some(Self::Installed),
-            1 => Some(Self::Collision),
-            2 => Some(Self::RevisionMismatch),
-            3 => Some(Self::Invalid),
-            _ => None,
+            0 => Self::Installed,
+            1 => Self::Collision,
+            2 => Self::RevisionMismatch,
+            3 => Self::Invalid,
+            other => Self::Unknown(other),
         }
     }
 }
