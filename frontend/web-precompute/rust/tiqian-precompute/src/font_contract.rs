@@ -184,12 +184,6 @@ fn field_non_null<'a>(value: Option<&'a Json>, name: &str) -> Option<&'a Json> {
     field(value?, name).filter(|inner| !matches!(inner, Json::Null))
 }
 
-/// `Number(span.start)`: present, non-null values coerce; absent and null
-/// both miss the safe-integer check.
-fn field_number(value: &Json, name: &str) -> Option<f64> {
-    field_non_null(Some(value), name).map(js_number_value)
-}
-
 /// `Number.isSafeInteger`.
 fn is_safe_integer(value: f64) -> bool {
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
