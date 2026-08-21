@@ -380,3 +380,85 @@ lane（npm 生产路径与浏览器 worker）字节不变，只影响 JVM 与 Na
 - npm 测试套件经 Neon 路径全部通过；Astro / SvelteKit 集成测试改引 `@tiqian/precompute` 后
   全部通过。
 - Windows mingw 静态库链接验证最先执行，覆盖 MSVC 与 GNU 两条工具链路径。
+
+## 附录（2026-08-21）：两站生产基准与等效性审计
+
+两个生产仓库各跑两套实现。原版（A）为 `@tiqian/prose` 0.1.0-alpha.5
+（Kotlin/JS 引擎 + harfbuzzjs 14.2.1）；原生（B）为 `@tiqian/precompute`
+（Neon addon + harfrust 0.13.0 + 静态链接的 Kotlin/Native 引擎，release 构建，
+linux-x64 addon 8,366,448 字节）。两套实现共用同一个计时包装器（调用计数与
+端到端耗时累计，`performance.now`），每轮清除快照缓存冷启动，各跑三轮；RSS 用
+`/proc` 对进程组内全部进程按 50ms 采样。机器为 Ryzen 7 8845HS（16 线程）、
+92 GiB 内存、linux x86-64；blog3 以 bun 驱动 vite SSG，neo-blog 以 pnpm 驱动
+astro。全部 12 轮构建退出码为 0。
+
+### 性能结果
+
+blog3（vite SSG；每轮 344 段落 + 73 字体契约 + 3 个 precomputer + 153 次快照
+拼装；306 条缓存条目）：
+
+| 实现 | 端到端耗时 ms（三轮） | 内存峰值 KiB（三轮） | 引擎计时合计 |
+|---|---|---|---|
+| A 原版 | 251,646 / 260,919 / 258,810 | 3,778,164 / 3,741,036 / 3,787,296 | 13.4–13.9 s |
+| B 原生 | 85,569 / 84,746 / 86,136 | 1,860,020 / 1,854,980 / 1,880,712 | 4.7–4.9 s |
+
+B 的端到端耗时与内存峰值分别为 A 的 0.33（约 3.0 倍）与 0.50。计时明细：
+`prepareParagraph`
+344 次从 9.6–10.0 s 降到 2.3–2.4 s；`createPrecomputer` 3 次从约 1.8 s 降到
+约 1.05 s；`renderSnapshotBundle` 153 次从约 0.33 s 升到约 0.91 s（原生路径单次
+多约 3.6 ms，单列备查）。
+
+neo-blog（astro static + pagefind；每轮 326 段落 + 18 字体契约；327 条缓存条目）：
+
+| 实现 | 端到端耗时 ms（三轮） | 内存峰值 KiB（三轮） | 引擎计时合计 |
+|---|---|---|---|
+| A 原版 | 21,359 / 20,332 / 20,085 | 2,013,588 / 2,036,740 / 2,021,608 | 13.8–14.7 s |
+| B 原生 | 8,494 / 8,269 / 8,247 | 2,042,900 / 2,076,572 / 2,054,008 | 1.9–2.0 s |
+
+B 的端到端耗时为 A 的 0.40（约 2.5 倍）；内存峰值 A 与 B 持平（astro 与 vite
+占据该站内存主体）。`prepareParagraph` 326 次从 11.8–12.7 s 降到 1.15–1.23 s
+（约 10 倍），引擎计时合计从 13.8–14.7 s 降到 1.9–2.0 s（约 7.3 倍）。
+
+### 等效性审计
+
+按层给出结论。请求层逐字节一致；plan 层只差浮点尾数；产物层差异全部来自
+Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两站语料上零差异。
+
+- **请求层。** blog3 抽样页 70 条记录的 `prepareParagraph` / `prepareFontContract`
+  全部入参（text、maxWidthPx、sourceBoundaries、textSpans、inlineBoxes、
+  semantics）两侧逐字节一致。Rust 字体会话的 font-face boundary 移植与
+  alpha.5 行为一致，sourceBoundaries 的会话侧贡献没有引入差异。
+- **plan 层。** 差异全部落在 `naturalWidth` 与 `drawX` 的浮点值上，结构与枚举零
+  差异。机制：引擎几何类型是 Kotlin `Float`，Kotlin/JS 的 `Float` 由 JS number
+  （binary64）承载，Kotlin/Native 是 IEEE binary32。`PlanNumberCanonicalForm`
+  统一了数字的表示，数值本身仍随后端精度不同。blog3 抽样页 1003 对浮点差、
+  neo-blog 全站 327 条中 174 条共 4114 对；float-float 对里可验证
+  `f32(A)==B` 的占 585/975 与 2847/4114，其余是逐次累加的 `drawX` 单精度
+  舍入。最大偏差 7.3e-4 px
+  （约 883 px 处的行尾 drawX），单字形宽偏差不超过 4e-5 px。
+- **产物层。** blog3：`clientTemplate` 与 `renderedContent` 306/306 一致（把
+  `harfbuzzVersion` 标识替换为占位符后比对）；`inertTemplate` 275/306、
+  `initialStyle` 239/306 不同。机制有二。其一，5 位小数处的 letter-spacing 值
+  不再字符串去重，声明条目从 26 增至 33，每个值与对侧相差 1e-5 px 量级。
+  其二，单字符 clamp 判定 `naturalWidth + trailingGap >= 0` 的一个记录值落在
+  距零点 1.2e-4 px 内，两侧落在不同分支，该处 `letter-spacing` 翻转为
+  `margin-right`；两个分支的 CSS 都由 lowering 的同一段代码生成。neo-blog：
+  dist 742 个文件中 736 个一致；3 个页面是上述 tqv 变体机制；2 个页面仅标识
+  长度差与一处 replay 记录位。
+- **shaping 证据层。** harfbuzzjs 14.2.1 与 harfrust 0.13.0 在 neo-blog 全站
+  1525 条 replay shape 上 advance、glyph 位置、glyph id 全一致；`unsafeBreakCount`
+  31 条不同（A ≥ B，如 3 对 2、1 对 0）；3 个字形
+  （JetBrains Mono Variable 的 t）`boundsEm` xMax 差 0.001 em。引擎消费的
+  advance 与位置没有差异，两站没有任何断行因 `unsafeBreakCount` 改变。
+  该字段未纳入此前的版本差分维度，此处补记。
+- **标识层。** 除 `fontEvidence.harfbuzzVersion`（`14.2.1` 对 `harfrust-0.13.0`）
+  与 `backendRevision` 外，face 指纹全量一致；两个标识维持既有豁免。
+
+### 后续（不阻塞）
+
+- 引擎几何 `Float` 迁移 `Double` 的评估：消除跨后端小于 0.001 px 的位置偏移、
+  tqv 变体数增加与 clamp 边界翻转三类产物差异；代价是引擎几何类型的全量替换。
+- plan parity 语料补入 binary32 不可表示的 advance 值，使平台精度差进入
+  CI 比对。
+- `unsafeBreakCount` 与 glyph extents 纳入 HarfBuzz 版本差分的比对维度。
+- `renderSnapshotBundle` 原生路径单次多 3.6 ms，可单独复查。
