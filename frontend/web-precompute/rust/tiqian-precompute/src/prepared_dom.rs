@@ -1201,10 +1201,15 @@ fn render_run(
         attributes.push(("data-tq-shaping-boundary".to_string(), Some(String::new())));
     }
     if !feature_signature.is_empty() {
-        if feature_signature != "pwid,palt" {
-            return Err(NamedError(
-                "UnsupportedPreparedOpenTypeFeatures".to_string(),
-            ));
+        // The renderer replays exactly the feature sets the engine emits:
+        // Latin curly quotes shape proportional (pwid,palt), CJK-context
+        // curly quotes shape full-width (fwid,
+        // CjkContextCurlyQuoteFullWidthVariant). Any other signature has no
+        // CSS replay rule and must not be silently painted.
+        if feature_signature != "pwid,palt" && feature_signature != "fwid" {
+            return Err(NamedError(format!(
+                "UnsupportedPreparedOpenTypeFeatures: {feature_signature}"
+            )));
         }
         attributes.push((
             "data-tq-open-type-features".to_string(),

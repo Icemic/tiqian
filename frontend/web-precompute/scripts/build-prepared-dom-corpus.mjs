@@ -240,6 +240,14 @@ const cases = [
     options: {},
   },
   {
+    name: "open-type-features-full-width",
+    plan: plan([
+      line([cell(0, 1, "1", "1", 0, 8, { openTypeFeatures: ["fwid"] })]),
+    ]),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
     name: "source-display-diff",
     plan: plan([
       line([cell(0, 1, "　", " ", 0, 16)]),
@@ -281,7 +289,7 @@ const cases = [
     ]),
     locale: "zh-Hans",
     options: {},
-    expectError: "UnsupportedPreparedOpenTypeFeatures",
+    expectError: "UnsupportedPreparedOpenTypeFeatures: pwid",
   },
   {
     name: "error-conflicting-render-text-span",

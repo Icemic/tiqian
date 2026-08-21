@@ -225,6 +225,15 @@ tiqian-prose [data-tq-rendered="true"] {
   font-feature-settings: "halt" 0, "chws" 0, "palt" 1 !important;
 }
 
+/* CjkContextCurlyQuoteFullWidthVariant: curly quotes classified as CJK
+   punctuation shape through the font's full-width forms; the browser replays
+   the same feature the build-time HarfBuzz backend applied. */
+[data-tq-rendered="true"] span[data-tq-shaping-boundary][data-tq-open-type-features="fwid"],
+[data-tq-rendered="true"] span[data-tq-open-type-features="fwid"] {
+  font-variant-east-asian: full-width !important;
+  font-feature-settings: "halt" 0, "chws" 0, "palt" 0, "fwid" 1 !important;
+}
+
 [data-tq-rendered="true"]::first-letter,
 [data-tq-rendered="true"]::first-line,
 [data-tq-rendered="true"] [data-tq-shaping-boundary]::first-letter,
