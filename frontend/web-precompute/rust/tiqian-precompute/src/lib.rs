@@ -20,6 +20,7 @@ pub mod normalize;
 pub mod paragraph;
 pub mod plan;
 pub mod policy;
+pub mod prepared_dom;
 pub mod replay;
 pub mod selection;
 pub mod schema;
