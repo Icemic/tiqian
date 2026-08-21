@@ -6,6 +6,11 @@
 //! mirrors that header; the two must stay byte-compatible. The engine-side
 //! buffer reader and the Rust-side writer in [`crate::shape_buffer`] share the
 //! offsets documented there.
+//!
+//! The `unsafe extern "C" fn` types below are declarations that match the
+//! Kotlin-side C function pointer signatures. They mark the callbacks'
+//! callability and run nothing by themselves; obligations are listed in
+//! docs/rust-unsafe-inventory.md, section "font_backend.rs".
 
 use std::os::raw::c_char;
 

@@ -7,6 +7,9 @@
 //! call is synchronous and the borrow ends when the call returns. The session
 //! id the engine passes back is the id of the lent session and needs no
 //! second lookup.
+//!
+//! Every `unsafe` in this module sits on the vtable boundary; the obligation
+//! list lives in docs/rust-unsafe-inventory.md, section "engine_bridge.rs".
 
 use std::cell::RefCell;
 use std::ffi::{c_char, CStr, CString};
@@ -31,6 +34,8 @@ struct SessionSlot;
 
 impl SessionSlot {
     fn set(session: &mut FontSession) -> Self {
+        // unsafe: the thread local stores a raw pointer; the borrow rules are
+        // held by `precompute_paragraph`, see docs/rust-unsafe-inventory.md.
         CURRENT_SESSION.with_borrow_mut(|slot| *slot = Some(session as *mut FontSession));
         SessionSlot
     }
@@ -79,16 +84,19 @@ fn with_current_session<T>(call: impl FnOnce(&mut FontSession) -> T) -> Option<T
     let pointer = CURRENT_SESSION.with_borrow(|slot| *slot)?;
     // SAFETY: the slot is set only inside `precompute_paragraph`, which holds
     // `&mut FontSession` across the engine call, and the engine invokes
-    // callbacks on the same call stack.
+    // callbacks on the same call stack. Obligations:
+    // docs/rust-unsafe-inventory.md, "engine_bridge.rs".
     Some(call(unsafe { &mut *pointer }))
 }
 
 /// Reads a C string argument; null maps to `None`, undecodable bytes map to
-/// the empty string.
+/// the empty string. The `unsafe` obligation is that callers only pass
+/// NUL-terminated engine strings; see docs/rust-unsafe-inventory.md.
 unsafe fn c_str<'a>(pointer: *const c_char) -> Option<&'a str> {
     if pointer.is_null() {
         return None;
     }
+    // SAFETY: engine arguments are NUL-terminated strings per the ABI.
     Some(unsafe { CStr::from_ptr(pointer) }.to_str().unwrap_or(""))
 }
 
@@ -101,9 +109,15 @@ fn set_error(error_out: *mut *mut c_char, message: &str) {
     }
     let cstring = CString::new(message.replace('\0', " "))
         .unwrap_or_else(|_| CString::new("FontBackendError").expect("static message encodes"));
+    // SAFETY: the string crosses to the engine here and returns through
+    // `session_release_string`, same allocator on both ends.
     unsafe { *error_out = cstring.into_raw() };
 }
 
+// The three callbacks below are the vtable signature the engine invokes;
+// the `unsafe` markers are part of that signature. Per-argument decoding and
+// buffer writes carry their own comments; obligations:
+// docs/rust-unsafe-inventory.md, "engine_bridge.rs".
 unsafe extern "C" fn session_shape(
     _session_id: *const c_char,
     display_text: *const c_char,
@@ -122,6 +136,8 @@ unsafe extern "C" fn session_shape(
         set_error(error_out, "FontBackendMissingDisplayText");
         return -1;
     };
+    // The `c_str` reads below decode engine arguments per the ABI comment on
+    // `c_str`; obligations: docs/rust-unsafe-inventory.md.
     let input = ShapeInput {
         display_text,
         serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
@@ -166,12 +182,14 @@ unsafe extern "C" fn session_shape(
     if buffer.is_null() || (capacity as usize) < needed {
         return needed as i64;
     }
-    // SAFETY: the engine passes `capacity` live bytes at `buffer`.
+    // SAFETY: the engine passes `capacity` live bytes at `buffer`; the
+    // capacity probe above returns `needed` for a single retry.
     let out = unsafe { std::slice::from_raw_parts_mut(buffer, needed) };
     write_shape_buffer(out, &glyphs, &evidence);
     needed as i64
 }
 
+// Vtable callback; see the comment above `session_shape`.
 unsafe extern "C" fn session_metrics(
     _session_id: *const c_char,
     serialized_families: *const c_char,
@@ -186,6 +204,8 @@ unsafe extern "C" fn session_metrics(
     if out_metrics.is_null() {
         return -1;
     }
+    // The `c_str` reads below decode engine arguments per the ABI comment on
+    // `c_str`; obligations: docs/rust-unsafe-inventory.md.
     let input = MetricsInput {
         serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
         font_size,
@@ -212,6 +232,7 @@ unsafe extern "C" fn session_metrics(
     0
 }
 
+// Vtable callback; see the comment above `session_shape`.
 unsafe extern "C" fn session_release_string(string: *const c_char) {
     if string.is_null() {
         return;

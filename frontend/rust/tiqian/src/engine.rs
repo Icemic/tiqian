@@ -4,6 +4,8 @@
 //! saw `TIQIAN_NATIVE_LIB_DIR` and emitted the `tiqian_engine_link` cfg;
 //! without the archive this module is compiled out and the crate stays pure
 //! Rust. Buffer protocol and status codes: `ffi/native/tiqian_layout_abi.h`.
+//! Every `unsafe` below sits on this boundary; the obligation list lives in
+//! docs/rust-unsafe-inventory.md, section "engine.rs".
 
 use crate::font_backend::{FontBackendVtable, InstallOutcome};
 use crate::NamedError;
@@ -28,6 +30,8 @@ extern "C" {
 static RUNTIME_INIT: Once = Once::new();
 
 fn ensure_runtime() {
+    // unsafe: reference to keep the Kotlin/Native runtime symbols linked;
+    // obligations in docs/rust-unsafe-inventory.md, "engine.rs".
     RUNTIME_INIT.call_once(|| unsafe {
         libnative_symbols();
     });
@@ -38,6 +42,8 @@ fn ensure_runtime() {
 /// same revision reports [`InstallOutcome::Installed`] and keeps the first.
 pub fn install_font_backend(vtable: &FontBackendVtable) -> InstallOutcome {
     ensure_runtime();
+    // unsafe: the C ABI takes the vtable as a raw pointer; the vtable is a
+    // process-wide static, see docs/rust-unsafe-inventory.md, "engine.rs".
     let code = unsafe { tiqian_install_font_backend(vtable as *const FontBackendVtable) };
     InstallOutcome::from_code(code).expect("install codes are a closed set")
 }
@@ -53,6 +59,9 @@ pub fn layout_paragraph(request: &[u8]) -> Result<String, NamedError> {
     }
     let mut plan: *mut c_char = std::ptr::null_mut();
     let mut error: *mut c_char = std::ptr::null_mut();
+    // unsafe: the call crosses the C ABI; both out pointers are null before
+    // the call and the status decides which buffer to release, see
+    // docs/rust-unsafe-inventory.md, "engine.rs".
     let status = unsafe {
         tiqian_layout_paragraph(
             request.as_ptr(),
@@ -63,12 +72,16 @@ pub fn layout_paragraph(request: &[u8]) -> Result<String, NamedError> {
     };
     match status {
         0 => {
+            // unsafe: the engine returns a NUL-terminated buffer on status 0;
+            // read once, then release it back to the engine allocator.
             let bytes = unsafe { CStr::from_ptr(plan) }.to_bytes().to_vec();
             unsafe { tiqian_release_buffer(plan) };
             String::from_utf8(bytes)
                 .map_err(|_| NamedError("InvalidLayoutResponseUtf8".to_string()))
         }
         1 => {
+            // unsafe: the engine returns a NUL-terminated error name on
+            // status 1; read once, then release it back.
             let name = unsafe { CStr::from_ptr(error) }
                 .to_string_lossy()
                 .into_owned();

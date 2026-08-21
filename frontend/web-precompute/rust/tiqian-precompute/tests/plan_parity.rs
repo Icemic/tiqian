@@ -12,6 +12,10 @@
 //! `TIQIAN_NATIVE_LIB_DIR`; the whole file compiles out in pure builds. The
 //! comparison skips with a reason when the oracle dump is absent and still
 //! writes the native dump, so a first divergence can be diffed by hand.
+//!
+//! The fixture callbacks below traverse the same C ABI as the production
+//! backend; their `unsafe` obligations are listed in
+//! docs/rust-unsafe-inventory.md, section "plan_parity.rs".
 
 #![cfg(tiqian_engine_link)]
 
@@ -54,7 +58,9 @@ fn install_fixture_backend() {
 
 /// Mirrors the fixture backend of `PrecomputeExportsTest.kt` and
 /// `plan-parity-oracle.mjs`: one glyph per code point, advance and x scaled
-/// by the font size, glyph id 0 marks a missing glyph.
+/// by the font size, glyph id 0 marks a missing glyph. The `unsafe` marker is
+/// part of the signature shared with the production backend; obligations:
+/// docs/rust-unsafe-inventory.md.
 unsafe extern "C" fn fixture_shape(
     _session_id: *const c_char,
     display_text: *const c_char,
@@ -69,6 +75,7 @@ unsafe extern "C" fn fixture_shape(
     capacity: u64,
     _error_out: *mut *mut c_char,
 ) -> i64 {
+    // SAFETY: engine arguments are NUL-terminated strings per the ABI.
     let text = match display_text.is_null() {
         true => return -1,
         false => unsafe { CStr::from_ptr(display_text).to_string_lossy().into_owned() },
@@ -97,6 +104,7 @@ unsafe extern "C" fn fixture_shape(
     if buffer.is_null() || (capacity as usize) < needed {
         return needed as i64;
     }
+    // SAFETY: the engine passes `capacity` live bytes at `buffer`.
     let out = unsafe { std::slice::from_raw_parts_mut(buffer, needed) };
     write_shape_buffer(out, &glyphs, &evidence);
     needed as i64
@@ -126,11 +134,13 @@ unsafe extern "C" fn fixture_metrics(
         font_size * 0.12,
     ];
     for (index, value) in values.iter().enumerate() {
+        // SAFETY: the engine passes five live doubles at `out_metrics`.
         unsafe { *out_metrics.add(index) = *value };
     }
     0
 }
 
+/// Vtable callback; the fixture backend produces no error strings.
 unsafe extern "C" fn fixture_release_string(_string: *const c_char) {}
 
 fn corpus() -> Vec<(&'static str, ParagraphRequest)> {
