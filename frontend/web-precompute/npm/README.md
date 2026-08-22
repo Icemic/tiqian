@@ -110,6 +110,32 @@ data-phase calls share one mutable table; both throw once the table froze.
 `renderStandaloneSnapshotBundle(plan, id)` is the per-item fallback: the item
 absorbs into and freezes its own table beside the session's.
 
+## Cache persistence and contexts
+
+`createSqliteCacheStore` (subpath `sqlite-store`) keeps computed snapshots in
+one SQLite file, and `createPersistentCache` (subpath `persistence`) binds a
+precomputer to such a store.
+
+A precomputer's cache identity is its **context fingerprint**: a hash the
+engine computes over everything that changes snapshot bytes. That covers the
+engine and shaping revisions, the font files, and the full typography config,
+including `fontSizePx` and `lineHeightPx`. The engine does not read
+stylesheets: the numbers in `typography` are the CSS values snapshots are
+computed under, transcribed by the host. Hosts never read or invent the
+fingerprint; `precomputer.cache.context()` returns it for passing along.
+
+The split principle: **one precomputer = one typography config = one
+context**. Instantiate one precomputer per distinct config the site's CSS
+uses (body text, list items, footnotes). Page kinds share a precomputer
+whenever their config is identical, and per-paragraph inputs (text,
+`maxWidthPx`) never split contexts.
+
+```js
+const store = await createSqliteCacheStore(".cache/tiqian/cache.db", {
+  contexts: [precomputer.cache.context()], // one entry per precomputer
+});
+```
+
 ## Local development
 
 From this directory:
