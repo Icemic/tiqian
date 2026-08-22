@@ -138,6 +138,155 @@ test("a database stamped with a newer structure version refuses by name", {
   }
 });
 
+test("a structure-1 database migrates in place with its entries", {
+  skip: !available,
+}, async () => {
+  let raw: typeof import("node:sqlite") | null = null;
+  try {
+    raw = await import("node:sqlite");
+  } catch {
+    // Writing a version-1 file needs a direct handle this runtime lacks.
+  }
+  if (raw === null) return;
+  const directory = mkdtempSync(join(tmpdir(), "tiqian-sqlite-"));
+  try {
+    const path = join(directory, "cache.db");
+    const stamp = new raw.DatabaseSync(path);
+    stamp.exec(
+      "CREATE TABLE tiqian_cache_entries (address TEXT PRIMARY KEY, bytes BLOB NOT NULL);",
+    );
+    stamp.exec("INSERT INTO tiqian_cache_entries VALUES ('aaa:01', x'010203');");
+    stamp.exec("PRAGMA user_version = 1;");
+    stamp.close();
+    const store = await openStore(directory);
+    const found = await store.read(["aaa:01"]);
+    assert.equal(found.size, 1);
+    assert.deepEqual(found.get("aaa:01"), new Uint8Array([1, 2, 3]));
+    store.recordArticles("aaa", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    store.close();
+    const check = new raw.DatabaseSync(path);
+    const versionRow = check.prepare("PRAGMA user_version;").all()[0];
+    check.close();
+    assert.equal((versionRow as { user_version?: unknown }).user_version, 2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("article rows round-trip, replace shrinks, and deletes count", {
+  skip: !available,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "tiqian-sqlite-"));
+  try {
+    const store = await openStore(directory);
+    store.recordArticles("aaa", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+      { articleKey: "note-b", bucket: "note", contentHashes: ["02", "03"] },
+    ]);
+    // Rows come back ordered by article key with their full hash sets.
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "note-b", bucket: "note", contentHashes: ["02", "03"] },
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+    ]);
+    // Re-recording one article replaces its set: a hash the article dropped
+    // no longer stays pinned in the index.
+    store.recordArticles("aaa", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "note-b", bucket: "note", contentHashes: ["02", "03"] },
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    // Deleting removes both the row and its hashes; unknown keys add nothing.
+    assert.equal(await store.deleteArticles("aaa", ["note-b", "missing"]), 1);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    // Another context's rows never surface in this context's read.
+    store.recordArticles("bbb", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["07"] },
+    ]);
+    assert.deepEqual(await store.readArticles("bbb"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["07"] },
+    ]);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    // Rows survive a reopen; an entry prune leaves index rows alone.
+    store.write([["aaa:01", new Uint8Array([9])]]);
+    assert.equal(store.prune("aaa", []), 1);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    store.close();
+    const reopened = await openStore(directory);
+    assert.deepEqual(await reopened.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("bucket prune keeps the intersection inside one bucket's scope", {
+  skip: !available,
+}, async () => {
+  const directory = mkdtempSync(join(tmpdir(), "tiqian-sqlite-"));
+  try {
+    const store = await openStore(directory);
+    store.recordArticles("aaa", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+      { articleKey: "post-c", bucket: "post", contentHashes: ["03"] },
+      { articleKey: "note-b", bucket: "note", contentHashes: ["02", "04"] },
+    ]);
+    for (const [address, blob] of [
+      ["aaa:01", new Uint8Array([1])],
+      ["aaa:02", new Uint8Array([2])],
+      ["aaa:03", new Uint8Array([3])],
+      ["aaa:04", new Uint8Array([4])],
+      // No article row attributes this address.
+      ["aaa:99", new Uint8Array([5])],
+      ["bbb:01", new Uint8Array([6])],
+    ] as const) {
+      store.write([[address, blob]]);
+    }
+    // The post bucket keeps only hash 01: its other attributed entry goes,
+    // the shared 02 survives on the note rows, and 99 (no row) plus the
+    // other context stay for their own sweeps.
+    assert.equal(store.pruneBucket("aaa", "post", ["01"]), 1);
+    const after = await store.read([
+      "aaa:01",
+      "aaa:02",
+      "aaa:03",
+      "aaa:04",
+      "aaa:99",
+      "bbb:01",
+    ]);
+    assert.equal(after.size, 5);
+    assert.equal(after.has("aaa:03"), false);
+    // Rows follow the list: post-a shrinks, emptied post-c goes, notes keep
+    // their full sets.
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "note-b", bucket: "note", contentHashes: ["02", "04"] },
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01"] },
+    ]);
+    // Sweeping the last bucket leaves exactly the union of the two lists.
+    assert.equal(store.pruneBucket("aaa", "note", ["02", "04"]), 0);
+    assert.equal((await store.read(["aaa:99"])).size, 1);
+    assert.equal(store.prune("aaa", ["aaa:01", "aaa:02", "aaa:04"]), 1);
+    assert.equal((await store.read(["aaa:99"])).size, 0);
+    store.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a persistent cache over sqlite resolves the second pass from the file", {
   skip: !available || precompute === null,
 }, async () => {  assert.ok(precompute);
