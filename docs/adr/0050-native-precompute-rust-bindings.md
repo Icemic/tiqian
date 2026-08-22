@@ -597,11 +597,14 @@ native 的 blog3 两轮空缓存构建写出的 306 条缓存逐字节一致；J
 
 npm 平台产物不带 runpath（`StaticVendoredLinkage` 只允许 OS 基线库依赖）。在
 常规发行版上，`DT_NEEDED` 由进程已装载的同名 SONAME、ldconfig 缓存与默认目录
-解析。NixOS 没有默认目录，宿主进程未装载某个依赖且该库不在系统 profile 的
-缓存内时，dlopen 直接失败。linux 装载器在 NixOS（`/etc/os-release` 的 `ID`）
-上捕获装载失败后读取 addon 的 `DT_NEEDED`，对照已装载映像、`ldconfig -p`、
-`/proc/self/maps` 中的 nix store 目录与各 profile 的 lib 目录。全部缺失库都
-能定位时，用 patchelf 把这些目录写入副本的 RUNPATH，副本按源文件 sha256 缓存
+解析。NixOS 没有默认目录；nix 构建的运行时链接 store 内 glibc，其装载器读取
+`<glibc-store>/etc/ld.so.cache`，该文件在 NixOS 上不存在。`ldconfig -p`
+报告的宿主缓存因此不参与解析（`LD_DEBUG=libs` 实测），列在其中的依赖装载时
+仍失败。linux 装载器在 NixOS（`/etc/os-release` 的 `ID`）上捕获装载失败后
+读取 addon 的 `DT_NEEDED`，对照已装载映像、`ldconfig -p`、`/proc/self/maps`
+中的 nix store 目录与各 profile 的 lib 目录。进程已装载的同名 SONAME 视为
+已解析，其余来源的命中并入候选目录。全部缺失库都能定位时，用 patchelf 把
+这些目录写入副本的 RUNPATH，副本按源文件 sha256 缓存
 于 `~/.cache/tiqian-precompute/nix-rpath`，后续装载直接复用；有库无法定位时
 报具名错误，列出库名与已查目录。`TIQIAN_PRECOMPUTE_NIX_LIB_DIRS` 在最前追加
 搜索目录。
@@ -620,4 +623,6 @@ npm 平台产物不带 runpath（`StaticVendoredLinkage` 只允许 OS 基线库�
 `test/nixos.test.ts` 覆盖 os-release 判定、合成 ELF64 的 `DT_NEEDED` 读取、
 maps 与 ldconfig 解析。端到端在本机 NixOS 验证：给 addon 附加一个仅存在于
 profile 外目录的依赖，首次装载完成修补并加载成功；移除该目录后再次装载命中
-缓存副本；附加不存在的库名时报出库名与已查目录的具名错误。
+缓存副本；附加不存在的库名时报出库名与已查目录的具名错误。在宿主
+`ldconfig -p` 已列出缺失库的机器上，诊断给出 profile lib 目录，修补后加载
+成功，再次装载命中缓存副本。

@@ -227,11 +227,23 @@ const planRepair = (addonPath: string, home: string): LibraryPlan | null => {
   const loaded = parseLoadedSonames(mapsText);
   const ldconfig = spawnSync("ldconfig", ["-p"], { encoding: "utf8" });
   const cacheEntries = ldconfig.status === 0 ? parseLdconfigEntries(ldconfig.stdout) : new Map<string, string>();
-  const candidateDirs: string[] = [...environmentLibraryDirs(), ...parseMapsLibraryDirs(mapsText), ...profileLibraryDirs(home)];
+  // ldconfig entries contribute candidate directories. A nix-built runtime
+  // links the store glibc, whose loader reads the cache at
+  // <glibc-store-path>/etc/ld.so.cache; on NixOS that file does not exist, so
+  // the host cache reported by `ldconfig -p` takes no part in resolution
+  // (ADR 0050). This function runs only after a real load failure, so only a
+  // SONAME the process already loaded counts as resolved.
+  const ldconfigDirs = [...new Set([...cacheEntries.values()].map(dirname))];
+  const candidateDirs: string[] = [
+    ...environmentLibraryDirs(),
+    ...parseMapsLibraryDirs(mapsText),
+    ...profileLibraryDirs(home),
+    ...ldconfigDirs,
+  ];
   const unresolved: string[] = [];
   const runpathDirs = new Set<string>();
   for (const library of needed) {
-    if (loaded.has(library) || cacheEntries.has(library)) {
+    if (loaded.has(library)) {
       continue;
     }
     const directory = candidateDirs.find((dir) => existsSync(join(dir, library)));
