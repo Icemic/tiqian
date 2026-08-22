@@ -4,6 +4,7 @@
 // demote to the content path instead of returning wrong bytes.
 
 import { readFileSync } from "node:fs";
+import { inflateSync } from "node:zlib";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -122,6 +123,49 @@ test("a second precomputer resolves from the store without computing", { skip: p
   assert.equal(await secondCache.flush(), 0);
   // Warming against the same store reports every item accepted.
   assert.equal(await secondCache.warmSnapshots(SNAPSHOTS), SNAPSHOTS.length);
+  second.close();
+});
+
+test("flushed rows carry the deflated envelope; plain rows from before still hit", {
+  skip: precompute === null,
+}, async () => {
+  assert.ok(precompute);
+  assert.ok(persistence);
+  const options = cjkPrecomputerOptions();
+  if (options === null) return;
+  const store = memoryStore();
+  const first = await precompute.createPrecomputer(options);
+  const firstCache = persistence.createPersistentCache(first, store);
+  const rendered = await firstCache.renderSnapshots(SNAPSHOTS);
+  assert.equal(await firstCache.flush(), SNAPSHOTS.length);
+  first.close();
+
+  // Every flushed row starts with the stored envelope, and the largest row
+  // holds a fraction of its plain bytes.
+  let largest: { deflated: Uint8Array; plain: Uint8Array } | null = null;
+  for (const blob of store.blobs.values()) {
+    assert.ok(blob.length >= 5);
+    assert.equal(Buffer.from(blob.subarray(0, 4)).toString("ascii"), "TQZL");
+    assert.equal(blob[4], 1);
+    const plain = inflateSync(Buffer.from(blob.subarray(5)));
+    if (largest === null || plain.length > largest.plain.length) {
+      largest = { deflated: blob, plain };
+    }
+  }
+  assert.ok(largest);
+  assert.ok(largest.deflated.length < largest.plain.length);
+
+  // A row written before deflation sits in the store as the plain record;
+  // the read path accepts it without computing.
+  const address = [...store.blobs.keys()].sort()[0];
+  const deflated = store.blobs.get(address);
+  assert.ok(deflated);
+  store.blobs.set(address, inflateSync(Buffer.from(deflated.subarray(5))));
+  const second = await precompute.createPrecomputer(options);
+  const secondCache = persistence.createPersistentCache(second, store);
+  const again = await secondCache.renderSnapshots(SNAPSHOTS);
+  assert.deepEqual(again, rendered);
+  assert.equal(await secondCache.flush(), 0);
   second.close();
 });
 

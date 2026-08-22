@@ -5,9 +5,15 @@
 // verifies hits against the artifact digests and persists drained records
 // back. Record bytes stay opaque to the host: the store never learns the
 // entry format, and a format change invalidates through the context
-// fingerprint alone.
+// fingerprint alone. Stored blobs carry the bridge record deflated
+// (ADR 0052 DeflatedStoreRecords): the artifact JSON repeats field names
+// and decimal text per glyph, so the compressed row is a fraction of the
+// plain form while the inflated bytes still verify against the artifact
+// digest, keeping the hit contract unchanged. Plain records written before
+// deflation stay readable; their next rewrite compresses.
 
 import { createHash } from "node:crypto";
+import { deflateSync, inflateSync } from "node:zlib";
 
 import type {
   FontContractInput,
@@ -180,6 +186,33 @@ function decodeRecord(blob: Uint8Array): CacheRecord | null {
   }
 }
 
+// DeflatedStoreRecords: the stored envelope is a magic, a version byte and
+// the deflated plain record. Blobs without the envelope are plain records
+// from before deflation and read as they are; an unknown envelope version
+// is a miss, and the content path recomputes and overwrites it.
+const STORED_MAGIC = Buffer.from("TQZL", "ascii");
+const STORED_VERSION = 1;
+
+function packStoredRecord(record: CacheRecord): Buffer {
+  return Buffer.concat([
+    STORED_MAGIC,
+    Buffer.from([STORED_VERSION]),
+    deflateSync(packRecords([record])),
+  ]);
+}
+
+function unpackStoredRecord(blob: Uint8Array): CacheRecord | null {
+  if (blob.length < 5 || !Buffer.from(blob.subarray(0, 4)).equals(STORED_MAGIC)) {
+    return decodeRecord(blob);
+  }
+  if (blob[4] !== STORED_VERSION) return null;
+  try {
+    return decodeRecord(inflateSync(Buffer.from(blob.subarray(5))));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The lane host of {@link createPersistentCache}: any precomputer-like
  * object with a cache bridge. The SDK binds to the bridge alone, so hosts
@@ -219,7 +252,7 @@ export function createPersistentCache(
     const blobs = await store.read([recordAddress]);
     const blob = blobs.get(recordAddress);
     if (blob === undefined) return null;
-    const record = decodeRecord(blob);
+    const record = unpackStoredRecord(blob);
     if (record === null) return null;
     if (Buffer.from(record.contentHash).toString("hex") !== hex) return null;
     if (!Buffer.from(record.artifactSha).equals(artifactSha(record.artifact))) {
@@ -241,7 +274,7 @@ export function createPersistentCache(
     const found = new Map<string, CacheRecord>();
     for (const [recordAddress, blob] of blobs) {
       const item = itemByAddress.get(recordAddress);
-      const record = blob === undefined ? null : decodeRecord(blob);
+      const record = blob === undefined ? null : unpackStoredRecord(blob);
       // A store entry that fails to decode, to match its claimed content
       // hash or to verify its own digest is a miss, not an error: the
       // content path re-renders and the next flush overwrites it. The
@@ -435,7 +468,7 @@ export function createPersistentCache(
       const records = bridge.drainWrites();
       if (records.length === 0) return 0;
       const entries = records.map(
-        (record) => [address(record.contentHash), packRecords([record])] as const,
+        (record) => [address(record.contentHash), packStoredRecord(record)] as const,
       );
       await store.write(entries);
       return records.length;
