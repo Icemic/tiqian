@@ -9,7 +9,7 @@ import path from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { PreparedEntry, PreparedParagraph } from "../src/precompute.js";
+import type { PreparedParagraph } from "../src/precompute.js";
 
 type TransportModule = typeof import("../src/transport.js");
 
