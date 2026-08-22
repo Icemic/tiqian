@@ -320,6 +320,15 @@ jobs:
           node-version: "24"
           package-manager-cache: false
 
+      # The integration dev links point at the precompute package in the
+      # checkout, whose `lib/` build output the sources import through the
+      # export map; a fresh checkout ships only `src/`, so build it first.
+      - name: Build the precompute library
+        working-directory: frontend/web-precompute/npm
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
       # The integration suites assert the canonical manifest set (peer
       # versions against the precompute and prose manifests), so they run
       # before the swap flips names and versions.
