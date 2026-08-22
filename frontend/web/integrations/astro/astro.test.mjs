@@ -107,6 +107,78 @@ test("static transport preserves JavaScript replacement tokens in snapshot asset
   assert.ok(result.html.includes(`<template id="tq-page">${replacementTokens}</template>`));
 });
 
+test("the tables middleware serves transport URLs and passes others through", async () => {
+  const { normalizeTiqianAstroTablesOptions, tiqianAstroTables, tiqianAstroTableMiddleware } =
+    await import("./tables.js");
+  const root = await mkdtemp(path.join(process.cwd(), ".astro-tables-"));
+  try {
+    const sha = "1".repeat(64);
+    const transport = tiqianAstroTables(
+      normalizeTiqianAstroTablesOptions({ directory: path.join(root, "tables") }),
+    );
+    transport.write({ bytes: Buffer.from("TIQTBL03-fixture"), sha256: sha });
+    const middleware = tiqianAstroTableMiddleware(transport);
+    const serve = (url) => new Promise((resolve) => {
+      const chunks = [];
+      middleware(
+        { method: "GET", url },
+        {
+          setHeader() {},
+          end(body) { resolve({ body: chunks.join("") + (body ?? "") }); },
+          write(chunk) { chunks.push(String(chunk)); },
+        },
+        () => resolve({ passed: true }),
+      );
+    });
+    assert.deepEqual(await serve(`/tiqian-tables/${sha}.tiqtbl`), { body: "TIQTBL03-fixture" });
+    assert.deepEqual(await serve(`/tiqian-tables/${"2".repeat(64)}.tiqtbl`), { passed: true });
+    assert.deepEqual(await serve("/other.css"), { passed: true });
+    assert.deepEqual(await serve(`/tiqian-tables/${sha}.tiqtbl?v=1`), { body: "TIQTBL03-fixture" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a tables-only integration ships referenced tables and sweeps stale ones", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, async () => {
+  const { shipTiqianAstroTables, normalizeTiqianAstroTablesOptions, tiqianAstroTables } =
+    await import("./tables.js");
+  const root = await mkdtemp(path.join(process.cwd(), ".astro-tables-ship-"));
+  try {
+    const transport = tiqianAstroTables(
+      normalizeTiqianAstroTablesOptions({ directory: path.join(root, "cache") }),
+    );
+    const live = "3".repeat(64);
+    const stale = "4".repeat(64);
+    transport.write({ bytes: Buffer.from("live"), sha256: live });
+    transport.write({ bytes: Buffer.from("stale"), sha256: stale });
+    const output = path.join(root, "dist");
+    await mkdir(output, { recursive: true });
+    await writeFile(
+      path.join(output, "index.html"),
+      `<html><head></head><body><tiqian-prose tq-tables="/tiqian-tables/${live}.tiqtbl"></tiqian-prose></body></html>`,
+    );
+    const logs = [];
+    const result = await shipTiqianAstroTables(transport, output, {
+      info(message) { logs.push(message); },
+      error(message) { logs.push(message); },
+    });
+    assert.deepEqual(result, { shipped: 1, swept: 1, missing: [] });
+    assert.deepEqual(await readFile(path.join(output, "tiqian-tables", `${live}.tiqtbl`), "utf8"), "live");
+    assert.deepEqual(transport.listShas(), [live]);
+    assert.match(logs.join("\n"), /snapshot tables: 1 shipped, 1 swept/u);
+    // The integration entry registers the same hooks without typography.
+    const integration = tiqian({ tables: { directory: path.join(root, "cache") } });
+    assert.deepEqual(Object.keys(integration.hooks).sort(), [
+      "astro:build:done",
+      "astro:config:done",
+      "astro:config:setup",
+      "astro:server:setup",
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("runtime-only component builds in a real static Astro site", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, async () => {
   const root = await mkdtemp(path.join(process.cwd(), ".astro-fixture-"));
   try {

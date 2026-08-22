@@ -11,6 +11,7 @@
     "TiqianProse.astro",
     "index.d.ts",
     "integration.js",
+    "tables.js",
     "transport.js"
   ],
   "exports": {

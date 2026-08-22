@@ -1,6 +1,12 @@
 import { fileURLToPath } from "node:url";
 
 import { hoistTiqianAstroDirectory } from "./transport.js";
+import {
+  normalizeTiqianAstroTablesOptions,
+  shipTiqianAstroTables,
+  tiqianAstroTableMiddleware,
+  tiqianAstroTables,
+} from "./tables.js";
 
 const VIRTUAL_MODULE_ID = "virtual:@tiqian/astro/preparer";
 const RESOLVED_VIRTUAL_MODULE_ID = `\0${VIRTUAL_MODULE_ID}`;
@@ -38,6 +44,10 @@ export function tiqian(options = {}) {
   if (!precomputeEnabled && (options.fontStylesheets != null || options.faces != null || options.snapshot != null)) {
     throw new Error("TiqianAstroPrecomputeTypographyRequired");
   }
+  // The tables lane is independent of the preparer lane: a host with its own
+  // shaping pipeline configures only table delivery.
+  const tablesOptions = normalizeTiqianAstroTablesOptions(options.tables);
+  const tables = tiqianAstroTables(tablesOptions);
   const htmlOptions = precomputeEnabled ? serializableOptions(options) : null;
   const defaultSnapshot = options.snapshot == null ? null : {
     maxWidthPx: Number(options.snapshot.maxWidthPx),
@@ -47,11 +57,26 @@ export function tiqian(options = {}) {
   }
   const virtualSource = precomputeEnabled ? `
       import { createHtmlPreparer } from "@tiqian/precompute/precompute-html";
+      ${
+      tablesOptions == null ? "" : `import { createSnapshotTableFileTransport } from "@tiqian/precompute/transport";
+      const tableTransport = createSnapshotTableFileTransport(${JSON.stringify(tablesOptions)});`
+    }
       const preparer = await createHtmlPreparer(${JSON.stringify(htmlOptions)});
       const defaultSnapshot = ${JSON.stringify(defaultSnapshot)};
       export async function prepareTiqianHtml(html, options = {}) {
         const snapshot = options.snapshot === undefined ? defaultSnapshot : options.snapshot;
-        return preparer.prepare(html, { ...options, ...(snapshot == null ? {} : { snapshot }) });
+        const result = await preparer.prepare(html, { ...options, ...(snapshot == null ? {} : { snapshot }) });
+        ${
+      tablesOptions == null
+        ? "return result;"
+        : `// The native call freezes per-item table bytes; the transport serves
+        // them and the root attribute points the runtime at the URL.
+        if (result.tables == null) return result;
+        return {
+          ...result,
+          rootAttributes: { ...result.rootAttributes, "tq-tables": tableTransport.write(result.tables) },
+        };`
+    }
       }
     ` : `
       export async function prepareTiqianHtml(html) {
@@ -82,10 +107,12 @@ export function tiqian(options = {}) {
               // chunk path. The top-level `ssr.external` key reaches only the
               // `ssr` environment; the prerendered chunks come from the
               // `prerender` environment, so every server environment names
-              // the package here.
+              // the package here. Snapshot publications from a fork install
+              // the same package under the registry's scope, so both names
+              // stay external.
               configEnvironment(name) {
                 if (name !== "ssr" && name !== "prerender" && name !== "astro") return undefined;
-                return { resolve: { external: ["@tiqian/precompute"] } };
+                return { resolve: { external: ["@tiqian/precompute", "@losses/precompute"] } };
               },
               resolveId(id) {
                 return id === VIRTUAL_MODULE_ID ? RESOLVED_VIRTUAL_MODULE_ID : null;
@@ -118,8 +145,19 @@ export function tiqian(options = {}) {
           `,
         });
       },
+      "astro:server:setup": ({ server }) => {
+        // Dev delivery of snapshot tables: the preparer's per-item freezes
+        // write the transport directory during page renders, and the dev
+        // server serves those bytes under the built output's URL.
+        if (tables != null) {
+          server.middlewares.use(tiqianAstroTableMiddleware(tables));
+        }
+      },
       "astro:build:done": async ({ dir, logger }) => {
         if (buildOutput !== "static") return;
+        if (tables != null) {
+          await shipTiqianAstroTables(tables, fileURLToPath(dir), logger);
+        }
         const result = await hoistTiqianAstroDirectory(fileURLToPath(dir));
         if (result.snapshotCount > 0) {
           logger.info(`hoisted ${result.snapshotCount} Tiqian snapshots across ${result.pageCount} pages`);

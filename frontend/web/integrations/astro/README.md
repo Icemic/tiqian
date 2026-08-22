@@ -50,3 +50,25 @@ Hosts with an existing richer server projector can pass its `{ html,
 rootAttributes, serverAssets }` result through the `prepared` prop. The adapter
 still owns component rendering and build-time asset hoisting, while the host
 keeps only its product-specific inline metric projection.
+
+## Snapshot tables
+
+The preparer freezes a content-addressed snapshot table per `prepare` call
+(ADR 0052 schema 2). A `tables` option turns on delivery end to end: each
+table file lands in the configured directory, the root element carries a
+`tq-tables` URL pointing at it, the dev server serves those URLs, and the
+build ships exactly the tables the built pages reference:
+
+```js
+export default defineConfig({
+  integrations: [tiqian({
+    typography: { fontFamilies: ["Article Sans"], fontSizePx: 18, lineHeightPx: 32 },
+    tables: { directory: ".cache/tiqian/tables" },
+  })],
+});
+```
+
+`directory` is required (`urlPrefix` defaults to `tiqian-tables`, `extension`
+to `.tiqtbl`). Hosts running their own shaping pipeline configure `tables`
+alone, without `typography`; the shipping and dev-serving hooks work the
+same for both lanes.
