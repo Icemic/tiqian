@@ -4,6 +4,7 @@ import {
   createHtmlPreparer,
   renderSnapshotServerAssets,
 } from "@tiqian/precompute/precompute-html";
+import { createSnapshotTableFileTransport } from "@tiqian/precompute/transport";
 
 const SNAPSHOT_REFERENCE = /<tiqian-prose\b[^>]*\bsnapshot-ref=(["'])([A-Za-z][A-Za-z0-9_-]*)\1[^>]*>/giu;
 
@@ -28,6 +29,10 @@ function sameServerAssets(left, right) {
 /**
  * One SvelteKit server boundary owns exact-font preparation, SSR head assets,
  * and the compact object serialized through route data for client navigation.
+ * A `tables` option adds snapshot-table delivery: `prepare` writes each
+ * per-item table the preparer freezes and stamps the root's `tq-tables`
+ * attribute with the served URL; the exposed transport backs a prerendered
+ * route so the built output ships the bytes the manifests pin.
  */
 export function createTiqianSvelteKit(options = {}) {
   const retainedAssets = new Map();
@@ -36,6 +41,11 @@ export function createTiqianSvelteKit(options = {}) {
   if (!Number.isSafeInteger(maximumRetainedBundles) || maximumRetainedBundles <= 0) {
     throw new Error("InvalidMaximumRetainedTiqianBundles");
   }
+  const tablesOptions = options.tables ?? null;
+  if (tablesOptions != null && (typeof tablesOptions !== "object" || (tablesOptions.directory !== undefined && typeof tablesOptions.directory !== "string" && !(tablesOptions.directory instanceof URL)))) {
+    throw new Error("TiqianSvelteKitTablesOptionsInvalid");
+  }
+  const tableTransport = tablesOptions == null ? null : createSnapshotTableFileTransport(tablesOptions);
   const preparerPromise = options.htmlPreparer == null
     ? createHtmlPreparer(options)
     : Promise.resolve(options.htmlPreparer);
@@ -57,9 +67,14 @@ export function createTiqianSvelteKit(options = {}) {
     const preparer = await preparerPromise;
     const result = await preparer.prepare(html, prepareOptions);
     retain(result.serverAssets);
+    // The native call freezes per-item table bytes; the transport serves
+    // them and the root attribute points the runtime at the URL.
+    const rootAttributes = result.tables != null && tableTransport != null
+      ? { ...result.rootAttributes, "tq-tables": tableTransport.write(result.tables) }
+      : result.rootAttributes;
     return Object.freeze({
       html: result.html,
-      rootAttributes: result.rootAttributes,
+      rootAttributes,
       snapshot: result.clientBundle,
       issues: result.issues,
     });
@@ -85,6 +100,7 @@ export function createTiqianSvelteKit(options = {}) {
   return Object.freeze({
     prepare,
     handle,
+    ...(tableTransport == null ? {} : { tables: tableTransport }),
     getServerAssets(id) {
       const key = String(id);
       return requestAssets.getStore()?.get(key) ?? retainedAssets.get(key);

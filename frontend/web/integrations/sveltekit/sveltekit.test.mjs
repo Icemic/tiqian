@@ -105,6 +105,38 @@ test("server prepare returns only compact navigation state", async () => {
   await tiqian.close();
 });
 
+test("a tables option writes per-item table files and stamps the root URL", async () => {
+  const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-tables-"));
+  try {
+    const sha256 = "a".repeat(64);
+    const bytes = Buffer.from("TIQTBL03-fixture");
+    const htmlPreparer = {
+      async prepare(html) {
+        return {
+          html,
+          rootAttributes: { "snapshot-ref": "tq-page" },
+          clientBundle: null,
+          serverAssets: fixtureAssets,
+          tables: { bytes, sha256 },
+          issues: [],
+        };
+      },
+      close() {},
+    };
+    const tiqian = createTiqianSvelteKit({
+      htmlPreparer,
+      tables: { directory: path.join(root, "tables") },
+    });
+    const prepared = await tiqian.prepare("<p>正文</p>");
+    assert.equal(prepared.rootAttributes["tq-tables"], `/tiqian-tables/${sha256}.tiqtbl`);
+    assert.deepEqual(tiqian.tables.read(sha256), bytes);
+    assert.deepEqual(tiqian.tables.listShas(), [sha256]);
+    await tiqian.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("server integration rejects an unbounded retention setting", () => {
   assert.throws(
     () => createTiqianSvelteKit({ maximumRetainedBundles: 0, htmlPreparer: {} }),
