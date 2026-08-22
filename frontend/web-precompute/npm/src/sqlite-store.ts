@@ -80,7 +80,9 @@ async function openDatabase(path: string): Promise<SqliteDatabase> {
   const bunSpecifier = "bun:sqlite";
   try {
     const mod = await import(bunSpecifier);
-    return new mod.DatabaseSync(path);
+    // bun names the constructor Database; node names it DatabaseSync.
+    const DatabaseConstructor = mod.Database ?? mod.DatabaseSync;
+    return new DatabaseConstructor(path);
   } catch {
     // No probed module loaded.
   }
