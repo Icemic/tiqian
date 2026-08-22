@@ -32,6 +32,10 @@
       "types": "./lib/precompute.d.ts",
       "default": "./lib/precompute.js"
     },
+    "./transport": {
+      "types": "./lib/transport.d.ts",
+      "default": "./lib/transport.js"
+    },
     "./cache": {
       "types": "./lib/cache.d.ts",
       "default": "./lib/cache.js"

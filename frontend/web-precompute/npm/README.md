@@ -83,6 +83,33 @@ Singular entries (`prepareParagraph`, `prepareFontContract`) stay sequential;
 font contract retries are rare and their evidence windows belong to one
 paragraph each.
 
+## Host table transport
+
+`@tiqian/precompute/transport` owns the delivery side of ADR 0052's snapshot
+tables: serving frozen table bytes under one URL per sha, and the two bundle
+orderings a build must not get wrong.
+
+```js
+import { createSnapshotTableFileTransport } from "@tiqian/precompute/transport";
+
+const tables = createSnapshotTableFileTransport({
+  directory: ".cache/tiqian/tables",  // created on first write
+  urlPrefix: "tiqian-tables",         // served as /tiqian-tables/<sha>.tiqtbl
+});
+
+const url = tables.write(finalized); // "/tiqian-tables/<sha256>.tiqtbl"
+tables.read(sha256);                 // the bytes, or undefined
+tables.listShas();                   // every sha on disk
+tables.sweep(referencedShas);        // deletes unreferenced files, returns the count
+```
+
+`createSnapshotTableSession()` drives one build's shared table: `absorb` and
+`renderData` calls interleave article by article, `finish()` freezes the union
+once, and every bundle assembles against the same frozen rows. Absorb and
+data-phase calls share one mutable table; both throw once the table froze.
+`renderStandaloneSnapshotBundle(plan, id)` is the per-item fallback: the item
+absorbs into and freezes its own table beside the session's.
+
 ## Local development
 
 From this directory:
