@@ -40,6 +40,22 @@ export interface SqliteCacheStore extends PersistentCacheStore {
    */
   pruneBucket(context: string, bucket: string, keep: readonly string[]): number;
   /**
+   * Deletes every entry, article row and hash row that belongs to a context
+   * outside `contexts`. A context fingerprint rotates when the engine or its
+   * inputs change, and the old context's rows are unreachable afterwards. A
+   * host serving a fixed context set usually declares it at open
+   * (createSqliteCacheStore options.contexts) instead of calling this; the
+   * method stays for stores shared beyond what one open call can list. An
+   * empty list removes nothing. Returns the entry count removed.
+   */
+  dropOtherContexts(contexts: readonly string[]): number;
+  /**
+   * Rebuilds the file when deleted rows left free pages inside it, returning
+   * the space to the filesystem. Reads the free-page count first, so a file
+   * without free pages returns at once.
+   */
+  compact(): void;
+  /**
    * Records article-index rows (ADR 0052 Article layer), replacing the rows
    * of the same article keys.
    */
@@ -128,8 +144,17 @@ function migrate(db: SqliteDatabase): void {
 /**
  * Opens (or creates) the database at `path`. The parent directory is created
  * when missing; the file belongs to the caller's cache directory policy.
+ *
+ * `options.contexts` declares the full set of contexts this file serves: at
+ * open, rows of every other context drop (entries, article rows and hash
+ * rows) and the file rebuilds around the survivors. Omit it when the file
+ * serves contexts this caller cannot list. The rebuild also runs without a
+ * declaration whenever earlier deletes left free pages inside the file.
  */
-export async function createSqliteCacheStore(path: string): Promise<SqliteCacheStore> {
+export async function createSqliteCacheStore(
+  path: string,
+  options?: { contexts?: readonly string[] },
+): Promise<SqliteCacheStore> {
   mkdirSync(dirname(path), { recursive: true });
   const db = await openDatabase(path);
   // A failed open must release the handle: an open sqlite file blocks
@@ -145,6 +170,7 @@ export async function createSqliteCacheStore(path: string): Promise<SqliteCacheS
     db.exec(
       "CREATE TEMP TABLE IF NOT EXISTS keep_hashes (content_hash TEXT PRIMARY KEY);",
     );
+    db.exec("CREATE TEMP TABLE IF NOT EXISTS keep_contexts (context TEXT PRIMARY KEY);");
   } catch (error) {
     db.close();
     throw error;
@@ -191,6 +217,27 @@ export async function createSqliteCacheStore(path: string): Promise<SqliteCacheS
       "article_key NOT IN (SELECT article_key FROM tiqian_cache_article_hashes " +
       "WHERE context = ?);",
   );
+  // Superseded-context drop: an entry address is `context:hash`, so the
+  // context falls out of the address prefix; the article tables key by their
+  // own context column. An address without its colon parses to a context no
+  // keep list carries, so malformed rows go with the drop.
+  const clearKeepContextsStatement = db.prepare("DELETE FROM keep_contexts;");
+  const keepContextStatement = db.prepare(
+    "INSERT OR REPLACE INTO keep_contexts (context) VALUES (?);",
+  );
+  const dropForeignEntriesStatement = db.prepare(
+    "DELETE FROM tiqian_cache_entries WHERE substr(address, 1, " +
+      "instr(address, ':') - 1) NOT IN (SELECT context FROM keep_contexts);",
+  );
+  const dropForeignArticlesStatement = db.prepare(
+    "DELETE FROM tiqian_cache_articles WHERE context NOT IN " +
+      "(SELECT context FROM keep_contexts);",
+  );
+  const dropForeignHashesStatement = db.prepare(
+    "DELETE FROM tiqian_cache_article_hashes WHERE context NOT IN " +
+      "(SELECT context FROM keep_contexts);",
+  );
+  const freelistStatement = db.prepare("PRAGMA freelist_count;");
   const deleteArticleStatement = db.prepare(
     "DELETE FROM tiqian_cache_articles WHERE context = ? AND article_key = ?;",
   );
@@ -218,6 +265,46 @@ export async function createSqliteCacheStore(path: string): Promise<SqliteCacheS
       throw new Error("SqliteCacheStoreClosed");
     }
   };
+  const runDropOtherContexts = (contexts: readonly string[]): number => {
+    // An empty keep list would drop the whole file; a host without lanes
+    // keeps its rows instead of losing them to a vacuous call.
+    if (contexts.length === 0) return 0;
+    db.exec("BEGIN IMMEDIATE;");
+    try {
+      clearKeepContextsStatement.run();
+      for (const context of contexts) {
+        keepContextStatement.run(context);
+      }
+      const entriesRemoved = Number(dropForeignEntriesStatement.run().changes);
+      dropForeignArticlesStatement.run();
+      dropForeignHashesStatement.run();
+      db.exec("COMMIT;");
+      return entriesRemoved;
+    } catch (error) {
+      db.exec("ROLLBACK;");
+      throw error;
+    }
+  };
+  const runCompact = (): void => {
+    const row = freelistStatement.all()[0];
+    const freelist = (row as { freelist_count?: unknown }).freelist_count;
+    if (typeof freelist !== "number" || freelist === 0) return;
+    // Deleted rows sit on the file's free list until a rebuild moves the
+    // remaining rows into a fresh file. A concurrent connection can hold
+    // the lock the rebuild needs; the rows are already durable, so a
+    // failed rebuild waits for the next open instead of failing the host.
+    try {
+      db.exec("VACUUM;");
+    } catch {
+      // The free list keeps the space; the next compact reclaims it.
+    }
+  };
+  // Init maintenance: declared contexts drop out whole, then one rebuild
+  // covers both the drop and whatever earlier deletes left behind.
+  if (options?.contexts !== undefined) {
+    runDropOtherContexts(options.contexts);
+  }
+  runCompact();
   return {
     read(addresses: readonly string[]): Map<string, Uint8Array> {
       guard();
@@ -294,6 +381,14 @@ export async function createSqliteCacheStore(path: string): Promise<SqliteCacheS
         db.exec("ROLLBACK;");
         throw error;
       }
+    },
+    dropOtherContexts(contexts: readonly string[]): number {
+      guard();
+      return runDropOtherContexts(contexts);
+    },
+    compact(): void {
+      guard();
+      runCompact();
     },
     close(): void {
       guard();

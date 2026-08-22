@@ -30,10 +30,16 @@ try {
 }
 
 const available = sqliteStore !== null;
-async function openStore(directory: string): Promise<SqliteCacheStore> {
+async function openStore(
+  directory: string,
+  options?: { contexts?: readonly string[] },
+): Promise<SqliteCacheStore> {
   assert.ok(sqliteStore);
   try {
-    return await sqliteStore.createSqliteCacheStore(join(directory, "cache.db"));
+    return await sqliteStore.createSqliteCacheStore(
+      join(directory, "cache.db"),
+      options,
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "SqliteCacheStoreUnavailable") {
       throw new Error("no sqlite backend in this runtime", { cause: error });
@@ -105,6 +111,8 @@ test("store round-trips entries and reports closed by name", { skip: !available 
     assert.throws(() => store.read(["aaa:01"]), /SqliteCacheStoreClosed/);
     assert.throws(() => store.write([["aaa:01", first]]), /SqliteCacheStoreClosed/);
     assert.throws(() => store.prune("aaa", []), /SqliteCacheStoreClosed/);
+    assert.throws(() => store.dropOtherContexts(["aaa"]), /SqliteCacheStoreClosed/);
+    assert.throws(() => store.compact(), /SqliteCacheStoreClosed/);
 
     // A reopened database still holds the surviving rows.
     const reopened = await openStore(directory);
@@ -282,6 +290,103 @@ test("bucket prune keeps the intersection inside one bucket's scope", {
     assert.equal(store.prune("aaa", ["aaa:01", "aaa:02", "aaa:04"]), 1);
     assert.equal((await store.read(["aaa:99"])).size, 0);
     store.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("dropOtherContexts removes foreign rows; compact reclaims the file", {
+  skip: !available,
+}, async () => {
+  let raw: typeof import("node:sqlite") | null = null;
+  try {
+    raw = await import("node:sqlite");
+  } catch {
+    // The freelist probe needs a direct handle; the drop itself still runs.
+  }
+  const directory = mkdtempSync(join(tmpdir(), "tiqian-sqlite-"));
+  try {
+    const store = await openStore(directory);
+    store.write([
+      ["aaa:01", new Uint8Array([1])],
+      ["aaa:02", new Uint8Array([2])],
+      ["bbb:01", new Uint8Array([3])],
+      ["bbb:02", new Uint8Array([4])],
+      ["ccc:01", new Uint8Array([5])],
+    ]);
+    store.recordArticles("aaa", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+    ]);
+    store.recordArticles("bbb", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+    ]);
+    // Keeping one context removes the other contexts' entries and index rows;
+    // an empty keep list would drop the file, so it removes nothing.
+    assert.equal(store.dropOtherContexts([]), 0);
+    assert.equal(store.dropOtherContexts(["aaa"]), 3);
+    const after = await store.read([
+      "aaa:01",
+      "aaa:02",
+      "bbb:01",
+      "bbb:02",
+      "ccc:01",
+    ]);
+    assert.deepEqual([...after.keys()].sort(), ["aaa:01", "aaa:02"]);
+    assert.deepEqual(await store.readArticles("aaa"), [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+    ]);
+    assert.deepEqual(await store.readArticles("bbb"), []);
+    // A second drop finds nothing; the deleted pages wait inside the file
+    // until a compact rebuilds it around the surviving rows.
+    assert.equal(store.dropOtherContexts(["aaa"]), 0);
+    store.compact();
+    store.close();
+    if (raw !== null) {
+      const check = new raw.DatabaseSync(join(directory, "cache.db"));
+      const row = check.prepare("PRAGMA freelist_count;").all()[0];
+      check.close();
+      assert.equal((row as { freelist_count?: unknown }).freelist_count, 0);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a declared context set drops foreign rows at open and compacts the file", {
+  skip: !available,
+}, async () => {
+  let raw: typeof import("node:sqlite") | null = null;
+  try {
+    raw = await import("node:sqlite");
+  } catch {
+    // The freelist probe needs a direct handle; the drop itself still runs.
+  }
+  const directory = mkdtempSync(join(tmpdir(), "tiqian-sqlite-"));
+  try {
+    const seed = await openStore(directory);
+    seed.write([
+      ["aaa:01", new Uint8Array([1])],
+      ["bbb:01", new Uint8Array([2])],
+      ["bbb:02", new Uint8Array([3])],
+    ]);
+    seed.recordArticles("bbb", [
+      { articleKey: "post-a", bucket: "post", contentHashes: ["01", "02"] },
+    ]);
+    seed.close();
+
+    // Opening with the declared set removes the unlisted context's rows and
+    // rebuilds the file without a separate maintenance call.
+    const store = await openStore(directory, { contexts: ["aaa"] });
+    const after = await store.read(["aaa:01", "bbb:01", "bbb:02"]);
+    assert.deepEqual([...after.keys()], ["aaa:01"]);
+    assert.deepEqual(await store.readArticles("bbb"), []);
+    store.close();
+    if (raw !== null) {
+      const check = new raw.DatabaseSync(join(directory, "cache.db"));
+      const row = check.prepare("PRAGMA freelist_count;").all()[0];
+      check.close();
+      assert.equal((row as { freelist_count?: unknown }).freelist_count, 0);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
