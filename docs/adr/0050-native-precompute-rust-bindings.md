@@ -590,3 +590,34 @@ native 的 blog3 两轮空缓存构建写出的 306 条缓存逐字节一致；J
 空缓存构建的产物按内容逐份配对比较，两侧各 144 份快照 JSON，差异 0。把每个
 构建自身的随机量（bundler 哈希文件名、构建时间戳、宿主侧加密内容的随机密文）
 替换为占位符后，页面与数据文件无剩余差异。
+
+## Amendment (2026-08-22)：npm 侧 NixOS 装载回退
+
+### `NixosRunpathRepair`：失败后诊断，按需修补 runpath
+
+npm 平台产物不带 runpath（`StaticVendoredLinkage` 只允许 OS 基线库依赖）。在
+常规发行版上，`DT_NEEDED` 由进程已装载的同名 SONAME、ldconfig 缓存与默认目录
+解析。NixOS 没有默认目录，宿主进程未装载某个依赖且该库不在系统 profile 的
+缓存内时，dlopen 直接失败。linux 装载器在 NixOS（`/etc/os-release` 的 `ID`）
+上捕获装载失败后读取 addon 的 `DT_NEEDED`，对照已装载映像、`ldconfig -p`、
+`/proc/self/maps` 中的 nix store 目录与各 profile 的 lib 目录。全部缺失库都
+能定位时，用 patchelf 把这些目录写入副本的 RUNPATH，副本按源文件 sha256 缓存
+于 `~/.cache/tiqian-precompute/nix-rpath`，后续装载直接复用；有库无法定位时
+报具名错误，列出库名与已查目录。`TIQIAN_PRECOMPUTE_NIX_LIB_DIRS` 在最前追加
+搜索目录。
+
+### 被否决的机制（2026-08-22 实测）
+
+在 JS 里于 require 前写 `process.env.LD_LIBRARY_PATH` 无效：glibc 在进程启动
+时解析该变量，之后不再读取。对照组实验：运行中改环境变量后 dlopen 报
+`cannot open shared object file`，以同一环境变量启动进程后加载成功。以绝对路径
+预装缺失库也不可行：Node 的 `process.dlopen` 要求模块自注册，普通共享库报
+`Module did not self-register` 且不留在进程内。memfd 方案依赖 bun:ffi，Node 无
+对应入口，且缓存副本已覆盖同一需求。
+
+### Verification 增补
+
+`test/nixos.test.ts` 覆盖 os-release 判定、合成 ELF64 的 `DT_NEEDED` 读取、
+maps 与 ldconfig 解析。端到端在本机 NixOS 验证：给 addon 附加一个仅存在于
+profile 外目录的依赖，首次装载完成修补并加载成功；移除该目录后再次装载命中
+缓存副本；附加不存在的库名时报出库名与已查目录的具名错误。

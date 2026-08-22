@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { currentPlatform, proxy } from "@neon-rs/load";
 
+import { loadLinuxAddon } from "./nixos.js";
+
 // `proxy` needs synchronous CommonJS requires for the platform packages and
 // the local `.node` file, so this ESM module carries its own require.
 const require = createRequire(import.meta.url);
@@ -249,8 +251,11 @@ export const addon: NativeAddon = proxy({
   platforms: {
     "win32-x64-msvc": () => require(platformPackage("win32-x64-msvc")),
     "darwin-arm64": () => require(platformPackage("darwin-arm64")),
-    "linux-x64-gnu": () => require(platformPackage("linux-x64-gnu")),
-    "linux-arm64-gnu": () => require(platformPackage("linux-arm64-gnu")),
+    // The linux loaders pass through the NixOS fallback of `nixos.ts`: on a
+    // failed dlopen they repair the runpath instead of surfacing a bare
+    // "cannot open shared object file".
+    "linux-x64-gnu": () => loadLinuxAddon(require, platformPackage("linux-x64-gnu")),
+    "linux-arm64-gnu": () => loadLinuxAddon(require, platformPackage("linux-arm64-gnu")),
   },
   debug: () => require(`../platforms/${currentPlatform()}/index.node`),
 });

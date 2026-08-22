@@ -23,6 +23,23 @@ Platform binaries arrive as optional dependencies for `linux-x64-gnu`,
 `linux-arm64-gnu`, `darwin-arm64`, and `win32-x64-msvc`. Loading on any other
 platform reports `UnsupportedPrecomputePlatform:<platform>`.
 
+### NixOS
+
+The linux binaries carry no runpath: every `DT_NEEDED` entry resolves through
+the running process (the runtime's loaded SONAMEs, the ldconfig cache, the
+default directories). NixOS has no default library directories, so on a load
+failure the loader diagnoses the addon's `DT_NEEDED` list against the loaded
+images, `ldconfig -p`, the mapped nix store directories, and the profile
+library directories. When every missing library is found, a copy of the
+addon with the repaired runpath is written once to
+`~/.cache/tiqian-precompute/nix-rpath` (requires `patchelf`) and loaded;
+later loads reuse that copy without re-diagnosing. When a library is found
+nowhere, the error names it and the searched directories. Libraries under
+store prefixes the profiles do not cover can be added through
+`TIQIAN_PRECOMPUTE_NIX_LIB_DIRS` (colon-separated directories, searched
+first). Setting `LD_LIBRARY_PATH` from JavaScript does not work: glibc
+parses it once at process startup.
+
 ## Font session
 
 ```js
