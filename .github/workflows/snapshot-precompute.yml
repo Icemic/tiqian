@@ -1,12 +1,13 @@
 name: Snapshot precompute packages
 
-# Manual-only snapshot lane for @tiqian/precompute. Each dispatch stamps its
-# own timestamped tag, builds the five packages from that commit, temporarily
-# swaps the manifests to the running repository owner's scope (GitHub
-# Packages requires the npm scope to equal the owner; @tiqian-cjk on the
-# canonical repository), publishes the timestamped versions with the
-# `snapshot` dist-tag, and restores the manifests. Release publishing stays
-# in publish-precompute.yml and never runs the swap.
+# Manual-only snapshot lane for @tiqian/precompute plus the astro and
+# sveltekit integrations. Each dispatch stamps its own timestamped tag, builds
+# the seven packages from that commit, temporarily swaps the manifests to the
+# running repository owner's scope (GitHub Packages requires the npm scope to
+# equal the owner; @tiqian-cjk on the canonical repository), publishes the
+# timestamped versions with the `snapshot` dist-tag, and restores the
+# manifests. Release publishing stays in publish-precompute.yml and never
+# runs the swap.
 on:
   workflow_dispatch:
 
@@ -300,9 +301,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  integration-packages:
+    name: Pack astro and sveltekit integrations
+    needs: [stamp]
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_VERSION: ${{ needs.stamp.outputs.version }}
+      SNAPSHOT_SCOPE: "@${{ github.repository_owner }}"
+    steps:
+      - name: Check out the stamped commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.stamp.outputs.commit }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # The integration suites assert the canonical manifest set (peer
+      # versions against the precompute and prose manifests), so they run
+      # before the swap flips names and versions.
+      - name: Install and test @tiqian/astro
+        working-directory: frontend/web/integrations/astro
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+
+      - name: Install and test @tiqian/sveltekit
+        working-directory: frontend/web/integrations/sveltekit
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+
+      - name: Apply the snapshot manifest swap
+        id: swap
+        working-directory: frontend/web-precompute/npm
+        # Bash keeps ${VAR} expansion off PowerShell, which sees an empty
+        # string for the shell-variable syntax. npm scopes are lowercase.
+        shell: bash
+        run: |
+          scope="$(printf '%s' "${SNAPSHOT_SCOPE}" | tr '[:upper:]' '[:lower:]')"
+          repository="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          node snapshot-swap.mjs apply "${SNAPSHOT_VERSION}" "${scope}" "${repository}"
+
+      # The swapped tree fails the manifest assertions above by design; pack
+      # without scripts and rely on the pre-swap test runs.
+      - name: Pack both integrations
+        working-directory: frontend/web/integrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pack-output
+          for integration in astro sveltekit; do
+            (cd "${integration}" && npm pack --ignore-scripts --pack-destination ../pack-output)
+          done
+          test "$(find pack-output -name '*.tgz' | wc -l)" -eq 2
+
+      - name: Restore the manifests
+        if: ${{ always() && steps.swap.outcome == 'success' }}
+        working-directory: frontend/web-precompute/npm
+        run: node snapshot-swap.mjs restore
+
+      - name: Upload integration packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-packages
+          path: frontend/web/integrations/pack-output/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish snapshot tarballs to GitHub Packages
-    needs: [stamp, binaries, main-package]
+    needs: [stamp, binaries, main-package, integration-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -327,7 +399,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc main-package"
+          expected="binary-package-darwin-arm64 binary-package-linux-arm64-gnu binary-package-linux-x64-gnu binary-package-win32-x64-msvc main-package integration-packages"
           for name in $expected; do
             if ! find "packages/$name" -name '*.tgz' | grep -q .; then
               echo "::error::Artifact $name contains no package."
@@ -355,6 +427,10 @@ jobs:
           done
           tarball="$(find packages/main-package -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
+          # The integrations peer on the just-published snapshot precompute.
+          while IFS= read -r tarball; do
+            npm publish "${tarball}" --ignore-scripts --access public --tag snapshot
+          done < <(find packages/integration-packages -maxdepth 1 -type f -name '*.tgz' | sort)
 
       - name: Report the install line
         shell: bash
@@ -365,6 +441,7 @@ jobs:
             echo ""
             echo '```sh'
             echo "npm install ${scope}/precompute@${SNAPSHOT_VERSION} \\"
+            echo "npm install ${scope}/astro@${SNAPSHOT_VERSION} ${scope}/sveltekit@${SNAPSHOT_VERSION} \\"
             echo "  --registry=https://npm.pkg.github.com"
             echo '```'
             echo ""
