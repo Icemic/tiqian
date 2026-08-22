@@ -292,7 +292,7 @@ async function snapshotContext(root) {
   } catch (error) {
     fail("SnapshotManifestInvalid", reference, error);
   }
-  // The station table resolves through the root attribute; the loaded bytes
+  // The snapshot table resolves through the root attribute; the loaded bytes
   // verify against the sha the manifest pins before any row is read.
   let tables = null;
   if (parsed?.tables != null) {
@@ -663,7 +663,7 @@ export function browserFontSessionWorkerContract(handle) {
   return Object.freeze({
     sessionKey: token.state.session.id,
     manifestText: snapshotContextFromState(token.state),
-    // The station-table bytes the manifest pins; null for schema-1 manifests
+    // The snapshot-table bytes the manifest pins; null for schema-1 manifests
     // whose replay rows are already self-contained.
     tablesBytes: token.state.tablesBytes ?? null,
   });

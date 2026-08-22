@@ -110,7 +110,7 @@ test("a digest mismatch walks to the next reference of the attribute", async () 
   }
 });
 
-test("bytes without the station-table magic fail closed", () => {
+test("bytes without the snapshot-table magic fail closed", () => {
   assert.throws(
     () => snapshotTablesFromBytes(new TextEncoder().encode("{\"schema\":2}")),
     /SnapshotTablesInvalid/u,

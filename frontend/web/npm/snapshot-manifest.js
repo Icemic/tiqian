@@ -57,7 +57,7 @@ function expandReplayShapes(shapes, stringAt) {
   });
 }
 
-/** Expands entry rows against the station-table accessors. */
+/** Expands entry rows against the snapshot-table accessors. */
 function expandManifestEntries(
   entries,
   typographyAt,
@@ -132,7 +132,7 @@ function tableViewOf(tables) {
 
 /**
  * Expands the compact transport into the canonical runtime manifest shape.
- * Integer references resolve through the station table the transport loaded
+ * Integer references resolve through the snapshot table the transport loaded
  * and verified against `manifest.tables.snapshot`; a manifest without the
  * tables pin is not a shape this build reads. Replay shapes pick up the table
  * string region, metrics come from the table, and value styles splice in so

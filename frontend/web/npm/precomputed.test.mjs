@@ -20,7 +20,7 @@ import { snapshotTablesForRoot } from "./snapshot-tables.js";
 import { writeBinaryTable } from "./table-binary-writer.mjs";
 
 /**
- * Station tables of the fixtures. Each fixture registers its own bytes under
+ * Snapshot tables of the fixtures. Each fixture registers its own bytes under
  * a unique URL; the fetch stub serves them so the transport loads through
  * the lane a host page uses.
  */
@@ -343,7 +343,7 @@ function fixture({
   nativeText = false,
   fontDisplay = "block",
   entrySource = undefined,
-  stationTablesSha = null,
+  snapshotTablesSha = null,
   entryCount = 1,
   paragraphTag = "p",
   paragraphSelector = "p[data-tq-snapshot-key]",
@@ -473,7 +473,7 @@ function fixture({
     renderedParent.appendChild(rendered);
   }
   entry.append(marker, renderedParent ?? rendered, sentinel);
-  // The shared rows live in one binary station table; the manifest pins its
+  // The shared rows live in one binary snapshot table; the manifest pins its
   // digest and the root references it by URL. The global fetch stub of this
   // file serves the bytes, so every fixture walks the transport a host page
   // uses. Beyond the first entry, per-entry probes cover distinct text so
@@ -522,7 +522,7 @@ function fixture({
   root.setAttribute("tq-tables", tableUrl);
   const manifest = {
     schema: 2,
-    tables: { snapshot: stationTablesSha ?? sha256(tableBytes) },
+    tables: { snapshot: snapshotTablesSha ?? sha256(tableBytes) },
     layoutRevision: "tiqian-layout-v2",
     renderRevision: "prebroken-dom-v15",
     fontSourcePolicy: "host-compatible-stylesheet-v1",
@@ -1284,7 +1284,7 @@ test("maximum-measure preflight is non-destructive and follows live paragraph wi
   }
 });
 
-test("snapshots adopt through the station table reference", async () => {
+test("snapshots adopt through the snapshot table reference", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
@@ -1304,7 +1304,7 @@ test("snapshots adopt through the station table reference", async () => {
 
     // A manifest pinning a different digest reads the cached reference as a
     // mismatch and misses without adopting anything.
-    const mismatch = fixture({ stationTablesSha: "0".repeat(64) });
+    const mismatch = fixture({ snapshotTablesSha: "0".repeat(64) });
     assert.deepEqual(await tryAdoptPrecomputedSnapshot(mismatch.root), {
       adopted: false,
       reason: "SnapshotTablesMissing",

@@ -128,7 +128,7 @@ test("damaged binary bytes fail closed", () => {
 
 test("the binary lane loads through the transport", async () => {
   const bytes = writeBinaryTable(TABLE);
-  const key = "https://tables.test/station-deadbeef.tiqtbl";
+  const key = "https://tables.test/snapshot-deadbeef.tiqtbl";
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, arrayBuffer: async () => bytes });
   try {

@@ -18,7 +18,7 @@ function digest(bytes) {
 }
 
 /**
- * Station tables of the manifests the fixtures build. Each manifest pins its
+ * Snapshot tables of the manifests the fixtures build. Each manifest pins its
  * own table; the global fetch stub serves the bytes by URL so the transport
  * walks the same lane a host page uses.
  */

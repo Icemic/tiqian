@@ -38,7 +38,7 @@ const HTMLElementBase = typeof globalThis.HTMLElement === "function"
   : class TiqianSsrElement {};
 let exactFontFallbackPromise;
 installTiqianCopyHandler();
-// Station-table loads start at module evaluation, ahead of the first root
+// Snapshot-table loads start at module evaluation, ahead of the first root
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
 // no-op in non-browser entry points.
 prefetchSnapshotTables();

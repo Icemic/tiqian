@@ -1,4 +1,4 @@
-// A test-only encoder of the `TIQTBL03` station-table bytes. It mirrors the
+// A test-only encoder of the `TIQTBL03` snapshot-table bytes. It mirrors the
 // Rust encoder (region order, metric sort, pool assignment, string intern
 // order); re-encoding a decoded file reproduces the input bytes exactly. The
 // tests use it to pin the byte contract from the consumer side.

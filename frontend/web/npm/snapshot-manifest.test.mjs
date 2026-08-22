@@ -6,7 +6,7 @@ import { metricReplayKey, shapeReplayKey } from "./snapshot-schema.js";
 import { writeBinaryTable } from "./table-binary-writer.mjs";
 import { decodeSnapshotTableBinary } from "./snapshot-table-binary.js";
 
-function stationTablesFixture() {
+function snapshotTablesFixture() {
   return {
     replayStrings: ["a", "Fixture CJK", "zh-Hans", "CjkText", "fixture-face", "fixture-instance", "Hani"],
     typographies: [{
@@ -43,7 +43,7 @@ function stationTablesFixture() {
 }
 
 function tableViewFixture() {
-  return decodeSnapshotTableBinary(writeBinaryTable(stationTablesFixture()));
+  return decodeSnapshotTableBinary(writeBinaryTable(snapshotTablesFixture()));
 }
 
 function tablesManifestFixture() {
@@ -71,7 +71,7 @@ function tablesManifestFixture() {
   };
 }
 
-test("manifests expand through the station table", () => {
+test("manifests expand through the snapshot table", () => {
   const tables = tableViewFixture();
   const manifest = tablesManifestFixture();
   const expanded = expandSnapshotManifest(manifest, tables);

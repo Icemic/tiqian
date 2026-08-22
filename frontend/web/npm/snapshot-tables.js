@@ -1,4 +1,4 @@
-// Station-table transport of ADR 0052 `TableTransport`. Roots carry a
+// Snapshot-table transport of ADR 0052 `TableTransport`. Roots carry a
 // `tq-tables` attribute with space-separated references; each reference is a
 // URL of a content-addressed `TIQTBL03` binary table file. One global map
 // deduplicates loads per reference, so every root of a page shares one table
@@ -66,7 +66,7 @@ function tableReferences(root) {
 }
 
 /**
- * Resolves the station tables of one root. Every reference of the attribute
+ * Resolves the snapshot tables of one root. Every reference of the attribute
  * loads in order until one verifies against the sha the manifest pins; a
  * mismatch keeps walking the ladder so a stale file degrades the same way a
  * missing one does.

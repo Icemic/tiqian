@@ -1,4 +1,4 @@
-// The station-table binary reader of ADR 0052: decodes the `TIQTBL03` byte
+// The snapshot-table binary reader of ADR 0052: decodes the `TIQTBL03` byte
 // file the Rust encoder produces into lazy accessors. Adopting a root reads
 // only the rows the manifest references. The byte contract lives in the
 // encoder; this file mirrors the region order and validates every offset
@@ -18,7 +18,7 @@ function invalid() {
   return new Error("SnapshotTablesInvalid");
 }
 
-/** True when the bytes start with the station-table magic. */
+/** True when the bytes start with the snapshot-table magic. */
 export function isSnapshotTableBinary(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 8) return false;
   try {

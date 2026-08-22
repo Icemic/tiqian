@@ -1363,7 +1363,7 @@ function manifestScriptText(template) {
 
 /**
  * The expanded manifest of one template for the synchronous preflight. The
- * station table resolves from the transport's verified cache only; a table
+ * snapshot table resolves from the transport's verified cache only; a table
  * that has not finished loading fails the read and the preflight reports a
  * miss.
  */
@@ -1376,7 +1376,7 @@ function preflightTemplateManifest(template, root) {
 }
 
 /**
- * Expands the template manifest. The station table resolves through the
+ * Expands the template manifest. The snapshot table resolves through the
  * root's `tq-tables` attribute and the loaded bytes verify against the sha
  * the manifest pins before any table row is trusted; a failed or mismatched
  * load surfaces as `SnapshotTablesMissing` so the caller records the miss
