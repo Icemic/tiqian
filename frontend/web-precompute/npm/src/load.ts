@@ -172,7 +172,7 @@ export interface NativeAddon {
   ): string;
   /**
    * The whole document in one call; the paragraph loop stays inside Rust.
-   * Returns the result json plus the station-table file the emitted manifest
+   * Returns the result json plus the snapshot-table file the emitted manifest
    * pins (`tablesBytes`/`tablesSha256`, or null/undefined without one).
    */
   prepareHtml(

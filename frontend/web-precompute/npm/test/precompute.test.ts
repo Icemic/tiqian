@@ -331,7 +331,7 @@ test("snapshot bundle exposes compact SSR artifacts without inline geometry", { 
   assert.equal(semanticContract.entries.length, 1);
   assert.equal(semanticContract.entries[0].key, "p-1");
   assert.match(semanticContract.template, /fontContractEntries/u);
-  // Schema 2: face identity lives in the station table, so the below-fold
+  // Schema 2: face identity lives in the snapshot table, so the below-fold
   // face surfaces as its own table row instead of a URL in the manifest.
   assert.match(semanticContract.template, /fontContractEntries":\[\{"key":"p-2"/u);
   assert.match(semanticContract.template, /\{"faceRef":1,"probeRef":1\}/u);

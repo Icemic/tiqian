@@ -1,7 +1,7 @@
 // Snapshot bundle split render (ADR 0050, ADR 0052 schema 2).
 //
 // The data phase validates the prepared corpus and mints value-style rows
-// into mutable station tables. The assembly phase compacts the manifest
+// into mutable snapshot tables. The assembly phase compacts the manifest
 // against the frozen table, so the manifest pins the table's content hash
 // and carries indexes instead of inline tables. The tests pin that structure
 // and the named gates of the data phase.
@@ -129,7 +129,7 @@ fn snapshot_bundle_emits_a_schema_2_manifest_pinned_to_the_table() {
     let manifest = manifest_of(&bundle.template);
     assert_eq!(member(&manifest, "schema"), Some(&Json::Num(2.0)));
     // The manifest carries no inline tables; every reference resolves through
-    // the station table.
+    // the snapshot table.
     for absent in [
         "typographies",
         "fontEvidence",

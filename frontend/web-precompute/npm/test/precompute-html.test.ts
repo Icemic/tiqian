@@ -210,7 +210,7 @@ test("whole-document preparation runs in one native call", { skip: precomputeHtm
     "data-tiqian-exact-render-font": "true",
   });
   assert.ok(snapshot.bundle);
-  // Schema 2: the manifest pins a station table the host serves by sha.
+  // Schema 2: the manifest pins a snapshot table the host serves by sha.
   const tables = snapshot.tables;
   assert.ok(tables);
   assert.equal(tables.bytes.subarray(0, 8).toString("latin1"), "TIQTBL03");

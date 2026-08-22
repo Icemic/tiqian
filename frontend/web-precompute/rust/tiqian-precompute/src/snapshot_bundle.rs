@@ -1,7 +1,7 @@
 //! Snapshot bundle assembly of `buildSnapshotBundle` in `precompute.js`
 //! (ADR 0050). The bundle layer re-renders every prepared paragraph with the
 //! shared `tqv-` value-style classes, compacts the manifest against the
-//! station tables, and emits the inert server template plus the client
+//! snapshot tables, and emits the inert server template plus the client
 //! font-contract template.
 //!
 //! ADR 0052 `BundleLayering` splits the render in two: the data phase

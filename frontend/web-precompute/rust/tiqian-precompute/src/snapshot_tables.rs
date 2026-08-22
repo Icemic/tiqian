@@ -1,4 +1,4 @@
-//! Shared snapshot tables (ADR 0052 `BundleLayering`, station tables): the
+//! Shared snapshot tables (ADR 0052 `BundleLayering`, snapshot tables): the
 //! rows every article manifest of one build references by index. A build
 //! absorbs the corpus entry by entry, then freezes the table once; the frozen
 //! bytes are content-addressed by the sha of their canonical rendering and

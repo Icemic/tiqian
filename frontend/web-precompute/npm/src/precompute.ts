@@ -517,7 +517,7 @@ function freezeBundle(bundle: SnapshotBundle): SnapshotBundle {
 }
 
 /**
- * One build's snapshot tables (ADR 0052 `BundleLayering`): the station rows
+ * One build's snapshot tables (ADR 0052 `BundleLayering`): the shared rows
  * every article of the build shares. Absorb first, render every article,
  * then finalize; the finalized json is content-addressed by its sha256.
  */
@@ -554,7 +554,8 @@ export function restoreSnapshotTables(bytes: Buffer): SnapshotTables {
 
 /**
  * Absorbs one batch of prepared entries into the table; returns the absorbed
- * entry count. Absorb every article before the first data phase call.
+ * entry count. Absorb and data-phase calls share one mutable table and may
+ * interleave in any order; both throw once the table froze.
  */
 export function absorbSnapshotTables(
   tables: SnapshotTables,

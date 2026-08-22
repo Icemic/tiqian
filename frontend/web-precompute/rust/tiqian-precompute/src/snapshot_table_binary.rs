@@ -1,4 +1,4 @@
-//! The station-table binary encoding (ADR 0052 `BundleLayering`): the frozen
+//! The snapshot-table binary encoding (ADR 0052 `BundleLayering`): the frozen
 //! table of one build as a fixed-layout byte file. Little-endian throughout.
 //! Offset regions carry u32 deltas summed from an implicit zero start; row
 //! data lives in per-column regions of homogeneous width, so the repeated

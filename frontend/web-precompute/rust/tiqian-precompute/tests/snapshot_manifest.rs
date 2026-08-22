@@ -1,6 +1,6 @@
 // Snapshot manifest compaction (ADR 0050, ADR 0052 schema 2).
 //
-// Compaction runs against finalized station tables: entries resolve
+// Compaction runs against finalized snapshot tables: entries resolve
 // typography, face, and probe references by table index and the manifest
 // pins the table's content hash. The tests pin the metadata spread, the
 // version gate, the entry-row field passthrough, and the issue vocabulary

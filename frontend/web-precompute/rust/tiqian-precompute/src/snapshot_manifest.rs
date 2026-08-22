@@ -1,7 +1,7 @@
 //! Snapshot manifest transport of `snapshot-manifest.js` (ADR 0050). Shared
 //! tables deduplicate typography values, face descriptors, and shaping
 //! replay rows; the compact encoding interns replay strings. Every manifest
-//! is schema 2 (ADR 0052): references resolve into a finalized station table
+//! is schema 2 (ADR 0052): references resolve into a finalized snapshot table
 //! and the manifest pins the table's content hash.
 //!
 //! Values cross this module as wire `Json`. Damage that js reports with a raw
@@ -139,7 +139,7 @@ fn replay_key_parts(
     }
 }
 
-/// The replay-string intern table. Station tables own a process-lifetime one
+/// The replay-string intern table. Snapshot tables own a process-lifetime one
 /// and flatten rows through [`ReplayStrings::intern`].
 pub(crate) struct ReplayStrings {
     strings: Vec<Json>,
@@ -168,7 +168,7 @@ impl ReplayStrings {
         Ok(index)
     }
 
-    /// Frozen-table lookup for rendering against finalized station tables: the
+    /// Frozen-table lookup for rendering against finalized snapshot tables: the
     /// row must already have been interned by an absorb pass.
     pub(crate) fn find(&self, value: &Json) -> Result<usize, NamedError> {
         let Json::Str(text) = value else {

@@ -53,7 +53,7 @@ export interface PreparedHtmlIssue {
   readonly issue: string;
 }
 
-/** The station-table file one `prepare` call emitted (ADR 0052 schema 2). */
+/** The snapshot-table file one `prepare` call emitted (ADR 0052 schema 2). */
 export interface PreparedHtmlTables {
   readonly bytes: Buffer;
   readonly sha256: string;

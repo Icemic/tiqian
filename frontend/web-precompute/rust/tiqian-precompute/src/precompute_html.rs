@@ -562,7 +562,7 @@ impl HtmlPreparer {
     /// `prepare`: parse the wrapped markup, reconcile the DOM selection
     /// with the source tag scan, then snapshot or contract every remaining
     /// paragraph. Returns the frozen result object in the js field order
-    /// plus the station-table file the emitted manifest pins; hosts serve
+    /// plus the snapshot-table file the emitted manifest pins; hosts serve
     /// the bytes under the sha address and point the root's `tq-tables`
     /// attribute at that URL.
     pub fn prepare(

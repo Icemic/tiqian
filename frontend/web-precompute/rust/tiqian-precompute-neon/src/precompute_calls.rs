@@ -257,7 +257,7 @@ pub fn create_html_preparer(mut cx: FunctionContext) -> JsResult<JsString> {
 
 /// `prepareHtml(handle, html, optionsJson)`: the whole document in one call;
 /// the paragraph loop stays inside Rust. Returns `{result, tablesBytes,
-/// tablesSha256}`: the result object as json plus the station-table file the
+/// tablesSha256}`: the result object as json plus the snapshot-table file the
 /// emitted manifest pins, when the document produced one.
 pub fn prepare_html(mut cx: FunctionContext) -> JsResult<JsObject> {
     let handle = cx.argument::<JsString>(0)?.value(&mut cx);

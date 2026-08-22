@@ -8,7 +8,7 @@
 //! `TIQIAN_UPDATE_GOLDEN=1 cargo test --test precompute_html_parity` after
 //! reviewing the diff. Two engine-identity values are rewritten to
 //! placeholders before the byte comparison: `fontEvidence.harfbuzzVersion`,
-//! and the station-table sha each manifest pins, because the table bytes
+//! and the snapshot-table sha each manifest pins, because the table bytes
 //! embed the HarfBuzz version. The dump stays valid across engine upgrades.
 //! The engine archive must be linked.
 //!
