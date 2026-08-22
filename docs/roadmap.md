@@ -73,8 +73,10 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   适配器。2026-08-22 状态：批次三的 bundle 拆分与 TableTransport 已实施，测量与
   接入形态见 ADR 0052 附录；表文件以 TIQTBL03 二进制形式发布，schema 1 的读取路径
   与产出路径先后删除，一次性整函数 renderSnapshotBundle、renderFontContractBundle、
-  renderSnapshotTemplate 删除。文章表与
-  文章哈希表属于 Article 索引层，未实施。手动触发的 snapshot 发布
+  renderSnapshotTemplate 删除。文章表与文章哈希表已实施（2026-08-22，结构版本 2，
+  旧条目库原地迁移）：store 按 context 记录、读取、删除文章行，SDK 提供整篇预热、
+  按桶的 prune（桶 id 加该桶哈希列表，跨桶引用的条目存活）与按并集的整库 prune；
+  Rust trait 的 Article 面留待 Rust 宿主出现。手动触发的 snapshot 发布
   流水线已就绪（snapshot-precompute.yml）：每次 dispatch 自打时间戳 tag，五个包临时
   换运行仓库 owner 的 scope（GitHub Packages 要求 npm scope 等于 owner，canonical
   仓库为 @tiqian-cjk）发到 GitHub Packages 的 snapshot dist-tag，发布后还原 manifest；
