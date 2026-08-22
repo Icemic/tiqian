@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,25 @@ const fixtureAssets = {
   inertTemplate: '<template id="tq-page"></template>',
   fontPreloads: [],
 };
+
+// SSR asset rendering goes through the native addon, and the fixture build
+// resolves the prose runtime artifact the bundler must find on disk. The
+// suites for `@tiqian/precompute` and `@tiqian/astro` skip on the same
+// conditions.
+let addonBuildExists = false;
+try {
+  const precomputeHtml = await import("@tiqian/precompute/precompute-html");
+  precomputeHtml.renderSnapshotServerAssets({
+    id: "addon-probe",
+    initialStyle: "",
+    inertTemplate: "",
+    fontPreloads: [],
+  });
+  addonBuildExists = true;
+} catch {
+  addonBuildExists = false;
+}
+const proseRuntimeExists = existsSync(new URL("../../npm/runtime/tiqian-web.js", import.meta.url));
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
@@ -58,7 +78,7 @@ test("package manifest publishes only the component and server boundary", async 
   assert.ok(manifest.files.includes("TiqianProse.svelte"));
 });
 
-test("SSR transport injects each referenced snapshot once", () => {
+test("SSR transport injects each referenced snapshot once", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, () => {
   const html = '<html><head></head><body><tiqian-prose snapshot-ref="tq-page"></tiqian-prose>' +
     '<tiqian-prose snapshot-ref="tq-page"></tiqian-prose></body></html>';
   const output = injectTiqianSsrAssets(html, (id) => id === "tq-page" ? fixtureAssets : undefined);
@@ -67,7 +87,7 @@ test("SSR transport injects each referenced snapshot once", () => {
   assert.ok(output.indexOf("<template") < output.indexOf("</head>"));
 });
 
-test("SSR transport preserves JavaScript replacement tokens in snapshot assets", () => {
+test("SSR transport preserves JavaScript replacement tokens in snapshot assets", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, () => {
   const replacementTokens = "$& $` $' $$";
   const assets = {
     ...fixtureAssets,
@@ -174,7 +194,7 @@ test("one retention scope rejects conflicting assets that reuse an id", async ()
   }
 });
 
-test("concurrent requests cannot exchange assets that reuse an explicit id", async () => {
+test("concurrent requests cannot exchange assets that reuse an explicit id", { skip: addonBuildExists ? false : "no @tiqian/precompute addon build" }, async () => {
   const htmlPreparer = {
     async prepare(html) {
       await new Promise((resolve) => setTimeout(resolve, html === "first" ? 5 : 0));
@@ -214,7 +234,7 @@ test("concurrent requests cannot exchange assets that reuse an explicit id", asy
   await tiqian.close();
 });
 
-test("component builds in a real SvelteKit application", async () => {
+test("component builds in a real SvelteKit application", { skip: proseRuntimeExists ? false : "no @tiqian/prose runtime artifact" }, async () => {
   const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-fixture-"));
   try {
     const routes = path.join(root, "src", "routes");
