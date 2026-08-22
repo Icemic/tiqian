@@ -184,11 +184,14 @@ export function parseLdconfigEntries(text: string): Map<string, string> {
 
 /** Library directories of the fixed NixOS profiles, most specific first. */
 export function profileLibraryDirs(home: string): string[] {
+  // Forward slashes on purpose: the directories exist on NixOS only, and the
+  // literal spelling keeps the output identical on every platform the test
+  // suite runs on.
   return [
     "/run/current-system/sw/lib",
     "/nix/var/nix/profiles/default/lib",
-    join(home, ".local/state/nix/profiles/profile/lib"),
-    join(home, ".nix-profile/lib"),
+    `${home}/.local/state/nix/profiles/profile/lib`,
+    `${home}/.nix-profile/lib`,
   ];
 }
 
