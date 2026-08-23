@@ -197,7 +197,7 @@ internal external fun preparedWorkerLayoutIssue(
     requestText: String,
 ): String?
 @JsFun(
-    """(host, recordJson, locale, sourceText, semanticElements, inlineObjectElements, inlineObjectMetaJson) => (function () {
+    """(host, recordJson, locale, sourceText, semanticElements, inlineObjectElements, inlineObjectMetaJson, cjkStrongSemanticsJson) => (function () {
       const record = JSON.parse(recordJson);
       const inlineObjects = Array.from(inlineObjectElements || []);
       host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
@@ -222,7 +222,8 @@ internal external fun preparedWorkerLayoutIssue(
                   element: inlineObjects[index]
                 };
               });
-            })()
+            })(),
+            cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || "[]")
           }
         );
       } finally {
@@ -238,6 +239,7 @@ internal external fun renderPreparedWorkerParagraphDom(
     semanticElements: Array<Element>,
     inlineObjectElements: Array<Element>,
     inlineObjectMetaJson: String,
+    cjkStrongSemanticsJson: String,
 )
 @JsFun("(host) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.release && globalThis.__TiqianPreparedDomRenderer.release(host) === true)")
 internal external fun releasePreparedParagraphDomStyles(host: HTMLElement): Boolean
@@ -478,7 +480,7 @@ internal external fun consoleWarn(message: String)
 // @JsFun bodies inline into their Kotlin callers, so each body is a single
 // IIFE expression: a bare return statement would return from the caller.
 @JsFun(
-    """(host, planJson, locale, sourceText, semanticElements, semanticsJson, inlineObjectElements, inlineObjectMetaJson) => (function () {
+    """(host, planJson, locale, sourceText, semanticElements, semanticsJson, inlineObjectElements, inlineObjectMetaJson, cjkStrongSemanticsJson) => (function () {
       const semantics = Array.from(semanticElements || []);
       const inlineObjects = Array.from(inlineObjectElements || []);
       const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
@@ -503,7 +505,8 @@ internal external fun consoleWarn(message: String)
                   element: inlineObjects[index]
                 };
               });
-            })()
+            })(),
+            cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || "[]")
           } : undefined
         );
       } finally {
@@ -520,6 +523,7 @@ internal external fun renderPreparedParagraphDom(
     semanticsJson: String,
     inlineObjectElements: Array<Element>,
     inlineObjectMetaJson: String,
+    cjkStrongSemanticsJson: String,
 )
 
 // RuntimeRichPreparedDomOptions (ADR 0053 B8.1): the runtime bridge replays
@@ -552,6 +556,28 @@ internal fun LoweredParagraph.preparedInlineObjectMetaJson(): String = buildStri
         append("\"start\":").append(objectSpan.range.start).append(',')
         append("\"end\":").append(objectSpan.range.end).append(',')
         append("\"marginRight\":").append(objectSpan.marginRight)
+        append('}')
+    }
+    append(']')
+}
+
+// PreparedCjkStrongSemantics: strong-as-emphasis lowering records the
+// inherited base weight on each weighted source span; the native renderer
+// replayed it as data-tq-cjk-emphasis plus a font-weight override on the
+// cloned span. The prepared lowerer replays the same marks from this
+// metadata, matched by range equality. Empty unless strong-as-emphasis
+// lowering produced weighted spans.
+internal fun LoweredParagraph.preparedCjkStrongSemanticsJson(): String = buildString {
+    append('[')
+    var first = true
+    for (span in sourceSpans) {
+        val weight = span.cjkStrongBaseWeight ?: continue
+        if (!first) append(',')
+        first = false
+        append('{')
+        append("\"start\":").append(span.range.start).append(',')
+        append("\"end\":").append(span.range.end).append(',')
+        append("\"weight\":").append(weight)
         append('}')
     }
     append(']')

@@ -151,6 +151,51 @@ class TiqianWebExactSessionTest {
     }
 
     @Test
+    fun exactPreparedDomAdmitsDecoratedStrongEmphasisWithCjkStrongMetadata() {
+        installExactFontSessionFixture(failShaping = false)
+        try {
+            val root = mount(
+                """
+                <div data-tiqian-root="true" style="width: 220px">
+                  <p data-tq-snapshot-key="emphasis" style="font-family: 'Fixture CJK'; font-weight: 430; font-size: 18px; line-height: 30px">前<strong style="font-weight: 700; color: rgb(1, 2, 3)">强调</strong>后。</p>
+                </div>
+                """.trimIndent(),
+            )
+
+            assertEquals(
+                1,
+                TiqianWeb.enhance(
+                    root,
+                    exactTestOptions().copy(strongAsEmphasisMarks = true),
+                ),
+            )
+
+            val paragraph = root.querySelector("p") as HTMLElement
+            assertEquals(1, exactPreparedRenderCount())
+            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-source"))
+            assertNull(paragraph.getAttribute("data-tq-capability-issue"))
+            assertEquals(
+                "[{\"start\":1,\"end\":3,\"tagName\":\"strong\",\"sourceIndex\":0,\"order\":0}]",
+                exactPreparedSemanticsJson(),
+            )
+            assertEquals(
+                "[{\"start\":1,\"end\":3,\"weight\":430}]",
+                exactPreparedCjkStrongJson(),
+                "the prepared bridge must receive the strong base weight for cjk-emphasis replay",
+            )
+            assertTrue(
+                exactPreparedPlan().contains("\"emphasisDots\":"),
+                "the decorated paragraph plan must carry overlay dots",
+            )
+            assertTrue(exactFontShapeCount() > 0)
+            assertEquals("前强调后。", copySelection(paragraph))
+        } finally {
+            clearExactFontSessionFixture()
+        }
+    }
+
+    @Test
     fun exactWorkerPreparedDomCarriesInlineObjectsOnRequestAndCommit() {
         installExactFontSessionFixture(failShaping = false)
         installPreparedWorkerLivePlan()

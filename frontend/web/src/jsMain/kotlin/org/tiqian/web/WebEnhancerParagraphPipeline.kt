@@ -51,7 +51,10 @@ internal fun TiqianWeb.workerLayoutRequest(
     // WorkerRequestMatchesRuntimeEligibility: inline objects no longer exclude a
     // paragraph from Worker preparation. Their measured geometry travels on the
     // request wire (ADR 0053 B8.2) and the live elements enter at commit time,
-    // the same split the runtime exact path uses. Every other exclusion mirrors
+    // the same split the runtime exact path uses. Decorated paragraphs stay
+    // excluded here because the request wire carries no decoration input; they
+    // lower on the main thread, whose LayoutInput carries the decorations, and
+    // commit through the same prepared bridge. Every other exclusion mirrors
     // isRuntimeExactPreparedDomEligible so both exact paths adopt one shape.
     if (
         lowered.decorations.isNotEmpty() || lowered.sourceSpans.any { span ->
@@ -283,6 +286,7 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
         paragraph.lowered.sourceSpans.map { it.element }.toTypedArray(),
         paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
         paragraph.lowered.preparedInlineObjectMetaJson(),
+        paragraph.lowered.preparedCjkStrongSemanticsJson(),
     )
     val preparedDomIssue = validatePreparedParagraphDom(paragraph.source, width.toDouble())
     if (preparedDomIssue != null) {
@@ -506,6 +510,7 @@ internal fun TiqianWeb.commitPreparedParagraph(
             paragraph.lowered.preparedSemanticReplayJson(),
             paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
             paragraph.lowered.preparedInlineObjectMetaJson(),
+            paragraph.lowered.preparedCjkStrongSemanticsJson(),
         )
         val preparedDomIssue = validatePreparedParagraphDom(
             paragraph.source,

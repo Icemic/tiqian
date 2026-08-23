@@ -508,18 +508,19 @@ internal fun LoweredParagraph.isCanonicalPlainParagraph(): Boolean =
 /**
  * RuntimeExactPreparedDomScope: the runtime prepared-DOM bridge adopts the
  * same paragraph shapes as the exact Worker request except inline objects,
- * which the clone swap (ADR 0053 B7.3) replays from live elements. Styled
- * spans, inline boxes and source semantics replay through plan evidence;
- * decorations, cloned-edge decorations and locale-mismatching spans still
+ * which the clone swap (ADR 0053 B7.3) replays from live elements, and
+ * decorations, which the plan carries as unconditional overlay segments
+ * while the Worker request wire has no decoration input. Styled spans,
+ * inline boxes, source semantics and decorations replay through plan
+ * evidence; cloned-edge decorations and locale-mismatching spans still
  * render through the native DOM renderer.
  */
 internal fun LoweredParagraph.isRuntimeExactPreparedDomEligible(): Boolean =
-    decorations.isEmpty() &&
-        sourceSpans.none { span ->
-            span.inlineBoxStyle.boxDecorationBreak == "clone" &&
-                (kotlin.math.abs(span.inlineBoxStyle.inlineStart) >= INLINE_EDGE_EPSILON ||
-                    kotlin.math.abs(span.inlineBoxStyle.inlineEnd) >= INLINE_EDGE_EPSILON)
-        } &&
+    sourceSpans.none { span ->
+        span.inlineBoxStyle.boxDecorationBreak == "clone" &&
+            (kotlin.math.abs(span.inlineBoxStyle.inlineStart) >= INLINE_EDGE_EPSILON ||
+                kotlin.math.abs(span.inlineBoxStyle.inlineEnd) >= INLINE_EDGE_EPSILON)
+    } &&
         spans.none { it.style.locale != textStyle.locale }
 
 data class DomInlineObject(

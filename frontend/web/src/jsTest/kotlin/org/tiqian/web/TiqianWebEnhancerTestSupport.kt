@@ -169,6 +169,7 @@ internal fun installExactFontSessionFixture(
       globalThis.__TiqianExactPreparedPlan = "";
       globalThis.__TiqianExactPreparedPlans = [];
       globalThis.__TiqianExactPreparedSemantics = [];
+      globalThis.__TiqianExactPreparedCjkStrong = [];
       globalThis.__TiqianExactPreparedSemanticElements = [];
       globalThis.__TiqianExactPreparedInlineObjects = [];
       globalThis.__TiqianExactPreparedRenderCount = 0;
@@ -240,6 +241,7 @@ internal fun installExactFontSessionFixture(
           globalThis.__TiqianExactPreparedPlan = planJson;
           globalThis.__TiqianExactPreparedPlans.push(planJson);
           globalThis.__TiqianExactPreparedSemantics = Array.from(options.semantics || []);
+          globalThis.__TiqianExactPreparedCjkStrong = Array.from(options.cjkStrongSemantics || []);
           globalThis.__TiqianExactPreparedSemanticElements =
             Array.from(options.liveSemanticElements || []);
           globalThis.__TiqianExactPreparedInlineObjects = Array.from(options.inlineObjects || []);
@@ -347,6 +349,8 @@ internal external fun exactPreparedPlanAt(index: Int): String
 internal external fun exactPreparedRenderCount(): Int
 @JsFun("() => JSON.stringify(globalThis.__TiqianExactPreparedSemantics || [])")
 internal external fun exactPreparedSemanticsJson(): String
+@JsFun("() => JSON.stringify(globalThis.__TiqianExactPreparedCjkStrong || [])")
+internal external fun exactPreparedCjkStrongJson(): String
 @JsFun(
     "() => JSON.stringify((globalThis.__TiqianExactPreparedInlineObjects || []).map(" +
         "function (entry) { return { start: entry.start, end: entry.end, marginRight: entry.marginRight, " +
@@ -426,7 +430,7 @@ internal external fun installPreparedWorkerIssue(detail: String)
     }""",
 )
 internal external fun installPreparedWorkerLivePlan()
-@JsFun("() => { delete globalThis.__TiqianFontBackend; delete globalThis.__TiqianPreparedDomRenderer; delete globalThis.__TiqianPreparedDomValidator; delete globalThis.__TiqianLayoutWorker; delete globalThis.__TiqianExactPreparedPlan; delete globalThis.__TiqianExactPreparedPlans; delete globalThis.__TiqianExactPreparedSemantics; delete globalThis.__TiqianExactPreparedSemanticElements; delete globalThis.__TiqianExactPreparedInlineObjects; delete globalThis.__TiqianExactPreparedRenderCount; delete globalThis.__TiqianExactFontShapeCount; delete globalThis.__TiqianExactFontFallbackCount; }")
+@JsFun("() => { delete globalThis.__TiqianFontBackend; delete globalThis.__TiqianPreparedDomRenderer; delete globalThis.__TiqianPreparedDomValidator; delete globalThis.__TiqianLayoutWorker; delete globalThis.__TiqianExactPreparedPlan; delete globalThis.__TiqianExactPreparedPlans; delete globalThis.__TiqianExactPreparedSemantics; delete globalThis.__TiqianExactPreparedCjkStrong; delete globalThis.__TiqianExactPreparedSemanticElements; delete globalThis.__TiqianExactPreparedInlineObjects; delete globalThis.__TiqianExactPreparedRenderCount; delete globalThis.__TiqianExactFontShapeCount; delete globalThis.__TiqianExactFontFallbackCount; }")
 internal external fun clearExactFontSessionFixture()
 internal fun dispatchEnhanceWithoutOptions(root: HTMLElement) {
     TiqianWeb.enhance(root)
