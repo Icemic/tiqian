@@ -40,7 +40,7 @@ object TiqianEngine {
     }
 
     public fun cancelLayoutWork(root: HTMLElement) {
-        TiqianWeb.cancelProgressiveJob(root)
+        progressiveJobBridge().cancelJob(root)
     }
 
     public fun probeContentDrift(root: HTMLElement): String = TiqianWeb.probeContentDrift(root)

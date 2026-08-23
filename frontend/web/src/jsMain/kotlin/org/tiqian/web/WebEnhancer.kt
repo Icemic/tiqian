@@ -30,14 +30,6 @@ object TiqianWeb {
     // without reconstructing its semantic DOM. Weak ownership retains the
     // source fragments only if a host later reconnects that exact element.
     internal val states: dynamic = js("new WeakMap()")
-    internal val progressiveJobs = LinkedHashMap<HTMLElement, ProgressiveJob>()
-    // Grants address jobs by generation: every started job increments this
-    // counter and carries the value, so a grant built for an older job is
-    // rejected once the root's job has been replaced.
-    internal var progressiveJobGeneration = 0
-    // WorkerPolledScheduling: roots attached to the page coordinator. Every
-    // slice of a job on these roots comes from a polled grant.
-    internal val workerRoots: dynamic = js("new WeakSet()")
 
     fun install() {
         if (installed) return
@@ -74,12 +66,12 @@ object TiqianWeb {
      * remaining paragraphs keep responsive semantic source DOM.
      */
     fun enhanceProgressively(root: HTMLElement, options: EnhanceOptions = EnhanceOptions()) =
-        enhanceProgressively(root, options, ProgressiveJobKind.Enhance)
+        enhanceProgressively(root, options, "Enhance")
 
     private fun enhanceProgressively(
         root: HTMLElement,
         options: EnhanceOptions,
-        kind: ProgressiveJobKind,
+        kind: String,
     ) {
         installTiqianCopyHandler()
         destroy(root)
@@ -102,7 +94,9 @@ object TiqianWeb {
         var stale = false
         fun liveMeasure(index: Int): Float =
             responsiveSourceMeasure(candidates[index], state.options.fontSize)
-        val job = ProgressiveJob(
+        states.set(root, state)
+        publishState(state, keepEmpty = true)
+        startProgressiveJob(
             state = state,
             kind = kind,
             itemCount = candidates.size,
@@ -126,14 +120,9 @@ object TiqianWeb {
                 }
             },
             stale = { stale },
-            startedAt = dateNow(),
             itemTierIndex = itemTierIndex,
             paragraphsByDoc = sourceCandidates,
-            coordinated = workerIsAttached(root),
         )
-        states.set(root, state)
-        publishState(state, keepEmpty = true)
-        startProgressiveJob(job)
     }
 
     /**
@@ -161,14 +150,15 @@ object TiqianWeb {
     }
 
     init {
-        // Install the embedded custody and eligibility scripts eagerly so every
-        // world that reaches this object has the globals available.
+        // Install the embedded custody, eligibility, and progressive-job scripts
+        // eagerly so every world that reaches this object has the globals available.
         custodyBridge()
         eligibilityBridge()
+        progressiveJobBridge()
     }
 
     fun destroy(root: HTMLElement) {
-        cancelProgressiveJob(root)
+        progressiveJobBridge().cancelJob(root)
         val state = states.get(root) as? RootState
         states.delete(root)
         if (state != null) {
@@ -202,7 +192,7 @@ object TiqianWeb {
      * The weak state remains available to [destroy] if the same node reconnects.
      */
     fun detach(root: HTMLElement) {
-        cancelProgressiveJob(root)
+        progressiveJobBridge().cancelJob(root)
         releasePreparedRootDomStyles(root)
     }
 
@@ -309,30 +299,28 @@ object TiqianWeb {
     }
 
     internal fun relayout(root: HTMLElement) {
-        val runningJob = progressiveJobs[root]
-        if (runningJob?.kind == ProgressiveJobKind.Enhance) {
-            // Responsive changes are normally observed only after tiqian:ready,
-            // but a manual relayout can still arrive during initial enhancement.
-            // Restart from native source at the latest width so candidates that
-            // have not been reached by the old job are not stranded.
-            enhanceProgressively(root, runningJob.state.options)
-            return
+        if (progressiveJobBridge().jobKind(root) == "Enhance") {
+            val running = states.get(root) as? RootState
+            if (running != null) {
+                enhanceProgressively(root, running.options)
+                return
+            }
         }
         val state = states.get(root) as? RootState ?: run {
-            enhanceProgressively(root, EnhanceOptions(), ProgressiveJobKind.Relayout)
+            enhanceProgressively(root, EnhanceOptions(), "Relayout")
             return
         }
         val activeOptions = state.activeOptions()
         val activeEngine = state.activeEngine()
         val activeExactFallbackEngine = state.activeExactFallbackEngine()
-        cancelProgressiveJob(root)
+        progressiveJobBridge().cancelJob(root)
         if (state.issues.any { it.name in WIDTH_DEPENDENT_CAPABILITY_ISSUES }) {
             // WidthDependentCapabilityTransitionRetry: only named
             // capabilities whose eligibility depends on line count need to be
             // lowered again at the new width. Restore semantic source once,
             // then let viewport-near paragraphs take over atomically in bounded
             // slices just like any other source refresh.
-            enhanceProgressively(root, state.options, ProgressiveJobKind.Relayout)
+            enhanceProgressively(root, state.options, "Relayout")
             return
         }
         val rendered = state.paragraphs
@@ -367,42 +355,37 @@ object TiqianWeb {
             state = state,
         )
         val rootWidth = elementFragmentBorderBoxInlineSize(root)
-        val coordinated = workerIsAttached(root)
         startProgressiveJob(
-            ProgressiveJob(
-                state = state,
-                kind = ProgressiveJobKind.Relayout,
-                itemCount = count,
-                processItem = { index ->
-                    if (commitSession.stale) {
-                        return@ProgressiveJob
-                    }
-                    val mixIndex = workOrder[index]
-                    if (mixIndex >= renderedCount) {
-                        processParagraph(stranded[mixIndex - renderedCount], state)
-                        return@ProgressiveJob
-                    }
-                    val paragraph = rendered[mixIndex]
-                    val preparation = prepareParagraphLayout(
-                        paragraph = paragraph,
-                        options = activeOptions,
-                        engine = activeEngine,
-                        semanticExactEngine = state.activeSemanticExactEngine(),
-                        browserFallbackEngine = activeExactFallbackEngine,
-                        widthOverride = widths[mixIndex],
-                    )
-                    commitSession.processItem(mixIndex, preparation)
-                },
-                onItemsFinished = commitSession::finish,
-                onFailure = commitSession::rollback,
-                stale = {
-                    commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
-                },
-                startedAt = dateNow(),
-                itemTierIndex = workOrder,
-                paragraphsByDoc = rendered.map { it.source } + stranded,
-                coordinated = coordinated,
-            ),
+            state = state,
+            kind = "Relayout",
+            itemCount = count,
+            processItem = { index ->
+                if (commitSession.stale) {
+                    return@startProgressiveJob
+                }
+                val mixIndex = workOrder[index]
+                if (mixIndex >= renderedCount) {
+                    processParagraph(stranded[mixIndex - renderedCount], state)
+                    return@startProgressiveJob
+                }
+                val paragraph = rendered[mixIndex]
+                val preparation = prepareParagraphLayout(
+                    paragraph = paragraph,
+                    options = activeOptions,
+                    engine = activeEngine,
+                    semanticExactEngine = state.activeSemanticExactEngine(),
+                    browserFallbackEngine = activeExactFallbackEngine,
+                    widthOverride = widths[mixIndex],
+                )
+                commitSession.processItem(mixIndex, preparation)
+            },
+            onItemsFinished = commitSession::finish,
+            onFailure = commitSession::rollback,
+            stale = {
+                commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
+            },
+            itemTierIndex = workOrder,
+            paragraphsByDoc = rendered.map { it.source } + stranded,
         )
     }
 
@@ -602,38 +585,6 @@ object TiqianWeb {
             root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, exactPreparedDomFallback!!)
         }
     }
-
-    internal enum class ProgressiveJobKind {
-        Enhance,
-        Relayout,
-    }
-
-    internal class ProgressiveJob(
-        val state: RootState,
-        val kind: ProgressiveJobKind,
-        val itemCount: Int,
-        val processItem: (Int) -> Unit,
-        val onItemsFinished: (() -> Unit)? = null,
-        val onFailure: (() -> Unit)? = null,
-        val stale: (() -> Boolean)? = null,
-        val startedAt: Double,
-        val itemTierIndex: IntArray? = null,
-        val paragraphsByDoc: List<HTMLElement>? = null,
-        var coordinated: Boolean = false,
-        var generation: Int = 0,
-        var nextIndex: Int = 0,
-        var maxSliceDuration: Double = 0.0,
-        var commitSkipped: Boolean = false,
-        // ParagraphTierGating state, allocated by startProgressiveJob when the
-        // job carries an item -> document-order index map. paragraphTiers holds
-        // the live tier per document-order paragraph, tierPending the three
-        // pending counters the coordinator polls, and docToItem the inverse of
-        // itemTierIndex for O(1) tier flips.
-        var paragraphTiers: IntArray? = null,
-        var tierPending: IntArray? = null,
-        var itemDone: BooleanArray? = null,
-        var docToItem: IntArray? = null,
-    )
 
 
     internal sealed class ParagraphLayoutPreparation {

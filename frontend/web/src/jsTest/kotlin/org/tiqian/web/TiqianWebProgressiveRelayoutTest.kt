@@ -17,7 +17,7 @@ class TiqianWebProgressiveRelayoutTest {
     fun cleanup() {
         for (root in mounted) {
             TiqianWeb.destroy(root)
-            with(TiqianWeb) { workerDetach(root) }
+            TiqianWebWorkers.detach(root)
             root.parentNode?.removeChild(root)
         }
         mounted.clear()
@@ -30,22 +30,22 @@ class TiqianWebProgressiveRelayoutTest {
     // slice commits one paragraph, which keeps a mid-job width change
     // constructible between slices.
     private fun attachWorker(root: HTMLElement) {
-        with(TiqianWeb) { workerAttach(root) }
+        TiqianWebWorkers.attach(root)
     }
 
     private fun grantWorkerSlice(root: HTMLElement, deadlineMs: Double = 0.0): Int {
         val controller = testGrantController(
             root,
-            with(TiqianWeb) { workerJobGeneration(root) },
+            TiqianWebWorkers.jobGeneration(root),
             deadlineMs,
             Int.MAX_VALUE,
         )
-        return with(TiqianWeb) { workerRunSlice(controller, PROGRESSIVE_TIER_COUNT) }
+        return TiqianWebWorkers.runSlice(controller, 3)
     }
 
     private fun runWorkerJobToCompletion(root: HTMLElement, deadlineMs: Double = 0.0): Int {
         var slices = 0
-        while (with(TiqianWeb) { workerHasJob(root) }) {
+        while (TiqianWebWorkers.hasJob(root)) {
             grantWorkerSlice(root, deadlineMs)
             slices += 1
             if (slices > 1000) throw AssertionError("attached worker job did not settle")
@@ -60,11 +60,11 @@ class TiqianWebProgressiveRelayoutTest {
     private fun grantUnboundedSlice(root: HTMLElement, minTier: Int): Int {
         val controller = testGrantController(
             root,
-            with(TiqianWeb) { workerJobGeneration(root) },
+            TiqianWebWorkers.jobGeneration(root),
             Double.MAX_VALUE,
             Int.MAX_VALUE,
         )
-        return with(TiqianWeb) { workerRunSlice(controller, minTier) }
+        return TiqianWebWorkers.runSlice(controller, minTier)
     }
 
     @Test
@@ -336,7 +336,7 @@ class TiqianWebProgressiveRelayoutTest {
 
         var progressiveSlices = 0
         var previousRenderedCount = 0
-        while (with(TiqianWeb) { workerHasJob(root) }) {
+        while (TiqianWebWorkers.hasJob(root)) {
             grantWorkerSlice(root)
             val renderedCount = root.querySelectorAll("p[data-tq-rendered='true']").length
             assertTrue(renderedCount >= previousRenderedCount)
@@ -345,7 +345,7 @@ class TiqianWebProgressiveRelayoutTest {
                 paragraph.firstChild === sourceChildren[index] ||
                     paragraph.getAttribute("data-tq-rendered") == "true"
             }, "each paragraph must be either intact source or a complete Tiqian result")
-            if (with(TiqianWeb) { workerHasJob(root) }) {
+            if (TiqianWebWorkers.hasJob(root)) {
                 progressiveSlices += 1
                 assertTrue(renderedCount in 1 until paragraphs.size)
                 assertEquals(renderedCount.toString(), root.getAttribute("data-tiqian-enhanced-count"))
@@ -634,13 +634,13 @@ class TiqianWebProgressiveRelayoutTest {
 
         var progressiveSlices = 0
         var previousUpdatedCount = committedBeforeAnyFrame
-        while (with(TiqianWeb) { workerHasJob(root) }) {
+        while (TiqianWebWorkers.hasJob(root)) {
             grantWorkerSlice(root)
             val updatedCount = paragraphs.indices.count { index ->
                 paragraphs[index].firstChild !== previousChildren[index]
             }
             assertTrue(updatedCount >= previousUpdatedCount)
-            if (with(TiqianWeb) { workerHasJob(root) }) {
+            if (TiqianWebWorkers.hasJob(root)) {
                 progressiveSlices += 1
                 assertTrue(updatedCount in 1 until paragraphs.size)
                 assertEquals(0, relayoutReadyCount)
@@ -696,7 +696,7 @@ class TiqianWebProgressiveRelayoutTest {
         // Back to wide. The middle paragraph is offscreen for the coordinator.
         root.style.width = "320px"
         dispatchRelayout(root)
-        assertTrue(with(TiqianWeb) { workerSetParagraphTier(root, 1, 3) })
+        assertTrue(TiqianWebWorkers.setParagraphTier(root, 1, 3))
 
         // One unbounded slice walks item 0, gates item 1, walks item 2.
         val committed = grantUnboundedSlice(root, minTier = 1)
@@ -705,12 +705,12 @@ class TiqianWebProgressiveRelayoutTest {
         // The gated paragraph must keep the job open; it must not be reported
         // as a completed (stale=false) relayout while still narrow.
         assertTrue(
-            with(TiqianWeb) { workerHasJob(root) },
+            TiqianWebWorkers.hasJob(root),
             "a tier-gated paragraph must keep its job open instead of being abandoned as finished",
         )
         assertEquals(0, staleReadyCount)
         assertEquals(1, relayoutReadyCount)
-        assertEquals(1, with(TiqianWeb) { workerPendingInTier(root, 3) })
+        assertEquals(1, TiqianWebWorkers.pendingInTier(root, 3))
         assertTrue(paragraphs[1].firstChild === narrowChildren[1])
         assertTrue(paragraphs[0].firstChild !== narrowChildren[0])
         assertTrue(paragraphs[2].firstChild !== narrowChildren[2])
@@ -718,7 +718,7 @@ class TiqianWebProgressiveRelayoutTest {
         // A later grant with a wider gate reaches the gated paragraph, and
         // only then does the job finish.
         grantUnboundedSlice(root, minTier = 3)
-        assertFalse(with(TiqianWeb) { workerHasJob(root) })
+        assertFalse(TiqianWebWorkers.hasJob(root))
         assertEquals(2, relayoutReadyCount)
         assertEquals(0, staleReadyCount)
         assertTrue(paragraphs[1].firstChild !== narrowChildren[1])
@@ -995,10 +995,10 @@ class TiqianWebProgressiveRelayoutTest {
         // destroy below must cancel the remaining pending slices and roll
         // every paragraph, whether committed or not, back to native source.
         grantWorkerSlice(root)
-        assertTrue(with(TiqianWeb) { workerHasJob(root) })
+        assertTrue(TiqianWebWorkers.hasJob(root))
 
         TiqianWeb.destroy(root)
-        assertFalse(with(TiqianWeb) { workerHasJob(root) })
+        assertFalse(TiqianWebWorkers.hasJob(root))
 
         for ((index, paragraph) in paragraphs.withIndex()) {
             assertEquals(originalHtmls[index], paragraph.innerHTML)

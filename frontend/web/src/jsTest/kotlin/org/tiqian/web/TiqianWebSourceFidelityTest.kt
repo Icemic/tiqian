@@ -17,7 +17,7 @@ class TiqianWebSourceFidelityTest {
     fun cleanup() {
         for (root in mounted) {
             TiqianWeb.destroy(root)
-            with(TiqianWeb) { workerDetach(root) }
+            TiqianWebWorkers.detach(root)
             root.parentNode?.removeChild(root)
         }
         mounted.clear()
@@ -29,22 +29,22 @@ class TiqianWebSourceFidelityTest {
     // grants. The grant deadline defaults to 0, already in the past, so one
     // slice commits one paragraph.
     private fun attachWorker(root: HTMLElement) {
-        with(TiqianWeb) { workerAttach(root) }
+        TiqianWebWorkers.attach(root)
     }
 
     private fun grantWorkerSlice(root: HTMLElement, deadlineMs: Double = 0.0): Int {
         val controller = testGrantController(
             root,
-            with(TiqianWeb) { workerJobGeneration(root) },
+            TiqianWebWorkers.jobGeneration(root),
             deadlineMs,
             Int.MAX_VALUE,
         )
-        return with(TiqianWeb) { workerRunSlice(controller, PROGRESSIVE_TIER_COUNT) }
+        return TiqianWebWorkers.runSlice(controller, 3)
     }
 
     private fun runWorkerJobToCompletion(root: HTMLElement, deadlineMs: Double = 0.0): Int {
         var slices = 0
-        while (with(TiqianWeb) { workerHasJob(root) }) {
+        while (TiqianWebWorkers.hasJob(root)) {
             grantWorkerSlice(root, deadlineMs)
             slices += 1
             if (slices > 1000) throw AssertionError("attached worker job did not settle")

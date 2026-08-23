@@ -1,8 +1,6 @@
 package org.tiqian.web
 
 import org.tiqian.web.TiqianWeb.EnhancedParagraph
-import org.tiqian.web.TiqianWeb.ProgressiveJob
-import org.tiqian.web.TiqianWeb.ProgressiveJobKind
 import org.tiqian.web.TiqianWeb.RootState
 import kotlinx.browser.document
 import org.w3c.dom.Element
@@ -123,19 +121,15 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
     // latest-width follow-up.
     val rootWidth = elementFragmentBorderBoxInlineSize(root)
     startProgressiveJob(
-        ProgressiveJob(
-            state = state,
-            kind = ProgressiveJobKind.Relayout,
-            itemCount = actions.size,
-            processItem = { index -> actions[itemTierIndex[index]].run() },
-            stale = {
-                kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
-            },
-            startedAt = dateNow(),
-            itemTierIndex = itemTierIndex,
-            paragraphsByDoc = actions.map { it.element },
-            coordinated = workerIsAttached(root),
-        ),
+        state = state,
+        kind = "Relayout",
+        itemCount = actions.size,
+        processItem = { index -> actions[itemTierIndex[index]].run() },
+        stale = {
+            kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
+        },
+        itemTierIndex = itemTierIndex,
+        paragraphsByDoc = actions.map { it.element },
     )
     return """{"outcome":"work","drifted":${drifted.size},"custody":${custodyDrifted.size},"tainted":${taintedTracked.size},"stranded":${stranded.size},"dead":${dead.size}}"""
 }

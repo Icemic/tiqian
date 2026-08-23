@@ -640,17 +640,6 @@ internal const val DEFAULT_FONT_SIZE = 19f
 internal const val INLINE_EDGE_EPSILON = 0.01f
 internal const val ZERO_ADVANCE_EPSILON = 0.01f
 internal const val CAPABILITY_DETAIL_LIMIT = 512
-// ParagraphTierGating: three paragraph priority bands the coordinator polls
-// per attached root. Tier 1 is in viewport, tier 2 near viewport, tier 3 far.
-// A gate of PROGRESSIVE_TIER_COUNT admits every tier; run-to-completion jobs
-// use it as their default gate.
-internal const val PROGRESSIVE_TIER_COUNT = 3
-internal const val PROGRESSIVE_TIER_IN_VIEWPORT = 1
-// ViewportForegroundIdleTail: visible and one-viewport-adjacent paragraphs
-// receive frame-budgeted work. The remaining native source stays responsive
-// and advances one paragraph per input-gapped idle callback so long articles
-// cannot occupy every animation frame during scrolling or window resizing.
-internal const val MAX_PROGRESSIVE_IDLE_ITEMS_PER_SLICE = 1
 internal const val CANONICAL_SOURCE_ATTRIBUTE = "data-tq-canonical-source"
 internal const val EXACT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom"
 internal const val RUNTIME_RENDER_FONT_ATTRIBUTE = "data-tq-runtime-render-font"

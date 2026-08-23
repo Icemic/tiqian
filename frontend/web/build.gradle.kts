@@ -54,6 +54,13 @@ val generateEligibilityBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedEligibilityScript",
 )
 
+val generateProgressiveJobBridge = registerBridgeGenerator(
+    taskName = "generateProgressiveJobBridge",
+    name = "progressiveJob",
+    sourceRelativePath = "npm/core/engine/progressive-job.js",
+    installFunName = "installEmbeddedProgressiveJobScript",
+)
+
 kotlin {
     js {
         // These generated names are package internals. Keep them stable while
@@ -71,6 +78,7 @@ kotlin {
         jsMain {
             kotlin.srcDir(layout.buildDirectory.dir("generated/custodyBridge/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/eligibilityBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/progressiveJob/kotlin"))
             dependencies {
                 api(project(":engine"))
                 implementation(project(":platforms:web:shaping"))
@@ -85,6 +93,7 @@ kotlin {
 tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
     dependsOn(generateCustodyBridge)
     dependsOn(generateEligibilityBridge)
+    dependsOn(generateProgressiveJobBridge)
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {

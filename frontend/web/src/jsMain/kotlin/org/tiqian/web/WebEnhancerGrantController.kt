@@ -17,18 +17,3 @@ external interface GrantController {
     val quota: Int
     fun shouldStop(processedInSlice: Int): Boolean
 }
-
-/**
- * GrantAdmission: the stop question of one granted slice, asked once per
- * paragraph boundary (ADR 0039). The page coordinator constructs a plain
- * controller object per grant carrying value-copied stop terms: the
- * recipient root, the job generation the grant addresses, a deadline
- * already converted into the Date.now() domain, and a paragraph quota. The
- * controller's shouldStop closure captures only those numbers, never live
- * coordinator state, so no global page state crosses the grant. The layout
- * loop owns no clock, policy, or identity; it asks and obeys, and commits
- * at least one paragraph per slice because the question runs after an item.
- */
-internal fun interface GrantAdmission {
-    public fun shouldStop(processedInSlice: Int): Boolean
-}
