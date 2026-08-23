@@ -445,6 +445,19 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   renderFontFamily、inlineObject advance、inlineEdges）。canonical-plain 属性仅对
   纯段落设置，富段落只带 canonical-source，重排经活克隆重降。Worker 请求的
   行内对象排除与 domInlineObjects 经 Worker 桥的传入属下一步（B8.2）。
+  产出（Worker 路径行内对象接入，2026-08-23）：workerLayoutRequest 撤销行内对象
+  排除，其余排除项与 isRuntimeExactPreparedDomEligible 对齐。请求线新增
+  inlineObjects 字段：每条记录五段（start、end、advance、ascent、descent），分隔符
+  与既有 wire 相同，经 ParagraphWireFace 解析进 LayoutInput；ascent 与 descent 为
+  必填，行内对象的逐行度量扩张由引擎按值计算。缓存键（LAYOUT_REQUEST_FIELDS）
+  纳入该字段，advance 变化即新键。plan 的 renderEvidence 判定加入行内对象非空
+  （无 span、无行内盒、无行内对象的纯段落 plan 与扩展前逐字节一致）。
+  ffi 的 precomputeParagraph 增补第 16 个可空参数：旧 15 参 JS 调用方缺参得到
+  undefined，Kotlin 侧以空串补齐，包版本错位双向兼容。commit 桥
+  renderPreparedWorkerParagraphDom 与运行时桥同形：元素数组配 {start, end,
+  marginRight} 元数据，换入原语按区间对位深克隆；worker 分支的 canonical-plain
+  判定从 sourceSpans.isEmpty() 改为 isCanonicalPlainParagraph()，行内对象段落
+  重排时重测对象，不再误标纯段落。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
