@@ -905,6 +905,10 @@ function serializeNode(node) {
         attrs += ` ${k}="${v}"`;
       }
     }
+    const isVoid = ["br", "hr", "img", "input", "link", "meta"].includes(tag);
+    if (isVoid) {
+      return `<${tag}${attrs}>`;
+    }
     const inner = (node.childNodes || []).map(serializeNode).join("");
     return `<${tag}${attrs}>${inner}</${tag}>`;
   }
@@ -948,8 +952,11 @@ function parseHtmlNodes(html, doc = globalThis.document) {
         parent.appendChild(textNode);
       }
     } else if (full.startsWith("</")) {
-      if (stack.length > 1) {
-        stack.pop();
+      const closingTag = (tagName || "").toLowerCase();
+      if (!["br", "hr", "img", "input", "link", "meta"].includes(closingTag)) {
+        if (stack.length > 1) {
+          stack.pop();
+        }
       }
     } else {
       const el = new HostElement(tagName);
@@ -1222,9 +1229,34 @@ Object.defineProperty(FakeNode.prototype, "previousSibling", {
   configurable: true,
 });
 
+Object.defineProperty(FakeNode.prototype, "nextElementSibling", {
+  get() {
+    if (!this.parentNode) return null;
+    const siblings = this.parentNode.childNodes;
+    const index = siblings.indexOf(this);
+    for (let scan = index + 1; scan < siblings.length; scan += 1) {
+      if (siblings[scan].nodeType === 1) return siblings[scan];
+    }
+    return null;
+  },
+  configurable: true,
+});
+
 Object.defineProperty(FakeNode.prototype, "lastChild", {
   get() {
     return this.childNodes[this.childNodes.length - 1] ?? null;
+  },
+  configurable: true,
+});
+
+Object.defineProperty(FakeNode.prototype, "isConnected", {
+  get() {
+    let curr = this;
+    while (curr) {
+      if (curr === globalThis.document) return true;
+      curr = curr.parentNode;
+    }
+    return false;
   },
   configurable: true,
 });
@@ -1410,6 +1442,7 @@ function createDocumentDouble() {
   if (cachedDocument) return cachedDocument;
   const listeners = new Map();
   const doc = {
+    isConnected: true,
     baseURI: "https://example.test/post/",
     styleSheets: [],
     listeners,
@@ -1483,6 +1516,7 @@ function createDocumentDouble() {
   doc.documentElement = doc.createElement("html");
   doc.documentElement.appendChild(doc.head);
   doc.documentElement.appendChild(doc.body);
+  doc.documentElement.parentNode = doc;
   cachedDocument = doc;
   return doc;
 }
@@ -1652,6 +1686,22 @@ export function eventDetailInt(event, name) {
 
 export function dispatchRelayout(root) {
   globalThis.document.dispatchEvent(new FakeCustomEvent("tiqian:relayout", { detail: { root } }));
+}
+
+export function probeContentDrift(root) {
+  const event = new globalThis.CustomEvent("tiqian:probe-content-drift", {
+    detail: { root },
+  });
+  globalThis.document.dispatchEvent(event);
+  return JSON.parse(event.detail.result);
+}
+
+export function reconcileContent(root, paragraphs = []) {
+  const event = new globalThis.CustomEvent("tiqian:reconcile-content", {
+    detail: { root, options: { paragraphs } },
+  });
+  globalThis.document.dispatchEvent(event);
+  return JSON.parse(event.detail.result);
 }
 
 export function detachViaChannel(root) {
