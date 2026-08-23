@@ -203,6 +203,28 @@ function createStyleObject(element) {
   }
 }
 
+function getHorizontalPadding(element) {
+  if (!element || !element.style) return { left: 0, right: 0 };
+  const pl = element.style.getPropertyValue?.("padding-left") || element.style.paddingLeft;
+  const pr = element.style.getPropertyValue?.("padding-right") || element.style.paddingRight;
+  if (pl || pr) {
+    return { left: Number.parseFloat(pl) || 0, right: Number.parseFloat(pr) || 0 };
+  }
+  const p = element.style.getPropertyValue?.("padding") || element.style.padding;
+  if (p) {
+    const parts = String(p).trim().split(/\s+/);
+    if (parts.length === 1) {
+      const v = Number.parseFloat(parts[0]) || 0;
+      return { left: v, right: v };
+    }
+    if (parts.length >= 2) {
+      const v = Number.parseFloat(parts[1]) || 0;
+      return { left: v, right: v };
+    }
+  }
+  return { left: 0, right: 0 };
+}
+
 export class HostElement extends FakeElement {
   constructor(tagName) {
     super(tagName);
@@ -255,6 +277,18 @@ export class HostElement extends FakeElement {
       for (const [k, v] of Object.entries(value)) {
         this.dataset[k] = v;
       }
+    }
+  }
+
+  get className() {
+    return this.getAttribute("class") || "";
+  }
+
+  set className(value) {
+    if (value == null || value === "") {
+      this.removeAttribute("class");
+    } else {
+      this.setAttribute("class", String(value));
     }
   }
 
@@ -340,18 +374,29 @@ export class HostElement extends FakeElement {
   getBoundingClientRect() {
     let w = this.width;
     if (!w) {
-      for (let curr = this; curr; curr = curr.parentElement) {
-        const styleWidth = curr.style?.getPropertyValue?.("width") || curr.style?.width;
-        if (styleWidth) {
-          const parsed = Number.parseFloat(styleWidth);
-          if (!Number.isNaN(parsed) && parsed > 0) {
-            w = parsed;
+      const isInline = [
+        "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
+        "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
+        "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE",
+      ].includes(this.tagName);
+      if (isInline) {
+        const pad = getHorizontalPadding(this);
+        const textLen = (this.textContent || "").length;
+        w = pad.left + textLen * 18 + pad.right;
+      } else {
+        for (let curr = this; curr; curr = curr.parentElement) {
+          const styleWidth = curr.style?.getPropertyValue?.("width") || curr.style?.width;
+          if (styleWidth) {
+            const parsed = Number.parseFloat(styleWidth);
+            if (!Number.isNaN(parsed) && parsed > 0) {
+              w = parsed;
+              break;
+            }
+          }
+          if (curr.width) {
+            w = curr.width;
             break;
           }
-        }
-        if (curr.width) {
-          w = curr.width;
-          break;
         }
       }
     }
@@ -830,10 +875,30 @@ export class FakeRange {
   selectNodeContents(node) {
     this.startContainer = node;
     this.startOffset = 0;
+    this.endContainer = node;
+    this.endOffset = (node?.data ?? node?.value ?? node?.textContent ?? "").length;
   }
 
   getBoundingClientRect() {
-    return new FakeDOMRect(0, 0, 36, 30);
+    let text = "";
+    let paddingLeft = 0;
+    if (this.startContainer) {
+      if (this.startContainer.nodeType === 3) {
+        const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
+        const start = this.startOffset ?? 0;
+        const end = this.endOffset ?? full.length;
+        text = full.slice(start, end);
+        const parent = this.startContainer.parentElement;
+        if (parent) {
+          paddingLeft = getHorizontalPadding(parent).left;
+        }
+      } else {
+        text = this.startContainer.textContent ?? "";
+      }
+    }
+    const width = text.length * 18;
+    const left = paddingLeft + (this.startOffset || 0) * 18;
+    return new FakeDOMRect(left, 0, width, 30);
   }
 
   getClientRects() {
@@ -1005,6 +1070,34 @@ export function buildWorld() {
   };
 
   globalThis.fetch = async () => ({ ok: false });
+
+  // Minimal window EventTarget: the runtime and coordinator attach scroll and
+  // gesture listeners to window, which is globalThis here. Node's globalThis
+  // has none by default, so install a synchronous listener map once.
+  if (typeof globalThis.addEventListener !== "function") {
+    const windowListeners = new Map();
+    globalThis.addEventListener = (type, listener) => {
+      if (!windowListeners.has(type)) windowListeners.set(type, new Set());
+      windowListeners.get(type).add(listener);
+    };
+    globalThis.removeEventListener = (type, listener) => {
+      windowListeners.get(type)?.delete(listener);
+    };
+    globalThis.dispatchEvent = (event) => {
+      event.target ??= globalThis;
+      event.currentTarget = globalThis;
+      const set = windowListeners.get(event.type);
+      if (set) {
+        for (const listener of Array.from(set)) listener(event);
+      }
+      return !event.defaultPrevented;
+    };
+  }
+  globalThis.innerHeight = 768;
+  if (globalThis.document?.documentElement) {
+    globalThis.document.documentElement.clientWidth = 1024;
+    globalThis.document.documentElement.clientHeight = 768;
+  }
 
   installTestAnimationFrames();
 }
@@ -1219,6 +1312,32 @@ export function runWorkerJobToCompletion(root, deadlineMs = 0) {
     if (slices > 1000) throw new Error("attached worker job did not settle");
   }
   return slices;
+}
+
+export function grantUnboundedSlice(root, minTier) {
+  const controller = testGrantController(
+    root,
+    globalThis.TiqianWeb.workerJobGeneration(root),
+    Infinity,
+    Number.MAX_SAFE_INTEGER,
+  );
+  return globalThis.TiqianWeb.workerRunSlice(controller, minTier);
+}
+
+// Mirrors the jsTest helper: reads the rendered .tq-line dataset the renderer
+// stamps, joined so a single string compares across widths.
+export function renderedLineSignature(paragraph) {
+  return paragraph.querySelectorAll(".tq-line")
+    .map((line) => [
+      line.dataset.tqLineRange,
+      line.dataset.tqLineWidth,
+      line.dataset.tqLineEnd,
+    ].join("\u001f"))
+    .join("\u001e");
+}
+
+export function dispatchTestProgressiveScroll() {
+  globalThis.window.dispatchEvent(new FakeEvent("scroll"));
 }
 
 export function testOptions() {
