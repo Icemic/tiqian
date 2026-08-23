@@ -41,7 +41,9 @@
 ./gradlew :frontend:web:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
 ./gradlew :frontend:web:assembleNpmPackage
-(cd frontend/web/npm && npm test)
+./gradlew :ffi:js:assembleNpmPackage
+(cd frontend/web/npm && npm run link:ffi && npm test)
+(cd ffi/js/npm && npm test)
 ```
 
 Layout report 位于

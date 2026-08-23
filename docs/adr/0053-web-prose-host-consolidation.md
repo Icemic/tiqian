@@ -288,9 +288,20 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   验收：jsNodeTest 全部通过；golden 零 diff。
   提交：bc19f8c（整体移入 `layout` 模块 `ParagraphWireFace`，`PrecomputeWire.kt`
   删除，ffi/js 只剩导出面转发与会话接线）。
-- [ ] **A4 ffi/js 独立 npm 包**：单独发包，产物导出类型定义与 source map。
+- [x] **A4 ffi/js 独立 npm 包**：单独发包，产物导出类型定义与 source map。
   KPI：.d.ts 与 .js.map 覆盖全部导出面；@tiqian/prose 依赖切换完成。
   验收：包产物检查；消费者构建与测试绿。
+  包位于 `ffi/js/npm`（`@tiqian/ffi` 0.1.0-alpha.1）。`generateTypeScriptDefinitions()`
+  产出 `Tiqian-tiqian-ffi-js.d.mts`，声明两个 `@JsExport` 函数；九个引擎模块各带
+  嵌入 sources 的 `.mjs.map`（dom-api 兼容层无源文件可嵌）。`@tiqian/prose` 声明
+  精确依赖 `0.1.0-alpha.1`，`layout-worker.js` 与 worker bench 改从 `@tiqian/ffi`
+  导入；开发侧以 `npm run link:ffi` 建符号链接指向工作树。发布工作流
+  `publish-ffi.yml` 与 prose 相同，两包同一提交锁步发版，ffi 先发。2026-08-23
+  验证：ffi 包测试 4/4，verify:package 通过；prose npm test 183/183；jsNodeTest
+  与 jsBrowserTest 通过；两包 tarball 在隔离消费者成对安装并导入；demo/web 35/35。
+  module worker 读取不到文档 import map，无打包器宿主无法加载 worker；现有宿主均经
+  打包器消费，demo 的两个 import map 服务型用例在服务层把 worker 内对 `@tiqian/ffi`
+  的导入改写为绝对 URL。提交：8346920（ffi 包）、b6d9cff（prose 依赖切换）。
 - [ ] **A5 度量回放表扩展**（`MetricTableAsEngineInput`）：canvas 探测按同一规范键
   写同一表结构，引擎只认表；无 bake 路径经 ffi 唯一接口产出 plan。
   KPI：度量表示结构份数 1。
