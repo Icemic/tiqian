@@ -11,7 +11,7 @@ import {
   releasePreparedValueStyleRoot,
   renderPreparedParagraphArtifact,
   renderPreparedParagraphInto,
-} from "./prepared-dom.js";
+} from "./core/sampler/snapshot/prepared-dom.js";
 
 function fixturePlan() {
   return {

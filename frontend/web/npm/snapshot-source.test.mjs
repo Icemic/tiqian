@@ -7,7 +7,7 @@ import {
   SnapshotSemanticError,
   snapshotSemanticMetricContractIssue,
   snapshotSourceArtifactString,
-} from "./snapshot-source.js";
+} from "./core/sampler/snapshot/snapshot-source.js";
 
 test("snapshot source semantics are nested deterministically and include behavior attributes", () => {
   const semantics = normalizeSnapshotSemantics("前链接后", [{

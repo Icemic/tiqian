@@ -12,7 +12,7 @@ import { snapshotTablesForRoot } from "../../snapshot-tables.js";
 import {
   validatePrecomputedExactFontReplayContract,
   validatePrecomputedExactFontReplayLiveContract,
-} from "../../precomputed.js";
+} from "../sampler/snapshot/precomputed.js";
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const HANDLE_STATE = Symbol("tiqian.browserFontSession");

@@ -1,7 +1,7 @@
 // Typography and paragraph signatures plus the shared inline-size read
 // helpers (ADR 0053 batch 1; decomposition report section 7). Extracted
 // verbatim from element.js; every function takes its inputs explicitly.
-import { lineLengthGridMeasure } from "../../lazy-capabilities.js";
+import { lineLengthGridMeasure } from "./grid-metrics.js";
 
 const DEFAULT_PARAGRAPH_SELECTOR = "p, li";
 const TYPOGRAPHY_PROPERTIES = [

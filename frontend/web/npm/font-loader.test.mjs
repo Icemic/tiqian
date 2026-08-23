@@ -3,61 +3,9 @@ import test from "node:test";
 
 import {
   fontLoadingAffectsTypography,
-  lineLengthGridCellCount,
-  lineLengthGridMeasure,
-  loadedPrecomputedSnapshots,
-  needsCjkDashShaping,
   parseCssFontFamilies,
-  prepareCjkDashShapingIfNeeded,
-} from "./lazy-capabilities.js";
-import { waitForTypographyFonts } from "./core/engine/loaders/font-loader.js";
-
-test("responsive invalidation follows the engine line-length grid", () => {
-  assert.equal(lineLengthGridCellCount(912, 15), 60);
-  assert.equal(lineLengthGridCellCount(911, 15), 60);
-  assert.equal(lineLengthGridCellCount(900, 15), 60);
-  assert.equal(lineLengthGridCellCount(899, 15), 59);
-  assert.equal(lineLengthGridCellCount(0, 15), 1);
-  assert.equal(lineLengthGridCellCount(320, 0), null);
-  assert.equal(lineLengthGridMeasure(912, 15), 900);
-  assert.equal(lineLengthGridMeasure(911, 15), 900);
-  assert.notEqual(lineLengthGridMeasure(10, 15), lineLengthGridMeasure(12, 15));
-  assert.equal(lineLengthGridCellCount(305.98, 15.3), 19);
-  assert.equal(lineLengthGridCellCount(306, 15.3), 20);
-  assert.equal(lineLengthGridCellCount(306.02, 15.3), 20);
-  assert.equal(lineLengthGridMeasure(305.98, 15.3), Math.fround(19 * Math.fround(15.3)));
-  assert.equal(lineLengthGridMeasure(306.02, 15.3), 306);
-});
-
-test("plain roots do not load optional snapshot or dash modules", async () => {
-  delete globalThis.__TiqianWebFontShaping;
-  const root = { textContent: "普通中文正文。" };
-
-  assert.equal(needsCjkDashShaping(root), false);
-  assert.equal(loadedPrecomputedSnapshots(), null);
-  assert.deepEqual(await prepareCjkDashShapingIfNeeded(root), { status: "not-needed" });
-  assert.equal(globalThis.__TiqianWebFontShaping, undefined);
-});
-
-test("dash detection covers paired and two-em source forms", () => {
-  assert.equal(needsCjkDashShaping({ textContent: "甲——乙" }), true);
-  assert.equal(needsCjkDashShaping({ textContent: "甲⸺乙" }), true);
-  assert.equal(needsCjkDashShaping({ textContent: "甲—乙" }), false);
-});
-
-test("dash capability fails closed without loading browser HarfBuzz", async () => {
-  delete globalThis.__TiqianWebFontShaping;
-
-  assert.deepEqual(
-    await prepareCjkDashShapingIfNeeded({ textContent: "甲——乙" }),
-    {
-      status: "unavailable",
-      issue: "NoConformingCjkDashGlyph",
-      detail: "BrowserHarfBuzzDisabled",
-    },
-  );
-  assert.equal(globalThis.__TiqianWebFontShaping, undefined);
-});
+  waitForTypographyFonts,
+} from "./core/engine/loaders/font-loader.js";
 
 test("font loading invalidation filters unrelated family and face variants", () => {
   assert.deepEqual(

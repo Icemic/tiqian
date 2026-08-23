@@ -1,8 +1,24 @@
 // Paragraph grid-metric seeds and the observed-width measure signature
 // (ADR 0053 batch 1; decomposition report section 7). The state object is
 // owned by the element; these functions take it explicitly.
-import { lineLengthGridMeasure } from "../../lazy-capabilities.js";
+// Grid cell math moved here from lazy-capabilities.js in ADR 0053 batch 6.
 import { DEFAULT_PARAGRAPH_SELECTOR, paragraphMeasureEntry } from "./signatures.js";
+
+export function lineLengthGridCellCount(containerWidth, fontSize) {
+  const width = Math.fround(Number(containerWidth));
+  const size = Math.fround(Number(fontSize));
+  if (!Number.isFinite(width) || width < 0 || !Number.isFinite(size) || size <= 0) return null;
+  // Match Kotlin's Float division before floor(containerWidth / fontSize).
+  return Math.max(1, Math.floor(Math.fround(width / size)));
+}
+
+export function lineLengthGridMeasure(containerWidth, fontSize) {
+  const width = Math.fround(Number(containerWidth));
+  const size = Math.fround(Number(fontSize));
+  const cells = lineLengthGridCellCount(width, size);
+  if (cells == null) return null;
+  return Math.min(width, Math.fround(cells * size));
+}
 
 export function createParagraphGridMetricsState() {
   return { rootFontSize: "", metrics: null };

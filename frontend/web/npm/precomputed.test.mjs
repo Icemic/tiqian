@@ -23,7 +23,7 @@ import {
   validatePrecomputedExactFontReplayLiveContract,
   validatePrecomputedExactFontReplayRuntimeContract,
   validatePrecomputedSnapshotExactFontContract,
-} from "./precomputed.js";
+} from "./core/sampler/snapshot/precomputed.js";
 import { FONT_REPLAY_REVISION, stableStringify } from "./snapshot-schema.js";
 import { snapshotTablesForRoot } from "./snapshot-tables.js";
 import { writeBinaryTable } from "./table-binary-writer.mjs";

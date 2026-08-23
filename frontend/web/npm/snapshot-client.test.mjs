@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { registerSnapshotBundle } from "./snapshot-client.js";
+import { registerSnapshotBundle } from "./core/sampler/snapshot/snapshot-client.js";
 
 function fakeDocument() {
   const elements = new Map();

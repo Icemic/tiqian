@@ -20,7 +20,7 @@ test("published package includes the generated runtime and no repository-only bi
   assert.ok(manifest.files.includes("browser-font-replay.js"));
   assert.ok(manifest.files.includes("browser-fonts.js"));
   assert.ok(manifest.files.includes("font-face-boundaries.js"));
-  assert.ok(manifest.files.includes("lazy-capabilities.js"));
+  assert.equal(manifest.files.includes("lazy-capabilities.js"), false, "lazy-capabilities.js must not ship");
   assert.ok(manifest.files.includes("layout-worker.js"));
   assert.ok(manifest.files.includes("prepared-dom.js"));
   assert.ok(manifest.files.includes("snapshot-manifest.js"));
@@ -121,7 +121,14 @@ test("the custom element validates a snapshot before dynamically loading the bro
     "utf8",
   );
   const layoutWorkerSource = await readFile(new URL("./layout-worker.js", import.meta.url), "utf8");
-  const lazyCapabilitiesSource = await readFile(new URL("./lazy-capabilities.js", import.meta.url), "utf8");
+  const loadedSnapshotsSource = await readFile(
+    new URL("./core/sampler/snapshot/loaded-snapshots.js", import.meta.url),
+    "utf8",
+  );
+  for (const shim of ["precomputed.js", "prepared-dom.js", "snapshot-source.js", "snapshot-client.js"]) {
+    const shimSource = await readFile(new URL(`./${shim}`, import.meta.url), "utf8");
+    assert.match(shimSource, /export \* from "\.\/core\/sampler\/snapshot\//u);
+  }
   const runtimeSource = await readFile(
     new URL("./core/engine/loaders/runtime-loader.js", import.meta.url),
     "utf8",
@@ -183,7 +190,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(runtimeSource, /import\("\.\.\/\.\.\/\.\.\/runtime\/tiqian-web\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
-  assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/\.\.\/prepared-dom\.js"\)/u);
+  assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"\)/u);
   assert.match(elementSource, /import\("\.\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.match(fontLoaderSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
@@ -191,8 +198,10 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /from "\.\/font-shaping\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/font-shaping\.js"/u);
-  assert.match(lazyCapabilitiesSource, /import\("\.\/precomputed\.js"\)/u);
-  assert.doesNotMatch(lazyCapabilitiesSource, /font-shaping\.js/u);
+  assert.match(loadedSnapshotsSource, /import\("\.\/precomputed\.js"\)/u);
+  assert.doesNotMatch(loadedSnapshotsSource, /font-shaping\.js/u);
+  assert.doesNotMatch(elementSource, /lazy-capabilities/u);
+  assert.doesNotMatch(apiSource, /lazy-capabilities/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-fonts\.js|harfbuzzjs|woff2-encoder/u);
   assert.match(layoutWorkerSource, /workerExactSubsetSourceBoundaries\(session\.faces, request\)/u);
   assert.doesNotMatch(browserFontsSource, /harfbuzzjs|woff2-encoder/u);

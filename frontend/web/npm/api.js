@@ -1,9 +1,7 @@
 import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
 import { installTiqianCopyHandler } from "./core/utils/copy.js";
-import {
-  prepareCjkDashShapingIfNeeded,
-  restoreAdoptedSnapshot,
-} from "./lazy-capabilities.js";
+import { prepareCjkDashShapingIfNeeded } from "./core/engine/loaders/cjk-dash.js";
+import { restoreAdoptedSnapshot } from "./core/sampler/snapshot/loaded-snapshots.js";
 import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
 import {
   createExactFontSessionEntry,

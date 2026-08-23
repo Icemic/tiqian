@@ -54,7 +54,6 @@
     "element.js",
     "font-face-boundaries.js",
     "font-contract.js",
-    "lazy-capabilities.js",
     "layout-worker.js",
     "precompute-runtime/",
     "precomputed.js",

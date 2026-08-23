@@ -1,22 +1,21 @@
 import { loadTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
 import { installTiqianCopyHandler } from "./core/utils/copy.js";
 import {
-  detachLoadedSnapshot,
-  fontLoadingAffectsTypography,
-  isLoadedSnapshotAdopted,
-  lineLengthGridMeasure,
-  loadedAdoptedSnapshotLiveIssue,
-  loadedSnapshotMaximumMeasureMatches,
-  needsCjkDashShaping,
-  prepareCjkDashShapingIfNeeded,
-  restoreLoadedSnapshot,
-  tryAdoptRequestedSnapshot,
-} from "./lazy-capabilities.js";
-import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
+  fontLoadingAffectsTypography,
   loadExactFontFallback,
 } from "./core/engine/loaders/font-loader.js";
+import { needsCjkDashShaping, prepareCjkDashShapingIfNeeded } from "./core/engine/loaders/cjk-dash.js";
+import { lineLengthGridMeasure } from "./core/sampler/grid-metrics.js";
+import {
+  detachLoadedSnapshot,
+  isLoadedSnapshotAdopted,
+  loadedAdoptedSnapshotLiveIssue,
+  loadedSnapshotMaximumMeasureMatches,
+  restoreLoadedSnapshot,
+  tryAdoptRequestedSnapshot,
+} from "./core/sampler/snapshot/loaded-snapshots.js";
 import {
   createExactFontSessionEntry,
   releaseExactFontSession,

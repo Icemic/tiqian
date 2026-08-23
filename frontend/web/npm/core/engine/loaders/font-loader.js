@@ -4,8 +4,6 @@
 // prose fonts; the retry controller re-enters the connected lifecycle when
 // a bounded wait times out and the fonts settle later.
 
-import { fontLoadingAffectsTypography } from "../../../lazy-capabilities.js";
-
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
 function typographyFontDescriptor(style) {
@@ -155,7 +153,7 @@ let exactFontFallbackPromise;
 export function loadExactFontFallback() {
   exactFontFallbackPromise ??= Promise.all([
     import("../../measurement/browser-fonts.js"),
-    import("../../../prepared-dom.js"),
+    import("../../sampler/snapshot/prepared-dom.js"),
   ]).then(([fonts, preparedDom]) => {
     preparedDom.installPreparedDomRendererBridge();
     return {
@@ -168,4 +166,94 @@ export function loadExactFontFallback() {
     };
   });
   return exactFontFallbackPromise;
+}
+
+// CSS font-family parsing and the document font-loading filter moved here
+// from lazy-capabilities.js in ADR 0053 batch 6.
+
+function normalizeFontFamily(value) {
+  const trimmed = String(value ?? "").trim();
+  const unquoted = trimmed.length >= 2 && (
+    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) ? trimmed.slice(1, -1) : trimmed;
+  return unquoted.normalize("NFC").toLocaleLowerCase("en-US");
+}
+
+export function parseCssFontFamilies(value) {
+  const families = [];
+  let token = "";
+  let quote = "";
+  let escaped = false;
+  for (const char of String(value ?? "")) {
+    if (escaped) {
+      token += char;
+      escaped = false;
+    } else if (char === "\\") {
+      escaped = true;
+    } else if (quote) {
+      if (char === quote) quote = "";
+      else token += char;
+    } else if (char === "\"" || char === "'") {
+      quote = char;
+    } else if (char === ",") {
+      if (token.trim()) families.push(normalizeFontFamily(token));
+      token = "";
+    } else {
+      token += char;
+    }
+  }
+  if (token.trim()) families.push(normalizeFontFamily(token));
+  return families;
+}
+
+function numericFontWeight(value) {
+  const normalized = String(value ?? "normal").trim().toLowerCase();
+  if (normalized === "normal") return 400;
+  if (normalized === "bold") return 700;
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fontFaceCoversWeight(faceWeight, requestedWeight) {
+  const requested = numericFontWeight(requestedWeight);
+  if (requested == null || faceWeight == null || String(faceWeight).trim() === "") return true;
+  const bounds = String(faceWeight).trim().split(/\s+/u).map(numericFontWeight);
+  if (bounds.some((value) => value == null)) return true;
+  return requested >= Math.min(...bounds) && requested <= Math.max(...bounds);
+}
+
+function fontFaceCoversStyle(faceStyle, requestedStyle) {
+  if (faceStyle == null || String(faceStyle).trim() === "") return true;
+  const available = String(faceStyle).trim().toLowerCase();
+  const requested = String(requestedStyle || "normal").trim().toLowerCase();
+  if (requested.startsWith("italic")) return available.startsWith("italic");
+  if (requested.startsWith("oblique")) return available.startsWith("oblique");
+  return available === "normal";
+}
+
+export function fontLoadingAffectsTypography(event, elements, getStyle = globalThis.getComputedStyle) {
+  const faces = Array.from(event?.fontfaces ?? []);
+  if (faces.length === 0 || typeof getStyle !== "function") return true;
+  const usages = Array.from(elements ?? []).flatMap((element) => [
+    null,
+    "::before",
+    "::after",
+    "::first-letter",
+    "::first-line",
+  ].map((pseudo) => {
+    const style = getStyle(element, pseudo);
+    return {
+      families: new Set(parseCssFontFamilies(style.getPropertyValue("font-family"))),
+      weight: style.getPropertyValue("font-weight"),
+      fontStyle: style.getPropertyValue("font-style"),
+    };
+  }));
+  return faces.some((face) => {
+    const family = normalizeFontFamily(face?.family);
+    return usages.some((usage) =>
+      usage.families.has(family) &&
+      fontFaceCoversWeight(face?.weight, usage.weight) &&
+      fontFaceCoversStyle(face?.style, usage.fontStyle));
+  });
 }

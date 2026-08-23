@@ -6,7 +6,7 @@ import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,
   SnapshotSemanticError,
-} from "../../../snapshot-source.js";
+} from "../../sampler/snapshot/snapshot-source.js";
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const DEFAULT_RUNTIME_PARAGRAPH_SELECTOR = "p, li";
