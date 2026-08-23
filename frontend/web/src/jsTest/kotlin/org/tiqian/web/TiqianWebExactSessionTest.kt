@@ -151,6 +151,62 @@ class TiqianWebExactSessionTest {
     }
 
     @Test
+    fun exactWorkerPreparedDomCarriesInlineObjectsOnRequestAndCommit() {
+        installExactFontSessionFixture(failShaping = false)
+        installPreparedWorkerLivePlan()
+        try {
+            val root = mount(
+                """
+                <div data-tiqian-root="true" style="width: 260px">
+                  <p style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">正文<svg width="18" height="18" style="margin-right: 4px"><rect width="18" height="18"></rect></svg>继续。</p>
+                </div>
+                """.trimIndent(),
+            )
+            val paragraph = root.querySelector("p") as HTMLElement
+            val svg = paragraph.querySelector("svg") as Element
+
+            val inlineObjectsWire = exactWorkerRequestInlineObjects(root, paragraph)
+            assertTrue(
+                inlineObjectsWire.startsWith("2\u001d3\u001d"),
+                "the measured inline-object geometry must ride the request wire: $inlineObjectsWire",
+            )
+
+            val enhanced = TiqianWeb.enhance(
+                root,
+                exactTestOptions().copy(
+                    paragraphSelector = "p:not([data-tq-snapshot-key])",
+                    requireExactLayoutWorker = true,
+                ),
+            )
+            assertEquals(
+                1,
+                enhanced,
+                "issue=${paragraph.getAttribute("data-tiqian-capability-issue")}; " +
+                    "detail=${paragraph.getAttribute("data-tiqian-capability-detail")}; " +
+                    "html=${paragraph.innerHTML}",
+            )
+
+            assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
+            assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
+            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertEquals(
+                0,
+                exactFontShapeCount(),
+                "an inline-object paragraph must not fall back to main-thread shaping",
+            )
+            assertEquals(1, exactPreparedRenderCount())
+            assertEquals("inline-object", svg.getAttribute("data-tq-fixture-seen"))
+            assertEquals(
+                "[{\"start\":2,\"end\":3,\"marginRight\":4,\"tag\":\"svg\"}]",
+                exactPreparedInlineObjectsJson(),
+            )
+            assertEquals("正文继续。", copySelection(paragraph))
+        } finally {
+            clearExactFontSessionFixture()
+        }
+    }
+
+    @Test
     fun exactFaceEvidenceDoesNotFragmentOrdinaryDomText() {
         installExactFontSessionFixture(failShaping = false, varyFaceByText = true)
         try {

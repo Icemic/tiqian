@@ -32,6 +32,7 @@ const LAYOUT_REQUEST_FIELDS = Object.freeze([
   "textSpans",
   "inlineBoxes",
   "lineBreakSpans",
+  "inlineObjects",
 ]);
 const COORDINATOR_KEY = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
 // PageWorkerCoordinator: client routers, dev HMR and duplicated package chunks

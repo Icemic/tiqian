@@ -44,7 +44,7 @@ const ROUNDTRIP_SAMPLES = 200;
 const SHORT_BUCKET_MAX = 80;
 const MEDIUM_BUCKET_MAX = 200;
 
-// The 13 request fields layout-worker.js reads at precomputeParagraph call
+// The 14 request fields layout-worker.js reads at precomputeParagraph call
 // time. layoutRequestKey is private in the worker channel (core/engine/web-worker/worker-channel.js:
 // 100-101) — only createPrepareJob is exported — so the bench replicates
 // it verbatim including the LAYOUT_REQUEST_FIELDS order.
@@ -62,6 +62,7 @@ const LAYOUT_REQUEST_FIELDS = Object.freeze([
   "textSpans",
   "inlineBoxes",
   "lineBreakSpans",
+  "inlineObjects",
 ]);
 
 function layoutRequestKey(request) {
@@ -175,6 +176,7 @@ function callParagraph(session, request) {
     request.textSpans,
     request.inlineBoxes,
     request.lineBreakSpans,
+    request.inlineObjects,
   );
 }
 

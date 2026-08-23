@@ -194,6 +194,7 @@ for (const [name, request] of corpus()) {
     request.textSpans.map(encodedTextSpan).join(RECORD_SEPARATOR),
     request.inlineBoxes.map(encodedInlineBox).join(RECORD_SEPARATOR),
     request.lineBreakSpans.map(encodedLineBreakSpan).join(RECORD_SEPARATOR),
+    "",
   );
 }
 

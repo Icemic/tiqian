@@ -3,6 +3,7 @@ package org.tiqian.layout
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineBoxOuterSpacing
 import org.tiqian.core.InlineBoxSpan
+import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LineBreakPolicy
@@ -100,6 +101,23 @@ private fun parseLineBreakSpans(value: String, textLength: Int): List<LineBreakS
             LineBreakSpan(TextRange(start, end), LineBreakPolicy.valueOf(fields[2]))
         }
 
+private fun parseInlineObjects(value: String, textLength: Int): List<InlineObjectSpan> =
+    value.split(RECORD_SEPARATOR)
+        .filter(String::isNotBlank)
+        .map { record ->
+            val fields = record.split(FIELD_SEPARATOR)
+            require(fields.size == 5) { "InvalidInlineObjectWire" }
+            val start = fields[0].toInt()
+            val end = fields[1].toInt()
+            val advance = fields[2].toFloat()
+            val ascent = fields[3].toFloat()
+            val descent = fields[4].toFloat()
+            require(start in 0 until end && end <= textLength) { "InvalidInlineObjectRange" }
+            require(advance.isFinite() && advance >= 0f) { "InvalidInlineObjectAdvance" }
+            require(ascent.isFinite() && descent.isFinite()) { "InvalidInlineObjectVerticalGeometry" }
+            InlineObjectSpan(TextRange(start, end), advance, ascent, descent)
+        }
+
 class ParagraphWireFace(
     private val textShaper: TextShaper,
     private val fontMetricsResolver: FontMetricsResolver,
@@ -119,6 +137,7 @@ class ParagraphWireFace(
         textSpans: String,
         inlineBoxes: String,
         lineBreakSpans: String,
+        inlineObjects: String = "",
     ): String {
         require(text.isNotBlank()) { "EmptyParagraph" }
         require(maxWidthPx.isFinite() && maxWidthPx > 0.0) { "InvalidMaximumMeasure" }
@@ -137,6 +156,7 @@ class ParagraphWireFace(
             fontWeight = fontWeight,
             italic = italic,
         )
+        val parsedInlineObjects = parseInlineObjects(inlineObjects, text.length)
         val input = LayoutInput(
             content = TiqianTextContent(
                 text = text,
@@ -152,12 +172,21 @@ class ParagraphWireFace(
             ),
             constraints = LayoutConstraints(maxWidth = maxWidthPx.toFloat()),
             inlineBoxes = parseInlineBoxes(inlineBoxes, text.length),
+            inlineObjects = parsedInlineObjects,
         )
         val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             fontMetricsResolver = fontMetricsResolver,
             textShaper = textShaper,
         ).layout(input)
-        return result.toPreparedParagraphJson()
+        // WorkerRichPlanEvidence: the Worker runs the pure exact session, so
+        // evidence exists for exactly the non-plain wire shapes the runtime
+        // path also evidences (inline objects and styled/boxed runs); plain
+        // plans stay byte-identical to the evidence-free form.
+        return result.toPreparedParagraphJson(
+            renderEvidence = textSpans.isNotBlank() ||
+                inlineBoxes.isNotBlank() ||
+                parsedInlineObjects.isNotEmpty(),
+        )
     }
 }

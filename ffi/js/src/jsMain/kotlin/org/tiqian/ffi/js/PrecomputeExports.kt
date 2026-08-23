@@ -51,6 +51,7 @@ fun precomputePlainParagraph(
     textSpans = "",
     inlineBoxes = "",
     lineBreakSpans = "",
+    inlineObjects = "",
 )
 
 /** Structured paragraph ABI: semantics stay in JS; metric spans enter the real layout pipeline. */
@@ -71,6 +72,9 @@ fun precomputeParagraph(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
+    // Nullable so pre-inline-object JS callers that omit the trailing
+    // argument (undefined) keep working across package version skew.
+    inlineObjects: String?,
 ): String {
     val backends = buildPrecomputeBackends(fontSessionId)
     return ParagraphWireFace(
@@ -91,6 +95,7 @@ fun precomputeParagraph(
         textSpans = textSpans,
         inlineBoxes = inlineBoxes,
         lineBreakSpans = lineBreakSpans,
+        inlineObjects = inlineObjects ?: "",
     )
 }
 

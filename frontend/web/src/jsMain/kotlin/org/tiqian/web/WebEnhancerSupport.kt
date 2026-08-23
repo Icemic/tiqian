@@ -48,6 +48,19 @@ internal fun workerLayoutRequestJson(
         listOf(span.range.start, span.range.end, span.policy.name)
             .joinToString(WORKER_FIELD_SEPARATOR.toString())
     }
+    // WorkerInlineObjectWire: the same measured geometry the runtime lowering
+    // feeds its engine (advance, ascent, descent) so the Worker lays the
+    // replacement character out identically; the live element itself stays on
+    // the main thread and enters at commit time.
+    val inlineObjects = lowered.inlineObjects.joinToString(WORKER_RECORD_SEPARATOR.toString()) { span ->
+        listOf(
+            span.range.start,
+            span.range.end,
+            span.advance,
+            span.ascent,
+            span.descent,
+        ).joinToString(WORKER_FIELD_SEPARATOR.toString())
+    }
     return buildString {
         append('{')
         append("\"text\":").appendWorkerJsonString(lowered.text).append(',')
@@ -67,6 +80,7 @@ internal fun workerLayoutRequestJson(
         append("\"textSpans\":").appendWorkerJsonString(textSpans).append(',')
         append("\"inlineBoxes\":").appendWorkerJsonString(inlineBoxes).append(',')
         append("\"lineBreakSpans\":").appendWorkerJsonString(lineBreakSpans).append(',')
+        append("\"inlineObjects\":").appendWorkerJsonString(inlineObjects).append(',')
         append("\"semantics\":[")
         lowered.sourceSpans.forEachIndexed { index, span ->
             if (index > 0) append(',')
@@ -183,8 +197,9 @@ internal external fun preparedWorkerLayoutIssue(
     requestText: String,
 ): String?
 @JsFun(
-    """(host, recordJson, locale, sourceText, semanticElements) => (function () {
+    """(host, recordJson, locale, sourceText, semanticElements, inlineObjectElements, inlineObjectMetaJson) => (function () {
       const record = JSON.parse(recordJson);
+      const inlineObjects = Array.from(inlineObjectElements || []);
       host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
       try {
         return globalThis.__TiqianPreparedDomRenderer.render(
@@ -196,7 +211,18 @@ internal external fun preparedWorkerLayoutIssue(
             semanticReplay: record.semanticReplay || "snapshot-safe",
             semantics: record.semantics || [],
             inlineBoxes: record.inlineBoxes || [],
-            liveSemanticElements: semanticElements || []
+            liveSemanticElements: semanticElements || [],
+            inlineObjects: (function () {
+              const meta = JSON.parse(inlineObjectMetaJson || "[]");
+              return meta.map(function (entry, index) {
+                return {
+                  start: entry.start,
+                  end: entry.end,
+                  marginRight: entry.marginRight,
+                  element: inlineObjects[index]
+                };
+              });
+            })()
           }
         );
       } finally {
@@ -210,6 +236,8 @@ internal external fun renderPreparedWorkerParagraphDom(
     locale: String,
     sourceText: String,
     semanticElements: Array<Element>,
+    inlineObjectElements: Array<Element>,
+    inlineObjectMetaJson: String,
 )
 @JsFun("(host) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.release && globalThis.__TiqianPreparedDomRenderer.release(host) === true)")
 internal external fun releasePreparedParagraphDomStyles(host: HTMLElement): Boolean

@@ -48,9 +48,13 @@ internal fun TiqianWeb.workerLayoutRequest(
     options: EnhanceOptions,
 ): String? {
     if (options.conformingExactFontSessionId() == null) return null
+    // WorkerRequestMatchesRuntimeEligibility: inline objects no longer exclude a
+    // paragraph from Worker preparation. Their measured geometry travels on the
+    // request wire (ADR 0053 B8.2) and the live elements enter at commit time,
+    // the same split the runtime exact path uses. Every other exclusion mirrors
+    // isRuntimeExactPreparedDomEligible so both exact paths adopt one shape.
     if (
-        lowered.decorations.isNotEmpty() || lowered.inlineObjects.isNotEmpty() ||
-        lowered.domInlineObjects.isNotEmpty() || lowered.sourceSpans.any { span ->
+        lowered.decorations.isNotEmpty() || lowered.sourceSpans.any { span ->
             span.inlineBoxStyle.boxDecorationBreak == "clone" &&
                 (kotlin.math.abs(span.inlineBoxStyle.inlineStart) >= INLINE_EDGE_EPSILON ||
                     kotlin.math.abs(span.inlineBoxStyle.inlineEnd) >= INLINE_EDGE_EPSILON)
@@ -261,7 +265,11 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
     val width = paragraphWidth(paragraph)
     paragraph.source.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, "true")
     paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
-    if (paragraph.lowered.sourceSpans.isEmpty()) {
+    // CanonicalPlainMatchesRuntimeScope: the re-lowering treats a paragraph as
+    // a prepared plain host only when the paragraph shape really is plain.
+    // Inline-object paragraphs carry replacement characters the re-lowering
+    // must re-measure, so sourceSpans alone must not mark them plain.
+    if (paragraph.lowered.isCanonicalPlainParagraph()) {
         paragraph.source.setAttribute("data-tq-canonical-plain", "true")
     } else {
         paragraph.source.removeAttribute("data-tq-canonical-plain")
@@ -273,6 +281,8 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
         paragraph.lowered.textStyle.locale,
         paragraph.lowered.text,
         paragraph.lowered.sourceSpans.map { it.element }.toTypedArray(),
+        paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
+        paragraph.lowered.preparedInlineObjectMetaJson(),
     )
     val preparedDomIssue = validatePreparedParagraphDom(paragraph.source, width.toDouble())
     if (preparedDomIssue != null) {

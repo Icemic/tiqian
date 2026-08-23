@@ -5,6 +5,7 @@ import org.tiqian.shaping.ExplainableStubTextShaper
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class ParagraphWireFaceTest {
 
@@ -90,5 +91,96 @@ class ParagraphWireFaceTest {
             )
         }
         assertContains(e.message ?: "", "InvalidLineBreakSpanWire")
+    }
+
+    @Test
+    fun inlineObjectsEnterLayoutInputAndPlanEvidence() {
+        val result = face.plan(
+            text = "中文",
+            maxWidthPx = 400.0,
+            fontFamilies = "\u001fNoto Sans CJK SC",
+            fontSizePx = 16.0,
+            lineHeightPx = 24.0,
+            locale = "zh-Hans",
+            fontWeight = 400,
+            italic = false,
+            firstLineIndentIc = 2.0,
+            lineLengthGridEnabled = false,
+            sourceBoundaries = "",
+            textSpans = "",
+            inlineBoxes = "",
+            lineBreakSpans = "",
+            inlineObjects = "0\u001d1\u001d18.0\u001d14.4\u001d4.32",
+        )
+        assertContains(result, "\"inlineObject\":18")
+    }
+
+    @Test
+    fun plainParagraphWithoutInlineObjectsStaysLegacyPlan() {
+        val result = face.plan(
+            text = "你好世界",
+            maxWidthPx = 400.0,
+            fontFamilies = "\u001fNoto Sans CJK SC",
+            fontSizePx = 16.0,
+            lineHeightPx = 24.0,
+            locale = "zh-Hans",
+            fontWeight = 400,
+            italic = false,
+            firstLineIndentIc = 2.0,
+            lineLengthGridEnabled = false,
+            sourceBoundaries = "",
+            textSpans = "",
+            inlineBoxes = "",
+            lineBreakSpans = "",
+        )
+        assertFalse(result.contains("\"inlineObject\":"))
+    }
+
+    @Test
+    fun inlineObjectsFieldCountNotFiveThrowsInvalidInlineObjectWire() {
+        val e = assertFailsWith<IllegalArgumentException> {
+            face.plan(
+                text = "中文",
+                maxWidthPx = 400.0,
+                fontFamilies = "\u001fNoto Sans CJK SC",
+                fontSizePx = 16.0,
+                lineHeightPx = 24.0,
+                locale = "zh-Hans",
+                fontWeight = 400,
+                italic = false,
+                firstLineIndentIc = 2.0,
+                lineLengthGridEnabled = false,
+                sourceBoundaries = "",
+                textSpans = "",
+                inlineBoxes = "",
+                lineBreakSpans = "",
+                inlineObjects = "0\u001d1\u001d18.0\u001d14.4",
+            )
+        }
+        assertContains(e.message ?: "", "InvalidInlineObjectWire")
+    }
+
+    @Test
+    fun inlineObjectsRangeOutOfBoundsThrowsInvalidInlineObjectRange() {
+        val e = assertFailsWith<IllegalArgumentException> {
+            face.plan(
+                text = "中文",
+                maxWidthPx = 400.0,
+                fontFamilies = "\u001fNoto Sans CJK SC",
+                fontSizePx = 16.0,
+                lineHeightPx = 24.0,
+                locale = "zh-Hans",
+                fontWeight = 400,
+                italic = false,
+                firstLineIndentIc = 2.0,
+                lineLengthGridEnabled = false,
+                sourceBoundaries = "",
+                textSpans = "",
+                inlineBoxes = "",
+                lineBreakSpans = "",
+                inlineObjects = "1\u001d5\u001d18.0\u001d14.4\u001d4.32",
+            )
+        }
+        assertContains(e.message ?: "", "InvalidInlineObjectRange")
     }
 }

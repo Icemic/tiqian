@@ -257,6 +257,9 @@ internal fun installExactFontSessionFixture(
             const sourceText = String(options.sourceText || "");
             const semantics = Array.from(options.semantics || []);
             const sourceElements = Array.from(options.liveSemanticElements || []);
+            const inlineObjects = Array.from(options.inlineObjects || [])
+              .slice()
+              .sort(function (left, right) { return left.start - right.start; });
             host.replaceChildren();
             const roots = [];
             const stack = [];
@@ -272,11 +275,33 @@ internal fun installExactFontSessionFixture(
               }
               stack.push(node);
             }
+            // Mirror the clone swap of prepared-dom.js: an inline-object range
+            // renders as a clone of the live element, never as the replacement
+            // character that rides the lowered source text.
+            const appendText = (container, from, to) => {
+              let cursor = from;
+              while (cursor < to) {
+                const next = inlineObjects.find(function (entry) {
+                  return entry.start >= cursor && entry.start < to;
+                });
+                if (!next) break;
+                if (next.start > cursor) {
+                  container.appendChild(document.createTextNode(sourceText.slice(cursor, next.start)));
+                }
+                const clone = next.element.cloneNode(false);
+                clone.setAttribute("data-tq-inline-object", "true");
+                container.appendChild(clone);
+                cursor = next.end;
+              }
+              if (cursor < to) {
+                container.appendChild(document.createTextNode(sourceText.slice(cursor, to)));
+              }
+            };
             const appendRange = (container, start, end, children) => {
               let offset = start;
               for (const semantic of children) {
                 if (semantic.start > offset) {
-                  container.appendChild(document.createTextNode(sourceText.slice(offset, semantic.start)));
+                  appendText(container, offset, semantic.start);
                 }
                 const source = sourceElements[semantic.sourceIndex];
                 if (!source) throw new Error(`MissingLiveSemanticSource:${'$'}{semantic.sourceIndex}`);
@@ -287,7 +312,7 @@ internal fun installExactFontSessionFixture(
                 offset = semantic.end;
               }
               if (offset < end) {
-                container.appendChild(document.createTextNode(sourceText.slice(offset, end)));
+                appendText(container, offset, end);
               }
             };
             appendRange(host, 0, sourceText.length, roots);
@@ -330,6 +355,23 @@ internal external fun exactPreparedSemanticsJson(): String
 internal external fun exactPreparedInlineObjectsJson(): String
 @JsFun("(request) => JSON.parse(request).maxWidthPx")
 internal external fun jsonMaxWidthPx(request: String): Double
+@JsFun("(request) => JSON.parse(request).inlineObjects || ''")
+internal external fun jsonInlineObjects(request: String): String
+
+internal fun exactWorkerRequestInlineObjects(root: HTMLElement, paragraph: HTMLElement): String {
+    val request = TiqianWeb.workerLayoutRequest(
+        root,
+        paragraph,
+        TiqianWeb.EnhanceOptions(
+            exactFontSession = TiqianWeb.ExactFontSessionCapability(
+                status = "conforming",
+                sessionId = "fixture-grid-session",
+                detail = "test",
+            ),
+        ),
+    ) ?: error("worker layout request must succeed for a conforming exact session")
+    return jsonInlineObjects(request)
+}
 
 internal fun exactWorkerRequestMaxWidth(root: HTMLElement, paragraph: HTMLElement): Double {
     val request = TiqianWeb.workerLayoutRequest(
