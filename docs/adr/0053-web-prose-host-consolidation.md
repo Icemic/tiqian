@@ -324,6 +324,9 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   写同一表结构，引擎只认表；无 bake 路径经 ffi 唯一接口产出 plan。
   KPI：度量表示结构份数 1。
   验收：无快照路径端到端 plan 测试；MissingServerShapingReplay 语义不变。
+  进度（2026-08-23）：现状调查与分片设计见
+  docs/research/2026-08-23-a5-metric-table-unification.md（两套结构的位置、
+  Worker 无 DOM 约束、空表会话与条目证据字段的待决点、A5a..A5d 顺序）。
 
 ### B TS 宿主重写（`TsHostRuntime`）
 
@@ -555,6 +558,15 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   `:frontend:web:jsBrowserTest`（B9a 断言组全量重放）与 npm test 393 例通过。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
+  进度（2026-08-23）：策略点 2（富文本 run 降级判定）完成，提交 3ac617d：
+  十六属性清单与首个分叉判定移入 font 模块 `InlineShapingStylePolicy`
+  （`InlineShapingStyleParityContract`），markdown-lowering 只按清单收集
+  归一化 computed 值，经 helpers.inlineShapingDecision 回调问判定（与
+  classifyRole 同形）；issue 命名与 detail 组装在 Kotlin facade。bridge
+  测试改经回调 stub 断言同名 detail（em:font-kerning），新增归一化值捕获
+  与无回调跳过两例；jsTest SourceFidelity 组不改且通过，npm test 395 例、
+  golden 零 diff。策略点 1（dash 能力判定）现状位置与建议形状见
+  docs/research/2026-08-23-b10-engine-policy-abi.md，待实施。
 
 ### C 调度合并（`SingleCoordinator`）
 
