@@ -358,8 +358,8 @@ f64 加宽值（`20.34000015258789`、整数无小数点），JVM 与 Kotlin/Nat
 测试平台：Ryzen 7 8845HS（16 硬件线程）、92 GiB 内存、linux x86-64。
 原实现为 `@tiqian/prose` 0.1.0-alpha.5（Kotlin/JS 引擎 + harfbuzzjs 14.2.1）；
 Native 为 `@tiqian/precompute`（Neon addon + harfrust 0.13.0 + 静态链接的
-Kotlin/Native 引擎，release 构建；blog3 四组实测时 linux-x64 addon 为
-8,439,088 字节，neo-blog 实测时为 8,366,448 字节）。每轮清除快照缓存冷启动，
+Kotlin/Native 引擎，release 构建；sveltekit 站点 四组实测时 linux-x64 addon 为
+8,439,088 字节，astro 站点 实测时为 8,366,448 字节）。每轮清除快照缓存冷启动，
 各跑三轮；RSS 用 `/proc` 对进程组内全部进程按 50ms 采样；端到端耗时为整条
 构建命令的端到端耗时。调用计数与耗时按调用逐条追加落盘：vite 在多个 worker
 线程各自实例化宿主模块，单个统计文件只保留最后写入线程的视图，逐条追加覆盖
@@ -369,7 +369,7 @@ Kotlin/Native 引擎，release 构建；blog3 四组实测时 linux-x64 addon �
 
 ### 性能结果
 
-blog3（bun + vite v8.0.8 SSG；285 页，183 页含 precompute；单轮 6 次
+sveltekit 站点（bun + vite v8.0.8 SSG；285 页，183 页含 precompute；单轮 6 次
 `createPrecomputer`、6519 次 `prepareParagraph`、946 次 `prepareFontContract`、
 297 次 `renderSnapshotBundle`；306 条缓存条目）：
 
@@ -399,7 +399,7 @@ vite build 阶段约等于 33 s 构建基线加批处理耗时（1/2/4 线程的
 的端到端耗时为 0.24，内存峰值为原实现的 0.54，自身比单线程多约 9% 内存
 （每线程一份证据缓冲与栈）。
 
-neo-blog（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约；327 条
+astro 站点（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约；327 条
 缓存条目；astro 单进程串行渲染，调用计数无分摊）：
 
 | 实现 | 端到端耗时 ms（三轮） | 内存峰值 KiB（三轮） | 引擎计时合计 |
@@ -416,28 +416,28 @@ neo-blog（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约�
 按层给出结论。请求层逐字节一致；plan 层只差浮点尾数；产物层差异全部来自
 Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两站语料上零差异。
 
-- **请求层。** blog3 抽样页 70 条记录的 `prepareParagraph` / `prepareFontContract`
+- **请求层。** sveltekit 站点 抽样页 70 条记录的 `prepareParagraph` / `prepareFontContract`
   全部入参（text、maxWidthPx、sourceBoundaries、textSpans、inlineBoxes、
   semantics）两侧逐字节一致。Rust 字体会话的 font-face boundary 移植与
   alpha.5 行为一致，sourceBoundaries 的会话侧贡献没有引入差异。
 - **plan 层。** 差异全部落在 `naturalWidth` 与 `drawX` 的浮点值上，结构与枚举零
   差异。机制：引擎几何类型是 Kotlin `Float`，Kotlin/JS 的 `Float` 由 JS number
   （binary64）承载，Kotlin/Native 是 IEEE binary32。`PlanNumberCanonicalForm`
-  统一了数字的表示，数值本身仍随后端精度不同。blog3 抽样页 1003 对浮点差、
-  neo-blog 全站 327 条中 174 条共 4114 对；float-float 对里可验证
+  统一了数字的表示，数值本身仍随后端精度不同。sveltekit 站点 抽样页 1003 对浮点差、
+  astro 站点 全站 327 条中 174 条共 4114 对；float-float 对里可验证
   `f32(原实现值)==Native 值` 的占 585/975 与 2847/4114，其余是逐次累加的
   `drawX` 单精度舍入。最大偏差 7.3e-4 px
   （约 883 px 处的行尾 drawX），单字形宽偏差不超过 4e-5 px。
-- **产物层。** blog3：`clientTemplate` 与 `renderedContent` 306/306 一致（把
+- **产物层。** sveltekit 站点：`clientTemplate` 与 `renderedContent` 306/306 一致（把
   `harfbuzzVersion` 标识替换为占位符后比对）；`inertTemplate` 275/306、
   `initialStyle` 239/306 不同。机制有二。其一，5 位小数处的 letter-spacing 值
   不再字符串去重，声明条目从 26 增至 33，每个值与对侧相差 1e-5 px 量级。
   其二，单字符 clamp 判定 `naturalWidth + trailingGap >= 0` 的一个记录值落在
   距零点 1.2e-4 px 内，两侧落在不同分支，该处 `letter-spacing` 翻转为
-  `margin-right`；两个分支的 CSS 都由 lowering 的同一段代码生成。neo-blog：
+  `margin-right`；两个分支的 CSS 都由 lowering 的同一段代码生成。astro 站点：
   dist 742 个文件中 736 个一致；3 个页面是上述 tqv 变体机制；2 个页面仅标识
   长度差与一处 replay 记录位。
-- **shaping 证据层。** harfbuzzjs 14.2.1 与 harfrust 0.13.0 在 neo-blog 全站
+- **shaping 证据层。** harfbuzzjs 14.2.1 与 harfrust 0.13.0 在 astro 站点 全站
   1525 条 replay shape 上 advance、glyph 位置、glyph id 全一致；`unsafeBreakCount`
   31 条不同（原实现 ≥ Native，如 3 对 2、1 对 0）；3 个字形
   （JetBrains Mono Variable 的 t）`boundsEm` xMax 差 0.001 em。引擎消费的
@@ -461,14 +461,14 @@ Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两�
 
 本轮改动三处：新增 `prepareFontContracts` 批量入口（Rust 方法、Neon 导出、
 TypeScript API）；`prepareHtml` 的文档循环先按文档顺序遍历，再把各元素并行处理，
-最后按文档顺序重组输出，各元素的快照尝试与契约回退发生在并行阶段；blog3 宿主
+最后按文档顺序重组输出，各元素的快照尝试与契约回退发生在并行阶段；sveltekit 站点 宿主
 改为按 article 批量提交契约请求。测试平台与采样方法同第一轮；本轮 linux-x64
-addon 为 8,465,208 字节。blog3 每轮仍为 946 次契约请求，批调用按
+addon 为 8,465,208 字节。sveltekit 站点 每轮仍为 946 次契约请求，批调用按
 article × precomputer 合并。
 
 ### 性能结果
 
-blog3 端到端（每个线程数三轮，每轮从空缓存开始；第一轮数字来自上一附录）：
+sveltekit 站点 端到端（每个线程数三轮，每轮从空缓存开始；第一轮数字来自上一附录）：
 
 | 线程数 | 第一轮 ms | 第二轮 ms | 第二轮内存峰值 KiB |
 |---|---|---|---|
@@ -499,12 +499,12 @@ blog3 端到端（每个线程数三轮，每轮从空缓存开始；第一轮�
 +0.5 s 与离线
 重放的差值一致；其余约 2.3 s 本轮未查明原因。
 
-`prepareHtml` 的并行执行没有端到端测量：blog3 宿主自行遍历 DOM，调用
-`prepareParagraphs` 与 `prepareFontContracts`；neo-blog 宿主逐条调用
+`prepareHtml` 的并行执行没有端到端测量：sveltekit 站点 宿主自行遍历 DOM，调用
+`prepareParagraphs` 与 `prepareFontContracts`；astro 站点 宿主逐条调用
 `prepareParagraph` 与 `prepareFontContract`。两个站点都不经过 `prepareHtml`，
 该入口的行为等价由重新生成的 `precompute-html-golden.txt` 与 npm 测试承担。
 
-neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一轮单线程 Native 为
+astro 站点 第二轮（每个线程数三轮，每轮从空缓存开始；第一轮单线程 Native 为
 8,494 / 8,269 / 8,247 ms、内存峰值 2,042,900 / 2,076,572 / 2,054,008 KiB）：
 
 | 线程数 | 端到端 ms（三轮） | 内存峰值 KiB（三轮） |
@@ -523,7 +523,7 @@ neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一�
 第二轮 1/2/4 线程三轮构建写出的 306 条缓存两两字节一致（0 差异），并与第一轮
 4 线程构建的缓存在把 `generation` 字段替换为占位符后 306/306 逐字节一致；该字段把宿主
 源文件计入哈希，本轮宿主有源码改动，其余字段全部相同。批量与逐条调用对同一
-输入产出相同的缓存条目。neo-blog 第二轮 1/2/4 线程的 `prepared-paragraphs.json`
+输入产出相同的缓存条目。astro 站点 第二轮 1/2/4 线程的 `prepared-paragraphs.json`
 两两字节一致，dist 的 742 个文件把版本标识替换后 742/742 一致；两者并分别与
 第一轮 native 构建的缓存（327 条、plan 零差异、共享字段全部相同）与 dist
 （742/742）一致。
@@ -531,13 +531,13 @@ neo-blog 第二轮（每个线程数三轮，每轮从空缓存开始；第一�
 ## 附录（2026-08-21 第三轮）：宿主缓存下相对 JS 基线的构建对比
 
 本轮测量引擎接入宿主持久缓存后的端到端构建耗时，对照沿用宿主 JSON 缓存的
-JS 引擎基线。语料为两个参考站点（blog3 与 neo-blog），测量维度为墙钟时间，
+JS 引擎基线。语料为两个参考站点（sveltekit 站点 与 astro 站点），测量维度为墙钟时间，
 未采样内存。空缓存指引擎缓存从零开始的构建，缓存命中指宿主缓存可命中状态下
 的构建。
 
 ### 性能结果
 
-blog3（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条契约回退，
+sveltekit 站点（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条契约回退，
 工作量一致）：
 
 | 引擎 | 空缓存 | 缓存命中 |
@@ -548,7 +548,7 @@ blog3（306 条条目；两个引擎的空缓存构建均产出 297 条快照与
 空缓存构建耗时 263.3 s 对 55.0 s，为 4.8 倍。缓存命中的差值 1 至 2 s：该阶段
 两个引擎都不执行 shaping，条目只被读取与解析，耗时主体在宿主自身的构建流程。
 
-neo-blog：
+astro 站点：
 
 | 引擎 | 空缓存 | 缓存命中 | 缓存字节数 |
 |---|---|---|---|
@@ -557,18 +557,18 @@ neo-blog：
 
 空缓存构建耗时 137.3 s 对 29.3 s，为 4.7 倍。缓存命中时 native 比 JS 慢约
 1.1 s；两侧的命中构成相同（快照 1232 命中 59 缺失，契约 40 命中 9 缺失），
-缓存文件字节数相当。宿主缓存把构建耗时从空缓存到缓存命中分别压缩为 blog3
-55.0 s 到 14.3 s、neo-blog 29.3 s 到 9.2 s。
+缓存文件字节数相当。宿主缓存把构建耗时从空缓存到缓存命中分别压缩为 sveltekit 站点
+55.0 s 到 14.3 s、astro 站点 29.3 s 到 9.2 s。
 
 ### 等效性审计
 
-native 的 blog3 两轮空缓存构建写出的 306 条缓存逐字节一致；JS 基线的空缓存
+native 的 sveltekit 站点 两轮空缓存构建写出的 306 条缓存逐字节一致；JS 基线的空缓存
 构建与 native 的条目数、快照与回退构成相同（297 条与 9 条），内容差异按
 第一轮附录的引擎差分方法比较。
 
 ## 附录（2026-08-21 第四轮）：持久缓存与预填接入后的构建对比
 
-同一语料（blog3）上比较接入前后的构建耗时。接入内容为 0052 第二批附录的
+同一语料（sveltekit 站点）上比较接入前后的构建耗时。接入内容为 0052 第二批附录的
 提交出口、渲染池与预填；预填开启与关闭各测一组。
 
 | 配置 | 空缓存 | 缓存命中 |

@@ -135,7 +135,7 @@ test("Windows drive stylesheet URLs parse without a host filesystem", { skip: lo
   assert.ok(load);
   const faces = JSON.parse(load.addon.parseBuildFontStylesheet(
     "@font-face { font-family: \"Fixture CJK\"; src: url(\"./misans-vf.woff2\") format(\"woff2\"); }",
-    "file:///D:/repo/neo-blog/src/fonts/MiSans-VF/result.css",
+    "file:///D:/fonts/MiSans-VF/result.css",
     "/fonts/result.css",
   )) as StylesheetFace[];
   assert.equal(faces.length, 1);

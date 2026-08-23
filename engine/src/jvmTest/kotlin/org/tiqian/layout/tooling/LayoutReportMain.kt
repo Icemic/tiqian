@@ -155,7 +155,7 @@ internal const val DP_COMPARISON_INDENT_EM = 2f
 /** 240px ≈ 15 字/行，是 ADR 0041 里 lookahead 留下可见拉伸的窄版心；320px 是常见博客版心。 */
 private val DP_COMPARISON_WIDTHS = listOf(240f, 320f)
 
-/** 真实博客段落（blog3《画风清奇的开源许可证》、neo-blog《PWM》《字体更新》）。 */
+/** 真实博客段落（sveltekit 站点《画风清奇的开源许可证》、astro 站点《PWM》《字体更新》）。 */
 private val DP_COMPARISON_PARAGRAPHS = listOf(
     "无论你的源代码是否重要，开发者都应当为自己的源代码选择许可证。当然，如果你觉得自己的" +
         "源代码真的很不重要，甚至想跟读你代码的人们开个玩笑，那么可以考虑一下这些画风有毒的" +

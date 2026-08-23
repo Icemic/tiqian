@@ -279,7 +279,7 @@ browser runtime 只有在调用方显式提供 `monospaceFontFamily` contract，
 
 `HostPunctuationPolyfillExclusion` 要求宿主在启用 Tiqian 的 light DOM 上移除会直接改写标点
 advance 的浏览器侧字体 polyfill，同时保留真正的正文 face / size / weight / slant / line-height。
-例如 neo-blog 的 `CP` 字体已经把部分右标点做成半字宽，而 Canvas 2D 对 CSS fallback 栈的
+例如 astro 站点 的 `CP` 字体已经把部分右标点做成半字宽，而 Canvas 2D 对 CSS fallback 栈的
 度量仍可能落到后继正文 face 的全字宽；随后 Tiqian 再按引擎几何减去半字，DOM 中该标点就会
 被压成 `0px`。这不是 kerning，也不能靠拆 span 修复。宿主应从源码级 typography token 派生
 一个仅移除 `CP` 的 layout-neutral 栈，在 `<tiqian-prose>:defined` 后生效；no-JS 原文仍保留
