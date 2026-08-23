@@ -342,6 +342,21 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   normalizeReplayNumber，同键再访走表；探测失败或未注入时
   MissingServerShapingReplay 语义不变；条目校验复用 A5a 的 scale 函数。
   13 例新测试；npm-core 180 例加 prose 246 例通过。
+  进度（A5c，2026-08-23）：58fac0b（含 f16ea29 的发布件修复）。空表会话判定
+  放宽为「无 probe 才抛 ServerShapingReplayEmpty」，probe 校验前移到空表判定
+  之前；replay-probe.js 增 createOffscreenCanvasMeasureAdapter（OffscreenCanvas
+  或 2d context 不可用返回 null；ctx.font 缓存比较与 Kotlin currentCanvasFont
+  同法）；新文件 core/engine/web-worker/session-bootstrap.js：manifestSession
+  逐字搬移为 createManifestFontSession，createProbeBootstrapFontSession 以空表加
+  probe 建会话（adapter 不可用抛 LayoutWorkerProbeUnavailable，错误名单仅增此
+  一项）；layout-worker.js 只留消息循环，init 分支按 probeBootstrap 分派，
+  "@tiqian/ffi" import 与 workerExactSubsetSourceBoundaries 接线原样保留。端到端
+  parity 测试（独立文件即独立进程）以同一 fake measure 走探测会话与镜像
+  WebCanvasFontMetricsResolver 的 scripted backend，两侧 plan 字节一致、容差
+  零命中（变异自检改 advance 立即检出）；npm-core 187 例加 prose 246 例通过。
+  伴随缺陷：拆分把 core/engine/loaders/styles.js 移入 npm-core 后其相对引用的
+  styles.css 不在包内，parcel 静态解析失败、运行时 URL 404；f16ea29 在 npm-core
+  落同名副本并列入 files，prose 测试断言两份字节一致。
 
 ### B TS 宿主重写（`TsHostRuntime`）
 
