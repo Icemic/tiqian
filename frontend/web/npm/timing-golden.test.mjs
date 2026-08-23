@@ -419,7 +419,9 @@ async function runWorkerMessagesJourney() {
     globalThis.innerHeight = 800;
     globalThis.TiqianWeb = { workerLayoutRequest: () => requestJson() };
 
-    const module = await import("./worker-layout.js?timing-golden=worker-messages");
+    const module = await import(
+      "./core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
+    );
     const bridge = globalThis.__TiqianLayoutWorker;
     const prepare = async () => {
       const prepared = await module.prepareWorkerLayouts(state.root, handle, {

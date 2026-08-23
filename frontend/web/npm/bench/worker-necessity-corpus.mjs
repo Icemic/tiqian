@@ -116,7 +116,7 @@ function stripEngineArtifacts(text) {
 }
 
 // The engine lays out the p/li descendants of a prose root
-// (DEFAULT_RUNTIME_PARAGRAPH_SELECTOR in worker-layout.js); the corpus uses the
+// (DEFAULT_RUNTIME_PARAGRAPH_SELECTOR in the worker channel); the corpus uses the
 // same paragraph granularity so the bench measures realistic per-paragraph work.
 function extractParagraphs(sourceHtml) {
   const paragraphs = [];

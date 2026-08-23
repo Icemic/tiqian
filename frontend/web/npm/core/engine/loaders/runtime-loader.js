@@ -1,6 +1,7 @@
 // Kotlin runtime loader (ADR 0053 batch 3). The compiled bundle stays at
 // runtime/ in the package root (publishing layout), so the dynamic import
 // below is resolved relative to the root from this subdirectory.
+import { tiqianBridge } from "../face.js";
 let runtimePromise;
 
 export function loadTiqianRuntime() {
@@ -14,7 +15,7 @@ export function loadTiqianRuntime() {
       module.default?.TiqianWebWorkers ??
       globalThis.web?.TiqianWebWorkers;
     const workers = facade?.getInstance?.();
-    const bridge = globalThis.TiqianWeb;
+    const bridge = tiqianBridge();
     if (workers && bridge) {
       bridge.workerAttach = workers.attach.bind(workers);
       bridge.workerDetach = workers.detach.bind(workers);
@@ -37,5 +38,5 @@ export function currentTiqianRuntime() {
 
 export async function withTiqianRuntime(action) {
   await loadTiqianRuntime();
-  return action(globalThis.TiqianWeb);
+  return action(tiqianBridge());
 }

@@ -45,7 +45,7 @@ const SHORT_BUCKET_MAX = 80;
 const MEDIUM_BUCKET_MAX = 200;
 
 // The 13 request fields layout-worker.js reads at precomputeParagraph call
-// time. layoutRequestKey is private in worker-layout.js (worker-layout.js:
+// time. layoutRequestKey is private in the worker channel (core/engine/web-worker/worker-channel.js:
 // 100-101) — only prepareWorkerLayouts is exported — so the bench replicates
 // it verbatim including the LAYOUT_REQUEST_FIELDS order.
 const LAYOUT_REQUEST_FIELDS = Object.freeze([
@@ -255,7 +255,7 @@ async function main() {
   const referenceRequest = requests[0];
   const serializeTakeIssueUs = measureMicroseconds(() => {
     // One take + one issue each serialize the layout request key and the
-    // request (worker-layout.js:100-101). Each sample runs the pair twice, so
+    // request (worker-channel.js:100-101). Each sample runs the pair twice, so
     // the reported figure covers two take+issue pairs and overstates the
     // per-paragraph cost in the conservative direction.
     for (let index = 0; index < 2; index += 1) {

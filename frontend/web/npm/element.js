@@ -28,7 +28,8 @@ import {
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
 } from "./core/engine/coordinator/viewport-anchor.js";
-import { dispatch, TiqianLayoutCoordinator } from "./core/engine/coordinator/coordinator.js";
+import { TiqianLayoutCoordinator } from "./core/engine/coordinator/coordinator.js";
+import * as engineFace from "./core/engine/face.js";
 import {
   DEFAULT_PARAGRAPH_SELECTOR,
   fragmentedBorderBoxInlineSize,
@@ -285,7 +286,7 @@ class TiqianProseElement extends HTMLElementBase {
     // that needs to pay the restoration cost before starting a new lifecycle.
     if (!this.#connected) {
       if (isLoadedSnapshotAdopted(this)) restoreLoadedSnapshot(this);
-      if (this.#runtimeStateActive) dispatch("tiqian:destroy", this);
+      if (this.#runtimeStateActive) engineFace.destroy(this);
       this.#runtimeStateActive = false;
     }
     this.#connected = true;
@@ -568,11 +569,11 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       detachLoadedSnapshot(this);
     }
-    if (this.#runtimeStateActive) dispatch("tiqian:detach", this);
+    if (this.#runtimeStateActive) engineFace.detach(this);
     if (this.#layoutWorkerAttached) {
       // tiqian:detach already cancelled the job, so workerDetach has no
       // in-flight work to finish on this disconnected root.
-      globalThis.TiqianWeb?.workerDetach?.(this);
+      engineFace.tiqianBridge()?.workerDetach?.(this);
       this.#layoutWorkerAttached = false;
     }
     this.#releaseExactFontSession();
@@ -708,7 +709,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopWidthObservation();
     this.#stopContentObservation();
     restoreLoadedSnapshot(this);
-    if (this.#runtimeStateActive) dispatch("tiqian:destroy", this);
+    if (this.#runtimeStateActive) engineFace.destroy(this);
     this.#runtimeStateActive = false;
     this.#releaseExactFontSession();
     this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
@@ -844,7 +845,7 @@ class TiqianProseElement extends HTMLElementBase {
     };
     if (exactFontSession) {
       try {
-        const { prepareWorkerLayouts } = await import("./worker-layout.js");
+        const { prepareWorkerLayouts } = await import("./core/engine/web-worker/worker-channel.js");
         await prepareWorkerLayouts(
           this,
           exactFontSession,
@@ -869,7 +870,7 @@ class TiqianProseElement extends HTMLElementBase {
       }
     }
     this.#ensureLayoutWorker();
-    dispatch("tiqian:enhance-progressively", this, preparedOptions);
+    engineFace.enhanceProgressively(this, preparedOptions);
     this.#syncLayoutWorker();
     return true;
   }
@@ -879,7 +880,7 @@ class TiqianProseElement extends HTMLElementBase {
     // coordinated from the start and every slice comes from a grant. The
     // dispatch task runs inside the coordinator frame, so the first polled
     // grant lands in the same frame under the shared budget.
-    const runtime = globalThis.TiqianWeb;
+    const runtime = engineFace.tiqianBridge();
     if (typeof runtime?.workerAttach !== "function") return;
     runtime.workerAttach(this);
     this.#layoutWorkerAttached = true;
@@ -887,7 +888,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #syncLayoutWorker() {
-    const runtime = globalThis.TiqianWeb;
+    const runtime = engineFace.tiqianBridge();
     if (!this.#layoutWorkerAttached || typeof runtime?.workerHasJob !== "function") return;
     coordinator.setWorkerActive(this, runtime.workerHasJob(this));
     this.#observeParagraphTiers(runtime);
@@ -907,7 +908,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (!this.#paragraphObserver && typeof IntersectionObserver === "undefined") return;
     this.#paragraphObserver ??= new IntersectionObserver((entries) => {
-      const live = globalThis.TiqianWeb;
+      const live = engineFace.tiqianBridge();
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const info = this.#paragraphTierIndex.get(entry.target);
@@ -1196,7 +1197,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#snapshotEnhancedCount = 0;
       delete this.dataset.tiqianSnapshotCount;
       if (this.#runtimeStateActive) {
-        dispatch("tiqian:destroy", this);
+        engineFace.destroy(this);
         this.#runtimeStateActive = false;
       }
     };
@@ -1266,7 +1267,7 @@ class TiqianProseElement extends HTMLElementBase {
       // start stay in one task and cannot expose unvalidated SSR as a settled
       // state. A miss below immediately starts a fresh runtime enhancement.
       this.#hasDispatched = false;
-      dispatch("tiqian:destroy", this);
+      engineFace.destroy(this);
       this.#runtimeStateActive = false;
     }
     tryAdoptRequestedSnapshot(
@@ -1404,7 +1405,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    dispatch("tiqian:relayout", this);
+    engineFace.relayout(this);
     this.#syncLayoutWorker();
   }
 
@@ -1424,7 +1425,7 @@ class TiqianProseElement extends HTMLElementBase {
       // new width or typography is being prepared. Restore the complete
       // semantic source first so every remaining paragraph responds through the
       // host cascade while viewport-near paragraphs are enhanced atomically.
-      dispatch("tiqian:destroy", this);
+      engineFace.destroy(this);
       this.#runtimeStateActive = false;
     }
     this.#dispatchProgressiveEnhance(generation, { revalidateExactFont }).catch((error) => {
@@ -2018,14 +2019,7 @@ class TiqianProseElement extends HTMLElementBase {
     // reading custody identity so a host edit made during enhancement is
     // already under observation when the probe runs.
     this.#syncCustodyObservation();
-    const event = new CustomEvent("tiqian:probe-content-drift", { detail: { root: this } });
-    document.dispatchEvent(event);
-    let drift = null;
-    try {
-      drift = event.detail?.result ? JSON.parse(event.detail.result) : null;
-    } catch {
-      drift = null;
-    }
+    const drift = engineFace.probeContentDrift(this);
     const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
       (drift?.custody || 0);
     const tainted = this.#contentTainted.size;
@@ -2052,16 +2046,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    const event = new CustomEvent("tiqian:reconcile-content", {
-      detail: { root: this, options: { paragraphs } },
-    });
-    document.dispatchEvent(event);
-    let outcome = null;
-    try {
-      outcome = event.detail?.result ? JSON.parse(event.detail.result) : null;
-    } catch {
-      outcome = null;
-    }
+    const outcome = engineFace.reconcileContent(this, paragraphs);
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready
@@ -2144,7 +2129,7 @@ class TiqianProseElement extends HTMLElementBase {
     // forced follow-up must not be skippable against a stale ledger value.
     this.#lastCommittedParagraphMeasures = "";
     this.#stopLayoutWorkInputObservation();
-    dispatch("tiqian:cancel-layout-work", this);
+    engineFace.cancelLayoutWork(this);
     this.#deactivateLayoutWorker();
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
@@ -2158,7 +2143,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkInFlight = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#stopLayoutWorkInputObservation();
-    dispatch("tiqian:cancel-layout-work", this);
+    engineFace.cancelLayoutWork(this);
     this.#deactivateLayoutWorker();
     this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
@@ -2188,10 +2173,10 @@ class TiqianProseElement extends HTMLElementBase {
     // next responsive commit starts viewport-priority enhancement from this
     // responsive semantic backing.
     if (this.#runtimeStateActive) {
-      dispatch("tiqian:destroy", this);
+      engineFace.destroy(this);
       this.#runtimeStateActive = false;
     } else {
-      dispatch("tiqian:cancel-layout-work", this);
+      engineFace.cancelLayoutWork(this);
     }
   }
 

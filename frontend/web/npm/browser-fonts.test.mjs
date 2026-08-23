@@ -170,7 +170,9 @@ test("layout Worker plans survive duplicate module instances and reach the runti
       }),
     };
 
-    const firstModule = await import(`./worker-layout.js?fixture=first-${Date.now()}`);
+    const firstModule = await import(
+      `./core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
+    );
     assert.notEqual(globalThis.__TiqianLayoutWorker, legacyBridge);
     assert.equal(globalThis.__TiqianLayoutWorker.version, 1);
     assert.equal(globalThis.__TiqianLayoutWorker.semanticReplayRevision, 1);
@@ -210,7 +212,9 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     );
 
     requestText = "second";
-    const secondModule = await import(`./worker-layout.js?fixture=second-${Date.now()}`);
+    const secondModule = await import(
+      `./core/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
+    );
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);

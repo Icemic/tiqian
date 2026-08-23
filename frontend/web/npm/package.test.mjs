@@ -184,7 +184,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/\.\.\/prepared-dom\.js"\)/u);
-  assert.match(elementSource, /import\("\.\/worker-layout\.js"\)/u);
+  assert.match(elementSource, /import\("\.\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.match(fontLoaderSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/precomputed\.js"/u);
@@ -217,7 +217,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /await prepareWorkerLayouts\([\s\S]*?dispatch\("tiqian:enhance-progressively"/u,
+    /await prepareWorkerLayouts\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
@@ -280,7 +280,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(readoptionSource, /RuntimeSnapshotBackingRestore/u);
   assert.ok(
-    readoptionSource.indexOf('dispatch("tiqian:destroy", this)') <
+    readoptionSource.indexOf("engineFace.destroy(this)") <
       readoptionSource.indexOf("tryAdoptRequestedSnapshot("),
   );
   assert.match(
@@ -326,7 +326,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?"tiqian:cancel-layout-work"[\s\S]*?#responsiveRelayoutRequired = true/u,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?engineFace\.cancelLayoutWork\(this\)[\s\S]*?#responsiveRelayoutRequired = true/u,
   );
   assert.match(
     elementSource,
@@ -342,7 +342,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveRetargetNativeRollback[\s\S]*?"tiqian:destroy"[\s\S]*?#runtimeStateActive = false/u,
+    /ResponsiveRetargetNativeRollback[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#runtimeStateActive = false/u,
   );
   assert.match(
     elementSource,
@@ -375,11 +375,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /PreparedSnapshotTransition/u);
   assert.match(
     elementSource,
-    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?"tiqian:enhance-progressively"/u,
+    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
-    /ResponsiveNativeBacking[\s\S]*?"tiqian:destroy"[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateExactFont \}\)/u,
+    /ResponsiveNativeBacking[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateExactFont \}\)/u,
   );
   assert.match(
     elementSource,
@@ -426,7 +426,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
   assert.match(elementSource, /if \(stale\) this\.#responsiveCommitRequired = true/u);
   assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
-  assert.match(elementSource, /tiqian:cancel-layout-work/u);
+  assert.match(elementSource, /engineFace\.cancelLayoutWork\(this\)/u);
   assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
   assert.match(elementSource, /#responsiveGeometrySignature\(\) !== this\.#layoutWorkGeometrySignature/u);
   assert.match(elementSource, /#runtimeStateActive = false/u);
