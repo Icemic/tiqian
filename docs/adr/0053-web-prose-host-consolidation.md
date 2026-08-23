@@ -277,10 +277,18 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 
 ### A 规格与引擎面
 
-- [ ] **A1 五表规格定义**（`AssemblySchemaAsContract`）：单一 schema 定义文件，
+- [x] **A1 五表规格定义**（`AssemblySchemaAsContract`）：单一 schema 定义文件，
   TS 与 Rust 类型同源生成；源语义投影规则写进规格定义。
   KPI：两侧手写类型文件 0 份；字段与 ADR 清单一致。
   验收：Verification 1 前半；类型生成进 CI。
+  进度（2026-08-23）：7911114 定义 ffi/schema/assembly-record.schema.json
+  （revision 1，标量与六表字段、验证错误名、三 surface 字段序与两侧差异
+  （gridEnabled 仅引擎面、inlineObjects 仅运行时面、fontSessionId 仅构建面）、
+  六条源语义投影规则与实现/测试指针）；c770e5a 生成器 tools/schema/
+  generate_ts.py 与 generate_rust.py（零依赖、确定性输出、--check 模式），
+  worker-channel 与 bench 的手写字段表删除改导入生成模块，layout_request.rs
+  类型定义改生成物（#[path] 挂载），ci-assembly-record.yml 新鲜度检查进 CI。
+  cargo check/fmt/test 与 npm test 393 例通过。
 - [ ] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
   输入输出逐字节一致。验收：Verification 1 后半，CI 强制。
 - [x] **A3 ffi/js 改为字节进出面**（`SingleEngineFace`）：线格式解析、校验与 `LayoutInput`
@@ -522,15 +530,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   按 color 链解析、超脚本行宽自检改行标记双属性）。demo 页浏览器复测：可见
   段落全部 prepared 渲染，基准段 24/24，含 CJK dash 的 1 段按
   NoConformingCjkDashGlyph 保持输入原样。
-- [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
+- [x] **B9 MarkdownParagraphLowering 迁移**（880 行）。
   进度（第一步，2026-08-23）：a18a293。降层逻辑移植 npm/core/engine/
   markdown-lowering.js（IIFE 安装 globalThis.__TiqianMarkdownLowering，嵌入
   raw-string 约束内），gradle generateMarkdownLoweringBridge 三处接线，
   WebEnhancerMarkdownLoweringBridge.kt 只做声明。返回 `{ok, lowered|issue}`，
-  classifyRole 经 helpers 回调（策略留 Kotlin，B10 处置）。Kotlin 调用点与实现
-  本步未动，切换随第二步。npm 新增 markdown-lowering-bridge.test.mjs 20 例
-  （投影三模式、run 切分、opaque 对象、失败路径、canonical 快速路径）；
-  `:frontend:web:jsBrowserTest` 与 npm test 通过。
+  classifyRole 经 helpers 回调（策略留 Kotlin，B10 处置）。npm 新增
+  markdown-lowering-bridge.test.mjs 20 例（投影三模式、run 切分、opaque
+  对象、失败路径、canonical 快速路径）。
+  进度（第二步，2026-08-23）：eacd5d8。facade 改调桥并解码
+  （MarkdownParagraphLowering.kt 899→303 行），降层实现删除；locale 通道补齐
+  （JS 缺省 zh-Hans 与 core TextStyle 一致，非空 options.locale 覆盖）；
+  `??` 全部改 firstDefined（@JsFun 嵌入体不接受空值合并运算符）；
+  WebEnhancerSupport.kt 删 7 个仅降层消费的 external（650→494 行）。
+  `:frontend:web:jsBrowserTest`（B9a 断言组全量重放）与 npm test 393 例通过。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
 
@@ -687,14 +700,16 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 
 ### F 收尾
 
-- [ ] **F1 无消费者导出清理与 shared 删除**（`UnusedExportCleanup`）。
+- [x] **F1 无消费者导出清理与 shared 删除**（`UnusedExportCleanup`）。
   进度（第一步，2026-08-23）：02be1be。删 digest.js、font-contract.js 与
   package.json files 条目；删 validatePrecomputedExactFontReplayRuntimeContract
   别名与 loadedPrecomputedSnapshots 导出，两处测试改用正名
   （validatePrecomputedExactFontReplayContract 与 isLoadedSnapshotAdopted）。
-  renderPreparedParagraph 与根兼容 re-export 留给 shared 删除后由
-  web-precompute 消费。shared/ 目录删除另行提交（sync:shared 在 B8.3c 拆分后
-  已不复制 markup/evidence 两个子模块，删除优先）。
+  进度（第二步，2026-08-23）：3287114。prose 包新增 ./prepared-dom 导出与
+  prepared-dom.d.ts；web-precompute 删除 shared/ 五个副本与
+  sync:shared/check:shared 脚本，改依赖 @tiqian/prose 0.1.0-alpha.5
+  （link-prose.mjs 建工作树符号链接），renderPreparedParagraph 与 styles.css
+  经包导出消费。
   验收：Verification 6。
 - [ ] **F2 三包拆分**（`ProseCoreLayering`）：`@tiqian/prose` 拆为 core 与
   web-component 两个 npm 包，连同 ffi 包共三个；依赖方向 web-component → core →
