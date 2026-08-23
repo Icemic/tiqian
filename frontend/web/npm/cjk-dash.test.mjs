@@ -5,14 +5,14 @@ import {
   needsCjkDashShaping,
   prepareCjkDashShapingIfNeeded,
 } from "./core/engine/loaders/cjk-dash.js";
-import { loadedPrecomputedSnapshots } from "./core/sampler/snapshot/loaded-snapshots.js";
+import { isLoadedSnapshotAdopted } from "./core/sampler/snapshot/loaded-snapshots.js";
 
 test("plain roots do not load optional snapshot or dash modules", async () => {
   delete globalThis.__TiqianWebFontShaping;
   const root = { textContent: "普通中文正文。" };
 
   assert.equal(needsCjkDashShaping(root), false);
-  assert.equal(loadedPrecomputedSnapshots(), null);
+  assert.equal(isLoadedSnapshotAdopted(root), false);
   assert.deepEqual(await prepareCjkDashShapingIfNeeded(root), { status: "not-needed" });
   assert.equal(globalThis.__TiqianWebFontShaping, undefined);
 });

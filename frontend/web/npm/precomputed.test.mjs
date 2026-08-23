@@ -22,7 +22,6 @@ import {
   tryAdoptPrecomputedSnapshot,
   validatePrecomputedExactFontReplayContract,
   validatePrecomputedExactFontReplayLiveContract,
-  validatePrecomputedExactFontReplayRuntimeContract,
   validatePrecomputedSnapshotExactFontContract,
 } from "./core/sampler/snapshot/precomputed.js";
 import { FONT_REPLAY_REVISION, stableStringify } from "./snapshot-schema.js";
@@ -356,7 +355,7 @@ test("runtime font replay validates the same host CSS contract as snapshots", as
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root } = fixture();
-    assert.deepEqual(await validatePrecomputedExactFontReplayRuntimeContract(root), {
+    assert.deepEqual(await validatePrecomputedExactFontReplayContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",

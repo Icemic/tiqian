@@ -1978,18 +1978,6 @@ export async function validatePrecomputedExactFontReplayContract(root, isCurrent
   };
 }
 
-/**
- * Backward-compatible name for runtime callers. Runtime replay now paints via
- * the host font family, so it must prove the same live CSS and advance contract
- * as snapshot adoption.
- */
-export function validatePrecomputedExactFontReplayRuntimeContract(
-  root,
-  isCurrent = () => true,
-) {
-  return validatePrecomputedExactFontReplayContract(root, isCurrent);
-}
-
 /** Rechecks the live identity of an already proven replay contract without repeating probes. */
 export function validatePrecomputedExactFontReplayLiveContract(root, isCurrent = () => true) {
   if (!isCurrent()) return { matches: false, reason: "superseded" };

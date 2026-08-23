@@ -13,10 +13,6 @@ export function loadPrecomputedSnapshots() {
   return precomputedPromise;
 }
 
-export function loadedPrecomputedSnapshots() {
-  return precomputedModule ?? null;
-}
-
 export function isLoadedSnapshotAdopted(root) {
   return precomputedModule?.isPrecomputedSnapshotAdopted(root) ?? false;
 }
