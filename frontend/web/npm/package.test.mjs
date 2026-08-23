@@ -282,11 +282,16 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /#recoverRuntimeAfterSnapshotMiss\(operation, reason, runtimeSnapshotBackingRestored = false\)/u,
   );
   assert.doesNotMatch(elementSource, /tq-inline-size-probe/u);
-  assert.match(elementSource, /observer\.observe\(target, \{ box: "border-box" \}\)/u);
+  const observersSource = await readFile(
+    new URL("./core/sampler/observers.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(observersSource, /observer\??\.observe\([^)]+, \{ box: "border-box" \}\)/u);
   assert.match(
     elementSource,
-    /ResponsiveInlineSizeObservation[\s\S]*?Math\.abs\(width - previous\) >= 0\.5[\s\S]*?#scheduleResponsiveGeometryCommit/u,
+    /ResponsiveInlineSizeObservation[\s\S]*?onWidthsChanged[\s\S]*?#scheduleResponsiveGeometryCommit/u,
   );
+  assert.match(observersSource, /Math\.abs\(width - previous\) >= 0\.5/u);
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
   const signaturesSource = await readFile(
@@ -403,7 +408,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
     elementSource,
     /RendererOwnedProgressiveStyleMutation[\s\S]*?rendererOwnedProgressiveStyleMutation\(record, this\)/u,
   );
-  assert.match(elementSource, /attributeOldValue: true/u);
+  assert.match(observersSource, /attributeOldValue: true/u);
   assert.doesNotMatch(
     elementSource,
     /const capturedTypographyChanged = this\.#layoutWorkUsesCapturedMeasure/u,

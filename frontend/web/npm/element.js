@@ -41,6 +41,14 @@ import {
   seedParagraphGridMetrics,
   paragraphMeasureSignatureFromObserved,
 } from "./core/sampler/grid-metrics.js";
+import {
+  createTypographyInvalidationSource,
+  createLayoutWorkTypographyInvalidationSource,
+  createViewportResizeInvalidationSource,
+  createContentInvalidationSource,
+  createRootSizeObservation,
+  createRootVisibilityObservation,
+} from "./core/sampler/observers.js";
 
 const ELEMENT_NAME = "tiqian-prose";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
@@ -185,13 +193,12 @@ class TiqianProseElement extends HTMLElementBase {
   #detachAttributeSnapshot = null;
   #layoutWorkIsRelayout = false;
   #lastCommittedParagraphMeasures = "";
-  #contentObserver = null;
-  #custodyTargets = new Map();
+  #contentInvalidation = null;
   #contentProbeFrame = 0;
   #contentReconcileRequired = false;
   #contentTainted = new Set();
   #deferredTypographyCheck = false;
-  #fontLoadingSettledListener = null;
+  #typographyInvalidation = null;
   #geometryRevision = 0;
   #generation = 0;
   #hasDispatched = false;
@@ -199,7 +206,7 @@ class TiqianProseElement extends HTMLElementBase {
   #initialFontRetryListener = null;
   #initialFontRetryObserver = null;
   #initialFontRetryToken = 0;
-  #intersectionObserver = null;
+  #visibilityObservation = null;
   #layoutWorkInFlight = false;
   #layoutWorkerAttached = false;
   #layoutWorkSignaturesCaptured = false;
@@ -208,8 +215,7 @@ class TiqianProseElement extends HTMLElementBase {
   #layoutWorkMeasureSignature = "";
   #layoutWorkTypographySignature = "";
   #layoutWorkViewportTypographyEntries = [];
-  #layoutWorkTypographyObserver = null;
-  #layoutWorkFontLoadingSettledListener = null;
+  #layoutWorkTypographyInvalidation = null;
   #layoutWorkUsesCapturedMeasure = false;
   #layoutOperation = 0;
   #layoutWorkRevision = 0;
@@ -225,9 +231,8 @@ class TiqianProseElement extends HTMLElementBase {
   #paragraphTierIndex = new Map();
   #readyListener = null;
   #resizeFrame = 0;
-  #resizeObserver = null;
   #resizeObserverFrame = 0;
-  #resizeObserverWidths = null;
+  #sizeObservation = null;
   #gridMetricsState = createParagraphGridMetricsState();
   #pendingCommittedMeasures = "";
   #responsiveCommitRequired = false;
@@ -237,8 +242,7 @@ class TiqianProseElement extends HTMLElementBase {
   #snapshotAdopted = false;
   #snapshotEnhancedCount = 0;
   #typographyFrame = 0;
-  #typographyObserver = null;
-  #viewportResizeListener = null;
+  #viewportResizeInvalidation = null;
 
   get disabled() {
     return this.hasAttribute("disabled");
@@ -1506,7 +1510,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeWidth() {
-    if (this.#resizeObserver) {
+    if (this.#sizeObservation) {
       // AdoptedWidthObservation: content reconcile adopts paragraphs after
       // the observer already exists. Seed and observe targets it has not
       // seen, so an adopted paragraph responds to later width changes.
@@ -1519,9 +1523,9 @@ class TiqianProseElement extends HTMLElementBase {
         // map, and the width gate alone would then strand them on the
         // read-based fallback for every commit.
         if (!this.#gridMetricsState.metrics?.has(paragraph)) this.#seedParagraphGridMetrics(paragraph);
-        if (this.#resizeObserverWidths.has(paragraph)) continue;
-        this.#resizeObserverWidths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
-        this.#resizeObserver.observe(paragraph, { box: "border-box" });
+        if (this.#sizeObservation.widths.has(paragraph)) continue;
+        this.#sizeObservation.widths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
+        this.#sizeObservation.observe(paragraph);
       }
       return;
     }
@@ -1540,75 +1544,56 @@ class TiqianProseElement extends HTMLElementBase {
       widths.set(target, fragmentedBorderBoxInlineSize(target));
       if (target !== this) this.#seedParagraphGridMetrics(target);
     }
-    const observer = new ResizeObserver((entries) => {
-      let changed = false;
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i];
-        let width = 0;
-        if (entry.borderBoxSize) {
-          const box = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize;
-          width = box?.inlineSize ?? 0;
+    this.#sizeObservation = createRootSizeObservation({
+      root: this,
+      widths,
+      onRootEntry: ({ width, height }) => {
+        this.#lastObservedWidth = width;
+        coordinator.update(this, { inlineSize: width, area: width * (height || width * 0.6) });
+        if (!this.#inViewport && this.#layoutWorkInFlight) {
+          // A width change while the root stays off-screen keeps pushing the
+          // worker's deferred wake-up, so only the final width is laid out.
+          coordinator.refreshWorkerDeferred(this);
         }
-        if (!width && entry.contentRect) {
-          width = entry.contentRect.width;
-        }
-        if (!width) {
-          width = fragmentedBorderBoxInlineSize(entry.target);
-        }
-        const previous = widths.get(entry.target);
-        widths.set(entry.target, width);
-        if (entry.target === this) {
-          this.#lastObservedWidth = width;
-          const height = entry.contentRect ? entry.contentRect.height : 0;
-          coordinator.update(this, { inlineSize: width, area: width * (height || width * 0.6) });
-          if (!this.#inViewport && this.#layoutWorkInFlight) {
-            // A width change while the root stays off-screen keeps pushing the
-            // worker's deferred wake-up, so only the final width is laid out.
-            coordinator.refreshWorkerDeferred(this);
-          }
-        }
-        if (previous == null || Math.abs(width - previous) >= 0.5) changed = true;
-      }
-      if (!changed) return;
-      if (this.#commitResponsiveGeometryPrePaint()) return;
-      this.#scheduleResponsiveGeometryCommit();
+      },
+      onWidthsChanged: () => {
+        if (this.#commitResponsiveGeometryPrePaint()) return;
+        this.#scheduleResponsiveGeometryCommit();
+      },
     });
-    this.#resizeObserver = observer;
-    this.#resizeObserverWidths = widths;
-    for (let i = 0; i < targets.length; i++) {
-      const target = targets[i];
-      observer.observe(target, { box: "border-box" });
-    }
+    this.#sizeObservation.start(targets);
     this.#ensureViewportResizeListener();
   }
 
   #ensureViewportResizeListener() {
-    if (this.#viewportResizeListener) return;
-    this.#viewportResizeListener = () => {
-      // ViewportResizeValidatesCapturedLayoutInputs: viewport resize is only a
-      // signal that layout inputs may have changed. A fixed/max-width article
-      // can receive the same event while every paragraph measure stays intact;
-      // restoring native source before checking those inputs creates a visible
-      // false rollback. Coalesce the live measure, maximum-snapshot and
-      // typography comparison into the next pre-paint frame. A real change
-      // still cancels the captured job there, while an equivalent grid keeps
-      // both its committed paragraphs and remaining work.
-      if (this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
-        this.#geometryRevision += 1;
-        this.#responsiveCommitRequired = true;
-        this.#scheduleResponsiveRetarget();
-        return;
-      }
-      // Uncaptured snapshot/font preparation revalidates live geometry before
-      // it commits or begins captured work. It is not bound to the pre-resize
-      // measure, so a raw viewport signal alone must not invalidate it.
-      if (this.#layoutWorkInFlight) {
-        return;
-      }
-      this.#handleResponsiveGeometryChange();
-    };
-    window.addEventListener("resize", this.#viewportResizeListener);
-    globalThis.visualViewport?.addEventListener?.("resize", this.#viewportResizeListener);
+    if (!this.#viewportResizeInvalidation) {
+      this.#viewportResizeInvalidation = createViewportResizeInvalidationSource({
+        onResize: () => {
+          // ViewportResizeValidatesCapturedLayoutInputs: viewport resize is only a
+          // signal that layout inputs may have changed. A fixed/max-width article
+          // can receive the same event while every paragraph measure stays intact;
+          // restoring native source before checking those inputs creates a visible
+          // false rollback. Coalesce the live measure, maximum-snapshot and
+          // typography comparison into the next pre-paint frame. A real change
+          // still cancels the captured job there, while an equivalent grid keeps
+          // both its committed paragraphs and remaining work.
+          if (this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
+            this.#geometryRevision += 1;
+            this.#responsiveCommitRequired = true;
+            this.#scheduleResponsiveRetarget();
+            return;
+          }
+          // Uncaptured snapshot/font preparation revalidates live geometry before
+          // it commits or begins captured work. It is not bound to the pre-resize
+          // measure, so a raw viewport signal alone must not invalidate it.
+          if (this.#layoutWorkInFlight) {
+            return;
+          }
+          this.#handleResponsiveGeometryChange();
+        },
+      });
+    }
+    this.#viewportResizeInvalidation.start();
   }
 
   #handleResponsiveGeometryChange() {
@@ -1706,13 +1691,12 @@ class TiqianProseElement extends HTMLElementBase {
   // cannot queue a same-depth observation for the browser's ResizeObserver
   // loop guard to report, then re-observed with the original box option.
   #withRootObservationPaused(commit) {
-    const observer = this.#resizeObserver;
-    observer?.unobserve(this);
+    this.#sizeObservation?.unobserve(this);
     try {
       commit();
       coordinator.grantImmediate(this);
     } finally {
-      observer?.observe(this, { box: "border-box" });
+      this.#sizeObservation?.observe(this);
     }
     return true;
   }
@@ -1878,17 +1862,14 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #removeViewportResizeListener() {
-    if (!this.#viewportResizeListener) return;
-    window.removeEventListener("resize", this.#viewportResizeListener);
-    globalThis.visualViewport?.removeEventListener?.("resize", this.#viewportResizeListener);
-    this.#viewportResizeListener = null;
+    this.#viewportResizeInvalidation?.stop();
+    this.#viewportResizeInvalidation = null;
   }
 
   #stopWidthObservation() {
     this.#clearResponsiveRetarget();
-    this.#resizeObserver?.disconnect();
-    this.#resizeObserver = null;
-    this.#resizeObserverWidths = null;
+    this.#sizeObservation?.stop();
+    this.#sizeObservation = null;
     this.#gridMetricsState.metrics = null;
     this.#lastObservedWidth = 0;
     if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
@@ -1941,69 +1922,50 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeTypography() {
-    this.#typographyObserver?.disconnect();
-    this.#typographyObserver = new MutationObserver(() => this.#scheduleTypographyCheck());
-    // Descendant class/style changes can alter inline semantics. Any ancestor
-    // attribute can participate in selectors that change inherited typography.
-    this.#typographyObserver.observe(this, {
-      attributes: true,
-      subtree: true,
-      attributeFilter: ["class", "style", "data-theme", "data-color-mode"],
-    });
-    for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
-      this.#typographyObserver.observe(ancestor, {
-        attributes: true,
-        attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
+    if (!this.#typographyInvalidation) {
+      this.#typographyInvalidation = createTypographyInvalidationSource(this, {
+        onMutation: () => this.#scheduleTypographyCheck(),
+        onFontEvent: async (event) => {
+          const generation = this.#generation;
+          const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
+          let snapshotLiveIssue = null;
+          if (snapshotAdopted) {
+            try {
+              snapshotLiveIssue = await loadedAdoptedSnapshotLiveIssue(
+                this,
+                () => this.isConnected && generation === this.#generation &&
+                  (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)),
+              );
+            } catch {
+              snapshotLiveIssue = "SnapshotLiveValidationFailed";
+            }
+          }
+          if (!this.isConnected || generation !== this.#generation ||
+              snapshotLiveIssue === "superseded") return;
+          if (snapshotAdopted && snapshotLiveIssue == null) {
+            // SnapshotFontLoadCycleAlreadyValidated: snapshot adoption awaited
+            // and probed every exact evidence face. The browser may dispatch the
+            // corresponding loadingdone task only after observers resume; retain
+            // the snapshot when its CSS face, typography and rendered geometry
+            // contracts still hold instead of starting a redundant font cycle.
+            delete this.dataset.tiqianSnapshotLiveIssue;
+            return;
+          }
+          if (snapshotLiveIssue) this.dataset.tiqianSnapshotLiveIssue = snapshotLiveIssue;
+          const relevantFaceLoaded = fontLoadingAffectsTypography(
+            event,
+            this.#typographyElements(),
+          );
+          const force = this.#forceTypographyRefresh || relevantFaceLoaded;
+          if (this.#deferredTypographyCheck || force) this.#scheduleTypographyCheck(force);
+        },
       });
     }
-    if (document.fonts) {
-      this.#fontLoadingSettledListener = async (event) => {
-        const generation = this.#generation;
-        const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
-        let snapshotLiveIssue = null;
-        if (snapshotAdopted) {
-          try {
-            snapshotLiveIssue = await loadedAdoptedSnapshotLiveIssue(
-              this,
-              () => this.isConnected && generation === this.#generation &&
-                (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)),
-            );
-          } catch {
-            snapshotLiveIssue = "SnapshotLiveValidationFailed";
-          }
-        }
-        if (!this.isConnected || generation !== this.#generation ||
-            snapshotLiveIssue === "superseded") return;
-        if (snapshotAdopted && snapshotLiveIssue == null) {
-          // SnapshotFontLoadCycleAlreadyValidated: snapshot adoption awaited
-          // and probed every exact evidence face. The browser may dispatch the
-          // corresponding loadingdone task only after observers resume; retain
-          // the snapshot when its CSS face, typography and rendered geometry
-          // contracts still hold instead of starting a redundant font cycle.
-          delete this.dataset.tiqianSnapshotLiveIssue;
-          return;
-        }
-        if (snapshotLiveIssue) this.dataset.tiqianSnapshotLiveIssue = snapshotLiveIssue;
-        const relevantFaceLoaded = fontLoadingAffectsTypography(
-          event,
-          this.#typographyElements(),
-        );
-        const force = this.#forceTypographyRefresh || relevantFaceLoaded;
-        if (this.#deferredTypographyCheck || force) this.#scheduleTypographyCheck(force);
-      };
-      document.fonts.addEventListener("loadingdone", this.#fontLoadingSettledListener);
-      document.fonts.addEventListener("loadingerror", this.#fontLoadingSettledListener);
-    }
+    this.#typographyInvalidation.start();
   }
 
   #stopTypographyObservation() {
-    this.#typographyObserver?.disconnect();
-    this.#typographyObserver = null;
-    if (this.#fontLoadingSettledListener) {
-      document.fonts?.removeEventListener("loadingdone", this.#fontLoadingSettledListener);
-      document.fonts?.removeEventListener("loadingerror", this.#fontLoadingSettledListener);
-      this.#fontLoadingSettledListener = null;
-    }
+    this.#typographyInvalidation?.stop();
     if (this.#typographyFrame) cancelAnimationFrame(this.#typographyFrame);
     this.#typographyFrame = 0;
     this.#forceTypographyRefresh = false;
@@ -2017,75 +1979,26 @@ class TiqianProseElement extends HTMLElementBase {
   // probe disproves those by identity instead of disconnecting and losing
   // host edits that land mid-flight.
   #observeContent() {
-    if (!this.#contentObserver) {
-      this.#contentObserver = new MutationObserver((records) => {
-        this.#handleContentMutationRecords(records);
+    if (!this.#contentInvalidation) {
+      this.#contentInvalidation = createContentInvalidationSource(this, {
+        onRecords: (records) => this.#handleContentMutationRecords(records),
+        belongsToRootScope,
       });
-      this.#contentObserver.observe(this, { childList: true, characterData: true, subtree: true });
     }
-    this.#syncCustodyObservation();
+    this.#contentInvalidation.start();
   }
 
-  // CustodyFragmentObservation: takeover moves the host's semantic children
-  // into a detached fragment the engine holds. Frameworks keep references to
-  // those original nodes (React's text update writes .data on them), so host
-  // edits land inside custody where the live-DOM subtree never sees them.
-  // Kotlin publishes the current fragment on each rendered paragraph; observe
-  // every tracked fragment alongside the root. Re-lowering creates a fresh
-  // fragment, so diff the desired set at every job boundary and re-target the
-  // observer only when it changed.
   #syncCustodyObservation() {
-    const desired = new Map();
-    const paragraphs = this.querySelectorAll(
-      `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
-    );
-    for (let i = 0; i < paragraphs.length; i++) {
-      const paragraph = paragraphs[i];
-      if (!belongsToRootScope(paragraph, this)) continue;
-      const fragment = paragraph.__tqCustodyFragment;
-      if (fragment) desired.set(fragment, paragraph);
-    }
-    let unchanged = desired.size === this.#custodyTargets.size;
-    if (unchanged) {
-      for (const [fragment, paragraph] of desired) {
-        if (this.#custodyTargets.get(fragment) !== paragraph) {
-          unchanged = false;
-          break;
-        }
-      }
-    }
-    if (unchanged) return;
-    // Pending records from the outgoing target set still count. Flush them
-    // through the handler first, or a host edit landing in the same frame
-    // would be dropped together with the old registration.
-    const pending = this.#contentObserver.takeRecords();
-    if (pending.length) this.#handleContentMutationRecords(pending);
-    this.#contentObserver.disconnect();
-    this.#contentObserver.observe(this, { childList: true, characterData: true, subtree: true });
-    for (const fragment of desired.keys()) {
-      this.#contentObserver.observe(fragment, { childList: true, characterData: true, subtree: true });
-    }
-    this.#custodyTargets = desired;
+    this.#contentInvalidation?.syncCustody();
   }
 
-  // Attribution for a record under a custody fragment: walk up to the
-  // enclosing detached fragment and map it back to its live paragraph. Live
-  // nodes never reach a DocumentFragment ancestor, so the walk is safe there.
   #custodyParagraphFor(node) {
-    let current = node;
-    while (current) {
-      if (current.nodeType === 11) {
-        return this.#custodyTargets.get(current) || null;
-      }
-      current = current.parentNode;
-    }
-    return null;
+    return this.#contentInvalidation?.paragraphFor(node) ?? null;
   }
 
   #stopContentObservation() {
-    this.#contentObserver?.disconnect();
-    this.#contentObserver = null;
-    this.#custodyTargets.clear();
+    this.#contentInvalidation?.stop();
+    this.#contentInvalidation = null;
     if (this.#contentProbeFrame) cancelAnimationFrame(this.#contentProbeFrame);
     this.#contentProbeFrame = 0;
     this.#contentTainted.clear();
@@ -2235,76 +2148,52 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeLayoutWorkInputs() {
-    this.#stopLayoutWorkInputObservation();
-    this.#layoutWorkTypographyObserver = new MutationObserver((records) => {
-      if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
-      // RendererOwnedProgressiveStyleMutation: paragraph takeover itself adds
-      // the containing block and, for flex items, the captured inline size.
-      // Those writes are output mechanics rather than a host typography
-      // change; cancelling on them makes a valid mixed snapshot restart after
-      // its first viewport-near paragraphs. Reverse only those exact deltas
-      // against MutationRecord.oldValue, while any concurrent host style or
-      // class change still reaches the full signature check below.
-      let rendererOwnedOnly = true;
-      for (let i = 0; i < records.length; i++) {
-        const record = records[i];
-        if (!rendererOwnedProgressiveStyleMutation(record, this)) {
-          rendererOwnedOnly = false;
-          break;
-        }
-      }
-      if (rendererOwnedOnly) {
-        // ProgressiveOutputTypographyBaseline: rendered paragraphs intentionally
-        // replace host line-height/font projection and install a containing
-        // block. Advance the captured baseline after that verified renderer-only
-        // mutation so a later viewport signal compares host changes against the
-        // current mixed native/rendered state, not against the all-native DOM
-        // from before the first commit. A batch containing any host mutation
-        // still falls through to the invalidation check below.
-        this.#layoutWorkTypographySignature = this.#typographySignature();
-        return;
-      }
-      if (this.#typographySignature() === this.#layoutWorkTypographySignature) return;
-      this.#cancelCapturedLayoutForTypographyChange();
-    });
-    this.#layoutWorkTypographyObserver.observe(this, {
-      attributes: true,
-      subtree: true,
-      attributeFilter: ["class", "style", "data-theme", "data-color-mode"],
-      attributeOldValue: true,
-    });
-    for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
-      this.#layoutWorkTypographyObserver.observe(ancestor, {
-        attributes: true,
-        attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
+    if (!this.#layoutWorkTypographyInvalidation) {
+      this.#layoutWorkTypographyInvalidation = createLayoutWorkTypographyInvalidationSource(this, {
+        onMutation: (records) => {
+          if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
+          // RendererOwnedProgressiveStyleMutation: paragraph takeover itself adds
+          // the containing block and, for flex items, the captured inline size.
+          // Those writes are output mechanics rather than a host typography
+          // change; cancelling on them makes a valid mixed snapshot restart after
+          // its first viewport-near paragraphs. Reverse only those exact deltas
+          // against MutationRecord.oldValue, while any concurrent host style or
+          // class change still reaches the full signature check below.
+          let rendererOwnedOnly = true;
+          for (let i = 0; i < records.length; i++) {
+            const record = records[i];
+            if (!rendererOwnedProgressiveStyleMutation(record, this)) {
+              rendererOwnedOnly = false;
+              break;
+            }
+          }
+          if (rendererOwnedOnly) {
+            // ProgressiveOutputTypographyBaseline: rendered paragraphs intentionally
+            // replace host line-height/font projection and install a containing
+            // block. Advance the captured baseline after that verified renderer-only
+            // mutation so a later viewport signal compares host changes against the
+            // current mixed native/rendered state, not against the all-native DOM
+            // from before the first commit. A batch containing any host mutation
+            // still falls through to the invalidation check below.
+            this.#layoutWorkTypographySignature = this.#typographySignature();
+            return;
+          }
+          if (this.#typographySignature() === this.#layoutWorkTypographySignature) return;
+          this.#cancelCapturedLayoutForTypographyChange();
+        },
+        onFontEvent: (event) => {
+          if (
+            this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure &&
+            fontLoadingAffectsTypography(event, this.#typographyElements())
+          ) this.#cancelCapturedLayoutForTypographyChange();
+        },
       });
     }
-    if (document.fonts) {
-      this.#layoutWorkFontLoadingSettledListener = (event) => {
-        if (
-          this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure &&
-          fontLoadingAffectsTypography(event, this.#typographyElements())
-        ) this.#cancelCapturedLayoutForTypographyChange();
-      };
-      document.fonts.addEventListener("loadingdone", this.#layoutWorkFontLoadingSettledListener);
-      document.fonts.addEventListener("loadingerror", this.#layoutWorkFontLoadingSettledListener);
-    }
+    this.#layoutWorkTypographyInvalidation.start();
   }
 
   #stopLayoutWorkInputObservation() {
-    this.#layoutWorkTypographyObserver?.disconnect();
-    this.#layoutWorkTypographyObserver = null;
-    if (this.#layoutWorkFontLoadingSettledListener) {
-      document.fonts?.removeEventListener(
-        "loadingdone",
-        this.#layoutWorkFontLoadingSettledListener,
-      );
-      document.fonts?.removeEventListener(
-        "loadingerror",
-        this.#layoutWorkFontLoadingSettledListener,
-      );
-      this.#layoutWorkFontLoadingSettledListener = null;
-    }
+    this.#layoutWorkTypographyInvalidation?.stop();
   }
 
   #cancelCapturedLayoutForTypographyChange() {
@@ -2421,46 +2310,40 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #observeIntersection() {
-    if (this.#intersectionObserver || typeof IntersectionObserver === "undefined") return;
-    this.#intersectionObserver = new IntersectionObserver((entries) => {
-      for (let i = 0; i < entries.length; i++) {
-        const entry = entries[i];
-        if (entry.target === this) {
-          const wasInViewport = this.#inViewport;
-          this.#inViewport = entry.isIntersecting;
-          const rect = entry.boundingClientRect;
-          const interRect = entry.intersectionRect;
-          const visibleArea = interRect ? interRect.width * interRect.height : 0;
-          coordinator.update(this, {
-            inViewport: this.#inViewport,
-            intersectionRatio: entry.intersectionRatio || (this.#inViewport ? 1.0 : 0.0),
-            visibleArea,
-            inlineSize: rect ? rect.width : 0,
-            area: rect ? rect.width * rect.height : 0,
-          });
-          if (wasInViewport && !this.#inViewport) {
-            // OffscreenWorkerDebounce: an off-screen root stops receiving
-            // grants immediately; its pending layout work waits out the same
-            // trailing window as off-screen frame tasks and replays once the
-            // drag settles or the root returns. Already committed paragraphs
-            // stay committed.
-            coordinator.refreshWorkerDeferred(this);
-          }
-          if (!wasInViewport && this.#inViewport) {
-            coordinator.clearWorkerDeferred(this);
-            if (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired) {
-              this.#scheduleResponsiveGeometryCommit();
-            }
+    if (this.#visibilityObservation || typeof IntersectionObserver === "undefined") return;
+    this.#visibilityObservation = createRootVisibilityObservation(this, {
+      onRootEntry: (fact) => {
+        const wasInViewport = this.#inViewport;
+        this.#inViewport = fact.isIntersecting;
+        coordinator.update(this, {
+          inViewport: this.#inViewport,
+          intersectionRatio: fact.intersectionRatio,
+          visibleArea: fact.visibleArea,
+          inlineSize: fact.inlineSize,
+          area: fact.area,
+        });
+        if (wasInViewport && !this.#inViewport) {
+          // OffscreenWorkerDebounce: an off-screen root stops receiving
+          // grants immediately; its pending layout work waits out the same
+          // trailing window as off-screen frame tasks and replays once the
+          // drag settles or the root returns. Already committed paragraphs
+          // stay committed.
+          coordinator.refreshWorkerDeferred(this);
+        }
+        if (!wasInViewport && this.#inViewport) {
+          coordinator.clearWorkerDeferred(this);
+          if (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired) {
+            this.#scheduleResponsiveGeometryCommit();
           }
         }
-      }
-    }, { rootMargin: "200px 0px" });
-    this.#intersectionObserver.observe(this);
+      },
+    });
+    this.#visibilityObservation.start();
   }
 
   #stopIntersectionObservation() {
-    this.#intersectionObserver?.disconnect();
-    this.#intersectionObserver = null;
+    this.#visibilityObservation?.stop();
+    this.#visibilityObservation = null;
   }
 
   #paragraphWidthSignature() {
@@ -2483,7 +2366,7 @@ class TiqianProseElement extends HTMLElementBase {
     return paragraphMeasureSignatureFromObserved(
       this,
       this.#gridMetricsState,
-      this.#resizeObserverWidths,
+      this.#sizeObservation?.widths ?? null,
       Boolean(this.#exactFontSession),
       () => this.#paragraphMeasureSignature(),
     );
