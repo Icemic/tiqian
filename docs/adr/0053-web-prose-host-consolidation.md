@@ -526,8 +526,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   declaredFaceSheets 在 precomputed.js 为 1 处 import 与 2 处调用，
   relevantFontFaceLiveSignature 函数体无 declared 引用（声明变更的重验走
   E2 的通知，不进 CSSOM 漂移签名）。
-- [ ] **E2 重验入池与注册表生命周期**：唤醒不内联执行；每 root 至多一个 pending
+- [x] **E2 重验入池与注册表生命周期**：唤醒不内联执行；每 root 至多一个 pending
   重验任务、同帧合并；引用计数注销。验收：Verification 7 对应用例。
+  产出（2026-08-23）：2451c34。`createTypographyInvalidationSource` 在 start() 订阅
+  `onDeclaredFacesChanged`、stop() 退订；element.js 的 handler 以 force 走
+  `#scheduleTypographyCheck(true)`，注册表变更无 FontFaceSetEvent 且声明 sheet 不进
+  CSSOM 签名，必须 force 才能越过比较。同帧合并由 `#scheduleTypographyCheck` 既有的
+  rAF 去重承担，不新增 pending 结构。测试三层：declared-faces.test.mjs 用真 source 验证
+  订阅、注册与注销都唤醒、stop 后不再唤醒；element.test.mjs 用 timing-golden 的
+  element drive 驱动元素本体端到端（S1 settle 后两次同帧声明合并为一次
+  enhanceProgressively；补发 relayout-ready 结束首个任务后再声明触发 destroy 加
+  enhanceProgressively 的一次刷新；禁用后声明既不排帧也不产生引擎调用）。驱动期间发现
+  stub 引擎不会完成第一个唤醒打开的排版任务，排版观察停在停止状态；drive 以运行时
+  在 root 上派发的 relayout-ready 事件补上完成信号。timing-golden-host.mjs 为此把
+  S1 建场抽成 startElementDrive 供两条驱动共用，冻结 golden 零 diff 证明抽取行为
+  不变。
 - [ ] **E3 不匹配解释结构化**：EmptyCandidateSet 与 FieldMismatch 两类 detail、
   字段核对顺序固定、dataset detail 进时序 golden。验收：Verification 7 末组用例。
 
