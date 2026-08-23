@@ -224,6 +224,7 @@ function recordingRuntime(pendingByRoot, grants) {
     workerPendingInTier: (root, tier) => pendingByRoot.get(root)[tier - 1],
     workerRunSlice: (controller, minTier) => {
       const tiers = pendingByRoot.get(controller.root);
+      const pendingBefore = [...tiers];
       let processed = 0;
       for (let tier = 1; tier <= minTier && processed < controller.quota; tier += 1) {
         while (tiers[tier - 1] > 0 && processed < controller.quota) {
@@ -231,6 +232,16 @@ function recordingRuntime(pendingByRoot, grants) {
           processed += 1;
         }
       }
+      // Conservation invariant of the voucher protocol: a slice moves items
+      // from pending to processed and creates or drops nothing. The task-pool
+      // unification slice must keep this true at every grant.
+      const pendingBeforeSum = pendingBefore.reduce((sum, n) => sum + n, 0);
+      const pendingAfterSum = tiers.reduce((sum, n) => sum + n, 0);
+      assert.equal(
+        pendingBeforeSum,
+        processed + pendingAfterSum,
+        "grant must conserve pending+processed",
+      );
       grants.push({
         root: controller.root.name,
         tier: minTier,
