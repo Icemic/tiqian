@@ -165,6 +165,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
     "utf8",
   );
   const stylesSource = await readFile(new URL("./styles.css", import.meta.url), "utf8");
+  // core/engine/loaders/styles.js resolves ../../../styles.css from inside
+  // @tiqian/prose-core, so the stylesheet ships in both packages and the two
+  // copies must stay byte-identical.
+  const coreStylesSource = await readFile(new URL("../npm-core/styles.css", import.meta.url), "utf8");
+  assert.equal(coreStylesSource, stylesSource, "npm-core styles.css copy must match @tiqian/prose");
   const adoption = elementSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
   const connectedStart = elementSource.indexOf("  connectedCallback() {");
   const initialSnapshotSource = elementSource.slice(connectedStart, adoption);

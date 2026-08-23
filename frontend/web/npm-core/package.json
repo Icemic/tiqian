@@ -52,6 +52,7 @@
     "snapshot-source.js",
     "snapshot-table-binary.js",
     "snapshot-tables.js",
+    "styles.css",
     "table-binary-writer.mjs",
     "viewport-anchor.js",
     "worker-layout.js"
