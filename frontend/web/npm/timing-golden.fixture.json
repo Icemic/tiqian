@@ -1,6 +1,456 @@
 {
   "version": 1,
   "journeys": {
+    "cache-invalidation": {
+      "observerActivity": [
+        {
+          "id": 1,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "other"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "paragraph"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "other"
+            },
+            {
+              "op": "disconnect",
+              "target": "other"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "ops": [
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "paragraph"
+            }
+          ]
+        }
+      ],
+      "fetchCalls": [],
+      "releaseVerdicts": {
+        "s2Restore": true,
+        "s3Release": true
+      }
+    },
+    "dataset-first-writes": {
+      "datasetWrites": [
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshot",
+          "value": "maximum-measure"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotFontPolicy",
+          "value": "url-only"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotCount",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianExactFontMiss",
+          "value": "FontSessionCreationFailed"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshotFontPolicy"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s2-resize",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshot",
+          "value": "maximum-measure"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotFontPolicy",
+          "value": "url-only"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotCount",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        }
+      ],
+      "attributeWrites": [
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-exact-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-exact-layout-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-exact-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-exact-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-exact-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-exact-layout-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "1"
+        }
+      ]
+    },
+    "event-dispatch": {
+      "elementEvents": [
+        {
+          "phase": "s1-adopt",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 1,
+            "issueCount": 0,
+            "snapshot": true
+          }
+        },
+        {
+          "phase": "s4-reconnect",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 1,
+            "issueCount": 0,
+            "snapshot": true
+          }
+        }
+      ],
+      "documentEvents": [
+        {
+          "phase": "s2-resize",
+          "type": "tiqian:enhance-progressively"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "type": "tiqian:detach"
+        },
+        {
+          "phase": "s4-reconnect",
+          "type": "tiqian:destroy"
+        }
+      ]
+    },
     "grant-rounds": {
       "grants": [
         {
@@ -489,6 +939,46 @@
           0
         ]
       }
+    },
+    "token-transitions": {
+      "transitions": [
+        {
+          "phase": "s1-adopt",
+          "trigger": "connect",
+          "verdicts": [
+            "ready-dispatched",
+            "paragraph-adopted",
+            "dataset-snapshot-written"
+          ]
+        },
+        {
+          "phase": "s2-resize",
+          "trigger": "width-change",
+          "verdicts": [
+            "relayout-event-suppressed",
+            "paragraph-restored",
+            "enhance-progressively-dispatched",
+            "exact-font-miss-recorded"
+          ]
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "trigger": "midflight-disconnect",
+          "verdicts": [
+            "detach-dispatched",
+            "element-events-suppressed"
+          ]
+        },
+        {
+          "phase": "s4-reconnect",
+          "trigger": "reconnect",
+          "verdicts": [
+            "destroy-dispatched",
+            "ready-dispatched",
+            "paragraph-adopted"
+          ]
+        }
+      ]
     },
     "worker-messages": {
       "messages": [

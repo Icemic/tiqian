@@ -1,9 +1,13 @@
 // Timing-anchor goldens for the web prose host refactor (ADR 0053 batch 0,
 // decomposition report section 11). Every journey runs real module code under
-// the shared fake clock (test-clock.mjs) so event order AND numeric durations
-// are deterministic. Golden updates go through TIQIAN_UPDATE_TIMING_GOLDEN=1;
-// each diff is reviewed before the fixture is committed, mirroring the JVM
-// LayoutDumpGoldenTest discipline.
+// the shared fake clock (test-clock.mjs) so dispatch order and record
+// structure are deterministic. Wall-clock-derived numbers are deliberately
+// not frozen: the element module's lazy imports do real I/O whose interleaving
+// with the fake-clock pump varies per process, so frame counts and every
+// duration derived from them vary too (timing-golden-host.mjs normalizes them
+// away at recording time). Golden updates go through
+// TIQIAN_UPDATE_TIMING_GOLDEN=1; each diff is reviewed before the fixture is
+// committed, mirroring the JVM LayoutDumpGoldenTest discipline.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -22,12 +26,16 @@ import {
   harness,
   manifestWithFaces,
 } from "./browser-fonts-fixtures.mjs";
+import {
+  driveElementTimeline,
+  ELEMENT_DRIVE_GLOBALS,
+  FRAME_STEP_MS,
+} from "./timing-golden-host.mjs";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
 const UPDATE_ENV = "TIQIAN_UPDATE_TIMING_GOLDEN";
 const FRAME_TRACE_LIMIT = 600;
-const FRAME_STEP_MS = 16;
 const SLOW_FRAME_STEP_MS = 60;
 const SUSPEND_GAP_MS = 300;
 
@@ -69,6 +77,131 @@ function firstDifferencePath(expected, actual, prefix = "$") {
     if (diff !== null) return diff;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Element-journey projections (four record shapes from the shared drive)
+// ---------------------------------------------------------------------------
+
+function projectEventDispatch(full) {
+  // frameAdvanceCounts is intentionally excluded: the pump frame counts ride
+  // the same lazy-import I/O interleaving (see timing-golden-host.mjs), so
+  // this journey freezes dispatch order and detail structure only.
+  return {
+    elementEvents: full.elementEvents,
+    documentEvents: full.documentEvents,
+  };
+}
+
+function projectDatasetFirstWrites(full) {
+  return {
+    datasetWrites: full.datasetWrites,
+    attributeWrites: full.attributeWrites,
+  };
+}
+
+// Each verdict is derived from the recorded observables (events, dataset
+// writes, paragraph state) so a behavior change moves the golden; nothing is
+// hardcoded. Complementary branch names keep a suppressed dispatch or a
+// missing write visible instead of silently absent.
+function deriveTransitions(full) {
+  const elementEventsIn = (phase) => full.elementEvents.filter((e) => e.phase === phase);
+  const has = (phase, type) => elementEventsIn(phase).some((e) => e.type === type);
+  const docHas = (phase, type) =>
+    full.documentEvents.some((e) => e.phase === phase && e.type === type);
+  const dsHas = (phase, key) =>
+    full.datasetWrites.some((w) => w.phase === phase && w.key === key);
+  const adopted = (phase) => full.paragraphStates[phase]?.firstChildNodeType === 1;
+  const restored = (phase) => full.paragraphStates[phase]?.firstChildText === "中国";
+
+  return [
+    {
+      phase: "s1-adopt",
+      trigger: "connect",
+      verdicts: [
+        has("s1-adopt", "tiqian:ready") ? "ready-dispatched" : "ready-missing",
+        adopted("s1") ? "paragraph-adopted" : "paragraph-not-adopted",
+        dsHas("s1-adopt", "tiqianSnapshot") ? "dataset-snapshot-written" : "dataset-snapshot-missing",
+      ],
+    },
+    {
+      phase: "s2-resize",
+      trigger: "width-change",
+      verdicts: [
+        has("s2-resize", "tiqian:relayout-ready")
+          ? "relayout-event-dispatched"
+          : "relayout-event-suppressed",
+        restored("s2") ? "paragraph-restored" : "paragraph-not-restored",
+        docHas("s2-resize", "tiqian:enhance-progressively")
+          ? "enhance-progressively-dispatched"
+          : "enhance-progressively-missing",
+        dsHas("s2-resize", "tiqianExactFontMiss")
+          ? "exact-font-miss-recorded"
+          : "exact-font-miss-missing",
+      ],
+    },
+    {
+      phase: "s3-midflight-disconnect",
+      trigger: "midflight-disconnect",
+      verdicts: [
+        docHas("s3-midflight-disconnect", "tiqian:detach")
+          ? "detach-dispatched"
+          : "detach-missing",
+        elementEventsIn("s3-midflight-disconnect").length === 0
+          ? "element-events-suppressed"
+          : "element-events-present",
+      ],
+    },
+    {
+      phase: "s4-reconnect",
+      trigger: "reconnect",
+      verdicts: [
+        docHas("s4-reconnect", "tiqian:destroy") ? "destroy-dispatched" : "destroy-missing",
+        has("s4-reconnect", "tiqian:ready") ? "ready-dispatched" : "ready-missing",
+        adopted("s4") ? "paragraph-adopted" : "paragraph-not-adopted",
+      ],
+    },
+  ];
+}
+
+function projectTokenTransitions(full) {
+  return { transitions: deriveTransitions(full) };
+}
+
+// Cache-invalidation scope: the cancel paths that require an active
+// Kotlin-runtime capture are unreachable in this no-runtime drive. Recorded
+// here is the JS-reachable side only: geometry-change consequences (restore,
+// observer teardown) and disconnect-driven release.
+function projectCacheInvalidation(full) {
+  return {
+    observerActivity: full.observerActivity,
+    fetchCalls: full.fetchCalls,
+    releaseVerdicts: {
+      s2Restore: full.paragraphStates.s2?.firstChildText === "中国",
+      s3Release: full.observerActivity.some((o) =>
+        o.ops.some((op) => op.op === "disconnect")),
+    },
+  };
+}
+
+const ELEMENT_JOURNEYS = {
+  "event-dispatch": projectEventDispatch,
+  "dataset-first-writes": projectDatasetFirstWrites,
+  "token-transitions": projectTokenTransitions,
+  "cache-invalidation": projectCacheInvalidation,
+};
+
+// Each element journey runs the full S1-S4 drive in a pristine global
+// environment and projects the shared record into its own frozen shape.
+async function recordElementJourney(journeyKey) {
+  const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
+  const clock = installFakeClock();
+  try {
+    const full = await driveElementTimeline(clock, journeyKey);
+    return ELEMENT_JOURNEYS[journeyKey](full);
+  } finally {
+    restoreGlobals(globals);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +498,10 @@ async function recordWorkerMessages() {
 const JOURNEYS = {
   "grant-rounds": recordGrantRounds,
   "worker-messages": recordWorkerMessages,
+  "event-dispatch": () => recordElementJourney("event-dispatch"),
+  "dataset-first-writes": () => recordElementJourney("dataset-first-writes"),
+  "token-transitions": () => recordElementJourney("token-transitions"),
+  "cache-invalidation": () => recordElementJourney("cache-invalidation"),
 };
 
 test("timing goldens match the frozen fixture", async () => {
