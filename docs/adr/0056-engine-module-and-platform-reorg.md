@@ -19,7 +19,7 @@
    core / font / linebreak / clreq / layout / shaping-api 的源码按
    `org.tiqian.{core,font,linebreak,clreq,layout,shaping}` 包分簇进一个 Gradle 模块，包名、
    source range 与公共 API 全部保留。KMP 无法「源码分开、发布合一」（klib / metadata 合不了），
-   故必须真源码合并。engine 侧 publication 从 42 份降到 7 份。代价：失去六个概念层之间依赖方向的
+   故必须真源码合并。engine 侧 publication 从 60 份降到 10 份（含 PR #7 引入的 linux/mingw target；其中 6 份 native 不上远端，见 ADR 0055）。代价：失去六个概念层之间依赖方向的
    编译期强制，改由包结构纪律与 review 保证。
 
 2. **顶层按宿主平台重组**：`engine/`、`platforms/{android,web,apple,jvm,compose}/`、

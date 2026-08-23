@@ -33,7 +33,8 @@ Apple/native 前端也尚未对外发布。
 
 ## Consequences
 
-- 每轮 Central release 的 publication 从 72 份降到 36 份（native 侧全部移出），文件数约减半。
+- 每轮 Central release 实际上传的 publication 从 72 份降到 16 份（发布图 22 份，其中
+  engine 的 6 份 native 对远端禁用），文件数约降至原来的两成余。
 - SNAPSHOT 自动 90 天清理、不进搜索索引：博客示例、下游锁版本等任何需要长期可复现的引用都
   不得指向 snapshot。
 - 消费端拉取预览版需显式加入 snapshot 仓库并限定到 `org.tiqian`（`snapshotsOnly` +
