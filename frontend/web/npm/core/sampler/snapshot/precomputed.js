@@ -22,6 +22,7 @@ import {
   snapshotSourceArtifactString,
 } from "./snapshot-source.js";
 import { lineLengthGridMeasure } from "../grid-metrics.js";
+import { declaredFaceSheets } from "./declared-faces.js";
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const WIDTH_TOLERANCE_PX = 0.5;
@@ -295,7 +296,7 @@ function compatibleLocalSources(face, evidence) {
     allowed.has(canonicalLocalFontName(name)));
 }
 
-function collectFontFaces(documentObject, requestedFamilies = null) {
+export function collectFontFaces(documentObject, requestedFamilies = null) {
   const faces = [];
   let unverifiable = false;
   const visit = (rules, fallbackBaseUrl) => {
@@ -335,6 +336,9 @@ function collectFontFaces(documentObject, requestedFamilies = null) {
       }
     }
   };
+  for (const declared of declaredFaceSheets()) {
+    visit(declared.rules, declared.baseUrl);
+  }
   for (const sheet of documentObject.styleSheets ?? []) {
     try {
       visit(sheet.cssRules, sheet.href || documentObject.baseURI);
@@ -398,6 +402,11 @@ async function collectFontFacesCooperatively(
     }
     return true;
   };
+  for (const declared of declaredFaceSheets()) {
+    if (!await visit(declared.rules, declared.baseUrl)) {
+      return { faces, unverifiable, superseded: true };
+    }
+  }
   for (const sheet of documentObject.styleSheets ?? []) {
     try {
       if (!await visit(sheet.cssRules, sheet.href || documentObject.baseURI)) {

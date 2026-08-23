@@ -11,6 +11,7 @@ import {
 import { loadExactFontFallback } from "./core/engine/loaders/font-loader.js";
 
 export { loadTiqianRuntime };
+export { declareTiqianFontFaces } from "./core/sampler/snapshot/declared-faces.js";
 
 const rootGenerations = new WeakMap();
 const rootFontSessions = new WeakMap();
