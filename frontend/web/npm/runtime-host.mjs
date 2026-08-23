@@ -59,11 +59,86 @@ export class FakeCustomEvent extends FakeEvent {
   }
 }
 
-function matchesHostSelector(element, selector) {
-  if (selector === "*") return element.nodeType === 1;
+export class FakeClipboardEvent extends FakeEvent {
+  constructor(type, init = {}) {
+    super(type, init);
+    this.clipboardData = init.clipboardData ?? null;
+  }
+}
+
+export class FakeDataTransfer {
+  constructor() {
+    this._data = {};
+  }
+
+  setData(type, value) {
+    this._data[type] = String(value);
+  }
+
+  getData(type) {
+    return this._data[type] ?? "";
+  }
+}
+
+export class FakeSelection {
+  constructor() {
+    this._ranges = [];
+  }
+
+  get rangeCount() {
+    return this._ranges.length;
+  }
+
+  get isCollapsed() {
+    if (this._ranges.length === 0) return true;
+    const r = this._ranges[0];
+    return r.startContainer === r.endContainer && r.startOffset === r.endOffset;
+  }
+
+  getRangeAt(index) {
+    return this._ranges[index] ?? null;
+  }
+
+  removeAllRanges() {
+    this._ranges = [];
+  }
+
+  addRange(range) {
+    this._ranges.push(range);
+  }
+
+  toString() {
+    if (this._ranges.length === 0) return "";
+    return this._ranges.map((r) => r.toString()).join("");
+  }
+}
+
+function matchesHostSelector(element, selector, scopeElement = null) {
+  if (!element || element.nodeType !== 1) return false;
+  if (selector === "*") return true;
   const parts = selector.split(",").map((s) => s.trim());
   if (parts.length > 1) {
-    return parts.some((p) => matchesHostSelector(element, p));
+    return parts.some((p) => matchesHostSelector(element, p, scopeElement));
+  }
+
+  if (selector === ":scope") {
+    return element === scopeElement;
+  }
+
+  if (selector.includes(">")) {
+    const segments = selector.split(">").map((s) => s.trim());
+    let curr = element;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (!curr || curr.nodeType !== 1) return false;
+      const seg = segments[i];
+      if (seg === ":scope") {
+        if (curr !== scopeElement) return false;
+      } else if (!matchesCompound(curr, seg)) {
+        return false;
+      }
+      curr = curr.parentElement;
+    }
+    return true;
   }
 
   const spaceTokens = selector.split(/\s+/).filter(Boolean);
@@ -73,7 +148,10 @@ function matchesHostSelector(element, selector) {
     let ancestor = element.parentElement;
     let tokenIndex = spaceTokens.length - 2;
     while (ancestor && tokenIndex >= 0) {
-      if (matchesCompound(ancestor, spaceTokens[tokenIndex])) {
+      if (spaceTokens[tokenIndex] === ":scope") {
+        if (ancestor !== scopeElement) return false;
+        tokenIndex -= 1;
+      } else if (matchesCompound(ancestor, spaceTokens[tokenIndex])) {
         tokenIndex -= 1;
       }
       ancestor = ancestor.parentElement;
@@ -85,7 +163,7 @@ function matchesHostSelector(element, selector) {
 }
 
 function matchesCompound(element, selector) {
-  if (element.nodeType !== 1) return false;
+  if (!element || element.nodeType !== 1) return false;
   if (selector === "*") return true;
 
   if (selector.startsWith(":is(") && selector.endsWith(")")) {
@@ -94,22 +172,59 @@ function matchesCompound(element, selector) {
     return subSelectors.some((sub) => matchesHostSelector(element, sub));
   }
 
-  const isMatch = /^([a-zA-Z0-9_-]+)?(?:\.([a-zA-Z0-9_-]+))?(?:\[([a-zA-Z0-9_-]+)(?:([~|^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\])?$/u.exec(selector);
-  if (!isMatch) {
-    return false;
+  if (selector.includes(":not(")) {
+    const match = /(.*?):not\((.*?)\)(.*)/.exec(selector);
+    if (match) {
+      const [, before, negated, after] = match;
+      const rest = (before + after).trim();
+      if (matchesHostSelector(element, negated)) return false;
+      if (rest && rest !== "*") {
+        return matchesCompound(element, rest);
+      }
+      return true;
+    }
   }
 
-  const [, tagName, className, attrName, , dblVal, sglVal, rawVal] = isMatch;
-  if (tagName && element.tagName !== tagName.toUpperCase()) return false;
-  if (className) {
-    const classes = (element.getAttribute("class") || "").trim().split(/\s+/);
-    if (!classes.includes(className)) return false;
+  let s = selector;
+  const tagMatch = /^([a-zA-Z0-9_-]+)/.exec(s);
+  if (tagMatch) {
+    if (element.tagName !== tagMatch[1].toUpperCase()) return false;
+    s = s.slice(tagMatch[0].length);
   }
-  if (attrName) {
-    if (!element.hasAttribute(attrName)) return false;
-    const expectedVal = dblVal ?? sglVal ?? rawVal;
-    if (expectedVal != null && element.getAttribute(attrName) !== expectedVal) return false;
+
+  while (s.length > 0) {
+    if (s.startsWith("#")) {
+      const idMatch = /^#([a-zA-Z0-9_-]+)/.exec(s);
+      if (!idMatch) return false;
+      if (element.getAttribute("id") !== idMatch[1]) return false;
+      s = s.slice(idMatch[0].length);
+    } else if (s.startsWith(".")) {
+      const classMatch = /^\.([a-zA-Z0-9_-]+)/.exec(s);
+      if (!classMatch) return false;
+      const classes = (element.getAttribute("class") || "").trim().split(/\s+/);
+      if (!classes.includes(classMatch[1])) return false;
+      s = s.slice(classMatch[0].length);
+    } else if (s.startsWith("[")) {
+      const attrMatch = /^\[([a-zA-Z0-9_-]+)(?:([~|^$*]?=)(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\]/.exec(s);
+      if (!attrMatch) return false;
+      const [, attrName, op, dblVal, sglVal, rawVal] = attrMatch;
+      if (!element.hasAttribute(attrName)) return false;
+      const expectedVal = dblVal ?? sglVal ?? rawVal;
+      if (op && expectedVal != null) {
+        const actualVal = element.getAttribute(attrName);
+        if (op === "=" && actualVal !== expectedVal) return false;
+        if (op === "~=" && !actualVal.split(/\s+/).includes(expectedVal)) return false;
+        if (op === "|=" && actualVal !== expectedVal && !actualVal.startsWith(expectedVal + "-")) return false;
+        if (op === "^=" && !actualVal.startsWith(expectedVal)) return false;
+        if (op === "$=" && !actualVal.endsWith(expectedVal)) return false;
+        if (op === "*=" && !actualVal.includes(expectedVal)) return false;
+      }
+      s = s.slice(attrMatch[0].length);
+    } else {
+      return false;
+    }
   }
+
   return true;
 }
 
@@ -225,9 +340,25 @@ function getHorizontalPadding(element) {
   return { left: 0, right: 0 };
 }
 
+export class FakeAttributesMap extends Map {
+  * [Symbol.iterator]() {
+    for (const [k, v] of super[Symbol.iterator]()) {
+      const item = [k, v];
+      item.name = k;
+      item.value = v;
+      yield item;
+    }
+  }
+
+  entries() {
+    return this[Symbol.iterator]();
+  }
+}
+
 export class HostElement extends FakeElement {
   constructor(tagName) {
     super(tagName);
+    this.attributes = new FakeAttributesMap();
     this.ownerDocument = globalThis.document ?? null;
     this.style = createStyleObject(this);
     this.listeners = new Map();
@@ -336,14 +467,39 @@ export class HostElement extends FakeElement {
 
   dispatchEvent(event) {
     event.target = this;
-    event.currentTarget = this;
-    const set = this.listeners.get(event.type);
-    if (set) {
-      for (const listener of Array.from(set)) {
-        listener(event);
+    let curr = this;
+    while (curr) {
+      event.currentTarget = curr;
+      const set = curr.listeners?.get(event.type);
+      if (set) {
+        for (const listener of Array.from(set)) {
+          listener(event);
+        }
+      }
+      if (!event.bubbles) break;
+      curr = curr.parentElement;
+    }
+    if (event.bubbles && this.ownerDocument) {
+      event.currentTarget = this.ownerDocument;
+      const docSet = this.ownerDocument.listeners?.get(event.type);
+      if (docSet) {
+        for (const listener of Array.from(docSet)) {
+          listener(event);
+        }
       }
     }
     return !event.defaultPrevented;
+  }
+
+  matches(selector) {
+    return matchesHostSelector(this, selector);
+  }
+
+  closest(selector) {
+    for (let node = this; node; node = node.parentElement) {
+      if (node.nodeType === 1 && matchesHostSelector(node, selector)) return node;
+    }
+    return null;
   }
 
   replaceChildren(...nodes) {
@@ -374,6 +530,15 @@ export class HostElement extends FakeElement {
   getBoundingClientRect() {
     let w = this.width;
     if (!w) {
+      const inlineSize = this.style?.getPropertyValue?.("inline-size") || this.style?.inlineSize;
+      if (inlineSize) {
+        const parsed = Number.parseFloat(inlineSize);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          w = parsed;
+        }
+      }
+    }
+    if (!w) {
       const isInline = [
         "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
         "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
@@ -384,23 +549,50 @@ export class HostElement extends FakeElement {
         const textLen = (this.textContent || "").length;
         w = pad.left + textLen * 18 + pad.right;
       } else {
-        for (let curr = this; curr; curr = curr.parentElement) {
-          const styleWidth = curr.style?.getPropertyValue?.("width") || curr.style?.width;
-          if (styleWidth) {
-            const parsed = Number.parseFloat(styleWidth);
-            if (!Number.isNaN(parsed) && parsed > 0) {
-              w = parsed;
-              break;
+        const selfDisplay = this.style?.getPropertyValue?.("display") || this.style?.display || "";
+        const parentDisplay = this.parentElement?.style?.getPropertyValue?.("display") || this.parentElement?.style?.display || "";
+        const isContentSized = ["flex", "grid", "inline-flex", "inline-grid"].includes(parentDisplay) ||
+          ["inline-block", "inline-flex", "inline-grid"].includes(selfDisplay) ||
+          this.parentElement?.tagName === "FIGURE" || this.tagName === "FIGURE";
+
+        if (isContentSized) {
+          const pad = getHorizontalPadding(this);
+          const textLen = (this.textContent || "").length;
+          let availableWidth = 360;
+          for (let curr = this.parentElement; curr; curr = curr.parentElement) {
+            const sw = curr.style?.getPropertyValue?.("width") || curr.style?.width;
+            if (sw) {
+              const p = Number.parseFloat(sw);
+              if (!Number.isNaN(p) && p > 0) {
+                availableWidth = p;
+                break;
+              }
             }
           }
-          if (curr.width) {
-            w = curr.width;
-            break;
+          if (textLen === 0) {
+            w = 0;
+          } else {
+            w = Math.min(availableWidth, pad.left + textLen * 18 + pad.right);
+          }
+        } else {
+          for (let curr = this; curr; curr = curr.parentElement) {
+            const styleWidth = curr.style?.getPropertyValue?.("width") || curr.style?.width;
+            if (styleWidth) {
+              const parsed = Number.parseFloat(styleWidth);
+              if (!Number.isNaN(parsed) && parsed > 0) {
+                w = parsed;
+                break;
+              }
+            }
+            if (curr.width) {
+              w = curr.width;
+              break;
+            }
           }
         }
       }
     }
-    if (!w) w = 360;
+    if (w == null || (w === 0 && (this.textContent || "").length > 0)) w = 360;
     return new FakeDOMRect(this.left ?? 0, this.top ?? 0, w, this.height || 30);
   }
 
@@ -425,7 +617,7 @@ export class HostElement extends FakeElement {
     const result = [];
     const visit = (node) => {
       for (const child of node.childNodes) {
-        if (child.nodeType === 1 && matchesHostSelector(child, selector)) {
+        if (child.nodeType === 1 && matchesHostSelector(child, selector, this)) {
           result.push(child);
         }
         visit(child);
@@ -442,7 +634,7 @@ export class HostElement extends FakeElement {
   cloneNode(deep = false) {
     const clone = new HostElement(this.tagName);
     clone.ownerDocument = this.ownerDocument;
-    clone.attributes = new Map(this.attributes);
+    clone.attributes = new FakeAttributesMap(this.attributes);
     clone.style.cssText = this.style.cssText;
     if (deep) {
       for (const child of this.childNodes) {
@@ -573,16 +765,21 @@ export class FakeCanvasRenderingContext2D {
 
   measureText(text) {
     const len = String(text ?? "").length;
+    const match = /(\d+(?:\.\d+)?)px\b/.exec(this.font || "");
+    const fontSize = match ? Number.parseFloat(match[1]) : 18;
+    const width = len * fontSize;
+    const ascent = fontSize * (16 / 18);
+    const descent = fontSize * (4 / 18);
     return {
-      width: len * 18,
+      width,
       actualBoundingBoxLeft: 0,
-      actualBoundingBoxRight: len * 18,
-      actualBoundingBoxAscent: 16,
-      actualBoundingBoxDescent: 4,
-      fontBoundingBoxAscent: 16,
-      fontBoundingBoxDescent: 4,
-      ideographicBaseline: -16,
-      alphabeticBaseline: -16,
+      actualBoundingBoxRight: width,
+      actualBoundingBoxAscent: ascent,
+      actualBoundingBoxDescent: descent,
+      fontBoundingBoxAscent: ascent,
+      fontBoundingBoxDescent: descent,
+      ideographicBaseline: -ascent,
+      alphabeticBaseline: -ascent,
     };
   }
 }
@@ -735,6 +932,13 @@ function toNodeList(array) {
 }
 
 // Node global definition for Kotlin/JS DOM checks.
+FakeNode.prototype.contains = function (other) {
+  for (let node = other; node; node = node.parentNode) {
+    if (node === this) return true;
+  }
+  return false;
+};
+
 export class HostNode extends FakeNode {
   contains(other) {
     for (let node = other; node; node = node.parentNode) {
@@ -852,6 +1056,15 @@ FakeNode.prototype.replaceChildren = function (...nodes) {
   }
 };
 
+FakeNode.prototype.replaceWith = function (...nodes) {
+  if (!this.parentNode) return;
+  const parent = this.parentNode;
+  for (const node of nodes) {
+    parent.insertBefore(node, this);
+  }
+  parent.removeChild(this);
+};
+
 let cachedDocument = null;
 
 export class FakeRange {
@@ -877,6 +1090,48 @@ export class FakeRange {
     this.startOffset = 0;
     this.endContainer = node;
     this.endOffset = (node?.data ?? node?.value ?? node?.textContent ?? "").length;
+  }
+
+  get commonAncestorContainer() {
+    return this.startContainer;
+  }
+
+  intersectsNode(node) {
+    if (!node) return false;
+    if (node === this.startContainer || node === this.endContainer) return true;
+    if (this.startContainer?.contains?.(node) || node.contains?.(this.startContainer)) return true;
+    return false;
+  }
+
+  cloneContents() {
+    const fragment = new FakeFragment();
+    if (!this.startContainer) return fragment;
+    if (this.startContainer === this.endContainer) {
+      if (this.startContainer.nodeType === 1) {
+        for (const child of this.startContainer.childNodes) {
+          fragment.appendChild(child.cloneNode(true));
+        }
+      } else if (this.startContainer.nodeType === 3) {
+        const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
+        const start = this.startOffset ?? 0;
+        const end = this.endOffset ?? full.length;
+        fragment.appendChild(new FakeText(full.slice(start, end)));
+      }
+    } else {
+      fragment.appendChild(new FakeText(this.toString()));
+    }
+    return fragment;
+  }
+
+  toString() {
+    if (!this.startContainer) return "";
+    if (this.startContainer.nodeType === 3) {
+      const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
+      const start = this.startOffset ?? 0;
+      const end = this.endOffset ?? full.length;
+      return full.slice(start, end);
+    }
+    return this.startContainer.textContent ?? "";
   }
 
   getBoundingClientRect() {
@@ -969,11 +1224,13 @@ function createDocumentDouble() {
       return !event.defaultPrevented;
     },
     getSelection() {
-      return {
-        removeAllRanges() {},
-        addRange() {},
-        toString: () => "",
-      };
+      return globalThis.getSelection();
+    },
+    contains(other) {
+      for (let node = other; node; node = node.parentNode) {
+        if (node === doc || node === doc.documentElement || node === doc.body) return true;
+      }
+      return false;
     },
   };
   doc.body = doc.createElement("body");
@@ -984,6 +1241,8 @@ function createDocumentDouble() {
   cachedDocument = doc;
   return doc;
 }
+
+let currentSelection = null;
 
 export function buildWorld() {
   if (!originalGlobals) {
@@ -1003,6 +1262,9 @@ export function buildWorld() {
       IntersectionObserver: globalThis.IntersectionObserver,
       CustomEvent: globalThis.CustomEvent,
       Event: globalThis.Event,
+      ClipboardEvent: globalThis.ClipboardEvent,
+      DataTransfer: globalThis.DataTransfer,
+      getSelection: globalThis.getSelection,
       DOMRect: globalThis.DOMRect,
       window: globalThis.window,
       fetch: globalThis.fetch,
@@ -1015,6 +1277,7 @@ export function buildWorld() {
     };
   }
 
+  currentSelection = new FakeSelection();
   globalThis.Node = FakeNode;
   globalThis.Element = HostElement;
   globalThis.HTMLElement = HostElement;
@@ -1025,9 +1288,13 @@ export function buildWorld() {
   globalThis.Text = FakeText;
   globalThis.CustomEvent = FakeCustomEvent;
   globalThis.Event = FakeEvent;
+  globalThis.ClipboardEvent = FakeClipboardEvent;
+  globalThis.DataTransfer = FakeDataTransfer;
+  globalThis.getSelection = () => currentSelection;
   globalThis.DOMRect = FakeDOMRect;
   globalThis.document = createDocumentDouble();
   globalThis.window = globalThis;
+  globalThis.window.getSelection = () => currentSelection;
 
   globalThis.getComputedStyle = (element, pseudo) => {
     const isInlineTag = [
@@ -1040,6 +1307,13 @@ export function buildWorld() {
     return {
       ...base,
       getPropertyValue(name) {
+        if (name.startsWith("--")) {
+          for (let curr = element; curr; curr = curr.parentElement) {
+            const v = curr.style?.getPropertyValue?.(name);
+            if (v !== undefined && v !== "") return v;
+          }
+          return "";
+        }
         const inline = element?.style?.getPropertyValue?.(name);
         if (inline !== undefined && inline !== "") return inline;
         const camel = name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
@@ -1103,6 +1377,9 @@ export function buildWorld() {
 }
 
 export function cleanupWorld() {
+  if (currentSelection) {
+    currentSelection.removeAllRanges();
+  }
   if (globalThis.document?.body) {
     while (globalThis.document.body.firstChild) {
       globalThis.document.body.removeChild(globalThis.document.body.firstChild);
@@ -1384,22 +1661,66 @@ export function loadHostRuntime() {
         const count = root.getAttribute("data-tiqian-enhanced-count");
         return count != null ? Number(count) : 0;
       };
+      const rawEnhanceAll = bridge.enhanceAll?.bind(bridge);
+      if (rawEnhanceAll) {
+        bridge.enhanceAll = (options) => {
+          rawEnhanceAll(options);
+          let count = 0;
+          for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
+            const c = root.getAttribute("data-tiqian-enhanced-count");
+            if (c != null) count += Number(c);
+          }
+          return count;
+        };
+      }
     }
     return bridge;
   });
   return runtimePromise;
 }
 
+export function computedStyleValue(element, property) {
+  return globalThis.getComputedStyle(element).getPropertyValue(property);
+}
+
+export function elementWidth(element) {
+  return element.getBoundingClientRect().width;
+}
+
+export function cssPx(value) {
+  return Number.parseFloat(String(value).replace(/px$/, "")) || 0;
+}
+
+export function copySelection(element) {
+  const selection = globalThis.getSelection();
+  const range = globalThis.document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const clipboardData = new globalThis.DataTransfer();
+  const event = new globalThis.ClipboardEvent("copy", {
+    bubbles: true,
+    cancelable: true,
+    clipboardData,
+  });
+  element.dispatchEvent(event);
+  const text = clipboardData.getData("text/plain") || selection.toString();
+  selection.removeAllRanges();
+  return text;
+}
+
 const mounted = [];
 
-export function mount(html) {
+export function mount(html, { sharedStylesReady = true } = {}) {
   buildWorld();
   const wrapper = new HostElement("div");
   wrapper.ownerDocument = globalThis.document;
   wrapper.innerHTML = html;
   const root = wrapper.firstElementChild;
   if (!root) throw new Error("mount: markup has no root element");
-  root.style.setProperty("--tq-styles-ready", "1");
+  if (sharedStylesReady) {
+    root.style.setProperty("--tq-styles-ready", "1");
+  }
   globalThis.document.body.appendChild(root);
   mounted.push(root);
   return root;
