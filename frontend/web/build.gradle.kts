@@ -82,6 +82,13 @@ val generateResponsiveMeasureBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedResponsiveMeasureScript",
 )
 
+val generateMarkdownLoweringBridge = registerBridgeGenerator(
+    taskName = "generateMarkdownLoweringBridge",
+    name = "markdownLowering",
+    sourceRelativePath = "npm/core/engine/markdown-lowering.js",
+    installFunName = "installEmbeddedMarkdownLoweringScript",
+)
+
 // DemoPreparedDomVendor: the ADR 0039 demo page loads only the Kotlin bundle,
 // so after the native renderer's retirement (ADR 0053 B8.3c) it must serve
 // the npm prepared-DOM renderer itself. The five modules are copied with
@@ -124,6 +131,7 @@ kotlin {
             kotlin.srcDir(layout.buildDirectory.dir("generated/copy/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/contentReconcile/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/responsiveMeasure/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/markdownLowering/kotlin"))
             resources.srcDir(vendoredPreparedDomRoot)
             dependencies {
                 api(project(":engine"))
@@ -143,6 +151,7 @@ tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
     dependsOn(generateCopyBridge)
     dependsOn(generateContentReconcileBridge)
     dependsOn(generateResponsiveMeasureBridge)
+    dependsOn(generateMarkdownLoweringBridge)
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {
