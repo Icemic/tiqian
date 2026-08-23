@@ -458,6 +458,29 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   marginRight} 元数据，换入原语按区间对位深克隆；worker 分支的 canonical-plain
   判定从 sourceSpans.isEmpty() 改为 isCanonicalPlainParagraph()，行内对象段落
   重排时重测对象，不再误标纯段落。
+  产出（着重圆点颜色、cjk-emphasis 标记与 dash 面校验进 prepared 路径，
+  2026-08-23）：5dc7ec1。着重圆点颜色在渲染时解析：取覆盖该 cluster 且 order
+  （嵌套深度）最大的 semantic 的 getComputedStyle 颜色，无命中回落
+  currentColor，与 native 渲染器 sourceSpans.maxByOrNull{depth} 的取值一致；
+  无 live 元素时圆点维持 currentColor，artifact 输出字节不变。npm 侧新增
+  cjkStrongSemantics 选项：按区间相等匹配 semantic，artifact 分支写
+  data-tq-cjk-emphasis 与 font-weight important，live-source 分支在
+  restoreLiveSemanticElements 换入克隆时补同样的标记与样式。校验器新增
+  renderedDashFaceIssue：[data-tq-dash-font-family] 的 computed font-family
+  与属性值比对（首个逗号前 token、去引号、小写比较），不一致时报
+  RenderedPreparedParagraphDashFaceMismatch，位于段 advance 校验之后。npm test
+  360/360（新增着重圆点颜色、深度优先、cjk-strong 标记与 dash 面四组）。
+  产出（cjk-strong 线接线与装饰段落准入，B8.3b 首批，2026-08-23）：
+  preparedCjkStrongSemanticsJson 从带 cjkStrongBaseWeight 的 sourceSpans 序列化
+  {start, end, weight}，经运行时桥与 Worker 换入桥的 options.cjkStrongSemantics
+  传入，上一批的 npm 侧由此接通。isRuntimeExactPreparedDomEligible 撤销
+  decorations 排除：装饰段落的 plan 无条件序列化 decorationSegments 与
+  emphasisDots，运行时 LayoutInput 本就携带 decorations，富段落照常开
+  renderEvidence，commit 走 prepared 分支。Worker 请求仍排除装饰段落：请求线
+  没有装饰输入字段，此类段落主线程降层后经同一 prepared 桥提交。新增 jsTest：
+  exact 会话下 strong-as-emphasis 段落经 prepared 路径，semantics 与 cjk-strong
+  线、emphasisDots、canonical-source 与复制保真逐项断言。无 strongAsEmphasisMarks
+  时 decorations 为空，默认页面行为不变。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
