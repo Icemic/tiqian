@@ -501,9 +501,26 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 
 ### E 字体证据（`DeclaredFaceEvidence`）
 
-- [ ] **E1 声明通道与解析**：`declareTiqianFontFaces` 与显式 `baseUrl`；
+- [x] **E1 声明通道与解析**：`declareTiqianFontFaces` 与显式 `baseUrl`；
   CSSStyleSheet 构造解析、detached style 降级、缺席记录；候选集声明在前
   CSSOM 在后。验收：Verification 7 前三组用例。
+  产出（2026-08-23）：7bc32d1，`npm/core/sampler/snapshot/declared-faces.js`
+  模块级注册表：同一 `(cssText, baseUrl)` 引用计数，注销函数归零移除，空串与
+  全空白 no-op，变更同步通知 `onDeclaredFacesChanged` 订阅者，不新增
+  globalThis 名。解析阶梯为构造 CSSStyleSheet 加 replaceSync，降级构造
+  detached `<style>`，规则都取不到时记 DeclaredRulesUnavailable，replaceSync
+  抛错记 DeclaredTextInvalid 并携带异常名。precomputed.js 的同步与协作两个
+  采集器在 styleSheets 遍历前先遍历 declaredFaceSheets()，声明规则的 URL 按
+  声明 baseUrl 解析（采集器以 visit 的 fallbackBaseUrl 入参解析，构造 sheet
+  的 baseURL 选项不参与该路径）；collectFontFaces 导出供测试断言合并顺序，
+  api.js 公开 declareTiqianFontFaces。
+  验证：npm test 337/337（declared-faces.test.mjs 7 条：空串 no-op、引用计数
+  与共享声明只通知一次、声明在前与 URL 基准断言、同 family 两条 CSSOM 在后
+  由 findLast 胜出、DeclaredTextInvalid、无 CSSStyleSheet 环境的
+  DeclaredRulesUnavailable、通知与退订）；jsBrowserTest 通过；grep 复核
+  declaredFaceSheets 在 precomputed.js 为 1 处 import 与 2 处调用，
+  relevantFontFaceLiveSignature 函数体无 declared 引用（声明变更的重验走
+  E2 的通知，不进 CSSOM 漂移签名）。
 - [ ] **E2 重验入池与注册表生命周期**：唤醒不内联执行；每 root 至多一个 pending
   重验任务、同帧合并；引用计数注销。验收：Verification 7 对应用例。
 - [ ] **E3 不匹配解释结构化**：EmptyCandidateSet 与 FieldMismatch 两类 detail、
