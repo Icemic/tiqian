@@ -1,8 +1,11 @@
+// Prepared-DOM value-style rendering (ADR 0053 batch 6). Moved verbatim
+// from the package root; root paths remain as compatibility re-export shims.
+
 import {
   LAYOUT_REVISION,
   RENDER_REVISION,
   SNAPSHOT_SCHEMA,
-} from "./snapshot-schema.js";
+} from "../../../snapshot-schema.js";
 import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,

@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { addon } from "./load.js";
 import { createCacheBridge, type CacheBridge } from "./cache.js";
-import { renderPreparedParagraph as sharedRenderPreparedParagraph } from "../shared/prepared-dom.js";
+import { renderPreparedParagraph as sharedRenderPreparedParagraph } from "../shared/core/sampler/snapshot/prepared-dom.js";
 
 const SHARED_RUNTIME_STYLE = readFileSync(
   new URL("../shared/styles.css", import.meta.url),

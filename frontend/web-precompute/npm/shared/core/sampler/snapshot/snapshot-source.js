@@ -1,4 +1,7 @@
-import { stableStringify } from "./snapshot-schema.js";
+// Snapshot semantic source projection (ADR 0053 batch 6). Moved verbatim
+// from the package root; root paths remain as compatibility re-export shims.
+
+import { stableStringify } from "../../../snapshot-schema.js";
 
 const SAFE_SEMANTIC_TAGS = new Set([
   "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "del", "dfn", "em",
