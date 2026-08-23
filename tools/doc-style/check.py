@@ -43,7 +43,8 @@ WORDS = [
     # measurement metaphors and coined measurement words
     "车道", "lane", "wall", "墙钟", "仪表", "亚毫", "膨胀", "显形", "重录",
     "冷构建", "热构建", "冷热", "全冷", "多重集", "构建链", "排空", "惰性",
-    "互不推导", "三面", "三段式", "会话级", "进程级", "全 0",
+    "互不推导", "三面", "三段式", "会话级", "进程级", "字节级", "内容级",
+    "全 0",
     # coined technical-sounding words replaced by plain statements
     "失配", "真源", "转出口", "合批", "同批", "执行位",
     # colloquial shorthand
