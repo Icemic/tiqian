@@ -32,6 +32,17 @@ pub struct Plan {
     pub ruby_decisions: Vec<PlanRuby>,
     /// `bopomofoDecisions`: bopomofo annotation geometry by base-range end.
     pub bopomofo_decisions: Vec<PlanBopomofo>,
+    /// `fontSize`: the paragraph base font size in px. The overlay lowerer
+    /// reads it only when `decorationSegments` are present, exactly like the
+    /// js `Number(plan.fontSize)` read in that branch.
+    pub font_size: Option<f64>,
+    /// `overlayWidth`: the paragraph width the SVG evidence overlay spans.
+    pub overlay_width: Option<f64>,
+    /// `decorationSegments`: interlinear ProperNoun / BookTitle line and wave
+    /// decoration segments.
+    pub decoration_segments: Vec<PlanDecorationSegment>,
+    /// `emphasisDots`: emphasis dot anchors.
+    pub emphasis_dots: Vec<PlanEmphasisDot>,
 }
 
 /// One `inlineEdges` entry: `{offset, inlineStart?, inlineEnd?}`. Each
@@ -83,6 +94,29 @@ pub struct PlanBopomofoPlacement {
     pub top: f64,
     pub width: f64,
     pub height: f64,
+}
+
+/// One `decorationSegments` entry: `{kind, left, top, right,
+/// sourceRangeStart, sourceRangeEnd}`. The lowerer reads kind/left/top/right;
+/// `sourceRangeStart`/`sourceRangeEnd` ride the plan unread like the js
+/// renderer, which only reads the geometry members.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanDecorationSegment {
+    pub kind: String,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+}
+
+/// One `emphasisDots` entry: `{clusterRangeStart, anchorX, anchorY,
+/// dotDiameter}`. `clusterRangeStart` feeds the optional live color callback
+/// uncoerced, so absent stays none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanEmphasisDot {
+    pub cluster_range_start: Option<f64>,
+    pub anchor_x: f64,
+    pub anchor_y: f64,
+    pub dot_diameter: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -220,6 +254,28 @@ impl Plan {
             }
             None => Vec::new(),
         };
+        let font_size = optional_number_field(&fields, "fontSize")?;
+        let overlay_width = optional_number_field(&fields, "overlayWidth")?;
+        let decoration_segments = match find(&fields, "decorationSegments") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanDecorationSegment::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => {
+                return Err(NamedError(
+                    "InvalidPlanJsonField:decorationSegments".to_string(),
+                ))
+            }
+            None => Vec::new(),
+        };
+        let emphasis_dots = match find(&fields, "emphasisDots") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanEmphasisDot::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(NamedError("InvalidPlanJsonField:emphasisDots".to_string())),
+            None => Vec::new(),
+        };
         Ok(Plan {
             width,
             height,
@@ -228,6 +284,10 @@ impl Plan {
             inline_edges,
             ruby_decisions,
             bopomofo_decisions,
+            font_size,
+            overlay_width,
+            decoration_segments,
+            emphasis_dots,
         })
     }
 }
@@ -295,6 +355,31 @@ impl PlanBopomofoPlacement {
             top: number_field(&fields, "top").map_err(field_error("top"))?,
             width: number_field(&fields, "width").map_err(field_error("width"))?,
             height: number_field(&fields, "height").map_err(field_error("height"))?,
+        })
+    }
+}
+
+impl PlanDecorationSegment {
+    fn from_json(value: &Json) -> Result<PlanDecorationSegment, NamedError> {
+        let fields = object_value(value, "decorationSegments")?;
+        Ok(PlanDecorationSegment {
+            kind: string_field(&fields, "kind").map_err(field_error("kind"))?,
+            left: number_field(&fields, "left").map_err(field_error("left"))?,
+            top: number_field(&fields, "top").map_err(field_error("top"))?,
+            right: number_field(&fields, "right").map_err(field_error("right"))?,
+        })
+    }
+}
+
+impl PlanEmphasisDot {
+    fn from_json(value: &Json) -> Result<PlanEmphasisDot, NamedError> {
+        let fields = object_value(value, "emphasisDots")?;
+        Ok(PlanEmphasisDot {
+            cluster_range_start: optional_number_field(&fields, "clusterRangeStart")?,
+            anchor_x: number_field(&fields, "anchorX").map_err(field_error("anchorX"))?,
+            anchor_y: number_field(&fields, "anchorY").map_err(field_error("anchorY"))?,
+            dot_diameter: number_field(&fields, "dotDiameter")
+                .map_err(field_error("dotDiameter"))?,
         })
     }
 }
@@ -665,6 +750,10 @@ mod tests {
         assert!(plan.inline_edges.is_empty());
         assert!(plan.ruby_decisions.is_empty());
         assert!(plan.bopomofo_decisions.is_empty());
+        assert!(plan.font_size.is_none());
+        assert!(plan.overlay_width.is_none());
+        assert!(plan.decoration_segments.is_empty());
+        assert!(plan.emphasis_dots.is_empty());
     }
 
     #[test]
@@ -763,5 +852,81 @@ mod tests {
         let error = Plan::from_json_str(&plan.replace("\"advance\":24.0", "\"advance\":\"24\""))
             .unwrap_err();
         assert_eq!(error.name(), "InvalidPlanJsonField:advance");
+    }
+
+    fn overlay_plan() -> String {
+        "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":120.0,\"height\":27.0,\
+\"fontSize\":20.0,\"overlayWidth\":120.0,\
+\"decorationSegments\":[{\"kind\":\"ProperNoun\",\"left\":0.0,\"top\":20.0,\"right\":60.0,\
+\"sourceRangeStart\":0,\"sourceRangeEnd\":1},{\"kind\":\"BookTitle\",\"left\":60.0,\"top\":20.0,\
+\"right\":120.0,\"sourceRangeStart\":1,\"sourceRangeEnd\":2}],\
+\"emphasisDots\":[{\"clusterRangeStart\":0,\"anchorX\":10.0,\"anchorY\":25.0,\"dotDiameter\":5.0}],\
+\"lines\":[{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0.0,\"bottom\":27.0,\"baseline\":20.0,\
+\"indent\":0.0,\"visualWidth\":18.0,\"hyphenAdvance\":0.0,\"endReason\":\"ParagraphEnd\",\
+\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"中\",\"display\":\"中\",\"drawX\":0.0,\
+\"naturalWidth\":18.0,\"leadingLayoutAdvance\":0.0}]}]}"
+            .to_string()
+    }
+
+    #[test]
+    fn reads_overlay_fields_when_present() {
+        let plan = Plan::from_json_str(&overlay_plan()).unwrap();
+        assert_eq!(plan.font_size, Some(20.0));
+        assert_eq!(plan.overlay_width, Some(120.0));
+        assert_eq!(plan.decoration_segments.len(), 2);
+        let proper = &plan.decoration_segments[0];
+        assert_eq!(proper.kind, "ProperNoun");
+        assert_eq!((proper.left, proper.top, proper.right), (0.0, 20.0, 60.0));
+        let book = &plan.decoration_segments[1];
+        assert_eq!(book.kind, "BookTitle");
+        assert_eq!((book.left, book.top, book.right), (60.0, 20.0, 120.0));
+        let dot = &plan.emphasis_dots[0];
+        assert_eq!(dot.cluster_range_start, Some(0.0));
+        assert_eq!(
+            (dot.anchor_x, dot.anchor_y, dot.dot_diameter),
+            (10.0, 25.0, 5.0)
+        );
+    }
+
+    #[test]
+    fn overlay_absent_keeps_today_s_defaults() {
+        let plan = Plan::from_json_str(&two_line_plan()).unwrap();
+        assert!(plan.font_size.is_none());
+        assert!(plan.overlay_width.is_none());
+        assert!(plan.decoration_segments.is_empty());
+        assert!(plan.emphasis_dots.is_empty());
+        let plan =
+            Plan::from_json_str(&overlay_plan().replace("\"decorationSegments\":", "\"z\":"))
+                .unwrap();
+        assert!(plan.decoration_segments.is_empty());
+    }
+
+    #[test]
+    fn rejects_overlay_field_damage() {
+        let plan = overlay_plan();
+        let error = Plan::from_json_str(
+            &plan.replace("\"overlayWidth\":120.0", "\"overlayWidth\":\"120\""),
+        )
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:overlayWidth");
+        let error = Plan::from_json_str(&plan.replace(
+            "\"decorationSegments\":[{\"kind\":\"ProperNoun\"",
+            "\"decorationSegments\":[{\"kind\":7",
+        ))
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:kind");
+        let error =
+            Plan::from_json_str(&plan.replace("\"left\":0.0", "\"left\":\"0\"")).unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:left");
+        let error = Plan::from_json_str(&plan.replace("\"anchorX\":10.0", "\"anchorX\":\"10\""))
+            .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:anchorX");
+        let error = Plan::from_json_str(&plan.replace(
+            "\"emphasisDots\":[{\"clusterRangeStart\":0,\"anchorX\":10.0,\"anchorY\":25.0,\
+\"dotDiameter\":5.0}]",
+            "\"emphasisDots\":7",
+        ))
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:emphasisDots");
     }
 }

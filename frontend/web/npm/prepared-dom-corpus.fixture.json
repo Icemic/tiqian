@@ -523,6 +523,29 @@
         "liveSemanticCount": 0,
         "markerCount": 1
       }
+    },
+    {
+      "name": "interlinear-and-dot-overlays",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":18,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"中\",\"display\":\"中\",\"drawX\":0,\"naturalWidth\":18,\"leadingLayoutAdvance\":0}]}],\"fontSize\":20,\"overlayWidth\":120,\"decorationSegments\":[{\"kind\":\"ProperNoun\",\"left\":0,\"top\":20,\"right\":60},{\"kind\":\"BookTitle\",\"left\":60,\"top\":20,\"right\":120}],\"emphasisDots\":[{\"anchorX\":10,\"anchorY\":25,\"dotDiameter\":5}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"18\" data-tq-line-index=\"0\" data-tq-line-range=\"0-1\" data-tq-line-top=\"0\" data-tq-line-width=\"18\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span>中<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span><svg aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" style=\"--tq-overlay-width:120px;--tq-overlay-height:27px\"><line data-tq-decoration-line=\"true\" stroke=\"currentColor\" stroke-linecap=\"butt\" stroke-width=\"1.6\" style=\"--tq-decoration-color:currentColor;--tq-decoration-stroke-width:1.6px\" x1=\"0\" x2=\"60\" y1=\"20\" y2=\"20\"></line><path d=\"M 60 20 Q 62 17.6 64 20 Q 66 22.4 68 20 Q 70 17.6 72 20 Q 74 22.4 76 20 Q 78 17.6 80 20 Q 82 22.4 84 20 Q 86 17.6 88 20 Q 90 22.4 92 20 Q 94 17.6 96 20 Q 98 22.4 100 20 Q 102 17.6 104 20 Q 106 22.4 108 20 Q 110 17.6 112 20 Q 114 22.4 116 20 Q 118 17.6 120 20\" data-tq-decoration-wave=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"butt\" stroke-linejoin=\"round\" stroke-width=\"1.6\" style=\"--tq-decoration-color:currentColor;--tq-decoration-stroke-width:1.6px\"></path></svg><svg aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" style=\"--tq-overlay-width:120px;--tq-overlay-height:27px\"><circle cx=\"10\" cy=\"25\" data-tq-decoration-dot=\"true\" fill=\"currentColor\" r=\"2.5\" style=\"--tq-decoration-color:currentColor\"></circle></svg>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"18\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-1\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"18\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"#\",\"中\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]],[\"svg\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"style\",\"--tq-overlay-width:120px;--tq-overlay-height:27px\"]],[[\"line\",[[\"data-tq-decoration-line\",\"true\"],[\"stroke\",\"currentColor\"],[\"stroke-linecap\",\"butt\"],[\"stroke-width\",\"1.6\"],[\"style\",\"--tq-decoration-color:currentColor;--tq-decoration-stroke-width:1.6px\"],[\"x1\",\"0\"],[\"x2\",\"60\"],[\"y1\",\"20\"],[\"y2\",\"20\"]],[]],[\"path\",[[\"d\",\"M 60 20 Q 62 17.6 64 20 Q 66 22.4 68 20 Q 70 17.6 72 20 Q 74 22.4 76 20 Q 78 17.6 80 20 Q 82 22.4 84 20 Q 86 17.6 88 20 Q 90 22.4 92 20 Q 94 17.6 96 20 Q 98 22.4 100 20 Q 102 17.6 104 20 Q 106 22.4 108 20 Q 110 17.6 112 20 Q 114 22.4 116 20 Q 118 17.6 120 20\"],[\"data-tq-decoration-wave\",\"true\"],[\"fill\",\"none\"],[\"stroke\",\"currentColor\"],[\"stroke-linecap\",\"butt\"],[\"stroke-linejoin\",\"round\"],[\"stroke-width\",\"1.6\"],[\"style\",\"--tq-decoration-color:currentColor;--tq-decoration-stroke-width:1.6px\"]],[]]]],[\"svg\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"style\",\"--tq-overlay-width:120px;--tq-overlay-height:27px\"]],[[\"circle\",[[\"cx\",\"10\"],[\"cy\",\"25\"],[\"data-tq-decoration-dot\",\"true\"],[\"fill\",\"currentColor\"],[\"r\",\"2.5\"],[\"style\",\"--tq-decoration-color:currentColor\"]],[]]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "error-overlay-geometry",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":18,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"中\",\"display\":\"中\",\"drawX\":0,\"naturalWidth\":18,\"leadingLayoutAdvance\":0}]}],\"decorationSegments\":[{\"kind\":\"ProperNoun\",\"left\":0,\"top\":20,\"right\":60}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "error",
+        "error": "InvalidPreparedOverlayGeometry"
+      }
     }
   ]
 }

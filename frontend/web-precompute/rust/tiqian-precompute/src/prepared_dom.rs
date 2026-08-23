@@ -38,6 +38,10 @@ const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR: f64 = 0.404;
 const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_SEMIBOLD: f64 = 0.446;
 const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR: f64 = 0.644;
 const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_SEMIBOLD: f64 = 0.682;
+const LINE_THICKNESS_EM: f64 = 0.08;
+const WAVY_HALF_WAVE_EM: f64 = 0.2;
+const WAVY_AMPLITUDE_EM: f64 = 0.06;
+const WAVY_ENDPOINT_EPSILON_PX: f64 = 0.01;
 
 /// One source element of the live replay path; the tag name carries the
 /// validation the js renderer reads off the DOM node. Host capability checks
@@ -56,6 +60,10 @@ pub struct PreparedRenderOptions<'a> {
     pub render_text_spans: Option<&'a Json>,
     pub inline_boxes: Option<&'a Json>,
     pub style_class_for: Option<&'a mut dyn FnMut(&str) -> String>,
+    /// `options.emphasisDotColor`: resolves an emphasis dot color from the
+    /// dot's `clusterRangeStart`; null reads as currentColor like the js
+    /// `?? null` default. Absent keeps the snapshot default.
+    pub emphasis_dot_color: Option<&'a mut dyn FnMut(Option<f64>) -> Option<String>>,
 }
 
 impl<'a> PreparedRenderOptions<'a> {
@@ -68,6 +76,7 @@ impl<'a> PreparedRenderOptions<'a> {
             render_text_spans: None,
             inline_boxes: None,
             style_class_for: None,
+            emphasis_dot_color: None,
         }
     }
 }
@@ -671,6 +680,7 @@ pub fn render_prepared_paragraph_artifact(
             .push(z.clone());
     }
     let mut style_class_for = options.style_class_for.take();
+    let mut emphasis_dot_color = options.emphasis_dot_color.take();
     let lowered = render_plan(
         &plan,
         locale,
@@ -681,8 +691,10 @@ pub fn render_prepared_paragraph_artifact(
         &ruby_by_base_end,
         &bopomofo_by_base_end,
         &mut style_class_for,
+        &mut emphasis_dot_color,
     );
     options.style_class_for = style_class_for;
+    options.emphasis_dot_color = emphasis_dot_color;
     lowered
 }
 
@@ -943,6 +955,7 @@ fn render_plan(
     ruby_by_base_end: &HashMap<i64, PlanRuby>,
     bopomofo_by_base_end: &HashMap<i64, Vec<PlanBopomofo>>,
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
+    emphasis_dot_color: &mut Option<&mut dyn FnMut(Option<f64>) -> Option<String>>,
 ) -> Result<PreparedParagraphRender, NamedError> {
     let mut draft = Draft::new();
     // The counter runs in i64 because the marker attributes carry the line
@@ -987,6 +1000,7 @@ fn render_plan(
         draft.append_child(sentinel, text);
         draft.append_child(ROOT, sentinel);
     }
+    append_evidence_overlays(&mut draft, plan, emphasis_dot_color)?;
     Ok(PreparedParagraphRender {
         html: draft.html(),
         artifact: draft.artifact(),
@@ -1886,4 +1900,184 @@ fn bopomofo_annotation_span(
         draft.append_child(container, glyph);
     }
     container
+}
+
+/// `overlayAttributes`: the shared SVG overlay container attributes; the width
+/// and height use `px` like every CSS length on the wire.
+fn overlay_attributes(width: f64, height: f64) -> Vec<(String, Option<String>)> {
+    vec![
+        ("aria-hidden".to_string(), Some("true".to_string())),
+        ("data-tq-copy-ignore".to_string(), Some("true".to_string())),
+        ("data-tq-geometry".to_string(), Some("true".to_string())),
+        (
+            "style".to_string(),
+            Some(format!(
+                "--tq-overlay-width:{};--tq-overlay-height:{}",
+                px(width),
+                px(height)
+            )),
+        ),
+    ]
+}
+
+/// `wavyLinePath`: the BookTitle wave. The half wave and amplitude scale from
+/// the paragraph font size, and the loop walks the span in half-wave steps
+/// snapping the final segment to `right`. Every coordinate serializes with the
+/// `String(number)` form, so the js arithmetic and this port share one f64
+/// sequence.
+fn wavy_line_path(left: f64, right: f64, y: f64, font_size: f64) -> String {
+    let half_wave = js_max(font_size * WAVY_HALF_WAVE_EM, 1.0);
+    let amplitude = font_size * WAVY_AMPLITUDE_EM;
+    let mut path = format!("M {} {}", js_number_string(left), js_number_string(y));
+    let mut x = left;
+    let mut up = true;
+    while x < right - WAVY_ENDPOINT_EPSILON_PX {
+        let raw_next_x = x + half_wave;
+        let next_x = if raw_next_x >= right - WAVY_ENDPOINT_EPSILON_PX {
+            right
+        } else {
+            raw_next_x
+        };
+        let control_y = if up {
+            y - amplitude * 2.0
+        } else {
+            y + amplitude * 2.0
+        };
+        path.push_str(&format!(
+            " Q {} {} {} {}",
+            js_number_string((x + next_x) / 2.0),
+            js_number_string(control_y),
+            js_number_string(next_x),
+            js_number_string(y)
+        ));
+        x = next_x;
+        up = !up;
+    }
+    path
+}
+
+/// `appendEvidenceOverlays`: the engine-owned interlinear decoration and
+/// emphasis dot SVG overlays, appended after the flow content. Geometry gates
+/// exactly like the js: the segments branch reads `fontSize`/`overlayWidth`/
+/// `height`, the dots branch reads `overlayWidth`/`height`, and any non-finite
+/// value is `InvalidPreparedOverlayGeometry`.
+fn append_evidence_overlays(
+    draft: &mut Draft,
+    plan: &Plan,
+    emphasis_dot_color: &mut Option<&mut dyn FnMut(Option<f64>) -> Option<String>>,
+) -> Result<(), NamedError> {
+    let segments = &plan.decoration_segments;
+    let dots = &plan.emphasis_dots;
+    if !segments.is_empty() {
+        let font_size = plan.font_size.unwrap_or(f64::NAN);
+        let width = plan.overlay_width.unwrap_or(f64::NAN);
+        let height = plan.height;
+        if !font_size.is_finite() || !width.is_finite() || !height.is_finite() {
+            return Err(NamedError("InvalidPreparedOverlayGeometry".to_string()));
+        }
+        let stroke_width = font_size * LINE_THICKNESS_EM;
+        let svg = draft.push_element("svg", overlay_attributes(width, height), false);
+        for segment in segments {
+            let style = format!(
+                "--tq-decoration-color:currentColor;--tq-decoration-stroke-width:{}",
+                px(stroke_width)
+            );
+            let (tag, attributes) = match segment.kind.as_str() {
+                "ProperNoun" => (
+                    "line",
+                    vec![
+                        (
+                            "data-tq-decoration-line".to_string(),
+                            Some("true".to_string()),
+                        ),
+                        ("stroke".to_string(), Some("currentColor".to_string())),
+                        ("stroke-linecap".to_string(), Some("butt".to_string())),
+                        (
+                            "stroke-width".to_string(),
+                            Some(js_number_string(stroke_width)),
+                        ),
+                        ("style".to_string(), Some(style)),
+                        ("x1".to_string(), Some(js_number_string(segment.left))),
+                        ("x2".to_string(), Some(js_number_string(segment.right))),
+                        ("y1".to_string(), Some(js_number_string(segment.top))),
+                        ("y2".to_string(), Some(js_number_string(segment.top))),
+                    ],
+                ),
+                "BookTitle" => (
+                    "path",
+                    vec![
+                        (
+                            "d".to_string(),
+                            Some(wavy_line_path(
+                                segment.left,
+                                segment.right,
+                                segment.top,
+                                font_size,
+                            )),
+                        ),
+                        (
+                            "data-tq-decoration-wave".to_string(),
+                            Some("true".to_string()),
+                        ),
+                        ("fill".to_string(), Some("none".to_string())),
+                        ("stroke".to_string(), Some("currentColor".to_string())),
+                        ("stroke-linecap".to_string(), Some("butt".to_string())),
+                        ("stroke-linejoin".to_string(), Some("round".to_string())),
+                        (
+                            "stroke-width".to_string(),
+                            Some(js_number_string(stroke_width)),
+                        ),
+                        ("style".to_string(), Some(style)),
+                    ],
+                ),
+                other => {
+                    return Err(NamedError(format!(
+                        "UnsupportedPreparedDecorationSegment:{other}"
+                    )))
+                }
+            };
+            let child = draft.push_element(tag, attributes, false);
+            draft.append_child(svg, child);
+        }
+        draft.append_child(ROOT, svg);
+    }
+    if !dots.is_empty() {
+        let width = plan.overlay_width.unwrap_or(f64::NAN);
+        let height = plan.height;
+        if !width.is_finite() || !height.is_finite() {
+            return Err(NamedError("InvalidPreparedOverlayGeometry".to_string()));
+        }
+        let svg = draft.push_element("svg", overlay_attributes(width, height), false);
+        for dot in dots {
+            let color = emphasis_dot_color
+                .as_mut()
+                .and_then(|callback| callback(dot.cluster_range_start))
+                .filter(|color| !color.is_empty());
+            let dot_color = color.unwrap_or_else(|| "currentColor".to_string());
+            let circle = draft.push_element(
+                "circle",
+                vec![
+                    ("cx".to_string(), Some(js_number_string(dot.anchor_x))),
+                    ("cy".to_string(), Some(js_number_string(dot.anchor_y))),
+                    (
+                        "data-tq-decoration-dot".to_string(),
+                        Some("true".to_string()),
+                    ),
+                    ("fill".to_string(), Some(dot_color.clone())),
+                    (
+                        "r".to_string(),
+                        Some(js_number_string(dot.dot_diameter / 2.0)),
+                    ),
+                    (
+                        "style".to_string(),
+                        Some(format!("--tq-decoration-color:{dot_color}")),
+                    ),
+                ],
+                false,
+            );
+            draft.append_child(svg, circle);
+        }
+        draft.append_child(ROOT, svg);
+    }
+    Ok(())
 }

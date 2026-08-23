@@ -459,6 +459,43 @@ const cases = [
     locale: "zh-Hans",
     options: {},
   },
+  {
+    name: "interlinear-and-dot-overlays",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "中", "中", 0, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 18 }),
+      ], 27),
+      fontSize: 20,
+      overlayWidth: 120,
+      decorationSegments: [
+        { kind: "ProperNoun", left: 0, top: 20, right: 60 },
+        { kind: "BookTitle", left: 60, top: 20, right: 120 },
+      ],
+      emphasisDots: [
+        { anchorX: 10, anchorY: 25, dotDiameter: 5 },
+      ],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "error-overlay-geometry",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "中", "中", 0, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 18 }),
+      ], 27),
+      decorationSegments: [
+        { kind: "ProperNoun", left: 0, top: 20, right: 60 },
+      ],
+    },
+    locale: "zh-Hans",
+    options: {},
+    expectError: "InvalidPreparedOverlayGeometry",
+  },
 ];
 
 const fixture = { cases: [] };
