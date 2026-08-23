@@ -40,6 +40,22 @@ store prefixes the profiles do not cover can be added through
 first). Setting `LD_LIBRARY_PATH` from JavaScript does not work: glibc
 parses it once at process startup.
 
+## SSR bundling
+
+The native addon resolves relative to this package's own files, so a server
+build that bundles dependencies must keep every entry point external. The
+`vite` entry derives that list from the installed manifest at run time, so it
+carries the installed scope and every exports key without a host-side copy:
+
+```js
+// vite.config.js
+import { tiqianSsrExternals } from "@tiqian/precompute/vite";
+
+export default defineConfig(async () => ({
+  ssr: { external: await tiqianSsrExternals() },
+}));
+```
+
 ## Font session
 
 ```js
