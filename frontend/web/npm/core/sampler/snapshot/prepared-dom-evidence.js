@@ -25,19 +25,26 @@ const WAVY_HALF_WAVE_EM = 0.2;
 const WAVY_AMPLITUDE_EM = 0.06;
 const WAVY_ENDPOINT_EPSILON_PX = 0.01;
 
+// InlineObjectCloneSwap (ADR 0053 B7.3): the pending placeholder carries the
+// layout-owned trailing gap as an attribute so the live-DOM swap can rebuild
+// the renderer's margin (source marginRight + trailingGap) without parsing
+// serialized CSS. The attribute exists only in the margin branch, mirroring
+// appendInlineObject's spacing guard.
 export function inlineObjectPlaceholder(cell, trailingGap, styleClassFor) {
+  const carriesTrailingMargin = Math.abs(trailingGap) >= SPACING_EPSILON;
   const attributes = {
     "data-tq-advance": String(cell.naturalWidth),
     "data-tq-geometry": "true",
     "data-tq-inline-object": "pending",
     "data-tq-object-range": `${cell.rangeStart}-${cell.rangeEnd}`,
+    "data-tq-object-trailing-margin": carriesTrailingMargin ? String(trailingGap) : null,
     "data-tq-x": String(cell.drawX),
   };
   applyDynamicStyles(attributes, [
     "display:inline-block!important",
     "box-sizing:border-box!important",
     `inline-size:${px(cell.naturalWidth)}!important`,
-    ...(Math.abs(trailingGap) >= SPACING_EPSILON
+    ...(carriesTrailingMargin
       ? [`margin-right:${px(trailingGap)}!important`]
       : []),
   ], styleClassFor);

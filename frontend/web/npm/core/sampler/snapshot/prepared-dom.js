@@ -515,6 +515,7 @@ export function renderPreparedParagraphArtifact(
     return owners[0].fontFamilies;
   };
   const nodes = [];
+  let inlineObjectCount = 0;
   let activeSemantics = [];
   let activeContainers = [];
   const semanticContainerFor = (semanticPath) => {
@@ -624,6 +625,7 @@ export function renderPreparedParagraphArtifact(
           carrierMargin: cell.trailingGap,
           semanticPath: cell.semanticPath,
         });
+        inlineObjectCount += 1;
         continue;
       }
       const record = { ...cell, spacing: { ...cell.spacing } };
@@ -781,6 +783,7 @@ export function renderPreparedParagraphArtifact(
     html: nodes.map((node) => node.html).join(""),
     artifact: nodes.map((node) => node.artifact),
     liveSemanticCount: semanticReplay === "live-source" ? semantics.length : 0,
+    inlineObjectCount,
     markerCount: plan.lines.length,
   });
 }
@@ -816,6 +819,42 @@ function restoreLiveSemanticElements(host, sourceElements, expectedCount) {
     while (placeholder.firstChild) clone.appendChild(placeholder.firstChild);
     placeholder.replaceWith(clone);
   }
+}
+
+/**
+ * InlineObjectCloneSwap (ADR 0053 B7.3): replace pending placeholders with
+ * deep clones of the caller's live inline elements, mirroring the renderer's
+ * appendInlineObject: data-tq-inline-object="true", data-tq-object-range, and
+ * margin-right = marginRight + trailingGap applied as important only in the
+ * trailing-margin branch. Elements cannot ride the Worker plan, so the caller
+ * supplies them per range, exactly as it supplies liveSemanticElements.
+ */
+function swapInlineObjectClones(host, inlineObjects) {
+  const placeholders = Array.from(host.querySelectorAll('[data-tq-inline-object="pending"]'));
+  if (placeholders.length === 0) return 0;
+  const byRange = new Map();
+  for (const entry of inlineObjects) {
+    const key = `${Number(entry.start)}-${Number(entry.end)}`;
+    if (byRange.has(key)) throw new Error(`ConflictingInlineObjectRange:${key}`);
+    byRange.set(key, entry);
+  }
+  for (const placeholder of placeholders) {
+    const key = placeholder.getAttribute("data-tq-object-range");
+    const entry = byRange.get(key);
+    if (!entry || !entry.element || typeof entry.element.cloneNode !== "function") {
+      throw new Error(`InlineObjectSourceUnavailable:${key}`);
+    }
+    const clone = entry.element.cloneNode(true);
+    clone.setAttribute("data-tq-inline-object", "true");
+    clone.setAttribute("data-tq-object-range", key);
+    const trailingMargin = placeholder.getAttribute("data-tq-object-trailing-margin");
+    if (trailingMargin != null) {
+      const margin = Number(entry.marginRight ?? 0) + Number(trailingMargin);
+      clone.style.setProperty("margin-right", `${margin}px`, "important");
+    }
+    placeholder.replaceWith(clone);
+  }
+  return placeholders.length;
 }
 
 /**
@@ -865,6 +904,10 @@ export function renderPreparedParagraphInto(
       lowered.liveSemanticCount,
     );
   }
+  const swappedInlineObjects = swapInlineObjectClones(
+    host,
+    Array.from(options.inlineObjects ?? []),
+  );
   const markers = Array.from(host.querySelectorAll(LINE_MARKER_SELECTOR));
   if (markers.length !== lowered.markerCount) {
     throw new Error(
@@ -872,7 +915,9 @@ export function renderPreparedParagraphInto(
     );
   }
   return Object.freeze({
-    html: lowered.liveSemanticCount > 0 ? host.innerHTML : lowered.html,
+    html: lowered.liveSemanticCount > 0 || swappedInlineObjects > 0
+      ? host.innerHTML
+      : lowered.html,
     markers,
   });
 }

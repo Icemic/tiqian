@@ -134,13 +134,114 @@ function fakeHost() {
   return {
     innerHTML: "",
     querySelectorAll(selector) {
-      assert.equal(selector, "[data-tq-line-flow-width]");
+      if (selector !== "[data-tq-line-flow-width]") return [];
       return Array.from(
         { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
         (_, index) => ({ index }),
       );
     },
   };
+}
+
+function inlineObjectPlan({ trailingMargin = false } = {}) {
+  return {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 2,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: trailingMargin ? 38 : 36,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [
+        {
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "￼",
+          display: "￼",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+          inlineObject: 18,
+        },
+        {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "字",
+          display: "字",
+          drawX: trailingMargin ? 20 : 18,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+      ],
+    }],
+  };
+}
+
+function fakeInlineElement(tagName) {
+  const element = {
+    tagName,
+    attributes: new Map(),
+    cloneCalls: [],
+    styleProperties: [],
+    style: {
+      setProperty(name, value, priority) {
+        element.styleProperties.push([name, value, priority]);
+      },
+    },
+    setAttribute(name, value) {
+      element.attributes.set(name, String(value));
+    },
+    cloneNode(deep) {
+      element.cloneCalls.push(deep);
+      const copy = fakeInlineElement(tagName);
+      copy.attributes = new Map(element.attributes);
+      return copy;
+    },
+  };
+  return element;
+}
+
+function swapHost() {
+  const host = {
+    innerHTML: "",
+    swapped: [],
+    querySelectorAll(selector) {
+      if (selector === "[data-tq-line-flow-width]") {
+        return Array.from(
+          { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
+          (_, index) => ({ index }),
+        );
+      }
+      if (selector !== '[data-tq-inline-object="pending"]') return [];
+      const placeholders = [];
+      const pattern = /<span\b[^>]*\bdata-tq-inline-object="pending"[^>]*><\/span>/gu;
+      for (const match of this.innerHTML.matchAll(pattern)) {
+        const openingTag = match[0];
+        placeholders.push({
+          openingTag,
+          getAttribute(name) {
+            const found = openingTag.match(new RegExp(`${name}="([^"]*)"`, "u"));
+            return found ? found[1] : null;
+          },
+          replaceWith(clone) {
+            const serialized = `<${clone.tagName}` +
+              Array.from(clone.attributes).sort(([left], [right]) => left.localeCompare(right))
+                .map(([name, value]) => ` ${name}="${value}"`).join("") + ">";
+            host.innerHTML = host.innerHTML.replace(openingTag, serialized);
+            host.swapped.push(clone);
+          },
+        });
+      }
+      return placeholders;
+    },
+  };
+  return host;
 }
 
 function styleBackedHost() {
@@ -969,6 +1070,87 @@ test("inlineObjectPlaceholderKeepsFlow", () => {
   assert.ok(html.includes('data-tq-inline-object="pending"'));
   assert.ok(html.includes('data-tq-object-range="0-1"'));
   assert.ok(html.includes("inline-size:18px!important"));
+});
+
+test("inlineObjectPlaceholderCarriesTrailingMarginAttribute", () => {
+  const withMargin = renderPreparedParagraphArtifact(inlineObjectPlan({ trailingMargin: true }));
+  assert.ok(withMargin.html.includes('data-tq-object-trailing-margin="2"'));
+  assert.ok(withMargin.html.includes("margin-right:2px!important"));
+
+  const withoutMargin = renderPreparedParagraphArtifact(inlineObjectPlan());
+  assert.doesNotMatch(withoutMargin.html, /data-tq-object-trailing-margin/u);
+  assert.doesNotMatch(withoutMargin.html, /margin-right:/u);
+});
+
+test("inlineObjectCloneSwapReplacesPlaceholdersWithDeepClones", () => {
+  const host = swapHost();
+  const element = fakeInlineElement("IMG");
+  const rendered = renderPreparedParagraphInto(host, inlineObjectPlan({ trailingMargin: true }), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element, marginRight: 4.5 }],
+  });
+
+  assert.deepEqual(element.cloneCalls, [true]);
+  assert.equal(host.swapped.length, 1);
+  const clone = host.swapped[0];
+  assert.notEqual(clone, element);
+  assert.equal(clone.attributes.get("data-tq-inline-object"), "true");
+  assert.equal(clone.attributes.get("data-tq-object-range"), "0-1");
+  assert.deepEqual(clone.styleProperties, [["margin-right", "6.5px", "important"]]);
+  assert.doesNotMatch(host.innerHTML, /data-tq-inline-object="pending"/u);
+  assert.match(host.innerHTML, /<IMG[^>]*data-tq-inline-object="true"/u);
+  assert.equal(rendered.html, host.innerHTML);
+  assert.equal(rendered.markers.length, 1);
+});
+
+test("inlineObjectCloneSwapSkipsMarginWithoutTrailingGap", () => {
+  const host = swapHost();
+  renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG"), marginRight: 4.5 }],
+  });
+
+  assert.equal(host.swapped.length, 1);
+  assert.deepEqual(host.swapped[0].styleProperties, []);
+  assert.equal(host.swapped[0].attributes.get("data-tq-inline-object"), "true");
+});
+
+test("inlineObjectCloneSwapThrowsWithoutSource", () => {
+  const host = swapHost();
+  assert.throws(
+    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans"),
+    /InlineObjectSourceUnavailable:0-1/u,
+  );
+});
+
+test("inlineObjectCloneSwapThrowsOnDuplicateRanges", () => {
+  const host = swapHost();
+  const entry = { start: 0, end: 1, element: fakeInlineElement("IMG") };
+  assert.throws(
+    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
+      inlineObjects: [entry, entry],
+    }),
+    /ConflictingInlineObjectRange:0-1/u,
+  );
+});
+
+test("inlineObjectCloneSwapIgnoresEntriesWithoutPlaceholders", () => {
+  const host = swapHost();
+  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG") }],
+  });
+
+  assert.equal(host.swapped.length, 0);
+  assert.equal(rendered.markers.length, rendered.html.match(/data-tq-line-flow-width=/gu).length);
+});
+
+test("inlineObjectCloneSwapClonesAreIndependentOfSource", () => {
+  const host = swapHost();
+  const element = fakeInlineElement("IMG");
+  renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element }],
+  });
+  element.setAttribute("data-tq-late", "1");
+
+  assert.equal(host.swapped[0].attributes.has("data-tq-late"), false);
 });
 
 test("rubyAnnotationSpanUsesRatioAscent", () => {
