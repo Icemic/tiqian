@@ -30,7 +30,7 @@ android {
 
 dependencies {
     implementation(project(":demo"))
-    "benchmarkImplementation"(project(":frontend:compose"))
+    "benchmarkImplementation"(project(":platforms:compose:compose"))
     implementation("androidx.activity:activity-compose:1.11.0")
     // FileProvider：诊断报告按文件分享，避免长文本被消息应用截断。
     implementation("androidx.core:core:1.16.0")

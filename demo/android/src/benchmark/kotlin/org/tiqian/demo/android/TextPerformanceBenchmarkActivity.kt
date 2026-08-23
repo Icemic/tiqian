@@ -44,7 +44,7 @@ import kotlinx.coroutines.android.awaitFrame
 import org.tiqian.compose.CjkSelectionContainer
 import org.tiqian.compose.CjkText
 
-/** Release-only surface driven by :benchmark:android. It is not packaged in normal demo builds. */
+/** Release-only surface driven by :platforms:android:benchmark. It is not packaged in normal demo builds. */
 class TextPerformanceBenchmarkActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

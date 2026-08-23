@@ -10,11 +10,11 @@ import { inflateSync } from "node:zlib";
 
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const devPkgDir = join(repoRoot, "frontend/web/npm");
+const devPkgDir = join(repoRoot, "platforms/web/frontend/npm");
 
 // The published release and the working tree are served through the same
 // static server and import map, so the only variable between the two pages is
-// which @tiqian/prose directory /frontend/web/npm/ resolves to. Both sides run
+// which @tiqian/prose directory /platforms/web/frontend/npm/ resolves to. Both sides run
 // as native ESM; neither goes through parcel.
 const devPort = 9002;
 const pubPort = 9004;
@@ -212,7 +212,7 @@ function compareScreenshots(a, b) {
 
 // Serves the demo page with an import map so main.js's bare specifier
 // "@tiqian/prose/element" resolves to the chosen package directory. The
-// stylesheet link "../../frontend/web/npm/styles.css" resolves from the page
+// stylesheet link "../../platforms/web/frontend/npm/styles.css" resolves from the page
 // root to the same directory, so published CSS pairs with published JS.
 function startDemoServer(port, pkgDir) {
   const notFound = [];
@@ -222,7 +222,7 @@ function startDemoServer(port, pkgDir) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/platforms/web/frontend/npm/element.js","@tiqian/prose/":"/platforms/web/frontend/npm/","@tiqian/prose":"/platforms/web/frontend/npm/api.js"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -233,8 +233,8 @@ function startDemoServer(port, pkgDir) {
       if (path === "/main.js" || path === "/index.css") {
         file = join(webDemoDir, path.slice(1));
         if (path.endsWith(".css")) type = "text/css";
-      } else if (path.startsWith("/frontend/web/npm/")) {
-        const rest = path.slice("/frontend/web/npm/".length);
+      } else if (path.startsWith("/platforms/web/frontend/npm/")) {
+        const rest = path.slice("/platforms/web/frontend/npm/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
       }

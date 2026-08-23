@@ -292,7 +292,7 @@ test("Tiqian Scroll Adaptive Quota Test Suite", async (t) => {
       // quota-regulation probe: with the adaptive quota disabled the scroll
       // still measures only ~33ms stalls, which no honest threshold here
       // could separate from noise. The regulation itself is verified
-      // frame-by-frame in frontend/web/npm/coordinator.test.mjs. Measured
+      // frame-by-frame in platforms/web/frontend/npm/coordinator.test.mjs. Measured
       // headless baseline with the adaptive quota active: 16.8-33.4ms max
       // frame stall, 25-46ms max event-loop latency.
       assert.ok(metrics.scrollEvents >= 120, "Must simulate a full multi-pass scroll");

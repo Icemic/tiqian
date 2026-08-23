@@ -3,7 +3,7 @@ import SwiftUI
 /// A native Apple app that showcases how Swift drives the shared CJK typesetting frontend. It is
 /// the Apple-side counterpart to the Compose demo (`runComposeDemo`).
 ///
-/// The reusable engine integration lives in `frontend/apple`; the samples (including 拼音 /
+/// The reusable engine integration lives in `platforms/apple/frontend`; the samples (including 拼音 /
 /// 注音 / 着重号 / 专名号 / 书名号) are authored here as native `AttributedString` values.
 @main
 struct TiqianDemoApp: App {

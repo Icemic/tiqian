@@ -3,14 +3,14 @@
 // manual "checkout base, rebuild, swap artifacts, eyeball" workflow as a
 // repeatable tool. Each ref builds inside its own git worktree, so the
 // working tree is never touched and each side's artifact cannot leak into
-// the other (the artifact under frontend/web/npm/runtime/tiqian-web.js is
+// the other (the artifact under platforms/web/frontend/npm/runtime/tiqian-web.js is
 // git-ignored, which made manual swapping produce a false green once).
 //
 // Usage (from demo/web, inside nix develop):
 //   node tests/ab/compare-refs.mjs --base <git-ref> [--head <git-ref>]
 //
 // --head defaults to the current working tree, uncommitted changes included.
-// Both refs must know the :frontend:web:assembleNpmPackage task. The demo
+// Both refs must know the :platforms:web:frontend:assembleNpmPackage task. The demo
 // page, viewport, fonts, and capture plan are identical constants for both
 // sides, so the only variable is the engine build.
 //
@@ -256,7 +256,7 @@ function startDemoServer(port, pkgDir, label) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/platforms/web/frontend/npm/element.js","@tiqian/prose/":"/platforms/web/frontend/npm/","@tiqian/prose":"/platforms/web/frontend/npm/api.js"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -267,8 +267,8 @@ function startDemoServer(port, pkgDir, label) {
       if (path === "/main.js" || path === "/index.css") {
         file = join(webDemoDir, path.slice(1));
         if (path.endsWith(".css")) type = "text/css";
-      } else if (path.startsWith("/frontend/web/npm/")) {
-        const rest = path.slice("/frontend/web/npm/".length);
+      } else if (path.startsWith("/platforms/web/frontend/npm/")) {
+        const rest = path.slice("/platforms/web/frontend/npm/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
       }
@@ -465,10 +465,10 @@ async function captureSide({ label, pkgDir, port, cdpPort, plans }) {
 }
 
 async function buildSide(label, sideDir) {
-  console.log(`[${label}] building :frontend:web:assembleNpmPackage in ${sideDir}`);
+  console.log(`[${label}] building :platforms:web:frontend:assembleNpmPackage in ${sideDir}`);
   await new Promise((resolve, reject) => {
     const proc = spawn("./gradlew", [
-      ":frontend:web:assembleNpmPackage",
+      ":platforms:web:frontend:assembleNpmPackage",
       "--no-build-cache",
     ], { cwd: sideDir, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
@@ -487,7 +487,7 @@ async function buildSide(label, sideDir) {
       else reject(new Error(`[${label}] gradle build failed (${code})`));
     });
   });
-  const artifact = join(sideDir, "frontend/web/npm/runtime/tiqian-web.js");
+  const artifact = join(sideDir, "platforms/web/frontend/npm/runtime/tiqian-web.js");
   const info = await stat(artifact);
   const bytes = await readFile(artifact);
   const hash = createHash("md5").update(bytes).digest("hex");
@@ -533,14 +533,14 @@ try {
 
   const base = await captureSide({
     label: "base",
-    pkgDir: join(baseDir, "frontend/web/npm"),
+    pkgDir: join(baseDir, "platforms/web/frontend/npm"),
     port: 9321,
     cdpPort: 9931,
     plans: null,
   });
   const head = await captureSide({
     label: "head",
-    pkgDir: join(headDir, "frontend/web/npm"),
+    pkgDir: join(headDir, "platforms/web/frontend/npm"),
     port: 9323,
     cdpPort: 9933,
     plans: base.lanes && Object.fromEntries(

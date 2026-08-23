@@ -92,13 +92,8 @@ jobs:
       - name: Run linuxX64 module tests
         run: >
           ./gradlew
-          :core:linuxX64Test
-          :font:linuxX64Test
-          :shaping:api:linuxX64Test
+          :engine:linuxX64Test
           :ffi:native:linuxX64Test
-          :linebreak:linuxX64Test
-          :clreq:linuxX64Test
-          :layout:linuxX64Test
 
   native-link-macos:
     name: Kotlin/Native link macosArm64

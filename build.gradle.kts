@@ -1,6 +1,7 @@
 import com.android.build.api.dsl.LibraryExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 import org.gradle.jvm.tasks.Jar
 import org.gradle.plugins.signing.SigningExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -29,26 +30,26 @@ data class PublishedModule(
 )
 
 val publishedModules = mapOf(
-    ":core" to PublishedModule("tiqian-core", "Tiqian Core", "Core document and layout data types for Tiqian."),
-    ":font" to PublishedModule("tiqian-font", "Tiqian Font", "Font selection and metrics contracts for Tiqian."),
-    ":linebreak" to PublishedModule("tiqian-linebreak", "Tiqian Line Break", "Line-breaking primitives for Tiqian."),
-    ":clreq" to PublishedModule("tiqian-clreq", "Tiqian CLREQ", "Chinese composition rules used by Tiqian."),
-    ":layout" to PublishedModule("tiqian-layout", "Tiqian Layout", "The Tiqian CJK paragraph layout engine."),
-    ":shaping:api" to PublishedModule("tiqian-shaping-api", "Tiqian Shaping API", "Platform-neutral shaping contracts for Tiqian."),
-    ":shaping:jvm" to PublishedModule("tiqian-shaping-jvm", "Tiqian JVM Shaping", "JVM shaping support for Tiqian."),
-    ":shaping:skia" to PublishedModule("tiqian-shaping-skia", "Tiqian Skia Shaping", "Skia shaping and glyph replay support for Tiqian."),
-    ":shaping:android-adapter" to PublishedModule(
+    ":engine" to PublishedModule(
+        "tiqian-engine",
+        "Tiqian Engine",
+        "The Tiqian CJK paragraph layout engine: document and layout data types, font " +
+            "and shaping contracts, line breaking, and Chinese composition rules.",
+    ),
+    ":platforms:jvm:shaping" to PublishedModule("tiqian-shaping-jvm", "Tiqian JVM Shaping", "JVM shaping support for Tiqian."),
+    ":platforms:jvm:skia" to PublishedModule("tiqian-shaping-skia", "Tiqian Skia Shaping", "Skia shaping and glyph replay support for Tiqian."),
+    ":platforms:android:shaping" to PublishedModule(
         "tiqian-shaping-android-adapter",
         "Tiqian Android Shaping Adapter",
         "Android shaping and glyph replay adapter for Tiqian.",
     ),
-    ":shaping:android-native-font" to PublishedModule(
+    ":platforms:android:native-font" to PublishedModule(
         "tiqian-shaping-android-native-font",
         "Tiqian Android Native Font",
         "Native Android font discovery and shaping support for Tiqian.",
     ),
-    ":frontend:compose" to PublishedModule("tiqian-compose", "Tiqian Compose", "Compose frontend for the Tiqian CJK paragraph layout engine."),
-    ":frontend:compose-material3" to PublishedModule(
+    ":platforms:compose:compose" to PublishedModule("tiqian-compose", "Tiqian Compose", "Compose frontend for the Tiqian CJK paragraph layout engine."),
+    ":platforms:compose:material3" to PublishedModule(
         "tiqian-compose-material3",
         "Tiqian Compose Material 3",
         "Material 3 context adapter for the Tiqian Compose frontend.",
@@ -73,6 +74,28 @@ fun Project.configureMavenPublishing(module: PublishedModule) {
                         .orNull
                 }
             }
+            maven {
+                name = "centralSnapshots"
+                url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+                credentials {
+                    username = providers.gradleProperty("mavenCentralUsername")
+                        .orElse(providers.environmentVariable("MAVEN_CENTRAL_USERNAME"))
+                        .orNull
+                    password = providers.gradleProperty("mavenCentralPassword")
+                        .orElse(providers.environmentVariable("MAVEN_CENTRAL_PASSWORD"))
+                        .orNull
+                }
+            }
+        }
+    }
+
+    // Kotlin/Native klibs are not uploaded to the remote Central repositories.
+    tasks.withType(PublishToMavenRepository::class.java).configureEach {
+        val toRemoteCentral = name.endsWith("PublicationToCentralRepository") ||
+            name.endsWith("PublicationToCentralSnapshotsRepository")
+        val nativePublication = Regex("^publish(Ios|Macos|Watchos|Tvos|Linux|Mingw)").containsMatchIn(name)
+        if (toRemoteCentral && nativePublication) {
+            enabled = false
         }
     }
 
@@ -190,6 +213,12 @@ tasks.register("publishTiqianToCentral") {
     group = "publishing"
     description = "Uploads every public Tiqian module to the Central Portal staging API."
     dependsOn(publishedModules.keys.map { "$it:publishAllPublicationsToCentralRepository" })
+}
+
+tasks.register("publishTiqianToCentralSnapshots") {
+    group = "publishing"
+    description = "Uploads every public Tiqian module to the Central Portal SNAPSHOT repository."
+    dependsOn(publishedModules.keys.map { "$it:publishAllPublicationsToCentralSnapshotsRepository" })
 }
 
 tasks.register("runComposeDemo") {

@@ -9,9 +9,9 @@ frontend. The gallery exercises 中西自动间距, 避头尾,
 ## Layout
 
 ```
-shaping/coretext/                 Core Text shaping and font-metrics adapter.
-frontend/apple/coretext-render/  Internal LayoutResult renderer and Apple paragraph backend.
-frontend/apple/                  :frontend:apple XCFramework facade + TiqianUI Swift Package.
+platforms/apple/shaping/                 Core Text shaping and font-metrics adapter.
+platforms/apple/frontend/coretext-render/  Internal LayoutResult renderer and Apple paragraph backend.
+platforms/apple/frontend/                  :platforms:apple:frontend XCFramework facade + TiqianUI Swift Package.
 demo/apple/                      One Xcode project; shared sources, macOS target and iOS target.
 ```
 
@@ -21,7 +21,7 @@ typesetting and drawing. Pagination is not here — that is the pageflow engine'
 ## Run it
 
 ```sh
-../../frontend/apple/build-xcframework.sh
+../../platforms/apple/frontend/build-xcframework.sh
 open TiqianDemo.xcodeproj
 ```
 
@@ -56,4 +56,4 @@ glyphs + 着重号 dots + 专名号/书名号/示亡号 lines; 书名号 uses th
 macOS and iOS both support source-faithful read-only selection/accessibility, Web-compatible ruby
 clipboard projection, and native link activation. Editing, IME and vertical text remain outside the
 current scope. `Tiqian.xcframework` is a regenerable, gitignored build artifact produced by
-`frontend/apple/build-xcframework.sh`.
+`platforms/apple/frontend/build-xcframework.sh`.

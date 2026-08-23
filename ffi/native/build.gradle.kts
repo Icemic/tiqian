@@ -13,12 +13,7 @@ kotlin {
 
     sourceSets {
         nativeMain.dependencies {
-            implementation(project(":core"))
-            implementation(project(":font"))
-            implementation(project(":shaping:api"))
-            implementation(project(":linebreak"))
-            implementation(project(":clreq"))
-            implementation(project(":layout"))
+            implementation(project(":engine"))
         }
 
         commonTest.dependencies {

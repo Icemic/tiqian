@@ -69,12 +69,7 @@ jobs:
       - name: Verify platform-independent tests and release artifacts
         run: |
           ./gradlew \
-            :core:allTests \
-            :font:allTests \
-            :linebreak:allTests \
-            :clreq:allTests \
-            :layout:allTests \
-            :shaping:api:allTests \
+            :engine:allTests \
             assemble \
             publishTiqianToMavenLocal \
             -Dmaven.repo.local="$RUNNER_TEMP/tiqian-maven-preflight" \

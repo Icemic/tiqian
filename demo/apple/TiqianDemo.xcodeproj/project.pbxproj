@@ -143,7 +143,7 @@
 			);
 			mainGroup = AAAA000000000000000000A2;
 			packageReferences = (
-				AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../frontend/apple" */,
+				AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../platforms/apple/frontend" */,
 			);
 			productRefGroup = AAAA000000000000000000A3 /* Products */;
 			projectDirPath = "";
@@ -377,9 +377,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../frontend/apple" */ = {
+		AAAA000000000000000000F1 /* XCLocalSwiftPackageReference "../../platforms/apple/frontend" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../frontend/apple";
+			relativePath = "../../platforms/apple/frontend";
 		};
 /* End XCLocalSwiftPackageReference section */
 
