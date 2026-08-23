@@ -1,4 +1,4 @@
-import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./runtime.js";
+import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
 import { installTiqianCopyHandler } from "./core/utils/copy.js";
 import {
   prepareCjkDashShapingIfNeeded,

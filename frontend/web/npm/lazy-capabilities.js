@@ -1,6 +1,5 @@
 const CJK_DASH_SOURCE = "——";
 const TWO_EM_DASH = "⸺";
-export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
 let precomputedModule;
 let precomputedPromise;
@@ -111,67 +110,6 @@ export function fontLoadingAffectsTypography(event, elements, getStyle = globalT
       fontFaceCoversWeight(face?.weight, usage.weight) &&
       fontFaceCoversStyle(face?.style, usage.fontStyle));
   });
-}
-
-function typographyFontDescriptor(style) {
-  const family = style?.getPropertyValue?.("font-family")?.trim();
-  const size = style?.getPropertyValue?.("font-size")?.trim();
-  if (!family || !size) return null;
-  const fontStyle = style.getPropertyValue("font-style").trim() || "normal";
-  const weight = style.getPropertyValue("font-weight").trim() || "400";
-  const stretch = style.getPropertyValue("font-stretch").trim();
-  return [fontStyle, weight, stretch, size, family].filter(Boolean).join(" ");
-}
-
-export async function waitForTypographyFonts(
-  fonts,
-  elements,
-  getStyle = globalThis.getComputedStyle,
-  { timeoutMs = DEFAULT_TYPOGRAPHY_FONT_WAIT_MS } = {},
-) {
-  if (typeof fonts?.load !== "function" || typeof getStyle !== "function") {
-    return { status: "unsupported", completion: Promise.resolve() };
-  }
-  const requests = new Map();
-  for (const element of elements ?? []) {
-    const descriptor = typographyFontDescriptor(getStyle(element));
-    if (!descriptor) continue;
-    let sample = requests.get(descriptor);
-    if (!sample) {
-      sample = new Set();
-      requests.set(descriptor, sample);
-    }
-    for (const character of element?.textContent ?? "") sample.add(character);
-  }
-  const completion = Promise.all(Array.from(requests, ([descriptor, characters]) => {
-    if (characters.size === 0) return Promise.resolve();
-    // TypographyFontReadyGate: wait only for faces and unicode-range subsets
-    // used by the prose instead of unrelated document fonts.
-    return Promise.resolve()
-      .then(() => fonts.load(descriptor, Array.from(characters).join("")))
-      // A rejected face has settled on its CSS fallback. The fallback is a
-      // stable layout input; only a still-pending load may race measurement.
-      .catch(() => []);
-  }));
-  if (requests.size === 0) return { status: "settled", completion };
-
-  const boundedTimeout = Number(timeoutMs);
-  if (!Number.isFinite(boundedTimeout) || boundedTimeout < 0) {
-    await completion;
-    return { status: "settled", completion };
-  }
-
-  let timer = 0;
-  const status = await Promise.race([
-    completion.then(() => "settled"),
-    new Promise((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), boundedTimeout);
-    }),
-  ]);
-  if (timer) clearTimeout(timer);
-  // BoundedTypographyFontReadyGate: callers can keep native SSR after the
-  // deadline while retaining `completion` as a race-free eventual retry seam.
-  return { status, completion };
 }
 
 export function loadPrecomputedSnapshots() {

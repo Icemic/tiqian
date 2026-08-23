@@ -9,8 +9,8 @@ import {
   needsCjkDashShaping,
   parseCssFontFamilies,
   prepareCjkDashShapingIfNeeded,
-  waitForTypographyFonts,
 } from "./lazy-capabilities.js";
+import { waitForTypographyFonts } from "./core/engine/loaders/font-loader.js";
 
 test("responsive invalidation follows the engine line-length grid", () => {
   assert.equal(lineLengthGridCellCount(912, 15), 60);

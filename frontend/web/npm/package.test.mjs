@@ -122,7 +122,14 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   const layoutWorkerSource = await readFile(new URL("./layout-worker.js", import.meta.url), "utf8");
   const lazyCapabilitiesSource = await readFile(new URL("./lazy-capabilities.js", import.meta.url), "utf8");
-  const runtimeSource = await readFile(new URL("./runtime.js", import.meta.url), "utf8");
+  const runtimeSource = await readFile(
+    new URL("./core/engine/loaders/runtime-loader.js", import.meta.url),
+    "utf8",
+  );
+  const fontLoaderSource = await readFile(
+    new URL("./core/engine/loaders/font-loader.js", import.meta.url),
+    "utf8",
+  );
   const stylesSource = await readFile(new URL("./styles.css", import.meta.url), "utf8");
   const adoption = elementSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
   const connectedStart = elementSource.indexOf("  connectedCallback() {");
@@ -157,7 +164,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(initialSnapshotSource, /#lastTypography = this\.#typographySignature\(\)/u);
   assert.match(
     initialSnapshotSource,
-    /if \(this\.hasAttribute\("snapshot-ref"\) && !strongEmphasisRuntimeRequired\) return true;[\s\S]*?waitForTypographyFonts/u,
+    /bypassesFontWait: \(\) => this\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired/u,
   );
   assert.ok(runtimeLoad > adoption);
   assert.match(
@@ -173,7 +180,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
     elementSource,
     /if \(!strongEmphasisRuntimeRequired\) \{[\s\S]*?tryAdoptRequestedSnapshot\(/u,
   );
-  assert.match(runtimeSource, /import\("\.\/runtime\/tiqian-web\.js"\)/u);
+  assert.match(runtimeSource, /import\("\.\.\/\.\.\/\.\.\/runtime\/tiqian-web\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(elementSource, /import\("\.\/core\/measurement\/browser-fonts\.js"\)/u);
   assert.match(elementSource, /import\("\.\/prepared-dom\.js"\)/u);
@@ -433,15 +440,16 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(elementSource, /addEventListener\("DOMContentLoaded"/u);
   assert.doesNotMatch(elementSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
-  assert.match(elementSource, /\.then\(nextFrame\)[\s\S]*?waitForTypographyFonts/u);
-  assert.match(lazyCapabilitiesSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
+  assert.match(elementSource, /\.then\(nextFrame\)[\s\S]*?awaitInitialTypographyFonts/u);
+  assert.match(fontLoaderSource, /waitForTypographyFonts/u);
+  assert.match(fontLoaderSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
   assert.match(
-    elementSource,
-    /fontWait\.status !== "timeout"[\s\S]*?tiqianFontWait = "timeout"[\s\S]*?#deferInitialEnhancementUntilFontsSettle/u,
+    fontLoaderSource,
+    /fontWait\.status !== "timeout"[\s\S]*?tiqianFontWait = "timeout"[\s\S]*?deferUntilFontsSettle/u,
   );
   assert.match(
-    elementSource,
-    /#deferInitialEnhancementUntilFontsSettle\([\s\S]*?"loadingdone"[\s\S]*?"loadingerror"[\s\S]*?Promise\.resolve\(completion\)\.then\(restart\)/u,
+    fontLoaderSource,
+    /deferUntilFontsSettle[\s\S]*?"loadingdone"[\s\S]*?"loadingerror"[\s\S]*?Promise\.resolve\(completion\)\.then\(restart\)/u,
   );
   assert.match(
     elementSource,

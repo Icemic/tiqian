@@ -1,7 +1,6 @@
-import { loadTiqianRuntime } from "./runtime.js";
+import { loadTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
 import { installTiqianCopyHandler } from "./core/utils/copy.js";
 import {
-  DEFAULT_TYPOGRAPHY_FONT_WAIT_MS,
   detachLoadedSnapshot,
   fontLoadingAffectsTypography,
   isLoadedSnapshotAdopted,
@@ -12,8 +11,11 @@ import {
   prepareCjkDashShapingIfNeeded,
   restoreLoadedSnapshot,
   tryAdoptRequestedSnapshot,
-  waitForTypographyFonts,
 } from "./lazy-capabilities.js";
+import {
+  awaitInitialTypographyFonts,
+  createInitialFontRetryController,
+} from "./core/engine/loaders/font-loader.js";
 import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
 import { prefetchSnapshotTables } from "./snapshot-tables.js";
 import {
@@ -203,9 +205,7 @@ class TiqianProseElement extends HTMLElementBase {
   #generation = 0;
   #hasDispatched = false;
   #inViewport = true;
-  #initialFontRetryListener = null;
-  #initialFontRetryObserver = null;
-  #initialFontRetryToken = 0;
+  #initialFontRetry = null;
   #visibilityObservation = null;
   #layoutWorkInFlight = false;
   #layoutWorkerAttached = false;
@@ -443,28 +443,15 @@ class TiqianProseElement extends HTMLElementBase {
     // scripts, icon fonts, code fonts, or widgets.
     ensureTiqianStyles(this)
       .then(nextFrame)
-      // Snapshot validation loads and probes the exact declared faces itself.
-      // Repeating a per-paragraph computed-style scan here delayed the first
-      // layout read and did no additional validation work.
-      .then(async () => {
-        if (!this.isConnected || generation !== this.#generation) return false;
-        if (this.hasAttribute("snapshot-ref") && !strongEmphasisRuntimeRequired) return true;
-        const fontWait = await waitForTypographyFonts(
-          document.fonts,
-          this.#typographyElements(),
-          globalThis.getComputedStyle,
-          { timeoutMs: DEFAULT_TYPOGRAPHY_FONT_WAIT_MS },
-        );
-        if (!this.isConnected || generation !== this.#generation) return false;
-        if (fontWait.status !== "timeout") return true;
-        // BoundedInitialFontGate: a slow or stuck FontFaceSet must not leave an
-        // invisible transition in flight. Native SSR remains authoritative;
-        // the exact completion promise and relevant font/style events restart
-        // the whole gate against the latest host state.
-        this.dataset.tiqianFontWait = "timeout";
-        this.#deferInitialEnhancementUntilFontsSettle(generation, fontWait.completion);
-        return false;
-      })
+      .then(() => awaitInitialTypographyFonts(this, {
+        generation,
+        isCurrent: () => this.isConnected && generation === this.#generation,
+        bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
+          !strongEmphasisRuntimeRequired,
+        typographyElements: () => this.#typographyElements(),
+        deferUntilFontsSettle: (gateGeneration, completion) =>
+          this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
+      }))
       .then((fontGateOpen) => fontGateOpen ? nextFrame().then(() => true) : false)
       .then(async (fontGateOpen) => {
         if (!fontGateOpen) return;
@@ -695,48 +682,16 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #deferInitialEnhancementUntilFontsSettle(generation, completion) {
-    this.#clearInitialFontRetry();
-    const token = this.#initialFontRetryToken;
-    const restart = () => {
-      if (
-        token !== this.#initialFontRetryToken || !this.isConnected ||
-        generation !== this.#generation
-      ) return;
-      this.#restartConnectedLifecycle();
-    };
-    this.#initialFontRetryListener = (event) => {
-      if (fontLoadingAffectsTypography(event, this.#typographyElements())) restart();
-    };
-    document.fonts?.addEventListener?.("loadingdone", this.#initialFontRetryListener);
-    document.fonts?.addEventListener?.("loadingerror", this.#initialFontRetryListener);
-
-    if (typeof MutationObserver === "function") {
-      this.#initialFontRetryObserver = new MutationObserver(restart);
-      this.#initialFontRetryObserver.observe(this, {
-        attributes: true,
-        subtree: true,
-        attributeFilter: ["class", "style", "data-theme", "data-color-mode"],
-      });
-      for (let ancestor = this.parentElement; ancestor; ancestor = ancestor.parentElement) {
-        this.#initialFontRetryObserver.observe(ancestor, {
-          attributes: true,
-          attributeFilter: ["class", "data-theme", "data-color-mode", "lang", "dir"],
-        });
-      }
-    }
-
-    Promise.resolve(completion).then(restart);
+    this.#initialFontRetry ??= createInitialFontRetryController(this, {
+      isGenerationCurrent: (candidate) => candidate === this.#generation,
+      typographyElements: () => this.#typographyElements(),
+      restartConnectedLifecycle: () => this.#restartConnectedLifecycle(),
+    });
+    this.#initialFontRetry.deferUntilFontsSettle(generation, completion);
   }
 
   #clearInitialFontRetry() {
-    this.#initialFontRetryToken += 1;
-    this.#initialFontRetryObserver?.disconnect();
-    this.#initialFontRetryObserver = null;
-    if (this.#initialFontRetryListener) {
-      document.fonts?.removeEventListener?.("loadingdone", this.#initialFontRetryListener);
-      document.fonts?.removeEventListener?.("loadingerror", this.#initialFontRetryListener);
-      this.#initialFontRetryListener = null;
-    }
+    this.#initialFontRetry?.clear();
   }
 
   #clearLifecycleDiagnostics() {
