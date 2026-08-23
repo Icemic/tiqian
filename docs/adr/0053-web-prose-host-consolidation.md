@@ -396,6 +396,11 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   copy-fidelity.test.mjs 注释。
 - [ ] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
   plan 对象，成为绘制规格唯一实现；DomParagraphRenderer 删除。
+  产出（B7.1，2026-08-23）：f54e869，`toPreparedParagraphJson(renderEvidence)` 以
+  默认省略的可选字段追加 cell 级与段落级绘制证据；默认路径字节不变，schema 仍为
+  1，两个既有读者（prepared-dom.js、tiqian-precompute plan.rs）按字段名读取、
+  容忍未知字段，无需改动。`:layout:jvmTest`（含 LayoutDumpGoldenTest 零 diff）与
+  `:frontend:web:jsBrowserTest` 通过。B7.2 起改 prepared-dom.js 读取这些字段。
 - [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
