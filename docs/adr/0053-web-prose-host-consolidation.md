@@ -327,6 +327,21 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   进度（2026-08-23）：现状调查与分片设计见
   docs/research/2026-08-23-a5-metric-table-unification.md（两套结构的位置、
   Worker 无 DOM 约束、空表会话与条目证据字段的待决点、A5a..A5d 顺序）。
+  进度（A5a，2026-08-23）：899de33。npm-core/replay-entry-codec.js 单点持有
+  条目展开（decodeShapeReplayRow/decodeMetricReplayRow）、读侧缩放
+  （scaleShapeReplayItem/scaleMetricReplayItem）与 px→em 规范化
+  （normalizeReplayNumber，镜像 replay.rs 的 12 位小数与 -0 归 0）；
+  snapshot-manifest.js 与 browser-font-replay.js 改为调用该模块，键函数与
+  修订常量留在 snapshot-schema.js。18 例 roundtrip、损坏输入与 Rust 测试向量
+  对齐；npm-core 167 例加 prose 246 例通过。
+  进度（A5b，2026-08-23）：8091d83。npm-core/replay-probe.js
+  （CanvasMeasureReplayProbePolicy）：会话可选注入同步 measure
+  （cssFont, text）→ 度量结果；shape miss 探测产出单 glyph 条目
+  （id 0、bounds null、faceId 以 canvas-probe: 前缀命名证据来源），metric
+  miss 镜像 WebCanvasFontMetricsResolver 的探针文本与 typo 计算，em 写入经
+  normalizeReplayNumber，同键再访走表；探测失败或未注入时
+  MissingServerShapingReplay 语义不变；条目校验复用 A5a 的 scale 函数。
+  13 例新测试；npm-core 180 例加 prose 246 例通过。
 
 ### B TS 宿主重写（`TsHostRuntime`）
 
@@ -758,7 +773,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   prose 246 例（合计与拆分前 395 例一致）、web-precompute 72 例、
   jsBrowserTest、assembleNpmPackage、语料再生 git diff --exit-code、两侧
   verify:package（runtime 标记与 wasm 禁令随产物迁入 prose-core 侧）全部
-  通过；跨包相对导入与反向依赖 grep 零命中。测试夹具
+  通过；跨包相对导入与反向依赖 grep 零命中。测试文件
   browser-fonts-fixtures.mjs 与 snapshot-dom-fixtures.mjs 两侧各有消费者，
   各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
   消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
