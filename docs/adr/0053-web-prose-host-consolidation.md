@@ -358,7 +358,25 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   （npm/eligibility-bridge.test.mjs）。响应式度量半段依赖管线度量助手
   （effectiveLineMeasure、sourceParagraphWidth 属 WebEnhancerParagraphPipeline），
   随 B7 管线批次迁移。提交：57f3f70。
-- [ ] **B5 内容 reconcile**。
+- [x] **B5 内容 reconcile**。
+  产出（2026-08-23）：断言半段此前已随行为测试批完成；实现半段 4c08198，
+  分类（dead、drifted、custody、tainted、stranded 与
+  StrandedCapabilityNoRetry 门槛）、只读探针 probeContentDrift 与两个 DOM
+  准备助手（HostEditRelowering、CloneDescaffoldEngineMarkup，含
+  EngineInlineStyleStrippingOnClone）迁入
+  `npm/core/engine/content-reconcile.js`，按 custody 模式经
+  generateContentReconcileBridge 嵌入运行时，Kotlin 侧经
+  `WebEnhancerContentReconcileBridge.kt` 调用；WebEnhancerContentReconcile.kt
+  只保留作业组装、段落跟踪与引擎动作（processParagraph、托管恢复），JSON
+  判定串由 JS 侧拼接返回，与原字符串逐字节一致。嵌入式单测 6 条
+  （npm/content-reconcile-bridge.test.mjs）。动作执行、视口距离排序与作业
+  启动留在 Kotlin，随 B7 管线批次迁移。
+  验证：npm test 330/330（含 content-reconcile 行为测试 9 条与嵌入式
+  单测 6 条）；assembleNpmPackage 与 jsBrowserTest 通过；grep 复核
+  prepareTrackedParagraphForRelowering 与
+  stripEngineMarkupFromStrandedParagraph 在 Kotlin 源内除桥定义与调用点外
+  0 残留；content-reconcile.js 嵌入方言检查（可选链、空值合并、展开、
+  for-of、裸 catch、美元符、三引号）0 命中。
 - [x] **B6 复制保真**（copy.js 投影语义保持）。
   产出（2026-08-23）：断言半段 4e3d3f7（copy-fidelity.test.mjs 经 runtime-host
   驱动运行时的 copy 事件）；实现半段 d733286，`npm/core/utils/copy.js` 改为
