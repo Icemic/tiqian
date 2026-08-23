@@ -13,7 +13,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -462,5 +465,42 @@ class CjkTextRenderTest {
             lines.map { it.endReason },
         )
         assertEquals(0f, lines[1].visualWidth)
+    }
+
+    @Test
+    fun lineEndHyphenFollowsTheCoveringColorSpan() {
+        var layout: LayoutResult? = null
+        val pixels = ImageComposeScene(width = 240, height = 220) {
+            Box(Modifier.fillMaxSize().background(Color.White)) {
+                CjkText(
+                    text = buildAnnotatedString {
+                        append("排版")
+                        withStyle(SpanStyle(color = Color.Red)) { append("internationalization") }
+                        append("排版排版")
+                    },
+                    modifier = Modifier.width(150.dp),
+                    style = TextStyle(fontSize = 24.sp),
+                    onTextLayout = { layout = it },
+                )
+            }
+        }.use { scene -> scene.render().toComposeImageBitmap().toPixelMap() }
+
+        val result = layout ?: error("onTextLayout was not called")
+        val line = result.lines.firstOrNull { it.hyphenAdvance > 0f }
+            ?: error("expected a hyphenated line: ${result.lines.map { it.debug }}")
+
+        var redInk = 0
+        var baseInk = 0
+        val left = (line.indent + line.visualWidth).toInt()
+        val right = (line.indent + line.visualWidth + line.hyphenAdvance).toInt() + 1
+        for (y in line.top.toInt() until line.bottom.toInt()) {
+            for (x in left..minOf(right, pixels.width - 1)) {
+                val c = pixels[x, y]
+                if (c.red > 0.55f && c.green < 0.45f && c.blue < 0.45f) redInk++
+                if (c.red < 0.4f && c.green < 0.4f && c.blue < 0.4f) baseInk++
+            }
+        }
+        assertTrue(redInk > 0, "hyphen ink should follow the covering color span")
+        assertEquals(0, baseInk, "hyphen must not fall back to the base text color")
     }
 }

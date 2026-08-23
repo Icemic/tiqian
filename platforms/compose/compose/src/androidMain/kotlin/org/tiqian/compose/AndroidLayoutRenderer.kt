@@ -169,13 +169,15 @@ private fun drawAndroidGlyphs(
 
     val hyphenPaint = drawCache.hyphenPaint
     hyphenPaint.set(paint)
-    hyphenPaint.color = color
     hyphenPaint.textSize = result.input.textStyle.fontSize
     hyphenPaint.typeface = result.input.textStyle.let { style ->
         typefaces.resolve(FontRole.LatinText, style.fontFamilies, style.fontWeight, style.italic)
     }
     for (line in result.lines) {
         if (line.hyphenAdvance > 0f) {
+            // The hyphen takes the color of the cluster it breaks after.
+            val anchor = result.clusters[line.clusterRange.last].range.start
+            hyphenPaint.color = colorSpans.lastOrNull { anchor >= it.start && anchor < it.end }?.argb ?: color
             val originX = line.indent + line.visualWidth
             val platformDrawn = Build.VERSION.SDK_INT >= 31 &&
                 drawPositionedGlyphs31(

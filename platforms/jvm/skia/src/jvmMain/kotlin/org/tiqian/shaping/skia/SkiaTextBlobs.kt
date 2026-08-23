@@ -230,8 +230,14 @@ fun drawTiqianGlyphsWithPositions(
     }
     for (line in result.lines) {
         if (line.hyphenAdvance > 0f) {
+            // The hyphen takes the color of the cluster it breaks after.
+            val anchor = result.clusters[line.clusterRange.last].range.start
+            val argb = colorSpans.lastOrNull { anchor >= it.start && anchor < it.end }?.argb
+            val hyphenPaint = if (argb == null) paint else paintByColor.getOrPut(argb) {
+                org.jetbrains.skia.Paint().apply { color = argb }
+            }
             shapeTextBlob(shaper, "-", hyphenFont, language)?.let { blob ->
-                canvas.drawTextBlob(blob, line.indent + line.visualWidth, line.baseline + baselineOffset, paint)
+                canvas.drawTextBlob(blob, line.indent + line.visualWidth, line.baseline + baselineOffset, hyphenPaint)
             }
         }
     }

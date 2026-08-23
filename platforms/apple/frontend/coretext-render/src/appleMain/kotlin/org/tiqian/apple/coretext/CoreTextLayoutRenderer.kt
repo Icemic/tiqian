@@ -94,7 +94,7 @@ class CoreTextLayoutRenderer(
         if (canvasHeight <= 0.0) return
         val fontSize = result.input.textStyle.fontSize.toDouble()
         drawBaseText(result, context, canvasHeight, spans, colorSpans)
-        drawLineEndHyphens(result, context, canvasHeight)
+        drawLineEndHyphens(result, context, canvasHeight, colorSpans)
         drawEmphasisDots(result, context, canvasHeight, colorSpans)
         drawDecorationSegments(result, context, canvasHeight, fontSize, colorSpans)
         drawLinkUnderlines(result, context, canvasHeight, spans, colorSpans, richTextSpans)
@@ -168,13 +168,28 @@ class CoreTextLayoutRenderer(
      * frontend; without this, a hyphenated word breaks with hyphen geometry yet shows no hyphen. Drawn
      * by re-shaping "-" (the same character the engine measured) in the Latin face at the body size.
      */
-    private fun drawLineEndHyphens(result: LayoutResult, context: CGContextRef, canvasHeight: Double) {
+    private fun drawLineEndHyphens(
+        result: LayoutResult,
+        context: CGContextRef,
+        canvasHeight: Double,
+        colorSpans: List<ColorSpan>,
+    ) {
         val baseStyle = result.input.textStyle
         val font = CoreTextSupport.font(latinFamily, baseStyle.fontSize.toDouble(), baseStyle.fontWeight, baseStyle.italic)
             ?: return
         for (line in result.lines) {
             if (line.hyphenAdvance <= 0f) continue
-            drawShapedText(context, font, "-", (line.indent + line.visualWidth).toDouble(), line.baseline.toDouble(), canvasHeight)
+            // The hyphen takes the color of the cluster it breaks after.
+            val anchor = result.clusters[line.clusterRange.last].range.start
+            val argb = colorAt(colorSpans, anchor)
+            if (argb != null) {
+                CGContextSaveGState(context)
+                setFill(context, argb)
+                drawShapedText(context, font, "-", (line.indent + line.visualWidth).toDouble(), line.baseline.toDouble(), canvasHeight)
+                CGContextRestoreGState(context)
+            } else {
+                drawShapedText(context, font, "-", (line.indent + line.visualWidth).toDouble(), line.baseline.toDouble(), canvasHeight)
+            }
         }
     }
 
