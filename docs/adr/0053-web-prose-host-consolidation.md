@@ -418,7 +418,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   比例 ascent、bopomofo 松量与声调字号公式、覆盖层、inlineEdges 优先级）；
   `:frontend:web:jsBrowserTest` 通过。
 - [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
-  ruby/bopomofo span 挂载、原子换入。
+  ruby/bopomofo span 挂载、原子换入。SVG 行间线与着重号、ruby/bopomofo span
+  已随 B7.2 进入 lowered HTML（ebb65df）。
+  产出（克隆换入原语，2026-08-23）：45efc96。占位 span 在尾隙绝对值 ≥ 0.01 时
+  增加 data-tq-object-trailing-margin（值为该尾隙）；renderPreparedParagraphInto
+  在 innerHTML 换入后把 data-tq-inline-object="pending" 占位替换为调用方经
+  options.inlineObjects 按 start-end 对位传入的源元素深克隆，克隆带
+  data-tq-inline-object="true" 与 data-tq-object-range，尾隙存在时写
+  margin-right = marginRight + 尾隙（important），与
+  DomParagraphRenderer.appendInlineObject 逐项一致；缺源抛
+  InlineObjectSourceUnavailable，重复区间抛 ConflictingInlineObjectRange，
+  无占位的传入项忽略（与 Kotlin associateBy 后未被命中的条目同行为）。
+  调用方接线未动：workerLayoutRequest 仍排除含行内对象的段落，exact 运行时路径
+  仍限于 canonical plain 段落，两条路径都到不了含行内对象的 plan，接线随本项
+  原子换入一起改（移除该排除，把 domInlineObjects 的元素与 margin 经桥传入）。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
