@@ -793,6 +793,16 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
   消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
   F3 配置。
+  进度（拓扑 CI，2026-08-23）：9822b2a。tools/package-topology/check.mjs
+  （零依赖 node 脚本）查两件事：三包 package.json 的 @tiqian/* 边只允许
+  prose→prose-core、prose→ffi、prose-core→ffi；发布源内相对导入解析后
+  逸出本包且落入另一拓扑包即失败。扫描口径与 ts-discipline 的 patterns、
+  ignores 一致（另排除 *.test.mjs）。逸出包外但落点在三个包之外（现存
+  bench 对 web-precompute 的两条 dev 导入）记 note 不失败，留
+  TIQIAN_TOPOLOGY_STRICT=1 升级开关。ci-package-topology.yml 与
+  ci-ts-discipline 同骨架（同对 SHA-pinned actions、concurrency、
+  contents: read，无 install 步骤）。正向 78 文件零违规、反向依赖边与
+  跨包导入注入各非零退出，均本地验证。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
