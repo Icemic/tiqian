@@ -262,8 +262,9 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 - [x] **P5 批次 5**：engine/face.js，派发点收拢，globalThis 读取收敛，detail.result
   改返回值（两份 loadExactFontFallback 已在批次 4 合并）。验收：npm test；jsBrowserTest；demo/web。
   提交：15509f7。
-- [ ] **P6 批次 6**：快照四件归位，lazy-capabilities 拆分，element 快照失效区域
+- [x] **P6 批次 6**：快照四件归位，lazy-capabilities 拆分，element 快照失效区域
   提取，sync:shared 路径更新。验收：npm test；jsBrowserTest；web-precompute parity。
+  提交：a41ddc4、27525a1（6a）；befa1a3（6b）。
 - [ ] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
   验收：demo/web 对比数据记录。
 
