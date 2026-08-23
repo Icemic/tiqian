@@ -156,6 +156,32 @@ plan JSON 往返。
 趋同，判定进一步缩小到断行计算与序列化开销。该方向属 ADR 0053/0052 的后续设计，
 不在本报告范围。
 
+### 首测结果（2026-08-22）
+
+bench 与语料已入库：`frontend/web/npm/bench/worker-necessity.mjs`（测量）与
+`bench/worker-necessity-corpus.mjs`（语料生成，取 sveltekit 站点 oh-my-2019 页 55 段
+4684 字符；5 段 emoji/颜文字因 producer 冻结 firstLineIndentIc 剔除，清单在
+`bench/fixtures/corpus/meta.json`）。复现：先运行语料生成脚本刷新
+`bench/fixtures/corpus/`，再在仓库根执行 `nix develop -c node
+bench/worker-necessity.mjs`。
+
+node 22（V8，JIT 开启）数字，30 个计量 pass、每形态 1650 样本：
+
+| 项 | p50 | p95 |
+|---|---|---|
+| 表回放形态每段计算 | 2.32 ms | 5.85 ms |
+| 缓存重排形态每段计算 | 2.28 ms | 5.69 ms |
+| 每段固定往返开销（serialize take+issue 3.8 µs、structuredClone 2.4 µs、plan JSON 往返 121.4 µs） | 0.128 ms | — |
+
+表回放 p50 计算是固定往返开销的 18 倍。两种形态的 p50 只差 2%：计算由断行与
+行调整主导，advance 缓存命中省下的份额有限。`node --jitless`（对齐 Edge 增强
+安全形态）首测记录为每段 20–96 ms，为 JIT 开启形态的 10–40 倍，倍数进一步
+扩大。
+
+两种 JIT 形态下每段计算都高于固定往返开销一个数量级以上，判定属「全量保留」
+一侧。正式判定与数字随批次 0 验收写入 ADR 0053；D1（plan 数据重填）完成后按
+同一 bench 重测一次。
+
 ## 6. Canvas 度量任务
 
 Canvas 度量独立成模块，并作为 Coordinator 的调度对象。本节记录设计约束；实现属
@@ -460,7 +486,7 @@ workerLayoutRequest），阶段一在 face 内改为返回值并完成 JSON 解�
 
 | 锚点类别 | 记录内容 |
 |---|---|
-| 事件派发序 | tiqian:ready、tiqian:relayout-ready、tiqian:error 等的触发顺序与 detail 字段形态 |
+| 事件派发序 | tiqian:ready、tiqian:relayout-ready（element.js 派发）与 tiqian:error、tiqian:relayout-error（运行时宿主派发，WebEnhancerSupport.kt:568）的触发顺序与 detail 字段形态 |
 | dataset 首写序 | dataset.tiqian* 属性的出现顺序（DOM 属性顺序即首次设置顺序，本身携带时序信息）与值 |
 | token 转换点 | `#generation`、`#enhanceRequest`、`#layoutOperation` 的变更点与其后首个守卫判定 |
 | 授予轮 | Coordinator 每帧的 tier 计数、批大小决策、DeadlineGate 停点；具体锚：每张 GrantController 凭证的 root、generation、deadline、quota、processedInSlice 终值，以及帧级 trace ring（element.js:505–511 `__tqFrameTrace`，现有机制，默认关闭）逐帧行 |
