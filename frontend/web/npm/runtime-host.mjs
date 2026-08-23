@@ -318,26 +318,228 @@ function createStyleObject(element) {
   }
 }
 
-function getHorizontalPadding(element) {
-  if (!element || !element.style) return { left: 0, right: 0 };
-  const pl = element.style.getPropertyValue?.("padding-left") || element.style.paddingLeft;
-  const pr = element.style.getPropertyValue?.("padding-right") || element.style.paddingRight;
-  if (pl || pr) {
-    return { left: Number.parseFloat(pl) || 0, right: Number.parseFloat(pr) || 0 };
-  }
-  const p = element.style.getPropertyValue?.("padding") || element.style.padding;
-  if (p) {
-    const parts = String(p).trim().split(/\s+/);
-    if (parts.length === 1) {
-      const v = Number.parseFloat(parts[0]) || 0;
-      return { left: v, right: v };
+const stylesheetRules = new Map();
+
+function collectStylesheetRules(cssText) {
+  if (!cssText) return;
+  const ruleRegex = /([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+  let match;
+  while ((match = ruleRegex.exec(cssText)) !== null) {
+    const selector = match[1].trim().toUpperCase();
+    const declBlock = match[2];
+    let tagRules = stylesheetRules.get(selector);
+    if (!tagRules) {
+      tagRules = new Map();
+      stylesheetRules.set(selector, tagRules);
     }
-    if (parts.length >= 2) {
-      const v = Number.parseFloat(parts[1]) || 0;
-      return { left: v, right: v };
+    const decls = declBlock.split(";");
+    for (const decl of decls) {
+      const colonIdx = decl.indexOf(":");
+      if (colonIdx > 0) {
+        const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+        const val = decl.slice(colonIdx + 1).trim();
+        if (prop && val) {
+          tagRules.set(prop, val);
+          if (prop === "padding-inline-start" && !tagRules.has("padding-left")) {
+            tagRules.set("padding-left", val);
+          }
+          if (prop === "margin-inline") {
+            if (!tagRules.has("margin-left")) tagRules.set("margin-left", val);
+            if (!tagRules.has("margin-right")) tagRules.set("margin-right", val);
+          }
+        }
+      }
+    }
+  }
+}
+
+function getStyleAttrProperty(element, name) {
+  const styleAttr = element?.attributes?.get?.("style") ?? (typeof element?.getAttribute === "function" ? element.getAttribute("style") : null);
+  if (!styleAttr || typeof styleAttr !== "string") return "";
+  const kebab = name.toLowerCase();
+  const decls = styleAttr.split(";");
+  for (const decl of decls) {
+    const idx = decl.indexOf(":");
+    if (idx > 0) {
+      const k = decl.slice(0, idx).trim().toLowerCase();
+      const v = decl.slice(idx + 1).trim();
+      if (k === kebab) return v;
+      if (k === "padding-inline-start" && kebab === "padding-left") return v;
+      if (k === "margin-inline" && (kebab === "margin-left" || kebab === "margin-right")) return v;
+    }
+  }
+  return "";
+}
+
+function resolveElementProperty(element, property, base = {}) {
+  if (!element || element.nodeType !== 1) return "";
+
+  if (property.startsWith("--")) {
+    for (let curr = element; curr; curr = curr.parentElement) {
+      const v = curr.style?.getPropertyValue?.(property);
+      if (v !== undefined && v !== "") return v;
+      const attrV = getStyleAttrProperty(curr, property);
+      if (attrV !== "") return attrV;
+    }
+    return "";
+  }
+
+  const kebab = property.toLowerCase();
+
+  // 1. Element inline style Proxy map
+  const inline = element.style?.getPropertyValue?.(kebab);
+  if (inline !== undefined && inline !== "") return inline;
+
+  // 2. Element style attribute string
+  const attrVal = getStyleAttrProperty(element, kebab);
+  if (attrVal !== "") return attrVal;
+
+  // 3. Stylesheet rules for element tag
+  const tagRule = stylesheetRules.get(element.tagName)?.get(kebab);
+  if (tagRule !== undefined && tagRule !== "") return tagRule;
+
+  // 4. Inherited properties
+  const inheritable = [
+    "font-size", "font-weight", "font-family", "font-style",
+    "line-height", "letter-spacing", "word-spacing", "color", "direction",
+  ];
+  if (inheritable.includes(kebab) && element.parentElement && element.parentElement.nodeType === 1) {
+    const parentVal = resolveElementProperty(element.parentElement, kebab, base);
+    if (parentVal !== "") return parentVal;
+  }
+
+  return "";
+}
+
+function getHorizontalPadding(element) {
+  if (!element || element.nodeType !== 1) return { left: 0, right: 0 };
+  const cs = globalThis.getComputedStyle?.(element);
+  if (cs) {
+    const pl = cs.getPropertyValue("padding-left") || cs.getPropertyValue("padding-inline-start");
+    const pr = cs.getPropertyValue("padding-right") || cs.getPropertyValue("padding-inline-end");
+    if (pl || pr) {
+      return { left: Number.parseFloat(pl) || 0, right: Number.parseFloat(pr) || 0 };
+    }
+    const p = cs.getPropertyValue("padding");
+    if (p) {
+      const parts = String(p).trim().split(/\s+/);
+      if (parts.length === 1) {
+        const v = Number.parseFloat(parts[0]) || 0;
+        return { left: v, right: v };
+      }
+      if (parts.length >= 2) {
+        const v = Number.parseFloat(parts[1]) || 0;
+        return { left: v, right: v };
+      }
+    }
+  } else if (element.style) {
+    const pl = element.style.getPropertyValue?.("padding-left") || element.style.paddingLeft;
+    const pr = element.style.getPropertyValue?.("padding-right") || element.style.paddingRight;
+    if (pl || pr) {
+      return { left: Number.parseFloat(pl) || 0, right: Number.parseFloat(pr) || 0 };
     }
   }
   return { left: 0, right: 0 };
+}
+
+function getElementExplicitWidth(element) {
+  if (!element || element.nodeType !== 1) return null;
+  const inlineSize = element.style?.getPropertyValue?.("inline-size") || element.style?.inlineSize;
+  if (inlineSize) {
+    const parsed = Number.parseFloat(inlineSize);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const styleWidth = element.style?.getPropertyValue?.("width") || element.style?.width;
+  if (styleWidth) {
+    const parsed = Number.parseFloat(styleWidth);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const attrStyle = element.getAttribute?.("style");
+  if (attrStyle) {
+    const match = /(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)px/i.exec(attrStyle);
+    if (match) {
+      const parsed = Number.parseFloat(match[1]);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  if (element.width) return element.width;
+  return null;
+}
+
+function getBlockWidth(element) {
+  const selfExplicit = getElementExplicitWidth(element);
+  if (selfExplicit != null) {
+    const cs = globalThis.getComputedStyle?.(element);
+    const boxSizing = cs?.getPropertyValue?.("box-sizing") || "content-box";
+    if (boxSizing === "border-box") {
+      return selfExplicit;
+    }
+    const selfPad = getHorizontalPadding(element);
+    return selfExplicit + selfPad.left + selfPad.right;
+  }
+
+  let explicitWidth = 360;
+  let widthAncestor = null;
+  for (let curr = element.parentElement; curr; curr = curr.parentElement) {
+    const ew = getElementExplicitWidth(curr);
+    if (ew != null) {
+      explicitWidth = ew;
+      widthAncestor = curr;
+      break;
+    }
+  }
+
+  let available = explicitWidth;
+  if (widthAncestor) {
+    for (let curr = element.parentElement; curr; curr = curr.parentElement) {
+      const pad = getHorizontalPadding(curr);
+      available -= (pad.left + pad.right);
+      if (curr === widthAncestor) break;
+    }
+  }
+
+  return Math.max(0, available);
+}
+
+function findMultiColumnAncestor(element) {
+  for (let curr = element.parentElement; curr; curr = curr.parentElement) {
+    const styleAttr = curr.getAttribute?.("style") || "";
+    const inlineCol = curr.style?.getPropertyValue?.("columns") || curr.style?.columns;
+    const combined = `${styleAttr}; columns: ${inlineCol || ""}`;
+    const colMatch = /columns\s*:\s*(\d+(?:\.\d+)?)px(?:\s+auto)?/i.exec(combined);
+    if (colMatch) {
+      const colWidth = Number.parseFloat(colMatch[1]);
+      let colGap = 0;
+      const gapMatch = /column-gap\s*:\s*(\d+(?:\.\d+)?)px/i.exec(combined) ||
+        curr.style?.getPropertyValue?.("column-gap");
+      if (gapMatch) {
+        colGap = typeof gapMatch === "string" ? cssPx(gapMatch) : Number.parseFloat(gapMatch[1]);
+      }
+      let colHeight = 120;
+      const heightMatch = /height\s*:\s*(\d+(?:\.\d+)?)px/i.exec(combined) ||
+        curr.style?.getPropertyValue?.("height");
+      if (heightMatch) {
+        colHeight = typeof heightMatch === "string" ? cssPx(heightMatch) : Number.parseFloat(heightMatch[1]);
+      }
+      return {
+        ancestor: curr,
+        colWidth,
+        colGap,
+        colHeight,
+      };
+    }
+  }
+  return null;
+}
+
+function findContentSizedAncestor(element) {
+  for (let curr = element; curr; curr = curr.parentElement) {
+    const display = curr.style?.getPropertyValue?.("display") || curr.style?.display || "";
+    if (["inline-block", "inline-flex", "inline-grid", "flex", "grid"].includes(display) || curr.tagName === "FIGURE") {
+      return curr;
+    }
+  }
+  return null;
 }
 
 export class FakeAttributesMap extends Map {
@@ -374,6 +576,22 @@ export class HostElement extends FakeElement {
 
   get children() {
     return this.childNodes.filter((n) => n.nodeType === 1);
+  }
+
+  get clientWidth() {
+    return this._clientWidth ?? this.getBoundingClientRect().width;
+  }
+
+  set clientWidth(v) {
+    this._clientWidth = Number(v);
+  }
+
+  get clientHeight() {
+    return this._clientHeight ?? this.getBoundingClientRect().height;
+  }
+
+  set clientHeight(v) {
+    this._clientHeight = Number(v);
   }
 
   get dataset() {
@@ -539,6 +757,12 @@ export class HostElement extends FakeElement {
       }
     }
     if (!w) {
+      const multiCol = findMultiColumnAncestor(this);
+      if (multiCol) {
+        w = getBlockWidth(multiCol.ancestor);
+      }
+    }
+    if (!w) {
       const isInline = [
         "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
         "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
@@ -547,19 +771,28 @@ export class HostElement extends FakeElement {
       if (isInline) {
         const pad = getHorizontalPadding(this);
         const textLen = (this.textContent || "").length;
-        w = pad.left + textLen * 18 + pad.right;
+        const cs = globalThis.getComputedStyle?.(this);
+        const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
+        w = pad.left + textLen * fontSize + pad.right;
       } else {
-        const selfDisplay = this.style?.getPropertyValue?.("display") || this.style?.display || "";
-        const parentDisplay = this.parentElement?.style?.getPropertyValue?.("display") || this.parentElement?.style?.display || "";
-        const isContentSized = ["flex", "grid", "inline-flex", "inline-grid"].includes(parentDisplay) ||
-          ["inline-block", "inline-flex", "inline-grid"].includes(selfDisplay) ||
-          this.parentElement?.tagName === "FIGURE" || this.tagName === "FIGURE";
+        const isContentSized = Boolean(findContentSizedAncestor(this));
 
         if (isContentSized) {
           const pad = getHorizontalPadding(this);
           const textLen = (this.textContent || "").length;
           let availableWidth = 360;
           for (let curr = this.parentElement; curr; curr = curr.parentElement) {
+            if (curr.tagName === "FIGURE") {
+              for (const child of curr.childNodes) {
+                if (child.nodeType === 1) {
+                  const ew = getElementExplicitWidth(child);
+                  if (ew != null && ew > 0) {
+                    availableWidth = ew;
+                    break;
+                  }
+                }
+              }
+            }
             const sw = curr.style?.getPropertyValue?.("width") || curr.style?.width;
             if (sw) {
               const p = Number.parseFloat(sw);
@@ -572,23 +805,12 @@ export class HostElement extends FakeElement {
           if (textLen === 0) {
             w = 0;
           } else {
-            w = Math.min(availableWidth, pad.left + textLen * 18 + pad.right);
+            const cs = globalThis.getComputedStyle?.(this);
+            const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
+            w = Math.min(availableWidth, pad.left + textLen * fontSize + pad.right);
           }
         } else {
-          for (let curr = this; curr; curr = curr.parentElement) {
-            const styleWidth = curr.style?.getPropertyValue?.("width") || curr.style?.width;
-            if (styleWidth) {
-              const parsed = Number.parseFloat(styleWidth);
-              if (!Number.isNaN(parsed) && parsed > 0) {
-                w = parsed;
-                break;
-              }
-            }
-            if (curr.width) {
-              w = curr.width;
-              break;
-            }
-          }
+          w = getBlockWidth(this);
         }
       }
     }
@@ -597,6 +819,25 @@ export class HostElement extends FakeElement {
   }
 
   getClientRects() {
+    const multiCol = findMultiColumnAncestor(this);
+    if (multiCol) {
+      const W = multiCol.colWidth;
+      const G = multiCol.colGap;
+      const H = multiCol.colHeight;
+      const cs = globalThis.getComputedStyle?.(this);
+      const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
+      const lineHeight = (cs ? cssPx(cs.getPropertyValue("line-height")) : 30) || 30;
+      const linesPerCol = Math.max(1, Math.floor(H / lineHeight));
+      const charsPerLine = Math.max(1, Math.floor(W / fontSize));
+      const capacityPerCol = linesPerCol * charsPerLine;
+      const totalChars = (this.textContent || "").length;
+      const numCols = Math.max(1, Math.ceil(totalChars / capacityPerCol));
+      const rects = [];
+      for (let i = 0; i < numCols; i++) {
+        rects.push(new FakeDOMRect(i * (W + G), 0, W, H));
+      }
+      return rects;
+    }
     return [this.getBoundingClientRect()];
   }
 
@@ -699,8 +940,12 @@ function parseHtmlNodes(html, doc = globalThis.document) {
     const [full, tagName, attrStr, text] = match;
     if (text !== undefined) {
       if (text.length > 0) {
+        const parent = stack[stack.length - 1];
+        if (parent?.tagName === "STYLE") {
+          collectStylesheetRules(text);
+        }
         const textNode = new FakeText(text);
-        stack[stack.length - 1].appendChild(textNode);
+        parent.appendChild(textNode);
       }
     } else if (full.startsWith("</")) {
       if (stack.length > 1) {
@@ -1304,22 +1549,27 @@ export function buildWorld() {
     ].includes(element?.tagName);
     const overrides = isInlineTag ? { display: "inline" } : {};
     const base = fixtureComputedStyle(element, pseudo, overrides);
-    return {
-      ...base,
-      getPropertyValue(name) {
-        if (name.startsWith("--")) {
-          for (let curr = element; curr; curr = curr.parentElement) {
-            const v = curr.style?.getPropertyValue?.(name);
-            if (v !== undefined && v !== "") return v;
-          }
-          return "";
-        }
-        const inline = element?.style?.getPropertyValue?.(name);
-        if (inline !== undefined && inline !== "") return inline;
-        const camel = name.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-        return base[name] ?? base[camel] ?? "";
-      },
+
+    const getProp = (name) => {
+      const kebab = name.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+      const val = resolveElementProperty(element, kebab, base);
+      if (val !== undefined && val !== "") return val;
+      const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      return base[kebab] ?? base[camel] ?? base[name] ?? "";
     };
+
+    return new Proxy(base, {
+      get(target, prop) {
+        if (prop === "getPropertyValue") {
+          return (name) => getProp(name);
+        }
+        if (typeof prop === "string") {
+          const val = getProp(prop);
+          if (val !== "") return val;
+        }
+        return Reflect.get(target, prop);
+      },
+    });
   };
 
   globalThis.MutationObserver = class {
@@ -1377,6 +1627,7 @@ export function buildWorld() {
 }
 
 export function cleanupWorld() {
+  stylesheetRules.clear();
   if (currentSelection) {
     currentSelection.removeAllRanges();
   }
@@ -1617,8 +1868,31 @@ export function dispatchTestProgressiveScroll() {
   globalThis.window.dispatchEvent(new FakeEvent("scroll"));
 }
 
-export function testOptions() {
-  return { fontSize: 18, lineHeight: 30 };
+export function testOptions(overrides = {}) {
+  return { fontSize: 18, lineHeight: 30, ...overrides };
+}
+
+export function elementFragmentWidths(element) {
+  return Array.from(element.getClientRects()).filter((rect) => rect.width > 0).map((rect) => rect.width);
+}
+
+export function exactWorkerRequestMaxWidth(root, paragraph) {
+  const detail = {
+    root,
+    paragraph,
+    options: {
+      exactFontSession: {
+        status: "conforming",
+        sessionId: "fixture-grid-session",
+        detail: "test",
+      },
+    },
+    result: null,
+  };
+  globalThis.document.dispatchEvent(
+    new globalThis.CustomEvent("tiqian:worker-layout-request", { detail }),
+  );
+  return JSON.parse(detail.result).maxWidthPx;
 }
 
 export function exactTestOptions() {
@@ -1655,6 +1929,14 @@ export function loadHostRuntime() {
     }
     if (bridge) {
       bridge.install ??= () => {};
+      bridge.refresh ??= (root, progressively = true) => {
+        globalThis.document.dispatchEvent(
+          new globalThis.CustomEvent("tiqian:refresh", {
+            detail: { root: root || globalThis.document.body, progressively },
+          }),
+        );
+        return root || globalThis.document.body;
+      };
       const rawEnhance = bridge.enhance.bind(bridge);
       bridge.enhance = (root, options) => {
         rawEnhance(root, options);
