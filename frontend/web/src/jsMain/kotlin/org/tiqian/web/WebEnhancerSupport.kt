@@ -683,26 +683,3 @@ internal val WIDTH_DEPENDENT_CAPABILITY_ISSUES = setOf(
     "InlineCloneDecorationBreakUnsupported",
 )
 
-internal val NON_TEXT_INLINE_TAGS = setOf(
-    "AREA",
-    "AUDIO",
-    "BUTTON",
-    "CANVAS",
-    "EMBED",
-    "IFRAME",
-    "IMG",
-    "INPUT",
-    "MATH",
-    "OBJECT",
-    "PICTURE",
-    "SCRIPT",
-    "SELECT",
-    "STYLE",
-    "SVG",
-    "TEMPLATE",
-    "TEXTAREA",
-    "VIDEO",
-)
-
-internal val OPAQUE_INLINE_DISPLAYS = setOf("inline-block", "inline-flex", "inline-grid")
-internal val OPAQUE_INLINE_LEVEL_DISPLAYS = OPAQUE_INLINE_DISPLAYS + "inline"

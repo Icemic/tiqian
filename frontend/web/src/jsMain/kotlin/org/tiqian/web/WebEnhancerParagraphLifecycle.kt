@@ -10,7 +10,6 @@ import org.tiqian.web.TiqianWeb.FontFamilyOptions
 import org.tiqian.web.TiqianWeb.ProgressiveJob
 import org.tiqian.web.TiqianWeb.ProgressiveJobKind
 import org.tiqian.web.TiqianWeb.SourceInlineSize
-import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 
 internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
@@ -248,57 +247,7 @@ internal fun TiqianWeb.failProgressiveJob(job: ProgressiveJob, error: Throwable)
     }
 }
 
-internal fun TiqianWeb.shouldTryParagraph(paragraph: HTMLElement): Boolean {
-    if (hasClosest(paragraph, SKIPPED_ANCESTOR_SELECTOR)) return false
-    if (paragraph.getAttribute("data-tiqian-skip") != null) return false
-    // `LeafListItemParagraph`: Markdown commonly emits list text directly
-    // inside <li>, so a list item is a paragraph-shaped flow owner and must
-    // enter the same pipeline. An outer item that owns a nested block stays
-    // native as a container; its leaf descendants are still independent
-    // candidates. This avoids replacing a nested <ul>/<ol> while preserving
-    // list markers and host list semantics.
-    if (
-        paragraph.tagName.uppercase() == "LI" &&
-        paragraph.querySelector(":scope > p, :scope > ul, :scope > ol, :scope > blockquote, :scope > pre, :scope > table") != null
-    ) {
-        return false
-    }
-    // PureBlockImageParagraphExclusion: Markdown commonly wraps a
-    // standalone image in <p>. A block image owns no inline text flow for
-    // Tiqian to lay out, so leave the host wrapper native without reporting
-    // a capability issue. Text mixed with a block image still enters the
-    // lowerer and fails atomically as an unsupported formatting context.
-    if (isPureBlockImageParagraph(paragraph)) return false
-    if (paragraph.textContent?.isBlank() != false && !hasOpaqueInlineCandidate(paragraph)) return false
-    return true
-}
 
-internal fun TiqianWeb.isPureBlockImageParagraph(paragraph: HTMLElement): Boolean {
-    if (paragraph.tagName.uppercase() != "P" || paragraph.textContent?.isBlank() != true) return false
-    val children = paragraph.querySelectorAll(":scope > *")
-    if (children.length == 0) return false
-    for (index in 0 until children.length) {
-        val child = children.item(index) as? Element ?: return false
-        if (
-            child.tagName.uppercase() != "IMG" ||
-            computedStyle(child, "display").trim().lowercase() != "block"
-        ) return false
-    }
-    return true
-}
-
-internal fun TiqianWeb.hasOpaqueInlineCandidate(paragraph: HTMLElement): Boolean {
-    val descendants = paragraph.querySelectorAll("*")
-    for (index in 0 until descendants.length) {
-        val element = descendants.item(index) as? Element ?: continue
-        val tag = element.tagName.uppercase()
-        val display = computedStyle(element, "display").trim().lowercase()
-        if (tag in NON_TEXT_INLINE_TAGS || tag.contains('-') || display in OPAQUE_INLINE_DISPLAYS) {
-            return true
-        }
-    }
-    return false
-}
 
 internal fun TiqianWeb.reportIssue(issue: CapabilityIssue) {
     if (!issue.markerCaptured) {

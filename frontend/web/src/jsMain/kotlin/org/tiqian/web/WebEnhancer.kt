@@ -24,8 +24,6 @@ import org.w3c.dom.HTMLElement
 object TiqianWeb {
     internal const val ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]"
     internal const val DEFAULT_PARAGRAPH_SELECTOR = "p, li"
-    internal const val SKIPPED_ANCESTOR_SELECTOR =
-        ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]"
 
     private var installed = false
     // DetachedRootWeakOwnership: navigation can discard a rendered article
@@ -163,9 +161,10 @@ object TiqianWeb {
     }
 
     init {
-        // Install the embedded custody script eagerly so every world that
-        // reaches this object has globalThis.__TiqianCustody available.
+        // Install the embedded custody and eligibility scripts eagerly so every
+        // world that reaches this object has the globals available.
         custodyBridge()
+        eligibilityBridge()
     }
 
     fun destroy(root: HTMLElement) {
@@ -273,7 +272,7 @@ object TiqianWeb {
                 // used to roll back every valid child as a false stale job.
                 if (
                     belongsToRootScope(paragraph, root, ROOT_SELECTOR) &&
-                    shouldTryParagraph(paragraph)
+                    eligibilityBridge().shouldTryParagraph(paragraph)
                 ) add(paragraph)
             }
         }

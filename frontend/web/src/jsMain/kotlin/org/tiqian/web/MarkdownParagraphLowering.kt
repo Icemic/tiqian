@@ -169,6 +169,7 @@ internal object MarkdownParagraphLowerer {
         private val sourceBoundaries = linkedSetOf<Int>()
         private val whitespaceModes = mutableListOf<CssWhiteSpaceMode>()
         private val hardBreakOffsets = linkedSetOf<Int>()
+        private val eligibility = eligibilityBridge()
 
         fun appendChildren(element: Element, style: InlineStyle, depth: Int): Boolean {
             val nodes = element.childNodes
@@ -198,11 +199,11 @@ internal object MarkdownParagraphLowerer {
                 return true
             }
             val display = computedStyle(element, "display").trim().lowercase()
-            val opaqueCandidate = tag in NON_TEXT_INLINE_TAGS ||
+            val opaqueCandidate = eligibility.isNonTextInlineTag(tag) ||
                 tag.contains('-') ||
-                display in OPAQUE_INLINE_DISPLAYS
+                eligibility.isOpaqueInlineDisplay(display)
             if (opaqueCandidate) {
-                if (display !in OPAQUE_INLINE_LEVEL_DISPLAYS) {
+                if (!eligibility.isOpaqueInlineLevelDisplay(display)) {
                     return unsupported(
                         "UnsupportedInlineFormattingContext",
                         "${tag.lowercase()}:$display",

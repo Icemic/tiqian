@@ -29,7 +29,7 @@ internal fun TiqianWeb.workerLayoutRequest(
     paragraph: HTMLElement,
     options: EnhanceOptions,
 ): String? {
-    if (!belongsToRootScope(paragraph, root, ROOT_SELECTOR) || !shouldTryParagraph(paragraph)) {
+    if (!belongsToRootScope(paragraph, root, ROOT_SELECTOR) || !eligibilityBridge().shouldTryParagraph(paragraph)) {
         return null
     }
     if (!options.allowsSnapshotExactLayout()) return null
@@ -77,7 +77,7 @@ internal fun TiqianWeb.workerLayoutRequest(
 }
 
 internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState) {
-    if (!shouldTryParagraph(paragraph)) return
+    if (!eligibilityBridge().shouldTryParagraph(paragraph)) return
     // Capture host-owned inline typography before any computed-style probe.
     // CSSStyleDeclaration can leave an empty style attribute after a
     // temporary property is removed even when the source had no attribute.
