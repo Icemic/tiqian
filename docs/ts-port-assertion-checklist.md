@@ -11,8 +11,8 @@ B3 渐进任务状态机；eligibility 与 responsive-measure 对应 B4 段落�
 对应 B7 lowerer 统一与 B8 浏览器后处理；markdown-lowering 对应 B9
 MarkdownParagraphLowering 迁移。另有三个标签落在 B 组之外：exact-session 登记
 B10（引擎策略移出 ABI）的现行判定断言组（精确会话桥接与 CJK dash 能力判定），
-source-fidelity 登记源语义保真类断言（B5、B6 的交叉范围），event-channel 登记
-现事件与命令式入口面的行为规格（对应 C1 通道废除前的对照基准）。
+source-fidelity 登记源语义保真类断言（B5、B6 的交叉范围），engine-api 登记命令式
+入口面的行为规格（C1 通道废除后直接调用引擎）。
 
 计数规则：断言数为该测试函数源码内 `kotlin.test` 断言调用与断言辅助
 `assertEnginePunctuationFeatureLock` 调用的静态出现次数；循环体、局部函数与
@@ -190,13 +190,13 @@ MutationObserver、characterData 或 taint 相关断言。B5 内容 reconcile �
 | TiqianWebSourceFidelityTest.kt `semanticSuperscriptAndSubscriptAreEnhancedInsteadOfStayingNative` | 6 | sup 与 sub 参与中文段落增强，无能力问题且复制文本还原。 | markdownLowering_superscriptAndSubscriptParticipateInEnhancement | mount、testOptions、copySelection |
 | TiqianWebSourceFidelityTest.kt `enhancesSuperscriptGeneratedContentAndPreservesUniqueId` | 11 | 上标脚注的相对定位、唯一 id 与链接在增强后保留，单行输出的声明行长与实测行宽一致。 | markdownLowering_superscriptGeneratedContentKeepsUniqueId | mount、testOptions、computedStyleValue、copySelection、renderedSingleLineFlowWidth |
 
-## event-channel（3 条，8 断言）
+## engine-api（3 条，8 断言）
 
 | 源文件与测试函数名 | 断言数 | 行为摘要 | TS 用例名 | 依赖辅助 |
 |---|---|---|---|---|
-| TiqianWebEnhancerTest.kt `jsOptionsCanExplicitlyMapStrongToEmphasisMarks` | 2 | 经 tiqian:enhance 事件 detail 传入 strongAsEmphasisMarks 后，strong 加着重号标记并绘制两个圆点。 | eventChannel_jsOptionsMapStrongToEmphasisMarks | mount、dispatchEnhanceWithStrongAsEmphasisMarks |
-| TiqianWebEnhancerTest.kt `enhanceEventWithoutOptionsUsesComputedParagraphMetrics` | 3 | 无 options 的 tiqian:enhance 事件继承宿主计算字号与行高，行高变量为三十二像素。 | eventChannel_enhanceEventWithoutOptionsUsesComputedMetrics | mount、dispatchEnhanceWithoutOptions、cssPx |
-| TiqianWebEnhancerTest.kt `enhanceAllFindsCustomElementRoots` | 3 | enhanceAll 能发现 tiqian-prose 自定义元素根，增强计数与行盒输出正确。 | eventChannel_enhanceAllFindsCustomElementRoots | mount、testOptions |
+| TiqianWebEnhancerTest.kt `jsOptionsCanExplicitlyMapStrongToEmphasisMarks` | 2 | 直接调用引擎 API 传入 strongAsEmphasisMarks 后，strong 加着重号标记并绘制两个圆点。 | engineApi_jsOptionsMapStrongToEmphasisMarks | mount |
+| TiqianWebEnhancerTest.kt `enhanceEventWithoutOptionsUsesComputedParagraphMetrics` | 3 | 无 options 的引擎调用继承宿主计算字号与行高，行高变量为三十二像素。 | engineApi_enhanceWithoutOptionsUsesComputedMetrics | mount、cssPx |
+| TiqianWebEnhancerTest.kt `enhanceAllFindsCustomElementRoots` | 3 | enhanceAll 能发现 tiqian-prose 自定义元素根，增强计数与行盒输出正确。 | engineApi_enhanceAllFindsCustomElementRoots | mount |
 
 ## 附录 A：support 辅助（TiqianWebEnhancerTestSupport.kt）
 
@@ -301,4 +301,4 @@ ProgressiveRelayoutTest 另有局部断言辅助 assertStaleAt。
 条目 104 = 4 + 30 + 16 + 27 + 27；断言 717 = 28 + 198 + 88 + 186 + 217；
 主题分布：custody 6、progressive-job 11、eligibility 9、responsive-measure 11、
 content-reconcile 0、copy-fidelity 7、exact-session 18、source-fidelity 9、
-renderer-output 20、markdown-lowering 10、event-channel 3。
+renderer-output 20、markdown-lowering 10、engine-api 3。

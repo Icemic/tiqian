@@ -1,3 +1,8 @@
+// Engine API tests ported from the tiqian:enhance event-channel tests in
+// TiqianWebEnhancerTest.kt. ADR 0053 C1 replaced the document event channel
+// with the TiqianEngine JsExport facade, so the options bag, the no-options
+// defaulting, and the imperative root scan are exercised through direct
+// engine calls.
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
@@ -6,24 +11,9 @@ import {
   cssPx,
   loadHostRuntime,
   mount,
-  testOptions,
 } from "./runtime-host.mjs";
 
-function dispatchEnhanceWithoutOptions(root) {
-  globalThis.document.dispatchEvent(
-    new globalThis.CustomEvent("tiqian:enhance", { detail: { root } }),
-  );
-}
-
-function dispatchEnhanceWithStrongAsEmphasisMarks(root) {
-  globalThis.document.dispatchEvent(
-    new globalThis.CustomEvent("tiqian:enhance", {
-      detail: { root, options: { strongAsEmphasisMarks: true } },
-    }),
-  );
-}
-
-test("eventChannel_jsOptionsMapStrongToEmphasisMarks", async (t) => {
+test("engineApi_jsOptionsMapStrongToEmphasisMarks", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -31,26 +21,24 @@ test("eventChannel_jsOptionsMapStrongToEmphasisMarks", async (t) => {
       <p style="font-size: 18px; line-height: 30px">前<strong>强调</strong>后。</p>
     </div>
   `);
-  TiqianWeb.install();
 
-  dispatchEnhanceWithStrongAsEmphasisMarks(root);
+  TiqianWeb.enhance(root, { strongAsEmphasisMarks: true });
 
   const paragraph = root.querySelector("p");
   assert.ok(paragraph.querySelector("strong[data-tq-cjk-emphasis]"));
   assert.equal(paragraph.querySelectorAll("circle").length, 2);
 });
 
-test("eventChannel_enhanceEventWithoutOptionsUsesComputedMetrics", async (t) => {
+test("engineApi_enhanceWithoutOptionsUsesComputedMetrics", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
-      <p style="font-size: 18px; line-height: 32px">无配置事件也必须继承宿主字号。</p>
+      <p style="font-size: 18px; line-height: 32px">无配置调用也必须继承宿主字号。</p>
     </div>
   `);
-  TiqianWeb.install();
 
-  dispatchEnhanceWithoutOptions(root);
+  TiqianWeb.enhance(root);
 
   const paragraph = root.querySelector("p");
   const line = paragraph.querySelector(".tq-line");
@@ -59,7 +47,7 @@ test("eventChannel_enhanceEventWithoutOptionsUsesComputedMetrics", async (t) => 
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
 });
 
-test("eventChannel_enhanceAllFindsCustomElementRoots", async (t) => {
+test("engineApi_enhanceAllFindsCustomElementRoots", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -68,7 +56,7 @@ test("eventChannel_enhanceAllFindsCustomElementRoots", async (t) => {
     </tiqian-prose>
   `);
 
-  assert.equal(TiqianWeb.enhanceAll(testOptions()), 1);
+  assert.equal(TiqianWeb.enhanceAll(), 1);
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.ok(root.querySelector(".tq-line"));
 });

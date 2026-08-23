@@ -2613,28 +2613,24 @@ export function eventDetailInt(event, name) {
   return Number(event?.detail && event.detail[name]);
 }
 
+// ADR 0053 C1: the internal document event channel is retired; these host
+// helpers keep their export names but call the TiqianEngine facade directly.
+let engineInstance = null;
+
 export function dispatchRelayout(root) {
-  globalThis.document.dispatchEvent(new FakeCustomEvent("tiqian:relayout", { detail: { root } }));
+  engineInstance.relayout(root);
 }
 
 export function probeContentDrift(root) {
-  const event = new globalThis.CustomEvent("tiqian:probe-content-drift", {
-    detail: { root },
-  });
-  globalThis.document.dispatchEvent(event);
-  return JSON.parse(event.detail.result);
+  return JSON.parse(engineInstance.probeContentDrift(root));
 }
 
 export function reconcileContent(root, paragraphs = []) {
-  const event = new globalThis.CustomEvent("tiqian:reconcile-content", {
-    detail: { root, options: { paragraphs } },
-  });
-  globalThis.document.dispatchEvent(event);
-  return JSON.parse(event.detail.result);
+  return JSON.parse(engineInstance.reconcileContent(root, paragraphs));
 }
 
 export function detachViaChannel(root) {
-  globalThis.document.dispatchEvent(new FakeCustomEvent("tiqian:detach", { detail: { root } }));
+  engineInstance.detach(root);
 }
 
 export function testGrantController(root, generation, deadlineMs, quota) {
@@ -2936,22 +2932,14 @@ export function elementFragmentWidths(element) {
 }
 
 export function exactWorkerRequestMaxWidth(root, paragraph) {
-  const detail = {
-    root,
-    paragraph,
-    options: {
-      exactFontSession: {
-        status: "conforming",
-        sessionId: "fixture-grid-session",
-        detail: "test",
-      },
+  const serialized = engineInstance.workerLayoutRequest(root, paragraph, {
+    exactFontSession: {
+      status: "conforming",
+      sessionId: "fixture-grid-session",
+      detail: "test",
     },
-    result: null,
-  };
-  globalThis.document.dispatchEvent(
-    new globalThis.CustomEvent("tiqian:worker-layout-request", { detail }),
-  );
-  return JSON.parse(detail.result).maxWidthPx;
+  });
+  return JSON.parse(serialized).maxWidthPx;
 }
 
 export function exactTestOptions() {
@@ -2967,15 +2955,69 @@ export function exactTestOptions() {
 
 let runtimePromise;
 
+// Build the test-host TiqianWeb object from the TiqianEngine JsExport facade
+// (ADR 0053 C1). The engine instance is resolved the same way the package
+// loader resolves it (module namespace, CJS default, or the UMD globalThis.web
+// bag); the polled worker facade is bound beside it. enhance/enhanceAll keep
+// their counting wrappers so tests can assert per-root paragraph counts.
 export function loadHostRuntime() {
   buildWorld();
   runtimePromise ??= import("./runtime/tiqian-web.js").then((module) => {
-    const facade = module.TiqianWebWorkers ??
-      module.default?.TiqianWebWorkers ??
-      globalThis.web?.TiqianWebWorkers;
-    const workers = facade?.getInstance?.();
-    const bridge = globalThis.TiqianWeb;
-    if (workers && bridge) {
+    const bag = module.default ?? module;
+    const engine = (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)
+      ?.getInstance?.();
+    const workers = (module.TiqianWebWorkers ??
+      bag.TiqianWebWorkers ??
+      globalThis.web?.TiqianWebWorkers)?.getInstance?.();
+    if (!engine) throw new Error("TiqianEngine export missing from runtime bundle");
+    engineInstance = engine;
+
+    const bridge = {
+      install() {},
+      enhance(root, options) {
+        engine.enhance(root, options);
+        const count = root.getAttribute("data-tiqian-enhanced-count");
+        return count != null ? Number(count) : 0;
+      },
+      enhanceProgressively(root, options) {
+        return engine.enhanceProgressively(root, options);
+      },
+      enhanceAll(options) {
+        engine.enhanceAll(options);
+        let count = 0;
+        for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
+          const c = root.getAttribute("data-tiqian-enhanced-count");
+          if (c != null) count += Number(c);
+        }
+        return count;
+      },
+      destroy(root) {
+        engine.destroy(root);
+      },
+      detach(root) {
+        engine.detach(root);
+      },
+      relayout(root) {
+        engine.relayout(root);
+      },
+      refresh(root, progressively = true) {
+        engine.refresh(root, progressively);
+        return root || globalThis.document.body;
+      },
+      cancelLayoutWork(root) {
+        engine.cancelLayoutWork(root);
+      },
+      probeContentDrift(root) {
+        return engine.probeContentDrift(root);
+      },
+      reconcileContent(root, paragraphs) {
+        return engine.reconcileContent(root, paragraphs);
+      },
+      workerLayoutRequest(root, paragraph, options) {
+        return engine.workerLayoutRequest(root, paragraph, options);
+      },
+    };
+    if (workers) {
       bridge.workerAttach = workers.attach.bind(workers);
       bridge.workerDetach = workers.detach.bind(workers);
       bridge.workerHasJob = workers.hasJob.bind(workers);
@@ -2986,35 +3028,7 @@ export function loadHostRuntime() {
       bridge.workerParagraphAt = workers.paragraphAt.bind(workers);
       bridge.workerSetParagraphTier = workers.setParagraphTier.bind(workers);
     }
-    if (bridge) {
-      bridge.install ??= () => {};
-      bridge.refresh ??= (root, progressively = true) => {
-        globalThis.document.dispatchEvent(
-          new globalThis.CustomEvent("tiqian:refresh", {
-            detail: { root: root || globalThis.document.body, progressively },
-          }),
-        );
-        return root || globalThis.document.body;
-      };
-      const rawEnhance = bridge.enhance.bind(bridge);
-      bridge.enhance = (root, options) => {
-        rawEnhance(root, options);
-        const count = root.getAttribute("data-tiqian-enhanced-count");
-        return count != null ? Number(count) : 0;
-      };
-      const rawEnhanceAll = bridge.enhanceAll?.bind(bridge);
-      if (rawEnhanceAll) {
-        bridge.enhanceAll = (options) => {
-          rawEnhanceAll(options);
-          let count = 0;
-          for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
-            const c = root.getAttribute("data-tiqian-enhanced-count");
-            if (c != null) count += Number(c);
-          }
-          return count;
-        };
-      }
-    }
+    globalThis.TiqianWeb = bridge;
     return bridge;
   });
   return runtimePromise;
