@@ -825,6 +825,41 @@ function generatedGeometryIssue(element, paragraph) {
   return null;
 }
 
+function sameLeadingCssFamily(actualFamily, expectedFamily) {
+  const first = (value) => {
+    let quote = "";
+    let token = "";
+    for (const char of String(value || "")) {
+      if (quote) {
+        if (char === quote) quote = "";
+        else token += char;
+        continue;
+      }
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+      if (char === ",") break;
+      token += char;
+    }
+    return token.trim();
+  };
+  return first(actualFamily).toLocaleLowerCase() === first(expectedFamily).toLocaleLowerCase();
+}
+
+function renderedDashFaceIssue(paragraph) {
+  const elements = Array.from(paragraph.querySelectorAll("[data-tq-dash-font-family]"));
+  for (let index = 0; index < elements.length; index += 1) {
+    const element = elements[index];
+    const expected = element.getAttribute("data-tq-dash-font-family") ?? "";
+    const actual = getComputedStyle(element).fontFamily;
+    if (!sameLeadingCssFamily(actual, expected)) {
+      return `${index};expected=${JSON.stringify(expected)};actual=${JSON.stringify(actual)}`;
+    }
+  }
+  return null;
+}
+
 function renderedBoundaryAdvanceIssue(paragraph) {
   const boundaries = Array.from(paragraph.querySelectorAll("[data-tq-shaping-boundary]"));
   if (boundaries.some((boundary) => !boundary.hasAttribute("data-tq-advance"))) return 0;
@@ -1027,6 +1062,10 @@ export function renderedPreparedParagraphIssue(
   const boundaryAdvanceIssue = renderedBoundaryAdvanceIssue(paragraph);
   if (boundaryAdvanceIssue != null) {
     return `RenderedPreparedParagraphSegmentAdvanceMismatch:${boundaryAdvanceIssue}`;
+  }
+  const dashFaceIssue = renderedDashFaceIssue(paragraph);
+  if (dashFaceIssue != null) {
+    return `RenderedPreparedParagraphDashFaceMismatch:${dashFaceIssue}`;
   }
   const lineAdvanceIssue = renderedLineAdvanceIssue(paragraph, expectedContentWidth);
   if (lineAdvanceIssue != null) {

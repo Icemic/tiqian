@@ -244,6 +244,50 @@ function swapHost() {
   return host;
 }
 
+function liveSemanticHost() {
+  const host = {
+    innerHTML: "",
+    querySelectorAll(selector) {
+      if (selector === "[data-tq-line-flow-width]") {
+        return Array.from(
+          { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
+          (_, index) => ({ index }),
+        );
+      }
+      if (selector === "[data-tq-live-semantic-index]") {
+        const placeholders = [];
+        const pattern = /<span\b[^>]*\bdata-tq-live-semantic-index="(\d+)"[^>]*>([\s\S]*?)<\/span>/gu;
+        for (const match of this.innerHTML.matchAll(pattern)) {
+          const fullMatch = match[0];
+          const sourceIndex = match[1];
+          const innerContent = match[2];
+          placeholders.push({
+            getAttribute(name) {
+              if (name === "data-tq-live-semantic-index") return sourceIndex;
+              return null;
+            },
+            firstChild: null,
+            replaceWith(clone) {
+              const styleAttr = clone.styleProperties?.length
+                ? ` style="${clone.styleProperties.map(([k, v, p]) => `${k}:${v}${p ? "!" + p : ""}`).join(";")}"`
+                : "";
+              const attrs = Array.from(clone.attributes.entries())
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([k, v]) => ` ${k}="${v}"`)
+                .join("");
+              const serialized = `<${clone.tagName.toLowerCase()}${attrs}${styleAttr}>${innerContent}</${clone.tagName.toLowerCase()}>`;
+              host.innerHTML = host.innerHTML.replace(fullMatch, serialized);
+            },
+          });
+        }
+        return placeholders;
+      }
+      return [];
+    },
+  };
+  return host;
+}
+
 function styleBackedHost() {
   const head = {
     childNodes: [],
@@ -1347,4 +1391,163 @@ test("planInlineEdgesTakePrecedence", () => {
   });
   assert.equal(artifact.markerCount, 1);
   assert.ok(artifact.html.includes('data-tq-line-flow-width="40"'));
+});
+
+test("emphasis dot color resolves from live source spans", () => {
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = (element) => ({
+    color: element?.styleColor ?? "rgb(255, 0, 0)",
+  });
+  try {
+    const plan = {
+      schema: 1,
+      layoutRevision: "tiqian-layout-v2",
+      fontSize: 20,
+      overlayWidth: 120,
+      height: 27,
+      emphasisDots: [
+        { anchorX: 10, anchorY: 25, dotDiameter: 5, clusterRangeStart: 0 },
+      ],
+      lines: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        top: 0,
+        bottom: 27,
+        baseline: 20,
+        indent: 0,
+        visualWidth: 18,
+        hyphenAdvance: 0,
+        endReason: "ParagraphEnd",
+        cells: [{
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "中",
+          display: "中",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        }],
+      }],
+    };
+    const liveElement = { styleColor: "rgb(255, 0, 0)" };
+    const host = fakeHost();
+    const rendered = renderPreparedParagraphInto(host, plan, "zh-Hans", {
+      semantics: [{ start: 0, end: 1, tagName: "strong", sourceIndex: 0, order: 0 }],
+      liveSemanticElements: [liveElement],
+    });
+    assert.ok(rendered.html.includes('fill="rgb(255, 0, 0)"'));
+    assert.ok(rendered.html.includes("--tq-decoration-color:rgb(255, 0, 0)"));
+
+    // Without semantics or liveSemanticElements, dots stay currentColor
+    const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans");
+    assert.ok(artifact.html.includes('fill="currentColor"'));
+    assert.ok(artifact.html.includes("--tq-decoration-color:currentColor"));
+  } finally {
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("emphasis dot color selects the deepest covering semantic span", () => {
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = (element) => ({
+    color: element?.styleColor ?? "currentColor",
+  });
+  try {
+    const plan = {
+      schema: 1,
+      layoutRevision: "tiqian-layout-v2",
+      fontSize: 20,
+      overlayWidth: 120,
+      height: 27,
+      emphasisDots: [
+        { anchorX: 10, anchorY: 25, dotDiameter: 5, clusterRangeStart: 1 },
+      ],
+      lines: [{
+        rangeStart: 0,
+        rangeEnd: 2,
+        top: 0,
+        bottom: 27,
+        baseline: 20,
+        indent: 0,
+        visualWidth: 36,
+        hyphenAdvance: 0,
+        endReason: "ParagraphEnd",
+        cells: [{
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "中",
+          display: "中",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        }, {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "文",
+          display: "文",
+          drawX: 18,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        }],
+      }],
+    };
+    const outerElement = { styleColor: "rgb(255, 0, 0)" };
+    const innerElement = { styleColor: "rgb(0, 128, 0)" };
+    const host = fakeHost();
+    const rendered = renderPreparedParagraphInto(host, plan, "zh-Hans", {
+      semantics: [
+        { start: 0, end: 2, tagName: "em", sourceIndex: 0, order: 0 },
+        { start: 1, end: 2, tagName: "strong", sourceIndex: 1, order: 1 },
+      ],
+      liveSemanticElements: [outerElement, innerElement],
+    });
+    assert.ok(rendered.html.includes('fill="rgb(0, 128, 0)"'));
+    assert.ok(rendered.html.includes("--tq-decoration-color:rgb(0, 128, 0)"));
+  } finally {
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("cjkStrongSemantics marks clone with data-tq-cjk-emphasis and font-weight", () => {
+  const host = liveSemanticHost();
+  const sourceElement = fakeInlineElement("STRONG");
+  const options = {
+    sourceText: "中文",
+    semanticReplay: "live-source",
+    semantics: [{
+      start: 0,
+      end: 2,
+      tagName: "strong",
+      sourceIndex: 0,
+    }],
+    liveSemanticElements: [sourceElement],
+    cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
+  };
+  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", options);
+  assert.ok(rendered.html.includes('data-tq-cjk-emphasis="true"'));
+  assert.ok(rendered.html.includes("font-weight:700!important"));
+
+  // Virtual DOM artifact path also emits attribute and inline style
+  const artifact = renderPreparedParagraphArtifact(fixturePlan(), "zh-Hans", {
+    sourceText: "中文",
+    semantics: [{ start: 0, end: 2, tagName: "strong" }],
+    cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
+  });
+  assert.ok(artifact.html.includes('data-tq-cjk-emphasis="true"'));
+  assert.ok(artifact.html.includes('style="font-weight:700!important"'));
+
+  // Without cjkStrongSemantics: attribute absent
+  const unadornedHost = liveSemanticHost();
+  const unadorned = renderPreparedParagraphInto(unadornedHost, fixturePlan(), "zh-Hans", {
+    sourceText: "中文",
+    semanticReplay: "live-source",
+    semantics: [{
+      start: 0,
+      end: 2,
+      tagName: "strong",
+      sourceIndex: 0,
+    }],
+    liveSemanticElements: [fakeInlineElement("STRONG")],
+  });
+  assert.equal(unadorned.html.includes("data-tq-cjk-emphasis"), false);
 });

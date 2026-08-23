@@ -656,6 +656,40 @@ test("shared prepared DOM validator accepts the isolated engine hyphen contract"
   }
 });
 
+test("shared prepared DOM validator verifies dash-face font family against computed style", () => {
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = (element, pseudo) => {
+    const base = fixtureComputedStyle(element, pseudo);
+    if (element?.hasAttribute?.("data-tq-dash-strategy")) {
+      return {
+        ...base,
+        fontFamily: "'fixture cjk', sans-serif",
+      };
+    }
+    return base;
+  };
+  try {
+    const { paragraph, entry } = fixture({ renderFontProjection: true });
+    const rendered = entry.querySelector("[data-tq-advance]");
+    rendered.setAttribute("data-tq-dash-strategy", "Compose");
+    rendered.setAttribute("data-tq-dash-font-family", "Fixture CJK");
+    while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    paragraph.setAttribute("data-tq-canonical-plain", "true");
+    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+
+    const dashElement = paragraph.querySelector("[data-tq-dash-font-family]");
+    dashElement.setAttribute("data-tq-dash-font-family", "Other CJK");
+    const issue = renderedPreparedParagraphIssue(paragraph, 360);
+    assert.ok(
+      issue?.startsWith("RenderedPreparedParagraphDashFaceMismatch:0;expected="),
+      `unexpected issue: ${issue}`,
+    );
+  } finally {
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
 test("shared prepared DOM validator compares vertical geometry across inline fragments", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = fixtureComputedStyle;

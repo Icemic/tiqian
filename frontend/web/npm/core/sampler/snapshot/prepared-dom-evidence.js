@@ -214,9 +214,10 @@ function overlayAttributes(width, height) {
 
 // Appends the engine-owned interlinear and emphasis overlays after the flow
 // content.
-export function appendEvidenceOverlays(nodes, plan) {
+export function appendEvidenceOverlays(nodes, plan, options = {}) {
   const segments = Array.from(plan.decorationSegments ?? []);
   const dots = Array.from(plan.emphasisDots ?? []);
+  const emphasisDotColor = options.emphasisDotColor ?? null;
   if (segments.length > 0) {
     const fontSize = Number(plan.fontSize);
     const width = Number(plan.overlayWidth);
@@ -268,13 +269,15 @@ export function appendEvidenceOverlays(nodes, plan) {
     }
     const svg = renderedContainer("svg", overlayAttributes(width, height));
     for (const dot of dots) {
+      const color = emphasisDotColor ? emphasisDotColor(dot.clusterRangeStart) : null;
+      const dotColor = color || "currentColor";
       svg.children.push(renderedElement("circle", {
         cx: String(Number(dot.anchorX)),
         cy: String(Number(dot.anchorY)),
         "data-tq-decoration-dot": "true",
-        fill: "currentColor",
+        fill: dotColor,
         r: String(Number(dot.dotDiameter) / 2),
-        style: "--tq-decoration-color:currentColor",
+        style: `--tq-decoration-color:${dotColor}`,
       }));
     }
     nodes.push(svg);

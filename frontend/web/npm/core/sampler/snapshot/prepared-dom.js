@@ -467,6 +467,7 @@ export function renderPreparedParagraphArtifact(
     }
     return { start, end, fontFamilies };
   });
+  const cjkStrongSemantics = Array.from(options.cjkStrongSemantics ?? []);
   const emphasisRanges = Array.from(plan.emphasisRanges ?? [], (range) => [
     Number(range[0]),
     Number(range[1]),
@@ -527,14 +528,24 @@ export function renderPreparedParagraphArtifact(
     let container = activeContainers.at(-1)?.children ?? nodes;
     for (let index = common; index < semanticPath.length; index += 1) {
       const semantic = semanticPath[index];
-      const wrapper = semanticReplay === "live-source"
-        ? renderedContainer("span", {
+      const cjkStrong = cjkStrongSemantics.find(
+        (entry) => Number(entry?.start) === semantic.start && Number(entry?.end) === semantic.end,
+      );
+      const attributes = semanticReplay === "live-source"
+        ? {
           [LIVE_SEMANTIC_INDEX_ATTRIBUTE]: String(semantic.sourceIndex),
-        })
-        : renderedContainer(semantic.tagName, {
+        }
+        : {
           ...Object.fromEntries(semantic.attributes),
           "data-tq-source-semantic": "true",
-        });
+          ...(cjkStrong ? {
+            "data-tq-cjk-emphasis": "true",
+            style: `font-weight:${cjkStrong.weight}!important`,
+          } : {}),
+        };
+      const wrapper = semanticReplay === "live-source"
+        ? renderedContainer("span", attributes)
+        : renderedContainer(semantic.tagName, attributes);
       container.push(wrapper);
       activeSemantics.push(semantic);
       activeContainers.push(wrapper);
@@ -778,7 +789,7 @@ export function renderPreparedParagraphArtifact(
       "data-tq-selection-end": "true",
     }, "\u200B"));
   }
-  appendEvidenceOverlays(nodes, plan);
+  appendEvidenceOverlays(nodes, plan, options);
   return Object.freeze({
     html: nodes.map((node) => node.html).join(""),
     artifact: nodes.map((node) => node.artifact),
@@ -797,7 +808,13 @@ export function renderPreparedParagraph(planOrJson, typographyOrLocale = DEFAULT
  * of the current source elements. Host attributes and CSS behavior never pass
  * through snapshot HTML, while Worker-owned geometry stays intact.
  */
-function restoreLiveSemanticElements(host, sourceElements, expectedCount) {
+function restoreLiveSemanticElements(
+  host,
+  sourceElements,
+  expectedCount,
+  semantics = [],
+  cjkStrongSemantics = [],
+) {
   if (expectedCount === 0) return;
   const placeholders = Array.from(host.querySelectorAll(`[${LIVE_SEMANTIC_INDEX_ATTRIBUTE}]`));
   if (placeholders.length !== expectedCount) {
@@ -806,6 +823,21 @@ function restoreLiveSemanticElements(host, sourceElements, expectedCount) {
     );
   }
   const seen = new Set();
+  const cjkStrongList = Array.from(cjkStrongSemantics ?? []);
+  const cjkBySourceIndex = new Map();
+  if (cjkStrongList.length > 0) {
+    for (const semantic of semantics) {
+      const match = cjkStrongList.find(
+        (entry) => Number(entry?.start) === semantic.start && Number(entry?.end) === semantic.end,
+      );
+      if (match != null) {
+        const sourceIndex = Number.isSafeInteger(Number(semantic.sourceIndex))
+          ? Number(semantic.sourceIndex)
+          : semantics.indexOf(semantic);
+        cjkBySourceIndex.set(sourceIndex, match);
+      }
+    }
+  }
   for (const placeholder of placeholders) {
     const sourceIndex = Number(placeholder.getAttribute(LIVE_SEMANTIC_INDEX_ATTRIBUTE));
     const source = sourceElements[sourceIndex];
@@ -816,6 +848,11 @@ function restoreLiveSemanticElements(host, sourceElements, expectedCount) {
     seen.add(sourceIndex);
     const clone = source.cloneNode(false);
     clone.setAttribute("data-tq-source-semantic", "true");
+    const cjkStrong = cjkBySourceIndex.get(sourceIndex);
+    if (cjkStrong != null) {
+      clone.setAttribute("data-tq-cjk-emphasis", "true");
+      clone.style.setProperty("font-weight", String(cjkStrong.weight), "important");
+    }
     while (placeholder.firstChild) clone.appendChild(placeholder.firstChild);
     placeholder.replaceWith(clone);
   }
@@ -874,10 +911,40 @@ export function renderPreparedParagraphInto(
   const root = host.closest?.(ROOT_SELECTOR) ?? host;
   const state = preparedStyleState(root);
   const usedStyles = new Set();
+  const emphasisDotColor = options.emphasisDotColor ?? (
+    options.semantics && options.liveSemanticElements && typeof globalThis.getComputedStyle === "function"
+      ? (offset) => {
+          if (!Number.isFinite(offset)) return null;
+          let maxOrder = -Infinity;
+          let selected = null;
+          for (const semantic of options.semantics) {
+            const start = Number(semantic.start);
+            const end = Number(semantic.end);
+            if (offset >= start && offset < end) {
+              const order = Number(semantic.order ?? 0);
+              if (order > maxOrder) {
+                maxOrder = order;
+                selected = semantic;
+              }
+            }
+          }
+          if (!selected) return null;
+          const element = options.liveSemanticElements[selected.sourceIndex];
+          if (!element) return null;
+          try {
+            const color = globalThis.getComputedStyle(element)?.color;
+            return typeof color === "string" && color.trim().length > 0 ? color.trim() : null;
+          } catch {
+            return null;
+          }
+        }
+      : null
+  );
   let lowered;
   try {
     lowered = renderPreparedParagraphArtifact(planOrJson, typographyOrLocale, {
       ...options,
+      emphasisDotColor,
       styleClassFor: state
         ? (declaration) => {
           const index = registerPreparedValueStyle(state, declaration);
@@ -902,6 +969,8 @@ export function renderPreparedParagraphInto(
       host,
       Array.from(options.liveSemanticElements ?? []),
       lowered.liveSemanticCount,
+      Array.from(options.semantics ?? []),
+      Array.from(options.cjkStrongSemantics ?? []),
     );
   }
   const swappedInlineObjects = swapInlineObjectClones(
