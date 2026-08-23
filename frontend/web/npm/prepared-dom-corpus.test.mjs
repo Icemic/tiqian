@@ -20,14 +20,21 @@ const STYLE_CLASS_MODES = {
   "declaration-length": (declaration) => `tqc-${declaration.length}`,
 };
 
+const EMPHASIS_DOT_COLOR_MODES = {
+  "fixed-color": () => "rgb(17, 34, 51)",
+};
+
 test("prepared DOM lowering matches the shared golden corpus", () => {
   assert.ok(fixture.cases.length >= 20, "the corpus keeps covering the lowering paths");
   for (const { name, plan, locale, options = {}, expect } of fixture.cases) {
     assert.equal(typeof plan, "string", `${name}: plan stays wire JSON`);
     const callOptions = { ...options };
     const styleMode = callOptions.styleClassFor;
+    const dotColorMode = callOptions.emphasisDotColor;
     delete callOptions.styleClassFor;
+    delete callOptions.emphasisDotColor;
     if (styleMode) callOptions.styleClassFor = STYLE_CLASS_MODES[styleMode];
+    if (dotColorMode) callOptions.emphasisDotColor = EMPHASIS_DOT_COLOR_MODES[dotColorMode];
     if (expect.kind === "ok") {
       const lowered = renderPreparedParagraphArtifact(plan, locale, callOptions);
       assert.equal(lowered.html, expect.html, `${name}: html`);

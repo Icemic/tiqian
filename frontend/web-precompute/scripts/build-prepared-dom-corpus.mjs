@@ -43,6 +43,10 @@ const STYLE_CLASS_MODES = {
   "declaration-length": (declaration) => `tqc-${declaration.length}`,
 };
 
+const EMPHASIS_DOT_COLOR_MODES = {
+  "fixed-color": () => "rgb(17, 34, 51)",
+};
+
 const cases = [
   {
     name: "plain-merge",
@@ -496,15 +500,127 @@ const cases = [
     options: {},
     expectError: "InvalidPreparedOverlayGeometry",
   },
+  {
+    name: "ruby-annotation-plan-ascent",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "京", "京", 0, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 18 }),
+      ], 27),
+      rubyDecisions: [{
+        baseRangeStart: 0,
+        baseRangeEnd: 1,
+        text: "Běijīng",
+        fontSize: 10,
+        fontWeight: 500,
+        centerX: 9,
+        baselineY: 5,
+        fontFamilies: ["Ruby Face"],
+        ascent: 7,
+      }],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "emphasis-dot-color",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "中", "中", 0, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 18 }),
+      ], 27),
+      fontSize: 20,
+      overlayWidth: 120,
+      emphasisDots: [
+        { clusterRangeStart: 0, anchorX: 10, anchorY: 25, dotDiameter: 5 },
+        { clusterRangeStart: 1, anchorX: 50, anchorY: 25, dotDiameter: 5 },
+      ],
+    },
+    locale: "zh-Hans",
+    options: { emphasisDotColor: "fixed-color" },
+  },
+  {
+    name: "cjk-emphasis-attribute",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "排", "排", 0, 16),
+          cell(1, 2, "版", "版", 16, 16),
+        ]),
+      ]),
+      emphasisRanges: [[0, 2]],
+    },
+    locale: "zh-Hans",
+    options: {
+      semantics: [{ start: 0, end: 2, tagName: "strong" }],
+      cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
+    },
+  },
+  {
+    name: "second-line-indent",
+    plan: plan([
+      line([
+        cell(0, 1, "甲", "甲", 0, 16),
+        cell(1, 2, "乙", "乙", 16, 16),
+      ], { endReason: "AutoWrap" }),
+      line([
+        cell(2, 3, "丙", "丙", 32, 16),
+      ], { top: 32, bottom: 64, baseline: 56, indent: 32 }),
+    ]),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "style-delta-three-lines",
+    plan: plan([
+      line([
+        cell(0, 1, "甲", "甲", 0, 16),
+      ], { endReason: "AutoWrap" }),
+      line([
+        cell(1, 2, "乙", "乙", 0, 16, { style: { fontSize: 12, fontWeight: 700 } }),
+      ], { top: 32, bottom: 64, baseline: 56, endReason: "AutoWrap" }),
+      line([
+        cell(2, 3, "丙", "丙", 0, 16),
+      ], { top: 64, bottom: 96, baseline: 88 }),
+    ]),
+    locale: "zh-Hans",
+    options: {
+      semantics: [{ start: 0, end: 3, tagName: "em" }],
+    },
+  },
+  {
+    name: "inline-edges-and-render-text-span",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "c", "c", 0, 8),
+          cell(1, 2, "o", "o", 8, 8),
+          cell(2, 3, "d", "d", 16, 8),
+          cell(3, 4, "e", "e", 24, 8),
+          cell(4, 5, "排", "排", 32, 16),
+        ]),
+      ]),
+      inlineEdges: [{ offset: 1, inlineEnd: 4 }],
+    },
+    locale: "zh-Hans",
+    options: {
+      renderTextSpans: [{ start: 0, end: 4, fontFamilies: ["Fira Code", " Mono "] }],
+    },
+  },
 ];
 
 const fixture = { cases: [] };
 for (const entry of cases) {
   const { name, plan: planValue, locale, options, expectError } = entry;
   const styleMode = options.styleClassFor;
+  const dotColorMode = options.emphasisDotColor;
   const callOptions = { ...options };
   delete callOptions.styleClassFor;
+  delete callOptions.emphasisDotColor;
   if (styleMode) callOptions.styleClassFor = STYLE_CLASS_MODES[styleMode];
+  if (dotColorMode) callOptions.emphasisDotColor = EMPHASIS_DOT_COLOR_MODES[dotColorMode];
   let expect;
   try {
     const lowered = renderPreparedParagraphArtifact(JSON.stringify(planValue), locale, callOptions);

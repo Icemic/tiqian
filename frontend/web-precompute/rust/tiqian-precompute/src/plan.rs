@@ -57,8 +57,10 @@ pub struct PlanInlineEdge {
 }
 
 /// One `rubyDecisions` entry: `{baseRangeStart, baseRangeEnd, text, centerX,
-/// baselineY, fontSize, fontWeight, fontFamilies?}`. The lowerer renders the
-/// annotation span with the ratio ascent fallback.
+/// baselineY, fontSize, fontWeight, fontFamilies?, ascent?}`. The lowerer
+/// renders the annotation span with the measured plan ascent when present and
+/// the ratio ascent fallback otherwise, matching the js `Number(ruby.ascent)`
+/// finite check.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlanRuby {
     pub base_range_start: i32,
@@ -69,6 +71,9 @@ pub struct PlanRuby {
     pub font_size: f64,
     pub font_weight: f64,
     pub font_families: Vec<String>,
+    /// `RubyDecisionInfo.ascent`: the declared ascent of the annotation face;
+    /// absent keeps the ratio fallback for plans built before the field.
+    pub ascent: Option<f64>,
 }
 
 /// One `bopomofoDecisions` entry: `{baseRangeStart, baseRangeEnd, text,
@@ -317,6 +322,7 @@ impl PlanRuby {
             font_size: number_field(&fields, "fontSize").map_err(field_error("fontSize"))?,
             font_weight: number_field(&fields, "fontWeight").map_err(field_error("fontWeight"))?,
             font_families: optional_string_array_field(&fields, "fontFamilies")?,
+            ascent: optional_number_field(&fields, "ascent")?,
         })
     }
 }

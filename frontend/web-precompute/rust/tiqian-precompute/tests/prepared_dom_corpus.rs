@@ -66,14 +66,19 @@ fn prepared_dom_corpus_matches_the_js_oracle_fixture() {
         let expect = field(case, "expect").expect("each case carries an expectation");
 
         let mut style_callback = |declaration: &str| format!("tqc-{}", declaration.len());
+        let mut dot_color_callback = |_cluster: Option<f64>| Some(String::from("rgb(17, 34, 51)"));
         let mut options = PreparedRenderOptions::new();
         options.semantic_replay = str_field(&options_json, "semanticReplay");
         options.source_text = str_field(&options_json, "sourceText");
         options.semantics = field(&options_json, "semantics");
         options.render_text_spans = field(&options_json, "renderTextSpans");
         options.inline_boxes = field(&options_json, "inlineBoxes");
+        options.cjk_strong_semantics = field(&options_json, "cjkStrongSemantics");
         if str_field(&options_json, "styleClassFor").is_some() {
             options.style_class_for = Some(&mut style_callback);
+        }
+        if str_field(&options_json, "emphasisDotColor") == Some("fixed-color") {
+            options.emphasis_dot_color = Some(&mut dot_color_callback);
         }
 
         let lowered = render_prepared_paragraph_artifact(&plan, locale, &mut options);

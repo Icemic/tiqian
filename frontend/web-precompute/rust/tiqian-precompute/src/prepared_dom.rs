@@ -60,6 +60,10 @@ pub struct PreparedRenderOptions<'a> {
     pub render_text_spans: Option<&'a Json>,
     pub inline_boxes: Option<&'a Json>,
     pub style_class_for: Option<&'a mut dyn FnMut(&str) -> String>,
+    /// `options.cjkStrongSemantics`: entries `{start, end, weight}` matched by
+    /// exact span equality; a snapshot strong span carrying an entry replays
+    /// `data-tq-cjk-emphasis` and its font-weight.
+    pub cjk_strong_semantics: Option<&'a Json>,
     /// `options.emphasisDotColor`: resolves an emphasis dot color from the
     /// dot's `clusterRangeStart`; null reads as currentColor like the js
     /// `?? null` default. Absent keeps the snapshot default.
@@ -76,6 +80,7 @@ impl<'a> PreparedRenderOptions<'a> {
             render_text_spans: None,
             inline_boxes: None,
             style_class_for: None,
+            cjk_strong_semantics: None,
             emphasis_dot_color: None,
         }
     }
@@ -501,6 +506,15 @@ fn sorted_entries(entries: &[(String, Option<String>)]) -> impl Iterator<Item = 
     pairs.into_iter()
 }
 
+/// Object-assignment semantics for attribute entries: a key already present
+/// keeps its position and takes the new value; a new key appends.
+fn set_attribute(entries: &mut Vec<(String, Option<String>)>, name: &str, value: Option<String>) {
+    match entries.iter_mut().find(|(existing, _)| existing == name) {
+        Some((_, slot)) => *slot = value,
+        None => entries.push((name.to_string(), value)),
+    }
+}
+
 /// The semantic replay flavors with their per-flavor span shapes.
 enum Semantics {
     Snapshot(Vec<SemanticSpan>),
@@ -602,6 +616,43 @@ impl Semantics {
         }
     }
 
+    /// `wrapper` plus the `options.cjkStrongSemantics` replay: an entry whose
+    /// `start`/`end` equal the span bounds adds `data-tq-cjk-emphasis` and the
+    /// weight as an important font-weight, mirroring the js snapshot branch's
+    /// object spread. The spread overwrites a key the span already carries at
+    /// its original position, so the insert goes through `set_attribute`. The
+    /// live branch never carries the attribute.
+    fn wrapper_with_cjk(
+        &self,
+        index: usize,
+        cjk_strong: &[CjkStrong],
+    ) -> (String, Vec<(String, Option<String>)>) {
+        let (tag, mut entries) = self.wrapper(index);
+        let Semantics::Snapshot(spans) = self else {
+            return (tag, entries);
+        };
+        let semantic = &spans[index];
+        let matched = cjk_strong
+            .iter()
+            .find(|entry| semantic.start as f64 == entry.start && semantic.end as f64 == entry.end);
+        if let Some(matched) = matched {
+            set_attribute(
+                &mut entries,
+                "data-tq-cjk-emphasis",
+                Some("true".to_string()),
+            );
+            set_attribute(
+                &mut entries,
+                "style",
+                Some(format!(
+                    "font-weight:{}!important",
+                    js_number_string(matched.weight)
+                )),
+            );
+        }
+        (tag, entries)
+    }
+
     fn is_live(&self) -> bool {
         matches!(self, Semantics::Live(_))
     }
@@ -665,6 +716,7 @@ pub fn render_prepared_paragraph_artifact(
         validate_live_semantic_elements(options)?;
     }
     let render_text_spans = read_render_text_spans(options.render_text_spans, &text_for_semantics)?;
+    let cjk_strong_semantics = read_cjk_strong_semantics(options.cjk_strong_semantics);
     let (inline_start_by_offset, inline_end_by_offset) =
         read_inline_box_edges(&plan.inline_edges, options.inline_boxes);
     let ruby_by_base_end: HashMap<i64, PlanRuby> = plan
@@ -686,6 +738,7 @@ pub fn render_prepared_paragraph_artifact(
         locale,
         &semantics,
         &render_text_spans,
+        &cjk_strong_semantics,
         &inline_start_by_offset,
         &inline_end_by_offset,
         &ruby_by_base_end,
@@ -733,6 +786,32 @@ struct RenderTextSpan {
     start: i64,
     end: i64,
     font_families: Vec<String>,
+}
+
+/// One `options.cjkStrongSemantics` entry. Range members use the js `Number()`
+/// coercion and the weight formats with the js `String(number)` template rule.
+struct CjkStrong {
+    start: f64,
+    end: f64,
+    weight: f64,
+}
+
+/// `Array.from(options.cjkStrongSemantics ?? [])`: each entry reads `start`,
+/// `end` and `weight` with `Number(entry?.field)`, so absent members are NaN
+/// exactly like the js find predicate's comparison.
+fn read_cjk_strong_semantics(value: Option<&Json>) -> Vec<CjkStrong> {
+    let items = match value {
+        Some(Json::Arr(items)) => items,
+        _ => return Vec::new(),
+    };
+    items
+        .iter()
+        .map(|item| CjkStrong {
+            start: number_of_field(item, "start"),
+            end: number_of_field(item, "end"),
+            weight: number_of_field(item, "weight"),
+        })
+        .collect()
 }
 
 /// `renderTextSpans`: exact-range font projections with js coercion and
@@ -950,6 +1029,7 @@ fn render_plan(
     locale: &str,
     semantics: &Semantics,
     render_text_spans: &[RenderTextSpan],
+    cjk_strong_semantics: &[CjkStrong],
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
     ruby_by_base_end: &HashMap<i64, PlanRuby>,
@@ -971,6 +1051,7 @@ fn render_plan(
             locale,
             semantics,
             render_text_spans,
+            cjk_strong_semantics,
             inline_start_by_offset,
             inline_end_by_offset,
             &plan.emphasis_ranges,
@@ -1019,6 +1100,7 @@ fn render_line(
     locale: &str,
     semantics: &Semantics,
     render_text_spans: &[RenderTextSpan],
+    cjk_strong_semantics: &[CjkStrong],
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
     emphasis_ranges: &[(f64, f64)],
@@ -1228,7 +1310,9 @@ fn render_line(
                 bopomofo_annotation_span(draft, z, *width, *line_top, *line_height, style_class_for)
             }
         };
-        let container = draft.semantic_container_for(&path, |index| semantics.wrapper(index));
+        let container = draft.semantic_container_for(&path, |index| {
+            semantics.wrapper_with_cjk(index, cjk_strong_semantics)
+        });
         draft.append_child(container, node);
     }
 
@@ -1264,7 +1348,9 @@ fn render_line(
         draft.append_child(hyphen_container, hyphen);
     }
     let crossing = semantics.crossing(line.range_end);
-    let boundary = draft.semantic_container_for(&crossing, |index| semantics.wrapper(index));
+    let boundary = draft.semantic_container_for(&crossing, |index| {
+        semantics.wrapper_with_cjk(index, cjk_strong_semantics)
+    });
     let sentinel = draft.push_element(
         "span",
         vec![
@@ -1687,8 +1773,10 @@ fn inline_object_placeholder(
     draft.push_element("span", attributes, false)
 }
 
-/// `rubyAnnotationSpan`: the ratio-ascent fallback (no canvas in the string
-/// builder); the measured ascent joins only if the plan carries it.
+/// `rubyAnnotationSpan`: the measured plan ascent joins when the plan carries
+/// it (RubyPlanAscent), otherwise the ratio-ascent fallback covers pre-ascent
+/// plans. Matches the js `Number(ruby.ascent)` finite check: absent and
+/// non-finite values read as the ratio fallback.
 fn ruby_annotation_span(
     draft: &mut Draft,
     ruby: &PlanRuby,
@@ -1696,7 +1784,10 @@ fn ruby_annotation_span(
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
 ) -> usize {
     let font_size = ruby.font_size;
-    let ascent = font_size * RUBY_ASCENT_RATIO;
+    let ascent = ruby
+        .ascent
+        .filter(|value| value.is_finite())
+        .unwrap_or(font_size * RUBY_ASCENT_RATIO);
     let families = &ruby.font_families;
     let mut attributes: Vec<(String, Option<String>)> = vec![
         ("data-tq-geometry".to_string(), Some("true".to_string())),
