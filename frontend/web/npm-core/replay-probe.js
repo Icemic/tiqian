@@ -19,6 +19,49 @@ export const CJK_METRIC_PROBE_TEXT = "中";
 export const LATIN_METRIC_PROBE_TEXT = "Hg";
 export const ZERO_ADVANCE_EPSILON = 0.01;
 
+/**
+ * OffscreenCanvasMeasureAdapter (ADR 0053 A5c): host adapter factory that turns
+ * an OffscreenCanvas 2D context into the synchronous `measure(cssFont, text)`
+ * function the probe policy expects. Returns `null` when OffscreenCanvas or its
+ * 2D context is unavailable; the caller decides how to report that.
+ *
+ * The context.font cache comparison mirrors WebCanvasTextShaper's
+ * `currentCanvasFont` guard: assigning the shorthand resets state, so it is
+ * only written when the resolved value differs. Missing TextMetrics fields stay
+ * `undefined` and are handled by the probe functions' fallback chain; a
+ * throwing measureText resolves to `null` so the probe treats it as a miss.
+ */
+export function createOffscreenCanvasMeasureAdapter() {
+  if (typeof OffscreenCanvas === "undefined") return null;
+  let ctx;
+  try {
+    ctx = new OffscreenCanvas(1, 1).getContext("2d");
+  } catch {
+    return null;
+  }
+  if (!ctx) return null;
+  let currentCanvasFont = null;
+  return (cssFont, text) => {
+    try {
+      if (cssFont !== currentCanvasFont) {
+        ctx.font = cssFont;
+        currentCanvasFont = ctx.font;
+      }
+      const m = ctx.measureText(text);
+      return {
+        width: m.width,
+        fontBoundingBoxAscent: m.fontBoundingBoxAscent,
+        fontBoundingBoxDescent: m.fontBoundingBoxDescent,
+        actualBoundingBoxAscent: m.actualBoundingBoxAscent,
+        actualBoundingBoxDescent: m.actualBoundingBoxDescent,
+        ideographicBaseline: m.ideographicBaseline,
+      };
+    } catch {
+      return null;
+    }
+  };
+}
+
 export function replayProbeCssFont(serializedFamilies, fontWeight, italic, fontSize) {
   const stack = (typeof serializedFamilies === "string" ? serializedFamilies : "")
     .split("\u001f")

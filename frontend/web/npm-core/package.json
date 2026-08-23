@@ -31,7 +31,7 @@
   "scripts": {
     "build:runtime": "node ./build-runtime.mjs",
     "link:ffi": "node ./link-ffi.mjs",
-    "test": "node --test *.test.mjs",
+    "test": "node --test *.test.mjs core/engine/web-worker/*.test.mjs",
     "verify:package": "node ./verify-package.mjs"
   },
   "files": [

@@ -136,17 +136,20 @@ export async function createServerReplayFontSession(faceSpecs, options = {}) {
   }
   const shapes = replayIndex(replay.shapes, "shapes");
   const metrics = replayIndex(replay.metrics, "metrics");
-  if (shapes.size === 0 || metrics.size === 0) {
+  const probe = options.probe ?? null;
+  if (probe !== null && (typeof probe !== "object" || typeof probe.measure !== "function")) {
+    throw new Error("ServerShapingReplayProbeInvalid");
+  }
+  // ProbeBootstrapEmptyTableAllowance (ADR 0053 A5c): a probe-equipped session
+  // may start from empty tables because the probe backfill is the only entry
+  // source. Without a probe, empty tables stay a hard failure.
+  if ((shapes.size === 0 || metrics.size === 0) && !probe) {
     throw new Error("ServerShapingReplayEmpty");
   }
   const faceMetadata = options.faceMetadata;
   if (!Array.isArray(faceSpecs) || !Array.isArray(faceMetadata) ||
       faceSpecs.length !== faceMetadata.length) {
     throw new Error("ServerShapingReplayFaceMismatch");
-  }
-  const probe = options.probe ?? null;
-  if (probe !== null && (typeof probe !== "object" || typeof probe.measure !== "function")) {
-    throw new Error("ServerShapingReplayProbeInvalid");
   }
   installReplayBackend();
   const prefix = String(options.sessionPrefix ?? "tq-browser-replay").trim() || "tq-browser-replay";

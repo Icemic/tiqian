@@ -1,55 +1,14 @@
-import { createServerReplayFontSession } from "./browser-font-replay.js";
 import {
   mergeSerializedSourceBoundaries,
   workerExactSubsetSourceBoundaries,
 } from "./core/sampler/font-face-boundaries.js";
-import { parseSnapshotManifest } from "./snapshot-manifest.js";
-import { snapshotTablesFromBytes } from "./snapshot-tables.js";
+import {
+  createManifestFontSession,
+  createProbeBootstrapFontSession,
+} from "./core/engine/web-worker/session-bootstrap.js";
 import { precomputeParagraph } from "@tiqian/ffi";
 
 const sessions = new Map();
-
-function manifestSession(manifestText, tablesBytes, sessionKey) {
-  // The coordinator verified the table bytes against the manifest pin before
-  // handing them over; decoding revalidates the shape for the worker context.
-  const tables = tablesBytes instanceof Uint8Array && tablesBytes.length > 0
-    ? snapshotTablesFromBytes(tablesBytes)
-    : null;
-  const manifest = parseSnapshotManifest(manifestText, tables);
-  const entries = [...(manifest.entries ?? []), ...(manifest.fontContractEntries ?? [])];
-  const evidence = entries.flatMap((entry) => entry?.fontEvidence?.faces ?? []);
-  if (evidence.length === 0 || !manifest.fontReplay) {
-    throw new Error("LayoutWorkerFontContractInvalid");
-  }
-  const faces = [];
-  const seen = new Set();
-  for (const face of evidence) {
-    const key = JSON.stringify([
-      face.sfntSha256,
-      face.faceIndex,
-      face.sourceOrder,
-      face.family,
-      face.style,
-      face.weight,
-      face.unicodeRange,
-      face.publicUrl,
-    ]);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    faces.push(face);
-  }
-  faces.sort((left, right) => Number(left.sourceOrder) - Number(right.sourceOrder));
-  const first = entries.find((entry) => entry?.fontEvidence)?.fontEvidence;
-  return createServerReplayFontSession(
-    faces.map(() => ({})),
-    {
-      sessionPrefix: `tq-worker-${sessionKey}`,
-      replay: manifest.fontReplay,
-      faceMetadata: faces,
-      harfbuzzVersion: first?.harfbuzzVersion ?? "",
-    },
-  );
-}
 
 function errorDetail(error) {
   return String(error instanceof Error ? error.message : error).slice(0, 1_000);
@@ -63,7 +22,9 @@ globalThis.addEventListener("message", async (event) => {
     if (type === "init") {
       let session = sessions.get(sessionKey);
       if (!session) {
-        session = await manifestSession(message.manifestText, message.tablesBytes, sessionKey);
+        session = message.probeBootstrap === true
+          ? await createProbeBootstrapFontSession(sessionKey, message)
+          : await createManifestFontSession(message.manifestText, message.tablesBytes, sessionKey);
         sessions.set(sessionKey, session);
       }
       globalThis.postMessage({ id, ok: true });
