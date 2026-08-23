@@ -347,6 +347,7 @@ function fixtureComputedStyle(element, _pseudo, overrides = {}) {
     scale: "none",
     content: "none",
     cssFloat: "none",
+    boxDecorationBreak: "slice",
     ...overrides,
   };
 }

@@ -366,6 +366,33 @@ function matchesCompound(element, selector) {
   return true;
 }
 
+// Browsers expand padding/margin shorthands into longhands in the CSSOM.
+// The fake host parses declarations on demand, so longhand queries must
+// resolve through a present shorthand with the standard 1-4 value box
+// rules; expansion happens in declaration order so a later longhand still
+// overrides an earlier shorthand and vice versa, as in the cascade.
+const BOX_SHORTHANDS = new Map([
+  ["padding", ["padding-top", "padding-right", "padding-bottom", "padding-left"]],
+  ["margin", ["margin-top", "margin-right", "margin-bottom", "margin-left"]],
+]);
+
+function expandBoxShorthand(prop, value) {
+  const sides = BOX_SHORTHANDS.get(prop);
+  if (!sides) return null;
+  const parts = String(value).trim().split(/\s+/);
+  if (parts.length < 1 || parts.length > 4 || parts.some((part) => !part)) return null;
+  const top = parts[0];
+  const right = parts.length > 1 ? parts[1] : top;
+  const bottom = parts.length > 2 ? parts[2] : top;
+  const left = parts.length > 3 ? parts[3] : right;
+  return [
+    [sides[0], top],
+    [sides[1], right],
+    [sides[2], bottom],
+    [sides[3], left],
+  ];
+}
+
 function parseStyleDeclarations(text, map, priorities) {
   map.clear();
   priorities.clear();
@@ -388,17 +415,46 @@ function parseStyleDeclarations(text, map, priorities) {
       if (priority) {
         priorities.set(k, priority);
       }
+      const expanded = expandBoxShorthand(k, v);
+      if (expanded) {
+        for (const [long, longValue] of expanded) {
+          map.set(long, longValue);
+          if (priority) {
+            priorities.set(long, priority);
+          }
+        }
+      }
     }
   }
 }
 
+// Browsers keep the style attribute verbatim across setAttribute and mirror
+// it into the declaration lazily; the attribute string is only rewritten
+// (normalized) after a declaration-side mutation, which merges over the
+// attribute content. The fake follows the same shape so engine-written
+// style strings round-trip byte-identical until code mutates .style.
+const STYLE_ATTR_STALE = Symbol("styleAttrStale");
+
 function createStyleObject(element) {
   const map = new Map();
   const priorities = new Map();
+  let syncedFromAttr = false;
+  const ensureSynced = () => {
+    if (syncedFromAttr) return;
+    syncedFromAttr = true;
+    const attr = element?.attributes?.get?.("style");
+    if (typeof attr === "string" && attr) {
+      parseStyleDeclarations(attr, map, priorities);
+    }
+  };
   return new Proxy({}, {
     get(target, prop) {
+      if (prop === STYLE_ATTR_STALE) {
+        return () => { syncedFromAttr = false; };
+      }
       if (prop === "setProperty") {
         return (name, value, priority = "") => {
+          ensureSynced();
           const kebab = String(name).trim().toLowerCase();
           if (value == null || value === "") {
             map.delete(kebab);
@@ -418,18 +474,21 @@ function createStyleObject(element) {
       }
       if (prop === "getPropertyValue") {
         return (name) => {
+          ensureSynced();
           const kebab = String(name).trim().toLowerCase();
           return map.get(kebab) ?? "";
         };
       }
       if (prop === "getPropertyPriority") {
         return (name) => {
+          ensureSynced();
           const kebab = String(name).trim().toLowerCase();
           return priorities.get(kebab) ?? "";
         };
       }
       if (prop === "removeProperty") {
         return (name) => {
+          ensureSynced();
           const kebab = String(name).trim().toLowerCase();
           const old = map.get(kebab) ?? "";
           map.delete(kebab);
@@ -439,12 +498,17 @@ function createStyleObject(element) {
         };
       }
       if (prop === "length") {
+        ensureSynced();
         return map.size;
       }
       if (prop === "item") {
-        return (index) => Array.from(map.keys())[index] ?? "";
+        return (index) => {
+          ensureSynced();
+          return Array.from(map.keys())[index] ?? "";
+        };
       }
       if (prop === "cssText") {
+        ensureSynced();
         return Array.from(map.entries()).map(([k, v]) => {
           const prio = priorities.get(k);
           return prio ? `${k}: ${v} !${prio}` : `${k}: ${v}`;
@@ -452,15 +516,18 @@ function createStyleObject(element) {
       }
       if (typeof prop === "symbol" && prop === Symbol.iterator) {
         return function* () {
+          ensureSynced();
           yield* map.keys();
         };
       }
       if (typeof prop === "string" && /^\d+$/.test(prop)) {
         const idx = Number(prop);
+        ensureSynced();
         return Array.from(map.keys())[idx] ?? undefined;
       }
       if (typeof prop === "string") {
         const kebab = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+        ensureSynced();
         return map.get(kebab) ?? map.get(prop) ?? "";
       }
       return Reflect.get(target, prop);
@@ -472,6 +539,7 @@ function createStyleObject(element) {
         return true;
       }
       if (typeof prop === "string") {
+        ensureSynced();
         const kebab = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
         if (value == null || value === "") {
           map.delete(kebab);
@@ -496,6 +564,7 @@ function createStyleObject(element) {
   });
 
   function updateStyleAttr() {
+    syncedFromAttr = true;
     if (map.size === 0) {
       element.attributes.delete("style");
     } else {
@@ -534,6 +603,12 @@ function parseDeclarationBlock(declBlock) {
       if (prop === "margin-inline") {
         if (!map.has("margin-left")) map.set("margin-left", { value: val, important });
         if (!map.has("margin-right")) map.set("margin-right", { value: val, important });
+      }
+      const expanded = expandBoxShorthand(prop, val);
+      if (expanded) {
+        for (const [long, longValue] of expanded) {
+          map.set(long, { value: longValue, important });
+        }
       }
     }
   }
@@ -680,18 +755,41 @@ function getStyleAttrProperty(element, name) {
   const styleAttr = element?.attributes?.get?.("style") ?? (typeof element?.getAttribute === "function" ? element.getAttribute("style") : null);
   if (!styleAttr || typeof styleAttr !== "string") return "";
   const kebab = name.toLowerCase();
+  // Last matching declaration wins: a longhand after a shorthand must
+  // override the shorthand's derived value, so every decl updates the
+  // result and the scan runs to the end.
+  let result = "";
   const decls = styleAttr.split(";");
   for (const decl of decls) {
     const idx = decl.indexOf(":");
     if (idx > 0) {
       const k = decl.slice(0, idx).trim().toLowerCase();
       let v = decl.slice(idx + 1).trim();
-      if (k === kebab) return v;
-      if (k === "padding-inline-start" && kebab === "padding-left") return v;
-      if (k === "margin-inline" && (kebab === "margin-left" || kebab === "margin-right")) return v;
+      if (!k || !v) continue;
+      if (k === kebab) {
+        result = v;
+        continue;
+      }
+      if (k === "padding-inline-start" && kebab === "padding-left") {
+        result = v;
+        continue;
+      }
+      if (k === "margin-inline" && (kebab === "margin-left" || kebab === "margin-right")) {
+        result = v;
+        continue;
+      }
+      const expanded = expandBoxShorthand(k, v);
+      if (expanded) {
+        for (const [long, longValue] of expanded) {
+          if (long === kebab) {
+            result = longValue;
+            break;
+          }
+        }
+      }
     }
   }
-  return "";
+  return result;
 }
 
 function getStylesheetProperty(element, kebab) {
@@ -994,6 +1092,17 @@ export class HostElement extends FakeElement {
     return this._clientWidth ?? this.getBoundingClientRect().width;
   }
 
+  get scrollWidth() {
+    // Overflow check for emergency-break fixtures: the widest run of inline
+    // content between engine line markers versus the content box. The advance
+    // model mirrors the engine's declared line widths, so a proper emergency
+    // break keeps this within clientWidth.
+    const pad = getHorizontalPadding(this);
+    const widest = widestInlineSegment(this);
+    return widest > 0 ? widest + pad.left + pad.right
+      : (this._clientWidth ?? this.getBoundingClientRect().width);
+  }
+
   set clientWidth(v) {
     this._clientWidth = Number(v);
   }
@@ -1073,7 +1182,9 @@ export class HostElement extends FakeElement {
   setAttribute(name, value) {
     super.setAttribute(name, value);
     if (name === "style") {
-      this.style.cssText = value;
+      // Wholesale attribute write: keep the string verbatim and mark the
+      // declaration mirror stale; the next .style access reparses it.
+      this.style[STYLE_ATTR_STALE]();
     }
   }
 
@@ -1407,9 +1518,6 @@ function parseHtmlNodes(html, doc = globalThis.document) {
           const attrName = attrMatch[1];
           const attrVal = decodeHtmlEntities(attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "");
           el.setAttribute(attrName, attrVal);
-          if (attrName === "style") {
-            el.style.cssText = attrVal;
-          }
         }
       }
       stack[stack.length - 1].appendChild(el);
@@ -1862,7 +1970,7 @@ function pseudoContentAdvance(element, pseudo) {
 // re-measure must include it to agree with data-tq-line-width).
 function inlineContentAdvance(node) {
   if (node.nodeType === 3) {
-    const length = (node.data ?? "").length;
+    const length = (node.data ?? "").replace(/[\u200B\uFEFF]/g, "").length;
     if (length === 0) return 0;
     const baseFontSize = node.parentElement ? blockFontSizePx(node.parentElement) : 18;
     return length * (baseFontSize + computedLetterSpacingPx(node.parentElement));
@@ -1883,6 +1991,52 @@ function inlineContentAdvance(node) {
   const beforeAdvance = pseudoContentAdvance(node, "::before");
   const afterAdvance = pseudoContentAdvance(node, "::after");
   return margin("margin-left") + pad.left + beforeAdvance + inner + afterAdvance + pad.right + margin("margin-right");
+}
+
+// Widest inline run between engine line markers in a block container.
+// Line breaks surface both as BR (data-tq-engine-break) and as empty
+// SPAN.tq-line markers, and inside sliced inline elements they sit below
+// the direct children, so the walk recurses and resets the running segment
+// at either marker kind while mirroring inlineContentAdvance's chrome
+// model (margins, padding, pseudo advances) for the elements it crosses.
+function widestInlineSegment(container) {
+  let max = 0;
+  let current = 0;
+  const marginOf = (element, side) => {
+    const cs = globalThis.getComputedStyle?.(element);
+    const parsed = Number.parseFloat(cs?.getPropertyValue?.(side) ?? "0");
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const visit = (node) => {
+    if (node.nodeType === 3) {
+      current += inlineContentAdvance(node);
+      return;
+    }
+    if (node.nodeType !== 1 || NON_RENDERED_TAGS.has(node.tagName)) return;
+    if (node.tagName === "BR") {
+      max = Math.max(max, current);
+      current = 0;
+      return;
+    }
+    const isLineMarker = typeof node.classList?.contains === "function" &&
+      node.classList.contains("tq-line");
+    if (isLineMarker) {
+      max = Math.max(max, current);
+      current = 0;
+      return;
+    }
+    const explicit = getElementExplicitWidth(node);
+    if (explicit != null) {
+      current += marginOf(node, "margin-left") + explicit + marginOf(node, "margin-right");
+      return;
+    }
+    const pad = getHorizontalPadding(node);
+    current += marginOf(node, "margin-left") + pad.left + pseudoContentAdvance(node, "::before");
+    for (const child of node.childNodes) visit(child);
+    current += pseudoContentAdvance(node, "::after") + pad.right + marginOf(node, "margin-right");
+  };
+  for (const child of container.childNodes) visit(child);
+  return Math.max(max, current);
 }
 
 // Left edge of a node within its block container's content box, by walking
@@ -2018,8 +2172,22 @@ export class FakeRange {
         left = inlineStartOffset(this.startContainer) + start * perChar;
         width = Math.max(0, end - start) * perChar;
       } else {
-        const text = this.startContainer.textContent ?? "";
-        width = text.length * 18;
+        // Element range (selectNodeContents on an element): place the run at
+        // the element's inline offset and advance it with the inline content
+        // model, so geometry carriers inside the element stay within the
+        // selection rect; child offsets select a sub-slice of the children.
+        const container = this.startContainer;
+        const children = container.childNodes ?? [];
+        const start = Math.min(this.startOffset ?? 0, children.length);
+        const end = Math.min(this.endOffset ?? children.length, children.length);
+        left = inlineStartOffset(container);
+        for (let i = 0; i < start; i += 1) {
+          left += inlineContentAdvance(children[i]);
+        }
+        width = 0;
+        for (let i = start; i < end; i += 1) {
+          width += inlineContentAdvance(children[i]);
+        }
       }
     }
     return new FakeDOMRect(left, 0, width, 30);
@@ -2055,6 +2223,14 @@ function createDocumentDouble() {
       }
       const el = new HostElement(tagName);
       el.ownerDocument = doc;
+      return el;
+    },
+    createElementNS(ns, tagName) {
+      // The engine reaches for createElementNS only for SVG overlays; the
+      // fake host models them as plain elements, so strip the svg: prefix
+      // some producers add and delegate, keeping the namespace on the node.
+      const el = doc.createElement(String(tagName).replace(/^svg:/i, ""));
+      el.namespaceURI = ns ?? null;
       return el;
     },
     createTextNode(data) {
@@ -2871,4 +3047,19 @@ export function renderedSingleLineFlowWidth(paragraph) {
   if (!rects.length) return 0;
   return Math.max(...rects.map((rect) => rect.right)) -
     Math.min(...rects.map((rect) => rect.left));
+}
+
+export function directTextContent(paragraph) {
+  return Array.from(paragraph.childNodes)
+    .filter((node) => node.nodeType === 3)
+    .map((node) => node.data)
+    .join("");
+}
+
+export function selectionCoversElement(container, target) {
+  const range = globalThis.document.createRange();
+  range.selectNodeContents(container);
+  const selected = range.getBoundingClientRect();
+  const expected = target.getBoundingClientRect();
+  return selected.left <= expected.left + 0.1 && selected.right >= expected.right - 0.1;
 }
