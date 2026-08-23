@@ -320,6 +320,15 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [ ] **B2 段落托管与回滚**（custody，含 CustodyMoveAdoption 行为）。
 - [ ] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
 - [ ] **B4 段落资格策略与响应式度量稳定化**。
+  进度（2026-08-23）：资格策略半段已完成。三个资格谓词
+  （shouldTryParagraph、isPureBlockImageParagraph、hasOpaqueInlineCandidate）与
+  常量（NON_TEXT_INLINE_TAGS、OPAQUE_INLINE_DISPLAYS、SKIPPED_ANCESTOR_SELECTOR）
+  迁入 `npm/core/engine/eligibility.js`，按 custody 模式经通用化 gradle 生成器
+  嵌入运行时，Kotlin 侧与 MarkdownParagraphLowering 经
+  `WebEnhancerEligibilityBridge.kt` 调用；嵌入式单测 6 条
+  （npm/eligibility-bridge.test.mjs）。响应式度量半段依赖管线度量助手
+  （effectiveLineMeasure、sourceParagraphWidth 属 WebEnhancerParagraphPipeline），
+  随 B7 管线批次迁移。提交：57f3f70。
 - [ ] **B5 内容 reconcile**。
 - [ ] **B6 复制保真**（copy.js 投影语义保持）。
 - [ ] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
