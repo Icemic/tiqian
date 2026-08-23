@@ -265,8 +265,14 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 - [x] **P6 批次 6**：快照四件归位，lazy-capabilities 拆分，element 快照失效区域
   提取，sync:shared 路径更新。验收：npm test；jsBrowserTest；web-precompute parity。
   提交：a41ddc4、27525a1（6a）；befa1a3（6b）。
-- [ ] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
-  验收：demo/web 对比数据记录。
+- [x] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
+  验收：demo/web 对比数据记录。对照由 demo/web `npm-published-vs-dev` 套件执行：
+  同一浏览器经 CDP 双开两页，一侧加载符号链接农场指向的工作树（含批次 0-6，
+  HEAD befa1a3），一侧加载 registry 的 `@tiqian/prose@0.1.0-alpha.5`（重构前
+  发布）。2026-08-23 记录：四个相位（initial@900、initial@700、
+  after-dom-change@940、after-dom-change@700）两侧增强段落数相同（dev=41
+  published=41），initial 相位像素逐字节一致，全程几何报告一致，宿主 DOM
+  变更后按引擎真值断言一致；demo/web 全套 35/35。
 
 ### A 规格与引擎面
 
