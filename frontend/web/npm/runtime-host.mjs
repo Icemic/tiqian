@@ -2,6 +2,7 @@
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
 // stable and synchronous execution for custody relayout and destruction tests.
 
+import assert from "node:assert/strict";
 import {
   FakeElement,
   FakeFragment,
@@ -508,34 +509,151 @@ function createStyleObject(element) {
 }
 
 const stylesheetRules = new Map();
+const parsedStylesheetRules = [];
+
+function parseDeclarationBlock(declBlock) {
+  const map = new Map();
+  const decls = declBlock.split(";");
+  for (const decl of decls) {
+    const colonIdx = decl.indexOf(":");
+    if (colonIdx > 0) {
+      const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+      let val = decl.slice(colonIdx + 1).trim();
+      if (!prop || !val) continue;
+      let important = false;
+      const importantMatch = /\s*!\s*important\s*$/i.exec(val);
+      if (importantMatch) {
+        important = true;
+        val = val.slice(0, importantMatch.index).trim();
+      }
+      map.set(prop, { value: val, important });
+      if (prop === "padding-inline-start" && !map.has("padding-left")) {
+        map.set("padding-left", { value: val, important });
+      }
+      if (prop === "margin-inline") {
+        if (!map.has("margin-left")) map.set("margin-left", { value: val, important });
+        if (!map.has("margin-right")) map.set("margin-right", { value: val, important });
+      }
+    }
+  }
+  return map;
+}
+
+function computeSpecificity(selector) {
+  let a = 0;
+  let b = 0;
+  let c = 0;
+  const tokens = splitByWhitespace(selector);
+  for (const token of tokens) {
+    if (!token || token === ">" || token === "+" || token === "~" || token === "*") continue;
+    let s = token;
+    const tagMatch = /^([a-zA-Z0-9_-]+)/.exec(s);
+    if (tagMatch) {
+      c++;
+      s = s.slice(tagMatch[0].length);
+    }
+    while (s.length > 0) {
+      if (s.startsWith("#")) {
+        const idMatch = /^#([a-zA-Z0-9_-]+)/.exec(s);
+        if (idMatch) {
+          a++;
+          s = s.slice(idMatch[0].length);
+        } else {
+          s = s.slice(1);
+        }
+      } else if (s.startsWith(".")) {
+        const classMatch = /^\.([a-zA-Z0-9_-]+)/.exec(s);
+        if (classMatch) {
+          b++;
+          s = s.slice(classMatch[0].length);
+        } else {
+          s = s.slice(1);
+        }
+      } else if (s.startsWith("[")) {
+        const attrEnd = s.indexOf("]");
+        if (attrEnd >= 0) {
+          b++;
+          s = s.slice(attrEnd + 1);
+        } else {
+          s = s.slice(1);
+        }
+      } else if (s.startsWith(":not(")) {
+        let depth = 0;
+        let endIdx = -1;
+        for (let i = 4; i < s.length; i++) {
+          if (s[i] === "(") depth++;
+          else if (s[i] === ")") {
+            depth--;
+            if (depth === 0) {
+              endIdx = i;
+              break;
+            }
+          }
+        }
+        if (endIdx >= 0) {
+          const inner = s.slice(5, endIdx).trim();
+          const innerSpec = computeSpecificity(inner);
+          a += innerSpec[0];
+          b += innerSpec[1];
+          c += innerSpec[2];
+          s = s.slice(endIdx + 1);
+        } else {
+          s = s.slice(5);
+        }
+      } else if (s.startsWith(":")) {
+        const pseudoMatch = /^:([a-zA-Z0-9_-]+)/.exec(s);
+        if (pseudoMatch) {
+          b++;
+          s = s.slice(pseudoMatch[0].length);
+        } else {
+          s = s.slice(1);
+        }
+      } else {
+        s = s.slice(1);
+      }
+    }
+  }
+  return [a, b, c];
+}
+
+function compareSpecificity(spec1, spec2, index1, index2) {
+  for (let i = 0; i < 3; i++) {
+    if (spec1[i] !== spec2[i]) return spec1[i] - spec2[i];
+  }
+  return index1 - index2;
+}
 
 function collectStylesheetRules(cssText) {
   if (!cssText) return;
-  const ruleRegex = /([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+  const cleaned = String(cssText).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleRegex = /([^{}]+)\{([^}]+)\}/g;
   let match;
-  while ((match = ruleRegex.exec(cssText)) !== null) {
-    const selector = match[1].trim().toUpperCase();
+  while ((match = ruleRegex.exec(cleaned)) !== null) {
+    const rawSelectors = match[1].trim();
     const declBlock = match[2];
-    let tagRules = stylesheetRules.get(selector);
-    if (!tagRules) {
-      tagRules = new Map();
-      stylesheetRules.set(selector, tagRules);
-    }
-    const decls = declBlock.split(";");
-    for (const decl of decls) {
-      const colonIdx = decl.indexOf(":");
-      if (colonIdx > 0) {
-        const prop = decl.slice(0, colonIdx).trim().toLowerCase();
-        const val = decl.slice(colonIdx + 1).trim();
-        if (prop && val) {
-          tagRules.set(prop, val);
-          if (prop === "padding-inline-start" && !tagRules.has("padding-left")) {
-            tagRules.set("padding-left", val);
-          }
-          if (prop === "margin-inline") {
-            if (!tagRules.has("margin-left")) tagRules.set("margin-left", val);
-            if (!tagRules.has("margin-right")) tagRules.set("margin-right", val);
-          }
+    const selectors = splitSelectorList(rawSelectors);
+    const declsMap = parseDeclarationBlock(declBlock);
+    for (const sel of selectors) {
+      const trimmedSel = sel.trim();
+      if (!trimmedSel) continue;
+      const spec = computeSpecificity(trimmedSel);
+      const ruleIndex = parsedStylesheetRules.length;
+      parsedStylesheetRules.push({
+        selector: trimmedSel,
+        specificity: spec,
+        index: ruleIndex,
+        declarations: declsMap,
+      });
+      const tagMatch = /^[a-zA-Z0-9_-]+$/.exec(trimmedSel);
+      if (tagMatch) {
+        const tag = trimmedSel.toUpperCase();
+        let tagRules = stylesheetRules.get(tag);
+        if (!tagRules) {
+          tagRules = new Map();
+          stylesheetRules.set(tag, tagRules);
+        }
+        for (const [p, d] of declsMap) {
+          tagRules.set(p, d.value);
         }
       }
     }
@@ -551,12 +669,38 @@ function getStyleAttrProperty(element, name) {
     const idx = decl.indexOf(":");
     if (idx > 0) {
       const k = decl.slice(0, idx).trim().toLowerCase();
-      const v = decl.slice(idx + 1).trim();
+      let v = decl.slice(idx + 1).trim();
       if (k === kebab) return v;
       if (k === "padding-inline-start" && kebab === "padding-left") return v;
       if (k === "margin-inline" && (kebab === "margin-left" || kebab === "margin-right")) return v;
     }
   }
+  return "";
+}
+
+function getStylesheetProperty(element, kebab) {
+  let bestImportant = null;
+  let bestNormal = null;
+
+  for (const rule of parsedStylesheetRules) {
+    if (rule.declarations.has(kebab)) {
+      if (matchesHostSelector(element, rule.selector)) {
+        const decl = rule.declarations.get(kebab);
+        if (decl.important) {
+          if (!bestImportant || compareSpecificity(rule.specificity, bestImportant.rule.specificity, rule.index, bestImportant.rule.index) >= 0) {
+            bestImportant = { rule, decl };
+          }
+        } else {
+          if (!bestNormal || compareSpecificity(rule.specificity, bestNormal.rule.specificity, rule.index, bestNormal.rule.index) >= 0) {
+            bestNormal = { rule, decl };
+          }
+        }
+      }
+    }
+  }
+
+  if (bestImportant) return bestImportant.decl.value;
+  if (bestNormal) return bestNormal.decl.value;
   return "";
 }
 
@@ -583,7 +727,11 @@ function resolveElementProperty(element, property, base = {}) {
   const attrVal = getStyleAttrProperty(element, kebab);
   if (attrVal !== "") return attrVal;
 
-  // 3. Stylesheet rules for element tag
+  // 3. Stylesheet rules (extended specificity-based rules)
+  const sheetVal = getStylesheetProperty(element, kebab);
+  if (sheetVal !== "") return sheetVal;
+
+  // 3b. Fallback tag rule if any
   const tagRule = stylesheetRules.get(element.tagName)?.get(kebab);
   if (tagRule !== undefined && tagRule !== "") return tagRule;
 
@@ -591,6 +739,7 @@ function resolveElementProperty(element, property, base = {}) {
   const inheritable = [
     "font-size", "font-weight", "font-family", "font-style",
     "line-height", "letter-spacing", "word-spacing", "color", "direction",
+    "font-feature-settings", "white-space",
   ];
   if (inheritable.includes(kebab) && element.parentElement && element.parentElement.nodeType === 1) {
     const parentVal = resolveElementProperty(element.parentElement, kebab, base);
@@ -1829,7 +1978,7 @@ export function buildWorld() {
     const isInlineTag = [
       "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
       "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
-      "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE",
+      "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "SPOILER",
     ].includes(element?.tagName);
     const overrides = isInlineTag ? { display: "inline" } : {};
     const base = fixtureComputedStyle(element, pseudo, overrides);
@@ -1912,6 +2061,7 @@ export function buildWorld() {
 
 export function cleanupWorld() {
   stylesheetRules.clear();
+  parsedStylesheetRules.length = 0;
   if (currentSelection) {
     currentSelection.removeAllRanges();
   }
@@ -2114,6 +2264,86 @@ export function clearExactFontSessionFixture() {
   delete globalThis.__TiqianExactPreparedRenderCount;
   delete globalThis.__TiqianExactFontShapeCount;
   delete globalThis.__TiqianExactFontFallbackCount;
+}
+
+export function exactFontShapeCount() {
+  return globalThis.__TiqianExactFontShapeCount || 0;
+}
+
+export function exactFontFallbackCount() {
+  return globalThis.__TiqianExactFontFallbackCount || 0;
+}
+
+export function exactPreparedPlan() {
+  return globalThis.__TiqianExactPreparedPlan || "";
+}
+
+export function exactPreparedRenderCount() {
+  return globalThis.__TiqianExactPreparedRenderCount || 0;
+}
+
+export function failExactPreparedDomValidation(detail) {
+  globalThis.__TiqianPreparedDomValidator = { issue: () => detail };
+}
+
+export function installPreparedWorkerIssue(detail) {
+  globalThis.__TiqianLayoutWorker = { take: () => null, issue: () => detail };
+}
+
+export function installPreparedWorkerLivePlan() {
+  globalThis.__TiqianLayoutWorker = {
+    take(_element, _sessionKey, requestText) {
+      const request = JSON.parse(requestText);
+      const semantics = Array.from(request.semantics || [], function (semantic, sourceIndex) {
+        return {
+          start: semantic.start,
+          end: semantic.end,
+          tagName: semantic.tagName,
+          sourceIndex: Number.isSafeInteger(semantic.sourceIndex)
+            ? semantic.sourceIndex
+            : sourceIndex,
+          order: Number.isSafeInteger(semantic.order) ? semantic.order : sourceIndex,
+        };
+      }).sort(function (left, right) {
+        return left.start - right.start || right.end - left.end || left.order - right.order;
+      }).map(function (semantic) {
+        return {
+          start: semantic.start,
+          end: semantic.end,
+          tagName: semantic.tagName,
+          sourceIndex: semantic.sourceIndex,
+        };
+      });
+      return JSON.stringify({
+        plan: { fixture: "worker-live-source" },
+        semanticReplay: "live-source",
+        semantics,
+        inlineBoxes: request.renderInlineBoxes || [],
+      });
+    },
+    issue: () => null,
+  };
+}
+
+export const enginePunctuationFeatureStyle = `
+        <style>
+          [data-tq-rendered="true"] {
+            font-feature-settings: "halt" 0, "chws" 0, "palt" 0 !important;
+          }
+          [data-tq-rendered="true"] span[data-tq-open-type-features="pwid,palt"] {
+            font-feature-settings: "halt" 0, "chws" 0, "palt" 1 !important;
+          }
+        </style>
+    `;
+
+export function assertEnginePunctuationFeatureLock(element, proportionalQuote = false) {
+  const features = computedStyleValue(element, "font-feature-settings");
+  assert.ok(/["']halt["']\s+0/.test(features), features);
+  assert.ok(/["']chws["']\s+0/.test(features), features);
+  const palt = /["']palt["'](?:\s+(-?\d+))?/.exec(features);
+  assert.ok(palt, features);
+  const paltValue = palt[1] === undefined ? "1" : palt[1];
+  assert.equal(proportionalQuote ? "1" : "0", paltValue, features);
 }
 
 export const PROGRESSIVE_TIER_COUNT = 3;
