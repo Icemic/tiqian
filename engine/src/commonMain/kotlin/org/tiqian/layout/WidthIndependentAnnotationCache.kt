@@ -2,6 +2,7 @@ package org.tiqian.layout
 
 import kotlin.math.floor
 import org.tiqian.clreq.AdjustmentStylePolicy
+import org.tiqian.clreq.AutoSpaceMode
 import org.tiqian.clreq.ClreqProfile
 import org.tiqian.clreq.ClreqPunctuationGlyphSubstitutor
 import org.tiqian.clreq.PunctuationClass
@@ -498,7 +499,7 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
         .filterTo(mutableSetOf()) { index ->
             narrowInlineBoxRanges.any { it.end == rawNaturalClusters[index].range.end }
         }
-    val eastAsianSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
+    val resolvedSpacingEdges = rawNaturalClusters.mapIndexed { index, cluster ->
         if (
             inlineObjectRanges.any { cluster.range.isContainedIn(it) } ||
             (rawNaturalClusters.isAttachedAsciiPointMarkAt(index) &&
@@ -526,6 +527,60 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
                     resolved.trailing
                 },
             )
+        }
+    }
+    // VerbatimRangeAutoSpace: a W↔N boundary strictly inside a verbatim range loses its
+    // spacing property at the resolution source, so gap insertion, sino-Western boundary
+    // pricing, and justification stretch all skip it. Range outer edges (and forced
+    // inline-box Narrow edges) keep the prose contract.
+    val verbatimRanges = input.content.autoSpaceSuppressedRanges
+    fun verbatimSuppressedBoundary(offset: Int): Boolean =
+        verbatimRanges.any { it.start < offset && offset < it.end }
+    val eastAsianSpacingEdges = if (verbatimRanges.isEmpty()) {
+        resolvedSpacingEdges
+    } else {
+        resolvedSpacingEdges.mapIndexed { index, edges ->
+            val cluster = rawNaturalClusters[index]
+            val leadingSuppressed = index !in narrowInlineBoxLeadingClusters &&
+                verbatimSuppressedBoundary(cluster.range.start)
+            val trailingSuppressed = index !in narrowInlineBoxTrailingClusters &&
+                verbatimSuppressedBoundary(cluster.range.end)
+            if (!leadingSuppressed && !trailingSuppressed) {
+                edges
+            } else {
+                edges.copy(
+                    leading = if (leadingSuppressed) EastAsianSpacingValue.Other else edges.leading,
+                    trailing = if (trailingSuppressed) EastAsianSpacingValue.Other else edges.trailing,
+                )
+            }
+        }
+    }
+    val verbatimSuppressionDecisions = if (verbatimRanges.isEmpty()) {
+        emptyList()
+    } else {
+        buildList {
+            for (index in 1 until rawNaturalClusters.size) {
+                val offset = rawNaturalClusters[index].range.start
+                if (!verbatimSuppressedBoundary(offset)) continue
+                val left = resolvedSpacingEdges[index - 1].trailing
+                val right = resolvedSpacingEdges[index].leading
+                val wideNarrowPair =
+                    (left == EastAsianSpacingValue.Wide && right == EastAsianSpacingValue.Narrow) ||
+                        (left == EastAsianSpacingValue.Narrow && right == EastAsianSpacingValue.Wide)
+                if (!wideNarrowPair) continue
+                add(
+                    AutoSpaceDecisionInfo(
+                        clusterRange = rawNaturalClusters[index].range,
+                        side = "leading",
+                        boundaryRole = "EastAsianSpacing.Wide",
+                        mode = AutoSpaceMode.Disabled.name,
+                        charactersAffected = 0,
+                        reductionPerChar = 0f,
+                        totalReduction = 0f,
+                        reason = "VerbatimRangeAutoSpace:east-asian-spacing-W-N-suppressed",
+                    ),
+                )
+            }
         }
     }
     val autoSpaceResult = rawNaturalClusters.applyAutoSpacePolicy(
@@ -593,7 +648,7 @@ internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
         .filterValues { it.preventsLineBreak }
         .keys
         .map { leftClusterIndex -> leftClusterIndex..(leftClusterIndex + 1) }
-    val autoSpaceDecisions = autoSpaceResult.decisions
+    val autoSpaceDecisions = autoSpaceResult.decisions + verbatimSuppressionDecisions
     val clusterRoles = naturalClusters
         .containingItems(annotation.fontDecisions, FontDecision::range)
         .map { decision -> decision?.role ?: FontRole.Unknown }

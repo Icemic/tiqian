@@ -91,6 +91,11 @@ class ExplainableStubParagraphLayoutEngine(
                 "LineBreakSpan ${span.range} must be a non-empty source range"
             }
         }
+        input.content.autoSpaceSuppressedRanges.forEach { range ->
+            require(range.start >= 0 && range.start < range.end && range.end <= text.length) {
+                "Auto-space suppressed range $range must be a non-empty source range"
+            }
+        }
         require(input.inlineObjects.distinctBy { it.range }.size == input.inlineObjects.size) {
             "InlineObjectSpan ranges must be unique"
         }

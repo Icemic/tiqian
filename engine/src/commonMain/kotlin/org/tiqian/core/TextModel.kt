@@ -13,7 +13,27 @@ data class TiqianTextContent(
     val sourceBoundaries: Set<Int> = emptySet(),
     /** Layout-affecting source ranges whose internal Western tokens use an explicit break policy. */
     val lineBreakSpans: List<LineBreakSpan> = emptyList(),
+    /**
+     * `VerbatimRangeAutoSpace`: verbatim ranges (inline code, technical text) whose internal
+     * CJK↔Western boundaries receive no automatic spacing. A boundary strictly inside a range
+     * is suppressed; the range's outer edges keep the surrounding prose contract.
+     */
+    val autoSpaceSuppressedRanges: List<TextRange> = emptyList(),
 )
+
+/**
+ * `LinkAddressDisplayGate`: whether a link's visible text is its own address — identical to
+ * the target, or the target minus a `https://` / `http://` / `mailto:` prefix. Only such
+ * links should take [LineBreakPolicy.ProgressiveTechnical]; other link text keeps prose
+ * line breaking.
+ */
+object LinkAddressDisplay {
+    fun displaysAddress(display: String, target: String): Boolean {
+        if (display.isEmpty() || target.isEmpty()) return false
+        if (display == target) return true
+        return target == "https://$display" || target == "http://$display" || target == "mailto:$display"
+    }
+}
 
 /** A source range opting into a named, frontend-independent line-break policy. */
 data class LineBreakSpan(
