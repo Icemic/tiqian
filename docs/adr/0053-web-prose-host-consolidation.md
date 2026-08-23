@@ -253,8 +253,9 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 - [x] **P2 批次 2**：core/sampler/observers.js，失效源接口与四实例，A 类双职拆分。
   验收：npm test；demo/web resize 与 drag 系列。
   提交：6bdcfb3。
-- [ ] **P3 批次 3**：engine/loaders，connectedCallback 收缩到生命周期。
+- [x] **P3 批次 3**：engine/loaders，connectedCallback 收缩到生命周期。
   验收：npm test；demo/web。
+  提交：e861a99。
 - [ ] **P4 批次 4**：engine/exact-font.js，两套会话状态机合并。
   验收：npm test；package.test.mjs。
 - [ ] **P5 批次 5**：engine/face.js，派发点收拢，globalThis 读取收敛，detail.result
@@ -272,10 +273,12 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   验收：Verification 1 前半；类型生成进 CI。
 - [ ] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
   输入输出逐字节一致。验收：Verification 1 后半，CI 强制。
-- [ ] **A3 ffi/js 改为字节进出面**（`SingleEngineFace`）：线格式解析、校验与 `LayoutInput`
+- [x] **A3 ffi/js 改为字节进出面**（`SingleEngineFace`）：线格式解析、校验与 `LayoutInput`
   组装移入引擎入口，`PrecomputeWire` parse 降为编解码器。
   KPI：ffi/js 内装配逻辑（非编解码）行数归零。
   验收：jsNodeTest 全部通过；golden 零 diff。
+  提交：bc19f8c（整体移入 `layout` 模块 `ParagraphWireFace`，`PrecomputeWire.kt`
+  删除，ffi/js 只剩导出面转发与会话接线）。
 - [ ] **A4 ffi/js 独立 npm 包**：单独发包，产物导出类型定义与 source map。
   KPI：.d.ts 与 .js.map 覆盖全部导出面；@tiqian/prose 依赖切换完成。
   验收：包产物检查；消费者构建与测试绿。
