@@ -1,7 +1,6 @@
 // Kotlin runtime loader (ADR 0053 batch 3). The compiled bundle stays at
 // runtime/ in the package root (publishing layout), so the dynamic import
 // below is resolved relative to the root from this subdirectory.
-import { tiqianBridge } from "../face.js";
 let runtimePromise;
 let runtimeModule;
 
@@ -28,14 +27,16 @@ export function setEngineOverride(engine) {
 
 // Direct engine call face (ADR 0053 C1): the TiqianEngine JsExport facade
 // replaces the document-level event channel for host-to-engine calls. Both
-// accessors answer null until the runtime exports resolve, so callers keep
-// their bridge or event fallbacks in the meantime.
+// accessors answer null until the runtime exports resolve, so callers treat
+// a null answer as "engine not ready" and stop there.
 export function engineApi() {
   if (engineOverride) return engineOverride;
   engineInstance ??= resolveExport("TiqianEngine");
   return engineInstance;
 }
 
+// Polled worker facade (WorkerPolledScheduling): an IR object singleton
+// behind getInstance; the UMD branch exposes it as globalThis.web.
 export function workerApi() {
   workerInstance ??= resolveExport("TiqianWebWorkers");
   return workerInstance;
@@ -44,24 +45,6 @@ export function workerApi() {
 export function loadTiqianRuntime() {
   runtimePromise ??= import("../../../runtime/tiqian-web.js").then((module) => {
     runtimeModule = module;
-    // WorkerPolledScheduling: the runtime exports its polled worker facade
-    // (an IR object singleton behind getInstance; the UMD branch exposes it
-    // as globalThis.web). Mount the methods on the existing TiqianWeb bridge
-    // so the coordinator grants slices by passing one plain controller
-    // object per grant; no live coordinator state crosses the boundary.
-    const workers = workerApi();
-    const bridge = tiqianBridge();
-    if (workers && bridge) {
-      bridge.workerAttach = workers.attach.bind(workers);
-      bridge.workerDetach = workers.detach.bind(workers);
-      bridge.workerHasJob = workers.hasJob.bind(workers);
-      bridge.workerJobGeneration = workers.jobGeneration.bind(workers);
-      bridge.workerRunSlice = workers.runSlice.bind(workers);
-      bridge.workerPendingInTier = workers.pendingInTier.bind(workers);
-      bridge.workerParagraphCount = workers.paragraphCount.bind(workers);
-      bridge.workerParagraphAt = workers.paragraphAt.bind(workers);
-      bridge.workerSetParagraphTier = workers.setParagraphTier.bind(workers);
-    }
     return module;
   });
   return runtimePromise;
@@ -73,5 +56,5 @@ export function currentTiqianRuntime() {
 
 export async function withTiqianRuntime(action) {
   await loadTiqianRuntime();
-  return action(engineApi() ?? tiqianBridge());
+  return action(engineApi());
 }

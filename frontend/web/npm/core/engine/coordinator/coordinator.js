@@ -6,14 +6,6 @@ import {
   releaseNativeScrollAnchoring,
 } from "./viewport-anchor.js";
 
-export function dispatch(name, root, options = undefined) {
-  document.dispatchEvent(
-    new CustomEvent(name, {
-      detail: { root, ...(options ? { options } : {}) },
-    }),
-  );
-}
-
 // OffscreenDebounceGate window: an off-screen element's frame task waits this
 // long after its last request before it runs. 200ms covers a full fast-drag
 // sweep, and a paused off-screen element still gets its final layout soon

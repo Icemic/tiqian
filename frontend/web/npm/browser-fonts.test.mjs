@@ -12,6 +12,7 @@ import {
   harness,
   manifestWithFaces,
 } from "./browser-fonts-fixtures.mjs";
+import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
 
 
 function assertCode(code) {
@@ -102,13 +103,12 @@ test("browser font sessions expose only replay identity to the layout Worker", a
   assert.throws(() => browserFontSessionWorkerContract(handle), assertCode("BrowserFontSessionHandleInvalid"));
 });
 
-test("layout Worker plans survive duplicate module instances and reach the runtime bridge", async () => {
+test("layout Worker plans survive duplicate module instances and reach the engine call face", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
   const handle = await state.loader.prepare(state.root);
   const originalWorker = globalThis.Worker;
   const originalInnerHeight = globalThis.innerHeight;
-  const originalApi = globalThis.TiqianWeb;
   const originalBridge = globalThis.__TiqianLayoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const originalCoordinator = globalThis[coordinatorKey];
@@ -161,7 +161,9 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     globalThis.__TiqianLayoutWorker = legacyBridge;
     globalThis.Worker = FixtureWorker;
     globalThis.innerHeight = 800;
-    globalThis.TiqianWeb = {
+    // C1: the worker channel reads the engine call face, so the fixture
+    // request source is an engine override rather than a bridge global.
+    const engineStub = {
       workerLayoutRequest: () => JSON.stringify({
         text: requestText,
         maxWidthPx: 320,
@@ -169,6 +171,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
         renderInlineBoxes: [],
       }),
     };
+    setEngineOverride(engineStub);
 
     const firstModule = await import(
       `./core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
@@ -179,7 +182,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     assert.equal(await firstModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);
-    const firstRequest = globalThis.TiqianWeb.workerLayoutRequest();
+    const firstRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, firstRequest)).plan.fixture,
       "first",
@@ -218,7 +221,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);
-    const secondRequest = globalThis.TiqianWeb.workerLayoutRequest();
+    const secondRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, secondRequest)).plan.fixture,
       "second",
@@ -229,14 +232,14 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 0);
-    const failedRequest = globalThis.TiqianWeb.workerLayoutRequest();
+    const failedRequest = engineStub.workerLayoutRequest();
     assert.equal(globalThis.__TiqianLayoutWorker.take(element, handle.id, failedRequest), null);
     assert.equal(
       globalThis.__TiqianLayoutWorker.issue(element, handle.id, failedRequest),
       "fixture replay miss",
     );
 
-    globalThis.TiqianWeb.workerLayoutRequest = () => JSON.stringify({
+    engineStub.workerLayoutRequest = () => JSON.stringify({
       text: "live semantic",
       maxWidthPx: 320,
       semantics: [{
@@ -250,7 +253,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);
-    const unsupportedSemanticRequest = globalThis.TiqianWeb.workerLayoutRequest();
+    const unsupportedSemanticRequest = engineStub.workerLayoutRequest();
     const unsupportedSemanticRecord = JSON.parse(
       globalThis.__TiqianLayoutWorker.take(element, handle.id, unsupportedSemanticRequest),
     );
@@ -358,7 +361,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     );
 
     queriedElements = [invalidElement, element];
-    globalThis.TiqianWeb.workerLayoutRequest = (_root, candidate) => {
+    engineStub.workerLayoutRequest = (_root, candidate) => {
       if (candidate === invalidElement) return "{";
       return JSON.stringify({
         text: "after invalid candidate",
@@ -370,7 +373,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);
-    const afterInvalidRequest = globalThis.TiqianWeb.workerLayoutRequest(state.root, element);
+    const afterInvalidRequest = engineStub.workerLayoutRequest(state.root, element);
     assert.equal(
       JSON.parse(
         globalThis.__TiqianLayoutWorker.take(element, handle.id, afterInvalidRequest),
@@ -380,14 +383,14 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     queriedElements = [element];
 
     requestText = "default-runtime-set";
-    globalThis.TiqianWeb.workerLayoutRequest = () => JSON.stringify({
+    engineStub.workerLayoutRequest = () => JSON.stringify({
       text: requestText,
       maxWidthPx: 320,
       semantics: [],
       renderInlineBoxes: [],
     });
     assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {}), 1);
-    const defaultRequest = globalThis.TiqianWeb.workerLayoutRequest();
+    const defaultRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, defaultRequest)).plan.fixture,
       "default-runtime-set",
@@ -415,8 +418,7 @@ test("layout Worker plans survive duplicate module instances and reach the runti
     else globalThis.Worker = originalWorker;
     if (originalInnerHeight === undefined) delete globalThis.innerHeight;
     else globalThis.innerHeight = originalInnerHeight;
-    if (originalApi === undefined) delete globalThis.TiqianWeb;
-    else globalThis.TiqianWeb = originalApi;
+    setEngineOverride(null);
     state.loader.release(handle);
   }
 });

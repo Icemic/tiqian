@@ -213,7 +213,7 @@ export async function prepareWorkerLayouts(
   isCurrent = () => true,
 ) {
   if (!root || !exactFontSession || !isCurrent()) return 0;
-  const api = engineApi() ?? globalThis.TiqianWeb;
+  const api = engineApi();
   if (typeof api?.workerLayoutRequest !== "function") return 0;
   const contract = browserFontSessionWorkerContract(exactFontSession);
   // WorkerCandidateSetMatchesCommitSet: mixed snapshot/runtime roots dispatch

@@ -31,6 +31,7 @@ import {
   ELEMENT_DRIVE_GLOBALS,
   FRAME_STEP_MS,
 } from "./timing-golden-host.mjs";
+import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -407,7 +408,6 @@ async function runWorkerMessagesJourney() {
   const ops = [];
   const savedWorker = globalThis.Worker;
   const savedInnerHeight = globalThis.innerHeight;
-  const savedApi = globalThis.TiqianWeb;
   const savedBridge = globalThis.__TiqianLayoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const savedCoordinator = globalThis[coordinatorKey];
@@ -434,7 +434,9 @@ async function runWorkerMessagesJourney() {
     delete globalThis.__TiqianLayoutWorker;
     globalThis.Worker = recordingWorker(messages);
     globalThis.innerHeight = 800;
-    globalThis.TiqianWeb = { workerLayoutRequest: () => requestJson() };
+    // C1: the worker channel reads the engine call face, so the fixture
+    // request source is an engine override rather than a bridge global.
+    setEngineOverride({ workerLayoutRequest: () => requestJson() });
 
     const module = await import(
       "./core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
@@ -490,8 +492,7 @@ async function runWorkerMessagesJourney() {
     else globalThis.Worker = savedWorker;
     if (savedInnerHeight === undefined) delete globalThis.innerHeight;
     else globalThis.innerHeight = savedInnerHeight;
-    if (savedApi === undefined) delete globalThis.TiqianWeb;
-    else globalThis.TiqianWeb = savedApi;
+    setEngineOverride(null);
     if (savedBridge === undefined) delete globalThis.__TiqianLayoutWorker;
     else globalThis.__TiqianLayoutWorker = savedBridge;
     if (savedCoordinator === undefined) delete globalThis[coordinatorKey];
