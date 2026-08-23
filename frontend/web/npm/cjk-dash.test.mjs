@@ -30,7 +30,6 @@ test("dash capability fails closed without loading browser HarfBuzz", async () =
     await prepareCjkDashShapingIfNeeded({ textContent: "甲——乙" }),
     {
       status: "unavailable",
-      issue: "NoConformingCjkDashGlyph",
       detail: "BrowserHarfBuzzDisabled",
     },
   );

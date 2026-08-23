@@ -10,6 +10,7 @@ import org.tiqian.core.Glyph
 import org.tiqian.core.GlyphRun
 import org.tiqian.core.Rect
 import org.tiqian.core.ShapingDecisionInfo
+import org.tiqian.font.CjkDashCapabilityPolicy
 import org.tiqian.font.FontMetricSource
 import org.tiqian.font.FontMetricsRequest
 import org.tiqian.font.FontMetricsResolver
@@ -294,19 +295,9 @@ class WebCanvasTextShaper(
         return shapeWithCanvas(input)
     }
 
-    private fun dashCapabilityIssue(): Pair<String, String> {
-        val capability = cjkDashCapability
-        val detail = when {
-            capability == null -> "CjkDashFontShapingNotPrepared"
-            capability.detail.isNullOrBlank() -> "status=${capability.status}"
-            else -> "status=${capability.status}; ${capability.detail}"
-        }
-        return if (capability?.status == "conforming") {
-            "ConformingCjkDashRequiresExactFontSession" to detail
-        } else {
-            "NoConformingCjkDashGlyph" to detail
-        }
-    }
+    private fun dashCapabilityIssue(): Pair<String, String> =
+        CjkDashCapabilityPolicy.issueNameFor(cjkDashCapability?.status) to
+            CjkDashCapabilityPolicy.issueDetailFor(cjkDashCapability?.status, cjkDashCapability?.detail)
 
     private fun shapeWithCanvas(
         input: ShapingInput,
