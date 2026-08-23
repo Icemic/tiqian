@@ -257,8 +257,10 @@ internal class CjkTextLayoutNode(
         )
         val inlineBoxesChanged = richTextSpans.backgroundInlineBoxes() !=
             this.richTextSpans.backgroundInlineBoxes()
-        val lineBreakSpansChanged = richTextSpans.cjkLineBreakSpans() !=
-            this.richTextSpans.cjkLineBreakSpans()
+        val lineBreakSpansChanged = richTextSpans.cjkLineBreakSpans(text) !=
+            this.richTextSpans.cjkLineBreakSpans(this.text)
+        val autoSpaceSuppressionChanged = richTextSpans.cjkAutoSpaceSuppressedRanges() !=
+            this.richTextSpans.cjkAutoSpaceSuppressedRanges()
         val layoutChanged = text != this.text || textStyle != this.textStyle ||
             paragraphStyle != this.paragraphStyle || decorations != this.decorations ||
             spans != this.spans || rubySpans != this.rubySpans ||
@@ -268,6 +270,7 @@ internal class CjkTextLayoutNode(
             oldSourceBoundaries != newSourceBoundaries ||
             inlineBoxesChanged ||
             lineBreakSpansChanged ||
+            autoSpaceSuppressionChanged ||
             inlineObjectPlacements !== this.inlineObjectPlacements
         val richTextChanged = richTextSpans != this.richTextSpans
         val drawChanged = color != this.color || colorSpans != this.colorSpans ||
@@ -448,7 +451,8 @@ internal class CjkTextLayoutNode(
                     text = text,
                     spans = spans,
                     sourceBoundaries = sourceBoundaries,
-                    lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
+                    lineBreakSpans = richTextSpans.cjkLineBreakSpans(text),
+                    autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
                 ),
                 textStyle = textStyle,
                 paragraphStyle = paragraphStyle,

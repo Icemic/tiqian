@@ -202,9 +202,50 @@ class CjkAnnotatedTextTest {
         assertEquals(listOf("monospace"), style.style.fontFamilies)
         assertEquals(14f, style.style.fontSize)
 
-        val breakSpans = rich.cjkLineBreakSpans()
-        assertEquals(listOf(link.range, code.range), breakSpans.map { it.range })
+        // LinkAddressDisplayGate: "链接" is not the address, so only the code range
+        // takes the technical break policy.
+        val breakSpans = rich.cjkLineBreakSpans(text.text)
+        assertEquals(listOf(code.range), breakSpans.map { it.range })
         assertTrue(breakSpans.all { it.policy == LineBreakPolicy.ProgressiveTechnical })
+    }
+
+    @Test
+    fun linkDisplayingItsOwnAddressKeepsTheTechnicalBreakPolicy() {
+        val text = buildAnnotatedString {
+            append("见")
+            withLink(LinkAnnotation.Url("https://example.com/a")) { append("https://example.com/a") }
+            append("与")
+            withLink(LinkAnnotation.Url("https://example.com/b")) { append("example.com/b") }
+            append("与")
+            withLink(LinkAnnotation.Url("https://example.com")) { append("示例站") }
+        }
+
+        val rich = text.cjkRichTextSpans()
+        val breakSpans = rich.cjkLineBreakSpans(text.text)
+        assertEquals(
+            listOf(TextRange(1, 22), TextRange(23, 36)),
+            breakSpans.map { it.range },
+        )
+    }
+
+    @Test
+    fun inlineCodeAndTechnicalRangesSuppressInternalAutoSpace() {
+        val text = buildAnnotatedString {
+            append("跑")
+            inlineCode { append("print你好") }
+            append("完")
+            val technicalStart = length
+            append("Ctrl")
+            addTechnicalInlineAnnotation(technicalStart, length)
+            append("与")
+            withLink(LinkAnnotation.Url("https://example.com")) { append("链接") }
+        }
+
+        val rich = text.cjkRichTextSpans()
+        assertEquals(
+            listOf(TextRange(1, 8), TextRange(9, 13)),
+            rich.cjkAutoSpaceSuppressedRanges(),
+        )
     }
 
     @Test
@@ -235,11 +276,13 @@ class CjkAnnotatedTextTest {
         assertEquals(RichTextRole.Link("generic"), link.role)
         assertTrue(technical.paint.background.horizontalPadding == 0f)
         assertTrue(rich.backgroundInlineBoxes().isEmpty())
+        // LinkAddressDisplayGate: the clickable's tag is not its visible text, so only
+        // the technical range takes the break policy.
         assertEquals(
-            listOf(TextRange(1, 5), TextRange(10, 16)),
-            rich.cjkLineBreakSpans().map { it.range },
+            listOf(TextRange(1, 5)),
+            rich.cjkLineBreakSpans(text.text).map { it.range },
         )
-        assertTrue(TextRange(6, 9) !in rich.cjkLineBreakSpans().map { it.range })
+        assertTrue(TextRange(6, 9) !in rich.cjkLineBreakSpans(text.text).map { it.range })
     }
 
     @Test

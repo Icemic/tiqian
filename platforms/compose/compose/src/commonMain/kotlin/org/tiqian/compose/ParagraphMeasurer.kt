@@ -8,6 +8,7 @@ import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RubySpan
+import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
@@ -34,6 +35,7 @@ class ParagraphMeasurer(
         inlineBoxes: List<InlineBoxSpan> = emptyList(),
         sourceBoundaries: Set<Int> = emptySet(),
         lineBreakSpans: List<LineBreakSpan> = emptyList(),
+        autoSpaceSuppressedRanges: List<TextRange> = emptyList(),
     ): LayoutResult = measure(
         LayoutInput(
             content = TiqianTextContent(
@@ -41,6 +43,7 @@ class ParagraphMeasurer(
                 spans = spans,
                 sourceBoundaries = sourceBoundaries,
                 lineBreakSpans = lineBreakSpans,
+                autoSpaceSuppressedRanges = autoSpaceSuppressedRanges,
             ),
             textStyle = textStyle,
             paragraphStyle = paragraphStyle,

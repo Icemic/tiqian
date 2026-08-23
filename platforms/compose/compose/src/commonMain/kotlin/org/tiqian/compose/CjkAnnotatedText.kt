@@ -26,6 +26,7 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBreakPolicy
 import org.tiqian.core.LineBreakSpan
+import org.tiqian.core.LinkAddressDisplay
 import org.tiqian.core.InlineAttachment
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.RichTextPaint
@@ -233,17 +234,36 @@ internal fun AnnotatedString.cjkRichTextSpans(
     return out
 }
 
-/** Links, Tiqian inline code, and renderer-owned technical ranges share one break policy. */
-internal fun List<RichTextSpan>.cjkLineBreakSpans(): List<LineBreakSpan> =
+/**
+ * Tiqian inline code, renderer-owned technical ranges, and links whose visible text is the
+ * address itself ([LinkAddressDisplay]) share one break policy. Other link text keeps prose
+ * line breaking.
+ */
+internal fun List<RichTextSpan>.cjkLineBreakSpans(text: String): List<LineBreakSpan> =
     asSequence()
-        .filter {
-            it.role is RichTextRole.Link ||
-                it.role == RichTextRole.InlineCode ||
-                it.role == RichTextRole.TechnicalInline
+        .filter { span ->
+            when (val role = span.role) {
+                is RichTextRole.Link -> LinkAddressDisplay.displaysAddress(
+                    display = text.substring(span.range.start, span.range.end),
+                    target = role.target,
+                )
+
+                RichTextRole.InlineCode, RichTextRole.TechnicalInline -> true
+                else -> false
+            }
         }
         .map { LineBreakSpan(it.range, LineBreakPolicy.ProgressiveTechnical) }
         .distinctBy { it.range to it.policy }
         .sortedWith(compareBy<LineBreakSpan>({ it.range.start }, { it.range.end }))
+        .toList()
+
+/** `VerbatimRangeAutoSpace`: inline code and technical ranges suppress internal CJK↔Western auto spacing. */
+internal fun List<RichTextSpan>.cjkAutoSpaceSuppressedRanges(): List<TextRange> =
+    asSequence()
+        .filter { it.role == RichTextRole.InlineCode || it.role == RichTextRole.TechnicalInline }
+        .map { it.range }
+        .distinct()
+        .sortedWith(compareBy({ it.start }, { it.end }))
         .toList()
 
 /**
@@ -375,7 +395,8 @@ fun ParagraphMeasurer.measure(
         rubySpans = renderText.cjkRubySpans(),
         inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
-        lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
+        lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
+        autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
     )
 }
 
@@ -413,7 +434,8 @@ fun ParagraphMeasurer.measureWithInlineContent(
                 text = renderText.text,
                 spans = renderText.cjkStyleSpans(core, density),
                 sourceBoundaries = sourceBoundaries,
-                lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
+                lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
+                autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
             ),
             textStyle = core,
             paragraphStyle = lowered.paragraphStyle.withCjkTextStyleLineHeight(lowered.textStyle, density),
@@ -453,7 +475,8 @@ fun ParagraphMeasurer.measure(
         rubySpans = renderText.cjkRubySpans(),
         inlineBoxes = richTextSpans.backgroundInlineBoxes(),
         sourceBoundaries = renderText.cjkSourceBoundaries(),
-        lineBreakSpans = richTextSpans.cjkLineBreakSpans(),
+        lineBreakSpans = richTextSpans.cjkLineBreakSpans(renderText.text),
+        autoSpaceSuppressedRanges = richTextSpans.cjkAutoSpaceSuppressedRanges(),
     )
 }
 
