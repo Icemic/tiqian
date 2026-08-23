@@ -9,6 +9,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 import org.tiqian.shaping.web.WebCjkDashCapability
 
@@ -77,7 +78,7 @@ class TiqianWebExactSessionTest {
     }
 
     @Test
-    fun exactFontSessionAlsoShapesSemanticParagraphsBeforeRuntimeDomReplay() {
+    fun exactFontSessionReplaysSemanticParagraphsThroughRuntimePreparedDom() {
         installExactFontSessionFixture(failShaping = false)
         try {
             val root = mount(
@@ -93,11 +94,57 @@ class TiqianWebExactSessionTest {
             assertEquals(1, count)
             val paragraph = root.querySelector("p") as HTMLElement
             assertTrue(exactFontShapeCount() > 0)
+            assertEquals(1, exactPreparedRenderCount())
+            assertTrue(
+                exactPreparedPlan().contains("\"overlayWidth\":"),
+                "rich runtime plans must carry render evidence",
+            )
+            assertEquals(
+                "[{\"start\":2,\"end\":4,\"tagName\":\"a\",\"sourceIndex\":0,\"order\":0}]",
+                exactPreparedSemanticsJson(),
+            )
             assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
-            assertNotNull(paragraph.querySelector("a[href='/more']"))
-            assertNotNull(paragraph.querySelector(".tq-line"))
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-source"))
+            val link = paragraph.querySelector("a[href='/more']") as HTMLElement
+            assertEquals("true", link.getAttribute("data-tq-source-semantic"))
+            assertEquals("semantic", link.getAttribute("data-tq-fixture-seen"))
+            assertNull(paragraph.querySelector(".tq-line"))
             assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
             assertEquals("中文链接正文。", copySelection(paragraph))
+        } finally {
+            clearExactFontSessionFixture()
+        }
+    }
+
+    @Test
+    fun exactRuntimePreparedDomReplaysInlineObjectsFromLiveElements() {
+        installExactFontSessionFixture(failShaping = false)
+        try {
+            val root = mount(
+                """
+                <div data-tiqian-root="true" style="width: 260px">
+                  <p data-tq-snapshot-key="object" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">正文<svg width="18" height="18" style="margin-right: 4px"><rect width="18" height="18"></rect></svg>继续。</p>
+                </div>
+                """.trimIndent(),
+            )
+            val paragraph = root.querySelector("p") as HTMLElement
+            val svg = paragraph.querySelector("svg") as Element
+
+            assertEquals(1, TiqianWeb.enhance(root, exactTestOptions()))
+
+            assertEquals(1, exactPreparedRenderCount())
+            assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-source"))
+            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertEquals("inline-object", svg.getAttribute("data-tq-fixture-seen"))
+            assertEquals(
+                "[{\"start\":2,\"end\":3,\"marginRight\":4,\"tag\":\"svg\"}]",
+                exactPreparedInlineObjectsJson(),
+            )
+            assertTrue(
+                exactPreparedPlan().contains("\"inlineObject\":"),
+                "the inline-object cell must ride the plan as render evidence",
+            )
         } finally {
             clearExactFontSessionFixture()
         }
@@ -283,17 +330,17 @@ class TiqianWebExactSessionTest {
             val paragraphs = root.querySelectorAll("p")
             val exactParagraph = paragraphs.item(0) as HTMLElement
             val fallbackParagraph = paragraphs.item(1) as HTMLElement
-            val exactLine = exactParagraph.querySelector(".tq-line") as HTMLElement
-            val fallbackLine = fallbackParagraph.querySelector(".tq-line") as HTMLElement
             assertTrue(exactFontFallbackCount() > 0)
+            assertEquals(2, exactPreparedRenderCount())
             assertEquals(
-                exactLine.style.getPropertyValue("--tq-line-height"),
-                fallbackLine.style.getPropertyValue("--tq-line-height"),
+                exactPreparedPlanAt(0).substringAfter("\"height\":").substringBefore(','),
+                exactPreparedPlanAt(1).substringAfter("\"height\":").substringBefore(','),
+                "browser-fallback runs must not perturb prepared line metrics",
             )
-            assertEquals(
-                exactLine.style.getPropertyValue("--tq-line-baseline-offset"),
-                fallbackLine.style.getPropertyValue("--tq-line-baseline-offset"),
-            )
+            assertNotNull(exactParagraph.querySelector("a[data-tq-source-semantic]"))
+            assertNotNull(fallbackParagraph.querySelector("a[data-tq-source-semantic]"))
+            assertEquals("中文链接正文。", copySelection(exactParagraph))
+            assertEquals("… and more.", copySelection(fallbackParagraph))
         } finally {
             clearExactFontSessionFixture()
         }

@@ -450,10 +450,34 @@ internal external fun consoleWarn(message: String)
 // @JsFun bodies inline into their Kotlin callers, so each body is a single
 // IIFE expression: a bare return statement would return from the caller.
 @JsFun(
-    """(host, planJson, locale) => (function () {
+    """(host, planJson, locale, sourceText, semanticElements, semanticsJson, inlineObjectElements, inlineObjectMetaJson) => (function () {
+      const semantics = Array.from(semanticElements || []);
+      const inlineObjects = Array.from(inlineObjectElements || []);
+      const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
       host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
       try {
-        return globalThis.__TiqianPreparedDomRenderer.render(host, planJson, locale);
+        return globalThis.__TiqianPreparedDomRenderer.render(
+          host,
+          planJson,
+          locale,
+          hasLiveSources ? {
+            sourceText: sourceText,
+            semanticReplay: "live-source",
+            semantics: JSON.parse(semanticsJson || "[]"),
+            liveSemanticElements: semantics,
+            inlineObjects: (function () {
+              const meta = JSON.parse(inlineObjectMetaJson || "[]");
+              return meta.map(function (entry, index) {
+                return {
+                  start: entry.start,
+                  end: entry.end,
+                  marginRight: entry.marginRight,
+                  element: inlineObjects[index]
+                };
+              });
+            })()
+          } : undefined
+        );
       } finally {
         host.__tqCustodyEngineWrites -= 1;
       }
@@ -463,7 +487,47 @@ internal external fun renderPreparedParagraphDom(
     host: HTMLElement,
     planJson: String,
     locale: String,
+    sourceText: String,
+    semanticElements: Array<Element>,
+    semanticsJson: String,
+    inlineObjectElements: Array<Element>,
+    inlineObjectMetaJson: String,
 )
+
+// RuntimeRichPreparedDomOptions (ADR 0053 B8.1): the runtime bridge replays
+// live semantics exactly like the Worker adoption bridge. Source spans become
+// live-source semantics whose sourceIndex addresses the same-order element
+// array and whose order carries the nesting depth as the tie-break; DOM
+// inline objects ride as {start, end, marginRight} metadata paired with an
+// element array. Both arrays are empty for canonical plain paragraphs, which
+// keeps their option-less render byte-identical.
+internal fun LoweredParagraph.preparedSemanticReplayJson(): String = buildString {
+    append('[')
+    sourceSpans.forEachIndexed { index, span ->
+        if (index > 0) append(',')
+        append('{')
+        append("\"start\":").append(span.range.start).append(',')
+        append("\"end\":").append(span.range.end).append(',')
+        append("\"tagName\":").appendWorkerJsonString(span.element.tagName.lowercase()).append(',')
+        append("\"sourceIndex\":").append(index).append(',')
+        append("\"order\":").append(span.depth)
+        append('}')
+    }
+    append(']')
+}
+
+internal fun LoweredParagraph.preparedInlineObjectMetaJson(): String = buildString {
+    append('[')
+    domInlineObjects.forEachIndexed { index, objectSpan ->
+        if (index > 0) append(',')
+        append('{')
+        append("\"start\":").append(objectSpan.range.start).append(',')
+        append("\"end\":").append(objectSpan.range.end).append(',')
+        append("\"marginRight\":").append(objectSpan.marginRight)
+        append('}')
+    }
+    append(']')
+}
 // ClockTierDiscipline: slices receive a millisecond budget from the caller, so
 // the runtime measures elapsed time on the cheap coarse clock.
 @JsFun("() => Date.now()")

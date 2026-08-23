@@ -370,8 +370,14 @@ internal fun TiqianWeb.prepareParagraphLayout(
     // browser shaper after one unrelated replay miss.
     var exactPreparedDom = exactFontLayout &&
         paragraph.source.hasAttribute("data-tq-snapshot-key") &&
-        paragraph.lowered.isCanonicalPlainParagraph()
-    val layoutEngine = if (exactFontLayout && !exactPreparedDom) {
+        paragraph.lowered.isRuntimeExactPreparedDomEligible()
+    val layoutEngine = if (exactFontLayout &&
+        (!exactPreparedDom || !paragraph.lowered.isCanonicalPlainParagraph())
+    ) {
+        // RuntimeExactRichPreparedDom: rich paragraphs keep the per-run
+        // fallback shaper whether they land on the prepared DOM or the native
+        // renderer; the strict session stays reserved for canonical plain
+        // paragraphs whose single run must fail as a whole.
         semanticExactEngine ?: engine
     } else {
         engine
@@ -471,13 +477,25 @@ internal fun TiqianWeb.commitPreparedParagraph(
 ): ParagraphCommitResult {
     val result = preparation.result
     if (preparation.exactPreparedDom) {
-        paragraph.source.setAttribute("data-tq-canonical-plain", "true")
+        // KeyedCanonicalPreparedDomScope: canonical-plain promises the
+        // re-lowerer a prepared plain host, so a rich prepared paragraph only
+        // carries canonical-source and re-lowers through its live clones.
+        if (paragraph.lowered.isCanonicalPlainParagraph()) {
+            paragraph.source.setAttribute("data-tq-canonical-plain", "true")
+        }
         paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
         paragraph.source.setAttribute("lang", paragraph.lowered.textStyle.locale)
         renderPreparedParagraphDom(
             paragraph.source,
-            result.toPreparedParagraphJson(),
+            result.toPreparedParagraphJson(
+                renderEvidence = !paragraph.lowered.isCanonicalPlainParagraph(),
+            ),
             paragraph.lowered.textStyle.locale,
+            paragraph.lowered.text,
+            paragraph.lowered.sourceSpans.map { it.element }.toTypedArray(),
+            paragraph.lowered.preparedSemanticReplayJson(),
+            paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
+            paragraph.lowered.preparedInlineObjectMetaJson(),
         )
         val preparedDomIssue = validatePreparedParagraphDom(
             paragraph.source,
