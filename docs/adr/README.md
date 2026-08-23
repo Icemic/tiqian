@@ -70,6 +70,7 @@ ADR 记录已经做出的架构与排版决定。它们按编号保留当时的 
 - [0050 原生 precompute 引擎绑定与 Rust / npm 双生态分发](0050-native-precompute-rust-bindings.md)
 - [0051 API<31 自然簇串合并绘制](0051-natural-run-coalesced-draw.md)
 - [0052 precompute 缓存分层、批量渲染器与二进制过桥协议](0052-precompute-cache-and-batch-renderer.md)
+- [0053 Web prose 宿主收敛：装配契约、TS 宿主与统一执行装置](0053-web-prose-host-consolidation.md)
 - [0055 Maven Central 文件配额：native 发布过滤与 SNAPSHOT 通道](0055-maven-central-file-quota.md)
 - [0056 engine 单模块合并与按平台的仓库重组](0056-engine-module-and-platform-reorg.md)
 
