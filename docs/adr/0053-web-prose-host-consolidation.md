@@ -332,11 +332,24 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 
 ### C 调度合并（`SingleCoordinator`）
 
-- [ ] **C1 通道废除**：11 个 `tiqian:*` 事件、`globalThis.TiqianWeb` 桥（9 个轮询
+- [x] **C1 通道废除**：11 个 `tiqian:*` 事件、`globalThis.TiqianWeb` 桥（9 个轮询
   方法）、TiqianWebWorkers 轮询接口删除，外部触发源直入任务池；verify-package 的
   marker 检查改为锚定桥存在的形式。
   KPI：`tiqian:` 派发点 0；globalThis 挂载 0。
   验收：grep 双零；verify-package 与 verify-release 通过；时序 golden 更新后零 diff。
+  产出：`TiqianEngine` JsExport 面（11 个入口方法）成为宿主到引擎的唯一调用面。
+  事件监听、`installTiqianGlobalApiBridge` 与 `__tiqianKotlinBridge` 自运行时删除，
+  `install()` 只安装复制处理器；element.js、worker 通道、node 宿主与测试经
+  `core/engine/face.js` 与 `runtime-loader.js` 直调，测试以 `setEngineOverride`
+  替换引擎。时序 golden 以 `engineCalls` 记录替代 3 个内部事件；断言清单登记
+  engine-api 3 条（docs/ts-port-assertion-checklist.md）。verify-package 的 marker
+  改为锚定 `TiqianEngine`；verify-release 的隔离消费者改为成对安装工作树打出的
+  `@tiqian/ffi` tarball，与锁步发版同源。TiqianWebWorkers 轮询接口删除与外部触发
+  直入任务池在 C2/C3 中完成：element.js 的授予循环是该接口的现行消费者。
+  验证：运行时 grep，11 个内部事件名与 globalThis 挂载均为 0（`tiqian:` 剩余命中为
+  element 级公开事件 ready/relayout-ready/relayout-error）；npm test 307/307 两次；
+  jsBrowserTest 通过；verify-package 与 verify-release 通过；golden 更新后零 diff。
+  提交：584e083、0d16190、92eca33、262fffa、f3a72c2。
 - [ ] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
   经同一池与同一凭证；executor 私有节奏与 standalone 准入排除。
   验收：时序 golden 授予轮锚点更新后绿。
