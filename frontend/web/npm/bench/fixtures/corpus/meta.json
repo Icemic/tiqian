@@ -1,0 +1,51 @@
+{
+  "sourcePagePath": "/sveltekit 站点/build/2019/12/17/oh-my-2019.html",
+  "fontDirectory": "~/.local/share/fonts",
+  "fontFile": "IBMPlexSansSC-Regular.otf",
+  "fontFamily": "IBM Plex Sans SC",
+  "extractedParagraphCount": 60,
+  "extractedTotalCharacters": 5359,
+  "paragraphCount": 55,
+  "totalCharacters": 4684,
+  "buckets": {
+    "short": 29,
+    "medium": 25,
+    "long": 1
+  },
+  "droppedParagraphIndexes": [
+    8,
+    12,
+    15,
+    24,
+    53
+  ],
+  "producerTypography": {
+    "fontSizePx": 20,
+    "lineHeightPx": 30,
+    "locale": "zh-Hans",
+    "fontWeight": 400,
+    "italic": false,
+    "firstLineIndentIc": 0,
+    "lineLengthGridEnabled": true,
+    "fontFamilies": [
+      "IBM Plex Sans SC"
+    ]
+  },
+  "requestTypography": {
+    "fontSizePx": 20,
+    "lineHeightPx": 30,
+    "locale": "zh-Hans",
+    "fontWeight": 400,
+    "italic": false,
+    "firstLineIndentIc": 2,
+    "lineLengthGridEnabled": true
+  },
+  "maxWidthPx": 720,
+  "manifestBytes": 236427,
+  "tablesBytes": 40214,
+  "requestsBytes": 26966,
+  "anomalyNotes": [
+    "UnsupportedSnapshotFirstLineIndent: the snapshot producer lane freezes firstLineIndentIc to 0; the request objects below carry the site's 2ic value.",
+    "Snapshot lane dropped 5 emoji/kaomoji paragraphs: p-8=UnsupportedEmojiFallback, p-12=UnsupportedSnapshotScript, p-15=UnsupportedSnapshotScript, p-24=UnsupportedSnapshotScript, p-53=NoExactFontFace"
+  ]
+}
