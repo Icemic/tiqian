@@ -1210,7 +1210,28 @@ function unicodeRangesMatch(left, right) {
   return JSON.stringify(canonicalUnicodeRanges(left)) === JSON.stringify(canonicalUnicodeRanges(right));
 }
 
-function cssFaceContract(evidence, faces, documentObject, requireExactFirstPaintDisplay = true) {
+function computeFirstMismatchingField(evidence, faces, expectedRanges, coveragePoints) {
+  const familyMatched = faces.filter((face) =>
+    face.family.toLowerCase() === evidence.family.toLowerCase());
+  if (familyMatched.length === 0) return "family";
+
+  const styleMatched = familyMatched.filter((face) =>
+    styleMatches(face.style, evidence.probe.italic));
+  if (styleMatched.length === 0) return "style";
+
+  const weightMatched = styleMatched.filter((face) =>
+    weightRangeMatches(face.weight, evidence.weight));
+  if (weightMatched.length === 0) return "weight";
+
+  const unicodeMatched = weightMatched.filter((face) =>
+    unicodeRangesMatch(face.unicodeRanges, expectedRanges) &&
+    unicodeRangesIntersectCoverage(face.unicodeRanges, coveragePoints));
+  if (unicodeMatched.length === 0) return "unicode-range";
+
+  return "src";
+}
+
+export function cssFaceContract(evidence, faces, documentObject, requireExactFirstPaintDisplay = true) {
   const expectedUrl = new URL(evidence.publicUrl, documentObject.baseURI).href;
   const coverageText = evidence.coverageText || evidence.probe.text;
   const coveragePoints = Array.from(
@@ -1247,9 +1268,28 @@ function cssFaceContract(evidence, faces, documentObject, requireExactFirstPaint
     defaultDescriptor(face.languageOverride, new Set(["", "normal"])) &&
     defaultDescriptor(face.namedInstance, new Set(["", "auto"])) &&
     (!requireExactFirstPaintDisplay || exactFirstPaintDisplay(face.display)));
+  if (matches) {
+    return {
+      matches: true,
+      compatibleLocalDeclared: candidates.some((face) => face.hasLocalSource),
+    };
+  }
+  if (faces.length === 0) {
+    return {
+      matches: false,
+      compatibleLocalDeclared: false,
+      detail: { kind: "EmptyCandidateSet" },
+    };
+  }
   return {
-    matches,
-    compatibleLocalDeclared: matches && candidates.some((face) => face.hasLocalSource),
+    matches: false,
+    compatibleLocalDeclared: false,
+    detail: {
+      kind: "FieldMismatch",
+      expectedFaces: 1,
+      actualFaces: faces.length,
+      firstField: computeFirstMismatchingField(evidence, faces, expectedRanges, coveragePoints),
+    },
   };
 }
 
@@ -1686,7 +1726,10 @@ async function validateManifestFontContract(
       documentObject,
       requireExactFirstPaintDisplay,
     );
-    if (!faceContract.matches) return { reason: "FontFaceContractMismatch" };
+    if (!faceContract.matches) return {
+      reason: "FontFaceContractMismatch",
+      ...(faceContract.detail ? { detail: faceContract.detail } : {}),
+    };
     compatibleLocalDeclared ||= faceContract.compatibleLocalDeclared;
     sliceStartedAt = await yieldIfNeeded(sliceStartedAt);
     if (!isCurrent()) return { reason: "superseded" };
@@ -1740,7 +1783,11 @@ export async function validatePrecomputedSnapshotExactFontContract(root, isCurre
     // Keep the root session available for sibling paragraphs whose runs do
     // match instead of turning one host style into an article-wide miss.
     const fontContract = await validateManifestFontContract(manifest, documentObject, isCurrent);
-    if (fontContract.reason) return { matches: false, reason: fontContract.reason };
+    if (fontContract.reason) return {
+      matches: false,
+      reason: fontContract.reason,
+      ...(fontContract.detail ? { detail: fontContract.detail } : {}),
+    };
     if (!isCurrent()) return { matches: false, reason: "superseded" };
     return {
       matches: true,
@@ -1799,7 +1846,11 @@ export async function validatePrecomputedSnapshotExactFontContract(root, isCurre
       ? yieldDirectSsrValidationIfNeeded
       : yieldValidationIfNeeded,
   );
-  if (fontContract.reason) return { matches: false, reason: fontContract.reason };
+  if (fontContract.reason) return {
+    matches: false,
+    reason: fontContract.reason,
+    ...(fontContract.detail ? { detail: fontContract.detail } : {}),
+  };
   if (!isCurrent()) return { matches: false, reason: "superseded" };
   const currentParagraphs = rootParagraphs(root, manifest.paragraphSelector);
   if (currentParagraphs.length !== manifest.entries.length) {
@@ -1893,7 +1944,11 @@ export async function validatePrecomputedExactFontReplayContract(root, isCurrent
       ? yieldDirectSsrValidationIfNeeded
       : yieldValidationIfNeeded,
   );
-  if (fontContract.reason) return { matches: false, reason: fontContract.reason };
+  if (fontContract.reason) return {
+    matches: false,
+    reason: fontContract.reason,
+    ...(fontContract.detail ? { detail: fontContract.detail } : {}),
+  };
   if (!isCurrent()) return { matches: false, reason: "superseded" };
   const currentTemplate = documentObject.getElementById(reference);
   const currentManifestText = currentTemplate?.content

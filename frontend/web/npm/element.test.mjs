@@ -8,6 +8,7 @@ import {
 } from "./test-clock.mjs";
 import {
   driveDeclaredFaceWakeTimeline,
+  driveElementTimeline,
   ELEMENT_DRIVE_GLOBALS,
 } from "./timing-golden-host.mjs";
 
@@ -302,6 +303,28 @@ test("declared face change wakes revalidate and merge per root", async () => {
       "a disabled element no longer wakes");
     assert.equal(wake.paragraphQueries["w3-disabled"] ?? 0, 0,
       "no typography check executes after the element stops observing");
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("element exact font contract mismatch writes structured detail to tiqianExactFontMiss dataset", async () => {
+  const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
+  const clock = installFakeClock();
+  try {
+    const record = await driveElementTimeline(clock, "element-exact-font-miss-shape", {
+      fontFaceSrc: "url(\"/assets/mismatch-deadbeef.woff2\")",
+    });
+    const missWrite = record.datasetWrites.find((w) => w.key === "tiqianExactFontMiss");
+    assert.ok(missWrite, "tiqianExactFontMiss dataset write was recorded");
+    assert.match(
+      missWrite.value,
+      /^SnapshotExactFontContractMismatch\|FieldMismatch\|expectedFaces=\d+\|actualFaces=\d+\|firstField=\w+$/u,
+    );
+    assert.equal(
+      missWrite.value,
+      "SnapshotExactFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src",
+    );
   } finally {
     restoreGlobals(globals);
   }

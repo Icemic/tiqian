@@ -196,6 +196,7 @@ const ELEMENT_JOURNEYS = {
   "dataset-first-writes": projectDatasetFirstWrites,
   "token-transitions": projectTokenTransitions,
   "cache-invalidation": projectCacheInvalidation,
+  "exact-font-contract-mismatch": projectDatasetFirstWrites,
 };
 
 // Each element journey runs the full S1-S4 drive in a pristine global
@@ -204,7 +205,10 @@ async function recordElementJourney(journeyKey) {
   const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
   const clock = installFakeClock();
   try {
-    const full = await driveElementTimeline(clock, journeyKey);
+    const options = journeyKey === "exact-font-contract-mismatch"
+      ? { fontFaceSrc: "url(\"/assets/mismatch-deadbeef.woff2\")" }
+      : {};
+    const full = await driveElementTimeline(clock, journeyKey, options);
     return ELEMENT_JOURNEYS[journeyKey](full);
   } finally {
     restoreGlobals(globals);
@@ -534,6 +538,7 @@ const JOURNEYS = {
   "dataset-first-writes": () => recordElementJourney("dataset-first-writes"),
   "token-transitions": () => recordElementJourney("token-transitions"),
   "cache-invalidation": () => recordElementJourney("cache-invalidation"),
+  "exact-font-contract-mismatch": () => recordElementJourney("exact-font-contract-mismatch"),
 };
 
 test("timing goldens match the frozen fixture", async () => {

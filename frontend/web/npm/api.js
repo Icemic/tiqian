@@ -64,6 +64,19 @@ async function withTiqianWeb(root, options, action) {
   }
 }
 
+function exactFontMissDatasetValue(error) {
+  if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
+    const pipeIndex = error.detail.indexOf("|");
+    if (pipeIndex !== -1) {
+      const detailSuffix = error.detail.slice(pipeIndex + 1);
+      if (detailSuffix === "EmptyCandidateSet" || detailSuffix.startsWith("FieldMismatch|")) {
+        return `${error.code}|${detailSuffix}`;
+      }
+    }
+  }
+  return error?.code ?? "ExactFontSessionUnavailable";
+}
+
 async function prepareRootFontSession(root, generation, options) {
   if (!root?.getAttribute?.("snapshot-ref")) {
     if (rootGenerations.get(root) === generation) releaseRootFontSession(root);
@@ -92,7 +105,7 @@ async function prepareRootFontSession(root, generation, options) {
     if (rootGenerations.get(root) === generation && rootFontSessions.get(root) === existing) {
       releaseRootFontSession(root);
     }
-    root.dataset.tiqianExactFontMiss = error?.code ?? "ExactFontSessionUnavailable";
+    root.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error);
     console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
     return null;
   }

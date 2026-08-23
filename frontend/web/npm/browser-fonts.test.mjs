@@ -649,6 +649,64 @@ test("live snapshot font contract is revalidated after asynchronous font prepara
   assert.equal(state.closeCount(), 1);
 });
 
+test("SnapshotExactFontContractMismatch message carries structured suffix for FieldMismatch and EmptyCandidateSet", async () => {
+  const bytes = new TextEncoder().encode("fixture-font-source");
+  const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
+
+  // FieldMismatch: structured suffix with expectedFaces, actualFaces, firstField
+  const fieldMismatchState = harness(manifest, {
+    bytes,
+    contractResults: [
+      {
+        matches: false,
+        reason: "FontFaceContractMismatch",
+        detail: {
+          kind: "FieldMismatch",
+          expectedFaces: 1,
+          actualFaces: 1,
+          firstField: "style",
+        },
+      },
+    ],
+  });
+  await assert.rejects(
+    fieldMismatchState.loader.prepare(fieldMismatchState.root),
+    (error) => {
+      assertCode("SnapshotExactFontContractMismatch")(error);
+      assert.match(
+        error.message,
+        /SnapshotExactFontContractMismatch:FontFaceContractMismatch\|FieldMismatch\|expectedFaces=1\|actualFaces=1\|firstField=style/u,
+      );
+      return true;
+    },
+  );
+
+  // EmptyCandidateSet: bare |EmptyCandidateSet suffix
+  const emptyCandidateState = harness(manifest, {
+    bytes,
+    contractResults: [
+      {
+        matches: false,
+        reason: "FontFaceContractMismatch",
+        detail: {
+          kind: "EmptyCandidateSet",
+        },
+      },
+    ],
+  });
+  await assert.rejects(
+    emptyCandidateState.loader.prepare(emptyCandidateState.root),
+    (error) => {
+      assertCode("SnapshotExactFontContractMismatch")(error);
+      assert.match(
+        error.message,
+        /SnapshotExactFontContractMismatch:FontFaceContractMismatch\|EmptyCandidateSet/u,
+      );
+      return true;
+    },
+  );
+});
+
 test("same-document navigation keeps a root-relative font session valid", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);

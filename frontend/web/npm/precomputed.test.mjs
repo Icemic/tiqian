@@ -13,6 +13,7 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import {
   adoptedPrecomputedSnapshotLiveIssue,
+  cssFaceContract,
   detachPrecomputedSnapshot,
   isPrecomputedSnapshotAdopted,
   precomputedSnapshotMaximumMeasureMatches,
@@ -1625,5 +1626,171 @@ test("a superseded post-adoption proof rolls back only its provisional DOM", asy
     });
     if (previousScheduler === undefined) delete globalThis.scheduler;
     else globalThis.scheduler = previousScheduler;
+  }
+});
+
+test("cssFaceContract produces EmptyCandidateSet when no candidate faces exist", () => {
+  const evidence = {
+    family: "Fixture CJK",
+    style: "normal",
+    weight: [400, 400],
+    unicodeRange: "U+4E00-9FFF",
+    publicUrl: "/assets/fixture-deadbeef.woff2",
+    probe: { text: "中国", italic: false, fontWeight: 400, fontSizePx: 18 },
+  };
+  const result = cssFaceContract(evidence, [], { baseURI: "https://example.test/" });
+  assert.equal(result.matches, false);
+  assert.deepEqual(result.detail, { kind: "EmptyCandidateSet" });
+});
+
+test("cssFaceContract produces FieldMismatch with ordered firstField (family -> style -> weight -> unicode-range -> src)", () => {
+  const evidence = {
+    family: "Fixture CJK",
+    style: "normal",
+    weight: [400, 400],
+    unicodeRange: "U+4E00-9FFF",
+    publicUrl: "/assets/fixture-deadbeef.woff2",
+    probe: { text: "中国", italic: false, fontWeight: 400, fontSizePx: 18 },
+  };
+  const doc = { baseURI: "https://example.test/" };
+
+  // 1. Family mismatch
+  const familyMismatchFace = {
+    family: "Other Font",
+    style: "normal",
+    weight: "400",
+    stretch: "normal",
+    unicodeRanges: [[0x4e00, 0x9fff]],
+    urls: ["https://example.test/assets/fixture-deadbeef.woff2"],
+    hasLocalSource: false,
+    localNames: [],
+  };
+  const familyResult = cssFaceContract(evidence, [familyMismatchFace], doc);
+  assert.equal(familyResult.matches, false);
+  assert.deepEqual(familyResult.detail, {
+    kind: "FieldMismatch",
+    expectedFaces: 1,
+    actualFaces: 1,
+    firstField: "family",
+  });
+
+  // 2. Family matches but style mismatches (proves ordering before weight/unicode/src)
+  const styleMismatchFace = {
+    family: "Fixture CJK",
+    style: "italic",
+    weight: "400",
+    stretch: "normal",
+    unicodeRanges: [[0x4e00, 0x9fff]],
+    urls: ["https://example.test/assets/fixture-deadbeef.woff2"],
+    hasLocalSource: false,
+    localNames: [],
+  };
+  const styleResult = cssFaceContract(evidence, [styleMismatchFace], doc);
+  assert.equal(styleResult.matches, false);
+  assert.deepEqual(styleResult.detail, {
+    kind: "FieldMismatch",
+    expectedFaces: 1,
+    actualFaces: 1,
+    firstField: "style",
+  });
+
+  // 3. Family and style match, weight mismatches
+  const weightMismatchFace = {
+    family: "Fixture CJK",
+    style: "normal",
+    weight: "700",
+    stretch: "normal",
+    unicodeRanges: [[0x4e00, 0x9fff]],
+    urls: ["https://example.test/assets/fixture-deadbeef.woff2"],
+    hasLocalSource: false,
+    localNames: [],
+  };
+  const weightResult = cssFaceContract(evidence, [weightMismatchFace], doc);
+  assert.equal(weightResult.matches, false);
+  assert.deepEqual(weightResult.detail, {
+    kind: "FieldMismatch",
+    expectedFaces: 1,
+    actualFaces: 1,
+    firstField: "weight",
+  });
+
+  // 4. Family, style, weight match, unicode-range mismatches
+  const unicodeMismatchFace = {
+    family: "Fixture CJK",
+    style: "normal",
+    weight: "400",
+    stretch: "normal",
+    unicodeRanges: [[0x0020, 0x007f]],
+    urls: ["https://example.test/assets/fixture-deadbeef.woff2"],
+    hasLocalSource: false,
+    localNames: [],
+  };
+  const unicodeResult = cssFaceContract(evidence, [unicodeMismatchFace], doc);
+  assert.equal(unicodeResult.matches, false);
+  assert.deepEqual(unicodeResult.detail, {
+    kind: "FieldMismatch",
+    expectedFaces: 1,
+    actualFaces: 1,
+    firstField: "unicode-range",
+  });
+
+  // 5. Family, style, weight, unicode-range match, src mismatches
+  const srcMismatchFace = {
+    family: "Fixture CJK",
+    style: "normal",
+    weight: "400",
+    stretch: "normal",
+    unicodeRanges: [[0x4e00, 0x9fff]],
+    urls: ["https://example.test/assets/wrong-font.woff2"],
+    hasLocalSource: false,
+    localNames: [],
+  };
+  const srcResult = cssFaceContract(evidence, [srcMismatchFace], doc);
+  assert.equal(srcResult.matches, false);
+  assert.deepEqual(srcResult.detail, {
+    kind: "FieldMismatch",
+    expectedFaces: 1,
+    actualFaces: 1,
+    firstField: "src",
+  });
+});
+
+test("snapshot exact font validation carries EmptyCandidateSet and FieldMismatch structured details", async () => {
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle;
+  try {
+    // EmptyCandidateSet: stylesheet has no rules
+    const emptySetup = fixture();
+    emptySetup.documentObject.styleSheets[0].cssRules = [];
+    const emptyResult = await validatePrecomputedSnapshotExactFontContract(emptySetup.root);
+    assert.deepEqual(emptyResult, {
+      matches: false,
+      reason: "FontFaceContractMismatch",
+      detail: { kind: "EmptyCandidateSet" },
+    });
+
+    // FieldMismatch: rule has style mismatch (family matches, style differs)
+    const fieldSetup = fixture();
+    fieldSetup.documentObject.styleSheets[0].cssRules[0].style = styleDeclaration({
+      "font-family": "\"Fixture CJK\"",
+      "font-style": "italic",
+      "font-weight": "400",
+      "font-display": "block",
+      "unicode-range": "U+4E00-9FFF",
+      src: "url(\"/assets/fixture-deadbeef.woff2\")",
+    });
+    const fieldResult = await validatePrecomputedSnapshotExactFontContract(fieldSetup.root);
+    assert.deepEqual(fieldResult, {
+      matches: false,
+      reason: "FontFaceContractMismatch",
+      detail: {
+        kind: "FieldMismatch",
+        expectedFaces: 1,
+        actualFaces: 1,
+        firstField: "style",
+      },
+    });
+  } finally {
+    globalThis.getComputedStyle = previousGetComputedStyle;
   }
 });

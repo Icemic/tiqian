@@ -77,6 +77,19 @@ globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
 // no-op in non-browser entry points.
 prefetchSnapshotTables();
 
+function exactFontMissDatasetValue(error) {
+  if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
+    const pipeIndex = error.detail.indexOf("|");
+    if (pipeIndex !== -1) {
+      const detailSuffix = error.detail.slice(pipeIndex + 1);
+      if (detailSuffix === "EmptyCandidateSet" || detailSuffix.startsWith("FieldMismatch|")) {
+        return `${error.code}|${detailSuffix}`;
+      }
+    }
+  }
+  return error?.code ?? "ExactFontSessionUnavailable";
+}
+
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
@@ -761,7 +774,7 @@ class TiqianProseElement extends HTMLElementBase {
         this.isConnected && generation === this.#generation &&
         request === this.#enhanceRequest
       ) this.#releaseExactFontSession();
-      this.dataset.tiqianExactFontMiss = error?.code ?? "ExactFontSessionUnavailable";
+      this.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error);
       console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
     }
     if (!this.isConnected || generation !== this.#generation || request !== this.#enhanceRequest) {

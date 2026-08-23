@@ -157,7 +157,10 @@ function buildWorld() {
   return { documentObject, tableBytesByUrl, fetchCalls };
 }
 
-function buildSnapshot(world) {
+function buildSnapshot(world, {
+  fontFaceFamily = "\"Fixture CJK\"",
+  fontFaceSrc = "url(\"/assets/fixture-deadbeef.woff2\")",
+} = {}) {
   const { documentObject, tableBytesByUrl } = world;
   const root = documentObject.createElement("tiqian-prose");
   root.setAttribute("snapshot-ref", "tq-page");
@@ -244,12 +247,12 @@ function buildSnapshot(world) {
   documentObject.elements.set("tq-page", template);
 
   const fontFaceStyle = styleDeclaration({
-    "font-family": "\"Fixture CJK\"",
+    "font-family": fontFaceFamily,
     "font-style": "normal",
     "font-weight": "400",
     "font-display": "block",
     "unicode-range": "U+4E00-9FFF",
-    src: "url(\"/assets/fixture-deadbeef.woff2\")",
+    src: fontFaceSrc,
   });
   const sheet = { href: "https://example.test/fonts.css" };
   documentObject.styleSheets.push({
@@ -328,12 +331,12 @@ class FakeResizeObserver {
 // and runs the S1 connect through "tiqian:ready". The timing-golden S1-S4
 // journey and the declared-face wake drive both start from this state, so
 // recorder semantics and the pump stay identical between them.
-async function startElementDrive(clock, journeyKey) {
+async function startElementDrive(clock, journeyKey, options = {}) {
   nextObserverId = 0;
   observerInstances.length = 0;
 
   const world = buildWorld();
-  const { root, paragraph } = buildSnapshot(world);
+  const { root, paragraph } = buildSnapshot(world, options);
   const record = {
     engineCalls: [],
     elementEvents: [],
@@ -560,8 +563,8 @@ async function startElementDrive(clock, journeyKey) {
   };
 }
 
-export async function driveElementTimeline(clock, journeyKey) {
-  const drive = await startElementDrive(clock, journeyKey);
+export async function driveElementTimeline(clock, journeyKey, options = {}) {
+  const drive = await startElementDrive(clock, journeyKey, options);
   const {
     record, element, paragraph, setPhase,
     pumpUntil, pumpQuiescent, widthObserver, paragraphState,

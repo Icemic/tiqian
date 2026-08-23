@@ -30,7 +30,21 @@ export class BrowserFontSessionError extends Error {
     super(detail ? `${code}:${detail}` : code, options);
     this.name = "BrowserFontSessionError";
     this.code = code;
+    this.detail = detail;
   }
+}
+
+function formatContractMismatchDetail(result) {
+  const reason = result?.reason ?? "unknown";
+  if (!result?.detail) return reason;
+  const { kind, expectedFaces, actualFaces, firstField } = result.detail;
+  if (kind === "EmptyCandidateSet") {
+    return `${reason}|EmptyCandidateSet`;
+  }
+  if (kind === "FieldMismatch") {
+    return `${reason}|FieldMismatch|expectedFaces=${expectedFaces}|actualFaces=${actualFaces}|firstField=${firstField}`;
+  }
+  return reason;
 }
 
 function fail(code, detail, cause) {
@@ -396,7 +410,7 @@ export function createBrowserFontSessionLoader(options = {}) {
       fail("SnapshotExactFontContractValidationFailed", undefined, error);
     }
     if (!result?.matches) {
-      fail("SnapshotExactFontContractMismatch", result?.reason ?? "unknown");
+      fail("SnapshotExactFontContractMismatch", formatContractMismatchDetail(result));
     }
     return result;
   }
@@ -485,7 +499,7 @@ export function createBrowserFontSessionLoader(options = {}) {
   async function requireExactContract(root) {
     const result = await waitForParserContract(root, await validateExactContract(root));
     if (!result?.matches) {
-      fail("SnapshotExactFontContractMismatch", result?.reason ?? "unknown");
+      fail("SnapshotExactFontContractMismatch", formatContractMismatchDetail(result));
     }
     return result;
   }
