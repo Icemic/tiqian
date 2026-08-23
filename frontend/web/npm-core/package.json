@@ -44,6 +44,7 @@
     "layout-worker.js",
     "precomputed.js",
     "replay-entry-codec.js",
+    "replay-probe.js",
     "runtime.js",
     "runtime/",
     "snapshot-manifest.js",

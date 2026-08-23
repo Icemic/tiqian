@@ -8,6 +8,10 @@ import {
   scaleMetricReplayItem,
   scaleShapeReplayItem,
 } from "./replay-entry-codec.js";
+import {
+  probeMetricReplayValues,
+  probeShapeReplayResult,
+} from "./replay-probe.js";
 
 const REGISTRY_KEY = Symbol.for(`org.tiqian.web.font-replay.${FONT_REPLAY_REVISION}`);
 const registry = globalThis[REGISTRY_KEY] ??= {
@@ -61,7 +65,17 @@ function installReplayBackend() {
         role,
         sourceText,
       );
-      const item = session.shapes.get(key);
+      let item = session.shapes.get(key);
+      if (!item && session.probe) {
+        const probedResult = probeShapeReplayResult(
+          { displayText, serializedFamilies, fontSize, fontWeight, italic },
+          session.probe.measure,
+        );
+        if (probedResult) {
+          item = { key, result: probedResult };
+          session.shapes.set(key, item);
+        }
+      }
       if (!item) throw new Error(`MissingServerShapingReplay:shape:${key}`);
       const handle = registry.nextResultId++;
       registry.shapeResults.set(handle, scaleShapeReplayItem(item, fontSize));
@@ -94,7 +108,17 @@ function installReplayBackend() {
         role,
         faceSelectionText,
       );
-      const item = session.metrics.get(key);
+      let item = session.metrics.get(key);
+      if (!item && session.probe) {
+        const valuesEm = probeMetricReplayValues(
+          { serializedFamilies, fontSize, fontWeight, italic, role },
+          session.probe.measure,
+        );
+        if (valuesEm) {
+          item = { key, valuesEm };
+          session.metrics.set(key, item);
+        }
+      }
       if (!item) throw new Error(`MissingServerShapingReplay:metrics:${key}`);
       const handle = registry.nextResultId++;
       registry.metricResults.set(handle, scaleMetricReplayItem(item, fontSize));
@@ -120,10 +144,14 @@ export async function createServerReplayFontSession(faceSpecs, options = {}) {
       faceSpecs.length !== faceMetadata.length) {
     throw new Error("ServerShapingReplayFaceMismatch");
   }
+  const probe = options.probe ?? null;
+  if (probe !== null && (typeof probe !== "object" || typeof probe.measure !== "function")) {
+    throw new Error("ServerShapingReplayProbeInvalid");
+  }
   installReplayBackend();
   const prefix = String(options.sessionPrefix ?? "tq-browser-replay").trim() || "tq-browser-replay";
   const sessionId = `${prefix}-${registry.nextSessionId++}`;
-  registry.sessions.set(sessionId, { shapes, metrics });
+  registry.sessions.set(sessionId, { shapes, metrics, probe });
   let closed = false;
   return Object.freeze({
     id: sessionId,
