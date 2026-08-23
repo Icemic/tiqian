@@ -30,6 +30,7 @@ import {
   workerExactSubsetSourceBoundaries,
 } from "../font-face-boundaries.js";
 import { precomputeParagraph } from "@tiqian/ffi";
+import { LAYOUT_REQUEST_FIELDS } from "../core/engine/web-worker/assembly-record-fields.js";
 
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(BENCH_DIR, "fixtures", "corpus");
@@ -43,27 +44,6 @@ const ROUNDTRIP_SAMPLES = 200;
 
 const SHORT_BUCKET_MAX = 80;
 const MEDIUM_BUCKET_MAX = 200;
-
-// The 14 request fields layout-worker.js reads at precomputeParagraph call
-// time. layoutRequestKey is private in the worker channel (core/engine/web-worker/worker-channel.js:
-// 100-101) — only createPrepareJob is exported — so the bench replicates
-// it verbatim including the LAYOUT_REQUEST_FIELDS order.
-const LAYOUT_REQUEST_FIELDS = Object.freeze([
-  "text",
-  "maxWidthPx",
-  "fontFamilies",
-  "fontSizePx",
-  "lineHeightPx",
-  "locale",
-  "fontWeight",
-  "italic",
-  "firstLineIndentIc",
-  "sourceBoundaries",
-  "textSpans",
-  "inlineBoxes",
-  "lineBreakSpans",
-  "inlineObjects",
-]);
 
 function layoutRequestKey(request) {
   return JSON.stringify(LAYOUT_REQUEST_FIELDS.map((field) => request?.[field] ?? null));

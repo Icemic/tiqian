@@ -8,6 +8,7 @@ import {
   normalizeSnapshotSemantics,
   SnapshotSemanticError,
 } from "../../sampler/snapshot/snapshot-source.js";
+import { LAYOUT_REQUEST_FIELDS } from "./assembly-record-fields.js";
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const DEFAULT_RUNTIME_PARAGRAPH_SELECTOR = "p, li";
@@ -17,22 +18,6 @@ const LIVE_SOURCE_SEMANTIC_CODES = new Set([
   "UnsupportedSnapshotSemanticAttribute",
   "UnsupportedSnapshotSemanticTag",
   "UnsafeSnapshotSemanticHref",
-]);
-const LAYOUT_REQUEST_FIELDS = Object.freeze([
-  "text",
-  "maxWidthPx",
-  "fontFamilies",
-  "fontSizePx",
-  "lineHeightPx",
-  "locale",
-  "fontWeight",
-  "italic",
-  "firstLineIndentIc",
-  "sourceBoundaries",
-  "textSpans",
-  "inlineBoxes",
-  "lineBreakSpans",
-  "inlineObjects",
 ]);
 const COORDINATOR_KEY = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
 // PageWorkerCoordinator: client routers, dev HMR and duplicated package chunks
