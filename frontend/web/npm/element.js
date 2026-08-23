@@ -49,6 +49,7 @@ import {
   paragraphMeasureSignatureFromObserved,
 } from "./core/sampler/grid-metrics.js";
 import {
+  classifyContentMutationRecords,
   createTypographyInvalidationSource,
   createLayoutWorkTypographyInvalidationSource,
   createViewportResizeInvalidationSource,
@@ -1940,44 +1941,13 @@ class TiqianProseElement extends HTMLElementBase {
 
   #handleContentMutationRecords(records) {
     if (!this.#hasDispatched) return;
-    let paragraphSignal = false;
-    let structureSignal = false;
-    for (let i = 0; i < records.length; i++) {
-      const record = records[i];
-      // EnginePreparedStyleWritesAreNotContent: the prepared-dom renderer
-      // rewrites its own <style data-tq-prepared-value-styles> text content on
-      // every commit. Those records are engine output, never a host signal.
-      const recordElement = record.type === "characterData"
-        ? record.target.parentElement
-        : record.target;
-      if (recordElement?.closest?.("[data-tq-prepared-value-styles]")) continue;
-      const custodyParagraph = this.#custodyParagraphFor(record.target);
-      if (custodyParagraph) {
-        // CustodyCharacterDataIsHostCertain: the engine only moves whole
-        // nodes in and out of custody and never rewrites text inside it, so
-        // a characterData record there is a framework editing the original
-        // node it still holds. Taint directly. A childList record may be the
-        // engine's own re-take or rollback refill; the custody identity
-        // check in the probe tells them apart, so it only raises the flag.
-        if (record.type === "characterData") this.#contentTainted.add(custodyParagraph);
-        paragraphSignal = true;
-        continue;
-      }
-      const paragraph = recordElement?.closest?.(DEFAULT_PARAGRAPH_SELECTOR);
-      if (paragraph && belongsToRootScope(paragraph, this)) {
-        // TopLevelChildListTrustsIdentityProbe: engine commits append and
-        // remove a paragraph's direct children on every render, so a top-level
-        // childList record proves nothing by itself. The Kotlin classifier
-        // proves engine ownership by node identity. Only an in-place text
-        // edit, which child identity cannot see, taints its paragraph.
-        if (record.type === "characterData") this.#contentTainted.add(paragraph);
-        paragraphSignal = true;
-      } else if (record.type === "childList") {
-        // Records outside any paragraph (a host adding or removing paragraph
-        // wrappers or editing non-paragraph flow) change the candidate set.
-        structureSignal = true;
-      }
-    }
+    const { taintedParagraphs, paragraphSignal, structureSignal } =
+      classifyContentMutationRecords(records, {
+        custodyParagraphFor: (node) => this.#custodyParagraphFor(node),
+        belongsToRootScope,
+        root: this,
+      });
+    for (const paragraph of taintedParagraphs) this.#contentTainted.add(paragraph);
     if (!paragraphSignal && !structureSignal) return;
     this.#contentReconcileRequired = true;
     if (structureSignal && (!this.#layoutWorkInFlight || this.#runtimeStateActive)) {

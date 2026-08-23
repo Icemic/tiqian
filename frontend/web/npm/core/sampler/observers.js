@@ -188,6 +188,52 @@ export function createContentInvalidationSource(root, handlers) {
   };
 }
 
+// Stateless per-record classification for the content invalidation source.
+// The element supplies the custody attribution, the root-scope membership
+// test and the root; everything here is a pure decision over the records.
+export function classifyContentMutationRecords(records, context) {
+  let paragraphSignal = false;
+  let structureSignal = false;
+  const taintedParagraphs = [];
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    // EnginePreparedStyleWritesAreNotContent: the prepared-dom renderer
+    // rewrites its own <style data-tq-prepared-value-styles> text content on
+    // every commit. Those records are engine output, never a host signal.
+    const recordElement = record.type === "characterData"
+      ? record.target.parentElement
+      : record.target;
+    if (recordElement?.closest?.("[data-tq-prepared-value-styles]")) continue;
+    const custodyParagraph = context.custodyParagraphFor(record.target);
+    if (custodyParagraph) {
+      // CustodyCharacterDataIsHostCertain: the engine only moves whole
+      // nodes in and out of custody and never rewrites text inside it, so
+      // a characterData record there is a framework editing the original
+      // node it still holds. Taint directly. A childList record may be the
+      // engine's own re-take or rollback refill; the custody identity
+      // check in the probe tells them apart, so it only raises the flag.
+      if (record.type === "characterData") taintedParagraphs.push(custodyParagraph);
+      paragraphSignal = true;
+      continue;
+    }
+    const paragraph = recordElement?.closest?.(DEFAULT_PARAGRAPH_SELECTOR);
+    if (paragraph && context.belongsToRootScope(paragraph, context.root)) {
+      // TopLevelChildListTrustsIdentityProbe: engine commits append and
+      // remove a paragraph's direct children on every render, so a top-level
+      // childList record proves nothing by itself. The Kotlin classifier
+      // proves engine ownership by node identity. Only an in-place text
+      // edit, which child identity cannot see, taints its paragraph.
+      if (record.type === "characterData") taintedParagraphs.push(paragraph);
+      paragraphSignal = true;
+    } else if (record.type === "childList") {
+      // Records outside any paragraph (a host adding or removing paragraph
+      // wrappers or editing non-paragraph flow) change the candidate set.
+      structureSignal = true;
+    }
+  }
+  return { taintedParagraphs, paragraphSignal, structureSignal };
+}
+
 export function createRootSizeObservation(options) {
   let observer = null;
   const { widths, onRootEntry, onWidthsChanged, root } = options;
