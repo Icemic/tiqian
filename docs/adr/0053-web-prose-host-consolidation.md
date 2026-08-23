@@ -556,7 +556,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   `??` 全部改 firstDefined（@JsFun 嵌入体不接受空值合并运算符）；
   WebEnhancerSupport.kt 删 7 个仅降层消费的 external（650→494 行）。
   `:frontend:web:jsBrowserTest`（B9a 断言组全量重放）与 npm test 393 例通过。
-- [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
+- [x] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
   进度（2026-08-23）：策略点 2（富文本 run 降级判定）完成，提交 3ac617d：
   十六属性清单与首个分叉判定移入 font 模块 `InlineShapingStylePolicy`
@@ -565,8 +565,16 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   classifyRole 同形）；issue 命名与 detail 组装在 Kotlin facade。bridge
   测试改经回调 stub 断言同名 detail（em:font-kerning），新增归一化值捕获
   与无回调跳过两例；jsTest SourceFidelity 组不改且通过，npm test 395 例、
-  golden 零 diff。策略点 1（dash 能力判定）现状位置与建议形状见
-  docs/research/2026-08-23-b10-engine-policy-abi.md，待实施。
+  golden 零 diff。
+  进度（策略点 1，2026-08-23）：5c1c0c6。dash issue 命名与 detail 组装移入
+  font 模块 `CjkDashCapabilityPolicy`（null status、空白 detail、带 detail
+  共五分支 commonTest），WebCanvasTextShaper 只递探针的 status/detail 证据
+  并调用策略，name 与 detail 输出字节不变。TS 门 cjk-dash.js 删除无消费者
+  的 issue 字段（宿主 Lifecycle 只读 status 与 detail；demo/web 与
+  exact-session 测试读的是引擎输出的 data-tiqian-capability-issue 属性），
+  期望同步更新。jsTest dash 断言组不改且通过，npm test 395 例、golden
+  零 diff。两处策略点的位置记录见
+  docs/research/2026-08-23-b10-engine-policy-abi.md。
 
 ### C 调度合并（`SingleCoordinator`）
 
