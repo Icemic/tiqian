@@ -14,12 +14,17 @@ import {
 } from "./browser-fonts-fixtures.mjs";
 import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
 
-// PrepareLanePoolAdmission: preparation pacing belongs to the coordinator
-// pool; these channel tests pass a pool that always admits so the Worker
-// exchange stays the subject under test.
-const alwaysAdmittingPool = () => ({
-  grantPrepareSlice: () => ({ lane: "prepare", deadline: Infinity, spent() {} }),
-});
+// PrepareJob driver for channel tests: steps the job without a budget and
+// awaits the stored-plan count.
+async function drivePrepareJob(module, root, handle, options) {
+  const job = await module.createPrepareJob(root, handle, options, () => true);
+  if (!job) return 0;
+  while (!job.done) {
+    job.step(() => false);
+    await Promise.resolve();
+  }
+  return await job.settled;
+}
 
 function assertCode(code) {
   return (error) => {
@@ -185,9 +190,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     assert.notEqual(globalThis.__TiqianLayoutWorker, legacyBridge);
     assert.equal(globalThis.__TiqianLayoutWorker.version, 1);
     assert.equal(globalThis.__TiqianLayoutWorker.semanticReplayRevision, 1);
-    assert.equal(await firstModule.prepareWorkerLayouts(state.root, handle, {
+    assert.equal(await drivePrepareJob(firstModule, state.root, handle, {
       paragraphSelector: completionSelector,
-    }, () => true, alwaysAdmittingPool()), 1);
+    }), 1);
     const firstRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, firstRequest)).plan.fixture,
@@ -224,9 +229,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     const secondModule = await import(
       `./core/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
     );
-    assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
       paragraphSelector: completionSelector,
-    }, () => true, alwaysAdmittingPool()), 1);
+    }), 1);
     const secondRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, secondRequest)).plan.fixture,
@@ -235,9 +240,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     assert.equal(globalThis.__TiqianLayoutWorker.issue(element, handle.id, secondRequest), null);
 
     requestText = "failure";
-    assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
       paragraphSelector: completionSelector,
-    }, () => true, alwaysAdmittingPool()), 0);
+    }), 0);
     const failedRequest = engineStub.workerLayoutRequest();
     assert.equal(globalThis.__TiqianLayoutWorker.take(element, handle.id, failedRequest), null);
     assert.equal(
@@ -256,9 +261,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       }],
       renderInlineBoxes: [],
     });
-    assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
       paragraphSelector: completionSelector,
-    }, () => true, alwaysAdmittingPool()), 1);
+    }), 1);
     const unsupportedSemanticRequest = engineStub.workerLayoutRequest();
     const unsupportedSemanticRecord = JSON.parse(
       globalThis.__TiqianLayoutWorker.take(element, handle.id, unsupportedSemanticRequest),
@@ -376,9 +381,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
         renderInlineBoxes: [],
       });
     };
-    assert.equal(await secondModule.prepareWorkerLayouts(state.root, handle, {
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
       paragraphSelector: completionSelector,
-    }, () => true, alwaysAdmittingPool()), 1);
+    }), 1);
     const afterInvalidRequest = engineStub.workerLayoutRequest(state.root, element);
     assert.equal(
       JSON.parse(
@@ -395,9 +400,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       semantics: [],
       renderInlineBoxes: [],
     });
-    assert.equal(await secondModule.prepareWorkerLayouts(
-      state.root, handle, {}, () => true, alwaysAdmittingPool(),
-    ), 1);
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {}), 1);
     const defaultRequest = engineStub.workerLayoutRequest();
     assert.equal(
       JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, defaultRequest)).plan.fixture,

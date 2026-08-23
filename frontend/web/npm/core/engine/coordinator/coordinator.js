@@ -66,6 +66,7 @@ export class TiqianLayoutCoordinator {
   #deferred = new Map();
   #deferredTimer = 0;
   #workerSlots = [];
+  #prepareMembers = new Map();
   #workerWakeTimer = 0;
   #frameCounter = 0;
 
@@ -76,6 +77,7 @@ export class TiqianLayoutCoordinator {
   unregister(element) {
     this.#dropDeferred(element);
     this.#removeWorkerSlot(element);
+    this.#cancelPrepare(element);
     this.#entries.delete(element);
   }
 
@@ -105,6 +107,7 @@ export class TiqianLayoutCoordinator {
   remove(element) {
     this.#dropDeferred(element);
     this.#removeWorkerSlot(element);
+    this.#cancelPrepare(element);
     this.#entries.delete(element);
   }
 
@@ -264,6 +267,7 @@ export class TiqianLayoutCoordinator {
     // a dispatch task that started a job in this frame sees its first slice
     // granted in the same frame.
     const workerGrants = this.#pollWorkers(startTime, executedCount);
+    this.#pollPrepare(startTime);
 
     this.#retainWorkerFrame();
 
@@ -278,7 +282,7 @@ export class TiqianLayoutCoordinator {
   // sets globalThis.__tqTrace (with { maxEntries }) before the first enhance
   // gets one compact row per frame in globalThis.__tqFrameTrace; without the
   // opt-in the cost is one property read per frame.
-  // The last column is the shared admission window's spent time, the lane ledger shared by the pre-paint and prepare lanes.
+  // The last column is the pre-paint lane's ledger in the shared admission window.
   #traceFrame(now, executedCount, workerGrants) {
     const trace = globalThis.__tqTrace;
     if (!trace) return;
@@ -301,12 +305,11 @@ export class TiqianLayoutCoordinator {
     if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
   }
 
-  // MainSliceAdmissionWindow: the pre-paint lane and the prepare lane are
-  // two main-thread lanes that run outside the frame loop. Both draw from
-  // one rolling allowance per rendering update, so concurrent roots and
-  // lanes serialize against a single budget; the ceiling follows the same
-  // numbers the frame loop uses (frame budget, half the measured frame
-  // interval). The lane reports what it spent through the returned voucher.
+  // MainSliceAdmissionWindow: the pre-paint lane is a main-thread lane that
+  // runs outside the frame loop. It draws from a rolling allowance per
+  // rendering update; the ceiling follows the same numbers the frame loop
+  // uses (frame budget, half the measured frame interval). The lane reports
+  // what it spent through the returned voucher.
   #admitMainSlice(lane) {
     const now = performance.now();
     if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
@@ -477,13 +480,30 @@ export class TiqianLayoutCoordinator {
     return processed > 0;
   }
 
-  // PrepareLanePoolAdmission: worker-plan preparation used to keep its own
-  // third pacing loop (private 8ms slices plus scheduler.yield), invisible
-  // to this pool. Preparation slices now ask the pool for admission from
-  // the same shared window the pre-paint lane uses. Returns null while the
-  // window is spent; the caller yields and asks again.
-  grantPrepareSlice() {
-    return this.#admitMainSlice("prepare");
+  // PrepareLaneInFrameLoop: preparation slices used to run in their own
+  // loop outside this pool. A job registered here advances inside the frame
+  // loop after tasks and grants, under the same startTime deadline, one
+  // candidate guaranteed per frame. Worker replies re-arm the loop through
+  // the job's onSettled; the returned promise resolves with the stored-plan
+  // count once the job settles. A second registration for the same element
+  // resolves the previous promise and replaces the member.
+  runPrepare(element, job) {
+    const existing = this.#prepareMembers.get(element);
+    if (existing) existing.resolve(0);
+    let resolve = null;
+    const promise = new Promise((r) => { resolve = r; });
+    this.#prepareMembers.set(element, { job, resolve });
+    job.onSettled = (settledJob) => {
+      if (settledJob.done) {
+        const member = this.#prepareMembers.get(element);
+        if (member && member.job === settledJob) this.#prepareMembers.delete(element);
+        settledJob.settled.then(resolve);
+      } else if (!this.#rafId) {
+        this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+      }
+    };
+    if (!this.#rafId) this.#rafId = requestAnimationFrame(this.#runFrameLoop);
+    return promise;
   }
 
   #removeWorkerSlot(element) {
@@ -498,6 +518,13 @@ export class TiqianLayoutCoordinator {
       clearTimeout(this.#workerWakeTimer);
       this.#workerWakeTimer = 0;
     }
+  }
+
+  #cancelPrepare(element) {
+    const member = this.#prepareMembers.get(element);
+    if (!member) return;
+    this.#prepareMembers.delete(element);
+    member.resolve(0);
   }
 
   setWorkerActive(element, active) {
@@ -680,10 +707,29 @@ export class TiqianLayoutCoordinator {
     return grants;
   }
 
+  #pollPrepare(startTime) {
+    if (this.#prepareMembers.size === 0) return;
+    for (const [element, member] of this.#prepareMembers) {
+      const job = member.job;
+      if (job.done) continue;
+      job.step(() => performance.now() - startTime >= this.#budgetMs);
+      // A step can settle the job itself (cancellation settles without a
+      // reply); retire the member here so the element's await resumes and
+      // the retained frame loop has one less reason to stay armed.
+      if (job.done) {
+        this.#prepareMembers.delete(element);
+        job.settled.then(member.resolve);
+      }
+    }
+  }
+
   #retainWorkerFrame() {
+    let keepFrames = false;
+    // Keep the frame loop alive while prepare members are incomplete;
+    // idle frames waiting for Worker replies have almost zero cost.
+    if (this.#prepareMembers.size > 0) keepFrames = true;
     const slots = this.#workerSlots;
     const now = Date.now();
-    let keepFrames = false;
     let nextWakeAt = Infinity;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];

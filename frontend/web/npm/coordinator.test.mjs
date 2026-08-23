@@ -382,3 +382,136 @@ test("a slow frame halves only roots that committed in the previous frame", asyn
     restoreGlobals(globals);
   }
 });
+
+test("runPrepare advances candidate jobs inside the frame loop and handles reregistration", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  try {
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const element = {};
+
+    function createFakeJob(totalCandidates = 3) {
+      let index = 0;
+      let done = false;
+      let settledResolve = null;
+      const settled = new Promise((resolve) => { settledResolve = resolve; });
+      const job = {
+        get done() { return done; },
+        onSettled: null,
+        settled,
+        step(shouldYield) {
+          let dispatched = 0;
+          while (index < totalCandidates) {
+            if (dispatched > 0 && shouldYield()) return dispatched;
+            index += 1;
+            dispatched += 1;
+            if (index >= totalCandidates) {
+              done = true;
+              settledResolve(totalCandidates);
+            }
+            if (job.onSettled) job.onSettled(job);
+            return dispatched;
+          }
+          if (index >= totalCandidates) {
+            done = true;
+            settledResolve(totalCandidates);
+            if (job.onSettled) job.onSettled(job);
+          }
+          return dispatched;
+        },
+      };
+      return job;
+    }
+
+    const job = createFakeJob(3);
+    const promise = coordinator.runPrepare(element, job);
+
+    // Advancing the clock through 3 frames steps each candidate and settles the job.
+    clock.advance(48);
+    assert.equal(await promise, 3);
+
+    // A second registration for the same element resolves the previous promise with 0.
+    const firstJob = createFakeJob(3);
+    const secondJob = createFakeJob(3);
+    const firstPromise = coordinator.runPrepare(element, firstJob);
+    const secondPromise = coordinator.runPrepare(element, secondJob);
+    assert.equal(await firstPromise, 0);
+
+    // Advancing through the second job settles it cleanly.
+    clock.advance(48);
+    assert.equal(await secondPromise, 3);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("a prepare job cancelled by its staleness guard settles and retires its member", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  // Count rAF requests so the retirement assertion can see the frame loop
+  // disarm instead of spinning on a member that will never advance. The
+  // fake clock fires every queued frame immediately, so each fake job must
+  // settle inside the advance that steps it.
+  const realRaf = globalThis.requestAnimationFrame;
+  let rafRequests = 0;
+  globalThis.requestAnimationFrame = (callback) => {
+    rafRequests += 1;
+    return realRaf(callback);
+  };
+  try {
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const element = {};
+
+    // Phase one: a healthy job settles through the frame loop.
+    let remaining = 2;
+    let done = false;
+    let settledResolve = null;
+    const settled = new Promise((resolve) => { settledResolve = resolve; });
+    const healthy = {
+      get done() { return done; },
+      onSettled: null,
+      settled,
+      step() {
+        remaining -= 1;
+        if (remaining <= 0) {
+          done = true;
+          settledResolve(remaining === 0 ? 2 : 1);
+        }
+        return 1;
+      },
+    };
+    const healthyPromise = coordinator.runPrepare(element, healthy);
+    clock.advance(16);
+    assert.equal(await healthyPromise, 2);
+    assert.ok(rafRequests > 0);
+
+    // Phase two: a job already stale settles from inside its first step the
+    // way CancelledPrepareSettlesEarly does, and the member retires.
+    let cancelledDone = false;
+    let cancelledResolve = null;
+    const cancelledSettled = new Promise((resolve) => { cancelledResolve = resolve; });
+    const cancelled = {
+      get done() { return cancelledDone; },
+      onSettled: null,
+      settled: cancelledSettled,
+      step() {
+        cancelledDone = true;
+        cancelledResolve(0);
+        return 0;
+      },
+    };
+    const cancelledPromise = coordinator.runPrepare(element, cancelled);
+    clock.advance(16);
+    assert.equal(await cancelledPromise, 0);
+
+    // The member is gone: further frames arm no loop at all.
+    const rafAtRetirement = rafRequests;
+    clock.advance(160);
+    assert.equal(rafRequests, rafAtRetirement);
+  } finally {
+    globalThis.requestAnimationFrame = realRaf;
+    restoreGlobals(globals);
+  }
+});

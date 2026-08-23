@@ -46,7 +46,7 @@ const MEDIUM_BUCKET_MAX = 200;
 
 // The 13 request fields layout-worker.js reads at precomputeParagraph call
 // time. layoutRequestKey is private in the worker channel (core/engine/web-worker/worker-channel.js:
-// 100-101) — only prepareWorkerLayouts is exported — so the bench replicates
+// 100-101) — only createPrepareJob is exported — so the bench replicates
 // it verbatim including the LAYOUT_REQUEST_FIELDS order.
 const LAYOUT_REQUEST_FIELDS = Object.freeze([
   "text",

@@ -455,12 +455,16 @@ class TiqianProseElement extends HTMLElementBase {
                 this,
                 () => this.isConnected && generation === this.#generation &&
                   operation === this.#layoutOperation,
+                this.#snapshotAdoptionAnchors(),
               );
             }
           } catch (error) {
             this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
             console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
           }
+          // The adoption commits are over; hand the scroller back to the
+          // browser's own anchoring until the next commit path holds it.
+          releaseNativeScrollAnchoring(this);
           if (
             !this.isConnected || generation !== this.#generation ||
             operation !== this.#layoutOperation
@@ -717,6 +721,16 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.isConnected) this.connectedCallback();
   }
 
+  // SnapshotAdoptionAnchorCompensation adapter: the adoption loop in
+  // precomputed.js commits one paragraph per cooperative slice; this feeds
+  // its per-commit bracket from this element's anchor policy.
+  #snapshotAdoptionAnchors() {
+    return {
+      capture: () => captureViewportAnchor(this),
+      compensate: (anchor) => compensateViewportAnchor(this, anchor),
+    };
+  }
+
   async #dispatchProgressiveEnhance(
     generation,
     {
@@ -845,15 +859,15 @@ class TiqianProseElement extends HTMLElementBase {
     };
     if (exactFontSession) {
       try {
-        const { prepareWorkerLayouts } = await import("./core/engine/web-worker/worker-channel.js");
-        await prepareWorkerLayouts(
+        const { createPrepareJob } = await import("./core/engine/web-worker/worker-channel.js");
+        const prepareJob = await createPrepareJob(
           this,
           exactFontSession,
           preparedOptions,
           () => this.isConnected && generation === this.#generation &&
             request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
-          coordinator,
         );
+        if (prepareJob) await coordinator.runPrepare(this, prepareJob);
       } catch (error) {
         // ExactWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
         // block scroll under JIT restrictions. Progressive enhancement will
@@ -871,7 +885,21 @@ class TiqianProseElement extends HTMLElementBase {
       }
     }
     this.#ensureLayoutWorker();
-    engineFace.enhanceProgressively(this, preparedOptions);
+    // RunToCompletionAnchorBracket: without an attached coordinator the whole
+    // progressive job runs synchronously inside this call, outside every
+    // grant lane's capture/compensate bracket. Bracket it here with one
+    // same-task pair and the native-anchoring hold, so the correction sees
+    // only the pass's layout displacement and the browser's own anchoring
+    // cannot re-anchor under a running entrance animation. A coordinated job
+    // only registers inside this call; the pair measures a zero delta and
+    // the first grant re-establishes both ends of the bracket.
+    const runAnchor = captureViewportAnchor(this);
+    try {
+      engineFace.enhanceProgressively(this, preparedOptions);
+    } finally {
+      compensateViewportAnchor(this, runAnchor);
+      releaseNativeScrollAnchoring(this);
+    }
     this.#syncLayoutWorker();
     return true;
   }
@@ -1275,7 +1303,11 @@ class TiqianProseElement extends HTMLElementBase {
       this,
       () => this.isConnected && generation === this.#generation &&
         operation === this.#layoutOperation,
+      this.#snapshotAdoptionAnchors(),
     ).then(async (snapshot) => {
+      // The adoption commits are over; hand the scroller back to the
+      // browser's own anchoring until the next commit path holds it.
+      releaseNativeScrollAnchoring(this);
       if (
         !this.isConnected || generation !== this.#generation ||
         operation !== this.#layoutOperation
@@ -1406,7 +1438,16 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    engineFace.relayout(this);
+    // RunToCompletionAnchorBracket: relayout dispatches take the same bracket
+    // as enhance dispatches; an uncoordinated relayout runs its whole job
+    // synchronously inside this call.
+    const relayoutAnchor = captureViewportAnchor(this);
+    try {
+      engineFace.relayout(this);
+    } finally {
+      compensateViewportAnchor(this, relayoutAnchor);
+      releaseNativeScrollAnchoring(this);
+    }
     this.#syncLayoutWorker();
   }
 

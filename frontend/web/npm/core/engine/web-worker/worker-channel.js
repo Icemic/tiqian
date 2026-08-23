@@ -86,15 +86,6 @@ async function ensureSession(contract) {
   initializedSessions.add(contract.sessionKey);
 }
 
-// SharedEventLoopYield: the bare event-loop yield a pool denial triggers
-// between preparation slices. Admission decisions belong to the coordinator
-// pool; this file no longer keeps a private budget. C3 removes this helper
-// together with the self-driving loop when the prepare cursor becomes a
-// pool member.
-async function yieldToMain() {
-  if (typeof globalThis.scheduler?.yield === "function") await globalThis.scheduler.yield();
-  else await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 function distanceFromViewport(element) {
   const rect = element.getBoundingClientRect();
@@ -208,16 +199,20 @@ function installBridge() {
 
 installBridge();
 
-export async function prepareWorkerLayouts(
-  root,
-  exactFontSession,
-  options,
-  isCurrent,
-  pool,
-) {
-  if (!root || !exactFontSession || !pool || !isCurrent()) return 0;
+// PrepareJob: the pool-driven form of worker-plan preparation (ADR 0053 C3).
+// createPrepareJob resolves after the session handshake with a job the
+// coordinator frame loop advances. step() builds requests and fires Worker
+// round-trips without awaiting them, so a step's main-thread cost is only
+// the synchronous request builds. Replies land in their own microtasks,
+// store their plans, and call onSettled, which re-arms the frame loop.
+// `settled` resolves with the stored-plan count once every candidate was
+// both dispatched and answered; `done` carries the same moment for
+// synchronous pollers. Pacing follows the page's visibility because the
+// frame loop drives it, matching the grant lanes.
+export async function createPrepareJob(root, exactFontSession, options, isCurrent) {
+  if (!root || !exactFontSession || !isCurrent()) return null;
   const api = engineApi();
-  if (typeof api?.workerLayoutRequest !== "function") return 0;
+  if (typeof api?.workerLayoutRequest !== "function") return null;
   const contract = browserFontSessionWorkerContract(exactFontSession);
   // WorkerCandidateSetMatchesCommitSet: mixed snapshot/runtime roots dispatch
   // Kotlin with an explicit completion-only paragraph selector. A full
@@ -234,52 +229,74 @@ export async function prepareWorkerLayouts(
     .map((element, index) => ({ element, index, distance: distanceFromViewport(element) }))
     .sort((left, right) => left.distance - right.distance || left.index - right.index);
   await ensureSession(contract);
-  if (!isCurrent()) return 0;
-  let prepared = 0;
-  for (const { element } of candidates) {
-    if (!isCurrent()) break;
-    // PrepareLanePoolAdmission: each paragraph asks the pool before running
-    // main-thread work; a spent window yields to the event loop and asks
-    // again.
-    let admission = pool.grantPrepareSlice();
-    while (!admission) {
-      await yieldToMain();
-      if (!isCurrent()) break;
-      admission = pool.grantPrepareSlice();
-    }
-    if (!isCurrent()) break;
-    const sliceStart = performance.now();
-    let request = null;
-    try {
-      const serialized = api.workerLayoutRequest(root, element, options);
-      if (serialized) request = JSON.parse(serialized);
-    } catch {
-      // ParagraphAtomicNativeRollback: an invalid candidate remains native
-      // without preventing later independent paragraphs from being prepared.
-    }
-    // SyncOnlySliceAccounting: only the synchronous segments count against
-    // the pool; the Worker round-trip below waits off the main thread.
-    admission.spent(performance.now() - sliceStart);
-    if (!request) continue;
-    let result;
-    try {
-      result = await send({ type: "layout", sessionKey: contract.sessionKey, request });
-    } catch (error) {
-      // ExactWorkerFailureMustStayNative: falling back to synchronous Kotlin/JS
-      // recreates the navigation/scroll stall this Worker exists to remove,
-      // especially under Edge's enhanced-security JIT restrictions. Publish a
-      // per-request capability issue for the main-thread coordinator instead;
-      // it will retain the paragraph's untouched source DOM.
-      plans.set(preparedPlanKey(contract.sessionKey, request), {
-        issue: String(error instanceof Error ? error.message : error).slice(0, 1_000),
-      });
-      continue;
-    }
-    if (!isCurrent()) break;
-    plans.set(preparedPlanKey(contract.sessionKey, request), {
-      plan: result.plan,
-    });
-    prepared += 1;
-  }
-  return prepared;
+  if (!isCurrent()) return null;
+  let index = 0;
+  let inflight = 0;
+  let stored = 0;
+  let done = false;
+  const finishIfIdle = () => {
+    if (index >= candidates.length && inflight === 0) done = true;
+  };
+  const job = {
+    get done() { return done; },
+    onSettled: null,
+    settled: null,
+    // One step = one synchronous slice of request builds. The first
+    // candidate always runs; shouldYield() stops the slice afterwards.
+    // Returns the number of candidates dispatched in this step.
+    step(shouldYield) {
+      let dispatched = 0;
+      while (index < candidates.length) {
+        if (!isCurrent()) {
+          // CancelledPrepareSettlesEarly: a stale job never becomes current
+          // again, so waiting for the remaining candidates would leave the
+          // member parked in the coordinator forever. Settle with the plans
+          // stored so far; the awaiting element re-checks staleness and
+          // aborts its own dispatch.
+          done = true;
+          job.settledResolve(stored);
+          return dispatched;
+        }
+        if (dispatched > 0 && shouldYield()) return dispatched;
+        let request = null;
+        try {
+          const serialized = api.workerLayoutRequest(root, candidates[index].element, options);
+          if (serialized) request = JSON.parse(serialized);
+        } catch {
+          // ParagraphAtomicNativeRollback: an invalid candidate remains native
+          // without preventing later independent paragraphs from being prepared.
+        }
+        index += 1;
+        if (!request) continue;
+        inflight += 1;
+        dispatched += 1;
+        send({ type: "layout", sessionKey: contract.sessionKey, request })
+          .then((result) => {
+            plans.set(preparedPlanKey(contract.sessionKey, request), { plan: result.plan });
+            stored += 1;
+          })
+          .catch((error) => {
+            // ExactWorkerFailureMustStayNative: falling back to synchronous Kotlin/JS
+            // recreates the navigation/scroll stall this Worker exists to remove,
+            // especially under Edge's enhanced-security JIT restrictions. Publish a
+            // per-request capability issue for the main-thread coordinator instead;
+            // it will retain the paragraph's untouched source DOM.
+            plans.set(preparedPlanKey(contract.sessionKey, request), {
+              issue: String(error instanceof Error ? error.message : error).slice(0, 1_000),
+            });
+          })
+          .finally(() => {
+            inflight -= 1;
+            finishIfIdle();
+            if (done) job.settledResolve(stored);
+            else if (job.onSettled) job.onSettled(job);
+          });
+      }
+      finishIfIdle();
+      if (done) job.settledResolve(stored);
+      return dispatched;
+    },
+  };
+  job.settled = new Promise((resolve) => { job.settledResolve = resolve; });
+  return job;
 }

@@ -244,7 +244,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /await prepareWorkerLayouts\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
+    /await coordinator\.runPrepare\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,

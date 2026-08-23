@@ -443,20 +443,21 @@ async function runWorkerMessagesJourney() {
       "./core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
     );
     const bridge = globalThis.__TiqianLayoutWorker;
-    // PrepareLanePoolAdmission: preparation pacing belongs to the
-    // coordinator pool; this journey exercises the channel, so a pool that
-    // always admits keeps the recorded message order deterministic.
-    const alwaysAdmittingPool = () => ({
-      grantPrepareSlice: () => ({ lane: "prepare", deadline: Infinity, spent() {} }),
-    });
     const prepare = async () => {
-      const prepared = await module.prepareWorkerLayouts(
+      const job = await module.createPrepareJob(
         state.root,
         handle,
         { paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])" },
         () => true,
-        alwaysAdmittingPool(),
       );
+      let prepared = 0;
+      if (job) {
+        while (!job.done) {
+          job.step(() => false);
+          await Promise.resolve();
+        }
+        prepared = await job.settled;
+      }
       ops.push({ op: "prepare", text: requestText, prepared });
       return prepared;
     };
