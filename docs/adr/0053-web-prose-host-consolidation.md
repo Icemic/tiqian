@@ -256,10 +256,11 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 - [x] **P3 批次 3**：engine/loaders，connectedCallback 收缩到生命周期。
   验收：npm test；demo/web。
   提交：e861a99。
-- [ ] **P4 批次 4**：engine/exact-font.js，两套会话状态机合并。
+- [x] **P4 批次 4**：engine/exact-font.js，两套会话状态机合并。
   验收：npm test；package.test.mjs。
+  提交：0feaf8f。
 - [ ] **P5 批次 5**：engine/face.js，派发点收拢，globalThis 读取收敛，detail.result
-  改返回值。验收：npm test；jsBrowserTest；demo/web。
+  改返回值（两份 loadExactFontFallback 已在批次 4 合并）。验收：npm test；jsBrowserTest；demo/web。
 - [ ] **P6 批次 6**：快照四件归位，lazy-capabilities 拆分，element 快照失效区域
   提取，sync:shared 路径更新。验收：npm test；jsBrowserTest；web-precompute parity。
 - [ ] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
