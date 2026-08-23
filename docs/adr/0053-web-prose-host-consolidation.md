@@ -359,6 +359,19 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   element 级公开事件 ready/relayout-ready/relayout-error）；npm test 307/307 两次；
   jsBrowserTest 通过；verify-package 与 verify-release 通过；golden 更新后零 diff。
   提交：584e083、0d16190、92eca33、262fffa、f3a72c2。
+  消费者核对（2026-08-23 补记）：demo/web 全套 31/35。四项失败在 15d8d66（A4 提交）
+  与 f13233b 的净检出 worktree 复测中逐字节相同，C1 与 B4c 的提交不引入这些失败；
+  此前两次 35/35 记录产生于含未提交改动的夜间工作树。两项按如下处置：
+  resize-destroy 的 relayout 计数从已删的 `tiqian:relayout` 迁到 element 级
+  `tiqian:relayout-ready`（事件记录器同时从事件 target 取 root），迁移后该套件
+  10/10。oneshot-equivalence 的选项捕获与 one-shot 重放仍依赖已删的
+  `tiqian:enhance-progressively`/`tiqian:enhance` 通道，公开面上没有逐 root 已解析
+  options 的读取口，待公开 API 决定后迁移。late-enhance 第 3 条暴露既有缺口：页面
+  内禁用后启用的增强在单次同步提交内完成，coordinator 的逐切片视口补偿从未
+  触发（scrollTop 拦截为零次写入），滚动位置完全由浏览器原生 scroll anchoring
+  承担；无动画时原生承担方向正确、入场动画进行中会反向跳变（scrollY 5022 到
+  5911，锚点移动 1006.69px）。该缺口属调度路径（增强未经授予路径），随 C2/C3
+  处置。
 - [ ] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
   经同一池与同一凭证；executor 私有节奏与 standalone 准入排除。
   验收：时序 golden 授予轮锚点更新后绿。
