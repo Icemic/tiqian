@@ -510,6 +510,7 @@ function createStyleObject(element) {
 
 const stylesheetRules = new Map();
 const parsedStylesheetRules = [];
+const parsedPseudoRules = [];
 
 function parseDeclarationBlock(declBlock) {
   const map = new Map();
@@ -636,6 +637,21 @@ function collectStylesheetRules(cssText) {
     for (const sel of selectors) {
       const trimmedSel = sel.trim();
       if (!trimmedSel) continue;
+      const pseudoMatch = /::?(before|after)$/.exec(trimmedSel);
+      if (pseudoMatch) {
+        const baseSelector = trimmedSel.slice(0, pseudoMatch.index).trim();
+        const pseudoKey = ":" + pseudoMatch[1];
+        if (baseSelector) {
+          parsedPseudoRules.push({
+            selector: baseSelector,
+            pseudo: pseudoKey,
+            specificity: computeSpecificity(baseSelector),
+            index: parsedPseudoRules.length,
+            declarations: declsMap,
+          });
+        }
+        continue;
+      }
       const spec = computeSpecificity(trimmedSel);
       const ruleIndex = parsedStylesheetRules.length;
       parsedStylesheetRules.push({
@@ -684,6 +700,32 @@ function getStylesheetProperty(element, kebab) {
 
   for (const rule of parsedStylesheetRules) {
     if (rule.declarations.has(kebab)) {
+      if (matchesHostSelector(element, rule.selector)) {
+        const decl = rule.declarations.get(kebab);
+        if (decl.important) {
+          if (!bestImportant || compareSpecificity(rule.specificity, bestImportant.rule.specificity, rule.index, bestImportant.rule.index) >= 0) {
+            bestImportant = { rule, decl };
+          }
+        } else {
+          if (!bestNormal || compareSpecificity(rule.specificity, bestNormal.rule.specificity, rule.index, bestNormal.rule.index) >= 0) {
+            bestNormal = { rule, decl };
+          }
+        }
+      }
+    }
+  }
+
+  if (bestImportant) return bestImportant.decl.value;
+  if (bestNormal) return bestNormal.decl.value;
+  return "";
+}
+
+function getPseudoStylesheetProperty(element, kebab, pseudoKey) {
+  let bestImportant = null;
+  let bestNormal = null;
+
+  for (const rule of parsedPseudoRules) {
+    if (rule.pseudo === pseudoKey && rule.declarations.has(kebab)) {
       if (matchesHostSelector(element, rule.selector)) {
         const decl = rule.declarations.get(kebab);
         if (decl.important) {
@@ -801,6 +843,38 @@ function getElementExplicitWidth(element) {
     }
   }
   if (element.width) return element.width;
+  if (element.tagName === "IMG" || element.tagName === "SVG") {
+    const attrW = element.getAttribute?.("width") ?? element.width;
+    if (attrW != null) {
+      const parsed = Number.parseFloat(attrW);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+function readExplicitHeight(element) {
+  if (!element || element.nodeType !== 1) return null;
+  const styleHeight = element.style?.getPropertyValue?.("height") || element.style?.height;
+  if (styleHeight) {
+    const parsed = Number.parseFloat(styleHeight);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  const attrStyle = element.getAttribute?.("style");
+  if (attrStyle) {
+    const match = /(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)px/i.exec(attrStyle);
+    if (match) {
+      const parsed = Number.parseFloat(match[1]);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  if (element.tagName === "IMG" || element.tagName === "SVG") {
+    const attrH = element.getAttribute?.("height") ?? element.height;
+    if (attrH != null) {
+      const parsed = Number.parseFloat(attrH);
+      if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
   return null;
 }
 
@@ -1095,6 +1169,10 @@ export class HostElement extends FakeElement {
       }
     }
     if (!w) {
+      const explicit = getElementExplicitWidth(this);
+      if (explicit != null) w = explicit;
+    }
+    if (!w) {
       const multiCol = findMultiColumnAncestor(this);
       if (multiCol) {
         w = getBlockWidth(multiCol.ancestor);
@@ -1104,14 +1182,17 @@ export class HostElement extends FakeElement {
       const isInline = [
         "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
         "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
-        "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE",
+        "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "DEL", "SPOILER",
       ].includes(this.tagName);
       if (isInline) {
         const pad = getHorizontalPadding(this);
-        const textLen = (this.textContent || "").length;
-        const cs = globalThis.getComputedStyle?.(this);
-        const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
-        w = pad.left + textLen * fontSize + pad.right;
+        let inner = 0;
+        for (const child of this.childNodes) {
+          inner += inlineContentAdvance(child);
+        }
+        const beforeAdv = pseudoContentAdvance(this, "::before");
+        const afterAdv = pseudoContentAdvance(this, "::after");
+        w = pad.left + beforeAdv + inner + afterAdv + pad.right;
       } else {
         const isContentSized = Boolean(findContentSizedAncestor(this));
 
@@ -1153,7 +1234,16 @@ export class HostElement extends FakeElement {
       }
     }
     if (w == null || (w === 0 && (this.textContent || "").length > 0)) w = 360;
-    return new FakeDOMRect(this.left ?? 0, this.top ?? 0, w, this.height || 30);
+    const explicitHeight = readExplicitHeight(this);
+    const cs = globalThis.getComputedStyle?.(this);
+    const marginLeft = cs ? cssPx(cs.getPropertyValue("margin-left")) : 0;
+    const isInline = [
+      "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
+      "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
+      "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "DEL", "SPOILER",
+    ].includes(this.tagName);
+    const left = isInline ? (inlineStartOffset(this) + marginLeft) : (this.left || 0);
+    return new FakeDOMRect(left, this.top ?? 0, w, explicitHeight != null ? explicitHeight : (this.height || 30));
   }
 
   getClientRects() {
@@ -1714,7 +1804,110 @@ FakeNode.prototype.replaceWith = function (...nodes) {
   parent.removeChild(this);
 };
 
-let cachedDocument = null;
+const NON_RENDERED_TAGS = new Set(["HEAD", "STYLE", "SCRIPT", "META", "LINK", "TITLE", "NOSCRIPT"]);
+
+// Engine-shaped source text advances at the paragraph typography's font size;
+// a smaller host font on an inline wrapper (sup at 12px, say) shifts paint but
+// not the engine's declared cluster advance, which the letter-spacing styles
+// encode. Text measurement therefore reads the nearest block ancestor's
+// font-size; pseudo content keeps the element's own font-size because the
+// engine probes generated boxes through the host box.
+const INLINE_FLOW_TAGS = new Set([
+  "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
+  "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
+  "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "DEL", "SPOILER",
+]);
+
+function blockFontSizePx(element) {
+  let node = element;
+  while (node && node.nodeType === 1) {
+    if (!INLINE_FLOW_TAGS.has(node.tagName)) {
+      return cssPx(globalThis.getComputedStyle?.(node)?.getPropertyValue("font-size")) || 18;
+    }
+    node = node.parentElement;
+  }
+  return 18;
+}
+
+function computedLetterSpacingPx(element) {
+  if (!element || element.nodeType !== 1) return 0;
+  const raw = globalThis.getComputedStyle?.(element)?.getPropertyValue("letter-spacing") ?? "";
+  const match = /^(-?\d+(?:\.\d+)?)px/.exec(String(raw).trim());
+  return match ? Number.parseFloat(match[1]) : 0;
+}
+
+function pseudoContentAdvance(element, pseudo) {
+  if (!element || element.nodeType !== 1) return 0;
+  const cs = globalThis.getComputedStyle?.(element, pseudo);
+  if (!cs) return 0;
+  const display = cs.getPropertyValue?.("display") ?? "";
+  if (display === "none") return 0;
+  const position = cs.getPropertyValue?.("position") ?? "";
+  if (position === "absolute" || position === "fixed") return 0;
+  let content = cs.getPropertyValue?.("content") ?? "";
+  content = content.trim();
+  if (!content || content === "none" || content === "normal") return 0;
+  if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
+    content = content.slice(1, -1);
+  }
+  if (!content) return 0;
+  const fontSize = cssPx(cs.getPropertyValue?.("font-size")) || 18;
+  const letterSpacing = computedLetterSpacingPx(element);
+  return content.length * (fontSize + letterSpacing);
+}
+
+// Horizontal advance of an inline-flow node: text measures chars at the
+// fixture 18px plus the parent's letter-spacing (the engine distributes
+// justification through per-segment letter-spacing styles, so a post-render
+// re-measure must include it to agree with data-tq-line-width).
+function inlineContentAdvance(node) {
+  if (node.nodeType === 3) {
+    const length = (node.data ?? "").length;
+    if (length === 0) return 0;
+    const baseFontSize = node.parentElement ? blockFontSizePx(node.parentElement) : 18;
+    return length * (baseFontSize + computedLetterSpacingPx(node.parentElement));
+  }
+  if (node.nodeType !== 1) return 0;
+  if (NON_RENDERED_TAGS.has(node.tagName)) return 0;
+  const cs = globalThis.getComputedStyle?.(node);
+  const margin = (side) => {
+    const raw = cs?.getPropertyValue?.(side) ?? "0";
+    const parsed = Number.parseFloat(raw);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const explicit = getElementExplicitWidth(node);
+  if (explicit != null) return margin("margin-left") + explicit + margin("margin-right");
+  const pad = getHorizontalPadding(node);
+  let inner = 0;
+  for (const child of node.childNodes) inner += inlineContentAdvance(child);
+  const beforeAdvance = pseudoContentAdvance(node, "::before");
+  const afterAdvance = pseudoContentAdvance(node, "::after");
+  return margin("margin-left") + pad.left + beforeAdvance + inner + afterAdvance + pad.right + margin("margin-right");
+}
+
+// Left edge of a node within its block container's content box, by walking
+// preceding inline siblings and ancestor paddings.
+function inlineStartOffset(node) {
+  const parent = node.parentNode;
+  if (!parent || parent.nodeType !== 1) return 0;
+  const isInline = [
+    "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
+    "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
+    "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "DEL", "SPOILER",
+  ].includes(parent.tagName);
+  const cs = globalThis.getComputedStyle?.(parent);
+  const margin = (side) => {
+    const raw = cs?.getPropertyValue?.(side) ?? "0";
+    const parsed = Number.parseFloat(raw);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  let offset = getHorizontalPadding(parent).left + pseudoContentAdvance(parent, "::before");
+  for (const sibling of parent.childNodes) {
+    if (sibling === node) break;
+    offset += inlineContentAdvance(sibling);
+  }
+  return (isInline ? inlineStartOffset(parent) + margin("margin-left") : 0) + offset;
+}
 
 export class FakeRange {
   constructor() {
@@ -1811,24 +2004,24 @@ export class FakeRange {
   }
 
   getBoundingClientRect() {
-    let text = "";
-    let paddingLeft = 0;
+    let left = 0;
+    let width = 0;
     if (this.startContainer) {
       if (this.startContainer.nodeType === 3) {
         const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
         const start = this.startOffset ?? 0;
         const end = this.endOffset ?? full.length;
-        text = full.slice(start, end);
-        const parent = this.startContainer.parentElement;
-        if (parent) {
-          paddingLeft = getHorizontalPadding(parent).left;
-        }
+        const baseFontSize = this.startContainer.parentElement
+          ? blockFontSizePx(this.startContainer.parentElement)
+          : 18;
+        const perChar = baseFontSize + computedLetterSpacingPx(this.startContainer.parentElement);
+        left = inlineStartOffset(this.startContainer) + start * perChar;
+        width = Math.max(0, end - start) * perChar;
       } else {
-        text = this.startContainer.textContent ?? "";
+        const text = this.startContainer.textContent ?? "";
+        width = text.length * 18;
       }
     }
-    const width = text.length * 18;
-    const left = paddingLeft + (this.startOffset || 0) * 18;
     return new FakeDOMRect(left, 0, width, 30);
   }
 
@@ -1836,6 +2029,8 @@ export class FakeRange {
     return [this.getBoundingClientRect()];
   }
 }
+
+let cachedDocument = null;
 
 function createDocumentDouble() {
   if (cachedDocument) return cachedDocument;
@@ -1978,17 +2173,33 @@ export function buildWorld() {
     const isInlineTag = [
       "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
       "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
-      "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "SPOILER",
+      "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "SPOILER", "DEL",
     ].includes(element?.tagName);
     const overrides = isInlineTag ? { display: "inline" } : {};
     const base = fixtureComputedStyle(element, pseudo, overrides);
 
+    const pseudoKey = pseudo ? ":" + String(pseudo).trim().replace(/^:+/, "") : null;
+    const pseudoInheritable = [
+      "font-size", "font-weight", "font-style", "font-family",
+      "line-height", "letter-spacing", "color", "white-space",
+    ];
+
     const getProp = (name) => {
       const kebab = name.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+      if (pseudoKey) {
+        const pseudoVal = getPseudoStylesheetProperty(element, kebab, pseudoKey);
+        if (pseudoVal !== "") return pseudoVal;
+        if (pseudoInheritable.includes(kebab)) {
+          const inherited = resolveElementProperty(element, kebab, base);
+          if (inherited !== undefined && inherited !== "") return inherited;
+        }
+        const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+        return base[kebab] ?? base[camel] ?? base[name] ?? (kebab === "float" ? (base.cssFloat ?? "none") : "");
+      }
       const val = resolveElementProperty(element, kebab, base);
       if (val !== undefined && val !== "") return val;
       const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-      return base[kebab] ?? base[camel] ?? base[name] ?? "";
+      return base[kebab] ?? base[camel] ?? base[name] ?? (kebab === "float" ? (base.cssFloat ?? "none") : "");
     };
 
     return new Proxy(base, {
@@ -2029,8 +2240,7 @@ export function buildWorld() {
   globalThis.fetch = async () => ({ ok: false });
 
   // Minimal window EventTarget: the runtime and coordinator attach scroll and
-  // gesture listeners to window, which is globalThis here. Node's globalThis
-  // has none by default, so install a synchronous listener map once.
+  // gesture listeners to window, compulsory for Node globalThis double.
   if (typeof globalThis.addEventListener !== "function") {
     const windowListeners = new Map();
     globalThis.addEventListener = (type, listener) => {
@@ -2062,6 +2272,7 @@ export function buildWorld() {
 export function cleanupWorld() {
   stylesheetRules.clear();
   parsedStylesheetRules.length = 0;
+  parsedPseudoRules.length = 0;
   if (currentSelection) {
     currentSelection.removeAllRanges();
   }
@@ -2630,4 +2841,34 @@ export async function drainMicrotasks(times = 6) {
   for (let i = 0; i < times; i += 1) {
     await new Promise((resolve) => setImmediate(resolve));
   }
+}
+
+export function computedPseudoContent(element, pseudo) {
+  const content = globalThis.getComputedStyle(element, pseudo).getPropertyValue("content").trim();
+  if ((content.startsWith('"') && content.endsWith('"')) ||
+      (content.startsWith("'") && content.endsWith("'"))) {
+    return content.slice(1, -1);
+  }
+  return content;
+}
+
+export function renderedSingleLineFlowWidth(paragraph) {
+  const rects = [];
+  const visit = (node) => {
+    if (node.nodeType === 3) {
+      if (!node.data || (node.parentElement && node.parentElement.closest('[data-tq-copy-ignore]'))) return;
+      const range = globalThis.document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (rect.width || rect.height) rects.push(rect);
+      }
+      return;
+    }
+    if (node.nodeType !== 1 || node.hasAttribute('data-tq-copy-ignore')) return;
+    for (const child of node.childNodes) visit(child);
+  };
+  for (const child of paragraph.childNodes) visit(child);
+  if (!rects.length) return 0;
+  return Math.max(...rects.map((rect) => rect.right)) -
+    Math.min(...rects.map((rect) => rect.left));
 }
