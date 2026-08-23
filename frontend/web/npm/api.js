@@ -1,10 +1,10 @@
 import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./runtime.js";
-import { installTiqianCopyHandler } from "./copy.js";
+import { installTiqianCopyHandler } from "./core/utils/copy.js";
 import {
   prepareCjkDashShapingIfNeeded,
   restoreAdoptedSnapshot,
 } from "./lazy-capabilities.js";
-import { ensureTiqianStyles } from "./styles.js";
+import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
 
 export { loadTiqianRuntime };
 
@@ -25,7 +25,7 @@ installTiqianCopyHandler();
 
 function loadExactFontFallback() {
   exactFontFallbackPromise ??= Promise.all([
-    import("./browser-fonts.js"),
+    import("./core/measurement/browser-fonts.js"),
     import("./prepared-dom.js"),
   ]).then(([fonts, preparedDom]) => {
     preparedDom.installPreparedDomRendererBridge();

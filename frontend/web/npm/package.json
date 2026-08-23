@@ -48,6 +48,7 @@
     "browser-font-replay.js",
     "browser-fonts.js",
     "copy.js",
+    "core/",
     "digest.js",
     "element.d.ts",
     "element.js",

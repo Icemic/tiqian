@@ -1,5 +1,5 @@
 import { loadTiqianRuntime } from "./runtime.js";
-import { installTiqianCopyHandler } from "./copy.js";
+import { installTiqianCopyHandler } from "./core/utils/copy.js";
 import {
   DEFAULT_TYPOGRAPHY_FONT_WAIT_MS,
   detachLoadedSnapshot,
@@ -14,16 +14,35 @@ import {
   tryAdoptRequestedSnapshot,
   waitForTypographyFonts,
 } from "./lazy-capabilities.js";
-import { ensureTiqianStyles } from "./styles.js";
+import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
 import { prefetchSnapshotTables } from "./snapshot-tables.js";
 import {
   captureViewportAnchor,
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
-} from "./viewport-anchor.js";
+} from "./core/engine/coordinator/viewport-anchor.js";
+import { dispatch, TiqianLayoutCoordinator } from "./core/engine/coordinator/coordinator.js";
+import {
+  DEFAULT_PARAGRAPH_SELECTOR,
+  fragmentedBorderBoxInlineSize,
+  TYPOGRAPHY_PROPERTIES,
+  typographySignature,
+  elementTypographySignature,
+  typographyElements,
+  captureLayoutWorkViewportTypographyEntries,
+  layoutWorkViewportTypographyChanged,
+  paragraphWidthSignature,
+  responsiveGeometrySignature,
+  paragraphMeasureSignature,
+  paragraphMeasureEntry,
+} from "./core/sampler/signatures.js";
+import {
+  createParagraphGridMetricsState,
+  seedParagraphGridMetrics,
+  paragraphMeasureSignatureFromObserved,
+} from "./core/sampler/grid-metrics.js";
 
 const ELEMENT_NAME = "tiqian-prose";
-const DEFAULT_PARAGRAPH_SELECTOR = "p, li";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
 const SKIPPED_ANCESTOR_SELECTOR =
   ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
@@ -42,95 +61,9 @@ installTiqianCopyHandler();
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
 // no-op in non-browser entry points.
 prefetchSnapshotTables();
-const TYPOGRAPHY_PROPERTIES = [
-  "display",
-  "font-family",
-  "font-size",
-  "font-weight",
-  "font-style",
-  "font-stretch",
-  "font-size-adjust",
-  "font-variant-alternates",
-  "font-variant-caps",
-  "font-variant-east-asian",
-  "font-variant-ligatures",
-  "font-variant-numeric",
-  "font-variant-position",
-  "font-language-override",
-  "font-variation-settings",
-  "font-feature-settings",
-  "font-kerning",
-  "font-optical-sizing",
-  "letter-spacing",
-  "word-spacing",
-  "line-height",
-  "text-indent",
-  "text-transform",
-  "text-rendering",
-  "direction",
-  "writing-mode",
-  "margin-left",
-  "margin-right",
-  "border-left-width",
-  "border-right-width",
-  "padding-left",
-  "padding-right",
-  "position",
-  "top",
-  "bottom",
-  "vertical-align",
-  "box-decoration-break",
-  "transform",
-  "column-count",
-  "column-width",
-  "zoom",
-];
-const TYPOGRAPHY_PSEUDO_SELECTORS = [
-  "::before",
-  "::after",
-  "::first-letter",
-  "::first-line",
-];
-const ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES.filter(
-  (property) => property !== "margin-left" && property !== "margin-right",
-);
-
-function dispatch(name, root, options = undefined) {
-  document.dispatchEvent(
-    new CustomEvent(name, {
-      detail: { root, ...(options ? { options } : {}) },
-    }),
-  );
-}
 
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
-}
-
-// CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width — for
-// a block fragmented by CSS columns this is the union of every fragment, not
-// a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
-// detection, where the union error is dwarfed by the tolerance (see the ADR
-// 0039 fractional fragment-aware amendment). A caller that needs the widest
-// live fragment must use the elementContentWidth pattern in
-// WebEnhancerSupport.kt instead of this function.
-function fragmentedBorderBoxInlineSize(element) {
-  if (!element) return 0;
-  return Number(element.getBoundingClientRect?.().width) || 0;
-}
-
-function styleLengthPx(value) {
-  return Number.parseFloat(value) || 0;
-}
-
-// Shared by the measure-signature builders: exact-font sessions measure the
-// content box, browser-metric sessions the border box. Module scope keeps
-// the AllocationFreeSignatureIteration promise — no per-paragraph closures.
-function paragraphLayoutWidth(element, elementStyle, exactFontLayout) {
-  const value = fragmentedBorderBoxInlineSize(element);
-  if (!exactFontLayout) return value;
-  return value - styleLengthPx(elementStyle.paddingLeft) - styleLengthPx(elementStyle.paddingRight) -
-    styleLengthPx(elementStyle.borderLeftWidth) - styleLengthPx(elementStyle.borderRightWidth);
 }
 
 function belongsToRootScope(element, root) {
@@ -217,7 +150,7 @@ function snapshotCompletionSelector(root) {
 
 function loadExactFontFallback() {
   exactFontFallbackPromise ??= Promise.all([
-    import("./browser-fonts.js"),
+    import("./core/measurement/browser-fonts.js"),
     import("./prepared-dom.js"),
   ]).then(([fonts, preparedDom]) => {
     preparedDom.installPreparedDomRendererBridge();
@@ -232,707 +165,6 @@ function loadExactFontFallback() {
   });
   return exactFontFallbackPromise;
 }
-
-// OffscreenDebounceGate window: an off-screen element's frame task waits this
-// long after its last request before it runs. 200ms covers a full fast-drag
-// sweep, and a paused off-screen element still gets its final layout soon
-// after the window.
-const OFFSCREEN_DEBOUNCE_MS = 200;
-
-// GrantQuotaComplementsDeadline: a grant deadline truncates to whole
-// milliseconds on the coarse clock, so a sub-millisecond remainder could
-// admit many cheap paragraphs in one grant. The quota caps a grant by
-// paragraph count.
-//
-// AdaptiveGrantQuota: the quota is per root and moves with measured frame
-// cost. A commit's real bill lands after the slice returns: style, layout,
-// and accessibility work for the committed paragraphs settle natively in the
-// same task, so the deadline bounds only the JS part. The frame delta after
-// a committing frame measures the whole bill one frame late. A slow frame
-// (delta above the cadence by GRANT_QUOTA_SLOW_FRAME_RATIO) halves that
-// root's quota, a healthy frame (delta under the cadence by
-// GRANT_QUOTA_HEALTHY_FRAME_RATIO) raises it by one. Only roots that
-// committed in the previous frame are judged, so one heavy root converges to
-// small batches while its neighbours keep their headroom. Deltas outside
-// [GRANT_QUOTA_MIN_FRAME_DELTA, GRANT_QUOTA_MAX_FRAME_DELTA] judge nobody:
-// those gaps come from suspended tabs, not from layout work.
-const WORKER_GRANT_QUOTA_MAX = 8;
-const WORKER_GRANT_QUOTA_START = 2;
-const WORKER_GRANT_QUOTA_FLOOR = 1;
-const GRANT_QUOTA_SLOW_FRAME_RATIO = 1.5;
-const GRANT_QUOTA_HEALTHY_FRAME_RATIO = 1.1;
-const GRANT_QUOTA_MIN_FRAME_DELTA = 4.0;
-const GRANT_QUOTA_MAX_FRAME_DELTA = 150.0;
-
-// PrePaintResponsiveCommit allowance window: immediate grants issued from
-// ResizeObserver callbacks share one allowance per rendering update. Two
-// deliveries further apart than this cannot belong to the same update, so
-// the allowance resets. 8ms sits between one 120Hz frame and one 60Hz frame.
-const IMMEDIATE_GRANT_WINDOW_MS = 8;
-
-// WorkerPolledScheduling: the coordinator owns every layout slice of an
-// attached root. Each slot caches liveness plus the three tier counters the
-// Kotlin facade reports, so a polled frame allocates nothing beyond the one
-// scan it already runs; slot objects live from attach to disconnect.
-function sumPendingUpTo(slot, tier) {
-  let total = 0;
-  for (let t = 0; t < tier; t++) total += slot.pendingByTier[t];
-  return total;
-}
-
-class TiqianLayoutCoordinator {
-  #entries = new Map();
-  // OffscreenDebounceGate: when an element is outside the viewport, its frame
-  // tasks wait in this deferred lane. Each repeated request while the element
-  // stays off-screen pushes the task's due time further out, so a fast drag
-  // keeps postponing layout work for elements the user cannot see. One
-  // shared timer moves due tasks back into the normal frame loop, where the
-  // anti-starvation aging rules still apply. When an element returns to the
-  // viewport, its pending task is promoted immediately, so visible content
-  // never waits out the debounce.
-  #deferred = new Map();
-  #deferredTimer = 0;
-  #workerSlots = [];
-  #workerWakeTimer = 0;
-  #frameCounter = 0;
-
-  register(element) {
-    this.#entries.set(element, { inViewport: true });
-  }
-
-  unregister(element) {
-    this.#dropDeferred(element);
-    this.#removeWorkerSlot(element);
-    this.#entries.delete(element);
-  }
-
-  update(element, { inViewport, area, inlineSize, visibleArea, intersectionRatio }) {
-    let entry = this.#entries.get(element);
-    if (!entry) {
-      entry = {
-        inViewport: inViewport ?? true,
-        area: area ?? 0,
-        inlineSize: inlineSize ?? 0,
-        visibleArea: visibleArea ?? 0,
-        intersectionRatio: intersectionRatio ?? 1.0,
-      };
-      this.#entries.set(element, entry);
-    }
-    const wasInViewport = entry.inViewport;
-    if (inViewport !== undefined) entry.inViewport = inViewport;
-    if (area !== undefined) entry.area = area;
-    if (inlineSize !== undefined) entry.inlineSize = inlineSize;
-    if (visibleArea !== undefined) entry.visibleArea = visibleArea;
-    if (intersectionRatio !== undefined) entry.intersectionRatio = intersectionRatio;
-    if (inViewport === true && !wasInViewport) {
-      this.#promoteDeferred(element);
-    }
-  }
-
-  remove(element) {
-    this.#dropDeferred(element);
-    this.#removeWorkerSlot(element);
-    this.#entries.delete(element);
-  }
-
-  #dropDeferred(element) {
-    if (!this.#deferred.delete(element)) return;
-    if (this.#deferred.size === 0 && this.#deferredTimer) {
-      clearTimeout(this.#deferredTimer);
-      this.#deferredTimer = 0;
-    }
-  }
-
-  #promoteDeferred(element) {
-    const bucket = this.#deferred.get(element);
-    if (!bucket) return;
-    this.#deferred.delete(element);
-    if (this.#deferred.size === 0 && this.#deferredTimer) {
-      clearTimeout(this.#deferredTimer);
-      this.#deferredTimer = 0;
-    }
-    for (const task of bucket.tasks.values()) {
-      this.#callbacks.set(task.callback, task);
-    }
-    if (!this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  }
-
-  #flushDeferred = () => {
-    this.#deferredTimer = 0;
-    const now = Date.now();
-    let nextDueAt = Infinity;
-    const deferredBuckets = Array.from(this.#deferred.entries());
-    for (let i = 0; i < deferredBuckets.length; i++) {
-      const element = deferredBuckets[i][0];
-      const bucket = deferredBuckets[i][1];
-      if (bucket.dueAt <= now) {
-        this.#deferred.delete(element);
-        for (const task of bucket.tasks.values()) {
-          this.#callbacks.set(task.callback, task);
-        }
-      } else {
-        nextDueAt = Math.min(nextDueAt, bucket.dueAt);
-      }
-    }
-    if (this.#callbacks.size > 0 && !this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-    if (this.#deferred.size > 0) {
-      this.#deferredTimer = setTimeout(this.#flushDeferred, Math.max(0, nextDueAt - Date.now()));
-    }
-  };
-
-  #callbacks = new Map();
-  #rafId = 0;
-  #budgetMs = 6.0;
-  #lastFrameTimestamp = 0;
-  #hasFrameTimestamp = false;
-  #measuredFrameInterval = 16.67;
-  #immediateWindowStart = -Infinity;
-  #immediateSpentMs = 0;
-
-  #runFrameLoop = (now) => {
-    this.#rafId = 0;
-    this.#frameCounter += 1;
-
-    // RefreshAnchoredFrameBudget: the frame budget follows the measured
-    // display cadence only. The previous event-driven regulator shrank the
-    // budget on long frames and kept a shared EMA of slice durations, so one
-    // slow first slice could close the grant gate for every root until the
-    // idle-frame escape kicked in. Scheduling pressure now expresses itself
-    // by itself: a late frame starts late and the absolute deadline simply
-    // covers less work.
-    let frameDelta = 0;
-    // The explicit flag keeps the first delta at zero even when a host or
-    // test clock starts at exactly zero, so frame two gets a real verdict.
-    if (this.#hasFrameTimestamp) {
-      frameDelta = now - this.#lastFrameTimestamp;
-      if (frameDelta > 4.0 && frameDelta < 150.0) {
-        if (frameDelta < this.#measuredFrameInterval * 1.1) {
-          this.#measuredFrameInterval = 0.9 * this.#measuredFrameInterval + 0.1 * frameDelta;
-        }
-      }
-    }
-    this.#lastFrameTimestamp = now;
-    this.#hasFrameTimestamp = true;
-    this.#budgetMs = Math.min(6.0, Math.max(2.5, this.#measuredFrameInterval * 0.4));
-    this.#applyGrantQuotaFeedback(frameDelta);
-
-    const allTasks = Array.from(this.#callbacks.values());
-    this.#callbacks.clear();
-
-    // Human-centric visual prominence ordering with Anti-Starvation aging:
-    // 1. inViewport + high intersection ratio + large visible area first;
-    // 2. Add deferCount aging boost so tasks that have waited multiple frames bubble up.
-    if (allTasks.length > 1) {
-      allTasks.sort((a, b) => {
-        const entryA = a.element ? this.#entries.get(a.element) : null;
-        const entryB = b.element ? this.#entries.get(b.element) : null;
-
-        const inViewA = entryA?.inViewport ? 1 : 0;
-        const inViewB = entryB?.inViewport ? 1 : 0;
-
-        const visibleScoreA = entryA
-          ? ((entryA.visibleArea || entryA.area || 0) * (1.0 + (entryA.intersectionRatio || 0)) + (entryA.inlineSize || 0))
-          : 0;
-        const visibleScoreB = entryB
-          ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) + (entryB.inlineSize || 0))
-          : 0;
-
-        // VisibleClassBeforeScore, same as the worker comparator: the
-        // off-screen `visibleArea || area` fallback can exceed any additive
-        // in-viewport bonus, so visibility is a strict class comparison and
-        // score plus anti-starvation aging order only within a class.
-        if (inViewA !== inViewB) return inViewB - inViewA;
-        const priorityA = visibleScoreA + (a.deferCount || 0) * 50000;
-        const priorityB = visibleScoreB + (b.deferCount || 0) * 50000;
-
-        return priorityB - priorityA;
-      });
-    }
-
-    // ClockTierDiscipline: budget deadlines read performance.now. The rAF
-    // timestamp marks the frame start and lags behind callback execution in
-    // a long frame, so a budget window started from it can already be
-    // expired. Worker grants pass the remaining milliseconds as a duration,
-    // so the runtime measures them on its own Date.now timeline and the two
-    // clocks never mix. Coarse lanes such as debounce due times and duration
-    // statistics run on Date.now; millisecond resolution is enough there.
-    const startTime = performance.now();
-    let executedCount = 0;
-
-    for (let i = 0; i < allTasks.length; i++) {
-      const task = allTasks[i];
-      const elapsed = performance.now() - startTime;
-
-      // Yield once the budget is spent. The first task always runs; a
-      // prediction of the next task's cost was removed with the slice EMA.
-      if (executedCount > 0 && elapsed >= this.#budgetMs) {
-        for (let j = i; j < allTasks.length; j++) {
-          const deferredTask = allTasks[j];
-          deferredTask.deferCount = (deferredTask.deferCount || 0) + 1;
-          this.#callbacks.set(deferredTask.callback, deferredTask);
-        }
-        this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-        break;
-      }
-
-      try {
-        task.callback(now);
-        executedCount++;
-      } catch (e) {
-        console.error("Tiqian frame task error", e);
-      }
-    }
-
-    // Worker grants share the same frame budget the task loop just used;
-    // a dispatch task that started a job in this frame sees its first slice
-    // granted in the same frame.
-    const workerGrants = this.#pollWorkers(startTime, executedCount);
-
-    this.#retainWorkerFrame();
-
-    this.#traceFrame(now, executedCount, workerGrants);
-
-    if (this.#callbacks.size > 0 && !this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  };
-
-  // FrameTraceDiagnostics: opt-in scheduling evidence for stalls. A page that
-  // sets globalThis.__tqTrace (with { maxEntries }) before the first enhance
-  // gets one compact row per frame in globalThis.__tqFrameTrace; without the
-  // opt-in the cost is one property read per frame.
-  #traceFrame(now, executedCount, workerGrants) {
-    const trace = globalThis.__tqTrace;
-    if (!trace) return;
-    const ring = globalThis.__tqFrameTrace ?? (globalThis.__tqFrameTrace = []);
-    let activeSlots = 0;
-    let totalPending = 0;
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      const slot = this.#workerSlots[i];
-      if (!slot.active) continue;
-      activeSlots += 1;
-      totalPending += slot.pendingByTier[0] + slot.pendingByTier[1] + slot.pendingByTier[2];
-    }
-    ring.push([
-      Math.round(now), Math.round(this.#budgetMs * 10) / 10,
-      executedCount, workerGrants,
-      activeSlots, totalPending, this.#callbacks.size,
-    ]);
-    const maxEntries = trace.maxEntries ?? 600;
-    if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
-  }
-
-  // AdaptiveGrantQuota feedback pass: the constant block above holds the
-  // full contract. This runs before any task or grant of the new frame, so
-  // the quota a grant reads already carries the previous frame's verdict.
-  // The verdict is per slot but the frame delta is shared: native follow-up
-  // cost cannot be split by root, so every root that committed in the slow
-  // frame is judged. An innocent neighbour recovers its headroom at one
-  // quota step per frame.
-  #applyGrantQuotaFeedback(frameDelta) {
-    if (frameDelta <= GRANT_QUOTA_MIN_FRAME_DELTA) return;
-    if (frameDelta >= GRANT_QUOTA_MAX_FRAME_DELTA) return;
-    const slowFrame = frameDelta > this.#measuredFrameInterval * GRANT_QUOTA_SLOW_FRAME_RATIO;
-    const healthyFrame = !slowFrame &&
-      frameDelta < this.#measuredFrameInterval * GRANT_QUOTA_HEALTHY_FRAME_RATIO;
-    if (!slowFrame && !healthyFrame) return;
-    const committingFrame = this.#frameCounter - 1;
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      const slot = this.#workerSlots[i];
-      if (slot.lastGrantFrame !== committingFrame) continue;
-      if (slowFrame) {
-        slot.quota = Math.max(WORKER_GRANT_QUOTA_FLOOR, Math.floor(slot.quota / 2));
-      } else {
-        slot.quota = Math.min(WORKER_GRANT_QUOTA_MAX, slot.quota + 1);
-      }
-    }
-  }
-
-  requestFrame(callback, element = null) {
-    const existing = this.#callbacks.get(callback);
-    const task = {
-      callback,
-      element,
-      deferCount: existing ? existing.deferCount : 0,
-    };
-    const entry = element && this.#entries.get(element);
-    if (entry && !entry.inViewport) {
-      // OffscreenRequestQueue: one element can have several distinct
-      // callbacks pending while off screen (initial enhance plus responsive
-      // commits). Keep every callback per element; a single slot would let
-      // the newest request silently drop the older ones.
-      let bucket = this.#deferred.get(element);
-      if (!bucket) {
-        bucket = { dueAt: 0, tasks: new Map() };
-        this.#deferred.set(element, bucket);
-      }
-      const pending = bucket.tasks.get(callback);
-      task.deferCount = Math.max(task.deferCount, pending ? pending.deferCount : 0);
-      bucket.tasks.set(callback, task);
-      bucket.dueAt = Date.now() + OFFSCREEN_DEBOUNCE_MS;
-      if (!this.#deferredTimer) {
-        this.#deferredTimer = setTimeout(this.#flushDeferred, OFFSCREEN_DEBOUNCE_MS);
-      }
-      return;
-    }
-    this.#callbacks.set(callback, task);
-    if (this.#rafId) return;
-    this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-  }
-
-  cancelFrame(callback) {
-    this.#callbacks.delete(callback);
-    const deferredBuckets = Array.from(this.#deferred.entries());
-    for (let i = 0; i < deferredBuckets.length; i++) {
-      const element = deferredBuckets[i][0];
-      const bucket = deferredBuckets[i][1];
-      bucket.tasks.delete(callback);
-      if (bucket.tasks.size === 0) this.#dropDeferred(element);
-    }
-    if (this.#callbacks.size === 0 && this.#rafId) {
-      cancelAnimationFrame(this.#rafId);
-      this.#rafId = 0;
-    }
-  }
-
-  registerWorker(element, runtime) {
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) {
-        this.#workerSlots[i].runtime = runtime;
-        return;
-      }
-    }
-    this.#workerSlots.push({
-      element,
-      runtime,
-      active: false,
-      pendingByTier: [0, 0, 0],
-      generation: 0,
-      deferredUntil: 0,
-      deferCount: 0,
-      lastGrantFrame: -1,
-      quota: WORKER_GRANT_QUOTA_START,
-    });
-  }
-
-  // PrePaintResponsiveCommit: a width-only relayout dispatched from inside a
-  // ResizeObserver callback still runs before the browser paints the resized
-  // frame, so draining the job's in-viewport tier here removes the one
-  // painted frame in which stale lines overflow the narrowed container. The
-  // grant copies the polled-grant contract (job generation, per-root quota,
-  // deadline in the Date.now domain) and draws from a shared per-update
-  // allowance; once it is spent, later callers fall back to the scheduled
-  // lane. Remaining tiers stay with the polled frame loop.
-  grantImmediate(element) {
-    let slot = null;
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) {
-        slot = this.#workerSlots[i];
-        break;
-      }
-    }
-    if (!slot || typeof slot.runtime?.workerRunSlice !== "function") return false;
-    if (!slot.runtime.workerHasJob(element)) return false;
-    const now = performance.now();
-    if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
-      this.#immediateWindowStart = now;
-      this.#immediateSpentMs = 0;
-    }
-    // The pre-paint lane trades directly against this frame's paint
-    // headroom, so it may spend up to half the measured frame interval;
-    // the shared window serializes concurrent roots.
-    const ceiling = Math.max(this.#budgetMs, this.#measuredFrameInterval * 0.5);
-    const allowance = ceiling - this.#immediateSpentMs;
-    if (allowance <= 0) return false;
-    const generation = slot.runtime.workerJobGeneration(element);
-    const quota = slot.quota;
-    const grantDeadline = Date.now() + allowance;
-    let processed = 0;
-    const viewportAnchor = captureViewportAnchor(element);
-    try {
-      // Drain the in-viewport tier like a polled grant round: one slice per
-      // quota batch until the tier is empty or the allowance is spent, so a
-      // root whose visible paragraph count exceeds the adaptive quota still
-      // commits atomically before this frame paints.
-      while (Date.now() < grantDeadline) {
-        const sliceProcessed = slot.runtime.workerRunSlice({
-          root: element,
-          generation,
-          deadline: grantDeadline,
-          quota,
-          shouldStop(processedCount) {
-            return processedCount >= quota || Date.now() >= grantDeadline;
-          },
-        }, 1);
-        processed += sliceProcessed;
-        if (sliceProcessed === 0) break;
-        if (slot.runtime.workerPendingInTier(element, 1) === 0) break;
-      }
-    } finally {
-      this.#immediateSpentMs += performance.now() - now;
-    }
-    if (processed > 0) {
-      compensateViewportAnchor(element, viewportAnchor);
-      slot.deferCount = 0;
-      slot.lastGrantFrame = this.#frameCounter;
-    }
-    slot.active = slot.runtime.workerHasJob(element);
-    if (!slot.active) releaseNativeScrollAnchoring(element);
-    slot.pendingByTier[0] = slot.runtime.workerPendingInTier(element, 1);
-    slot.pendingByTier[1] = slot.runtime.workerPendingInTier(element, 2);
-    slot.pendingByTier[2] = slot.runtime.workerPendingInTier(element, 3);
-    return processed > 0;
-  }
-
-  #removeWorkerSlot(element) {
-    const slots = this.#workerSlots;
-    for (let i = 0; i < slots.length; i++) {
-      if (slots[i].element !== element) continue;
-      slots[i] = slots[slots.length - 1];
-      slots.pop();
-      break;
-    }
-    if (slots.length === 0 && this.#workerWakeTimer) {
-      clearTimeout(this.#workerWakeTimer);
-      this.#workerWakeTimer = 0;
-    }
-  }
-
-  setWorkerActive(element, active) {
-    const slot = this.#findWorkerSlot(element);
-    if (!slot) return;
-    slot.active = active;
-    if (active && !this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  }
-
-  // OffscreenWorkerDebounce: an off-screen root with pending layout work is
-  // granted nothing until this trailing window expires. Width changes while
-  // the root stays off-screen keep pushing the due time out, so a fast drag
-  // lays out only the final width.
-  refreshWorkerDeferred(element) {
-    const slot = this.#findWorkerSlot(element);
-    if (slot) slot.deferredUntil = Date.now() + OFFSCREEN_DEBOUNCE_MS;
-  }
-
-  clearWorkerDeferred(element) {
-    const slot = this.#findWorkerSlot(element);
-    if (!slot) return;
-    slot.deferredUntil = 0;
-    if (!this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  }
-
-  requestWorkerFrame(element) {
-    if (!this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  }
-
-  #findWorkerSlot(element) {
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) return this.#workerSlots[i];
-    }
-    return null;
-  }
-
-  #compareWorkerSlots = (a, b) => {
-    const entryA = this.#entries.get(a.element);
-    const entryB = this.#entries.get(b.element);
-    const inViewA = entryA?.inViewport ? 1 : 0;
-    const inViewB = entryB?.inViewport ? 1 : 0;
-    const visibleScoreA = entryA
-      ? ((entryA.visibleArea || entryA.area || 0) * (1.0 + (entryA.intersectionRatio || 0)) +
-        (entryA.inlineSize || 0))
-      : 0;
-    const visibleScoreB = entryB
-      ? ((entryB.visibleArea || entryB.area || 0) * (1.0 + (entryB.intersectionRatio || 0)) +
-        (entryB.inlineSize || 0))
-      : 0;
-    // VisibleClassBeforeScore: pollWorkers derives visibleCount from the
-    // sorted prefix, so the in-viewport class must strictly precede the
-    // off-screen class no matter how large any score term grows — an
-    // additive bonus cannot guarantee that, because `visibleArea || area`
-    // falls back to the element's FULL area for off-screen entries. Aging
-    // stays capped for the same reason and orders only within a class.
-    if (inViewA !== inViewB) return inViewB - inViewA;
-    const priorityA = visibleScoreA + Math.min(a.deferCount * 50000, 900000);
-    const priorityB = visibleScoreB + Math.min(b.deferCount * 50000, 900000);
-    return priorityB - priorityA;
-  };
-
-  #pollWorkers(startTime, executedCount) {
-    const slots = this.#workerSlots;
-    if (slots.length === 0) return 0;
-    const deadline = startTime + this.#budgetMs;
-    // GrantClockConversion: the frame deadline lives in the performance.now()
-    // domain while the runtime's stop closure reads the coarse Date.now()
-    // clock. Reading both clocks once per poll yields this frame's offset;
-    // each grant converts its deadline by adding it, so both sides of a
-    // grant share one anchor and the runtime holds no clock arithmetic.
-    const grantDeadline = deadline + (Date.now() - performance.now());
-    // One scan per frame: liveness, job generation, and the three tier
-    // counters per attached root. Grants re-read only the tier they drained.
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      if (slot.runtime.workerHasJob(slot.element)) {
-        slot.active = true;
-        slot.generation = slot.runtime.workerJobGeneration(slot.element);
-        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
-      } else {
-        slot.active = false;
-        slot.generation = 0;
-        slot.pendingByTier[0] = 0;
-        slot.pendingByTier[1] = 0;
-        slot.pendingByTier[2] = 0;
-        // NativeAnchoringHandover: the job is over; hand the scroller back to
-        // the browser's own anchoring until the next slice commits.
-        releaseNativeScrollAnchoring(slot.element);
-      }
-    }
-    slots.sort(this.#compareWorkerSlots);
-    let visibleCount = 0;
-    while (visibleCount < slots.length && this.#entries.get(slots[visibleCount].element)?.inViewport) {
-      visibleCount += 1;
-    }
-    let grants = 0;
-    let workDone = executedCount;
-    const grantSlot = (slot, tier) => {
-      // SliceCommitAnchorCompensation: every slice this grant runs happens in
-      // this same task, so one capture/compensate pair around the drain sees
-      // the pure layout displacement of all its commits.
-      let viewportAnchor = null;
-      let anchorCaptured = false;
-      let grantProcessed = 0;
-      const finish = (result) => {
-        if (grantProcessed > 0) compensateViewportAnchor(slot.element, viewportAnchor);
-        return result;
-      };
-      while (sumPendingUpTo(slot, tier) > 0) {
-        const now = performance.now();
-        // DeadlineGate: grants stop once the frame budget is spent. A frame
-        // that produced no work at all still grants once, so a job whose
-        // every slice outlasts the budget keeps making progress.
-        const guaranteeForwardProgress = workDone === 0;
-        if (!guaranteeForwardProgress && now >= deadline) {
-          return finish(false);
-        }
-        // GrantController: one controller per grant. It carries value-copied
-        // stop terms for this recipient alone: the root, the job generation
-        // this grant addresses, the Date.now()-domain deadline, and the
-        // paragraph quota. The closure captures only those numbers, never
-        // coordinator state, so the runtime can reach no other root through
-        // a grant. The loop asks shouldStop after each paragraph and obeys.
-        const quota = slot.quota;
-        if (!anchorCaptured) {
-          anchorCaptured = true;
-          viewportAnchor = captureViewportAnchor(slot.element);
-        }
-        const processed = slot.runtime.workerRunSlice({
-          root: slot.element,
-          generation: slot.generation,
-          deadline: grantDeadline,
-          quota,
-          shouldStop(processedCount) {
-            return processedCount >= quota || Date.now() >= grantDeadline;
-          },
-        }, tier);
-        if (processed > 0) {
-          grants += 1;
-          workDone += 1;
-          grantProcessed += processed;
-          slot.deferCount = 0;
-          slot.lastGrantFrame = this.#frameCounter;
-        }
-        // A tier-N grant may drain leftover lower-tier items, so every grant
-        // refreshes all three counters.
-        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
-        if (processed === 0) return finish(true);
-      }
-      return finish(true);
-    };
-    // TierOrderedGrants: tiers drain in order across roots. Every visible
-    // root finishes tier 1, its in-viewport paragraphs, before any root
-    // starts tier 2; tier 3 comes last. Off-screen roots join only after
-    // their debounce expires, behind every visible tier.
-    for (let tier = 1; tier <= 3; tier++) {
-      for (let i = 0; i < visibleCount; i++) {
-        if (slots[i].active && !grantSlot(slots[i], tier)) return grants;
-      }
-    }
-    const nowMs = Date.now();
-    for (let i = visibleCount; i < slots.length; i++) {
-      const slot = slots[i];
-      if (!slot.active || !(slot.deferredUntil > 0) || slot.deferredUntil > nowMs) continue;
-      for (let tier = 1; tier <= 3; tier++) {
-        if (!grantSlot(slot, tier)) return grants;
-      }
-    }
-    return grants;
-  }
-
-  #retainWorkerFrame() {
-    const slots = this.#workerSlots;
-    const now = Date.now();
-    let keepFrames = false;
-    let nextWakeAt = Infinity;
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i];
-      if (!slot.active) {
-        // deferCount otherwise resets only on a successful grant, so a slot
-        // whose job is gone would keep its aging boost forever.
-        slot.deferCount = 0;
-        continue;
-      }
-      const total = slot.pendingByTier[0] + slot.pendingByTier[1] + slot.pendingByTier[2];
-      if (total === 0) {
-        slot.deferCount = 0;
-        continue;
-      }
-      if (this.#entries.get(slot.element)?.inViewport) {
-        keepFrames = true;
-      } else if (!slot.deferredUntil) {
-        // First frame this off-screen root has pending work: the debounce
-        // window starts now and the first grant follows its expiry.
-        slot.deferredUntil = now + OFFSCREEN_DEBOUNCE_MS;
-        if (slot.lastGrantFrame !== this.#frameCounter) slot.deferCount += 1;
-        nextWakeAt = Math.min(nextWakeAt, slot.deferredUntil);
-      } else if (slot.deferredUntil <= now) {
-        keepFrames = true;
-      } else {
-        if (slot.lastGrantFrame !== this.#frameCounter) slot.deferCount += 1;
-        nextWakeAt = Math.min(nextWakeAt, slot.deferredUntil);
-      }
-    }
-    if (keepFrames && !this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-    if (nextWakeAt < Infinity && !this.#workerWakeTimer) {
-      this.#workerWakeTimer = setTimeout(
-        this.#flushWorkerWake,
-        Math.max(0, nextWakeAt - Date.now()),
-      );
-    }
-  }
-
-  #flushWorkerWake = () => {
-    this.#workerWakeTimer = 0;
-    if (!this.#rafId) {
-      this.#rafId = requestAnimationFrame(this.#runFrameLoop);
-    }
-  };
-}
-
 const coordinator = new TiqianLayoutCoordinator();
 
 class TiqianProseElement extends HTMLElementBase {
@@ -996,8 +228,7 @@ class TiqianProseElement extends HTMLElementBase {
   #resizeObserver = null;
   #resizeObserverFrame = 0;
   #resizeObserverWidths = null;
-  #paragraphGridMetrics = null;
-  #paragraphGridRootFontSize = "";
+  #gridMetricsState = createParagraphGridMetricsState();
   #pendingCommittedMeasures = "";
   #responsiveCommitRequired = false;
   #responsiveRetargetFrame = 0;
@@ -2249,7 +1480,7 @@ class TiqianProseElement extends HTMLElementBase {
     // A source refresh replaces the rendered paragraphs, so the seeded grid
     // metrics are for nodes about to leave the tree; drop them and let the
     // observer re-seed the rebuilt paragraphs.
-    this.#paragraphGridMetrics = null;
+    this.#gridMetricsState.metrics = null;
     const generation = this.#generation;
     if (this.#runtimeStateActive) {
       // ResponsiveNativeBacking: pre-broken Tiqian lines cannot reflow while a
@@ -2287,7 +1518,7 @@ class TiqianProseElement extends HTMLElementBase {
         // drops the seeds while surviving paragraph nodes stay in the width
         // map, and the width gate alone would then strand them on the
         // read-based fallback for every commit.
-        if (!this.#paragraphGridMetrics?.has(paragraph)) this.#seedParagraphGridMetrics(paragraph);
+        if (!this.#gridMetricsState.metrics?.has(paragraph)) this.#seedParagraphGridMetrics(paragraph);
         if (this.#resizeObserverWidths.has(paragraph)) continue;
         this.#resizeObserverWidths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
         this.#resizeObserver.observe(paragraph, { box: "border-box" });
@@ -2658,7 +1889,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#resizeObserver?.disconnect();
     this.#resizeObserver = null;
     this.#resizeObserverWidths = null;
-    this.#paragraphGridMetrics = null;
+    this.#gridMetricsState.metrics = null;
     this.#lastObservedWidth = 0;
     if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
     this.#resizeObserverFrame = 0;
@@ -3170,111 +2401,23 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #typographySignature(includeGenerated = true) {
-    const elements = this.#typographyElements();
-    let sig = "";
-    for (let i = 0; i < elements.length; i++) {
-      if (i > 0) sig += "\u001e";
-      sig += this.#elementTypographySignature(elements[i], includeGenerated);
-    }
-    return sig;
+    return typographySignature(this, includeGenerated);
   }
 
-  #elementTypographySignature(
-    element,
-    includeGenerated = true,
-    properties = TYPOGRAPHY_PROPERTIES,
-  ) {
-    const style = getComputedStyle(element);
-    let sig = element.tagName;
-    for (let i = 0; i < properties.length; i++) {
-      sig += "\u001f" + style.getPropertyValue(properties[i]);
-    }
-    if (includeGenerated) {
-      for (let i = 0; i < TYPOGRAPHY_PSEUDO_SELECTORS.length; i++) {
-        const selector = TYPOGRAPHY_PSEUDO_SELECTORS[i];
-        const pseudo = getComputedStyle(element, selector);
-        sig += "\u001f" +
-          pseudo.getPropertyValue("content") + "\u001d" +
-          pseudo.getPropertyValue("font-family") + "\u001d" +
-          pseudo.getPropertyValue("font-size") + "\u001d" +
-          pseudo.getPropertyValue("font-weight") + "\u001d" +
-          pseudo.getPropertyValue("font-style") + "\u001d" +
-          pseudo.getPropertyValue("font-feature-settings") + "\u001d" +
-          pseudo.getPropertyValue("font-variation-settings") + "\u001d" +
-          pseudo.getPropertyValue("font-variant") + "\u001d" +
-          pseudo.getPropertyValue("font-language-override") + "\u001d" +
-          pseudo.getPropertyValue("letter-spacing") + "\u001d" +
-          pseudo.getPropertyValue("word-spacing");
-      }
-    }
-    return sig;
+  #elementTypographySignature(element, includeGenerated = true, properties = TYPOGRAPHY_PROPERTIES) {
+    return elementTypographySignature(element, includeGenerated, properties);
   }
 
   #captureLayoutWorkViewportTypographyEntries() {
-    const entries = [{
-      element: this,
-      includeGenerated: false,
-      properties: ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES,
-      signature: this.#elementTypographySignature(
-        this,
-        false,
-        ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES,
-      ),
-    }];
-    const elements = this.#typographyElements();
-    for (let i = 0; i < elements.length; i++) {
-      const element = elements[i];
-      entries.push({
-        element,
-        includeGenerated: true,
-        properties: TYPOGRAPHY_PROPERTIES,
-        signature: this.#elementTypographySignature(element, true, TYPOGRAPHY_PROPERTIES),
-      });
-    }
-    return entries;
+    return captureLayoutWorkViewportTypographyEntries(this);
   }
 
   #layoutWorkViewportTypographyChanged() {
-    // NativeSourceViewportTypographySignature: progressive renderer output is
-    // not a layout input. Compare the root plus only source elements that have
-    // not yet been replaced, using their pre-work computed typography. This
-    // catches viewport media-query changes without treating Tiqian's own
-    // line-height/font projection/containing-block CSS as a host mutation.
-    const entries = this.#layoutWorkViewportTypographyEntries;
-    for (let i = 0; i < entries.length; i++) {
-      const { element, includeGenerated, properties, signature } = entries[i];
-      if (element !== this && (
-        !element.isConnected || element.closest("[data-tq-rendered='true']")
-      )) continue;
-      if (this.#elementTypographySignature(element, includeGenerated, properties) !== signature) {
-        return true;
-      }
-    }
-    return false;
+    return layoutWorkViewportTypographyChanged(this, this.#layoutWorkViewportTypographyEntries);
   }
 
   #typographyElements() {
-    const elements = [];
-    const seenGroups = new Set();
-    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
-    for (let i = 0; i < paragraphs.length; i++) {
-      const paragraph = paragraphs[i];
-      elements.push(paragraph);
-      const rendered = paragraph.hasAttribute("data-tq-rendered");
-      const descendants = rendered
-        ? paragraph.querySelectorAll("[data-tq-source-semantic], [data-tq-inline-object]")
-        : paragraph.querySelectorAll("*");
-      for (let j = 0; j < descendants.length; j++) {
-        const element = descendants[j];
-        const group =
-          element.getAttribute("data-tq-link-group") ??
-          element.getAttribute("data-tq-inline-group");
-        if (group && seenGroups.has(group)) continue;
-        if (group) seenGroups.add(group);
-        elements.push(element);
-      }
-    }
-    return elements;
+    return typographyElements(this);
   }
 
   #observeIntersection() {
@@ -3320,111 +2463,34 @@ class TiqianProseElement extends HTMLElementBase {
     this.#intersectionObserver = null;
   }
 
-  // AllocationFreeSignatureIteration: the signature builders run on every
-  // responsive commit and layout-work finish. Indexed loops with direct
-  // concatenation avoid intermediate arrays and per-paragraph closures, and
-  // keep the builders on the same shape as #typographySignature.
   #paragraphWidthSignature() {
-    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
-    let signature = "";
-    for (let i = 0; i < paragraphs.length; i++) {
-      if (i > 0) signature += "\u001f";
-      signature += fragmentedBorderBoxInlineSize(paragraphs[i]).toFixed(3);
-    }
-    return signature;
+    return paragraphWidthSignature(this);
   }
 
   #responsiveGeometrySignature() {
-    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
-    let signature = String(fragmentedBorderBoxInlineSize(this));
-    for (let i = 0; i < paragraphs.length; i++) {
-      signature += "\u001f";
-      signature += fragmentedBorderBoxInlineSize(paragraphs[i]);
-    }
-    return signature;
+    return responsiveGeometrySignature(this);
   }
 
   #paragraphMeasureSignature() {
-    const exactFontLayout = Boolean(this.#exactFontSession);
-    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
-    let signature = "";
-    for (let i = 0; i < paragraphs.length; i++) {
-      if (i > 0) signature += "\u001f";
-      signature += this.#paragraphMeasureEntry(paragraphs[i], exactFontLayout);
-    }
-    return signature;
+    return paragraphMeasureSignature(this, Boolean(this.#exactFontSession));
   }
 
   #paragraphMeasureEntry(paragraph, exactFontLayout) {
-    const style = getComputedStyle(paragraph);
-    const fontSize = Number.parseFloat(style.fontSize);
-    let width = paragraphLayoutWidth(paragraph, style, exactFontLayout);
-    if (!(width > 0)) {
-      const parent = paragraph.parentElement;
-      if (parent) width = paragraphLayoutWidth(parent, getComputedStyle(parent), exactFontLayout);
-    }
-    const measure = lineLengthGridMeasure(width, fontSize);
-    return measure == null
-      ? `invalid:${width.toFixed(3)}:${style.fontSize}`
-      : `${Math.fround(fontSize)}:${measure}`;
+    return paragraphMeasureEntry(paragraph, exactFontLayout);
   }
 
-  // ObservedMeasureSignature: the same entries as
-  // #paragraphMeasureSignature, built from ResizeObserver-delivered widths
-  // and seeded font metrics — zero layout reads on the per-width-event hot
-  // paths (the ResponsiveFinishSkipsDoomedSignatureReads budget). Unseeded
-  // or zero-width paragraphs fall back to the read-based entry; observed
-  // widths may trail live layout by one delivery, so a crossing commits at
-  // most one frame later than the pre-paint lane.
   #paragraphMeasureSignatureFromObserved() {
-    // Seeded metrics freeze each paragraph's fontSize at observation time,
-    // which goes blind when a media or container breakpoint rescales type in
-    // the same resize that crosses it. One root read per call catches the
-    // inherited case and drops the seeds so this pass reads live values; a
-    // paragraph whose font responds independently of the root still goes
-    // through the typography lane.
-    const rootFontSize = getComputedStyle(this).fontSize;
-    if (rootFontSize !== this.#paragraphGridRootFontSize) {
-      this.#paragraphGridRootFontSize = rootFontSize;
-      this.#paragraphGridMetrics = null;
-    }
-    const widths = this.#resizeObserverWidths;
-    const metrics = this.#paragraphGridMetrics;
-    if (!widths || !metrics) return this.#paragraphMeasureSignature();
-    const exactFontLayout = Boolean(this.#exactFontSession);
-    const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
-    let signature = "";
-    for (let i = 0; i < paragraphs.length; i++) {
-      const paragraph = paragraphs[i];
-      if (i > 0) signature += "\u001f";
-      const m = metrics.get(paragraph);
-      let width = widths.get(paragraph);
-      if (m == null || width == null) {
-        signature += this.#paragraphMeasureEntry(paragraph, exactFontLayout);
-        continue;
-      }
-      if (exactFontLayout) width -= m.inset;
-      if (!(width > 0)) {
-        signature += this.#paragraphMeasureEntry(paragraph, exactFontLayout);
-        continue;
-      }
-      const measure = lineLengthGridMeasure(width, m.fontSize);
-      signature += measure == null
-        ? `invalid:${width.toFixed(3)}:${m.fontSizePx}`
-        : `${Math.fround(m.fontSize)}:${measure}`;
-    }
-    return signature;
+    return paragraphMeasureSignatureFromObserved(
+      this,
+      this.#gridMetricsState,
+      this.#resizeObserverWidths,
+      Boolean(this.#exactFontSession),
+      () => this.#paragraphMeasureSignature(),
+    );
   }
 
   #seedParagraphGridMetrics(paragraph) {
-    const style = getComputedStyle(paragraph);
-    const number = (value) => Number.parseFloat(value) || 0;
-    (this.#paragraphGridMetrics ??= new WeakMap()).set(paragraph, {
-      fontSize: Number.parseFloat(style.fontSize),
-      fontSizePx: style.fontSize,
-      inset: number(style.paddingLeft) + number(style.paddingRight) +
-        number(style.borderLeftWidth) + number(style.borderRightWidth),
-    });
+    seedParagraphGridMetrics(this.#gridMetricsState, paragraph);
   }
 }
 

@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   mergeSerializedSourceBoundaries,
   workerExactSubsetSourceBoundaries,
-} from "./font-face-boundaries.js";
+} from "./core/sampler/font-face-boundaries.js";
 
 function face(sourceOrder, unicodeRange, publicUrl) {
   return {

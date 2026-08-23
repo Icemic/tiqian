@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 
-import { createBrowserFontSessionLoader } from "./browser-fonts.js";
+import { createBrowserFontSessionLoader } from "./core/measurement/browser-fonts.js";
 import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,

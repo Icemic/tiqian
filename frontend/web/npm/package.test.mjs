@@ -116,7 +116,10 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const elementDeclarations = await readFile(new URL("./element.d.ts", import.meta.url), "utf8");
   const apiSource = await readFile(new URL("./api.js", import.meta.url), "utf8");
   const apiDeclarations = await readFile(new URL("./api.d.ts", import.meta.url), "utf8");
-  const browserFontsSource = await readFile(new URL("./browser-fonts.js", import.meta.url), "utf8");
+  const browserFontsSource = await readFile(
+    new URL("./core/measurement/browser-fonts.js", import.meta.url),
+    "utf8",
+  );
   const layoutWorkerSource = await readFile(new URL("./layout-worker.js", import.meta.url), "utf8");
   const lazyCapabilitiesSource = await readFile(new URL("./lazy-capabilities.js", import.meta.url), "utf8");
   const runtimeSource = await readFile(new URL("./runtime.js", import.meta.url), "utf8");
@@ -172,7 +175,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(runtimeSource, /import\("\.\/runtime\/tiqian-web\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
-  assert.match(elementSource, /import\("\.\/browser-fonts\.js"\)/u);
+  assert.match(elementSource, /import\("\.\/core\/measurement\/browser-fonts\.js"\)/u);
   assert.match(elementSource, /import\("\.\/prepared-dom\.js"\)/u);
   assert.match(elementSource, /import\("\.\/worker-layout\.js"\)/u);
   assert.match(elementSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
@@ -286,10 +289,14 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
-  assert.match(elementSource, /function fragmentedBorderBoxInlineSize\(element\)/u);
+  const signaturesSource = await readFile(
+    new URL("./core/sampler/signatures.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(signaturesSource, /function fragmentedBorderBoxInlineSize\(element\)/u);
   assert.match(
-    elementSource,
-    /#responsiveGeometrySignature\(\)[\s\S]*?fragmentedBorderBoxInlineSize\(this\)/u,
+    signaturesSource,
+    /responsiveGeometrySignature\(root\)[\s\S]*?fragmentedBorderBoxInlineSize\(root\)/u,
   );
   assert.doesNotMatch(elementSource, /RESPONSIVE_LAYOUT_SETTLE_MS|#resizeSettleTimer/u);
   assert.doesNotMatch(elementSource, /RESPONSIVE_LATEST_RETARGET_QUIET_MS/u);
@@ -315,11 +322,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /ProgressiveOutputTypographyBaseline[\s\S]*?#layoutWorkTypographySignature = this\.#typographySignature\(\)/u,
   );
   assert.match(
-    elementSource,
-    /NativeSourceViewportTypographySignature[\s\S]*?!element\.isConnected[\s\S]*?element\.closest\("\[data-tq-rendered='true'\]"\)[\s\S]*?#elementTypographySignature\(element, includeGenerated, properties\) !== signature/u,
+    signaturesSource,
+    /NativeSourceViewportTypographySignature[\s\S]*?!element\.isConnected[\s\S]*?element\.closest\("\[data-tq-rendered='true'\]"\)[\s\S]*?elementTypographySignature\(element, includeGenerated, properties\) !== signature/u,
   );
   assert.match(
-    elementSource,
+    signaturesSource,
     /ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES\.filter\([\s\S]*?property !== "margin-left" && property !== "margin-right"/u,
   );
   assert.match(
@@ -499,10 +506,14 @@ test("the custom element validates a snapshot before dynamically loading the bro
 
 test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
   const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+  const coordinatorSource = await readFile(
+    new URL("./core/engine/coordinator/coordinator.js", import.meta.url),
+    "utf8",
+  );
 
   // 1. Visual prominence scoring formula: visibleArea * (1 + ratio) + inlineSize
   assert.match(
-    elementSource,
+    coordinatorSource,
     /visibleScore[AB] = entry[AB][\s\S]*?\(entry[AB]\.visibleArea \|\| entry[AB]\.area \|\| 0\) \* \(1\.0 \+ \(entry[AB]\.intersectionRatio \|\| 0\)\) \+ \(entry[AB]\.inlineSize \|\| 0\)/u,
   );
 
@@ -511,35 +522,35 @@ test("layout coordinator implements visual prominence scoring, proportional back
   // in-viewport bonus, and pollWorkers derives visibleCount from the sorted
   // prefix — with anti-starvation aging ordering only within a class.
   assert.match(
-    elementSource,
+    coordinatorSource,
     /if \(inViewA !== inViewB\) return inViewB - inViewA;/u,
   );
   assert.match(
-    elementSource,
+    coordinatorSource,
     /priority[AB] = visibleScore[AB] \+ \([ab]\.deferCount \|\| 0\) \* 50000/u,
   );
   assert.match(
-    elementSource,
+    coordinatorSource,
     /priority[AB] = visibleScore[AB] \+ Math\.min\([ab]\.deferCount \* 50000, 900000\)/u,
   );
 
   // 3. RefreshAnchoredFrameBudget: the budget follows the measured cadence
   // only; the event-driven regulator and the shared slice EMA are gone.
   assert.match(
-    elementSource,
+    coordinatorSource,
     /this\.#budgetMs = Math\.min\(6\.0, Math\.max\(2\.5, this\.#measuredFrameInterval \* 0\.4\)\);/u,
   );
-  assert.doesNotMatch(elementSource, /#estimatedSliceMs/u);
-  assert.doesNotMatch(elementSource, /#consecutiveIdleFrames/u);
+  assert.doesNotMatch(coordinatorSource, /#estimatedSliceMs/u);
+  assert.doesNotMatch(coordinatorSource, /#consecutiveIdleFrames/u);
 
   // 4. DeadlineGate: grants stop on the real deadline, and a workless frame
   // still grants once so oversized slices keep making progress.
   assert.match(
-    elementSource,
+    coordinatorSource,
     /const guaranteeForwardProgress = workDone === 0;/u,
   );
   assert.match(
-    elementSource,
+    coordinatorSource,
     /if \(!guaranteeForwardProgress && now >= deadline\) \{/u,
   );
 
@@ -554,26 +565,29 @@ test("layout coordinator implements visual prominence scoring, proportional back
   // element excludes itself from native scroll anchoring while a worker is
   // attached.
   assert.match(
-    elementSource,
+    coordinatorSource,
     /const viewportAnchor = captureViewportAnchor\(element\);[\s\S]*?compensateViewportAnchor\(element, viewportAnchor\);/u,
   );
   assert.match(
-    elementSource,
+    coordinatorSource,
     /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = slot\.runtime\.workerRunSlice\(/u,
   );
   assert.match(
-    elementSource,
+    coordinatorSource,
     /if \(grantProcessed > 0\) compensateViewportAnchor\(slot\.element, viewportAnchor\);/u,
   );
   // NativeAnchoringHandover: capture holds the scroller's native anchoring
   // for the job window; every path that ends or abandons a job releases it.
-  assert.match(elementSource, /if \(!slot\.active\) releaseNativeScrollAnchoring\(element\);/u);
-  assert.match(elementSource, /releaseNativeScrollAnchoring\(slot\.element\);/u);
+  assert.match(coordinatorSource, /if \(!slot\.active\) releaseNativeScrollAnchoring\(element\);/u);
+  assert.match(coordinatorSource, /releaseNativeScrollAnchoring\(slot\.element\);/u);
   assert.match(elementSource, /releaseNativeScrollAnchoring\(this\);/u);
 });
 
 test("offscreen deferred lane keeps every pending callback per element", async () => {
-  const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
+  const coordinatorSource = await readFile(
+    new URL("./core/engine/coordinator/coordinator.js", import.meta.url),
+    "utf8",
+  );
 
   // OffscreenRequestQueue: an element can queue distinct callbacks while off
   // screen (initial enhance plus responsive commits). The deferred lane must
@@ -581,9 +595,9 @@ test("offscreen deferred lane keeps every pending callback per element", async (
   // request silently drop the older ones, which stalled initial enhancement
   // for every root below the fold when a resize re-queued a commit.
   // 1. A request lands in the element's bucket, not a single task slot.
-  assert.match(elementSource, /bucket\.tasks\.set\(callback, task\);/u);
+  assert.match(coordinatorSource, /bucket\.tasks\.set\(callback, task\);/u);
   // 2. A due or promoted bucket moves every task it holds.
-  const promoted = elementSource.match(
+  const promoted = coordinatorSource.match(
     /for \(const task of bucket\.tasks\.values\(\)\) \{\s*this\.#callbacks\.set\(task\.callback, task\);/gu,
   );
   assert.ok(
@@ -591,7 +605,7 @@ test("offscreen deferred lane keeps every pending callback per element", async (
     "flush and promote must both drain the whole bucket",
   );
   // 3. Cancelling one callback must not drop the element's other tasks.
-  assert.match(elementSource, /bucket\.tasks\.delete\(callback\);/u);
+  assert.match(coordinatorSource, /bucket\.tasks\.delete\(callback\);/u);
   // 4. The single-slot regression must stay gone.
-  assert.doesNotMatch(elementSource, /this\.#deferred\.set\(element, task\);/u);
+  assert.doesNotMatch(coordinatorSource, /this\.#deferred\.set\(element, task\);/u);
 });

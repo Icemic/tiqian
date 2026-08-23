@@ -1,4 +1,4 @@
-import { browserFontSessionWorkerContract } from "./browser-fonts.js";
+import { browserFontSessionWorkerContract } from "./core/measurement/browser-fonts.js";
 import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,

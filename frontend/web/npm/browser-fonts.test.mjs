@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   BrowserFontSessionError,
   browserFontSessionWorkerContract,
-} from "./browser-fonts.js";
+} from "./core/measurement/browser-fonts.js";
 import {
   digest,
   faceEvidence,
