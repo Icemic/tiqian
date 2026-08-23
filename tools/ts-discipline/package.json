@@ -1,0 +1,12 @@
+{
+  "name": "private",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint --config tools/ts-discipline/eslint.config.mjs ."
+  },
+  "devDependencies": {
+    "eslint": "10.9.0",
+    "typescript-eslint": "8.67.0"
+  }
+}
