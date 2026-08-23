@@ -287,7 +287,9 @@ internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLE
 // a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
 // detection, where the union error is dwarfed by the tolerance (see the ADR
 // 0039 fractional fragment-aware amendment). A caller that needs the widest
-// live fragment must use the elementContentWidth pattern below instead.
+// live fragment must use elementContentWidth from
+// npm/core/engine/responsive-measure.js (installed as the responsive measure
+// bridge) instead.
 @JsFun(
     """(element) => {
       if (!element) return 0;
@@ -295,29 +297,6 @@ internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLE
     }""",
 )
 internal external fun elementFragmentBorderBoxInlineSize(element: HTMLElement): Double
-@JsFun(
-    """(element) => {
-      if (!element) return 0;
-      const style = getComputedStyle(element);
-      const number = (value) => Number.parseFloat(value) || 0;
-      // FractionalFragmentContentMeasure: clientWidth rounds to integer
-      // pixels, so a width change below 0.5px can go undetected and a
-      // font-size grid crossing at a fractional width can be missed.
-      // Inline-style probes cannot see padding declared in a stylesheet,
-      // such as li { padding-inline-start }. getBoundingClientRect()
-      // returns the union of all CSS column fragments. Take the widest
-      // live client rect instead; it is the border box of a single
-      // fragment. Then subtract the computed padding and borders.
-      const fallback = element.getBoundingClientRect().width;
-      const rects = Array.from(element.getClientRects()).filter((rect) => rect.width > 0);
-      const borderBoxWidth = rects.length <= 1
-        ? fallback
-        : Math.max(...rects.map((rect) => rect.width));
-      return borderBoxWidth - number(style.paddingLeft) - number(style.paddingRight) -
-        number(style.borderLeftWidth) - number(style.borderRightWidth);
-    }""",
-)
-internal external fun elementContentWidth(element: HTMLElement): Double
 // NestedInlineBoxEdgeOwnership: compare an inline's flow edge with its direct
 // in-flow content boundary. A descendant semantic box owns its own padding,
 // margins and pseudo content, so an outer <sup>/<span> must not reserve that

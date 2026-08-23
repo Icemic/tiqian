@@ -349,16 +349,22 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   assembleNpmPackage 与 jsBrowserTest 通过；grep 复核 progressiveJobs、
   progressiveJobGeneration、workerRoots、GrantAdmission、
   PROGRESSIVE_TIER_COUNT、jobPayload 在 Kotlin 源内 0 命中。
-- [ ] **B4 段落资格策略与响应式度量稳定化**。
+- [x] **B4 段落资格策略与响应式度量稳定化**。
   进度（2026-08-23）：资格策略半段已完成。三个资格谓词
   （shouldTryParagraph、isPureBlockImageParagraph、hasOpaqueInlineCandidate）与
   常量（NON_TEXT_INLINE_TAGS、OPAQUE_INLINE_DISPLAYS、SKIPPED_ANCESTOR_SELECTOR）
   迁入 `npm/core/engine/eligibility.js`，按 custody 模式经通用化 gradle 生成器
   嵌入运行时，Kotlin 侧与 MarkdownParagraphLowering 经
   `WebEnhancerEligibilityBridge.kt` 调用；嵌入式单测 6 条
-  （npm/eligibility-bridge.test.mjs）。响应式度量半段依赖管线度量助手
-  （effectiveLineMeasure、sourceParagraphWidth 属 WebEnhancerParagraphPipeline），
-  随 B7 管线批次迁移。提交：57f3f70。
+  （npm/eligibility-bridge.test.mjs）。提交：57f3f70。
+  响应式度量半段（2026-08-23）：effectiveLineMeasure、sourceParagraphWidth、
+  isCurrentResponsiveMeasure 与 elementContentWidth 的 JS 体（原
+  WebEnhancerSupport.kt 的 @JsFun）迁入 `npm/core/engine/responsive-measure.js`，
+  同一生成器嵌入，Kotlin 侧经 `WebEnhancerResponsiveMeasureBridge.kt` 调用；
+  WebEnhancerParagraphPipeline 与 WebEnhancerParagraphLifecycle 的调用点全部改走
+  桥，Kotlin 实现删除。嵌入式单测 6 条（npm/responsive-measure-bridge.test.mjs，
+  量化格数、最宽 fragment 减 padding、rects 为空退 bounding rect、三级宽度
+  回退、同格判定）；jsBrowserTest 102/102、npm test 372/372、时序 golden 零 diff。
 - [x] **B5 内容 reconcile**。
   产出（2026-08-23）：断言半段此前已随行为测试批完成；实现半段 4c08198，
   分类（dead、drifted、custody、tainted、stranded 与
@@ -647,8 +653,22 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   在 root 上派发的 relayout-ready 事件补上完成信号。timing-golden-host.mjs 为此把
   S1 建场抽成 startElementDrive 供两条驱动共用，冻结 golden 零 diff 证明抽取行为
   不变。
-- [ ] **E3 不匹配解释结构化**：EmptyCandidateSet 与 FieldMismatch 两类 detail、
+- [x] **E3 不匹配解释结构化**：EmptyCandidateSet 与 FieldMismatch 两类 detail、
   字段核对顺序固定、dataset detail 进时序 golden。验收：Verification 7 末组用例。
+  产出（2026-08-23）：eb41766。`cssFaceContract` 的失败返回携带结构化 detail
+  （候选集为空时 `{kind: "EmptyCandidateSet"}`；有候选时不符时
+  `{kind: "FieldMismatch", expectedFaces, actualFaces, firstField}`），
+  `computeFirstMismatchingField` 按 family → style → weight → unicode-range →
+  src 的固定顺序逐级过滤给出第一个不符字段。`formatContractMismatchDetail`
+  把它编进 `SnapshotExactFontContractMismatch` 的 detail 字符串
+  （browser-fonts.js），api.js 的消息解析与 element.js 的
+  `exactFontMissDatasetValue` 各自识别两类后缀；dataset 值随
+  exact-font-contract-mismatch 旅程进入时序 golden（s1-adopt 与 s4-reconnect
+  两条 dataset write 记录 `...|FieldMismatch|expectedFaces=1|actualFaces=1|
+  firstField=src` 全形态）。Verification 7 末组用例：precomputed.test.mjs 覆盖
+  EmptyCandidateSet 字段形态、五级 firstField 顺序与两类 detail 的校验出口，
+  browser-fonts.test.mjs 覆盖消息后缀两形态，element.test.mjs 覆盖 dataset 值
+  正则与具体值。
 
 ### F 收尾
 

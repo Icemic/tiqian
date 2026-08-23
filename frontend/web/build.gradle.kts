@@ -75,6 +75,13 @@ val generateContentReconcileBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedContentReconcileScript",
 )
 
+val generateResponsiveMeasureBridge = registerBridgeGenerator(
+    taskName = "generateResponsiveMeasureBridge",
+    name = "responsiveMeasure",
+    sourceRelativePath = "npm/core/engine/responsive-measure.js",
+    installFunName = "installEmbeddedResponsiveMeasureScript",
+)
+
 // DemoPreparedDomVendor: the ADR 0039 demo page loads only the Kotlin bundle,
 // so after the native renderer's retirement (ADR 0053 B8.3c) it must serve
 // the npm prepared-DOM renderer itself. The five modules are copied with
@@ -116,6 +123,7 @@ kotlin {
             kotlin.srcDir(layout.buildDirectory.dir("generated/progressiveJob/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/copy/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/contentReconcile/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/responsiveMeasure/kotlin"))
             resources.srcDir(vendoredPreparedDomRoot)
             dependencies {
                 api(project(":engine"))
@@ -134,6 +142,7 @@ tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
     dependsOn(generateProgressiveJobBridge)
     dependsOn(generateCopyBridge)
     dependsOn(generateContentReconcileBridge)
+    dependsOn(generateResponsiveMeasureBridge)
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {

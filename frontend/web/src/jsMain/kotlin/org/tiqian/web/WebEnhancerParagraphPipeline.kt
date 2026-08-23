@@ -64,14 +64,16 @@ internal fun TiqianWeb.workerLayoutRequest(
                     kotlin.math.abs(span.inlineBoxStyle.inlineEnd) >= INLINE_EDGE_EPSILON)
         } || lowered.spans.any { it.style.locale != lowered.textStyle.locale }
     ) return null
-    val rawWidth = sourceParagraphWidth(paragraph)
-    if (!rawWidth.isFinite() || rawWidth <= 0f) return null
+    val rawWidth = responsiveMeasureBridge().sourceParagraphWidth(paragraph)
+    if (!rawWidth.isFinite() || rawWidth <= 0.0) return null
     // WorkerLineMeasureMatchesResponsiveGrid: the responsive coordinator
     // intentionally treats widths within the same floor(width / fontSize)
     // cell count as one layout input. Serialize that effective measure,
     // not the transient CSS width observed while a window is being dragged,
     // so preparation and commit use the same Worker plan inside the grid.
-    val measure = effectiveLineMeasure(rawWidth, lowered.textStyle.fontSize)
+    val measure = responsiveMeasureBridge()
+        .effectiveLineMeasure(rawWidth, lowered.textStyle.fontSize.toDouble())
+        .toFloat()
     return workerLayoutRequestJson(
         paragraph = paragraph,
         lowered = lowered,
@@ -303,27 +305,15 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
             element = paragraph.source,
         )
     }
-    paragraph.lastMeasure = effectiveLineMeasure(width, paragraph.lowered.textStyle.fontSize)
+    paragraph.lastMeasure = responsiveMeasureBridge()
+        .effectiveLineMeasure(width.toDouble(), paragraph.lowered.textStyle.fontSize.toDouble())
+        .toFloat()
     custodyBridge().stampRendered(paragraph.source)
     return null
 }
 
 internal fun TiqianWeb.paragraphWidth(paragraph: EnhancedParagraph): Float {
-    return sourceParagraphWidth(paragraph.source)
-}
-
-internal fun TiqianWeb.sourceParagraphWidth(paragraph: HTMLElement): Float {
-    // ContentBoxLineMeasure: LayoutConstraints describe the inline content
-    // box where glyphs are placed. A host may add padding directly to a
-    // paragraph-shaped list item; using its border-box width lays the line
-    // out once through that padding and then starts it after the padding,
-    // causing a real right-edge overflow. Font backend selection does not
-    // change which CSS box owns the available line measure.
-    return elementContentWidth(paragraph).toFloat()
-        .takeIf { it > 0f }
-        ?: elementContentWidth(paragraph.parentElement as? HTMLElement ?: paragraph).toFloat()
-            .takeIf { it > 0f }
-        ?: 320f
+    return responsiveMeasureBridge().sourceParagraphWidth(paragraph.source).toFloat()
 }
 
 internal fun TiqianWeb.prepareParagraphLayout(
@@ -343,7 +333,9 @@ internal fun TiqianWeb.prepareParagraphLayout(
     // pixel tolerance, which could hide a grid crossing at fractional font
     // sizes.
     val fontSize = paragraph.lowered.textStyle.fontSize
-    val measure = effectiveLineMeasure(width, fontSize)
+    val measure = responsiveMeasureBridge()
+        .effectiveLineMeasure(width.toDouble(), fontSize.toDouble())
+        .toFloat()
     if (!ignoreUnchangedMeasure && paragraph.lastMeasure == measure) {
         return ParagraphLayoutPreparation.Unchanged
     }
@@ -504,23 +496,6 @@ internal fun TiqianWeb.prepareParagraphLayout(
         exactFontSessionUsed = exactFontSessionUsed,
     )
 }
-
-internal fun TiqianWeb.effectiveLineMeasure(width: Float, fontSize: Float): Float {
-    // InvalidTypographyPreservesCapabilityDiagnosis: a zero/non-finite
-    // host font size has no meaningful character grid. Keep the positive
-    // host width so shaping can report its precise zero-advance capability
-    // issue instead of failing earlier with an unrelated maxWidth error.
-    if (!fontSize.isFinite() || fontSize <= 0f) return width
-    val gridCells = kotlin.math.floor(width / fontSize).toInt().coerceAtLeast(1)
-    return (gridCells * fontSize).coerceAtMost(width)
-}
-
-internal fun TiqianWeb.isCurrentResponsiveMeasure(
-    preparedWidth: Float,
-    currentWidth: Float,
-    fontSize: Float,
-): Boolean = effectiveLineMeasure(preparedWidth, fontSize) ==
-    effectiveLineMeasure(currentWidth, fontSize)
 
 internal fun TiqianWeb.commitPreparedParagraph(
     paragraph: EnhancedParagraph,

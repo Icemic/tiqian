@@ -78,7 +78,7 @@ internal fun TiqianWeb.optionFloat(options: EnhanceOptionsJs?, name: String): Fl
 internal fun TiqianWeb.captureSourceInlineSize(paragraph: HTMLElement): SourceInlineSize =
     SourceInlineSize(
         borderBoxWidth = elementFragmentBorderBoxInlineSize(paragraph),
-        contentBoxWidth = elementContentWidth(paragraph),
+        contentBoxWidth = responsiveMeasureBridge().elementContentWidth(paragraph),
         borderBoxSizing =
             computedStyle(paragraph, "box-sizing").trim().lowercase() == "border-box",
     )
@@ -93,12 +93,22 @@ internal fun TiqianWeb.responsiveSourceMeasure(paragraph: HTMLElement, configure
     if (configuredFontSize == null) {
         val computedFontSize = parseCssPx(computedStyle(paragraph, "font-size"))
             ?: DEFAULT_FONT_SIZE
-        return effectiveLineMeasure(sourceParagraphWidth(paragraph), computedFontSize)
+        return responsiveMeasureBridge()
+            .effectiveLineMeasure(
+                responsiveMeasureBridge().sourceParagraphWidth(paragraph),
+                computedFontSize.toDouble(),
+            )
+            .toFloat()
     }
     val originalStyle = paragraph.getAttribute("style")
     paragraph.style.setProperty("font-size", "${configuredFontSize}px", "important")
     return try {
-        effectiveLineMeasure(sourceParagraphWidth(paragraph), configuredFontSize)
+        responsiveMeasureBridge()
+            .effectiveLineMeasure(
+                responsiveMeasureBridge().sourceParagraphWidth(paragraph),
+                configuredFontSize.toDouble(),
+            )
+            .toFloat()
     } finally {
         if (originalStyle == null) {
             paragraph.removeAttribute("style")
