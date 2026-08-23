@@ -35,7 +35,7 @@ WORDS = [
     # motion and body metaphors
     "瘦身", "收口", "兜底", "退路", "穿透", "镜像", "升格", "降格", "摘出",
     "收窄", "寄生", "换装", "落地", "退役", "落档", "留档", "落点", "对拍",
-    "钳位",
+    "钳位", "落盘",
     # internet jargon verbs
     "链路", "打通", "拉齐", "沉淀", "反哺", "赋能", "抓手", "打磨", "深耕",
     # misattributed or vague causal wording
