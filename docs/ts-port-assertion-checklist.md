@@ -128,13 +128,13 @@ MutationObserver、characterData 或 taint 相关断言。B5 内容 reconcile �
 | TiqianWebExactSessionTest.kt `unkeyedRuntimeCompletionKeepsExactDashWhenAnotherRunNeedsBrowserFallback` | 7 | 无键运行时补齐的段落与其余 run 分别走 shaping 与浏览器回退，破折号保持源文本且无能力问题。 | exactSession_unkeyedCompletionKeepsExactDashForOtherRuns | exact 会话 fixture 组（failText）、mount、exactTestOptions、exactFontShapeCount、exactFontFallbackCount、copySelection |
 | TiqianWebExactSessionTest.kt `unsupportedGlyphFallbackKeepsExactParagraphLineMetrics` | 4 | 含不支持字形的回退段与精确段共用同一行高与基线偏移变量。 | exactSession_fallbackParagraphKeepsExactLineMetrics | exact 会话 fixture 组（failText）、mount、exactTestOptions、exactFontFallbackCount |
 | TiqianWebExactSessionTest.kt `exactBrowserFallbackCarriesLatinQuoteFeaturesIntoPreparedDomPlan` | 2 | 浏览器回退把拉丁弯引号 run 的 pwid 与 palt 特征写入 prepared plan。 | exactSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan | exact 会话 fixture 组、mount、exactTestOptions、exactPreparedPlan |
-| TiqianWebExactSessionTest.kt `browserFontFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures` | 5 | 浏览器管线量出三个拉丁弯引号特征 run 并以 palt 特征锁回放，引号码点共五个且正文可复制。 | exactSession_browserPipelineReplaysLatinCurlyQuoteFeatures | mount、testOptions、assertEnginePunctuationFeatureLock、copySelection |
-| TiqianWebExactSessionTest.kt `browserQuoteContextMatrixReplaysOnlyLatinQuoteFeatures` | 3 | 八种引号语境矩阵下只有拉丁弯引号获得比例特征，中文语境引号不受影响，窄宽度重排后结论不变。 | exactSession_quoteContextMatrixReplaysOnlyLatinFeatures | mount、testOptions、isCurlyQuoteForWebTest、copySelection、installTestAnimationFrames、dispatchRelayout、flushAllTestAnimationFrames |
+| TiqianWebExactSessionTest.kt `browserFontFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures` | 5 | 浏览器管线量出三个拉丁弯引号特征 run 并以 palt 特征锁回放，引号码点共五个且正文可复制。 | exactSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures | mount、testOptions、assertEnginePunctuationFeatureLock、copySelection |
+| TiqianWebExactSessionTest.kt `browserQuoteContextMatrixReplaysOnlyLatinQuoteFeatures` | 3 | 八种引号语境矩阵下只有拉丁弯引号获得比例特征，中文语境引号不受影响，窄宽度重排后结论不变。 | exactSession_browserQuoteContextMatrixReplaysOnlyLatinQuoteFeatures | mount、testOptions、isCurlyQuoteForWebTest、copySelection、installTestAnimationFrames、dispatchRelayout、flushAllTestAnimationFrames |
 | TiqianWebExactSessionTest.kt `unavailableExactFaceFallsBackToTheBrowserPipeline` | 5 | 字体 shaping 失败时整段回退浏览器管线，保留规范源标记且无精确回放标记。 | exactSession_unavailableFaceFallsBackToBrowserPipeline | exact 会话 fixture 组（failShaping）、mount、exactTestOptions |
-| TiqianWebExactSessionTest.kt `exactPreparedDomGeometryMismatchDisablesRepeatedExactAttemptsForTheRoot` | 9 | prepared DOM 几何校验失败后该 root 停用精确尝试，两个段落都走运行时管线并在 root 上记录原因。 | exactSession_geometryMismatchDisablesRepeatedExactAttempts | exact 会话 fixture 组、failExactPreparedDomValidation、mount、exactTestOptions、exactPreparedRenderCount |
-| TiqianWebExactSessionTest.kt `layoutOptionOverrideCannotReuseTheSnapshotExactSession` | 4 | 覆盖版式选项后不复用快照精确会话，段落转入运行时管线。 | exactSession_layoutOptionOverrideBlocksSnapshotSessionReuse | exact 会话 fixture 组、mount、exactTestOptions |
-| TiqianWebSourceFidelityTest.kt `keepsDashParagraphNativeWithoutAVerifiableFontSource` | 6 | 无合格破折号字形证据时段落保持原生，标注 NoConformingCjkDashGlyph 且正文原样可复制。 | exactSession_noConformingDashEvidenceKeepsParagraphNative | mount、testOptions、copySelection |
-| TiqianWebSourceFidelityTest.kt `conformingDashEvidenceWithoutAnExactSessionReportsTheActualMissingCapability` | 4 | 有破折号证据而无精确会话时报 ConformingCjkDashRequiresExactFontSession，明细含 status=conforming。 | exactSession_conformingDashWithoutExactSessionReportsMissingCapability | mount、testOptions |
+| TiqianWebExactSessionTest.kt `exactPreparedDomGeometryMismatchDisablesRepeatedExactAttemptsForTheRoot` | 9 | prepared DOM 几何校验失败后该 root 停用精确尝试，两个段落都走运行时管线并在 root 上记录原因。 | exactSession_preparedDomGeometryMismatchDisablesExactForRoot | exact 会话 fixture 组、failExactPreparedDomValidation、mount、exactTestOptions、exactPreparedRenderCount |
+| TiqianWebExactSessionTest.kt `layoutOptionOverrideCannotReuseTheSnapshotExactSession` | 4 | 覆盖版式选项后不复用快照精确会话，段落转入运行时管线。 | exactSession_layoutOptionOverrideCannotReuseSnapshotSession | exact 会话 fixture 组、mount、exactTestOptions |
+| TiqianWebSourceFidelityTest.kt `keepsDashParagraphNativeWithoutAVerifiableFontSource` | 6 | 无合格破折号字形证据时段落保持原生，标注 NoConformingCjkDashGlyph 且正文原样可复制。 | exactSession_dashParagraphNativeWithoutVerifiableFontSource | mount、testOptions、copySelection |
+| TiqianWebSourceFidelityTest.kt `conformingDashEvidenceWithoutAnExactSessionReportsTheActualMissingCapability` | 4 | 有破折号证据而无精确会话时报 ConformingCjkDashRequiresExactFontSession，明细含 status=conforming。 | exactSession_conformingDashEvidenceWithoutExactSessionReportsMissingCapability | mount、testOptions |
 
 ## source-fidelity（9 条，57 断言）
 
@@ -162,18 +162,18 @@ MutationObserver、characterData 或 taint 相关断言。B5 内容 reconcile �
 | TiqianWebEnhancerTest.kt `leavesStrongAsBoldByDefault` | 6 | 默认配置下 strong 保持加粗，不加着重号标记也不绘制圆点。 | rendererOutput_strongStaysBoldByDefault | mount、testOptions、computedStyleValue、copySelection |
 | TiqianWebEnhancerTest.kt `explicitlyRendersOnlyCjkContentInStrongAsEmphasisMarks` | 15 | 开启着重点后只有 CJK run 加标记并绘制同色圆点，拉丁 run 保持 700 字重，覆盖层以变量定位。 | rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks | mount、testOptions、computedStyleValue、copySelection |
 | TiqianWebEnhancerTest.kt `exposesExplicitEmphasisDotGap` | 2 | emphasisDotGapEm 配置按 em 值平移着重点圆心纵坐标，零点一 em 与零点二五 em 差值符合配置。 | rendererOutput_emphasisDotGapShiftsDotCenterByConfiguredEm | mount、testOptions、cssPx |
-| TiqianWebProgressiveRelayoutTest.kt `negativeGapAfterMultiCharacterRunUsesOverlapInsteadOfBeingDropped` | 1 | 多字符 run 之后的负间隙解析为 Overlap 间距载体。 | rendererOutput_negativeGapResolvesToOverlapCarrier | （无） |
+| TiqianWebProgressiveRelayoutTest.kt `negativeGapAfterMultiCharacterRunUsesOverlapInsteadOfBeingDropped` | 1 | 多字符 run 之后的负间隙解析为 Overlap 间距载体。 | rendererOutput_negativeGapResolvesToOverlapCarrier | mount、testOptions、cssPx |
 | TiqianWebProgressiveRelayoutTest.kt `positiveGapAfterMultiCharacterRunUsesSelectableCarrierWithoutBreakingShaping` | 17 | 正间隙由零高不换行空格载体承载，载体带 copy-ignore 与 aria-hidden，保持在原生 Range 选区内且复制文本不受影响。 | rendererOutput_positiveGapUsesSelectableZeroHeightCarrier | mount、testOptions、elementWidth、computedStyleValue、cssPx、selectionCoversElement、copySelection |
 | TiqianWebProgressiveRelayoutTest.kt `plainBodyTextUsesSparseRunsRatherThanOneNodePerCluster` | 4 | 普通长正文以稀疏节点渲染，元素数远小于字符数，多行输出且保留规范源标记。 | rendererOutput_plainBodyTextRendersSparseRuns | mount、testOptions |
-| TiqianWebSourceFidelityTest.kt `expandsCjkContextCurlyQuotesButKeepsLatinPairsProportional` | 7 | CJK 语境弯引号展开为全宽盒子，同一源码点在拉丁语对中保持比例宽度，两侧复制文本不变。 | rendererOutput_cjkContextQuotesExpandLatinPairsStayProportional | mount、elementWidth、copySelection |
-| TiqianWebSourceFidelityTest.kt `preservesOneNativeLinkAcrossEngineOwnedLines` | 14 | 一个源链接跨多条引擎行仍是单个 DOM 链接，target、rel、title、颜色、装饰线型与过渡样式逐项保留。 | rendererOutput_oneSourceLinkSpansEngineLines | mount、testOptions |
-| TiqianWebSourceFidelityTest.kt `keepsOneLinkAcrossConsecutiveEmptyHardBreakLines` | 5 | 连续空硬断行行内的链接保持单个元素，产出两个断行标记，复制得到两个换行符。 | rendererOutput_linkSurvivesConsecutiveEmptyHardBreaks | mount、testOptions、copySelection |
-| TiqianWebSourceFidelityTest.kt `keepsSemanticLinkContinuousAcrossGeometryFragments` | 4 | 链接跨几何分段保持单一语义包装，分段位于链接元素内部。 | rendererOutput_semanticLinkContinuousAcrossFragments | mount、testOptions、copySelection |
-| TiqianWebSourceFidelityTest.kt `keepsInlineBoxAsOneNativeElementAcrossEngineLines` | 7 | 跨行 inline box 保持单一生效元素，左右 padding 保留且无开合拆分标记。 | rendererOutput_inlineBoxStaysOneNativeElementAcrossLines | mount、testOptions、computedStyleValue |
-| TiqianWebSourceFidelityTest.kt `engineGeometrySpansAreNeutralToHostSpanRules` | 6 | 宿主针对 span 的盒模型规则不作用于引擎几何 span，后者保持 inline、零 padding 与十八像素字号。 | rendererOutput_geometrySpansNeutralToHostSpanRules | mount、testOptions、computedStyleValue、cssPx |
-| TiqianWebSourceFidelityTest.kt `engineAnnotationsAreNeutralToHostSpanAndSvgRules` | 5 | 宿主 svg 规则不影响引擎注记层，注记 svg 保持 block 显示且圆点填充继承宿主文字颜色。 | rendererOutput_annotationSvgNeutralToHostRules | mount、testOptions、computedStyleValueElement |
-| TiqianWebSourceFidelityTest.kt `emitsFinalAndLatinAdjacentPunctuationSpacingWithoutClippingInk` | 14 | 行尾挤压与西文邻接标点间距生效，行盒只携带变量与数据属性，不写裁切墨迹的内联几何样式。 | rendererOutput_finalClusterCompressionWithoutClippedInk | mount、testOptions、computedStyleValue、cssPx、lastTextLeaf |
-| TiqianWebSourceFidelityTest.kt `browserPunctuationTrimDoesNotDoubleCompressClosingCommaOpeningSequence` | 9 | 闭引号加顿号序列整体只压缩半个 em，浏览器 text-spacing-trim 开启时不二次压缩，特征锁与复制文本均正确。 | rendererOutput_closingSequenceCompressedOnceOnly | mount、enginePunctuationFeatureStyle、testOptions、geometryLeafWithText、assertEnginePunctuationFeatureLock、textNodeCharacterWidths、computedStyleValue、elementWidth、copySelection |
+| TiqianWebSourceFidelityTest.kt `expandsCjkContextCurlyQuotesButKeepsLatinPairsProportional` | 7 | CJK 语境弯引号展开为全宽盒子，同一源码点在拉丁语对中保持比例宽度，两侧复制文本不变。 | rendererSourceFidelity_expandsCjkContextCurlyQuotesButKeepsLatinPairsProportional | mount、elementWidth、copySelection |
+| TiqianWebSourceFidelityTest.kt `preservesOneNativeLinkAcrossEngineOwnedLines` | 14 | 一个源链接跨多条引擎行仍是单个 DOM 链接，target、rel、title、颜色、装饰线型与过渡样式逐项保留。 | rendererSourceFidelity_preservesOneNativeLinkAcrossEngineOwnedLines | mount、testOptions |
+| TiqianWebSourceFidelityTest.kt `keepsOneLinkAcrossConsecutiveEmptyHardBreakLines` | 5 | 连续空硬断行行内的链接保持单个元素，产出两个断行标记，复制得到两个换行符。 | rendererSourceFidelity_keepsOneLinkAcrossConsecutiveEmptyHardBreakLines | mount、testOptions、copySelection |
+| TiqianWebSourceFidelityTest.kt `keepsSemanticLinkContinuousAcrossGeometryFragments` | 4 | 链接跨几何分段保持单一语义包装，分段位于链接元素内部。 | rendererSourceFidelity_keepsSemanticLinkContinuousAcrossGeometryFragments | mount、testOptions、copySelection |
+| TiqianWebSourceFidelityTest.kt `keepsInlineBoxAsOneNativeElementAcrossEngineLines` | 7 | 跨行 inline box 保持单一生效元素，左右 padding 保留且无开合拆分标记。 | rendererSourceFidelity_keepsInlineBoxAsOneNativeElementAcrossEngineLines | mount、testOptions、computedStyleValue |
+| TiqianWebSourceFidelityTest.kt `engineGeometrySpansAreNeutralToHostSpanRules` | 6 | 宿主针对 span 的盒模型规则不作用于引擎几何 span，后者保持 inline、零 padding 与十八像素字号。 | rendererSourceFidelity_engineGeometrySpansAreNeutralToHostSpanRules | mount、testOptions、computedStyleValue、cssPx |
+| TiqianWebSourceFidelityTest.kt `engineAnnotationsAreNeutralToHostSpanAndSvgRules` | 5 | 宿主 svg 规则不影响引擎注记层，注记 svg 保持 block 显示且圆点填充继承宿主文字颜色。 | rendererSourceFidelity_engineAnnotationsAreNeutralToHostSpanAndSvgRules | mount、testOptions、computedStyleValueElement |
+| TiqianWebSourceFidelityTest.kt `emitsFinalAndLatinAdjacentPunctuationSpacingWithoutClippingInk` | 14 | 行尾挤压与西文邻接标点间距生效，行盒只携带变量与数据属性，不写裁切墨迹的内联几何样式。 | rendererSourceFidelity_emitsFinalAndLatinAdjacentPunctuationSpacingWithoutClippingInk | mount、testOptions、computedStyleValue、cssPx、lastTextLeaf |
+| TiqianWebSourceFidelityTest.kt `browserPunctuationTrimDoesNotDoubleCompressClosingCommaOpeningSequence` | 9 | 闭引号加顿号序列整体只压缩半个 em，浏览器 text-spacing-trim 开启时不二次压缩，特征锁与复制文本均正确。 | rendererSourceFidelity_browserPunctuationTrimDoesNotDoubleCompressClosingCommaOpeningSequence | mount、enginePunctuationFeatureStyle、testOptions、geometryLeafWithText、assertEnginePunctuationFeatureLock、textNodeCharacterWidths、computedStyleValue、elementWidth、copySelection |
 
 ## markdown-lowering（10 条，76 断言）
 
@@ -274,6 +274,27 @@ runWorkerJobToCompletion，ProgressiveRelayout 另有 grantUnboundedSlice），�
 调用 support 的 testGrantController 与 TiqianWeb 的 workerAttach、workerRunSlice、
 workerHasJob、workerSetParagraphTier、workerPendingInTier、workerDetach 接口；
 ProgressiveRelayoutTest 另有局部断言辅助 assertStaleAt。
+
+## 附录 C：node 宿主校准
+
+断言移植依赖 frontend/web/npm/runtime-host.mjs 内置 canvas 与级联替身的三项
+校准，记录于此供后续维护对照：
+
+- 假 canvas 的标点墨迹窗口按 Noto Sans CJK SC 实测值建模：全宽开引号类
+  （〔【《〈「『｛ 的全宽形态）墨迹位于右半 [0.66, 0.95]em，闭引号与点号类
+  墨迹位于左半 [0.05, 0.35]em，半角形 ｢｣｡､ 步进 0.5em，弯引号步进 0.45em
+  （引擎经 UnderwidthPunctuationFullWidthBoxPlacement 展开为全宽盒）。窗口
+  方向决定 compressionGeometry 选取的 body frame 侧与 glue 所属侧；
+  rendererSourceFidelity_browserPunctuationTrimDoesNotDoubleCompressClosingCommaOpeningSequence
+  的合并 span 断言依赖此校准。
+- getComputedStyle 替身处理 all: unset：规则内显式声明优先于同规则的 all，
+  可继承属性沿父链取值，其余回到空串；var(--custom[, fallback]) 按元素的
+  自定义属性链代入。rendererSourceFidelity_engineGeometrySpansAreNeutralToHostSpanRules
+  与 rendererSourceFidelity_engineAnnotationsAreNeutralToHostSpanAndSvgRules
+  依赖此级联语义。
+- 多字符 run 的负尾间隙在 DOM 侧序列化为 margin-right（Overlap 编码）；
+  rendererOutput_negativeGapResolvesToOverlapCarrier 以 C++ 叶片的
+  -9px margin-right 为观测点。
 
 ## 总数核对
 

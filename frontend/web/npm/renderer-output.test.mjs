@@ -349,3 +349,23 @@ test("rendererOutput_plainBodyTextRendersSparseRuns", async (t) => {
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1);
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
 });
+
+test("rendererOutput_negativeGapResolvesToOverlapCarrier", async (t) => {
+  t.after(cleanupMounted);
+  const TiqianWeb = await loadHostRuntime();
+  const root = mount(`
+    <div data-tiqian-root="true" style="width: 220px">
+      <p style="font-size: 18px; line-height: 30px">你想要开发一个小软件（单文件），那么你现在应该选择C++（MFC）、Rust（Winio）。</p>
+    </div>
+  `);
+
+  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+
+  // A multi-character run keeps a negative trailing gap as a negative
+  // margin-right overlap instead of dropping it or using letter-spacing.
+  const run = Array.from(root.querySelector("p").querySelectorAll("[data-tq-geometry]"))
+    .find((element) => element.textContent === "C++");
+  assert.ok(run);
+  assert.equal(cssPx(run.style.getPropertyValue("margin-right")), -9);
+  assert.equal(run.style.getPropertyValue("letter-spacing"), "");
+});
