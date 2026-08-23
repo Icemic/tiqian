@@ -497,6 +497,22 @@ workerLayoutRequest），阶段一在 face 内改为返回值并完成 JSON 解�
 值，golden 对到数值；真时钟场景只记字段形态与顺序，不记毫秒值。golden 更新走显式
 开关，逐项检查后入库。
 
+实测边界（2026-08-23 冻结时确认）：授予轮与 worker 消息两类旅程全部在内存中运行，
+时长与数值照上文冻结。元素四类旅程（事件派发序、dataset 首写序、token 转换点、
+缓存失效序）直接运行 element.js；其按需 import 执行磁盘 I/O，I/O 完成与虚拟时钟泵
+的交错逐进程不同，采纳链消耗的帧数随之浮动，帧数派生的数值（detail 的 durationMs
+与 maxSliceMs、dataset 的 tiqian*Ms 值、各段推进帧数）跨进程不可复现。这四类旅程在
+记录侧剔除帧数派生数值（timing-golden-host.mjs 文件头说明机制），冻结结构：
+派发顺序、detail 字段形态、写入顺序与键、phase、由记录推导的 verdict。
+tiqian:error 与 tiqian:relayout-error 由运行时宿主派发（WebEnhancerSupport.kt:568），
+无运行时的驱动不可达，这两条未入 golden。
+
+锚点数（2026-08-23 冻结，`timing-golden.fixture.json` journeys 六键）：事件派发序 5
+（元素 2、document 3）；dataset 首写序 66（dataset 44、attribute 22）；token 转换点
+12 个 verdict 覆盖 4 个 phase；授予轮 39（凭证 20、帧迹 19 行）；worker 消息序 18
+（消息 5、桥操作 13）；缓存失效序 11（observer 操作 9、release verdict 2）。合计
+151。
+
 | 批次 | 内容 | 验证 |
 |---|---|---|
 | 0 | 基线与判定：全量测试通过并记录；核对通道清单与 import 图；完成第 5 节 Worker 必要性判定，结论写入 ADR 0053；冻结时序锚点 golden | `nix develop -c npm test`；`./gradlew :frontend:web:jsBrowserTest`；demo/web 测试；node/bun/`--jitless` 净成本 bench；时序锚点 golden 套件 |
