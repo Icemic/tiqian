@@ -29,7 +29,7 @@ custody move。
 `connectedCallback` 尾部（1209–1307）是五级 then 链，两级回调体为 async 函数，最内层再定义
 async 函数并排入帧队列。成因有二。其一，跨阶段共享的闭包变量无法在不新增字段的前提下拆成方法；
 字段表已有 63 项。其二，协调器帧回调只做同步 try/catch，观察不到 async 任务的 rejection，
- rejection 必须在排队点手工路由回失败处理（1183–1190 注释记录了该契约缺口）。
+ rejection 必须在排队点手工路由回失败处理（1183–1190 注释记录了该接口缺口）。
 
 另有死字段：`#resizeFrame`（995）、`#resizeObserverFrame`（997）只声明与清理，从不赋值。
 
@@ -414,7 +414,7 @@ backend 与 worker 通道改为构造注入，属直连切片，不在本报告�
 
 ## 10. 事件通道改回调
 
-对外契约保留：宿主监听的 `tiqian:ready`、`tiqian:relayout-ready`（元素级、冒泡）与
+对外接口保留：宿主监听的 `tiqian:ready`、`tiqian:relayout-ready`（元素级、冒泡）与
 document 级事件在兼容期内照常派发。这两个事件及 `tiqian:error`、`tiqian:relayout-error`
 的派发点在 Kotlin 侧（WebEnhancerSupport.kt:544–568，从 root 派发、bubbles+composed），
 本报告不动。Kotlin 侧在 WebEnhancer.kt:52–95 注册 11 个 document 监听：enhance、

@@ -66,9 +66,9 @@ Layout report 位于
 ## 模块边界
 
 - **排版核心**：`engine`（单一发布模块，合并了原 `core`、`font`、`linebreak`、
-  `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 契约与
+  `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 接口定义与
   最终 `LayoutResult`；内部按 `org.tiqian.{core,font,linebreak,clreq,layout,shaping}` 包分簇。
-- **平台 shaping**：shaping 契约在 `engine`；`platforms/jvm/{shaping,skia}`、
+- **平台 shaping**：shaping 接口定义在 `engine`；`platforms/jvm/{shaping,skia}`、
   `platforms/android/{shaping,native-font}`、`platforms/web/shaping`、
   `platforms/apple/shaping` 提供各平台实现。
 - **前端**：`platforms/compose/{compose,material3}`、`frontend/web`、

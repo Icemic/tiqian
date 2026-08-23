@@ -1,8 +1,8 @@
-# ADR 0053: Web prose 宿主收敛：装配契约、TS 宿主与统一执行装置
+# ADR 0053: Web prose 宿主收敛：装配规格、TS 宿主与统一执行装置
 
 - Status: Proposed
 - Date: 2026-08-22
-- Relates: [ADR 0039](0039-web-rendering-path.md)（Web 渲染路径与「调度架构弱点留档」一节；本 ADR 给弱点第 1 条处置方向，第 2 条维持开放）、
+- Relates: [ADR 0039](0039-web-rendering-path.md)（Web 渲染路径与「调度架构弱点记录」一节；本 ADR 给弱点第 1 条处置方向，第 2 条维持开放）、
   [ADR 0040](0040-build-time-web-font-snapshots.md)（构建期字体证据与快照）、
   [ADR 0042](0042-framework-web-integrations.md)（Web 框架集成包）、
   [ADR 0050](0050-native-precompute-rust-bindings.md)（原生 precompute 绑定与 EngineLevelAbi）、
@@ -64,13 +64,13 @@ ffi/js 自身同时做三件事：PrecomputeWire.kt 在一个文件内做分隔�
 
 真 Worker 的 layout 请求不携带 generation（`LAYOUT_REQUEST_FIELDS`，worker-layout.js:18-32）。过期判定只有主线程的 `isCurrent` 闭包在 await 点丢弃（element.js:1675-1676）；plan 缓存以请求内容为键，宽度在键内，跨代不复用依赖这一点成立。协调器的 `slot.generation` 来自 Kotlin 轮询接口（element.js:777-781），与 Worker 在途请求无关。Worker 按消息到达顺序执行，主线程无法重排或撤销已发出的请求。请求与响应消息里没有优先级信息。
 
-### 0039「调度架构弱点留档」的处置
+### 0039「调度架构弱点记录」的处置
 
-0039「调度架构弱点留档」第 1 条（调度者与被调度者同线程）仍然成立：fallback 路径的度量、断行、DOM 提交与协调器帧循环全在主线程。第 2 条（取消与预算的最小作用单位是整个段落）也仍然成立：`shouldStop` 在每个段落之后询问（`WebEnhancerParagraphLifecycle.kt:131-135`），检查点未下沉断行循环。本 ADR 给第 1 条处置方向（执行移入 Worker）；第 2 条维持开放，属于未来的治理模型变更。
+0039「调度架构弱点记录」第 1 条（调度者与被调度者同线程）仍然成立：fallback 路径的度量、断行、DOM 提交与协调器帧循环全在主线程。第 2 条（取消与预算的最小作用单位是整个段落）也仍然成立：`shouldStop` 在每个段落之后询问（`WebEnhancerParagraphLifecycle.kt:131-135`），检查点未下沉断行循环。本 ADR 给第 1 条处置方向（执行移入 Worker）；第 2 条维持开放，属于未来的治理模型变更。
 
 ### 自管 webfont 宿主与 CSSOM 证据缺口
 
-`cssFaceContract`（precomputed.js:1161）把页面 CSSOM 的 @font-face 规则与构建期证据逐字段比对（family、style、weight 区间、unicode-range 集、src local() 列表、解析后的 url、描述符缺省），候选集只从 document.styleSheets 收集。宿主自己管理 webfont 加载是常见做法。sveltekit 站点 的实测：首屏只内联 plexsc-fallback.css（20 个度量改写 faces），用户交互后的空闲期取回 CSS 文本、经 FontFace API 每帧注册 32 个 face 并写 plexsc-ready=1；回访改经 `<link>` 进 CSSOM（432 个 IBM Plex faces），契约通过。FontFace API 注册的 faces 进入 document.fonts，但不产生 CSSFontFaceRule，且 FontFace 接口不暴露 src，采集器无法从 document.fonts 读证据。结果：首次访问在任何浏览器上都判 `SnapshotExactFontContractMismatch:FontFaceContractMismatch`，命中的是命名的 fallback；回访才通过。这是证据来源缺口，与浏览器差异无关。
+`cssFaceContract`（precomputed.js:1161）把页面 CSSOM 的 @font-face 规则与构建期证据逐字段比对（family、style、weight 区间、unicode-range 集、src local() 列表、解析后的 url、描述符缺省），候选集只从 document.styleSheets 收集。宿主自己管理 webfont 加载是常见做法。sveltekit 站点 的实测：首屏只内联 plexsc-fallback.css（20 个度量改写 faces），用户交互后的空闲期取回 CSS 文本、经 FontFace API 每帧注册 32 个 face 并写 plexsc-ready=1；回访改经 `<link>` 进 CSSOM（432 个 IBM Plex faces），校验通过。FontFace API 注册的 faces 进入 document.fonts，但不产生 CSSFontFaceRule，且 FontFace 接口不暴露 src，采集器无法从 document.fonts 读证据。结果：首次访问在任何浏览器上都判 `SnapshotExactFontContractMismatch:FontFaceContractMismatch`，命中的是命名的 fallback；回访才通过。这是证据来源缺口，与浏览器差异无关。
 
 ### 无消费者导出与 shared 副本落后
 
@@ -86,7 +86,7 @@ precomputed.js 重复实现 `parseUnicodeRange` 与 `cssWeightPreference`（font
 
 宿主重排为三个装置：
 
-- **采样器（主线程）**：读活 DOM，收字体证据，以 canvas 度量按规范键填度量回放表，把平台事实与度量按契约合成为五表记录。
+- **采样器（主线程）**：读活 DOM，收字体证据，以 canvas 度量按规范键填度量回放表，把平台事实与度量按规格合成为五表记录。
 - **协调器（主线程）**：持有唯一带优先级的任务池；帧预算、tier、quota、generation、离屏防抖、pre-paint 通道延续现状；按帧打包收发 Worker 消息；DOM 提交与语义回放作为帧任务执行。
 - **执行装置（Worker）**：ffi/js 引擎只在此处运行。输入是五表记录与度量回放表，输出是 plan。
 
@@ -98,9 +98,9 @@ bake 与 fallback 的差别收敛为度量表的填表人不同：构建期 Harf
 包产物导出类型定义与 source map：类型定义给宿主编译期检查，source map 把
 宿主侧运行时栈映回源码。
 
-### `AssemblySchemaAsContract`：五表记录的单一契约
+### `AssemblySchemaAsContract`：五表记录的单一规格
 
-装配输出是五张表：text、textSpans、sourceBoundaries、lineBreakSpans、inlineBoxes，外加段落级标量（maxWidth、fontSize、lineHeight、locale、fontWeight、italic、firstLineIndent、gridEnabled）。契约写成一份正式定义（IDL 或同源生成的 TS/Rust 类型）。源语义投影规则（空白折叠投影、样式边界登记、硬断行映射）属于契约定义。两侧采集器对同一输入必须产出逐位相同的记录，parity 语料是该契约的可执行规格。`sourceBoundaries` 语义按 core/TextModel.kt:6-13 保持：无样式范围也必须成为簇边界，保证精确占用几何。
+装配输出是五张表：text、textSpans、sourceBoundaries、lineBreakSpans、inlineBoxes，外加段落级标量（maxWidth、fontSize、lineHeight、locale、fontWeight、italic、firstLineIndent、gridEnabled）。规格写成一份正式定义（IDL 或同源生成的 TS/Rust 类型）。源语义投影规则（空白折叠投影、样式边界登记、硬断行映射）属于规格定义。两侧采集器对同一输入必须产出逐位相同的记录，parity 语料是该规格的可执行规格。`sourceBoundaries` 语义按 core/TextModel.kt:6-13 保持：无样式范围也必须成为簇边界，保证精确占用几何。
 
 ### `MetricTableAsEngineInput`：引擎只读表
 
@@ -115,7 +115,7 @@ bake 与 fallback 的差别收敛为度量表的填表人不同：构建期 Harf
 ### `CoordinatorOwnedDispatch`：任务池、deadline 共识与在途窗口
 
 - **池的归属**。带优先级的任务池只在协调器。Worker 侧是有界在途队列；调度器只有一个，取消、重排、配额都在主线程决定。
-- **统一入池**。帧内全部工作（布局切片、度量任务、字体契约重验、DOM 提交与语义回放）经同一任务池与同一凭证形态入队。任何触发源不得自带私有节奏、私有预算或第二条唤醒执行路径；执行器自制预算的 standalone 准入（分解报告 §6 约束 5 的废除决定）与逐批触发全量重验都按此原则排除。负载动态均衡集中在这一个装置与 GrantController 凭证里，不为各类工作分别设预算与唤醒机制。
+- **统一入池**。帧内全部工作（布局切片、度量任务、字体校验重验、DOM 提交与语义回放）经同一任务池与同一凭证形态入队。任何触发源不得自带私有节奏、私有预算或第二条唤醒执行路径；执行器自制预算的 standalone 准入（分解报告 §6 约束 5 的废除决定）与逐批触发全量重验都按此原则排除。负载动态均衡集中在这一个装置与 GrantController 凭证里，不为各类工作分别设预算与唤醒机制。
 - **优先级共识用两个标量**。每条请求携带 deadline 与 generation。deadline 用 Date.now 域：两端时钟同源，且与现有 GrantController 的截止时间语义一致（`GrantClockConversion`）。Worker 收件队列按最早 deadline 先执行；generation 与当前作业不符的请求在段落之间丢弃。两侧不需要同步更多调度状态。
 - **紧急请求的路径**。`grantImmediate` 打包当帧 deadline 的紧急批立即发送。紧急批的等待上界由在途窗口容量与单段成本决定；窗口按 root 自适应，反馈法沿用 `AdaptiveGrantQuota`：deadline 命中扩窗，超时缩窗。Worker 逐段执行，段间让出消息循环，晚到的紧急批在下一个段间隙重排。
 - **回程不参与优先级**。Worker 完成一段即回传。协调器在消息回调内只做 generation 验收与 plan 入库，提交任务交回帧循环，按现有 tier 顺序授予。回程到达顺序不影响提交优先级。
@@ -123,15 +123,15 @@ bake 与 fallback 的差别收敛为度量表的填表人不同：构建期 Harf
 
 ### `WireFormatPerBoundary`：传输按边界收敛、二进制为主
 
-主线程与 Worker 之间每帧每方向一条打包消息：请求侧五表记录按契约派生的二进制编码打包（方向与 snapshot-table-binary 一致），buffer 进 transfer list，所有权随消息转移；表字节（Uint8Array）transfer。不再手拼 JSON 字符串中转。plan 回传第一阶段保持引擎输出的 JSON 字符串（以 Uint16Array 装载并 transfer），二进制 plan 编码随引擎 ABI 演进后替换。FFI 边界沿用分隔符格式（JS）与二进制缓冲（Native），校验归引擎入口。
+主线程与 Worker 之间每帧每方向一条打包消息：请求侧五表记录按规格派生的二进制编码打包（方向与 snapshot-table-binary 一致），buffer 进 transfer list，所有权随消息转移；表字节（Uint8Array）transfer。不再手拼 JSON 字符串中转。plan 回传第一阶段保持引擎输出的 JSON 字符串（以 Uint16Array 装载并 transfer），二进制 plan 编码随引擎 ABI 演进后替换。FFI 边界沿用分隔符格式（JS）与二进制缓冲（Native），校验归引擎入口。
 
 ### `SingleCoordinator`：调度合并与通道废除
 
-单一 TS coordinator。11 个 `tiqian:*` 自定义事件通道、`globalThis.TiqianWeb` 桥与 TiqianWebWorkers 轮询接口废除；废除的是 Kotlin 运行时与 element.js 之间的内部通道，外部触发源不变（document.fonts 事件、ResizeObserver、宿主 API 调用），直接入同一任务池；worker-layout.js 的准备循环与 pending/plans 并入协调器任务池。取消单位保持为段：本 ADR 不改变 0039「调度架构弱点留档」第 2 条的状态。
+单一 TS coordinator。11 个 `tiqian:*` 自定义事件通道、`globalThis.TiqianWeb` 桥与 TiqianWebWorkers 轮询接口废除；废除的是 Kotlin 运行时与 element.js 之间的内部通道，外部触发源不变（document.fonts 事件、ResizeObserver、宿主 API 调用），直接入同一任务池；worker-layout.js 的准备循环与 pending/plans 并入协调器任务池。取消单位保持为段：本 ADR 不改变 0039「调度架构弱点记录」第 2 条的状态。
 
 ### `TsHostRuntime`：剥除 Kotlin 主线程运行时
 
-删除 frontend/web 的 Kotlin 运行时层：WebEnhancer 系列、DomParagraphRenderer 与 Overlays、MarkdownParagraphLowering。宿主生命周期逻辑（段落托管与回滚、渐进任务状态机、内容 reconcile、复制保真）改写为 TypeScript，现有 jsTest 套件作为行为规格逐项移植后再删 Kotlin 源。引擎策略（富文本 run 降级判定、dash 能力门控）不跟随迁移，经 ABI 输出决策。
+删除 frontend/web 的 Kotlin 运行时层：WebEnhancer 系列、DomParagraphRenderer 与 Overlays、MarkdownParagraphLowering。宿主生命周期逻辑（段落托管与回滚、渐进任务状态机、内容 reconcile、复制保真）改写为 TypeScript，现有 jsTest 套件作为行为规格逐项移植后再删 Kotlin 源。引擎策略（富文本 run 降级判定、dash 能力判定）不跟随迁移，经 ABI 输出决策。
 
 ### `SinglePlanLowerer`：绘制规格唯一实现与浏览器后处理
 
@@ -163,8 +163,8 @@ ffi/js 后归位。
 ### `DeclaredFaceEvidence`：声明式字体证据与不匹配解释
 
 - **宿主声明通道**：`declareTiqianFontFaces(cssText, options?)`，`options.baseUrl` 指明声明文本的 URL 基准。宿主把自行管理、不会进入 CSSOM 的 @font-face CSS 文本交给采集器；sveltekit 站点 一类的预热流程在注册 FontFace 的同一处调用。注册表是模块级的，不新增 globalThis 名（与 `SingleCoordinator` 的通道废除同向）。`baseUrl` 必须显式传入：从远端取回的 CSS 文本里 src 是相对该 CSS 文件地址的相对路径，构造 sheet 的 `href` 为 null；采集器现有的 `sheet.href || document.baseURI` 回退（precomputed.js:336）会把相对 URL 错按页面地址解析。
-- **解析复用且无副作用**：声明文本经与 CSSOM 相同的解析器读取，以 `new CSSStyleSheet({ baseURL: options.baseUrl })` 构造（`baseURL` 是 CSSStyleSheetInit 的既定选项，相对 url() 按它解析）、`replaceSync` 装载后读 rules；构造的 sheet 不采用进 document，不触发字体加载。不支持该选项的环境相对 URL 按 document.baseURI 解析，契约比对按字段不匹配进入 miss，fail-closed 不变。`replaceSync` 抛错（语法错误、@import 触发的 NotAllowedError）按该条声明缺席处理，diagnostic 记 `DeclaredTextInvalid`，detail 携带异常名，两类原因可区分。不支持构造 sheet 的环境降级为构造 detached `<style>` 元素读取其 rules（不接进 document，不触发样式计算）；detached `<style>` 也取不到 rules 的环境同样按声明缺席处理并记录。fail-closed 不受影响：声明只补充契约候选集，后续仍有 `document.fonts.load` 与 advance 几何探测两道独立校验，伪造声明绕不过构建期证据。
-- **候选集合并与顺序**：契约候选集 = 声明文本规则加 CSSOM 规则，数组里声明在前、CSSOM 在后。现有挑选用 `findLast`（precomputed.js:1177），后出现的规则胜出；该顺序下 CSSOM 覆盖声明，与「同一 face 以 CSSOM 为准」一致。`BoundedInitialFontGate` 行为不变（仍只等正文用到 faces 的完成承诺）。未声明的宿主行为不变，校验仍 fail-closed。
+- **解析复用且无副作用**：声明文本经与 CSSOM 相同的解析器读取，以 `new CSSStyleSheet({ baseURL: options.baseUrl })` 构造（`baseURL` 是 CSSStyleSheetInit 的既定选项，相对 url() 按它解析）、`replaceSync` 装载后读 rules；构造的 sheet 不采用进 document，不触发字体加载。不支持该选项的环境相对 URL 按 document.baseURI 解析，校验比对按字段不匹配进入 miss，fail-closed 不变。`replaceSync` 抛错（语法错误、@import 触发的 NotAllowedError）按该条声明缺席处理，diagnostic 记 `DeclaredTextInvalid`，detail 携带异常名，两类原因可区分。不支持构造 sheet 的环境降级为构造 detached `<style>` 元素读取其 rules（不接进 document，不触发样式计算）；detached `<style>` 也取不到 rules 的环境同样按声明缺席处理并记录。fail-closed 不受影响：声明只补充校验候选集，后续仍有 `document.fonts.load` 与 advance 几何探测两道独立校验，伪造声明绕不过构建期证据。
+- **候选集合并与顺序**：校验候选集 = 声明文本规则加 CSSOM 规则，数组里声明在前、CSSOM 在后。现有挑选用 `findLast`（precomputed.js:1177），后出现的规则胜出；该顺序下 CSSOM 覆盖声明，与「同一 face 以 CSSOM 为准」一致。`BoundedInitialFontGate` 行为不变（仍只等正文用到 faces 的完成承诺）。未声明的宿主行为不变，校验仍 fail-closed。
 - **声明唤醒，重验入池**：声明注册表变更时同步通知活跃会话；通知只负责唤醒，不内联执行。既有唤起只有 `document.fonts` 的 loadingdone/loadingerror（element.js:1475-1476、2763-2764）；宿主先完成 FontFace 注册、字体已 loaded 时，之后调用声明不会再有任何字体事件，被动等待会永久停留在 fallback。重验作为任务进协调器任务池：每个 root 至多一个 pending 重验任务，同帧多次声明合并为一次，任务执行前又有新声明只保持 pending；执行时以当前合并候选集整批比对。宿主的分批节奏是宿主侧的自由（sveltekit 站点 每帧 32 个是它的注册步调；本设计不定义该常量），本设计的成本上界来自合并，不来自跟随宿主节奏。
 - **不匹配解释结构化**：`SnapshotExactFontContractMismatch` 的 detail 区分两类：候选集为空（EmptyCandidateSet：页面与声明都拿不出可核对的 face）与字段不符（FieldMismatch：给出期望/实际面数与第一个不符字段）。逐字段核对顺序固定为 family → style → weight 区间 → unicode-range → src。`dataset.tiqianExactFontMiss` 保留命中名并携带该 detail；detail 字段形态进分解报告第 11 节的时序 golden。
 - **注册表生命周期**：多次调用按追加处理，同一 `(cssText, baseUrl)` 判重跳过并计数递增，注销递减，计数归零才移除记录（两个组件注册同一声明时，单方注销不撤销另一方仍在用的声明）；空串与全空白是 no-op。调用返回注销函数，移除该条声明并同样触发重验；SPA 路由切换与微前端卸载（ADR 0042 框架集成的场景）需要撤走声明。不设 replace 模式，追加加注销已覆盖。
@@ -189,7 +189,7 @@ JS 版与 Rust 移植版并存是明确决定：渲染位于原生并行循环�
 执行位置收敛为 Worker 一处；主线程保留采样、调度、提交
 ```
 
-正面：管道从四编码三语言双管道收敛为一契约两采样器一执行位；三个调度循环合并为一个；测试面收敛为 TS 宿主测试加共享 golden；同步防护从 cp 脚本升级为类型生成与 CI 比对；5669 行 Kotlin 宿主代码与其编译产物移除，`runtime/tiqian-web.js` 不再存在；Worker 请求获得代际与优先级表示，主线程可按窗口控制可撤销的在途量。
+正面：管道从四编码三语言双管道收敛为一规格两采样器一执行位；三个调度循环合并为一个；测试面收敛为 TS 宿主测试加共享 golden；同步防护从 cp 脚本升级为类型生成与 CI 比对；5669 行 Kotlin 宿主代码与其编译产物移除，`runtime/tiqian-web.js` 不再存在；Worker 请求获得代际与优先级表示，主线程可按窗口控制可撤销的在途量。
 
 代价与风险：3981 行行为测试需要先行移植为 TS 规格才能删除 Kotlin 源；迁移期新旧栈共存，混合页面必须继续通过 digest 校验与既有集成测试；capability issue 名称是跨语言协议，改名是破坏性变更；无 bake 页面首批视口段落之后的首排延迟多一帧（首批视口段落本身走同步快路径）。
 
@@ -197,7 +197,7 @@ JS 版与 Rust 移植版并存是明确决定：渲染位于原生并行循环�
 
 ### 保留 Kotlin 宿主运行时，仅合并 JS 侧协调器
 
-拒绝。调度合并只消三个循环里的一个；装配逻辑四个关注点的多份实现、11 个事件加 globalThis 双通道、渲染器三份实现中的两份 JS 侧并存，都随双语言宿主保留。TsHostRuntime 的成本（移植 3981 行 jsTest）是一次性的，双语言宿主的装配契约维护是持续的；引擎策略（富文本 run 降级判定、dash 能力门控）留在 Kotlin/JS 继续无法被其他前端复用，与 `AssemblySchemaAsContract` 的单一契约目标冲突。
+拒绝。调度合并只消三个循环里的一个；装配逻辑四个关注点的多份实现、11 个事件加 globalThis 双通道、渲染器三份实现中的两份 JS 侧并存，都随双语言宿主保留。TsHostRuntime 的成本（移植 3981 行 jsTest）是一次性的，双语言宿主的装配规格维护是持续的；引擎策略（富文本 run 降级判定、dash 能力判定）留在 Kotlin/JS 继续无法被其他前端复用，与 `AssemblySchemaAsContract` 的单一规格目标冲突。
 
 ### fallback 保持主线程同步执行
 
@@ -221,9 +221,9 @@ JS 版与 Rust 移植版并存是明确决定：渲染位于原生并行循环�
 
 ## Verification
 
-1. 五表契约定义后，TS 与 Rust 类型从同一定义生成；两侧采样器在共享 parity 语料（含 prepared-dom-corpus fixture 扩充）上的输出逐字节一致，CI 强制。
+1. 五表规格定义后，TS 与 Rust 类型从同一定义生成；两侧采样器在共享 parity 语料（含 prepared-dom-corpus fixture 扩充）上的输出逐字节一致，CI 强制。
 2. prepared-dom 双实现的字节比对纳入 CI，golden 语料单一来源存放，禁止两侧各自维护 fixture。
-3. 双侧调度协议有独立测试：紧急批晚于后台批发送、先于其完成（优先级反转用例）；generation 不符的请求在 Worker 段间丢弃；在途窗口随 deadline 命中与超时扩缩；打包二进制请求与契约派生编码 roundtrip 一致。
+3. 双侧调度协议有独立测试：紧急批晚于后台批发送、先于其完成（优先级反转用例）；generation 不符的请求在 Worker 段间丢弃；在途窗口随 deadline 命中与超时扩缩；打包二进制请求与规格派生编码 roundtrip 一致。
 4. TS 宿主重写以现 jsTest 套件为验收规格：同名行为断言逐项移植并通过后才删除对应 Kotlin 源；`LayoutDumpGoldenTest` 全程零 diff。
 5. 迁移期间每个中间态满足：snapshot digest 校验照常通过、`verify-package` 与 `verify-release` 通过、已部署站点（blog 参考宿主）浏览器手工检查不回归。
 6. 无消费者导出清理与 shared/ 删除各自独立提交，均以全量测试绿与 golden 零 diff 为准。
@@ -244,7 +244,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 
 - [ ] **P0 批次 0**：基线记录、通道与 import 图核对、Worker 必要性 bench 首测
   （判定以回填后重测为准）、时序锚点 golden 冻结。
-  KPI：golden 覆盖 §11 表七类锚点，锚点数记录。
+  KPI：golden 覆盖 §11 表六类锚点，锚点数记录。
   验收：npm test、jsBrowserTest、demo/web 测试全部通过；golden 套件入库。
 - [ ] **P1 批次 1**：八个模块纯移动归位，.d.ts 随同名 JS，根路径重导出。
   验收：同 P0 命令全部通过；golden 零 diff。
@@ -261,10 +261,10 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 - [ ] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
   验收：demo/web 对比数据记录。
 
-### A 契约与引擎面
+### A 规格与引擎面
 
-- [ ] **A1 五表契约定义**（`AssemblySchemaAsContract`）：单一 schema 定义文件，
-  TS 与 Rust 类型同源生成；源语义投影规则写进契约定义。
+- [ ] **A1 五表规格定义**（`AssemblySchemaAsContract`）：单一 schema 定义文件，
+  TS 与 Rust 类型同源生成；源语义投影规则写进规格定义。
   KPI：两侧手写类型文件 0 份；字段与 ADR 清单一致。
   验收：Verification 1 前半；类型生成进 CI。
 - [ ] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
@@ -299,7 +299,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
-- [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力门控经 ABI 输出
+- [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
 
 ### C 调度合并（`SingleCoordinator`）

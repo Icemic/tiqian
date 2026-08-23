@@ -64,7 +64,7 @@ render、backend revision、shaping 引擎与版本、face 集合指纹、typogr
 分割原则：一个 precomputer 一份配置一个 context。宿主按样式表中互不相同的排版配置
 各实例化一个 precomputer；页面类型（post、note、tweet）不参与分割，逐条目输入
 （文本、maxWidthPx）进内容哈希。引擎不读样式表，typography 配置是宿主从样式表抄录
-的数字；样式表与配置不一致的段落由 web 包的契约校验降级处理，不轮换 context。
+的数字；样式表与配置不一致的段落由 web 包的运行时校验降级处理，不轮换 context。
 
 ### `MemoryWriteThrough`：内存层写穿透
 
@@ -415,7 +415,7 @@ context 指纹失效，结构不匹配时宿主可整文件重建。三张表设
 
 2026-08-22：文章表与文章哈希表已实施，结构版本升到 2，旧条目库原地迁移保留条目行。
 store 面按 context 记录、读取、删除文章行，行按文章 key 整体替换（重记录收缩的文章
-不再钉住旧哈希）；SDK 提供按文章记录哈希集合（`recordArticle`，快照与契约输入的
+不再钉住旧哈希）；SDK 提供按文章记录哈希集合（`recordArticle`，快照与校验输入的
 哈希由提交构造层同一函数派生，返回本次记录的哈希列表，宿主据此拼装桶列表，未改动
 文章的哈希可从文章行读回）、整篇预热（`warmArticle`，副本先过地址哈希与摘要
 校验再进内存层）、按桶的 prune（`pruneBucket`，桶 id 加该桶哈希列表：条目删除、
@@ -536,7 +536,7 @@ string、95 face、2 typography、95 fontPreload）在两种文件形态下的�
 构建不写新表，条目与表字节不变，表 sha 两次一致。条目合计 63,418,450 B（第三批
 文本形态 63,426,406 B），计入表 63,912,516 B（第三批 64,492,061 B），条目 gzip
 合计 7,083,274 B。preview 实测一页：表请求 200，响应字节与表文件一致，传输
-133,189 B；该 Chrome 实例的字体契约不匹配（SnapshotExactFontContractMismatch），
+133,189 B；该 Chrome 实例的字体校验不匹配（SnapshotExactFontContractMismatch），
 根按设计回退活排版。
 
 ## 附录（2026-08-22 第五批）：持久存储的行压缩与初始化维护
@@ -550,7 +550,7 @@ VACUUM。单条平均 69 KB，最大的 242,894 B。
 
 - **`DeflatedStoreRecords`**：SDK 在 store 边界对整条记录做 deflate。外层是
   魔数 `TQZL` 加一个版本字节，解开后是原 `TQCR` 记录。选压缩而不是重排 JSON，
-  因为 artifact 字节产自 Rust，命中契约校验 sha256(artifact)，存储形态必须逐字节
+  因为 artifact 字节产自 Rust，命中校验 sha256(artifact)，存储形态必须逐字节
   还原；deflate 按构造满足。不带外层的旧行按明文读，命中路径不变，该行下次被
   引擎排出时落成压缩形态。未知版本字节视为 miss，内容路径重算并覆写。
 - **存储维护入口**：`createSqliteCacheStore(path, { contexts })`。`contexts`

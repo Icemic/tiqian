@@ -18,7 +18,7 @@ Slice 6 开始前，`shaping/api` 只有极薄的 `TextShaper` 接口，layout �
 
 ## Decision
 
-`TextShaper` 的契约如下：
+`TextShaper` 的接口定义如下：
 
 1. `ShapingInput` 接收 source `text` / `range`、`TextStyle`、已完成的 `FontDecision`，以及 layout/profile 已决定好的 `displayText`。
 2. `TextShaper` 返回 `Cluster`、`GlyphRun` 和结构化 `ShapingDecisionInfo`。

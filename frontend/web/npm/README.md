@@ -207,7 +207,7 @@ precomputer.close();
 原始 `<p>` 始终保留，负责无 JavaScript 显示、站内搜索和快照失效后的回退。快照以 inert
 template 的形式进入页面，不改变浏览器的首次绘制。浏览器只在正文内容、版心宽度、排版参数、
 站级表和宿主实际选中的字体全部匹配时采用快照；任何一项不匹配都会保留页面原文并在浏览器中
-重新排版。完整契约见
+重新排版。完整规格见
 [ADR 0040](https://github.com/tiqian-cjk/tiqian/blob/main/docs/adr/0040-build-time-web-font-snapshots.md)
 与
 [ADR 0052](https://github.com/tiqian-cjk/tiqian/blob/main/docs/adr/0052-precompute-cache-and-batch-renderer.md)。
@@ -219,7 +219,7 @@ HTML。
 若正文必须保留原始语义 DOM，并由浏览器完成布局（例如包含链接的富文本），可以在关闭
 precomputer 前用 `prepareFontContract()` 只生成字体与度量证据，再走同一条拆分路径，
 数据阶段换用 `renderFontContractBundleData()`，拼装换用 `assembleFontContractBundle()`，
-契约条目同样先进表：
+校验条目同样先进表：
 
 ```js
 const evidence = await precomputer.prepareFontContract({

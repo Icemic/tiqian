@@ -21,7 +21,7 @@
   range；demo 只消费这个包并提供样例内容。
 - **Swift API 命名**：公共调用面使用 `CJKText`、`CJKBlock`、`CJKAttributes` 等领域名称，不给每个
   类型重复加 `Tiqian` 前缀；品牌名保留在 `TiqianUI` 模块与包内 `Tiqian.xcframework` artifact。
-- **最低系统版本**：原生 Swift `AttributedString` 是 authoring 契约，因此 Swift Package 的自然
+- **最低系统版本**：原生 Swift `AttributedString` 是 authoring 接口，因此 Swift Package 的自然
   下限为 iOS 15。iOS 12 需要另一套 `NSAttributedString`/纯文本 authoring 与 pre-iOS 13 selection
   交互，不作为同一 API 的条件分支伪装支持。
 - **原生 view seam**：`CJKTextView` 在 macOS 直接暴露 `NSScrollView + NSView`，在 iOS 直接暴露

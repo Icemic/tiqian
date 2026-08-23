@@ -50,7 +50,7 @@
 2026-08-20 追记：[ADR 0050](0050-native-precompute-rust-bindings.md) 把 precompute 从
 `@tiqian/prose` 迁入独立的 `@tiqian/precompute` 包。框架包改引新包并锁步发版。
 
-### `WidthIndependentFontEvidenceCaptureMeasure`：字体契约不要求宿主宽度
+### `WidthIndependentFontEvidenceCaptureMeasure`：字体校验不要求宿主宽度
 
 `prepareFontContract()` 的公共输入不再要求 `maxWidthPx`。Node 内部为跑通同一条真实 layout / shaping
 pipeline 使用由 source 和字体 span 推导出的宽 measure，但只发布 shaping、metrics 与 face evidence，

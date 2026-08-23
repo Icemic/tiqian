@@ -8,7 +8,7 @@
   2026-07-18 direct SSR / navigation transport + progressive proof amendment;
   2026-08-20 native precompute migration pointer, see ADR 0050)
 - Date: 2026-07-07
-- Relates: [ADR 0008](0008-shaping-adapter-contract.md)(shaping adapter 契约)、
+- Relates: [ADR 0008](0008-shaping-adapter-contract.md)(shaping adapter 接口)、
   [ADR 0014](0014-ink-bounds-calibrated-punctuation-geometry.md)(`halt` = 度量入口非渲染依赖)、
   [ADR 0031](0031-line-adjustment-direction.md) + [ADR 0038](0038-neighbor-amortized-adjustment.md)(推入推出 / 邻行均摊)、
   [ADR 0037](0037-source-faithful-plain-text.md)(源忠实)
@@ -49,7 +49,7 @@ Wasm 的 45%，而两端的 24 段、72 行及 line width 输出一致。
 因此不在运行期猜测浏览器安全模式，也不维护双 backend 或失败后切换。引擎链只保留 `js` target，
 浏览器发布单一 production bundle，Node 预计算发布 ESM modules；npm 的生成 runtime 目录不得包含
 Kotlin `.wasm`，构建也不再下载 Binaryen。这个决定只替换编译与分发后端，不改变本 ADR 的 shaping、
-断行、DOM、复制、snapshot 或宿主回退契约。
+断行、DOM、复制、snapshot 或宿主回退接口。
 
 2026-07-16 的 Edge 增强安全性复查发现，原先的 browser exact-font / 破折号预检仍会懒加载
 `harfbuzzjs` 与 WOFF2 decompressor，导致含破折号或 snapshot miss 的页面重新受到 WASM 限速。
@@ -73,7 +73,7 @@ web 的 shaping adapter(ADR 0008 的第四个实现)用**离屏 canvas** `measur
 `TextMetrics.actualBoundingBox*` 取 ink bounds。它消费宿主元素的 computed font family / size /
 weight / slant；若字体栈首项对可见字形给出零或非有限 advance，则按同一 CSS 栈的后缀继续探测，
 并把 requested / actual canvas font 与命中的栈序号写入 shaping decision。canvas 不上屏，
-与 AWT / Skia / Android 三个 adapter 同契约。Canvas 目前不能可靠提供 `halt` / `locl`，
+与 AWT / Skia / Android 三个 adapter 同一接口。Canvas 目前不能可靠提供 `halt` / `locl`，
 因此二者是具名平台降级，不伪装成已经接入。
 
 Canvas 2D 同样不能可靠报告“首选 face 缺字但 CSS fallback 画成功”：此时 advance
@@ -92,7 +92,7 @@ Canvas 的正 advance 和墨迹宽度只能证明“浏览器最后画出了某�
 端的中文两字破折号不再把 Canvas 几何当合格证据；普通正文仍走
 `OffscreenMeasureTextShaping`，破折号 exact evidence 只在构建期 HarfBuzz session 中生成。
 
-`CssomFontSourceResolution` 的 source / family / weight / style / `unicode-range` 契约由构建端明确
+`CssomFontSourceResolution` 的 source / family / weight / style / `unicode-range` 定义由构建端明确
 输入并写入 snapshot manifest；浏览器再从当前 computed style 与 CSSOM 逐项复核，不能在库中猜
 构建器生成的 family hash。WOFF2 只在 Node 还原为 SFNT 并交给 HarfBuzz；HarfBuzz 明确使用
 `script=Hani`、`language=zh-Hans` 和当前 `wght` variation，产出 glyph id / placement / advance /
@@ -102,7 +102,7 @@ ink bounds，随后进入 `ServerShapingReplayTable`。
 先合并为一个 face group，CSS face descriptor 与 `unicode-range` 覆盖只按 group 校验一次；组内每个
 probe 仍分别校验 feature signature 与可见 advance，不能用分组省略逐项几何证据。覆盖判断以已经
 排序的构建期码点集合和 CSS range 做区间相交，禁止为文章中的每个 shaping probe 重扫整张覆盖表。
-这既保持 exact 契约不变，也避免 JIT 被禁用时把文章级验证放大成重复的主线程长任务。
+这既保持 exact 校验不变，也避免 JIT 被禁用时把文章级验证放大成重复的主线程长任务。
 首次证明本身协作让出主线程，并在每个 face group / probe batch 之间检查 lifecycle generation；它不会
 等待用户停止滚动才开始，也不会让已过期导航继续完成证明。需要把 client template 接管进 live DOM
 的路径采用约 8ms budget；`server-dom-v1` 已经把精确 SSR DOM 作为可读正文交付，不存在等待 takeover
@@ -123,7 +123,7 @@ replay miss 或不可序列化的 inline contract 保留原生 DOM 并报告 `Ex
 不能偷偷回到导航线程执行 Kotlin/JS。
 
 候选顺序是同一个 CSS family 中的 `U+2E3A`，然后 `U+2014 × 2`，再进入 CSS CJK stack 的
-下一个可验证 family。合格契约不是“glyph id 必须与西文不同”：默认 glyph 本来就可能符合
+下一个可验证 family。合格判据不是“glyph id 必须与西文不同”：默认 glyph 本来就可能符合
 中文排版。它要求总 advance 约 `2ic`、墨迹至少覆盖目标的 85%、水平居中、与同 face “一”字
 视觉中线相差不超过具名容差；成对 U+2014 还要求各自约 `1ic` 且接缝无正空隙。默认 shaping 与
 显式 `locl=0` 对拍：确有替换才记 `LocalizedVariant`，否则记
@@ -492,7 +492,7 @@ target 重新 lower。typography 与 width refresh 都先恢复 native backing�
 `text-spacing-trim` / `text-autospace` / `hanging-punctuation` 支持时,可对**与宽度无关的**
 标点半宽 / 中西间距走纯 CSS 快路径(零 span);不支持(Safari / Firefox 现状)则落到引擎烘出的
 span / thin-space 兜底。引擎标注是**跨浏览器真相来源 + 通用兜底**,CSS 只是 Chromium 上的优化。
-契约与 `halt` 同构:有则精修、无则降级。**CSS 一律不碰断行**。开发期可拿引擎几何对拍
+标注机制与 `halt` 同构:有则精修、无则降级。**CSS 一律不碰断行**。开发期可拿引擎几何对拍
 `getBoundingClientRect`、dump「浏览器是否同意」,保留可解释性。
 
 一旦进入引擎烘出几何的路径，`EngineOwnedPunctuationSpacing` 要求接管后的 flow 与 shaping
@@ -511,7 +511,7 @@ boundary 显式使用 `text-spacing-trim: space-all`。否则支持 `normal` 上
 `AccessibilitySoftWrapExclusion` 要求视觉软换行的 `<br>` 同时带 `aria-hidden="true"` 与
 `data-tq-copy-ignore="true"`；它既不是 source newline，也不能被无障碍树读成停顿。只有
 `MandatoryBreak` 的 `<br>` 保留可访问的换行语义。动态 runtime DOM 与构建期 canonical DOM 必须
-输出同一契约，变更 canonical 属性时同步升级 render revision。
+输出同一格式，变更 canonical 属性时同步升级 render revision。
 
 document-level handler 只在 selection 与 `[data-tq-rendered]` 相交时接管；站内其它文本必须继续走
 浏览器原生 copy。`SourceFaithfulSemanticClipboard` 对接管的 selection 同时写入两种 payload：
@@ -575,7 +575,7 @@ Web 不为逐角 1 px / 3 px 圆角拆分一个跨行 `<code>`。源元素继续
 `ContinuousSemanticFlow` 节点跨过核心插入的软换行，并保留宿主的 computed
 `box-decoration-break`；默认 `slice` 因而在延续侧形成方角，真实首尾仍由宿主的圆角样式决定。
 这与 Compose 的 1 dp 延续圆角不是像素同形，而是 Web 保留 hover/focus、伪元素、border、padding
-和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制盒模型，仍按既有 capability 契约回退原生，
+和动态 CSS 的明确平台取舍。`clone` 在窄行需要复制盒模型，仍按既有 capability 规则回退原生，
 不能用多份伪语义元素冒充支持。
 
 ## Amendment (2026-08-18): atomic commit, same-grid retarget, per-slice stale guard
@@ -660,7 +660,7 @@ computed padding 与 border。`elementFragmentBorderBoxInlineSize` 仍为 plain 
    job generation（第几代 job，每次派发新 job 递增）与三层 pending 计数，按 tier
    授予一个有界 slice，再用共享 IntersectionObserver 把段落可见性换算成 tier 写回
    job。授予的单位是一张凭证：一个 controller 对象，只发给一个收件人（已实施形态见
-   「调度架构弱点留档」第 2 条）；其余参数与返回值都是 primitive。`ParagraphTierGating` 把段落分为在视口、近视口、
+   「调度架构弱点记录」第 2 条）；其余参数与返回值都是 primitive。`ParagraphTierGating` 把段落分为在视口、近视口、
    远三层；`TierOrderedGrants` 让所有可见 root 先排干 tier 1，再 tier 2 与 tier 3；
    视口内正文优先。`OffscreenWorkerDebounce` 让离屏 root 拿排版凭证前也等满同样的
    200ms。coordinated job 的第一个 slice 同样来自第一张凭证，可以与 dispatch 任务落在
@@ -740,7 +740,7 @@ job generation、换算到 `Date.now` 域的截止时间戳、段数配额），
 路径的上限。分工固定为：coordinator 决定每帧给排版多少时间、给谁；排版循环决定这段
 时间怎么用。
 
-## Amendment (2026-08-18): 调度架构弱点留档
+## Amendment (2026-08-18): 调度架构弱点记录
 
 2026-08-18 调度重构（轮询调度、预算层拆除、挂起队列修正）期间的讨论收敛出三个
 长期架构弱点。每个弱点写清它在现行实现里的形态、已处理的部分、剩余部分要什么

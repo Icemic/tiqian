@@ -160,7 +160,7 @@ Mi 10s 文献语料中的 `化学教育(中英文)` 暴露出 Unicode 属性分�
 它不添加中西自动间距，不改变括号字体或 advance，也不开放纯西文括号内部的 tracking。
 连接号、分隔号、原子长标号与符号分离禁则的既有关闭边界仍优先。
 
-调宽与断行保持两份独立契约：ADR 0026 的 `Uax14WesternPunctuationBoundary` 继续禁止
+调宽与断行保持两条独立规则：ADR 0026 的 `Uax14WesternPunctuationBoundary` 继续禁止
 开括号居行末、闭括号居行首；一个边界能参加均分不表示它能成为断点。结构化
 justification allocation 以 `WesternBracketCjkInterChar` 记录本次准入来源。
 

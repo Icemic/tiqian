@@ -118,7 +118,7 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
   cache，旧 face 只为旧 `LayoutResult` 保留；
 - `platforms/android/shaping`：Compose 默认的 Android 公开平台后端。API 31+ 保留
   `TextRunShaper` 返回的 glyph id、placement 与 `Font`；API 23–30 以
-  `LegacyPlatformRunReplay` 保证测量与 `drawTextRun` 共用同一 run 契约；
+  `LegacyPlatformRunReplay` 保证测量与 `drawTextRun` 共用同一 run 接口；
 - `platforms/web/shaping`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据；
 - `platforms/apple/shaping`：Apple Core Text shaping、系统字体度量与 glyph ink。语言和显式 OpenType
   feature 进入同一条 `CTLine` 测绘路径；无法施加的 feature 以具名 capability issue 降级，不能
@@ -172,7 +172,7 @@ Android、JVM 或 JS 自带的 Unicode 表。
 Compose 前端把 `AnnotatedString` 与 `TextStyle` lowering 成核心输入，并用
 `cjkTextCompatibility()` 报告当前无法完整保真的能力。Skia 与 Android renderer 重放
 `LayoutResult` 的 glyph 和 annotation geometry，不自行重新排版。
-Android API 23+ 默认使用公开平台 run 契约。API 31+ 让平台 shape 当前请求，
+Android API 23+ 默认使用公开平台 run 接口。API 31+ 让平台 shape 当前请求，
 保留逐 glyph 位置和具体 `Font`，renderer 以 `Canvas.drawGlyphs` 重放；API 23–30
 无法读回物理 face，因此把每个 cluster 作为 `LegacyPlatformRunReplay`，由同一
 `TextPaint`、typeface、locale、OpenType feature 与上下文文本完成测量和
@@ -188,7 +188,7 @@ Compose artifact。capability report 不会把正文路由回 Compose Text。
 不会为此组合或测量全文。Compose Foundation 当前没有面向第三方布局结果的
 公开 `Selectable` 适配接口，因此前端用隔离、随版本编译验证的兼容层复用 Foundation 自己的
 平台手柄、手势状态机、文本上下文菜单与 Android 文本放大镜；Android 使用系统 `ActionMode`
-provider（含宿主菜单扩展和 `PROCESS_TEXT`），Desktop 使用当前 `LocalTextContextMenu` 右键契约。
+provider（含宿主菜单扩展和 `PROCESS_TEXT`），Desktop 使用当前 `LocalTextContextMenu` 右键接口。
 Compose Android artifact 同时合并 `ACTION_PROCESS_TEXT` / `text/plain` 的 `<queries>` 声明，避免
 Android 11+ 包可见性规则把其他应用注册的处理文本动作静默裁掉。
 兼容层只把坐标和 selection adjustment 翻译到 `LayoutResult` 查询，不引入第二份
@@ -226,7 +226,7 @@ Kotlin/Native 出口在 `ffi/native`，以引擎级 C ABI 供 Rust 编排调用�
 template，SSR 正文始终是可响应的 native semantic backing。浏览器只有在 live width、字体与 artifact
 证据全部匹配时才整批采用快照；窄屏等 snapshot miss 使用构建期捕获的字号无关 shaping / metrics
 回放表继续运行 Kotlin/JS layout core，浏览器不加载 HarfBuzz / WOFF2 WASM。证据缺失时保留 source，
-再回到 Canvas host-font pipeline。完整契约见
+再回到 Canvas host-font pipeline。完整规格见
 [ADR 0040](adr/0040-build-time-web-font-snapshots.md)。
 
 引擎插入的视觉软换行不进入复制或无障碍语义；真实 mandatory break 保留。跨段复制同时提供
@@ -234,7 +234,7 @@ block-aware `text/plain` 与去除引擎几何后的宿主语义 `text/html`。
 
 ### Android View
 
-`platforms/android/view` 目前只保留前端契约，还不是与 Compose / Web 同等完整的可用入口。
+`platforms/android/view` 目前只保留前端接口，还不是与 Compose / Web 同等完整的可用入口。
 
 ### Apple
 

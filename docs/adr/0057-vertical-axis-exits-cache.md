@@ -3,7 +3,7 @@
 - Status: Proposed
 - Date: 2026-08-22
 - Relates: [ADR 0054](0054-measure-quantization-and-band-table.md)（格数区间表与
-  身份收敛）、[ADR 0053](0053-web-prose-host-consolidation.md)（五表契约）、
+  身份收敛）、[ADR 0053](0053-web-prose-host-consolidation.md)（五表规格）、
   [ADR 0018](0018-inline-decoration-spans-emphasis-marks.md)（着重号）、
   [ADR 0024](0024-interlinear-lines.md)（行间线）、
   [ADR 0032](0032-ruby-annotations.md)（ruby）、
@@ -90,7 +90,7 @@ CSS 行盒的堆叠规则，结果与浏览器堆叠同源，不构成第二份�
 照旧计算 y（LayoutResult 完整性与 dump 可解释性不动）；改变的是缓存存什么、身份
 认什么。
 
-lineHeight 退出 typography 身份与失效 digest，修订 ADR 0053 五表契约的段落级标量
+lineHeight 退出 typography 身份与失效 digest，修订 ADR 0053 五表规格的段落级标量
 清单（lineHeight 不再入表）。行高变回普通 CSS 属性：宿主改行高只触发浏览器重排
 重画，横向条目与身份判定不受影响，不存在 invalidate。烘焙期引擎调用的
 lineHeight 取级联解析值（见 ADR 0054 的 `TypographyConfigFromCss`），只进 dump。
@@ -110,7 +110,7 @@ context；脚注（13px）因字号仍在身份而独立，其合并待比例域
 - SVG 可整体 em 化：svg 元素的 width/height 用 em，viewBox 用等值的无单位
   数值（1 用户单位 = 1 em），浏览器缩放连带 stroke-width（线粗是 em 量，
   缩放性质相合）。纵向随字号均匀缩放的前提是宿主行高为 em 写法
-  （`line-height: 1.94` 一类，lineHeightEm 恒定）；绝对 px 行高（sveltekit 站点 的
+  （`line-height: 1.94` 一类，lineHeightEm 固定）；绝对 px 行高（sveltekit 站点 的
   30px）下 lineHeightEm 随字号变化，纵轴仍走公式。该约束即「行高绝对值不是
   字号比例量」。
 - 绘制载体按装饰形状分派：离散、矩形、圆形改用 CSS em 盒，着重号点是
@@ -128,7 +128,7 @@ context；脚注（13px）因字号仍在身份而独立，其合并待比例域
   按 px 用即可；它们只在把 em 路径烘进缓存时才破坏字号不变性，该变体不采用。
   段落级单 SVG 的纵高由运行时公式折算。书名号甲式在现代横排正文出现频次低，
   挂载时生成的成本按稀有装饰接受。
-- 波形做 SVG data-URI 当 background-image 与参数化波形契约（把引擎输出改为
+- 波形做 SVG data-URI 当 background-image 与参数化波形格式（把引擎输出改为
   周期 em、振幅 em 加截断语义）都不做。data-URI 的问题：`background-size` 用
   em 时缩放连同笔画成立，但末半波只能被元素边界截断在任意相位，重现不了引擎
   把末半波压缩到落在段尾的几何；data-URI 不继承 currentColor，需按色生成
@@ -147,7 +147,7 @@ context；脚注（13px）因字号仍在身份而独立，其合并待比例域
   反查的 y 从运行时公式取得。
 - 与 ADR 0054 的衔接：实施时其格数区间表条目的「行几何值」改为横轴几何，
   身份收敛表的行高行随之生效，`FontSizeRatioDomainSpike` 的纵轴阻碍项解除。
-- 实施时修订 ADR 0053 五表契约的段落级标量清单：lineHeight 不再入表，烘焙期
+- 实施时修订 ADR 0053 五表规格的段落级标量清单：lineHeight 不再入表，烘焙期
   引擎调用的 lineHeight 取级联解析值，只进 dump；实施前 lineHeight 维持入表。
 
 ## Verification

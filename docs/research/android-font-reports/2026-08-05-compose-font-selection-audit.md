@@ -155,7 +155,7 @@ italic override 合入有效轴实例，再交给 HarfBuzz / FreeType。平台�
 1. 先让 `AndroidFontCatalog` 表达有序 fallback、实例身份和 revision，并把 revision 接入 Compose
    measurer 与三层缓存；这一步不改变字体来源，也能消除切换后的陈旧结果。
 2. 在 API 31+ 增加平台默认字体快照，删除生产默认路径中的文件名评分与固定 400 / 700 实例化。
-3. 将 punctuation、Greek / Cyrillic 与 emoji 改到新的 role / fallback 契约，并用本目录样本形成
+3. 将 punctuation、Greek / Cyrillic 与 emoji 改到新的 role / fallback 定义，并用本目录样本形成
    Android instrumentation fixture。
 4. API 23–30 只保留宿主显式目录作为保真路径；近似路径必须在 capability report 和 demo 中可见。
 5. 用干净版本采集器重采 OnePlus 受控对照以及至少一台 Huawei、Xiaomi、vivo，再进行真机

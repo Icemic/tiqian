@@ -46,12 +46,12 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   以 blurest 的 workspace 组织为参照；`frontend/web` 的 `src`、`npm`、`integrations`
   三目录收拢为对等源码布局；Rust 侧按 `tiqian-precompute-core` / `tiqian-precompute-binding`
   命名分层。分层不变式：precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定；
-  Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 契约与
-  snapshot revision / replay 契约独立为 web-core，prose 与 precompute 共同依赖，
+  Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 格式与
+  snapshot revision / replay 定义独立为 web-core，prose 与 precompute 共同依赖，
   消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`frontend/rust` 同时
   绑定引擎与 web-core，ABI 携带 web plan JSON 由此合法；除此之外各层不得互串，
   `frontend/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
-  契约散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
+  格式定义散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
   ADR 0050 随重组出修订段。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录
   布局与命名不受它强制。动工时机随 Slice 39 收尾确定，先于 Neon 编排接入可避免
   在旧布局上加建。
@@ -203,7 +203,7 @@ Last（同日）:    **行调整方向**（ADR 0031）落地：CLREQ §6.2.2「�
 | 24 | — | 凸排列表（CLREQ §6.2.1.1）：`CjkBlock.List(items, marker, indent?, start)` + `ListMarker`（`Decimal 1.`/`CjkNumber 一、`/`Circled ①`/`Bullet •`）。标记左对齐顶格于固定宽「标记列」，正文整列缩进、续行同列对齐（Compose 双列 gutter `Box`+正文 `Row.weight`，引擎零改动）；列宽默认 1 字、自动按最宽标记升最小整字数（`10.`→2 字，`autoListGutterEm` 实测裸宽非数位），`indent` 覆盖；marker/正文零段首缩进 | `markersFormatPerKind`/`gutterDefaultsToOneZiAndBumpsForTwoDigits`/`explicitIndentOverridesAuto` | `:frontend:compose:jvmTest` + 全量 golden 零漂移 + PNG 目检（续行对齐 + `10.` 升列） | done (纯 `CjkText` 组合糖，引擎零改动；嵌套/富文本项续档) |
 | 25 | — | Android Compose frontend：`frontend/compose` 提供 Android target，公共 Compose API 进入 `commonMain`，Android backend 走 `TextPaint`/`Canvas.drawTextRun` 与 `AndroidPaintTextShaper` 同源；共享 Demo 可由 Desktop 与 Android 启动 | `demo/android` debug app | `:frontend:compose:compileAndroidMain` + `:demo:android:assembleDebug` + `:frontend:compose:jvmTest` | done (ADR 0035；示例界面后来收拢到 `demo`，Android app 只保留启动壳；默认断词与 JVM 共用 bundled en-US TeX/Liang，公开 `LineBreaker` 不进默认 pipeline) |
 | 26 | — | Compose Text interop：从真实应用的 `AnnotatedString + androidx.compose.ui.text.TextStyle` 迁移到 Tiqian，不在 Markdown AST/HTML 层重建富文本；新增 Compose `style` overload、`TextStyle.toCjkTextStyle()`、`AnnotatedString.cjkTextCompatibility(style)` 结构化 capability issue | `CjkTextCompatibilityTest`（支持子集无 issue；inline placeholder/未知 annotation/字距/段落控制触发 capability issue；background/text decoration 由 Slice 29 接上；LinkAnnotation click 由 Slice 33 接上） | `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextCompatibilityTest'` | done (ADR 0036；窄 `CjkTextStyle` 继续作为作者面，Compose interop 作为迁移面；report 不驱动库内回退) |
-| 27 | — | Compose 迁移契约止偏：`cjkTextCompatibility` 明确为 capability report 而非 host-renderer 路由；`CjkParagraph` 暴露 source `AnnotatedString` 到 semantics；`LayoutResult` 提供 line/offset/box/range/position 查询，Skia/Android renderer 共享同一 positioned-cluster 几何；撤销 Android dash renderer scaling | `LayoutQueriesTest` + `CjkTextCompatibilityTest` | `:core:jvmTest` + `:frontend:compose:jvmTest` + `:frontend:compose:compileAndroidMain` | done (2026-06-25；暴露出的 Android backend 同源绘制缺口已由 Slice 28 接上) |
+| 27 | — | Compose 迁移接口止偏：`cjkTextCompatibility` 明确为 capability report 而非 host-renderer 路由；`CjkParagraph` 暴露 source `AnnotatedString` 到 semantics；`LayoutResult` 提供 line/offset/box/range/position 查询，Skia/Android renderer 共享同一 positioned-cluster 几何；撤销 Android dash renderer scaling | `LayoutQueriesTest` + `CjkTextCompatibilityTest` | `:core:jvmTest` + `:frontend:compose:jvmTest` + `:frontend:compose:compileAndroidMain` | done (2026-06-25；暴露出的 Android backend 同源绘制缺口已由 Slice 28 接上) |
 | 28 | — | Android backend 同源绘制：`Glyph` 承载 glyph origin 与 opaque platform font key；Android shaper 保存 `PositionedGlyphs` 的 id/x/y/Font；Android renderer 在 API 31+ 用 `Canvas.drawGlyphs` 重放 `LayoutResult.glyphRuns`，避免 draw 阶段二次 shaping 分叉 | `AndroidDashPunctuationReproTest.androidLayoutKeepsGlyphFontAndPlacementForDashRendering` | `:frontend:compose:compileAndroidMain` + `:shaping:android-adapter:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=org.tiqian.shaping.android.AndroidDashPunctuationReproTest` | done (2026-06-25 的平台路径；当时诚实边界为 API 31+，2026-08-05 已由 Slice 38 的 API 23+ native backend 取代其正确性边界) |
 | 29 | — | Compose rich-text render roles：background、普通 underline/line-through、link range、inline code role 从 `AnnotatedString` 进入 `RichTextSpan`；渲染复用 `LayoutResult.positionedRichTextSegments`，underline 复用 skip-ink；compatibility report 移除 background/text decoration 缺口 | `CjkAnnotatedTextTest` / `LayoutQueriesTest` / `CjkTextCompatibilityTest` / `RichTextRenderTest` | `:core:jvmTest --tests 'org.tiqian.core.LayoutQueriesTest'` + `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkAnnotatedTextTest' --tests 'org.tiqian.compose.CjkTextCompatibilityTest' --tests 'org.tiqian.compose.RichTextRenderTest'` + `:frontend:compose:compileAndroidMain` | done (2026-06-27；link 点击另起 Slice 33；有 metrics 的 inline object 于 2026-07-28 接通，未建模 placeholder 仍报告缺口) |
 | 30 | — | Compose Text replacement facade：`CjkText(String/AnnotatedString, ...)` 从结构化文档模型分离为 Compose `Text` 风格迁移入口，默认无段首缩进，常用样式参数降到内部 layout node；多段中文文档只保留显式 `CjkText(blocks = ...)`，避免同名 API 语义错位 | `CjkTextRenderTest.composeTextReplacementRendersSingleUnindentedParagraph` | `:frontend:compose:jvmTest --tests 'org.tiqian.compose.CjkTextRenderTest'` + `:frontend:compose:compileAndroidMain` | done (2026-06-27；“单段”说法已由 ADR 0037 / Slice 32 修正为源忠实纯文本；不做 host-renderer fallback，不修改第三方 Markdown renderer) |
@@ -236,7 +236,7 @@ Slice 15 的依据（CLREQ 原文）：
 - 编辑器、IME 与 TalkBack 真机字符框审计（静态只读 selection 与 Android 放大镜见 Slice 37）。
 - 完整 CSS Text 兼容。
 
-这些能力需要新的 writing mode、页面模型或前端契约，不应作为现有横排实现上的局部补丁加入。
+这些能力需要新的 writing mode、页面模型或前端接口，不应作为现有横排实现上的局部补丁加入。
 
 ## 怎么用这张表
 

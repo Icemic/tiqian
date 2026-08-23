@@ -92,7 +92,7 @@ TIQIAN_UPDATE_GOLDEN=1 ./gradlew :engine:jvmTest --tests '*LayoutDumpGoldenTest*
 ## 文档与设计决策
 
 根 README 只保留项目定位、当前范围、最小使用入口和文档导航。模块或包的具体用法放在对应的
-用户文档中；pipeline 与模块职责放在架构文档中；已有取舍的原因与实现契约放在 ADR 中。不要在
+用户文档中；pipeline 与模块职责放在架构文档中；已有取舍的原因与实现规格放在 ADR 中。不要在
 多个层级复制同一份说明。
 
 修复实现与既有文档不一致的问题时，应让代码回到已经记录的行为。若贡献有意改变公共 API、

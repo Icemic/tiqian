@@ -51,7 +51,7 @@ ADR 0038 给了正确的代价模型(密度凸价 + 邻行差),但求解器是�
    违规带进解的候选终点;无替代时保留violating 终点,由共享的
    `applyKinsokuRepairs`(照常运行)修复。
 4. **`SyntheticHyphenLastResortPenalty`** — 每个合成连字符断点加平坦罚分
-   (默认 12),在代价驱动的优化器下保住 ADR 0029 的整词优先契约;
+   (默认 12),在代价驱动的优化器下保住 ADR 0029 的整词优先规则;
    连续连字符游程由 DP 状态里的游程计数(`HyphenRunStateCap = 3` 封顶)
    按 lookahead 同款递增罚分。
 5. **`MandatoryBreakBindsPreviousLine`** — 段内不提供「紧邻控制符之前」的
@@ -119,7 +119,7 @@ lookahead 的两行视野令它无法利用这些模型漏洞——此前 −30.
 
 ### v2 代价模型(2026-07-18 实现,待目检重赛)
 
-- `NaturalSetIsReference`:邻行差项过零门控——仅当两侧都偏离自然密排时生效,
+- `NaturalSetIsReference`:邻行差项过零条件,仅当两侧都偏离自然密排时生效,
   压缩(负)贴拉伸(正)两侧非零、照罚。
 - `GapClassBlindDensity` 修复:按 justify 真实渲染分层计价——中西 gap 先吸收
   差额(每个至 `sinoWesternStretchCap` 封顶),余量落 CJK 字距,逐类凸项;

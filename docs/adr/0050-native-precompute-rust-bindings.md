@@ -9,7 +9,7 @@
   [ADR 0045](0045-apple-kotlin-native-target.md)（Apple Kotlin/Native 目标先例）、
   [ADR 0048](0048-suite-maven-and-package-namespaces.md)（套件 Maven 坐标与包命名）、
   [ADR 0052](0052-precompute-cache-and-batch-renderer.md)（缓存分层与批量渲染器，承接本 ADR
-  初版的缓存契约设计）
+  初版的缓存设计）
 
 ## Context
 
@@ -36,7 +36,7 @@ Kotlin/Native 目标，各产出 `staticLib` 与 C 头文件。四个目标传�
 归位到 nativeMain 或补写。其余改动限于构建配置。wire 解析提升到 `commonMain`；`jsMain`
 保留 `@JsExport`，`nativeMain` 新增 `@CName` 入口。
 
-C ABI 保持现有 wire 契约：`tiqian_precompute_paragraph` 接收扁平参数，经 `nativeHeap` 返回
+C ABI 保持现有 wire 传输格式：`tiqian_precompute_paragraph` 接收扁平参数，经 `nativeHeap` 返回
 JSON，配对 `tiqian_precompute_release_string` 释放。错误经出参以具名 capability issue 字符串
 返回，Kotlin 异常不跨 C 边界；绑定层把字符串映射为错误类型，名称与现有 npm 测试及 web
 capability 断言一致。C 入口允许并发调用；backend 实现负责自身的线程安全。
@@ -71,7 +71,7 @@ Rust 侧分两个 Cargo workspace，都在 `frontend` 下。`frontend/rust` 持�
   napi，可独立 `cargo test`。
 - `tiqian-precompute-neon`：Neon cdylib。暴露现有 precompute 入口的全部导出（兼容性约束见
   `NpmPrecomputePackage`），并新增 `createFontSession` 与原始 `layoutParagraph` 入口。缓存入口
-  与条目契约由 [ADR 0052](0052-precompute-cache-and-batch-renderer.md) 定义。
+  与条目定义由 [ADR 0052](0052-precompute-cache-and-batch-renderer.md) 定义。
   Neon 打包与 CI 配置沿用同维护者 blurest 仓库验证过的 `neon dist` 与 `neon show ci github`
   流程。
 
@@ -97,7 +97,7 @@ snapshot 不混入两个引擎的证据。升级 harfrust 或 skrifa 后重跑 `
 定义的差分 harness。HTML 解析用
 `html5ever`。`harfbuzzjs`、`woff2-encoder`、`linkedom` 三个 npm 依赖随之删除。
 Kotlin 引擎侧保持零字体依赖。排版规则仍全部在 Kotlin 核心，Rust 只承担 ADR 0001
-平台 adapter 契约允许的平台层职责：字体加载、shaping 与度量。
+平台 adapter 接口允许的平台层职责：字体加载、shaping 与度量。
 
 ### `PackedFfiCalls`：打包 FFI 数据与调用预算
 
@@ -124,7 +124,7 @@ plan 序列化不在本 ADR 范围内。
 Neon 边界以字节为主。prepared DOM 与 bundle 经 Node Buffer 传输；输入侧 HTML 与文本仍为
 JS 字符串，napi 转换一次。
 
-并发契约：字体会话的 face 数据只读共享，shaping 线程各建 shaper 实例。批处理入口在
+并发约束：字体会话的 face 数据只读共享，shaping 线程各建 shaper 实例。批处理入口在
 Rust 线程池并行执行，结果按输入顺序返回。入口保持同步语义，与现有 precompute API 一致。
 
 ### `StaticVendoredLinkage`：全部静态链接，禁止系统探测
@@ -192,7 +192,7 @@ breaking change，发生在 alpha 阶段，不提供兼容 re-export。浏览器
    shaping 引擎标识两侧按设计不同（JS 侧 `harfbuzzjs` 版本、Rust 侧 `harfrust` 标识），
    属差异豁免字段。此后逐层比对 shaping 证据、plan JSON、prepared DOM、manifest 与 bundle，
    豁免清单为引擎标识字段。
-   byte-identical 按 canonical 序列化定义：字段顺序、浮点格式与 DOM 属性顺序由契约固定；
+   byte-identical 按 canonical 序列化定义：字段顺序、浮点格式与 DOM 属性顺序由格式定义固定；
    浮点序列化在 Kotlin/JS 与 Kotlin/Native 间的差异是首要核对项。harness 发现差异
    时先判断属于格式还是语义：格式差异修 canonical 层，语义差异阻塞。门槛按最终支持平台全集计算；
    Windows 链接验证长期受阻时把 Windows 移出支持清单并记录，legacy 移除按剩余平台达标执行。
@@ -245,7 +245,7 @@ js 目标删除时，`build_fonts_parity` 与 `precompute_html_parity` 无法再
 
 ### `EngineLevelAbi`：`tiqian_layout_paragraph` 打包二进制协议
 
-- 废除初版「C ABI 保持现有 wire 契约」段与 `tiqian_precompute_paragraph`、
+- 废除初版「C ABI 保持现有 wire 传输格式」段与 `tiqian_precompute_paragraph`、
   `tiqian_precompute_release_string` 两个符号。新符号为
   `tiqian_layout_paragraph(const uint8_t* request, uintptr_t request_len,
   uint8_t** response_out, uintptr_t* response_len, const char** error_out)` 与
@@ -281,7 +281,7 @@ js 目标删除时，`build_fonts_parity` 与 `precompute_html_parity` 无法再
   Rust workspace 与 npm 包，不再含一行 Kotlin。
 - `RustPrecomputeStack` 中「`frontend/rust` 持有中性引擎绑定」的表述修正为：`tiqian` crate
   是 sys 绑定，声明 `tiqian_layout_abi.h` 的符号并链接平台静态库。ABI 升级为引擎级之后，
-  「绑定不依赖 web 概念」才真实成立。sys 层允许同时承载 web-core 契约的绑定，当前修订
+  「绑定不依赖 web 概念」才真实成立。sys 层允许同时承载 web-core 定义的绑定，当前修订
   未行使该许可；plan JSON 的 schema 常量在 `tiqian-precompute`。
 - precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定。Kotlin 出口与 sys 同属引擎
   出口面，不留在 precompute 目录。
@@ -399,7 +399,7 @@ vite build 阶段约等于 33 s 构建基线加批处理耗时（1/2/4 线程的
 的端到端耗时为 0.24，内存峰值为原实现的 0.54，自身比单线程多约 9% 内存
 （每线程一份证据缓冲与栈）。
 
-astro 站点（pnpm + astro static + pagefind；每轮 326 段落 + 18 字体契约；327 条
+astro 站点（pnpm + astro static + pagefind；每轮 326 段落 + 18 项字体校验；327 条
 缓存条目；astro 单进程串行渲染，调用计数无分摊）：
 
 | 实现 | 端到端耗时 ms（三轮） | 内存峰值 KiB（三轮） | 引擎计时合计 |
@@ -457,13 +457,13 @@ Kotlin `Float` 精度与 HarfBuzz 版本两个来源；断行与行结构在两�
 - `unsafeBreakCount` 与 glyph extents 纳入 HarfBuzz 版本差分的比对维度。
 - `renderSnapshotBundle` 原生路径单次多 3.6 ms，可单独复查。
 
-## 附录（2026-08-21 第二轮）：契约批量入口与 prepareHtml 文档循环的并行执行
+## 附录（2026-08-21 第二轮）：校验批量入口与 prepareHtml 文档循环的并行执行
 
 本轮改动三处：新增 `prepareFontContracts` 批量入口（Rust 方法、Neon 导出、
 TypeScript API）；`prepareHtml` 的文档循环先按文档顺序遍历，再把各元素并行处理，
-最后按文档顺序重组输出，各元素的快照尝试与契约回退发生在并行阶段；sveltekit 站点 宿主
-改为按 article 批量提交契约请求。测试平台与采样方法同第一轮；本轮 linux-x64
-addon 为 8,465,208 字节。sveltekit 站点 每轮仍为 946 次契约请求，批调用按
+最后按文档顺序重组输出，各元素的快照尝试与校验回退发生在并行阶段；sveltekit 站点 宿主
+改为按 article 批量提交校验请求。测试平台与采样方法同第一轮；本轮 linux-x64
+addon 为 8,465,208 字节。sveltekit 站点 每轮仍为 946 次校验请求，批调用按
 article × precomputer 合并。
 
 ### 性能结果
@@ -477,7 +477,7 @@ sveltekit 站点 端到端（每个线程数三轮，每轮从空缓存开始；
 | 4 | 57,040 / 56,601 / 56,584 | 57,248 / 57,823 / 57,102 | 1,986,160 / 2,002,688 / 2,017,944 |
 
 九次构建的退出码均为 0。耗时差全部出现在 vite build 阶段：1/2/4 线程该阶段的
-三轮中位数从 76 / 59 / 51 s 变为 78 / 61 / 52 s。契约请求的离线重放（946 条站点
+三轮中位数从 76 / 59 / 51 s 变为 78 / 61 / 52 s。校验请求的离线重放（946 条站点
 正文文本，预热一轮后取 7 轮，单进程）：
 
 | 调用方式 | 线程数 | 最佳 ms | 中位 ms |
@@ -491,8 +491,8 @@ sveltekit 站点 端到端（每个线程数三轮，每轮从空缓存开始；
 
 按中位数，批量入口在 2/4/8 线程下的耗时分别为逐条调用的 0.61 / 0.40 / 0.32；
 1 线程比逐条调用慢 6.7%（批入参的 JSON 序列化与结果数组分配）。端到端没有出现
-同量级的缩短，原因是：946 次契约请求分布在 6 个 vite worker 上，每个 worker 的
-串行契约耗时约 1.3 s（7.7 s 除以 6）；进程内并行最多为每个 worker 节省约 1 s，
+同量级的缩短，原因是：946 次校验请求分布在 6 个 vite worker 上，每个 worker 的
+串行校验耗时约 1.3 s（7.7 s 除以 6）；进程内并行最多为每个 worker 节省约 1 s，
 在约 33 s 的构建基线里不可分辨。宿主端的合并已到上限：单个 article 内全部快照
 未命中的回退请求都通过同一次调用提交。跨 article 合并要求宿主先收集各页请求再
 统一执行，可节省的上限相同，本轮不做。1 线程的端到端差值约 +2.8 s，其中约
@@ -537,7 +537,7 @@ JS 引擎基线。语料为两个参考站点（sveltekit 站点 与 astro 站�
 
 ### 性能结果
 
-sveltekit 站点（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条契约回退，
+sveltekit 站点（306 条条目；两个引擎的空缓存构建均产出 297 条快照与 9 条校验回退，
 工作量一致）：
 
 | 引擎 | 空缓存 | 缓存命中 |
@@ -556,7 +556,7 @@ astro 站点：
 | native | 29.3 s / 28.8 s | 9.2 s / 9.1 s | 16,326,219 |
 
 空缓存构建耗时 137.3 s 对 29.3 s，为 4.7 倍。缓存命中时 native 比 JS 慢约
-1.1 s；两侧的命中构成相同（快照 1232 命中 59 缺失，契约 40 命中 9 缺失），
+1.1 s；两侧的命中构成相同（快照 1232 命中 59 缺失，校验 40 命中 9 缺失），
 缓存文件字节数相当。宿主缓存把构建耗时从空缓存到缓存命中分别压缩为 sveltekit 站点
 55.0 s 到 14.3 s、astro 站点 29.3 s 到 9.2 s。
 
@@ -583,7 +583,7 @@ native 的 sveltekit 站点 两轮空缓存构建写出的 306 条缓存逐字�
 
 空缓存构建的引擎计数：构建进程含两个相互隔离的模块上下文，分别计数为 5217 次
 内存命中、11528 次计算、2117 次预填、6960 次写出，与 200、565、157、370。
-缓存命中时只余约 29 次计算，均为无快照条目的契约项。
+缓存命中时只余约 29 次计算，均为无快照条目的校验项。
 
 ### 等效性
 

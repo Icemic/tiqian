@@ -58,7 +58,7 @@ tier 6 是有意的项目扩展：CLREQ 的挤压清单不含顿号逗号等的�
   对行末标点做削半。
 - `allowInlineStopCompression = true`：行内句问叹是否参与 tier 4。
 - `allowSinoWesternGapAdjustment = true`：中西间距是否参与 tier 5 挤压
-  与 justify 拉伸（同一开关同时门控两侧，CLREQ 风格项原文即如此）。
+  与 justify 拉伸（同一开关同时控制两侧，CLREQ 风格项原文即如此）。
 
 ### 暂不做
 

@@ -66,11 +66,7 @@ PATTERNS = [
 # keep entries narrow: a line holding both an accepted use and a real
 # violation would be missed, and the skip is per line, not per match.
 ALLOW = re.compile(
-    r"调度架构弱点留档"  # quoted section title of the committed ADR 0039
-    r"|回退路径"         # contains the substring 退路 but is a standard term
-    r"|恒定"             # standard technical collocation for constant
-    r"|能力门控"         # capability gating, standard term (dash 能力门控)
-    r"|契约"             # contract, standard term (font contract, API contract)
+    r"回退路径"  # contains the substring 退路 but is a standard term
 )
 
 
