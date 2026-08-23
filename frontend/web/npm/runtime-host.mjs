@@ -797,9 +797,15 @@ function getStylesheetProperty(element, kebab) {
   let bestNormal = null;
 
   for (const rule of parsedStylesheetRules) {
-    if (rule.declarations.has(kebab)) {
+    if (rule.declarations.has(kebab) || rule.declarations.has("all")) {
       if (matchesHostSelector(element, rule.selector)) {
-        const decl = rule.declarations.get(kebab);
+        // A rule's explicit declaration for the property wins over its own
+        // `all` shorthand; `all: unset` then only clears what the rule does
+        // not set explicitly, mirroring declaration order inside a block.
+        const decl = rule.declarations.has(kebab)
+          ? rule.declarations.get(kebab)
+          : allShorthandDecl(rule);
+        if (!decl) continue;
         if (decl.important) {
           if (!bestImportant || compareSpecificity(rule.specificity, bestImportant.rule.specificity, rule.index, bestImportant.rule.index) >= 0) {
             bestImportant = { rule, decl };
@@ -816,6 +822,28 @@ function getStylesheetProperty(element, kebab) {
   if (bestImportant) return bestImportant.decl.value;
   if (bestNormal) return bestNormal.decl.value;
   return "";
+}
+
+// The `all` shorthand competes for every property. Only the CSS-wide reset
+// keywords make sense on it in host stylesheets; other values (e.g. a font
+// shorthand) do not expand per-property here and are ignored.
+function allShorthandDecl(rule) {
+  const decl = rule.declarations.get("all");
+  if (!decl) return null;
+  const value = String(decl.value).trim().toLowerCase();
+  if (value !== "unset" && value !== "initial" && value !== "inherit" && value !== "revert") {
+    return null;
+  }
+  return { ...decl, value: `__all_${value}__` };
+}
+
+function isAllResetValue(value) {
+  return typeof value === "string" && /^__all_(unset|initial|inherit|revert)__$/.test(value);
+}
+
+function allResetKeyword(value) {
+  const m = /^__all_(unset|initial|inherit|revert)__$/.exec(value);
+  return m ? m[1] : null;
 }
 
 function getPseudoStylesheetProperty(element, kebab, pseudoKey) {
@@ -844,7 +872,7 @@ function getPseudoStylesheetProperty(element, kebab, pseudoKey) {
   return "";
 }
 
-function resolveElementProperty(element, property, base = {}) {
+function resolveElementPropertyRaw(element, property, base = {}) {
   if (!element || element.nodeType !== 1) return "";
 
   if (property.startsWith("--")) {
@@ -869,6 +897,18 @@ function resolveElementProperty(element, property, base = {}) {
 
   // 3. Stylesheet rules (extended specificity-based rules)
   const sheetVal = getStylesheetProperty(element, kebab);
+  if (isAllResetValue(sheetVal)) {
+    // `all: unset` wins the cascade for this property: inherited properties
+    // keep flowing from the ancestor chain, everything else resets to its
+    // initial value (reported as the empty string here).
+    const keyword = allResetKeyword(sheetVal);
+    const inheritable = INHERITED_PROPERTIES.includes(kebab) || keyword === "inherit";
+    if (inheritable && element.parentElement && element.parentElement.nodeType === 1) {
+      const parentVal = resolveElementPropertyRaw(element.parentElement, kebab, base);
+      if (parentVal !== "") return parentVal;
+    }
+    return "";
+  }
   if (sheetVal !== "") return sheetVal;
 
   // 3b. Fallback tag rule if any
@@ -876,17 +916,37 @@ function resolveElementProperty(element, property, base = {}) {
   if (tagRule !== undefined && tagRule !== "") return tagRule;
 
   // 4. Inherited properties
-  const inheritable = [
-    "font-size", "font-weight", "font-family", "font-style",
-    "line-height", "letter-spacing", "word-spacing", "color", "direction",
-    "font-feature-settings", "white-space",
-  ];
-  if (inheritable.includes(kebab) && element.parentElement && element.parentElement.nodeType === 1) {
-    const parentVal = resolveElementProperty(element.parentElement, kebab, base);
+  if (INHERITED_PROPERTIES.includes(kebab) && element.parentElement && element.parentElement.nodeType === 1) {
+    const parentVal = resolveElementPropertyRaw(element.parentElement, kebab, base);
     if (parentVal !== "") return parentVal;
   }
 
   return "";
+}
+
+const INHERITED_PROPERTIES = [
+  "font-size", "font-weight", "font-family", "font-style",
+  "line-height", "letter-spacing", "word-spacing", "color", "direction",
+  "font-feature-settings", "white-space",
+];
+
+// Substitutes var(--custom[, fallback]) references against the element's
+// custom-property chain before a computed value leaves the resolver, the
+// same replacement a real engine performs at computed-value time.
+function substituteCssVars(value, element, depth = 0) {
+  if (typeof value !== "string" || !value.includes("var(") || depth > 4) return value;
+  return value.replace(
+    /var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*?))?\s*\)/g,
+    (_, name, fallback) => {
+      const resolved = resolveElementPropertyRaw(element, name);
+      if (resolved !== "") return resolved;
+      return fallback !== undefined ? fallback.trim() : "";
+    },
+  );
+}
+
+function resolveElementProperty(element, property, base = {}) {
+  return substituteCssVars(resolveElementPropertyRaw(element, property, base), element);
 }
 
 function getHorizontalPadding(element) {
@@ -1531,6 +1591,60 @@ function parseHtmlNodes(html, doc = globalThis.document) {
   return Array.from(root.childNodes);
 }
 
+// Browser-faithful per-character canvas metrics. The Kotlin source of these
+// journeys runs in a real browser that resolves Noto Sans CJK SC for the
+// CJK face: full-width punctuation carries a 1em box whose ink sits in the
+// half the glyph connects from — opening brackets ink the RIGHT half, closing
+// brackets and pause marks ink the LEFT half — and the blank half is what
+// punctuation compression consumes. Curly quotes stay proportional in the
+// face (the engine widens them itself in CJK context). A node fake that
+// answers 1em ink-spanning advances for every character refuses compression
+// everywhere and widens every quote pair, so the punctuation and quote
+// journeys cannot replay. ASCII and spaces keep the uniform 1em model: the
+// DOM-side advance model measures them the same way, and no ported journey
+// needs their proportional widths. Classification is per character;
+// multi-character clusters keep the legacy uniform model.
+const PUNCT_OPENING_FULLWIDTH = new Set("（〔【《〈「『｛".split(""));
+const PUNCT_CLOSING_FULLWIDTH = new Set("）〕】》〉」』".split(""));
+const PUNCT_PAUSE_OR_STOP_FULLWIDTH = new Set("、。，．：；！？".split(""));
+const PUNCT_HALFWIDTH_CELL = new Set("｢｣｡､".split(""));
+
+function fakeCanvasCharMetrics(ch, fontSize) {
+  const em = fontSize;
+  // Ink windows mirror the measured Noto Sans CJK SC bounds so the trim
+  // arithmetic picks the same body frame side the real browser layout does.
+  if (PUNCT_OPENING_FULLWIDTH.has(ch)) {
+    return { advance: em, inkLeft: em * 0.66, inkRight: em * 0.95 };
+  }
+  if (PUNCT_CLOSING_FULLWIDTH.has(ch)) {
+    return { advance: em, inkLeft: em * 0.05, inkRight: em * 0.35 };
+  }
+  if (PUNCT_PAUSE_OR_STOP_FULLWIDTH.has(ch)) {
+    return { advance: em, inkLeft: em * 0.06, inkRight: em * 0.32 };
+  }
+  if (PUNCT_HALFWIDTH_CELL.has(ch)) {
+    // Halfwidth corner marks and halfwidth ideographic pauses shape at half
+    // advance; the engine re-seats the glyph inside a synthesized full-width
+    // cell (UnderwidthPunctuationFullWidthBoxPlacement).
+    return { advance: em * 0.5, inkLeft: em * 0.04, inkRight: em * 0.34 };
+  }
+  if (ch === "·") {
+    return { advance: em, inkLeft: em * 0.42, inkRight: em * 0.58 };
+  }
+  if (ch === "“" || ch === "”" || ch === "‘" || ch === "’") {
+    return { advance: em * 0.45, inkLeft: 0, inkRight: em * 0.45 };
+  }
+  return null;
+}
+
+// Natural advance of one character under the same metric table, shared by
+// the canvas shaper and the DOM-side advance model so the engine's
+// letter-spacing residuals replay to the declared widths.
+function fakeCharNaturalAdvance(ch, fontSize) {
+  const m = fakeCanvasCharMetrics(ch, fontSize);
+  return m ? m.advance : fontSize;
+}
+
 export class FakeCanvasRenderingContext2D {
   constructor() {
     this.font = "";
@@ -1564,16 +1678,31 @@ export class FakeCanvasRenderingContext2D {
   putImageData() {}
 
   measureText(text) {
-    const len = String(text ?? "").length;
+    const s = String(text ?? "");
     const match = /(\d+(?:\.\d+)?)px\b/.exec(this.font || "");
     const fontSize = match ? Number.parseFloat(match[1]) : 18;
-    const width = len * fontSize;
     const ascent = fontSize * (16 / 18);
     const descent = fontSize * (4 / 18);
+    const chars = Array.from(s);
+    let width;
+    let inkLeft = 0;
+    let inkRight;
+    if (chars.length === 1) {
+      const m = fakeCanvasCharMetrics(chars[0], fontSize);
+      if (m) {
+        width = m.advance;
+        inkLeft = -m.inkLeft;
+        inkRight = m.inkRight;
+      }
+    }
+    if (width == null) {
+      width = s.length * fontSize;
+      inkRight = width;
+    }
     return {
       width,
-      actualBoundingBoxLeft: 0,
-      actualBoundingBoxRight: width,
+      actualBoundingBoxLeft: inkLeft,
+      actualBoundingBoxRight: inkRight,
       actualBoundingBoxAscent: ascent,
       actualBoundingBoxDescent: descent,
       fontBoundingBoxAscent: ascent,
@@ -1970,10 +2099,15 @@ function pseudoContentAdvance(element, pseudo) {
 // re-measure must include it to agree with data-tq-line-width).
 function inlineContentAdvance(node) {
   if (node.nodeType === 3) {
-    const length = (node.data ?? "").replace(/[\u200B\uFEFF]/g, "").length;
-    if (length === 0) return 0;
+    const data = (node.data ?? "").replace(/[\u200B\uFEFF]/g, "");
+    if (data.length === 0) return 0;
     const baseFontSize = node.parentElement ? blockFontSizePx(node.parentElement) : 18;
-    return length * (baseFontSize + computedLetterSpacingPx(node.parentElement));
+    const letterSpacing = computedLetterSpacingPx(node.parentElement);
+    let advance = 0;
+    for (const ch of data) {
+      advance += fakeCharNaturalAdvance(ch, baseFontSize) + letterSpacing;
+    }
+    return advance;
   }
   if (node.nodeType !== 1) return 0;
   if (NON_RENDERED_TAGS.has(node.tagName)) return 0;
@@ -2168,9 +2302,17 @@ export class FakeRange {
         const baseFontSize = this.startContainer.parentElement
           ? blockFontSizePx(this.startContainer.parentElement)
           : 18;
-        const perChar = baseFontSize + computedLetterSpacingPx(this.startContainer.parentElement);
-        left = inlineStartOffset(this.startContainer) + start * perChar;
-        width = Math.max(0, end - start) * perChar;
+        const letterSpacing = computedLetterSpacingPx(this.startContainer.parentElement);
+        const charAdvance = (ch) => fakeCharNaturalAdvance(ch, baseFontSize) + letterSpacing;
+        const chars = Array.from(full);
+        left = inlineStartOffset(this.startContainer);
+        for (let i = 0; i < Math.min(start, chars.length); i += 1) {
+          left += charAdvance(chars[i]);
+        }
+        width = 0;
+        for (let i = start; i < Math.min(end, chars.length); i += 1) {
+          width += charAdvance(chars[i]);
+        }
       } else {
         // Element range (selectNodeContents on an element): place the run at
         // the element's inline offset and advance it with the inline content
