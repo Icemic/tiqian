@@ -432,6 +432,19 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   调用方接线未动：workerLayoutRequest 仍排除含行内对象的段落，exact 运行时路径
   仍限于 canonical plain 段落，两条路径都到不了含行内对象的 plan，接线随本项
   原子换入一起改（移除该排除，把 domInlineObjects 的元素与 margin 经桥传入）。
+  产出（运行时 exact 路径扩展到富段落，2026-08-23）：exact 运行时路径的
+  renderPreparedParagraphDom 桥接收与 Worker 换入桥同形的 options：sourceSpans 以
+  sourceIndex（列表序）加 order（嵌套深度，并列区间的 tie-break）序列化为
+  live-source semantics，元素数组同序传入；domInlineObjects 以
+  {start, end, marginRight} 元数据配对元素数组传入，换入原语按区间对位深克隆。
+  纯段落两条数组皆空，桥传 undefined options，渲染输出与扩展前逐字节一致。
+  准入从 isCanonicalPlainParagraph 放宽为 isRuntimeExactPreparedDomEligible
+  （排除 decorations、clone 边缘装饰与 locale 不匹配 span，与 Worker 请求的排除
+  项一致但不再排除行内对象）；富段落照旧走 semanticExactEngine 的逐 run 降级，
+  严格 exact session 仍只属于纯段落；plan 对富段落开 renderEvidence（逐 cell
+  renderFontFamily、inlineObject advance、inlineEdges）。canonical-plain 属性仅对
+  纯段落设置，富段落只带 canonical-source，重排经活克隆重降。Worker 请求的
+  行内对象排除与 domInlineObjects 经 Worker 桥的传入属下一步（B8.2）。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
