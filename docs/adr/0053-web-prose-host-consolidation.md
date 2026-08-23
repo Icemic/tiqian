@@ -289,8 +289,17 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   worker-channel 与 bench 的手写字段表删除改导入生成模块，layout_request.rs
   类型定义改生成物（#[path] 挂载），ci-assembly-record.yml 新鲜度检查进 CI。
   cargo check/fmt/test 与 npm test 393 例通过。
-- [ ] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
+- [x] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
   输入输出逐字节一致。验收：Verification 1 后半，CI 强制。
+  进度（2026-08-23）：39af0ff 用例 35 扩到 41（ruby plan ascent、emphasis dot
+  颜色回调、cjk-emphasis 属性、second-line indent、三行 style-delta、
+  inlineEdges 与 renderTextSpans 组合）。两侧命名模式（styleClassFor 之外新增
+  emphasisDotColor）在 fixture 保留模式名字符串、两侧测试映射成回调，颜色字面量
+  逐字符一致。Rust 侧两处差异补齐：PlanRuby 此前无 ascent 字段（比例回退
+  顶替了测量值），options.cjkStrongSemantics 整条路径缺失（快照 strong span 的
+  data-tq-cjk-emphasis 与 font-weight 属性）。cjk 属性写入改为对象赋值语义
+  （同名键原位覆盖），与 js 对象展开一致。builder 再生幂等，TS/Rust corpus
+  测试、tiqian-precompute 全部 205+测试、npm test 393 例通过。CI 接线见 F4。
 - [x] **A3 ffi/js 改为字节进出面**（`SingleEngineFace`）：线格式解析、校验与 `LayoutInput`
   组装移入引擎入口，`PrecomputeWire` parse 降为编解码器。
   KPI：ffi/js 内装配逻辑（非编解码）行数归零。
@@ -720,8 +729,12 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [ ] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
-- [ ] **F4 双实现 CI 比对**（`DualLoweringStance`）：prepared-dom 双实现共享单一
+- [x] **F4 双实现 CI 比对**（`DualLoweringStance`）：prepared-dom 双实现共享单一
   golden 语料强制比对。验收：Verification 2。
+  进度（2026-08-23）：ci-native-precompute.yml 新增 prepared-dom-corpus job。
+  Rust 侧语料测试原已随 rust job 的 cargo test 运行；新 job 从 js oracle 再生
+  fixture 并以 git diff --exit-code 拒绝漂移（expect 只能由 builder 产出），
+  再经 js 语料测试回放同一字节。两条命令在仓库根目录验证通过。
 
 ### KPI 汇总
 
