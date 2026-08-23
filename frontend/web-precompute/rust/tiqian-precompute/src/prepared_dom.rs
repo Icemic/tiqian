@@ -102,6 +102,18 @@ struct CellRun {
     spacing: Spacing,
     semantic_path: Vec<usize>,
     semantic_signature: String,
+    dash_strategy: Option<String>,
+    shaping_language: Option<String>,
+    resolved_face: Option<String>,
+    glyph_ids: Option<String>,
+    shaping_evidence: Option<String>,
+    punctuation_ink_floor: Option<f64>,
+    punctuation_body_width: Option<f64>,
+    evidence_render_font_family: Option<String>,
+    style_delta: Option<Json>,
+    italic_effect: bool,
+    style_signature: String,
+    punctuation_signature: String,
 }
 
 enum NodeDraft {
@@ -784,6 +796,12 @@ fn can_merge_prepared_run(left: &CellRun, right: &CellRun) -> bool {
         || right.shaping_boundary
         || feature_signature(left) != feature_signature(right)
         || render_font_signature(left) != render_font_signature(right)
+        || left.dash_strategy.is_some()
+        || right.dash_strategy.is_some()
+        || left.style_signature != right.style_signature
+        || left.punctuation_signature != right.punctuation_signature
+        || left.italic_effect != right.italic_effect
+        || left.evidence_render_font_family != right.evidence_render_font_family
     {
         return false;
     }
@@ -837,6 +855,7 @@ fn render_plan(
             render_text_spans,
             inline_start_by_offset,
             inline_end_by_offset,
+            &plan.emphasis_ranges,
             &mut *style_class_for,
         )?;
     }
@@ -881,6 +900,7 @@ fn render_line(
     render_text_spans: &[RenderTextSpan],
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
+    emphasis_ranges: &[(f64, f64)],
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
 ) -> Result<(), NamedError> {
     let height = line.bottom - line.top;
@@ -908,6 +928,7 @@ fn render_line(
             render_text_spans,
             inline_start_by_offset,
             inline_end_by_offset,
+            emphasis_ranges,
         )?);
     }
     for cell in &mut cells {
@@ -1109,6 +1130,7 @@ fn prepared_cell(
     render_text_spans: &[RenderTextSpan],
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
+    emphasis_ranges: &[(f64, f64)],
 ) -> Result<CellRun, NamedError> {
     let next = line.cells.get(index + 1);
     let trailing_inline_edge = edge_at(inline_end_by_offset, cell.range_end);
@@ -1133,6 +1155,12 @@ fn prepared_cell(
     };
     let render_font_families =
         render_font_families_for(render_text_spans, cell.range_start, cell.range_end)?;
+    let style_italic = style_member_bool(&cell.style_delta, "italic");
+    let italic_effect = style_italic == Some(true)
+        || (cell.latin
+            && emphasis_ranges.iter().any(|&(start, end)| {
+                f64::from(cell.range_start) >= start && f64::from(cell.range_start) < end
+            }));
     Ok(CellRun {
         range_start: cell.range_start,
         range_end: cell.range_end,
@@ -1147,7 +1175,63 @@ fn prepared_cell(
         spacing: prepared_spacing(&cell.display, cell.natural_width, trailing_gap),
         semantic_path: semantics.path_for(cell.range_start, cell.range_end),
         semantic_signature: String::new(),
+        dash_strategy: cell.dash_strategy.clone(),
+        shaping_language: cell.shaping_language.clone(),
+        resolved_face: cell.resolved_face.clone(),
+        glyph_ids: cell.glyph_ids.clone(),
+        shaping_evidence: cell.shaping_evidence.clone(),
+        punctuation_ink_floor: cell.punctuation_ink_floor,
+        punctuation_body_width: cell.punctuation_body_width,
+        evidence_render_font_family: cell.render_font_family.clone(),
+        style_delta: cell.style_delta.clone(),
+        italic_effect,
+        style_signature: style_signature(cell),
+        punctuation_signature: punctuation_signature(cell),
     })
+}
+
+/// `JSON.stringify(cell.style ?? null)`: the parsed delta object re-renders
+/// with insertion order and ECMAScript numbers, absent is `null`.
+fn style_signature(cell: &PlanCell) -> String {
+    match &cell.style_delta {
+        Some(style) => style.render(),
+        None => "null".to_string(),
+    }
+}
+
+/// `JSON.stringify([cell.punctuationInkFloor ?? null, cell.punctuationBodyWidth ?? null])`.
+fn punctuation_signature(cell: &PlanCell) -> String {
+    let floor = match cell.punctuation_ink_floor {
+        Some(value) => js_number_string(value),
+        None => "null".to_string(),
+    };
+    let body = match cell.punctuation_body_width {
+        Some(value) => js_number_string(value),
+        None => "null".to_string(),
+    };
+    format!("[{floor},{body}]")
+}
+
+/// `cell.style?.<key>` for the paint-relevant members: only an object's
+/// matching member reads, mirroring the js optional chain.
+fn style_member_bool(style: &Option<Json>, key: &str) -> Option<bool> {
+    let Json::Obj(fields) = style.as_ref()? else {
+        return None;
+    };
+    match fields.iter().find(|(name, _)| name == key) {
+        Some((_, Json::Bool(value))) => Some(*value),
+        _ => None,
+    }
+}
+
+fn style_member_number(style: &Option<Json>, key: &str) -> Option<f64> {
+    let Json::Obj(fields) = style.as_ref()? else {
+        return None;
+    };
+    match fields.iter().find(|(name, _)| name == key) {
+        Some((_, Json::Num(value))) => Some(*value),
+        _ => None,
+    }
 }
 
 /// `renderFontFamiliesFor`: owners covering the range must agree on families.
@@ -1185,7 +1269,12 @@ fn render_run(
         || !feature_signature.is_empty()
         || !render_font_families.is_empty()
         || run.source != run.display
-        || run.spacing.kind != SpacingKind::None;
+        || run.spacing.kind != SpacingKind::None
+        || run.style_delta.is_some()
+        || run.italic_effect
+        || run.evidence_render_font_family.is_some()
+        || run.dash_strategy.is_some()
+        || run.punctuation_ink_floor.is_some();
     if !needs_element {
         return Ok(draft.push_text(&run.display));
     }
@@ -1226,12 +1315,48 @@ fn render_run(
     if run.source != run.display {
         attributes.push(("data-tq-src".to_string(), Some(run.source.clone())));
     }
+    if let Some(strategy) = &run.dash_strategy {
+        attributes.push(("data-tq-dash-strategy".to_string(), Some(strategy.clone())));
+        attributes.push((
+            "data-tq-dash-advance".to_string(),
+            Some(js_number_string(run.natural_width)),
+        ));
+        if let Some(family) = &run.evidence_render_font_family {
+            attributes.push(("data-tq-dash-font-family".to_string(), Some(family.clone())));
+        }
+        if let Some(face) = &run.resolved_face {
+            attributes.push(("data-tq-dash-face".to_string(), Some(face.clone())));
+        }
+        if let Some(ids) = &run.glyph_ids {
+            attributes.push(("data-tq-dash-glyph-ids".to_string(), Some(ids.clone())));
+        }
+        if let Some(evidence) = &run.shaping_evidence {
+            attributes.push(("data-tq-dash-evidence".to_string(), Some(evidence.clone())));
+        }
+        if let Some(language) = &run.shaping_language {
+            attributes.push(("lang".to_string(), Some(language.clone())));
+        }
+    }
+    if let Some(floor) = run.punctuation_ink_floor {
+        attributes.push((
+            "data-tq-punctuation-ink-floor".to_string(),
+            Some(js_number_string(floor)),
+        ));
+        if let Some(width) = run.punctuation_body_width {
+            attributes.push((
+                "data-tq-punctuation-body-width".to_string(),
+                Some(js_number_string(width)),
+            ));
+        }
+    }
     let mut styles = Vec::new();
-    if !render_font_families.is_empty() {
+    if !render_font_families.is_empty() || run.evidence_render_font_family.is_some() {
         attributes.push((
             "data-tq-render-font-projection".to_string(),
             Some("true".to_string()),
         ));
+    }
+    if !render_font_families.is_empty() {
         styles.push(format!(
             "font-family:{}!important",
             render_font_families
@@ -1240,6 +1365,26 @@ fn render_run(
                 .collect::<Vec<_>>()
                 .join(",")
         ));
+    }
+    if let Some(family) = &run.evidence_render_font_family {
+        styles.push(format!("font-family:{}!important", css_string(family)));
+    }
+    if run.italic_effect && style_member_bool(&run.style_delta, "italic") != Some(true) {
+        styles.push("font-style:italic!important".to_string());
+    }
+    if let Some(font_size) = style_member_number(&run.style_delta, "fontSize") {
+        styles.push(format!("font-size:{}!important", px(font_size)));
+    }
+    if let Some(font_weight) = style_member_number(&run.style_delta, "fontWeight") {
+        styles.push(format!(
+            "font-weight:{}!important",
+            js_number_string(font_weight)
+        ));
+    }
+    match style_member_bool(&run.style_delta, "italic") {
+        Some(true) => styles.push("font-style:italic!important".to_string()),
+        Some(false) => styles.push("font-style:normal!important".to_string()),
+        None => {}
     }
     match run.spacing.kind {
         SpacingKind::Letter => {

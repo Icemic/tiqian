@@ -397,6 +397,71 @@
         "kind": "error",
         "error": "InvalidPreparedRenderTextSpan"
       }
+    },
+    {
+      "name": "dash-evidence-attributes",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":18,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"—\",\"display\":\"—\",\"drawX\":0,\"naturalWidth\":18,\"leadingLayoutAdvance\":0,\"dashStrategy\":\"ReplaceEmDash\",\"shapingLanguage\":\"zh-Hans\",\"resolvedFace\":\"FaceA\",\"glyphIds\":\"71,72\",\"shapingEvidence\":\"ShapingReason\",\"renderFontFamily\":\"Han Face\"}]}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"18\" data-tq-line-index=\"0\" data-tq-line-range=\"0-1\" data-tq-line-top=\"0\" data-tq-line-width=\"18\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span><span data-tq-advance=\"18\" data-tq-dash-advance=\"18\" data-tq-dash-evidence=\"ShapingReason\" data-tq-dash-face=\"FaceA\" data-tq-dash-font-family=\"Han Face\" data-tq-dash-glyph-ids=\"71,72\" data-tq-dash-strategy=\"ReplaceEmDash\" data-tq-geometry=\"true\" data-tq-render-font-projection=\"true\" data-tq-x=\"0\" lang=\"zh-Hans\" style=\"font-family:&quot;Han Face&quot;!important\">—</span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"18\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-1\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"18\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"span\",[[\"data-tq-advance\",\"18\"],[\"data-tq-dash-advance\",\"18\"],[\"data-tq-dash-evidence\",\"ShapingReason\"],[\"data-tq-dash-face\",\"FaceA\"],[\"data-tq-dash-font-family\",\"Han Face\"],[\"data-tq-dash-glyph-ids\",\"71,72\"],[\"data-tq-dash-strategy\",\"ReplaceEmDash\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-render-font-projection\",\"true\"],[\"data-tq-x\",\"0\"],[\"lang\",\"zh-Hans\"],[\"style\",\"font-family:\\\"Han Face\\\"!important\"]],[[\"#\",\"—\"]]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "dash-run-isolates-punctuation",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":3,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":54,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"前\",\"display\":\"前\",\"drawX\":0,\"naturalWidth\":18,\"leadingLayoutAdvance\":0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"—\",\"display\":\"—\",\"drawX\":18,\"naturalWidth\":18,\"leadingLayoutAdvance\":0,\"dashStrategy\":\"ReplaceEmDash\",\"punctuationInkFloor\":2.5,\"punctuationBodyWidth\":16},{\"rangeStart\":2,\"rangeEnd\":3,\"source\":\"后\",\"display\":\"后\",\"drawX\":36,\"naturalWidth\":18,\"leadingLayoutAdvance\":0}]}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"54\" data-tq-line-index=\"0\" data-tq-line-range=\"0-3\" data-tq-line-top=\"0\" data-tq-line-width=\"54\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span>前<span data-tq-advance=\"18\" data-tq-dash-advance=\"18\" data-tq-dash-strategy=\"ReplaceEmDash\" data-tq-geometry=\"true\" data-tq-punctuation-body-width=\"16\" data-tq-punctuation-ink-floor=\"2.5\" data-tq-x=\"18\">—</span>后<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"54\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-3\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"54\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"#\",\"前\"],[\"span\",[[\"data-tq-advance\",\"18\"],[\"data-tq-dash-advance\",\"18\"],[\"data-tq-dash-strategy\",\"ReplaceEmDash\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-punctuation-body-width\",\"16\"],[\"data-tq-punctuation-ink-floor\",\"2.5\"],[\"data-tq-x\",\"18\"]],[[\"#\",\"—\"]]],[\"#\",\"后\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "style-delta-split",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":3,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":54,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"甲\",\"display\":\"甲\",\"drawX\":0,\"naturalWidth\":18,\"leadingLayoutAdvance\":0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"乙\",\"display\":\"乙\",\"drawX\":18,\"naturalWidth\":18,\"leadingLayoutAdvance\":0,\"style\":{\"fontSize\":12,\"fontWeight\":700}},{\"rangeStart\":2,\"rangeEnd\":3,\"source\":\"丙\",\"display\":\"丙\",\"drawX\":36,\"naturalWidth\":18,\"leadingLayoutAdvance\":0}]}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"54\" data-tq-line-index=\"0\" data-tq-line-range=\"0-3\" data-tq-line-top=\"0\" data-tq-line-width=\"54\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span>甲<span data-tq-advance=\"18\" data-tq-geometry=\"true\" data-tq-x=\"18\" style=\"font-size:12px!important;font-weight:700!important\">乙</span>丙<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"54\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-3\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"54\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"#\",\"甲\"],[\"span\",[[\"data-tq-advance\",\"18\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-x\",\"18\"],[\"style\",\"font-size:12px!important;font-weight:700!important\"]],[[\"#\",\"乙\"]]],[\"#\",\"丙\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "latin-emphasis-italic",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":10,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"A\",\"display\":\"A\",\"drawX\":0,\"naturalWidth\":10,\"leadingLayoutAdvance\":0,\"latin\":true}]}],\"emphasisRanges\":[[0,1]]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"10\" data-tq-line-index=\"0\" data-tq-line-range=\"0-1\" data-tq-line-top=\"0\" data-tq-line-width=\"10\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span><span data-tq-advance=\"10\" data-tq-geometry=\"true\" data-tq-x=\"0\" style=\"font-style:italic!important\">A</span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"10\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-1\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"10\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"span\",[[\"data-tq-advance\",\"10\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-x\",\"0\"],[\"style\",\"font-style:italic!important\"]],[[\"#\",\"A\"]]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "latin-no-emphasis-italic",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":27,\"lines\":[{\"rangeStart\":1,\"rangeEnd\":2,\"top\":0,\"bottom\":27,\"baseline\":20,\"indent\":0,\"visualWidth\":10,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"B\",\"display\":\"B\",\"drawX\":0,\"naturalWidth\":10,\"leadingLayoutAdvance\":0,\"latin\":true}]}],\"emphasisRanges\":[[0,1]]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"20\" data-tq-line-bottom=\"27\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"10\" data-tq-line-index=\"0\" data-tq-line-range=\"1-2\" data-tq-line-top=\"0\" data-tq-line-width=\"10\" data-tq-paragraph-height=\"27\" style=\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"></span>B<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"20\"],[\"data-tq-line-bottom\",\"27\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"10\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"1-2\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"10\"],[\"data-tq-paragraph-height\",\"27\"],[\"style\",\"--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important\"]],[]],[\"#\",\"B\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
     }
   ]
 }

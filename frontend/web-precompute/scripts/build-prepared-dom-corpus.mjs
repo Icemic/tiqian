@@ -316,6 +316,77 @@ const cases = [
     },
     expectError: "InvalidPreparedRenderTextSpan",
   },
+  {
+    name: "dash-evidence-attributes",
+    plan: plan([
+      line([
+        cell(0, 1, "—", "—", 0, 18, {
+          dashStrategy: "ReplaceEmDash",
+          shapingLanguage: "zh-Hans",
+          resolvedFace: "FaceA",
+          glyphIds: "71,72",
+          shapingEvidence: "ShapingReason",
+          renderFontFamily: "Han Face",
+        }),
+      ], { bottom: 27, baseline: 20 }),
+    ], 27),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "dash-run-isolates-punctuation",
+    plan: plan([
+      line([
+        cell(0, 1, "前", "前", 0, 18),
+        cell(1, 2, "—", "—", 18, 18, {
+          dashStrategy: "ReplaceEmDash",
+          punctuationInkFloor: 2.5,
+          punctuationBodyWidth: 16,
+        }),
+        cell(2, 3, "后", "后", 36, 18),
+      ], { bottom: 27, baseline: 20 }),
+    ], 27),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "style-delta-split",
+    plan: plan([
+      line([
+        cell(0, 1, "甲", "甲", 0, 18),
+        cell(1, 2, "乙", "乙", 18, 18, { style: { fontSize: 12, fontWeight: 700 } }),
+        cell(2, 3, "丙", "丙", 36, 18),
+      ], { bottom: 27, baseline: 20 }),
+    ], 27),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "latin-emphasis-italic",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "A", "A", 0, 10, { latin: true }),
+        ], { bottom: 27, baseline: 20 }),
+      ], 27),
+      emphasisRanges: [[0, 1]],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "latin-no-emphasis-italic",
+    plan: {
+      ...plan([
+        line([
+          cell(1, 2, "B", "B", 0, 10, { latin: true }),
+        ], { bottom: 27, baseline: 20 }),
+      ], 27),
+      emphasisRanges: [[0, 1]],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
 ];
 
 const fixture = { cases: [] };

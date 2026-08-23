@@ -20,6 +20,10 @@ pub struct Plan {
     pub width: f64,
     pub height: f64,
     pub lines: Vec<PlanLine>,
+    /// Emphasis decoration source ranges (`[start, end]` pairs) from
+    /// `appendParagraphRenderEvidence`; absent plans keep an empty list so the
+    /// Latin-in-emphasis italic effect never fires.
+    pub emphasis_ranges: Vec<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +60,26 @@ pub struct PlanCell {
     pub shaping_boundary: bool,
     /// Present only when shaping applied OpenType features by policy.
     pub open_type_features: Vec<String>,
+    /// `renderFontFamily`: the evidence render face; the DOM lowerer projects
+    /// it onto the run and replays it in the dash block.
+    pub render_font_family: Option<String>,
+    /// `dashStrategy` with its siblings, all only when a dash shaping decision
+    /// was recorded.
+    pub dash_strategy: Option<String>,
+    pub shaping_language: Option<String>,
+    pub resolved_face: Option<String>,
+    pub glyph_ids: Option<String>,
+    pub shaping_evidence: Option<String>,
+    /// `punctuationInkFloor` / `punctuationBodyWidth`, only when ink
+    /// containment applied.
+    pub punctuation_ink_floor: Option<f64>,
+    pub punctuation_body_width: Option<f64>,
+    /// `latin`: the cluster shaped under a Latin font role.
+    pub latin: bool,
+    /// `style`: the paint-relevant style delta object, kept as parsed so the
+    /// renderer replays its members and merge signatures the way js reads
+    /// `cell.style`; absent or JSON null both mean no delta.
+    pub style_delta: Option<Json>,
 }
 
 impl Plan {
@@ -91,10 +115,23 @@ impl Plan {
             .iter()
             .map(|line| PlanLine::from_json(line))
             .collect::<Result<Vec<_>, _>>()?;
+        let emphasis_ranges = match find(&fields, "emphasisRanges") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(|item| emphasis_range(item))
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => {
+                return Err(NamedError(
+                    "InvalidPlanJsonField:emphasisRanges".to_string(),
+                ))
+            }
+            None => Vec::new(),
+        };
         Ok(Plan {
             width,
             height,
             lines,
+            emphasis_ranges,
         })
     }
 }
@@ -150,6 +187,14 @@ impl PlanCell {
             }
             None => Vec::new(),
         };
+        let style_delta = match find(&fields, "style") {
+            Some(Json::Null) | None => None,
+            Some(value @ Json::Obj(_)) => {
+                validate_style(value)?;
+                Some(value.clone())
+            }
+            Some(_) => return Err(NamedError("InvalidPlanJsonField:style".to_string())),
+        };
         Ok(PlanCell {
             range_start: integer_field(&fields, "rangeStart").map_err(field_error("rangeStart"))?,
             range_end: integer_field(&fields, "rangeEnd").map_err(field_error("rangeEnd"))?,
@@ -170,6 +215,16 @@ impl PlanCell {
                 None => false,
             },
             open_type_features,
+            render_font_family: optional_string_field(&fields, "renderFontFamily")?,
+            dash_strategy: optional_string_field(&fields, "dashStrategy")?,
+            shaping_language: optional_string_field(&fields, "shapingLanguage")?,
+            resolved_face: optional_string_field(&fields, "resolvedFace")?,
+            glyph_ids: optional_string_field(&fields, "glyphIds")?,
+            shaping_evidence: optional_string_field(&fields, "shapingEvidence")?,
+            punctuation_ink_floor: optional_number_field(&fields, "punctuationInkFloor")?,
+            punctuation_body_width: optional_number_field(&fields, "punctuationBodyWidth")?,
+            latin: optional_bool_field(&fields, "latin")?.unwrap_or(false),
+            style_delta,
         })
     }
 }
@@ -213,6 +268,77 @@ fn string_field(fields: &[(String, Json)], key: &str) -> Result<String, NamedErr
         Some(Json::Str(value)) => Ok(value.clone()),
         _ => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
     }
+}
+
+/// Optional evidence fields mirror the js `?? null` reads: absent and JSON
+/// null both read as none, a present value of the wrong type is damage.
+fn optional_string_field(
+    fields: &[(String, Json)],
+    key: &str,
+) -> Result<Option<String>, NamedError> {
+    match find(fields, key) {
+        Some(Json::Null) | None => Ok(None),
+        Some(Json::Str(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
+    }
+}
+
+fn optional_number_field(fields: &[(String, Json)], key: &str) -> Result<Option<f64>, NamedError> {
+    match find(fields, key) {
+        Some(Json::Null) | None => Ok(None),
+        Some(Json::Num(value)) => Ok(Some(*value)),
+        Some(_) => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
+    }
+}
+
+fn optional_bool_field(fields: &[(String, Json)], key: &str) -> Result<Option<bool>, NamedError> {
+    match find(fields, key) {
+        Some(Json::Null) | None => Ok(None),
+        Some(Json::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
+    }
+}
+
+/// One `[start, end]` emphasis range; js `Number(range[0])` reads the members
+/// as numbers, and the engine emits integers.
+fn emphasis_range(value: &Json) -> Result<(f64, f64), NamedError> {
+    let Json::Arr(pair) = value else {
+        return Err(NamedError(
+            "InvalidPlanJsonField:emphasisRanges".to_string(),
+        ));
+    };
+    if pair.len() != 2 {
+        return Err(NamedError(
+            "InvalidPlanJsonField:emphasisRanges".to_string(),
+        ));
+    }
+    let (Json::Num(start), Json::Num(end)) = (&pair[0], &pair[1]) else {
+        return Err(NamedError(
+            "InvalidPlanJsonField:emphasisRanges".to_string(),
+        ));
+    };
+    Ok((*start, *end))
+}
+
+/// `style` members carry the paint deltas `PreparedParagraph.kt` emits:
+/// `fontSize` number, `fontWeight` number, `italic` boolean. JSON null reads
+/// as absent like the renderer's `?.` access; unknown members stay untouched
+/// so the merge signature keeps them the way `JSON.stringify` does.
+fn validate_style(value: &Json) -> Result<(), NamedError> {
+    let Json::Obj(fields) = value else {
+        return Err(NamedError("InvalidPlanJsonField:style".to_string()));
+    };
+    for (name, member) in fields {
+        let valid = match name.as_str() {
+            "fontSize" | "fontWeight" => matches!(member, Json::Num(_) | Json::Null),
+            "italic" => matches!(member, Json::Bool(_) | Json::Null),
+            _ => true,
+        };
+        if !valid {
+            return Err(NamedError(format!("InvalidPlanJsonField:style.{name}")));
+        }
+    }
+    Ok(())
 }
 
 fn array_field<'a>(fields: &'a [(String, Json)], key: &str) -> Result<&'a [Json], NamedError> {
@@ -297,5 +423,87 @@ mod tests {
         assert_eq!(plan.width, 0.0);
         assert_eq!(plan.height, 48.0);
         assert_eq!(plan.lines.len(), 2);
+    }
+
+    fn evidence_plan() -> String {
+        "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":80.0,\"height\":27.0,\
+\"emphasisRanges\":[[0,1]],\
+\"lines\":[\
+{\"rangeStart\":0,\"rangeEnd\":1,\"top\":0.0,\"bottom\":27.0,\"baseline\":20.0,\"indent\":0.0,\
+\"visualWidth\":18.0,\"hyphenAdvance\":0.0,\"endReason\":\"ParagraphEnd\",\"cells\":[\
+{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"—\",\"display\":\"—\",\"drawX\":0.0,\
+\"naturalWidth\":18.0,\"leadingLayoutAdvance\":0.0,\"dashStrategy\":\"ReplaceEmDash\",\
+\"shapingLanguage\":\"zh-Hans\",\"resolvedFace\":\"FaceA\",\"glyphIds\":\"71,72\",\
+\"shapingEvidence\":\"ShapingReason\",\"renderFontFamily\":\"Han Face\",\
+\"punctuationInkFloor\":2.5,\"punctuationBodyWidth\":16.0,\"latin\":true,\
+\"style\":{\"fontSize\":12.0,\"fontWeight\":700,\"italic\":true}}]}]}"
+            .to_string()
+    }
+
+    #[test]
+    fn reads_evidence_fields_when_present() {
+        let plan = Plan::from_json_str(&evidence_plan()).unwrap();
+        assert_eq!(plan.emphasis_ranges, vec![(0.0, 1.0)]);
+        let cell = &plan.lines[0].cells[0];
+        assert_eq!(cell.dash_strategy.as_deref(), Some("ReplaceEmDash"));
+        assert_eq!(cell.shaping_language.as_deref(), Some("zh-Hans"));
+        assert_eq!(cell.resolved_face.as_deref(), Some("FaceA"));
+        assert_eq!(cell.glyph_ids.as_deref(), Some("71,72"));
+        assert_eq!(cell.shaping_evidence.as_deref(), Some("ShapingReason"));
+        assert_eq!(cell.render_font_family.as_deref(), Some("Han Face"));
+        assert_eq!(cell.punctuation_ink_floor, Some(2.5));
+        assert_eq!(cell.punctuation_body_width, Some(16.0));
+        assert!(cell.latin);
+        let style = cell.style_delta.as_ref().unwrap();
+        assert_eq!(
+            style.render(),
+            "{\"fontSize\":12,\"fontWeight\":700,\"italic\":true}"
+        );
+    }
+
+    #[test]
+    fn evidence_absent_keeps_today_s_defaults() {
+        let plan = Plan::from_json_str(&two_line_plan()).unwrap();
+        assert!(plan.emphasis_ranges.is_empty());
+        for cell in plan.lines.iter().flat_map(|line| line.cells.iter()) {
+            assert!(cell.render_font_family.is_none());
+            assert!(cell.dash_strategy.is_none());
+            assert!(cell.shaping_language.is_none());
+            assert!(cell.resolved_face.is_none());
+            assert!(cell.glyph_ids.is_none());
+            assert!(cell.shaping_evidence.is_none());
+            assert!(cell.punctuation_ink_floor.is_none());
+            assert!(cell.punctuation_body_width.is_none());
+            assert!(!cell.latin);
+            assert!(cell.style_delta.is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_evidence_field_damage() {
+        let plan = evidence_plan();
+        let error = Plan::from_json_str(
+            &plan.replace("\"dashStrategy\":\"ReplaceEmDash\"", "\"dashStrategy\":7"),
+        )
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:dashStrategy");
+        let error = Plan::from_json_str(&plan.replace(
+            "\"punctuationInkFloor\":2.5",
+            "\"punctuationInkFloor\":\"2.5\"",
+        ))
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:punctuationInkFloor");
+        let error = Plan::from_json_str(&plan.replace(
+            "\"style\":{\"fontSize\":12.0,\"fontWeight\":700,\"italic\":true}",
+            "\"style\":{\"fontSize\":\"12\"}",
+        ))
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:style.fontSize");
+        let error = Plan::from_json_str(&plan.replace(
+            "\"emphasisRanges\":[[0,1]]",
+            "\"emphasisRanges\":[[0,\"1\"]]",
+        ))
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:emphasisRanges");
     }
 }
