@@ -138,6 +138,16 @@ tight/normal/generous 档位声明，默认 normal。同语料从空缓存
 构建 56.5 s 对 54.0 s，产物按内容逐份配对比较零差异；测量见 0050 第三、四轮
 附录，接入形态见 0052 第二批附录。
 
+当前并行推进 **Web prose 宿主收敛**（2026-08-22 起，
+[ADR 0053](adr/0053-web-prose-host-consolidation.md)）。`@tiqian/prose` 的
+Kotlin/JS 宿主层替换为 TS：npm 桥测试先行承接 jsTest 断言，实现随后抽取，
+Kotlin 侧收敛为薄接线直至删除。已并入 main：A1 双侧类型生成、A2 双实现
+语料、B 组断言与实现迁移（custody、eligibility、responsive、
+content-reconcile、progressive、copy、markdown-lowering、prepared 路由）、
+B10 引擎策略经 ABI 输出（run 降级判定与 dash 命名入 font 模块策略）、
+C 组调度合并、F4 双实现 CI 比对、F2 第一步 @tiqian/prose-core 拆分。
+jsMain 自 5669 行降至 2943 行；进度与 KPI 以 ADR 清单为准。
+
 最近完成的是 **Slice 35：Web 真实站点宿主接入**（2026-07-11）。`@tiqian/prose` 以
 ESM 包和 light-DOM `<tiqian-prose>` 接入真实博客；SSR、无 JavaScript、Pagefind、宿主 CSS、
 源忠实复制与客户端导航生命周期均有自动化测试和真实浏览器验证。完整取舍见

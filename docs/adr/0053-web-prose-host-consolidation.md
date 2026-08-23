@@ -746,6 +746,23 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   全程处于包边界内，跨层引用即时暴露。
   KPI：包数 3；跨包相对导入 0。
   验收：Verification 8；verify-package；demo/web 测试。
+  进度（第一步，2026-08-23）：d0fa187。新包 @tiqian/prose-core
+  （frontend/web/npm-core，0.1.0-alpha.5，依赖 @tiqian/ffi）：core/ 整树、
+  顶层引擎模块（snapshot-schema/manifest/tables/table-binary、
+  browser-font-replay、layout-worker 与六个顶层垫片）与运行时产物通道迁入；
+  @tiqian/prose 留原目录成为 web-component 面（api、element、prepared-dom、
+  snapshot-client、styles），依赖 prose-core，对外 exports、metadata 与版本
+  不变。跨包引用经包名子路径；Gradle 桥生成与产物路径、assembly-record
+  schema 与类型生成器目标路径、link-prose（双链接）、ci 语料 job 的
+  link:core 步与 ci-assembly-record 路径过滤同步。prose-core 149 例加
+  prose 246 例（合计与拆分前 395 例一致）、web-precompute 72 例、
+  jsBrowserTest、assembleNpmPackage、语料再生 git diff --exit-code、两侧
+  verify:package（runtime 标记与 wasm 禁令随产物迁入 prose-core 侧）全部
+  通过；跨包相对导入与反向依赖 grep 零命中。测试夹具
+  browser-fonts-fixtures.mjs 与 snapshot-dom-fixtures.mjs 两侧各有消费者，
+  各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
+  消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
+  F3 配置。
 - [ ] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
