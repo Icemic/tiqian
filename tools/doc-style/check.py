@@ -36,7 +36,7 @@ WORDS = [
     # internet jargon verbs
     "链路", "打通", "拉齐", "沉淀", "反哺", "赋能", "抓手", "打磨", "深耕",
     # misattributed or vague causal wording
-    "根因", "归因", "掩盖", "口径", "挡住",
+    "根因", "归因", "掩盖", "口径", "挡住", "契约",
     # measurement metaphors and coined measurement words
     "车道", "lane", "wall", "墙钟", "仪表", "亚毫", "膨胀", "显形", "重录",
     "冷构建", "热构建", "冷热", "全冷", "多重集", "构建链", "排空", "惰性",
@@ -70,6 +70,7 @@ ALLOW = re.compile(
     r"|回退路径"         # contains the substring 退路 but is a standard term
     r"|恒定"             # standard technical collocation for constant
     r"|能力门控"         # capability gating, standard term (dash 能力门控)
+    r"|契约"             # contract, standard term (font contract, API contract)
 )
 
 

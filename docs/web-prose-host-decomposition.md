@@ -369,7 +369,8 @@ ADR 0053 的实施切片接手。
 
 ## 9. globalThis 通道处置
 
-现状全局名十三个（八个桥名、三个 copy 安装名、两个诊断 trace 名），安装点与读取点：
+现状全局名十三个（八个桥名、三个 copy 安装名、两个诊断 trace 名），安装点与读取点
+（手写源安装其中十个；`TiqianWeb` 与 `web` 由生成物安装；`__tqTrace` 由宿主或测试注入）：
 
 | 全局名 | 安装点 | 读取点 |
 |---|---|---|
@@ -378,13 +379,14 @@ ADR 0053 的实施切片接手。
 | `__TiqianFontBackend` | browser-font-replay.js:98；layout-worker.js:1 与 browser-fonts.js:1 都引入该模块，Worker 与主线程两个 realm 各自安装 | Kotlin 生成物 shaping adapter 逐调用读取（byte 213753–218195，约 30 处：shapeGlyph、metricValue、releaseShape 等）；安装点自检 :92–93 |
 | `__TiqianFontBackendRevision`、`__TiqianFontBackendReplayRegistry` | browser-font-replay.js:96–97（伴生版本号与注册表） | 安装点自检 :93 |
 | `__TiqianLayoutWorker` | worker-layout.js:158（defineProperty，主线程） | Kotlin 生成物 take/issue（byte 525485–525743，typeof 守卫）；worker-layout.js:148、150；browser-fonts.js:500（release） |
-| `__TiqianPreparedDomRenderer` | prepared-dom.js:812（defineProperty；element.js:223 与 api.js:32 的两份 `loadExactFontFallback` 都调 `installPreparedDomRendererBridge`） | Kotlin 生成物 custody render/release（byte 507946–533870，存在性守卫） |
+| `__TiqianPreparedDomRenderer` | prepared-dom.js:812（defineProperty；element.js:223 与 api.js:31 的两份 `loadExactFontFallback` 都调 `installPreparedDomRendererBridge`） | Kotlin 生成物 custody render/release（byte 507946–533870，存在性守卫） |
 | `__TiqianPreparedDomValidator` | precomputed.js:1029（Object.freeze） | Kotlin 生成物 issue（byte 527911–528129；缺失时得到 "PreparedDomValidatorUnavailable"） |
 | `__TiqianCreateClipboardPayload`、`__TiqianInstallCopyHandler` | copy.js:178–179（Kotlin 可回调面，与 `__TiqianPreparedDomRenderer` 同型） | Kotlin 生成物；`__tiqianCopyHandlerInstalled`（copy.js:141）是安装去重旗标 |
-| `__tqTrace`、`__tqFrameTrace` | `__tqTrace` 由宿主注入（element.js:509 读）；`__tqFrameTrace` 由 element.js:511 写（`??=`，帧级 ring，默认不开） | element.js:505–511 帧循环 trace |
+| `__tqTrace`、`__tqFrameTrace` | `__tqTrace` 由宿主注入（element.js:509 读）；`__tqFrameTrace` 由 element.js:511 写（`??` 内联赋值，帧级 ring，默认不开） | element.js:505–511 帧循环 trace |
 
-另有 `__tqCustodyEngineWrites`：挂在段落宿主元素上而非 globalThis。Kotlin 生成物在 custody
-写入前后增减（byte 527618 等 3 处），element.js 内容观察者读取它过滤引擎自有写入（2864–2903）。
+另有 `__tqCustodyEngineWrites`：挂在段落宿主元素上而非 globalThis。增减与读取全部在
+Kotlin 侧：WebEnhancerSupport.kt 的 JsFun 体在 custody 写入前后增减（:197、:212、:525、
+:529），内容观察者按它过滤引擎自有写入（:483）；element.js 没有引用。
 
 Symbol.for 键控通道另有两个：worker-layout.js:33
 （`@tiqian/prose.layout-worker-coordinator.v1`，主线程 layout-worker coordinator 单例）与
@@ -485,8 +487,9 @@ workerLayoutRequest），阶段一在 face 内改为返回值并完成 JSON 解�
 兼容手段与已核实的发布约束：
 
 1. package.json exports 保持根路径，转发到新位置。demo/web 测试的 importmap 写的是字面
-   路径（framework-commit-conflict.test.mjs:397–398、npm-published-vs-dev.test.mjs:225、
-   ab/compare-refs.mjs:259 均带 `/frontend/web/npm/` 前缀指向包内文件），根路径模块必须
+   路径（npm-published-vs-dev.test.mjs:225 与 ab/compare-refs.mjs:259 带
+   `/frontend/web/npm/` 前缀；framework-commit-conflict.test.mjs:397–398 写 `/npm/`
+   前缀，由测试服务器映射到包目录），根路径模块必须
    实际存在；demo/web 生产消费只有 main.js:1 的 `import '@tiqian/prose/element'` 与
    package.json 的 `file:` 依赖。
 2. `globalThis.TiqianWeb` 挂载在兼容期保留；宿主可见事件不动。snapshot 表文件五个不碰。
