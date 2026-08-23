@@ -294,8 +294,10 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
 jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照清单移植覆盖率
 100%，对应 Kotlin 文件行数归零。
 
-- [ ] **B1 行为断言清点**：jsTest 按主题清点断言，产出原名到 TS 用例名的移植
+- [x] **B1 行为断言清点**：jsTest 按主题清点断言，产出原名到 TS 用例名的移植
   对照清单。KPI：清单条目数与 jsTest 断言分组计数一致。验收：清单入库。
+  产出：docs/ts-port-assertion-checklist.md（104 条、717 断言；content-reconcile
+  主题在现 jsTest 无对应用例，清单留空节说明）。
 - [ ] **B2 段落托管与回滚**（custody，含 CustodyMoveAdoption 行为）。
 - [ ] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
 - [ ] **B4 段落资格策略与响应式度量稳定化**。
