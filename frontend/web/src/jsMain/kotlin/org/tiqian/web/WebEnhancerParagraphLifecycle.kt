@@ -82,10 +82,11 @@ internal fun TiqianWeb.runProgressiveSlice(
 ): Int {
     if (progressiveJobs[job.state.root] !== job) return 0
     // The admission question bounds one grant: a coordinated slice receives
-    // the coordinator's controller, a standalone slice builds its own (see
-    // standaloneGrantAdmission). Either way the loop body below holds no
-    // clock, no policy, and no identity; it asks after each paragraph.
-    val shouldStop = admission ?: standaloneGrantAdmission()
+    // the coordinator's controller. A slice without a grant belongs to the
+    // RunToCompletionWithoutCoordinator path and carries no stop terms; the
+    // per-item measure guard inside processItem is the only boundary, so the
+    // whole job runs in this one pass.
+    val shouldStop = admission ?: GrantAdmission { _ -> false }
     val sliceStartedAt = dateNow()
     var processedInSlice = 0
     // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph

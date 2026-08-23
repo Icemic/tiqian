@@ -32,18 +32,3 @@ external interface GrantController {
 internal fun interface GrantAdmission {
     public fun shouldStop(processedInSlice: Int): Boolean
 }
-
-/**
- * StandaloneGrantAdmission: RunToCompletionWithoutCoordinator jobs have no
- * coordinator to address a grant, so each slice builds its own admission
- * from the standalone caps. [MAX_PROGRESSIVE_SLICE_MS] bounds the wall time
- * and [MAX_PROGRESSIVE_ITEMS_PER_SLICE] bounds the item count, because the
- * coarse clock truncates to whole milliseconds and a sub-millisecond
- * remainder could otherwise admit many cheap paragraphs.
- */
-internal fun standaloneGrantAdmission(): GrantAdmission {
-    val deadline = dateNow() + MAX_PROGRESSIVE_SLICE_MS
-    return GrantAdmission { processed ->
-        processed >= MAX_PROGRESSIVE_ITEMS_PER_SLICE || dateNow() >= deadline
-    }
-}
