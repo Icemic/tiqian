@@ -10,6 +10,20 @@ import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,
 } from "./snapshot-source.js";
+import {
+  applyDynamicStyles,
+  cssString,
+  px,
+  renderedContainer,
+  renderedElement,
+  renderedText,
+} from "./prepared-dom-markup.js";
+import {
+  appendEvidenceOverlays,
+  bopomofoAnnotationSpan,
+  inlineObjectPlaceholder,
+  rubyAnnotationSpan,
+} from "./prepared-dom-evidence.js";
 
 const SPACING_EPSILON = 0.01;
 const RENDER_FLOW_EPSILON_PX = 0.01;
@@ -96,26 +110,6 @@ function preparedPlan(value) {
 function preparedLocale(value) {
   if (typeof value === "string") return value;
   return String(value?.locale ?? DEFAULT_LOCALE);
-}
-
-function escapeText(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function escapeAttribute(value) {
-  return escapeText(value).replaceAll('"', "&quot;");
-}
-
-function cssString(value) {
-  return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
-}
-
-function px(value) {
-  const normalized = Math.abs(value) < 0.000001 ? 0 : value;
-  return `${Number(normalized.toFixed(5))}px`;
 }
 
 function snapshotValueStyleClass(index) {
@@ -260,64 +254,6 @@ export function releasePreparedValueStyleRoot(root) {
   return true;
 }
 
-function applyDynamicStyles(attributes, styles, styleClassFor) {
-  if (styles.length === 0) return;
-  const declaration = styles.join(";");
-  if (styleClassFor) {
-    const generatedClass = styleClassFor(declaration);
-    attributes.class = attributes.class ? `${attributes.class} ${generatedClass}` : generatedClass;
-  } else {
-    attributes.style = declaration;
-  }
-}
-
-function renderedElement(tag, attributes = {}, text = null, voidElement = false) {
-  const entries = Object.entries(attributes)
-    .filter(([, value]) => value != null)
-    .map(([name, value]) => [name, String(value)])
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
-  const serializedAttributes = entries.map(([name, value]) =>
-    value === "" ? name : `${name}="${escapeAttribute(value)}"`).join(" ");
-  const opening = `<${tag}${serializedAttributes ? ` ${serializedAttributes}` : ""}>`;
-  const children = text == null ? [] : [["#", String(text)]];
-  return {
-    html: voidElement ? opening : `${opening}${text == null ? "" : escapeText(text)}</${tag}>`,
-    artifact: [tag, entries, children],
-  };
-}
-
-function renderedContainer(tag, attributes = {}) {
-  const entries = Object.entries(attributes)
-    .filter(([, value]) => value != null)
-    .map(([name, value]) => [name, String(value)])
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
-  const children = [];
-  return {
-    children,
-    get html() {
-      const serializedAttributes = entries.map(([name, value]) =>
-        value === "" ? name : `${name}="${escapeAttribute(value)}"`).join(" ");
-      return `<${tag}${serializedAttributes ? ` ${serializedAttributes}` : ""}>` +
-        `${children.map((child) => child.html).join("")}</${tag}>`;
-    },
-    get artifact() {
-      return [tag, entries, children.map((child) => child.artifact)];
-    },
-  };
-}
-
-function renderedText(value) {
-  const text = String(value);
-  return {
-    html: escapeText(text),
-    // CanonicalSnapshotTextNode: this must be byte-for-byte the same shape as
-    // precomputed.js derives from the browser-parsed template DOM. A synthetic
-    // `#text` element wrapper made every sparse/native Text node snapshot miss
-    // with SnapshotArtifactDigestMismatch.
-    artifact: ["#", text],
-  };
-}
-
 function preparedSpacing(display, naturalWidth, trailingGap) {
   if (Math.abs(trailingGap) < SPACING_EPSILON) return { kind: "none", px: 0 };
   // NegativeSingleCellFlowAdvance: browsers clamp the border-box width of a
@@ -355,7 +291,12 @@ function canMergePreparedRun(left, right) {
       left.semanticSignature !== right.semanticSignature ||
       left.shapingBoundary || right.shapingBoundary ||
       preparedFeatureSignature(left) !== preparedFeatureSignature(right) ||
-      preparedRenderFontSignature(left) !== preparedRenderFontSignature(right)) {
+      preparedRenderFontSignature(left) !== preparedRenderFontSignature(right) ||
+      left.dashStrategy != null || right.dashStrategy != null ||
+      left.styleSignature !== right.styleSignature ||
+      left.punctuationSignature !== right.punctuationSignature ||
+      left.italicEffect !== right.italicEffect ||
+      left.evidenceRenderFontFamily !== right.evidenceRenderFontFamily) {
     return false;
   }
   if (left.spacing.kind === "none" && right.spacing.kind === "none") return true;
@@ -375,7 +316,9 @@ function renderRun(run, styleClassFor) {
   const featureSignature = preparedFeatureSignature(run);
   const renderFontFamilies = Array.from(run.renderFontFamilies ?? [], String);
   const needsElement = run.shapingBoundary || featureSignature ||
-    renderFontFamilies.length > 0 || run.source !== run.display || run.spacing.kind !== "none";
+    renderFontFamilies.length > 0 || run.source !== run.display || run.spacing.kind !== "none" ||
+    run.styleDelta != null || run.italicEffect || run.evidenceRenderFontFamily != null ||
+    run.dashStrategy != null || run.punctuationInkFloor != null;
   if (!needsElement) return renderedText(run.display);
   const attributes = {
     "data-tq-advance": String(
@@ -396,11 +339,45 @@ function renderRun(run, styleClassFor) {
     attributes["data-tq-open-type-features"] = featureSignature;
   }
   if (run.source !== run.display) attributes["data-tq-src"] = run.source;
+  if (run.dashStrategy != null) {
+    attributes["data-tq-dash-strategy"] = String(run.dashStrategy);
+    attributes["data-tq-dash-advance"] = String(run.naturalWidth);
+    if (run.evidenceRenderFontFamily != null) {
+      attributes["data-tq-dash-font-family"] = String(run.evidenceRenderFontFamily);
+    }
+    if (run.resolvedFace != null) attributes["data-tq-dash-face"] = String(run.resolvedFace);
+    if (run.glyphIds != null) attributes["data-tq-dash-glyph-ids"] = String(run.glyphIds);
+    if (run.shapingEvidence != null) {
+      attributes["data-tq-dash-evidence"] = String(run.shapingEvidence);
+    }
+    if (run.shapingLanguage != null) attributes.lang = String(run.shapingLanguage);
+  }
+  if (run.punctuationInkFloor != null) {
+    attributes["data-tq-punctuation-ink-floor"] = String(run.punctuationInkFloor);
+    if (run.punctuationBodyWidth != null) {
+      attributes["data-tq-punctuation-body-width"] = String(run.punctuationBodyWidth);
+    }
+  }
   const styles = [];
   if (renderFontFamilies.length > 0) {
     attributes["data-tq-render-font-projection"] = "true";
     styles.push(`font-family:${renderFontFamilies.map(cssString).join(",")}!important`);
   }
+  if (run.evidenceRenderFontFamily != null) {
+    attributes["data-tq-render-font-projection"] = "true";
+    styles.push(`font-family:${cssString(run.evidenceRenderFontFamily)}!important`);
+  }
+  if (run.italicEffect && run.styleDelta?.italic !== true) {
+    styles.push("font-style:italic!important");
+  }
+  if (run.styleDelta?.fontSize != null) {
+    styles.push(`font-size:${px(run.styleDelta.fontSize)}!important`);
+  }
+  if (run.styleDelta?.fontWeight != null) {
+    styles.push(`font-weight:${run.styleDelta.fontWeight}!important`);
+  }
+  if (run.styleDelta?.italic === true) styles.push("font-style:italic!important");
+  else if (run.styleDelta?.italic === false) styles.push("font-style:normal!important");
   if (run.spacing.kind === "letter") {
     styles.push(`letter-spacing:${px(run.spacing.px)}!important`);
   } else if (run.spacing.kind === "overlap") {
@@ -490,7 +467,33 @@ export function renderPreparedParagraphArtifact(
     }
     return { start, end, fontFamilies };
   });
-  const inlineBoxes = Array.from(options.inlineBoxes ?? []);
+  const emphasisRanges = Array.from(plan.emphasisRanges ?? [], (range) => [
+    Number(range[0]),
+    Number(range[1]),
+  ]);
+  const rubyByBaseEnd = new Map();
+  for (const ruby of plan.rubyDecisions ?? []) {
+    rubyByBaseEnd.set(Number(ruby.baseRangeEnd), ruby);
+  }
+  const bopomofoByBaseEnd = new Map();
+  for (const z of plan.bopomofoDecisions ?? []) {
+    const end = Number(z.baseRangeEnd);
+    if (!bopomofoByBaseEnd.has(end)) bopomofoByBaseEnd.set(end, []);
+    bopomofoByBaseEnd.get(end).push(z);
+  }
+  const planInlineEdges = Array.from(plan.inlineEdges ?? []);
+  const inlineBoxes = planInlineEdges.length > 0
+    ? planInlineEdges.flatMap((edge) => {
+        const entries = [];
+        if (edge.inlineStart != null) {
+          entries.push({ start: Number(edge.offset), end: Number(edge.offset), inlineStartPx: Number(edge.inlineStart), inlineEndPx: 0 });
+        }
+        if (edge.inlineEnd != null) {
+          entries.push({ start: Number(edge.offset), end: Number(edge.offset), inlineStartPx: 0, inlineEndPx: Number(edge.inlineEnd) });
+        }
+        return entries;
+      })
+    : Array.from(options.inlineBoxes ?? []);
   const inlineStartByOffset = new Map();
   const inlineEndByOffset = new Map();
   for (const box of inlineBoxes) {
@@ -551,11 +554,23 @@ export function renderPreparedParagraphArtifact(
       const next = line.cells[index + 1];
       const trailingInlineEdge = inlineEndByOffset.get(cell.rangeEnd) ?? 0;
       const nextLeadingInlineEdge = next ? inlineStartByOffset.get(next.rangeStart) ?? 0 : 0;
-      const trailingGap = next
+      const rawTrailingGap = next
         ? next.drawX - cell.drawX - cell.naturalWidth - trailingInlineEdge - nextLeadingInlineEdge
         : line.hyphenAdvance > 0
           ? 0
           : line.indent + line.visualWidth - cell.drawX - cell.naturalWidth - trailingInlineEdge;
+      const layoutTrailingGap = Math.abs(rawTrailingGap) < SPACING_EPSILON ? 0 : rawTrailingGap;
+      const bopomofoAtEnd = bopomofoByBaseEnd.get(cell.rangeEnd) ?? null;
+      const bopomofoAdvanceWidth = bopomofoAtEnd == null
+        ? 0
+        : next
+          ? Math.max(layoutTrailingGap, 0)
+          : Math.max(
+              (cell.advance != null ? Number(cell.advance) : cell.naturalWidth) -
+                cell.naturalWidth - trailingInlineEdge,
+              0,
+            );
+      const trailingGap = bopomofoAtEnd == null ? layoutTrailingGap : 0;
       return {
         rangeStart: cell.rangeStart,
         rangeEnd: cell.rangeEnd,
@@ -569,15 +584,74 @@ export function renderPreparedParagraphArtifact(
         trailingGap,
         spacing: preparedSpacing(cell.display, cell.naturalWidth, trailingGap),
         semanticPath: semanticSpansFor(cell.rangeStart, cell.rangeEnd),
+        styleDelta: cell.style ?? null,
+        italicEffect: cell.style?.italic === true ||
+          (cell.latin === true &&
+            emphasisRanges.some(([start, end]) => cell.rangeStart >= start && cell.rangeStart < end)),
+        dashStrategy: cell.dashStrategy ?? null,
+        shapingLanguage: cell.shapingLanguage ?? null,
+        resolvedFace: cell.resolvedFace ?? null,
+        glyphIds: cell.glyphIds ?? null,
+        shapingEvidence: cell.shapingEvidence ?? null,
+        punctuationInkFloor: cell.punctuationInkFloor ?? null,
+        punctuationBodyWidth: cell.punctuationBodyWidth ?? null,
+        evidenceRenderFontFamily: cell.renderFontFamily ?? null,
+        inlineObjectAdvance: cell.inlineObject ?? null,
+        bopomofoAdvanceWidth,
+        styleSignature: JSON.stringify(cell.style ?? null),
+        punctuationSignature: JSON.stringify([
+          cell.punctuationInkFloor ?? null,
+          cell.punctuationBodyWidth ?? null,
+        ]),
       };
     });
     for (const cell of cells) cell.semanticSignature = JSON.stringify(cell.semanticPath);
-    const runs = [];
+    // Ordered line children: runs merge as before, but inline-object cells and
+    // annotation boundaries flush the pending run so DOM order is preserved.
+    const children = [];
+    let pendingRun = null;
+    const flushRun = () => {
+      if (pendingRun == null) return;
+      children.push({ kind: "run", run: pendingRun, semanticPath: pendingRun.semanticPath });
+      pendingRun = null;
+    };
     for (const cell of cells) {
-      const pending = runs.at(-1);
-      if (pending && canMergePreparedRun(pending, cell)) mergePreparedRun(pending, cell);
-      else runs.push({ ...cell, spacing: { ...cell.spacing } });
+      if (cell.inlineObjectAdvance != null) {
+        flushRun();
+        children.push({
+          kind: "inlineObject",
+          cell,
+          carrierMargin: cell.trailingGap,
+          semanticPath: cell.semanticPath,
+        });
+        continue;
+      }
+      const record = { ...cell, spacing: { ...cell.spacing } };
+      if (pendingRun && canMergePreparedRun(pendingRun, record)) {
+        mergePreparedRun(pendingRun, record);
+      } else {
+        flushRun();
+        pendingRun = record;
+      }
+      const rubyAtEnd = rubyByBaseEnd.get(cell.rangeEnd) ?? null;
+      const bopomofoAtEnd = bopomofoByBaseEnd.get(cell.rangeEnd) ?? null;
+      if (rubyAtEnd != null || bopomofoAtEnd != null) flushRun();
+      if (rubyAtEnd != null) {
+        children.push({ kind: "ruby", ruby: rubyAtEnd, lineTop: line.top, semanticPath: cell.semanticPath });
+      }
+      for (const z of bopomofoAtEnd ?? []) {
+        children.push({
+          kind: "bopomofo",
+          z,
+          width: cell.bopomofoAdvanceWidth,
+          lineTop: line.top,
+          lineHeight: line.bottom - line.top,
+          semanticPath: cell.semanticPath,
+        });
+      }
     }
+    flushRun();
+
     const last = line.cells.at(-1);
     const flowEnd = last
       ? last.drawX + last.naturalWidth + (inlineEndByOffset.get(last.rangeEnd) ?? 0)
@@ -588,10 +662,15 @@ export function renderPreparedParagraphArtifact(
     const inlineEdgeWidth = line.cells.reduce((sum, cell) =>
       sum + (inlineStartByOffset.get(cell.rangeStart) ?? 0) +
         (inlineEndByOffset.get(cell.rangeEnd) ?? 0), 0);
-    const expectedFlowWidth = flowStart + inlineEdgeWidth + runs.reduce(
-      (sum, run) => sum + run.naturalWidth + run.trailingGap,
-      0,
-    ) + hyphenLeadingGap + line.hyphenAdvance;
+    const expectedFlowWidth = flowStart + inlineEdgeWidth + children.reduce((sum, child) => {
+      if (child.kind === "run") return sum + child.run.naturalWidth + child.run.trailingGap;
+      if (child.kind === "inlineObject") {
+        return sum + child.cell.naturalWidth +
+          (Math.abs(child.carrierMargin) >= SPACING_EPSILON ? child.carrierMargin : 0);
+      }
+      if (child.kind === "bopomofo") return sum + child.width;
+      return sum; // ruby rides absolute positioning and takes no flow
+    }, 0) + hyphenLeadingGap + line.hyphenAdvance;
     const coreLineWidth = line.indent + line.visualWidth + line.hyphenAdvance;
     if (Math.abs(expectedFlowWidth - coreLineWidth) > RENDER_FLOW_EPSILON_PX) {
       throw new Error(`SnapshotRenderFlowMismatch:line=${lineIndex}`);
@@ -623,8 +702,19 @@ export function renderPreparedParagraphArtifact(
     applyDynamicStyles(markerAttributes, markerStyles, styleClassFor);
     semanticContainerFor(activeSemantics).push(renderedElement("span", markerAttributes));
 
-    for (const run of runs) {
-      semanticContainerFor(run.semanticPath).push(renderRun(run, styleClassFor));
+    for (const child of children) {
+      const container = semanticContainerFor(child.semanticPath);
+      if (child.kind === "run") {
+        container.push(renderRun(child.run, styleClassFor));
+      } else if (child.kind === "inlineObject") {
+        container.push(inlineObjectPlaceholder(child.cell, child.carrierMargin, styleClassFor));
+      } else if (child.kind === "ruby") {
+        container.push(rubyAnnotationSpan(child.ruby, child.lineTop, styleClassFor));
+      } else {
+        container.push(
+          bopomofoAnnotationSpan(child.z, child.width, child.lineTop, child.lineHeight, styleClassFor),
+        );
+      }
     }
 
     if (line.hyphenAdvance > 0) {
@@ -686,6 +776,7 @@ export function renderPreparedParagraphArtifact(
       "data-tq-selection-end": "true",
     }, "\u200B"));
   }
+  appendEvidenceOverlays(nodes, plan);
   return Object.freeze({
     html: nodes.map((node) => node.html).join(""),
     artifact: nodes.map((node) => node.artifact),

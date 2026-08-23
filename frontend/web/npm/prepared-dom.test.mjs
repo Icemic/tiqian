@@ -698,3 +698,471 @@ test("prepared DOM coordinator upgrades monotonically without unlocking the glob
     false,
   );
 });
+
+test("evidenceFreePlanStaysLean", () => {
+  const plan = fixturePlan();
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  assert.ok(!html.includes("data-tq-dash-"));
+  assert.ok(!html.includes("data-tq-punctuation-"));
+  assert.ok(!html.includes("data-tq-inline-object"));
+  assert.ok(!html.includes("<svg"));
+  assert.ok(!html.includes("font-size:"));
+});
+
+test("dashEvidenceAttributesRender", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 18,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "—",
+        display: "—",
+        drawX: 0,
+        naturalWidth: 18,
+        leadingLayoutAdvance: 0,
+        dashStrategy: "ReplaceEmDash",
+        shapingLanguage: "zh-Hans",
+        resolvedFace: "FaceA",
+        glyphIds: "71,72",
+        shapingEvidence: "ShapingReason",
+        renderFontFamily: "Han Face",
+      }],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  assert.ok(html.includes('data-tq-dash-strategy="ReplaceEmDash"'));
+  assert.ok(html.includes('data-tq-dash-advance="18"'));
+  assert.ok(html.includes('data-tq-dash-font-family="Han Face"'));
+  assert.ok(html.includes('data-tq-dash-face="FaceA"'));
+  assert.ok(html.includes('data-tq-dash-glyph-ids="71,72"'));
+  assert.ok(html.includes('data-tq-dash-evidence="ShapingReason"'));
+  assert.ok(html.includes('lang="zh-Hans"'));
+  assert.ok(html.includes('font-family:&quot;Han Face&quot;') || html.includes('font-family:"Han Face"'));
+  assert.ok(html.includes('data-tq-render-font-projection="true"'));
+});
+
+test("dashRunIsolatesAndPunctuationAttributesRender", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 3,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 54,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [
+        {
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "前",
+          display: "前",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+        {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "—",
+          display: "—",
+          drawX: 18,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+          dashStrategy: "ReplaceEmDash",
+          punctuationInkFloor: 2.5,
+          punctuationBodyWidth: 16,
+        },
+        {
+          rangeStart: 2,
+          rangeEnd: 3,
+          source: "后",
+          display: "后",
+          drawX: 36,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+      ],
+    }],
+  };
+  const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans");
+  const html = artifact.html;
+  assert.ok(html.includes('data-tq-punctuation-ink-floor="2.5"'));
+  assert.ok(html.includes('data-tq-punctuation-body-width="16"'));
+  assert.ok(html.includes("前<span"));
+  assert.ok(html.includes("</span>后"));
+});
+
+test("styleDeltaSplitsRunsAndEmitsPaint", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 3,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 54,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [
+        {
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "甲",
+          display: "甲",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+        {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "乙",
+          display: "乙",
+          drawX: 18,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+          style: { fontSize: 12, fontWeight: 700 },
+        },
+        {
+          rangeStart: 2,
+          rangeEnd: 3,
+          source: "丙",
+          display: "丙",
+          drawX: 36,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+      ],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  assert.ok(html.includes("font-size:12px!important"));
+  assert.ok(html.includes("font-weight:700!important"));
+  assert.ok(html.includes("甲<span"));
+  assert.ok(html.includes("</span>丙"));
+});
+
+test("latinEmphasisItalicEffect", () => {
+  const italicPlan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    emphasisRanges: [[0, 1]],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 10,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "A",
+        display: "A",
+        drawX: 0,
+        naturalWidth: 10,
+        leadingLayoutAdvance: 0,
+        latin: true,
+      }],
+    }],
+  };
+  const italicHtml = renderPreparedParagraphArtifact(italicPlan, "zh-Hans").html;
+  assert.ok(italicHtml.includes("font-style:italic!important"));
+
+  const nonItalicPlan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    emphasisRanges: [[0, 1]],
+    lines: [{
+      rangeStart: 1,
+      rangeEnd: 2,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 10,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 1,
+        rangeEnd: 2,
+        source: "B",
+        display: "B",
+        drawX: 0,
+        naturalWidth: 10,
+        leadingLayoutAdvance: 0,
+        latin: true,
+      }],
+    }],
+  };
+  const nonItalicHtml = renderPreparedParagraphArtifact(nonItalicPlan, "zh-Hans").html;
+  assert.ok(!nonItalicHtml.includes("font-style:italic!important"));
+});
+
+test("inlineObjectPlaceholderKeepsFlow", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 2,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 36,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [
+        {
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "\uFFFC",
+          display: "\uFFFC",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+          inlineObject: 18,
+        },
+        {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "字",
+          display: "字",
+          drawX: 18,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+      ],
+    }],
+  };
+  const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans");
+  const html = artifact.html;
+  assert.ok(html.includes('data-tq-inline-object="pending"'));
+  assert.ok(html.includes('data-tq-object-range="0-1"'));
+  assert.ok(html.includes("inline-size:18px!important"));
+});
+
+test("rubyAnnotationSpanUsesRatioAscent", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    rubyDecisions: [{
+      baseRangeStart: 0,
+      baseRangeEnd: 1,
+      text: "Běijīng",
+      fontSize: 10,
+      fontWeight: 500,
+      centerX: 9,
+      baselineY: 5,
+      fontFamilies: ["Ruby Face"],
+    }],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 18,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "京",
+        display: "京",
+        drawX: 0,
+        naturalWidth: 18,
+        leadingLayoutAdvance: 0,
+      }],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  assert.ok(html.includes('data-tq-src="（Běijīng）"'));
+  assert.ok(html.includes("left:9px!important"));
+  assert.ok(html.includes("top:-3px!important"));
+  assert.ok(html.includes("transform:translateX(-50%)!important"));
+  assert.ok(html.includes("font-weight:500!important"));
+});
+
+test("bopomofoAnnotationSpanOccupiesSlack", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    bopomofoDecisions: [{
+      baseRangeStart: 0,
+      baseRangeEnd: 1,
+      text: "ㄓˇ",
+      fontWeight: 500,
+      fontFamilies: ["Bopomofo Face"],
+      placements: [
+        {
+          role: "Symbol",
+          text: "ㄓ",
+          left: 0,
+          top: 2,
+          width: 6,
+          height: 8,
+        },
+        {
+          role: "Tone",
+          text: "ˇ",
+          left: 6,
+          top: 2,
+          width: 4,
+          height: 8,
+        },
+      ],
+    }],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 24,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "只",
+        display: "只",
+        drawX: 0,
+        naturalWidth: 18,
+        advance: 24,
+        leadingLayoutAdvance: 0,
+      }],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  assert.ok(html.includes("width:6px!important"));
+  assert.ok(html.includes('data-tq-src="（ㄓˇ）"'));
+  assert.ok(html.includes("writing-mode:vertical-rl!important"));
+  const expectedToneFontSize = Number((4 * 0.82 / (0.644 + (0.682 - 0.644) * (1 / 3))).toFixed(5));
+  assert.ok(html.includes(`font-size:${expectedToneFontSize}px!important`));
+});
+
+test("interlinearAndDotOverlaysRender", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    fontSize: 20,
+    overlayWidth: 120,
+    height: 27,
+    decorationSegments: [
+      { kind: "ProperNoun", left: 0, top: 20, right: 60 },
+      { kind: "BookTitle", left: 60, top: 20, right: 120 },
+    ],
+    emphasisDots: [
+      { anchorX: 10, anchorY: 25, dotDiameter: 5 },
+    ],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 18,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "中",
+        display: "中",
+        drawX: 0,
+        naturalWidth: 18,
+        leadingLayoutAdvance: 0,
+      }],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  const svgMatches = html.match(/<svg/gu) ?? [];
+  assert.equal(svgMatches.length, 2);
+  assert.ok(html.includes("--tq-overlay-width:120px;--tq-overlay-height:27px"));
+  assert.ok(html.includes('data-tq-decoration-line="true"'));
+  assert.ok(html.includes('x1="0"'));
+  assert.ok(html.includes('d="M 60 20'));
+  assert.ok(html.includes(" Q "));
+  assert.ok(html.includes('data-tq-decoration-dot="true"'));
+  assert.ok(html.includes('r="2.5"'));
+});
+
+test("planInlineEdgesTakePrecedence", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    inlineEdges: [{ offset: 1, inlineEnd: 4 }],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 2,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 40,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [
+        {
+          rangeStart: 0,
+          rangeEnd: 1,
+          source: "前",
+          display: "前",
+          drawX: 0,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+        {
+          rangeStart: 1,
+          rangeEnd: 2,
+          source: "后",
+          display: "后",
+          drawX: 22,
+          naturalWidth: 18,
+          leadingLayoutAdvance: 0,
+        },
+      ],
+    }],
+  };
+  const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans", {
+    inlineBoxes: [{ start: 1, end: 1, inlineStartPx: 0, inlineEndPx: 10 }],
+  });
+  assert.equal(artifact.markerCount, 1);
+  assert.ok(artifact.html.includes('data-tq-line-flow-width="40"'));
+});
