@@ -778,9 +778,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
   消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
   F3 配置。
-- [ ] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
+- [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
+  进度（2026-08-23）：7d9a9d5。tools/ts-discipline 私有工具目录（eslint 10.9.0、
+  typescript-eslint 8.67.0，精确版本）持 flat config：no-explicit-any、
+  no-restricted-types（object/Object/{} 各给替代写法）与 no-restricted-syntax
+  （TSAsExpression 双重断言）三条全部 error，lint 对象为三包的非生成 js/mjs/d.ts。
+  ci-ts-discipline.yml 固定 SHA 的 checkout 与 setup-node 后跑 eslint，再以两条
+  grep 兜底：eslint-disable，以及 JSDoc 形态的 any——eslint 的 TS 语法规则只看
+  TS 语法节点，JS 文件 JSDoc 注释里的类型不在覆盖范围内，零基线由 grep 锁死
+  （花括号
+  类型内出现 any、冒号后的 any 标注、any 数组三种形态）。本地验证：eslint 零
+  违例（向 .d.ts 注入违例后三条规则都报错）、两条 grep 零命中（注入
+  `@type {any}` 后命中）、npm-core 180 例与 prose 246 例不变；远端 CI 运行随
+  下次 push 验证。
 - [x] **F4 双实现 CI 比对**（`DualLoweringStance`）：prepared-dom 双实现共享单一
   golden 语料强制比对。验收：Verification 2。
   进度（2026-08-23）：ci-native-precompute.yml 新增 prepared-dom-corpus job。
