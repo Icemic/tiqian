@@ -168,6 +168,24 @@ export function loadExactFontFallback() {
   return exactFontFallbackPromise;
 }
 
+// PlainHostPreparedBridge: every paragraph lowers through the prepared DOM
+// (ADR 0053 B8.3c), so a host without an exact font session still needs the
+// renderer bridge before its first enhance. The dynamic import keeps the
+// renderer out of the entry chunk; the module self-installs the bridge. An
+// already-occupied slot belongs to a test fixture or an exact-session
+// install and is left untouched — loadExactFontFallback keeps its own
+// monotonic upgrade for a stale legacy occupant.
+let preparedBridgePromise;
+
+export function ensurePreparedDomBridge() {
+  preparedBridgePromise ??= globalThis.__TiqianPreparedDomRenderer
+    ? Promise.resolve(globalThis.__TiqianPreparedDomRenderer)
+    : import("../../sampler/snapshot/prepared-dom.js").then(
+        () => globalThis.__TiqianPreparedDomRenderer,
+      );
+  return preparedBridgePromise;
+}
+
 // CSS font-family parsing and the document font-loading filter moved here
 // from lazy-capabilities.js in ADR 0053 batch 6.
 

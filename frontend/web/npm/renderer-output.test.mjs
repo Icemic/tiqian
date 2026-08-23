@@ -198,8 +198,13 @@ test("rendererOutput_unorderedListUsesNativeMarkerColumnWithoutParagraphIndent",
   assert.equal(item.querySelector(":scope > [data-tq-list-marker]"), null);
   assert.equal(computedStyleValue(list, "padding-inline-start"), "36px");
   assert.equal(computedStyleValue(item, "display"), "list-item");
-  assert.equal(paragraphLine.style.getPropertyValue("margin-left"), "36px");
-  assert.ok(itemLine.style.getPropertyValue("margin-left").length === 0);
+  // The prepared renderer states the indent as the flow-start variable on a
+  // shifted line marker; styles.css turns that pair into margin-left at paint
+  // time ([data-tq-line-shift] rule).
+  assert.equal(paragraphLine.getAttribute("data-tq-line-shift"), "true");
+  assert.ok(paragraphLine.style.getPropertyValue("--tq-line-flow-start").includes("36px"));
+  assert.equal(itemLine.getAttribute("data-tq-line-shift"), null);
+  assert.equal(itemLine.style.getPropertyValue("--tq-line-flow-start"), "");
 });
 
 test("rendererOutput_strongStaysBoldByDefault", async (t) => {
@@ -251,19 +256,18 @@ test("rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks", async (t) => {
   assert.equal(firstDot.getAttribute("style"), "--tq-decoration-color:rgb(1, 2, 3)");
 
   const descendants = strong.querySelectorAll("span");
-  let cjkRun = null;
   let latinRun = null;
   for (let index = 0; index < descendants.length; index += 1) {
     const element = descendants.item(index);
     if (element?.nodeType !== 1) continue;
     const content = element.textContent;
     if (!content) continue;
-    if (content.includes("强调")) cjkRun = element;
     if (content.includes("CSharp")) latinRun = element;
   }
-  assert.ok(cjkRun);
+  // EmphasisMarkWeightSplit: the CJK glyphs render as dots, so the prepared
+  // renderer de-bolds them on the strong itself (asserted above as 430) while
+  // Latin runs keep their bold spans.
   assert.ok(latinRun);
-  assert.equal(computedStyleValue(cjkRun, "font-weight"), "430");
   assert.equal(computedStyleValue(latinRun, "font-weight"), "700");
   assert.equal(copySelection(paragraph), "前强调，CSharp 42🙂后。");
 });

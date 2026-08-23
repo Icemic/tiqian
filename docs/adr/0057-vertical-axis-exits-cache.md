@@ -57,8 +57,9 @@ overlay 稀疏（一屏少量着重号一类）：
   ascent 与 descent 用 canvas measureText 的 fontBoundingBox 实测
   （DomParagraphRendererOverlays.kt:168-179）。
 
-以上类名与行号按当前 Kotlin 实现记录；0053 的 TS 宿主化删除该层后，对应逻辑
-位于 TS 宿主的装饰层实现，锚点语义不变。
+以上类名与行号按当前 Kotlin 实现记录；0053 的 TS 宿主化删除该层后（B8.3c，
+2026-08-23），对应逻辑位于 npm/core/sampler/snapshot/prepared-dom-evidence.js
+（appendEvidenceOverlays 与 wavyLinePath），锚点语义不变。
 
 每个装饰锚点分解为三段：行 k 的 baseline（行高域）、行内 x（横向布局域）、
 baseline 以下偏移（字体度量域）。第三段在引擎内部本来就是 em 量，出口才乘

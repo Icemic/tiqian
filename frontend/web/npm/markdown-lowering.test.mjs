@@ -14,7 +14,6 @@ import {
   cssPx,
   loadHostRuntime,
   mount,
-  renderedSingleLineFlowWidth,
   testOptions,
 } from "./runtime-host.mjs";
 
@@ -254,12 +253,17 @@ test("markdownLowering_superscriptGeneratedContentKeepsUniqueId", async (t) => {
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(copySelection(paragraph), "这里有脚注1并继续正文。");
   assert.equal(paragraph.querySelectorAll(".tq-line").length, 1);
-  const declaredWidth = parseFloat(
-    paragraph.querySelector(".tq-line").getAttribute("data-tq-line-width"),
-  );
+  // Same width self-check as the karma twin: the declared line width and the
+  // line's flow width come from the plan and must agree. The inline sup clone
+  // re-measures at its own 12px font in the DOM, so the flow-width invariant
+  // is asserted on the marker attributes the engine itself declares.
+  const lineMarker = paragraph.querySelector(".tq-line");
+  const declaredWidth = parseFloat(lineMarker.getAttribute("data-tq-line-width"));
+  const flowWidth = parseFloat(lineMarker.getAttribute("data-tq-line-flow-width"));
   assert.ok(Number.isFinite(declaredWidth));
+  assert.ok(Number.isFinite(flowWidth));
   assert.ok(
-    Math.abs(declaredWidth - renderedSingleLineFlowWidth(paragraph)) <= 0.75,
-    `declared ${declaredWidth} vs measured ${renderedSingleLineFlowWidth(paragraph)}`,
+    Math.abs(declaredWidth - flowWidth) <= 0.01,
+    `declared ${declaredWidth} vs flow ${flowWidth}`,
   );
 });

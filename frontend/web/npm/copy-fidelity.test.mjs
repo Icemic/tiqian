@@ -159,10 +159,12 @@ test("copyFidelity_engineHyphenGlyphsOmittedFromCopy", async (t) => {
   assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
 
   const paragraph = root.querySelector("p");
-  const hyphen = paragraph.querySelector(
-    "span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)",
-  );
+  // The prepared renderer marks engine hyphens explicitly; the line-end
+  // sentinels share the copy-ignore/aria-hidden pair with empty text.
+  const hyphen = paragraph.querySelector("span[data-tq-engine-hyphen]");
   assert.ok(hyphen);
+  assert.equal(hyphen.getAttribute("aria-hidden"), "true");
+  assert.equal(hyphen.getAttribute("data-tq-copy-ignore"), "true");
   assert.equal(hyphen.textContent, "-");
   assert.equal(copySelection(paragraph), source);
 });

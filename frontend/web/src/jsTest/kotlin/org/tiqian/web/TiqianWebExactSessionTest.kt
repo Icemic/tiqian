@@ -595,7 +595,7 @@ class TiqianWebExactSessionTest {
     }
 
     @Test
-    fun exactPreparedDomGeometryMismatchDisablesRepeatedExactAttemptsForTheRoot() {
+    fun standingPreparedDomValidationFailureFailsEveryParagraphClosed() {
         installExactFontSessionFixture(failShaping = false)
         failExactPreparedDomValidation("fixture-line-drift")
         try {
@@ -608,22 +608,77 @@ class TiqianWebExactSessionTest {
                 """.trimIndent(),
             )
             val paragraph = root.querySelector("p") as HTMLElement
+            val second = root.querySelector("p[data-tq-snapshot-key='second']") as HTMLElement
 
             val count = TiqianWeb.enhance(root, exactTestOptions())
 
-            assertEquals(2, count)
+            // PreparedDomRenderMismatch: the bridge disagrees even with
+            // browser-metric output, so both paragraphs fail closed and the
+            // custody bridge restores their source.
+            assertEquals(0, count)
+            assertEquals("0", root.getAttribute("data-tiqian-enhanced-count"))
+            assertEquals("2", root.getAttribute("data-tiqian-issue-count"))
+            assertNull(paragraph.getAttribute("data-tq-rendered"))
             assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
-            assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
-            assertNotNull(paragraph.querySelector(".tq-line"))
-            assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
-            assertEquals(1, exactPreparedRenderCount())
+            assertNull(paragraph.querySelector(".tq-line"))
+            assertEquals(
+                "PreparedDomRenderMismatch",
+                paragraph.getAttribute("data-tiqian-capability-issue"),
+            )
+            assertNull(second.getAttribute("data-tq-rendered"))
+            assertNull(second.querySelector(".tq-line"))
+            assertEquals(
+                "PreparedDomRenderMismatch",
+                second.getAttribute("data-tiqian-capability-issue"),
+            )
+            // The first paragraph renders twice (exact session, then the
+            // browser-metric retry); the second fails on its only render.
+            assertEquals(3, exactPreparedRenderCount())
             assertEquals(
                 "fixture-line-drift",
                 root.getAttribute("data-tiqian-exact-layout-fallback"),
             )
+        } finally {
+            clearExactFontSessionFixture()
+        }
+    }
+
+    @Test
+    fun preparedDomMismatchRetriesWithBrowserMetricsThroughThePreparedBridge() {
+        installExactFontSessionFixture(failShaping = false)
+        failNextExactPreparedDomValidation("fixture-line-drift")
+        try {
+            val root = mount(
+                """
+                <div data-tiqian-root="true" style="width: 220px">
+                  <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
+                  <p data-tq-snapshot-key="second" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">第二段正文。</p>
+                </div>
+                """.trimIndent(),
+            )
+            val paragraph = root.querySelector("p") as HTMLElement
             val second = root.querySelector("p[data-tq-snapshot-key='second']") as HTMLElement
-            assertNull(second.querySelector("[data-tq-exact-rendered]"))
+
+            val count = TiqianWeb.enhance(root, exactTestOptions())
+
+            // ExactSessionMetricDistrust: the first replay failed geometry
+            // validation against exact-session metrics, so the paragraph
+            // re-lays out with browser metrics and replays through the
+            // prepared bridge; that second render validates clean.
+            assertEquals(2, count)
+            assertEquals("2", root.getAttribute("data-tiqian-enhanced-count"))
+            assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-plain"))
+            assertNotNull(paragraph.querySelector(".tq-line"))
+            assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
+            assertEquals("true", second.getAttribute("data-tq-rendered"))
             assertNotNull(second.querySelector(".tq-line"))
+            assertNull(second.getAttribute("data-tiqian-capability-issue"))
+            assertEquals(3, exactPreparedRenderCount())
+            assertEquals(
+                "fixture-line-drift",
+                root.getAttribute("data-tiqian-exact-layout-fallback"),
+            )
         } finally {
             clearExactFontSessionFixture()
         }

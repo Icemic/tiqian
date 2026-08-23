@@ -417,7 +417,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   dash 属性、标点属性与断 run、样式增量、latin 着重 italic 正反例、占位流宽、ruby
   比例 ascent、bopomofo 松量与声调字号公式、覆盖层、inlineEdges 优先级）；
   `:frontend:web:jsBrowserTest` 通过。
-- [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
+- [x] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。SVG 行间线与着重号、ruby/bopomofo span
   已随 B7.2 进入 lowered HTML（ebb65df）。
   产出（克隆换入原语，2026-08-23）：45efc96。占位 span 在尾隙绝对值 ≥ 0.01 时
@@ -481,6 +481,34 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   exact 会话下 strong-as-emphasis 段落经 prepared 路径，semantics 与 cjk-strong
   线、emphasisDots、canonical-source 与复制保真逐项断言。无 strongAsEmphasisMarks
   时 decorations 为空，默认页面行为不变。
+  产出（全段落 prepared 路由与 native 渲染器删除，B8.3c，2026-08-23）：
+  DomParagraphRenderer.kt 与 DomParagraphRendererOverlays.kt 删除，运行时不再
+  保有第二份绘制路径。prepare 阶段 fail-closed：桥缺失报
+  PreparedDomBridgeUnavailable（detail 记 expectedLayoutRevision），locale 不匹配
+  span 报 SpanLocaleMismatchUnsupported（detail 记 spanRange、spanLocale、
+  paragraphLocale）。isRuntimeExactPreparedDomEligible 只再排除 locale 不匹配
+  span：单行克隆边缘装饰经 plan 的 inlineEdges 重放，跨行的仍由布局后的
+  InlineCloneDecorationBreakUnsupported 拦截；workerLayoutRequest 维持自身更严的
+  排除清单（请求线没有行数信息）。commit 校验失败时先摘属性再分支：exact 会话
+  度量且浏览器回退引擎可用则以浏览器度量重排并仍经 prepared 桥重放（重试传
+  browserFallbackEngine=null，递归深度有界）；否则报 PreparedDomRenderMismatch
+  Unsupported，段落保持输入原样。RootState.preparedDomEnabled 只表示 exact
+  会话度量是否可信，段落绘制一律走 prepared 桥。
+  validatePreparedParagraphDom 的校验器全局只在测试环境存在，生产缺失时返回
+  null（PreparedDomValidatorIsTestOnly），不再判每个段落为
+  PreparedDomRenderMismatch。plain host 的
+  桥安装走 font-loader 的 ensurePreparedDomBridge（memoized，槽位已被占用时让位
+  给已装实例），element.js 的 enhance 派发与 api.js 的 withTiqianWeb 等待它。
+  demo 页经 gradle Sync 把 snapshot-schema.js 与四个 snapshot 文件按相对路径
+  装进资源，index.html 的 module script 自装桥后派发
+  tiqian-demo-prepared-bridge-ready，Main.kt 的首次布局等该事件。测试迁移：
+  karma 102/102（run-spacing 两测删除，npm 双生覆盖同一行为）；npm 366/366，
+  installPreparedRendererFixture 从 exact fixture 抽出并装进 loadHostRuntime，
+  五项断言迁到 prepared 词汇（data-tq-engine-hyphen 选择器、首缩进的
+  line-shift 加 --tq-line-flow-start、着重号字重落在 strong 本体、currentColor
+  按 color 链解析、超脚本行宽自检改行标记双属性）。demo 页浏览器复测：可见
+  段落全部 prepared 渲染，基准段 24/24，含 CJK dash 的 1 段按
+  NoConformingCjkDashGlyph 保持输入原样。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。

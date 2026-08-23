@@ -260,7 +260,10 @@ internal external fun releasePreparedRootDomStyles(root: HTMLElement): Boolean
       globalThis.__TiqianPreparedDomRenderer.layoutRevision === expectedLayoutRevision)""",
 )
 internal external fun isPreparedDomBridgeAvailable(expectedLayoutRevision: String): Boolean
-@JsFun("(host, width) => globalThis.__TiqianPreparedDomValidator && typeof globalThis.__TiqianPreparedDomValidator.issue === 'function' ? globalThis.__TiqianPreparedDomValidator.issue(host, width) : 'PreparedDomValidatorUnavailable'")
+// PreparedDomValidatorIsTestOnly: the validator global exists only in test
+// worlds; production has no replay validator and an absent one reports no
+// issue instead of failing every commit.
+@JsFun("(host, width) => globalThis.__TiqianPreparedDomValidator && typeof globalThis.__TiqianPreparedDomValidator.issue === 'function' ? globalThis.__TiqianPreparedDomValidator.issue(host, width) : null")
 internal external fun validatePreparedParagraphDom(host: HTMLElement, width: Double): String?
 @JsFun(
     """(element) => {

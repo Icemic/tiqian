@@ -20,6 +20,7 @@ import {
   exactPreparedRenderCount,
   exactTestOptions,
   failExactPreparedDomValidation,
+  failNextExactPreparedDomValidation,
   flushAllTestAnimationFrames,
   dispatchRelayout,
   installExactFontSessionFixture,
@@ -421,7 +422,7 @@ test("exactSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
   assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
 });
 
-test("exactSession_preparedDomGeometryMismatchDisablesExactForRoot", async (t) => {
+test("exactSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed", async (t) => {
   t.after(cleanupMounted);
   t.after(() => clearExactFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
@@ -434,22 +435,65 @@ test("exactSession_preparedDomGeometryMismatchDisablesExactForRoot", async (t) =
     </div>
   `);
   const paragraph = root.querySelector("p");
+  const second = root.querySelector("p[data-tq-snapshot-key='second']");
 
   const count = TiqianWeb.enhance(root, exactTestOptions());
 
-  assert.equal(count, 2);
+  // PreparedDomRenderMismatch: the bridge disagrees even with browser-metric
+  // output, so both paragraphs fail closed and custody restores their source.
+  assert.equal(count, 0);
+  assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
+  assert.equal(root.getAttribute("data-tiqian-issue-count"), "2");
+  assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
-  assert.equal(paragraph.querySelector("[data-tq-exact-rendered]"), null);
-  assert.ok(paragraph.querySelector(".tq-line"));
-  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
-  assert.equal(exactPreparedRenderCount(), 1);
+  assert.equal(paragraph.querySelector(".tq-line"), null);
+  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
+  assert.equal(second.getAttribute("data-tq-rendered"), null);
+  assert.equal(second.querySelector(".tq-line"), null);
+  assert.equal(second.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
+  // The first paragraph renders twice (exact session, then the browser-metric
+  // retry); the second fails on its only render.
+  assert.equal(exactPreparedRenderCount(), 3);
   assert.equal(
     root.getAttribute("data-tiqian-exact-layout-fallback"),
     "fixture-line-drift",
   );
+});
+
+test("exactSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePreparedBridge", async (t) => {
+  t.after(cleanupMounted);
+  t.after(() => clearExactFontSessionFixture());
+  const TiqianWeb = await loadHostRuntime();
+  installExactFontSessionFixture({ failShaping: false });
+  failNextExactPreparedDomValidation("fixture-line-drift");
+  const root = mount(`
+    <div data-tiqian-root="true" style="width: 220px">
+      <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
+      <p data-tq-snapshot-key="second" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">第二段正文。</p>
+    </div>
+  `);
+  const paragraph = root.querySelector("p");
   const second = root.querySelector("p[data-tq-snapshot-key='second']");
-  assert.equal(second.querySelector("[data-tq-exact-rendered]"), null);
+
+  const count = TiqianWeb.enhance(root, exactTestOptions());
+
+  // ExactSessionMetricDistrust: the first replay failed geometry validation
+  // against exact-session metrics, so the paragraph re-lays out with browser
+  // metrics and replays through the prepared bridge; that render validates.
+  assert.equal(count, 2);
+  assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
+  assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
+  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
+  assert.ok(paragraph.querySelector(".tq-line"));
+  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
+  assert.equal(second.getAttribute("data-tq-rendered"), "true");
   assert.ok(second.querySelector(".tq-line"));
+  assert.equal(second.getAttribute("data-tiqian-capability-issue"), null);
+  assert.equal(exactPreparedRenderCount(), 3);
+  assert.equal(
+    root.getAttribute("data-tiqian-exact-layout-fallback"),
+    "fixture-line-drift",
+  );
 });
 
 test("exactSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t) => {

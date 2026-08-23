@@ -376,7 +376,6 @@ object TiqianWeb {
                     semanticExactEngine = state.activeSemanticExactEngine(),
                     browserFallbackEngine = activeExactFallbackEngine,
                     widthOverride = widths[mixIndex],
-                    preparedDomEnabled = state.preparedDomEnabled,
                 )
                 commitSession.processItem(mixIndex, preparation)
             },
@@ -564,11 +563,12 @@ object TiqianWeb {
         var browserFallbackEngine: ExplainableStubParagraphLayoutEngine?,
         val paragraphs: MutableList<EnhancedParagraph>,
         val issues: MutableList<CapabilityIssue>,
-        // PreparedDomLane: every eligible paragraph renders through the
-        // prepared DOM, including roots that never configured an exact font
-        // session. Stripping the exact session and leaving the prepared lane
-        // are the same decision, so one flag drives both. For a sessionless
-        // root the active* accessors below return the same engines either way.
+        // PreparedDomLane: every paragraph renders through the prepared DOM,
+        // including roots that never configured an exact font session. After
+        // a replay fails geometry validation the flag distrusts the exact
+        // session metrics for the whole root; paragraphs keep rendering
+        // through the prepared bridge with browser metrics, and the
+        // per-paragraph validator still guards every render.
         var preparedDomEnabled: Boolean = true,
         var preparedDomFallback: String? = null,
     ) {
@@ -600,7 +600,6 @@ object TiqianWeb {
             val result: LayoutResult,
             val width: Float,
             val measure: Float,
-            val preparedDom: Boolean,
             val exactFontSessionUsed: Boolean,
         ) : ParagraphLayoutPreparation()
 

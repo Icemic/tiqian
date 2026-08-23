@@ -33,6 +33,13 @@
 <body>
     <h1>提椠 · Web 渲染 <span class="sub">ADR 0039 · Kotlin/JS runtime benchmark</span></h1>
     <div id="app"></div>
+    <script type="module">
+        // DemoPreparedDomVendor: the runtime renders exclusively through the
+        // prepared-DOM bridge (ADR 0053 B8.3c); this module self-installs it
+        // and signals the demo shell, whose classic script has already run.
+        import "./core/sampler/snapshot/prepared-dom.js";
+        document.dispatchEvent(new CustomEvent("tiqian-demo-prepared-bridge-ready"));
+    </script>
     <script type="application/javascript" src="tiqian-web.js"></script>
 </body>
 </html>

@@ -8,7 +8,10 @@ import {
   hasSnapshotLayoutOverride,
   releaseExactFontSession,
 } from "./core/engine/exact-font.js";
-import { loadExactFontFallback } from "./core/engine/loaders/font-loader.js";
+import {
+  ensurePreparedDomBridge,
+  loadExactFontFallback,
+} from "./core/engine/loaders/font-loader.js";
 
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "./core/sampler/snapshot/declared-faces.js";
@@ -32,8 +35,10 @@ async function withTiqianWeb(root, options, action) {
   try {
     // Finish installing the runtime and shared CSS before swapping the session
     // retained by an already-enhanced root. This keeps a rejected preparation
-    // from stranding a closed session inside the Kotlin/JS root state.
-    await Promise.all([loadTiqianRuntime(), ensureTiqianStyles()]);
+    // from stranding a closed session inside the Kotlin/JS root state. The
+    // prepared-DOM bridge rides along so plain hosts without an exact font
+    // session can still render (ADR 0053 B8.3c).
+    await Promise.all([loadTiqianRuntime(), ensureTiqianStyles(), ensurePreparedDomBridge()]);
     cjkDashCapability = await prepareCjkDashShapingIfNeeded(root, options);
     fontSession = await prepareRootFontSession(root, generation, options);
     // AsyncPreparationCancellation: navigation/destroy may happen while fonts

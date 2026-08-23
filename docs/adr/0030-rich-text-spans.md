@@ -19,7 +19,8 @@
   Apple CoreText `OBLIQUE_SHEAR` / Skia `Font.skewX`。**web 经浏览器 DOM 渲染（非自绘），
   角度不可控**：Chrome 对 CJK 纯合成 oblique 忽略请求角度，`font-style: oblique 6deg` 退成
   与 `italic` 相同的固定 ~14°（CJK 系统字体也无 `slnt` 变量轴）；唯一能拿到真 6° 的
-  `transform: skewX(-6deg)` 需要 `display: inline-block`，而 `DomParagraphRenderer` 刻意让 run
+  `transform: skewX(-6deg)` 需要 `display: inline-block`，而 `DomParagraphRenderer`（2026-08-23
+  起 run 叶子由 prepared-dom.js 降层，同一约束不变）刻意让 run
   叶子保持 `display: inline`（避免原子选区岛 + 引擎自持零行高下的零高盒伪影，保选区/复制保真），
   二者冲突、无无副作用的第三条路。故 **web CJK 斜体保持浏览器默认 `italic`（~14°），暂不与自绘
   平台的 6° 统一**，留待系统字体普及 `slnt` 轴或 renderer 重构。着重号仍只承载「强调」。

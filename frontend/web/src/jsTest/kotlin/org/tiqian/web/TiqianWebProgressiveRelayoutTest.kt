@@ -68,55 +68,6 @@ class TiqianWebProgressiveRelayoutTest {
     }
 
     @Test
-    fun negativeGapAfterMultiCharacterRunUsesOverlapInsteadOfBeingDropped() {
-        assertEquals(DomRunSpacing.Overlap(-9f), resolveDomRunSpacing("C++", -9f))
-    }
-
-    @Test
-    fun positiveGapAfterMultiCharacterRunUsesSelectableCarrierWithoutBreakingShaping() {
-        assertEquals(DomRunSpacing.TrailingLetter(9f), resolveDomRunSpacing("C++", 9f))
-
-        val root = mount(
-            """
-            <div data-tiqian-root="true" style="width: 700px">
-              <p>中文<a href="/target/" style="padding: 4px; margin: -4px">bug</a>中文。</p>
-            </div>
-            """.trimIndent(),
-        )
-
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
-
-        val link = root.querySelector("p a") as HTMLElement
-        assertEquals(4f, cssPx(computedStyleValue(link, "padding-right")))
-        assertEquals(-4f, cssPx(computedStyleValue(link, "margin-right")))
-        val fragments = link.querySelectorAll(":scope > span")
-        var spacingFragment: HTMLElement? = null
-        for (index in 0 until fragments.length) {
-            val fragment = fragments.item(index) as HTMLElement
-            val carrier = fragment.querySelector("[data-tq-spacing-carrier]") as? HTMLElement
-            if (carrier != null && elementWidth(carrier) > 0.1) {
-                spacingFragment = fragment
-            }
-        }
-        val fragment = assertNotNull(spacingFragment)
-        val carrier = assertNotNull(fragment.querySelector("[data-tq-spacing-carrier]") as? HTMLElement)
-        assertEquals("bug", fragment.firstChild?.textContent)
-        assertEquals("", fragment.getAttribute("data-tq-shaping-boundary"))
-        assertEquals("\u00A0", carrier.textContent)
-        assertEquals("true", carrier.getAttribute("data-tq-copy-ignore"))
-        assertEquals("true", carrier.getAttribute("aria-hidden"))
-        assertEquals("inline-block", computedStyleValue(carrier, "display"))
-        assertEquals(0f, cssPx(computedStyleValue(carrier, "height")))
-        assertEquals(0f, cssPx(computedStyleValue(carrier, "line-height")))
-        assertEquals(0f, cssPx(computedStyleValue(fragment, "padding-right")))
-        assertTrue(
-            selectionCoversElement(fragment, carrier),
-            "engine spacing must remain inside the native Range selection: ${fragment.outerHTML}",
-        )
-        assertEquals("bug", copySelection(link))
-    }
-
-    @Test
     fun westernShapingBoundariesRemainInNativeInlineSelectionFlow() {
         val source = "这里的 Powershell 与 pwsh7 都保持连续选择。"
         val root = mount(

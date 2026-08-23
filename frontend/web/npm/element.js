@@ -3,6 +3,7 @@ import "./core/utils/copy.js";
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
+  ensurePreparedDomBridge,
   fontLoadingAffectsTypography,
   loadExactFontFallback,
 } from "./core/engine/loaders/font-loader.js";
@@ -753,6 +754,13 @@ class TiqianProseElement extends HTMLElementBase {
     } = {},
   ) {
     const request = ++this.#enhanceRequest;
+    // PlainHostPreparedBridge: the runtime lowers every paragraph through
+    // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without an exact
+    // font session needs that bridge installed before layout starts. The
+    // exact-session path installs it through loadExactFontFallback; this
+    // await covers the remaining hosts and leaves an already-installed
+    // renderer (an exact session or a test fixture) untouched.
+    await ensurePreparedDomBridge();
     this.#beginLayoutWork();
     const baseOptions = {
       ...(this.#baseEnhanceOptions() ?? {}),

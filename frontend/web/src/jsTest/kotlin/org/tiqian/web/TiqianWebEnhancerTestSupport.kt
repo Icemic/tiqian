@@ -854,6 +854,20 @@ internal external fun exactFontShapeCount(): Int
 internal external fun exactFontFallbackCount(): Int
 @JsFun("(detail) => { globalThis.__TiqianPreparedFixtureOverride = true; globalThis.__TiqianPreparedDomValidator = { issue: () => detail }; }")
 internal external fun failExactPreparedDomValidation(detail: String)
+@JsFun(
+    """(detail) => {
+      globalThis.__TiqianPreparedFixtureOverride = true;
+      const previous = globalThis.__TiqianPreparedDomValidator;
+      let spent = false;
+      globalThis.__TiqianPreparedDomValidator = {
+        issue: (host, width) => {
+          if (!spent) { spent = true; return detail; }
+          return previous && typeof previous.issue === 'function' ? previous.issue(host, width) : null;
+        }
+      };
+    }""",
+)
+internal external fun failNextExactPreparedDomValidation(detail: String)
 @JsFun("(detail) => { globalThis.__TiqianPreparedFixtureOverride = true; globalThis.__TiqianPreparedDomRenderer = { schema: 1, layoutRevision: \"tiqian-layout-v2\", render() { throw new Error(detail); }, release() { return true; }, releaseRoot() { return true; } }; }")
 internal external fun failExactPreparedDomRender(detail: String)
 @JsFun("() => globalThis.__TiqianExactPreparedPlan || ''")

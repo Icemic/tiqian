@@ -75,6 +75,27 @@ val generateContentReconcileBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedContentReconcileScript",
 )
 
+// DemoPreparedDomVendor: the ADR 0039 demo page loads only the Kotlin bundle,
+// so after the native renderer's retirement (ADR 0053 B8.3c) it must serve
+// the npm prepared-DOM renderer itself. The five modules are copied with
+// their relative layout intact so their ES imports keep resolving; the
+// module self-installs the renderer bridge at import time.
+val vendoredPreparedDomRoot = layout.buildDirectory.dir("generated/preparedDomVendor")
+
+val vendorPreparedDom = tasks.register<Sync>("vendorPreparedDom") {
+    into(vendoredPreparedDomRoot)
+    from(layout.projectDirectory.file("npm/snapshot-schema.js"))
+    from(layout.projectDirectory.dir("npm/core/sampler/snapshot")) {
+        include(
+            "prepared-dom.js",
+            "snapshot-source.js",
+            "prepared-dom-markup.js",
+            "prepared-dom-evidence.js",
+        )
+        into("core/sampler/snapshot")
+    }
+}
+
 kotlin {
     js {
         // These generated names are package internals. Keep them stable while
@@ -95,6 +116,7 @@ kotlin {
             kotlin.srcDir(layout.buildDirectory.dir("generated/progressiveJob/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/copy/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/contentReconcile/kotlin"))
+            resources.srcDir(vendoredPreparedDomRoot)
             dependencies {
                 api(project(":engine"))
                 implementation(project(":platforms:web:shaping"))
@@ -115,6 +137,7 @@ tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {
+    dependsOn(vendorPreparedDom)
     from(layout.projectDirectory.file("npm/styles.css"))
 }
 

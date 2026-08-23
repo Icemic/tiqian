@@ -11,7 +11,7 @@ import kotlin.math.roundToInt
 /**
  * ADR 0039 live demo: the real Tiqian engine lays out CJK body text IN THE
  * browser Kotlin/JS runtime, measuring with `WebCanvasTextShaper` (offscreen measureText)
- * and painting via `DomParagraphRenderer` (`PreBrokenLineDom`). The width slider
+ * and painting via the prepared-DOM bridge (`PreBrokenLineDom`). The width slider
  * exercises `ReflowByRebreak` — each change re-runs the engine and re-paints.
  * The production embedding path is [TiqianWeb]. This file is only a demo shell.
  */
@@ -129,7 +129,10 @@ fun main() {
     root.appendChild(benchmarkButton)
     root.appendChild(benchmarkResult)
     root.appendChild(benchmarkStage)
-    relayout()
+    // DemoPreparedDomVendor: the prepared-DOM bridge installs from a module
+    // script that runs after this classic one, so the first layout waits for
+    // its ready event instead of failing closed on every paragraph.
+    document.addEventListener("tiqian-demo-prepared-bridge-ready", { relayout() })
 }
 
 private fun Double.roundedMillisecond(): String = (this * 10.0).roundToInt().div(10.0).toString()

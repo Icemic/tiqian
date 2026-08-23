@@ -945,8 +945,25 @@ function substituteCssVars(value, element, depth = 0) {
   );
 }
 
+// The currentColor keyword computes against the element's color chain; a
+// browser reports the resolved used value for properties like fill/stroke.
+function resolveCurrentColorKeyword(value, element, property) {
+  if (typeof value !== "string" || value.trim() !== "currentColor") return value;
+  if (property.toLowerCase() === "color") {
+    return element?.parentElement
+      ? resolveElementPropertyRaw(element.parentElement, "color")
+      : value;
+  }
+  const color = resolveElementPropertyRaw(element, "color");
+  return color !== "" ? color : value;
+}
+
 function resolveElementProperty(element, property, base = {}) {
-  return substituteCssVars(resolveElementPropertyRaw(element, property, base), element);
+  return resolveCurrentColorKeyword(
+    substituteCssVars(resolveElementPropertyRaw(element, property, base), element),
+    element,
+    property,
+  );
 }
 
 function getHorizontalPadding(element) {
@@ -2662,15 +2679,11 @@ export function failExactPreparedDomRender(detail) {
   };
 }
 
-export function installExactFontSessionFixture({
-  failShaping = false,
-  failFamily = null,
-  failText = null,
-  varyFaceByText = false,
-} = {}) {
-  const shapes = new Map();
-  const metrics = new Map();
-  let nextHandle = 1;
+// Shared prepared-DOM renderer fixture: the full ported pipeline without
+// the exact font backend. Host-runtime worlds install it so plain-host
+// tests render through the prepared bridge (ADR 0053 B8.3c); the exact
+// session fixture layers its font backend on top of the same renderer.
+export function installPreparedRendererFixture() {
   globalThis.__TiqianExactPreparedPlan = "";
   globalThis.__TiqianExactPreparedPlans = [];
   globalThis.__TiqianExactPreparedSemantics = [];
@@ -2680,67 +2693,6 @@ export function installExactFontSessionFixture({
   globalThis.__TiqianExactPreparedRenderCount = 0;
   globalThis.__TiqianExactFontShapeCount = 0;
   globalThis.__TiqianExactFontFallbackCount = 0;
-  globalThis.__TiqianFontBackend = {
-    shape(_session, displayText, families, fontSize, _fontWeight, _italic, _locale, role) {
-      if (
-        failShaping ||
-        (failFamily && String(families).includes(failFamily)) ||
-        (failText && String(displayText).includes(failText))
-      ) {
-        globalThis.__TiqianExactFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
-      }
-      globalThis.__TiqianExactFontShapeCount += 1;
-      const handle = nextHandle++;
-      const glyphs = [];
-      let glyphIndex = 0;
-      for (const _point of displayText) {
-        glyphs.push({
-          id: 100 + glyphIndex,
-          advance: fontSize,
-          x: glyphIndex * fontSize,
-          y: 0,
-          bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
-        });
-        glyphIndex++;
-      }
-      const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
-        ? ["pwid", "palt"]
-        : [];
-      shapes.set(handle, {
-        glyphs,
-        advance: glyphs.length * fontSize,
-        features,
-        faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
-      });
-      return handle;
-    },
-    shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-    shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-    shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-    shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-    shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-    shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-    shapeAdvance: (handle) => shapes.get(handle).advance,
-    shapeFaceId: (handle) => shapes.get(handle).faceId,
-    shapeFontInstanceId: () => "fixture:0:default",
-    shapeScript: () => "Hani",
-    shapeFeatureCount: (handle) => shapes.get(handle).features.length,
-    shapeFeature: (handle, index) => shapes.get(handle).features[index],
-    shapeUnsafeBreakCount: () => 0,
-    releaseShape: (handle) => shapes.delete(handle),
-    metrics(_session, families, fontSize) {
-      if (failShaping || (failFamily && String(families).includes(failFamily))) {
-        globalThis.__TiqianExactFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
-      }
-      const handle = nextHandle++;
-      metrics.set(handle, [fontSize, fontSize * 0.25, 0, fontSize * 0.88, fontSize * 0.12]);
-      return handle;
-    },
-    metricValue: (handle, index) => metrics.get(handle)[index],
-    releaseMetrics: (handle) => metrics.delete(handle),
-  };
   globalThis.__TiqianPreparedDomRenderer = {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
@@ -3327,6 +3279,79 @@ export function installExactFontSessionFixture({
   globalThis.__TiqianPreparedDomValidator = { issue: () => null };
 }
 
+export function installExactFontSessionFixture({
+  failShaping = false,
+  failFamily = null,
+  failText = null,
+  varyFaceByText = false,
+} = {}) {
+  const shapes = new Map();
+  const metrics = new Map();
+  let nextHandle = 1;
+  installPreparedRendererFixture();
+  globalThis.__TiqianFontBackend = {
+    shape(_session, displayText, families, fontSize, _fontWeight, _italic, _locale, role) {
+      if (
+        failShaping ||
+        (failFamily && String(families).includes(failFamily)) ||
+        (failText && String(displayText).includes(failText))
+      ) {
+        globalThis.__TiqianExactFontFallbackCount += 1;
+        throw new Error("NoExactFontFace:test");
+      }
+      globalThis.__TiqianExactFontShapeCount += 1;
+      const handle = nextHandle++;
+      const glyphs = [];
+      let glyphIndex = 0;
+      for (const _point of displayText) {
+        glyphs.push({
+          id: 100 + glyphIndex,
+          advance: fontSize,
+          x: glyphIndex * fontSize,
+          y: 0,
+          bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
+        });
+        glyphIndex++;
+      }
+      const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
+        ? ["pwid", "palt"]
+        : [];
+      shapes.set(handle, {
+        glyphs,
+        advance: glyphs.length * fontSize,
+        features,
+        faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
+      });
+      return handle;
+    },
+    shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
+    shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
+    shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
+    shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
+    shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
+    shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
+    shapeAdvance: (handle) => shapes.get(handle).advance,
+    shapeFaceId: (handle) => shapes.get(handle).faceId,
+    shapeFontInstanceId: () => "fixture:0:default",
+    shapeScript: () => "Hani",
+    shapeFeatureCount: (handle) => shapes.get(handle).features.length,
+    shapeFeature: (handle, index) => shapes.get(handle).features[index],
+    shapeUnsafeBreakCount: () => 0,
+    releaseShape: (handle) => shapes.delete(handle),
+    metrics(_session, families, fontSize) {
+      if (failShaping || (failFamily && String(families).includes(failFamily))) {
+        globalThis.__TiqianExactFontFallbackCount += 1;
+        throw new Error("NoExactFontFace:test");
+      }
+      const handle = nextHandle++;
+      metrics.set(handle, [fontSize, fontSize * 0.25, 0, fontSize * 0.88, fontSize * 0.12]);
+      return handle;
+    },
+    metricValue: (handle, index) => metrics.get(handle)[index],
+    releaseMetrics: (handle) => metrics.delete(handle),
+  };
+}
+
 export function clearExactFontSessionFixture() {
   delete globalThis.__TiqianFontBackend;
   delete globalThis.__TiqianPreparedDomRenderer;
@@ -3356,6 +3381,22 @@ export function exactPreparedRenderCount() {
 
 export function failExactPreparedDomValidation(detail) {
   globalThis.__TiqianPreparedDomValidator = { issue: () => detail };
+}
+
+export function failNextExactPreparedDomValidation(detail) {
+  const previous = globalThis.__TiqianPreparedDomValidator;
+  let spent = false;
+  globalThis.__TiqianPreparedDomValidator = {
+    issue(host, width) {
+      if (!spent) {
+        spent = true;
+        return detail;
+      }
+      return previous && typeof previous.issue === "function"
+        ? previous.issue(host, width)
+        : null;
+    },
+  };
 }
 
 export function installPreparedWorkerIssue(detail) {
@@ -3560,6 +3601,7 @@ let runtimePromise;
 // their counting wrappers so tests can assert per-root paragraph counts.
 export function loadHostRuntime() {
   buildWorld();
+  installPreparedRendererFixture();
   runtimePromise ??= import("./runtime/tiqian-web.js").then((module) => {
     const bag = module.default ?? module;
     const engine = (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)
@@ -3780,27 +3822,6 @@ export function computedPseudoContent(element, pseudo) {
     return content.slice(1, -1);
   }
   return content;
-}
-
-export function renderedSingleLineFlowWidth(paragraph) {
-  const rects = [];
-  const visit = (node) => {
-    if (node.nodeType === 3) {
-      if (!node.data || (node.parentElement && node.parentElement.closest('[data-tq-copy-ignore]'))) return;
-      const range = globalThis.document.createRange();
-      range.selectNodeContents(node);
-      for (const rect of range.getClientRects()) {
-        if (rect.width || rect.height) rects.push(rect);
-      }
-      return;
-    }
-    if (node.nodeType !== 1 || node.hasAttribute('data-tq-copy-ignore')) return;
-    for (const child of node.childNodes) visit(child);
-  };
-  for (const child of paragraph.childNodes) visit(child);
-  if (!rects.length) return 0;
-  return Math.max(...rects.map((rect) => rect.right)) -
-    Math.min(...rects.map((rect) => rect.left));
 }
 
 export function directTextContent(paragraph) {

@@ -512,16 +512,16 @@ internal fun LoweredParagraph.isCanonicalPlainParagraph(): Boolean =
  * decorations, which the plan carries as unconditional overlay segments
  * while the Worker request wire has no decoration input. Styled spans,
  * inline boxes, source semantics and decorations replay through plan
- * evidence; cloned-edge decorations and locale-mismatching spans still
- * render through the native DOM renderer.
+overs the remaining hosts and leaves an already-installed
+    // renderer * evidence; a single-line cloned-edge box replays through the plan's
+ * inlineEdges the same way a sliced box does. Locale-mismatching spans
+ * fail closed with SpanLocaleMismatchUnsupported: the plan wire carries
+ * one paragraph locale, so the bridge cannot replay a span shaped under
+ * a different one. The Worker request keeps its own stricter exclusion
+ * list because its wire has no line count to guard cloned edges with.
  */
 internal fun LoweredParagraph.isRuntimeExactPreparedDomEligible(): Boolean =
-    sourceSpans.none { span ->
-        span.inlineBoxStyle.boxDecorationBreak == "clone" &&
-            (kotlin.math.abs(span.inlineBoxStyle.inlineStart) >= INLINE_EDGE_EPSILON ||
-                kotlin.math.abs(span.inlineBoxStyle.inlineEnd) >= INLINE_EDGE_EPSILON)
-    } &&
-        spans.none { it.style.locale != textStyle.locale }
+    spans.none { it.style.locale != textStyle.locale }
 
 data class DomInlineObject(
     val range: TextRange,

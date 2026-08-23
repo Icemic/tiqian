@@ -200,7 +200,6 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
                 semanticExactEngine = state.activeSemanticExactEngine(),
                 browserFallbackEngine = state.activeExactFallbackEngine(),
                 onExactPreparedDomFallback = state::disableExactPreparedDom,
-                preparedDomEnabled = state.preparedDomEnabled,
             )
         } else {
             commitWorkerPreparedParagraph(
@@ -232,7 +231,6 @@ internal fun TiqianWeb.layoutParagraph(
     semanticExactEngine: ExplainableStubParagraphLayoutEngine? = null,
     browserFallbackEngine: ExplainableStubParagraphLayoutEngine? = null,
     onExactPreparedDomFallback: (String) -> Unit = {},
-    preparedDomEnabled: Boolean = true,
 ): CapabilityIssue? {
     return when (
         val preparation = prepareParagraphLayout(
@@ -241,7 +239,6 @@ internal fun TiqianWeb.layoutParagraph(
             engine = engine,
             semanticExactEngine = semanticExactEngine,
             browserFallbackEngine = browserFallbackEngine,
-            preparedDomEnabled = preparedDomEnabled,
         )
     ) {
         ParagraphLayoutPreparation.Unchanged -> null
@@ -337,7 +334,6 @@ internal fun TiqianWeb.prepareParagraphLayout(
     browserFallbackEngine: ExplainableStubParagraphLayoutEngine? = null,
     widthOverride: Float? = null,
     ignoreUnchangedMeasure: Boolean = false,
-    preparedDomEnabled: Boolean = true,
 ): ParagraphLayoutPreparation {
     val width = widthOverride ?: paragraphWidth(paragraph)
     // LineLengthGridResponsiveInvalidation: the Web adapter currently
@@ -385,26 +381,52 @@ internal fun TiqianWeb.prepareParagraphLayout(
     // the prepared DOM, with or without a snapshot key or an exact font
     // session; the prepared renderer replays whatever LayoutResult this host
     // produced. The lane needs a host-installed bridge whose plan wire
-    // matches this runtime; without one the paragraph keeps the native
-    // renderer. The root disables the lane only after a replay failed
-    // geometry validation.
-    val preparedDom = preparedDomEnabled &&
-        isPreparedDomBridgeAvailable(PREPARED_PARAGRAPH_LAYOUT_REVISION) &&
-        paragraph.lowered.isRuntimeExactPreparedDomEligible()
+    // matches this runtime; without one the paragraph cannot render, so the
+    // preparation fails closed instead of keeping a second renderer around.
+    if (!isPreparedDomBridgeAvailable(PREPARED_PARAGRAPH_LAYOUT_REVISION)) {
+        return ParagraphLayoutPreparation.Unsupported(
+            CapabilityIssue(
+                name = "PreparedDomBridgeUnavailable",
+                detail = "expectedLayoutRevision=$PREPARED_PARAGRAPH_LAYOUT_REVISION",
+                element = paragraph.source,
+            ),
+        )
+    }
+    if (!paragraph.lowered.isRuntimeExactPreparedDomEligible()) {
+        val mismatchedSpan = paragraph.lowered.spans.firstOrNull {
+            it.style.locale != paragraph.lowered.textStyle.locale
+        }
+        return ParagraphLayoutPreparation.Unsupported(
+            CapabilityIssue(
+                name = "SpanLocaleMismatchUnsupported",
+                detail = buildString {
+                    append("spanRange=")
+                    append(mismatchedSpan?.range?.start ?: 0)
+                    append("..")
+                    append(mismatchedSpan?.range?.end ?: 0)
+                    append("; spanLocale=")
+                    append(mismatchedSpan?.style?.locale ?: "unknown")
+                    append("; paragraphLocale=")
+                    append(paragraph.lowered.textStyle.locale)
+                },
+                element = paragraph.source,
+            ),
+        )
+    }
     // KeyedCanonicalStrictSessionOnly: a snapshot key proves that the server
     // captured a complete exact replay corpus for this canonical source.
     // An unkeyed runtime-completion paragraph may carry only the required
     // exact runs (notably a CJK dash) and must therefore retain per-run
     // browser fallback instead of retrying its whole paragraph through the
     // browser shaper after one unrelated replay miss.
-    val strictExactSession = exactFontLayout && preparedDom &&
+    val strictExactSession = exactFontLayout &&
         paragraph.source.hasAttribute("data-tq-snapshot-key") &&
         paragraph.lowered.isCanonicalPlainParagraph()
     val layoutEngine = if (exactFontLayout && !strictExactSession) {
         // RuntimeExactRichPreparedDom: rich paragraphs keep the per-run
-        // fallback shaper whether they land on the prepared DOM or the native
-        // renderer; the strict session stays reserved for canonical plain
-        // paragraphs whose single run must fail as a whole.
+        // fallback shaper on the prepared DOM; the strict session stays
+        // reserved for canonical plain paragraphs whose single run must
+        // fail as a whole.
         semanticExactEngine ?: engine
     } else {
         engine
@@ -479,7 +501,6 @@ internal fun TiqianWeb.prepareParagraphLayout(
         result = result,
         width = width,
         measure = measure,
-        preparedDom = preparedDom,
         exactFontSessionUsed = exactFontSessionUsed,
     )
 }
@@ -509,100 +530,79 @@ internal fun TiqianWeb.commitPreparedParagraph(
     onExactPreparedDomFallback: (String) -> Unit = {},
 ): ParagraphCommitResult {
     val result = preparation.result
-    if (preparation.preparedDom) {
-        // PreparedPlainHostPromise: canonical-plain promises the re-lowerer a
-        // prepared plain host, so a rich prepared paragraph only carries
-        // canonical-source and re-lowers through its live clones.
-        if (paragraph.lowered.isCanonicalPlainParagraph()) {
-            paragraph.source.setAttribute("data-tq-canonical-plain", "true")
-        }
-        paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
-        paragraph.source.setAttribute("lang", paragraph.lowered.textStyle.locale)
-        renderPreparedParagraphDom(
-            paragraph.source,
-            result.toPreparedParagraphJson(
-                renderEvidence = !paragraph.lowered.isCanonicalPlainParagraph(),
-            ),
-            paragraph.lowered.textStyle.locale,
-            paragraph.lowered.text,
-            paragraph.lowered.sourceSpans.map { it.element }.toTypedArray(),
-            paragraph.lowered.preparedSemanticReplayJson(),
-            paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
-            paragraph.lowered.preparedInlineObjectMetaJson(),
-            paragraph.lowered.preparedCjkStrongSemanticsJson(),
-        )
-        val preparedDomIssue = validatePreparedParagraphDom(
-            paragraph.source,
-            preparation.width.toDouble(),
-        )
-        if (preparedDomIssue == null) {
-            custodyBridge().stampRendered(paragraph.source)
-            return ParagraphCommitResult.Success(preparation.measure)
-        }
-        onExactPreparedDomFallback(preparedDomIssue)
-        paragraph.source.removeAttribute("data-tq-canonical-plain")
-        paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
-        paragraph.source.removeAttribute("lang")
-        if (preparation.exactFontSessionUsed) {
-            // ExactSessionMetricDistrust: the replay failed geometry
-            // validation against a result shaped by the exact session, so
-            // re-lay the paragraph out with browser metrics. The recursion
-            // renders native because the root has just disabled the
-            // prepared lane.
-            val fallbackOptions = options.withoutExactFontSession()
-            val fallbackPreparation = prepareParagraphLayout(
-                paragraph = paragraph,
-                options = fallbackOptions,
-                engine = browserFallbackEngine!!,
-                browserFallbackEngine = null,
-                widthOverride = preparation.width,
-                ignoreUnchangedMeasure = true,
-                preparedDomEnabled = false,
-            )
-            return when (fallbackPreparation) {
-                ParagraphLayoutPreparation.Unchanged -> error(
-                    "Exact prepared DOM fallback unexpectedly skipped relayout",
-                )
-                is ParagraphLayoutPreparation.Unsupported ->
-                    ParagraphCommitResult.Unsupported(fallbackPreparation.issue)
-                is ParagraphLayoutPreparation.Ready -> commitPreparedParagraph(
-                    paragraph = paragraph,
-                    preparation = fallbackPreparation,
-                    options = fallbackOptions,
-                    browserFallbackEngine = null,
-                    onExactPreparedDomFallback = onExactPreparedDomFallback,
-                )
-            }
-        }
-        // PreparedReplayMismatchWithoutSession: no exact session shaped this
-        // result, so a re-layout would reproduce it. Fall through to the
-        // native renderer with the result the browser already measured.
+    // PreparedPlainHostPromise: canonical-plain promises the re-lowerer a
+    // prepared plain host, so a rich prepared paragraph only carries
+    // canonical-source and re-lowers through its live clones.
+    if (paragraph.lowered.isCanonicalPlainParagraph()) {
+        paragraph.source.setAttribute("data-tq-canonical-plain", "true")
     }
+    paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
+    paragraph.source.setAttribute("lang", paragraph.lowered.textStyle.locale)
+    renderPreparedParagraphDom(
+        paragraph.source,
+        result.toPreparedParagraphJson(
+            renderEvidence = !paragraph.lowered.isCanonicalPlainParagraph(),
+        ),
+        paragraph.lowered.textStyle.locale,
+        paragraph.lowered.text,
+        paragraph.lowered.sourceSpans.map { it.element }.toTypedArray(),
+        paragraph.lowered.preparedSemanticReplayJson(),
+        paragraph.lowered.domInlineObjects.map { it.element }.toTypedArray(),
+        paragraph.lowered.preparedInlineObjectMetaJson(),
+        paragraph.lowered.preparedCjkStrongSemanticsJson(),
+    )
+    val preparedDomIssue = validatePreparedParagraphDom(
+        paragraph.source,
+        preparation.width.toDouble(),
+    )
+    if (preparedDomIssue == null) {
+        custodyBridge().stampRendered(paragraph.source)
+        return ParagraphCommitResult.Success(preparation.measure)
+    }
+    onExactPreparedDomFallback(preparedDomIssue)
     releasePreparedParagraphDomStyles(paragraph.source)
     paragraph.source.removeAttribute("data-tq-canonical-plain")
+    paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
     paragraph.source.removeAttribute("lang")
-    custodyBridge().ensureContainingBlock(paragraph.source)
-    DomParagraphRenderer.render(
-        paragraph.source,
-        result,
-        options.fonts,
-        sourceSpans = paragraph.lowered.sourceSpans,
-        inlineObjects = paragraph.lowered.domInlineObjects,
-    )
-    DomParagraphRenderer.verifyCjkDashRuns(paragraph.source)?.let { detail ->
-        return ParagraphCommitResult.Unsupported(
-            CapabilityIssue(
-                name = "DomDashFaceGeometryMismatch",
-                detail = detail,
-                element = paragraph.source,
-            ),
+    if (preparation.exactFontSessionUsed && browserFallbackEngine != null) {
+        // ExactSessionMetricDistrust: the replay failed geometry validation
+        // against a result shaped by the exact session, so re-lay the
+        // paragraph out with browser metrics and replay it through the
+        // prepared bridge once more; the per-paragraph validator still
+        // guards that second render.
+        val fallbackOptions = options.withoutExactFontSession()
+        val fallbackPreparation = prepareParagraphLayout(
+            paragraph = paragraph,
+            options = fallbackOptions,
+            engine = browserFallbackEngine,
+            browserFallbackEngine = null,
+            widthOverride = preparation.width,
+            ignoreUnchangedMeasure = true,
         )
+        return when (fallbackPreparation) {
+            ParagraphLayoutPreparation.Unchanged -> error(
+                "Exact prepared DOM fallback unexpectedly skipped relayout",
+            )
+            is ParagraphLayoutPreparation.Unsupported ->
+                ParagraphCommitResult.Unsupported(fallbackPreparation.issue)
+            is ParagraphLayoutPreparation.Ready -> commitPreparedParagraph(
+                paragraph = paragraph,
+                preparation = fallbackPreparation,
+                options = fallbackOptions,
+                browserFallbackEngine = null,
+                onExactPreparedDomFallback = onExactPreparedDomFallback,
+            )
+        }
     }
-    if (paragraph.lowered.isCanonicalPlainParagraph()) {
-        paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
-    } else {
-        paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
-    }
-    custodyBridge().stampRendered(paragraph.source)
-    return ParagraphCommitResult.Success(preparation.measure)
+    // PreparedDomRenderMismatch: the bridge disagreed with a result the
+    // browser itself measured, so no re-layout can repair the replay. There
+    // is no second renderer to fall back to; the paragraph fails closed and
+    // the caller restores its source.
+    return ParagraphCommitResult.Unsupported(
+        CapabilityIssue(
+            name = "PreparedDomRenderMismatch",
+            detail = preparedDomIssue,
+            element = paragraph.source,
+        ),
+    )
 }
