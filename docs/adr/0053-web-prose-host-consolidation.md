@@ -247,8 +247,9 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   KPI：golden 覆盖 §11 表六类锚点，锚点数记录（报告 §11，合计 151）。
   验收：npm test、jsBrowserTest、demo/web 测试全部通过；golden 套件入库。
   提交：b0b9cba、fe7febe、a5de443、35d2571、28c4a19、c0564dc、7b92e8f。
-- [ ] **P1 批次 1**：八个模块纯移动归位，.d.ts 随同名 JS，根路径重导出。
+- [x] **P1 批次 1**：八个模块纯移动归位，.d.ts 随同名 JS，根路径重导出。
   验收：同 P0 命令全部通过；golden 零 diff。
+  提交：bda3f77。
 - [ ] **P2 批次 2**：core/sampler/observers.js，失效源接口与四实例，A 类双职拆分。
   验收：npm test；demo/web resize 与 drag 系列。
 - [ ] **P3 批次 3**：engine/loaders，connectedCallback 收缩到生命周期。
