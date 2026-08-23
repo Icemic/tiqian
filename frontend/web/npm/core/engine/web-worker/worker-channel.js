@@ -2,6 +2,7 @@
 // section 9). Moved verbatim from the package root; layout-worker.js
 // stays at the root, so the Worker URL gains three parent levels.
 import { browserFontSessionWorkerContract } from "../../measurement/browser-fonts.js";
+import { engineApi } from "../loaders/runtime-loader.js";
 import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,
@@ -212,7 +213,7 @@ export async function prepareWorkerLayouts(
   isCurrent = () => true,
 ) {
   if (!root || !exactFontSession || !isCurrent()) return 0;
-  const api = globalThis.TiqianWeb;
+  const api = engineApi() ?? globalThis.TiqianWeb;
   if (typeof api?.workerLayoutRequest !== "function") return 0;
   const contract = browserFontSessionWorkerContract(exactFontSession);
   // WorkerCandidateSetMatchesCommitSet: mixed snapshot/runtime roots dispatch

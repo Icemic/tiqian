@@ -27,6 +27,33 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import { FONT_REPLAY_REVISION, stableStringify } from "./snapshot-schema.js";
 import { writeBinaryTable } from "./table-binary-writer.mjs";
+import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
+
+// ADR 0053 C1 removed the internal document-level event channel, so the
+// timing drive observes the engine call face directly. The stub records each
+// call in phase order and answers like an engine with no work, matching the
+// drive's previous world where the fake document dropped every listener. It
+// is installed only for the duration of driveElementTimeline; sibling
+// journeys in the same process (worker messages) keep the real engine.
+let activeEngineRecord = null;
+let activeEnginePhase = "";
+const engineCall = (method, answer) => () => {
+  if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
+  return answer;
+};
+const driveEngineStub = {
+  enhance: engineCall("enhance", 0),
+  enhanceProgressively: engineCall("enhanceProgressively"),
+  enhanceAll: engineCall("enhanceAll", 0),
+  destroy: engineCall("destroy"),
+  detach: engineCall("detach"),
+  relayout: engineCall("relayout"),
+  refresh: engineCall("refresh"),
+  cancelLayoutWork: engineCall("cancelLayoutWork"),
+  probeContentDrift: engineCall("probeContentDrift", "null"),
+  reconcileContent: engineCall("reconcileContent", "null"),
+  workerLayoutRequest: engineCall("workerLayoutRequest", null),
+};
 
 export const FRAME_STEP_MS = 16;
 
@@ -302,6 +329,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   const world = buildWorld();
   const { root, paragraph } = buildSnapshot(world);
   const record = {
+    engineCalls: [],
     elementEvents: [],
     documentEvents: [],
     datasetWrites: [],
@@ -312,6 +340,9 @@ export async function driveElementTimeline(clock, journeyKey) {
     paragraphStates: {},
   };
   let currentPhase = "s1-adopt";
+  setEngineOverride(driveEngineStub);
+  activeEngineRecord = record.engineCalls;
+  activeEnginePhase = currentPhase;
 
   class FakeHostElement extends FakeElement {
     constructor() { super("tiqian-prose"); }
@@ -506,7 +537,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   record.paragraphStates.s1 = paragraphState();
 
   // ---- S2: width shrink to 340, RO delivery, commit lane ----
-  currentPhase = "s2-resize";
+  currentPhase = activeEnginePhase = "s2-resize";
   element.width = 340;
   paragraph.width = 340;
   const observer = widthObserver();
@@ -520,7 +551,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   record.paragraphStates.s2 = paragraphState();
 
   // ---- S3: width 320, freeze the clock, disconnect ----
-  currentPhase = "s3-midflight-disconnect";
+  currentPhase = activeEnginePhase = "s3-midflight-disconnect";
   element.width = 320;
   paragraph.width = 320;
   const observer3 = widthObserver();
@@ -538,7 +569,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   record.paragraphStates.s3 = paragraphState();
 
   // ---- S4: reconnect at max width ----
-  currentPhase = "s4-reconnect";
+  currentPhase = activeEnginePhase = "s4-reconnect";
   element.width = 360;
   paragraph.width = 360;
   element.isConnected = true;
@@ -561,6 +592,8 @@ export async function driveElementTimeline(clock, journeyKey) {
   }));
 
   record.fetchCalls = world.fetchCalls;
+  activeEngineRecord = null;
+  setEngineOverride(null);
 
   return record;
 }

@@ -86,10 +86,14 @@ function firstDifferencePath(expected, actual, prefix = "$") {
 function projectEventDispatch(full) {
   // frameAdvanceCounts is intentionally excluded: the pump frame counts ride
   // the same lazy-import I/O interleaving (see timing-golden-host.mjs), so
-  // this journey freezes dispatch order and detail structure only.
+  // this journey freezes dispatch order and detail structure only. The
+  // engineCalls stream is the successor observable of the retired internal
+  // document events (ADR 0053 C1): the drive substitutes a recording engine
+  // stub, and each host-to-engine call lands here in phase order.
   return {
     elementEvents: full.elementEvents,
     documentEvents: full.documentEvents,
+    engineCalls: full.engineCalls,
   };
 }
 
@@ -109,6 +113,8 @@ function deriveTransitions(full) {
   const has = (phase, type) => elementEventsIn(phase).some((e) => e.type === type);
   const docHas = (phase, type) =>
     full.documentEvents.some((e) => e.phase === phase && e.type === type);
+  const engineHas = (phase, method) =>
+    full.engineCalls.some((call) => call.phase === phase && call.method === method);
   const dsHas = (phase, key) =>
     full.datasetWrites.some((w) => w.phase === phase && w.key === key);
   const adopted = (phase) => full.paragraphStates[phase]?.firstChildNodeType === 1;
@@ -132,9 +138,9 @@ function deriveTransitions(full) {
           ? "relayout-event-dispatched"
           : "relayout-event-suppressed",
         restored("s2") ? "paragraph-restored" : "paragraph-not-restored",
-        docHas("s2-resize", "tiqian:enhance-progressively")
-          ? "enhance-progressively-dispatched"
-          : "enhance-progressively-missing",
+        engineHas("s2-resize", "enhanceProgressively")
+          ? "enhance-progressively-engine-called"
+          : "enhance-progressively-engine-missing",
         dsHas("s2-resize", "tiqianExactFontMiss")
           ? "exact-font-miss-recorded"
           : "exact-font-miss-missing",
@@ -144,9 +150,9 @@ function deriveTransitions(full) {
       phase: "s3-midflight-disconnect",
       trigger: "midflight-disconnect",
       verdicts: [
-        docHas("s3-midflight-disconnect", "tiqian:detach")
-          ? "detach-dispatched"
-          : "detach-missing",
+        engineHas("s3-midflight-disconnect", "detach")
+          ? "detach-engine-called"
+          : "detach-engine-missing",
         elementEventsIn("s3-midflight-disconnect").length === 0
           ? "element-events-suppressed"
           : "element-events-present",
@@ -156,7 +162,7 @@ function deriveTransitions(full) {
       phase: "s4-reconnect",
       trigger: "reconnect",
       verdicts: [
-        docHas("s4-reconnect", "tiqian:destroy") ? "destroy-dispatched" : "destroy-missing",
+        engineHas("s4-reconnect", "destroy") ? "destroy-engine-called" : "destroy-engine-missing",
         has("s4-reconnect", "tiqian:ready") ? "ready-dispatched" : "ready-missing",
         adopted("s4") ? "paragraph-adopted" : "paragraph-not-adopted",
       ],

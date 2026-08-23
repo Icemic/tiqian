@@ -436,18 +436,19 @@
           }
         }
       ],
-      "documentEvents": [
+      "documentEvents": [],
+      "engineCalls": [
         {
           "phase": "s2-resize",
-          "type": "tiqian:enhance-progressively"
+          "method": "enhanceProgressively"
         },
         {
           "phase": "s3-midflight-disconnect",
-          "type": "tiqian:detach"
+          "method": "detach"
         },
         {
           "phase": "s4-reconnect",
-          "type": "tiqian:destroy"
+          "method": "destroy"
         }
       ]
     },
@@ -957,7 +958,7 @@
           "verdicts": [
             "relayout-event-suppressed",
             "paragraph-restored",
-            "enhance-progressively-dispatched",
+            "enhance-progressively-engine-called",
             "exact-font-miss-recorded"
           ]
         },
@@ -965,7 +966,7 @@
           "phase": "s3-midflight-disconnect",
           "trigger": "midflight-disconnect",
           "verdicts": [
-            "detach-dispatched",
+            "detach-engine-called",
             "element-events-suppressed"
           ]
         },
@@ -973,7 +974,7 @@
           "phase": "s4-reconnect",
           "trigger": "reconnect",
           "verdicts": [
-            "destroy-dispatched",
+            "destroy-engine-called",
             "ready-dispatched",
             "paragraph-adopted"
           ]

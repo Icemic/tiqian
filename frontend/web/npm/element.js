@@ -573,7 +573,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#layoutWorkerAttached) {
       // tiqian:detach already cancelled the job, so workerDetach has no
       // in-flight work to finish on this disconnected root.
-      engineFace.tiqianBridge()?.workerDetach?.(this);
+      engineFace.workerRuntime()?.workerDetach?.(this);
       this.#layoutWorkerAttached = false;
     }
     this.#releaseExactFontSession();
@@ -880,7 +880,7 @@ class TiqianProseElement extends HTMLElementBase {
     // coordinated from the start and every slice comes from a grant. The
     // dispatch task runs inside the coordinator frame, so the first polled
     // grant lands in the same frame under the shared budget.
-    const runtime = engineFace.tiqianBridge();
+    const runtime = engineFace.workerRuntime();
     if (typeof runtime?.workerAttach !== "function") return;
     runtime.workerAttach(this);
     this.#layoutWorkerAttached = true;
@@ -888,7 +888,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #syncLayoutWorker() {
-    const runtime = engineFace.tiqianBridge();
+    const runtime = engineFace.workerRuntime();
     if (!this.#layoutWorkerAttached || typeof runtime?.workerHasJob !== "function") return;
     coordinator.setWorkerActive(this, runtime.workerHasJob(this));
     this.#observeParagraphTiers(runtime);
@@ -908,7 +908,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (!this.#paragraphObserver && typeof IntersectionObserver === "undefined") return;
     this.#paragraphObserver ??= new IntersectionObserver((entries) => {
-      const live = engineFace.tiqianBridge();
+      const live = engineFace.workerRuntime();
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const info = this.#paragraphTierIndex.get(entry.target);

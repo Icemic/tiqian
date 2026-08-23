@@ -3,18 +3,53 @@
 // below is resolved relative to the root from this subdirectory.
 import { tiqianBridge } from "../face.js";
 let runtimePromise;
+let runtimeModule;
+
+function resolveExport(name) {
+  // Kotlin IR object singletons sit behind getInstance(); the UMD branch
+  // exposes them as globalThis.web. Bundler imports carry them on the
+  // module namespace directly.
+  const facade = runtimeModule?.[name] ??
+    runtimeModule?.default?.[name] ??
+    globalThis.web?.[name];
+  return facade?.getInstance?.() ?? facade ?? null;
+}
+
+let engineInstance;
+let workerInstance;
+let engineOverride;
+
+// Hosts that run the element layer against their own engine implementation
+// (the timing-golden drive substitutes a recording stub) install it here.
+// The override wins over every resolved runtime export.
+export function setEngineOverride(engine) {
+  engineOverride = engine ?? null;
+}
+
+// Direct engine call face (ADR 0053 C1): the TiqianEngine JsExport facade
+// replaces the document-level event channel for host-to-engine calls. Both
+// accessors answer null until the runtime exports resolve, so callers keep
+// their bridge or event fallbacks in the meantime.
+export function engineApi() {
+  if (engineOverride) return engineOverride;
+  engineInstance ??= resolveExport("TiqianEngine");
+  return engineInstance;
+}
+
+export function workerApi() {
+  workerInstance ??= resolveExport("TiqianWebWorkers");
+  return workerInstance;
+}
 
 export function loadTiqianRuntime() {
   runtimePromise ??= import("../../../runtime/tiqian-web.js").then((module) => {
+    runtimeModule = module;
     // WorkerPolledScheduling: the runtime exports its polled worker facade
     // (an IR object singleton behind getInstance; the UMD branch exposes it
     // as globalThis.web). Mount the methods on the existing TiqianWeb bridge
     // so the coordinator grants slices by passing one plain controller
     // object per grant; no live coordinator state crosses the boundary.
-    const facade = module.TiqianWebWorkers ??
-      module.default?.TiqianWebWorkers ??
-      globalThis.web?.TiqianWebWorkers;
-    const workers = facade?.getInstance?.();
+    const workers = workerApi();
     const bridge = tiqianBridge();
     if (workers && bridge) {
       bridge.workerAttach = workers.attach.bind(workers);
@@ -38,5 +73,5 @@ export function currentTiqianRuntime() {
 
 export async function withTiqianRuntime(action) {
   await loadTiqianRuntime();
-  return action(tiqianBridge());
+  return action(engineApi() ?? tiqianBridge());
 }
