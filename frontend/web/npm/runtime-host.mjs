@@ -113,10 +113,121 @@ export class FakeSelection {
   }
 }
 
+function splitSelectorList(selector) {
+  const parts = [];
+  let curr = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote = null;
+  for (let i = 0; i < selector.length; i++) {
+    const ch = selector[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      curr += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      curr += ch;
+    } else if (ch === "(") {
+      parenDepth++;
+      curr += ch;
+    } else if (ch === ")") {
+      if (parenDepth > 0) parenDepth--;
+      curr += ch;
+    } else if (ch === "[") {
+      bracketDepth++;
+      curr += ch;
+    } else if (ch === "]") {
+      if (bracketDepth > 0) bracketDepth--;
+      curr += ch;
+    } else if (ch === "," && parenDepth === 0 && bracketDepth === 0) {
+      if (curr.trim()) parts.push(curr.trim());
+      curr = "";
+    } else {
+      curr += ch;
+    }
+  }
+  if (curr.trim()) parts.push(curr.trim());
+  return parts;
+}
+
+function splitByWhitespace(selector) {
+  const parts = [];
+  let curr = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote = null;
+  for (let i = 0; i < selector.length; i++) {
+    const ch = selector[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      curr += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      curr += ch;
+    } else if (ch === "(") {
+      parenDepth++;
+      curr += ch;
+    } else if (ch === ")") {
+      if (parenDepth > 0) parenDepth--;
+      curr += ch;
+    } else if (ch === "[") {
+      bracketDepth++;
+      curr += ch;
+    } else if (ch === "]") {
+      if (bracketDepth > 0) bracketDepth--;
+      curr += ch;
+    } else if (/\s/.test(ch) && parenDepth === 0 && bracketDepth === 0) {
+      if (curr) parts.push(curr);
+      curr = "";
+    } else {
+      curr += ch;
+    }
+  }
+  if (curr) parts.push(curr);
+  return parts;
+}
+
+function splitByCombinator(selector, combinator) {
+  const parts = [];
+  let curr = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote = null;
+  for (let i = 0; i < selector.length; i++) {
+    const ch = selector[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      curr += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      curr += ch;
+    } else if (ch === "(") {
+      parenDepth++;
+      curr += ch;
+    } else if (ch === ")") {
+      if (parenDepth > 0) parenDepth--;
+      curr += ch;
+    } else if (ch === "[") {
+      bracketDepth++;
+      curr += ch;
+    } else if (ch === "]") {
+      if (bracketDepth > 0) bracketDepth--;
+      curr += ch;
+    } else if (ch === combinator && parenDepth === 0 && bracketDepth === 0) {
+      if (curr.trim()) parts.push(curr.trim());
+      curr = "";
+    } else {
+      curr += ch;
+    }
+  }
+  if (curr.trim()) parts.push(curr.trim());
+  return parts;
+}
+
 function matchesHostSelector(element, selector, scopeElement = null) {
   if (!element || element.nodeType !== 1) return false;
   if (selector === "*") return true;
-  const parts = selector.split(",").map((s) => s.trim());
+  const parts = splitSelectorList(selector);
   if (parts.length > 1) {
     return parts.some((p) => matchesHostSelector(element, p, scopeElement));
   }
@@ -126,22 +237,24 @@ function matchesHostSelector(element, selector, scopeElement = null) {
   }
 
   if (selector.includes(">")) {
-    const segments = selector.split(">").map((s) => s.trim());
-    let curr = element;
-    for (let i = segments.length - 1; i >= 0; i--) {
-      if (!curr || curr.nodeType !== 1) return false;
-      const seg = segments[i];
-      if (seg === ":scope") {
-        if (curr !== scopeElement) return false;
-      } else if (!matchesCompound(curr, seg)) {
-        return false;
+    const segments = splitByCombinator(selector, ">");
+    if (segments.length > 1) {
+      let curr = element;
+      for (let i = segments.length - 1; i >= 0; i--) {
+        if (!curr || curr.nodeType !== 1) return false;
+        const seg = segments[i];
+        if (seg === ":scope") {
+          if (curr !== scopeElement) return false;
+        } else if (!matchesCompound(curr, seg)) {
+          return false;
+        }
+        curr = curr.parentElement;
       }
-      curr = curr.parentElement;
+      return true;
     }
-    return true;
   }
 
-  const spaceTokens = selector.split(/\s+/).filter(Boolean);
+  const spaceTokens = splitByWhitespace(selector);
   if (spaceTokens.length > 1) {
     const targetSelector = spaceTokens[spaceTokens.length - 1];
     if (!matchesCompound(element, targetSelector)) return false;
@@ -168,32 +281,56 @@ function matchesCompound(element, selector) {
 
   if (selector.startsWith(":is(") && selector.endsWith(")")) {
     const inside = selector.slice(4, -1);
-    const subSelectors = inside.split(",").map((s) => s.trim());
+    const subSelectors = splitSelectorList(inside);
     return subSelectors.some((sub) => matchesHostSelector(element, sub));
   }
 
-  if (selector.includes(":not(")) {
-    const match = /(.*?):not\((.*?)\)(.*)/.exec(selector);
-    if (match) {
-      const [, before, negated, after] = match;
-      const rest = (before + after).trim();
-      if (matchesHostSelector(element, negated)) return false;
-      if (rest && rest !== "*") {
-        return matchesCompound(element, rest);
-      }
-      return true;
-    }
-  }
-
-  let s = selector;
+  let s = selector.trim();
   const tagMatch = /^([a-zA-Z0-9_-]+)/.exec(s);
   if (tagMatch) {
     if (element.tagName !== tagMatch[1].toUpperCase()) return false;
     s = s.slice(tagMatch[0].length);
+  } else if (s.startsWith("*")) {
+    s = s.slice(1);
   }
 
   while (s.length > 0) {
-    if (s.startsWith("#")) {
+    if (s.startsWith(":not(")) {
+      let depth = 0;
+      let endIdx = -1;
+      for (let i = 4; i < s.length; i++) {
+        if (s[i] === "(") depth++;
+        else if (s[i] === ")") {
+          depth--;
+          if (depth === 0) {
+            endIdx = i;
+            break;
+          }
+        }
+      }
+      if (endIdx < 0) return false;
+      const negated = s.slice(5, endIdx).trim();
+      if (matchesHostSelector(element, negated)) return false;
+      s = s.slice(endIdx + 1);
+    } else if (s.startsWith(":is(")) {
+      let depth = 0;
+      let endIdx = -1;
+      for (let i = 3; i < s.length; i++) {
+        if (s[i] === "(") depth++;
+        else if (s[i] === ")") {
+          depth--;
+          if (depth === 0) {
+            endIdx = i;
+            break;
+          }
+        }
+      }
+      if (endIdx < 0) return false;
+      const inside = s.slice(4, endIdx).trim();
+      const subSelectors = splitSelectorList(inside);
+      if (!subSelectors.some((sub) => matchesHostSelector(element, sub))) return false;
+      s = s.slice(endIdx + 1);
+    } else if (s.startsWith("#")) {
       const idMatch = /^#([a-zA-Z0-9_-]+)/.exec(s);
       if (!idMatch) return false;
       if (element.getAttribute("id") !== idMatch[1]) return false;
@@ -228,6 +365,32 @@ function matchesCompound(element, selector) {
   return true;
 }
 
+function parseStyleDeclarations(text, map, priorities) {
+  map.clear();
+  priorities.clear();
+  if (!text) return;
+  const cleaned = String(text).replace(/\/\*[\s\S]*?\*\//g, "");
+  const decls = cleaned.split(";");
+  for (const decl of decls) {
+    const idx = decl.indexOf(":");
+    if (idx > 0) {
+      const k = decl.slice(0, idx).trim().toLowerCase();
+      let v = decl.slice(idx + 1).trim();
+      if (!k || !v) continue;
+      let priority = "";
+      const importantMatch = /\s*!\s*important\s*$/i.exec(v);
+      if (importantMatch) {
+        priority = "important";
+        v = v.slice(0, importantMatch.index).trim();
+      }
+      map.set(k, v);
+      if (priority) {
+        priorities.set(k, priority);
+      }
+    }
+  }
+}
+
 function createStyleObject(element) {
   const map = new Map();
   const priorities = new Map();
@@ -235,34 +398,65 @@ function createStyleObject(element) {
     get(target, prop) {
       if (prop === "setProperty") {
         return (name, value, priority = "") => {
+          const kebab = String(name).trim().toLowerCase();
           if (value == null || value === "") {
-            map.delete(name);
-            priorities.delete(name);
+            map.delete(kebab);
+            priorities.delete(kebab);
           } else {
-            map.set(name, String(value));
-            if (priority) priorities.set(name, priority);
-            else priorities.delete(name);
+            map.set(kebab, String(value));
+            if (priority && String(priority).toLowerCase() === "important") {
+              priorities.set(kebab, "important");
+            } else if (priority) {
+              priorities.set(kebab, String(priority));
+            } else {
+              priorities.delete(kebab);
+            }
           }
           updateStyleAttr();
         };
       }
       if (prop === "getPropertyValue") {
-        return (name) => map.get(name) ?? "";
+        return (name) => {
+          const kebab = String(name).trim().toLowerCase();
+          return map.get(kebab) ?? "";
+        };
       }
       if (prop === "getPropertyPriority") {
-        return (name) => priorities.get(name) ?? "";
+        return (name) => {
+          const kebab = String(name).trim().toLowerCase();
+          return priorities.get(kebab) ?? "";
+        };
       }
       if (prop === "removeProperty") {
         return (name) => {
-          const old = map.get(name) ?? "";
-          map.delete(name);
-          priorities.delete(name);
+          const kebab = String(name).trim().toLowerCase();
+          const old = map.get(kebab) ?? "";
+          map.delete(kebab);
+          priorities.delete(kebab);
           updateStyleAttr();
           return old;
         };
       }
+      if (prop === "length") {
+        return map.size;
+      }
+      if (prop === "item") {
+        return (index) => Array.from(map.keys())[index] ?? "";
+      }
       if (prop === "cssText") {
-        return Array.from(map.entries()).map(([k, v]) => `${k}: ${v}`).join("; ");
+        return Array.from(map.entries()).map(([k, v]) => {
+          const prio = priorities.get(k);
+          return prio ? `${k}: ${v} !${prio}` : `${k}: ${v}`;
+        }).join("; ");
+      }
+      if (typeof prop === "symbol" && prop === Symbol.iterator) {
+        return function* () {
+          yield* map.keys();
+        };
+      }
+      if (typeof prop === "string" && /^\d+$/.test(prop)) {
+        const idx = Number(prop);
+        return Array.from(map.keys())[idx] ?? undefined;
       }
       if (typeof prop === "string") {
         const kebab = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
@@ -272,18 +466,8 @@ function createStyleObject(element) {
     },
     set(target, prop, value) {
       if (prop === "cssText") {
-        map.clear();
-        if (value) {
-          const decls = String(value).split(";");
-          for (const decl of decls) {
-            const idx = decl.indexOf(":");
-            if (idx > 0) {
-              const k = decl.slice(0, idx).trim();
-              const v = decl.slice(idx + 1).trim();
-              if (k) map.set(k, v);
-            }
-          }
-        }
+        parseStyleDeclarations(value, map, priorities);
+        updateStyleAttr();
         return true;
       }
       if (typeof prop === "string") {
@@ -291,6 +475,8 @@ function createStyleObject(element) {
         if (value == null || value === "") {
           map.delete(kebab);
           map.delete(prop);
+          priorities.delete(kebab);
+          priorities.delete(prop);
         } else {
           map.set(kebab, String(value));
         }
@@ -312,7 +498,10 @@ function createStyleObject(element) {
     if (map.size === 0) {
       element.attributes.delete("style");
     } else {
-      const text = Array.from(map.entries()).map(([k, v]) => `${k}: ${v}`).join("; ");
+      const text = Array.from(map.entries()).map(([k, v]) => {
+        const prio = priorities.get(k);
+        return prio ? `${k}: ${v} !${prio}` : `${k}: ${v}`;
+      }).join("; ");
       element.attributes.set("style", text);
     }
   }
@@ -931,6 +1120,18 @@ export function parseHtmlFragment(html, doc = globalThis.document) {
   return root;
 }
 
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== "string") return str;
+  return str
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(Number(num)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 function parseHtmlNodes(html, doc = globalThis.document) {
   const tagRegex = /<\/?([a-zA-Z0-9-]+)((?:\s+[a-zA-Z0-9_-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|([^<]+)/gs;
   const attrRegex = /([a-zA-Z0-9_-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
@@ -965,7 +1166,7 @@ function parseHtmlNodes(html, doc = globalThis.document) {
         let attrMatch;
         while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
           const attrName = attrMatch[1];
-          const attrVal = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "";
+          const attrVal = decodeHtmlEntities(attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "");
           el.setAttribute(attrName, attrVal);
           if (attrName === "style") {
             el.style.cssText = attrVal;
@@ -1191,6 +1392,28 @@ FakeNode.prototype.contains = function (other) {
   return false;
 };
 
+FakeNode.prototype.querySelectorAll = function (selector) {
+  const result = [];
+  const visit = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 1 && matchesHostSelector(child, selector, this)) {
+        result.push(child);
+      }
+      visit(child);
+    }
+  };
+  visit(this);
+  return result;
+};
+
+FakeNode.prototype.querySelector = function (selector) {
+  return this.querySelectorAll(selector)[0] ?? null;
+};
+
+FakeNode.prototype.matches = function (selector) {
+  return matchesHostSelector(this, selector);
+};
+
 export class HostNode extends FakeNode {
   contains(other) {
     for (let node = other; node; node = node.parentNode) {
@@ -1366,7 +1589,25 @@ export class FakeRange {
     this.startContainer = node;
     this.startOffset = 0;
     this.endContainer = node;
-    this.endOffset = (node?.data ?? node?.value ?? node?.textContent ?? "").length;
+    if (node?.nodeType === 1) {
+      this.endOffset = node.childNodes.length;
+    } else {
+      this.endOffset = (node?.data ?? node?.value ?? node?.textContent ?? "").length;
+    }
+  }
+
+  selectNode(node) {
+    const parent = node?.parentNode ?? node?.parentElement ?? null;
+    this.startContainer = parent;
+    this.endContainer = parent;
+    if (parent) {
+      const idx = parent.childNodes.indexOf(node);
+      this.startOffset = idx >= 0 ? idx : 0;
+      this.endOffset = idx >= 0 ? idx + 1 : 0;
+    } else {
+      this.startOffset = 0;
+      this.endOffset = 0;
+    }
   }
 
   get commonAncestorContainer() {
@@ -1385,7 +1626,8 @@ export class FakeRange {
     if (!this.startContainer) return fragment;
     if (this.startContainer === this.endContainer) {
       if (this.startContainer.nodeType === 1) {
-        for (const child of this.startContainer.childNodes) {
+        const slice = this.startContainer.childNodes.slice(this.startOffset, this.endOffset);
+        for (const child of slice) {
           fragment.appendChild(child.cloneNode(true));
         }
       } else if (this.startContainer.nodeType === 3) {
@@ -1402,11 +1644,19 @@ export class FakeRange {
 
   toString() {
     if (!this.startContainer) return "";
-    if (this.startContainer.nodeType === 3) {
-      const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
-      const start = this.startOffset ?? 0;
-      const end = this.endOffset ?? full.length;
-      return full.slice(start, end);
+    if (this.startContainer === this.endContainer) {
+      if (this.startContainer.nodeType === 3) {
+        const full = this.startContainer.data ?? this.startContainer.value ?? this.startContainer.textContent ?? "";
+        const start = this.startOffset ?? 0;
+        const end = this.endOffset ?? full.length;
+        return full.slice(start, end);
+      }
+      if (this.startContainer.nodeType === 1) {
+        return this.startContainer.childNodes
+          .slice(this.startOffset, this.endOffset)
+          .map((n) => n.textContent ?? "")
+          .join("");
+      }
     }
     return this.startContainer.textContent ?? "";
   }
@@ -2039,6 +2289,67 @@ export function copySelection(element) {
   const text = clipboardData.getData("text/plain") || selection.toString();
   selection.removeAllRanges();
   return text;
+}
+
+export function copiedData(element, type) {
+  const selection = globalThis.getSelection();
+  const range = globalThis.document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const clipboardData = new globalThis.DataTransfer();
+  element.dispatchEvent(
+    new globalThis.ClipboardEvent("copy", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData,
+    }),
+  );
+  const value = clipboardData.getData(type);
+  selection.removeAllRanges();
+  return value;
+}
+
+export function copiedNodeData(node, type) {
+  const selection = globalThis.getSelection();
+  const range = globalThis.document.createRange();
+  range.selectNode(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const clipboardData = new globalThis.DataTransfer();
+  node.parentElement.dispatchEvent(
+    new globalThis.ClipboardEvent("copy", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData,
+    }),
+  );
+  const value = clipboardData.getData(type);
+  selection.removeAllRanges();
+  return value;
+}
+
+export function copyWasIntercepted(element) {
+  const selection = globalThis.getSelection();
+  const range = globalThis.document.createRange();
+  range.selectNodeContents(element);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const event = new globalThis.ClipboardEvent("copy", {
+    bubbles: true,
+    cancelable: true,
+    clipboardData: new globalThis.DataTransfer(),
+  });
+  element.dispatchEvent(event);
+  selection.removeAllRanges();
+  return event.defaultPrevented;
+}
+
+export const copySelectionWasIntercepted = copyWasIntercepted;
+
+export function clearSelection() {
+  const selection = globalThis.getSelection();
+  if (selection) selection.removeAllRanges();
 }
 
 const mounted = [];
