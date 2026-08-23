@@ -389,7 +389,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   golden 仅加 `lane` 字段与 trace 末列（39 行插入），event-dispatch、
   token-transitions、dataset-first-writes、cache-invalidation 四条 journey 零
   diff；grep MAIN_SLICE_BUDGET_MS、yieldMainIfNeeded、standaloneGrantAdmission、
-  两个上限常量均 0 命中。
+  两个上限常量均 0 命中。demo/web 的 scroll-adaptive-quota 由失败转为通过
+  （滚动驱动增强期间最大事件循环延迟 257.40ms 降到 4.10ms，覆盖 36/36）。
 - [ ] **C3 worker-layout 准备循环并入**：pending/plans 进协调器任务池，准备循环
   删除。KPI：主线程调度循环 3 收敛为 1。验收：npm test；jsBrowserTest。
 
