@@ -401,6 +401,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   1，两个既有读者（prepared-dom.js、tiqian-precompute plan.rs）按字段名读取、
   容忍未知字段，无需改动。`:layout:jvmTest`（含 LayoutDumpGoldenTest 零 diff）与
   `:frontend:web:jsBrowserTest` 通过。B7.2 起改 prepared-dom.js 读取这些字段。
+  产出（B7.2，2026-08-23）：ebb65df。prepared-dom.js 读取 B7.1 的证据字段：dash 属性
+  （strategy/advance/font-family/face/glyph-ids/evidence 与 lang）、标点 ink-floor 与
+  body-width、样式增量（font-size/weight/style 带 important）、latin 在着重范围内补
+  italic、行内对象占位 span（data-tq-inline-object="pending" 加 object-range）、
+  ruby/bopomofo 注文 span、SVG 行间线与着重圆点；断 run 与合并键扩展（dash run 不合并、
+  样式与标点签名、italic、证据字体）。行构造改为按 children 有序遍历，行内对象与注音
+  边界先冲刷 pending run；流宽校验改按 children 求和，bopomofo 占用 base 的松量
+  （非末字 max(布局尾隙,0)，末字 max(advance−naturalWidth−行内边,0)，有注音时 base
+  尾隙归零）。plan.inlineEdges 非空时优于 options.inlineBoxes。ruby ascent 无画布取
+  fontSize×0.8 的降级值，B7.4 重估是否入 plan。为守 1000 行约束拆出
+  prepared-dom-markup.js（8 个字符串标记构件，纯移动）与 prepared-dom-evidence.js
+  （注音、占位与覆盖层构件）。验证：npm test 349/349（新增 10 条，含无证据精简输出、
+  dash 属性、标点属性与断 run、样式增量、latin 着重 italic 正反例、占位流宽、ruby
+  比例 ascent、bopomofo 松量与声调字号公式、覆盖层、inlineEdges 优先级）；
+  `:frontend:web:jsBrowserTest` 通过。
 - [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
