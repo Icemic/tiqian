@@ -5,10 +5,12 @@
 // element. Kinds: geometry, typography, content.
 
 import { DEFAULT_PARAGRAPH_SELECTOR, fragmentedBorderBoxInlineSize } from "./signatures.js";
+import { onDeclaredFacesChanged } from "./snapshot/declared-faces.js";
 
 export function createTypographyInvalidationSource(root, handlers) {
   let observer = null;
   let fontListener = null;
+  let declaredUnsubscribe = null;
 
   return {
     kind: "typography",
@@ -33,6 +35,14 @@ export function createTypographyInvalidationSource(root, handlers) {
         document.fonts.addEventListener("loadingdone", fontListener);
         document.fonts.addEventListener("loadingerror", fontListener);
       }
+      // DeclaredFaceEvidence (ADR 0053): registry changes wake the root the
+      // way a font loading event does. The wake only schedules a check; it
+      // never validates inline. The declaration is module-level state shared
+      // by every root, so each active root subscribes its own wake and
+      // unsubscribes on stop.
+      if (handlers.onDeclaredFacesChanged && !declaredUnsubscribe) {
+        declaredUnsubscribe = onDeclaredFacesChanged(handlers.onDeclaredFacesChanged);
+      }
     },
     stop() {
       observer?.disconnect();
@@ -41,6 +51,10 @@ export function createTypographyInvalidationSource(root, handlers) {
         document.fonts?.removeEventListener("loadingdone", fontListener);
         document.fonts?.removeEventListener("loadingerror", fontListener);
         fontListener = null;
+      }
+      if (declaredUnsubscribe) {
+        declaredUnsubscribe();
+        declaredUnsubscribe = null;
       }
     },
   };

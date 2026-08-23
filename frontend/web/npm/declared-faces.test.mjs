@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createTypographyInvalidationSource } from "./core/sampler/observers.js";
 import {
   declaredFaceSheets,
   declaredFacesDiagnostics,
@@ -236,4 +237,65 @@ test("declaredFaces_changeNotifications", (t) => {
   );
   assert.equal(count, 2, "Listener should not receive notification after unsubscribe");
   unregister2();
+});
+
+test("typographySource subscribes declared wakes and stops cleanly", (t) => {
+  const globals = ["MutationObserver", "document"].map((name) => ({
+    name,
+    own: Object.prototype.hasOwnProperty.call(globalThis, name),
+    value: globalThis[name],
+  }));
+  const fontListeners = new Map();
+  class FakeMutationObserver {
+    observe() {}
+    disconnect() {}
+  }
+  const fakeDocument = {
+    fonts: {
+      addEventListener(name, listener) {
+        fontListeners.set(name, listener);
+      },
+      removeEventListener(name, listener) {
+        if (fontListeners.get(name) === listener) fontListeners.delete(name);
+      },
+    },
+  };
+  globalThis.MutationObserver = FakeMutationObserver;
+  globalThis.document = fakeDocument;
+  t.after(() => {
+    for (const entry of globals) {
+      if (entry.own) globalThis[entry.name] = entry.value;
+      else delete globalThis[entry.name];
+    }
+  });
+
+  const wakes = [];
+  const root = { parentElement: null };
+  const source = createTypographyInvalidationSource(root, {
+    onMutation: () => {},
+    onFontEvent: () => {},
+    onDeclaredFacesChanged: () => wakes.push(1),
+  });
+
+  source.start();
+  assert.equal(fontListeners.has("loadingdone"), true);
+  assert.equal(wakes.length, 0);
+
+  const unregister = declareTiqianFontFaces(
+    "@font-face { font-family: WakeFont; src: url('wake.woff2'); }",
+    { baseUrl: "https://wake.test/fonts.css" },
+  );
+  assert.equal(wakes.length, 1, "registration wakes the root synchronously");
+
+  unregister();
+  assert.equal(wakes.length, 2, "unregistration wakes the root too");
+
+  source.stop();
+  const unregisterAfterStop = declareTiqianFontFaces(
+    "@font-face { font-family: WakeFont2; src: url('wake2.woff2'); }",
+    { baseUrl: "https://wake.test/2.css" },
+  );
+  assert.equal(wakes.length, 2, "no wake after the source stops");
+  unregisterAfterStop();
+  assert.equal(fontListeners.has("loadingdone"), false);
 });

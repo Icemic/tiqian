@@ -1901,6 +1901,10 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#typographyInvalidation) {
       this.#typographyInvalidation = createTypographyInvalidationSource(this, {
         onMutation: () => this.#scheduleTypographyCheck(),
+        // Declared registry changes carry no FontFaceSetEvent; force past the
+        // typography signature (declared sheets never enter the CSSOM it
+        // reads) so the revalidate cycle re-collects the merged candidates.
+        onDeclaredFacesChanged: () => this.#scheduleTypographyCheck(true),
         onFontEvent: async (event) => {
           const generation = this.#generation;
           const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);

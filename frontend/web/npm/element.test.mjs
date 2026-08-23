@@ -1,20 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
-function preserveGlobals(names) {
-  return names.map((name) => ({
-    name,
-    own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
-  }));
-}
-
-function restoreGlobals(entries) {
-  for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
-  }
-}
+import {
+  preserveGlobals,
+  restoreGlobals,
+  installFakeClock,
+  CLOCK_GLOBALS,
+} from "./test-clock.mjs";
+import {
+  driveDeclaredFaceWakeTimeline,
+  ELEMENT_DRIVE_GLOBALS,
+} from "./timing-golden-host.mjs";
 
 test("element entry imports without browser globals during SSR", async () => {
   const globals = preserveGlobals(["document", "HTMLElement", "customElements"]);
@@ -265,6 +260,48 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     assert.equal(fontListeners.has("loadingdone"), false);
     assert.equal(fontListeners.has("loadingerror"), false);
     assert.equal(element.dataset.tiqianFontWait, undefined);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("declared face change wakes revalidate and merge per root", async () => {
+  // Real-element drive: the timing-golden host grafts the element onto its
+  // fixture world and settles it through S1, then registers declared faces
+  // while the recording engine stub answers every engine call. The
+  // assertions read the element's own forced-check path end to end: registry
+  // notify, source subscription, scheduleTypographyCheck(true) through rAF
+  // dedup, snapshot invalidation, and the enhance dispatch that follows.
+  // Declared sheets never enter the CSSOM the typography signature reads, so
+  // an unforced check would dedup and produce no engine call at all.
+  const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
+  const clock = installFakeClock();
+  try {
+    const record = await driveDeclaredFaceWakeTimeline(clock, "declared-wake");
+    const wake = record.declaredWake;
+
+    // Two same-frame declarations merge into exactly one revalidate cycle:
+    // one forced check, one snapshot invalidation, one progressive dispatch.
+    // A wake without the rAF dedup would dispatch twice.
+    assert.equal(wake.w1RevalidateCalls, 1,
+      "two same-frame declarations merge into one revalidate cycle");
+    assert.ok((wake.paragraphQueries["w1-declared-merge"] ?? 0) >= 1,
+      "the merged wake reaches a scheduled typography check");
+
+    // After the job the first wake opened completes, the root observes
+    // again; a later declaration forces one fresh refresh cycle: the source
+    // refresh destroys the prior runtime state, then dispatches.
+    assert.equal(wake.w2RevalidateCalls, 2,
+      "a later declaration revalidates again");
+    assert.ok((wake.paragraphQueries["w2-declared-later"] ?? 0) >= 1,
+      "the later wake reaches a scheduled typography check");
+
+    // A disabled element unsubscribed from the declared-face registry: the
+    // declaration produces neither a scheduled check nor an engine call.
+    assert.equal(wake.w3RevalidateCalls, 0,
+      "a disabled element no longer wakes");
+    assert.equal(wake.paragraphQueries["w3-disabled"] ?? 0, 0,
+      "no typography check executes after the element stops observing");
   } finally {
     restoreGlobals(globals);
   }

@@ -1,10 +1,11 @@
 // Fake host and S1-S4 element timeline shared by the element-driven
 // timing-golden journeys (timing-golden.test.mjs, decomposition report
-// section 11). The drive runs the real element.js module against a
-// hand-grafted fake DOM under the shared fake clock (test-clock.mjs) and
-// records the JS-observable anchors: element and document event dispatches,
-// dataset and attribute writes, ResizeObserver lifecycles, fetches, and
-// per-phase paragraph state.
+// section 11) and the declared-face wake drive (element.test.mjs, ADR 0053
+// E2). The drive runs the real element.js module against a hand-grafted
+// fake DOM under the shared fake clock (test-clock.mjs) and records the
+// JS-observable anchors: element and document event dispatches, dataset and
+// attribute writes, ResizeObserver lifecycles, fetches, and per-phase
+// paragraph state.
 //
 // Freeze boundary: frame counts and clock-derived durations are not stable
 // across processes. element.js lazily imports its collaborators, those
@@ -322,7 +323,12 @@ class FakeResizeObserver {
 // S1 connect + initial snapshot adoption, S2 width shrink past the snapshot
 // table's only width, S3 mid-flight disconnect while the adoption chain is
 // suspended, S4 reconnect at the original width.
-export async function driveElementTimeline(clock, journeyKey) {
+// Shared element-drive setup: builds the fake world, grafts the real element
+// onto the fixture root, installs every recorder, warms the lazy imports,
+// and runs the S1 connect through "tiqian:ready". The timing-golden S1-S4
+// journey and the declared-face wake drive both start from this state, so
+// recorder semantics and the pump stay identical between them.
+async function startElementDrive(clock, journeyKey) {
   nextObserverId = 0;
   observerInstances.length = 0;
 
@@ -536,8 +542,33 @@ export async function driveElementTimeline(clock, journeyKey) {
   );
   record.paragraphStates.s1 = paragraphState();
 
+  const setPhase = (phase) => {
+    currentPhase = phase;
+    activeEnginePhase = phase;
+  };
+
+  return {
+    world,
+    record,
+    element,
+    paragraph,
+    setPhase,
+    pumpUntil,
+    pumpQuiescent,
+    widthObserver,
+    paragraphState,
+  };
+}
+
+export async function driveElementTimeline(clock, journeyKey) {
+  const drive = await startElementDrive(clock, journeyKey);
+  const {
+    record, element, paragraph, setPhase,
+    pumpUntil, pumpQuiescent, widthObserver, paragraphState,
+  } = drive;
+
   // ---- S2: width shrink to 340, RO delivery, commit lane ----
-  currentPhase = activeEnginePhase = "s2-resize";
+  setPhase("s2-resize");
   element.width = 340;
   paragraph.width = 340;
   const observer = widthObserver();
@@ -551,7 +582,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   record.paragraphStates.s2 = paragraphState();
 
   // ---- S3: width 320, freeze the clock, disconnect ----
-  currentPhase = activeEnginePhase = "s3-midflight-disconnect";
+  setPhase("s3-midflight-disconnect");
   element.width = 320;
   paragraph.width = 320;
   const observer3 = widthObserver();
@@ -569,7 +600,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   record.paragraphStates.s3 = paragraphState();
 
   // ---- S4: reconnect at max width ----
-  currentPhase = activeEnginePhase = "s4-reconnect";
+  setPhase("s4-reconnect");
   element.width = 360;
   paragraph.width = 360;
   element.isConnected = true;
@@ -591,7 +622,114 @@ export async function driveElementTimeline(clock, journeyKey) {
     })),
   }));
 
-  record.fetchCalls = world.fetchCalls;
+  record.fetchCalls = drive.world.fetchCalls;
+  activeEngineRecord = null;
+  setEngineOverride(null);
+
+  return record;
+}
+
+// Declared-face wake drive (ADR 0053 E2): the real element settles through
+// S1, then DeclaredFaceEvidence registrations wake it. The engine stub
+// records every revalidate the wakes produce, so the assertions read the
+// element's own forced-check path end to end: registry notify, source
+// subscription, scheduleTypographyCheck(true) through rAF dedup, snapshot
+// invalidation, and the enhance dispatch that follows. Declared sheets
+// never enter the CSSOM the signature reads, so the wake must force past
+// the signature comparison; a wake that only scheduled an unforced check
+// would leave the phase with no engine calls at all.
+export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
+  const drive = await startElementDrive(clock, journeyKey);
+  const { record, element, setPhase, pumpQuiescent } = drive;
+
+  const revalidateCallsIn = (phase) =>
+    record.engineCalls.filter((call) => call.phase === phase);
+
+  // Executed-check observable: every typography-check signature read walks
+  // root "p, li". Counting those queries per phase shows whether a wake
+  // reached a scheduled check even when the refresh decision dedups against
+  // in-flight work and produces no engine call.
+  const paragraphQueriesByPhase = new Map();
+  const realQuerySelectorAll = element.querySelectorAll;
+  let queryPhase = "pre-wake";
+  element.querySelectorAll = (selector) => {
+    if (String(selector).includes("p") && String(selector).includes("li")) {
+      paragraphQueriesByPhase.set(queryPhase, (paragraphQueriesByPhase.get(queryPhase) ?? 0) + 1);
+    }
+    return realQuerySelectorAll.call(element, selector);
+  };
+
+  const { declareTiqianFontFaces } = await import(
+    "./core/sampler/snapshot/declared-faces.js"
+  );
+
+  const setWakePhase = (phase) => {
+    setPhase(phase);
+    queryPhase = phase;
+  };
+
+  // ---- W1: two same-tick declarations merge into one revalidate ----
+  setWakePhase("w1-declared-merge");
+  const unregisterA = declareTiqianFontFaces(
+    "@font-face { font-family: Declared Wake A; src: url('wake-a.woff2'); }",
+    { baseUrl: "https://declared.test/wake-a.css" },
+  );
+  const unregisterB = declareTiqianFontFaces(
+    "@font-face { font-family: Declared Wake B; src: url('wake-b.woff2'); }",
+    { baseUrl: "https://declared.test/wake-b.css" },
+  );
+  record.frameAdvanceCounts.w1 = await pumpQuiescent();
+  record.declaredWake = { w1RevalidateCalls: revalidateCallsIn("w1-declared-merge").length };
+
+  // ---- W2: a later declaration revalidates again ----
+  // The W1 wake opened a layout job; typography observation pauses until the
+  // work finishes. The stub engine never runs the job to completion, so
+  // deliver the completion event the real runtime dispatches on the root.
+  // The ready listener accepts it (#acceptLayoutCompletion was armed by the
+  // W1 dispatch), finishes the layout work and re-observes. W2's declare
+  // then meets an idle, observed root, exactly like a later declaration in
+  // production.
+  setWakePhase("w2-job-complete");
+  element.dispatchEvent(new FakeCustomEvent("tiqian:relayout-ready", {
+    bubbles: true,
+    composed: true,
+    detail: { enhancedCount: 1, issueCount: 0 },
+  }));
+  record.frameAdvanceCounts.w2JobComplete = await pumpQuiescent();
+
+  setWakePhase("w2-declared-later");
+  const unregisterC = declareTiqianFontFaces(
+    "@font-face { font-family: Declared Wake C; src: url('wake-c.woff2'); }",
+    { baseUrl: "https://declared.test/wake-c.css" },
+  );
+  record.frameAdvanceCounts.w2 = await pumpQuiescent();
+  record.declaredWake.w2RevalidateCalls = revalidateCallsIn("w2-declared-later").length;
+
+  // ---- W3: a disabled element unsubscribes and stops waking ----
+  setWakePhase("w3-disabled");
+  element.setAttribute("disabled", "");
+  element.attributeChangedCallback("disabled", null, "");
+  await pumpQuiescent();
+  // Disabling itself reaches the engine (destroy, detach); snapshot the
+  // record length after that settles so only wake-driven calls count.
+  const engineCallsAtStop = record.engineCalls.length;
+  const unregisterD = declareTiqianFontFaces(
+    "@font-face { font-family: Declared Wake D; src: url('wake-d.woff2'); }",
+    { baseUrl: "https://declared.test/wake-d.css" },
+  );
+  record.frameAdvanceCounts.w3 = await pumpQuiescent();
+  record.declaredWake.w3RevalidateCalls = record.engineCalls.length - engineCallsAtStop;
+  record.declaredWake.paragraphQueries = Object.fromEntries(paragraphQueriesByPhase);
+
+  unregisterA();
+  unregisterB();
+  unregisterC();
+  unregisterD();
+  element.isConnected = false;
+  element.disconnectedCallback();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  record.fetchCalls = drive.world.fetchCalls;
   activeEngineRecord = null;
   setEngineOverride(null);
 
