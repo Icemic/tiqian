@@ -15,7 +15,12 @@ import {
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
+  loadExactFontFallback,
 } from "./core/engine/loaders/font-loader.js";
+import {
+  createExactFontSessionEntry,
+  releaseExactFontSession,
+} from "./core/engine/exact-font.js";
 import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
 import { prefetchSnapshotTables } from "./snapshot-tables.js";
 import {
@@ -65,7 +70,6 @@ const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
 const HTMLElementBase = typeof globalThis.HTMLElement === "function"
   ? globalThis.HTMLElement
   : class TiqianSsrElement {};
-let exactFontFallbackPromise;
 installTiqianCopyHandler();
 // Snapshot-table loads start at module evaluation, ahead of the first root
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
@@ -158,23 +162,6 @@ function snapshotCompletionSelector(root) {
     : "";
 }
 
-function loadExactFontFallback() {
-  exactFontFallbackPromise ??= Promise.all([
-    import("./core/measurement/browser-fonts.js"),
-    import("./prepared-dom.js"),
-  ]).then(([fonts, preparedDom]) => {
-    preparedDom.installPreparedDomRendererBridge();
-    return {
-      prepareBrowserFontSession: fonts.prepareBrowserFontSession,
-      revalidateBrowserFontSession: fonts.revalidateBrowserFontSession,
-      prepareBrowserRenderFonts: fonts.prepareBrowserRenderFonts,
-      releaseBrowserFontSession: fonts.releaseBrowserFontSession,
-      installPreparedRenderFontStyle: preparedDom.installPreparedRenderFontStyle,
-      releasePreparedRenderFontStyle: preparedDom.releasePreparedRenderFontStyle,
-    };
-  });
-  return exactFontFallbackPromise;
-}
 const coordinator = new TiqianLayoutCoordinator();
 
 class TiqianProseElement extends HTMLElementBase {
@@ -1015,15 +1002,7 @@ class TiqianProseElement extends HTMLElementBase {
       return null;
     }
     const previous = this.#exactFontSession;
-    const next = {
-      reference,
-      handle,
-      revalidate: loader.revalidateBrowserFontSession,
-      prepareRenderFont: loader.prepareBrowserRenderFonts,
-      release: loader.releaseBrowserFontSession,
-      installRenderFont: loader.installPreparedRenderFontStyle,
-      releaseRenderFont: loader.releasePreparedRenderFontStyle,
-    };
+    const next = createExactFontSessionEntry(reference, handle, loader);
     this.#exactFontSession = next;
     if (previous && previous !== next) previous.release(previous.handle);
     return handle;
@@ -1033,8 +1012,7 @@ class TiqianProseElement extends HTMLElementBase {
     const entry = this.#exactFontSession;
     if (!entry) return false;
     this.#exactFontSession = null;
-    entry.releaseRenderFont(this);
-    return entry.release(entry.handle);
+    return releaseExactFontSession(entry, this);
   }
 
   #exactFontAttemptSignature(reference = this.getAttribute("snapshot-ref")) {

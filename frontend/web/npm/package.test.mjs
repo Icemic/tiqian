@@ -182,11 +182,10 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(runtimeSource, /import\("\.\.\/\.\.\/\.\.\/runtime\/tiqian-web\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
-  assert.match(elementSource, /import\("\.\/core\/measurement\/browser-fonts\.js"\)/u);
-  assert.match(elementSource, /import\("\.\/prepared-dom\.js"\)/u);
+  assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
+  assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/\.\.\/prepared-dom\.js"\)/u);
   assert.match(elementSource, /import\("\.\/worker-layout\.js"\)/u);
-  assert.match(elementSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
-  assert.match(apiSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
+  assert.match(fontLoaderSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/font-shaping\.js"/u);

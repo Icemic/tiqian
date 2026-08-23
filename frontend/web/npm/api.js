@@ -5,34 +5,19 @@ import {
   restoreAdoptedSnapshot,
 } from "./lazy-capabilities.js";
 import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
+import {
+  createExactFontSessionEntry,
+  hasSnapshotLayoutOverride,
+  releaseExactFontSession,
+} from "./core/engine/exact-font.js";
+import { loadExactFontFallback } from "./core/engine/loaders/font-loader.js";
 
 export { loadTiqianRuntime };
 
 const rootGenerations = new WeakMap();
 const rootFontSessions = new WeakMap();
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
-const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
-  "fontSize",
-  "lineHeight",
-  "cjkFontFamily",
-  "latinFontFamily",
-  "monospaceFontFamily",
-  "cjkSerifFontFamily",
-  "latinSerifFontFamily",
-];
-let exactFontFallbackPromise;
 installTiqianCopyHandler();
-
-function loadExactFontFallback() {
-  exactFontFallbackPromise ??= Promise.all([
-    import("./core/measurement/browser-fonts.js"),
-    import("./prepared-dom.js"),
-  ]).then(([fonts, preparedDom]) => {
-    preparedDom.installPreparedDomRendererBridge();
-    return fonts;
-  });
-  return exactFontFallbackPromise;
-}
 
 function supersedeRootWork(root) {
   const generation = (rootGenerations.get(root) ?? 0) + 1;
@@ -80,12 +65,6 @@ async function withTiqianWeb(root, options, action) {
   }
 }
 
-function hasSnapshotLayoutOverride(options) {
-  if (!options || typeof options !== "object") return false;
-  if (SNAPSHOT_LAYOUT_OVERRIDE_KEYS.some((key) => options[key] != null)) return true;
-  return options.firstLineIndentIc != null && Number(options.firstLineIndentIc) !== 0;
-}
-
 async function prepareRootFontSession(root, generation, options) {
   if (!root?.getAttribute?.("snapshot-ref")) {
     if (rootGenerations.get(root) === generation) releaseRootFontSession(root);
@@ -105,11 +84,7 @@ async function prepareRootFontSession(root, generation, options) {
       loader.releaseBrowserFontSession(handle);
       return null;
     }
-    const next = {
-      reference,
-      handle,
-      release: loader.releaseBrowserFontSession,
-    };
+    const next = createExactFontSessionEntry(reference, handle, loader);
     rootFontSessions.set(root, next);
     if (existing && existing !== next) existing.release(existing.handle);
     delete root.dataset.tiqianExactFontMiss;
@@ -128,7 +103,7 @@ function releaseRootFontSession(root, expectedHandle = ANY_FONT_SESSION) {
   const entry = rootFontSessions.get(root);
   if (!entry || (expectedHandle !== ANY_FONT_SESSION && entry.handle !== expectedHandle)) return false;
   rootFontSessions.delete(root);
-  return entry.release(entry.handle);
+  return releaseExactFontSession(entry, root);
 }
 
 export function enhance(root = document.body, options = {}) {

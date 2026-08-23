@@ -144,3 +144,28 @@ export function createInitialFontRetryController(root, context) {
 
   return { deferUntilFontsSettle, clear };
 }
+
+// Exact font fallback loader (merged from element.js and api.js in ADR 0053
+// batch 4; decomposition report section 9). Both host entries share one lazy
+// import gate; the module API path and the custom element path resolve the
+// same browser-font and prepared-dom adapters.
+
+let exactFontFallbackPromise;
+
+export function loadExactFontFallback() {
+  exactFontFallbackPromise ??= Promise.all([
+    import("../../measurement/browser-fonts.js"),
+    import("../../../prepared-dom.js"),
+  ]).then(([fonts, preparedDom]) => {
+    preparedDom.installPreparedDomRendererBridge();
+    return {
+      prepareBrowserFontSession: fonts.prepareBrowserFontSession,
+      revalidateBrowserFontSession: fonts.revalidateBrowserFontSession,
+      prepareBrowserRenderFonts: fonts.prepareBrowserRenderFonts,
+      releaseBrowserFontSession: fonts.releaseBrowserFontSession,
+      installPreparedRenderFontStyle: preparedDom.installPreparedRenderFontStyle,
+      releasePreparedRenderFontStyle: preparedDom.releasePreparedRenderFontStyle,
+    };
+  });
+  return exactFontFallbackPromise;
+}
