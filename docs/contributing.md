@@ -49,18 +49,18 @@ roadmap 不是贡献许可清单。修复明确的 bug、增加测试或改善�
 提交前至少运行与改动范围对应的测试。常用命令如下：
 
 ```shell
-./gradlew :layout:jvmTest
-./gradlew :frontend:compose:jvmTest
-./gradlew :frontend:web:jsBrowserTest
+./gradlew :engine:jvmTest
+./gradlew :platforms:compose:compose:jvmTest
+./gradlew :platforms:web:frontend:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :frontend:web:assembleNpmPackage
+./gradlew :platforms:web:frontend:assembleNpmPackage
 ./gradlew :demo:android:assembleDebug
 ```
 
 修改 npm 包的公开 exports、构建或打包流程时，还应验证实际 tarball，而不只检查工作目录：
 
 ```shell
-(cd frontend/web/npm && npm run verify:release)
+(cd platforms/web/frontend/npm && npm run verify:release)
 ```
 
 该命令会重建 browser 与 precompute Kotlin/JS runtime、运行 npm 测试，再把 tarball 安装到临时 consumer
@@ -70,17 +70,17 @@ roadmap 不是贡献许可清单。修复明确的 bug、增加测试或改善�
 并生成诊断报告：
 
 ```shell
-./gradlew :layout:jvmTest --tests '*LayoutDumpGoldenTest*'
-./gradlew :layout:generateLayoutReport
+./gradlew :engine:jvmTest --tests '*LayoutDumpGoldenTest*'
+./gradlew :engine:generateLayoutReport
 ```
 
 Layout report 位于
-`layout/build/reports/tiqian-layout-report/index.html`。
+`engine/build/reports/tiqian-layout-report/index.html`。
 
 预期中的布局变化可以用下面的命令更新 golden：
 
 ```shell
-TIQIAN_UPDATE_GOLDEN=1 ./gradlew :layout:jvmTest --tests '*LayoutDumpGoldenTest*'
+TIQIAN_UPDATE_GOLDEN=1 ./gradlew :engine:jvmTest --tests '*LayoutDumpGoldenTest*'
 ```
 
 更新后请检查 golden diff，确认变化只出现在预期的 fixture 中。涉及 Web 或平台渲染的

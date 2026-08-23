@@ -29,30 +29,30 @@
 ```shell
 ./gradlew build
 
-./gradlew :layout:jvmTest
-./gradlew :layout:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'
-./gradlew :layout:generateLayoutReport
+./gradlew :engine:jvmTest
+./gradlew :engine:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'
+./gradlew :engine:generateLayoutReport
 
-./gradlew :frontend:compose:jvmTest
-./gradlew :frontend:compose:compileAndroidMain
+./gradlew :platforms:compose:compose:jvmTest
+./gradlew :platforms:compose:compose:compileAndroidMain
 ./gradlew :demo:android:assembleDebug
 ./gradlew runComposeDemo
 
-./gradlew :frontend:web:jsBrowserTest
+./gradlew :platforms:web:frontend:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :frontend:web:assembleNpmPackage
-(cd frontend/web/npm && npm test)
+./gradlew :platforms:web:frontend:assembleNpmPackage
+(cd platforms/web/frontend/npm && npm test)
 ```
 
 Layout report 位于
-`layout/build/reports/tiqian-layout-report/index.html`。
+`engine/build/reports/tiqian-layout-report/index.html`。
 
 任何会改变断行、字体选择、标点空间、行高或行内几何的改动都应：
 
 1. 同步 fixture 与结构化 decision。
 2. 运行相关模块测试和 `LayoutDumpGoldenTest`。
 3. 行为变化需要更新 golden 时，使用
-   `TIQIAN_UPDATE_GOLDEN=1 ./gradlew :layout:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'`，
+   `TIQIAN_UPDATE_GOLDEN=1 ./gradlew :engine:jvmTest --tests 'org.tiqian.layout.LayoutDumpGoldenTest'`，
    然后逐项检查 golden diff。
 4. 生成 layout report，并按涉及平台做浏览器、桌面或 Android 真机检查。
 
@@ -61,11 +61,16 @@ Layout report 位于
 
 ## 模块边界
 
-- **排版核心**：`core`、`font`、`linebreak`、`clreq`、
-  `layout` 定义数据、字体策略、断行、中文规则与最终 `LayoutResult`。
-- **平台 shaping**：`shaping/api` 是契约；`shaping/jvm`、
-  `shaping/skia`、`shaping/android-adapter`、`shaping/web-adapter` 提供各平台实现。
-- **前端**：`frontend/compose`、`frontend/web`、`frontend/android-view` 只消费布局结果并呈现。
+- **排版核心**：`engine`（单一发布模块，合并了原 `core`、`font`、`linebreak`、
+  `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 契约与
+  最终 `LayoutResult`；内部按 `org.tiqian.{core,font,linebreak,clreq,layout,shaping}` 包分簇。
+- **平台 shaping**：shaping 契约在 `engine`；`platforms/jvm/{shaping,skia}`、
+  `platforms/android/{shaping,native-font}`、`platforms/web/shaping`、
+  `platforms/apple/shaping` 提供各平台实现。
+- **前端**：`platforms/compose/{compose,material3}`、`platforms/web/frontend`、
+  `platforms/android/view`、`platforms/apple/frontend` 只消费布局结果并呈现。
+- **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI（Rust 侧 `frontend/rust`、
+  `frontend/web-precompute` 由 Losses 维护，不在本重组范围）。
 - **Demo 与工具**：`demo` 共享 Desktop / Android 示例界面，
   `demo/android` 是薄 Android 启动壳；layout report 与 `test-support` 提供诊断和共享语料。
 
