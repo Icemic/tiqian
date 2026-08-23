@@ -68,6 +68,13 @@ val generateCopyBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedCopyScript",
 )
 
+val generateContentReconcileBridge = registerBridgeGenerator(
+    taskName = "generateContentReconcileBridge",
+    name = "contentReconcile",
+    sourceRelativePath = "npm/core/engine/content-reconcile.js",
+    installFunName = "installEmbeddedContentReconcileScript",
+)
+
 kotlin {
     js {
         // These generated names are package internals. Keep them stable while
@@ -87,6 +94,7 @@ kotlin {
             kotlin.srcDir(layout.buildDirectory.dir("generated/eligibilityBridge/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/progressiveJob/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/copy/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/contentReconcile/kotlin"))
             dependencies {
                 api(project(":engine"))
                 implementation(project(":platforms:web:shaping"))
@@ -103,6 +111,7 @@ tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
     dependsOn(generateEligibilityBridge)
     dependsOn(generateProgressiveJobBridge)
     dependsOn(generateCopyBridge)
+    dependsOn(generateContentReconcileBridge)
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {
