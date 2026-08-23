@@ -326,11 +326,28 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   （custody-bridge.test.mjs，347 行）。提交：f13233b、7140d88、f92bfbe。
   验证：npm test 与 jsBrowserTest 在提交后历次批次运行与当前树复验
   （315/315 两次）均通过。
-- [ ] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
-  进度（2026-08-23）：断言已移植（9af4470；progressive.test.mjs 456 行，
-  runtime-host.mjs 补 worker 作业驱动与滚动几何助手）；实现仍在 Kotlin
-  （WebEnhancer.kt 的 progressiveJobs 与 WebEnhancerParagraphLifecycle.kt），
-  按 custody 模式（JS 本体 + gradle 嵌入 + 桥）抽取。
+- [x] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
+  产出（2026-08-23）：断言半段 9af4470（progressive.test.mjs 456 行，
+  runtime-host.mjs 补 worker 作业驱动与滚动几何助手）；实现半段 e04daa7，
+  状态机整体迁入 `npm/core/engine/progressive-job.js`（302 行 plain script，
+  经 generateProgressiveJobBridge 嵌入运行时），按 custody 模式经
+  `WebEnhancerProgressiveJobBridge.kt` 调用。作业注册表、generation、
+  tier 跟踪与 pending 计数、切片执行、stale 守卫、parking、完成与失败
+  迁移全部在 JS；作业构造（候选、measure 快照、引擎闭包）与事件派发留在
+  Kotlin（WebEnhancerProgressiveJob.kt 的 startProgressiveJob helper 与
+  finish/fail 回调）。`TiqianWebWorkers` 签名不变，方法改为一行桥转发；
+  WebEnhancer.kt 删 progressiveJobs/generation/workerRoots 与
+  ProgressiveJob/Kind 类，relayout 头部改经 jobKind 加 states WeakMap 取
+  运行中作业（enhance 在 startProgressiveJob 前 states.set，两者同对象）。
+  commitSkipped 无写者，完成事件的 stale 不再含常假臂（CommitSkippedRemoved）；
+  MAX_PROGRESSIVE_IDLE_ITEMS_PER_SLICE 无消费者，一并删除。嵌入式单测 9 条
+  （npm/progressive-job-bridge.test.mjs），覆盖 tier 门槛跳过后作业保持
+  打开、stale 跳过、过期 generation 拒绝与 detach 当场跑完。jsTest 两个测试类的内部 harness
+  改调 TiqianWebWorkers 对外方法（原 internal 扩展函数已删）。
+  验证：npm test 324/324 两次（产物刷新前后各一次）；
+  assembleNpmPackage 与 jsBrowserTest 通过；grep 复核 progressiveJobs、
+  progressiveJobGeneration、workerRoots、GrantAdmission、
+  PROGRESSIVE_TIER_COUNT、jobPayload 在 Kotlin 源内 0 命中。
 - [ ] **B4 段落资格策略与响应式度量稳定化**。
   进度（2026-08-23）：资格策略半段已完成。三个资格谓词
   （shouldTryParagraph、isPureBlockImageParagraph、hasOpaqueInlineCandidate）与
