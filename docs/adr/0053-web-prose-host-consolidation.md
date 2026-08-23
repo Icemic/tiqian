@@ -391,8 +391,35 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   diff；grep MAIN_SLICE_BUDGET_MS、yieldMainIfNeeded、standaloneGrantAdmission、
   两个上限常量均 0 命中。demo/web 的 scroll-adaptive-quota 由失败转为通过
   （滚动驱动增强期间最大事件循环延迟 257.40ms 降到 4.10ms，覆盖 36/36）。
-- [ ] **C3 worker-layout 准备循环并入**：pending/plans 进协调器任务池，准备循环
+- [x] **C3 worker-layout 准备循环并入**：pending/plans 进协调器任务池，准备循环
   删除。KPI：主线程调度循环 3 收敛为 1。验收：npm test；jsBrowserTest。
+  产出：worker-channel 导出 createPrepareJob(root, exactFontSession, options,
+  isCurrent)。异步段完成守卫、API 检查、会话核对、候选排序与 ensureSession
+  等待，返回带 done、settled、step(shouldYield) 的作业对象；step 同步构造
+  请求并发送，发送不等待回复，回复在自身微任务里写入计划并递减在途计数，
+  全部候选应答后作业完成。coordinator 新增 runPrepare：注册作业并返回
+  promise，#pollPrepare 排在 #pollWorkers 之后按同一帧预算推进，每个作业
+  每帧送达至少一个候选；worker 回复经 onSettled 再次启动帧循环；unregister
+  与 remove 经 #cancelPrepare 完成成员。element 在 enhanceProgressively 前
+  等待 runPrepare，派发顺序不变。审查补入 CancelledPrepareSettlesEarly：
+  isCurrent 失效且候选未尽时作业以已存计划当场完成并删除该成员，消除
+  relayout 顶替增强后成员滞留、帧循环持续保持的路径。
+  KPI 复核：prepareWorkerLayouts、yieldToMain、grantPrepareSlice、
+  yieldMainIfNeeded、MAIN_SLICE_BUDGET_MS 源内 0 命中；scheduler.yield 仅存于
+  快照采样器（precomputed.js；快照采样属独立子系统）；准备路径的私有循环
+  并入完成，主线程调度循环 3 收敛为 1。
+  验证：npm test 315/315 两次；jsBrowserTest 通过；时序 golden fixture 零
+  diff；demo/web 全套顺序执行 34/35，其中 resize-destroy 10/10、drag 3/3、
+  late-enhance 3/3；唯一失败 oneshot-equivalence 为 C1 补记登记的遗留项，
+  待逐 root 已解析 options 的公开读取口决定后迁移。
+  late-enhance 第 3 条（C1 补记移交本批）修复与测量教训：run-to-completion
+  增强与 relayout 派发原先在锚点补偿范围外，element 调用点加同任务
+  capture/compensate 对并持有原生锚定（RunToCompletionAnchorBracket）；快照
+  采纳的逐段提交经 anchors 参数取得同任务对
+  （SnapshotAdoptionAnchorCompensation）。修复后锚点段落位移 1038.61px 降到
+  0.61px。demo 断言纪律：demo 的 parcel 缓存在更换服务器后仍提供旧
+  transform，三个代码状态测得逐字节相同的失败值即由此产生；跑 demo 断言前
+  须停止 8888 服务器并删 demo/web/.parcel-cache。
 
 ### D Worker 判定与执行位（依赖 0054 的 54-10）
 
