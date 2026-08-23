@@ -11,7 +11,7 @@ const RUNTIMES = [
   {
     directory: "runtime/",
     path: "runtime/tiqian-web.js",
-    marker: "TiqianWeb",
+    marker: "TiqianEngine",
     forbiddenMarkers: ["__TiqianWebFontShaping", "WebAssembly"],
   },
 ];
