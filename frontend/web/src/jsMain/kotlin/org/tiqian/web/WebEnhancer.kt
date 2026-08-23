@@ -213,6 +213,12 @@ object TiqianWeb {
         return true
     }
 
+    init {
+        // Install the embedded custody script eagerly so every world that
+        // reaches this object has globalThis.__TiqianCustody available.
+        custodyBridge()
+    }
+
     fun destroy(root: HTMLElement) {
         cancelProgressiveJob(root)
         val state = states.get(root) as? RootState
