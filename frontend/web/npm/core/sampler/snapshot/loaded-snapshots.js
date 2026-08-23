@@ -46,10 +46,10 @@ export async function restoreAdoptedSnapshot(root) {
   return snapshots?.restorePrecomputedSnapshot(root) ?? false;
 }
 
-export async function tryAdoptRequestedSnapshot(root, isCurrent = () => true) {
+export async function tryAdoptRequestedSnapshot(root, isCurrent = () => true, anchors = null) {
   if (!root?.getAttribute?.("snapshot-ref")) {
     return { adopted: false, reason: "not-requested" };
   }
   const snapshots = await loadPrecomputedSnapshots();
-  return snapshots.tryAdoptPrecomputedSnapshot(root, isCurrent);
+  return snapshots.tryAdoptPrecomputedSnapshot(root, isCurrent, anchors);
 }

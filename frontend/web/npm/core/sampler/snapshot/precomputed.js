@@ -2085,7 +2085,7 @@ export function detachPrecomputedSnapshot(root) {
   return true;
 }
 
-export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true) {
+export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, anchors = null) {
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
   restorePrecomputedSnapshot(root);
   delete root.dataset.tiqianSnapshotMiss;
@@ -2256,6 +2256,13 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true) 
         if (states.get(root) === adoptionState) restorePrecomputedSnapshot(root);
         return { adopted: false, reason: "superseded" };
       }
+      // SnapshotAdoptionAnchorCompensation: each cooperative commit slice
+      // replaces one paragraph's rendered geometry across separate tasks, so
+      // the whole adoption cannot share one capture/compensate pair. The
+      // caller supplies the pair; bracketing every commit keeps the reading
+      // position through the adoption, and the same-task pair keeps a
+      // running entrance animation out of the correction.
+      const commitAnchor = anchors ? anchors.capture() : null;
       const originalContent = documentObject.createDocumentFragment();
       if (serverRenderedEntries) {
         for (const child of Array.from(sourceSnapshot?.childNodes ?? paragraph.childNodes)) {
@@ -2303,6 +2310,7 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true) 
       ) throw new Error("RenderedSnapshotHostContractMismatch");
       const issue = renderedPreparedParagraphIssue(paragraph, width);
       if (issue) throw new Error(issue.replace("RenderedPreparedParagraph", "RenderedSnapshot"));
+      if (anchors) anchors.compensate(commitAnchor);
       sliceStartedAt = await yieldSnapshotValidationIfNeeded(
         sliceStartedAt,
         serverRenderedEntries,
