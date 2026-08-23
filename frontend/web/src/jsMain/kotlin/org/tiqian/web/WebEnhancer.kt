@@ -12,9 +12,7 @@ import org.tiqian.shaping.web.WebCanvasFontMetricsResolver
 import org.tiqian.shaping.web.WebCanvasTextShaper
 import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.shaping.web.WebFontFamilies
-import org.w3c.dom.DocumentFragment
 import org.w3c.dom.HTMLElement
-import org.w3c.dom.Node
 import org.w3c.dom.events.Event
 
 /**
@@ -225,7 +223,7 @@ object TiqianWeb {
         states.delete(root)
         if (state != null) {
             for (paragraph in state.paragraphs) {
-                restoreParagraph(paragraph)
+                custodyBridge().restoreParagraph(paragraph.source)
             }
             for (issue in state.issues) {
                 clearIssue(issue)
@@ -478,7 +476,7 @@ object TiqianWeb {
         private val state: RootState,
     ) {
         private val paragraphs = paragraphs.toList()
-        private val snapshots = LinkedHashMap<EnhancedParagraph, LiveParagraphSnapshot>()
+        private val snapshots = LinkedHashMap<EnhancedParagraph, CustodyLiveSnapshotJs>()
         private val successful = mutableListOf<Pair<EnhancedParagraph, Float>>()
         private val unsupported = mutableListOf<Pair<EnhancedParagraph, CapabilityIssue>>()
         private val stateParagraphsBefore = state.paragraphs.toList()
@@ -490,12 +488,12 @@ object TiqianWeb {
             when (preparation) {
                 ParagraphLayoutPreparation.Unchanged -> Unit
                 is ParagraphLayoutPreparation.Unsupported -> {
-                    snapshots[paragraph] = TiqianWeb.captureLiveParagraph(paragraph)
+                    snapshots[paragraph] = custodyBridge().captureLive(paragraph.source, paragraph.lastMeasure)
                     unsupported += paragraph to preparation.issue
-                    TiqianWeb.restoreParagraph(paragraph)
+                    custodyBridge().restoreParagraph(paragraph.source)
                 }
                 is ParagraphLayoutPreparation.Ready -> {
-                    snapshots[paragraph] = TiqianWeb.captureLiveParagraph(paragraph)
+                    snapshots[paragraph] = custodyBridge().captureLive(paragraph.source, paragraph.lastMeasure)
                     when (
                         val result = TiqianWeb.commitPreparedParagraph(
                             paragraph = paragraph,
@@ -511,7 +509,7 @@ object TiqianWeb {
                         }
                         is ParagraphCommitResult.Unsupported -> {
                             unsupported += paragraph to result.issue
-                            TiqianWeb.restoreParagraph(paragraph)
+                            custodyBridge().restoreParagraph(paragraph.source)
                         }
                     }
                 }
@@ -536,7 +534,12 @@ object TiqianWeb {
             state.paragraphs.addAll(stateParagraphsBefore)
             state.issues.clear()
             state.issues.addAll(stateIssuesBefore)
-            TiqianWeb.rollbackRelayoutSnapshots(snapshots.values.toList())
+            val snapshotsArray = snapshots.values.toTypedArray()
+            val results = custodyBridge().asDynamic().rollback(snapshotsArray).unsafeCast<Array<CustodyRollbackResultJs>>()
+            val paragraphBySource = paragraphs.associateBy { it.source }
+            for (result in results) {
+                paragraphBySource[result.source]?.lastMeasure = result.lastMeasure
+            }
         }
     }
 
@@ -703,57 +706,14 @@ object TiqianWeb {
 
     internal data class EnhancedParagraph(
         val source: HTMLElement,
-        val originalContent: DocumentFragment,
         val lowered: LoweredParagraph,
-        // RenderedContentInvariant: after every engine task boundary this list
-        // equals the live child nodes of [source]. A mismatch means the host
-        // mutated the paragraph, which is the signal content reconcile acts on.
-        var renderedNodes: List<Node> = emptyList(),
-        // CustodyContentInvariant: the same identity contract for the detached
-        // custody fragment. Frameworks keep references to the original nodes
-        // and edit them inside custody, where live-DOM observers never fire.
-        var custodyNodes: List<Node> = emptyList(),
-        val originalRenderedAttribute: String?,
-        val originalPreparedFlowAttribute: String?,
-        val originalCanonicalSourceAttribute: String?,
-        val originalExactPreparedDomAttribute: String?,
-        val originalLangAttribute: String?,
-        val originalStyleAttribute: String?,
-        val originalPosition: String,
-        val originalPositionPriority: String,
-        val originalInlineSize: String,
-        val originalInlineSizePriority: String,
-        val originalFontSize: String,
-        val originalFontSizePriority: String,
-        val originalHostInlineSizeAttribute: String?,
         var lastMeasure: Float? = null,
-        var containingBlockApplied: Boolean = false,
-        var hostInlineSizeApplied: String? = null,
-        val hostFontSizeApplied: String? = null,
     )
 
     internal data class SourceInlineSize(
         val borderBoxWidth: Double,
         val contentBoxWidth: Double,
         val borderBoxSizing: Boolean,
-    )
-
-    internal data class LiveParagraphSnapshot(
-        val paragraph: EnhancedParagraph,
-        val content: DocumentFragment,
-        val renderedAttribute: String?,
-        val preparedFlowAttribute: String?,
-        val canonicalSourceAttribute: String?,
-        val exactPreparedDomAttribute: String?,
-        val langAttribute: String?,
-        val styleAttribute: String?,
-        val capabilityNameAttribute: String?,
-        val capabilityDetailAttribute: String?,
-        val lastMeasure: Float?,
-        val containingBlockApplied: Boolean,
-        val hostInlineSizeApplied: String?,
-        val hostInlineSizeAttribute: String?,
-        val originalContentHadChildren: Boolean,
     )
 
     data class CapabilityIssue(

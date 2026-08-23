@@ -1,6 +1,5 @@
 package org.tiqian.web
 
-import kotlinx.browser.document
 import org.tiqian.core.Ic
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
@@ -83,8 +82,6 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
     // CSSStyleDeclaration can leave an empty style attribute after a
     // temporary property is removed even when the source had no attribute.
     val originalStyleAttribute = paragraph.getAttribute("style")
-    val originalFontSize = paragraph.style.getPropertyValue("font-size")
-    val originalFontSizePriority = paragraph.style.getPropertyPriority("font-size")
     val lowered = try {
         MarkdownParagraphLowerer.lower(paragraph, state.options)
     } catch (error: Throwable) {
@@ -108,16 +105,22 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
         return
     }
 
-    val originalRenderedAttribute = paragraph.getAttribute("data-tq-rendered")
-    val originalPreparedFlowAttribute = paragraph.getAttribute("data-tq-canonical-plain")
-    val originalCanonicalSourceAttribute = paragraph.getAttribute(CANONICAL_SOURCE_ATTRIBUTE)
-    val originalExactPreparedDomAttribute = paragraph.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE)
-    val originalLangAttribute = paragraph.getAttribute("lang")
-    val originalPosition = paragraph.style.getPropertyValue("position")
-    val originalPositionPriority = paragraph.style.getPropertyPriority("position")
-    val originalInlineSize = paragraph.style.getPropertyValue("inline-size")
-    val originalInlineSizePriority = paragraph.style.getPropertyPriority("inline-size")
-    val originalHostInlineSizeAttribute = paragraph.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE)
+    custodyBridge().begin(
+        source = paragraph,
+        renderedAttribute = paragraph.getAttribute("data-tq-rendered"),
+        preparedFlowAttribute = paragraph.getAttribute("data-tq-canonical-plain"),
+        canonicalSourceAttribute = paragraph.getAttribute(CANONICAL_SOURCE_ATTRIBUTE),
+        exactPreparedDomAttribute = paragraph.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE),
+        langAttribute = paragraph.getAttribute("lang"),
+        styleAttribute = originalStyleAttribute,
+        position = paragraph.style.getPropertyValue("position"),
+        positionPriority = paragraph.style.getPropertyPriority("position"),
+        inlineSize = paragraph.style.getPropertyValue("inline-size"),
+        inlineSizePriority = paragraph.style.getPropertyPriority("inline-size"),
+        fontSize = paragraph.style.getPropertyValue("font-size"),
+        fontSizePriority = paragraph.style.getPropertyPriority("font-size"),
+        hostInlineSizeAttribute = paragraph.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE),
+    )
     val hostFontSizeApplied = applyConfiguredHostFontSize(paragraph, state.options.fontSize)
     val sourceInlineSize = captureSourceInlineSize(paragraph)
     val activeOptions = state.activeOptions()
@@ -168,10 +171,7 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
         reportIssue(issue)
         return
     }
-    val originalContent = document.createDocumentFragment()
-    while (paragraph.firstChild != null) {
-        originalContent.appendChild(paragraph.firstChild!!)
-    }
+    custodyBridge().take(paragraph, hostFontSizeApplied)
     val hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
         paragraph,
         sourceInlineSize,
@@ -180,25 +180,9 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
     paragraph.setAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE, "true")
     val item = EnhancedParagraph(
         source = paragraph,
-        originalContent = originalContent,
         lowered = lowered,
-        originalRenderedAttribute = originalRenderedAttribute,
-        originalPreparedFlowAttribute = originalPreparedFlowAttribute,
-        originalCanonicalSourceAttribute = originalCanonicalSourceAttribute,
-        originalExactPreparedDomAttribute = originalExactPreparedDomAttribute,
-        originalLangAttribute = originalLangAttribute,
-        originalStyleAttribute = originalStyleAttribute,
-        originalPosition = originalPosition,
-        originalPositionPriority = originalPositionPriority,
-        originalInlineSize = originalInlineSize,
-        originalInlineSizePriority = originalInlineSizePriority,
-        originalFontSize = originalFontSize,
-        originalFontSizePriority = originalFontSizePriority,
-        originalHostInlineSizeAttribute = originalHostInlineSizeAttribute,
-        hostInlineSizeApplied = hostInlineSizeApplied,
-        hostFontSizeApplied = hostFontSizeApplied,
     )
-    stampCustodyContent(item)
+    custodyBridge().commit(paragraph, hostInlineSizeApplied)
     val layoutIssue = try {
         if (workerPlan == null) {
             layoutParagraph(
@@ -226,7 +210,7 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
     if (layoutIssue == null) {
         state.paragraphs += item
     } else {
-        restoreParagraph(item)
+        custodyBridge().restoreParagraph(paragraph)
         state.issues += layoutIssue
         reportIssue(layoutIssue)
     }
@@ -294,22 +278,10 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
     if (preparedDomIssue != null) {
         onExactPreparedDomFallback(preparedDomIssue)
         releasePreparedParagraphDomStyles(paragraph.source)
-        restoreAttribute(
-            paragraph.source,
-            EXACT_PREPARED_DOM_ATTRIBUTE,
-            paragraph.originalExactPreparedDomAttribute,
-        )
-        restoreAttribute(
-            paragraph.source,
-            "data-tq-canonical-plain",
-            paragraph.originalPreparedFlowAttribute,
-        )
-        restoreAttribute(
-            paragraph.source,
-            CANONICAL_SOURCE_ATTRIBUTE,
-            paragraph.originalCanonicalSourceAttribute,
-        )
-        restoreAttribute(paragraph.source, "lang", paragraph.originalLangAttribute)
+        paragraph.source.removeAttribute(EXACT_PREPARED_DOM_ATTRIBUTE)
+        paragraph.source.removeAttribute("data-tq-canonical-plain")
+        paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
+        paragraph.source.removeAttribute("lang")
         return CapabilityIssue(
             name = "WorkerPreparedDomContractMismatch",
             detail = preparedDomIssue,
@@ -317,7 +289,7 @@ internal fun TiqianWeb.commitWorkerPreparedParagraph(
         )
     }
     paragraph.lastMeasure = effectiveLineMeasure(width, paragraph.lowered.textStyle.fontSize)
-    stampRenderedContent(paragraph)
+    custodyBridge().stampRendered(paragraph.source)
     return null
 }
 
@@ -513,17 +485,9 @@ internal fun TiqianWeb.commitPreparedParagraph(
         )
         if (preparedDomIssue != null) {
             onExactPreparedDomFallback(preparedDomIssue)
-            restoreAttribute(
-                paragraph.source,
-                "data-tq-canonical-plain",
-                paragraph.originalPreparedFlowAttribute,
-            )
-            restoreAttribute(
-                paragraph.source,
-                CANONICAL_SOURCE_ATTRIBUTE,
-                paragraph.originalCanonicalSourceAttribute,
-            )
-            restoreAttribute(paragraph.source, "lang", paragraph.originalLangAttribute)
+            paragraph.source.removeAttribute("data-tq-canonical-plain")
+            paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
+            paragraph.source.removeAttribute("lang")
             val fallbackOptions = options.withoutExactFontSession()
             val fallbackPreparation = prepareParagraphLayout(
                 paragraph = paragraph,
@@ -550,13 +514,9 @@ internal fun TiqianWeb.commitPreparedParagraph(
         }
     } else {
         releasePreparedParagraphDomStyles(paragraph.source)
-        restoreAttribute(
-            paragraph.source,
-            "data-tq-canonical-plain",
-            paragraph.originalPreparedFlowAttribute,
-        )
-        restoreAttribute(paragraph.source, "lang", paragraph.originalLangAttribute)
-        ensureContainingBlock(paragraph)
+        paragraph.source.removeAttribute("data-tq-canonical-plain")
+        paragraph.source.removeAttribute("lang")
+        custodyBridge().ensureContainingBlock(paragraph.source)
         DomParagraphRenderer.render(
             paragraph.source,
             result,
@@ -576,13 +536,9 @@ internal fun TiqianWeb.commitPreparedParagraph(
         if (paragraph.lowered.isCanonicalPlainParagraph()) {
             paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
         } else {
-            restoreAttribute(
-                paragraph.source,
-                CANONICAL_SOURCE_ATTRIBUTE,
-                paragraph.originalCanonicalSourceAttribute,
-            )
+            paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
         }
     }
-    stampRenderedContent(paragraph)
+    custodyBridge().stampRendered(paragraph.source)
     return ParagraphCommitResult.Success(preparation.measure)
 }

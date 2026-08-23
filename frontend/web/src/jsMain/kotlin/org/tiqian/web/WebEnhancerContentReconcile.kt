@@ -7,7 +7,6 @@ import org.tiqian.web.TiqianWeb.RootState
 import kotlinx.browser.document
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
-import org.w3c.dom.Node
 
 /**
  * HostContentReconcile: a live-DOM content change on an enhanced root
@@ -29,9 +28,9 @@ internal fun TiqianWeb.probeContentDrift(root: HTMLElement): String {
     for (paragraph in state.paragraphs) {
         if (!paragraph.source.isConnected) {
             dead += 1
-        } else if (!renderedContentMatches(paragraph)) {
+        } else if (!custodyBridge().renderedMatches(paragraph.source)) {
             drifted += 1
-        } else if (!custodyContentMatches(paragraph)) {
+        } else if (!custodyBridge().custodyMatches(paragraph.source)) {
             custody += 1
         }
     }
@@ -53,7 +52,7 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
     val dead = state.paragraphs.filter { !it.source.isConnected }
     for (paragraph in dead) state.paragraphs.remove(paragraph)
     val drifted = state.paragraphs.filter {
-        it.source.isConnected && !renderedContentMatches(it)
+        it.source.isConnected && !custodyBridge().renderedMatches(it.source)
     }
     val driftedSources = HashSet<HTMLElement>(drifted.size * 2)
     for (paragraph in drifted) driftedSources.add(paragraph.source)
@@ -64,7 +63,7 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
     // the semantic truth lives in custody, so restore hands it back to the
     // live DOM and processParagraph re-lowers the edited content.
     val custodyDrifted = state.paragraphs.filter {
-        it.source.isConnected && renderedContentMatches(it) && !custodyContentMatches(it)
+        it.source.isConnected && custodyBridge().renderedMatches(it.source) && !custodyBridge().custodyMatches(it.source)
     }
     for (paragraph in custodyDrifted) driftedSources.add(paragraph.source)
     val taintedTracked = tainted
@@ -94,7 +93,7 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
     for (paragraph in custodyDrifted) {
         actions += ReconcileAction(paragraph.source) {
             state.paragraphs.remove(paragraph)
-            restoreParagraph(paragraph)
+            custodyBridge().restoreParagraph(paragraph.source)
             processParagraph(paragraph.source, state)
         }
     }
@@ -105,7 +104,7 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
         // custody and the paragraph re-renders from it.
         actions += ReconcileAction(paragraph.source) {
             state.paragraphs.remove(paragraph)
-            restoreParagraph(paragraph)
+            custodyBridge().restoreParagraph(paragraph.source)
             processParagraph(paragraph.source, state)
         }
     }
@@ -150,13 +149,8 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
  */
 internal fun TiqianWeb.prepareTrackedParagraphForRelowering(paragraph: EnhancedParagraph) {
     releasePreparedParagraphDomStyles(paragraph.source)
-    for (node in paragraph.renderedNodes) {
-        if (node.parentNode === paragraph.source) {
-            paragraph.source.removeChild(node)
-        }
-    }
-    restoreEngineOwnedParagraphShell(paragraph)
-    stampRenderedContent(paragraph)
+    custodyBridge().restoreShell(paragraph.source)
+    custodyBridge().stampRendered(paragraph.source)
 }
 
 /**

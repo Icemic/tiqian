@@ -451,68 +451,6 @@ internal external fun hasClosest(element: HTMLElement, selector: String): Boolea
 internal external fun belongsToRootScope(paragraph: HTMLElement, root: HTMLElement, selector: String): Boolean
 @JsFun("(message) => console.warn(message)")
 internal external fun consoleWarn(message: String)
-// CustodyAnchoredCommitForwarding: React and Svelte hold the paragraph element
-// as their commit parent and mutate children through removeChild, insertBefore,
-// replaceChild and appendChild. Takeover moved those children into the custody
-// fragment, so the anchored calls would throw NotFoundError, and the append
-// forms would drop the node into the live paragraph where the next restore
-// drains it as engine output. Forward each host operation into the current
-// custody fragment. Engine writes stay native: the renderer swaps output with
-// replaceChildren, the custody restore and the rollback snapshot append
-// DocumentFragment arguments, and the prepared DOM bridge raises
-// __tqCustodyEngineWrites around its own host writes (innerHTML plus per-node
-// appends of live clones). The overrides read the published fragment at call
-// time, so a re-take with a fresh fragment needs no re-install. An empty
-// fragment means the paragraph is not under custody, and every branch then
-// falls through to native.
-@JsFun(
-    """(paragraph) => {
-      if (!paragraph.__tqCustodyForwarding) {
-        const nativeRemoveChild = Node.prototype.removeChild;
-        const nativeInsertBefore = Node.prototype.insertBefore;
-        const nativeReplaceChild = Node.prototype.replaceChild;
-        const nativeAppendChild = Node.prototype.appendChild;
-        const activeCustody = () => {
-          const fragment = paragraph.__tqCustodyFragment;
-          return fragment && fragment.childNodes.length > 0 ? fragment : null;
-        };
-        const heldInCustody = (node) => {
-          const fragment = paragraph.__tqCustodyFragment;
-          return !!fragment && !!node && node.parentNode === fragment;
-        };
-        const engineWriting = () => paragraph.__tqCustodyEngineWrites > 0;
-        paragraph.removeChild = (child) => {
-          if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
-          if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
-          return nativeRemoveChild.call(paragraph, child);
-        };
-        paragraph.insertBefore = (node, ref) => {
-          if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
-          if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
-          if (!ref && node && node.nodeType !== 11) {
-            const fragment = activeCustody();
-            if (fragment) return fragment.appendChild(node);
-          }
-          return nativeInsertBefore.call(paragraph, node, ref);
-        };
-        paragraph.replaceChild = (next, prev) => {
-          if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
-          if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
-          return nativeReplaceChild.call(paragraph, next, prev);
-        };
-        paragraph.appendChild = (node) => {
-          if (engineWriting()) return nativeAppendChild.call(paragraph, node);
-          if (node && node.nodeType !== 11) {
-            const fragment = activeCustody();
-            if (fragment) return fragment.appendChild(node);
-          }
-          return nativeAppendChild.call(paragraph, node);
-        };
-        paragraph.__tqCustodyForwarding = true;
-      }
-    }""",
-)
-internal external fun installCustodyCommitForwarding(paragraph: HTMLElement)
 // CustodyEngineWriteSuspension: the prepared DOM bridge writes engine output
 // into the live paragraph with plain element and text arguments, which the
 // forwarding overrides would otherwise redirect into custody. The two bridge

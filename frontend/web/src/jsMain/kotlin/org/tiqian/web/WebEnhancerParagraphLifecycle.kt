@@ -1,6 +1,5 @@
 package org.tiqian.web
 
-import kotlinx.browser.document
 import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
 import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.web.TiqianWeb.CapabilityIssue
@@ -8,13 +7,11 @@ import org.tiqian.web.TiqianWeb.EnhanceOptions
 import org.tiqian.web.TiqianWeb.EnhancedParagraph
 import org.tiqian.web.TiqianWeb.ExactFontSessionCapability
 import org.tiqian.web.TiqianWeb.FontFamilyOptions
-import org.tiqian.web.TiqianWeb.LiveParagraphSnapshot
 import org.tiqian.web.TiqianWeb.ProgressiveJob
 import org.tiqian.web.TiqianWeb.ProgressiveJobKind
 import org.tiqian.web.TiqianWeb.SourceInlineSize
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
-import org.w3c.dom.Node
 
 internal fun TiqianWeb.startProgressiveJob(job: ProgressiveJob) {
     cancelProgressiveJob(job.state.root)
@@ -251,145 +248,6 @@ internal fun TiqianWeb.failProgressiveJob(job: ProgressiveJob, error: Throwable)
     }
 }
 
-internal fun TiqianWeb.captureLiveParagraph(paragraph: EnhancedParagraph): LiveParagraphSnapshot {
-    val content = document.createDocumentFragment()
-    val snapshot = LiveParagraphSnapshot(
-        paragraph = paragraph,
-        content = content,
-        renderedAttribute = paragraph.source.getAttribute("data-tq-rendered"),
-        preparedFlowAttribute = paragraph.source.getAttribute("data-tq-canonical-plain"),
-        canonicalSourceAttribute = paragraph.source.getAttribute(CANONICAL_SOURCE_ATTRIBUTE),
-        exactPreparedDomAttribute = paragraph.source.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE),
-        langAttribute = paragraph.source.getAttribute("lang"),
-        styleAttribute = paragraph.source.getAttribute("style"),
-        capabilityNameAttribute = paragraph.source.getAttribute("data-tiqian-capability-issue"),
-        capabilityDetailAttribute = paragraph.source.getAttribute("data-tiqian-capability-detail"),
-        lastMeasure = paragraph.lastMeasure,
-        containingBlockApplied = paragraph.containingBlockApplied,
-        hostInlineSizeApplied = paragraph.hostInlineSizeApplied,
-        hostInlineSizeAttribute = paragraph.source.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE),
-        originalContentHadChildren = paragraph.originalContent.firstChild != null,
-    )
-    while (paragraph.source.firstChild != null) {
-        content.appendChild(paragraph.source.firstChild!!)
-    }
-    stampRenderedContent(paragraph)
-    return snapshot
-}
-
-/**
- * RenderedContentInvariant bookkeeping. Every site that rewrites a
- * paragraph's live children must end with this stamp so a later content
- * reconcile can tell engine-owned output from a host mutation by identity.
- */
-internal fun stampRenderedContent(paragraph: EnhancedParagraph) {
-    paragraph.renderedNodes = liveChildNodes(paragraph.source)
-}
-
-internal fun liveChildNodes(element: Node): List<Node> {
-    val nodes = ArrayList<Node>()
-    var child: Node? = element.firstChild
-    while (child != null) {
-        nodes.add(child)
-        child = child.nextSibling
-    }
-    return nodes
-}
-
-internal fun renderedContentMatches(paragraph: EnhancedParagraph): Boolean {
-    val recorded = paragraph.renderedNodes
-    var child: Node? = paragraph.source.firstChild
-    var index = 0
-    while (child != null) {
-        if (index >= recorded.size || recorded[index] !== child) return false
-        index += 1
-        child = child.nextSibling
-    }
-    return index == recorded.size
-}
-
-internal fun custodyContentMatches(paragraph: EnhancedParagraph): Boolean {
-    val recorded = paragraph.custodyNodes
-    var child: Node? = paragraph.originalContent.firstChild
-    var index = 0
-    while (child != null) {
-        if (index >= recorded.size || recorded[index] !== child) return false
-        index += 1
-        child = child.nextSibling
-    }
-    return index == recorded.size
-}
-
-/**
- * CustodyContentInvariant bookkeeping, mirroring [stampRenderedContent]. Every
- * site that rewrites the custody fragment must end with this stamp, and the
- * stamp also publishes the fragment on the paragraph element so element.js can
- * observe it. The engine only moves whole nodes in and out of custody, so a
- * child-identity mismatch proves a host edit inside custody.
- */
-internal fun stampCustodyContent(paragraph: EnhancedParagraph) {
-    paragraph.custodyNodes = liveChildNodes(paragraph.originalContent)
-    paragraph.source.asDynamic().__tqCustodyFragment = paragraph.originalContent
-    installCustodyCommitForwarding(paragraph.source)
-}
-
-internal fun TiqianWeb.rollbackRelayoutSnapshots(snapshots: List<LiveParagraphSnapshot>) {
-    for (snapshot in snapshots.asReversed()) {
-        val paragraph = snapshot.paragraph
-        if (snapshot.originalContentHadChildren && paragraph.originalContent.firstChild == null) {
-            // restoreParagraph() handed the semantic source fragment back
-            // to the live DOM; move those exact nodes into source custody
-            // again before replaying the previous rendered fragment.
-            while (paragraph.source.firstChild != null) {
-                paragraph.originalContent.appendChild(paragraph.source.firstChild!!)
-            }
-            stampCustodyContent(paragraph)
-        } else {
-            while (paragraph.source.firstChild != null) {
-                paragraph.source.removeChild(paragraph.source.firstChild!!)
-            }
-        }
-        paragraph.source.appendChild(snapshot.content)
-        restoreAttribute(paragraph.source, "data-tq-rendered", snapshot.renderedAttribute)
-        restoreAttribute(
-            paragraph.source,
-            "data-tq-canonical-plain",
-            snapshot.preparedFlowAttribute,
-        )
-        restoreAttribute(
-            paragraph.source,
-            CANONICAL_SOURCE_ATTRIBUTE,
-            snapshot.canonicalSourceAttribute,
-        )
-        restoreAttribute(
-            paragraph.source,
-            EXACT_PREPARED_DOM_ATTRIBUTE,
-            snapshot.exactPreparedDomAttribute,
-        )
-        restoreAttribute(paragraph.source, "lang", snapshot.langAttribute)
-        restoreAttribute(paragraph.source, "style", snapshot.styleAttribute)
-        restoreAttribute(
-            paragraph.source,
-            "data-tiqian-capability-issue",
-            snapshot.capabilityNameAttribute,
-        )
-        restoreAttribute(
-            paragraph.source,
-            "data-tiqian-capability-detail",
-            snapshot.capabilityDetailAttribute,
-        )
-        paragraph.lastMeasure = snapshot.lastMeasure
-        paragraph.containingBlockApplied = snapshot.containingBlockApplied
-        paragraph.hostInlineSizeApplied = snapshot.hostInlineSizeApplied
-        restoreAttribute(
-            paragraph.source,
-            HOST_INLINE_SIZE_ATTRIBUTE,
-            snapshot.hostInlineSizeAttribute,
-        )
-        stampRenderedContent(paragraph)
-    }
-}
-
 internal fun TiqianWeb.shouldTryParagraph(paragraph: HTMLElement): Boolean {
     if (hasClosest(paragraph, SKIPPED_ANCESTOR_SELECTOR)) return false
     if (paragraph.getAttribute("data-tiqian-skip") != null) return false
@@ -507,13 +365,6 @@ internal fun TiqianWeb.optionFloat(options: EnhanceOptionsJs?, name: String): Fl
     return if (value.isFinite()) value.toFloat() else null
 }
 
-internal fun TiqianWeb.ensureContainingBlock(paragraph: EnhancedParagraph) {
-    if (paragraph.containingBlockApplied) return
-    if (computedStyle(paragraph.source, "position").trim().lowercase() != "static") return
-    paragraph.source.style.setProperty("position", "relative", "important")
-    paragraph.containingBlockApplied = true
-}
-
 internal fun TiqianWeb.captureSourceInlineSize(paragraph: HTMLElement): SourceInlineSize =
     SourceInlineSize(
         borderBoxWidth = elementFragmentBorderBoxInlineSize(paragraph),
@@ -579,104 +430,6 @@ internal fun TiqianWeb.stabilizeContentSizedItemInlineSize(
     paragraph.style.setProperty("inline-size", serialized, "important")
     paragraph.setAttribute(HOST_INLINE_SIZE_ATTRIBUTE, "true")
     return serialized
-}
-
-internal fun TiqianWeb.restoreParagraph(paragraph: EnhancedParagraph) {
-    releasePreparedParagraphDomStyles(paragraph.source)
-    while (paragraph.source.firstChild != null) {
-        paragraph.source.removeChild(paragraph.source.firstChild!!)
-    }
-    paragraph.source.appendChild(paragraph.originalContent)
-    // The drain empties custody. Restamp so a paragraph that stays tracked
-    // through the relayout-unsupported window does not read as host drift.
-    stampCustodyContent(paragraph)
-    restoreEngineOwnedParagraphShell(paragraph)
-    stampRenderedContent(paragraph)
-}
-
-/**
- * Restores the paragraph element's attributes and inline style entries the
- * engine overwrote during takeover. Shared by the custody restore path and
- * the content-reconcile path that keeps host-mutated live children.
- */
-internal fun TiqianWeb.restoreEngineOwnedParagraphShell(paragraph: EnhancedParagraph) {
-    restoreAttribute(paragraph.source, "data-tq-rendered", paragraph.originalRenderedAttribute)
-    restoreAttribute(
-        paragraph.source,
-        "data-tq-canonical-plain",
-        paragraph.originalPreparedFlowAttribute,
-    )
-    restoreAttribute(
-        paragraph.source,
-        CANONICAL_SOURCE_ATTRIBUTE,
-        paragraph.originalCanonicalSourceAttribute,
-    )
-    restoreAttribute(
-        paragraph.source,
-        EXACT_PREPARED_DOM_ATTRIBUTE,
-        paragraph.originalExactPreparedDomAttribute,
-    )
-    paragraph.source.removeAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE)
-    restoreAttribute(paragraph.source, "lang", paragraph.originalLangAttribute)
-    if (paragraph.containingBlockApplied &&
-        paragraph.source.style.getPropertyValue("position") == "relative" &&
-        paragraph.source.style.getPropertyPriority("position") == "important"
-    ) {
-        if (paragraph.originalPosition.isEmpty()) {
-            paragraph.source.style.removeProperty("position")
-        } else {
-            paragraph.source.style.setProperty(
-                "position",
-                paragraph.originalPosition,
-                paragraph.originalPositionPriority,
-            )
-        }
-    }
-    val appliedInlineSize = paragraph.hostInlineSizeApplied
-    if (
-        appliedInlineSize != null &&
-        paragraph.source.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE) == "true" &&
-        paragraph.source.style.getPropertyValue("inline-size") == appliedInlineSize &&
-        paragraph.source.style.getPropertyPriority("inline-size") == "important"
-    ) {
-        if (paragraph.originalInlineSize.isEmpty()) {
-            paragraph.source.style.removeProperty("inline-size")
-        } else {
-            paragraph.source.style.setProperty(
-                "inline-size",
-                paragraph.originalInlineSize,
-                paragraph.originalInlineSizePriority,
-            )
-        }
-    }
-    val appliedFontSize = paragraph.hostFontSizeApplied
-    if (
-        appliedFontSize != null &&
-        paragraph.source.style.getPropertyValue("font-size") == appliedFontSize &&
-        paragraph.source.style.getPropertyPriority("font-size") == "important"
-    ) {
-        if (paragraph.originalFontSize.isEmpty()) {
-            paragraph.source.style.removeProperty("font-size")
-        } else {
-            paragraph.source.style.setProperty(
-                "font-size",
-                paragraph.originalFontSize,
-                paragraph.originalFontSizePriority,
-            )
-        }
-    }
-    restoreAttribute(
-        paragraph.source,
-        HOST_INLINE_SIZE_ATTRIBUTE,
-        paragraph.originalHostInlineSizeAttribute,
-    )
-    if (paragraph.originalStyleAttribute == null) {
-        if (paragraph.source.getAttribute("style")?.isBlank() != false) {
-            paragraph.source.removeAttribute("style")
-        }
-    }
-    paragraph.containingBlockApplied = false
-    paragraph.hostInlineSizeApplied = null
 }
 
 internal fun TiqianWeb.clearIssue(issue: CapabilityIssue) {
