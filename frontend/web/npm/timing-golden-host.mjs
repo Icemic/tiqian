@@ -454,7 +454,12 @@ export async function driveElementTimeline(clock, journeyKey) {
     firstChildText: paragraph.firstChild?.textContent ?? null,
   });
 
-  const pumpUntil = async (predicate, cap = 60) => {
+  // The pump cap only guards against a hung drive; frame counts are excluded
+  // from every golden projection, and node:test runs sibling files in
+  // parallel, so a lazy-import compile can easily need more loop turns than
+  // sixty setImmediate yields while the process is under load. A cap of a
+  // few thousand turns keeps the hang guard without starving the import.
+  const pumpUntil = async (predicate, cap = 2000) => {
     let frames = 0;
     while (frames < cap) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -465,7 +470,7 @@ export async function driveElementTimeline(clock, journeyKey) {
     return frames;
   };
 
-  const pumpQuiescent = async (cap = 60) => {
+  const pumpQuiescent = async (cap = 2000) => {
     let frames = 0;
     let quietStreak = 0;
     while (frames < cap) {
@@ -486,6 +491,13 @@ export async function driveElementTimeline(clock, journeyKey) {
   };
 
   // ---- S1: connect + initial snapshot adoption ----
+  // Warm the only dynamic import element.js performs (worker-channel.js in
+  // the exact-session path) before the drive starts. Cold, its disk read
+  // races the fake-clock pump under parallel test load and shifts observer
+  // creation order per run; warm, the cache hit keeps the S1 tail
+  // deterministic. The warm import runs inside the journey's fake-clock
+  // window, so any module top-level captures see the same doubles.
+  await import("./core/engine/web-worker/worker-channel.js");
   element.connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
@@ -504,7 +516,7 @@ export async function driveElementTimeline(clock, journeyKey) {
       { target: paragraph, contentRect: { width: 340, height: 27 } },
     ]);
   }
-  record.frameAdvanceCounts.s2 = await pumpQuiescent(60);
+  record.frameAdvanceCounts.s2 = await pumpQuiescent();
   record.paragraphStates.s2 = paragraphState();
 
   // ---- S3: width 320, freeze the clock, disconnect ----
@@ -522,7 +534,7 @@ export async function driveElementTimeline(clock, journeyKey) {
   element.isConnected = false;
   element.disconnectedCallback();
   await new Promise((resolve) => setImmediate(resolve));
-  record.frameAdvanceCounts.s3 = await pumpQuiescent(60);
+  record.frameAdvanceCounts.s3 = await pumpQuiescent();
   record.paragraphStates.s3 = paragraphState();
 
   // ---- S4: reconnect at max width ----
@@ -536,7 +548,7 @@ export async function driveElementTimeline(clock, journeyKey) {
     60,
   );
   if (!record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s4-reconnect")) {
-    record.frameAdvanceCounts.s4 = await pumpQuiescent(60);
+    record.frameAdvanceCounts.s4 = await pumpQuiescent();
   }
   record.paragraphStates.s4 = paragraphState();
 
