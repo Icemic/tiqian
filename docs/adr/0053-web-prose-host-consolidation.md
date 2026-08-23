@@ -401,7 +401,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   15 个 copySelection 断言失败，嵌入后 0 失败。grep 复核
   installTiqianCopyHandler 在源内仅余 copy.js 定义、根 copy.js 名导出与
   copy-fidelity.test.mjs 注释。
-- [ ] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
+- [x] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
   plan 对象，成为绘制规格唯一实现；DomParagraphRenderer 删除。
   产出（B7.1，2026-08-23）：f54e869，`toPreparedParagraphJson(renderEvidence)` 以
   默认省略的可选字段追加 cell 级与段落级绘制证据；默认路径字节不变，schema 仍为
@@ -422,6 +422,13 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   （注音、占位与覆盖层构件）。验证：npm test 349/349（新增 10 条，含无证据精简输出、
   dash 属性、标点属性与断 run、样式增量、latin 着重 italic 正反例、占位流宽、ruby
   比例 ascent、bopomofo 松量与声调字号公式、覆盖层、inlineEdges 优先级）；
+  `:frontend:web:jsBrowserTest` 通过。
+  产出（B7.4，2026-08-23）：00c94aa。ruby 注文 ascent 进 plan：B7.1 序列化补
+  `RubyDecisionInfo.ascent` 字段（注文字面的 declared ascent，来自度量 resolver），
+  prepared-dom-evidence.js 优先读 plan ascent，缺失时退 RubyAscentRatioFallback
+  （fontSize×0.8，只与 stub 度量一致，真字体 ascent 并非 0.8em）。验证：
+  `:layout:jvmTest`（含 LayoutDumpGoldenTest 零 diff，golden 语料无 ruby 证据
+  字段）、npm test 新增 plan ascent 正例与比例回退既有例、
   `:frontend:web:jsBrowserTest` 通过。
 - [x] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。SVG 行间线与着重号、ruby/bopomofo span
@@ -516,6 +523,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   段落全部 prepared 渲染，基准段 24/24，含 CJK dash 的 1 段按
   NoConformingCjkDashGlyph 保持输入原样。
 - [ ] **B9 MarkdownParagraphLowering 迁移**（880 行）。
+  进度（第一步，2026-08-23）：a18a293。降层逻辑移植 npm/core/engine/
+  markdown-lowering.js（IIFE 安装 globalThis.__TiqianMarkdownLowering，嵌入
+  raw-string 约束内），gradle generateMarkdownLoweringBridge 三处接线，
+  WebEnhancerMarkdownLoweringBridge.kt 只做声明。返回 `{ok, lowered|issue}`，
+  classifyRole 经 helpers 回调（策略留 Kotlin，B10 处置）。Kotlin 调用点与实现
+  本步未动，切换随第二步。npm 新增 markdown-lowering-bridge.test.mjs 20 例
+  （投影三模式、run 切分、opaque 对象、失败路径、canonical 快速路径）；
+  `:frontend:web:jsBrowserTest` 与 npm test 通过。
 - [ ] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
 
@@ -673,6 +688,13 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 ### F 收尾
 
 - [ ] **F1 无消费者导出清理与 shared 删除**（`UnusedExportCleanup`）。
+  进度（第一步，2026-08-23）：02be1be。删 digest.js、font-contract.js 与
+  package.json files 条目；删 validatePrecomputedExactFontReplayRuntimeContract
+  别名与 loadedPrecomputedSnapshots 导出，两处测试改用正名
+  （validatePrecomputedExactFontReplayContract 与 isLoadedSnapshotAdopted）。
+  renderPreparedParagraph 与根兼容 re-export 留给 shared 删除后由
+  web-precompute 消费。shared/ 目录删除另行提交（sync:shared 在 B8.3c 拆分后
+  已不复制 markup/evidence 两个子模块，删除优先）。
   验收：Verification 6。
 - [ ] **F2 三包拆分**（`ProseCoreLayering`）：`@tiqian/prose` 拆为 core 与
   web-component 两个 npm 包，连同 ffi 包共三个；依赖方向 web-component → core →
