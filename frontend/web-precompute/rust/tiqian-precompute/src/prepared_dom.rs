@@ -13,10 +13,15 @@ use std::collections::HashMap;
 
 use tiqian::NamedError;
 
-use crate::js_compat::{cmp_utf16, js_int_to_number, js_number_string, js_trim, trunc_sat_i64};
+use crate::js_compat::{
+    cmp_utf16, js_int_to_number, js_max, js_min, js_number_string, js_trim, trunc_sat_i64,
+};
 use crate::json::{json_string, Json};
 use crate::paragraph::utf16_length;
-use crate::plan::{Plan, PlanCell, PlanEndReason, PlanLine};
+use crate::plan::{
+    Plan, PlanBopomofo, PlanBopomofoPlacement, PlanCell, PlanEndReason, PlanInlineEdge, PlanLine,
+    PlanRuby,
+};
 use crate::snapshot_source::{
     js_number_value, js_string_value, normalize_live_semantics, normalize_snapshot_semantics,
     LiveSemanticSpan, SemanticSpan,
@@ -25,6 +30,14 @@ use crate::snapshot_source::{
 const SPACING_EPSILON: f64 = 0.01;
 const RENDER_FLOW_EPSILON_PX: f64 = 0.01;
 const LIVE_SEMANTIC_INDEX_ATTRIBUTE: &str = "data-tq-live-semantic-index";
+/// Fallback annotation ascent ratio, mirroring the Kotlin no-metrics branch.
+const RUBY_ASCENT_RATIO: f64 = 0.8;
+const BOPOMOFO_LANG: &str = "zh-Hant-TW";
+const BOPOMOFO_TONE_TARGET_INK_WIDTH_SCALE: f64 = 0.82;
+const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR: f64 = 0.404;
+const BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_SEMIBOLD: f64 = 0.446;
+const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR: f64 = 0.644;
+const BOPOMOFO_TONE_CARON_INK_WIDTH_EM_SEMIBOLD: f64 = 0.682;
 
 /// One source element of the live replay path; the tag name carries the
 /// validation the js renderer reads off the DOM node. Host capability checks
@@ -110,10 +123,72 @@ struct CellRun {
     punctuation_ink_floor: Option<f64>,
     punctuation_body_width: Option<f64>,
     evidence_render_font_family: Option<String>,
+    /// `cell.inlineObject`: present on inline-object placeholder cells.
+    inline_object_advance: Option<f64>,
+    /// The flow slack the bopomofo annotation occupies when the base cell ends
+    /// the line; zero when no annotation covers the cell.
+    bopomofo_advance_width: f64,
     style_delta: Option<Json>,
     italic_effect: bool,
     style_signature: String,
     punctuation_signature: String,
+}
+
+/// The JS oracle's ordered line children: runs merge as before, but
+/// inline-object cells and annotation boundaries flush the pending run so DOM
+/// order is preserved. Ruby rides absolute positioning and takes no flow.
+enum LineChild {
+    Run(CellRun),
+    InlineObject {
+        cell: CellRun,
+        carrier_margin: f64,
+        semantic_path: Vec<usize>,
+    },
+    Ruby {
+        ruby: PlanRuby,
+        line_top: f64,
+        semantic_path: Vec<usize>,
+    },
+    Bopomofo {
+        z: PlanBopomofo,
+        width: f64,
+        line_top: f64,
+        line_height: f64,
+        semantic_path: Vec<usize>,
+    },
+}
+
+impl LineChild {
+    /// `child.run.naturalWidth + trailingGap`, `child.cell.naturalWidth +
+    /// carrierMargin`, `child.width`, or zero for ruby.
+    fn flow_width(&self) -> f64 {
+        match self {
+            LineChild::Run(run) => run.natural_width + run.trailing_gap,
+            LineChild::InlineObject {
+                cell,
+                carrier_margin,
+                ..
+            } => {
+                cell.natural_width
+                    + if carrier_margin.abs() >= SPACING_EPSILON {
+                        *carrier_margin
+                    } else {
+                        0.0
+                    }
+            }
+            LineChild::Bopomofo { width, .. } => *width,
+            LineChild::Ruby { .. } => 0.0,
+        }
+    }
+
+    fn semantic_path(&self) -> &[usize] {
+        match self {
+            LineChild::Run(run) => &run.semantic_path,
+            LineChild::InlineObject { semantic_path, .. }
+            | LineChild::Ruby { semantic_path, .. }
+            | LineChild::Bopomofo { semantic_path, .. } => semantic_path,
+        }
+    }
 }
 
 enum NodeDraft {
@@ -582,7 +657,19 @@ pub fn render_prepared_paragraph_artifact(
     }
     let render_text_spans = read_render_text_spans(options.render_text_spans, &text_for_semantics)?;
     let (inline_start_by_offset, inline_end_by_offset) =
-        read_inline_box_edges(options.inline_boxes);
+        read_inline_box_edges(&plan.inline_edges, options.inline_boxes);
+    let ruby_by_base_end: HashMap<i64, PlanRuby> = plan
+        .ruby_decisions
+        .iter()
+        .map(|ruby| (normalized_key(f64::from(ruby.base_range_end)), ruby.clone()))
+        .collect();
+    let mut bopomofo_by_base_end: HashMap<i64, Vec<PlanBopomofo>> = HashMap::new();
+    for z in &plan.bopomofo_decisions {
+        bopomofo_by_base_end
+            .entry(normalized_key(f64::from(z.base_range_end)))
+            .or_default()
+            .push(z.clone());
+    }
     let mut style_class_for = options.style_class_for.take();
     let lowered = render_plan(
         &plan,
@@ -591,6 +678,8 @@ pub fn render_prepared_paragraph_artifact(
         &render_text_spans,
         &inline_start_by_offset,
         &inline_end_by_offset,
+        &ruby_by_base_end,
+        &bopomofo_by_base_end,
         &mut style_class_for,
     );
     options.style_class_for = style_class_for;
@@ -693,12 +782,26 @@ fn read_render_text_spans(
     Ok(spans)
 }
 
-/// The inline-box edge sums keyed by offset; `Number()` semantics feed the
-/// sums so missing boxes produce NaN like the js map.
-fn read_inline_box_edges(value: Option<&Json>) -> (HashMap<i64, f64>, HashMap<i64, f64>) {
+/// The inline-box edge sums keyed by offset. The JS oracle's precedence: plan
+/// `inlineEdges` win when present, `options.inlineBoxes` remain the fallback.
+/// `Number()` semantics feed the sums so missing boxes produce NaN like the js
+/// map.
+fn read_inline_box_edges(
+    plan_inline_edges: &[PlanInlineEdge],
+    options_inline_boxes: Option<&Json>,
+) -> (HashMap<i64, f64>, HashMap<i64, f64>) {
     let mut starts: HashMap<i64, f64> = HashMap::new();
     let mut ends: HashMap<i64, f64> = HashMap::new();
-    if let Some(Json::Arr(items)) = value {
+    if !plan_inline_edges.is_empty() {
+        for edge in plan_inline_edges {
+            if let Some(inline_start) = edge.inline_start {
+                *starts.entry(normalized_key(edge.offset)).or_insert(0.0) += inline_start;
+            }
+            if let Some(inline_end) = edge.inline_end {
+                *ends.entry(normalized_key(edge.offset)).or_insert(0.0) += inline_end;
+            }
+        }
+    } else if let Some(Json::Arr(items)) = options_inline_boxes {
         for item in items {
             let (Some(Json::Num(start_key)), Some(Json::Num(end_key))) =
                 (item_field(item, "start"), item_field(item, "end"))
@@ -837,6 +940,8 @@ fn render_plan(
     render_text_spans: &[RenderTextSpan],
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
+    ruby_by_base_end: &HashMap<i64, PlanRuby>,
+    bopomofo_by_base_end: &HashMap<i64, Vec<PlanBopomofo>>,
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
 ) -> Result<PreparedParagraphRender, NamedError> {
     let mut draft = Draft::new();
@@ -856,6 +961,8 @@ fn render_plan(
             inline_start_by_offset,
             inline_end_by_offset,
             &plan.emphasis_ranges,
+            ruby_by_base_end,
+            bopomofo_by_base_end,
             &mut *style_class_for,
         )?;
     }
@@ -901,6 +1008,8 @@ fn render_line(
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
     emphasis_ranges: &[(f64, f64)],
+    ruby_by_base_end: &HashMap<i64, PlanRuby>,
+    bopomofo_by_base_end: &HashMap<i64, Vec<PlanBopomofo>>,
     style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
 ) -> Result<(), NamedError> {
     let height = line.bottom - line.top;
@@ -929,19 +1038,68 @@ fn render_line(
             inline_start_by_offset,
             inline_end_by_offset,
             emphasis_ranges,
+            bopomofo_by_base_end,
         )?);
     }
     for cell in &mut cells {
         cell.semantic_signature = semantics.signature(&cell.semantic_path);
     }
-    let mut runs: Vec<CellRun> = Vec::new();
+    let mut children: Vec<LineChild> = Vec::new();
+    let mut pending_run: Option<CellRun> = None;
     for cell in cells {
-        match runs.last_mut() {
-            Some(pending) if can_merge_prepared_run(pending, &cell) => {
-                merge_prepared_run(pending, &cell)
+        let range_end = cell.range_end;
+        let bopomofo_advance_width = cell.bopomofo_advance_width;
+        let semantic_path = cell.semantic_path.clone();
+        if cell.inline_object_advance.is_some() {
+            if let Some(run) = pending_run.take() {
+                children.push(LineChild::Run(run));
             }
-            _ => runs.push(cell),
+            children.push(LineChild::InlineObject {
+                carrier_margin: cell.trailing_gap,
+                semantic_path,
+                cell,
+            });
+            continue;
         }
+        let mut merged = false;
+        if let Some(pending) = pending_run.as_mut() {
+            if can_merge_prepared_run(pending, &cell) {
+                merge_prepared_run(pending, &cell);
+                merged = true;
+            }
+        }
+        if !merged {
+            if let Some(run) = pending_run.take() {
+                children.push(LineChild::Run(run));
+            }
+            pending_run = Some(cell);
+        }
+        let ruby_at_end = ruby_by_base_end.get(&normalized_key(f64::from(range_end)));
+        let bopomofo_at_end = bopomofo_by_base_end.get(&normalized_key(f64::from(range_end)));
+        if ruby_at_end.is_some() || bopomofo_at_end.is_some() {
+            if let Some(run) = pending_run.take() {
+                children.push(LineChild::Run(run));
+            }
+        }
+        if let Some(ruby) = ruby_at_end {
+            children.push(LineChild::Ruby {
+                ruby: ruby.clone(),
+                line_top: line.top,
+                semantic_path: semantic_path.clone(),
+            });
+        }
+        for z in bopomofo_at_end.iter().flat_map(|list| list.iter()) {
+            children.push(LineChild::Bopomofo {
+                z: z.clone(),
+                width: bopomofo_advance_width,
+                line_top: line.top,
+                line_height: height,
+                semantic_path: semantic_path.clone(),
+            });
+        }
+    }
+    if let Some(run) = pending_run.take() {
+        children.push(LineChild::Run(run));
     }
     let last = line.cells.last();
     let flow_end = last
@@ -962,12 +1120,9 @@ fn render_line(
                 + edge_at(inline_end_by_offset, cell.range_end)
         })
         .sum();
-    let run_flow: f64 = runs
-        .iter()
-        .map(|run| run.natural_width + run.trailing_gap)
-        .sum();
+    let children_flow: f64 = children.iter().map(LineChild::flow_width).sum();
     let expected_flow_width =
-        flow_start + inline_edge_width + run_flow + hyphen_leading_gap + line.hyphen_advance;
+        flow_start + inline_edge_width + children_flow + hyphen_leading_gap + line.hyphen_advance;
     let core_line_width = line.indent + line.visual_width + line.hyphen_advance;
     if (expected_flow_width - core_line_width).abs() > RENDER_FLOW_EPSILON_PX {
         return Err(NamedError(format!(
@@ -1037,9 +1192,28 @@ fn render_line(
     let marker = draft.push_element("span", marker_attributes, false);
     draft.append_child(marker_container, marker);
 
-    for run in &runs {
-        let node = render_run(draft, run, style_class_for)?;
-        let path = run.semantic_path.clone();
+    for child in &children {
+        let path = child.semantic_path().to_vec();
+        let node = match child {
+            LineChild::Run(run) => render_run(draft, run, style_class_for)?,
+            LineChild::InlineObject {
+                cell,
+                carrier_margin,
+                ..
+            } => inline_object_placeholder(draft, cell, *carrier_margin, style_class_for),
+            LineChild::Ruby { ruby, line_top, .. } => {
+                ruby_annotation_span(draft, ruby, *line_top, style_class_for)
+            }
+            LineChild::Bopomofo {
+                z,
+                width,
+                line_top,
+                line_height,
+                ..
+            } => {
+                bopomofo_annotation_span(draft, z, *width, *line_top, *line_height, style_class_for)
+            }
+        };
         let container = draft.semantic_container_for(&path, |index| semantics.wrapper(index));
         draft.append_child(container, node);
     }
@@ -1131,13 +1305,14 @@ fn prepared_cell(
     inline_start_by_offset: &HashMap<i64, f64>,
     inline_end_by_offset: &HashMap<i64, f64>,
     emphasis_ranges: &[(f64, f64)],
+    bopomofo_by_base_end: &HashMap<i64, Vec<PlanBopomofo>>,
 ) -> Result<CellRun, NamedError> {
     let next = line.cells.get(index + 1);
     let trailing_inline_edge = edge_at(inline_end_by_offset, cell.range_end);
     let next_leading_inline_edge = next
         .map(|next| edge_at(inline_start_by_offset, next.range_start))
         .unwrap_or(0.0);
-    let trailing_gap = match next {
+    let raw_trailing_gap = match next {
         Some(next) => {
             next.draw_x
                 - cell.draw_x
@@ -1152,6 +1327,25 @@ fn prepared_cell(
                 - cell.natural_width
                 - trailing_inline_edge
         }
+    };
+    let layout_trailing_gap = if raw_trailing_gap.abs() < SPACING_EPSILON {
+        0.0
+    } else {
+        raw_trailing_gap
+    };
+    let bopomofo_at_end = bopomofo_by_base_end.get(&normalized_key(f64::from(cell.range_end)));
+    let bopomofo_advance_width = match bopomofo_at_end {
+        None => 0.0,
+        Some(_) if next.is_some() => js_max(layout_trailing_gap, 0.0),
+        Some(_) => js_max(
+            cell.advance.unwrap_or(cell.natural_width) - cell.natural_width - trailing_inline_edge,
+            0.0,
+        ),
+    };
+    let trailing_gap = if bopomofo_at_end.is_some() {
+        0.0
+    } else {
+        layout_trailing_gap
     };
     let render_font_families =
         render_font_families_for(render_text_spans, cell.range_start, cell.range_end)?;
@@ -1183,6 +1377,8 @@ fn prepared_cell(
         punctuation_ink_floor: cell.punctuation_ink_floor,
         punctuation_body_width: cell.punctuation_body_width,
         evidence_render_font_family: cell.render_font_family.clone(),
+        inline_object_advance: cell.inline_object,
+        bopomofo_advance_width,
         style_delta: cell.style_delta.clone(),
         italic_effect,
         style_signature: style_signature(cell),
@@ -1433,4 +1629,261 @@ fn render_run(
     let text = draft.push_text(&run.display);
     draft.append_child(element, text);
     Ok(element)
+}
+
+/// `inlineObjectPlaceholder`: the pending placeholder carries the layout-owned
+/// trailing gap as an attribute so the live-DOM swap can rebuild the
+/// renderer's margin without parsing serialized CSS.
+fn inline_object_placeholder(
+    draft: &mut Draft,
+    cell: &CellRun,
+    trailing_gap: f64,
+    style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
+) -> usize {
+    let carries_trailing_margin = trailing_gap.abs() >= SPACING_EPSILON;
+    let mut attributes: Vec<(String, Option<String>)> = vec![
+        (
+            "data-tq-advance".to_string(),
+            Some(js_number_string(cell.natural_width)),
+        ),
+        ("data-tq-geometry".to_string(), Some("true".to_string())),
+        (
+            "data-tq-inline-object".to_string(),
+            Some("pending".to_string()),
+        ),
+        (
+            "data-tq-object-range".to_string(),
+            Some(format!("{}-{}", cell.range_start, cell.range_end)),
+        ),
+        (
+            "data-tq-object-trailing-margin".to_string(),
+            carries_trailing_margin.then(|| js_number_string(trailing_gap)),
+        ),
+        ("data-tq-x".to_string(), Some(js_number_string(cell.draw_x))),
+    ];
+    let mut styles = vec![
+        "display:inline-block!important".to_string(),
+        "box-sizing:border-box!important".to_string(),
+        format!("inline-size:{}!important", px(cell.natural_width)),
+    ];
+    if carries_trailing_margin {
+        styles.push(format!("margin-right:{}!important", px(trailing_gap)));
+    }
+    apply_dynamic_styles(&mut attributes, &styles, style_class_for);
+    draft.push_element("span", attributes, false)
+}
+
+/// `rubyAnnotationSpan`: the ratio-ascent fallback (no canvas in the string
+/// builder); the measured ascent joins only if the plan carries it.
+fn ruby_annotation_span(
+    draft: &mut Draft,
+    ruby: &PlanRuby,
+    line_top: f64,
+    style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
+) -> usize {
+    let font_size = ruby.font_size;
+    let ascent = font_size * RUBY_ASCENT_RATIO;
+    let families = &ruby.font_families;
+    let mut attributes: Vec<(String, Option<String>)> = vec![
+        ("data-tq-geometry".to_string(), Some("true".to_string())),
+        (
+            "data-tq-src".to_string(),
+            Some(format!("（{}）", ruby.text)),
+        ),
+    ];
+    let mut styles = vec!["color:currentColor!important".to_string()];
+    if !families.is_empty() {
+        styles.push(format!(
+            "font-family:{}!important",
+            families
+                .iter()
+                .map(|family| css_string(family))
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+    }
+    styles.push(format!("font-size:{}!important", px(font_size)));
+    styles.push(format!(
+        "font-weight:{}!important",
+        js_number_string(ruby.font_weight)
+    ));
+    styles.push(format!("left:{}!important", px(ruby.center_x)));
+    styles.push("line-height:1!important".to_string());
+    styles.push("position:absolute!important".to_string());
+    styles.push(format!(
+        "top:{}!important",
+        px(ruby.baseline_y - line_top - ascent)
+    ));
+    styles.push("transform:translateX(-50%)!important".to_string());
+    styles.push("white-space:pre!important".to_string());
+    apply_dynamic_styles(&mut attributes, &styles, style_class_for);
+    let span = draft.push_element("span", attributes, false);
+    let text = draft.push_text(&ruby.text);
+    draft.append_child(span, text);
+    span
+}
+
+struct BopomofoPlacementCss {
+    left: f64,
+    top: f64,
+    font_size: f64,
+    line_height: f64,
+}
+
+/// `bopomofoToneInkWidthEm`: interpolates the tone ink width between the
+/// regular and semibold em widths by the normalized weight.
+fn bopomofo_tone_ink_width_em(text: &str, font_weight: f64) -> f64 {
+    let (regular, semibold) = if text == "\u{2c7}" {
+        (
+            BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR,
+            BOPOMOFO_TONE_CARON_INK_WIDTH_EM_SEMIBOLD,
+        )
+    } else {
+        (
+            BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR,
+            BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_SEMIBOLD,
+        )
+    };
+    let t = js_min(js_max((font_weight - 400.0) / 300.0, 0.0), 1.0);
+    regular + (semibold - regular) * t
+}
+
+/// `bopomofoCssPlacement`: Symbol paints at the box, Neutral centers the box
+/// width, every other role is a tone glyph scaled to the target ink width.
+fn bopomofo_css_placement(
+    text: &str,
+    role: &str,
+    font_weight: f64,
+    box_left: f64,
+    box_top: f64,
+    box_width: f64,
+    box_height: f64,
+) -> BopomofoPlacementCss {
+    if role == "Symbol" {
+        return BopomofoPlacementCss {
+            left: box_left,
+            top: box_top,
+            font_size: box_height,
+            line_height: box_width,
+        };
+    }
+    if role == "Neutral" {
+        let font_size = box_width;
+        return BopomofoPlacementCss {
+            left: box_left,
+            top: box_top + (box_height - font_size) / 2.0,
+            font_size,
+            line_height: box_width,
+        };
+    }
+    let ink_width_em = js_max(bopomofo_tone_ink_width_em(text, font_weight), 0.1);
+    let font_size = box_width * BOPOMOFO_TONE_TARGET_INK_WIDTH_SCALE / ink_width_em;
+    BopomofoPlacementCss {
+        left: box_left,
+        top: box_top + (box_height - font_size) / 2.0,
+        font_size,
+        line_height: box_width,
+    }
+}
+
+/// `bopomofoZoneLeft`: the symbol zone edge, or the minimum placement left.
+fn bopomofo_zone_left(placements: &[PlanBopomofoPlacement]) -> f64 {
+    let symbol = placements
+        .iter()
+        .find(|placement| placement.role == "Symbol");
+    if let Some(symbol) = symbol {
+        return symbol.left - symbol.width / 9.0;
+    }
+    if placements.is_empty() {
+        return 0.0;
+    }
+    placements
+        .iter()
+        .map(|placement| placement.left)
+        .fold(f64::INFINITY, js_min)
+}
+
+/// `bopomofoAnnotationSpan`: an inline-block that occupies the consumed flow
+/// slack and positions each glyph in vertical-rl writing mode.
+fn bopomofo_annotation_span(
+    draft: &mut Draft,
+    z: &PlanBopomofo,
+    width: f64,
+    line_top: f64,
+    line_height: f64,
+    style_class_for: &mut Option<&mut dyn FnMut(&str) -> String>,
+) -> usize {
+    let font_weight = z.font_weight;
+    let families = &z.font_families;
+    let placements = &z.placements;
+    let mut attributes: Vec<(String, Option<String>)> = vec![
+        ("data-tq-geometry".to_string(), Some("true".to_string())),
+        ("data-tq-src".to_string(), Some(format!("（{}）", z.text))),
+        ("lang".to_string(), Some(BOPOMOFO_LANG.to_string())),
+    ];
+    let styles = vec![
+        "box-sizing:border-box!important".to_string(),
+        "display:inline-block!important".to_string(),
+        format!("height:{}!important", px(line_height)),
+        format!("line-height:{}!important", px(line_height)),
+        "overflow:visible!important".to_string(),
+        "position:relative!important".to_string(),
+        "user-select:all!important".to_string(),
+        "vertical-align:top!important".to_string(),
+        "-webkit-user-select:all!important".to_string(),
+        "white-space:pre!important".to_string(),
+        format!("width:{}!important", px(width)),
+    ];
+    apply_dynamic_styles(&mut attributes, &styles, style_class_for);
+    let container = draft.push_element("span", attributes, false);
+    let zone_left = bopomofo_zone_left(placements);
+    for placement in placements {
+        let css = bopomofo_css_placement(
+            &placement.text,
+            &placement.role,
+            font_weight,
+            placement.left,
+            placement.top,
+            placement.width,
+            placement.height,
+        );
+        let mut glyph_attributes: Vec<(String, Option<String>)> = vec![
+            ("data-tq-geometry".to_string(), Some("true".to_string())),
+            ("lang".to_string(), Some(BOPOMOFO_LANG.to_string())),
+        ];
+        let mut glyph_styles = vec!["color:currentColor!important".to_string()];
+        if !families.is_empty() {
+            glyph_styles.push(format!(
+                "font-family:{}!important",
+                families
+                    .iter()
+                    .map(|family| css_string(family))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        glyph_styles.push("font-feature-settings:'vert' 1, 'vrt2' 1!important".to_string());
+        glyph_styles.push(format!("font-size:{}!important", px(css.font_size)));
+        glyph_styles.push("font-style:normal!important".to_string());
+        glyph_styles.push(format!(
+            "font-weight:{}!important",
+            js_number_string(font_weight)
+        ));
+        glyph_styles.push(format!("left:{}!important", px(css.left - zone_left)));
+        glyph_styles.push(format!("line-height:{}!important", px(css.line_height)));
+        glyph_styles.push("overflow:visible!important".to_string());
+        glyph_styles.push("pointer-events:none!important".to_string());
+        glyph_styles.push("position:absolute!important".to_string());
+        glyph_styles.push(format!("top:{}!important", px(css.top - line_top)));
+        glyph_styles.push("white-space:pre!important".to_string());
+        glyph_styles.push("display:inline-block!important".to_string());
+        glyph_styles.push("text-orientation:upright!important".to_string());
+        glyph_styles.push("writing-mode:vertical-rl!important".to_string());
+        apply_dynamic_styles(&mut glyph_attributes, &glyph_styles, style_class_for);
+        let glyph = draft.push_element("span", glyph_attributes, false);
+        let glyph_text = draft.push_text(&placement.text);
+        draft.append_child(glyph, glyph_text);
+        draft.append_child(container, glyph);
+    }
+    container
 }

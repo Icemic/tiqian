@@ -24,6 +24,65 @@ pub struct Plan {
     /// `appendParagraphRenderEvidence`; absent plans keep an empty list so the
     /// Latin-in-emphasis italic effect never fires.
     pub emphasis_ranges: Vec<(f64, f64)>,
+    /// `inlineEdges`: plan-level inline edge widths; when non-empty the
+    /// lowerer prefers them over `options.inlineBoxes` exactly like the js
+    /// oracle's precedence branch.
+    pub inline_edges: Vec<PlanInlineEdge>,
+    /// `rubyDecisions`: ruby annotation geometry by base-range end.
+    pub ruby_decisions: Vec<PlanRuby>,
+    /// `bopomofoDecisions`: bopomofo annotation geometry by base-range end.
+    pub bopomofo_decisions: Vec<PlanBopomofo>,
+}
+
+/// One `inlineEdges` entry: `{offset, inlineStart?, inlineEnd?}`. Each
+/// non-null side pushes one box edge at the offset, matching the js
+/// `flatMap` that pairs a present `inlineStart` with `inlineEndPx: 0` and a
+/// present `inlineEnd` with `inlineStartPx: 0`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanInlineEdge {
+    pub offset: f64,
+    pub inline_start: Option<f64>,
+    pub inline_end: Option<f64>,
+}
+
+/// One `rubyDecisions` entry: `{baseRangeStart, baseRangeEnd, text, centerX,
+/// baselineY, fontSize, fontWeight, fontFamilies?}`. The lowerer renders the
+/// annotation span with the ratio ascent fallback.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanRuby {
+    pub base_range_start: i32,
+    pub base_range_end: i32,
+    pub text: String,
+    pub center_x: f64,
+    pub baseline_y: f64,
+    pub font_size: f64,
+    pub font_weight: f64,
+    pub font_families: Vec<String>,
+}
+
+/// One `bopomofoDecisions` entry: `{baseRangeStart, baseRangeEnd, text,
+/// fontWeight, fontFamilies?, placements}`. The lowerer consumes the base
+/// cell's flow slack as the annotation width.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanBopomofo {
+    pub base_range_start: i32,
+    pub base_range_end: i32,
+    pub text: String,
+    pub font_weight: f64,
+    pub font_families: Vec<String>,
+    pub placements: Vec<PlanBopomofoPlacement>,
+}
+
+/// One bopomofo glyph placement; `role` is the Kotlin enum name
+/// (`Symbol`, `Tone`, `Neutral`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanBopomofoPlacement {
+    pub text: String,
+    pub role: String,
+    pub left: f64,
+    pub top: f64,
+    pub width: f64,
+    pub height: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +135,12 @@ pub struct PlanCell {
     pub punctuation_body_width: Option<f64>,
     /// `latin`: the cluster shaped under a Latin font role.
     pub latin: bool,
+    /// `advance`: the explicit flow advance of the cluster; the bopomofo slack
+    /// consumes it when the base cell ends the line.
+    pub advance: Option<f64>,
+    /// `inlineObject`: the cell is an inline-object placeholder carrying this
+    /// advance as its flow width.
+    pub inline_object: Option<f64>,
     /// `style`: the paint-relevant style delta object, kept as parsed so the
     /// renderer replays its members and merge signatures the way js reads
     /// `cell.style`; absent or JSON null both mean no delta.
@@ -127,11 +192,109 @@ impl Plan {
             }
             None => Vec::new(),
         };
+        let inline_edges = match find(&fields, "inlineEdges") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanInlineEdge::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(NamedError("InvalidPlanJsonField:inlineEdges".to_string())),
+            None => Vec::new(),
+        };
+        let ruby_decisions = match find(&fields, "rubyDecisions") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanRuby::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(NamedError("InvalidPlanJsonField:rubyDecisions".to_string())),
+            None => Vec::new(),
+        };
+        let bopomofo_decisions = match find(&fields, "bopomofoDecisions") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanBopomofo::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => {
+                return Err(NamedError(
+                    "InvalidPlanJsonField:bopomofoDecisions".to_string(),
+                ))
+            }
+            None => Vec::new(),
+        };
         Ok(Plan {
             width,
             height,
             lines,
             emphasis_ranges,
+            inline_edges,
+            ruby_decisions,
+            bopomofo_decisions,
+        })
+    }
+}
+
+impl PlanInlineEdge {
+    fn from_json(value: &Json) -> Result<PlanInlineEdge, NamedError> {
+        let fields = object_value(value, "inlineEdges")?;
+        Ok(PlanInlineEdge {
+            offset: number_field(&fields, "offset").map_err(field_error("offset"))?,
+            inline_start: optional_number_field(&fields, "inlineStart")?,
+            inline_end: optional_number_field(&fields, "inlineEnd")?,
+        })
+    }
+}
+
+impl PlanRuby {
+    fn from_json(value: &Json) -> Result<PlanRuby, NamedError> {
+        let fields = object_value(value, "rubyDecisions")?;
+        Ok(PlanRuby {
+            base_range_start: integer_field(&fields, "baseRangeStart")
+                .map_err(field_error("baseRangeStart"))?,
+            base_range_end: integer_field(&fields, "baseRangeEnd")
+                .map_err(field_error("baseRangeEnd"))?,
+            text: string_field(&fields, "text").map_err(field_error("text"))?,
+            center_x: number_field(&fields, "centerX").map_err(field_error("centerX"))?,
+            baseline_y: number_field(&fields, "baselineY").map_err(field_error("baselineY"))?,
+            font_size: number_field(&fields, "fontSize").map_err(field_error("fontSize"))?,
+            font_weight: number_field(&fields, "fontWeight").map_err(field_error("fontWeight"))?,
+            font_families: optional_string_array_field(&fields, "fontFamilies")?,
+        })
+    }
+}
+
+impl PlanBopomofo {
+    fn from_json(value: &Json) -> Result<PlanBopomofo, NamedError> {
+        let fields = object_value(value, "bopomofoDecisions")?;
+        let placements = match find(&fields, "placements") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .map(PlanBopomofoPlacement::from_json)
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err(NamedError("InvalidPlanJsonField:placements".to_string())),
+            None => Vec::new(),
+        };
+        Ok(PlanBopomofo {
+            base_range_start: integer_field(&fields, "baseRangeStart")
+                .map_err(field_error("baseRangeStart"))?,
+            base_range_end: integer_field(&fields, "baseRangeEnd")
+                .map_err(field_error("baseRangeEnd"))?,
+            text: string_field(&fields, "text").map_err(field_error("text"))?,
+            font_weight: number_field(&fields, "fontWeight").map_err(field_error("fontWeight"))?,
+            font_families: optional_string_array_field(&fields, "fontFamilies")?,
+            placements,
+        })
+    }
+}
+
+impl PlanBopomofoPlacement {
+    fn from_json(value: &Json) -> Result<PlanBopomofoPlacement, NamedError> {
+        let fields = object_value(value, "placements")?;
+        Ok(PlanBopomofoPlacement {
+            text: string_field(&fields, "text").map_err(field_error("text"))?,
+            role: string_field(&fields, "role").map_err(field_error("role"))?,
+            left: number_field(&fields, "left").map_err(field_error("left"))?,
+            top: number_field(&fields, "top").map_err(field_error("top"))?,
+            width: number_field(&fields, "width").map_err(field_error("width"))?,
+            height: number_field(&fields, "height").map_err(field_error("height"))?,
         })
     }
 }
@@ -224,6 +387,8 @@ impl PlanCell {
             punctuation_ink_floor: optional_number_field(&fields, "punctuationInkFloor")?,
             punctuation_body_width: optional_number_field(&fields, "punctuationBodyWidth")?,
             latin: optional_bool_field(&fields, "latin")?.unwrap_or(false),
+            advance: optional_number_field(&fields, "advance")?,
+            inline_object: optional_number_field(&fields, "inlineObject")?,
             style_delta,
         })
     }
@@ -295,6 +460,24 @@ fn optional_bool_field(fields: &[(String, Json)], key: &str) -> Result<Option<bo
     match find(fields, key) {
         Some(Json::Null) | None => Ok(None),
         Some(Json::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
+    }
+}
+
+/// `fontFamilies`: an array of strings, absent or JSON null reads as empty.
+fn optional_string_array_field(
+    fields: &[(String, Json)],
+    key: &str,
+) -> Result<Vec<String>, NamedError> {
+    match find(fields, key) {
+        Some(Json::Arr(items)) => items
+            .iter()
+            .map(|item| match item {
+                Json::Str(text) => Ok(text.clone()),
+                _ => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
+            })
+            .collect(),
+        Some(Json::Null) | None => Ok(Vec::new()),
         Some(_) => Err(NamedError(format!("InvalidPlanJsonField:{key}"))),
     }
 }
@@ -475,8 +658,13 @@ mod tests {
             assert!(cell.punctuation_ink_floor.is_none());
             assert!(cell.punctuation_body_width.is_none());
             assert!(!cell.latin);
+            assert!(cell.advance.is_none());
+            assert!(cell.inline_object.is_none());
             assert!(cell.style_delta.is_none());
         }
+        assert!(plan.inline_edges.is_empty());
+        assert!(plan.ruby_decisions.is_empty());
+        assert!(plan.bopomofo_decisions.is_empty());
     }
 
     #[test]
@@ -505,5 +693,75 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(error.name(), "InvalidPlanJsonField:emphasisRanges");
+    }
+
+    fn line_children_plan() -> String {
+        "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":80.0,\"height\":27.0,\
+\"inlineEdges\":[{\"offset\":1,\"inlineStart\":3},{\"offset\":2,\"inlineEnd\":4}],\
+\"rubyDecisions\":[{\"baseRangeStart\":0,\"baseRangeEnd\":1,\"text\":\"Běijīng\",\
+\"centerX\":9.0,\"baselineY\":5.0,\"fontSize\":10.0,\"fontWeight\":500,\
+\"fontFamilies\":[\"Ruby Face\"]}],\
+\"bopomofoDecisions\":[{\"baseRangeStart\":0,\"baseRangeEnd\":1,\"text\":\"ㄓˇ\",\
+\"fontWeight\":500,\"fontFamilies\":[\"Bopomofo Face\"],\
+\"placements\":[{\"text\":\"ㄓ\",\"left\":0.0,\"top\":2.0,\"width\":6.0,\"height\":8.0,\
+\"role\":\"Symbol\"},{\"text\":\"ˇ\",\"left\":6.0,\"top\":2.0,\"width\":4.0,\
+\"height\":8.0,\"role\":\"Tone\"}]}],\
+\"lines\":[{\"rangeStart\":0,\"rangeEnd\":2,\"top\":0.0,\"bottom\":27.0,\"baseline\":20.0,\
+\"indent\":0.0,\"visualWidth\":36.0,\"hyphenAdvance\":0.0,\"endReason\":\"ParagraphEnd\",\
+\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"\\uFFFC\",\"display\":\"\\uFFFC\",\
+\"drawX\":0.0,\"naturalWidth\":18.0,\"leadingLayoutAdvance\":0.0,\"inlineObject\":18.0,\
+\"advance\":24.0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"字\",\"display\":\"字\",\
+\"drawX\":18.0,\"naturalWidth\":18.0,\"leadingLayoutAdvance\":0.0}]}]}"
+            .to_string()
+    }
+
+    #[test]
+    fn reads_line_children_fields_when_present() {
+        let plan = Plan::from_json_str(&line_children_plan()).unwrap();
+        assert_eq!(plan.inline_edges.len(), 2);
+        assert_eq!(plan.inline_edges[0].offset, 1.0);
+        assert_eq!(plan.inline_edges[0].inline_start, Some(3.0));
+        assert_eq!(plan.inline_edges[0].inline_end, None);
+        assert_eq!(plan.inline_edges[1].offset, 2.0);
+        assert_eq!(plan.inline_edges[1].inline_start, None);
+        assert_eq!(plan.inline_edges[1].inline_end, Some(4.0));
+        let ruby = &plan.ruby_decisions[0];
+        assert_eq!((ruby.base_range_start, ruby.base_range_end), (0, 1));
+        assert_eq!(ruby.text, "Běijīng");
+        assert_eq!(ruby.center_x, 9.0);
+        assert_eq!(ruby.baseline_y, 5.0);
+        assert_eq!(ruby.font_size, 10.0);
+        assert_eq!(ruby.font_weight, 500.0);
+        assert_eq!(ruby.font_families, vec!["Ruby Face".to_string()]);
+        let bopomofo = &plan.bopomofo_decisions[0];
+        assert_eq!((bopomofo.base_range_start, bopomofo.base_range_end), (0, 1));
+        assert_eq!(bopomofo.text, "ㄓˇ");
+        assert_eq!(bopomofo.font_weight, 500.0);
+        assert_eq!(bopomofo.font_families, vec!["Bopomofo Face".to_string()]);
+        assert_eq!(bopomofo.placements.len(), 2);
+        assert_eq!(bopomofo.placements[1].role, "Tone");
+        assert_eq!(bopomofo.placements[1].left, 6.0);
+        let first = &plan.lines[0].cells[0];
+        assert_eq!(first.inline_object, Some(18.0));
+        assert_eq!(first.advance, Some(24.0));
+    }
+
+    #[test]
+    fn rejects_line_children_field_damage() {
+        let plan = line_children_plan();
+        let error =
+            Plan::from_json_str(&plan.replace("\"offset\":1", "\"offset\":\"1\"")).unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:offset");
+        let error =
+            Plan::from_json_str(&plan.replace("\"centerX\":9.0", "\"centerX\":\"9\"")).unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:centerX");
+        let error = Plan::from_json_str(
+            &plan.replace("\"fontFamilies\":[\"Ruby Face\"]", "\"fontFamilies\":7"),
+        )
+        .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:fontFamilies");
+        let error = Plan::from_json_str(&plan.replace("\"advance\":24.0", "\"advance\":\"24\""))
+            .unwrap_err();
+        assert_eq!(error.name(), "InvalidPlanJsonField:advance");
     }
 }

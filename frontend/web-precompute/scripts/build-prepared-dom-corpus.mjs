@@ -387,6 +387,78 @@ const cases = [
     locale: "zh-Hans",
     options: {},
   },
+  {
+    name: "inline-object-placeholder-keeps-flow",
+    plan: plan([
+      line([
+        cell(0, 1, "\uFFFC", "\uFFFC", 0, 18, { inlineObject: 18 }),
+        cell(1, 2, "字", "字", 18, 18),
+      ], { bottom: 27, baseline: 20, visualWidth: 36 }),
+    ], 27),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "plan-inline-edges-precedence",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "前", "前", 0, 18),
+          cell(1, 2, "后", "后", 22, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 40 }),
+      ], 27),
+      inlineEdges: [{ offset: 1, inlineEnd: 4 }],
+    },
+    locale: "zh-Hans",
+    options: {
+      inlineBoxes: [{ start: 1, end: 1, inlineStartPx: 0, inlineEndPx: 10 }],
+    },
+  },
+  {
+    name: "ruby-annotation",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "京", "京", 0, 18),
+        ], { bottom: 27, baseline: 20, visualWidth: 18 }),
+      ], 27),
+      rubyDecisions: [{
+        baseRangeStart: 0,
+        baseRangeEnd: 1,
+        text: "Běijīng",
+        fontSize: 10,
+        fontWeight: 500,
+        centerX: 9,
+        baselineY: 5,
+        fontFamilies: ["Ruby Face"],
+      }],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    name: "bopomofo-annotation",
+    plan: {
+      ...plan([
+        line([
+          cell(0, 1, "只", "只", 0, 18, { advance: 24 }),
+        ], { bottom: 27, baseline: 20, visualWidth: 24 }),
+      ], 27),
+      bopomofoDecisions: [{
+        baseRangeStart: 0,
+        baseRangeEnd: 1,
+        text: "ㄓˇ",
+        fontWeight: 500,
+        fontFamilies: ["Bopomofo Face"],
+        placements: [
+          { role: "Symbol", text: "ㄓ", left: 0, top: 2, width: 6, height: 8 },
+          { role: "Tone", text: "ˇ", left: 6, top: 2, width: 4, height: 8 },
+        ],
+      }],
+    },
+    locale: "zh-Hans",
+    options: {},
+  },
 ];
 
 const fixture = { cases: [] };
