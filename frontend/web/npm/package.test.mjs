@@ -36,6 +36,7 @@ test("published package includes the generated runtime and no repository-only bi
   assert.deepEqual(Object.keys(manifest.exports).sort(), [
     ".",
     "./element",
+    "./prepared-dom",
     "./snapshot-client",
     "./styles.css",
   ]);

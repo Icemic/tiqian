@@ -11,10 +11,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { addon } from "./load.js";
 import { createCacheBridge, type CacheBridge } from "./cache.js";
-import { renderPreparedParagraph as sharedRenderPreparedParagraph } from "../shared/core/sampler/snapshot/prepared-dom.js";
+import { renderPreparedParagraph as sharedRenderPreparedParagraph } from "@tiqian/prose/prepared-dom";
 
 const SHARED_RUNTIME_STYLE = readFileSync(
-  new URL("../shared/styles.css", import.meta.url),
+  new URL(import.meta.resolve("@tiqian/prose/styles.css")),
   "utf8",
 );
 const URL_SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/iu;

@@ -68,12 +68,11 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
+    "link:prose": "node ./link-prose.mjs",
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.ts\"",
     "debug:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon --platform $(neon current-platform) < cargo.log",
-    "build:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --release --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon < cargo.log",
-    "sync:shared": "mkdir -p shared/core/sampler/snapshot && cp ../../web/npm/core/sampler/snapshot/prepared-dom.js ../../web/npm/core/sampler/snapshot/snapshot-source.js shared/core/sampler/snapshot/ && cp ../../web/npm/snapshot-schema.js ../../web/npm/styles.css shared/ && rm -f shared/prepared-dom.js shared/snapshot-source.js",
-    "check:shared": "npm run sync:shared && git diff --exit-code -- shared"
+    "build:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --release --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon < cargo.log"
   },
   "neon": {
     "type": "library",
@@ -90,11 +89,11 @@
   "files": [
     "LICENSE",
     "README.md",
-    "lib",
-    "shared"
+    "lib"
   ],
   "dependencies": {
-    "@neon-rs/load": "^0.1.82"
+    "@neon-rs/load": "^0.1.82",
+    "@tiqian/prose": "0.1.0-alpha.5"
   },
   "optionalDependencies": {
     "@tiqian/precompute-darwin-arm64": "0.1.0-alpha.3",

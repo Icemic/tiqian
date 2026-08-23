@@ -20,7 +20,7 @@ import {
 } from "./precompute.js";
 
 const SHARED_RUNTIME_STYLE = readFileSync(
-  new URL("../shared/styles.css", import.meta.url),
+  new URL(import.meta.resolve("@tiqian/prose/styles.css")),
   "utf8",
 );
 
