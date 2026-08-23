@@ -33,6 +33,7 @@ import { compile } from "svelte/compiler";
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const npmDir = join(repoRoot, "frontend/web/npm");
+const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
 const nodeModules = join(webDemoDir, "node_modules");
 
 const demoPort = 8995;
@@ -373,7 +374,21 @@ function startFixtureServer(svelteComponents) {
     };
     const sendFile = async (file, type) => {
       const data = await readFile(file).catch(() => null);
-      if (data) send(data, type);
+      if (data) {
+        // Module workers do not see the document import map, so the dev-tree
+        // layout worker gets its bare "@tiqian/ffi" import rewritten to the
+        // absolute /npm-ffi/ URL served below.
+        if (file === join(npmDir, "layout-worker.js")) {
+          const source = data.toString("utf8");
+          const occurrences = source.split('from "@tiqian/ffi"').length - 1;
+          assert.ok(occurrences <= 1, `unexpected engine import count ${occurrences}`);
+          if (occurrences === 1) {
+            send(source.replace('from "@tiqian/ffi"', 'from "/npm-ffi/Tiqian-tiqian-ffi-js.mjs"'), type);
+            return;
+          }
+        }
+        send(data, type);
+      }
       else {
         res.statusCode = 404;
         res.end("not found");
@@ -454,6 +469,11 @@ function startFixtureServer(svelteComponents) {
       if (path.startsWith("/clsx/")) {
         const rest = path.slice("/clsx/".length);
         await sendFile(join(nodeModules, "clsx", rest), "text/javascript");
+        return;
+      }
+      if (path.startsWith("/npm-ffi/")) {
+        const rest = path.slice("/npm-ffi/".length);
+        await sendFile(join(ffiRuntimeDir, rest), "text/javascript");
         return;
       }
       if (path.startsWith("/npm/")) {

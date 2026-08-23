@@ -14,11 +14,6 @@ const RUNTIMES = [
     marker: "TiqianWeb",
     forbiddenMarkers: ["__TiqianWebFontShaping", "WebAssembly"],
   },
-  {
-    directory: "precompute-runtime/",
-    path: "precompute-runtime/Tiqian-tiqian-ffi-js.mjs",
-    marker: "precomputePlainParagraph",
-  },
 ];
 
 function fail(message) {

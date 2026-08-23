@@ -29,7 +29,7 @@ import {
   mergeSerializedSourceBoundaries,
   workerExactSubsetSourceBoundaries,
 } from "../font-face-boundaries.js";
-import { precomputeParagraph } from "../precompute-runtime/Tiqian-tiqian-ffi-js.mjs";
+import { precomputeParagraph } from "@tiqian/ffi";
 
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(BENCH_DIR, "fixtures", "corpus");

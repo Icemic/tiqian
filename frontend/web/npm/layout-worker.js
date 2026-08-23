@@ -5,7 +5,7 @@ import {
 } from "./core/sampler/font-face-boundaries.js";
 import { parseSnapshotManifest } from "./snapshot-manifest.js";
 import { snapshotTablesFromBytes } from "./snapshot-tables.js";
-import { precomputeParagraph } from "./precompute-runtime/Tiqian-tiqian-ffi-js.mjs";
+import { precomputeParagraph } from "@tiqian/ffi";
 
 const sessions = new Map();
 

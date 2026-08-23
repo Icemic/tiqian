@@ -38,22 +38,9 @@ tasks.named<ProcessResources>("jsProcessResources") {
 tasks.register<Sync>("assembleNpmPackage") {
     group = "distribution"
     description = "Builds the @tiqian/prose ESM package runtime."
-    dependsOn("jsBrowserProductionWebpack", "assemblePrecomputeNpmRuntime")
+    dependsOn("jsBrowserProductionWebpack")
     from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable")) {
         include("tiqian-web.js")
     }
     into(layout.projectDirectory.dir("npm/runtime"))
-}
-
-tasks.register<Sync>("assemblePrecomputeNpmRuntime") {
-    group = "distribution"
-    description = "Builds the Node-only engine runtime for the prose layout worker."
-    dependsOn(":ffi:js:jsProductionExecutableCompileSync")
-    from(
-        project(":ffi:js")
-            .layout.buildDirectory.dir("compileSync/js/main/productionExecutable/kotlin"),
-    ) {
-        include("*.mjs")
-    }
-    into(layout.projectDirectory.dir("npm/precompute-runtime"))
 }

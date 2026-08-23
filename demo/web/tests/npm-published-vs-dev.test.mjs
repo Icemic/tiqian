@@ -11,6 +11,7 @@ import { inflateSync } from "node:zlib";
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const devPkgDir = join(repoRoot, "frontend/web/npm");
+const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
 
 // The published release and the working tree are served through the same
 // static server and import map, so the only variable between the two pages is
@@ -233,6 +234,13 @@ function startDemoServer(port, pkgDir) {
       if (path === "/main.js" || path === "/index.css") {
         file = join(webDemoDir, path.slice(1));
         if (path.endsWith(".css")) type = "text/css";
+      } else if (path.startsWith("/ffi/")) {
+        // Module workers do not see the document import map, so the dev-tree
+        // layout worker gets its bare "@tiqian/ffi" import rewritten below to
+        // this absolute URL. The published side predates the dependency and
+        // keeps its relative precompute-runtime import.
+        const rest = path.slice("/ffi/".length);
+        file = join(ffiRuntimeDir, rest);
       } else if (path.startsWith("/frontend/web/npm/")) {
         const rest = path.slice("/frontend/web/npm/".length);
         file = join(pkgDir, rest);
@@ -240,6 +248,16 @@ function startDemoServer(port, pkgDir) {
       }
       const data = file ? await readFile(file).catch(() => null) : null;
       if (data) {
+        if (path === "/frontend/web/npm/layout-worker.js") {
+          const source = data.toString("utf8");
+          const occurrences = source.split('from "@tiqian/ffi"').length - 1;
+          if (occurrences > 1) throw new Error(`unexpected engine import count ${occurrences}`);
+          if (occurrences === 1) {
+            res.setHeader("content-type", type);
+            res.end(source.replace('from "@tiqian/ffi"', 'from "/ffi/Tiqian-tiqian-ffi-js.mjs"'));
+            return;
+          }
+        }
         res.setHeader("content-type", type);
         res.end(data);
         return;

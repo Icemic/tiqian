@@ -16,7 +16,11 @@ test("published package includes the generated runtime and no repository-only bi
   assert.ok(manifest.files.includes("LICENSE"));
   assert.ok(manifest.files.includes("README.md"));
   assert.ok(manifest.files.includes("runtime/"));
-  assert.ok(manifest.files.includes("precompute-runtime/"));
+  assert.equal(
+    manifest.files.includes("precompute-runtime/"),
+    false,
+    "the engine runtime ships as @tiqian/ffi instead",
+  );
   assert.ok(manifest.files.includes("browser-font-replay.js"));
   assert.ok(manifest.files.includes("browser-fonts.js"));
   assert.ok(manifest.files.includes("font-face-boundaries.js"));
@@ -37,7 +41,7 @@ test("published package includes the generated runtime and no repository-only bi
   ]);
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.exports["./build-runtime"], undefined);
-  assert.equal(manifest.dependencies, undefined);
+  assert.deepEqual(manifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
   for (const removed of ["precompute.js", "precompute-html.js", "precompute-fonts.js", "precompute-node-fonts.js"]) {
     assert.equal(manifest.files.includes(removed), false, `${removed} must not ship`);
   }
@@ -69,6 +73,21 @@ test("the release helper derives the repository tag and commit subject from one 
   assert.throws(() => normalizeReleaseVersion("0.1.0+local"), /InvalidReleaseVersion/u);
 });
 
+test("the ffi release workflow mirrors the prose one for the engine package", async () => {
+  const workflow = await readFile(
+    new URL("../../../.github/workflows/publish-ffi.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /tags:\s*\n\s*- "@tiqian\/ffi@\*"/u);
+  assert.match(workflow, /working-directory: ffi\/js\/npm/u);
+  assert.match(workflow, /TIQIAN_RELEASE_ARTIFACT_DIR/u);
+  assert.match(workflow, /tiqian-ffi-release/u);
+  assert.match(workflow, /npm publish "\$\{tarball\}" --ignore-scripts --access public --tag alpha/u);
+  assert.match(workflow, /npm dist-tag add "@tiqian\/ffi@\$\{RELEASE_VERSION\}" latest/u);
+  assert.match(workflow, /tags\.alpha !== version \|\| tags\.latest !== version/u);
+});
+
 test("the release workflow publishes one verified artifact and synchronizes both dist-tags", async () => {
   const workflow = await readFile(
     new URL("../../../.github/workflows/publish-prose.yml", import.meta.url),
@@ -84,28 +103,25 @@ test("the release workflow publishes one verified artifact and synchronizes both
   assert.match(workflow, /tags\.alpha !== version \|\| tags\.latest !== version/u);
 });
 
-test("the release verifier accepts both assembled Kotlin/JS runtimes", async () => {
+test("the release verifier accepts the assembled Kotlin/JS runtime", async () => {
   const { verifyPackage } = await import("./verify-package.mjs");
   const artifacts = await verifyPackage();
 
   assert.deepEqual(
     artifacts.map((artifact) => artifact.path),
-    [
-      "runtime/tiqian-web.js",
-      "precompute-runtime/Tiqian-tiqian-ffi-js.mjs",
-    ],
+    ["runtime/tiqian-web.js"],
   );
   assert.ok(artifacts.every((artifact) => artifact.size > 8));
 });
 
-test("the release build clears both Kotlin/JS package targets and bypasses build cache", async () => {
+test("the release build clears the Kotlin/JS package target and bypasses build cache", async () => {
   const source = await readFile(new URL("./build-runtime.mjs", import.meta.url), "utf8");
 
   assert.match(source, /process\.platform === "win32"/u);
   assert.match(source, /"\.\.\/\.\.\/\.\.\/gradlew\.bat"/u);
   assert.match(source, /process\.env\.ComSpec/u);
   assert.match(source, /\["\/d", "\/c", "call", gradleWrapper, \.\.\.gradleArguments\]/u);
-  assert.match(source, /":ffi:js:clean"/u);
+  assert.doesNotMatch(source, /ffi:js/u);
   assert.match(source, /":frontend:web:clean"/u);
   assert.match(source, /":frontend:web:assembleNpmPackage"/u);
   assert.match(source, /"--no-build-cache"/u);
@@ -203,6 +219,8 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /lazy-capabilities/u);
   assert.doesNotMatch(apiSource, /lazy-capabilities/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-fonts\.js|harfbuzzjs|woff2-encoder/u);
+  assert.match(layoutWorkerSource, /from "@tiqian\/ffi"/u);
+  assert.doesNotMatch(layoutWorkerSource, /precompute-runtime/u);
   assert.match(layoutWorkerSource, /workerExactSubsetSourceBoundaries\(session\.faces, request\)/u);
   assert.doesNotMatch(browserFontsSource, /harfbuzzjs|woff2-encoder/u);
   assert.doesNotMatch(elementSource, /tiqian:retry-cjk-dash/u);
