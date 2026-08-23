@@ -333,13 +333,13 @@ jobs:
       # versions against the precompute and prose manifests), so they run
       # before the swap flips names and versions.
       - name: Install and test @tiqian/astro
-        working-directory: platforms/web/frontend/integrations/astro
+        working-directory: frontend/web/integrations/astro
         run: |
           npm install --no-audit --no-fund
           npm test
 
       - name: Install and test @tiqian/sveltekit
-        working-directory: platforms/web/frontend/integrations/sveltekit
+        working-directory: frontend/web/integrations/sveltekit
         run: |
           npm install --no-audit --no-fund
           npm test
@@ -358,7 +358,7 @@ jobs:
       # The swapped tree fails the manifest assertions above by design; pack
       # without scripts and rely on the pre-swap test runs.
       - name: Pack both integrations
-        working-directory: platforms/web/frontend/integrations
+        working-directory: frontend/web/integrations
         shell: bash
         run: |
           set -euo pipefail
@@ -377,7 +377,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: integration-packages
-          path: platforms/web/frontend/integrations/pack-output/*.tgz
+          path: frontend/web/integrations/pack-output/*.tgz
           if-no-files-found: error
           retention-days: 7
 

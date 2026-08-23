@@ -1,4 +1,4 @@
-//! Source-boundary port of `platforms/web/frontend/npm/font-face-boundaries.js`
+//! Source-boundary port of `frontend/web/npm/font-face-boundaries.js`
 //! (ADR 0050). The descriptor matching primitives of the same JS file live in
 //! `font_face.rs` and `selection.rs`; this module keeps the boundary scan
 //! itself: the exact-face run boundaries the layout core consumes, the Worker

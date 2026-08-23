@@ -53,7 +53,7 @@ include(
     ":platforms:android:view",
     ":platforms:android:benchmark",
     ":platforms:web:shaping",
-    ":platforms:web:frontend",
+    ":frontend:web",
     ":platforms:apple:shaping",
     ":platforms:apple:frontend",
     ":platforms:apple:frontend:coretext-render",

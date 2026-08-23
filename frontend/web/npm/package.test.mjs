@@ -71,7 +71,7 @@ test("the release helper derives the repository tag and commit subject from one 
 
 test("the release workflow publishes one verified artifact and synchronizes both dist-tags", async () => {
   const workflow = await readFile(
-    new URL("../../../../.github/workflows/publish-prose.yml", import.meta.url),
+    new URL("../../../.github/workflows/publish-prose.yml", import.meta.url),
     "utf8",
   );
 

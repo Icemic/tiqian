@@ -52,3 +52,10 @@
   artifactId 与 JS 输出名显式，重名无冲突。
 - engine 的 `jvmTest` 对 `:platforms:jvm:shaping` / `:platforms:jvm:skia` / `:test-support` 形成
   测试作用域的反向依赖边；任务图仍是 DAG，Gradle 正常处理。
+
+## Amendment (2026-08-23)
+
+Web 前端迁回 `frontend/web`。按平台分组的迁移与 Losses 当时开着的 PR #10
+（web 平台集成架构重构，150 文件）冲突，且 web 栈被劈成 `frontend/`（precompute、rust）
+与 `platforms/web/` 两半。恢复后整个 web 域重新聚在 `frontend/` 下；web 域的最终布局
+（含 `platforms/web/shaping` 的去留）随 PR #10 的架构与 Losses 商定后另定。

@@ -38,10 +38,10 @@
 ./gradlew :demo:android:assembleDebug
 ./gradlew runComposeDemo
 
-./gradlew :platforms:web:frontend:jsBrowserTest
+./gradlew :frontend:web:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :platforms:web:frontend:assembleNpmPackage
-(cd platforms/web/frontend/npm && npm test)
+./gradlew :frontend:web:assembleNpmPackage
+(cd frontend/web/npm && npm test)
 ```
 
 Layout report 位于
@@ -67,7 +67,7 @@ Layout report 位于
 - **平台 shaping**：shaping 契约在 `engine`；`platforms/jvm/{shaping,skia}`、
   `platforms/android/{shaping,native-font}`、`platforms/web/shaping`、
   `platforms/apple/shaping` 提供各平台实现。
-- **前端**：`platforms/compose/{compose,material3}`、`platforms/web/frontend`、
+- **前端**：`platforms/compose/{compose,material3}`、`frontend/web`、
   `platforms/android/view`、`platforms/apple/frontend` 只消费布局结果并呈现。
 - **FFI**：`ffi/js`、`ffi/native` 把 `engine` 暴露为 JS / packed C ABI（Rust 侧 `frontend/rust`、
   `frontend/web-precompute` 由 Losses 维护，不在本重组范围）。

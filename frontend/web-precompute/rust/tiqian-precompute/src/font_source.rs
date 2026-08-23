@@ -1,5 +1,5 @@
 //! Font source decode (ADR 0050: Rust font session replicating
-//! `platforms/web/frontend/npm/precompute-fonts.js`).
+//! `frontend/web/npm/precompute-fonts.js`).
 //!
 //! Responsibilities here end at bytes: WOFF2 decompression, font-collection
 //! rejection, and the two SHA-256 digests the face evidence carries. Face
