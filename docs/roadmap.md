@@ -81,6 +81,23 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   换运行仓库 owner 的 scope（GitHub Packages 要求 npm scope 等于 owner，canonical
   仓库为 @tiqian-cjk）发到 GitHub Packages 的 snapshot dist-tag，发布后还原 manifest；
   npmjs.org 的 release 流程不变。
+- `MeasureIntervalPlanTable`：断点集随行长的阶跃表与换带活 DOM 增量补丁（2026-08-22
+  设计讨论，取舍与开工门槛见
+  [ADR 0054](adr/0054-measure-quantization-and-band-table.md)）。plan 对行长的依赖是
+  阶跃函数：格开启时区间由字格量化给定（每行字数 N，
+  理论范围 3..48 字，可达集由版心 CSS 决定）；格关闭（精确像素行长、拉丁正文）时区间
+  边界是临界宽度，即令前缀能否容纳下一 token 发生改变的宽度值，上界 O(断点数)；贪心断行的
+  断点随行长单调前移，每个后缀起点的可达行长集是单区间，可编码为临界宽度区间树套
+  共享后缀 DAG；DP 断行（ADR 0041）是确定性函数，阶跃划分保留，单调性不保证，
+  DAG 状态数上界放宽。构建期为可达区间全集预计算断点集，每区间紧凑编码 O(行数)
+  （断点差分 varint 加行数据），编码方向与 ADR 0052 二进制站级表一致；两端对齐的
+  拉伸量是行长的连续函数，运行时按行算术。换带不重跑断行、不付 worker 往返：给定
+  宽度二分定区间，跳表把 source 坐标换算到活 DOM 偏移（copy.js 对引擎标记的跳过
+  走查是同型逻辑），原地补丁（文本 node 拆分合并、tq-line 几何标记与断行标记
+  重写），替代整段 replaceChildren。connect 校验由 digest 校验覆盖；prepared-dom 已是
+  插入数据到 DOM 的扫描器，缺紧凑区间表与增量补丁两件。开工条件（任务 #6 的
+  bench）：可达区间全集的表体积；区间命中后同步产 DOM 的成本；增量补丁对整段
+  重建的差值。
 
 当前并行推进 **Slice 37：Compose 静态正文 selection**：只读 `CjkText` 已接入源忠实拖选、
 双击选词、三击选段、触摸长按、Foundation 平台手柄、Android 文本放大镜、系统 `ActionMode`
