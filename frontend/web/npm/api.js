@@ -1,5 +1,5 @@
 import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
-import { installTiqianCopyHandler } from "./core/utils/copy.js";
+import "./core/utils/copy.js";
 import { prepareCjkDashShapingIfNeeded } from "./core/engine/loaders/cjk-dash.js";
 import { restoreAdoptedSnapshot } from "./core/sampler/snapshot/loaded-snapshots.js";
 import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
@@ -15,7 +15,7 @@ export { loadTiqianRuntime };
 const rootGenerations = new WeakMap();
 const rootFontSessions = new WeakMap();
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
-installTiqianCopyHandler();
+globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
 
 function supersedeRootWork(root) {
   const generation = (rootGenerations.get(root) ?? 0) + 1;

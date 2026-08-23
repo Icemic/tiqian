@@ -1,5 +1,5 @@
 import { loadTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
-import { installTiqianCopyHandler } from "./core/utils/copy.js";
+import "./core/utils/copy.js";
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
@@ -71,7 +71,7 @@ const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
 const HTMLElementBase = typeof globalThis.HTMLElement === "function"
   ? globalThis.HTMLElement
   : class TiqianSsrElement {};
-installTiqianCopyHandler();
+globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
 // Snapshot-table loads start at module evaluation, ahead of the first root
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
 // no-op in non-browser entry points.

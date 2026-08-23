@@ -1,3 +1,15 @@
+// Source-faithful clipboard projection (SourceFaithfulSemanticClipboard).
+//
+// Plain script: running it installs globalThis.__TiqianCreateClipboardPayload
+// and globalThis.__TiqianInstallCopyHandler. Two consumers share this file as
+// the single source of truth: the npm host (importing it for the side effect)
+// and the Kotlin runtime bundle, into which the generateCopyBridge gradle
+// task embeds this source verbatim.
+//
+// Embedding constraint: the generator wraps this file in a Kotlin raw string,
+// so the source must contain no dollar sign and no triple double-quote
+// sequence. Use string concatenation, never template literals.
+
 const BLOCK_ELEMENTS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -44,14 +56,15 @@ const ENGINE_FLOW_STYLE_PROPERTIES = [
 ];
 
 function clipboardTextForChildren(parent) {
-  const children = Array.from(parent.childNodes ?? []);
+  const children = Array.from(parent.childNodes || []);
   const containsBlock = children.some(
     (child) => child.nodeType === 1 && BLOCK_ELEMENTS.has(child.tagName),
   );
   let result = "";
   let previous = null;
-  for (const child of children) {
-    if (containsBlock && child.nodeType === 3 && !child.data?.trim()) continue;
+  for (let childIndex = 0; childIndex < children.length; childIndex++) {
+    const child = children[childIndex];
+    if (containsBlock && child.nodeType === 3 && !(child.data && child.data.trim())) continue;
     const item = clipboardTextForNode(child);
     if (
       previous && (previous.block || item.block) && result && item.text &&
@@ -64,7 +77,7 @@ function clipboardTextForChildren(parent) {
 }
 
 function clipboardTextForNode(node) {
-  if (node.nodeType === 3) return { block: false, text: node.data ?? "" };
+  if (node.nodeType === 3) return { block: false, text: node.data || "" };
   if (node.nodeType !== 1) return { block: false, text: "" };
   if (node.tagName === "BR") return { block: false, text: "\n" };
   return {
@@ -75,9 +88,12 @@ function clipboardTextForNode(node) {
 
 function stripEngineStyles(element, rendered, sourceSemantic) {
   if (!element.style || (!rendered && !sourceSemantic)) return;
-  for (const property of ENGINE_FLOW_STYLE_PROPERTIES) element.style.removeProperty(property);
+  for (let propertyIndex = 0; propertyIndex < ENGINE_FLOW_STYLE_PROPERTIES.length; propertyIndex++) {
+    element.style.removeProperty(ENGINE_FLOW_STYLE_PROPERTIES[propertyIndex]);
+  }
   if (rendered) element.style.removeProperty("position");
-  if (!element.getAttribute("style")?.trim()) element.removeAttribute("style");
+  const styleAttribute = element.getAttribute("style");
+  if (!(styleAttribute && styleAttribute.trim())) element.removeAttribute("style");
 }
 
 /**
@@ -85,8 +101,8 @@ function stripEngineStyles(element, rendered, sourceSemantic) {
  * source substitutions and hard breaks, then serialize block-aware plain text
  * plus host-owned semantic HTML. Visual soft wraps never enter either payload.
  */
-export function createTiqianClipboardPayload(fragment, documentObject = globalThis.document) {
-  if (!fragment?.querySelectorAll || !documentObject?.createElement) {
+function createTiqianClipboardPayload(fragment, documentObject = globalThis.document) {
+  if (!fragment || !fragment.querySelectorAll || !documentObject || !documentObject.createElement) {
     return { text: "", html: "" };
   }
 
@@ -97,13 +113,14 @@ export function createTiqianClipboardPayload(fragment, documentObject = globalTh
       // hidden source marker, only the semantic BR, or both. Prefer the BR when
       // both survived; otherwise materialize the missing half as one BR.
       const semanticBreak = element.nextElementSibling;
-      if (semanticBreak?.matches?.("br[data-tq-engine-break='MandatoryBreak']")) {
+      if (semanticBreak && semanticBreak.matches &&
+          semanticBreak.matches("br[data-tq-engine-break='MandatoryBreak']")) {
         element.remove();
       } else {
         element.replaceWith(documentObject.createElement("br"));
       }
     } else {
-      element.replaceWith(documentObject.createTextNode(element.getAttribute("data-tq-src") ?? ""));
+      element.replaceWith(documentObject.createTextNode(element.getAttribute("data-tq-src") || ""));
     }
   });
   fragment.querySelectorAll(
@@ -112,7 +129,7 @@ export function createTiqianClipboardPayload(fragment, documentObject = globalTh
 
   Array.from(fragment.querySelectorAll("[data-tq-geometry]"))
     .reverse()
-    .forEach((element) => element.replaceWith(...Array.from(element.childNodes)));
+    .forEach((element) => element.replaceWith.apply(element, Array.from(element.childNodes)));
 
   fragment.querySelectorAll("*").forEach((element) => {
     const rendered = element.hasAttribute("data-tq-rendered");
@@ -120,8 +137,9 @@ export function createTiqianClipboardPayload(fragment, documentObject = globalTh
     const cjkStrong = element.hasAttribute("data-tq-cjk-emphasis");
     stripEngineStyles(element, rendered, sourceSemantic);
     if (cjkStrong) {
-      element.style?.removeProperty("font-weight");
-      if (!element.getAttribute("style")?.trim()) element.removeAttribute("style");
+      if (element.style) element.style.removeProperty("font-weight");
+      const emphasisStyleAttribute = element.getAttribute("style");
+      if (!(emphasisStyleAttribute && emphasisStyleAttribute.trim())) element.removeAttribute("style");
     }
     Array.from(element.attributes).forEach((attribute) => {
       if (attribute.name.startsWith("data-tq-")) element.removeAttribute(attribute.name);
@@ -136,31 +154,34 @@ export function createTiqianClipboardPayload(fragment, documentObject = globalTh
   };
 }
 
-export function installTiqianCopyHandler(documentObject = globalThis.document) {
+function installTiqianCopyHandler(documentObject = globalThis.document) {
   if (!documentObject || globalThis.__tiqianCopyHandlerInstalled) return;
   globalThis.__tiqianCopyHandlerInstalled = true;
   documentObject.addEventListener("copy", (event) => {
-    const selection = globalThis.window?.getSelection?.();
+    const hostWindow = globalThis.window;
+    const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
     const renderedAncestor = (node) => {
-      const element = node?.nodeType === 1 ? node : node?.parentElement;
-      return element?.closest?.("[data-tq-rendered]") ?? null;
+      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+      return element && element.closest ? element.closest("[data-tq-rendered]") : null;
     };
     let touchesRendered = Boolean(
       renderedAncestor(range.startContainer) || renderedAncestor(range.endContainer),
     );
     if (!touchesRendered) {
       const common = range.commonAncestorContainer;
-      const commonElement = common?.nodeType === 1 ? common : common?.parentElement;
-      const candidates = commonElement?.querySelectorAll
+      const commonElement = common && common.nodeType === 1 ? common : (common ? common.parentElement : null);
+      const candidates = commonElement && commonElement.querySelectorAll
         ? Array.from(commonElement.querySelectorAll("[data-tq-rendered]"))
         : [];
-      if (commonElement?.matches?.("[data-tq-rendered]")) candidates.unshift(commonElement);
+      if (commonElement && commonElement.matches && commonElement.matches("[data-tq-rendered]")) {
+        candidates.unshift(commonElement);
+      }
       touchesRendered = candidates.some((candidate) => {
         try {
           return range.intersectsNode(candidate);
-        } catch {
+        } catch (error) {
           return false;
         }
       });
