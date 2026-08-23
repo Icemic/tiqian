@@ -376,6 +376,7 @@ object TiqianWeb {
                     semanticExactEngine = state.activeSemanticExactEngine(),
                     browserFallbackEngine = activeExactFallbackEngine,
                     widthOverride = widths[mixIndex],
+                    preparedDomEnabled = state.preparedDomEnabled,
                 )
                 commitSession.processItem(mixIndex, preparation)
             },
@@ -563,26 +564,31 @@ object TiqianWeb {
         var browserFallbackEngine: ExplainableStubParagraphLayoutEngine?,
         val paragraphs: MutableList<EnhancedParagraph>,
         val issues: MutableList<CapabilityIssue>,
-        var exactPreparedDomEnabled: Boolean = browserFallbackEngine != null,
-        var exactPreparedDomFallback: String? = null,
+        // PreparedDomLane: every eligible paragraph renders through the
+        // prepared DOM, including roots that never configured an exact font
+        // session. Stripping the exact session and leaving the prepared lane
+        // are the same decision, so one flag drives both. For a sessionless
+        // root the active* accessors below return the same engines either way.
+        var preparedDomEnabled: Boolean = true,
+        var preparedDomFallback: String? = null,
     ) {
         fun activeOptions(): EnhanceOptions =
-            if (exactPreparedDomEnabled) options else options.withoutExactFontSession()
+            if (preparedDomEnabled) options else options.withoutExactFontSession()
 
         fun activeEngine(): ExplainableStubParagraphLayoutEngine =
-            if (exactPreparedDomEnabled) engine else browserFallbackEngine ?: engine
+            if (preparedDomEnabled) engine else browserFallbackEngine ?: engine
 
         fun activeSemanticExactEngine(): ExplainableStubParagraphLayoutEngine? =
-            semanticExactEngine.takeIf { exactPreparedDomEnabled }
+            semanticExactEngine.takeIf { preparedDomEnabled }
 
         fun activeExactFallbackEngine(): ExplainableStubParagraphLayoutEngine? =
-            browserFallbackEngine.takeIf { exactPreparedDomEnabled }
+            browserFallbackEngine.takeIf { preparedDomEnabled }
 
         fun disableExactPreparedDom(detail: String) {
-            if (!exactPreparedDomEnabled) return
-            exactPreparedDomEnabled = false
-            exactPreparedDomFallback = detail.take(CAPABILITY_DETAIL_LIMIT)
-            root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, exactPreparedDomFallback!!)
+            if (!preparedDomEnabled) return
+            preparedDomEnabled = false
+            preparedDomFallback = detail.take(CAPABILITY_DETAIL_LIMIT)
+            root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, preparedDomFallback!!)
         }
     }
 
@@ -594,7 +600,8 @@ object TiqianWeb {
             val result: LayoutResult,
             val width: Float,
             val measure: Float,
-            val exactPreparedDom: Boolean,
+            val preparedDom: Boolean,
+            val exactFontSessionUsed: Boolean,
         ) : ParagraphLayoutPreparation()
 
         data class Unsupported(val issue: CapabilityIssue) : ParagraphLayoutPreparation()

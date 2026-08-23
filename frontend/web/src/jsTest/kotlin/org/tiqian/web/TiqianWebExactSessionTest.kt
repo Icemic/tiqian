@@ -108,8 +108,8 @@ class TiqianWebExactSessionTest {
             val link = paragraph.querySelector("a[href='/more']") as HTMLElement
             assertEquals("true", link.getAttribute("data-tq-source-semantic"))
             assertEquals("semantic", link.getAttribute("data-tq-fixture-seen"))
-            assertNull(paragraph.querySelector(".tq-line"))
-            assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
+            assertNotNull(paragraph.querySelector(".tq-line"))
+            assertNotNull(paragraph.querySelector("[data-tq-exact-rendered]"))
             assertEquals("中文链接正文。", copySelection(paragraph))
         } finally {
             clearExactFontSessionFixture()
@@ -269,7 +269,9 @@ class TiqianWebExactSessionTest {
             val paragraph = root.querySelector("p") as HTMLElement
             assertEquals(
                 0,
-                paragraph.querySelectorAll(":scope > span[data-tq-geometry]:not(.tq-line)").length,
+                paragraph.querySelectorAll(
+                    ":scope > span[data-tq-geometry]:not(.tq-line):not([data-tq-line-end-sentinel])",
+                ).length,
                 "font replay evidence must not create a visible shaping boundary: ${paragraph.innerHTML}",
             )
             assertEquals("中文正文", copySelection(paragraph))
@@ -404,9 +406,10 @@ class TiqianWebExactSessionTest {
             val paragraph = root.querySelector("p") as HTMLElement
             assertTrue(exactFontShapeCount() > 0)
             assertTrue(exactFontFallbackCount() > 0)
-            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-plain"))
             assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
             assertNotNull(paragraph.querySelector(".tq-line"))
+            assertNotNull(paragraph.querySelector("[data-tq-exact-rendered]"))
             assertEquals("坏——正文。", copySelection(paragraph))
         } finally {
             clearExactFontSessionFixture()
@@ -580,10 +583,12 @@ class TiqianWebExactSessionTest {
 
             assertEquals(1, count)
             val paragraph = root.querySelector("p") as HTMLElement
-            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertTrue(exactFontFallbackCount() > 0)
+            assertEquals(1, exactPreparedRenderCount())
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-plain"))
             assertEquals("true", paragraph.getAttribute("data-tq-canonical-source"))
             assertNotNull(paragraph.querySelector(".tq-line"))
-            assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
+            assertNotNull(paragraph.querySelector("[data-tq-exact-rendered]"))
         } finally {
             clearExactFontSessionFixture()
         }
@@ -640,8 +645,10 @@ class TiqianWebExactSessionTest {
 
             assertEquals(1, count)
             val paragraph = root.querySelector("p") as HTMLElement
-            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
-            assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
+            assertEquals(0, exactFontShapeCount())
+            assertEquals(1, exactPreparedRenderCount())
+            assertEquals("true", paragraph.getAttribute("data-tq-canonical-plain"))
+            assertNotNull(paragraph.querySelector("[data-tq-exact-rendered]"))
             assertNotNull(paragraph.querySelector(".tq-line"))
         } finally {
             clearExactFontSessionFixture()

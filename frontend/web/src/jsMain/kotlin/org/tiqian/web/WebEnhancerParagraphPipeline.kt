@@ -6,6 +6,7 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.PREPARED_PARAGRAPH_LAYOUT_REVISION
 import org.tiqian.layout.toPreparedParagraphJson
 import org.tiqian.web.TiqianWeb.CapabilityIssue
 import org.tiqian.web.TiqianWeb.EnhanceOptions
@@ -199,6 +200,7 @@ internal fun TiqianWeb.processParagraph(paragraph: HTMLElement, state: RootState
                 semanticExactEngine = state.activeSemanticExactEngine(),
                 browserFallbackEngine = state.activeExactFallbackEngine(),
                 onExactPreparedDomFallback = state::disableExactPreparedDom,
+                preparedDomEnabled = state.preparedDomEnabled,
             )
         } else {
             commitWorkerPreparedParagraph(
@@ -230,6 +232,7 @@ internal fun TiqianWeb.layoutParagraph(
     semanticExactEngine: ExplainableStubParagraphLayoutEngine? = null,
     browserFallbackEngine: ExplainableStubParagraphLayoutEngine? = null,
     onExactPreparedDomFallback: (String) -> Unit = {},
+    preparedDomEnabled: Boolean = true,
 ): CapabilityIssue? {
     return when (
         val preparation = prepareParagraphLayout(
@@ -238,6 +241,7 @@ internal fun TiqianWeb.layoutParagraph(
             engine = engine,
             semanticExactEngine = semanticExactEngine,
             browserFallbackEngine = browserFallbackEngine,
+            preparedDomEnabled = preparedDomEnabled,
         )
     ) {
         ParagraphLayoutPreparation.Unchanged -> null
@@ -333,6 +337,7 @@ internal fun TiqianWeb.prepareParagraphLayout(
     browserFallbackEngine: ExplainableStubParagraphLayoutEngine? = null,
     widthOverride: Float? = null,
     ignoreUnchangedMeasure: Boolean = false,
+    preparedDomEnabled: Boolean = true,
 ): ParagraphLayoutPreparation {
     val width = widthOverride ?: paragraphWidth(paragraph)
     // LineLengthGridResponsiveInvalidation: the Web adapter currently
@@ -376,18 +381,26 @@ internal fun TiqianWeb.prepareParagraphLayout(
     // session as canonical plain paragraphs; use the browser adapter only
     // when that session reports a named font capability failure.
     val exactFontLayout = browserFallbackEngine != null
-    // KeyedCanonicalPreparedDomOnly: a snapshot key proves that the server
+    // PreparedDomUnifiedEligibility: every eligible paragraph lowers through
+    // the prepared DOM, with or without a snapshot key or an exact font
+    // session; the prepared renderer replays whatever LayoutResult this host
+    // produced. The lane needs a host-installed bridge whose plan wire
+    // matches this runtime; without one the paragraph keeps the native
+    // renderer. The root disables the lane only after a replay failed
+    // geometry validation.
+    val preparedDom = preparedDomEnabled &&
+        isPreparedDomBridgeAvailable(PREPARED_PARAGRAPH_LAYOUT_REVISION) &&
+        paragraph.lowered.isRuntimeExactPreparedDomEligible()
+    // KeyedCanonicalStrictSessionOnly: a snapshot key proves that the server
     // captured a complete exact replay corpus for this canonical source.
     // An unkeyed runtime-completion paragraph may carry only the required
     // exact runs (notably a CJK dash) and must therefore retain per-run
     // browser fallback instead of retrying its whole paragraph through the
     // browser shaper after one unrelated replay miss.
-    var exactPreparedDom = exactFontLayout &&
+    val strictExactSession = exactFontLayout && preparedDom &&
         paragraph.source.hasAttribute("data-tq-snapshot-key") &&
-        paragraph.lowered.isRuntimeExactPreparedDomEligible()
-    val layoutEngine = if (exactFontLayout &&
-        (!exactPreparedDom || !paragraph.lowered.isCanonicalPlainParagraph())
-    ) {
+        paragraph.lowered.isCanonicalPlainParagraph()
+    val layoutEngine = if (exactFontLayout && !strictExactSession) {
         // RuntimeExactRichPreparedDom: rich paragraphs keep the per-run
         // fallback shaper whether they land on the prepared DOM or the native
         // renderer; the strict session stays reserved for canonical plain
@@ -396,12 +409,17 @@ internal fun TiqianWeb.prepareParagraphLayout(
     } else {
         engine
     }
+    var exactFontSessionUsed = exactFontLayout
     val result = if (exactFontLayout) {
         try {
             layoutEngine.layout(input)
         } catch (error: Throwable) {
             if (!isExactFontSessionCapabilityFailure(error)) throw error
-            exactPreparedDom = false
+            // PreparedDomAfterSessionFailure: the fallback engine's result is
+            // ordinary browser-metric output, so a later replay validation
+            // failure must not distrust metrics that never touched the
+            // failed session.
+            exactFontSessionUsed = false
             browserFallbackEngine.layout(input)
         }
     } else {
@@ -461,7 +479,8 @@ internal fun TiqianWeb.prepareParagraphLayout(
         result = result,
         width = width,
         measure = measure,
-        exactPreparedDom = exactPreparedDom,
+        preparedDom = preparedDom,
+        exactFontSessionUsed = exactFontSessionUsed,
     )
 }
 
@@ -490,10 +509,10 @@ internal fun TiqianWeb.commitPreparedParagraph(
     onExactPreparedDomFallback: (String) -> Unit = {},
 ): ParagraphCommitResult {
     val result = preparation.result
-    if (preparation.exactPreparedDom) {
-        // KeyedCanonicalPreparedDomScope: canonical-plain promises the
-        // re-lowerer a prepared plain host, so a rich prepared paragraph only
-        // carries canonical-source and re-lowers through its live clones.
+    if (preparation.preparedDom) {
+        // PreparedPlainHostPromise: canonical-plain promises the re-lowerer a
+        // prepared plain host, so a rich prepared paragraph only carries
+        // canonical-source and re-lowers through its live clones.
         if (paragraph.lowered.isCanonicalPlainParagraph()) {
             paragraph.source.setAttribute("data-tq-canonical-plain", "true")
         }
@@ -516,11 +535,20 @@ internal fun TiqianWeb.commitPreparedParagraph(
             paragraph.source,
             preparation.width.toDouble(),
         )
-        if (preparedDomIssue != null) {
-            onExactPreparedDomFallback(preparedDomIssue)
-            paragraph.source.removeAttribute("data-tq-canonical-plain")
-            paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
-            paragraph.source.removeAttribute("lang")
+        if (preparedDomIssue == null) {
+            custodyBridge().stampRendered(paragraph.source)
+            return ParagraphCommitResult.Success(preparation.measure)
+        }
+        onExactPreparedDomFallback(preparedDomIssue)
+        paragraph.source.removeAttribute("data-tq-canonical-plain")
+        paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
+        paragraph.source.removeAttribute("lang")
+        if (preparation.exactFontSessionUsed) {
+            // ExactSessionMetricDistrust: the replay failed geometry
+            // validation against a result shaped by the exact session, so
+            // re-lay the paragraph out with browser metrics. The recursion
+            // renders native because the root has just disabled the
+            // prepared lane.
             val fallbackOptions = options.withoutExactFontSession()
             val fallbackPreparation = prepareParagraphLayout(
                 paragraph = paragraph,
@@ -529,6 +557,7 @@ internal fun TiqianWeb.commitPreparedParagraph(
                 browserFallbackEngine = null,
                 widthOverride = preparation.width,
                 ignoreUnchangedMeasure = true,
+                preparedDomEnabled = false,
             )
             return when (fallbackPreparation) {
                 ParagraphLayoutPreparation.Unchanged -> error(
@@ -545,32 +574,34 @@ internal fun TiqianWeb.commitPreparedParagraph(
                 )
             }
         }
-    } else {
-        releasePreparedParagraphDomStyles(paragraph.source)
-        paragraph.source.removeAttribute("data-tq-canonical-plain")
-        paragraph.source.removeAttribute("lang")
-        custodyBridge().ensureContainingBlock(paragraph.source)
-        DomParagraphRenderer.render(
-            paragraph.source,
-            result,
-            options.fonts,
-            sourceSpans = paragraph.lowered.sourceSpans,
-            inlineObjects = paragraph.lowered.domInlineObjects,
+        // PreparedReplayMismatchWithoutSession: no exact session shaped this
+        // result, so a re-layout would reproduce it. Fall through to the
+        // native renderer with the result the browser already measured.
+    }
+    releasePreparedParagraphDomStyles(paragraph.source)
+    paragraph.source.removeAttribute("data-tq-canonical-plain")
+    paragraph.source.removeAttribute("lang")
+    custodyBridge().ensureContainingBlock(paragraph.source)
+    DomParagraphRenderer.render(
+        paragraph.source,
+        result,
+        options.fonts,
+        sourceSpans = paragraph.lowered.sourceSpans,
+        inlineObjects = paragraph.lowered.domInlineObjects,
+    )
+    DomParagraphRenderer.verifyCjkDashRuns(paragraph.source)?.let { detail ->
+        return ParagraphCommitResult.Unsupported(
+            CapabilityIssue(
+                name = "DomDashFaceGeometryMismatch",
+                detail = detail,
+                element = paragraph.source,
+            ),
         )
-        DomParagraphRenderer.verifyCjkDashRuns(paragraph.source)?.let { detail ->
-            return ParagraphCommitResult.Unsupported(
-                CapabilityIssue(
-                    name = "DomDashFaceGeometryMismatch",
-                    detail = detail,
-                    element = paragraph.source,
-                ),
-            )
-        }
-        if (paragraph.lowered.isCanonicalPlainParagraph()) {
-            paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
-        } else {
-            paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
-        }
+    }
+    if (paragraph.lowered.isCanonicalPlainParagraph()) {
+        paragraph.source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, "true")
+    } else {
+        paragraph.source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE)
     }
     custodyBridge().stampRendered(paragraph.source)
     return ParagraphCommitResult.Success(preparation.measure)

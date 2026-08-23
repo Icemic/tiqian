@@ -245,6 +245,21 @@ internal external fun renderPreparedWorkerParagraphDom(
 internal external fun releasePreparedParagraphDomStyles(host: HTMLElement): Boolean
 @JsFun("(root) => !!(globalThis.__TiqianPreparedDomRenderer && globalThis.__TiqianPreparedDomRenderer.releaseRoot && globalThis.__TiqianPreparedDomRenderer.releaseRoot(root) === true)")
 internal external fun releasePreparedRootDomStyles(root: HTMLElement): Boolean
+// RuntimePreparedDomBridgeCapability: the prepared renderer bridge is a host
+// installation (the font loader), not a runtime builtin. A host without the
+// bridge must keep the native renderer instead of failing every paragraph at
+// the unguarded render call. Schema and layout revision must match the plan
+// wire the runtime itself serializes, so a stale cached bridge also stays on
+// the native path.
+@JsFun(
+    """(expectedLayoutRevision) => !!(globalThis.__TiqianPreparedDomRenderer &&
+      typeof globalThis.__TiqianPreparedDomRenderer.render === 'function' &&
+      typeof globalThis.__TiqianPreparedDomRenderer.release === 'function' &&
+      typeof globalThis.__TiqianPreparedDomRenderer.releaseRoot === 'function' &&
+      globalThis.__TiqianPreparedDomRenderer.schema === 1 &&
+      globalThis.__TiqianPreparedDomRenderer.layoutRevision === expectedLayoutRevision)""",
+)
+internal external fun isPreparedDomBridgeAvailable(expectedLayoutRevision: String): Boolean
 @JsFun("(host, width) => globalThis.__TiqianPreparedDomValidator && typeof globalThis.__TiqianPreparedDomValidator.issue === 'function' ? globalThis.__TiqianPreparedDomValidator.issue(host, width) : 'PreparedDomValidatorUnavailable'")
 internal external fun validatePreparedParagraphDom(host: HTMLElement, width: Double): String?
 @JsFun(

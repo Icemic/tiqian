@@ -11,6 +11,10 @@ import org.tiqian.core.TextStyle
 import org.tiqian.core.positionedClusters
 import org.tiqian.font.FontRole
 
+/** Wire fields of the prepared-paragraph plan; readers reject other values. */
+public const val PREPARED_PARAGRAPH_SCHEMA: Int = 1
+public const val PREPARED_PARAGRAPH_LAYOUT_REVISION: String = "tiqian-layout-v2"
+
 /**
  * Canonical plain-paragraph render plan shared by build-time snapshots and the
  * browser exact-font fallback. Keeping this lowering beside [LayoutResult]
@@ -65,8 +69,8 @@ fun LayoutResult.toPreparedParagraphJson(renderEvidence: Boolean = false): Strin
             ?: input.textStyle
     return buildString {
         append('{')
-        append("\"schema\":1,")
-        append("\"layoutRevision\":\"tiqian-layout-v2\",")
+        append("\"schema\":").append(PREPARED_PARAGRAPH_SCHEMA).append(',')
+        append("\"layoutRevision\":\"").append(PREPARED_PARAGRAPH_LAYOUT_REVISION).append("\",")
         append("\"width\":").appendJsonNumber(input.constraints.maxWidth).append(',')
         append("\"height\":").appendJsonNumber(size.height).append(',')
         append("\"lines\":[")

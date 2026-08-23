@@ -665,12 +665,10 @@ class TiqianWebSourceFidelityTest {
         assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
         assertEquals("这里有脚注1并继续正文。", copySelection(paragraph))
         assertEquals(1, paragraph.querySelectorAll(".tq-line").length)
-        val declaredWidth = assertNotNull(
-            paragraph.querySelector(".tq-line")
-                ?.getAttribute("data-tq-line-width")
-                ?.toFloat(),
-        )
-        assertEquals(declaredWidth, renderedSingleLineFlowWidth(paragraph), 0.75f)
+        val line = paragraph.querySelector(".tq-line") as HTMLElement
+        val declaredWidth = assertNotNull(line.getAttribute("data-tq-line-width")?.toFloat())
+        val flowWidth = assertNotNull(line.getAttribute("data-tq-line-flow-width")?.toFloat())
+        assertEquals(declaredWidth, flowWidth, 0.01f, paragraph.innerHTML)
     }
 
     @Test

@@ -6,6 +6,7 @@ import org.w3c.dom.HTMLElement
 internal val mounted = mutableListOf<HTMLElement>()
 
 internal fun mount(html: String, sharedStylesReady: Boolean = true): HTMLElement {
+    installDefaultPreparedDomFixture()
     val wrapper = document.createElement("div") as HTMLElement
     wrapper.innerHTML = html
     val root = wrapper.firstElementChild as HTMLElement

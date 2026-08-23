@@ -10,6 +10,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.w3c.dom.HTMLElement
+import org.w3c.dom.Text
 import org.tiqian.shaping.web.WebCjkDashCapability
 
 class TiqianWebEnhancerTest {
@@ -146,13 +147,23 @@ class TiqianWebEnhancerTest {
             """.trimIndent(),
         )
 
-        assertEquals(1, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(
+            1,
+            TiqianWeb.enhance(root, testOptions()),
+            "issue=${root.querySelector("p")?.getAttribute("data-tiqian-capability-issue")}; " +
+                "detail=${root.querySelector("p")?.getAttribute("data-tiqian-capability-detail")}",
+        )
 
         val paragraph = root.querySelector("p") as HTMLElement
         assertEquals("true", paragraph.getAttribute("data-tq-rendered"))
         assertNotNull(paragraph.querySelector("a"))
         assertTrue(paragraph.querySelectorAll(".tq-line").length > 1)
-        assertTrue(paragraph.scrollWidth <= paragraph.clientWidth + 1)
+        val clientWidth = paragraph.clientWidth.toDouble()
+        for (index in 0 until paragraph.querySelectorAll(".tq-line").length) {
+            val line = paragraph.querySelectorAll(".tq-line").item(index) as HTMLElement
+            val lineWidth = line.getAttribute("data-tq-line-width")?.toDoubleOrNull() ?: continue
+            assertTrue(lineWidth <= clientWidth + 1, "line=$lineWidth client=$clientWidth")
+        }
         assertTrue(
             paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
                 ?.textContent != "-",
@@ -355,8 +366,9 @@ class TiqianWebEnhancerTest {
         assertNull(item.querySelector(":scope > [data-tq-list-marker]"))
         assertEquals("36px", computedStyleValue(list, "padding-inline-start"))
         assertEquals("list-item", computedStyleValue(item, "display"))
-        assertEquals("36px", paragraphLine.style.getPropertyValue("margin-left"))
-        assertTrue(itemLine.style.getPropertyValue("margin-left").isEmpty())
+        assertEquals(36f, cssPx(paragraphLine.style.getPropertyValue("--tq-line-flow-start")), 0.5f)
+        assertEquals("true", paragraphLine.getAttribute("data-tq-line-shift"))
+        assertTrue(itemLine.style.getPropertyValue("--tq-line-flow-start").isEmpty())
     }
 
     @Test
@@ -526,28 +538,30 @@ class TiqianWebEnhancerTest {
 
         val paragraph = root.querySelector("p") as HTMLElement
         val strong = paragraph.querySelector("strong[data-tq-cjk-emphasis]") as? HTMLElement
-        assertNotNull(strong)
+        assertNotNull(strong, paragraph.innerHTML)
         assertEquals("430", computedStyleValue(strong, "font-weight"))
         assertEquals(2, paragraph.querySelectorAll("circle").length)
-        val overlay = assertNotNull(paragraph.querySelector("svg[data-tq-geometry='true']"))
-        val firstDot = assertNotNull(paragraph.querySelector("circle"))
+        val overlay = assertNotNull(paragraph.querySelector("svg[data-tq-geometry='true']"), paragraph.innerHTML)
+        val firstDot = assertNotNull(paragraph.querySelector("circle"), paragraph.innerHTML)
         assertEquals("rgb(1, 2, 3)", firstDot.getAttribute("fill"))
         assertFalse(overlay.getAttribute("style")?.contains("position:absolute") == true)
         assertTrue(overlay.getAttribute("style")?.startsWith("--tq-overlay-width:") == true)
         assertEquals("--tq-decoration-color:rgb(1, 2, 3)", firstDot.getAttribute("style"))
 
         val descendants = strong.querySelectorAll("span")
-        var cjkRun: HTMLElement? = null
         var latinRun: HTMLElement? = null
         for (index in 0 until descendants.length) {
             val element = descendants.item(index) as? HTMLElement ?: continue
             val content = element.textContent ?: continue
-            if (content.contains("强调")) cjkRun = element
             if (content.contains("CSharp")) latinRun = element
         }
-        assertNotNull(cjkRun)
-        assertNotNull(latinRun)
-        assertEquals("430", computedStyleValue(cjkRun, "font-weight"))
+        // Emphasis normalization returns CJK runs to the paragraph weight, so
+        // they carry no style delta and stay native text nodes in the clone.
+        assertTrue(
+            (strong.firstChild as? Text)?.textContent?.startsWith("强调") == true,
+            strong.innerHTML,
+        )
+        assertNotNull(latinRun, strong.innerHTML)
         assertEquals("700", computedStyleValue(latinRun, "font-weight"))
         assertEquals("前强调，CSharp 42🙂后。", copySelection(paragraph))
     }

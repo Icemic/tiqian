@@ -525,7 +525,12 @@ class TiqianWebProgressiveRelayoutTest {
             "<div data-tiqian-root='true' style='width: 100px'>$markup</div>",
         )
         TiqianWeb.install()
-        assertEquals(10, TiqianWeb.enhance(root, testOptions()))
+        assertEquals(
+            10,
+            TiqianWeb.enhance(root, testOptions()),
+            "issue=${root.querySelector("p")?.getAttribute("data-tiqian-capability-issue")}; " +
+                "detail=${root.querySelector("p")?.getAttribute("data-tiqian-capability-detail")}",
+        )
         assertEquals(10, TiqianWeb.enhance(expectedRoot, testOptions()))
         val paragraphs = (0 until 10).map { index ->
             root.querySelectorAll("p").item(index) as HTMLElement
@@ -972,7 +977,10 @@ class TiqianWebProgressiveRelayoutTest {
         assertNotEquals(
             nineteenCells,
             renderedLineSignature(paragraph),
-            "19→20 cells is a real measure change even though the raw width delta is below 0.5px",
+            "19→20 cells is a real measure change even though the raw width delta is below 0.5px; " +
+                "error=${root.getAttribute("data-tiqian-relayout-error")}; " +
+                "issue=${paragraph.getAttribute("data-tiqian-capability-issue")}; " +
+                "detail=${paragraph.getAttribute("data-tiqian-capability-detail")}",
         )
     }
 

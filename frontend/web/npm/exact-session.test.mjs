@@ -133,7 +133,7 @@ test("exactSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) => 
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.ok(paragraph.querySelector("a[href='/more']"));
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.equal(paragraph.querySelector("[data-tq-exact-rendered]"), null);
+  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
   assert.equal(copySelection(paragraph), "中文链接正文。");
 });
 
@@ -153,7 +153,9 @@ test("exactSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => {
 
   const paragraph = root.querySelector("p");
   assert.equal(
-    paragraph.querySelectorAll(":scope > span[data-tq-geometry]:not(.tq-line)").length,
+    paragraph.querySelectorAll(
+      ":scope > span[data-tq-geometry]:not(.tq-line):not([data-tq-line-end-sentinel])",
+    ).length,
     0,
     `font replay evidence must not create a visible shaping boundary: ${paragraph.innerHTML}`,
   );
@@ -269,7 +271,7 @@ test("exactSession_unkeyedCompletionKeepsExactDashForOtherRuns", async (t) => {
   const paragraph = root.querySelector("p");
   assert.ok(exactFontShapeCount() > 0);
   assert.ok(exactFontFallbackCount() > 0);
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
+  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.ok(paragraph.querySelector(".tq-line"));
   assert.equal(copySelection(paragraph), "坏——正文。");
@@ -413,10 +415,10 @@ test("exactSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
+  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.equal(paragraph.querySelector("[data-tq-exact-rendered]"), null);
+  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
 });
 
 test("exactSession_preparedDomGeometryMismatchDisablesExactForRoot", async (t) => {
@@ -465,8 +467,8 @@ test("exactSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t) =>
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
-  assert.equal(paragraph.querySelector("[data-tq-exact-rendered]"), null);
+  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
+  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
   assert.ok(paragraph.querySelector(".tq-line"));
 });
 
