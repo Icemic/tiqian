@@ -178,6 +178,9 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
+      - name: Link prose-core dependency
+        working-directory: frontend/web/npm
+        run: npm run link:core
       - name: Regenerate the fixture and fail on drift
         run: |
           node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs

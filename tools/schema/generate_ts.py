@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = REPO_ROOT / "ffi/schema/assembly-record.schema.json"
 TARGET_PATH = (
     REPO_ROOT
-    / "frontend/web/npm/core/engine/web-worker/assembly-record-fields.js"
+    / "frontend/web/npm-core/core/engine/web-worker/assembly-record-fields.js"
 )
 
 

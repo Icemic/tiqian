@@ -21,8 +21,8 @@ import { fileURLToPath } from "node:url";
 
 import { createPrecomputer } from "../../../web-precompute/npm/lib/precompute.js";
 import { createHtmlPreparer } from "../../../web-precompute/npm/lib/precompute-html.js";
-import { snapshotTablesFromBytes } from "../snapshot-tables.js";
-import { parseSnapshotManifest } from "../snapshot-manifest.js";
+import { snapshotTablesFromBytes } from "@tiqian/prose-core/snapshot-tables.js";
+import { parseSnapshotManifest } from "@tiqian/prose-core/snapshot-manifest.js";
 
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(BENCH_DIR, "fixtures", "corpus");

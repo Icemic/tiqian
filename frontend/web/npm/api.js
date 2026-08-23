@@ -1,20 +1,20 @@
-import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
-import "./core/utils/copy.js";
-import { prepareCjkDashShapingIfNeeded } from "./core/engine/loaders/cjk-dash.js";
-import { restoreAdoptedSnapshot } from "./core/sampler/snapshot/loaded-snapshots.js";
-import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
+import { currentTiqianRuntime, loadTiqianRuntime, withTiqianRuntime } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
+import "@tiqian/prose-core/core/utils/copy.js";
+import { prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
+import { restoreAdoptedSnapshot } from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
+import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
 import {
   createExactFontSessionEntry,
   hasSnapshotLayoutOverride,
   releaseExactFontSession,
-} from "./core/engine/exact-font.js";
+} from "@tiqian/prose-core/core/engine/exact-font.js";
 import {
   ensurePreparedDomBridge,
   loadExactFontFallback,
-} from "./core/engine/loaders/font-loader.js";
+} from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
 
 export { loadTiqianRuntime };
-export { declareTiqianFontFaces } from "./core/sampler/snapshot/declared-faces.js";
+export { declareTiqianFontFaces } from "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js";
 
 const rootGenerations = new WeakMap();
 const rootFontSessions = new WeakMap();

@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "./core/engine/markdown-lowering.js";
+import "@tiqian/prose-core/core/engine/markdown-lowering.js";
 import { cleanupMounted, loadHostRuntime, mount } from "./runtime-host.mjs";
 
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation

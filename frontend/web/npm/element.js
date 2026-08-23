@@ -1,14 +1,14 @@
-import { loadTiqianRuntime } from "./core/engine/loaders/runtime-loader.js";
-import "./core/utils/copy.js";
+import { loadTiqianRuntime } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
+import "@tiqian/prose-core/core/utils/copy.js";
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
   ensurePreparedDomBridge,
   fontLoadingAffectsTypography,
   loadExactFontFallback,
-} from "./core/engine/loaders/font-loader.js";
-import { needsCjkDashShaping, prepareCjkDashShapingIfNeeded } from "./core/engine/loaders/cjk-dash.js";
-import { lineLengthGridMeasure } from "./core/sampler/grid-metrics.js";
+} from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
+import { needsCjkDashShaping, prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
+import { lineLengthGridMeasure } from "@tiqian/prose-core/core/sampler/grid-metrics.js";
 import {
   detachLoadedSnapshot,
   isLoadedSnapshotAdopted,
@@ -16,20 +16,20 @@ import {
   loadedSnapshotMaximumMeasureMatches,
   restoreLoadedSnapshot,
   tryAdoptRequestedSnapshot,
-} from "./core/sampler/snapshot/loaded-snapshots.js";
+} from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
 import {
   createExactFontSessionEntry,
   releaseExactFontSession,
-} from "./core/engine/exact-font.js";
-import { ensureTiqianStyles } from "./core/engine/loaders/styles.js";
-import { prefetchSnapshotTables } from "./snapshot-tables.js";
+} from "@tiqian/prose-core/core/engine/exact-font.js";
+import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
+import { prefetchSnapshotTables } from "@tiqian/prose-core/snapshot-tables.js";
 import {
   captureViewportAnchor,
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
-} from "./core/engine/coordinator/viewport-anchor.js";
-import { TiqianLayoutCoordinator } from "./core/engine/coordinator/coordinator.js";
-import * as engineFace from "./core/engine/face.js";
+} from "@tiqian/prose-core/core/engine/coordinator/viewport-anchor.js";
+import { TiqianLayoutCoordinator } from "@tiqian/prose-core/core/engine/coordinator/coordinator.js";
+import * as engineFace from "@tiqian/prose-core/core/engine/face.js";
 import {
   DEFAULT_PARAGRAPH_SELECTOR,
   fragmentedBorderBoxInlineSize,
@@ -43,12 +43,12 @@ import {
   responsiveGeometrySignature,
   paragraphMeasureSignature,
   paragraphMeasureEntry,
-} from "./core/sampler/signatures.js";
+} from "@tiqian/prose-core/core/sampler/signatures.js";
 import {
   createParagraphGridMetricsState,
   seedParagraphGridMetrics,
   paragraphMeasureSignatureFromObserved,
-} from "./core/sampler/grid-metrics.js";
+} from "@tiqian/prose-core/core/sampler/grid-metrics.js";
 import {
   classifyContentMutationRecords,
   createTypographyInvalidationSource,
@@ -57,7 +57,7 @@ import {
   createContentInvalidationSource,
   createRootSizeObservation,
   createRootVisibilityObservation,
-} from "./core/sampler/observers.js";
+} from "@tiqian/prose-core/core/sampler/observers.js";
 
 const ELEMENT_NAME = "tiqian-prose";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
@@ -880,7 +880,7 @@ class TiqianProseElement extends HTMLElementBase {
     };
     if (exactFontSession) {
       try {
-        const { createPrepareJob } = await import("./core/engine/web-worker/worker-channel.js");
+        const { createPrepareJob } = await import("@tiqian/prose-core/core/engine/web-worker/worker-channel.js");
         const prepareJob = await createPrepareJob(
           this,
           exactFontSession,

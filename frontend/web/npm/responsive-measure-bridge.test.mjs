@@ -7,7 +7,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "./core/engine/responsive-measure.js";
+import "@tiqian/prose-core/core/engine/responsive-measure.js";
 import { loadHostRuntime } from "./runtime-host.mjs";
 
 function rect(width) {

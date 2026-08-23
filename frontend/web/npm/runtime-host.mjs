@@ -3602,7 +3602,7 @@ let runtimePromise;
 export function loadHostRuntime() {
   buildWorld();
   installPreparedRendererFixture();
-  runtimePromise ??= import("./runtime/tiqian-web.js").then((module) => {
+  runtimePromise ??= import("@tiqian/prose-core/runtime/tiqian-web.js").then((module) => {
     const bag = module.default ?? module;
     const engine = (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)
       ?.getInstance?.();

@@ -5,7 +5,7 @@ on:
     paths:
       - 'ffi/schema/**'
       - 'tools/schema/**'
-      - 'frontend/web/npm/core/engine/web-worker/**'
+      - 'frontend/web/npm-core/core/engine/web-worker/**'
       - 'frontend/rust/tiqian/src/**'
       - '.github/workflows/ci-assembly-record.yml'
   push:
@@ -13,7 +13,7 @@ on:
     paths:
       - 'ffi/schema/**'
       - 'tools/schema/**'
-      - 'frontend/web/npm/core/engine/web-worker/**'
+      - 'frontend/web/npm-core/core/engine/web-worker/**'
       - 'frontend/rust/tiqian/src/**'
       - '.github/workflows/ci-assembly-record.yml'
   workflow_dispatch:

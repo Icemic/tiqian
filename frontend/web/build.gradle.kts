@@ -43,49 +43,49 @@ fun registerBridgeGenerator(
 val generateCustodyBridge = registerBridgeGenerator(
     taskName = "generateCustodyBridge",
     name = "custodyBridge",
-    sourceRelativePath = "npm/core/engine/custody.js",
+    sourceRelativePath = "npm-core/core/engine/custody.js",
     installFunName = "installEmbeddedCustodyScript",
 )
 
 val generateEligibilityBridge = registerBridgeGenerator(
     taskName = "generateEligibilityBridge",
     name = "eligibilityBridge",
-    sourceRelativePath = "npm/core/engine/eligibility.js",
+    sourceRelativePath = "npm-core/core/engine/eligibility.js",
     installFunName = "installEmbeddedEligibilityScript",
 )
 
 val generateProgressiveJobBridge = registerBridgeGenerator(
     taskName = "generateProgressiveJobBridge",
     name = "progressiveJob",
-    sourceRelativePath = "npm/core/engine/progressive-job.js",
+    sourceRelativePath = "npm-core/core/engine/progressive-job.js",
     installFunName = "installEmbeddedProgressiveJobScript",
 )
 
 val generateCopyBridge = registerBridgeGenerator(
     taskName = "generateCopyBridge",
     name = "copy",
-    sourceRelativePath = "npm/core/utils/copy.js",
+    sourceRelativePath = "npm-core/core/utils/copy.js",
     installFunName = "installEmbeddedCopyScript",
 )
 
 val generateContentReconcileBridge = registerBridgeGenerator(
     taskName = "generateContentReconcileBridge",
     name = "contentReconcile",
-    sourceRelativePath = "npm/core/engine/content-reconcile.js",
+    sourceRelativePath = "npm-core/core/engine/content-reconcile.js",
     installFunName = "installEmbeddedContentReconcileScript",
 )
 
 val generateResponsiveMeasureBridge = registerBridgeGenerator(
     taskName = "generateResponsiveMeasureBridge",
     name = "responsiveMeasure",
-    sourceRelativePath = "npm/core/engine/responsive-measure.js",
+    sourceRelativePath = "npm-core/core/engine/responsive-measure.js",
     installFunName = "installEmbeddedResponsiveMeasureScript",
 )
 
 val generateMarkdownLoweringBridge = registerBridgeGenerator(
     taskName = "generateMarkdownLoweringBridge",
     name = "markdownLowering",
-    sourceRelativePath = "npm/core/engine/markdown-lowering.js",
+    sourceRelativePath = "npm-core/core/engine/markdown-lowering.js",
     installFunName = "installEmbeddedMarkdownLoweringScript",
 )
 
@@ -98,8 +98,8 @@ val vendoredPreparedDomRoot = layout.buildDirectory.dir("generated/preparedDomVe
 
 val vendorPreparedDom = tasks.register<Sync>("vendorPreparedDom") {
     into(vendoredPreparedDomRoot)
-    from(layout.projectDirectory.file("npm/snapshot-schema.js"))
-    from(layout.projectDirectory.dir("npm/core/sampler/snapshot")) {
+    from(layout.projectDirectory.file("npm-core/snapshot-schema.js"))
+    from(layout.projectDirectory.dir("npm-core/core/sampler/snapshot")) {
         include(
             "prepared-dom.js",
             "snapshot-source.js",
@@ -166,5 +166,5 @@ tasks.register<Sync>("assembleNpmPackage") {
     from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable")) {
         include("tiqian-web.js")
     }
-    into(layout.projectDirectory.dir("npm/runtime"))
+    into(layout.projectDirectory.dir("npm-core/runtime"))
 }

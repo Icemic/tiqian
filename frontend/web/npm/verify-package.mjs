@@ -1,19 +1,31 @@
 #!/usr/bin/env node
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { normalizeReleaseVersion } from "./prepare-release.mjs";
 
 const EXPECTED_NAME = "@tiqian/prose";
-const RUNTIMES = [
-  {
-    directory: "runtime/",
-    path: "runtime/tiqian-web.js",
-    marker: "TiqianEngine",
-    forbiddenMarkers: ["__TiqianWebFontShaping", "WebAssembly"],
-  },
+const REQUIRED_FILES = [
+  "LICENSE",
+  "README.md",
+  "api.d.ts",
+  "api.js",
+  "element.d.ts",
+  "element.js",
+  "prepared-dom.d.ts",
+  "prepared-dom.js",
+  "snapshot-client.d.ts",
+  "snapshot-client.js",
+  "styles.css",
+  "styles.js",
+];
+const FORBIDDEN_FILES = [
+  "core/",
+  "runtime/",
+  "layout-worker.js",
+  "worker-layout.js",
 ];
 
 function fail(message) {
@@ -30,16 +42,22 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
   }
   if (manifest.license !== "MPL-2.0") fail("manifest must declare MPL-2.0");
 
-  for (const required of [
-    "LICENSE",
-    "README.md",
-    "layout-worker.js",
-    "worker-layout.js",
-  ]) {
+  if (!manifest.dependencies?.["@tiqian/prose-core"]) {
+    fail("@tiqian/prose must declare dependency on @tiqian/prose-core");
+  }
+
+  for (const forbidden of FORBIDDEN_FILES) {
+    if (manifest.files.includes(forbidden)) {
+      fail(`${forbidden} must not be included in @tiqian/prose files`);
+    }
+  }
+
+  for (const required of REQUIRED_FILES) {
     const metadata = await stat(new URL(required, packageRoot));
     if (!metadata.isFile() || metadata.size === 0) fail(`${required} is missing or empty`);
     if (!manifest.files.includes(required)) fail(`${required} is absent from files`);
   }
+
   const [license, readme] = await Promise.all([
     readFile(new URL("LICENSE", packageRoot), "utf8"),
     readFile(new URL("README.md", packageRoot), "utf8"),
@@ -50,23 +68,11 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
   if (!readme.includes(EXPECTED_NAME)) fail(`README.md does not name ${EXPECTED_NAME}`);
 
   const verified = [];
-  for (const runtime of RUNTIMES) {
-    if (!manifest.files.includes(runtime.directory)) {
-      fail(`${runtime.directory} is absent from files`);
+  for (const file of manifest.files) {
+    const metadata = await stat(new URL(file, packageRoot));
+    if (metadata.isFile()) {
+      verified.push({ path: file, size: metadata.size });
     }
-    const source = await readFile(new URL(runtime.path, packageRoot), "utf8");
-    if (source.length <= 100 || !source.includes(runtime.marker)) {
-      fail(`${runtime.path} is not a non-empty Kotlin/JS runtime`);
-    }
-    for (const marker of runtime.forbiddenMarkers ?? []) {
-      if (source.includes(marker)) fail(`${runtime.path} contains forbidden browser marker ${marker}`);
-    }
-    const runtimeEntries = await readdir(new URL(runtime.directory, packageRoot));
-    const wasmEntry = runtimeEntries.find((entry) => entry.endsWith(".wasm"));
-    if (wasmEntry) {
-      fail(`${runtime.directory}${wasmEntry} must not be published`);
-    }
-    verified.push({ path: runtime.path, size: Buffer.byteLength(source) });
   }
   return verified;
 }

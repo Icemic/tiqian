@@ -33,43 +33,28 @@
     "tag": "alpha"
   },
   "scripts": {
-    "build:runtime": "node ./build-runtime.mjs",
+    "link:core": "node ./link-core.mjs",
     "link:ffi": "node ./link-ffi.mjs",
     "test": "node --test *.test.mjs",
     "verify:package": "node ./verify-package.mjs",
     "verify:release": "npm run prepack && node ./verify-release.mjs",
     "release:prepare": "node ./prepare-release.mjs",
-    "prepack": "npm run build:runtime && npm test && npm run verify:package"
+    "prepack": "npm test && npm run verify:package"
   },
   "files": [
     "LICENSE",
     "README.md",
     "api.d.ts",
     "api.js",
-    "browser-font-replay.js",
-    "browser-fonts.js",
     "copy.js",
-    "core/",
     "element.d.ts",
     "element.js",
-    "font-face-boundaries.js",
-    "layout-worker.js",
-    "precomputed.js",
-    "prepared-dom.js",
     "prepared-dom.d.ts",
-    "runtime.js",
-    "runtime/",
-    "snapshot-manifest.js",
-    "snapshot-source.js",
+    "prepared-dom.js",
     "snapshot-client.d.ts",
     "snapshot-client.js",
-    "snapshot-schema.js",
-    "snapshot-table-binary.js",
-    "snapshot-tables.js",
     "styles.css",
-    "styles.js",
-    "viewport-anchor.js",
-    "worker-layout.js"
+    "styles.js"
   ],
   "exports": {
     ".": {
@@ -91,7 +76,7 @@
     "./styles.css": "./styles.css"
   },
   "dependencies": {
-    "@tiqian/ffi": "0.1.0-alpha.1"
+    "@tiqian/prose-core": "0.1.0-alpha.5"
   },
   "sideEffects": [
     "./api.js",

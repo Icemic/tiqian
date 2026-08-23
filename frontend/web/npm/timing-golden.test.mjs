@@ -31,7 +31,7 @@ import {
   ELEMENT_DRIVE_GLOBALS,
   FRAME_STEP_MS,
 } from "./timing-golden-host.mjs";
-import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
+import { setEngineOverride } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -444,7 +444,7 @@ async function runWorkerMessagesJourney() {
     setEngineOverride({ workerLayoutRequest: () => requestJson() });
 
     const module = await import(
-      "./core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
+      "@tiqian/prose-core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
     );
     const bridge = globalThis.__TiqianLayoutWorker;
     const prepare = async () => {

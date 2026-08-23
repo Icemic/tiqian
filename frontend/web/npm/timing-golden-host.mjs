@@ -26,9 +26,9 @@ import {
   sha256,
   styleDeclaration,
 } from "./snapshot-dom-fixtures.mjs";
-import { FONT_REPLAY_REVISION, stableStringify } from "./snapshot-schema.js";
-import { writeBinaryTable } from "./table-binary-writer.mjs";
-import { setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
+import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/prose-core/snapshot-schema.js";
+import { writeBinaryTable } from "@tiqian/prose-core/table-binary-writer.mjs";
+import { setEngineOverride } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
 
 // ADR 0053 C1 removed the internal document-level event channel, so the
 // timing drive observes the engine call face directly. The stub records each
@@ -537,8 +537,8 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   // test load and shift observer creation order per run; warm, the cache hits
   // keep the S1 tail deterministic. The warm imports run inside the journey's
   // fake-clock window, so any module top-level captures see the same doubles.
-  await import("./core/engine/web-worker/worker-channel.js");
-  await import("./core/measurement/browser-fonts.js");
+  await import("@tiqian/prose-core/core/engine/web-worker/worker-channel.js");
+  await import("@tiqian/prose-core/core/measurement/browser-fonts.js");
   element.connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
@@ -663,7 +663,7 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
   };
 
   const { declareTiqianFontFaces } = await import(
-    "./core/sampler/snapshot/declared-faces.js"
+    "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js"
   );
 
   const setWakePhase = (phase) => {

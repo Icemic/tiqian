@@ -11,7 +11,7 @@ import {
   releasePreparedValueStyleRoot,
   renderPreparedParagraphArtifact,
   renderPreparedParagraphInto,
-} from "./core/sampler/snapshot/prepared-dom.js";
+} from "@tiqian/prose-core/core/sampler/snapshot/prepared-dom.js";
 
 function fixturePlan() {
   return {

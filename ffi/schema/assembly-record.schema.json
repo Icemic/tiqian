@@ -304,8 +304,8 @@
         "lineBreakSpans",
         "inlineObjects"
       ],
-      "producer": "frontend/web/npm/core/engine/web-worker/worker-channel.js",
-      "typeGeneration": "frontend/web/npm (generated declarations)"
+      "producer": "frontend/web/npm-core/core/engine/web-worker/worker-channel.js",
+      "typeGeneration": "frontend/web/npm-core (generated declarations)"
     },
     "rustAbi": {
       "transport": "packed little-endian binary buffer, magic TQLR, revision 1; byte layout documented in ffi/native/tiqian_layout_abi.h",
@@ -360,7 +360,7 @@
       "input": "text nodes with computed white-space modes plus the hard-break offsets",
       "output": "projected text and the boundary map from source offsets to projected offsets",
       "rule": "collapsible whitespace runs collapse to a single space; leading and trailing runs at element boundaries trim; preserved-break modes keep breaks; a recorded hard break never collapses",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (cssWhiteSpaceCollapseProjection)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (cssWhiteSpaceCollapseProjection)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     },
     {
@@ -368,7 +368,7 @@
       "input": "br[data-tq-engine-break=MandatoryBreak]",
       "output": "a newline in the raw text at the recorded offset; the offset enters CssWhiteSpaceCollapseProjection as a hard break",
       "rule": "only a marked br contributes a structural break; unmarked br elements contribute nothing",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (appendElement raw-text walk)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (appendElement raw-text walk)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     },
     {
@@ -376,7 +376,7 @@
       "input": "computed style change points across the source DOM",
       "output": "textSpans records and sourceBoundaries offsets",
       "rule": "consecutive characters with equal projected style join one run; element edges register a boundary",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (LoweringBuilder.appendText run splitting)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (LoweringBuilder.appendText run splitting)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     },
     {
@@ -384,21 +384,21 @@
       "input": "strong, b and emphasized source elements",
       "output": "fontWeight in textSpans; decorations with kind Emphasis when strongAsEmphasisMarks is set",
       "rule": "weight wins for font selection; the decoration layer carries the emphasis semantics",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (appendStrongTextSegment)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (appendStrongTextSegment)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     },
     {
       "id": "InlineBoxMeasurement",
       "input": "inline elements with measured inline padding or border",
       "output": "inlineBoxes records with inlineStart and inlineEnd edges in px",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (LoweringBuilder.appendElement)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (LoweringBuilder.appendElement)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     },
     {
       "id": "OpaqueInlineObjectMeasurement",
       "input": "opaque replaced elements measured on the main thread",
       "output": "a U+FFFC placeholder in the projected text plus an inlineObjects record with advance, ascent and descent",
-      "implementation": "frontend/web/npm/core/engine/markdown-lowering.js (appendOpaqueInlineObject)",
+      "implementation": "frontend/web/npm-core/core/engine/markdown-lowering.js (appendOpaqueInlineObject)",
       "fixtures": "frontend/web/npm/markdown-lowering-bridge.test.mjs"
     }
   ]

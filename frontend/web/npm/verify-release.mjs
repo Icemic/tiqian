@@ -41,9 +41,9 @@ try {
   if (!filename) throw new Error("ReleaseConsumerPackFailed: npm pack returned no filename");
   tarballPath = resolve(consumerRoot, filename);
 
-  // The ffi package publishes before prose from the same commit (ADR 0053
-  // A4). Pack it from the working tree and install both tarballs so the
-  // consumer resolves @tiqian/ffi the way the lockstep release provides it.
+  // The ffi and prose-core packages publish in lockstep (ADR 0053 A4/F2).
+  // Pack both from the working tree and install them so the consumer resolves
+  // @tiqian/prose-core and @tiqian/ffi the way the lockstep release provides them.
   const packedFfi = JSON.parse(runNpm([
     "pack",
     "--ignore-scripts",
@@ -53,6 +53,16 @@ try {
   ], { cwd: resolve(packageRoot, "../../../ffi/js/npm"), capture: true }));
   const ffiFilename = packedFfi?.[0]?.filename;
   if (!ffiFilename) throw new Error("ReleaseConsumerPackFailed: npm pack returned no ffi filename");
+
+  const packedCore = JSON.parse(runNpm([
+    "pack",
+    "--ignore-scripts",
+    "--json",
+    "--pack-destination",
+    consumerRoot,
+  ], { cwd: resolve(packageRoot, "../npm-core"), capture: true }));
+  const coreFilename = packedCore?.[0]?.filename;
+  if (!coreFilename) throw new Error("ReleaseConsumerPackFailed: npm pack returned no core filename");
 
   await writeFile(
     resolve(consumerRoot, "package.json"),
@@ -65,6 +75,7 @@ try {
     "--no-audit",
     "--no-fund",
     tarballPath,
+    resolve(consumerRoot, coreFilename),
     resolve(consumerRoot, ffiFilename),
   ], { cwd: consumerRoot });
 

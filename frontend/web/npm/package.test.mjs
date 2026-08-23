@@ -15,24 +15,25 @@ test("published package includes the generated runtime and no repository-only bi
   assert.deepEqual(manifest.publishConfig, { access: "public", tag: "alpha" });
   assert.ok(manifest.files.includes("LICENSE"));
   assert.ok(manifest.files.includes("README.md"));
-  assert.ok(manifest.files.includes("runtime/"));
+  assert.equal(manifest.files.includes("runtime/"), false, "runtime/ moved to @tiqian/prose-core");
+  assert.equal(manifest.files.includes("core/"), false, "core/ moved to @tiqian/prose-core");
   assert.equal(
     manifest.files.includes("precompute-runtime/"),
     false,
     "the engine runtime ships as @tiqian/ffi instead",
   );
-  assert.ok(manifest.files.includes("browser-font-replay.js"));
-  assert.ok(manifest.files.includes("browser-fonts.js"));
-  assert.ok(manifest.files.includes("font-face-boundaries.js"));
+  assert.equal(manifest.files.includes("browser-font-replay.js"), false);
+  assert.equal(manifest.files.includes("browser-fonts.js"), false);
+  assert.equal(manifest.files.includes("font-face-boundaries.js"), false);
   assert.equal(manifest.files.includes("lazy-capabilities.js"), false, "lazy-capabilities.js must not ship");
-  assert.ok(manifest.files.includes("layout-worker.js"));
+  assert.equal(manifest.files.includes("layout-worker.js"), false);
   assert.ok(manifest.files.includes("prepared-dom.js"));
-  assert.ok(manifest.files.includes("snapshot-manifest.js"));
-  assert.ok(manifest.files.includes("snapshot-source.js"));
+  assert.equal(manifest.files.includes("snapshot-manifest.js"), false);
+  assert.equal(manifest.files.includes("snapshot-source.js"), false);
   assert.ok(manifest.files.includes("snapshot-client.js"));
-  assert.ok(manifest.files.includes("worker-layout.js"));
+  assert.equal(manifest.files.includes("worker-layout.js"), false);
   // The server-side precompute entries moved to @tiqian/precompute; only the
-  // client snapshot adoption module and the layout worker runtime remain.
+  // client snapshot adoption module and web-component integration remain.
   assert.deepEqual(Object.keys(manifest.exports).sort(), [
     ".",
     "./element",
@@ -42,14 +43,14 @@ test("published package includes the generated runtime and no repository-only bi
   ]);
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.exports["./build-runtime"], undefined);
-  assert.deepEqual(manifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
+  assert.deepEqual(manifest.dependencies, { "@tiqian/prose-core": "0.1.0-alpha.5" });
   for (const removed of ["precompute.js", "precompute-html.js", "precompute-fonts.js", "precompute-node-fonts.js"]) {
     assert.equal(manifest.files.includes(removed), false, `${removed} must not ship`);
   }
   assert.ok(manifest.sideEffects.includes("./prepared-dom.js"));
   assert.equal(
     manifest.scripts.prepack,
-    "npm run build:runtime && npm test && npm run verify:package",
+    "npm test && npm run verify:package",
   );
   assert.equal(
     manifest.scripts["verify:release"],
@@ -58,6 +59,14 @@ test("published package includes the generated runtime and no repository-only bi
   assert.equal(manifest.scripts["release:prepare"], "node ./prepare-release.mjs");
   assert.equal(manifest.files.includes("verify-release.mjs"), false);
   assert.equal(manifest.files.includes("prepare-release.mjs"), false);
+
+  const coreManifest = JSON.parse(await readFile(new URL("../npm-core/package.json", import.meta.url), "utf8"));
+  assert.equal(coreManifest.name, "@tiqian/prose-core");
+  assert.equal(coreManifest.version, manifest.version);
+  assert.deepEqual(coreManifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
+  assert.ok(coreManifest.files.includes("core/"));
+  assert.ok(coreManifest.files.includes("runtime/"));
+  assert.ok(coreManifest.files.includes("layout-worker.js"));
 });
 
 test("the release helper derives the repository tag and commit subject from one version", async () => {
@@ -104,19 +113,16 @@ test("the release workflow publishes one verified artifact and synchronizes both
   assert.match(workflow, /tags\.alpha !== version \|\| tags\.latest !== version/u);
 });
 
-test("the release verifier accepts the assembled Kotlin/JS runtime", async () => {
+test("the release verifier accepts the verified package files", async () => {
   const { verifyPackage } = await import("./verify-package.mjs");
   const artifacts = await verifyPackage();
 
-  assert.deepEqual(
-    artifacts.map((artifact) => artifact.path),
-    ["runtime/tiqian-web.js"],
-  );
-  assert.ok(artifacts.every((artifact) => artifact.size > 8));
+  assert.ok(artifacts.length > 0);
+  assert.ok(artifacts.every((artifact) => artifact.size > 0));
 });
 
-test("the release build clears the Kotlin/JS package target and bypasses build cache", async () => {
-  const source = await readFile(new URL("./build-runtime.mjs", import.meta.url), "utf8");
+test("the release build clears the Kotlin/JS package target and bypasses build cache in prose-core", async () => {
+  const source = await readFile(new URL("../npm-core/build-runtime.mjs", import.meta.url), "utf8");
 
   assert.match(source, /process\.platform === "win32"/u);
   assert.match(source, /"\.\.\/\.\.\/\.\.\/gradlew\.bat"/u);
@@ -134,24 +140,28 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const apiSource = await readFile(new URL("./api.js", import.meta.url), "utf8");
   const apiDeclarations = await readFile(new URL("./api.d.ts", import.meta.url), "utf8");
   const browserFontsSource = await readFile(
-    new URL("./core/measurement/browser-fonts.js", import.meta.url),
+    new URL("../npm-core/core/measurement/browser-fonts.js", import.meta.url),
     "utf8",
   );
-  const layoutWorkerSource = await readFile(new URL("./layout-worker.js", import.meta.url), "utf8");
+  const layoutWorkerSource = await readFile(new URL("../npm-core/layout-worker.js", import.meta.url), "utf8");
   const loadedSnapshotsSource = await readFile(
-    new URL("./core/sampler/snapshot/loaded-snapshots.js", import.meta.url),
+    new URL("../npm-core/core/sampler/snapshot/loaded-snapshots.js", import.meta.url),
     "utf8",
   );
-  for (const shim of ["precomputed.js", "prepared-dom.js", "snapshot-source.js", "snapshot-client.js"]) {
+  for (const shim of ["prepared-dom.js", "snapshot-client.js"]) {
     const shimSource = await readFile(new URL(`./${shim}`, import.meta.url), "utf8");
+    assert.match(shimSource, /export \* from "@tiqian\/prose-core\/core\/sampler\/snapshot\//u);
+  }
+  for (const shim of ["precomputed.js", "snapshot-source.js"]) {
+    const shimSource = await readFile(new URL(`../npm-core/${shim}`, import.meta.url), "utf8");
     assert.match(shimSource, /export \* from "\.\/core\/sampler\/snapshot\//u);
   }
   const runtimeSource = await readFile(
-    new URL("./core/engine/loaders/runtime-loader.js", import.meta.url),
+    new URL("../npm-core/core/engine/loaders/runtime-loader.js", import.meta.url),
     "utf8",
   );
   const fontLoaderSource = await readFile(
-    new URL("./core/engine/loaders/font-loader.js", import.meta.url),
+    new URL("../npm-core/core/engine/loaders/font-loader.js", import.meta.url),
     "utf8",
   );
   const stylesSource = await readFile(new URL("./styles.css", import.meta.url), "utf8");
@@ -208,7 +218,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"\)/u);
-  assert.match(elementSource, /import\("\.\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
+  assert.match(elementSource, /import\("@tiqian\/prose-core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.match(fontLoaderSource, /preparedDom\.installPreparedDomRendererBridge\(\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/precomputed\.js"/u);
@@ -317,7 +327,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(elementSource, /tq-inline-size-probe/u);
   const observersSource = await readFile(
-    new URL("./core/sampler/observers.js", import.meta.url),
+    new URL("../npm-core/core/sampler/observers.js", import.meta.url),
     "utf8",
   );
   assert.match(observersSource, /observer\??\.observe\([^)]+, \{ box: "border-box" \}\)/u);
@@ -329,7 +339,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
   assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
   const signaturesSource = await readFile(
-    new URL("./core/sampler/signatures.js", import.meta.url),
+    new URL("../npm-core/core/sampler/signatures.js", import.meta.url),
     "utf8",
   );
   assert.match(signaturesSource, /function fragmentedBorderBoxInlineSize\(element\)/u);
@@ -547,7 +557,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
 test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
   const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
   const coordinatorSource = await readFile(
-    new URL("./core/engine/coordinator/coordinator.js", import.meta.url),
+    new URL("../npm-core/core/engine/coordinator/coordinator.js", import.meta.url),
     "utf8",
   );
 
@@ -625,7 +635,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
 
 test("offscreen deferred lane keeps every pending callback per element", async () => {
   const coordinatorSource = await readFile(
-    new URL("./core/engine/coordinator/coordinator.js", import.meta.url),
+    new URL("../npm-core/core/engine/coordinator/coordinator.js", import.meta.url),
     "utf8",
   );
 

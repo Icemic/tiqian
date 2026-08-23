@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "./core/engine/content-reconcile.js";
+import "@tiqian/prose-core/core/engine/content-reconcile.js";
 import {
   cleanupMounted,
   loadHostRuntime,
