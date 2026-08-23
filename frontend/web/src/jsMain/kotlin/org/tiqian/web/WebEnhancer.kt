@@ -13,7 +13,6 @@ import org.tiqian.shaping.web.WebCanvasTextShaper
 import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.shaping.web.WebFontFamilies
 import org.w3c.dom.HTMLElement
-import org.w3c.dom.events.Event
 
 /**
  * Browser embed API for ADR 0039 dogfood.
@@ -46,54 +45,6 @@ object TiqianWeb {
         if (installed) return
         installed = true
         installTiqianCopyHandler()
-        installTiqianGlobalApiBridge()
-        document.addEventListener("tiqian:enhance", listener@{ event: Event ->
-            val root = eventRoot(event) ?: document.body ?: return@listener
-            enhance(root, optionsFromJs(eventOptions(event)))
-        })
-        document.addEventListener("tiqian:enhance-progressively", listener@{ event: Event ->
-            val root = eventRoot(event) ?: document.body ?: return@listener
-            enhanceProgressively(root, optionsFromJs(eventOptions(event)))
-        })
-        document.addEventListener("tiqian:destroy", listener@{ event: Event ->
-            val root = eventRoot(event) ?: document.body ?: return@listener
-            destroy(root)
-        })
-        document.addEventListener("tiqian:detach", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            detach(root)
-        })
-        document.addEventListener("tiqian:enhance-all", { event: Event ->
-            enhanceAll(optionsFromJs(eventOptions(event)))
-        })
-        document.addEventListener("tiqian:relayout", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            relayout(root)
-        })
-        document.addEventListener("tiqian:reconcile-content", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            setEventResult(event, reconcileContent(root, eventParagraphs(event)))
-        })
-        document.addEventListener("tiqian:probe-content-drift", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            setEventResult(event, probeContentDrift(root))
-        })
-        document.addEventListener("tiqian:cancel-layout-work", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            cancelProgressiveJob(root)
-        })
-        document.addEventListener("tiqian:worker-layout-request", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            val paragraph = eventParagraph(event) ?: return@listener
-            setEventResult(
-                event,
-                workerLayoutRequest(root, paragraph, optionsFromJs(eventOptions(event))),
-            )
-        })
-        document.addEventListener("tiqian:refresh", listener@{ event: Event ->
-            val root = eventRoot(event) ?: return@listener
-            refresh(root)
-        })
     }
 
     fun enhanceAll(options: EnhanceOptions = EnhanceOptions()): Int {

@@ -299,25 +299,23 @@ internal external fun failExactPreparedDomRender(detail: String)
 internal external fun exactPreparedPlan(): String
 @JsFun("() => globalThis.__TiqianExactPreparedRenderCount || 0")
 internal external fun exactPreparedRenderCount(): Int
-@JsFun(
-    """(root, paragraph) => {
-      const detail = {
+@JsFun("(request) => JSON.parse(request).maxWidthPx")
+internal external fun jsonMaxWidthPx(request: String): Double
+
+internal fun exactWorkerRequestMaxWidth(root: HTMLElement, paragraph: HTMLElement): Double {
+    val request = TiqianWeb.workerLayoutRequest(
         root,
         paragraph,
-        options: {
-          exactFontSession: {
-            status: "conforming",
-            sessionId: "fixture-grid-session",
-            detail: "test",
-          },
-        },
-        result: null,
-      };
-      document.dispatchEvent(new CustomEvent("tiqian:worker-layout-request", { detail }));
-      return JSON.parse(detail.result).maxWidthPx;
-    }""",
-)
-internal external fun exactWorkerRequestMaxWidth(root: HTMLElement, paragraph: HTMLElement): Double
+        TiqianWeb.EnhanceOptions(
+            exactFontSession = TiqianWeb.ExactFontSessionCapability(
+                status = "conforming",
+                sessionId = "fixture-grid-session",
+                detail = "test",
+            ),
+        ),
+    ) ?: error("worker layout request must succeed for a conforming exact session")
+    return jsonMaxWidthPx(request)
+}
 @JsFun("(detail) => { globalThis.__TiqianLayoutWorker = { take: () => null, issue: () => detail }; }")
 internal external fun installPreparedWorkerIssue(detail: String)
 @JsFun(
@@ -359,12 +357,17 @@ internal external fun installPreparedWorkerIssue(detail: String)
 internal external fun installPreparedWorkerLivePlan()
 @JsFun("() => { delete globalThis.__TiqianFontBackend; delete globalThis.__TiqianPreparedDomRenderer; delete globalThis.__TiqianPreparedDomValidator; delete globalThis.__TiqianLayoutWorker; delete globalThis.__TiqianExactPreparedPlan; delete globalThis.__TiqianExactPreparedRenderCount; delete globalThis.__TiqianExactFontShapeCount; delete globalThis.__TiqianExactFontFallbackCount; }")
 internal external fun clearExactFontSessionFixture()
-@JsFun("(root) => document.dispatchEvent(new CustomEvent('tiqian:enhance', { detail: { root } }))")
-internal external fun dispatchEnhanceWithoutOptions(root: HTMLElement)
-@JsFun("(root) => document.dispatchEvent(new CustomEvent('tiqian:enhance', { detail: { root, options: { strongAsEmphasisMarks: true } } }))")
-internal external fun dispatchEnhanceWithStrongAsEmphasisMarks(root: HTMLElement)
-@JsFun("(root) => document.dispatchEvent(new CustomEvent('tiqian:relayout', { detail: { root } }))")
-internal external fun dispatchRelayout(root: HTMLElement)
+internal fun dispatchEnhanceWithoutOptions(root: HTMLElement) {
+    TiqianWeb.enhance(root)
+}
+
+internal fun dispatchEnhanceWithStrongAsEmphasisMarks(root: HTMLElement) {
+    TiqianWeb.enhance(root, TiqianWeb.EnhanceOptions(strongAsEmphasisMarks = true))
+}
+
+internal fun dispatchRelayout(root: HTMLElement) {
+    TiqianWeb.relayout(root)
+}
 @JsFun("(element, type) => element.dispatchEvent(new Event(type))")
 private external fun dispatchDomEvent(element: HTMLElement, type: String)
 @JsFun(

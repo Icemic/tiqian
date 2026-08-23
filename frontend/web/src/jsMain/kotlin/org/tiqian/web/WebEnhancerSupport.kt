@@ -156,20 +156,10 @@ internal class ExactSessionBrowserFallbackFontMetricsResolver(
     }
 }
 
-@JsFun("(event) => event.detail && event.detail.root ? event.detail.root : null")
-internal external fun eventRoot(event: Event): HTMLElement?
-@JsFun("(event) => event.detail && event.detail.paragraph ? event.detail.paragraph : null")
-internal external fun eventParagraph(event: Event): HTMLElement?
-@JsFun("(event) => event.detail && event.detail.options && Array.isArray(event.detail.options.paragraphs) ? event.detail.options.paragraphs : []")
-internal external fun eventParagraphs(event: Event): Array<HTMLElement>
 // Opaque host options bag. Field reads stay in @JsFun bodies. Public so the
 // TiqianEngine JsExport facade can name it in exported signatures.
 external interface EnhanceOptionsJs
 
-@JsFun("(event) => event.detail && event.detail.options ? event.detail.options : null")
-internal external fun eventOptions(event: Event): EnhanceOptionsJs?
-@JsFun("(event, value) => { if (event.detail) event.detail.result = value; }")
-internal external fun setEventResult(event: Event, value: String?)
 @JsFun("(options, name) => options && options[name] != null ? String(options[name]) : null")
 internal external fun optionString(options: EnhanceOptionsJs?, name: String): String?
 @JsFun("(options, name) => { if (!options || options[name] == null) return NaN; const number = Number(options[name]); return Number.isFinite(number) ? number : NaN; }")
@@ -512,49 +502,6 @@ internal external fun dispatchTiqianProgressiveError(
     durationMs: Double,
     maxSliceMs: Double,
 )
-internal fun installTiqianGlobalApiBridge() {
-    js(
-        """
-        if (!globalThis.TiqianWeb || !globalThis.TiqianWeb.__tiqianKotlinBridge) {
-          globalThis.TiqianWeb = {
-            __tiqianKotlinBridge: true,
-            enhance(root, options) {
-              document.dispatchEvent(new CustomEvent("tiqian:enhance", {
-                detail: { root: root || document.body, options: options || {} }
-              }));
-              return root || document.body;
-            },
-            enhanceProgressively(root, options) {
-              document.dispatchEvent(new CustomEvent("tiqian:enhance-progressively", {
-                detail: { root: root || document.body, options: options || {} }
-              }));
-              return root || document.body;
-            },
-            workerLayoutRequest(root, paragraph, options) {
-              var detail = {
-                root: root || document.body,
-                paragraph: paragraph,
-                options: options || {},
-                result: null
-              };
-              document.dispatchEvent(new CustomEvent("tiqian:worker-layout-request", { detail }));
-              return detail.result;
-            },
-            destroy(root) {
-              document.dispatchEvent(new CustomEvent("tiqian:destroy", {
-                detail: { root: root || document.body }
-              }));
-            },
-            enhanceAll(options) {
-              document.dispatchEvent(new CustomEvent("tiqian:enhance-all", {
-                detail: { options: options || {} }
-              }));
-            }
-          };
-        }
-        """,
-    )
-}
 
 /**
  * Package entrypoints install `SourceFaithfulSemanticClipboard` from copy.js.
