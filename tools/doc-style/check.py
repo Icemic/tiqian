@@ -36,15 +36,15 @@ WORDS = [
     # internet jargon verbs
     "链路", "打通", "拉齐", "沉淀", "反哺", "赋能", "抓手", "打磨", "深耕",
     # misattributed or vague causal wording
-    "根因", "归因", "掩盖", "口径", "挡住", "契约",
+    "根因", "归因", "掩盖", "口径", "挡住", "契约", "缺口",
     # measurement metaphors and coined measurement words
     "车道", "lane", "wall", "墙钟", "仪表", "亚毫", "膨胀", "显形", "重录",
     "冷构建", "热构建", "冷热", "全冷", "多重集", "构建链", "排空", "惰性",
     "互不推导", "三面", "三段式", "会话级", "进程级", "全 0",
     # coined technical-sounding words replaced by plain statements
-    "失配", "真源", "转出口", "合批", "同批",
+    "失配", "真源", "转出口", "合批", "同批", "执行位",
     # colloquial shorthand
-    "毛躁", "全绿", "全红", "锁相", "塞进", "收进",
+    "毛躁", "全绿", "全红", "锁相", "塞进", "收进", "测试绿", "测试红",
     # decorative adjectives and vague quantifiers: judge each line by context
     "恒", "恰好", "巨大的", "完整的", "真实", "合法", "归一", "缝隙", "大概率",
     "当日",
@@ -58,6 +58,7 @@ PATTERNS = [
     (r"，而是", "contrast"),
     (r"而不是", "contrast"),
     (r"，不是", "contrast"),
+    (r"，而非", "contrast"),
     (r"更是", "contrast"),
     (r"——", "em-dash"),
 ]
@@ -120,7 +121,7 @@ def main() -> int:
     print()
     print(f"命中 {len(hits)} 处。")
     print("说明：本工具只是自动化的检查列表，词表与句式模式不完整，需要随时填充。")
-    print("命中仅为候选，逐条人工判定后改写；固定搭配与既有文档标题的引用加入白名单。")
+    print("命中仅为候选，逐条人工判定后改写。")
     print("自动检查不替代手动校验。")
     return 1 if hits else 0
 
