@@ -311,3 +311,14 @@ region order and validates every offset」。双边实现已在生产运行。
    该划分。
 6. 带条目 codec 是共享协议优先实现的候选模块：整数内容、端序单一取值、
    无语义桥依赖、浏览器侧只能以生成代码消费。
+7. reflaxe.rust 的 GPL-3.0 运行时面可以移除，需要验证层：`rust_no_hxrt`
+   （metal）省略 hxrt 依赖并在编译期拒绝 runtime 引用；外部验证把生成 crate
+   的 hxrt 依赖替换为空 crate 后编译，编译通过即零 hxrt 引用，判据由 Rust
+   编译器给出；hxrt 之外的拷贝 helper 模块（与 native-facade-manifest.json
+   交叉比对）与许可证头 grep 列入同一检查；reflaxe.rust 为 0.x，该检查作为
+   CI 门并在升级时全量重跑。
+8. 许可证路径选择：portable + hxrt 使发行物按 GPL-3.0 发布，与仓库的
+   MPL-2.0 冲突；metal + `rust_no_hxrt` 加验证门使产物不含 GPL 代码；MIT
+   的 reflaxe 框架自写 emitter 使产物全链不含 GPL 依赖，该 emitter 已在成本
+   构成（第 3.3 节）之内，许可证处理不增加成本。产物不含 GPL 代码后，编译器
+   本身的 GPL-3.0 按编译器输出立场处理（Haxe 官方 FAQ 记录同立场）。
