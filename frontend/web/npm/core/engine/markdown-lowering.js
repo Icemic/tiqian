@@ -97,6 +97,13 @@
     return Number.isFinite(number) ? number : null;
   }
 
+  // NullCoalescingSubstitute: the Kotlin JS parser that validates the
+  // embedded @JsFun body does not accept the ?? operator, so every
+  // null-coalescing choice is spelled through this helper instead.
+  function firstDefined(value, fallback) {
+    return value !== null && value !== undefined ? value : fallback;
+  }
+
   function parseCssLineHeight(value, fontSize) {
     if (value === null || value === undefined) return null;
     var trimmed = String(value).trim();
@@ -565,23 +572,33 @@
     return boundaries;
   }
 
-  function defaultTextStyle() {
+  // LocaleChannel: the lowerer must answer the same default locale as the
+  // Kotlin core TextStyle ("zh-Hans") because locale travels into LayoutInput
+  // and drives font selection plus the punctuation profile. An explicit
+  // non-empty options.locale overrides that default.
+  function resolveLocale(options) {
+    return typeof options.locale === "string" && options.locale !== ""
+      ? options.locale
+      : "zh-Hans";
+  }
+
+  function defaultTextStyle(locale) {
     return {
       fontFamilies: [],
       fontSize: DEFAULT_FONT_SIZE,
       fontWeight: 400,
       italic: false,
       baselineShift: 0,
-      locale: "",
+      locale: locale,
     };
   }
 
   function computedTextStyle(element, fallback) {
     var families = parseCssFontFamilies(computedStyle(element, "font-family"));
     var fontFamilies = families.length > 0 ? families : fallback.fontFamilies;
-    var fontSize = parseCssPx(computedStyle(element, "font-size")) ?? fallback.fontSize;
-    var fontWeight = parseCssFontWeight(computedStyle(element, "font-weight")) ?? fallback.fontWeight;
-    var italic = parseCssItalic(computedStyle(element, "font-style")) ?? fallback.italic;
+    var fontSize = firstDefined(parseCssPx(computedStyle(element, "font-size")), fallback.fontSize);
+    var fontWeight = firstDefined(parseCssFontWeight(computedStyle(element, "font-weight")), fallback.fontWeight);
+    var italic = firstDefined(parseCssItalic(computedStyle(element, "font-style")), fallback.italic);
     return {
       fontFamilies: fontFamilies,
       fontSize: fontSize,
@@ -740,8 +757,8 @@
     return result;
   }
 
-  function lowerWithCurrentStyles(paragraph, options, helpers, canonicalPrepared, issue) {
-    var fallbackStyle = defaultTextStyle();
+  function lowerWithCurrentStyles(paragraph, options, locale, helpers, canonicalPrepared, issue) {
+    var fallbackStyle = defaultTextStyle(locale);
     var computedParagraphStyle = computedTextStyle(paragraph, fallbackStyle);
     var fontSize = options.fontSize !== null && options.fontSize !== undefined
       ? options.fontSize
@@ -756,8 +773,8 @@
     };
     var lineHeight = options.lineHeight !== null && options.lineHeight !== undefined
       ? options.lineHeight
-      : (
-          parseCssLineHeight(computedStyle(paragraph, "line-height"), fontSize) ??
+      : firstDefined(
+          parseCssLineHeight(computedStyle(paragraph, "line-height"), fontSize),
           fontSize * DEFAULT_LINE_HEIGHT_MULTIPLIER
         );
     var baseInlineStyle = {
@@ -948,7 +965,7 @@
       start: start,
       end: end,
       element: element,
-      marginRight: parseCssPx(computedStyle(element, "margin-right")) ?? 0,
+      marginRight: firstDefined(parseCssPx(computedStyle(element, "margin-right")), 0),
     });
     return true;
   };
@@ -987,8 +1004,8 @@
         inlineBoxStyle: {
           inlineStart: inlineStart,
           inlineEnd: inlineEnd,
-          marginRight: parseCssPx(computedStyle(element, "margin-right")) ?? 0,
-          letterSpacing: parseCssPx(computedStyle(element, "letter-spacing")) ?? 0,
+          marginRight: firstDefined(parseCssPx(computedStyle(element, "margin-right")), 0),
+          letterSpacing: firstDefined(parseCssPx(computedStyle(element, "letter-spacing")), 0),
           boxDecorationBreak: computedStyle(element, "box-decoration-break").trim().toLowerCase(),
         },
       });
@@ -1163,6 +1180,7 @@
 
   function lower(paragraph, options, helpers) {
     options = options || {};
+    var locale = resolveLocale(options);
     var classifyRole = (helpers && typeof helpers.classifyRole === "function")
       ? helpers.classifyRole
       : function () { return "other"; };
@@ -1174,10 +1192,10 @@
     var lowered = withConfiguredFontSizeProbe(paragraph, options.fontSize, function () {
       if (canonicalPrepared) {
         return withCanonicalPreparedHostStyleProbe(paragraph, function () {
-          return lowerWithCurrentStyles(paragraph, options, safeHelpers, true, issue);
+          return lowerWithCurrentStyles(paragraph, options, locale, safeHelpers, true, issue);
         });
       }
-      return lowerWithCurrentStyles(paragraph, options, safeHelpers, false, issue);
+      return lowerWithCurrentStyles(paragraph, options, locale, safeHelpers, false, issue);
     });
     if (lowered === null || lowered === undefined) {
       return { ok: false, issue: { name: issue.name, detail: issue.detail } };

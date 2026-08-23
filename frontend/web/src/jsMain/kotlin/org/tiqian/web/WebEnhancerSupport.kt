@@ -297,170 +297,15 @@ internal external fun paragraphIsWithinProgressiveForegroundRange(element: HTMLE
     }""",
 )
 internal external fun elementFragmentBorderBoxInlineSize(element: HTMLElement): Double
-// NestedInlineBoxEdgeOwnership: compare an inline's flow edge with its direct
-// in-flow content boundary. A descendant semantic box owns its own padding,
-// margins and pseudo content, so an outer <sup>/<span> must not reserve that
-// same edge again merely because Range.getClientRects() ends on a deep text leaf.
-@JsFun(
-    """(element, side) => {
-      const style = getComputedStyle(element);
-      const margin = Number.parseFloat(
-        side === "start" ? style.marginLeft : style.marginRight
-      ) || 0;
-      const boxes = Array.from(element.getClientRects()).filter((rect) => rect.width || rect.height);
-      if (!boxes.length) return margin;
-      const boundary = (node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          const rects = Array.from(range.getClientRects()).filter((rect) => rect.width || rect.height);
-          if (!rects.length) return null;
-          return side === "start" ? rects[0].left : rects[rects.length - 1].right;
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) return null;
-        const childStyle = getComputedStyle(node);
-        if (childStyle.display === "none" || childStyle.position === "absolute" ||
-            childStyle.position === "fixed") return null;
-        const rects = Array.from(node.getClientRects()).filter((rect) => rect.width || rect.height);
-        if (rects.length) {
-          const rect = side === "start" ? rects[0] : rects[rects.length - 1];
-          const childMargin = Number.parseFloat(
-            side === "start" ? childStyle.marginLeft : childStyle.marginRight
-          ) || 0;
-          return side === "start" ? rect.left - childMargin : rect.right + childMargin;
-        }
-        const children = Array.from(node.childNodes);
-        if (side === "end") children.reverse();
-        for (const child of children) {
-          const value = boundary(child);
-          if (value != null) return value;
-        }
-        return null;
-      };
-      const children = Array.from(element.childNodes);
-      if (side === "end") children.reverse();
-      let contentBoundary = null;
-      for (const child of children) {
-        contentBoundary = boundary(child);
-        if (contentBoundary != null) break;
-      }
-      if (contentBoundary == null) return margin;
-      const flowEdge = side === "start"
-        ? boxes[0].left - margin
-        : boxes[boxes.length - 1].right + margin;
-      return side === "start"
-        ? Math.max(0, contentBoundary - flowEdge)
-        : Math.max(0, flowEdge - contentBoundary);
-    }""",
-)
-internal external fun measuredInlineEdge(element: Element, side: String): Double
-@JsFun(
-    """(element) => {
-      if (!element.parentNode || getComputedStyle(element).display === "contents") return 0;
-      const makeProbe = () => {
-        const probe = document.createElement("span");
-        probe.setAttribute("data-tq-baseline-probe", "");
-        probe.style.cssText = "display:inline-block!important;width:0!important;height:0!important;" +
-          "margin:0!important;padding:0!important;border:0!important;font-size:0!important;" +
-          "line-height:0!important;vertical-align:baseline!important;position:static!important;";
-        return probe;
-      };
-      const outer = makeProbe();
-      const inner = makeProbe();
-      try {
-        element.parentNode.insertBefore(outer, element);
-        element.insertBefore(inner, element.firstChild);
-        return inner.getBoundingClientRect().bottom - outer.getBoundingClientRect().bottom;
-      } finally {
-        inner.remove();
-        outer.remove();
-      }
-    }""",
-)
-internal external fun measuredInlineBaselineShift(element: Element): Double
-@JsFun(
-    """(element) => {
-      const parent = element.parentNode;
-      if (!parent) return "";
-      const style = getComputedStyle(element);
-      if (style.position === "absolute" || style.position === "fixed" ||
-          style.getPropertyValue("float") !== "none" || style.transform !== "none") return "";
-      const rect = element.getBoundingClientRect();
-      if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) ||
-          rect.width <= 0 || rect.height <= 0) return "";
-      const number = (value) => Number.parseFloat(value) || 0;
-      const probe = document.createElement("span");
-      probe.setAttribute("data-tq-baseline-probe", "");
-      probe.style.cssText = "display:inline-block!important;width:0!important;height:0!important;" +
-        "margin:0!important;padding:0!important;border:0!important;font-size:0!important;" +
-        "line-height:0!important;vertical-align:baseline!important;position:static!important;";
-      try {
-        parent.insertBefore(probe, element.nextSibling);
-        const baseline = probe.getBoundingClientRect().bottom;
-        const advance = rect.width + number(style.marginLeft) + number(style.marginRight);
-        const ascent = Math.max(0, baseline - rect.top + number(style.marginTop));
-        const descent = Math.max(0, rect.bottom - baseline + number(style.marginBottom));
-        return [advance, ascent, descent].join(",");
-      } finally {
-        probe.remove();
-      }
-    }""",
-)
-internal external fun measuredOpaqueInlineObjectGeometry(element: Element): String
-@JsFun(
-    """(element) => {
-      if (element.hasAttribute("data-tiqian-static-inline-object")) return true;
-      const name = element.localName || "";
-      if (name.includes("-")) return false;
-      const interactive = "a,button,input,select,textarea,iframe,object,embed,audio,video,canvas,[contenteditable='true'],[tabindex]";
-      if (element.matches(interactive) || element.querySelector(interactive)) return false;
-      const nodes = [element, ...element.querySelectorAll("*")];
-      return !nodes.some((node) => Array.from(node.attributes || []).some((attr) =>
-        attr.name.toLowerCase().startsWith("on")
-      ));
-    }""",
-)
-internal external fun isCloneSafeOpaqueInlineObject(element: Element): Boolean
 @JsFun("(element, property) => getComputedStyle(element).getPropertyValue(property)")
 internal external fun computedStyle(element: Element, property: String): String
-@JsFun(
-    """(element, pseudo) => {
-      const style = getComputedStyle(element, pseudo);
-      const content = style.getPropertyValue('content').trim();
-      if (!content || content === 'none' || content === 'normal' || content === '""' || content === "''") return null;
-      if (style.display === 'none' || style.position === 'absolute' || style.position === 'fixed') return null;
-      return content;
-    }""",
-)
-internal external fun flowParticipatingPseudoContent(element: Element, pseudo: String): String?
-// Opaque Intl.Segmenter handle. Only lowererGraphemeBoundaries reads it.
-internal external interface GraphemeSegmenterJs
 
-@JsFun(
-    """() => typeof Intl !== 'undefined' && Intl.Segmenter
-      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-      : null""",
-)
-internal external fun createLowererGraphemeSegmenter(): GraphemeSegmenterJs?
-@JsFun(
-    """(segmenter, text) => {
-      const boundaries = [0];
-      if (segmenter) {
-        for (const item of segmenter.segment(text)) {
-          if (item.index > 0) boundaries.push(item.index);
-        }
-      } else {
-        let offset = 0;
-        for (const point of Array.from(text)) {
-          offset += point.length;
-          if (offset < text.length) boundaries.push(offset);
-        }
-      }
-      boundaries.push(text.length);
-      return boundaries.join(',');
-    }""",
-)
-internal external fun lowererGraphemeBoundaries(segmenter: GraphemeSegmenterJs?, text: String): String
+internal fun parseCssPx(value: String): Float? {
+    val trimmed = value.trim()
+    if (!trimmed.endsWith("px")) return null
+    return trimmed.removeSuffix("px").trim().toFloatOrNull()
+}
+
 @JsFun("(element, selector) => !!element.closest(selector)")
 internal external fun hasClosest(element: HTMLElement, selector: String): Boolean
 @JsFun(
@@ -628,7 +473,6 @@ internal const val RUNTIME_RENDER_FONT_ATTRIBUTE = "data-tq-runtime-render-font"
 internal const val HOST_INLINE_SIZE_ATTRIBUTE = "data-tq-host-inline-size"
 internal const val RELAYOUT_ERROR_ATTRIBUTE = "data-tiqian-relayout-error"
 internal const val EXACT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback"
-internal const val DEFAULT_LINE_HEIGHT_MULTIPLIER = 1.75f
 internal const val DEFAULT_CJK_FONT_FAMILY = "\"MiSans VF\", \"PingFang SC\", \"Noto Sans CJK SC\", sans-serif"
 internal const val DEFAULT_LATIN_FONT_FAMILY = "\"InterVariable\", \"Inter\", \"MiSans VF\", sans-serif"
 internal const val DEFAULT_MONOSPACE_FONT_FAMILY =

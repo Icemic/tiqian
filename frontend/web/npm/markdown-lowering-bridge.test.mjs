@@ -86,7 +86,7 @@ test("markdownLoweringBridge_plainTextParagraphLoweredWithDefaults", async (t) =
   assert.equal(lowered.textStyle.fontWeight, 400);
   assert.equal(lowered.textStyle.italic, false);
   assert.equal(lowered.textStyle.baselineShift, 0);
-  assert.equal(lowered.textStyle.locale, "");
+  assert.equal(lowered.textStyle.locale, "zh-Hans");
   assert.equal(lowered.lineHeight, 27);
   assert.deepEqual(lowered.spans, []);
   assert.deepEqual(lowered.decorations, []);
@@ -116,6 +116,20 @@ test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", async (t) => {
   assert.equal(lowered.textStyle.fontFamilies.join(","), "Fixture CJK");
   assert.equal(lowered.textStyle.fontWeight, 400);
   assert.equal(lowered.textStyle.italic, false);
+});
+
+test("markdownLoweringBridge_localeOptionThreadsThroughTextStyles", async (t) => {
+  t.after(cleanupMounted);
+  await loadHostRuntime();
+  const { result } = lowerParagraph(
+    "<p style=\"font-family: 'BaseFace'\"><em style=\"font-style: italic; font-family: 'StrongFace'\">斜</em>尾</p>",
+    { locale: "zh-TW" },
+  );
+  assert.equal(result.ok, true);
+  const lowered = result.lowered;
+  assert.equal(lowered.textStyle.locale, "zh-TW");
+  assert.equal(lowered.spans.length, 1);
+  assert.equal(lowered.spans[0].style.locale, "zh-TW");
 });
 
 test("markdownLoweringBridge_strongAsEmphasisMarksSplitsCjkFromLatinRuns", async (t) => {
