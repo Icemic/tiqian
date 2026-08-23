@@ -25,7 +25,9 @@
 2. **顶层按宿主平台重组**：`engine/`、`platforms/{android,web,apple,jvm,compose}/`、
    `ffi/{js,native}`、`demo/`、`test-support/`、`docs/`、`tools/`。平台模块的逻辑 Gradle 路径
    随物理路径改为 `:platforms:<host>:<module>`；artifactId 由根 `build.gradle.kts` 的
-   `publishedModules` 显式钉死、不绑路径，因此下游 Maven 坐标只受 engine 合并影响。
+   `publishedModules` 显式钉死、不绑路径。平台发布坐标同步理顺为**平台优先**命名
+   （`tiqian-jvm-shaping` / `tiqian-jvm-skia` / `tiqian-android-shaping` /
+   `tiqian-android-native-font`，compose 不变），见 ADR 0048 amendment。
 
 3. **模块 leaf 采用去前缀的干净命名**（pre-release 无兼容负担）：如 `:platforms:android:shaping`
    （原 `shaping/android-adapter`）、`:platforms:web:frontend`（原 `frontend/web`）。改 project.name
@@ -41,8 +43,8 @@
 ## Consequences
 
 - 坐标变化：`tiqian-core` / `-font` / `-linebreak` / `-clreq` / `-layout` / `-shaping-api` 六个
-  artifact → `tiqian-engine` 一个。tiqian-math / tiqian-markdown 的依赖声明需改指 `tiqian-engine`
-  （pre-release，无兼容转发）。
+  artifact → `tiqian-engine` 一个；平台坐标改平台优先（见 ADR 0048 amendment）。tiqian-math /
+  tiqian-markdown（及 zhplus）的依赖声明需改指新坐标（pre-release，无兼容转发）。
 - CI、脚本与当前状态文档中的模块任务路径 / 目录路径随之更新；ADR 属历史记录，保留当时路径不改。
 - 纯移动，行为不变：golden 零 diff，engine 跨 JVM / JS / native(cinterop) / Android 编译，
   Compose / Web(npm) / Android demo / FFI(js+native) 构建均已验证。

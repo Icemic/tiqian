@@ -56,3 +56,19 @@ user-managed Central Portal deployment。Central token 与 PGP 签名密钥由 G
 准备同版本的 Tiqian 与 Math 产物，但不得代替它们上传。三个 deployment 全部通过 Central
 验证后，再按 Tiqian、Math、Markdown 的依赖顺序公开。这样保留锁步版本的发布门槛，同时让
 失败重试、权限和产物所有权停留在各自仓库。
+
+## Amendment：engine 合并与平台优先坐标（2026-08-23）
+
+配合 ADR 0056 的 engine 单模块合并与按平台重组，base 仓坐标调整（pre-release，无兼容转发）：
+
+- `tiqian-core` / `-font` / `-linebreak` / `-clreq` / `-layout` / `-shaping-api` → 合并为
+  单一 **`tiqian-engine`**（包名不变）。
+- 平台 shaping / font 后端改为**平台优先**命名，与 `:platforms:<host>:<module>` 一一对应、
+  去掉 `shaping-` / `android-` 冗余：`tiqian-shaping-jvm` → **`tiqian-jvm-shaping`**、
+  `tiqian-shaping-skia` → **`tiqian-jvm-skia`**、`tiqian-shaping-android-adapter` →
+  **`tiqian-android-shaping`**、`tiqian-shaping-android-native-font` →
+  **`tiqian-android-native-font`**。
+- `tiqian-compose` / `tiqian-compose-material3` 不变。
+
+artifactId 仍由根 `build.gradle.kts` 的 `publishedModules` 显式映射、不绑 Gradle 路径。下游
+tiqian-math / tiqian-markdown 与 zhplus 的依赖声明需相应改指新坐标。

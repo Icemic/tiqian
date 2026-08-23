@@ -36,15 +36,15 @@ val publishedModules = mapOf(
         "The Tiqian CJK paragraph layout engine: document and layout data types, font " +
             "and shaping contracts, line breaking, and Chinese composition rules.",
     ),
-    ":platforms:jvm:shaping" to PublishedModule("tiqian-shaping-jvm", "Tiqian JVM Shaping", "JVM shaping support for Tiqian."),
-    ":platforms:jvm:skia" to PublishedModule("tiqian-shaping-skia", "Tiqian Skia Shaping", "Skia shaping and glyph replay support for Tiqian."),
+    ":platforms:jvm:shaping" to PublishedModule("tiqian-jvm-shaping", "Tiqian JVM Shaping", "JVM shaping support for Tiqian."),
+    ":platforms:jvm:skia" to PublishedModule("tiqian-jvm-skia", "Tiqian Skia Shaping", "Skia shaping and glyph replay support for Tiqian."),
     ":platforms:android:shaping" to PublishedModule(
-        "tiqian-shaping-android-adapter",
-        "Tiqian Android Shaping Adapter",
+        "tiqian-android-shaping",
+        "Tiqian Android Shaping",
         "Android shaping and glyph replay adapter for Tiqian.",
     ),
     ":platforms:android:native-font" to PublishedModule(
-        "tiqian-shaping-android-native-font",
+        "tiqian-android-native-font",
         "Tiqian Android Native Font",
         "Native Android font discovery and shaping support for Tiqian.",
     ),
