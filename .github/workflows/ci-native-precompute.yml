@@ -166,6 +166,25 @@ jobs:
           cargo build --manifest-path frontend/web-precompute/rust/Cargo.toml
           cargo test --manifest-path frontend/web-precompute/rust/Cargo.toml
 
+  # ADR 0053 F4 (DualLoweringStance): the shared golden corpus binds both
+  # prepared-dom implementations to the same bytes. The rust lane runs inside
+  # the rust job above; this job regenerates the fixture from the js oracle and
+  # fails on drift, then replays the same fixture through the js test.
+  prepared-dom-corpus:
+    name: Shared prepared-dom corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+      - name: Regenerate the fixture and fail on drift
+        run: |
+          node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs
+          git diff --exit-code frontend/web/npm/prepared-dom-corpus.fixture.json
+      - name: Replay the fixture through the js corpus test
+        run: node --test frontend/web/npm/prepared-dom-corpus.test.mjs
+
   # ADR 0050 Verification: the native lane must reproduce the js oracle's plan
   # JSON byte for byte. The Gradle tasks build both sides of the comparison
   # (engine archive plus js bundle), the oracle script dumps the js lane, and
