@@ -8,6 +8,32 @@ import { createSnapshotTableFileTransport } from "@tiqian/precompute/transport";
 
 const SNAPSHOT_REFERENCE = /<tiqian-prose\b[^>]*\bsnapshot-ref=(["'])([A-Za-z][A-Za-z0-9_-]*)\1[^>]*>/giu;
 
+/**
+ * Builds the snapshot-table file transport of a `tables` option (ADR 0052
+ * `TableTransport`) for hosts that own their preparation pipeline and call
+ * the transport directly. Only a production build writes `directory`; dev,
+ * test, and an unset NODE_ENV write `devDirectory` when it is configured.
+ * The build directory therefore only changes through a build.
+ */
+export function createTiqianTables(options) {
+  if (typeof options !== "object" || options === null) {
+    throw new Error("TiqianSvelteKitTablesOptionsInvalid");
+  }
+  const directory = options.directory;
+  if (typeof directory !== "string" && !(directory instanceof URL)) {
+    throw new Error("TiqianSvelteKitTablesDirectoryRequired");
+  }
+  const devDirectory = options.devDirectory;
+  if (devDirectory !== undefined && typeof devDirectory !== "string" && !(devDirectory instanceof URL)) {
+    throw new Error("TiqianSvelteKitTablesOptionsInvalid");
+  }
+  return createSnapshotTableFileTransport({
+    directory: process.env.NODE_ENV === "production" ? directory : (devDirectory ?? directory),
+    urlPrefix: options.urlPrefix,
+    extension: options.extension,
+  });
+}
+
 export function injectTiqianSsrAssets(htmlValue, resolveAssets) {
   const html = String(htmlValue);
   const ids = new Set(Array.from(html.matchAll(SNAPSHOT_REFERENCE), (match) => match[2]));
@@ -33,6 +59,8 @@ function sameServerAssets(left, right) {
  * per-item table the preparer freezes and stamps the root's `tq-tables`
  * attribute with the served URL; the exposed transport backs a prerendered
  * route so the built output ships the bytes the manifests pin.
+ * `createTiqianTables` exports the same transport on its own for hosts that
+ * run their own preparation pipeline.
  */
 export function createTiqianSvelteKit(options = {}) {
   const retainedAssets = new Map();
@@ -42,10 +70,7 @@ export function createTiqianSvelteKit(options = {}) {
     throw new Error("InvalidMaximumRetainedTiqianBundles");
   }
   const tablesOptions = options.tables ?? null;
-  if (tablesOptions != null && (typeof tablesOptions !== "object" || (tablesOptions.directory !== undefined && typeof tablesOptions.directory !== "string" && !(tablesOptions.directory instanceof URL)))) {
-    throw new Error("TiqianSvelteKitTablesOptionsInvalid");
-  }
-  const tableTransport = tablesOptions == null ? null : createSnapshotTableFileTransport(tablesOptions);
+  const tableTransport = tablesOptions == null ? null : createTiqianTables(tablesOptions);
   const preparerPromise = options.htmlPreparer == null
     ? createHtmlPreparer(options)
     : Promise.resolve(options.htmlPreparer);

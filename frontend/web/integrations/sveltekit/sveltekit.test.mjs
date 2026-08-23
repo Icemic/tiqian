@@ -11,6 +11,7 @@ import { attributes as renderSsrAttributes } from "svelte/internal/server";
 
 import {
   createTiqianSvelteKit,
+  createTiqianTables,
   injectTiqianSsrAssets,
 } from "./server.js";
 
@@ -153,6 +154,88 @@ test("a tables option writes per-item table files and stamps the root URL", asyn
     assert.deepEqual(tiqian.tables.listShas(), [sha256]);
     await tiqian.close();
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("createTiqianTables requires a directory option", () => {
+  assert.throws(() => createTiqianTables(), /TiqianSvelteKitTablesOptionsInvalid/u);
+  assert.throws(() => createTiqianTables(null), /TiqianSvelteKitTablesOptionsInvalid/u);
+  assert.throws(() => createTiqianTables({}), /TiqianSvelteKitTablesDirectoryRequired/u);
+  assert.throws(
+    () => createTiqianTables({ directory: "tables", devDirectory: 3 }),
+    /TiqianSvelteKitTablesOptionsInvalid/u,
+  );
+});
+
+test("createTiqianTables writes devDirectory outside production", async () => {
+  const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-tables-"));
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    const build = path.join(root, "build");
+    const dev = path.join(root, "dev");
+    const sha256 = "b".repeat(64);
+    const bytes = Buffer.from("TIQTBL03-fixture");
+
+    process.env.NODE_ENV = "development";
+    const development = createTiqianTables({ directory: build, devDirectory: dev });
+    development.write({ bytes, sha256 });
+    assert.deepEqual(development.read(sha256), bytes);
+    assert.equal(existsSync(path.join(build, `${sha256}.tiqtbl`)), false);
+
+    delete process.env.NODE_ENV;
+    const unset = createTiqianTables({ directory: build, devDirectory: dev });
+    unset.write({ bytes, sha256 });
+    assert.equal(existsSync(path.join(build, `${sha256}.tiqtbl`)), false);
+
+    process.env.NODE_ENV = "production";
+    const production = createTiqianTables({ directory: build, devDirectory: dev });
+    production.write({ bytes, sha256 });
+    assert.deepEqual(production.read(sha256), bytes);
+    assert.equal(existsSync(path.join(build, `${sha256}.tiqtbl`)), true);
+    assert.equal(production.urlFor(sha256), `/tiqian-tables/${sha256}.tiqtbl`);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a tables option routes non-production writes through devDirectory", async () => {
+  const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-tables-"));
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = "development";
+    const build = path.join(root, "build");
+    const dev = path.join(root, "dev");
+    const sha256 = "c".repeat(64);
+    const bytes = Buffer.from("TIQTBL03-fixture");
+    const htmlPreparer = {
+      async prepare(html) {
+        return {
+          html,
+          rootAttributes: { "snapshot-ref": "tq-page" },
+          clientBundle: null,
+          serverAssets: fixtureAssets,
+          tables: { bytes, sha256 },
+          issues: [],
+        };
+      },
+      close() {},
+    };
+    const tiqian = createTiqianSvelteKit({
+      htmlPreparer,
+      tables: { directory: build, devDirectory: dev },
+    });
+    const prepared = await tiqian.prepare("<p>正文</p>");
+    assert.equal(prepared.rootAttributes["tq-tables"], `/tiqian-tables/${sha256}.tiqtbl`);
+    assert.deepEqual(tiqian.tables.read(sha256), bytes);
+    assert.equal(existsSync(path.join(build, `${sha256}.tiqtbl`)), false);
+    assert.equal(existsSync(path.join(dev, `${sha256}.tiqtbl`)), true);
+    await tiqian.close();
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
     await rm(root, { recursive: true, force: true });
   }
 });

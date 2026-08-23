@@ -28,13 +28,15 @@ const manifestPaths = [
   join(root, "../../web/integrations/astro/package.json"),
   join(root, "../../web/integrations/sveltekit/package.json"),
 ];
-// The integration sources import `@tiqian/precompute` by name and embed the
-// name in generated module text; installed under the fork scope they must
-// reference the installed name instead.
+// The integration sources and type declarations import `@tiqian/precompute`
+// by name and embed the name in generated module text; installed under the
+// fork scope they must reference the installed name instead.
 const sourcePaths = [
   join(root, "../../web/integrations/astro/integration.js"),
   join(root, "../../web/integrations/astro/tables.js"),
+  join(root, "../../web/integrations/astro/index.d.ts"),
   join(root, "../../web/integrations/sveltekit/server.js"),
+  join(root, "../../web/integrations/sveltekit/server.d.ts"),
 ];
 const PRECOMPUTE_NAME = "@tiqian/precompute";
 
