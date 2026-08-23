@@ -2,7 +2,7 @@
 //
 // Builds the shared fixture consumed by BOTH parity lanes: the Rust
 // integration test `rust/tiqian-precompute/tests/prepared_dom_corpus.rs` and
-// the js test `frontend/web/npm/prepared-dom-corpus.test.mjs`. The js module
+// the js test `platforms/web/frontend/npm/prepared-dom-corpus.test.mjs`. The js module
 // `prepared-dom.js` is the oracle; regenerating the fixture is deliberate:
 //
 //   node scripts/build-prepared-dom-corpus.mjs   (from frontend/web-precompute)
@@ -11,7 +11,7 @@ import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { renderPreparedParagraphArtifact } from "../../web/npm/prepared-dom.js";
+import { renderPreparedParagraphArtifact } from "../../../platforms/web/frontend/npm/prepared-dom.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -346,6 +346,6 @@ for (const entry of cases) {
   fixture.cases.push({ name, plan: JSON.stringify(planValue), locale, options, expect });
 }
 
-const target = resolve(here, "../../web/npm/prepared-dom-corpus.fixture.json");
+const target = resolve(here, "../../../platforms/web/frontend/npm/prepared-dom-corpus.fixture.json");
 writeFileSync(target, `${JSON.stringify(fixture, null, 2)}\n`);
 console.log(`wrote ${fixture.cases.length} cases to ${target}`);
