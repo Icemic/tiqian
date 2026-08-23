@@ -1,60 +1,14 @@
 import {
   FONT_REPLAY_REVISION,
   FONT_REPLAY_TRANSPORT,
-  metricReplayKey,
-  shapeReplayKey,
 } from "./snapshot-schema.js";
+import {
+  decodeMetricReplayRow,
+  decodeShapeReplayRow,
+} from "./replay-entry-codec.js";
 
 function expandReplayShapes(shapes, stringAt) {
-  return shapes.map((row) => {
-    if (!Array.isArray(row) || row.length !== 14 || !Array.isArray(row[10]) ||
-        !Array.isArray(row[13]) || row[13].length % 8 !== 0 ||
-        (row[3] !== 0 && row[3] !== 1)) {
-      throw new Error("SnapshotFontReplayShapeTransportInvalid");
-    }
-    const glyphs = [];
-    for (let index = 0; index < row[13].length; index += 8) {
-      const bounds = row[13].slice(index + 4, index + 8);
-      const allNull = bounds.every((value) => value == null);
-      if (!allNull && bounds.some((value) => value == null)) {
-        throw new Error("SnapshotFontReplayGlyphBoundsInvalid");
-      }
-      glyphs.push({
-        id: row[13][index],
-        advanceEm: row[13][index + 1],
-        xEm: row[13][index + 2],
-        yEm: row[13][index + 3],
-        boundsEm: allNull ? null : bounds,
-      });
-    }
-    const displayText = stringAt(row[0]);
-    const serializedFamilies = stringAt(row[1]);
-    const fontWeight = row[2];
-    const italic = row[3] === 1;
-    const locale = stringAt(row[4]);
-    const role = stringAt(row[5]);
-    const sourceText = stringAt(row[6]);
-    return {
-      key: shapeReplayKey(
-        displayText,
-        serializedFamilies,
-        fontWeight,
-        italic,
-        locale,
-        role,
-        sourceText,
-      ),
-      result: {
-        faceId: stringAt(row[7]),
-        fontInstanceId: stringAt(row[8]),
-        script: stringAt(row[9]),
-        features: row[10].map(stringAt),
-        unsafeBreakCount: row[11],
-        advanceEm: row[12],
-        glyphs,
-      },
-    };
-  });
+  return shapes.map((row) => decodeShapeReplayRow(row, stringAt));
 }
 
 /** Expands entry rows against the snapshot-table accessors. */
@@ -100,16 +54,7 @@ const replayMetricsByView = new WeakMap();
 function replayMetricsOf(view) {
   let metrics = replayMetricsByView.get(view);
   if (metrics === undefined) {
-    metrics = view.metricRows().map((row) => ({
-      key: metricReplayKey(
-        row.serializedFamilies,
-        row.fontWeight,
-        row.italic,
-        row.role,
-        row.faceSelectionText,
-      ),
-      valuesEm: row.valuesEm,
-    }));
+    metrics = view.metricRows().map((row) => decodeMetricReplayRow(row));
     replayMetricsByView.set(view, metrics);
   }
   return metrics;

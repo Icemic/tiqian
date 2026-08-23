@@ -4,6 +4,10 @@ import {
   metricReplayKey,
   shapeReplayKey,
 } from "./snapshot-schema.js";
+import {
+  scaleMetricReplayItem,
+  scaleShapeReplayItem,
+} from "./replay-entry-codec.js";
 
 const REGISTRY_KEY = Symbol.for(`org.tiqian.web.font-replay.${FONT_REPLAY_REVISION}`);
 const registry = globalThis[REGISTRY_KEY] ??= {
@@ -13,13 +17,6 @@ const registry = globalThis[REGISTRY_KEY] ??= {
   nextSessionId: 1,
   nextResultId: 1,
 };
-
-function finiteNumber(value, field) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(`InvalidServerShapingReplay:${field}`);
-  }
-  return value;
-}
 
 function replayIndex(items, kind) {
   if (!Array.isArray(items)) throw new Error(`InvalidServerShapingReplay:${kind}`);
@@ -32,60 +29,6 @@ function replayIndex(items, kind) {
     index.set(item.key, item);
   }
   return index;
-}
-
-function scaledShape(item, fontSize) {
-  const result = item?.result;
-  if (!result || typeof result !== "object" || !Array.isArray(result.glyphs)) {
-    throw new Error("InvalidServerShapingReplay:shape-result");
-  }
-  const scale = finiteNumber(Number(fontSize), "font-size");
-  if (scale <= 0) throw new Error("InvalidServerShapingReplay:font-size");
-  const glyphs = result.glyphs.map((glyph) => {
-    if (!glyph || typeof glyph !== "object" || !Number.isSafeInteger(glyph.id) || glyph.id < 0) {
-      throw new Error("InvalidServerShapingReplay:glyph");
-    }
-    const bounds = glyph.boundsEm == null
-      ? null
-      : glyph.boundsEm.map((value, index) => finiteNumber(value, `glyph-bound-${index}`) * scale);
-    if (bounds != null && bounds.length !== 4) {
-      throw new Error("InvalidServerShapingReplay:glyph-bounds");
-    }
-    return {
-      id: glyph.id,
-      advance: finiteNumber(glyph.advanceEm, "glyph-advance") * scale,
-      x: finiteNumber(glyph.xEm, "glyph-x") * scale,
-      y: finiteNumber(glyph.yEm, "glyph-y") * scale,
-      bounds,
-    };
-  });
-  if (!Array.isArray(result.features) || result.features.some((value) => typeof value !== "string")) {
-    throw new Error("InvalidServerShapingReplay:features");
-  }
-  const unsafeBreakCount = Number(result.unsafeBreakCount ?? 0);
-  if (!Number.isSafeInteger(unsafeBreakCount) || unsafeBreakCount < 0) {
-    throw new Error("InvalidServerShapingReplay:unsafe-break-count");
-  }
-  return {
-    faceId: String(result.faceId ?? ""),
-    fontInstanceId: String(result.fontInstanceId ?? ""),
-    script: String(result.script ?? ""),
-    features: [...result.features],
-    unsafeBreakCount,
-    advance: finiteNumber(result.advanceEm, "shape-advance") * scale,
-    glyphs,
-  };
-}
-
-function scaledMetrics(item, fontSize) {
-  if (!Array.isArray(item?.valuesEm) || item.valuesEm.length !== 5) {
-    throw new Error("InvalidServerShapingReplay:metrics-result");
-  }
-  const scale = finiteNumber(Number(fontSize), "font-size");
-  if (scale <= 0) throw new Error("InvalidServerShapingReplay:font-size");
-  return item.valuesEm.map((value, index) => value == null
-    ? Number.NaN
-    : finiteNumber(value, `metric-${index}`) * scale);
 }
 
 function installReplayBackend() {
@@ -121,7 +64,7 @@ function installReplayBackend() {
       const item = session.shapes.get(key);
       if (!item) throw new Error(`MissingServerShapingReplay:shape:${key}`);
       const handle = registry.nextResultId++;
-      registry.shapeResults.set(handle, scaledShape(item, fontSize));
+      registry.shapeResults.set(handle, scaleShapeReplayItem(item, fontSize));
       return handle;
     },
     shapeGlyphCount: (handle) => registry.shapeResults.get(handle)?.glyphs.length ?? 0,
@@ -154,7 +97,7 @@ function installReplayBackend() {
       const item = session.metrics.get(key);
       if (!item) throw new Error(`MissingServerShapingReplay:metrics:${key}`);
       const handle = registry.nextResultId++;
-      registry.metricResults.set(handle, scaledMetrics(item, fontSize));
+      registry.metricResults.set(handle, scaleMetricReplayItem(item, fontSize));
       return handle;
     },
     metricValue: (handle, index) => registry.metricResults.get(handle)?.[index] ?? Number.NaN,

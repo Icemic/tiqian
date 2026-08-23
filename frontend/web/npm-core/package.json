@@ -43,6 +43,7 @@
     "font-face-boundaries.js",
     "layout-worker.js",
     "precomputed.js",
+    "replay-entry-codec.js",
     "runtime.js",
     "runtime/",
     "snapshot-manifest.js",
