@@ -9,7 +9,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
-    "@tiqian/prose": "file:../../platforms/web/frontend/npm"
+    "@tiqian/prose": "file:../../frontend/web/npm"
   },
   "devDependencies": {
     "parcel": "^2.16.4",

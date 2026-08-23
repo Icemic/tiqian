@@ -32,7 +32,7 @@ import { compile } from "svelte/compiler";
 
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const npmDir = join(repoRoot, "platforms/web/frontend/npm");
+const npmDir = join(repoRoot, "frontend/web/npm");
 const nodeModules = join(webDemoDir, "node_modules");
 
 const demoPort = 8995;
