@@ -16,6 +16,12 @@ import {
   installFakeClock,
   CLOCK_GLOBALS,
 } from "./test-clock.mjs";
+import {
+  digest,
+  faceEvidence,
+  harness,
+  manifestWithFaces,
+} from "./browser-fonts-fixtures.mjs";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -197,11 +203,168 @@ async function recordGrantRounds() {
 }
 
 // ---------------------------------------------------------------------------
+// Journey: worker messages (anchor class: init/layout/release order, bridge
+// take/issue/release against the plan cache)
+// ---------------------------------------------------------------------------
+
+// A Worker double that answers like layout-worker.js (canned plan keyed by the
+// request text, error for the failure text) while recording every posted
+// message in order. The reply rides a microtask, matching the real Worker's
+// asynchronous postMessage.
+function recordingWorker(messages) {
+  return class RecordingWorker {
+    listeners = new Map();
+
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+    }
+
+    postMessage(message) {
+      messages.push(
+        message.type === "layout"
+          ? { type: message.type, text: message.request.text }
+          : { type: message.type },
+      );
+      queueMicrotask(() => this.listeners.get("message")?.({
+        data: message.type === "layout"
+          ? message.request.text === "failure"
+            ? { id: message.id, ok: false, error: "fixture replay miss" }
+            : { id: message.id, ok: true, plan: { fixture: message.request.text } }
+          : { id: message.id, ok: true },
+      }));
+    }
+
+    terminate() {}
+  };
+}
+
+// One root with one candidate paragraph drives the full protocol: init then
+// layout on the first prepare, layout-only on later prepares (the coordinator
+// singleton survives module re-evaluation), plan-cache hits and misses through
+// the bridge, the failed-request issue string, and release evicting the
+// session-prefixed plans.
+async function runWorkerMessagesJourney() {
+  const bytes = new TextEncoder().encode("fixture-font-source");
+  const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
+  const handle = await state.loader.prepare(state.root);
+  const element = {
+    closest: () => state.root,
+    getBoundingClientRect: () => ({ top: 0, bottom: 24 }),
+  };
+  state.root.querySelectorAll = () => [element];
+
+  const messages = [];
+  const ops = [];
+  const savedWorker = globalThis.Worker;
+  const savedInnerHeight = globalThis.innerHeight;
+  const savedApi = globalThis.TiqianWeb;
+  const savedBridge = globalThis.__TiqianLayoutWorker;
+  const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
+  const savedCoordinator = globalThis[coordinatorKey];
+  let requestText = "first";
+  const requestJson = () => JSON.stringify({
+    text: requestText,
+    maxWidthPx: 320,
+    semantics: [],
+    renderInlineBoxes: [],
+  });
+  const compactTake = (resultText) => {
+    if (resultText === null) return null;
+    const record = JSON.parse(resultText);
+    return {
+      plan: record.plan.fixture,
+      semanticReplay: record.semanticReplay,
+      semantics: record.semantics,
+      inlineBoxes: record.inlineBoxes,
+    };
+  };
+
+  try {
+    delete globalThis[coordinatorKey];
+    delete globalThis.__TiqianLayoutWorker;
+    globalThis.Worker = recordingWorker(messages);
+    globalThis.innerHeight = 800;
+    globalThis.TiqianWeb = { workerLayoutRequest: () => requestJson() };
+
+    const module = await import("./worker-layout.js?timing-golden=worker-messages");
+    const bridge = globalThis.__TiqianLayoutWorker;
+    const prepare = async () => {
+      const prepared = await module.prepareWorkerLayouts(state.root, handle, {
+        paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])",
+      });
+      ops.push({ op: "prepare", text: requestText, prepared });
+      return prepared;
+    };
+    ops.push({ op: "bridge", version: bridge.version, semanticReplayRevision: bridge.semanticReplayRevision });
+
+    // First prepare initializes the session, then sends one layout message.
+    await prepare();
+    ops.push({ op: "take", text: "first", out: compactTake(bridge.take(element, handle.id, requestJson())) });
+
+    // Semantic-only changes replay the cached plan with the new semantics.
+    const semanticChange = JSON.stringify({
+      ...JSON.parse(requestJson()),
+      semantics: [{ start: 0, end: 5, tagName: "a", attributes: [["href", "/latest"]] }],
+      renderInlineBoxes: [{ start: 0, end: 5, inlineStart: 1, inlineEnd: 2 }],
+    });
+    ops.push({ op: "take-semantic", out: compactTake(bridge.take(element, handle.id, semanticChange)) });
+
+    // A measure change is a different plan key: miss.
+    const changedMeasure = JSON.stringify({ ...JSON.parse(requestJson()), maxWidthPx: 319 });
+    ops.push({ op: "take-miss", out: compactTake(bridge.take(element, handle.id, changedMeasure)) });
+
+    // A second prepare for a new text sends a layout message without a new init.
+    requestText = "second";
+    await prepare();
+    ops.push({ op: "issue-clean", out: bridge.issue(element, handle.id, requestJson()) });
+
+    // A failed layout request reports nothing prepared; the issue string
+    // survives in the plan cache for the runtime bridge to read.
+    requestText = "failure";
+    await prepare();
+    ops.push({ op: "take-failed", out: compactTake(bridge.take(element, handle.id, requestJson())) });
+    ops.push({ op: "issue-failed", out: bridge.issue(element, handle.id, requestJson()) });
+
+    // Release evicts the session-prefixed plans and releases the worker
+    // session; the previously cached plan no longer replays.
+    ops.push({ op: "release", out: bridge.release(handle.id) });
+    requestText = "first";
+    ops.push({ op: "take-after-release", out: compactTake(bridge.take(element, handle.id, requestJson())) });
+    ops.push({ op: "release-again", out: bridge.release(handle.id) });
+
+    return { messages, ops };
+  } finally {
+    if (savedWorker === undefined) delete globalThis.Worker;
+    else globalThis.Worker = savedWorker;
+    if (savedInnerHeight === undefined) delete globalThis.innerHeight;
+    else globalThis.innerHeight = savedInnerHeight;
+    if (savedApi === undefined) delete globalThis.TiqianWeb;
+    else globalThis.TiqianWeb = savedApi;
+    if (savedBridge === undefined) delete globalThis.__TiqianLayoutWorker;
+    else globalThis.__TiqianLayoutWorker = savedBridge;
+    if (savedCoordinator === undefined) delete globalThis[coordinatorKey];
+    else globalThis[coordinatorKey] = savedCoordinator;
+    state.loader.release(handle);
+  }
+}
+
+async function recordWorkerMessages() {
+  const globals = preserveGlobals(CLOCK_GLOBALS);
+  const clock = installFakeClock();
+  try {
+    return await runWorkerMessagesJourney(clock);
+  } finally {
+    restoreGlobals(globals);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
 
 const JOURNEYS = {
   "grant-rounds": recordGrantRounds,
+  "worker-messages": recordWorkerMessages,
 };
 
 test("timing goldens match the frozen fixture", async () => {

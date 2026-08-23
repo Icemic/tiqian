@@ -489,6 +489,116 @@
           0
         ]
       }
+    },
+    "worker-messages": {
+      "messages": [
+        {
+          "type": "init"
+        },
+        {
+          "type": "layout",
+          "text": "first"
+        },
+        {
+          "type": "layout",
+          "text": "second"
+        },
+        {
+          "type": "layout",
+          "text": "failure"
+        },
+        {
+          "type": "release"
+        }
+      ],
+      "ops": [
+        {
+          "op": "bridge",
+          "version": 1,
+          "semanticReplayRevision": 1
+        },
+        {
+          "op": "prepare",
+          "text": "first",
+          "prepared": 1
+        },
+        {
+          "op": "take",
+          "text": "first",
+          "out": {
+            "plan": "first",
+            "semanticReplay": "snapshot-safe",
+            "semantics": [],
+            "inlineBoxes": []
+          }
+        },
+        {
+          "op": "take-semantic",
+          "out": {
+            "plan": "first",
+            "semanticReplay": "snapshot-safe",
+            "semantics": [
+              {
+                "start": 0,
+                "end": 5,
+                "tagName": "a",
+                "attributes": [
+                  [
+                    "href",
+                    "/latest"
+                  ]
+                ]
+              }
+            ],
+            "inlineBoxes": [
+              {
+                "start": 0,
+                "end": 5,
+                "inlineStart": 1,
+                "inlineEnd": 2
+              }
+            ]
+          }
+        },
+        {
+          "op": "take-miss",
+          "out": null
+        },
+        {
+          "op": "prepare",
+          "text": "second",
+          "prepared": 1
+        },
+        {
+          "op": "issue-clean",
+          "out": null
+        },
+        {
+          "op": "prepare",
+          "text": "failure",
+          "prepared": 0
+        },
+        {
+          "op": "take-failed",
+          "out": null
+        },
+        {
+          "op": "issue-failed",
+          "out": "fixture replay miss"
+        },
+        {
+          "op": "release",
+          "out": true
+        },
+        {
+          "op": "take-after-release",
+          "out": null
+        },
+        {
+          "op": "release-again",
+          "out": false
+        }
+      ]
     }
   }
 }
