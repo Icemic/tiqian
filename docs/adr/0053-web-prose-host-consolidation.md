@@ -317,8 +317,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   对照清单。KPI：清单条目数与 jsTest 断言分组计数一致。验收：清单入库。
   产出：docs/ts-port-assertion-checklist.md（104 条、717 断言；content-reconcile
   主题在现 jsTest 无对应用例，清单留空节说明）。
-- [ ] **B2 段落托管与回滚**（custody，含 CustodyMoveAdoption 行为）。
+- [x] **B2 段落托管与回滚**（custody，含 CustodyMoveAdoption 行为）。
+  产出：custody 引擎（提交去重、状态快照、原子换入与回滚、
+  CustodyMoveAdoption 重连采纳）以 custody.js（382 行）进 npm/core/engine，
+  经通用化 gradle 生成器嵌入运行时 bundle；Kotlin 侧删除对应实现 451 行
+  （WebEnhancerParagraphLifecycle、ParagraphPipeline 与 Support 的 custody
+  段），WebEnhancerCustodyBridge.kt 桥接调用。断言经 f13233b 移植
+  （custody-bridge.test.mjs，347 行）。提交：f13233b、7140d88、f92bfbe。
+  验证：npm test 与 jsBrowserTest 在提交后历次批次运行与当前树复验
+  （315/315 两次）均通过。
 - [ ] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
+  进度（2026-08-23）：断言已移植（9af4470；progressive.test.mjs 456 行，
+  runtime-host.mjs 补 worker 作业驱动与滚动几何助手）；实现仍在 Kotlin
+  （WebEnhancer.kt 的 progressiveJobs 与 WebEnhancerParagraphLifecycle.kt），
+  按 custody 模式（JS 本体 + gradle 嵌入 + 桥）抽取。
 - [ ] **B4 段落资格策略与响应式度量稳定化**。
   进度（2026-08-23）：资格策略半段已完成。三个资格谓词
   （shouldTryParagraph、isPureBlockImageParagraph、hasOpaqueInlineCandidate）与
