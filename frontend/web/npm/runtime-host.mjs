@@ -2495,6 +2495,16 @@ export function computedStyleValue(element, property) {
   return globalThis.getComputedStyle(element).getPropertyValue(property);
 }
 
+export function nativeInnerText(element) {
+  return element.innerText;
+}
+
+export function emptyRenderedLineCount(paragraph) {
+  return Array.from(paragraph.querySelectorAll(".tq-line"))
+    .filter((line) => line.dataset.tqLineEmpty === "true")
+    .length;
+}
+
 export function elementWidth(element) {
   return element.getBoundingClientRect().width;
 }

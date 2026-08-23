@@ -107,6 +107,64 @@ class FakeText extends FakeNode {
   }
 }
 
+function computeNormalInnerText(root) {
+  let result = "";
+  let atLineStart = true;
+  let pendingSpace = false;
+
+  function visit(node) {
+    if (node.nodeType === 3) {
+      const text = node.textContent ?? "";
+      const tokens = text.split(/(\s+)/);
+      for (const token of tokens) {
+        if (!token) continue;
+        if (/^\s+$/.test(token)) {
+          if (!atLineStart) {
+            pendingSpace = true;
+          }
+        } else {
+          if (pendingSpace && !atLineStart && !result.endsWith("\n")) {
+            result += " ";
+          }
+          pendingSpace = false;
+          atLineStart = false;
+          result += token;
+        }
+      }
+    } else if (node.nodeType === 1) {
+      if (node.tagName === "BR") {
+        result += "\n";
+        atLineStart = true;
+        pendingSpace = false;
+      } else if (node._innerText != null) {
+        const tokens = node._innerText.split(/(\s+)/);
+        for (const token of tokens) {
+          if (!token) continue;
+          if (/^\s+$/.test(token)) {
+            if (!atLineStart) pendingSpace = true;
+          } else {
+            if (pendingSpace && !atLineStart && !result.endsWith("\n")) {
+              result += " ";
+            }
+            pendingSpace = false;
+            atLineStart = false;
+            result += token;
+          }
+        }
+      } else {
+        for (const child of node.childNodes) {
+          visit(child);
+        }
+      }
+    }
+  }
+
+  for (const child of root.childNodes) {
+    visit(child);
+  }
+  return result;
+}
+
 class FakeElement extends FakeNode {
   constructor(tagName) {
     super(1);
@@ -139,7 +197,8 @@ class FakeElement extends FakeNode {
   }
 
   get innerText() {
-    return this._innerText ?? this.textContent;
+    if (this._innerText != null) return this._innerText;
+    return computeNormalInnerText(this);
   }
 
   set innerText(value) {
