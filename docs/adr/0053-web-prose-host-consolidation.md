@@ -372,9 +372,24 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   承担；无动画时原生承担方向正确、入场动画进行中会反向跳变（scrollY 5022 到
   5911，锚点移动 1006.69px）。该缺口属调度路径（增强未经授予路径），随 C2/C3
   处置。
-- [ ] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
+- [x] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
   经同一池与同一凭证；executor 私有节奏与 standalone 准入排除。
   验收：时序 golden 授予轮锚点更新后绿。
+  产出（C2a，提交 696975b）：worker-channel 准备循环删除自有节拍
+  （MAIN_SLICE_BUDGET_MS 与 yieldMainIfNeeded），逐段向 coordinator 申请共享准入；
+  grantImmediate 的立即窗口提取为 #admitMainSlice，prepaint 与 prepare 两条帧外
+  主线程路径共用同一份额；凭证加 `lane` 字段（polled 授予 grant、pre-paint 授予
+  prepaint），帧 trace 末列记录窗口已花费；准备循环只把同步段计入窗口
+  （SyncOnlySliceAccounting），worker 往返等待不计入。element.js 传入
+  coordinator 单例；browser-fonts 与 timing-golden 的通道测试改传总是准许的池。
+  产出（C2b，提交 14be60f）：standaloneGrantAdmission 与两个上限常量删除，无
+  coordinator 的直调宿主作业一次跑完；宽度正确性由 processItem 内逐条 measure
+  守卫承担，切片头部 stale 检查保留为协调路径的中途放弃。
+  验证：npm test 313/313 两次（两批各自跑）；jsBrowserTest 通过（两批各自）；
+  golden 仅加 `lane` 字段与 trace 末列（39 行插入），event-dispatch、
+  token-transitions、dataset-first-writes、cache-invalidation 四条 journey 零
+  diff；grep MAIN_SLICE_BUDGET_MS、yieldMainIfNeeded、standaloneGrantAdmission、
+  两个上限常量均 0 命中。
 - [ ] **C3 worker-layout 准备循环并入**：pending/plans 进协调器任务池，准备循环
   删除。KPI：主线程调度循环 3 收敛为 1。验收：npm test；jsBrowserTest。
 

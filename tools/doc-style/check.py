@@ -67,6 +67,7 @@ PATTERNS = [
 # violation would be missed, and the skip is per line, not per match.
 ALLOW = re.compile(
     r"回退路径"  # contains the substring 退路 but is a standard term
+    r"|`lane`"  # the grant voucher's literal field name in backticks
 )
 
 
