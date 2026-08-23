@@ -359,7 +359,23 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   （effectiveLineMeasure、sourceParagraphWidth 属 WebEnhancerParagraphPipeline），
   随 B7 管线批次迁移。提交：57f3f70。
 - [ ] **B5 内容 reconcile**。
-- [ ] **B6 复制保真**（copy.js 投影语义保持）。
+- [x] **B6 复制保真**（copy.js 投影语义保持）。
+  产出（2026-08-23）：断言半段 4e3d3f7（copy-fidelity.test.mjs 经 runtime-host
+  驱动运行时的 copy 事件）；实现半段 d733286，`npm/core/utils/copy.js` 改为
+  plain script，安装 globalThis.__TiqianCreateClipboardPayload 与
+  __TiqianInstallCopyHandler，按 custody 模式经 generateCopyBridge 嵌入运行时，
+  Kotlin 侧经 `WebEnhancerCopyBridge.kt` 在原有三个调用点安装，
+  WebEnhancerSupport.kt 内 133 行重复实现删除；api.js 与 element.js 改为
+  副作用导入后调用全局安装函数，根 copy.js 保留名导出维持既有导入面；
+  TiqianWebCopyTest.kt 删除，断言由 copy-fidelity.test.mjs 承接。Kotlin raw
+  string 与 JsParser 不接受可选链、空值合并、展开实参与 for-of，copy.js 按
+  嵌入方言重写：可选链与空值合并展开为显式条件，展开实参改 apply，for-of
+  改下标循环，语义逐处等价。
+  验证：npm test 324/324；assembleNpmPackage 与 jsBrowserTest 通过两次。
+  jsTest 世界没有 npm 模块导入，处理器此前由内联重复实现提供，删除后
+  15 个 copySelection 断言失败，嵌入后 0 失败。grep 复核
+  installTiqianCopyHandler 在源内仅余 copy.js 定义、根 copy.js 名导出与
+  copy-fidelity.test.mjs 注释。
 - [ ] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
   plan 对象，成为绘制规格唯一实现；DomParagraphRenderer 删除。
 - [ ] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
