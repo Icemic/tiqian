@@ -163,14 +163,15 @@ internal fun TiqianWeb.prepareTrackedParagraphForRelowering(paragraph: EnhancedP
  */
 internal fun TiqianWeb.stripEngineMarkupFromStrandedParagraph(paragraph: HTMLElement) {
     releasePreparedParagraphDomStyles(paragraph)
-    // The hidden data-tq-src span is the only place a cloned hard break keeps
-    // its source newline. Restore it as a text node before removing engine
-    // elements, or the re-lowered clone would lose the paragraph break.
+    // The hidden data-tq-hard-break span is the only place a cloned hard break
+    // keeps its source form: these spans only exist for source <br> elements
+    // (a literal newline in pre-mode text renders as text, no span). Restore a
+    // bare <br> before removing engine elements. A "\n" text node would be
+    // folded into a space by collapse-mode re-lowering and lose the break.
     val hardBreaks = paragraph.querySelectorAll("[data-tq-hard-break]")
     for (index in 0 until hardBreaks.length) {
         val hardBreak = hardBreaks.item(index) as? Element ?: continue
-        val sourceText = hardBreak.getAttribute("data-tq-src") ?: "\n"
-        hardBreak.parentNode?.replaceChild(document.createTextNode(sourceText), hardBreak)
+        hardBreak.parentNode?.replaceChild(document.createElement("br"), hardBreak)
     }
     val artifacts = paragraph.querySelectorAll(
         "[data-tq-copy-ignore], [data-tq-engine-break], [data-tq-src], [data-tq-prepared-value-styles]",
