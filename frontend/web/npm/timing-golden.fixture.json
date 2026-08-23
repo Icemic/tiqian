@@ -1,0 +1,494 @@
+{
+  "version": 1,
+  "journeys": {
+    "grant-rounds": {
+      "grants": [
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 6,
+          "quota": 2,
+          "processed": 1,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "beta",
+          "tier": 2,
+          "generation": 1,
+          "deadline": 6,
+          "quota": 2,
+          "processed": 2,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 22,
+          "quota": 3,
+          "processed": 2,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 38,
+          "quota": 4,
+          "processed": 3,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 54,
+          "quota": 5,
+          "processed": 4,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 70,
+          "quota": 6,
+          "processed": 5,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 86,
+          "quota": 7,
+          "processed": 6,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 102,
+          "quota": 8,
+          "processed": 7,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 118,
+          "quota": 8,
+          "processed": 8,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 134,
+          "quota": 8,
+          "processed": 8,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 150,
+          "quota": 8,
+          "processed": 8,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 210,
+          "quota": 4,
+          "processed": 4,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 226,
+          "quota": 5,
+          "processed": 5,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 242,
+          "quota": 6,
+          "processed": 6,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 542,
+          "quota": 6,
+          "processed": 6,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 602,
+          "quota": 3,
+          "processed": 3,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 662,
+          "quota": 1,
+          "processed": 1,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 722,
+          "quota": 1,
+          "processed": 1,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 782,
+          "quota": 1,
+          "processed": 1,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        },
+        {
+          "root": "alpha",
+          "tier": 1,
+          "generation": 1,
+          "deadline": 798,
+          "quota": 2,
+          "processed": 2,
+          "pendingAfter": [
+            0,
+            0,
+            0
+          ],
+          "gateStopsAtQuota": true,
+          "gateStopsPastQuota": true
+        }
+      ],
+      "frameTrace": [
+        [
+          0,
+          6,
+          0,
+          2,
+          2,
+          0,
+          0
+        ],
+        [
+          16,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          32,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          48,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          64,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          80,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          96,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          112,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          128,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          144,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          204,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          220,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          236,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          536,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          596,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          656,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          716,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          776,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ],
+        [
+          792,
+          6,
+          0,
+          1,
+          2,
+          0,
+          0
+        ]
+      ],
+      "finalPending": {
+        "alpha": [
+          0,
+          0,
+          0
+        ],
+        "beta": [
+          0,
+          0,
+          0
+        ]
+      }
+    }
+  }
+}

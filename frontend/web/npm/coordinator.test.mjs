@@ -1,93 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-function preserveGlobals(names) {
-  return names.map((name) => ({
-    name,
-    own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
-  }));
-}
-
-function restoreGlobals(entries) {
-  for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
-  }
-}
-
-// Manual rAF + timer clock so tests can drive the coordinator's deferred
-// lane without real-time waits.
-function installFakeClock() {
-  let now = 0;
-  let rafId = 0;
-  let timerId = 0;
-  const rafQueue = new Map();
-  const timers = new Map();
-  const RealDate = Date;
-
-  globalThis.performance = { now: () => now };
-  // Coarse lanes (debounce due times, duration stats) read Date.now, so the
-  // fake timeline drives them too.
-  globalThis.Date = class FakeDate extends RealDate {
-    static now() {
-      return now;
-    }
-  };
-  globalThis.requestAnimationFrame = (callback) => {
-    const id = ++rafId;
-    rafQueue.set(id, callback);
-    return id;
-  };
-  globalThis.cancelAnimationFrame = (id) => rafQueue.delete(id);
-  globalThis.setTimeout = (callback, delay = 0) => {
-    const id = ++timerId;
-    timers.set(id, { callback, dueAt: now + delay });
-    return id;
-  };
-  globalThis.clearTimeout = (id) => timers.delete(id);
-
-  return {
-    advance(ms) {
-      const target = now + ms;
-      for (;;) {
-        const dueTimer = [...timers.entries()].filter(([, t]) => t.dueAt <= target)
-          .sort((a, b) => a[1].dueAt - b[1].dueAt)[0];
-        const dueFrame = [...rafQueue.entries()][0];
-        const timerTime = dueTimer ? dueTimer[1].dueAt : Infinity;
-        const frameTime = dueFrame ? now : Infinity;
-        if (timerTime === Infinity && frameTime === Infinity) break;
-        if (frameTime <= timerTime) {
-          now = Math.max(now, frameTime);
-          const [, callback] = dueFrame;
-          rafQueue.delete(dueFrame[0]);
-          callback(now);
-        } else {
-          now = Math.max(now, timerTime);
-          const [, { callback }] = dueTimer;
-          timers.delete(dueTimer[0]);
-          callback();
-        }
-        if (now > target) break;
-      }
-      now = target;
-    },
-  };
-}
+import {
+  preserveGlobals,
+  restoreGlobals,
+  installFakeClock,
+  CLOCK_GLOBALS as globalNames,
+} from "./test-clock.mjs";
 
 async function importCoordinator() {
   const module = await import(`./element.js?coordinator=${Math.random()}`);
   return module.TiqianLayoutCoordinator;
 }
-
-const globalNames = [
-  "performance",
-  "requestAnimationFrame",
-  "cancelAnimationFrame",
-  "setTimeout",
-  "clearTimeout",
-  "Date",
-];
 
 test("offscreen frame tasks wait out the debounce instead of running each frame", async () => {
   const globals = preserveGlobals(globalNames);
