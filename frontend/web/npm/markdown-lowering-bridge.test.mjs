@@ -35,26 +35,90 @@ function lowerParagraph(html, options = {}, roleStub = cjkRoleStub) {
   return { root, paragraph, result };
 }
 
+// Mirrors InlineShapingStylePolicy.unsupportedInlineShapingProperties in
+// font/src/commonMain (the order is part of the first-divergent decision).
+const INLINE_SHAPING_PROPERTIES = [
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-stretch",
+  "font-kerning",
+  "font-optical-sizing",
+  "font-variant-ligatures",
+  "font-variant-alternates",
+  "font-variant-east-asian",
+  "font-variant-caps",
+  "font-variant-numeric",
+  "font-variant-position",
+  "font-language-override",
+  "font-size-adjust",
+  "word-spacing",
+  "text-transform",
+  "text-rendering",
+];
+
+// Host-side stub of the Kotlin InlineShapingStylePolicy decision the facade
+// installs: first index whose normalized values differ names the issue.
+function inlineShapingDecisionStub(tag, elementValues, paragraphValues) {
+  for (let i = 0; i < INLINE_SHAPING_PROPERTIES.length; i++) {
+    if (elementValues[i] !== paragraphValues[i]) {
+      return {
+        name: "UnsupportedInlineShapingStyle",
+        detail: tag + ":" + INLINE_SHAPING_PROPERTIES[i],
+      };
+    }
+  }
+  return null;
+}
+
+function shapingHelpers(decision = inlineShapingDecisionStub) {
+  return {
+    inlineShapingProperties: [...INLINE_SHAPING_PROPERTIES],
+    inlineShapingDecision: decision,
+  };
+}
+
+function lowerWithHelpers(paragraph, helpers, options = {}) {
+  return globalThis.__TiqianMarkdownLowering.lower(paragraph, options, helpers);
+}
+
+function lowerParagraphWithShapingDecision(html, options = {}) {
+  const root = mount(`<div data-tiqian-root="true">${html}</div>`);
+  const paragraph = root.querySelector("p");
+  assert.ok(paragraph, "mount must produce a <p>");
+  const result = lowerWithHelpers(paragraph, {
+    classifyRole: cjkRoleStub,
+    ...shapingHelpers(),
+  }, options);
+  return { root, paragraph, result };
+}
+
 // Patch globalThis.getComputedStyle so getPropertyValue(name) answers the
 // overrides map for the given lowercase property names; everything else keeps
 // the host computed style. Mirrors the withGetComputedStyle precedent in
 // responsive-measure-bridge.test.mjs.
 function withComputedStyleOverride(overrides, fn) {
+  return withComputedStyleOverrideFor(null, overrides, fn);
+}
+
+// Element-scoped variant: the overrides apply to one element only, so a
+// paragraph and a styled child can carry different computed values.
+function withComputedStyleOverrideFor(element, overrides, fn) {
   const real = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => {
-    const style = real(element, pseudo);
+  globalThis.getComputedStyle = (target, pseudo) => {
+    const style = real(target, pseudo);
+    if (element !== null && target !== element) return style;
     return new Proxy(style, {
-      get(target, prop) {
+      get(targetStyle, prop) {
         if (prop === "getPropertyValue") {
           return (name) => {
             const key = String(name).toLowerCase();
             if (Object.prototype.hasOwnProperty.call(overrides, key)) {
               return overrides[key];
             }
-            return target.getPropertyValue(name);
+            return targetStyle.getPropertyValue(name);
           };
         }
-        return Reflect.get(target, prop);
+        return Reflect.get(targetStyle, prop);
       },
     });
   };
@@ -327,10 +391,51 @@ test("markdownLoweringBridge_rootGeneratedContentFailsGeneratedInline", async (t
 test("markdownLoweringBridge_divergentInlineShapingStyleFails", async (t) => {
   t.after(cleanupMounted);
   await loadHostRuntime();
-  const { result } = lowerParagraph("<p><em style=\"font-kerning: none\">斜</em>尾</p>");
+  // The downgrade decision lives Kotlin-side (InlineShapingStylePolicy); the
+  // stub passed here mirrors it the way cjkRoleStub mirrors the classifier.
+  const { result } = lowerParagraphWithShapingDecision(
+    "<p><em style=\"font-kerning: none\">斜</em>尾</p>",
+  );
   assert.equal(result.ok, false);
   assert.equal(result.issue.name, "UnsupportedInlineShapingStyle");
   assert.equal(result.issue.detail, "em:font-kerning");
+});
+
+test("markdownLoweringBridge_inlineShapingDecisionReceivesNormalizedValues", async (t) => {
+  t.after(cleanupMounted);
+  await loadHostRuntime();
+  const root = mount('<div data-tiqian-root="true"><p><em style="font-kerning: none">斜</em>尾</p></div>');
+  const paragraph = root.querySelector("p");
+  let captured = null;
+  const decision = (tag, elementValues, paragraphValues) => {
+    captured = { tag, elementValues, paragraphValues };
+    return null;
+  };
+  // The paragraph answers with whitespace and casing noise; the element keeps
+  // its inline "none". Both must reach the callback normalized and equal.
+  const result = withComputedStyleOverrideFor(
+    paragraph,
+    { "font-kerning": "  NonE\t" },
+    () => lowerWithHelpers(paragraph, { classifyRole: cjkRoleStub, ...shapingHelpers(decision) }),
+  );
+  assert.equal(result.ok, true);
+  assert.ok(captured, "the decision callback must run for a styled inline element");
+  assert.equal(captured.tag, "em");
+  assert.equal(captured.elementValues.length, INLINE_SHAPING_PROPERTIES.length);
+  assert.equal(captured.paragraphValues.length, INLINE_SHAPING_PROPERTIES.length);
+  const kerning = INLINE_SHAPING_PROPERTIES.indexOf("font-kerning");
+  assert.equal(captured.elementValues[kerning], "none");
+  assert.equal(captured.paragraphValues[kerning], "none");
+});
+
+test("markdownLoweringBridge_missingDecisionCallbackSkipsDowngrade", async (t) => {
+  t.after(cleanupMounted);
+  await loadHostRuntime();
+  // Without the callback the host runs the reduced policy (same shape as the
+  // classifyRole "other" default): the styled element lowers without a
+  // downgrade issue.
+  const { result } = lowerParagraph("<p><em style=\"font-kerning: none\">斜</em>尾</p>");
+  assert.equal(result.ok, true);
 });
 
 test("markdownLoweringBridge_emptyParagraphFails", async (t) => {

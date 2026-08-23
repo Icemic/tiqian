@@ -13,6 +13,7 @@ import org.tiqian.core.TextStyle
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
 import org.tiqian.font.FontRoleContext
+import org.tiqian.font.InlineShapingStylePolicy
 import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 
@@ -42,18 +43,32 @@ internal object MarkdownParagraphLowerer {
                 options.strongAsEmphasisMarks,
                 LOWERING_DEFAULT_LOCALE,
             ),
-            loweringHelpersJs { text, start, end, locale ->
-                val role = fontRoleClassifier.classify(
-                    text,
-                    TextRange(start, end),
-                    FontRoleContext(locale = locale),
-                )
-                when (role) {
-                    FontRole.CjkText -> "cjk-text"
-                    FontRole.CjkPunctuation -> "cjk-punctuation"
-                    else -> "other"
-                }
-            },
+            loweringHelpersJs(
+                { text, start, end, locale ->
+                    val role = fontRoleClassifier.classify(
+                        text,
+                        TextRange(start, end),
+                        FontRoleContext(locale = locale),
+                    )
+                    when (role) {
+                        FontRole.CjkText -> "cjk-text"
+                        FontRole.CjkPunctuation -> "cjk-punctuation"
+                        else -> "other"
+                    }
+                },
+                { tag, elementValues, paragraphValues ->
+                    val property = InlineShapingStylePolicy.firstDivergentProperty(
+                        elementValues.toList(),
+                        paragraphValues.toList(),
+                    )
+                    if (property == null) {
+                        null
+                    } else {
+                        inlineShapingDecisionResultJs("UnsupportedInlineShapingStyle", tag + ":" + property)
+                    }
+                },
+                InlineShapingStylePolicy.unsupportedInlineShapingProperties.toTypedArray(),
+            ),
         )
         if (result.ok != true) {
             val issue = result.issue
@@ -235,9 +250,17 @@ private external fun loweringOptionsJs(
     locale: String,
 ): dynamic
 
-@JsFun("(classifyRole) => ({ classifyRole: classifyRole })")
+@JsFun("(classifyRole, inlineShapingDecision, inlineShapingProperties) => ({ classifyRole: classifyRole, inlineShapingDecision: inlineShapingDecision, inlineShapingProperties: inlineShapingProperties })")
 private external fun loweringHelpersJs(
     classifyRole: (String, Int, Int, String) -> String,
+    inlineShapingDecision: (String, Array<String>, Array<String>) -> Any?,
+    inlineShapingProperties: Array<String>,
+): dynamic
+
+@JsFun("(name, detail) => ({ name: name, detail: detail })")
+private external fun inlineShapingDecisionResultJs(
+    name: String,
+    detail: String,
 ): dynamic
 
 data class LoweredParagraph(

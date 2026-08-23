@@ -508,36 +508,15 @@
   // weight, italic and baseline shift. The renderer preserves semantic wrappers,
   // so an inherited shaping property that changes only inside such a wrapper
   // would otherwise make browser glyph advances diverge from LayoutResult.
-  var unsupportedInlineShapingProperties = [
-    "font-feature-settings",
-    "font-variation-settings",
-    "font-stretch",
-    "font-kerning",
-    "font-optical-sizing",
-    "font-variant-ligatures",
-    "font-variant-alternates",
-    "font-variant-east-asian",
-    "font-variant-caps",
-    "font-variant-numeric",
-    "font-variant-position",
-    "font-language-override",
-    "font-size-adjust",
-    "word-spacing",
-    "text-transform",
-    "text-rendering",
-  ];
-
-  function inlineShapingStyleIssue(element, paragraph) {
-    for (var i = 0; i < unsupportedInlineShapingProperties.length; i++) {
-      var property = unsupportedInlineShapingProperties[i];
-      if (
-        computedStyle(element, property).trim().toLowerCase() !==
-        computedStyle(paragraph, property).trim().toLowerCase()
-      ) {
-        return property;
-      }
+  // The host decides which property diverges; the lowering engine only collects
+  // the normalized computed facts and asks through the inlineShapingDecision
+  // callback (same shape as classifyRole).
+  function collectShapingValues(element, properties) {
+    var values = [];
+    for (var i = 0; i < properties.length; i++) {
+      values.push(computedStyle(element, properties[i]).trim().toLowerCase());
     }
-    return null;
+    return values;
   }
 
   var graphemeSegmenter = null;
@@ -837,6 +816,7 @@
     this.strongAsEmphasisMarks = strongAsEmphasisMarks;
     this.helpers = helpers;
     this.issue = issue;
+    this.inlineShapingParagraphValues = collectShapingValues(sourceElement, helpers.inlineShapingProperties);
     this.eligibility = resolveEligibilityFunctions();
     this.text = "";
     this.spans = [];
@@ -918,12 +898,16 @@
     // the live browser already exposes the resolved host font and box
     // metrics. Lower that run normally and let the sliced browser
     // shaping fallback handle Worker-ineligible rich paragraphs.
-    var shapingProperty = inlineShapingStyleIssue(element, this.sourceElement);
-    if (shapingProperty !== null) {
-      return this.unsupported(
-        "UnsupportedInlineShapingStyle",
-        tag.toLowerCase() + ":" + shapingProperty,
+    if (this.helpers.inlineShapingDecision !== null && this.helpers.inlineShapingProperties.length > 0) {
+      var elementValues = collectShapingValues(element, this.helpers.inlineShapingProperties);
+      var decision = this.helpers.inlineShapingDecision(
+        tag.toLowerCase(),
+        elementValues,
+        this.inlineShapingParagraphValues,
       );
+      if (decision) {
+        return this.unsupported(decision.name, decision.detail);
+      }
     }
     var inheritedStrongWeight = style.cjkStrongBaseWeight;
     var strongBaseWeight = null;
@@ -1184,7 +1168,17 @@
     var classifyRole = (helpers && typeof helpers.classifyRole === "function")
       ? helpers.classifyRole
       : function () { return "other"; };
-    var safeHelpers = { classifyRole: classifyRole };
+    var inlineShapingProperties = Array.isArray(helpers && helpers.inlineShapingProperties)
+      ? helpers.inlineShapingProperties
+      : [];
+    var inlineShapingDecision = (helpers && typeof helpers.inlineShapingDecision === "function")
+      ? helpers.inlineShapingDecision
+      : null;
+    var safeHelpers = {
+      classifyRole: classifyRole,
+      inlineShapingProperties: inlineShapingProperties,
+      inlineShapingDecision: inlineShapingDecision,
+    };
     var issue = { name: null, detail: null };
     var canonicalPrepared =
       paragraph.getAttribute("data-tq-rendered") === "true" &&
