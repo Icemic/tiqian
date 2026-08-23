@@ -184,6 +184,7 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
     // to stop the slice; the deadline is time-dependent and stays unchecked.
     // AdaptiveGrantQuota starts cold at 2 paragraphs per grant.
     assert.equal(controllers.length, 2);
+    assert.equal(controllers[0].lane, "grant");
     assert.equal(controllers[0].root, rootA);
     assert.equal(controllers[0].generation, 1);
     assert.equal(controllers[0].quota, 2);

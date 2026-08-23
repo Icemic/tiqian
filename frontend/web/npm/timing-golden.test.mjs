@@ -223,7 +223,7 @@ async function recordElementJourney(journeyKey) {
 // grant. The DeadlineGate terms are sampled at the quota boundary: the gate
 // formula (quota reached OR Date-domain deadline passed) is part of the
 // frozen contract even though the fake clock never trips the deadline inside
-// a single frame.
+// a single frame. Every voucher also carries the lane that issued it ("grant" for polled grants).
 function recordingRuntime(pendingByRoot, grants) {
   return {
     workerHasJob: (root) => pendingByRoot.has(root),
@@ -251,6 +251,7 @@ function recordingRuntime(pendingByRoot, grants) {
       );
       grants.push({
         root: controller.root.name,
+        lane: controller.lane,
         tier: minTier,
         generation: controller.generation,
         deadline: controller.deadline,
@@ -442,10 +443,20 @@ async function runWorkerMessagesJourney() {
       "./core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
     );
     const bridge = globalThis.__TiqianLayoutWorker;
+    // PrepareLanePoolAdmission: preparation pacing belongs to the
+    // coordinator pool; this journey exercises the channel, so a pool that
+    // always admits keeps the recorded message order deterministic.
+    const alwaysAdmittingPool = () => ({
+      grantPrepareSlice: () => ({ lane: "prepare", deadline: Infinity, spent() {} }),
+    });
     const prepare = async () => {
-      const prepared = await module.prepareWorkerLayouts(state.root, handle, {
-        paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])",
-      });
+      const prepared = await module.prepareWorkerLayouts(
+        state.root,
+        handle,
+        { paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])" },
+        () => true,
+        alwaysAdmittingPool(),
+      );
       ops.push({ op: "prepare", text: requestText, prepared });
       return prepared;
     };

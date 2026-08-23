@@ -278,6 +278,7 @@ export class TiqianLayoutCoordinator {
   // sets globalThis.__tqTrace (with { maxEntries }) before the first enhance
   // gets one compact row per frame in globalThis.__tqFrameTrace; without the
   // opt-in the cost is one property read per frame.
+  // The last column is the shared admission window's spent time, the lane ledger shared by the pre-paint and prepare lanes.
   #traceFrame(now, executedCount, workerGrants) {
     const trace = globalThis.__tqTrace;
     if (!trace) return;
@@ -294,9 +295,32 @@ export class TiqianLayoutCoordinator {
       Math.round(now), Math.round(this.#budgetMs * 10) / 10,
       executedCount, workerGrants,
       activeSlots, totalPending, this.#callbacks.size,
+      Math.round(this.#immediateSpentMs * 10) / 10,
     ]);
     const maxEntries = trace.maxEntries ?? 600;
     if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
+  }
+
+  // MainSliceAdmissionWindow: the pre-paint lane and the prepare lane are
+  // two main-thread lanes that run outside the frame loop. Both draw from
+  // one rolling allowance per rendering update, so concurrent roots and
+  // lanes serialize against a single budget; the ceiling follows the same
+  // numbers the frame loop uses (frame budget, half the measured frame
+  // interval). The lane reports what it spent through the returned voucher.
+  #admitMainSlice(lane) {
+    const now = performance.now();
+    if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
+      this.#immediateWindowStart = now;
+      this.#immediateSpentMs = 0;
+    }
+    const ceiling = Math.max(this.#budgetMs, this.#measuredFrameInterval * 0.5);
+    const allowance = ceiling - this.#immediateSpentMs;
+    if (allowance <= 0) return null;
+    return {
+      lane,
+      deadline: Date.now() + allowance,
+      spent: (consumedMs) => { this.#immediateSpentMs += consumedMs; },
+    };
   }
 
   // AdaptiveGrantQuota feedback pass: the constant block above holds the
@@ -410,20 +434,11 @@ export class TiqianLayoutCoordinator {
     }
     if (!slot || typeof slot.runtime?.workerRunSlice !== "function") return false;
     if (!slot.runtime.workerHasJob(element)) return false;
-    const now = performance.now();
-    if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
-      this.#immediateWindowStart = now;
-      this.#immediateSpentMs = 0;
-    }
-    // The pre-paint lane trades directly against this frame's paint
-    // headroom, so it may spend up to half the measured frame interval;
-    // the shared window serializes concurrent roots.
-    const ceiling = Math.max(this.#budgetMs, this.#measuredFrameInterval * 0.5);
-    const allowance = ceiling - this.#immediateSpentMs;
-    if (allowance <= 0) return false;
+    const admission = this.#admitMainSlice("prepaint");
+    if (!admission) return false;
+    const sliceStart = performance.now();
     const generation = slot.runtime.workerJobGeneration(element);
     const quota = slot.quota;
-    const grantDeadline = Date.now() + allowance;
     let processed = 0;
     const viewportAnchor = captureViewportAnchor(element);
     try {
@@ -431,14 +446,15 @@ export class TiqianLayoutCoordinator {
       // quota batch until the tier is empty or the allowance is spent, so a
       // root whose visible paragraph count exceeds the adaptive quota still
       // commits atomically before this frame paints.
-      while (Date.now() < grantDeadline) {
+      while (Date.now() < admission.deadline) {
         const sliceProcessed = slot.runtime.workerRunSlice({
+          lane: "prepaint",
           root: element,
           generation,
-          deadline: grantDeadline,
+          deadline: admission.deadline,
           quota,
           shouldStop(processedCount) {
-            return processedCount >= quota || Date.now() >= grantDeadline;
+            return processedCount >= quota || Date.now() >= admission.deadline;
           },
         }, 1);
         processed += sliceProcessed;
@@ -446,7 +462,7 @@ export class TiqianLayoutCoordinator {
         if (slot.runtime.workerPendingInTier(element, 1) === 0) break;
       }
     } finally {
-      this.#immediateSpentMs += performance.now() - now;
+      admission.spent(performance.now() - sliceStart);
     }
     if (processed > 0) {
       compensateViewportAnchor(element, viewportAnchor);
@@ -459,6 +475,15 @@ export class TiqianLayoutCoordinator {
     slot.pendingByTier[1] = slot.runtime.workerPendingInTier(element, 2);
     slot.pendingByTier[2] = slot.runtime.workerPendingInTier(element, 3);
     return processed > 0;
+  }
+
+  // PrepareLanePoolAdmission: worker-plan preparation used to keep its own
+  // third pacing loop (private 8ms slices plus scheduler.yield), invisible
+  // to this pool. Preparation slices now ask the pool for admission from
+  // the same shared window the pre-paint lane uses. Returns null while the
+  // window is spent; the caller yields and asks again.
+  grantPrepareSlice() {
+    return this.#admitMainSlice("prepare");
   }
 
   #removeWorkerSlot(element) {
@@ -610,6 +635,7 @@ export class TiqianLayoutCoordinator {
           viewportAnchor = captureViewportAnchor(slot.element);
         }
         const processed = slot.runtime.workerRunSlice({
+          lane: "grant",
           root: slot.element,
           generation: slot.generation,
           deadline: grantDeadline,

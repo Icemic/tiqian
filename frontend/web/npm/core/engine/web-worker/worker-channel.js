@@ -11,7 +11,6 @@ import {
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const DEFAULT_RUNTIME_PARAGRAPH_SELECTOR = "p, li";
-const MAIN_SLICE_BUDGET_MS = 8;
 const BRIDGE_VERSION = 1;
 const SEMANTIC_REPLAY_REVISION = 1;
 const LIVE_SOURCE_SEMANTIC_CODES = new Set([
@@ -87,11 +86,14 @@ async function ensureSession(contract) {
   initializedSessions.add(contract.sessionKey);
 }
 
-async function yieldMainIfNeeded(startedAt) {
-  if (performance.now() - startedAt < MAIN_SLICE_BUDGET_MS) return startedAt;
+// SharedEventLoopYield: the bare event-loop yield a pool denial triggers
+// between preparation slices. Admission decisions belong to the coordinator
+// pool; this file no longer keeps a private budget. C3 removes this helper
+// together with the self-driving loop when the prepare cursor becomes a
+// pool member.
+async function yieldToMain() {
   if (typeof globalThis.scheduler?.yield === "function") await globalThis.scheduler.yield();
   else await new Promise((resolve) => setTimeout(resolve, 0));
-  return performance.now();
 }
 
 function distanceFromViewport(element) {
@@ -210,9 +212,10 @@ export async function prepareWorkerLayouts(
   root,
   exactFontSession,
   options,
-  isCurrent = () => true,
+  isCurrent,
+  pool,
 ) {
-  if (!root || !exactFontSession || !isCurrent()) return 0;
+  if (!root || !exactFontSession || !pool || !isCurrent()) return 0;
   const api = engineApi();
   if (typeof api?.workerLayoutRequest !== "function") return 0;
   const contract = browserFontSessionWorkerContract(exactFontSession);
@@ -233,21 +236,31 @@ export async function prepareWorkerLayouts(
   await ensureSession(contract);
   if (!isCurrent()) return 0;
   let prepared = 0;
-  let sliceStartedAt = performance.now();
   for (const { element } of candidates) {
     if (!isCurrent()) break;
-    let request;
+    // PrepareLanePoolAdmission: each paragraph asks the pool before running
+    // main-thread work; a spent window yields to the event loop and asks
+    // again.
+    let admission = pool.grantPrepareSlice();
+    while (!admission) {
+      await yieldToMain();
+      if (!isCurrent()) break;
+      admission = pool.grantPrepareSlice();
+    }
+    if (!isCurrent()) break;
+    const sliceStart = performance.now();
+    let request = null;
     try {
       const serialized = api.workerLayoutRequest(root, element, options);
-      if (!serialized) continue;
-      request = JSON.parse(serialized);
+      if (serialized) request = JSON.parse(serialized);
     } catch {
       // ParagraphAtomicNativeRollback: an invalid candidate remains native
       // without preventing later independent paragraphs from being prepared.
-      continue;
     }
-    sliceStartedAt = await yieldMainIfNeeded(sliceStartedAt);
-    if (!isCurrent()) break;
+    // SyncOnlySliceAccounting: only the synchronous segments count against
+    // the pool; the Worker round-trip below waits off the main thread.
+    admission.spent(performance.now() - sliceStart);
+    if (!request) continue;
     let result;
     try {
       result = await send({ type: "layout", sessionKey: contract.sessionKey, request });

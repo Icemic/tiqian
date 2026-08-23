@@ -852,6 +852,7 @@ class TiqianProseElement extends HTMLElementBase {
           preparedOptions,
           () => this.isConnected && generation === this.#generation &&
             request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
+          coordinator,
         );
       } catch (error) {
         // ExactWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
