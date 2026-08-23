@@ -1241,6 +1241,49 @@ test("rubyAnnotationSpanUsesRatioAscent", () => {
   assert.ok(html.includes("font-weight:500!important"));
 });
 
+test("rubyAnnotationSpanUsesPlanAscent", () => {
+  const plan = {
+    schema: 1,
+    layoutRevision: "tiqian-layout-v2",
+    height: 27,
+    rubyDecisions: [{
+      baseRangeStart: 0,
+      baseRangeEnd: 1,
+      text: "Běijīng",
+      fontSize: 10,
+      ascent: 7,
+      fontWeight: 500,
+      centerX: 9,
+      baselineY: 5,
+      fontFamilies: ["Ruby Face"],
+    }],
+    lines: [{
+      rangeStart: 0,
+      rangeEnd: 1,
+      top: 0,
+      bottom: 27,
+      baseline: 20,
+      indent: 0,
+      visualWidth: 18,
+      hyphenAdvance: 0,
+      endReason: "ParagraphEnd",
+      cells: [{
+        rangeStart: 0,
+        rangeEnd: 1,
+        source: "京",
+        display: "京",
+        drawX: 0,
+        naturalWidth: 18,
+        leadingLayoutAdvance: 0,
+      }],
+    }],
+  };
+  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  // top = baselineY - lineTop - plan ascent = 5 - 0 - 7, not the 0.8 ratio's -3.
+  assert.ok(html.includes("top:-2px!important"));
+  assert.ok(!html.includes("top:-3px!important"));
+});
+
 test("bopomofoAnnotationSpanOccupiesSlack", () => {
   const plan = {
     schema: 1,

@@ -70,6 +70,7 @@ class PreparedParagraphRenderEvidenceTest {
         assertContains(evidence, "\"centerX\":")
         assertContains(evidence, "\"baselineY\":")
         assertContains(evidence, "\"fontSize\":")
+        assertContains(evidence, "\"ascent\":")
         assertContains(evidence, "\"fontWeight\":500")
     }
 

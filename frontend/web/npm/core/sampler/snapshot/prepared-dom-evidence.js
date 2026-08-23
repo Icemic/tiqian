@@ -53,9 +53,13 @@ export function inlineObjectPlaceholder(cell, trailingGap, styleClassFor) {
 
 export function rubyAnnotationSpan(ruby, lineTop, styleClassFor) {
   const fontSize = Number(ruby.fontSize);
-  // RubyAscentRatioFallback: the string builder has no canvas. The measured
-  // ascent joins this path only if B7.4 puts it in the plan.
-  const ascent = fontSize * RUBY_ASCENT_RATIO;
+  // RubyPlanAscent: the plan carries the declared ascent of the annotation
+  // face (RubyDecisionInfo.ascent). RubyAscentRatioFallback keeps the
+  // pre-ascent behavior for plans built before that field existed.
+  const planAscent = Number(ruby.ascent);
+  const ascent = Number.isFinite(planAscent)
+    ? planAscent
+    : fontSize * RUBY_ASCENT_RATIO;
   const families = Array.from(ruby.fontFamilies ?? [], String);
   const attributes = {
     "data-tq-geometry": "true",

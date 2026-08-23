@@ -286,6 +286,11 @@ private fun LayoutResult.appendParagraphRenderEvidence(
             out.append(",\"centerX\":").appendJsonNumber(ruby.centerX)
             out.append(",\"baselineY\":").appendJsonNumber(ruby.baselineY)
             out.append(",\"fontSize\":").appendJsonNumber(ruby.fontSize)
+            // RubyPlanAscentEvidence: the declared ascent of the annotation
+            // face. The renderer cannot measure it in the string-builder
+            // path; without this field it falls back to a fixed ratio that
+            // only matches the stub metrics resolver.
+            out.append(",\"ascent\":").appendJsonNumber(ruby.ascent)
             out.append(",\"fontWeight\":").append(ruby.fontWeight)
             if (ruby.fontFamilies.isNotEmpty()) {
                 out.append(",\"fontFamilies\":[")
