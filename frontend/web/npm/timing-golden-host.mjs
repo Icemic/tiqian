@@ -491,17 +491,17 @@ export async function driveElementTimeline(clock, journeyKey) {
   };
 
   // ---- S1: connect + initial snapshot adoption ----
-  // Warm the only dynamic import element.js performs (worker-channel.js in
-  // the exact-session path) before the drive starts. Cold, its disk read
-  // races the fake-clock pump under parallel test load and shifts observer
-  // creation order per run; warm, the cache hit keeps the S1 tail
-  // deterministic. The warm import runs inside the journey's fake-clock
-  // window, so any module top-level captures see the same doubles.
+  // Warm the dynamic imports element.js performs (worker-channel.js and the
+  // browser-fonts module, both on the exact-session path) before the drive
+  // starts. Cold, their disk reads race the fake-clock pump under parallel
+  // test load and shift observer creation order per run; warm, the cache hits
+  // keep the S1 tail deterministic. The warm imports run inside the journey's
+  // fake-clock window, so any module top-level captures see the same doubles.
   await import("./core/engine/web-worker/worker-channel.js");
+  await import("./core/measurement/browser-fonts.js");
   element.connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
-    60,
   );
   record.paragraphStates.s1 = paragraphState();
 
@@ -545,7 +545,6 @@ export async function driveElementTimeline(clock, journeyKey) {
   element.connectedCallback();
   record.frameAdvanceCounts.s4 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s4-reconnect"),
-    60,
   );
   if (!record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s4-reconnect")) {
     record.frameAdvanceCounts.s4 = await pumpQuiescent();
