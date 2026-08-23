@@ -158,7 +158,8 @@ ffi/js 后归位。
 `no-restricted-types` 禁宽类型（`ban-types` 已在 typescript-eslint v8 拆分废弃）、
 `no-restricted-syntax` 禁双重断言。任何情况下不允许
 `eslint-disable`（行级、区块级、文件级、整包级）；CI 对 `eslint-disable` 字符串
-做 grep 检查，出现即失败。
+做 grep 检查，出现即失败，同时通过 lint 禁止任何形式的 inline type 出现，interface
+和泛型内部禁止直接使用花括号撰写类型。
 
 ### `DeclaredFaceEvidence`：声明式字体证据与不匹配解释
 
@@ -590,4 +591,4 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 | npm 包拓扑 | 1（@tiqian/prose；ffi 未独立发包） | 3（ffi、core、web-component），依赖方向 web-component → core → ffi 单向 |
 | 跨包相对导入 | 无检查 | 0 |
 | core 与 web-component 包内手写 JS 源文件 | 全部为 .js | 0（全部为 .ts） |
-| any、as unknown as、object/Object/{} 与 eslint-disable | 无检查 | 全部为 0 |
+| any、as unknown as、object/Object/{}、内联类型 与 eslint-disable | 无检查 | 全部为 0 |
