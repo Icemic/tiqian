@@ -162,8 +162,9 @@ internal external fun eventRoot(event: Event): HTMLElement?
 internal external fun eventParagraph(event: Event): HTMLElement?
 @JsFun("(event) => event.detail && event.detail.options && Array.isArray(event.detail.options.paragraphs) ? event.detail.options.paragraphs : []")
 internal external fun eventParagraphs(event: Event): Array<HTMLElement>
-// Opaque host options bag. Field reads stay in @JsFun bodies.
-internal external interface EnhanceOptionsJs
+// Opaque host options bag. Field reads stay in @JsFun bodies. Public so the
+// TiqianEngine JsExport facade can name it in exported signatures.
+external interface EnhanceOptionsJs
 
 @JsFun("(event) => event.detail && event.detail.options ? event.detail.options : null")
 internal external fun eventOptions(event: Event): EnhanceOptionsJs?

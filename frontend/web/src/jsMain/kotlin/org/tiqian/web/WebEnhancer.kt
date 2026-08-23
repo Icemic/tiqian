@@ -358,7 +358,7 @@ object TiqianWeb {
         return candidates.filter { it !in renderedSources }
     }
 
-    private fun relayout(root: HTMLElement) {
+    internal fun relayout(root: HTMLElement) {
         val runningJob = progressiveJobs[root]
         if (runningJob?.kind == ProgressiveJobKind.Enhance) {
             // Responsive changes are normally observed only after tiqian:ready,
