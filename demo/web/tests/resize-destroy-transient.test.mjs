@@ -188,7 +188,12 @@ const armInstrumentationExpression = (id) => `
     const prose = document.getElementById(${JSON.stringify(id)});
     const events = [];
     const record = (type) => (ev) => {
-      const root = ev.detail && ev.detail.root;
+      // Element-lifecycle events (tiqian:ready, tiqian:relayout-ready) carry
+      // counts in their detail and dispatch on the root itself, so the root
+      // comes from the event target; document-channel events keep using
+      // detail.root.
+      const root = (ev.detail && ev.detail.root) ||
+        (ev.target && ev.target.closest ? ev.target.closest("tiqian-prose") : null);
       events.push({
         type,
         t: Math.round(performance.now()),
@@ -479,7 +484,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the custody move:\n${detail}`);
     assert.equal(detaches.length, 0, `tiqian:detach fired across the custody move:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames across the custody move:\n${detail}`);
-    const relayouts = report.events.filter((e) => e.mine && e.type === "tiqian:relayout");
+    const relayouts = report.events.filter((e) => e.mine && e.type === "tiqian:relayout-ready");
     assert.ok(relayouts.length > 0, `the 900->360 width change never entered relayout:\n${detail}`);
     const last = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
