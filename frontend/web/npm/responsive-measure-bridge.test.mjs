@@ -1,9 +1,6 @@
-// Unit tests for the responsive measure engine embedded in the Kotlin runtime
-// bundle. The generator embeds npm/core/engine/responsive-measure.js into
-// tiqian-web.js; these tests drive the installed globalThis.__TiqianResponsiveMeasure
-// copy directly. The runtime installs the bridge lazily on first use, so the
-// source is imported here for side-effect installation (the same double
-// installation guard the Kotlin bundle relies on).
+// Unit tests for the responsive-measure engine module installed by ts-runtime.
+// npm-core/core/engine/responsive-measure.js installs __TiqianResponsiveMeasure; these
+// tests drive that global directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";

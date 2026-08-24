@@ -1,6 +1,6 @@
-// Unit tests for the eligibility engine embedded in the Kotlin runtime bundle.
-// The generator embeds npm/core/engine/eligibility.js into tiqian-web.js; these
-// tests drive the installed globalThis.__TiqianEligibility copy directly.
+// Unit tests for the eligibility engine module installed by ts-runtime.
+// npm-core/core/engine/eligibility.js installs __TiqianEligibility; these
+// tests drive that global directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";

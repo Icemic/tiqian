@@ -225,7 +225,7 @@ function startDemoServer(port, pkgDir) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js","@tiqian/prose-core/":"/frontend/web/npm-core/"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js","@tiqian/prose-core/":"/frontend/web/npm-core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -239,8 +239,10 @@ function startDemoServer(port, pkgDir) {
       } else if (path.startsWith("/ffi/")) {
         // Module workers do not see the document import map, so the dev-tree
         // layout worker in npm-core gets its bare "@tiqian/ffi" import
-        // rewritten below to this absolute URL. The published side predates
-        // the dependency and keeps its relative precompute-runtime import.
+        // rewritten below to this absolute URL. The document-context import
+        // in ts-runtime.js resolves through the import map instead. The
+        // published side predates the dependency and keeps its relative
+        // precompute-runtime import.
         const rest = path.slice("/ffi/".length);
         file = join(ffiRuntimeDir, rest);
       } else if (path.startsWith("/frontend/web/npm/")) {

@@ -413,6 +413,7 @@ function startFixtureServer(svelteComponents) {
     "@tiqian/prose/element": "/npm/element.js",
     "@tiqian/prose/": "/npm/",
     "@tiqian/prose-core/": "/npm-core/",
+    "@tiqian/ffi": "/npm-ffi/Tiqian-tiqian-ffi-js.mjs",
     "svelte": "/svelte/src/index-client.js",
     "svelte/internal/client": "/svelte/src/internal/client/index.js",
     "svelte/internal/disclose-version": "/svelte/src/internal/disclose-version.js",

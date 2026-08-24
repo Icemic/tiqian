@@ -1,6 +1,6 @@
-// Unit tests for the custody engine embedded in the Kotlin runtime bundle.
-// The generator embeds npm/core/engine/custody.js into tiqian-web.js; these
-// tests drive the installed globalThis.__TiqianCustody copy directly.
+// Unit tests for the custody engine module installed by ts-runtime.
+// npm-core/core/engine/custody.js installs globalThis.__TiqianCustody; these
+// tests drive that global directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";

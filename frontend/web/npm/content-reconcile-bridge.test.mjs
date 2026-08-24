@@ -1,6 +1,6 @@
-// Unit tests for the content reconcile bridge embedded in the Kotlin runtime bundle.
-// The generator embeds npm/core/engine/content-reconcile.js into tiqian-web.js;
-// these tests drive globalThis.__TiqianContentReconcile directly through the runtime.
+// Unit tests for the content-reconcile engine module installed by ts-runtime.
+// npm-core/core/engine/content-reconcile.js installs __TiqianContentReconcile; these
+// tests drive that global directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";

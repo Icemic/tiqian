@@ -3595,26 +3595,28 @@ export function exactTestOptions() {
 let runtimePromise;
 
 // Build the test-host TiqianWeb object from the TiqianEngine JsExport facade
-// (ADR 0053 C1). The engine instance is resolved the same way the package
-// loader resolves it (module namespace, CJS default, or the UMD globalThis.web
-// bag); the polled worker facade is bound beside it. enhance/enhanceAll keep
-// their counting wrappers so tests can assert per-root paragraph counts.
+// (ADR 0053 C1). After ts-runtime install the engine and workers live on
+// globalThis; the polled worker facade is bound beside it. enhance/enhanceAll
+// keep their counting wrappers so tests can assert per-root paragraph counts.
 export function loadHostRuntime() {
   buildWorld();
   installPreparedRendererFixture();
-  runtimePromise ??= import("@tiqian/prose-core/runtime/tiqian-web.js").then((module) => {
-    const bag = module.default ?? module;
-    const engine = globalThis.__TiqianEngine ??
-      (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)?.getInstance?.();
-    const workers = globalThis.__TiqianEngineWorkers ??
-      (module.TiqianWebWorkers ??
-        bag.TiqianWebWorkers ??
-        globalThis.web?.TiqianWebWorkers)?.getInstance?.();
-    if (!engine) throw new Error("TiqianEngine export missing from runtime bundle");
+  runtimePromise ??= import("@tiqian/prose-core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
+    await loader.loadTiqianRuntime();
+    const engine = globalThis.__TiqianEngine;
+    const workers = globalThis.__TiqianEngineWorkers;
+    if (!engine) throw new Error("TiqianEngine global missing after ts-runtime install");
     engineInstance = engine;
 
     const bridge = {
-      install() {},
+      // TiqianWeb.install() in the Kotlin runtime attached the clipboard
+      // handler (the webpack demo main() called it eagerly, which masked the
+      // missing call here while the bundle existed). With ts-runtime there is
+      // no main(), so the bridge performs the install itself.
+      install() {
+        const installer = globalThis.__TiqianInstallCopyHandler;
+        if (installer && globalThis.document) installer(globalThis.document);
+      },
       enhance(root, options) {
         engine.enhance(root, options);
         const count = root.getAttribute("data-tiqian-enhanced-count");

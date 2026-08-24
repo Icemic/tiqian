@@ -1,14 +1,6 @@
-// Unit tests for the markdown lowering engine embedded in the Kotlin runtime
-// bundle. The generator embeds npm/core/engine/markdown-lowering.js into
-// tiqian-web.js; these tests drive the installed globalThis.__TiqianMarkdownLowering
-// copy directly. The runtime installs the bridge lazily on first use, so the
-// source is imported here for side-effect installation (the same double
-// installation guard the Kotlin bundle relies on).
-//
-// The lowering engine reads the host document through the runtime-host world's
-// computed style shim; style-level assertions therefore follow the parser
-// output, and cases that need a real computed value patch globalThis.getComputedStyle
-// the same way responsive-measure-bridge.test.mjs does.
+// Unit tests for the markdown-lowering engine module installed by ts-runtime.
+// npm-core/core/engine/markdown-lowering.js installs __TiqianMarkdownLowering; these
+// tests drive that global directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";

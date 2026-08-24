@@ -219,7 +219,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
     elementSource,
     /if \(!strongEmphasisRuntimeRequired\) \{[\s\S]*?tryAdoptRequestedSnapshot\(/u,
   );
-  assert.match(runtimeSource, /import\("\.\.\/\.\.\/\.\.\/runtime\/tiqian-web\.js"\)/u);
+  assert.match(runtimeSource, /import\("\.\/ts-runtime\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
   assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"\)/u);

@@ -1,20 +1,9 @@
-// Kotlin runtime loader (ADR 0053 batch 3). The compiled bundle stays at
-// runtime/ in the package root (publishing layout), so the dynamic import
-// below is resolved relative to the root from this subdirectory. Embedded
-// TypeScript engine entries (__TiqianEngine / __TiqianEngineWorkers) take
-// precedence over Kotlin exports, with resolveExport as the legacy fallback.
-let runtimePromise;
-let runtimeModule;
+// Runtime loader for the Tiqian engine (Slice 7 Lane A). After bundle
+// retirement the 21 engine scripts and ffi binding are installed by
+// ts-runtime.js; this module re-exports the installation promise and
+// provides the engine/worker accessors that element.js depends on.
 
-function resolveExport(name) {
-  // Kotlin IR object singletons sit behind getInstance(); the UMD branch
-  // exposes them as globalThis.web. Bundler imports carry them on the
-  // module namespace directly.
-  const facade = runtimeModule?.[name] ??
-    runtimeModule?.default?.[name] ??
-    globalThis.web?.[name];
-  return facade?.getInstance?.() ?? facade ?? null;
-}
+let runtimePromise;
 
 let engineInstance;
 let workerInstance;
@@ -27,32 +16,27 @@ export function setEngineOverride(engine) {
   engineOverride = engine ?? null;
 }
 
-// Direct engine call face (ADR 0053 C1): the TiqianEngine JsExport facade
-// replaces the document-level event channel for host-to-engine calls. Both
-// accessors answer null until the runtime exports resolve, so callers treat
-// a null answer as "engine not ready" and stop there.
+// Direct engine call face (ADR 0053 C1): the engine entry installed by
+// ts-runtime.js replaces the document-level event channel for host-to-engine
+// calls. Both accessors answer null until the runtime install resolves, so
+// callers treat a null answer as "engine not ready" and stop there.
 export function engineApi() {
   if (engineOverride) return engineOverride;
   var tsEngine = globalThis.__TiqianEngine;
   if (tsEngine) return tsEngine;
-  engineInstance ??= resolveExport("TiqianEngine");
-  return engineInstance;
+  return null;
 }
 
-// Polled worker facade (WorkerPolledScheduling): an IR object singleton
-// behind getInstance; the UMD branch exposes it as globalThis.web.
+// Polled worker facade (WorkerPolledScheduling): the worker-prefixed methods
+// installed on globalThis.__TiqianEngineWorkers by engine-entry.js.
 export function workerApi() {
   var tsWorkers = globalThis.__TiqianEngineWorkers;
   if (tsWorkers) return tsWorkers;
-  workerInstance ??= resolveExport("TiqianWebWorkers");
-  return workerInstance;
+  return null;
 }
 
 export function loadTiqianRuntime() {
-  runtimePromise ??= import("../../../runtime/tiqian-web.js").then((module) => {
-    runtimeModule = module;
-    return module;
-  });
+  runtimePromise ??= import("./ts-runtime.js");
   return runtimePromise;
 }
 
