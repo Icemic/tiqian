@@ -854,6 +854,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   三个 @JsExport，字体模块保持唯一实现；package.test.mjs 与
   verify-package.mjs 的导出面清单同步到五项。:ffi:js 的 npm 测试与
   jsNodeTest 通过。
+  进度（Slice 3d，2026-08-23）：75017a9。layout 的 ParagraphWireFace 拆出
+  共有的 layout 组装，新增 planWithDiagnostics(zeroAdvanceEpsilonPx)；
+  PreparedParagraph 增补 toPlanWithDiagnosticsJson：diagnostics 内嵌
+  capabilityIssues 与 advanceSuspects 两组事实，suspect 的 advance 一律
+  序列化为字符串以携带 NaN 与 Infinity，判定由宿主完成。ffi/js 新增
+  @JsExport precomputeParagraphWithDiagnostics（十六参加 epsilon），
+  ParagraphWireFaceTest 增四例，导出面清单同步到六项。:layout:jvmTest 与
+  golden 零 diff；:ffi:js 的 npm 测试与 jsNodeTest 通过。
+  进度（Slice 4a 第一批，2026-08-23）：6ba1e13。npm-core 新增
+  core/engine/canvas-fonts.js 与 canvas-metrics.js：WebFontFamilies、
+  cssFamilyToken、StubFontMetricsResolver 与 WebCanvasFontMetricsResolver
+  的 TS 移植，度量经注入的 canvas context 工厂取得，模块自身不触碰
+  document；canvas-fonts.test.mjs 与 canvas-metrics.test.mjs 共 27 例。
+  npm-core 276 例、ts-discipline 通过。canvas shaper 移植与 ffi
+  browser-metrics 导出随后分片进行。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
