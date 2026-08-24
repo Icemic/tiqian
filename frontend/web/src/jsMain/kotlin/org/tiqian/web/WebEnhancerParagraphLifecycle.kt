@@ -2,29 +2,11 @@ package org.tiqian.web
 
 import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
 import org.tiqian.shaping.web.WebCjkDashCapability
-import org.tiqian.web.TiqianWeb.CapabilityIssue
 import org.tiqian.web.TiqianWeb.EnhanceOptions
 import org.tiqian.web.TiqianWeb.ExactFontSessionCapability
 import org.tiqian.web.TiqianWeb.FontFamilyOptions
 import org.tiqian.web.TiqianWeb.SourceInlineSize
 import org.w3c.dom.HTMLElement
-
-internal fun TiqianWeb.reportIssue(issue: CapabilityIssue) {
-    if (!issue.markerCaptured) {
-        issue.originalNameAttribute = issue.element.getAttribute("data-tiqian-capability-issue")
-        issue.originalDetailAttribute = issue.element.getAttribute("data-tiqian-capability-detail")
-        issue.markerCaptured = true
-    }
-    issue.element.setAttribute("data-tiqian-capability-issue", issue.name)
-    issue.element.setAttribute("data-tiqian-capability-detail", issue.detail.take(CAPABILITY_DETAIL_LIMIT))
-    // PendingCapabilityIsObservableNotTerminal: the semantic paragraph is
-    // intentionally kept native while the asynchronous dash-face probe is
-    // in flight. Keep the DOM marker for the targeted retry, but reserve a
-    // console warning for the retry's final unavailable/mismatch result.
-    if (issue.reportToConsole) {
-        consoleWarn("TiqianWeb skipped paragraph: ${issue.name} (${issue.detail})")
-    }
-}
 
 internal fun TiqianWeb.optionsFromJs(options: EnhanceOptionsJs?): EnhanceOptions {
     val cjk = optionString(options, "cjkFontFamily")
@@ -149,19 +131,4 @@ internal fun TiqianWeb.stabilizeContentSizedItemInlineSize(
     paragraph.style.setProperty("inline-size", serialized, "important")
     paragraph.setAttribute(HOST_INLINE_SIZE_ATTRIBUTE, "true")
     return serialized
-}
-
-internal fun TiqianWeb.clearIssue(issue: CapabilityIssue) {
-    if (!issue.markerCaptured) return
-    restoreAttribute(issue.element, "data-tiqian-capability-issue", issue.originalNameAttribute)
-    restoreAttribute(issue.element, "data-tiqian-capability-detail", issue.originalDetailAttribute)
-    issue.markerCaptured = false
-}
-
-internal fun TiqianWeb.restoreAttribute(element: HTMLElement, name: String, value: String?) {
-    if (value == null) {
-        element.removeAttribute(name)
-    } else {
-        element.setAttribute(name, value)
-    }
 }

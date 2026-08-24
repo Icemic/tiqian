@@ -494,15 +494,4 @@ object TiqianWeb {
         val borderBoxSizing: Boolean,
     )
 
-    data class CapabilityIssue(
-        val name: String,
-        val detail: String,
-        val element: HTMLElement,
-        val reportToConsole: Boolean = true,
-    ) {
-        internal var markerCaptured: Boolean = false
-        internal var originalNameAttribute: String? = null
-        internal var originalDetailAttribute: String? = null
-    }
-
 }
