@@ -17,6 +17,152 @@
 // ({ ok: false, issue: { name, detail } }). The Kotlin phase-2 switchover
 // decodes the lowered object; phase 1 only ships and embeds this module.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type {
+  TextStyle,
+  LoweredParagraph,
+  TextSpan,
+  DecorationSpan,
+  InlineBoxSpan,
+  InlineObjectSpan,
+  DomInlineObject,
+  DomSourceSpan,
+  LineBreakSpan,
+} from "./lowered-paragraph.js";
+import type { EligibilityGlobal } from "./eligibility.js";
+
+type MarkdownLowerFn = (
+  paragraph: Element,
+  options: LoweringOptions,
+  helpers: InlineShapingHelpers,
+) => LoweringResult;
+
+/** Exported shape installed on globalThis.__TiqianMarkdownLowering. */
+export interface MarkdownLoweringApi {
+  lower: MarkdownLowerFn;
+}
+
+type IsNonTextInlineTagFn = (tag: string) => boolean;
+type IsOpaqueInlineDisplayFn = (display: string) => boolean;
+type IsOpaqueInlineLevelDisplayFn = (display: string) => boolean;
+
+declare global {
+  var __TiqianMarkdownLowering: MarkdownLoweringApi | undefined;
+}
+
+export {};
+
+// --- Internal types (module-scoped) ---
+
+/** Eligibility functions resolved from globalThis or local fallback tables. */
+interface EligibilityFunctions {
+  isNonTextInlineTag: IsNonTextInlineTagFn;
+  isOpaqueInlineDisplay: IsOpaqueInlineDisplayFn;
+  isOpaqueInlineLevelDisplay: IsOpaqueInlineLevelDisplayFn;
+}
+
+/** White-space mode string constant. */
+type WhiteSpaceMode = string;
+
+/** Inline style context carried through the lowering tree. */
+interface InlineStyleContext {
+  textStyle: TextStyle;
+  whiteSpace: WhiteSpaceMode;
+  cjkStrongBaseWeight: number | null;
+}
+
+/** Geometric measurement of an opaque inline object's advance/ascent/descent. */
+interface InlineObjectGeometry {
+  advance: number;
+  ascent: number;
+  descent: number;
+}
+
+/** Whitespace projection result: projected text plus offset boundary map. */
+interface WhitespaceProjection {
+  text: string;
+  boundaryMap: Int32Array;
+}
+
+/** Lowering options passed from the host (mirrors loweringOptionsJs). */
+interface LoweringOptions {
+  fontSize?: number | null;
+  lineHeight?: number | null;
+  locale?: string;
+  strongAsEmphasisMarks?: boolean;
+  [key: string]: unknown;
+}
+
+type ClassifyRoleFn = (text: string, start: number, end: number, locale: string) => string;
+
+interface InlineShapingDecisionResult {
+  name: string;
+  detail: string;
+}
+
+type InlineShapingDecisionFn = (
+  tag: string,
+  elementValues: string[],
+  paragraphValues: string[],
+) => InlineShapingDecisionResult | null;
+
+/** Inline-shaping helpers provided by the host for role classification. */
+interface InlineShapingHelpers {
+  classifyRole?: ClassifyRoleFn;
+  inlineShapingProperties?: string[];
+  inlineShapingDecision?: InlineShapingDecisionFn;
+  [key: string]: unknown;
+}
+
+/** Minimal DOM-node shape consumed by appendNode in canonicalPreparedPlainSource. */
+interface AppendNodeLike {
+  readonly nodeType: number;
+  textContent: string | null;
+  readonly nextSibling: Node | null;
+  readonly childNodes: NodeList;
+  hasAttribute(name: string): boolean;
+  getAttribute(name: string): string | null;
+  readonly tagName: string;
+}
+
+/** Normalized inline-shaping helpers after null-guarding. */
+interface NormalizedInlineShapingHelpers {
+  classifyRole: ClassifyRoleFn;
+  inlineShapingProperties: string[];
+  inlineShapingDecision: InlineShapingDecisionFn;
+}
+
+/** Mutable lowering issue accumulator (name and detail assigned before read). */
+interface LoweringIssue {
+  name: string | null;
+  detail: string | null;
+  [key: string]: unknown;
+}
+
+interface LoweringSuccessResult {
+  ok: true;
+  lowered: LoweredParagraph;
+}
+
+interface LoweringFailureResult {
+  ok: false;
+  issue: LoweringIssue;
+}
+
+/** Discriminated union for the lower() return. */
+type LoweringResult = LoweringSuccessResult | LoweringFailureResult;
+
+type ProbeAction<T> = () => T;
+
+interface SpanRangeItem {
+  start: number;
+  end: number;
+}
+
+type ProjectedRangeCopyFn<T> = (item: T, range: [number, number]) => T;
+
+// --- End internal types ---
+
 (function () {
   if (globalThis.__TiqianMarkdownLowering) return;
 
@@ -62,7 +208,7 @@
     "inline",
   ]);
 
-  function resolveEligibilityFunctions() {
+  function resolveEligibilityFunctions(): EligibilityFunctions {
     var eligibility = globalThis.__TiqianEligibility;
     if (
       eligibility &&
@@ -70,26 +216,26 @@
       typeof eligibility.isOpaqueInlineDisplay === "function" &&
       typeof eligibility.isOpaqueInlineLevelDisplay === "function"
     ) {
-      return eligibility;
+      return eligibility as EligibilityFunctions;
     }
     return {
-      isNonTextInlineTag: function (tag) {
+      isNonTextInlineTag: function (tag: string): boolean {
         return typeof tag === "string" && NON_TEXT_INLINE_TAGS.has(tag.toUpperCase());
       },
-      isOpaqueInlineDisplay: function (display) {
+      isOpaqueInlineDisplay: function (display: string): boolean {
         return typeof display === "string" && OPAQUE_INLINE_DISPLAYS.has(display.trim().toLowerCase());
       },
-      isOpaqueInlineLevelDisplay: function (display) {
+      isOpaqueInlineLevelDisplay: function (display: string): boolean {
         return typeof display === "string" && OPAQUE_INLINE_LEVEL_DISPLAYS.has(display.trim().toLowerCase());
       },
     };
   }
 
-  function computedStyle(element, property) {
+  function computedStyle(element: Element, property: string): string {
     return globalThis.getComputedStyle(element).getPropertyValue(property);
   }
 
-  function parseCssPx(value) {
+  function parseCssPx(value: string | null | undefined): number | null {
     if (value === null || value === undefined) return null;
     var trimmed = String(value).trim();
     if (trimmed.length < 2 || trimmed.slice(-2) !== "px") return null;
@@ -100,11 +246,11 @@
   // NullCoalescingSubstitute: the Kotlin JS parser that validates the
   // embedded @JsFun body does not accept the ?? operator, so every
   // null-coalescing choice is spelled through this helper instead.
-  function firstDefined(value, fallback) {
+  function firstDefined<T>(value: T | null | undefined, fallback: T): T {
     return value !== null && value !== undefined ? value : fallback;
   }
 
-  function parseCssLineHeight(value, fontSize) {
+  function parseCssLineHeight(value: string | null | undefined, fontSize: number): number | null {
     if (value === null || value === undefined) return null;
     var trimmed = String(value).trim();
     var px = parseCssPx(trimmed);
@@ -113,7 +259,7 @@
     return Number.isFinite(number) ? number * fontSize : null;
   }
 
-  function parseCssFontWeight(value) {
+  function parseCssFontWeight(value: string | null | undefined): number | null {
     if (value === null || value === undefined) return null;
     var trimmed = String(value).trim().toLowerCase();
     if (trimmed === "normal") return 400;
@@ -125,17 +271,17 @@
     return Math.min(900, Math.max(1, weight));
   }
 
-  function parseCssItalic(value) {
+  function parseCssItalic(value: string | null | undefined): boolean | null {
     if (value === null || value === undefined) return null;
     var trimmed = String(value).trim().toLowerCase();
     if (trimmed === "") return null;
     return trimmed.startsWith("italic") || trimmed.startsWith("oblique");
   }
 
-  function parseCssFontFamilies(value) {
-    var families = [];
+  function parseCssFontFamilies(value: string): string[] {
+    var families: string[] = [];
     var token = "";
-    var quote = null;
+    var quote: string | null = null;
     var flush = function () {
       var family = token.trim();
       if (
@@ -174,7 +320,7 @@
     return families;
   }
 
-  function cssWhiteSpaceMode(value, fallback) {
+  function cssWhiteSpaceMode(value: string | null | undefined, fallback?: WhiteSpaceMode | null): WhiteSpaceMode {
     if (fallback === null || fallback === undefined) fallback = MODE_COLLAPSE;
     var normalized = String(value).trim().toLowerCase();
     if (
@@ -202,7 +348,7 @@
     return fallback;
   }
 
-  function isCssCollapsibleWhitespace(char) {
+  function isCssCollapsibleWhitespace(char: string): boolean {
     return char === " " || char === "\t" || char === "\n" || char === "\r" || char === "\u000C";
   }
 
@@ -211,20 +357,20 @@
   // Only a real <br> is marked separately as a structural mandatory break.
   // The boundary map keeps every projected span's offsets in the source space
   // so ranges survive the projection for the returned lower object.
-  function cssWhiteSpaceCollapseProjection(text, modes, hardBreakOffsets) {
+  function cssWhiteSpaceCollapseProjection(text: string, modes: WhiteSpaceMode[], hardBreakOffsets: number[]): WhitespaceProjection {
     if (modes.length !== text.length) {
       throw new Error(
         "Whitespace mode count " + modes.length + " must match source length " + text.length,
       );
     }
     var hardBreakSet = new Set();
-    for (var hb = 0; hb < hardBreakOffsets.length; hb++) hardBreakSet.add(hardBreakOffsets[hb]);
+    for (var hb = 0; hb < hardBreakOffsets.length; hb++) hardBreakSet.add(hardBreakOffsets[hb] as never);
     var projected = "";
     var boundaryMap = new Int32Array(text.length + 1);
     var pendingStart = -1;
     var pendingEnd = -1;
 
-    var resolvePendingWhitespace = function (emit) {
+    var resolvePendingWhitespace = function (emit: boolean): void {
       if (pendingStart < 0) return;
       var before = projected.length;
       if (emit && projected.length > 0 && projected[projected.length - 1] !== "\n") {
@@ -239,7 +385,7 @@
       pendingEnd = -1;
     };
 
-    var deferCollapsedWhitespace = function (index) {
+    var deferCollapsedWhitespace = function (index: number): void {
       if (pendingStart < 0) {
         pendingStart = index;
         boundaryMap[index] = projected.length;
@@ -247,7 +393,7 @@
       pendingEnd = index + 1;
     };
 
-    var appendPreserved = function (index, char) {
+    var appendPreserved = function (index: number, char: string): void {
       resolvePendingWhitespace(true);
       boundaryMap[index] = projected.length;
       projected += char;
@@ -326,7 +472,7 @@
     return { text: projected, boundaryMap: boundaryMap };
   }
 
-  function projectionRange(projection, start, end) {
+  function projectionRange(projection: WhitespaceProjection, start: number, end: number): [number, number] | null {
     var projectedStart = projection.boundaryMap[start];
     var projectedEnd = projection.boundaryMap[end];
     if (projectedEnd > projectedStart) return [projectedStart, projectedEnd];
@@ -337,7 +483,7 @@
   // in-flow content boundary. A descendant semantic box owns its own padding,
   // margins and pseudo content, so an outer <sup>/<span> must not reserve that
   // same edge again merely because Range.getClientRects() ends on a deep text leaf.
-  function measuredInlineEdge(element, side) {
+  function measuredInlineEdge(element: Element, side: "start" | "end"): number {
     var style = getComputedStyle(element);
     var margin = Number.parseFloat(
       side === "start" ? style.marginLeft : style.marginRight,
@@ -346,7 +492,7 @@
       return rect.width || rect.height;
     });
     if (!boxes.length) return margin;
-    var boundary = function (node) {
+    var boundary = function (node: Node): number | null {
       if (node.nodeType === Node.TEXT_NODE) {
         var range = document.createRange();
         range.selectNodeContents(node);
@@ -357,7 +503,7 @@
         return side === "start" ? rects[0].left : rects[rects.length - 1].right;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return null;
-      var childStyle = getComputedStyle(node);
+      var childStyle = getComputedStyle(node as Element);
       if (
         childStyle.display === "none" ||
         childStyle.position === "absolute" ||
@@ -365,7 +511,7 @@
       ) {
         return null;
       }
-      var rects = Array.from(node.getClientRects()).filter(function (rect) {
+      var rects = Array.from((node as Element).getClientRects()).filter(function (rect) {
         return rect.width || rect.height;
       });
       if (rects.length) {
@@ -399,9 +545,9 @@
       : Math.max(0, flowEdge - contentBoundary);
   }
 
-  function measuredInlineBaselineShift(element) {
+  function measuredInlineBaselineShift(element: Element): number {
     if (!element.parentNode || getComputedStyle(element).display === "contents") return 0;
-    var makeProbe = function () {
+    var makeProbe = function (): HTMLSpanElement {
       var probe = document.createElement("span");
       probe.setAttribute("data-tq-baseline-probe", "");
       probe.style.cssText = "display:inline-block!important;width:0!important;height:0!important;" +
@@ -421,7 +567,7 @@
     }
   }
 
-  function measuredOpaqueInlineObjectGeometry(element) {
+  function measuredOpaqueInlineObjectGeometry(element: Element): string {
     var parent = element.parentNode;
     if (!parent) return "";
     var style = getComputedStyle(element);
@@ -442,7 +588,7 @@
     ) {
       return "";
     }
-    var number = function (value) {
+    var number = function (value: string): number {
       return Number.parseFloat(value) || 0;
     };
     var probe = document.createElement("span");
@@ -462,7 +608,7 @@
     }
   }
 
-  function isCloneSafeOpaqueInlineObject(element) {
+  function isCloneSafeOpaqueInlineObject(element: Element): boolean {
     if (element.hasAttribute("data-tiqian-static-inline-object")) return true;
     var name = element.localName || "";
     if (name.includes("-")) return false;
@@ -481,7 +627,7 @@
   // elements are supported instead: measuredInlineEdge() reserves their actual
   // ::before/::after advance while the one cloned semantic element keeps the host
   // pseudo, copy, accessibility and interaction behavior intact.
-  function flowParticipatingPseudoContent(element, pseudo) {
+  function flowParticipatingPseudoContent(element: Element, pseudo: "::before" | "::after"): string | null {
     var style = getComputedStyle(element, pseudo);
     var content = style.getPropertyValue("content").trim();
     if (!content || content === "none" || content === "normal" || content === "\"\"" || content === "''") {
@@ -493,10 +639,10 @@
     return content;
   }
 
-  function generatedPseudoContentIssue(element) {
+  function generatedPseudoContentIssue(element: Element): string | null {
     var pseudos = ["::before", "::after"];
     for (var i = 0; i < pseudos.length; i++) {
-      var content = flowParticipatingPseudoContent(element, pseudos[i]);
+      var content = flowParticipatingPseudoContent(element, pseudos[i] as "::before" | "::after");
       if (content !== null) {
         return element.tagName.toLowerCase() + pseudos[i] + ":" + String(content).trim();
       }
@@ -511,15 +657,15 @@
   // The host decides which property diverges; the lowering engine only collects
   // the normalized computed facts and asks through the inlineShapingDecision
   // callback (same shape as classifyRole).
-  function collectShapingValues(element, properties) {
-    var values = [];
+  function collectShapingValues(element: Element, properties: string[]): string[] {
+    var values: string[] = [];
     for (var i = 0; i < properties.length; i++) {
       values.push(computedStyle(element, properties[i]).trim().toLowerCase());
     }
     return values;
   }
 
-  var graphemeSegmenter = null;
+  var graphemeSegmenter: Intl.Segmenter | null = null;
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     try {
       graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -531,7 +677,7 @@
   // Grapheme boundaries as UTF-16 offsets, including 0 and the full length.
   // Falls back to code-point traversal when the host has no Intl.Segmenter,
   // mirroring lowererGraphemeBoundaries in WebEnhancerSupport.kt.
-  function graphemeBoundaries(value) {
+  function graphemeBoundaries(value: string): number[] {
     var boundaries = [0];
     if (graphemeSegmenter) {
       var items = graphemeSegmenter.segment(value);
@@ -555,13 +701,13 @@
   // Kotlin core TextStyle ("zh-Hans") because locale travels into LayoutInput
   // and drives font selection plus the punctuation profile. An explicit
   // non-empty options.locale overrides that default.
-  function resolveLocale(options) {
+  function resolveLocale(options: LoweringOptions): string {
     return typeof options.locale === "string" && options.locale !== ""
       ? options.locale
       : "zh-Hans";
   }
 
-  function defaultTextStyle(locale) {
+  function defaultTextStyle(locale: string): TextStyle {
     return {
       fontFamilies: [],
       fontSize: DEFAULT_FONT_SIZE,
@@ -572,7 +718,7 @@
     };
   }
 
-  function computedTextStyle(element, fallback) {
+  function computedTextStyle(element: Element, fallback: TextStyle): TextStyle {
     var families = parseCssFontFamilies(computedStyle(element, "font-family"));
     var fontFamilies = families.length > 0 ? families : fallback.fontFamilies;
     var fontSize = firstDefined(parseCssPx(computedStyle(element, "font-size")), fallback.fontSize);
@@ -588,7 +734,7 @@
     };
   }
 
-  function computedInlineBaselineShift(element) {
+  function computedInlineBaselineShift(element: Element): number {
     var relativeShift = 0;
     if (computedStyle(element, "position").trim().toLowerCase() === "relative") {
       var top = parseCssPx(computedStyle(element, "top"));
@@ -603,7 +749,7 @@
     return Number.isFinite(measured) ? measured : 0;
   }
 
-  function computedInlineStyle(element, fallback) {
+  function computedInlineStyle(element: Element, fallback: InlineStyleContext): InlineStyleContext {
     var computed = computedTextStyle(element, fallback.textStyle);
     var localBaselineShift = computedInlineBaselineShift(element);
     return {
@@ -620,7 +766,7 @@
     };
   }
 
-  function textStylesEqual(left, right) {
+  function textStylesEqual(left: TextStyle | null | undefined, right: TextStyle | null | undefined): boolean {
     if (left === right) return true;
     if (!left || !right) return false;
     if (
@@ -639,9 +785,9 @@
     return true;
   }
 
-  function parseOpaqueInlineObjectGeometry(value) {
+  function parseOpaqueInlineObjectGeometry(value: string): InlineObjectGeometry | null {
     var rawParts = String(value).split(",");
-    var parts = [];
+    var parts: number[] = [];
     for (var i = 0; i < rawParts.length; i++) {
       var number = Number(rawParts[i]);
       if (Number.isFinite(number)) parts.push(number);
@@ -665,7 +811,7 @@
   // typography. Suppress the replay selector only while sampling computed
   // paragraph styles, then restore the attribute synchronously before any
   // layout mutation can be painted.
-  function withCanonicalPreparedHostStyleProbe(paragraph, block) {
+  function withCanonicalPreparedHostStyleProbe<T>(paragraph: Element, block: ProbeAction<T>): T {
     var rendered = paragraph.getAttribute("data-tq-rendered");
     paragraph.removeAttribute("data-tq-rendered");
     try {
@@ -684,10 +830,10 @@
   // and code runs are lowered at the host size even though the base run is
   // measured at the override. The host is restored before custody transfer;
   // the renderer then applies the same size for the enhanced paragraph.
-  function withConfiguredFontSizeProbe(paragraph, fontSize, block) {
+  function withConfiguredFontSizeProbe<T>(paragraph: Element, fontSize: number | null | undefined, block: ProbeAction<T>): T {
     if (fontSize === null || fontSize === undefined) return block();
     var originalStyle = paragraph.getAttribute("style");
-    paragraph.style.setProperty("font-size", String(fontSize) + "px", "important");
+    (paragraph as HTMLElement).style.setProperty("font-size", String(fontSize) + "px", "important");
     try {
       return block();
     } finally {
@@ -699,9 +845,9 @@
     }
   }
 
-  function canonicalPreparedPlainSource(parent) {
+  function canonicalPreparedPlainSource(parent: Element): string {
     var result = "";
-    var appendNode = function (node) {
+    var appendNode = function (node: AppendNodeLike): void {
       if (node.nodeType === 3) {
         result += node.textContent || "";
         return;
@@ -713,8 +859,8 @@
         var followingElement = following !== null && following.nodeType === 1 ? following : null;
         var pairedMandatoryBreak = node.hasAttribute("data-tq-hard-break") &&
           followingElement !== null &&
-          followingElement.tagName.toUpperCase() === "BR" &&
-          followingElement.getAttribute("data-tq-engine-break") === "MandatoryBreak";
+          (followingElement as Element).tagName.toUpperCase() === "BR" &&
+          (followingElement as Element).getAttribute("data-tq-engine-break") === "MandatoryBreak";
         if (!pairedMandatoryBreak) result += node.getAttribute("data-tq-src") || "";
         return;
       }
@@ -725,24 +871,31 @@
       var children = node.childNodes;
       for (var index = 0; index < children.length; index++) {
         var child = children.item ? children.item(index) : children[index];
-        if (child) appendNode(child);
+        if (child) appendNode(child as Element);
       }
     };
     var nodes = parent.childNodes;
     for (var index = 0; index < nodes.length; index++) {
       var node = nodes.item ? nodes.item(index) : nodes[index];
-      if (node) appendNode(node);
+      if (node) appendNode(node as Element);
     }
     return result;
   }
 
-  function lowerWithCurrentStyles(paragraph, options, locale, helpers, canonicalPrepared, issue) {
+  function lowerWithCurrentStyles(
+    paragraph: Element,
+    options: LoweringOptions,
+    locale: string,
+    helpers: NormalizedInlineShapingHelpers,
+    canonicalPrepared: boolean,
+    issue: LoweringIssue,
+  ): LoweredParagraph | null {
     var fallbackStyle = defaultTextStyle(locale);
     var computedParagraphStyle = computedTextStyle(paragraph, fallbackStyle);
     var fontSize = options.fontSize !== null && options.fontSize !== undefined
       ? options.fontSize
       : computedParagraphStyle.fontSize;
-    var baseStyle = {
+    var baseStyle: TextStyle = {
       fontFamilies: computedParagraphStyle.fontFamilies,
       fontSize: fontSize,
       fontWeight: computedParagraphStyle.fontWeight,
@@ -756,7 +909,7 @@
           parseCssLineHeight(computedStyle(paragraph, "line-height"), fontSize),
           fontSize * DEFAULT_LINE_HEIGHT_MULTIPLIER
         );
-    var baseInlineStyle = {
+    var baseInlineStyle: InlineStyleContext = {
       textStyle: baseStyle,
       whiteSpace: cssWhiteSpaceMode(computedStyle(paragraph, "white-space")),
       cjkStrongBaseWeight: null,
@@ -791,7 +944,7 @@
       return null;
     }
 
-    var builder = new LoweringBuilder(
+    var builder = new (LoweringBuilder as LoweringBuilderConstructor)(
       paragraph,
       baseInlineStyle,
       lineHeight,
@@ -809,7 +962,73 @@
     return lowered;
   }
 
-  function LoweringBuilder(sourceElement, baseInlineStyle, baseLineHeight, strongAsEmphasisMarks, helpers, issue) {
+  interface LoweringBuilderInstance {
+    sourceElement: Element;
+    baseInlineStyle: InlineStyleContext;
+    baseLineHeight: number;
+    strongAsEmphasisMarks: boolean;
+    helpers: NormalizedInlineShapingHelpers;
+    issue: LoweringIssue;
+    inlineShapingParagraphValues: string[];
+    eligibility: EligibilityFunctions;
+    text: string;
+    spans: TextSpan[];
+    decorations: DecorationSpan[];
+    inlineBoxes: InlineBoxSpan[];
+    inlineObjects: InlineObjectSpan[];
+    domInlineObjects: DomInlineObject[];
+    sourceSpans: DomSourceSpan[];
+    sourceBoundaries: number[];
+    whitespaceModes: WhiteSpaceMode[];
+    hardBreakOffsets: number[];
+  }
+
+  interface LoweringBuilderMethods {
+    addBoundary(offset: number): void;
+    unsupported(name: string, detail: string): false;
+    appendRawText(value: string, whiteSpace: WhiteSpaceMode): void;
+    appendChildren(element: Element, style: InlineStyleContext, depth: number): boolean;
+    appendNode(node: Node, style: InlineStyleContext, depth: number): boolean;
+    appendElement(element: Element, style: InlineStyleContext, depth: number): boolean;
+    appendOpaqueInlineObject(element: Element, whiteSpace: WhiteSpaceMode): boolean;
+    appendSemantic(element: Element, style: InlineStyleContext, depth: number, cjkStrongBaseWeight: number | null): boolean;
+    appendText(value: string, style: InlineStyleContext): void;
+    appendStrongTextSegment(value: string, style: InlineStyleContext, isCjk: boolean, strongBaseWeight: number): void;
+    appendTextSegment(value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void;
+    build(): LoweredParagraph;
+  }
+
+  type LoweringBuilder = LoweringBuilderInstance & LoweringBuilderMethods;
+
+  interface LoweringBuilderConstructor {
+    (
+      this: LoweringBuilder,
+      sourceElement: Element,
+      baseInlineStyle: InlineStyleContext,
+      baseLineHeight: number,
+      strongAsEmphasisMarks: boolean,
+      helpers: NormalizedInlineShapingHelpers,
+      issue: LoweringIssue,
+    ): void;
+    new (
+      sourceElement: Element,
+      baseInlineStyle: InlineStyleContext,
+      baseLineHeight: number,
+      strongAsEmphasisMarks: boolean,
+      helpers: NormalizedInlineShapingHelpers,
+      issue: LoweringIssue,
+    ): LoweringBuilder;
+  }
+
+  function LoweringBuilder(
+    this: LoweringBuilder,
+    sourceElement: Element,
+    baseInlineStyle: InlineStyleContext,
+    baseLineHeight: number,
+    strongAsEmphasisMarks: boolean,
+    helpers: NormalizedInlineShapingHelpers,
+    issue: LoweringIssue,
+  ): void {
     this.sourceElement = sourceElement;
     this.baseInlineStyle = baseInlineStyle;
     this.baseLineHeight = baseLineHeight;
@@ -830,22 +1049,22 @@
     this.hardBreakOffsets = [];
   }
 
-  LoweringBuilder.prototype.addBoundary = function (offset) {
+  LoweringBuilder.prototype.addBoundary = function (this: LoweringBuilder, offset: number): void {
     if (this.sourceBoundaries.indexOf(offset) < 0) this.sourceBoundaries.push(offset);
   };
 
-  LoweringBuilder.prototype.unsupported = function (name, detail) {
+  LoweringBuilder.prototype.unsupported = function (this: LoweringBuilder, name: string, detail: string): false {
     this.issue.name = name;
     this.issue.detail = detail;
     return false;
   };
 
-  LoweringBuilder.prototype.appendRawText = function (value, whiteSpace) {
+  LoweringBuilder.prototype.appendRawText = function (this: LoweringBuilder, value: string, whiteSpace: WhiteSpaceMode): void {
     this.text += value;
     for (var i = 0; i < value.length; i++) this.whitespaceModes.push(whiteSpace);
   };
 
-  LoweringBuilder.prototype.appendChildren = function (element, style, depth) {
+  LoweringBuilder.prototype.appendChildren = function (this: LoweringBuilder, element: Element, style: InlineStyleContext, depth: number): boolean {
     var nodes = element.childNodes;
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes.item ? nodes.item(i) : nodes[i];
@@ -855,16 +1074,16 @@
     return true;
   };
 
-  LoweringBuilder.prototype.appendNode = function (node, style, depth) {
+  LoweringBuilder.prototype.appendNode = function (this: LoweringBuilder, node: Node, style: InlineStyleContext, depth: number): boolean {
     if (node.nodeType === 3) {
       this.appendText(node.textContent || "", style);
       return true;
     }
-    if (node.nodeType === 1) return this.appendElement(node, style, depth);
+    if (node.nodeType === 1) return this.appendElement(node as Element, style, depth);
     return true;
   };
 
-  LoweringBuilder.prototype.appendElement = function (element, style, depth) {
+  LoweringBuilder.prototype.appendElement = function (this: LoweringBuilder, element: Element, style: InlineStyleContext, depth: number): boolean {
     var tag = element.tagName.toUpperCase();
     if (tag === "BR") {
       this.hardBreakOffsets.push(this.text.length);
@@ -910,14 +1129,14 @@
       }
     }
     var inheritedStrongWeight = style.cjkStrongBaseWeight;
-    var strongBaseWeight = null;
+    var strongBaseWeight: number | null = null;
     if (tag === "STRONG" && this.strongAsEmphasisMarks) {
       strongBaseWeight = inheritedStrongWeight !== null && inheritedStrongWeight !== undefined
         ? inheritedStrongWeight
         : style.textStyle.fontWeight;
     }
     var computed = computedInlineStyle(element, style);
-    var elementStyle = computed;
+    var elementStyle: InlineStyleContext = computed;
     if (tag === "STRONG" && this.strongAsEmphasisMarks) {
       elementStyle = {
         textStyle: computed.textStyle,
@@ -928,7 +1147,7 @@
     return this.appendSemantic(element, elementStyle, depth, strongBaseWeight);
   };
 
-  LoweringBuilder.prototype.appendOpaqueInlineObject = function (element, whiteSpace) {
+  LoweringBuilder.prototype.appendOpaqueInlineObject = function (this: LoweringBuilder, element: Element, whiteSpace: WhiteSpaceMode): boolean {
     var geometry = parseOpaqueInlineObjectGeometry(measuredOpaqueInlineObjectGeometry(element));
     if (!geometry) {
       return this.unsupported("InvalidInlineObjectGeometry", element.tagName.toLowerCase());
@@ -954,7 +1173,7 @@
     return true;
   };
 
-  LoweringBuilder.prototype.appendSemantic = function (element, style, depth, cjkStrongBaseWeight) {
+  LoweringBuilder.prototype.appendSemantic = function (this: LoweringBuilder, element: Element, style: InlineStyleContext, depth: number, cjkStrongBaseWeight: number | null): boolean {
     var inlineStart = measuredInlineEdge(element, "start");
     var inlineEnd = measuredInlineEdge(element, "end");
     if (!Number.isFinite(inlineStart) || !Number.isFinite(inlineEnd)) {
@@ -997,7 +1216,7 @@
     return true;
   };
 
-  LoweringBuilder.prototype.appendText = function (value, style) {
+  LoweringBuilder.prototype.appendText = function (this: LoweringBuilder, value: string, style: InlineStyleContext): void {
     if (value.length === 0) return;
     var strongBaseWeight = style.cjkStrongBaseWeight;
     if (strongBaseWeight === null || strongBaseWeight === undefined) {
@@ -1026,8 +1245,8 @@
     }
   };
 
-  LoweringBuilder.prototype.appendStrongTextSegment = function (value, style, isCjk, strongBaseWeight) {
-    var textStyle;
+  LoweringBuilder.prototype.appendStrongTextSegment = function (this: LoweringBuilder, value: string, style: InlineStyleContext, isCjk: boolean, strongBaseWeight: number): void {
+    var textStyle: TextStyle;
     if (isCjk) {
       textStyle = {
         fontFamilies: style.textStyle.fontFamilies,
@@ -1043,7 +1262,7 @@
     this.appendTextSegment(value, textStyle, style.whiteSpace, isCjk);
   };
 
-  LoweringBuilder.prototype.appendTextSegment = function (value, style, whiteSpace, emphasis) {
+  LoweringBuilder.prototype.appendTextSegment = function (this: LoweringBuilder, value: string, style: TextStyle, whiteSpace: WhiteSpaceMode, emphasis: boolean): void {
     if (value.length === 0) return;
     var start = this.text.length;
     this.appendRawText(value, whiteSpace);
@@ -1060,8 +1279,12 @@
     }
   };
 
-  function mapProjectedRanges(items, projection, copy) {
-    var result = [];
+  function mapProjectedRanges<T extends SpanRangeItem>(
+    items: T[],
+    projection: WhitespaceProjection,
+    copy: ProjectedRangeCopyFn<T>,
+  ): T[] {
+    var result: T[] = [];
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       var range = projectionRange(projection, item.start, item.end);
@@ -1071,9 +1294,9 @@
     return result;
   }
 
-  function buildLineBreakSpans(sourceSpans, projection) {
-    var result = [];
-    var seen = {};
+  function buildLineBreakSpans(sourceSpans: DomSourceSpan[], projection: WhitespaceProjection): LineBreakSpan[] {
+    var result: LineBreakSpan[] = [];
+    var seen: Record<string, boolean> = {};
     for (var i = 0; i < sourceSpans.length; i++) {
       var span = sourceSpans[i];
       var tag = span.element.tagName.toUpperCase();
@@ -1088,9 +1311,9 @@
     return result;
   }
 
-  function buildSourceBoundaries(sourceBoundaries, projection, loweredText) {
-    var mapped = [];
-    var seen = {};
+  function buildSourceBoundaries(sourceBoundaries: number[], projection: WhitespaceProjection, loweredText: string): number[] {
+    var mapped: number[] = [];
+    var seen: Record<number, boolean> = {};
     for (var i = 0; i < sourceBoundaries.length; i++) {
       var boundary = projection.boundaryMap[sourceBoundaries[i]];
       if (boundary > 0 && boundary < loweredText.length && !seen[boundary]) {
@@ -1102,16 +1325,16 @@
     return mapped;
   }
 
-  LoweringBuilder.prototype.build = function () {
+  LoweringBuilder.prototype.build = function (this: LoweringBuilder): LoweredParagraph {
     var projection = cssWhiteSpaceCollapseProjection(this.text, this.whitespaceModes, this.hardBreakOffsets);
     var loweredText = projection.text;
-    var spanCopy = function (item, range) {
+    var spanCopy = function (item: TextSpan, range: [number, number]): TextSpan {
       return { start: range[0], end: range[1], style: item.style };
     };
-    var decorationCopy = function (item, range) {
+    var decorationCopy = function (item: DecorationSpan, range: [number, number]): DecorationSpan {
       return { start: range[0], end: range[1], kind: item.kind };
     };
-    var inlineBoxCopy = function (item, range) {
+    var inlineBoxCopy = function (item: InlineBoxSpan, range: [number, number]): InlineBoxSpan {
       return {
         start: range[0],
         end: range[1],
@@ -1119,7 +1342,7 @@
         inlineEnd: item.inlineEnd,
       };
     };
-    var inlineObjectCopy = function (item, range) {
+    var inlineObjectCopy = function (item: InlineObjectSpan, range: [number, number]): InlineObjectSpan {
       return {
         start: range[0],
         end: range[1],
@@ -1128,7 +1351,7 @@
         descent: item.descent,
       };
     };
-    var domInlineObjectCopy = function (item, range) {
+    var domInlineObjectCopy = function (item: DomInlineObject, range: [number, number]): DomInlineObject {
       return {
         start: range[0],
         end: range[1],
@@ -1136,7 +1359,7 @@
         marginRight: item.marginRight,
       };
     };
-    var sourceSpanCopy = function (item, range) {
+    var sourceSpanCopy = function (item: DomSourceSpan, range: [number, number]): DomSourceSpan {
       return {
         start: range[0],
         end: range[1],
@@ -1162,24 +1385,24 @@
     };
   };
 
-  function lower(paragraph, options, helpers) {
-    options = options || {};
+  function lower(paragraph: Element, options: LoweringOptions, helpers: InlineShapingHelpers): LoweringResult {
+    options = options as LoweringOptions || {};
     var locale = resolveLocale(options);
     var classifyRole = (helpers && typeof helpers.classifyRole === "function")
       ? helpers.classifyRole
-      : function () { return "other"; };
+      : function (): string { return "other"; };
     var inlineShapingProperties = Array.isArray(helpers && helpers.inlineShapingProperties)
       ? helpers.inlineShapingProperties
       : [];
     var inlineShapingDecision = (helpers && typeof helpers.inlineShapingDecision === "function")
       ? helpers.inlineShapingDecision
       : null;
-    var safeHelpers = {
+    var safeHelpers: NormalizedInlineShapingHelpers = {
       classifyRole: classifyRole,
-      inlineShapingProperties: inlineShapingProperties,
-      inlineShapingDecision: inlineShapingDecision,
+      inlineShapingProperties: inlineShapingProperties as string[],
+      inlineShapingDecision: inlineShapingDecision as NormalizedInlineShapingHelpers["inlineShapingDecision"],
     };
-    var issue = { name: null, detail: null };
+    var issue: LoweringIssue = { name: null, detail: null };
     var canonicalPrepared =
       paragraph.getAttribute("data-tq-rendered") === "true" &&
       paragraph.getAttribute("data-tq-canonical-plain") === "true";
