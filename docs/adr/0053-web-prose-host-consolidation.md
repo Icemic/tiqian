@@ -991,6 +991,31 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   dash 能力非 conforming 时该 run 失败关闭（NoConformingCjkDashGlyph），
   段落保持原生，原 per-run 混排用例改写为记录此结果。
   jsBrowserTest 112/112 通过。
+  进度（Slice 4d-3，2026-08-24）：fa54213、fdd7c5f。删除随切换退役的
+  Kotlin 实现与对应 jsTest。实现部分（fa54213，-747 行）：
+  WebEnhancerSupport.kt 删 ExactSessionBrowserFallback 两包装类、
+  workerLayoutRequestJson 与三个 worker 记录分隔符、LoweredParagraph 的三个
+  prepared 元数据 JSON 扩展、takePreparedWorkerLayoutPlan 与
+  preparedWorkerLayoutIssue 两个 worker 侧查询函数、renderPreparedWorkerParagraphDom
+  与 renderPreparedParagraphDom 及 CustodyEngineWriteSuspension 注释、
+  releasePreparedParagraphDomStyles、isPreparedDomBridgeAvailable、
+  validatePreparedParagraphDom、isExactFontSessionCapabilityFailure 判定与
+  EXACT_FONT_SESSION_CAPABILITY_FAILURES 清单、hasClosest、consoleWarn、
+  paragraphIsWithinProgressiveForegroundRange、elementAttributesJson、
+  appendWorkerJsonString、INLINE_EDGE_EPSILON 与 ZERO_ADVANCE_EPSILON 常量及
+  Event 与 kotlin.js.js 两个死 import（上述成员在删除后全部零引用，逐一
+  grep 验证）；MarkdownParagraphLowering.kt 整文件删除（lower 与
+  decodeLowered 的 Kotlin 入口、LoweredParagraph 与两个谓词，TS 侧
+  markdown-lowering.js 为唯一实现，markdownLoweringBridge 的全局安装与桥文件
+  保留）；WebEnhancerParagraphLifecycle.kt 删 reportIssue、clearIssue 与
+  restoreAttribute 三个成员（optionsFromJs 保留，EngineExport 仍消费）；
+  WebEnhancer.kt 删 CapabilityIssue data class。测试部分（fdd7c5f，-750 行）：
+  先验证 npm 侧 exact-session（19 例）、renderer-output（10 例）、
+  renderer-source-fidelity（10 例）与 timing-golden（1 例）四套件 40 例通过，
+  再删 TiqianWebExactSessionTest.kt（20 个测试，规格已由上述 TS 套件覆盖）。
+  compileKotlinJs 与 jsBrowserTest（92/92）通过。执行经 外部委托（实现删除）
+  与 外部委托（套件验证与测试删除）两路并行委托，复核 diff 后补删规格
+  范围外的零引用成员。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
