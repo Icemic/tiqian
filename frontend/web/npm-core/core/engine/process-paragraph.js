@@ -5,6 +5,11 @@
 // lowering, exact layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
+// Consumes __TiqianPreparedMetadata, __TiqianEligibility,
+// __TiqianMarkdownLowering, __TiqianLifecycle, __TiqianCustody,
+// __TiqianWorkerRequest, __TiqianLayoutWorker,
+// __TiqianPrepareParagraphLayout, and __TiqianCommitPreparedParagraph.
+//
 // Plain script, no exports: running it installs
 // globalThis.__TiqianProcessParagraph. Two consumers share this file as
 // the single source of truth: the npm host (importing it for the side effect)
@@ -31,47 +36,6 @@
     'NoExactMetricFace',
     'NonUniformUnicodeRangeMetrics',
   ];
-
-  // Escape a string into valid JSON string characters.
-  function escapeJson(value) {
-    var result = '"';
-    for (var i = 0; i < value.length; i += 1) {
-      var ch = value.charAt(i);
-      var code = value.charCodeAt(i);
-      switch (ch) {
-        case '"':
-          result += '\\"';
-          break;
-        case '\\':
-          result += '\\\\';
-          break;
-        case '\b':
-          result += '\\b';
-          break;
-        case '\f':
-          result += '\\f';
-          break;
-        case '\n':
-          result += '\\n';
-          break;
-        case '\r':
-          result += '\\r';
-          break;
-        case '\t':
-          result += '\\t';
-          break;
-        default:
-          if (code < 0x20) {
-            result += '\\u' + code.toString(16).padStart(4, '0');
-          } else {
-            result += ch;
-          }
-          break;
-      }
-    }
-    result += '"';
-    return result;
-  }
 
   // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
   // lowered-paragraph.js (line 110). True when all six styled collections
@@ -112,68 +76,6 @@
     };
   }
 
-  // PreparedSemanticReplayJson: inline twin of preparedSemanticReplayJson in
-  // lowered-paragraph.js (line 186). Carried locally because this script
-  // cannot import ESM modules.
-  function preparedSemanticReplayJson(lowered) {
-    var result = '[';
-    for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
-      if (i > 0) {
-        result += ',';
-      }
-      var span = lowered.sourceSpans[i];
-      result += '{"start":' + String(span.start) +
-        ',"end":' + String(span.end) +
-        ',"tagName":' + escapeJson(span.element.tagName.toLowerCase()) +
-        ',"sourceIndex":' + String(i) +
-        ',"order":' + String(span.depth) + '}';
-    }
-    result += ']';
-    return result;
-  }
-
-  // PreparedInlineObjectMetaJson: inline twin of preparedInlineObjectMetaJson
-  // in lowered-paragraph.js (line 208). Carried locally because this script
-  // cannot import ESM modules.
-  function preparedInlineObjectMetaJson(lowered) {
-    var result = '[';
-    for (var i = 0; i < lowered.domInlineObjects.length; i += 1) {
-      if (i > 0) {
-        result += ',';
-      }
-      var objectSpan = lowered.domInlineObjects[i];
-      result += '{"start":' + String(objectSpan.start) +
-        ',"end":' + String(objectSpan.end) +
-        ',"marginRight":' + String(objectSpan.marginRight) + '}';
-    }
-    result += ']';
-    return result;
-  }
-
-  // PreparedCjkStrongSemanticsJson: inline twin of
-  // preparedCjkStrongSemanticsJson in lowered-paragraph.js (line 230).
-  // Carried locally because this script cannot import ESM modules.
-  function preparedCjkStrongSemanticsJson(lowered) {
-    var result = '[';
-    var first = true;
-    for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
-      var span = lowered.sourceSpans[i];
-      var weight = span.cjkStrongBaseWeight;
-      if (weight == null) {
-        continue;
-      }
-      if (!first) {
-        result += ',';
-      }
-      first = false;
-      result += '{"start":' + String(span.start) +
-        ',"end":' + String(span.end) +
-        ',"weight":' + String(weight) + '}';
-    }
-    result += ']';
-    return result;
-  }
-
   /**
    * Process a single paragraph element through markdown lowering, custody
    * takeover, layout preparation, and commit.
@@ -184,6 +86,8 @@
     var ffi = argument.ffi;
     var paragraph = argument.paragraph;
     var state = argument.state;
+    // Prepared metadata builders shared across orchestrators.
+    var metadata = globalThis.__TiqianPreparedMetadata;
 
     if (!globalThis.__TiqianEligibility.shouldTryParagraph(paragraph)) return;
 
@@ -326,8 +230,8 @@
           paragraph: item,
           workerPlan: workerPlan,
           onExactPreparedDomFallback: state.onDisableExactPreparedDom,
-          inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
-          cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
+          inlineObjectMetaJson: metadata.preparedInlineObjectMetaJson(lowered),
+          cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
         });
       } else {
         var preparation = globalThis.__TiqianPrepareParagraphLayout.prepareParagraphLayout(
@@ -351,9 +255,9 @@
             options: activeOptions,
             browserFallback: state.browserFallback,
             onExactPreparedDomFallback: state.onDisableExactPreparedDom,
-            semanticReplayJson: preparedSemanticReplayJson(lowered),
-            inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
-            cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
+            semanticReplayJson: metadata.preparedSemanticReplayJson(lowered),
+            inlineObjectMetaJson: metadata.preparedInlineObjectMetaJson(lowered),
+            cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
           });
           if (commitResult.kind === 'success') {
             item.lastMeasure = commitResult.measure;

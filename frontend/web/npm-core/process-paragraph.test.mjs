@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import "./core/engine/prepared-metadata.js";
 import "./core/engine/process-paragraph.js";
 
 const processParagraph = globalThis.__TiqianProcessParagraph.processParagraph;
