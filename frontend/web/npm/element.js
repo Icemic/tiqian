@@ -914,6 +914,12 @@ class TiqianProseElement extends HTMLElementBase {
     // cannot re-anchor under a running entrance animation. A coordinated job
     // only registers inside this call; the pair measures a zero delta and
     // the first grant re-establishes both ends of the bracket.
+    // EnhanceOptionsOracle: publish the fully resolved options for this
+    // coordination run on the root dataset so one-shot replay tests can read
+    // them back after parcel bundling removes direct module re-import. This is
+    // the public successor of the retired document event channel (ADR 0053
+    // C1); no event is dispatched here.
+    this.dataset.tiqianEnhanceOptions = JSON.stringify(preparedOptions);
     const runAnchor = captureViewportAnchor(this);
     try {
       engineFace.enhanceProgressively(this, preparedOptions);

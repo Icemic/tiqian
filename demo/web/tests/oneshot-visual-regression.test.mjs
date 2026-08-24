@@ -260,14 +260,6 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
 
     await client.send("Page.enable");
     await client.send("Runtime.enable");
-    await client.send("Page.addScriptToEvaluateOnNewDocument", {
-      source: `
-        globalThis.__optionsByRoot = new Map();
-        document.addEventListener("tiqian:enhance-progressively", (event) => {
-          __optionsByRoot.set(event.detail.root, event.detail.options);
-        });
-      `,
-    });
 
     await client.send("Page.navigate", { url: demoUrl });
     await client.evaluate("0");
@@ -293,6 +285,19 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
     await client.evaluate(`
       (() => {
         globalThis.__roots = () => Array.from(document.querySelectorAll("tiqian-prose"));
+
+        // Options oracle read back from the element dataset that each
+        // coordination run writes (tiqianEnhanceOptions). Roots without a
+        // captured record are skipped.
+        globalThis.__optionsByRoot = () => {
+          const map = new Map();
+          for (const el of document.querySelectorAll("tiqian-prose")) {
+            const raw = el.dataset.tiqianEnhanceOptions;
+            if (!raw) continue;
+            map.set(el, JSON.parse(raw));
+          }
+          return map;
+        };
         globalThis.__paras = () =>
           __roots().flatMap((root) => Array.from(root.querySelectorAll("p, li")));
         globalThis.__terminal = () => __paras().every((p) =>
@@ -343,10 +348,8 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
         };
 
         globalThis.__oneshot = () => {
-          for (const [root, options] of __optionsByRoot) {
-            document.dispatchEvent(new CustomEvent("tiqian:enhance", {
-              detail: { root, options },
-            }));
+          for (const [root, options] of __optionsByRoot()) {
+            __tiqianOneShot(root, options);
           }
         };
       })()

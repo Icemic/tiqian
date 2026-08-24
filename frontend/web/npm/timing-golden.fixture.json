@@ -196,6 +196,12 @@
           "key": "tiqianExactLayoutIssue"
         },
         {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "op": "delete",
           "key": "tiqianFontWait"
@@ -538,6 +544,12 @@
           "key": "tiqianExactLayoutIssue"
         },
         {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "op": "delete",
           "key": "tiqianFontWait"
@@ -624,6 +636,12 @@
           "phase": "s4-reconnect",
           "op": "delete",
           "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
         }
       ],
       "attributeWrites": [

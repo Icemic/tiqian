@@ -208,11 +208,30 @@ const armInstrumentationExpression = (id) => `
       "tiqian:relayout",
       "tiqian:relayout-ready",
       "tiqian:ready",
-      "tiqian:enhance-progressively",
       "tiqian:reconcile-content",
       "tiqian:cancel-layout-work",
     ];
     for (const type of types) document.addEventListener(type, record(type), true);
+    // EnhanceOptionsDatasetSignal: the document event channel that used to
+    // report each progressive enhance (tiqian:enhance-progressively) is
+    // retired (ADR 0053 C1). Its public successor is the root dataset the
+    // element writes per coordination run (tiqianEnhanceOptions), so record
+    // dataset appearances here instead of listening for the removed event.
+    // The element-level ready events above remain the completion signal.
+    const optionsObserver = new MutationObserver(() => {
+      if (!prose.dataset.tiqianEnhanceOptions) return;
+      events.push({
+        type: "enhance-options-captured",
+        t: Math.round(performance.now()),
+        rootId: prose.id || null,
+        rootTag: prose.tagName,
+        mine: true,
+      });
+    });
+    optionsObserver.observe(prose, {
+      attributes: true,
+      attributeFilter: ["data-tiqian-enhance-options"],
+    });
     const frames = [];
     let sampling = true;
     const sample = () => {
@@ -243,6 +262,7 @@ const armInstrumentationExpression = (id) => `
       stop: () => {
         sampling = false;
         for (const type of types) document.removeEventListener(type, record(type), true);
+        optionsObserver.disconnect();
       },
     };
     return true;

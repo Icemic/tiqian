@@ -1,4 +1,12 @@
 import '@tiqian/prose/element';
+import { enhance } from '@tiqian/prose';
+
+// One-shot replay entry for the demo/web tests: parcel bundles module
+// instances so the page cannot re-import them by URL, and the retired document
+// event channel (ADR 0053 C1) no longer accepts replays. Tests replay captured
+// root options through this public surface. The returned promise resolves when
+// the one-shot runtime work (including runtime loading) has finished.
+globalThis.__tiqianOneShot = (root, options) => enhance(root, options);
 
 // Fixed Benchmark HUD Controls
 const slider = document.getElementById('width-slider');
