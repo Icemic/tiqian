@@ -1,5 +1,8 @@
 package org.tiqian.layout
 
+import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
+import org.tiqian.core.DecorationKind
+import org.tiqian.core.DecorationSpan
 import org.tiqian.core.Ic
 import org.tiqian.core.InlineBoxOuterSpacing
 import org.tiqian.core.InlineBoxSpan
@@ -36,6 +39,21 @@ private fun parseBoundaries(value: String, textLength: Int): Set<Int> =
         .map { it.toInt() }
         .onEach { require(it in 0..textLength) { "InvalidSourceBoundary" } }
         .toSet()
+
+private fun parseDecorations(value: String, textLength: Int): List<DecorationSpan> =
+    value.split(RECORD_SEPARATOR)
+        .filter(String::isNotBlank)
+        .map { record ->
+            val fields = record.split(FIELD_SEPARATOR)
+            require(fields.size == 3) { "InvalidDecorationWire" }
+            val start = fields[0].toInt()
+            val end = fields[1].toInt()
+            require(start in 0 until end && end <= textLength) { "InvalidDecorationRange" }
+            DecorationSpan(
+                range = TextRange(start, end),
+                kind = DecorationKind.valueOf(fields[2]),
+            )
+        }
 
 private fun parseTextSpans(value: String, locale: String, textLength: Int): List<TextSpan> =
     value.split(RECORD_SEPARATOR)
@@ -192,6 +210,8 @@ class ParagraphWireFace(
         lineBreakSpans: String,
         inlineObjects: String = "",
         zeroAdvanceEpsilonPx: Double,
+        decorations: String = "",
+        emphasisDotGapEm: Double? = null,
     ): String {
         val result = layout(
             text = text,
@@ -209,10 +229,13 @@ class ParagraphWireFace(
             inlineBoxes = inlineBoxes,
             lineBreakSpans = lineBreakSpans,
             inlineObjects = inlineObjects,
+            decorations = decorations,
+            emphasisDotGapEm = emphasisDotGapEm,
         )
         return result.toPlanWithDiagnosticsJson(
             renderEvidence = textSpans.isNotBlank() ||
                 inlineBoxes.isNotBlank() ||
+                decorations.isNotBlank() ||
                 result.input.inlineObjects.isNotEmpty(),
             zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx.toFloat(),
         )
@@ -233,7 +256,9 @@ class ParagraphWireFace(
         textSpans: String,
         inlineBoxes: String,
         lineBreakSpans: String,
-        inlineObjects: String,
+        inlineObjects: String = "",
+        decorations: String = "",
+        emphasisDotGapEm: Double? = null,
     ): LayoutResult {
         require(text.isNotBlank()) { "EmptyParagraph" }
         require(maxWidthPx.isFinite() && maxWidthPx > 0.0) { "InvalidMaximumMeasure" }
@@ -241,6 +266,9 @@ class ParagraphWireFace(
         require(lineHeightPx.isFinite() && lineHeightPx > 0.0) { "InvalidLineHeight" }
         require(firstLineIndentIc.isFinite()) { "InvalidFirstLineIndent" }
         require(fontWeight in 1..1000) { "InvalidFontWeight" }
+
+        val gapEm = emphasisDotGapEm ?: DEFAULT_EMPHASIS_DOT_GAP_EM.toDouble()
+        require(gapEm.isFinite() && gapEm >= 0.0) { "InvalidEmphasisDotGapEm" }
 
         val families = fontFamilies.split(FAMILY_SEPARATOR).filter(String::isNotBlank)
         require(families.isNotEmpty()) { "MissingExplicitFontFamilies" }
@@ -253,6 +281,7 @@ class ParagraphWireFace(
             italic = italic,
         )
         val parsedInlineObjects = parseInlineObjects(inlineObjects, text.length)
+        val parsedDecorations = parseDecorations(decorations, text.length)
         val input = LayoutInput(
             content = TiqianTextContent(
                 text = text,
@@ -265,8 +294,10 @@ class ParagraphWireFace(
                 lineHeight = lineHeightPx.toFloat(),
                 firstLineIndent = Ic(firstLineIndentIc.toFloat()),
                 lineLengthGrid = LineLengthGrid(enabled = lineLengthGridEnabled),
+                emphasisDotGapEm = gapEm.toFloat(),
             ),
             constraints = LayoutConstraints(maxWidth = maxWidthPx.toFloat()),
+            decorations = parsedDecorations,
             inlineBoxes = parseInlineBoxes(inlineBoxes, text.length),
             inlineObjects = parsedInlineObjects,
         )

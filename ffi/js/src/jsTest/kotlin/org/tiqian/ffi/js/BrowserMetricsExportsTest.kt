@@ -544,6 +544,47 @@ class BrowserMetricsExportsTest {
         assertEquals("0", parsedEnvelope.diagnostics.advanceSuspects[0].advance as String)
     }
 
+    @Test
+    fun browserMetricsWithDecorationsAndGapCarriesEmphasisRanges() {
+        val stubShaper = ExplainableStubTextShaper()
+        val stubResolver = StubFontMetricsResolver()
+
+        val bridgeShaper: (String) -> String = { requestJson ->
+            echoShape(requestJson, stubShaper)
+        }
+        val bridgeResolver: (String) -> String = { requestJson ->
+            echoMetrics(requestJson, stubResolver)
+        }
+
+        val envelopeJson = precomputeParagraphWithBrowserMetrics(
+            text = "中文测试",
+            maxWidthPx = 200.0,
+            fontFamilies = "Noto Sans CJK",
+            fontSizePx = 16.0,
+            lineHeightPx = 24.0,
+            locale = "zh-Hans",
+            fontWeight = 400,
+            italic = false,
+            firstLineIndentIc = 0.0,
+            lineLengthGridEnabled = true,
+            sourceBoundaries = "",
+            textSpans = "",
+            inlineBoxes = "",
+            lineBreakSpans = "",
+            inlineObjects = null,
+            zeroAdvanceEpsilonPx = 0.001,
+            shapeJson = bridgeShaper,
+            metricsJson = bridgeResolver,
+            decorations = "0\u001d2\u001dEmphasis",
+            emphasisDotGapEm = 0.2,
+        )
+
+        assertContains(envelopeJson, "\"plan\":")
+        val parsedEnvelope = kotlin.js.JSON.parse<dynamic>(envelopeJson)
+        val planJson = parsedEnvelope.plan as String
+        assertContains(planJson, "\"emphasisRanges\":[[0,2]]")
+    }
+
     private fun echoShape(requestJson: String, shaper: TextShaper): String {
         val raw = kotlin.js.JSON.parse<dynamic>(requestJson)
         val text = raw.text as String

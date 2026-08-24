@@ -42,6 +42,8 @@ class ParagraphWireFaceTest {
     private fun planWithDiagnostics(
         text: String,
         zeroAdvanceEpsilonPx: Double,
+        decorations: String = "",
+        emphasisDotGapEm: Double? = null,
         shaper: TextShaper = this.shaper,
     ): String =
         ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics).planWithDiagnostics(
@@ -60,6 +62,8 @@ class ParagraphWireFaceTest {
             inlineBoxes = "",
             lineBreakSpans = "",
             zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
+            decorations = decorations,
+            emphasisDotGapEm = emphasisDotGapEm,
         )
 
     @Test
@@ -282,6 +286,95 @@ class ParagraphWireFaceTest {
         assertEquals(4, suspectCount)
         val noneSuspects = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.0)
         assertContains(noneSuspects, "\"advanceSuspects\":[]")
+    }
+
+    @Test
+    fun decorationsAloneEnableRenderEvidenceAndEmitEmphasisRanges() {
+        val envelope = planWithDiagnostics(
+            text = "你好世界",
+            zeroAdvanceEpsilonPx = 0.01,
+            decorations = "0\u001d2\u001dEmphasis",
+        )
+        assertContains(envelope, "\\\"emphasisRanges\\\":[[0,2]]")
+        assertContains(envelope, "\\\"emphasisDots\\\":[")
+    }
+
+    @Test
+    fun emphasisDotGapEmDefaultAndExplicitOverride() {
+        val defaultEnvelope = planWithDiagnostics(
+            text = "你好世界",
+            zeroAdvanceEpsilonPx = 0.01,
+            decorations = "0\u001d2\u001dEmphasis",
+            emphasisDotGapEm = null,
+        )
+        val customEnvelope = planWithDiagnostics(
+            text = "你好世界",
+            zeroAdvanceEpsilonPx = 0.01,
+            decorations = "0\u001d2\u001dEmphasis",
+            emphasisDotGapEm = 0.5,
+        )
+        assertContains(defaultEnvelope, "\\\"emphasisRanges\\\":[[0,2]]")
+        assertContains(customEnvelope, "\\\"emphasisRanges\\\":[[0,2]]")
+        val defaultAnchorY = defaultEnvelope.substringAfter("\\\"anchorY\\\":").substringBefore(",")
+        val customAnchorY = customEnvelope.substringAfter("\\\"anchorY\\\":").substringBefore(",")
+        assertFalse(defaultEnvelope == customEnvelope)
+        assertFalse(defaultAnchorY == customAnchorY)
+    }
+
+    @Test
+    fun invalidEmphasisDotGapEmThrows() {
+        val eNeg = assertFailsWith<IllegalArgumentException> {
+            planWithDiagnostics(
+                text = "你好世界",
+                zeroAdvanceEpsilonPx = 0.01,
+                emphasisDotGapEm = -0.1,
+            )
+        }
+        assertContains(eNeg.message ?: "", "InvalidEmphasisDotGapEm")
+
+        val eNan = assertFailsWith<IllegalArgumentException> {
+            planWithDiagnostics(
+                text = "你好世界",
+                zeroAdvanceEpsilonPx = 0.01,
+                emphasisDotGapEm = Double.NaN,
+            )
+        }
+        assertContains(eNan.message ?: "", "InvalidEmphasisDotGapEm")
+    }
+
+    @Test
+    fun invalidDecorationWireFieldCountThrowsInvalidDecorationWire() {
+        val e = assertFailsWith<IllegalArgumentException> {
+            planWithDiagnostics(
+                text = "你好世界",
+                zeroAdvanceEpsilonPx = 0.01,
+                decorations = "0\u001d2",
+            )
+        }
+        assertContains(e.message ?: "", "InvalidDecorationWire")
+    }
+
+    @Test
+    fun invalidDecorationWireUnknownKindThrows() {
+        assertFailsWith<IllegalArgumentException> {
+            planWithDiagnostics(
+                text = "你好世界",
+                zeroAdvanceEpsilonPx = 0.01,
+                decorations = "0\u001d2\u001dUnknownKind",
+            )
+        }
+    }
+
+    @Test
+    fun invalidDecorationWireRangeOutOfBoundsThrowsInvalidDecorationRange() {
+        val e = assertFailsWith<IllegalArgumentException> {
+            planWithDiagnostics(
+                text = "你好世界",
+                zeroAdvanceEpsilonPx = 0.01,
+                decorations = "0\u001d10\u001dEmphasis",
+            )
+        }
+        assertContains(e.message ?: "", "InvalidDecorationRange")
     }
 }
 

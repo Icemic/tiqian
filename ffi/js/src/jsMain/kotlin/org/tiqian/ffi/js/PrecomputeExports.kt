@@ -122,10 +122,12 @@ fun precomputeParagraphWithDiagnostics(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
-    // Nullable so pre-inline-object JS callers that omit the trailing
-    // argument (undefined) keep working across package version skew.
+    // Nullable so pre-inline-object / pre-decoration JS callers that omit
+    // trailing arguments (undefined) keep working across package version skew.
     inlineObjects: String?,
     zeroAdvanceEpsilonPx: Double,
+    decorations: String? = null,
+    emphasisDotGapEm: Double? = null,
 ): String {
     val backends = buildPrecomputeBackends(fontSessionId)
     return ParagraphWireFace(
@@ -148,6 +150,8 @@ fun precomputeParagraphWithDiagnostics(
         lineBreakSpans = lineBreakSpans,
         inlineObjects = inlineObjects ?: "",
         zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
+        decorations = decorations ?: "",
+        emphasisDotGapEm = emphasisDotGapEm,
     )
 }
 
@@ -175,12 +179,14 @@ fun precomputeParagraphWithBrowserMetrics(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
-    // Nullable so pre-inline-object JS callers that omit the trailing
-    // argument (undefined) keep working across package version skew.
+    // Nullable so pre-inline-object / pre-decoration JS callers that omit
+    // trailing arguments (undefined) keep working across package version skew.
     inlineObjects: String?,
     zeroAdvanceEpsilonPx: Double,
     shapeJson: (String) -> String,
     metricsJson: (String) -> String,
+    decorations: String? = null,
+    emphasisDotGapEm: Double? = null,
 ): String {
     return ParagraphWireFace(
         textShaper = JsCallbackTextShaper(shapeJson),
@@ -202,6 +208,8 @@ fun precomputeParagraphWithBrowserMetrics(
         lineBreakSpans = lineBreakSpans,
         inlineObjects = inlineObjects ?: "",
         zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
+        decorations = decorations ?: "",
+        emphasisDotGapEm = emphasisDotGapEm,
     )
 }
 
