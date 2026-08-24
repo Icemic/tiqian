@@ -460,14 +460,23 @@ test("browser replay moves dynamic prepared values into one root-scoped styleshe
   const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans");
 
   assert.doesNotMatch(rendered.html, / style=/u);
-  assert.match(rendered.html, /class="tq-line tqvr-0"/u);
+  const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
+  assert.ok(runtimeClass, "the line marker must carry a runtime value class");
   assert.equal(head.childNodes.length, 1);
   assert.match(head.childNodes[0].textContent, /--tq-line-height:27px!important/u);
   assert.match(
     head.childNodes[0].textContent,
-    /\[data-tq-value-style-scope\] \[data-tq-rendered="true"\] \.tqvr-0/u,
+    new RegExp(`\\[data-tq-value-style-scope\\] \\[data-tq-rendered="true"\\] \\.${runtimeClass}\\{--tq-line-height:27px!important`, "u"),
   );
   assert.ok(attributes.has("data-tq-value-style-scope"));
+
+  // RuntimeValueStyleContentAddressing: a second, fresh root lowering the
+  // same plan must mint the identical class names without sharing registry
+  // state, so a one-shot replay reproduces coordinated output byte for byte.
+  const second = styleBackedHost();
+  const secondRendered = renderPreparedParagraphInto(second.host, fixturePlan(), "zh-Hans");
+  const secondClass = secondRendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
+  assert.equal(secondClass, runtimeClass);
 
   assert.equal(releasePreparedParagraphStyles(host), true);
   assert.equal(head.childNodes.length, 0);
@@ -486,16 +495,18 @@ test("runtime value classes cannot inherit unrelated snapshot declarations", () 
   );
 
   const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans");
-  assert.match(rendered.html, /class="tq-line tqvr-1"/u);
-  assert.doesNotMatch(rendered.html, /class="[^"]*tqv-1/u);
+  const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
+  assert.ok(runtimeClass, "the line marker must carry a runtime value class");
+  assert.doesNotMatch(rendered.html, /class="[^"]*tqv-[0-9a-z]/u);
   assert.match(
     head.childNodes[0].textContent,
     /\.tqv-0\{letter-spacing:-1\.79285px!important\}/u,
   );
   assert.match(
     head.childNodes[0].textContent,
-    /\.tqvr-1\{--tq-line-height:27px!important/u,
+    new RegExp(`\\.${runtimeClass}\\{--tq-line-height:27px!important`, "u"),
   );
+  assert.notEqual(runtimeClass, "tqv-0");
 });
 
 test("host-compatible runtime families do not allocate a projection stylesheet", () => {

@@ -121,8 +121,32 @@ function snapshotValueStyleClass(index) {
   return `tqv-${index.toString(36)}`;
 }
 
-function runtimeValueStyleClass(index) {
-  return `tqvr-${index.toString(36)}`;
+// RuntimeValueStyleContentAddressing: runtime lowering must mint the same
+// class name for the same declaration in every session, so a fresh one-shot
+// enhance over a root reproduces the coordinated DOM byte for byte even
+// though the coordinated registry still holds declarations from earlier
+// widths. The snapshot namespace (tqv-) stays index based because frozen
+// snapshot tables persist those indexes across builds. Two independent
+// FNV-1a lanes make the name a pure function of the declaration string with
+// collision odds far below any realistic declaration count, so no probe or
+// registry state participates in naming.
+function runtimeValueStyleKey(declaration) {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < declaration.length; i++) {
+    const code = declaration.charCodeAt(i);
+    a ^= code;
+    a = Math.imul(a, 0x01000193);
+    b ^= code + i;
+    b = Math.imul(b, 0x811c9dc5);
+  }
+  a >>>= 0;
+  b >>>= 0;
+  return `${a.toString(36)}${b.toString(36)}`;
+}
+
+function runtimeValueStyleClass(key) {
+  return `tqvr-${key}`;
 }
 
 function createPreparedStyleState(root) {
@@ -180,7 +204,7 @@ function syncPreparedValueStyles(state) {
       ? `${rootScope} [data-tq-rendered="true"] .${snapshotValueStyleClass(index)}{${declaration}}`
       : "";
     const runtimeRule = runtimeValuesActive
-      ? `${rootScope}[${VALUE_STYLE_SCOPE_ATTRIBUTE}] [data-tq-rendered="true"] .${runtimeValueStyleClass(index)}{${declaration}}`
+      ? `${rootScope}[${VALUE_STYLE_SCOPE_ATTRIBUTE}] [data-tq-rendered="true"] .${runtimeValueStyleClass(runtimeValueStyleKey(declaration))}{${declaration}}`
       : "";
     return snapshotRule + runtimeRule;
   }).join("");
@@ -954,7 +978,7 @@ export function renderPreparedParagraphInto(
         ? (declaration) => {
           const index = registerPreparedValueStyle(state, declaration);
           usedStyles.add(index);
-          return runtimeValueStyleClass(index);
+          return runtimeValueStyleClass(runtimeValueStyleKey(declaration));
         }
         : null,
     });
