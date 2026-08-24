@@ -81,6 +81,32 @@
       }
     },
     {
+      "name": "justified-sub-epsilon-stretch",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":48,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":3,\"top\":0,\"bottom\":32,\"baseline\":24,\"indent\":0,\"visualWidth\":48.00959014892579,\"hyphenAdvance\":0,\"endReason\":\"AutoWrap\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"排\",\"display\":\"排\",\"drawX\":0,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"版\",\"display\":\"版\",\"drawX\":16.004795074462894,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":2,\"rangeEnd\":3,\"source\":\"引\",\"display\":\"引\",\"drawX\":32.00959014892579,\"naturalWidth\":16,\"leadingLayoutAdvance\":0}]}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"24\" data-tq-line-bottom=\"32\" data-tq-line-empty=\"false\" data-tq-line-end=\"AutoWrap\" data-tq-line-flow-width=\"48.00959014892579\" data-tq-line-index=\"0\" data-tq-line-range=\"0-3\" data-tq-line-top=\"0\" data-tq-line-width=\"48.00959014892579\" data-tq-paragraph-height=\"48\" style=\"--tq-line-height:32px!important;--tq-line-baseline-offset:-8px!important\"></span><span data-tq-advance=\"32.00959014892579\" data-tq-geometry=\"true\" data-tq-x=\"0\" style=\"letter-spacing:0.0048px!important\">排版</span>引<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"24\"],[\"data-tq-line-bottom\",\"32\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"AutoWrap\"],[\"data-tq-line-flow-width\",\"48.00959014892579\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-3\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"48.00959014892579\"],[\"data-tq-paragraph-height\",\"48\"],[\"style\",\"--tq-line-height:32px!important;--tq-line-baseline-offset:-8px!important\"]],[]],[\"span\",[[\"data-tq-advance\",\"32.00959014892579\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-x\",\"0\"],[\"style\",\"letter-spacing:0.0048px!important\"]],[[\"#\",\"排版\"]]],[\"#\",\"引\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
+      "name": "float-dust-gap",
+      "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":48,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":2,\"top\":0,\"bottom\":32,\"baseline\":24,\"indent\":0,\"visualWidth\":32.0000000000005,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"排\",\"display\":\"排\",\"drawX\":0,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"版\",\"display\":\"版\",\"drawX\":16.0000000000005,\"naturalWidth\":16,\"leadingLayoutAdvance\":0}]}]}",
+      "locale": "zh-Hans",
+      "options": {},
+      "expect": {
+        "kind": "ok",
+        "html": "<span aria-hidden=\"true\" class=\"tq-line\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-baseline=\"24\" data-tq-line-bottom=\"32\" data-tq-line-empty=\"false\" data-tq-line-end=\"ParagraphEnd\" data-tq-line-flow-width=\"32\" data-tq-line-index=\"0\" data-tq-line-range=\"0-2\" data-tq-line-top=\"0\" data-tq-line-width=\"32.0000000000005\" data-tq-paragraph-height=\"48\" style=\"--tq-line-height:32px!important;--tq-line-baseline-offset:-8px!important\"></span>排版<span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-geometry=\"true\" data-tq-line-end-sentinel=\"0\"></span><span aria-hidden=\"true\" data-tq-copy-ignore=\"true\" data-tq-selection-end=\"true\">​</span>",
+        "artifact": "[[\"span\",[[\"aria-hidden\",\"true\"],[\"class\",\"tq-line\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-baseline\",\"24\"],[\"data-tq-line-bottom\",\"32\"],[\"data-tq-line-empty\",\"false\"],[\"data-tq-line-end\",\"ParagraphEnd\"],[\"data-tq-line-flow-width\",\"32\"],[\"data-tq-line-index\",\"0\"],[\"data-tq-line-range\",\"0-2\"],[\"data-tq-line-top\",\"0\"],[\"data-tq-line-width\",\"32.0000000000005\"],[\"data-tq-paragraph-height\",\"48\"],[\"style\",\"--tq-line-height:32px!important;--tq-line-baseline-offset:-8px!important\"]],[]],[\"#\",\"排版\"],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-geometry\",\"true\"],[\"data-tq-line-end-sentinel\",\"0\"]],[]],[\"span\",[[\"aria-hidden\",\"true\"],[\"data-tq-copy-ignore\",\"true\"],[\"data-tq-selection-end\",\"true\"]],[[\"#\",\"​\"]]]]",
+        "liveSemanticCount": 0,
+        "markerCount": 1
+      }
+    },
+    {
       "name": "semantics-nested",
       "plan": "{\"schema\":1,\"layoutRevision\":\"tiqian-layout-v2\",\"width\":320,\"height\":48,\"lines\":[{\"rangeStart\":0,\"rangeEnd\":5,\"top\":0,\"bottom\":32,\"baseline\":24,\"indent\":0,\"visualWidth\":80,\"hyphenAdvance\":0,\"endReason\":\"ParagraphEnd\",\"cells\":[{\"rangeStart\":0,\"rangeEnd\":1,\"source\":\"强\",\"display\":\"强\",\"drawX\":0,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":1,\"rangeEnd\":2,\"source\":\"大\",\"display\":\"大\",\"drawX\":16,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":2,\"rangeEnd\":3,\"source\":\"的\",\"display\":\"的\",\"drawX\":32,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":3,\"rangeEnd\":4,\"source\":\"排\",\"display\":\"排\",\"drawX\":48,\"naturalWidth\":16,\"leadingLayoutAdvance\":0},{\"rangeStart\":4,\"rangeEnd\":5,\"source\":\"版\",\"display\":\"版\",\"drawX\":64,\"naturalWidth\":16,\"leadingLayoutAdvance\":0}]}]}",
       "locale": "zh-Hans",

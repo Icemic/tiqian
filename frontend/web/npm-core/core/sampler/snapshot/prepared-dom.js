@@ -26,6 +26,11 @@ import {
 } from "./prepared-dom-evidence.js";
 
 const SPACING_EPSILON = 0.01;
+// FloatDustSpacingZeroing: justification can leave real stretch of a few
+// thousandths of a pixel per cluster boundary; zeroing those breaks the line
+// flow identity once they accumulate. Only arithmetic dust zeroes here.
+// SPACING_EPSILON still gates merge tolerance and carrier visibility.
+const SPACING_DUST_EPSILON = 1e-6;
 const RENDER_FLOW_EPSILON_PX = 0.01;
 const DEFAULT_LOCALE = "zh-Hans";
 const LINE_MARKER_SELECTOR = "[data-tq-line-flow-width]";
@@ -255,7 +260,7 @@ export function releasePreparedValueStyleRoot(root) {
 }
 
 function preparedSpacing(display, naturalWidth, trailingGap) {
-  if (Math.abs(trailingGap) < SPACING_EPSILON) return { kind: "none", px: 0 };
+  if (Math.abs(trailingGap) < SPACING_DUST_EPSILON) return { kind: "none", px: 0 };
   // NegativeSingleCellFlowAdvance: browsers clamp the border-box width of a
   // one-character inline span at zero when negative letter-spacing exceeds the
   // glyph advance. Preserve the selectable source glyph at its natural width
@@ -571,7 +576,7 @@ export function renderPreparedParagraphArtifact(
         : line.hyphenAdvance > 0
           ? 0
           : line.indent + line.visualWidth - cell.drawX - cell.naturalWidth - trailingInlineEdge;
-      const layoutTrailingGap = Math.abs(rawTrailingGap) < SPACING_EPSILON ? 0 : rawTrailingGap;
+      const layoutTrailingGap = Math.abs(rawTrailingGap) < SPACING_DUST_EPSILON ? 0 : rawTrailingGap;
       const bopomofoAtEnd = bopomofoByBaseEnd.get(cell.rangeEnd) ?? null;
       const bopomofoAdvanceWidth = bopomofoAtEnd == null
         ? 0

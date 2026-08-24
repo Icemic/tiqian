@@ -28,6 +28,11 @@ use crate::snapshot_source::{
 };
 
 const SPACING_EPSILON: f64 = 0.01;
+// FloatDustSpacingZeroing: justification can leave real stretch of a few
+// thousandths of a pixel per cluster boundary; zeroing those breaks the line
+// flow identity once they accumulate. Only arithmetic dust zeroes here.
+// SPACING_EPSILON still gates merge tolerance and carrier visibility.
+const SPACING_DUST_EPSILON: f64 = 1e-6;
 const RENDER_FLOW_EPSILON_PX: f64 = 0.01;
 const LIVE_SEMANTIC_INDEX_ATTRIBUTE: &str = "data-tq-live-semantic-index";
 /// Fallback annotation ascent ratio, mirroring the Kotlin no-metrics branch.
@@ -944,7 +949,7 @@ fn is_safe_integer(value: f64) -> bool {
 }
 
 fn prepared_spacing(display: &str, natural_width: f64, trailing_gap: f64) -> Spacing {
-    if trailing_gap.abs() < SPACING_EPSILON {
+    if trailing_gap.abs() < SPACING_DUST_EPSILON {
         return Spacing {
             kind: SpacingKind::None,
             px: 0.0,
@@ -1428,7 +1433,7 @@ fn prepared_cell(
                 - trailing_inline_edge
         }
     };
-    let layout_trailing_gap = if raw_trailing_gap.abs() < SPACING_EPSILON {
+    let layout_trailing_gap = if raw_trailing_gap.abs() < SPACING_DUST_EPSILON {
         0.0
     } else {
         raw_trailing_gap

@@ -111,6 +111,34 @@ const cases = [
     options: {},
   },
   {
+    // FloatDustSpacingZeroing: justified lines can carry real stretch of a
+    // few thousandths of a pixel per cluster boundary. The gap must survive
+    // as letter spacing so the accumulated flow still matches the plan.
+    name: "justified-sub-epsilon-stretch",
+    plan: plan([
+      line([
+        cell(0, 1, "排", "排", 0, 16),
+        cell(1, 2, "版", "版", 16.004795074462895, 16),
+        cell(2, 3, "引", "引", 32.00959014892579, 16),
+      ], { endReason: "AutoWrap", visualWidth: 48.00959014892579 }),
+    ]),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
+    // Arithmetic dust below SPACING_DUST_EPSILON still zeroes so plain lines
+    // do not emit letter-spacing for float residue.
+    name: "float-dust-gap",
+    plan: plan([
+      line([
+        cell(0, 1, "排", "排", 0, 16),
+        cell(1, 2, "版", "版", 16.0000000000005, 16),
+      ], { visualWidth: 32.0000000000005 }),
+    ]),
+    locale: "zh-Hans",
+    options: {},
+  },
+  {
     name: "semantics-nested",
     plan: plan([
       line([
