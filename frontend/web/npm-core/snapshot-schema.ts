@@ -8,19 +8,19 @@ export const FONT_REPLAY_REVISION = "tiqian-server-shaping-replay-v1";
 export const FONT_REPLAY_TRANSPORT = "shared-strings-v1";
 
 /** The manifest schema this runtime build reads: snapshot tables. */
-export function readableSnapshotSchema(schema) {
+export function readableSnapshotSchema(schema: unknown): boolean {
   return schema === SNAPSHOT_TABLES_SCHEMA;
 }
 
 export function shapeReplayKey(
-  displayText,
-  serializedFamilies,
-  fontWeight,
-  italic,
-  locale,
-  role,
-  sourceText,
-) {
+  displayText: unknown,
+  serializedFamilies: unknown,
+  fontWeight: unknown,
+  italic: unknown,
+  locale: unknown,
+  role: unknown,
+  sourceText: unknown,
+): string {
   return JSON.stringify([
     displayText,
     serializedFamilies,
@@ -33,12 +33,12 @@ export function shapeReplayKey(
 }
 
 export function metricReplayKey(
-  serializedFamilies,
-  fontWeight,
-  italic,
-  role,
-  faceSelectionText,
-) {
+  serializedFamilies: unknown,
+  fontWeight: unknown,
+  italic: unknown,
+  role: unknown,
+  faceSelectionText: unknown,
+): string {
   return JSON.stringify([
     serializedFamilies,
     Number(fontWeight),
@@ -48,10 +48,10 @@ export function metricReplayKey(
   ]);
 }
 
-export function stableStringify(value) {
+export function stableStringify(value: unknown): string {
   if (value == null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const entries = Object.keys(value).sort().map((key) =>
-    `${JSON.stringify(key)}:${stableStringify(value[key])}`);
+    `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`);
   return `{${entries.join(",")}}`;
 }

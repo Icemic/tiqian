@@ -3,7 +3,21 @@
 
 const SNAPSHOT_ID = /^[A-Za-z][A-Za-z0-9_-]*$/u;
 
-function requireBundle(bundle) {
+export interface ClientSnapshotBundle {
+  id?: unknown;
+  clientTemplate?: unknown;
+  initialStyle?: unknown;
+  fontPreloads?: Iterable<unknown>;
+}
+
+interface SnapshotBundleNormalized {
+  id: string;
+  clientTemplate: string;
+  initialStyle: string;
+  fontPreloads: string[];
+}
+
+function requireBundle(bundle: ClientSnapshotBundle): SnapshotBundleNormalized {
   if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) {
     throw new Error("SnapshotBundleInvalid");
   }
@@ -13,14 +27,19 @@ function requireBundle(bundle) {
     throw new Error("SnapshotClientTemplateMissing");
   }
   if (typeof bundle.initialStyle !== "string") throw new Error("SnapshotInitialStyleInvalid");
-  const fontPreloads = Array.from(bundle.fontPreloads ?? []);
+  const fontPreloads = Array.from(bundle.fontPreloads ?? []) as string[];
   if (fontPreloads.some((url) => typeof url !== "string" || url.trim() === "")) {
     throw new Error("SnapshotFontPreloadsInvalid");
   }
-  return { id, clientTemplate: bundle.clientTemplate, initialStyle: bundle.initialStyle, fontPreloads };
+  return {
+    id,
+    clientTemplate: bundle.clientTemplate,
+    initialStyle: bundle.initialStyle,
+    fontPreloads,
+  };
 }
 
-function parsedTemplate(documentObject, id, html) {
+function parsedTemplate(documentObject: Document, id: string, html: string): HTMLTemplateElement {
   const parser = documentObject.createElement("template");
   parser.innerHTML = html.trim();
   const template = parser.content.firstElementChild;
@@ -28,14 +47,14 @@ function parsedTemplate(documentObject, id, html) {
     !template || template.tagName !== "TEMPLATE" || template.id !== id ||
     parser.content.childElementCount !== 1
   ) throw new Error("SnapshotClientTemplateInvalid");
-  return template;
+  return template as HTMLTemplateElement;
 }
 
-function manifestText(template) {
+function manifestText(template: HTMLTemplateElement | null | undefined): string | null {
   return template?.content?.querySelector?.("[data-tq-snapshot-manifest]")?.textContent ?? null;
 }
 
-function installInitialStyle(documentObject, id, css) {
+function installInitialStyle(documentObject: Document, id: string, css: string): void {
   const selector = `style[data-tq-initial-snapshot="${id}"],style[data-tq-client-snapshot="${id}"]`;
   if (documentObject.querySelector(selector)) return;
   const style = documentObject.createElement("style");
@@ -44,9 +63,9 @@ function installInitialStyle(documentObject, id, css) {
   documentObject.head.append(style);
 }
 
-function installFontPreloads(documentObject, urls) {
+function installFontPreloads(documentObject: Document, urls: string[]): void {
   const existing = new Set(Array.from(
-    documentObject.querySelectorAll('link[rel="preload"][as="font"]'),
+    documentObject.querySelectorAll<HTMLLinkElement>('link[rel="preload"][as="font"]'),
     (link) => link.href,
   ));
   for (const value of urls) {
@@ -69,7 +88,7 @@ function installFontPreloads(documentObject, urls) {
  * uses the manifest-backed server-replay runtime path instead of duplicating the
  * prepared paragraph HTML in page data.
  */
-export function registerSnapshotBundle(bundle, documentObject = globalThis.document) {
+export function registerSnapshotBundle(bundle: ClientSnapshotBundle, documentObject: Document = globalThis.document): string {
   if (!documentObject?.head || typeof documentObject.createElement !== "function") {
     throw new Error("SnapshotDocumentUnavailable");
   }
@@ -79,7 +98,7 @@ export function registerSnapshotBundle(bundle, documentObject = globalThis.docum
     normalized.id,
     normalized.clientTemplate,
   );
-  const existing = documentObject.getElementById(normalized.id);
+  const existing = documentObject.getElementById(normalized.id) as HTMLTemplateElement | null;
   const sameManifestAlreadyRegistered = existing?.tagName === "TEMPLATE" &&
     manifestText(existing) != null && manifestText(existing) === manifestText(template);
   if (!sameManifestAlreadyRegistered) {

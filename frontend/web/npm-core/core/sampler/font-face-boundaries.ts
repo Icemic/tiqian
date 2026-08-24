@@ -12,12 +12,67 @@ const STRUCTURAL_NO_SHAPE_CODE_POINTS = new Set([
   0x2029, // PS
 ]);
 
-function isStructuralNoShapeControl(point) {
-  return STRUCTURAL_NO_SHAPE_CODE_POINTS.has(point.codePointAt(0));
+/** A face descriptor record read from the worker font contract. */
+export interface FontFaceRecord {
+  family: unknown;
+  localNames?: Iterable<unknown>;
+  style: string;
+  weight: readonly unknown[];
+  unicodeRange: unknown;
+  publicUrl: unknown;
+  faceIndex: unknown;
+  sourceOrder: unknown;
+}
+
+/** The resolved style of one text run feeding face selection. */
+export interface FontFaceStyle {
+  fontFamilies: string[];
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShiftPx?: number;
+}
+
+/** One parsed layout-worker text span (validated UTF-16 boundaries). */
+export interface WorkerTextSpan {
+  start: number;
+  end: number;
+  fontFamilies: string[];
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShiftPx: number;
+}
+
+/** The layout-worker font contract request this module consumes. */
+export interface WorkerFontContractRequest {
+  text: unknown;
+  fontFamilies: unknown;
+  fontSizePx: unknown;
+  fontWeight: unknown;
+  italic: unknown;
+  textSpans: unknown;
+}
+
+interface SelectedMetadataFace extends FontFaceRecord {
+  unicodeRanges: [number, number][] | null;
+}
+
+type FontFaceRangeOfFn<T> = (record: T) => readonly unknown[] | null | undefined;
+
+type FontFaceSelectFaceFn<F> = (style: FontFaceStyle, point: string) => F;
+
+type FontFaceIdentityFn<F> = (face: F) => unknown;
+
+function isStructuralNoShapeControl(point: string): boolean {
+  return STRUCTURAL_NO_SHAPE_CODE_POINTS.has(point.codePointAt(0)!);
 }
 
 /** CSS Fonts weight matching rank for one face descriptor range. */
-export function cssWeightPreference(range, requested) {
+export function cssWeightPreference(
+  range: readonly unknown[] | null | undefined,
+  requested: number,
+): [number, number] {
   const low = Number(range?.[0]);
   const high = Number(range?.[1]);
   if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) {
@@ -35,7 +90,11 @@ export function cssWeightPreference(range, requested) {
   return low > requested ? [1, low - requested] : [2, requested - high];
 }
 
-export function cssWeightMatched(records, requested, rangeOf) {
+export function cssWeightMatched<T>(
+  records: T[],
+  requested: number,
+  rangeOf: FontFaceRangeOfFn<T>,
+): T[] {
   if (records.length <= 1) return records;
   const ranked = records.map((record) => ({
     record,
@@ -48,10 +107,10 @@ export function cssWeightMatched(records, requested, rangeOf) {
     .map(({ record }) => record);
 }
 
-export function parseUnicodeRange(value) {
+export function parseUnicodeRange(value: unknown): [number, number][] | null {
   const serialized = String(value ?? "").trim();
   if (!serialized) return null;
-  const ranges = [];
+  const ranges: [number, number][] = [];
   for (const item of serialized.split(",")) {
     const token = item.trim().toUpperCase();
     if (!token.startsWith("U+")) continue;
@@ -71,12 +130,15 @@ export function parseUnicodeRange(value) {
   return ranges;
 }
 
-export function unicodeRangeContains(ranges, codePoint) {
+export function unicodeRangeContains(
+  ranges: readonly (readonly [number, number])[] | null | undefined,
+  codePoint: number,
+): boolean {
   return ranges == null || ranges.some(([start, end]) => codePoint >= start && codePoint <= end);
 }
 
 /** A face is matched by the same family or OpenType local name exposed by the host. */
-export function fontRecordMatchesFamily(record, requestedFamily) {
+export function fontRecordMatchesFamily(record: FontFaceRecord, requestedFamily: unknown): boolean {
   const requested = String(requestedFamily ?? "").trim().toLowerCase();
   if (!requested) return false;
   return String(record.family ?? "").toLowerCase() === requested ||
@@ -90,18 +152,18 @@ export function fontRecordMatchesFamily(record, requestedFamily) {
  * The selector remains injectable because Node can additionally verify nominal
  * glyph coverage while the browser Worker only owns validated face metadata.
  */
-export function sourceBoundariesForSelectedFace(
-  textValue,
-  baseStyle,
-  textSpans,
-  selectFace,
-  faceIdentity = (face) => face.faceId,
-) {
+export function sourceBoundariesForSelectedFace<F>(
+  textValue: unknown,
+  baseStyle: FontFaceStyle,
+  textSpans: Iterable<WorkerTextSpan> | null | undefined,
+  selectFace: FontFaceSelectFaceFn<F>,
+  faceIdentity: FontFaceIdentityFn<F> = (face) => (face as { faceId?: unknown }).faceId,
+): number[] {
   const text = String(textValue);
   const spans = Array.from(textSpans ?? []);
-  const boundaries = [];
+  const boundaries: number[] = [];
   let offset = 0;
-  let previousSignature = null;
+  let previousSignature: string | null = null;
   for (const point of text) {
     if (isStructuralNoShapeControl(point)) {
       // StructuralBreakControlNoShape: UAX #14 mandatory breaks and U+200B are
@@ -131,7 +193,7 @@ export function sourceBoundariesForSelectedFace(
   return boundaries;
 }
 
-function metadataFaceIdentity(face) {
+function metadataFaceIdentity(face: SelectedMetadataFace): string {
   return JSON.stringify([
     face.family,
     face.style,
@@ -143,9 +205,13 @@ function metadataFaceIdentity(face) {
   ]);
 }
 
-function selectMetadataFace(faces, style, point) {
+function selectMetadataFace(
+  faces: readonly SelectedMetadataFace[],
+  style: FontFaceStyle,
+  point: string,
+): SelectedMetadataFace {
   const desiredStyle = style.italic ? "italic" : "normal";
-  const codePoint = point.codePointAt(0);
+  const codePoint = point.codePointAt(0)!;
   for (const family of style.fontFamilies) {
     const familyMatches = faces.filter((face) =>
       fontRecordMatchesFamily(face, family) && face.style === desiredStyle);
@@ -166,13 +232,13 @@ function selectMetadataFace(faces, style, point) {
   );
 }
 
-function workerTextSpans(value) {
+function workerTextSpans(value: unknown): WorkerTextSpan[] {
   if (value == null || value === "") return [];
   return String(value).split(RECORD_SEPARATOR).map((record) => {
     const fields = record.split(FIELD_SEPARATOR);
     if (fields.length !== 7) throw new Error("InvalidLayoutWorkerTextSpan");
     const [start, end, families, fontSize, fontWeight, italic, baselineShift] = fields;
-    const span = {
+    const span: WorkerTextSpan = {
       start: Number(start),
       end: Number(end),
       fontFamilies: families.split(FAMILY_SEPARATOR).filter(Boolean),
@@ -195,12 +261,15 @@ function workerTextSpans(value) {
 }
 
 /** Rebuild build-time font-shard boundaries from the validated Worker contract. */
-export function workerExactSubsetSourceBoundaries(faceMetadata, request) {
+export function workerExactSubsetSourceBoundaries(
+  faceMetadata: Iterable<FontFaceRecord> | null | undefined,
+  request: WorkerFontContractRequest,
+): number[] {
   const faces = Array.from(faceMetadata ?? [], (face) => ({
     ...face,
     unicodeRanges: parseUnicodeRange(face.unicodeRange),
   }));
-  const baseStyle = {
+  const baseStyle: FontFaceStyle = {
     fontFamilies: String(request.fontFamilies ?? "").split(FAMILY_SEPARATOR).filter(Boolean),
     fontSizePx: Number(request.fontSizePx),
     fontWeight: Number(request.fontWeight),
@@ -221,7 +290,10 @@ export function workerExactSubsetSourceBoundaries(faceMetadata, request) {
   );
 }
 
-export function mergeSerializedSourceBoundaries(serialized, additional) {
+export function mergeSerializedSourceBoundaries(
+  serialized: unknown,
+  additional: Iterable<unknown> | null | undefined,
+): string {
   const boundaries = new Set(
     String(serialized ?? "").split(",").filter(Boolean).map(Number),
   );

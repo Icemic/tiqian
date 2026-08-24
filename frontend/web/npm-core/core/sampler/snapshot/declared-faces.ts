@@ -14,10 +14,41 @@
 // document.fonts.load and advance-geometry probes still gate adoption, so a
 // forged declaration cannot bypass build-time evidence (fail-closed).
 
-const entries = new Map();
-const changeListeners = new Set();
+export interface DeclaredFaceDiagnostic {
+  kind: "DeclaredTextInvalid" | "DeclaredRulesUnavailable";
+  error: string;
+}
 
-function entryKey(cssText, baseUrl) {
+export interface DeclaredFaceSheet {
+  rules: CSSRuleList;
+  baseUrl: string;
+}
+
+interface DeclaredFaceParseOutcome {
+  rules: CSSRuleList | null;
+  baseUrl: string;
+  diagnostics: DeclaredFaceDiagnostic[];
+}
+
+interface DeclaredFaceEntry {
+  cssText: string;
+  baseUrl: string;
+  refCount: number;
+  outcome: DeclaredFaceParseOutcome;
+}
+
+interface DeclaredFaceOptions {
+  baseUrl?: unknown;
+}
+
+type DeclaredFaceVoidCallbackFn = () => void;
+
+type DeclaredFaceUnsubscribeBoolFn = () => boolean;
+
+const entries = new Map<string, DeclaredFaceEntry>();
+const changeListeners = new Set<DeclaredFaceVoidCallbackFn>();
+
+function entryKey(cssText: string, baseUrl: string): string {
   return cssText + "\n" + baseUrl;
 }
 
@@ -27,8 +58,8 @@ function entryKey(cssText, baseUrl) {
 // exception name; environments where no rules are readable record
 // DeclaredRulesUnavailable. Both outcomes keep the declaration registered
 // while contributing no faces.
-function parseDeclaredText(cssText, baseUrl) {
-  const outcome = { rules: null, baseUrl, diagnostics: [] };
+function parseDeclaredText(cssText: string, baseUrl: string): DeclaredFaceParseOutcome {
+  const outcome: DeclaredFaceParseOutcome = { rules: null, baseUrl, diagnostics: [] };
   const sheetConstructor = globalThis.CSSStyleSheet;
   if (typeof sheetConstructor === "function") {
     const sheet = new sheetConstructor(baseUrl ? { baseURL: baseUrl } : {});
@@ -37,7 +68,7 @@ function parseDeclaredText(cssText, baseUrl) {
     } catch (error) {
       outcome.diagnostics.push({
         kind: "DeclaredTextInvalid",
-        error: String((error && error.name) || error),
+        error: String((error && (error as { name?: unknown }).name) || error),
       });
       return outcome;
     }
@@ -46,7 +77,7 @@ function parseDeclaredText(cssText, baseUrl) {
     } catch (error) {
       outcome.diagnostics.push({
         kind: "DeclaredRulesUnavailable",
-        error: String((error && error.name) || error),
+        error: String((error && (error as { name?: unknown }).name) || error),
       });
       return outcome;
     }
@@ -59,7 +90,7 @@ function parseDeclaredText(cssText, baseUrl) {
   if (documentObject && typeof documentObject.createElement === "function") {
     const style = documentObject.createElement("style");
     style.textContent = cssText;
-    let sheet = null;
+    let sheet: CSSStyleSheet | null = null;
     try {
       sheet = style.sheet;
     } catch {
@@ -74,7 +105,7 @@ function parseDeclaredText(cssText, baseUrl) {
   return outcome;
 }
 
-function notifyChanged() {
+function notifyChanged(): void {
   for (const listener of changeListeners) listener();
 }
 
@@ -87,7 +118,7 @@ function notifyChanged() {
  * Registry changes notify listeners synchronously (listeners must not
  * execute validation inline).
  */
-export function declareTiqianFontFaces(cssText, options = {}) {
+export function declareTiqianFontFaces(cssText: unknown, options: DeclaredFaceOptions = {}): DeclaredFaceVoidCallbackFn {
   if (typeof cssText !== "string" || cssText.trim() === "") {
     return () => {};
   }
@@ -120,8 +151,8 @@ export function declareTiqianFontFaces(cssText, options = {}) {
 }
 
 /** Parseable declared sheets, declaration order preserved. */
-export function declaredFaceSheets() {
-  const sheets = [];
+export function declaredFaceSheets(): DeclaredFaceSheet[] {
+  const sheets: DeclaredFaceSheet[] = [];
   for (const entry of entries.values()) {
     if (entry.outcome.rules) {
       sheets.push({ rules: entry.outcome.rules, baseUrl: entry.baseUrl });
@@ -131,8 +162,8 @@ export function declaredFaceSheets() {
 }
 
 /** Parse outcomes for declarations that contributed no faces. */
-export function declaredFacesDiagnostics() {
-  const diagnostics = [];
+export function declaredFacesDiagnostics(): DeclaredFaceDiagnostic[] {
+  const diagnostics: DeclaredFaceDiagnostic[] = [];
   for (const entry of entries.values()) {
     if (!entry.outcome.rules) diagnostics.push(...entry.outcome.diagnostics);
   }
@@ -140,7 +171,7 @@ export function declaredFacesDiagnostics() {
 }
 
 /** Subscribe to registry changes; returns an unsubscribe function. */
-export function onDeclaredFacesChanged(listener) {
+export function onDeclaredFacesChanged(listener: DeclaredFaceVoidCallbackFn): DeclaredFaceUnsubscribeBoolFn {
   changeListeners.add(listener);
   return () => changeListeners.delete(listener);
 }

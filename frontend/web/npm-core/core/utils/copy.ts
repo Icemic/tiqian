@@ -55,16 +55,26 @@ const ENGINE_FLOW_STYLE_PROPERTIES = [
   "word-break",
 ];
 
-function clipboardTextForChildren(parent) {
+interface ClipboardText {
+  block: boolean;
+  text: string;
+}
+
+interface ClipboardPayload {
+  text: string;
+  html: string;
+}
+
+function clipboardTextForChildren(parent: Node): string {
   const children = Array.from(parent.childNodes || []);
   const containsBlock = children.some(
-    (child) => child.nodeType === 1 && BLOCK_ELEMENTS.has(child.tagName),
+    (child) => child.nodeType === 1 && BLOCK_ELEMENTS.has((child as Element).tagName),
   );
   let result = "";
-  let previous = null;
+  let previous: ClipboardText | null = null;
   for (let childIndex = 0; childIndex < children.length; childIndex++) {
     const child = children[childIndex];
-    if (containsBlock && child.nodeType === 3 && !(child.data && child.data.trim())) continue;
+    if (containsBlock && child.nodeType === 3 && !((child as Text).data && (child as Text).data.trim())) continue;
     const item = clipboardTextForNode(child);
     if (
       previous && (previous.block || item.block) && result && item.text &&
@@ -76,17 +86,17 @@ function clipboardTextForChildren(parent) {
   return result;
 }
 
-function clipboardTextForNode(node) {
-  if (node.nodeType === 3) return { block: false, text: node.data || "" };
+function clipboardTextForNode(node: Node): ClipboardText {
+  if (node.nodeType === 3) return { block: false, text: (node as Text).data || "" };
   if (node.nodeType !== 1) return { block: false, text: "" };
-  if (node.tagName === "BR") return { block: false, text: "\n" };
+  if ((node as Element).tagName === "BR") return { block: false, text: "\n" };
   return {
-    block: BLOCK_ELEMENTS.has(node.tagName),
+    block: BLOCK_ELEMENTS.has((node as Element).tagName),
     text: clipboardTextForChildren(node),
   };
 }
 
-function stripEngineStyles(element, rendered, sourceSemantic) {
+function stripEngineStyles(element: HTMLElement, rendered: boolean, sourceSemantic: boolean): void {
   if (!element.style || (!rendered && !sourceSemantic)) return;
   for (let propertyIndex = 0; propertyIndex < ENGINE_FLOW_STYLE_PROPERTIES.length; propertyIndex++) {
     element.style.removeProperty(ENGINE_FLOW_STYLE_PROPERTIES[propertyIndex]);
@@ -101,7 +111,7 @@ function stripEngineStyles(element, rendered, sourceSemantic) {
  * source substitutions and hard breaks, then serialize block-aware plain text
  * plus host-owned semantic HTML. Visual soft wraps never enter either payload.
  */
-function createTiqianClipboardPayload(fragment, documentObject = globalThis.document) {
+function createTiqianClipboardPayload(fragment: DocumentFragment | null, documentObject: Document = globalThis.document): ClipboardPayload {
   if (!fragment || !fragment.querySelectorAll || !documentObject || !documentObject.createElement) {
     return { text: "", html: "" };
   }
@@ -131,7 +141,7 @@ function createTiqianClipboardPayload(fragment, documentObject = globalThis.docu
     .reverse()
     .forEach((element) => element.replaceWith.apply(element, Array.from(element.childNodes)));
 
-  fragment.querySelectorAll("*").forEach((element) => {
+  fragment.querySelectorAll<HTMLElement>("*").forEach((element) => {
     const rendered = element.hasAttribute("data-tq-rendered");
     const sourceSemantic = element.hasAttribute("data-tq-source-semantic");
     const cjkStrong = element.hasAttribute("data-tq-cjk-emphasis");
@@ -154,7 +164,7 @@ function createTiqianClipboardPayload(fragment, documentObject = globalThis.docu
   };
 }
 
-function installTiqianCopyHandler(documentObject = globalThis.document) {
+function installTiqianCopyHandler(documentObject: Document = globalThis.document): void {
   if (!documentObject || globalThis.__tiqianCopyHandlerInstalled) return;
   globalThis.__tiqianCopyHandlerInstalled = true;
   documentObject.addEventListener("copy", (event) => {
@@ -162,8 +172,8 @@ function installTiqianCopyHandler(documentObject = globalThis.document) {
     const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const range = selection.getRangeAt(0);
-    const renderedAncestor = (node) => {
-      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+    const renderedAncestor = (node: Node | null): Element | null => {
+      const element = node && node.nodeType === 1 ? node as Element : (node ? node.parentElement : null);
       return element && element.closest ? element.closest("[data-tq-rendered]") : null;
     };
     let touchesRendered = Boolean(
@@ -171,7 +181,7 @@ function installTiqianCopyHandler(documentObject = globalThis.document) {
     );
     if (!touchesRendered) {
       const common = range.commonAncestorContainer;
-      const commonElement = common && common.nodeType === 1 ? common : (common ? common.parentElement : null);
+      const commonElement = common && common.nodeType === 1 ? common as Element : (common ? common.parentElement : null);
       const candidates = commonElement && commonElement.querySelectorAll
         ? Array.from(commonElement.querySelectorAll("[data-tq-rendered]"))
         : [];
@@ -196,5 +206,13 @@ function installTiqianCopyHandler(documentObject = globalThis.document) {
   });
 }
 
+declare global {
+  var __TiqianCreateClipboardPayload: typeof createTiqianClipboardPayload | undefined;
+  var __TiqianInstallCopyHandler: typeof installTiqianCopyHandler | undefined;
+  var __tiqianCopyHandlerInstalled: boolean | undefined;
+}
+
 globalThis.__TiqianCreateClipboardPayload = createTiqianClipboardPayload;
 globalThis.__TiqianInstallCopyHandler = installTiqianCopyHandler;
+
+export {};

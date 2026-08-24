@@ -14,12 +14,97 @@ const ABSENT_METRIC_BITS = 0x7ff8000000000000n;
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-function invalid() {
+interface DeltaRegion {
+  offsets: number[];
+  bytesStart: number;
+}
+
+interface SnapshotTableLayout {
+  replayStringCount: number;
+  stringCount: number;
+  metricCount: number;
+  metricValuePoolCount: number;
+  probeCount: number;
+  stringOffsets: number[];
+  stringBytesStart: number;
+  metricFamiliesStart: number;
+  metricWeightsStart: number;
+  metricItalicsStart: number;
+  metricRoleRefsStart: number;
+  metricFaceSelRefsStart: number;
+  metricPoolRefsStart: number;
+  metricValuePoolStart: number;
+  probeTextRefsStart: number;
+  probeAdvanceRefsStart: number;
+  probeStyleRefsStart: number;
+  probeFeatureRefsStart: number;
+  probeAdvancePoolStart: number;
+  probeStylePoolStart: number;
+  probeFeatures: DeltaRegion;
+  faceText: DeltaRegion;
+  typographyText: DeltaRegion;
+  valueStyleText: DeltaRegion;
+  fontPreloadText: DeltaRegion;
+  revisionTextStart: number;
+}
+
+export interface SnapshotMetricRow {
+  serializedFamilies: string;
+  fontWeight: number;
+  italic: boolean;
+  role: string;
+  faceSelectionText: string;
+  valuesEm: (number | null)[];
+}
+
+export interface SnapshotProbe {
+  text: string;
+  advancePx: number;
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  script: string;
+  language: string;
+  features: string[];
+}
+
+export interface SnapshotRevisions {
+  backendRevision: string | null;
+  harfbuzzVersion: string | null;
+}
+
+type SnapshotTableStringAtFn = (ref: number) => string;
+
+type SnapshotTableMetricRowsFn = () => SnapshotMetricRow[];
+
+type SnapshotTableProbeAtFn = (ref: number) => SnapshotProbe;
+
+type SnapshotTableTypoAtFn = (ref: number) => unknown;
+
+type SnapshotTableFaceAtFn = (ref: number) => unknown;
+
+type SnapshotTableValueStylesFn = () => string[];
+
+type SnapshotTableRevisionsFn = () => SnapshotRevisions;
+
+export interface SnapshotTableBinaryView {
+  binary: true;
+  bytes: Uint8Array;
+  stringAt: SnapshotTableStringAtFn;
+  metricRows: SnapshotTableMetricRowsFn;
+  probeAt: SnapshotTableProbeAtFn;
+  typographyAt: SnapshotTableTypoAtFn;
+  faceAt: SnapshotTableFaceAtFn;
+  valueStyles: SnapshotTableValueStylesFn;
+  revisions: SnapshotTableRevisionsFn;
+}
+
+function invalid(): Error {
   return new Error("SnapshotTablesInvalid");
 }
 
 /** True when the bytes start with the snapshot-table magic. */
-export function isSnapshotTableBinary(bytes) {
+export function isSnapshotTableBinary(bytes: unknown): boolean {
   if (!(bytes instanceof Uint8Array) || bytes.length < 8) return false;
   try {
     return decoder.decode(bytes.subarray(0, 8)) === MAGIC;
@@ -28,19 +113,19 @@ export function isSnapshotTableBinary(bytes) {
   }
 }
 
-function readU32(bytes, at) {
+function readU32(bytes: Uint8Array, at: number): number {
   if (at < 0 || at + 4 > bytes.length) throw invalid();
   return (bytes[at] | (bytes[at + 1] << 8) | (bytes[at + 2] << 16)) + bytes[at + 3] * 0x1000000;
 }
 
-function readU16(bytes, at) {
+function readU16(bytes: Uint8Array, at: number): number {
   if (at < 0 || at + 2 > bytes.length) throw invalid();
   return bytes[at] | (bytes[at + 1] << 8);
 }
 
-const dataViewOf = (bytes) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+const dataViewOf = (bytes: Uint8Array): DataView => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
-function readF64(view, at) {
+function readF64(view: DataView, at: number): number {
   return view.getFloat64(at, true);
 }
 
@@ -49,8 +134,8 @@ function readF64(view, at) {
  * zero. Any delta sequence decodes monotone; the running sum must stay
  * addressable within the file.
  */
-function readDeltasRegion(bytes, start, count) {
-  const offsets = new Array(count + 1);
+function readDeltasRegion(bytes: Uint8Array, start: number, count: number): number[] {
+  const offsets = new Array<number>(count + 1);
   offsets[0] = 0;
   let at = 0;
   for (let index = 0; index < count; index += 1) {
@@ -65,9 +150,9 @@ function readDeltasRegion(bytes, start, count) {
  * Decodes the header and region boundaries. Every region is walked in order,
  * so the returned layout proves the file holds every region it counts.
  */
-function decodeLayout(bytes) {
+function decodeLayout(bytes: Uint8Array): SnapshotTableLayout {
   if (!isSnapshotTableBinary(bytes)) throw invalid();
-  const counts = new Array(HEADER_U32_COUNT);
+  const counts = new Array<number>(HEADER_U32_COUNT);
   for (let index = 0; index < HEADER_U32_COUNT; index += 1) {
     counts[index] = readU32(bytes, 8 + index * 4);
   }
@@ -77,13 +162,13 @@ function decodeLayout(bytes) {
     faceCount, typographyCount, valueStyleCount, fontPreloadCount,
   ] = counts;
   let at = 8 + HEADER_U32_COUNT * 4;
-  const take = (byteLength) => {
+  const take = (byteLength: number): number => {
     const start = at;
     at += byteLength;
     if (at > bytes.length) throw invalid();
     return start;
   };
-  const takeDeltas = (count) => {
+  const takeDeltas = (count: number): DeltaRegion => {
     const start = take(count * 4);
     const offsets = readDeltasRegion(bytes, start, count);
     return { offsets, bytesStart: take(offsets[count]) };
@@ -141,7 +226,13 @@ function decodeLayout(bytes) {
   };
 }
 
-function regionText(bytes, start, offsets, index, issue) {
+function regionText(
+  bytes: Uint8Array,
+  start: number,
+  offsets: number[],
+  index: number,
+  issue: string,
+): string {
   if (!Number.isSafeInteger(index) || index < 0 || index >= offsets.length - 1) {
     throw new Error(issue);
   }
@@ -154,7 +245,13 @@ function regionText(bytes, start, offsets, index, issue) {
   }
 }
 
-function parseRegionJson(bytes, start, offsets, index, issue) {
+function parseRegionJson(
+  bytes: Uint8Array,
+  start: number,
+  offsets: number[],
+  index: number,
+  issue: string,
+): unknown {
   const text = regionText(bytes, start, offsets, index, issue);
   try {
     return JSON.parse(text);
@@ -164,7 +261,7 @@ function parseRegionJson(bytes, start, offsets, index, issue) {
 }
 
 /** Parses the revision tail; called during decode and memoized per view. */
-function readRevisionsOf(bytes, layout) {
+function readRevisionsOf(bytes: Uint8Array, layout: SnapshotTableLayout): SnapshotRevisions {
   try {
     const parsed = JSON.parse(decoder.decode(bytes.subarray(layout.revisionTextStart)));
     return {
@@ -179,16 +276,17 @@ function readRevisionsOf(bytes, layout) {
 /**
  * The binary table view: the same accessor surface the parsed-text lane
  * wraps, reading rows from the bytes on demand and caching each decoded row.
- */export function decodeSnapshotTableBinary(bytes) {
+ */
+export function decodeSnapshotTableBinary(bytes: Uint8Array): SnapshotTableBinaryView {
   const layout = decodeLayout(bytes);
   const view = dataViewOf(bytes);
   // The revision tail parses during decode, mirroring the Rust reader. The
   // tail has no declared length; this parse is what makes a truncated file
   // fail before any accessor hands out a row.
   readRevisionsOf(bytes, layout);
-  const stringCache = new Array(layout.stringCount).fill(undefined);
+  const stringCache = new Array<string | undefined>(layout.stringCount).fill(undefined);
 
-  const stringAt = (ref) => {
+  const stringAt = (ref: number): string => {
     if (!Number.isSafeInteger(ref) || ref < 0 || ref >= layout.stringCount) {
       throw new Error("SnapshotFontReplayStringReferenceInvalid");
     }
@@ -201,10 +299,10 @@ function readRevisionsOf(bytes, layout) {
         throw invalid();
       }
     }
-    return stringCache[ref];
+    return stringCache[ref] as string;
   };
 
-  const metricValueAt = (poolRef, slot) => {
+  const metricValueAt = (poolRef: number, slot: number): number | null => {
     const at = layout.metricValuePoolStart + poolRef * METRIC_POOL_ROW_BYTES + slot * 8;
     if (at < 0 || at + 8 > bytes.length) throw invalid();
     const bits = view.getBigUint64(at, true);
@@ -217,10 +315,10 @@ function readRevisionsOf(bytes, layout) {
   // Manifest expansion reads the metric rows once per expansion; the rows are
   // a pure function of the bytes, so the decoded form is memoized per view
   // and repeated expansions stop rescanning the whole table.
-  let metricRowsCache = null;
-  const metricRows = () => {
+  let metricRowsCache: SnapshotMetricRow[] | null = null;
+  const metricRows = (): SnapshotMetricRow[] => {
     if (metricRowsCache !== null) return metricRowsCache;
-    const rows = new Array(layout.metricCount);
+    const rows = new Array<SnapshotMetricRow>(layout.metricCount);
     for (let index = 0; index < layout.metricCount; index += 1) {
       const poolRef = readU32(bytes, layout.metricPoolRefsStart + index * 4);
       rows[index] = {
@@ -242,7 +340,7 @@ function readRevisionsOf(bytes, layout) {
     return rows;
   };
 
-  const decodeProbe = (ref) => {
+  const decodeProbe = (ref: number): SnapshotProbe => {
     if (!Number.isSafeInteger(ref) || ref < 0 || ref >= layout.probeCount) {
       throw new Error("SnapshotProbeReferenceInvalid");
     }
@@ -258,7 +356,7 @@ function readRevisionsOf(bytes, layout) {
     const featuresAt =
       layout.probeFeatures.bytesStart + layout.probeFeatures.offsets[featuresPoolRef];
     const featureCount = readU16(bytes, featuresAt);
-    const features = new Array(featureCount);
+    const features = new Array<string>(featureCount);
     for (let index = 0; index < featureCount; index += 1) {
       features[index] = stringAt(readU32(bytes, featuresAt + 2 + index * 4));
     }
@@ -274,16 +372,16 @@ function readRevisionsOf(bytes, layout) {
     };
   };
 
-  const probeCache = new Map();
-  const probeAt = (ref) => {
+  const probeCache = new Map<number, SnapshotProbe>();
+  const probeAt = (ref: number): SnapshotProbe => {
     if (!probeCache.has(ref)) {
       probeCache.set(ref, decodeProbe(ref));
     }
-    return probeCache.get(ref);
+    return probeCache.get(ref) as SnapshotProbe;
   };
 
-  const typographyCache = new Map();
-  const typographyAt = (ref) => {
+  const typographyCache = new Map<number, unknown>();
+  const typographyAt = (ref: number): unknown => {
     if (!typographyCache.has(ref)) {
       typographyCache.set(
         ref,
@@ -299,8 +397,8 @@ function readRevisionsOf(bytes, layout) {
     return typographyCache.get(ref);
   };
 
-  const faceCache = new Map();
-  const faceAt = (ref) => {
+  const faceCache = new Map<number, unknown>();
+  const faceAt = (ref: number): unknown => {
     if (!faceCache.has(ref)) {
       faceCache.set(
         ref,
@@ -316,8 +414,8 @@ function readRevisionsOf(bytes, layout) {
     return faceCache.get(ref);
   };
 
-  let valueStyles = null;
-  const readValueStyles = () => {
+  let valueStyles: string[] | null = null;
+  const readValueStyles = (): string[] => {
     if (valueStyles === null) {
       valueStyles = [];
       const { offsets, bytesStart } = layout.valueStyleText;
@@ -328,8 +426,8 @@ function readRevisionsOf(bytes, layout) {
     return valueStyles;
   };
 
-  let revisions = null;
-  const readRevisions = () => {
+  let revisions: SnapshotRevisions | null = null;
+  const readRevisions = (): SnapshotRevisions => {
     if (revisions === null) revisions = readRevisionsOf(bytes, layout);
     return revisions;
   };
