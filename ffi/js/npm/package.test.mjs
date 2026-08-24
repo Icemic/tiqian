@@ -39,7 +39,13 @@ test("the generated declarations name the whole export surface", async () => {
   const exported = [...declarations.matchAll(/export declare function (\w+)\(/gu)].map(
     (match) => match[1],
   );
-  assert.deepEqual(exported, ["precomputePlainParagraph", "precomputeParagraph"]);
+  assert.deepEqual(exported, [
+    "classifyFontRole",
+    "unsupportedInlineShapingProperties",
+    "firstDivergentInlineShapingProperty",
+    "precomputePlainParagraph",
+    "precomputeParagraph",
+  ]);
 });
 
 test("every engine module ships a source map with embedded sources", async () => {
@@ -63,7 +69,87 @@ test("every engine module ships a source map with embedded sources", async () =>
 test("the engine entry loads from the package exports surface", async () => {
   const ffi = await import("@tiqian/ffi");
 
+  assert.equal(typeof ffi.classifyFontRole, "function");
+  assert.equal(typeof ffi.unsupportedInlineShapingProperties, "function");
+  assert.equal(typeof ffi.firstDivergentInlineShapingProperty, "function");
   assert.equal(typeof ffi.precomputePlainParagraph, "function");
   assert.equal(typeof ffi.precomputeParagraph, "function");
   assert.match(import.meta.resolve("@tiqian/ffi"), /Tiqian-tiqian-ffi-js\.mjs$/u);
+});
+
+test("classifyFontRole maps classifier roles to lowering role strings", async () => {
+  const ffi = await import("@tiqian/ffi");
+
+  // 1. Han-only range: "汉" (U+6C49) in 0x4E00..0x9FFF exercises the
+  //    firstCodePoint.isCjkCodePoint() branch -> FontRole.CjkText -> "cjk-text".
+  assert.equal(ffi.classifyFontRole("汉字", 0, 2, "zh-Hans"), "cjk-text");
+
+  // 2. CJK punctuation range: "，" (U+FF0C) exercises the
+  //    firstCodePoint.isCjkPunctuationCodePoint() branch -> FontRole.CjkPunctuation -> "cjk-punctuation".
+  assert.equal(ffi.classifyFontRole("，", 0, 1, "zh-Hans"), "cjk-punctuation");
+
+  // 3. ASCII range: "H" (U+0048) in 0x0020..0x007E exercises the
+  //    firstCodePoint.isTypedAsciiLatin() branch -> FontRole.LatinText -> "other".
+  assert.equal(ffi.classifyFontRole("Hello", 0, 5, "en"), "other");
+});
+
+test("unsupportedInlineShapingProperties returns fresh ordered property array", async () => {
+  const ffi = await import("@tiqian/ffi");
+
+  const properties1 = ffi.unsupportedInlineShapingProperties();
+  const properties2 = ffi.unsupportedInlineShapingProperties();
+
+  assert.equal(properties1.length, 16);
+  assert.equal(properties1[0], "font-feature-settings");
+  assert.equal(properties1[1], "font-variation-settings");
+  assert.equal(properties1[2], "font-stretch");
+  assert.deepEqual(properties1, properties2);
+  assert.notEqual(properties1, properties2, "consecutive calls return distinct array instances");
+});
+
+test("firstDivergentInlineShapingProperty detects divergence and clamps common prefix", async () => {
+  const ffi = await import("@tiqian/ffi");
+
+  // Identical arrays return null / null-ish.
+  assert.equal(
+    ffi.firstDivergentInlineShapingProperty(
+      ["normal", "normal", "normal"],
+      ["normal", "normal", "normal"],
+    ) ?? null,
+    null,
+  );
+
+  // Divergence at index 2 (third entry) returns the index-2 property name "font-stretch".
+  assert.equal(
+    ffi.firstDivergentInlineShapingProperty(
+      ["normal", "normal", "expanded"],
+      ["normal", "normal", "condensed"],
+    ),
+    "font-stretch",
+  );
+
+  // Divergence at index 3 (fourth entry) returns "font-kerning".
+  assert.equal(
+    ffi.firstDivergentInlineShapingProperty(
+      ["normal", "normal", "normal", "none"],
+      ["normal", "normal", "normal", "auto"],
+    ),
+    "font-kerning",
+  );
+
+  // Differing array lengths clamp comparison to the common prefix.
+  assert.equal(
+    ffi.firstDivergentInlineShapingProperty(
+      ["normal", "normal"],
+      ["normal", "normal", "expanded"],
+    ) ?? null,
+    null,
+  );
+  assert.equal(
+    ffi.firstDivergentInlineShapingProperty(
+      ["normal", "normal", "expanded"],
+      ["normal", "normal"],
+    ) ?? null,
+    null,
+  );
 });

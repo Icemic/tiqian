@@ -63,7 +63,13 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
     new URL("runtime/Tiqian-tiqian-ffi-js.d.mts", packageRoot),
     "utf8",
   );
-  for (const name of ["precomputePlainParagraph", "precomputeParagraph"]) {
+  for (const name of [
+    "classifyFontRole",
+    "unsupportedInlineShapingProperties",
+    "firstDivergentInlineShapingProperty",
+    "precomputePlainParagraph",
+    "precomputeParagraph",
+  ]) {
     if (!new RegExp(`export declare function ${name}\\(`).test(declarations)) {
       fail(`runtime/Tiqian-tiqian-ffi-js.d.mts does not declare ${name}`);
     }
