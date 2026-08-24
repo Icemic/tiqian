@@ -57,6 +57,13 @@ const ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES.filter(
   (property) => property !== "margin-left" && property !== "margin-right",
 );
 
+export interface TypographyViewportEntry {
+  element: Element;
+  includeGenerated: boolean;
+  properties: string[];
+  signature: string;
+}
+
 // CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width — for
 // a block fragmented by CSS columns this is the union of every fragment, not
 // a per-fragment measure. Every caller uses it only for coarse ≥0.5px drift
@@ -64,19 +71,19 @@ const ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES.filter(
 // 0039 fractional fragment-aware amendment). A caller that needs the widest
 // live fragment must use the elementContentWidth pattern in
 // WebEnhancerSupport.kt instead of this function.
-function fragmentedBorderBoxInlineSize(element) {
+function fragmentedBorderBoxInlineSize(element: Element) {
   if (!element) return 0;
   return Number(element.getBoundingClientRect?.().width) || 0;
 }
 
-function styleLengthPx(value) {
+function styleLengthPx(value: string) {
   return Number.parseFloat(value) || 0;
 }
 
 // Shared by the measure-signature builders: exact-font sessions measure the
 // content box, browser-metric sessions the border box. Module scope keeps
 // the AllocationFreeSignatureIteration promise — no per-paragraph closures.
-function paragraphLayoutWidth(element, elementStyle, exactFontLayout) {
+function paragraphLayoutWidth(element: Element, elementStyle: CSSStyleDeclaration, exactFontLayout: boolean) {
   const value = fragmentedBorderBoxInlineSize(element);
   if (!exactFontLayout) return value;
   return value - styleLengthPx(elementStyle.paddingLeft) - styleLengthPx(elementStyle.paddingRight) -
@@ -85,7 +92,7 @@ function paragraphLayoutWidth(element, elementStyle, exactFontLayout) {
 
 export { DEFAULT_PARAGRAPH_SELECTOR, fragmentedBorderBoxInlineSize, TYPOGRAPHY_PROPERTIES };
 
-export function typographySignature(root, includeGenerated = true) {
+export function typographySignature(root: Element, includeGenerated = true) {
   const elements = typographyElements(root);
   let sig = "";
   for (let i = 0; i < elements.length; i++) {
@@ -96,7 +103,7 @@ export function typographySignature(root, includeGenerated = true) {
 }
 
 export function elementTypographySignature(
-  element,
+  element: Element,
   includeGenerated = true,
   properties = TYPOGRAPHY_PROPERTIES,
 ) {
@@ -126,8 +133,8 @@ export function elementTypographySignature(
   return sig;
 }
 
-export function captureLayoutWorkViewportTypographyEntries(root) {
-  const entries = [{
+export function captureLayoutWorkViewportTypographyEntries(root: Element) {
+  const entries: TypographyViewportEntry[] = [{
     element: root,
     includeGenerated: false,
     properties: ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES,
@@ -150,7 +157,7 @@ export function captureLayoutWorkViewportTypographyEntries(root) {
   return entries;
 }
 
-export function layoutWorkViewportTypographyChanged(root, entries) {
+export function layoutWorkViewportTypographyChanged(root: Element, entries: TypographyViewportEntry[]) {
   // NativeSourceViewportTypographySignature: progressive renderer output is
   // not a layout input. Compare the root plus only source elements that have
   // not yet been replaced, using their pre-work computed typography. This
@@ -168,8 +175,8 @@ export function layoutWorkViewportTypographyChanged(root, entries) {
   return false;
 }
 
-export function typographyElements(root) {
-  const elements = [];
+export function typographyElements(root: Element) {
+  const elements: Element[] = [];
   const seenGroups = new Set();
   const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
   for (let i = 0; i < paragraphs.length; i++) {
@@ -196,7 +203,7 @@ export function typographyElements(root) {
 // responsive commit and layout-work finish. Indexed loops with direct
 // concatenation avoid intermediate arrays and per-paragraph closures, and
 // keep the builders on the same shape as #typographySignature.
-export function paragraphWidthSignature(root) {
+export function paragraphWidthSignature(root: Element) {
   const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
   let signature = "";
   for (let i = 0; i < paragraphs.length; i++) {
@@ -206,7 +213,7 @@ export function paragraphWidthSignature(root) {
   return signature;
 }
 
-export function responsiveGeometrySignature(root) {
+export function responsiveGeometrySignature(root: Element) {
   const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
   let signature = String(fragmentedBorderBoxInlineSize(root));
   for (let i = 0; i < paragraphs.length; i++) {
@@ -216,7 +223,7 @@ export function responsiveGeometrySignature(root) {
   return signature;
 }
 
-export function paragraphMeasureSignature(root, exactFontLayout) {
+export function paragraphMeasureSignature(root: Element, exactFontLayout: boolean) {
   const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
   let signature = "";
   for (let i = 0; i < paragraphs.length; i++) {
@@ -226,7 +233,7 @@ export function paragraphMeasureSignature(root, exactFontLayout) {
   return signature;
 }
 
-export function paragraphMeasureEntry(paragraph, exactFontLayout) {
+export function paragraphMeasureEntry(paragraph: Element, exactFontLayout: boolean) {
   const style = getComputedStyle(paragraph);
   const fontSize = Number.parseFloat(style.fontSize);
   let width = paragraphLayoutWidth(paragraph, style, exactFontLayout);

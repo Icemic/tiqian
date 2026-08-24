@@ -10,6 +10,7 @@ import {
   renderedContainer,
   renderedElement,
 } from "./prepared-dom-markup.js";
+import type { MarkupAttributes, MarkupContainer, MarkupNode } from "./prepared-dom-markup.js";
 
 const SPACING_EPSILON = 0.01;
 // Fallback annotation ascent ratio, mirroring the Kotlin no-metrics branch.
@@ -25,14 +26,87 @@ const WAVY_HALF_WAVE_EM = 0.2;
 const WAVY_AMPLITUDE_EM = 0.06;
 const WAVY_ENDPOINT_EPSILON_PX = 0.01;
 
+type StyleClassResolver = (declaration: string) => string;
+type EmphasisDotColorResolver = (clusterRangeStart: number) => string | null;
+
+export interface InlineObjectPlaceholderCell {
+  naturalWidth: number;
+  rangeStart: number;
+  rangeEnd: number;
+  drawX: number;
+}
+
+export interface RubyAnnotation {
+  fontSize: number;
+  ascent: number;
+  fontFamilies: string[];
+  text: string;
+  fontWeight: number;
+  centerX: number;
+  baselineY: number;
+}
+
+export interface BopomofoPlacement {
+  text: string;
+  role: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface BopomofoZone {
+  text: string;
+  fontWeight: number;
+  fontFamilies: string[];
+  placements: BopomofoPlacement[];
+}
+
+interface BopomofoPlacementCss {
+  left: number;
+  top: number;
+  fontSize: number;
+  lineHeight: number;
+}
+
+export interface EvidenceDecorationSegment {
+  left: number;
+  top: number;
+  right: number;
+  kind: "ProperNoun" | "BookTitle";
+}
+
+export interface EvidenceEmphasisDot {
+  clusterRangeStart: number;
+  anchorX: number;
+  anchorY: number;
+  dotDiameter: number;
+}
+
+export interface EvidenceOverlayPlan {
+  decorationSegments?: EvidenceDecorationSegment[];
+  emphasisDots?: EvidenceEmphasisDot[];
+  fontSize: number;
+  overlayWidth: number;
+  height: number;
+}
+
+export interface EvidenceOverlayOptions {
+  emphasisDotColor?: EmphasisDotColorResolver;
+}
+
 // InlineObjectCloneSwap (ADR 0053 B7.3): the pending placeholder carries the
 // layout-owned trailing gap as an attribute so the live-DOM swap can rebuild
 // the renderer's margin (source marginRight + trailingGap) without parsing
 // serialized CSS. The attribute exists only in the margin branch, mirroring
 // appendInlineObject's spacing guard.
-export function inlineObjectPlaceholder(cell, trailingGap, styleClassFor) {
+export function inlineObjectPlaceholder(
+  cell: InlineObjectPlaceholderCell,
+  trailingGap: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupNode {
   const carriesTrailingMargin = Math.abs(trailingGap) >= SPACING_EPSILON;
-  const attributes = {
+  const attributes: MarkupAttributes = {
     "data-tq-advance": String(cell.naturalWidth),
     "data-tq-geometry": "true",
     "data-tq-inline-object": "pending",
@@ -51,7 +125,11 @@ export function inlineObjectPlaceholder(cell, trailingGap, styleClassFor) {
   return renderedElement("span", attributes);
 }
 
-export function rubyAnnotationSpan(ruby, lineTop, styleClassFor) {
+export function rubyAnnotationSpan(
+  ruby: RubyAnnotation,
+  lineTop: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupNode {
   const fontSize = Number(ruby.fontSize);
   // RubyPlanAscent: the plan carries the declared ascent of the annotation
   // face (RubyDecisionInfo.ascent). RubyAscentRatioFallback keeps the
@@ -61,7 +139,7 @@ export function rubyAnnotationSpan(ruby, lineTop, styleClassFor) {
     ? planAscent
     : fontSize * RUBY_ASCENT_RATIO;
   const families = Array.from(ruby.fontFamilies ?? [], String);
-  const attributes = {
+  const attributes: MarkupAttributes = {
     "data-tq-geometry": "true",
     "data-tq-src": `（${ruby.text}）`,
   };
@@ -82,7 +160,7 @@ export function rubyAnnotationSpan(ruby, lineTop, styleClassFor) {
   return renderedElement("span", attributes, String(ruby.text));
 }
 
-function bopomofoToneInkWidthEm(text, fontWeight) {
+function bopomofoToneInkWidthEm(text: string, fontWeight: number) {
   const regular = text === "ˇ"
     ? BOPOMOFO_TONE_CARON_INK_WIDTH_EM_REGULAR
     : BOPOMOFO_TONE_SLASH_INK_WIDTH_EM_REGULAR;
@@ -93,7 +171,15 @@ function bopomofoToneInkWidthEm(text, fontWeight) {
   return regular + (semibold - regular) * t;
 }
 
-function bopomofoCssPlacement(text, role, fontWeight, boxLeft, boxTop, boxWidth, boxHeight) {
+function bopomofoCssPlacement(
+  text: string,
+  role: string,
+  fontWeight: number,
+  boxLeft: number,
+  boxTop: number,
+  boxWidth: number,
+  boxHeight: number,
+): BopomofoPlacementCss {
   if (role === "Symbol") {
     return { left: boxLeft, top: boxTop, fontSize: boxHeight, lineHeight: boxWidth };
   }
@@ -119,18 +205,24 @@ function bopomofoCssPlacement(text, role, fontWeight, boxLeft, boxTop, boxWidth,
   };
 }
 
-function bopomofoZoneLeft(placements) {
+function bopomofoZoneLeft(placements: BopomofoPlacement[]) {
   const symbol = placements.find((placement) => String(placement.role) === "Symbol");
   if (symbol) return Number(symbol.left) - Number(symbol.width) / 9;
   if (placements.length === 0) return 0;
   return Math.min(...placements.map((placement) => Number(placement.left)));
 }
 
-export function bopomofoAnnotationSpan(z, width, lineTop, lineHeight, styleClassFor) {
+export function bopomofoAnnotationSpan(
+  z: BopomofoZone,
+  width: number,
+  lineTop: number,
+  lineHeight: number,
+  styleClassFor: StyleClassResolver | null,
+): MarkupContainer {
   const fontWeight = Number(z.fontWeight);
   const families = Array.from(z.fontFamilies ?? [], String);
   const placements = Array.from(z.placements ?? []);
-  const attributes = {
+  const attributes: MarkupAttributes = {
     "data-tq-geometry": "true",
     "data-tq-src": `（${z.text}）`,
     lang: BOPOMOFO_LANG,
@@ -161,7 +253,7 @@ export function bopomofoAnnotationSpan(z, width, lineTop, lineHeight, styleClass
       Number(placement.width),
       Number(placement.height),
     );
-    const glyphAttributes = {
+    const glyphAttributes: MarkupAttributes = {
       "data-tq-geometry": "true",
       lang: BOPOMOFO_LANG,
     };
@@ -190,7 +282,7 @@ export function bopomofoAnnotationSpan(z, width, lineTop, lineHeight, styleClass
   return container;
 }
 
-function wavyLinePath(left, right, y, fontSize) {
+function wavyLinePath(left: number, right: number, y: number, fontSize: number) {
   const halfWave = Math.max(fontSize * WAVY_HALF_WAVE_EM, 1);
   const amplitude = fontSize * WAVY_AMPLITUDE_EM;
   const path = [`M ${left} ${y}`];
@@ -207,7 +299,7 @@ function wavyLinePath(left, right, y, fontSize) {
   return path.join("");
 }
 
-function overlayAttributes(width, height) {
+function overlayAttributes(width: number, height: number): MarkupAttributes {
   return {
     "aria-hidden": "true",
     "data-tq-copy-ignore": "true",
@@ -218,7 +310,11 @@ function overlayAttributes(width, height) {
 
 // Appends the engine-owned interlinear and emphasis overlays after the flow
 // content.
-export function appendEvidenceOverlays(nodes, plan, options = {}) {
+export function appendEvidenceOverlays(
+  nodes: MarkupNode[],
+  plan: EvidenceOverlayPlan,
+  options: EvidenceOverlayOptions = {},
+) {
   const segments = Array.from(plan.decorationSegments ?? []);
   const dots = Array.from(plan.emphasisDots ?? []);
   const emphasisDotColor = options.emphasisDotColor ?? null;

@@ -7,10 +7,34 @@
 import { DEFAULT_PARAGRAPH_SELECTOR, fragmentedBorderBoxInlineSize } from "./signatures.js";
 import { onDeclaredFacesChanged } from "./snapshot/declared-faces.js";
 
-export function createTypographyInvalidationSource(root, handlers) {
-  let observer = null;
-  let fontListener = null;
-  let declaredUnsubscribe = null;
+type EmptyCallback = () => void;
+type DeclaredFacesUnsubscribe = () => boolean;
+type FontEventCallback = (event: Event) => void;
+type MutationRecordsCallback = (records: MutationRecord[]) => void;
+type RootScopeMembershipCallback = (paragraph: Element, root: Element) => boolean;
+type CustodyParagraphCallback = (node: Node) => Element | null;
+type PendingRecordsCallback = () => MutationRecord[];
+type RootSizeEntryCallback = (entry: RootSizeEntry) => void;
+type RootSizeTargetsCallback = (targets: Element[]) => void;
+type RootSizeTargetCallback = (target: Element) => void;
+type RootVisibilityEntryCallback = (entry: RootVisibilityEntry) => void;
+
+export interface TypographyInvalidationHandlers {
+  onMutation: EmptyCallback;
+  onFontEvent: FontEventCallback;
+  onDeclaredFacesChanged?: EmptyCallback;
+}
+
+export interface TypographyInvalidationSource {
+  kind: "typography";
+  start: EmptyCallback;
+  stop: EmptyCallback;
+}
+
+export function createTypographyInvalidationSource(root: Element, handlers: TypographyInvalidationHandlers): TypographyInvalidationSource {
+  let observer: MutationObserver | null = null;
+  let fontListener: EventListener | null = null;
+  let declaredUnsubscribe: DeclaredFacesUnsubscribe | null = null;
 
   return {
     kind: "typography",
@@ -60,9 +84,14 @@ export function createTypographyInvalidationSource(root, handlers) {
   };
 }
 
-export function createLayoutWorkTypographyInvalidationSource(root, handlers) {
-  let observer = null;
-  let fontListener = null;
+export interface LayoutWorkTypographyInvalidationHandlers {
+  onMutation: MutationRecordsCallback;
+  onFontEvent: FontEventCallback;
+}
+
+export function createLayoutWorkTypographyInvalidationSource(root: Element, handlers: LayoutWorkTypographyInvalidationHandlers): TypographyInvalidationSource {
+  let observer: MutationObserver | null = null;
+  let fontListener: EventListener | null = null;
 
   return {
     kind: "typography",
@@ -99,8 +128,18 @@ export function createLayoutWorkTypographyInvalidationSource(root, handlers) {
   };
 }
 
-export function createViewportResizeInvalidationSource(handlers) {
-  let listener = null;
+export interface ViewportResizeInvalidationHandlers {
+  onResize: EmptyCallback;
+}
+
+export interface ViewportResizeInvalidationSource {
+  kind: "geometry";
+  start: EmptyCallback;
+  stop: EmptyCallback;
+}
+
+export function createViewportResizeInvalidationSource(handlers: ViewportResizeInvalidationHandlers): ViewportResizeInvalidationSource {
+  let listener: EventListener | null = null;
 
   return {
     kind: "geometry",
@@ -119,18 +158,36 @@ export function createViewportResizeInvalidationSource(handlers) {
   };
 }
 
-export function createContentInvalidationSource(root, handlers) {
-  let observer = null;
-  const custodyTargets = new Map();
+export interface ContentInvalidationHandlers {
+  belongsToRootScope: RootScopeMembershipCallback;
+  onRecords: MutationRecordsCallback;
+}
+
+export interface ParagraphWithCustodyFragment extends Element {
+  __tqCustodyFragment?: DocumentFragment;
+}
+
+export interface ContentInvalidationSource {
+  kind: "content";
+  start: EmptyCallback;
+  stop: EmptyCallback;
+  syncCustody: EmptyCallback;
+  paragraphFor: CustodyParagraphCallback;
+  takePendingRecords: PendingRecordsCallback;
+}
+
+export function createContentInvalidationSource(root: Element, handlers: ContentInvalidationHandlers): ContentInvalidationSource {
+  let observer: MutationObserver | null = null;
+  const custodyTargets = new Map<DocumentFragment, Element>();
 
   // Attribution for a record under a custody fragment: walk up to the
   // enclosing detached fragment and map it back to its live paragraph. Live
   // nodes never reach a DocumentFragment ancestor, so the walk is safe there.
-  function paragraphFor(node) {
-    let current = node;
+  function paragraphFor(node: Node) {
+    let current: Node | null = node;
     while (current) {
       if (current.nodeType === 11) {
-        return custodyTargets.get(current) || null;
+        return custodyTargets.get(current as DocumentFragment) || null;
       }
       current = current.parentNode;
     }
@@ -146,14 +203,14 @@ export function createContentInvalidationSource(root, handlers) {
   // fragment, so diff the desired set at every job boundary and re-target the
   // observer only when it changed.
   function syncCustody() {
-    const desired = new Map();
+    const desired = new Map<DocumentFragment, Element>();
     const paragraphs = root.querySelectorAll(
       `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
     );
     for (let i = 0; i < paragraphs.length; i++) {
       const paragraph = paragraphs[i];
       if (!handlers.belongsToRootScope(paragraph, root)) continue;
-      const fragment = paragraph.__tqCustodyFragment;
+      const fragment = (paragraph as ParagraphWithCustodyFragment).__tqCustodyFragment;
       if (fragment) desired.set(fragment, paragraph);
     }
     let unchanged = desired.size === custodyTargets.size;
@@ -169,12 +226,12 @@ export function createContentInvalidationSource(root, handlers) {
     // Pending records from the outgoing target set still count. Flush them
     // through the handler first, or a host edit landing in the same frame
     // would be dropped together with the old registration.
-    const pending = observer.takeRecords();
+    const pending = observer!.takeRecords();
     if (pending.length) handlers.onRecords(pending);
-    observer.disconnect();
-    observer.observe(root, { childList: true, characterData: true, subtree: true });
+    observer!.disconnect();
+    observer!.observe(root, { childList: true, characterData: true, subtree: true });
     for (const fragment of desired.keys()) {
-      observer.observe(fragment, { childList: true, characterData: true, subtree: true });
+      observer!.observe(fragment, { childList: true, characterData: true, subtree: true });
     }
     custodyTargets.clear();
     for (const [fragment, paragraph] of desired) custodyTargets.set(fragment, paragraph);
@@ -202,21 +259,36 @@ export function createContentInvalidationSource(root, handlers) {
   };
 }
 
+export interface ContentMutationClassificationContext {
+  custodyParagraphFor: CustodyParagraphCallback;
+  belongsToRootScope: RootScopeMembershipCallback;
+  root: Element;
+}
+
+export interface ContentMutationClassification {
+  taintedParagraphs: Element[];
+  paragraphSignal: boolean;
+  structureSignal: boolean;
+}
+
 // Stateless per-record classification for the content invalidation source.
 // The element supplies the custody attribution, the root-scope membership
 // test and the root; everything here is a pure decision over the records.
-export function classifyContentMutationRecords(records, context) {
+export function classifyContentMutationRecords(
+  records: MutationRecord[],
+  context: ContentMutationClassificationContext,
+): ContentMutationClassification {
   let paragraphSignal = false;
   let structureSignal = false;
-  const taintedParagraphs = [];
+  const taintedParagraphs: Element[] = [];
   for (let i = 0; i < records.length; i++) {
     const record = records[i];
     // EnginePreparedStyleWritesAreNotContent: the prepared-dom renderer
     // rewrites its own <style data-tq-prepared-value-styles> text content on
     // every commit. Those records are engine output, never a host signal.
-    const recordElement = record.type === "characterData"
+    const recordElement: Element | null = record.type === "characterData"
       ? record.target.parentElement
-      : record.target;
+      : (record.target as Element);
     if (recordElement?.closest?.("[data-tq-prepared-value-styles]")) continue;
     const custodyParagraph = context.custodyParagraphFor(record.target);
     if (custodyParagraph) {
@@ -248,8 +320,29 @@ export function classifyContentMutationRecords(records, context) {
   return { taintedParagraphs, paragraphSignal, structureSignal };
 }
 
-export function createRootSizeObservation(options) {
-  let observer = null;
+export interface RootSizeEntry {
+  width: number;
+  height: number;
+}
+
+export interface RootSizeObservationOptions {
+  widths: WeakMap<Element, number>;
+  onRootEntry: RootSizeEntryCallback;
+  onWidthsChanged: EmptyCallback;
+  root: Element;
+}
+
+export interface RootSizeObservationSource {
+  kind: "geometry";
+  readonly widths: WeakMap<Element, number>;
+  start: RootSizeTargetsCallback;
+  observe: RootSizeTargetCallback;
+  unobserve: RootSizeTargetCallback;
+  stop: EmptyCallback;
+}
+
+export function createRootSizeObservation(options: RootSizeObservationOptions): RootSizeObservationSource {
+  let observer: ResizeObserver | null = null;
   const { widths, onRootEntry, onWidthsChanged, root } = options;
 
   return {
@@ -299,8 +392,26 @@ export function createRootSizeObservation(options) {
   };
 }
 
-export function createRootVisibilityObservation(root, handlers) {
-  let observer = null;
+export interface RootVisibilityHandlers {
+  onRootEntry: RootVisibilityEntryCallback;
+}
+
+export interface RootVisibilityEntry {
+  isIntersecting: boolean;
+  intersectionRatio: number;
+  visibleArea: number;
+  inlineSize: number;
+  area: number;
+}
+
+export interface RootVisibilityObservationSource {
+  kind: "geometry";
+  start: EmptyCallback;
+  stop: EmptyCallback;
+}
+
+export function createRootVisibilityObservation(root: Element, handlers: RootVisibilityHandlers): RootVisibilityObservationSource {
+  let observer: IntersectionObserver | null = null;
 
   return {
     kind: "geometry",
@@ -313,7 +424,7 @@ export function createRootVisibilityObservation(root, handlers) {
             const rect = entry.boundingClientRect;
             const interRect = entry.intersectionRect;
             const visibleArea = interRect ? interRect.width * interRect.height : 0;
-            const fact = {
+            const fact: RootVisibilityEntry = {
               isIntersecting: entry.isIntersecting,
               intersectionRatio: entry.intersectionRatio || (entry.isIntersecting ? 1.0 : 0.0),
               visibleArea,
