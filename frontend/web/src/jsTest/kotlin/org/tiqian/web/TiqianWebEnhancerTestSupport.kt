@@ -92,8 +92,6 @@ internal external fun cancelledTestAnimationFrameCount(): Int
 internal external fun scheduledTestIdleCallbackCount(): Int
 @JsFun("(value) => { if (globalThis.__TiqianTestAnimationFrames) globalThis.__TiqianTestAnimationFrames.idleBudget = value; }")
 internal external fun setTestIdleCallbackBudget(value: Int)
-@JsFun("() => window.dispatchEvent(new Event('scroll'))")
-internal external fun dispatchTestProgressiveScroll()
 @JsFun(
     """() => {
       var tqPreviousWarnCapture = globalThis.__TiqianTestConsoleWarnCapture;
@@ -121,16 +119,8 @@ private external fun capturedTestConsoleWarnings(): String
     }""",
 )
 private external fun restoreTestConsoleWarnCapture()
-@JsFun(
-    """(element, top, width) => {
-      element.getBoundingClientRect = () => new DOMRect(0, top, width, 30);
-    }""",
-)
-internal external fun setElementRect(element: HTMLElement, top: Double, width: Double)
 @JsFun("(event) => event.detail && event.detail.stale === true")
 internal external fun relayoutEventIsStale(event: Event): Boolean
-@JsFun("(event, name) => Number(event.detail && event.detail[name])")
-internal external fun eventDetailInt(event: Event, name: String): Int
 @JsFun(
     """() => {
       var tqRestoreFrameState = globalThis.__TiqianTestAnimationFrames;
@@ -762,92 +752,6 @@ private external fun installDefaultPreparedDomFixtureBridge()
 internal fun installDefaultPreparedDomFixture() {
     installDefaultPreparedDomFixtureBridge()
 }
-internal fun installExactFontSessionFixture(
-    failShaping: Boolean,
-    failFamily: String? = null,
-    failText: String? = null,
-    varyFaceByText: Boolean = false,
-) {
-    installExactFontSessionFixtureBridge(failShaping, failFamily, failText, varyFaceByText)
-}
-@JsFun(
-    """(failShaping, failFamily, failText, varyFaceByText) => {
-      const shapes = new Map();
-      const metrics = new Map();
-      let nextHandle = 1;
-      globalThis.__TiqianPreparedFixtureOverride = false;
-      if (globalThis.__TiqianInstallDefaultPreparedFixture) {
-        globalThis.__TiqianInstallDefaultPreparedFixture();
-      }
-      globalThis.__TiqianExactFontShapeCount = 0;
-      globalThis.__TiqianExactFontFallbackCount = 0;
-      globalThis.__TiqianFontBackend = {
-        shape(_session, displayText, families, fontSize, _fontWeight, _italic, _locale, role) {
-          if (failShaping ||
-              (failFamily && String(families).includes(failFamily)) ||
-              (failText && String(displayText).includes(failText))) {
-            globalThis.__TiqianExactFontFallbackCount += 1;
-            throw new Error("NoExactFontFace:test");
-          }
-          globalThis.__TiqianExactFontShapeCount += 1;
-          const handle = nextHandle++;
-          const glyphs = [];
-          let glyphIndex = 0;
-          for (const _point of displayText) {
-            glyphs.push({
-              id: 100 + glyphIndex,
-              advance: fontSize,
-              x: glyphIndex * fontSize,
-              y: 0,
-              bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
-            });
-            glyphIndex++;
-          }
-          const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
-            ? ["pwid", "palt"]
-            : [];
-          shapes.set(handle, {
-            glyphs,
-            advance: glyphs.length * fontSize,
-            features,
-            faceId: varyFaceByText ? `Fixture CJK:${'$'}{displayText}` : "Fixture CJK",
-          });
-          return handle;
-        },
-        shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-        shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-        shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-        shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-        shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-        shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-        shapeAdvance: (handle) => shapes.get(handle).advance,
-        shapeFaceId: (handle) => shapes.get(handle).faceId,
-        shapeFontInstanceId: () => "fixture:0:default",
-        shapeScript: () => "Hani",
-        shapeFeatureCount: (handle) => shapes.get(handle).features.length,
-        shapeFeature: (handle, index) => shapes.get(handle).features[index],
-        shapeUnsafeBreakCount: () => 0,
-        releaseShape: (handle) => shapes.delete(handle),
-        metrics(_session, families, fontSize) {
-          if (failShaping || (failFamily && String(families).includes(failFamily))) {
-            globalThis.__TiqianExactFontFallbackCount += 1;
-            throw new Error("NoExactFontFace:test");
-          }
-          const handle = nextHandle++;
-          metrics.set(handle, [fontSize, fontSize * 0.25, 0, fontSize * 0.88, fontSize * 0.12]);
-          return handle;
-        },
-        metricValue: (handle, index) => metrics.get(handle)[index],
-        releaseMetrics: (handle) => metrics.delete(handle),
-      };
-    }""",
-)
-private external fun installExactFontSessionFixtureBridge(
-    failShaping: Boolean,
-    failFamily: String?,
-    failText: String?,
-    varyFaceByText: Boolean,
-)
 @JsFun("() => globalThis.__TiqianExactFontShapeCount || 0")
 internal external fun exactFontShapeCount(): Int
 @JsFun("() => globalThis.__TiqianExactFontFallbackCount || 0")
@@ -868,150 +772,6 @@ internal external fun failExactPreparedDomValidation(detail: String)
     }""",
 )
 internal external fun failNextExactPreparedDomValidation(detail: String)
-@JsFun("(detail) => { globalThis.__TiqianPreparedFixtureOverride = true; globalThis.__TiqianPreparedDomRenderer = { schema: 1, layoutRevision: \"tiqian-layout-v2\", render() { throw new Error(detail); }, release() { return true; }, releaseRoot() { return true; } }; }")
-internal external fun failExactPreparedDomRender(detail: String)
-@JsFun("() => globalThis.__TiqianExactPreparedPlan || ''")
-internal external fun exactPreparedPlan(): String
-@JsFun("(index) => globalThis.__TiqianExactPreparedPlans[index] || ''")
-internal external fun exactPreparedPlanAt(index: Int): String
-@JsFun("() => globalThis.__TiqianExactPreparedRenderCount || 0")
-internal external fun exactPreparedRenderCount(): Int
-@JsFun("() => JSON.stringify(globalThis.__TiqianExactPreparedSemantics || [])")
-internal external fun exactPreparedSemanticsJson(): String
-@JsFun("() => JSON.stringify(globalThis.__TiqianExactPreparedCjkStrong || [])")
-internal external fun exactPreparedCjkStrongJson(): String
-@JsFun(
-    "() => JSON.stringify((globalThis.__TiqianExactPreparedInlineObjects || []).map(" +
-        "function (entry) { return { start: entry.start, end: entry.end, marginRight: entry.marginRight, " +
-        "tag: entry.element ? entry.element.tagName.toLowerCase() : null }; }))",
-)
-internal external fun exactPreparedInlineObjectsJson(): String
-@JsFun("(request) => JSON.parse(request).maxWidthPx")
-internal external fun jsonMaxWidthPx(request: String): Double
-@JsFun("(request) => JSON.parse(request).inlineObjects || ''")
-internal external fun jsonInlineObjects(request: String): String
-
-internal fun exactWorkerRequestInlineObjects(root: HTMLElement, paragraph: HTMLElement): String {
-    val request = TiqianWeb.workerLayoutRequest(
-        root,
-        paragraph,
-        TiqianWeb.EnhanceOptions(
-            exactFontSession = TiqianWeb.ExactFontSessionCapability(
-                status = "conforming",
-                sessionId = "fixture-grid-session",
-                detail = "test",
-            ),
-        ),
-    ) ?: error("worker layout request must succeed for a conforming exact session")
-    return jsonInlineObjects(request)
-}
-
-internal fun exactWorkerRequestMaxWidth(root: HTMLElement, paragraph: HTMLElement): Double {
-    val request = TiqianWeb.workerLayoutRequest(
-        root,
-        paragraph,
-        TiqianWeb.EnhanceOptions(
-            exactFontSession = TiqianWeb.ExactFontSessionCapability(
-                status = "conforming",
-                sessionId = "fixture-grid-session",
-                detail = "test",
-            ),
-        ),
-    ) ?: error("worker layout request must succeed for a conforming exact session")
-    return jsonMaxWidthPx(request)
-}
-@JsFun("(detail) => { globalThis.__TiqianLayoutWorker = { take: () => null, issue: () => detail }; }")
-internal external fun installPreparedWorkerIssue(detail: String)
-@JsFun(
-    """() => {
-      globalThis.__TiqianLayoutWorker = {
-        take(_element, _sessionKey, requestText) {
-          const request = JSON.parse(requestText);
-          const semantics = Array.from(request.semantics || [], function (semantic, sourceIndex) {
-            return {
-              start: semantic.start,
-              end: semantic.end,
-              tagName: semantic.tagName,
-              sourceIndex: Number.isSafeInteger(semantic.sourceIndex)
-                ? semantic.sourceIndex
-                : sourceIndex,
-              order: Number.isSafeInteger(semantic.order) ? semantic.order : sourceIndex,
-            };
-          }).sort(function (left, right) {
-            return left.start - right.start || right.end - left.end || left.order - right.order;
-          }).map(function (semantic) {
-            return {
-              start: semantic.start,
-              end: semantic.end,
-              tagName: semantic.tagName,
-              sourceIndex: semantic.sourceIndex,
-            };
-          });
-          // WorkerLivePlanEcho: the fixture lays the request text out as one
-          // line of uniform-width clusters, honoring inline-object geometry,
-          // so the prepared renderer exercises real cells and ranges.
-          const text = String(request.text || "");
-          const charWidth = Number(request.fontSizePx) || 18;
-          const lineHeight = Number(request.lineHeightPx) || 30;
-          const indent = (Number(request.firstLineIndentIc) || 0) * charWidth;
-          const inlineGeometry = {};
-          for (const record of String(request.inlineObjects || "").split("\\u001e")) {
-            if (!record) continue;
-            const fields = record.split("\\u001d");
-            inlineGeometry[fields[0] + "-" + fields[1]] = Number(fields[2]) || charWidth;
-          }
-          const cells = [];
-          let drawX = indent;
-          let index = 0;
-          while (index < text.length) {
-            const code = text.codePointAt(index);
-            const size = code >= 0x10000 ? 2 : 1;
-            const key = index + "-" + (index + size);
-            const naturalWidth = inlineGeometry[key] != null ? inlineGeometry[key] : charWidth;
-            cells.push({
-              rangeStart: index,
-              rangeEnd: index + size,
-              source: text.slice(index, index + size),
-              display: text.slice(index, index + size),
-              drawX: drawX,
-              naturalWidth: naturalWidth,
-              leadingLayoutAdvance: 0,
-            });
-            drawX += naturalWidth;
-            index += size;
-          }
-          const plan = {
-            schema: 1,
-            height: lineHeight,
-            lines: cells.length
-              ? [{
-                  rangeStart: 0,
-                  rangeEnd: text.length,
-                  endReason: "ParagraphEnd",
-                  indent: indent,
-                  visualWidth: drawX - indent,
-                  hyphenAdvance: 0,
-                  top: 0,
-                  bottom: lineHeight,
-                  baseline: lineHeight - 6,
-                  cells: cells,
-                }]
-              : [],
-          };
-          return JSON.stringify({
-            plan: plan,
-            semanticReplay: "live-source",
-            semantics,
-            inlineBoxes: request.renderInlineBoxes || [],
-          });
-        },
-        issue: () => null,
-      };
-    }""",
-)
-internal external fun installPreparedWorkerLivePlan()
-@JsFun("() => { delete globalThis.__TiqianFontBackend; delete globalThis.__TiqianPreparedDomRenderer; delete globalThis.__TiqianPreparedDomValidator; delete globalThis.__TiqianPreparedFixtureOverride; delete globalThis.__TiqianLayoutWorker; delete globalThis.__TiqianExactPreparedPlan; delete globalThis.__TiqianExactPreparedPlans; delete globalThis.__TiqianExactPreparedSemantics; delete globalThis.__TiqianExactPreparedCjkStrong; delete globalThis.__TiqianExactPreparedSemanticElements; delete globalThis.__TiqianExactPreparedInlineObjects; delete globalThis.__TiqianExactPreparedRenderCount; delete globalThis.__TiqianExactFontShapeCount; delete globalThis.__TiqianExactFontFallbackCount; }")
-internal external fun clearExactFontSessionFixture()
 internal fun dispatchEnhanceWithoutOptions(root: HTMLElement) {
     TiqianWeb.enhance(root)
 }
@@ -1023,8 +783,6 @@ internal fun dispatchEnhanceWithStrongAsEmphasisMarks(root: HTMLElement) {
 internal fun dispatchRelayout(root: HTMLElement) {
     TiqianWeb.relayout(root)
 }
-@JsFun("(element, type) => element.dispatchEvent(new Event(type))")
-private external fun dispatchDomEvent(element: HTMLElement, type: String)
 @JsFun(
     """(element) => {
       const selection = getSelection();
@@ -1044,24 +802,6 @@ private external fun dispatchDomEvent(element: HTMLElement, type: String)
     }""",
 )
 internal external fun copySelection(element: HTMLElement): String
-@JsFun(
-    """(element) => {
-      const selection = getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      const event = new ClipboardEvent('copy', {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: new DataTransfer()
-      });
-      element.dispatchEvent(event);
-      selection.removeAllRanges();
-      return event.defaultPrevented;
-    }""",
-)
-internal external fun copySelectionWasIntercepted(element: HTMLElement): Boolean
 @JsFun("(element) => element.innerText")
 internal external fun nativeInnerText(element: HTMLElement): String
 @JsFun(
@@ -1101,29 +841,6 @@ internal external fun lastTextLeaf(paragraph: HTMLElement): HTMLElement?
 )
 internal external fun geometryLeafWithText(paragraph: HTMLElement, text: String): HTMLElement?
 @JsFun(
-    """(paragraph) => {
-      const rects = [];
-      const visit = (node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          if (!node.data || (node.parentElement && node.parentElement.closest('[data-tq-copy-ignore]'))) return;
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          for (const rect of range.getClientRects()) {
-            if (rect.width || rect.height) rects.push(rect);
-          }
-          return;
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE || node.hasAttribute('data-tq-copy-ignore')) return;
-        for (const child of node.childNodes) visit(child);
-      };
-      for (const child of paragraph.childNodes) visit(child);
-      if (!rects.length) return 0;
-      return Math.max(...rects.map((rect) => rect.right)) -
-        Math.min(...rects.map((rect) => rect.left));
-    }""",
-)
-internal external fun renderedSingleLineFlowWidth(paragraph: HTMLElement): Float
-@JsFun(
     """(element) => {
       const node = element.firstChild;
       if (!node || node.nodeType !== Node.TEXT_NODE) return '';
@@ -1153,23 +870,10 @@ internal external fun computedStyleValue(element: HTMLElement, property: String)
 internal external fun computedPseudoContent(element: HTMLElement, pseudo: String): String
 @JsFun("(element, property) => getComputedStyle(element).getPropertyValue(property)")
 internal external fun computedStyleValueElement(element: Element, property: String): String
-@JsFun(
-    """(container, target) => {
-      const range = document.createRange();
-      range.selectNodeContents(container);
-      const selected = range.getBoundingClientRect();
-      const expected = target.getBoundingClientRect();
-      return selected.left <= expected.left + 0.1 && selected.right >= expected.right - 0.1;
-    }""",
-)
-internal external fun selectionCoversElement(container: HTMLElement, target: HTMLElement): Boolean
 @JsFun("(element) => element.getBoundingClientRect().width")
 internal external fun elementWidth(element: HTMLElement): Double
 @JsFun("(element) => Array.from(element.getClientRects()).filter((rect) => rect.width > 0).map((rect) => rect.width)")
 internal external fun elementFragmentWidths(element: HTMLElement): Array<Double>
-
-internal fun Char.isCurlyQuoteForWebTest(): Boolean =
-    this == '\u2018' || this == '\u2019' || this == '\u201C' || this == '\u201D'
 
 internal fun assertEnginePunctuationFeatureLock(
     element: HTMLElement,

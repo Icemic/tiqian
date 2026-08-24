@@ -24,14 +24,6 @@ internal fun testOptions(): TiqianWeb.EnhanceOptions =
         lineHeight = 30f,
     )
 
-internal fun exactTestOptions(): TiqianWeb.EnhanceOptions = TiqianWeb.EnhanceOptions(
-    paragraphSelector = "p[data-tq-snapshot-key]",
-    exactFontSession = TiqianWeb.ExactFontSessionCapability(
-        status = "conforming",
-        sessionId = "fixture-exact-session",
-        detail = "test",
-    ),
-)
 
 internal val enginePunctuationFeatureStyle: String
     get() = """
