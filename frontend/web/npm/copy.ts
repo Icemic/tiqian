@@ -4,4 +4,6 @@
 // historical import surface working.
 import "@tiqian/prose-core/core/utils/copy.js";
 
-export const installTiqianCopyHandler = globalThis.__TiqianInstallCopyHandler;
+type TiqianCopyHandler = (documentObject?: Document) => void;
+
+export const installTiqianCopyHandler: TiqianCopyHandler | undefined = globalThis.__TiqianInstallCopyHandler;
