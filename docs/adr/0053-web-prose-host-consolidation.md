@@ -1016,6 +1016,37 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   compileKotlinJs 与 jsBrowserTest（92/92）通过。执行经 外部委托（实现删除）
   与 外部委托（套件验证与测试删除）两路并行委托，复核 diff 后补删规格
   范围外的零引用成员。
+  进度（Slice 5，2026-08-24）：6fd90cf、70f269a。npm-core 新增
+  core/engine/root-state.js（globalThis.__TiqianRootState：WeakMap 状态表与
+  DetachedRootWeakOwnership、createRootState 自 bag 起点的解析链与快照
+  准入门、createRootStateFromCanonical 供已解析选项再入、engineState 十字段
+  描述符与 processParagraph/session/prepare 三个参数构建器、
+  paragraphCandidates 的 RuntimeEligibleMeasureSet 过滤、
+  strandedSourceParagraphs、publishState 三分支与属性维护、
+  disableExactPreparedDom 幂等降级；monospace 族按 canvas-fonts.js 的键名
+  以 latinMonospace 传入）与 root-state.test.mjs（7 例）；
+  core/engine/progressive-drivers.js（globalThis.__TiqianProgressiveDrivers：
+  enhanceProgressively 的工作序按（距离，索引）双键排序、逐项 measure 守卫、
+  StaleFinishKeepsCommittedParagraphs、SharedRuntimeStylesCapabilityGate、
+  relayout 四分支含 WidthDependentCapabilityTransitionRetry 与
+  StrandedEnhanceResume、WidthSnapshotPerRelayoutJob 的宽度快照与 0.5px
+  漂移判定、startProgressiveJob 规格与 finish/fail 收尾上报层）与
+  progressive-drivers.test.mjs（20 例）。两处设计决定随本切片固化：其一，
+  relayout 分支一与分支三以已解析 options 再入 enhance 驱动时走
+  createRootStateFromCanonical，bag 形状不再经 optionsFromJs 二次解析；其二，
+  驱动层不含 destroy 语义，Kotlin enhanceProgressively 入口先 destroy 再
+  重建的次序由 Slice 6 的引擎入口负责。npm-core 全套 392 例、npm 侧
+  progressive/custody/timing-golden 18 例通过。jsTest 侧先验证上述 TS 套件
+  覆盖，再删 TiqianWebProgressiveRelayoutTest.kt（25 个测试，974 行）与
+  TiqianWebEnhancerTestSupport.kt、TiqianWebEnhancerTestFixtures.kt 里仅被
+  该文件引用的辅助成员 304 行（删除后零引用，逐一 grep 验证）；
+  jsBrowserTest 67/67 通过。实现经 外部委托（root-state）与 外部委托（驱动）
+  两路并行委托，复核驱动初版 16/20 后修复三处测试装配（假元素
+  rect 读取、ResponsiveMeasure 全局缺省、measures 序列缺 live 采样）与
+  一处实现缺陷（canonical 再入误走 bag 解析），并补删委托规格范围外的
+  零引用辅助簇。demo/web 基线同步复核：33/35 稳定通过，
+  NpmPublishedVsDev 在下次 @tiqian/prose 发布前按设计保持失败，
+  OneShotEquivalence 失败原因已另档记录（增量通道不刷新 dash 能力属性）。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
