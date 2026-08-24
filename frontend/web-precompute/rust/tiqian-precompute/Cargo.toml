@@ -10,7 +10,7 @@ edition.workspace = true
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tiqian_engine_link)'] }
 
 [dependencies]
-tiqian = { path = "../../../ffi/rust/tiqian", version = "0.1.0" }
+tiqian = { path = "../../../../ffi/rust/tiqian", version = "0.1.0" }
 harfrust = "0.13"
 skrifa = "0.46"
 read-fonts = "0.43"
