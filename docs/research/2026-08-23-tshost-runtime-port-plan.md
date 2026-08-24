@@ -115,6 +115,30 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
   - 与 `ffi/js` 的线格式解析进行往返比对测试。
 - **风险**：分隔符（`\u001e`, `\u001d`, `\u001f`）及转义字符处理必须与 `ParagraphWireFace` 完全一致。
 
+执行时本切片拆成三个子片（2026-08-23 记录）：
+
+1. **3a 元数据构建器**：`preparedSemanticReplayJson` 等三个函数进
+   `lowered-paragraph.js`（ES module，消费者是宿主安装的 prepared 渲染桥，终点形态
+   不经 Kotlin 运行时）。已提交 d187ad9。
+2. **3b 请求序列化**：`workerLayoutRequestJson` 与第二重载
+   `workerLayoutRequest(paragraph, lowered, options)` 进
+   `core/engine/worker-request.js`（普通脚本安装 `globalThis.__TiqianWorkerRequest`，
+   与 lifecycle.js 同风格：Slice 4 的管线模块由 Kotlin 侧驱动到 Slice 6，嵌入约束
+   要求自包含）。第一重载 `(root, paragraph, options)` 不随本片移植：其 `lower()`
+   调用向降级引擎注入 Kotlin 分类器回调，随 Slice 4 的管线接线移植。
+3. **3c/3d ffi 导出面预备**：Slice 4 的 TS 管线需要两类引擎侧能力经 `@tiqian/ffi`
+   进入 TS。3c 导出降级辅助回调（`classifyFontRole`、
+   `unsupportedInlineShapingProperties`、`firstDivergentInlineShapingProperty`），
+   字体模块保持唯一实现。3d 为 `precomputeParagraphWithDiagnostics`：同一组入参加
+   `zeroAdvanceEpsilonPx`，返回 `{"plan":"<转义后的 plan JSON>","diagnostics":{...}}`；
+   diagnostics 只携带事实（capabilityIssue 非空的 shaping 决策的 name/reason/range，
+   与按宿主阈值筛出的可疑 advance 决策的 displayText/advance/reason/range，advance
+   一律按字符串输出以容纳 NaN/Infinity），三项核对判定仍归宿主；克隆装饰跨行计数
+   不进 diagnostics，plan JSON 的 lines 段已带 `rangeStart`/`rangeEnd`。RootState 的
+   engine 三元组映射为会话描述（exact session id 或浏览器度量后端），逐 run 回退
+   由宿主捕获能力失败 detail 后换后端重试实现，等价于
+   `ExactSessionBrowserFallback*` 两个包装类。
+
 ### Slice 4：Paragraph Pipeline 布局准备与提交管线
 - **范围**：
   - 在 TypeScript 侧实现 `prepareParagraphLayout`：集成 `LineBreaker`、度量解析器与 TextShaper，执行 shaping 决策核对、advance 校验与克隆装饰跨行拦截。
