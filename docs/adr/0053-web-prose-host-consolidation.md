@@ -927,6 +927,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   Mismatch）；渲染包在 __tqCustodyEngineWrites 计数窗口内，planJson 直接取
   准备裁决（六集合判定已经由准备步骤传入，与 Kotlin 提交时再序列化的结果
   一致）。10 例单测；npm-core 338 例、ts-discipline 通过。
+  进度（Slice 4b 第五批与 4d-1，2026-08-23）：406d5f6、6f44c64。worker
+  请求 JSON 在 inlineObjects 之后携带 renderEvidence 六集合判定，layout
+  worker 原样转发为 ffi 尾参（旧宿主缺字段时 undefined 落到可空参数为
+  null，wire 判定兜底，双向版本偏斜安全；仓库内 ffi 调试副本已随 65de4fc
+  重建，npm-core canary 全量走新签名）。npm-core 新增 process-paragraph.js：
+  processParagraph 与 layoutParagraph 分发的 TS 编排模块，按 Kotlin 89-264
+  逐步移植——eligibility、样式捕获、降级（DomLoweringFailure 与
+  UnsupportedParagraph 两条失败路径）、custody begin 十四参、
+  applyConfiguredHostFontSize、activeOptions、worker 请求与 plan/issue、
+  canUseRichBrowserFallback、exact worker 门（style 属性还原）、take 与
+  stabilize、rendered/runtime-render-font、commit、worker 与直连两条 commit
+  分发、失败 restoreParagraph；三个 prepared 元数据 JSON 构建器与降级
+  helpers 以内联孪生进入模块（ESM 源不可 import）；issue 对象补 element
+  与 reportToConsole 缺省（reportIssue 读这两个字段，等价 Kotlin
+  CapabilityIssue 缺省）。12 例单测；npm-core 352 例、ts-discipline 通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
