@@ -89,6 +89,69 @@ val generateMarkdownLoweringBridge = registerBridgeGenerator(
     installFunName = "installEmbeddedMarkdownLoweringScript",
 )
 
+val generateLifecycleBridge = registerBridgeGenerator(
+    taskName = "generateLifecycleBridge",
+    name = "lifecycleBridge",
+    sourceRelativePath = "npm-core/core/engine/lifecycle.js",
+    installFunName = "installEmbeddedLifecycleScript",
+)
+
+val generateWorkerRequestBridge = registerBridgeGenerator(
+    taskName = "generateWorkerRequestBridge",
+    name = "workerRequestBridge",
+    sourceRelativePath = "npm-core/core/engine/worker-request.js",
+    installFunName = "installEmbeddedWorkerRequestScript",
+)
+
+val generatePrepareParagraphLayoutBridge = registerBridgeGenerator(
+    taskName = "generatePrepareParagraphLayoutBridge",
+    name = "prepareParagraphLayoutBridge",
+    sourceRelativePath = "npm-core/core/engine/prepare-paragraph-layout.js",
+    installFunName = "installEmbeddedPrepareParagraphLayoutScript",
+)
+
+val generateCommitPreparedParagraphBridge = registerBridgeGenerator(
+    taskName = "generateCommitPreparedParagraphBridge",
+    name = "commitPreparedParagraphBridge",
+    sourceRelativePath = "npm-core/core/engine/commit-prepared-paragraph.js",
+    installFunName = "installEmbeddedCommitPreparedParagraphScript",
+)
+
+val generateProcessParagraphBridge = registerBridgeGenerator(
+    taskName = "generateProcessParagraphBridge",
+    name = "processParagraphBridge",
+    sourceRelativePath = "npm-core/core/engine/process-paragraph.js",
+    installFunName = "installEmbeddedProcessParagraphScript",
+)
+
+val generateCanvasFontsBridge = registerBridgeGenerator(
+    taskName = "generateCanvasFontsBridge",
+    name = "canvasFontsBridge",
+    sourceRelativePath = "npm-core/core/engine/canvas-fonts.js",
+    installFunName = "installEmbeddedCanvasFontsScript",
+)
+
+val generateCanvasMetricsBridge = registerBridgeGenerator(
+    taskName = "generateCanvasMetricsBridge",
+    name = "canvasMetricsBridge",
+    sourceRelativePath = "npm-core/core/engine/canvas-metrics.js",
+    installFunName = "installEmbeddedCanvasMetricsScript",
+)
+
+val generateCanvasShapingBridge = registerBridgeGenerator(
+    taskName = "generateCanvasShapingBridge",
+    name = "canvasShapingBridge",
+    sourceRelativePath = "npm-core/core/engine/canvas-shaping.js",
+    installFunName = "installEmbeddedCanvasShapingScript",
+)
+
+val generateBrowserMetricsBridge = registerBridgeGenerator(
+    taskName = "generateBrowserMetricsBridge",
+    name = "browserMetricsBridge",
+    sourceRelativePath = "npm-core/core/engine/browser-metrics-bridge.js",
+    installFunName = "installEmbeddedBrowserMetricsBridgeScript",
+)
+
 // DemoPreparedDomVendor: the ADR 0039 demo page loads only the Kotlin bundle,
 // so after the native renderer's retirement (ADR 0053 B8.3c) it must serve
 // the npm prepared-DOM renderer itself. The five modules are copied with
@@ -132,6 +195,15 @@ kotlin {
             kotlin.srcDir(layout.buildDirectory.dir("generated/contentReconcile/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/responsiveMeasure/kotlin"))
             kotlin.srcDir(layout.buildDirectory.dir("generated/markdownLowering/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/lifecycleBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/workerRequestBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/prepareParagraphLayoutBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/commitPreparedParagraphBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/processParagraphBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/canvasFontsBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/canvasMetricsBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/canvasShapingBridge/kotlin"))
+            kotlin.srcDir(layout.buildDirectory.dir("generated/browserMetricsBridge/kotlin"))
             resources.srcDir(vendoredPreparedDomRoot)
             dependencies {
                 api(project(":engine"))
@@ -152,6 +224,15 @@ tasks.matching { it.name.startsWith("compileKotlinJs") }.configureEach {
     dependsOn(generateContentReconcileBridge)
     dependsOn(generateResponsiveMeasureBridge)
     dependsOn(generateMarkdownLoweringBridge)
+    dependsOn(generateLifecycleBridge)
+    dependsOn(generateWorkerRequestBridge)
+    dependsOn(generatePrepareParagraphLayoutBridge)
+    dependsOn(generateCommitPreparedParagraphBridge)
+    dependsOn(generateProcessParagraphBridge)
+    dependsOn(generateCanvasFontsBridge)
+    dependsOn(generateCanvasMetricsBridge)
+    dependsOn(generateCanvasShapingBridge)
+    dependsOn(generateBrowserMetricsBridge)
 }
 
 tasks.named<ProcessResources>("jsProcessResources") {
