@@ -35,8 +35,11 @@
   "scripts": {
     "link:core": "node ./link-core.mjs",
     "link:ffi": "node ./link-ffi.mjs",
+    "build": "tsc -b",
+    "pretest": "npm run build",
     "test": "node --test *.test.mjs",
     "verify:package": "node ./verify-package.mjs",
+    "preverify:package": "npm run build",
     "verify:release": "npm run prepack && node ./verify-release.mjs",
     "release:prepare": "node ./prepare-release.mjs",
     "prepack": "npm test && npm run verify:package"
@@ -83,5 +86,8 @@
     "./element.js",
     "./prepared-dom.js",
     "./styles.css"
-  ]
+  ],
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
 }
