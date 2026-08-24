@@ -78,20 +78,20 @@ declare global {
   // ---------------------------------------------------------------------------
 
   function ensureCopyHandler(): void {
-    var installer = globalThis.__TiqianInstallCopyHandler;
+    const installer = globalThis.__TiqianInstallCopyHandler;
     if (installer && globalThis.document) installer(globalThis.document);
   }
 
   function releasePreparedRootDomStyles(root: HTMLElement): boolean {
-    var r = globalThis.__TiqianPreparedDomRenderer;
+    const r = globalThis.__TiqianPreparedDomRenderer;
     return !!(r && r.releaseRoot && r.releaseRoot(root) === true);
   }
 
   // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
   // integer and > 0, else 0.
   function observableSnapshotCount(root: HTMLElement): number {
-    var raw = root.getAttribute("data-tiqian-snapshot-count");
-    var value = Number(raw);
+    const raw = root.getAttribute("data-tiqian-snapshot-count");
+    const value = Number(raw);
     if (Number.isSafeInteger(value) && value > 0) return value;
     return 0;
   }
@@ -114,8 +114,8 @@ declare global {
   // above-viewport, top minus viewportHeight for below-viewport).
   function paragraphViewportDistance(element: HTMLElement | null): number {
     if (!element || !element.getBoundingClientRect) return 0;
-    var rect = element.getBoundingClientRect();
-    var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
     if (rect.bottom >= 0 && rect.top <= viewportHeight) return 0;
     return rect.bottom < 0 ? -rect.bottom : rect.top - viewportHeight;
   }
@@ -127,8 +127,8 @@ declare global {
   // sourcesOf: maps state.paragraphs entries to their source elements
   // (Kotlin sourcesToArray() equivalent, see WebEnhancerTsHost.kt:315).
   function sourcesOf(state: RootState): HTMLElement[] {
-    var result: HTMLElement[] = [];
-    for (var i = 0; i < state.paragraphs.length; i += 1) {
+    const result: HTMLElement[] = [];
+    for (let i = 0; i < state.paragraphs.length; i += 1) {
       result.push(state.paragraphs[i].source as HTMLElement);
     }
     return result;
@@ -137,7 +137,7 @@ declare global {
   // removeEntryFor: in-place splice to remove the paragraph entry whose source
   // === element from state.paragraphs (Kotlin removeAllMatching equivalent).
   function removeEntryFor(state: RootState, element: HTMLElement): void {
-    for (var i = state.paragraphs.length - 1; i >= 0; i -= 1) {
+    for (let i = state.paragraphs.length - 1; i >= 0; i -= 1) {
       if (state.paragraphs[i].source === element) {
         state.paragraphs.splice(i, 1);
         return;
@@ -147,7 +147,7 @@ declare global {
 
   // processParagraphOf: process a single element through the layout pipeline.
   function processParagraphOf(element: HTMLElement, state: RootState): void {
-    var RS = globalThis.__TiqianRootState!;
+    const RS = globalThis.__TiqianRootState!;
     globalThis.__TiqianProcessParagraph!.processParagraph(
       RS.processParagraphArgument(state, element)
     );
@@ -157,22 +157,22 @@ declare global {
   // __TiqianEngine (11 methods)
   // ---------------------------------------------------------------------------
 
-  var engine: Partial<TiqianEngineInstance> = {};
+  const engine: Partial<TiqianEngineInstance> = {};
 
   // 1. enhance(root, optionsBag) -> number
   // Synchronous one-shot enhance. Internal third param fromCanonical controls
   // the root-state creation path; public entry passes false.
   engine.enhance = function enhance(root: HTMLElement, optionsBag?: unknown, fromCanonical?: boolean): number {
-    var RS = globalThis.__TiqianRootState!;
-    var DRIVERS = globalThis.__TiqianProgressiveDrivers!;
+    const RS = globalThis.__TiqianRootState!;
+    const DRIVERS = globalThis.__TiqianProgressiveDrivers!;
     ensureCopyHandler();
     engine.destroy!(root);
-    var state = fromCanonical
+    const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
-    var candidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
+    const candidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
     if (DRIVERS.rejectMissingSharedRuntimeStyles(state, candidates)) return 0;
-    for (var i = 0; i < candidates.length; i += 1) {
+    for (let i = 0; i < candidates.length; i += 1) {
       globalThis.__TiqianProcessParagraph!.processParagraph(
         RS.processParagraphArgument(state, candidates[i])
       );
@@ -190,15 +190,15 @@ declare global {
 
   // 3. enhanceAll(optionsBag) -> number
   engine.enhanceAll = function enhanceAll(optionsBag?: unknown): number {
-    var doc = globalThis.document;
+    const doc = globalThis.document;
     if (!doc) return 0;
-    var roots = doc.querySelectorAll("tiqian-prose, [data-tiqian-root]");
-    var count = 0;
-    for (var i = 0; i < roots.length; i += 1) {
-      var node = roots[i];
+    const roots = doc.querySelectorAll("tiqian-prose, [data-tiqian-root]");
+    let count = 0;
+    for (let i = 0; i < roots.length; i += 1) {
+      const node = roots[i];
       // NodeList in real browsers returns Element, but fake DOM may expose
       // item() so guard non-element nodes.
-      var el = typeof roots.item === "function" ? (roots.item(i) as HTMLElement) : (node as HTMLElement);
+      const el = typeof roots.item === "function" ? (roots.item(i) as HTMLElement) : (node as HTMLElement);
       if (!isElement(el)) continue;
       count += engine.enhance!(el, optionsBag);
     }
@@ -207,13 +207,13 @@ declare global {
 
   // 4. destroy(root) -- aligns WebEnhancer.kt 167-194
   engine.destroy = function destroy(root: HTMLElement): void {
-    var RS = globalThis.__TiqianRootState!;
-    var PJ = globalThis.__TiqianProgressiveJob!;
+    const RS = globalThis.__TiqianRootState!;
+    const PJ = globalThis.__TiqianProgressiveJob!;
     PJ.cancelJob(root);
-    var state = RS.getState(root);
+    const state = RS.getState(root);
     RS.deleteState(root);
     if (state != null) {
-      var j: number;
+      let j: number;
       for (j = 0; j < state.paragraphs.length; j += 1) {
         globalThis.__TiqianCustody!.restoreParagraph(state.paragraphs[j].source);
       }
@@ -226,7 +226,7 @@ declare global {
       // destroy.
       releasePreparedRootDomStyles(root);
     }
-    var snapshotCount = observableSnapshotCount(root);
+    const snapshotCount = observableSnapshotCount(root);
     if (snapshotCount > 0) {
       root.setAttribute("data-tiqian-enhanced", "true");
       root.setAttribute("data-tiqian-enhanced-count", String(snapshotCount));
@@ -243,21 +243,21 @@ declare global {
   // DetachedRootWeakOwnership: cancel job and release styles; weak table state
   // stays for reconnection on the same node.
   engine.detach = function detach(root: HTMLElement): void {
-    var PJ = globalThis.__TiqianProgressiveJob!;
+    const PJ = globalThis.__TiqianProgressiveJob!;
     PJ.cancelJob(root);
     releasePreparedRootDomStyles(root);
   };
 
   // 6. relayout(root) -- delegates to drivers.
   engine.relayout = function relayout(root: HTMLElement): void {
-    var DRIVERS = globalThis.__TiqianProgressiveDrivers!;
+    const DRIVERS = globalThis.__TiqianProgressiveDrivers!;
     DRIVERS.relayout(root);
   };
 
   // 7. refresh(root, progressively)
   engine.refresh = function refresh(root: HTMLElement, progressively?: boolean): void {
-    var RS = globalThis.__TiqianRootState!;
-    var state = RS.getState(root);
+    const RS = globalThis.__TiqianRootState!;
+    const state = RS.getState(root);
     if (!state) return;
     if (progressively) {
       globalThis.__TiqianProgressiveDrivers!.enhanceProgressivelyFromCanonical(
@@ -271,14 +271,14 @@ declare global {
 
   // 8. cancelLayoutWork(root)
   engine.cancelLayoutWork = function cancelLayoutWork(root: HTMLElement): void {
-    var PJ = globalThis.__TiqianProgressiveJob!;
+    const PJ = globalThis.__TiqianProgressiveJob!;
     PJ.cancelJob(root);
   };
 
   // 9. probeContentDrift(root) -> string
   engine.probeContentDrift = function probeContentDrift(root: HTMLElement): string {
-    var RS = globalThis.__TiqianRootState!;
-    var state = RS.getState(root);
+    const RS = globalThis.__TiqianRootState!;
+    const state = RS.getState(root);
     if (!state) return '{"unknown":1,"drifted":0,"dead":0,"custody":0}';
     return globalThis.__TiqianContentReconcile!.probeContentDrift(sourcesOf(state));
   };
@@ -286,24 +286,24 @@ declare global {
   // 10. reconcileContent(root, tainted) -> string
   // Aligns WebEnhancerContentReconcile.kt 22-95.
   engine.reconcileContent = function reconcileContent(root: HTMLElement, tainted: HTMLElement[]): string {
-    var RS = globalThis.__TiqianRootState!;
-    var DRIVERS = globalThis.__TiqianProgressiveDrivers!;
-    var state = RS.getState(root);
+    const RS = globalThis.__TiqianRootState!;
+    const DRIVERS = globalThis.__TiqianProgressiveDrivers!;
+    const state = RS.getState(root);
     if (!state) {
       return '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}';
     }
-    var spec: ReconcileSpec = {
+    const spec: ReconcileSpec = {
       trackedSources: sourcesOf(state),
       tainted: tainted,
       strandedCandidates: RS.strandedSourceParagraphs(root, state),
       rootSelector: "tiqian-prose, [data-tiqian-root]",
     };
-    var verdict = globalThis.__TiqianContentReconcile!.classifyReconcile(spec);
+    const verdict = globalThis.__TiqianContentReconcile!.classifyReconcile(spec);
 
     // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
     // onto detached originals. Drop them so re-projected clones are adopted as
     // fresh candidates.
-    for (var d = state.paragraphs.length - 1; d >= 0; d -= 1) {
+    for (let d = state.paragraphs.length - 1; d >= 0; d -= 1) {
       if (!state.paragraphs[d].source.isConnected) {
         state.paragraphs.splice(d, 1);
       }
@@ -313,8 +313,8 @@ declare global {
 
     // Build action list: each entry is {element, run} closure (Kotlin
     // ReconcileAction equivalent).
-    var actions: ReconcileAction[] = [];
-    var vi: number;
+    const actions: ReconcileAction[] = [];
+    let vi: number;
     for (vi = 0; vi < verdict.drifted.length; vi += 1) {
       (function (element: HTMLElement) {
         actions.push({
@@ -374,19 +374,19 @@ declare global {
     // WidthSnapshotPerReconcileJob: mirrors WidthSnapshotPerRelayoutJob -- a
     // mid-job width move reports stale and element.js schedules one
     // latest-width follow-up.
-    var distances: number[] = new Array(actions.length);
-    var ai: number;
+    const distances: number[] = new Array(actions.length);
+    let ai: number;
     for (ai = 0; ai < actions.length; ai += 1) {
       distances[ai] = paragraphViewportDistance(actions[ai].element);
     }
-    var itemTierIndex: number[] = new Array(actions.length);
+    const itemTierIndex: number[] = new Array(actions.length);
     for (ai = 0; ai < actions.length; ai += 1) {
       itemTierIndex[ai] = ai;
     }
     itemTierIndex.sort(function (a: number, b: number): number {
       return distances[a] - distances[b] || a - b;
     });
-    var rootWidth = elementFragmentBorderBoxInlineSize(root);
+    const rootWidth = elementFragmentBorderBoxInlineSize(root);
     DRIVERS.startProgressiveJob(
       state,
       "Relayout",
@@ -403,8 +403,8 @@ declare global {
 
   // 11. workerLayoutRequest(root, paragraph, optionsBag) -> string|null
   engine.workerLayoutRequest = function workerLayoutRequest(root: HTMLElement, paragraph: HTMLElement, optionsBag?: unknown): string | null {
-    var RS = globalThis.__TiqianRootState!;
-    var lifecycle = globalThis.__TiqianLifecycle!;
+    const RS = globalThis.__TiqianRootState!;
+    const lifecycle = globalThis.__TiqianLifecycle!;
     return globalThis.__TiqianWorkerRequest!.workerLayoutRequestForRoot(
       RS.currentFfi() as EngineFfiFacade,
       root,
@@ -425,7 +425,7 @@ declare global {
   // name so the coordinator contract is satisfied.
   // ---------------------------------------------------------------------------
 
-  var workers: Partial<TiqianEngineWorkersInstance> = {};
+  const workers: Partial<TiqianEngineWorkersInstance> = {};
 
   workers.workerAttach = function (root: HTMLElement): boolean {
     return globalThis.__TiqianProgressiveJob!.attach(root);

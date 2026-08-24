@@ -135,17 +135,17 @@ declare global {
 (function () {
   if (globalThis.__TiqianCustody) return;
 
-  var CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
-  var EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
-  var RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
-  var HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
+  const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
+  const EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
+  const RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
+  const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
 
   // Per-paragraph custody state, keyed weakly so a discarded paragraph can
   // be collected together with its state.
-  var states = new WeakMap<Element, CustodyState>();
+  const states = new WeakMap<Element, CustodyState>();
 
   function stateOf(source: Element): CustodyState {
-    var state = states.get(source);
+    const state = states.get(source);
     if (!state) {
       throw new Error("custody state missing for paragraph");
     }
@@ -153,8 +153,8 @@ declare global {
   }
 
   function liveChildNodes(element: Node): Node[] {
-    var nodes: Node[] = [];
-    var child: ChildNode | null = element.firstChild;
+    const nodes: Node[] = [];
+    let child: ChildNode | null = element.firstChild;
     while (child) {
       nodes.push(child);
       child = child.nextSibling;
@@ -192,19 +192,19 @@ declare global {
     if (paragraph.__tqCustodyForwarding) {
       return;
     }
-    var nativeRemoveChild = Node.prototype.removeChild;
-    var nativeInsertBefore = Node.prototype.insertBefore;
-    var nativeReplaceChild = Node.prototype.replaceChild;
-    var nativeAppendChild = Node.prototype.appendChild;
-    var activeCustody = function (): DocumentFragment | null {
-      var fragment = paragraph.__tqCustodyFragment;
+    const nativeRemoveChild = Node.prototype.removeChild;
+    const nativeInsertBefore = Node.prototype.insertBefore;
+    const nativeReplaceChild = Node.prototype.replaceChild;
+    const nativeAppendChild = Node.prototype.appendChild;
+    const activeCustody = function (): DocumentFragment | null {
+      const fragment = paragraph.__tqCustodyFragment;
       return fragment && fragment.childNodes.length > 0 ? fragment : null;
     };
-    var heldInCustody = function (node: Node | null): boolean {
-      var fragment = paragraph.__tqCustodyFragment;
+    const heldInCustody = function (node: Node | null): boolean {
+      const fragment = paragraph.__tqCustodyFragment;
       return !!fragment && !!node && node.parentNode === fragment;
     };
-    var engineWriting = function (): boolean {
+    const engineWriting = function (): boolean {
       return paragraph.__tqCustodyEngineWrites > 0;
     };
     paragraph.removeChild = function (child: Node): Node {
@@ -216,7 +216,7 @@ declare global {
       if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
       if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
       if (!ref && node && node.nodeType !== 11) {
-        var fragment = activeCustody();
+        const fragment = activeCustody();
         if (fragment) return fragment.appendChild(node);
       }
       return nativeInsertBefore.call(paragraph, node, ref);
@@ -229,7 +229,7 @@ declare global {
     paragraph.appendChild = function (node: Node): Node {
       if (engineWriting()) return nativeAppendChild.call(paragraph, node);
       if (node && node.nodeType !== 11) {
-        var fragment = activeCustody();
+        const fragment = activeCustody();
         if (fragment) return fragment.appendChild(node);
       }
       return nativeAppendChild.call(paragraph, node);
@@ -281,9 +281,9 @@ declare global {
 
   // Moves the semantic source children into a detached custody fragment.
   function take(source: Element, hostFontSizeApplied: string | null): void {
-    var state = stateOf(source);
+    const state = stateOf(source);
     state.hostFontSizeApplied = hostFontSizeApplied;
-    var fragment = globalThis.document.createDocumentFragment();
+    const fragment = globalThis.document.createDocumentFragment();
     while (source.firstChild) {
       fragment.appendChild(source.firstChild as ChildNode);
     }
@@ -293,7 +293,7 @@ declare global {
   // Publishes the custody fragment on the paragraph and installs commit
   // forwarding. Runs after the pipeline stabilized the source inline size.
   function commit(source: Element, hostInlineSizeApplied: string | null): void {
-    var state = stateOf(source);
+    const state = stateOf(source);
     state.hostInlineSizeApplied = hostInlineSizeApplied;
     stampCustodyContent(state, source);
   }
@@ -303,10 +303,10 @@ declare global {
   }
 
   function renderedMatches(source: Element): boolean {
-    var state = stateOf(source);
-    var recorded = state.renderedNodes;
-    var child: ChildNode | null = source.firstChild;
-    var index = 0;
+    const state = stateOf(source);
+    const recorded = state.renderedNodes;
+    let child: ChildNode | null = source.firstChild;
+    let index = 0;
     while (child) {
       if (index >= recorded.length || recorded[index] !== child) return false;
       index += 1;
@@ -316,10 +316,10 @@ declare global {
   }
 
   function custodyMatches(source: Element): boolean {
-    var state = stateOf(source);
-    var recorded = state.custodyNodes;
-    var child: ChildNode | null = (state.originalContent as DocumentFragment).firstChild;
-    var index = 0;
+    const state = stateOf(source);
+    const recorded = state.custodyNodes;
+    let child: ChildNode | null = (state.originalContent as DocumentFragment).firstChild;
+    let index = 0;
     while (child) {
       if (index >= recorded.length || recorded[index] !== child) return false;
       index += 1;
@@ -333,9 +333,9 @@ declare global {
   // snapshot fragment. Reads snapshot attributes before draining, matching
   // the previous Kotlin ordering.
   function captureLive(source: Element, lastMeasure: number | null): CustodySnapshot {
-    var state = stateOf(source);
-    var content = globalThis.document.createDocumentFragment();
-    var snapshot: CustodySnapshot = {
+    const state = stateOf(source);
+    const content = globalThis.document.createDocumentFragment();
+    const snapshot: CustodySnapshot = {
       source: source,
       content: content,
       renderedAttribute: source.getAttribute("data-tq-rendered"),
@@ -363,11 +363,11 @@ declare global {
   // snapshot content, attributes and flags back; the caller receives the
   // lastMeasure per source element.
   function rollback(snapshots: CustodySnapshot[]): CustodyRollbackResult[] {
-    var results: CustodyRollbackResult[] = [];
-    for (var i = snapshots.length - 1; i >= 0; i--) {
-      var snapshot = snapshots[i];
-      var source = snapshot.source;
-      var state = stateOf(source);
+    const results: CustodyRollbackResult[] = [];
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+      const snapshot = snapshots[i];
+      const source = snapshot.source;
+      const state = stateOf(source);
       if (snapshot.originalContentHadChildren && (state.originalContent as DocumentFragment).firstChild === null) {
         // restoreParagraph() handed the semantic source fragment back to the
         // live DOM; move those exact nodes into source custody again before
@@ -402,8 +402,8 @@ declare global {
   // Hands the semantic source back to the live DOM and restores the shell
   // the engine overwrote. Used by destroy and by unsupported relayouts.
   function restoreParagraph(source: Element): void {
-    var state = stateOf(source);
-    var renderer = globalThis.__TiqianPreparedDomRenderer;
+    const state = stateOf(source);
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
     if (renderer) {
       renderer.release(source);
     }
@@ -422,8 +422,8 @@ declare global {
   // engine overwrote during takeover. Shared by the custody restore path and
   // the content-reconcile path that keeps host-mutated live children.
   function restoreShell(source: HTMLElement): void {
-    var state = stateOf(source);
-    var style = source.style;
+    const state = stateOf(source);
+    const style = source.style;
     restoreAttribute(source, "data-tq-rendered", state.originalRenderedAttribute);
     restoreAttribute(source, "data-tq-canonical-plain", state.originalPreparedFlowAttribute);
     restoreAttribute(source, CANONICAL_SOURCE_ATTRIBUTE, state.originalCanonicalSourceAttribute);
@@ -441,7 +441,7 @@ declare global {
         style.setProperty("position", state.originalPosition, state.originalPositionPriority);
       }
     }
-    var appliedInlineSize = state.hostInlineSizeApplied;
+    const appliedInlineSize = state.hostInlineSizeApplied;
     if (
       appliedInlineSize !== null &&
       source.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE) === "true" &&
@@ -454,7 +454,7 @@ declare global {
         style.setProperty("inline-size", state.originalInlineSize, state.originalInlineSizePriority);
       }
     }
-    var appliedFontSize = state.hostFontSizeApplied;
+    const appliedFontSize = state.hostFontSizeApplied;
     if (
       appliedFontSize !== null &&
       style.getPropertyValue("font-size") === appliedFontSize &&
@@ -468,7 +468,7 @@ declare global {
     }
     restoreAttribute(source, HOST_INLINE_SIZE_ATTRIBUTE, state.originalHostInlineSizeAttribute);
     if (state.originalStyleAttribute === null) {
-      var currentStyle = source.getAttribute("style");
+      const currentStyle = source.getAttribute("style");
       if (currentStyle === null || currentStyle.trim() === "") {
         source.removeAttribute("style");
       }
@@ -480,9 +480,9 @@ declare global {
   // The engine positions line markers absolutely against the paragraph, so a
   // statically positioned paragraph must become its containing block first.
   function ensureContainingBlock(source: HTMLElement): void {
-    var state = stateOf(source);
+    const state = stateOf(source);
     if (state.containingBlockApplied) return;
-    var position = globalThis.getComputedStyle(source).getPropertyValue("position");
+    const position = globalThis.getComputedStyle(source).getPropertyValue("position");
     if (position.trim().toLowerCase() !== "static") return;
     source.style.setProperty("position", "relative", "important");
     state.containingBlockApplied = true;

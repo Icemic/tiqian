@@ -38,14 +38,14 @@ declare global {
     // host width so shaping can report its precise zero-advance capability
     // issue instead of failing earlier with an unrelated maxWidth error.
     if (!Number.isFinite(fontSize) || fontSize <= 0) return width;
-    var gridCells = Math.max(1, Math.floor(width / fontSize));
+    const gridCells = Math.max(1, Math.floor(width / fontSize));
     return Math.min(gridCells * fontSize, width);
   }
 
   function elementContentWidth(element: Element | null): number {
     if (!element) return 0;
-    var style = globalThis.getComputedStyle(element);
-    var number = function (value: string): number {
+    const style = globalThis.getComputedStyle(element);
+    const number = function (value: string): number {
       return Number.parseFloat(value) || 0;
     };
     // FractionalFragmentContentMeasure: clientWidth rounds to integer
@@ -56,11 +56,11 @@ declare global {
     // returns the union of all CSS column fragments. Take the widest
     // live client rect instead; it is the border box of a single
     // fragment. Then subtract the computed padding and borders.
-    var fallback = element.getBoundingClientRect().width;
-    var rects = Array.from(element.getClientRects()).filter(function (rect) {
+    const fallback = element.getBoundingClientRect().width;
+    const rects = Array.from(element.getClientRects()).filter(function (rect) {
       return rect.width > 0;
     });
-    var borderBoxWidth = rects.length <= 1
+    const borderBoxWidth = rects.length <= 1
       ? fallback
       : Math.max.apply(null, rects.map(function (rect) { return rect.width; }));
     return borderBoxWidth - number(style.paddingLeft) - number(style.paddingRight) -
@@ -74,10 +74,10 @@ declare global {
     // out once through that padding and then starts it after the padding,
     // causing a real right-edge overflow. Font backend selection does not
     // change which CSS box owns the available line measure.
-    var own = elementContentWidth(paragraph);
+    const own = elementContentWidth(paragraph);
     if (own > 0) return own;
-    var target = paragraph.parentElement || paragraph;
-    var parentWidth = elementContentWidth(target);
+    const target = paragraph.parentElement || paragraph;
+    const parentWidth = elementContentWidth(target);
     if (parentWidth > 0) return parentWidth;
     return 320;
   }

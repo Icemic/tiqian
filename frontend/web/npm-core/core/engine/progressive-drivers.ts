@@ -132,8 +132,8 @@ declare global {
 (function () {
   if (globalThis.__TiqianProgressiveDrivers) return;
 
-  var CAPABILITY_DETAIL_LIMIT: number = 512;
-  var WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreakUnsupported"];
+  const CAPABILITY_DETAIL_LIMIT: number = 512;
+  const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreakUnsupported"];
 
   // CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width -- for
   // a block fragmented by CSS columns this is the union of every fragment, not
@@ -153,8 +153,8 @@ declare global {
   // above-viewport, top minus viewportHeight for below-viewport).
   function paragraphViewportDistance(element: Element | null): number {
     if (!element || !element.getBoundingClientRect) return 0;
-    var rect = element.getBoundingClientRect();
-    var viewportHeight: number = window.innerHeight || document.documentElement.clientHeight || 0;
+    const rect = element.getBoundingClientRect();
+    const viewportHeight: number = window.innerHeight || document.documentElement.clientHeight || 0;
     if (rect.bottom >= 0 && rect.top <= viewportHeight) return 0;
     return rect.bottom < 0 ? -rect.bottom : rect.top - viewportHeight;
   }
@@ -162,7 +162,7 @@ declare global {
   // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
   // integer and > 0, else 0.
   function observableSnapshotCount(root: Element): number {
-    var value: number = Number(root.getAttribute("data-tiqian-snapshot-count"));
+    const value: number = Number(root.getAttribute("data-tiqian-snapshot-count"));
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
   }
 
@@ -177,10 +177,10 @@ declare global {
   // public ESM entry waits for that stylesheet; direct callers must do the
   // same instead of silently painting a second browser-owned layout.
   function rejectMissingSharedRuntimeStyles(state: RootState, candidates: Element[]): boolean {
-    var ready: string = computedStyle(state.root, "--tq-styles-ready").trim();
+    const ready: string = computedStyle(state.root, "--tq-styles-ready").trim();
     if (ready === "1") return false;
-    for (var i = 0; i < candidates.length; i += 1) {
-      var issue: CapabilityGateIssue = {
+    for (let i = 0; i < candidates.length; i += 1) {
+      const issue: CapabilityGateIssue = {
         name: "MissingSharedRuntimeStyles",
         detail: "Load @tiqian/prose/styles.css before TiqianWeb.enhance",
         element: candidates[i],
@@ -209,7 +209,7 @@ declare global {
     paragraphsByDoc: HTMLElement[] | null,
   ): void {
     state.root.removeAttribute("data-tiqian-relayout-error");
-    var spec: ProgressiveJobSpec = {
+    const spec: ProgressiveJobSpec = {
       root: state.root,
       kind: kind,
       itemCount: itemCount,
@@ -253,7 +253,7 @@ declare global {
   // failProgressiveJob. Truncates detail, sets error attribute, dispatches
   // error and summary events.
   function failProgressiveJob(state: RootState, failure: ProgressiveJobFailureReport): void {
-    var detail: string = String(failure.detail).slice(0, CAPABILITY_DETAIL_LIMIT);
+    const detail: string = String(failure.detail).slice(0, CAPABILITY_DETAIL_LIMIT);
     state.root.setAttribute("data-tiqian-relayout-error", detail);
     globalThis.__TiqianRootState!.publishState(state, true);
     dispatchTiqianProgressiveError(
@@ -286,11 +286,11 @@ declare global {
     error: string | null,
     stale: boolean,
   ): void {
-    var runtimeEnhancedCount: number = state.paragraphs.length;
-    var snapshotCount: number = observableSnapshotCount(state.root);
-    var enhancedCount: number = runtimeEnhancedCount + snapshotCount;
-    var issueCount: number = state.issues.length;
-    var detail: RelayoutReadyDetail | EnhanceReadyDetail;
+    const runtimeEnhancedCount: number = state.paragraphs.length;
+    const snapshotCount: number = observableSnapshotCount(state.root);
+    const enhancedCount: number = runtimeEnhancedCount + snapshotCount;
+    const issueCount: number = state.issues.length;
+    let detail: RelayoutReadyDetail | EnhanceReadyDetail;
     if (kind === "Relayout") {
       detail = {
         enhancedCount: enhancedCount,
@@ -330,8 +330,8 @@ declare global {
   // dispatchTiqianProgressiveError. Emits tiqian:relayout-error or
   // tiqian:error depending on kind.
   function dispatchTiqianProgressiveError(root: Element, kind: string, detail: string, durationMs: number, maxSliceMs: number): void {
-    var eventName: string = kind === "Relayout" ? "tiqian:relayout-error" : "tiqian:error";
-    var eventDetail: ProgressiveErrorDetail = {
+    const eventName: string = kind === "Relayout" ? "tiqian:relayout-error" : "tiqian:error";
+    const eventDetail: ProgressiveErrorDetail = {
       kind: kind,
       error: detail,
       durationMs: durationMs,
@@ -349,7 +349,7 @@ declare global {
   // canonical shape, so fromCanonical routes them through
   // createRootStateFromCanonical instead of re-resolving the bag.
   function enhanceProgressively(root: Element, optionsBag: Record<string, unknown> | null, kind: string, fromCanonical?: boolean): void {
-    var RS = globalThis.__TiqianRootState!;
+    const RS = globalThis.__TiqianRootState!;
 
     // Kotlin's private enhanceProgressively installs the copy handler and
     // destroys the root before rebuilding state, and the relayout restarts
@@ -358,18 +358,18 @@ declare global {
     // paragraph, and clears the root attributes; the standalone unit-test
     // world drives this module without an engine entry and keeps the bare
     // job cancel.
-    var copyInstaller = globalThis.__TiqianInstallCopyHandler;
+    const copyInstaller = globalThis.__TiqianInstallCopyHandler;
     if (copyInstaller && globalThis.document) copyInstaller(globalThis.document);
     if (globalThis.__TiqianEngine) {
       globalThis.__TiqianEngine.destroy(root as HTMLElement);
     } else {
       globalThis.__TiqianProgressiveJob!.cancelJob(root);
     }
-    var state = fromCanonical
+    const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
 
-    var sourceCandidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
+    const sourceCandidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
 
     // SharedRuntimeStylesCapabilityGate.
     if (rejectMissingSharedRuntimeStyles(state, sourceCandidates)) return;
@@ -377,12 +377,12 @@ declare global {
     // Work order sorts by viewport distance; itemTierIndex keeps the
     // document-order index of each work item, so a coordinator tier flip
     // arriving in document order gates its item in work order in O(1).
-    var distances: number[] = new Array(sourceCandidates.length);
-    for (var d = 0; d < sourceCandidates.length; d += 1) {
+    const distances: number[] = new Array(sourceCandidates.length);
+    for (let d = 0; d < sourceCandidates.length; d += 1) {
       distances[d] = paragraphViewportDistance(sourceCandidates[d]);
     }
-    var itemTierIndex: number[] = new Array(sourceCandidates.length);
-    for (var t = 0; t < sourceCandidates.length; t += 1) {
+    const itemTierIndex: number[] = new Array(sourceCandidates.length);
+    for (let t = 0; t < sourceCandidates.length; t += 1) {
       itemTierIndex[t] = t;
     }
     // Explicit dual-key sort: (distance, index) ascending; does not rely on
@@ -392,20 +392,20 @@ declare global {
       if (distances[a] > distances[b]) return 1;
       return a < b ? -1 : a > b ? 1 : 0;
     });
-    var candidates: Element[] = new Array(itemTierIndex.length);
-    for (var c = 0; c < itemTierIndex.length; c += 1) {
+    const candidates: Element[] = new Array(itemTierIndex.length);
+    for (let c = 0; c < itemTierIndex.length; c += 1) {
       candidates[c] = sourceCandidates[itemTierIndex[c]];
     }
 
     // Capture responsive measures for staleness detection.
-    var capturedMeasures: number[] = new Array(candidates.length);
-    for (var m = 0; m < candidates.length; m += 1) {
+    const capturedMeasures: number[] = new Array(candidates.length);
+    for (let m = 0; m < candidates.length; m += 1) {
       capturedMeasures[m] = globalThis.__TiqianLifecycle!.responsiveSourceMeasure(
         candidates[m] as HTMLElement,
         state.options.fontSize
       );
     }
-    var stale: boolean = false;
+    let stale: boolean = false;
 
     function liveMeasure(index: number): number {
       return globalThis.__TiqianLifecycle!.responsiveSourceMeasure(
@@ -440,7 +440,7 @@ declare global {
         // job spans frames across a width change; the stale report
         // hands the follow-up to element.js, which dispatches one
         // latest-width relayout.
-        for (var i = 0; i < candidates.length; i += 1) {
+        for (let i = 0; i < candidates.length; i += 1) {
           if (liveMeasure(i) !== capturedMeasures[i]) {
             stale = true;
             break;
@@ -459,8 +459,8 @@ declare global {
   // ---------------------------------------------------------------------------
 
   function relayout(root: Element): void {
-    var RS = globalThis.__TiqianRootState!;
-    var PJ = globalThis.__TiqianProgressiveJob!;
+    const RS = globalThis.__TiqianRootState!;
+    const PJ = globalThis.__TiqianProgressiveJob!;
 
     // Branch 1: Enhance is running. Kotlin restarts the interrupted enhance
     // through the two-arg overload, so the kind stays Enhance and the finish
@@ -468,7 +468,7 @@ declare global {
     // it through the canonical state builder so the resolved options are
     // reused, not re-resolved.
     if (PJ.jobKind(root) === "Enhance") {
-      var running = RS.getState(root);
+      const running = RS.getState(root);
       if (running != null) {
         enhanceProgressively(root, running.options, "Enhance", true);
         return;
@@ -476,7 +476,7 @@ declare global {
     }
 
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
-    var state = RS.getState(root);
+    const state = RS.getState(root);
     if (state == null) {
       enhanceProgressively(root, null, "Relayout");
       return;
@@ -485,9 +485,9 @@ declare global {
     // Branch 3: cancel current job; check for width-dependent capability
     // issues that require a full enhance restart.
     PJ.cancelJob(root);
-    var hasWidthDependentIssue: boolean = false;
-    for (var i = 0; i < state.issues.length; i += 1) {
-      var issueName: string = ((state.issues[i] && state.issues[i].name) || "") as string;
+    let hasWidthDependentIssue: boolean = false;
+    for (let i = 0; i < state.issues.length; i += 1) {
+      const issueName: string = ((state.issues[i] && state.issues[i].name) || "") as string;
       if (WIDTH_DEPENDENT_CAPABILITY_ISSUES.indexOf(issueName) !== -1) {
         hasWidthDependentIssue = true;
         break;
@@ -504,26 +504,26 @@ declare global {
     }
 
     // Main relayout path.
-    var rendered = state.paragraphs;
+    const rendered = state.paragraphs;
     // StrandedEnhanceResume: a stale enhance finish leaves the paragraphs
     // it skipped in semantic source, and this follow-up relayout is the
     // only job that will reach them. Fold them into the work set at the
     // live width; the rendered ones keep the snapshot path below.
-    var stranded = RS.strandedSourceParagraphs(root, state);
-    var renderedCount: number = rendered.length;
-    var count: number = renderedCount + stranded.length;
+    const stranded = RS.strandedSourceParagraphs(root, state);
+    const renderedCount: number = rendered.length;
+    const count: number = renderedCount + stranded.length;
 
     // Work order: if root is in viewport process in document order; otherwise
     // sort by viewport distance.
-    var workOrder: number[];
+    let workOrder: number[];
     if (paragraphViewportDistance(root) <= 0) {
       workOrder = new Array(count);
-      for (var w = 0; w < count; w += 1) {
+      for (let w = 0; w < count; w += 1) {
         workOrder[w] = w;
       }
     } else {
-      var relayoutDistances: number[] = new Array(count);
-      for (var r = 0; r < count; r += 1) {
+      const relayoutDistances: number[] = new Array(count);
+      for (let r = 0; r < count; r += 1) {
         if (r < renderedCount) {
           relayoutDistances[r] = paragraphViewportDistance(rendered[r].source);
         } else {
@@ -531,7 +531,7 @@ declare global {
         }
       }
       workOrder = new Array(count);
-      for (var wi = 0; wi < count; wi += 1) {
+      for (let wi = 0; wi < count; wi += 1) {
         workOrder[wi] = wi;
       }
       workOrder.sort(function (a, b) {
@@ -545,22 +545,22 @@ declare global {
     // geometry seen when the job starts. If the host changes again while
     // slices are running, element.js schedules one latest-width follow-up
     // instead of allowing a queue of obsolete widths to replay.
-    var widths: number[] = new Array(renderedCount);
-    for (var p = 0; p < renderedCount; p += 1) {
+    const widths: number[] = new Array(renderedCount);
+    for (let p = 0; p < renderedCount; p += 1) {
       widths[p] = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(rendered[p].source);
     }
 
-    var commitSession = globalThis.__TiqianProgressiveRelayoutSession!.createProgressiveRelayoutSession(
+    const commitSession = globalThis.__TiqianProgressiveRelayoutSession!.createProgressiveRelayoutSession(
       RS.sessionArgument(state)
     );
-    var rootWidth: number = elementFragmentBorderBoxInlineSize(root);
+    const rootWidth: number = elementFragmentBorderBoxInlineSize(root);
 
     // Build paragraphsByDoc: rendered sources in order, then stranded.
-    var paragraphsByDoc: Element[] = new Array(count);
-    for (var pb = 0; pb < renderedCount; pb += 1) {
+    const paragraphsByDoc: Element[] = new Array(count);
+    for (let pb = 0; pb < renderedCount; pb += 1) {
       paragraphsByDoc[pb] = rendered[pb].source;
     }
-    for (var ps = 0; ps < stranded.length; ps += 1) {
+    for (let ps = 0; ps < stranded.length; ps += 1) {
       paragraphsByDoc[renderedCount + ps] = stranded[ps];
     }
 
@@ -571,7 +571,7 @@ declare global {
       function (index) {
         // Stale guard: once the session is stale, skip remaining items.
         if (commitSession.stale) return;
-        var mixIndex = workOrder[index];
+        const mixIndex = workOrder[index];
         if (mixIndex >= renderedCount) {
           // Stranded paragraph: process through the enhance path.
           globalThis.__TiqianProcessParagraph!.processParagraph(
@@ -580,8 +580,8 @@ declare global {
           return;
         }
         // Rendered paragraph: prepare and commit through the relayout session.
-        var paragraph = rendered[mixIndex];
-        var preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
+        const paragraph = rendered[mixIndex];
+        const preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
           globalThis.__TiqianRootState!.currentFfi() as EngineFfiFacade,
           RS.prepareArgument(
             state as RootState,

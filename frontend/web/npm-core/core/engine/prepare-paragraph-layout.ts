@@ -140,22 +140,22 @@ declare global {
   // Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
   // records join by U+001E, fields by U+001D, families by U+001F. Twin of the
   // worker-request.js serializers, which use the same values.
-  var PREPARE_RECORD_SEPARATOR = '\u001e';
-  var PREPARE_FIELD_SEPARATOR = '\u001d';
-  var PREPARE_FAMILY_SEPARATOR = '\u001f';
+  const PREPARE_RECORD_SEPARATOR = '\u001e';
+  const PREPARE_FIELD_SEPARATOR = '\u001d';
+  const PREPARE_FAMILY_SEPARATOR = '\u001f';
   // WebEnhancerSupport.kt INLINE_EDGE_EPSILON: a clone box whose edges stay
   // below this epsilon remains eligible for prepared-DOM preparation.
-  var INLINE_EDGE_EPSILON = 0.01;
+  const INLINE_EDGE_EPSILON = 0.01;
   // WebEnhancerSupport.kt ZERO_ADVANCE_EPSILON: the host threshold passed to
   // the ffi diagnostics export, which pre-filters advance suspects.
-  var ZERO_ADVANCE_EPSILON = 0.01;
+  const ZERO_ADVANCE_EPSILON = 0.01;
   // PreparedParagraph.kt PREPARED_PARAGRAPH_LAYOUT_REVISION: the plan wire
   // revision the installed prepared-DOM renderer must report.
-  var PREPARED_LAYOUT_REVISION = 'tiqian-layout-v2';
+  const PREPARED_LAYOUT_REVISION = 'tiqian-layout-v2';
   // WebEnhancerSupport.kt EXACT_FONT_SESSION_CAPABILITY_FAILURES: substrings
   // that mark an exact-session layout failure as a font capability issue,
   // after which the whole paragraph retries through the browser bridge.
-  var EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
+  const EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
     'NoExactFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
@@ -167,7 +167,7 @@ declare global {
   // worker-request.js serializer functions (lines 96-153), copied locally so
   // both files stay embeddable and import-free.
   function wireArguments(lowered: LoweredParagraph): WireArguments {
-    var textSpans = lowered.spans.map(function (span) {
+    const textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -181,7 +181,7 @@ declare global {
 
     // InlineBoxOuterSpacing default chain: the wire never carries outer
     // spacing, so every inlineBoxes join field emits the string Narrow.
-    var inlineBoxes = lowered.inlineBoxes.map(function (box) {
+    const inlineBoxes = lowered.inlineBoxes.map(function (box) {
       return [
         String(box.start),
         String(box.end),
@@ -193,7 +193,7 @@ declare global {
 
     // LineBreakPolicy decode maps every wire policy string to the same
     // member, so the join always emits ProgressiveTechnical.
-    var lineBreakSpans = lowered.lineBreakSpans.map(function (span) {
+    const lineBreakSpans = lowered.lineBreakSpans.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -201,7 +201,7 @@ declare global {
       ].join(PREPARE_FIELD_SEPARATOR);
     }).join(PREPARE_RECORD_SEPARATOR);
 
-    var inlineObjects = lowered.inlineObjects.map(function (span) {
+    const inlineObjects = lowered.inlineObjects.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -213,7 +213,7 @@ declare global {
 
     // Decorations (mirrors the Kotlin parseDecorations landed in 33c5106):
     // each entry carries start, end, and the member-name kind string.
-    var decorations = lowered.decorations.map(function (decoration) {
+    const decorations = lowered.decorations.map(function (decoration) {
       return [
         String(decoration.start),
         String(decoration.end),
@@ -222,7 +222,7 @@ declare global {
     }).join(PREPARE_RECORD_SEPARATOR);
 
     // SourceBoundary wire: dedupe into a Set, sort ascending, join by comma.
-    var sourceBoundaries = Array.from(new Set(lowered.sourceBoundaries))
+    const sourceBoundaries = Array.from(new Set(lowered.sourceBoundaries))
       .sort(function (a, b) { return a - b; })
       .join(',');
 
@@ -270,7 +270,7 @@ declare global {
   // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
   // shape, schema, and matching layout revision.
   function isPreparedDomBridgeAvailable(): boolean {
-    var renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
     return !!(renderer &&
       typeof renderer.render === 'function' &&
       typeof renderer.release === 'function' &&
@@ -280,8 +280,8 @@ declare global {
   }
 
   function isExactSessionCapabilityFailure(error: unknown): boolean {
-    var message = String(error && (error as { message?: string }).message);
-    for (var i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
+    const message = String(error && (error as { message?: string }).message);
+    for (let i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
       if (message.indexOf(EXACT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
         return true;
       }
@@ -312,21 +312,21 @@ declare global {
    * @returns {Object}
    */
   function prepareParagraphLayout(ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
-    var paragraph = argument.paragraph;
-    var options = argument.options;
-    var exactSession = argument.exactSession;
-    var browserFallback = argument.browserFallback;
-    var widthOverride = argument.widthOverride;
-    var ignoreUnchangedMeasure = argument.ignoreUnchangedMeasure;
-    var lowered = paragraph.lowered;
-    var element = paragraph.source;
+    const paragraph = argument.paragraph;
+    const options = argument.options;
+    const exactSession = argument.exactSession;
+    const browserFallback = argument.browserFallback;
+    const widthOverride = argument.widthOverride;
+    const ignoreUnchangedMeasure = argument.ignoreUnchangedMeasure;
+    const lowered = paragraph.lowered;
+    const element = paragraph.source;
 
-    var responsive = globalThis.__TiqianResponsiveMeasure!;
-    var width = widthOverride != null
+    const responsive = globalThis.__TiqianResponsiveMeasure!;
+    const width = widthOverride != null
       ? widthOverride
       : responsive.sourceParagraphWidth(paragraph.source);
-    var fontSize = lowered.textStyle.fontSize;
-    var measure = responsive.effectiveLineMeasure(width, fontSize);
+    const fontSize = lowered.textStyle.fontSize;
+    const measure = responsive.effectiveLineMeasure(width, fontSize);
 
     if (!ignoreUnchangedMeasure && paragraph.lastMeasure === measure) {
       return { kind: 'unchanged' };
@@ -342,8 +342,8 @@ declare global {
     }
 
     if (!isPreparedDomEligible(lowered)) {
-      var firstMismatch = null;
-      for (var i = 0; i < lowered.spans.length; i += 1) {
+      let firstMismatch = null;
+      for (let i = 0; i < lowered.spans.length; i += 1) {
         if (lowered.spans[i].style.locale !== lowered.textStyle.locale) {
           firstMismatch = lowered.spans[i];
           break;
@@ -360,21 +360,21 @@ declare global {
       };
     }
 
-    var wire = wireArguments(lowered);
-    var firstLineIndentIc = element.tagName.toUpperCase() === 'LI'
+    const wire = wireArguments(lowered);
+    const firstLineIndentIc = element.tagName.toUpperCase() === 'LI'
       ? 0
       : (options.firstLineIndentIc as number);
     // The Kotlin direct path builds ParagraphStyle without lineLengthGrid,
     // whose data-class default is LineLengthGrid(enabled = true).
-    var lineLengthGridEnabled = true;
-    var emphasisDotGapEm: number | null = options.emphasisDotGapEm == null
+    const lineLengthGridEnabled = true;
+    const emphasisDotGapEm: number | null = options.emphasisDotGapEm == null
       ? null
       : (options.emphasisDotGapEm as number);
-    var renderEvidenceOverride = hasRenderEvidence(lowered);
+    const renderEvidenceOverride = hasRenderEvidence(lowered);
 
     // EngineLineMeasureMatchesResponsiveGrid: feed the quantized measure, not
     // the raw width, as maxWidthPx to every layout path.
-    var paragraphArguments = [
+    const paragraphArguments = [
       wire.text,
       measure,
       wire.fontFamilies,
@@ -392,9 +392,9 @@ declare global {
       wire.inlineObjects,
     ];
 
-    var exactFontSessionUsed = browserFallback != null;
+    let exactFontSessionUsed = browserFallback != null;
 
-    var rawEnvelope;
+    let rawEnvelope;
     if (exactSession != null) {
       try {
         // ExactSessionSemanticLayout: one font session serves the canonical
@@ -444,12 +444,12 @@ declare global {
       );
     }
 
-    var envelope = JSON.parse(rawEnvelope);
-    var planJson = envelope.plan;
-    var plan = JSON.parse(planJson);
-    var diagnostics = envelope.diagnostics;
+    const envelope = JSON.parse(rawEnvelope);
+    const planJson = envelope.plan;
+    const plan = JSON.parse(planJson);
+    const diagnostics = envelope.diagnostics;
 
-    var capabilityIssue = diagnostics.capabilityIssues[0];
+    const capabilityIssue = diagnostics.capabilityIssues[0];
     if (capabilityIssue != null) {
       return {
         kind: 'unsupported',
@@ -459,9 +459,9 @@ declare global {
       };
     }
 
-    var invalidShaping = null;
-    for (var s = 0; s < diagnostics.advanceSuspects.length; s += 1) {
-      var suspect = diagnostics.advanceSuspects[s];
+    let invalidShaping = null;
+    for (let s = 0; s < diagnostics.advanceSuspects.length; s += 1) {
+      const suspect = diagnostics.advanceSuspects[s];
       if (suspect.displayText.length > 0 &&
           suspect.displayText.indexOf('\n') === -1 &&
           suspect.displayText.indexOf('\r') === -1) {
@@ -480,12 +480,12 @@ declare global {
       };
     }
 
-    var clonedDecoration = null;
-    for (var d = 0; d < lowered.sourceSpans.length; d += 1) {
-      var sourceSpan = lowered.sourceSpans[d];
-      var crossing = 0;
-      for (var l = 0; l < plan.lines.length; l += 1) {
-        var line = plan.lines[l];
+    let clonedDecoration = null;
+    for (let d = 0; d < lowered.sourceSpans.length; d += 1) {
+      const sourceSpan = lowered.sourceSpans[d];
+      let crossing = 0;
+      for (let l = 0; l < plan.lines.length; l += 1) {
+        const line = plan.lines[l];
         if (line.rangeStart < sourceSpan.end && line.rangeEnd > sourceSpan.start) {
           crossing += 1;
         }

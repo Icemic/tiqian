@@ -92,8 +92,8 @@ declare global {
 (function () {
   if (globalThis.__TiqianCommitPreparedParagraph) return;
 
-  var CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-  var EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+  const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
+  const EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
 
   // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
   // lowered-paragraph.js (line 110). True when all six styled collections are
@@ -112,7 +112,7 @@ declare global {
   // in WebEnhancerSupport.kt. The validator global exists only in test worlds;
   // an absent validator reports null and never throws.
   function rendererIssue(host: Element, width: number): string | null {
-    var validator = globalThis.__TiqianPreparedDomValidator;
+    const validator = globalThis.__TiqianPreparedDomValidator;
     return (validator && typeof validator.issue === 'function')
       ? validator.issue(host, width)
       : null;
@@ -122,7 +122,7 @@ declare global {
   // releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
   // installed renderer. Callers ignore the return value.
   function releasePreparedDomStyles(host: Element): boolean {
-    var renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
     return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
   }
 
@@ -151,10 +151,10 @@ declare global {
     inlineObjectMetaJson: string,
     cjkStrongSemanticsJson: string
   ): unknown {
-    var record = JSON.parse(recordJson);
-    var inlineObjects = Array.from(inlineObjectElements || []);
-    var meta = JSON.parse(inlineObjectMetaJson || '[]');
-    var inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
+    const record = JSON.parse(recordJson);
+    const inlineObjects = Array.from(inlineObjectElements || []);
+    const meta = JSON.parse(inlineObjectMetaJson || '[]');
+    const inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
       return {
         start: entry.start,
         end: entry.end,
@@ -193,12 +193,12 @@ declare global {
     inlineObjectMetaJson: string,
     cjkStrongSemanticsJson: string
   ): unknown {
-    var semantics = Array.from(semanticElements || []);
-    var inlineObjects = Array.from(inlineObjectElements || []);
-    var hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
+    const semantics = Array.from(semanticElements || []);
+    const inlineObjects = Array.from(inlineObjectElements || []);
+    const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
     return engineWriteSuspension(host, function () {
-      var meta = JSON.parse(inlineObjectMetaJson || '[]');
-      var inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
+      const meta = JSON.parse(inlineObjectMetaJson || '[]');
+      const inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
         return {
           start: entry.start,
           end: entry.end,
@@ -206,7 +206,7 @@ declare global {
           element: inlineObjects[index],
         };
       });
-      var options = hasLiveSources ? {
+      const options = hasLiveSources ? {
         sourceText: sourceText,
         semanticReplay: 'live-source',
         semantics: JSON.parse(semanticsJson || '[]'),
@@ -230,10 +230,10 @@ declare global {
    * @returns {Object|null}
    */
   function commitWorkerPreparedParagraph(argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
-    var paragraph = argument.paragraph;
-    var source = paragraph.source;
-    var lowered = paragraph.lowered;
-    var width = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(source);
+    const paragraph = argument.paragraph;
+    const source = paragraph.source;
+    const lowered = paragraph.lowered;
+    const width = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(source);
 
     source.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, 'true');
     source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
@@ -250,10 +250,10 @@ declare global {
 
     source.setAttribute('lang', lowered.textStyle.locale);
 
-    var sourceSpansElements = lowered.sourceSpans.map(function (s) {
+    const sourceSpansElements = lowered.sourceSpans.map(function (s) {
       return s.element;
     });
-    var domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
+    const domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
       return s.element;
     });
 
@@ -268,7 +268,7 @@ declare global {
       argument.cjkStrongSemanticsJson
     );
 
-    var preparedDomIssue = rendererIssue(source, width);
+    const preparedDomIssue = rendererIssue(source, width);
     if (preparedDomIssue != null) {
       if (typeof argument.onExactPreparedDomFallback === 'function') {
         argument.onExactPreparedDomFallback(preparedDomIssue);
@@ -303,10 +303,10 @@ declare global {
    * @returns {Object}
    */
   function commitPreparedParagraph(argument: CommitPreparedParagraphArgument): CommitResult {
-    var paragraph = argument.paragraph;
-    var preparation = argument.preparation;
-    var source = paragraph.source;
-    var lowered = paragraph.lowered;
+    const paragraph = argument.paragraph;
+    const preparation = argument.preparation;
+    const source = paragraph.source;
+    const lowered = paragraph.lowered;
 
     // PreparedPlainHostPromise: canonical-plain promises the re-lowerer a
     // prepared plain host, so a rich prepared paragraph only carries
@@ -317,10 +317,10 @@ declare global {
     source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
     source.setAttribute('lang', lowered.textStyle.locale);
 
-    var sourceSpansElements = lowered.sourceSpans.map(function (s) {
+    const sourceSpansElements = lowered.sourceSpans.map(function (s) {
       return s.element;
     });
-    var domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
+    const domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
       return s.element;
     });
 
@@ -341,7 +341,7 @@ declare global {
       argument.cjkStrongSemanticsJson
     );
 
-    var preparedDomIssue = rendererIssue(source, preparation.width!);
+    const preparedDomIssue = rendererIssue(source, preparation.width!);
     if (preparedDomIssue == null) {
       globalThis.__TiqianCustody!.stampRendered(source);
       return {
@@ -363,15 +363,15 @@ declare global {
       // against a result shaped by the exact session, so re-lay the paragraph
       // out with browser metrics and replay it through the prepared bridge once
       // more; the per-paragraph validator still guards that second render.
-      var fallbackOptions: Record<string, unknown> = {};
-      for (var key in argument.options) {
+      const fallbackOptions: Record<string, unknown> = {};
+      for (const key in argument.options) {
         if (Object.prototype.hasOwnProperty.call(argument.options, key)) {
           fallbackOptions[key] = argument.options[key];
         }
       }
       fallbackOptions.exactFontSession = null;
 
-      var fallbackPreparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
+      const fallbackPreparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
         argument.ffi,
         {
           paragraph: paragraph,

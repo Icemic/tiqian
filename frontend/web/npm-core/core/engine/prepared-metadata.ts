@@ -30,10 +30,10 @@ declare global {
 
   // Escape a string into valid JSON string characters.
   function escapeJson(value: string): string {
-    var result = '"';
-    for (var i = 0; i < value.length; i += 1) {
-      var ch = value.charAt(i);
-      var code = value.charCodeAt(i);
+    let result = '"';
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value.charAt(i);
+      const code = value.charCodeAt(i);
       switch (ch) {
         case '"':
           result += '\\"';
@@ -73,12 +73,12 @@ declare global {
   // lowered-paragraph.js (line 186). The builder now has a single
   // plain-script home shared by every orchestrator.
   function preparedSemanticReplayJson(lowered: LoweredParagraph): string {
-    var result = '[';
-    for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
+    let result = '[';
+    for (let i = 0; i < lowered.sourceSpans.length; i += 1) {
       if (i > 0) {
         result += ',';
       }
-      var span = lowered.sourceSpans[i];
+      const span = lowered.sourceSpans[i];
       result += '{"start":' + String(span.start) +
         ',"end":' + String(span.end) +
         ',"tagName":' + escapeJson(span.element.tagName.toLowerCase()) +
@@ -93,12 +93,12 @@ declare global {
   // in lowered-paragraph.js (line 208). The builder now has a single
   // plain-script home shared by every orchestrator.
   function preparedInlineObjectMetaJson(lowered: LoweredParagraph): string {
-    var result = '[';
-    for (var i = 0; i < lowered.domInlineObjects.length; i += 1) {
+    let result = '[';
+    for (let i = 0; i < lowered.domInlineObjects.length; i += 1) {
       if (i > 0) {
         result += ',';
       }
-      var objectSpan = lowered.domInlineObjects[i];
+      const objectSpan = lowered.domInlineObjects[i];
       result += '{"start":' + String(objectSpan.start) +
         ',"end":' + String(objectSpan.end) +
         ',"marginRight":' + String(objectSpan.marginRight) + '}';
@@ -112,11 +112,11 @@ declare global {
   // The builder now has a single plain-script home shared by every
   // orchestrator.
   function preparedCjkStrongSemanticsJson(lowered: LoweredParagraph): string {
-    var result = '[';
-    var first = true;
-    for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
-      var span = lowered.sourceSpans[i];
-      var weight = span.cjkStrongBaseWeight;
+    let result = '[';
+    let first = true;
+    for (let i = 0; i < lowered.sourceSpans.length; i += 1) {
+      const span = lowered.sourceSpans[i];
+      const weight = span.cjkStrongBaseWeight;
       if (weight == null) {
         continue;
       }

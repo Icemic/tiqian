@@ -62,7 +62,7 @@ declare global {
   }
 
   function releasePreparedStyles(element: Element): boolean {
-    var renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
     if (renderer && renderer.release && renderer.release(element) === true) return true;
     return false;
   }
@@ -71,11 +71,11 @@ declare global {
   // per-paragraph classification question as classifyReconcile without
   // touching the DOM, so element.js cancels only on real drift.
   function probeContentDrift(trackedSources: Element[]): string {
-    var drifted = 0;
-    var dead = 0;
-    var custody = 0;
-    for (var index = 0; index < trackedSources.length; index++) {
-      var source = trackedSources[index];
+    let drifted = 0;
+    let dead = 0;
+    let custody = 0;
+    for (let index = 0; index < trackedSources.length; index++) {
+      const source = trackedSources[index];
       if (!source.isConnected) {
         dead += 1;
       } else if (!custodyApi().renderedMatches(source)) {
@@ -96,13 +96,13 @@ declare global {
   // stranded candidate is skipped when it already failed lowering with a
   // capability marker and was never rendered (StrandedCapabilityNoRetry).
   function classifyReconcile(spec: ReconcileSpec): ReconcileResult {
-    var trackedSources = spec.trackedSources;
-    var drifted: Element[] = [];
-    var custodyDrifted: Element[] = [];
-    var dead = 0;
-    var trackedSet = new Set<Element>();
-    for (var trackIndex = 0; trackIndex < trackedSources.length; trackIndex++) {
-      var trackedSource = trackedSources[trackIndex];
+    const trackedSources = spec.trackedSources;
+    const drifted: Element[] = [];
+    const custodyDrifted: Element[] = [];
+    let dead = 0;
+    const trackedSet = new Set<Element>();
+    for (let trackIndex = 0; trackIndex < trackedSources.length; trackIndex++) {
+      const trackedSource = trackedSources[trackIndex];
       trackedSet.add(trackedSource);
       if (!trackedSource.isConnected) {
         dead += 1;
@@ -112,34 +112,34 @@ declare global {
         custodyDrifted.push(trackedSource);
       }
     }
-    var driftedSources = new Set<Element>();
-    var driftedIndex;
+    const driftedSources = new Set<Element>();
+    let driftedIndex;
     for (driftedIndex = 0; driftedIndex < drifted.length; driftedIndex++) {
       driftedSources.add(drifted[driftedIndex]);
     }
     for (driftedIndex = 0; driftedIndex < custodyDrifted.length; driftedIndex++) {
       driftedSources.add(custodyDrifted[driftedIndex]);
     }
-    var tainted = spec.tainted || [];
-    var taintedTracked: Element[] = [];
-    for (var taintedIndex = 0; taintedIndex < tainted.length; taintedIndex++) {
-      var host = tainted[taintedIndex];
+    const tainted = spec.tainted || [];
+    const taintedTracked: Element[] = [];
+    for (let taintedIndex = 0; taintedIndex < tainted.length; taintedIndex++) {
+      const host = tainted[taintedIndex];
       if (!host.isConnected) continue;
       if (!(host.closest && host.closest(spec.rootSelector))) continue;
       if (!trackedSet.has(host)) continue;
       if (driftedSources.has(host)) continue;
       taintedTracked.push(host);
     }
-    var stranded: Element[] = [];
-    var candidates = spec.strandedCandidates || [];
-    for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
-      var candidate = candidates[candidateIndex];
+    const stranded: Element[] = [];
+    const candidates = spec.strandedCandidates || [];
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+      const candidate = candidates[candidateIndex];
       if (!candidate.hasAttribute("data-tiqian-capability-issue") ||
           candidate.hasAttribute("data-tq-rendered")) {
         stranded.push(candidate);
       }
     }
-    var empty = drifted.length === 0 && custodyDrifted.length === 0 &&
+    const empty = drifted.length === 0 && custodyDrifted.length === 0 &&
       taintedTracked.length === 0 && stranded.length === 0;
     return {
       outcome: empty ? "idle" : "work",
@@ -177,32 +177,32 @@ declare global {
     // break keeps its source form. Restore a bare br before removing
     // engine elements: a newline text node would be folded into a space by
     // collapse-mode re-lowering and lose the break.
-    var hardBreaks = paragraph.querySelectorAll("[data-tq-hard-break]");
-    for (var breakIndex = 0; breakIndex < hardBreaks.length; breakIndex++) {
-      var hardBreak = hardBreaks[breakIndex];
+    const hardBreaks = paragraph.querySelectorAll("[data-tq-hard-break]");
+    for (let breakIndex = 0; breakIndex < hardBreaks.length; breakIndex++) {
+      const hardBreak = hardBreaks[breakIndex];
       if (hardBreak.parentNode) {
         hardBreak.parentNode.replaceChild(document.createElement("br"), hardBreak);
       }
     }
-    var artifacts = paragraph.querySelectorAll(
+    const artifacts = paragraph.querySelectorAll(
       "[data-tq-copy-ignore], [data-tq-engine-break], [data-tq-src], [data-tq-prepared-value-styles]",
     );
-    for (var artifactIndex = 0; artifactIndex < artifacts.length; artifactIndex++) {
-      var artifact = artifacts[artifactIndex];
+    for (let artifactIndex = 0; artifactIndex < artifacts.length; artifactIndex++) {
+      const artifact = artifacts[artifactIndex];
       if (artifact.parentNode) artifact.parentNode.removeChild(artifact);
     }
     // Engine run spans position glyphs through --tq-* custom properties.
     // Those values are meaningless on host content and would survive
     // lowering, so strip them from every remaining descendant.
-    var descendants = paragraph.querySelectorAll<HTMLElement>("*");
-    for (var descIndex = 0; descIndex < descendants.length; descIndex++) {
-      var element = descendants[descIndex];
-      var engineProperties: string[] = [];
-      for (var styleIndex = 0; styleIndex < element.style.length; styleIndex++) {
-        var name = element.style.item(styleIndex);
+    const descendants = paragraph.querySelectorAll<HTMLElement>("*");
+    for (let descIndex = 0; descIndex < descendants.length; descIndex++) {
+      const element = descendants[descIndex];
+      const engineProperties: string[] = [];
+      for (let styleIndex = 0; styleIndex < element.style.length; styleIndex++) {
+        const name = element.style.item(styleIndex);
         if (name.indexOf("--tq-") === 0) engineProperties.push(name);
       }
-      for (var removeIndex = 0; removeIndex < engineProperties.length; removeIndex++) {
+      for (let removeIndex = 0; removeIndex < engineProperties.length; removeIndex++) {
         element.style.removeProperty(engineProperties[removeIndex]);
       }
     }
@@ -227,7 +227,7 @@ declare global {
     if (paragraph.style.getPropertyPriority("font-size") === "important") {
       paragraph.style.removeProperty("font-size");
     }
-    var styleAttribute = paragraph.getAttribute("style");
+    const styleAttribute = paragraph.getAttribute("style");
     if (styleAttribute === null || styleAttribute.trim() === "") {
       paragraph.removeAttribute("style");
     }

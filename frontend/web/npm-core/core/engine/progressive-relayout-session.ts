@@ -70,23 +70,23 @@ declare global {
    * @returns {Object}
    */
   function createProgressiveRelayoutSession(argument: SessionArgument): ProgressiveRelayoutSession {
-    var paragraphs = argument.paragraphs.slice();
-    var state = argument.state;
-    var snapshots = new Map<TrackedParagraph, CustodySnapshot>();
-    var successful: Array<[TrackedParagraph, number]> = [];
-    var unsupported: Array<[TrackedParagraph, RootStateIssueRecord]> = [];
-    var stateParagraphsBefore = state.paragraphs.slice();
-    var stateIssuesBefore = state.issues.slice();
+    const paragraphs = argument.paragraphs.slice();
+    const state = argument.state;
+    const snapshots = new Map<TrackedParagraph, CustodySnapshot>();
+    const successful: Array<[TrackedParagraph, number]> = [];
+    const unsupported: Array<[TrackedParagraph, RootStateIssueRecord]> = [];
+    const stateParagraphsBefore = state.paragraphs.slice();
+    const stateIssuesBefore = state.issues.slice();
 
     // ProcessItem: dispatches layout preparation for a single paragraph item.
     // Unchanged preparations are no-ops. Unsupported and ready preparations
     // capture live custody snapshots before commit or restore.
     function processItem(index: number, preparation: PrepareLayoutResult): void {
-      var paragraph = paragraphs[index];
+      const paragraph = paragraphs[index];
       if (preparation.kind === 'unchanged') {
         return;
       }
-      var custody = globalThis.__TiqianCustody!;
+      const custody = globalThis.__TiqianCustody!;
       if (preparation.kind === 'unsupported') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
         unsupported.push([paragraph, preparation]);
@@ -95,9 +95,9 @@ declare global {
       }
       if (preparation.kind === 'ready') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
-        var metadata = globalThis.__TiqianPreparedMetadata!;
-        var commitPreparedParagraph = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph;
-        var result: CommitResult = commitPreparedParagraph({
+        const metadata = globalThis.__TiqianPreparedMetadata!;
+        const commitPreparedParagraph = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph;
+        const result: CommitResult = commitPreparedParagraph({
           ffi: state.ffi as EngineFfiFacade,
           paragraph: paragraph,
           preparation: preparation,
@@ -123,12 +123,12 @@ declare global {
     // Unsupported paragraphs are removed from state.paragraphs, normalized,
     // and reported to lifecycle.
     function finish(): void {
-      for (var s = 0; s < successful.length; s += 1) {
-        var successPair = successful[s];
-        var successParagraph = successPair[0];
-        var measure = successPair[1];
-        var isUnsupported = false;
-        for (var u = 0; u < unsupported.length; u += 1) {
+      for (let s = 0; s < successful.length; s += 1) {
+        const successPair = successful[s];
+        const successParagraph = successPair[0];
+        const measure = successPair[1];
+        let isUnsupported = false;
+        for (let u = 0; u < unsupported.length; u += 1) {
           if (unsupported[u][0] === successParagraph) {
             isUnsupported = true;
             break;
@@ -138,11 +138,11 @@ declare global {
           successParagraph.lastMeasure = measure;
         }
       }
-      for (var i = 0; i < unsupported.length; i += 1) {
-        var unsupportedPair = unsupported[i];
-        var unsuppParagraph = unsupportedPair[0];
-        var issue = unsupportedPair[1];
-        var indexInState = state.paragraphs.indexOf(unsuppParagraph);
+      for (let i = 0; i < unsupported.length; i += 1) {
+        const unsupportedPair = unsupported[i];
+        const unsuppParagraph = unsupportedPair[0];
+        const issue = unsupportedPair[1];
+        const indexInState = state.paragraphs.indexOf(unsuppParagraph);
         if (indexInState !== -1) {
           state.paragraphs.splice(indexInState, 1);
         }
@@ -162,23 +162,23 @@ declare global {
     // order, and updates paragraph lastMeasure by source element identity.
     function rollback(): void {
       state.paragraphs.length = 0;
-      for (var p = 0; p < stateParagraphsBefore.length; p += 1) {
+      for (let p = 0; p < stateParagraphsBefore.length; p += 1) {
         state.paragraphs.push(stateParagraphsBefore[p]);
       }
       state.issues.length = 0;
-      for (var is = 0; is < stateIssuesBefore.length; is += 1) {
+      for (let is = 0; is < stateIssuesBefore.length; is += 1) {
         state.issues.push(stateIssuesBefore[is]);
       }
-      var snapshotsArray = Array.from(snapshots.values());
-      var results = globalThis.__TiqianCustody!.rollback(snapshotsArray);
-      var paragraphBySource = new Map<Element, TrackedParagraph>();
-      for (var j = 0; j < paragraphs.length; j += 1) {
+      const snapshotsArray = Array.from(snapshots.values());
+      const results = globalThis.__TiqianCustody!.rollback(snapshotsArray);
+      const paragraphBySource = new Map<Element, TrackedParagraph>();
+      for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);
       }
       if (results && results.length) {
-        for (var r = 0; r < results.length; r += 1) {
-          var result = results[r];
-          var para = paragraphBySource.get(result.source);
+        for (let r = 0; r < results.length; r += 1) {
+          const result = results[r];
+          const para = paragraphBySource.get(result.source);
           if (para) {
             para.lastMeasure = result.lastMeasure;
           }

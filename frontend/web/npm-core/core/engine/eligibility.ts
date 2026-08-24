@@ -32,10 +32,10 @@ declare global {
 (function () {
   if (globalThis.__TiqianEligibility) return;
 
-  var skippedAncestorSelector =
+  const skippedAncestorSelector =
     ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
 
-  var nonTextInlineTags = new Set([
+  const nonTextInlineTags = new Set([
     "AREA",
     "AUDIO",
     "BUTTON",
@@ -56,9 +56,9 @@ declare global {
     "VIDEO",
   ]);
 
-  var opaqueInlineDisplays = new Set(["inline-block", "inline-flex", "inline-grid"]);
+  const opaqueInlineDisplays = new Set(["inline-block", "inline-flex", "inline-grid"]);
 
-  var opaqueInlineLevelDisplays = new Set([
+  const opaqueInlineLevelDisplays = new Set([
     "inline-block",
     "inline-flex",
     "inline-grid",
@@ -95,10 +95,10 @@ declare global {
     ) {
       return false;
     }
-    var children = paragraph.querySelectorAll(":scope > *");
+    const children = paragraph.querySelectorAll(":scope > *");
     if (children.length === 0) return false;
-    for (var index = 0; index < children.length; index++) {
-      var child = children[index];
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index];
       if (
         child.tagName.toUpperCase() !== "IMG" ||
         (globalThis.getComputedStyle(child).getPropertyValue("display") || "").trim().toLowerCase() !== "block"
@@ -111,11 +111,11 @@ declare global {
 
   function hasOpaqueInlineCandidate(paragraph: Element | null): boolean {
     if (!paragraph) return false;
-    var descendants = paragraph.querySelectorAll("*");
-    for (var index = 0; index < descendants.length; index++) {
-      var element = descendants[index];
-      var tag = element.tagName.toUpperCase();
-      var display = (globalThis.getComputedStyle(element).getPropertyValue("display") || "").trim().toLowerCase();
+    const descendants = paragraph.querySelectorAll("*");
+    for (let index = 0; index < descendants.length; index++) {
+      const element = descendants[index];
+      const tag = element.tagName.toUpperCase();
+      const display = (globalThis.getComputedStyle(element).getPropertyValue("display") || "").trim().toLowerCase();
       if (isNonTextInlineTag(tag) || tag.indexOf("-") !== -1 || isOpaqueInlineDisplay(display)) {
         return true;
       }

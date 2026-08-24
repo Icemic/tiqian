@@ -146,17 +146,17 @@ declare global {
   // Constants copied from the Kotlin sources: DEFAULT_EMPHASIS_DOT_GAP_EM in
   // core TextModel.kt, DEFAULT_FONT_SIZE and the default families in
   // WebEnhancerSupport.kt, DEFAULT_PARAGRAPH_SELECTOR in WebEnhancer.kt.
-  var DEFAULT_EMPHASIS_DOT_GAP_EM: number = 0.1;
-  var DEFAULT_FONT_SIZE: number = 19;
-  var DEFAULT_PARAGRAPH_SELECTOR: string = "p, li";
-  var CAPABILITY_DETAIL_LIMIT: number = 512;
-  var HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
-  var DEFAULT_CJK_FONT_FAMILY: string = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
-  var DEFAULT_LATIN_FONT_FAMILY: string = '"InterVariable", "Inter", "MiSans VF", sans-serif';
-  var DEFAULT_MONOSPACE_FONT_FAMILY: string =
+  const DEFAULT_EMPHASIS_DOT_GAP_EM: number = 0.1;
+  const DEFAULT_FONT_SIZE: number = 19;
+  const DEFAULT_PARAGRAPH_SELECTOR: string = "p, li";
+  const CAPABILITY_DETAIL_LIMIT: number = 512;
+  const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
+  const DEFAULT_CJK_FONT_FAMILY: string = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+  const DEFAULT_LATIN_FONT_FAMILY: string = '"InterVariable", "Inter", "MiSans VF", sans-serif';
+  const DEFAULT_MONOSPACE_FONT_FAMILY: string =
     '"JetBrains Mono Variable", "SFMono-Regular", Menlo, Consolas, "MiSans VF", monospace';
-  var DEFAULT_CJK_SERIF_FONT_FAMILY: string = '"MetroSungPlus-SC", "Songti SC", serif';
-  var DEFAULT_LATIN_SERIF_FONT_FAMILY: string = 'Georgia, "Times New Roman", serif';
+  const DEFAULT_CJK_SERIF_FONT_FAMILY: string = '"MetroSungPlus-SC", "Songti SC", serif';
+  const DEFAULT_LATIN_SERIF_FONT_FAMILY: string = 'Georgia, "Times New Roman", serif';
 
   // Plain-object reads mirroring the @JsFun option helpers in
   // WebEnhancerSupport.kt. Null and undefined both read as null.
@@ -166,12 +166,12 @@ declare global {
 
   function optionNumber(options: Record<string, unknown>, name: string): number {
     if (!options || options[name] == null) return Number.NaN;
-    var number = Number(options[name]);
+    const number = Number(options[name]);
     return Number.isFinite(number) ? number : Number.NaN;
   }
 
   function optionFloat(options: Record<string, unknown>, name: string): number | null {
-    var number = optionNumber(options, name);
+    const number = optionNumber(options, name);
     return Number.isFinite(number) ? number : null;
   }
 
@@ -202,8 +202,8 @@ declare global {
   // box to approximate the content box.
   function computedContentBoxWidth(paragraph: Element | null): number {
     if (!paragraph) return 0;
-    var style = globalThis.getComputedStyle(paragraph);
-    var number = function (value: string): number {
+    const style = globalThis.getComputedStyle(paragraph);
+    const number = function (value: string): number {
       return Number.parseFloat(value) || 0;
     };
     return elementFragmentBorderBoxInlineSize(paragraph) -
@@ -216,7 +216,7 @@ declare global {
   // The responsive measure module is installed alongside; only the content
   // width read is defensive here, mirroring the Kotlin bridge contract.
   function elementContentWidth(paragraph: Element | null): number {
-    var measure = globalThis.__TiqianResponsiveMeasure;
+    const measure = globalThis.__TiqianResponsiveMeasure;
     if (measure && typeof measure.elementContentWidth === "function") {
       return measure.elementContentWidth(paragraph);
     }
@@ -233,36 +233,36 @@ declare global {
 
   // Parse a "Npx" length; anything else reads as null.
   function parseCssPx(value: string): number | null {
-    var trimmed = value.trim();
+    const trimmed = value.trim();
     if (!trimmed.endsWith("px")) return null;
-    var stripped = trimmed.slice(0, -2).trim();
+    const stripped = trimmed.slice(0, -2).trim();
     if (stripped.length === 0) return null;
-    var number = Number(stripped);
+    const number = Number(stripped);
     return Number.isNaN(number) ? null : number;
   }
 
   // EnhanceOptionsJsPort: decode the host options bag into the plain-object
   // EnhanceOptions shape (WebEnhancerParagraphLifecycle.kt optionsFromJs).
   function optionsFromJs(options: Record<string, unknown>): EnhanceOptions {
-    var cjk = optionString(options, "cjkFontFamily");
-    var latin = optionString(options, "latinFontFamily");
-    var monospace = optionString(options, "monospaceFontFamily");
-    var cjkSerif = optionString(options, "cjkSerifFontFamily");
-    var latinSerif = optionString(options, "latinSerifFontFamily");
-    var fontSize = optionFloat(options, "fontSize");
-    var lineHeight = optionFloat(options, "lineHeight");
-    var firstLineIndentIc = optionFloat(options, "firstLineIndentIc");
+    const cjk = optionString(options, "cjkFontFamily");
+    const latin = optionString(options, "latinFontFamily");
+    const monospace = optionString(options, "monospaceFontFamily");
+    const cjkSerif = optionString(options, "cjkSerifFontFamily");
+    const latinSerif = optionString(options, "latinSerifFontFamily");
+    const fontSize = optionFloat(options, "fontSize");
+    const lineHeight = optionFloat(options, "lineHeight");
+    let firstLineIndentIc = optionFloat(options, "firstLineIndentIc");
     if (firstLineIndentIc === null) firstLineIndentIc = 0;
-    var emphasisDotGapEm = optionFloat(options, "emphasisDotGapEm");
+    let emphasisDotGapEm = optionFloat(options, "emphasisDotGapEm");
     if (emphasisDotGapEm === null) emphasisDotGapEm = DEFAULT_EMPHASIS_DOT_GAP_EM;
-    var strongAsEmphasisMarks = optionBoolean(options, "strongAsEmphasisMarks");
+    let strongAsEmphasisMarks = optionBoolean(options, "strongAsEmphasisMarks");
     if (strongAsEmphasisMarks === null) strongAsEmphasisMarks = false;
-    var paragraphSelector = optionString(options, "paragraphSelector");
+    let paragraphSelector = optionString(options, "paragraphSelector");
     if (paragraphSelector === null) paragraphSelector = DEFAULT_PARAGRAPH_SELECTOR;
-    var requireExactLayoutWorker = optionBoolean(options, "requireExactLayoutWorker");
+    let requireExactLayoutWorker = optionBoolean(options, "requireExactLayoutWorker");
     if (requireExactLayoutWorker === null) requireExactLayoutWorker = false;
-    var dashCapabilityObject = optionObject(options, "cjkDashCapability");
-    var cjkDashCapability: EnhanceCjkDashCapabilityDraft | null = null;
+    const dashCapabilityObject = optionObject(options, "cjkDashCapability");
+    let cjkDashCapability: EnhanceCjkDashCapabilityDraft | null = null;
     if (dashCapabilityObject != null) {
       cjkDashCapability = {
         status: optionString(dashCapabilityObject, "status"),
@@ -270,8 +270,8 @@ declare global {
       };
       if (cjkDashCapability.status === null) cjkDashCapability.status = "unavailable";
     }
-    var exactFontSessionObject = optionObject(options, "exactFontSession");
-    var exactFontSession: EnhanceExactFontSessionDraft | null = null;
+    const exactFontSessionObject = optionObject(options, "exactFontSession");
+    let exactFontSession: EnhanceExactFontSessionDraft | null = null;
     if (exactFontSessionObject != null) {
       exactFontSession = {
         status: optionString(exactFontSessionObject, "status"),
@@ -301,7 +301,7 @@ declare global {
   }
 
   function conformingExactFontSessionId(options: EnhanceOptions): string | null {
-    var session = options && options.exactFontSession;
+    const session = options && options.exactFontSession;
     if (!session || session.status !== "conforming" ||
         typeof session.sessionId !== "string" || session.sessionId.trim().length === 0) {
       return null;
@@ -321,7 +321,7 @@ declare global {
   }
 
   function withoutExactFontSession(options: EnhanceOptions): EnhanceOptions {
-    var copy = Object.assign({}, options);
+    const copy = Object.assign({}, options);
     copy.exactFontSession = null;
     return copy;
   }
@@ -332,14 +332,14 @@ declare global {
     if (options.fontSize != null && (!Number.isFinite(options.fontSize) || options.fontSize <= 0)) {
       throw new Error("InvalidFontSize");
     }
-    var inherited: string | null = computedStyle(root, "font-family").trim();
+    let inherited: string | null = computedStyle(root, "font-family").trim();
     if (inherited.length === 0) inherited = null;
-    var families: Partial<EnhanceFontFamilies> = options.fontFamilies || {};
-    var resolvedCjk = families.cjk != null ? families.cjk : (inherited != null ? inherited : DEFAULT_CJK_FONT_FAMILY);
-    var resolvedLatin = families.latin != null ? families.latin : (inherited != null ? inherited : DEFAULT_LATIN_FONT_FAMILY);
-    var resolvedMonospace = families.monospace != null ? families.monospace : DEFAULT_MONOSPACE_FONT_FAMILY;
-    var resolvedCjkSerif = families.cjkSerif != null ? families.cjkSerif : DEFAULT_CJK_SERIF_FONT_FAMILY;
-    var resolvedLatinSerif = families.latinSerif != null ? families.latinSerif : DEFAULT_LATIN_SERIF_FONT_FAMILY;
+    const families: Partial<EnhanceFontFamilies> = options.fontFamilies || {};
+    const resolvedCjk = families.cjk != null ? families.cjk : (inherited != null ? inherited : DEFAULT_CJK_FONT_FAMILY);
+    const resolvedLatin = families.latin != null ? families.latin : (inherited != null ? inherited : DEFAULT_LATIN_FONT_FAMILY);
+    const resolvedMonospace = families.monospace != null ? families.monospace : DEFAULT_MONOSPACE_FONT_FAMILY;
+    const resolvedCjkSerif = families.cjkSerif != null ? families.cjkSerif : DEFAULT_CJK_SERIF_FONT_FAMILY;
+    const resolvedLatinSerif = families.latinSerif != null ? families.latinSerif : DEFAULT_LATIN_SERIF_FONT_FAMILY;
     return Object.assign({}, options, {
       fontFamilies: {
         cjk: resolvedCjk,
@@ -398,11 +398,11 @@ declare global {
 
   function responsiveSourceMeasure(paragraph: HTMLElement, configuredFontSize: number | null): number {
     if (configuredFontSize == null) {
-      var computedFontSize = parseCssPx(computedStyle(paragraph, "font-size"));
+      let computedFontSize = parseCssPx(computedStyle(paragraph, "font-size"));
       if (computedFontSize === null) computedFontSize = DEFAULT_FONT_SIZE;
       return effectiveLineMeasure(sourceParagraphWidth(paragraph), computedFontSize);
     }
-    var originalStyle = paragraph.getAttribute("style");
+    const originalStyle = paragraph.getAttribute("style");
     paragraph.style.setProperty("font-size", configuredFontSize + "px", "important");
     try {
       return effectiveLineMeasure(sourceParagraphWidth(paragraph), configuredFontSize);
@@ -422,17 +422,17 @@ declare global {
   // parent display modes. Ordinary blocks keep their host auto sizing; only a
   // custody-induced width change is stabilized.
   function stabilizeContentSizedItemInlineSize(paragraph: HTMLElement, source: SourceInlineSizeCapture): string | null {
-    var empty = captureSourceInlineSize(paragraph);
-    var sourceUsedInlineSize = source.borderBoxSizing ? source.borderBoxWidth : source.contentBoxWidth;
-    var emptyUsedInlineSize = source.borderBoxSizing ? empty.borderBoxWidth : empty.contentBoxWidth;
+    const empty = captureSourceInlineSize(paragraph);
+    const sourceUsedInlineSize = source.borderBoxSizing ? source.borderBoxWidth : source.contentBoxWidth;
+    const emptyUsedInlineSize = source.borderBoxSizing ? empty.borderBoxWidth : empty.contentBoxWidth;
     if (!Number.isFinite(sourceUsedInlineSize) || sourceUsedInlineSize <= 0 ||
         !Number.isFinite(emptyUsedInlineSize) ||
         Math.abs(sourceUsedInlineSize - emptyUsedInlineSize) < 0.5) {
       return null;
     }
-    var usedInlineSize = sourceUsedInlineSize;
+    const usedInlineSize = sourceUsedInlineSize;
     if (!Number.isFinite(usedInlineSize) || usedInlineSize <= 0) return null;
-    var serialized = usedInlineSize + "px";
+    const serialized = usedInlineSize + "px";
     paragraph.style.setProperty("inline-size", serialized, "important");
     paragraph.setAttribute(HOST_INLINE_SIZE_ATTRIBUTE, "true");
     return serialized;

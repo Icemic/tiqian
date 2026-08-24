@@ -26,7 +26,7 @@ export function setEngineOverride(engine: TiqianEngineInstance | null | undefine
 // callers treat a null answer as "engine not ready" and stop there.
 export function engineApi(): TiqianEngineInstance | null {
   if (engineOverride) return engineOverride;
-  var tsEngine = globalThis.__TiqianEngine;
+  const tsEngine = globalThis.__TiqianEngine;
   if (tsEngine) return tsEngine;
   return null;
 }
@@ -34,7 +34,7 @@ export function engineApi(): TiqianEngineInstance | null {
 // Polled worker facade (WorkerPolledScheduling): the worker-prefixed methods
 // installed on globalThis.__TiqianEngineWorkers by engine-entry.js.
 export function workerApi(): TiqianEngineWorkersInstance | null {
-  var tsWorkers = globalThis.__TiqianEngineWorkers;
+  const tsWorkers = globalThis.__TiqianEngineWorkers;
   if (tsWorkers) return tsWorkers;
   return null;
 }

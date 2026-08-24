@@ -129,50 +129,50 @@ declare global {
   // ParagraphTierGating: three priority bands, tier 1 in viewport, 2 near,
   // 3 far. A gate of TIER_COUNT admits every tier; run-to-completion jobs
   // use it as their default gate.
-  var TIER_COUNT: number = 3;
-  var TIER_IN_VIEWPORT: number = 1;
+  const TIER_COUNT: number = 3;
+  const TIER_IN_VIEWPORT: number = 1;
 
   // Job registry: one job per root. Grants address jobs by generation:
   // every started job increments the counter and carries the value, so a
   // grant built for an older job is rejected once the root's job has been
   // replaced.
-  var jobs = new Map<Element, ProgressiveJob>();
-  var attachedRoots = new WeakSet<Element>();
-  var jobGenerationCounter: number = 0;
+  const jobs = new Map<Element, ProgressiveJob>();
+  const attachedRoots = new WeakSet<Element>();
+  let jobGenerationCounter: number = 0;
 
   function installTierTracking(job: ProgressiveJob): void {
-    var itemTierIndex = job.itemTierIndex;
+    const itemTierIndex = job.itemTierIndex;
     if (!itemTierIndex) return;
-    var count = itemTierIndex.length;
+    const count = itemTierIndex.length;
     job.paragraphTiers = new Array(count).fill(TIER_IN_VIEWPORT);
     job.tierPending = [count, 0, 0];
     job.itemDone = new Array(job.itemCount).fill(false);
     job.docToItem = new Array(count).fill(-1);
-    for (var item = 0; item < count; item++) {
+    for (let item = 0; item < count; item++) {
       job.docToItem[itemTierIndex[item]] = item;
     }
   }
 
   function markItemDone(job: ProgressiveJob, item: number): void {
-    var done = job.itemDone;
+    const done = job.itemDone;
     if (!done) return;
     if (done[item]) return;
     done[item] = true;
-    var pending = job.tierPending;
+    const pending = job.tierPending;
     if (!pending) return;
-    var tier = (job.paragraphTiers as number[])[(job.itemTierIndex as number[])[item]];
+    let tier = (job.paragraphTiers as number[])[(job.itemTierIndex as number[])[item]];
     if (tier < 1) tier = 1;
     if (tier > TIER_COUNT) tier = TIER_COUNT;
     if (pending[tier - 1] > 0) pending[tier - 1] -= 1;
   }
 
   function skipRemainingItems(job: ProgressiveJob): void {
-    var done = job.itemDone;
+    const done = job.itemDone;
     if (!done) {
       job.nextIndex = job.itemCount;
       return;
     }
-    for (var item = job.nextIndex; item < job.itemCount; item++) {
+    for (let item = job.nextIndex; item < job.itemCount; item++) {
       markItemDone(job, item);
     }
     job.nextIndex = job.itemCount;
@@ -210,23 +210,23 @@ declare global {
     // RunToCompletionWithoutCoordinator path and carries no stop terms; the
     // per-item measure guard inside processItem is the only boundary, so
     // the whole job runs in this one pass.
-    var shouldStop: GrantStopPredicate = controller
+    const shouldStop: GrantStopPredicate = controller
       ? function (processed: number) { return controller.shouldStop(processed); }
       : function (): boolean { return false; };
-    var sliceStartedAt = Date.now();
-    var processedInSlice: number = 0;
+    const sliceStartedAt = Date.now();
+    let processedInSlice: number = 0;
     // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph
     // against the width snapshot taken when the job started. When the host
     // width has drifted since the snapshot, the remaining items are skipped
     // and the finish event reports the job as stale. The guard runs once at
     // the head of each slice, before the slice's DOM writes.
     if (job.isStale && job.isStale()) skipRemainingItems(job);
-    var done = job.itemDone;
-    var tiers = job.paragraphTiers;
-    var itemTierIndex = job.itemTierIndex;
+    const done = job.itemDone;
+    const tiers = job.paragraphTiers;
+    const itemTierIndex = job.itemTierIndex;
     try {
-      var sliceStartIndex = job.nextIndex;
-      var index = job.nextIndex;
+      const sliceStartIndex = job.nextIndex;
+      let index = job.nextIndex;
       while (index < job.itemCount) {
         if (done) {
           if (done[index]) { index += 1; continue; }
@@ -250,7 +250,7 @@ declare global {
         // without breaking would otherwise finish the job over those items.
         // Park on the first not-done item by scanning back from where the
         // slice started, not forward from where the cursor stopped.
-        var parked = sliceStartIndex;
+        let parked = sliceStartIndex;
         while (parked < job.itemCount && done[parked]) parked += 1;
         job.nextIndex = parked;
       }
@@ -259,13 +259,13 @@ declare global {
       failJob(job, error as CaughtError);
       return processedInSlice;
     }
-    var sliceDuration = Date.now() - sliceStartedAt;
+    const sliceDuration = Date.now() - sliceStartedAt;
     if (sliceDuration > job.maxSliceDuration) job.maxSliceDuration = sliceDuration;
     if (job.onProgress) job.onProgress();
     if (job.nextIndex >= job.itemCount) {
       try {
         if (job.onItemsFinished) job.onItemsFinished();
-        var finishDuration = Date.now() - sliceStartedAt;
+        const finishDuration = Date.now() - sliceStartedAt;
         if (finishDuration > job.maxSliceDuration) {
           job.maxSliceDuration = finishDuration;
         }
@@ -280,10 +280,10 @@ declare global {
 
   globalThis.__TiqianProgressiveJob = {
     startJob: function (spec: ProgressiveJobSpec): void {
-      var root = spec.root;
+      const root = spec.root;
       cancelJob(root);
       jobGenerationCounter += 1;
-      var job: ProgressiveJob = {
+      const job: ProgressiveJob = {
         root: root,
         kind: spec.kind,
         itemCount: spec.itemCount,
@@ -335,33 +335,33 @@ declare global {
     cancelJob: cancelJob,
     runSlice: function (controller: GrantController | null, minTier: number): number {
       if (!controller) return 0;
-      var job = jobs.get(controller.root);
+      const job = jobs.get(controller.root);
       if (!job) return 0;
       if (!job.coordinated) return 0;
       if (job.generation !== controller.generation) return 0;
-      var gate = minTier < 1 ? 1 : (minTier > TIER_COUNT ? TIER_COUNT : minTier);
+      const gate = minTier < 1 ? 1 : (minTier > TIER_COUNT ? TIER_COUNT : minTier);
       return runSliceInternal(job, controller, gate);
     },
     hasJob: function (root: Element): boolean { return jobs.has(root); },
     jobGeneration: function (root: Element): number {
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       return job ? job.generation : 0;
     },
     jobKind: function (root: Element): string | null {
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       return job ? job.kind : null;
     },
     pendingInTier: function (root: Element, tier: number): number {
       if (tier < 1 || tier > TIER_COUNT) return 0;
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       return job && job.tierPending ? job.tierPending[tier - 1] : 0;
     },
     paragraphCount: function (root: Element): number {
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       return job && job.paragraphsByDoc ? job.paragraphsByDoc.length : 0;
     },
     paragraphAt: function (root: Element, index: number): HTMLElement | null {
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       if (!job || !job.paragraphsByDoc) return null;
       return index >= 0 && index < job.paragraphsByDoc.length
         ? job.paragraphsByDoc[index]
@@ -369,17 +369,17 @@ declare global {
     },
     setParagraphTier: function (root: Element, index: number, tier: number): boolean {
       if (tier < 1 || tier > TIER_COUNT) return false;
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       if (!job) return false;
-      var tiers = job.paragraphTiers;
+      const tiers = job.paragraphTiers;
       if (!tiers) return false;
       if (index < 0 || index >= tiers.length) return false;
-      var previous = tiers[index] < 1 ? 1 : (tiers[index] > TIER_COUNT ? TIER_COUNT : tiers[index]);
+      const previous = tiers[index] < 1 ? 1 : (tiers[index] > TIER_COUNT ? TIER_COUNT : tiers[index]);
       if (previous === tier) return true;
       tiers[index] = tier;
-      var pending = job.tierPending;
+      const pending = job.tierPending;
       if (!pending) return true;
-      var item = job.docToItem ? job.docToItem[index] : -1;
+      const item = job.docToItem ? job.docToItem[index] : -1;
       if (item >= 0 && job.itemDone && !job.itemDone[item]) {
         if (pending[previous - 1] > 0) pending[previous - 1] -= 1;
         pending[tier - 1] += 1;
@@ -388,13 +388,13 @@ declare global {
     },
     attach: function (root: Element): boolean {
       attachedRoots.add(root);
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       if (job) job.coordinated = true;
       return true;
     },
     detach: function (root: Element): boolean {
       attachedRoots.delete(root);
-      var job = jobs.get(root);
+      const job = jobs.get(root);
       if (job && job.coordinated) {
         // RunToCompletionWithoutCoordinator: with the coordinator gone
         // nobody polls this root anymore, so a job still in flight finishes
