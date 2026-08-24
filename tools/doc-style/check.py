@@ -39,7 +39,7 @@ WORDS = [
     # internet jargon verbs
     "链路", "打通", "拉齐", "沉淀", "反哺", "赋能", "抓手", "打磨", "深耕",
     # misattributed or vague causal wording
-    "根因", "归因", "掩盖", "口径", "挡住", "契约", "缺口", "夹具",
+    "根因", "归因", "掩盖", "口径", "挡住", "契约", "缺口", "夹具", "刀次",
     # measurement metaphors and coined measurement words
     "车道", "lane", "wall", "墙钟", "仪表", "亚毫", "膨胀", "显形", "重录",
     "冷构建", "热构建", "冷热", "全冷", "多重集", "构建链", "排空", "惰性",
