@@ -64,7 +64,7 @@
 - 最终切片切换生产导出并移除 Kotlin/JS 产物通道与源文件。
 
 ```
-Slice 1: LoweredParagraph 数据模型与解码层消除
+Slice 1: LoweredParagraph 数据模型与谓词的 TS 侧就位
   ↓
 Slice 2: EnhanceOptions 选项解析、尺寸稳定化与 Issue 管理
   ↓
@@ -79,14 +79,14 @@ Slice 6: 内容 Reconcile 编排与 TiqianEngine TS 入口实现
 Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
 ```
 
-### Slice 1：LoweredParagraph 数据模型与解码层消除
+### Slice 1：LoweredParagraph 数据模型与谓词的 TS 侧就位
 - **范围**：
-  - 在 `npm-core/core/engine/markdown-lowering.js`（或对应 TypeScript 模块）中定义强类型 `LoweredParagraph` 接口及各子结构（`TextStyle`, `TextSpan`, `DecorationSpan`, `InlineBoxSpan`, `InlineObjectSpan`, `DomInlineObject`, `DomSourceSpan`, `DomInlineBoxStyle`, `LineBreakSpan`）。
-  - 实现谓词 `isCanonicalPlainParagraph(lowered)` 与 `isRuntimeExactPreparedDomEligible(lowered)` 的 TypeScript 版本。
-  - 删除 Kotlin 侧 `MarkdownParagraphLowering.kt` 中的解码函数（`decodeLowered`, `decodeTextStyle` 等 158 行代码）。
+  - 在 `npm-core/core/engine/` 新增 `lowered-paragraph.js` 模块，以 JSDoc 类型定义 `LoweredParagraph` 及各子结构（`TextStyle`, `TextSpan`, `DecorationSpan`, `InlineBoxSpan`, `InlineObjectSpan`, `DomInlineObject`, `DomSourceSpan`, `DomInlineBoxStyle`, `LineBreakSpan`），字段名与 `markdown-lowering.js` 的输出对象逐字符一致。
+  - 实现谓词 `isCanonicalPlainParagraph(lowered)` 与 `isRuntimeExactPreparedDomEligible(lowered)`，语义与 `MarkdownParagraphLowering.kt` 的 Kotlin 扩展逐条一致，配单元测试。
+  - Kotlin 侧解码层（`decodeLowered`, `decodeTextStyle` 等）本切片不删：`WebEnhancerSupport.kt` 的元数据 JSON 构建与 `WebEnhancerParagraphPipeline.kt` 的 LayoutInput 组装仍消费强类型模型，分别待 Slice 3 与 Slice 4 删除其消费者后随之删除。
 - **依赖顺序**：无前置依赖，作为基础数据结构层首个实施。
 - **验收**：
-  - 运行 `npm test`，确保 `npm/markdown-lowering.test.mjs` 与 `npm/markdown-lowering-bridge.test.mjs` 全部通过。
+  - 运行 `npm test`，确保 `npm/markdown-lowering.test.mjs` 与 `npm/markdown-lowering-bridge.test.mjs` 全部通过，新增谓词测试通过。
   - `LayoutDumpGoldenTest` 零 diff。
 - **风险**：`LoweredParagraph` 内部集合与属性字段命名必须与现行 Kotlin 模型严格逐字符对齐。
 
@@ -118,7 +118,7 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
   - 在 TypeScript 侧实现 `prepareParagraphLayout`：集成 `LineBreaker`、度量解析器与 TextShaper，执行 shaping 决策核对、advance 校验与克隆装饰跨行拦截。
   - 在 TypeScript 侧实现 `commitPreparedParagraph` 与 `commitWorkerPreparedParagraph`：调用 `__TiqianPreparedDomRenderer.render`，调用校验器，处理精确会话校验失败后的浏览器度量回退重排。
   - 在 TypeScript 侧实现 `ExactSessionBrowserFallbackTextShaper` 与 `ExactSessionBrowserFallbackFontMetricsResolver`。
-  - 删除 `WebEnhancerParagraphPipeline.kt`（583 行）与 `WebEnhancerSupport.kt` 中的降级适配器类。
+  - 删除 `WebEnhancerParagraphPipeline.kt`（583 行）、`WebEnhancerSupport.kt` 中的降级适配器类与 `MarkdownParagraphLowering.kt` 的解码层（强类型模型最后的消费者随管线消失，数据类与谓词一并删除）。
 - **依赖顺序**：依赖 Slice 1、Slice 2、Slice 3。
 - **验收**：
   - 运行 `npm test`，验证 `npm/renderer-output.test.mjs`, `npm/renderer-source-fidelity.test.mjs`, `npm/exact-session.test.mjs`。
