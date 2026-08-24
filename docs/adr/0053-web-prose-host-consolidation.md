@@ -841,6 +841,19 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   npm-core/runtime/tiqian-web.js 的编译产物更正一处数值格式：Kotlin/JS 的
   Float append 编译为 n.toString()，整个产物没有 fround，marginRight 按原值
   输出，不做 32 位舍入。
+  进度（Slice 3b，2026-08-23）：77177c6。npm-core 新增
+  core/engine/worker-request.js（globalThis.__TiqianWorkerRequest：
+  workerLayoutRequestJson 按 Support.kt 的字段次序逐字段序列化，
+  workerLayoutRequest 按 Pipeline.kt 第二重载做准入判断后取
+  effectiveLineMeasure；首重载随 Slice 4 移植）与 worker-request.test.mjs
+  （13 例，含富语料整串比对与逐条准入判断）。npm-core 249 例、ts-discipline
+  通过。
+  进度（Slice 3c，2026-08-23）：7227fe5。ffi/js 新增
+  LoweringHelperExports.kt：classifyFontRole、
+  unsupportedInlineShapingProperties、firstDivergentInlineShapingProperty
+  三个 @JsExport，字体模块保持唯一实现；package.test.mjs 与
+  verify-package.mjs 的导出面清单同步到五项。:ffi:js 的 npm 测试与
+  jsNodeTest 通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
