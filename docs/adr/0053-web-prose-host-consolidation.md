@@ -1081,6 +1081,25 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   单次重放在任意宽度与历史下逐字节重现协调 DOM；快照 tqv- 命名空间不变
   （Rust 侧只生成 tqv-）。
 
+### G Slice 7 后代码品控（2026-08-24 登记待办）
+
+- [ ] **G1 TypeScript 落实**（`ActualTypeScriptMigration`）：端口产物目前仍是
+  JS；ESLint 配置未包含泛型相关约束，与开发文档要求的 TypeScript 约束不一致；
+  测试文件与仓库工具同样停留在 JS，部分文件把 JSDoc 当作 TypeScript 的替代。
+  处置：先产出依赖树分析，自叶模块起逐层完成类型标注与语法转换；Lint 按
+  ADR 已登记的禁用语法配置；类型定义严格去重，同一形状只允许一处定义。
+- [ ] **G2 模块边界与副作用**（`ModuleBoundaryDiscipline`）：运行时以
+  `__Tiqian*` 下划线全局变量互相调用，模块体以 IIFE 与 `var` 编写，模块装载
+  即产生全局副作用；应属于组件实例的状态存放在全局闭包；测试环境读取内部
+  数据依赖这些全局。处置：模块改为正规 ES module 导入导出；ffi 不再作为
+  函数参数传递，也不挂全局后跨模块调用；实例状态收回组件；测试读取内部
+  数据的机制另行设计；构造函数的参数编排逐个复核。
+- [ ] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
+  frontend/rust 相同：导出 tiqian Kotlin 模块的全部 API 供下游消费。实际产物
+  移动了部分源代码，包内混入新实现的宿主逻辑，属于 web 侧的逻辑应留在 web
+  仓库；ffi 包只做引擎代码导出，Rust FFI 与 JS FFI 的导出面保持平行；现有
+  混入内容收回库内或删除；HarfBuzzBuildBackend 的消费点核对后处置。
+
 ### KPI 汇总
 
 | 指标 | 基线 | 目标 |
