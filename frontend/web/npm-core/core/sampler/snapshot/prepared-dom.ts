@@ -10,6 +10,16 @@ import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,
 } from "./snapshot-source.js";
+import type {
+  LiveSemanticSpan,
+  SnapshotSemanticSpan,
+} from "./snapshot-source.js";
+import type {
+  MarkupArtifact,
+  MarkupAttributes,
+  MarkupContainer,
+  MarkupNode,
+} from "./prepared-dom-markup.js";
 import {
   applyDynamicStyles,
   cssString,
@@ -18,12 +28,313 @@ import {
   renderedElement,
   renderedText,
 } from "./prepared-dom-markup.js";
+import type {
+  InlineObjectPlaceholderCell,
+  RubyAnnotation,
+  BopomofoZone,
+  EvidenceOverlayPlan,
+  EvidenceOverlayOptions,
+  EvidenceDecorationSegment,
+  EvidenceEmphasisDot,
+} from "./prepared-dom-evidence.js";
 import {
   appendEvidenceOverlays,
   bopomofoAnnotationSpan,
   inlineObjectPlaceholder,
   rubyAnnotationSpan,
 } from "./prepared-dom-evidence.js";
+
+// --- Internal types ---
+
+/** Style owner key: either a host Element or the frozen snapshot sentinel. */
+type StyleOwner = Element | Readonly<Record<string, never>>;
+
+/** Style delta from the prepared layout plan cell. */
+interface StyleDelta {
+  fontSize?: number;
+  fontWeight?: number;
+  italic?: boolean;
+}
+
+/** Inline edge entry from the prepared layout plan. */
+interface InlineEdgeEntry {
+  offset: number;
+  inlineStart?: number;
+  inlineEnd?: number;
+}
+
+/** QuerySelectorAll function signature. */
+type QuerySelectorAllFn = (sel: string) => NodeListOf<Element>;
+
+/** Host element shape for renderPreparedParagraphInto. */
+interface PreparedParagraphHost extends Element {
+  innerHTML: string;
+  querySelectorAll: QuerySelectorAllFn;
+}
+
+/** Bridge candidate shape for revision probing. */
+interface BridgeCandidateShape {
+  version?: unknown;
+  semanticReplayRevision?: unknown;
+}
+
+/** Style class mapper callback. */
+type StyleClassForFn = (declaration: string) => string;
+
+/** Snapshot semantic span option entry. */
+interface SnapshotSemanticOption {
+  start: number;
+  end: number;
+  sourceIndex: number;
+  tagName: string;
+  attributes: [string, string][];
+  order?: number;
+}
+
+/** Emphasis dot color resolver callback. */
+type EmphasisDotColorFn = (offset: number) => string | null;
+
+/** Prepared style scope state held per root element. */
+interface PreparedStyleState {
+  root: Element;
+  scope: string;
+  styleElement: HTMLStyleElement;
+  originalScope: string | null;
+  declarations: string[];
+  indexes: Map<string, number>;
+  owners: Map<StyleOwner, Set<number>>;
+  dirty: boolean;
+}
+
+/** Shape of the bridge object installed on globalThis. */
+export interface PreparedDomRendererApi {
+  readonly version: number;
+  readonly semanticReplayRevision: number;
+  readonly schema: number;
+  readonly layoutRevision: string;
+  readonly renderRevision: string;
+  lower: typeof renderPreparedParagraphArtifact;
+  render: typeof renderPreparedParagraphInto;
+  release: typeof releasePreparedParagraphStyles;
+  releaseRoot: typeof releasePreparedValueStyleRoot;
+}
+
+declare global {
+  var __TiqianPreparedDomRenderer: PreparedDomRendererApi | undefined;
+}
+
+export {};
+
+/** Revision pair returned by preparedDomBridgeRevision. */
+interface BridgeRevisionInfo {
+  version: number;
+  semanticReplayRevision: number;
+}
+
+/** Coordinator wrapping an active bridge with monotonic upgrade. */
+interface PreparedDomBridgeCoordinator {
+  readonly coordinatorVersion: number;
+  install(candidate: PreparedDomRendererApi): PreparedDomBridgeCoordinator;
+  readonly version: number;
+  readonly semanticReplayRevision: number;
+  readonly schema: number;
+  readonly layoutRevision: string;
+  readonly renderRevision: string;
+  lower: typeof renderPreparedParagraphArtifact;
+  render: typeof renderPreparedParagraphInto;
+  release: typeof releasePreparedParagraphStyles;
+  releaseRoot: typeof releasePreparedValueStyleRoot;
+}
+
+/** Spacing classification for a prepared run. */
+interface PreparedSpacingResult {
+  kind: string;
+  px: number;
+}
+
+/** Cell shape from the prepared layout plan JSON. */
+interface PreparedLayoutPlanCell {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  naturalWidth: number;
+  shapingBoundary?: boolean;
+  openTypeFeatures?: string[];
+  style?: StyleDelta | null;
+  latin?: boolean;
+  dashStrategy?: string | null;
+  shapingLanguage?: string | null;
+  resolvedFace?: string | null;
+  glyphIds?: string | null;
+  shapingEvidence?: string | null;
+  punctuationInkFloor?: number | null;
+  punctuationBodyWidth?: number | null;
+  renderFontFamily?: string | null;
+  inlineObject?: number | null;
+  advance?: number | null;
+  leadingLayoutAdvance?: number;
+}
+
+/** Line shape from the prepared layout plan JSON. */
+interface PreparedLayoutPlanLine {
+  cells: PreparedLayoutPlanCell[];
+  top: number;
+  bottom: number;
+  baseline: number;
+  indent: number;
+  visualWidth: number;
+  hyphenAdvance: number;
+  endReason: string;
+  rangeStart: number;
+  rangeEnd: number;
+}
+
+/** Ruby annotation with plan-specific base range. */
+interface PlanRubyAnnotation extends RubyAnnotation {
+  baseRangeEnd: number;
+}
+
+/** Bopomofo zone with plan-specific base range. */
+interface PlanBopomofoZone extends BopomofoZone {
+  baseRangeEnd: number;
+}
+
+/** The canonical prepared layout plan JSON shape. */
+interface PreparedLayoutPlan {
+  schema: number;
+  layoutRevision: string;
+  height: number;
+  lines: PreparedLayoutPlanLine[];
+  emphasisRanges?: [number, number][];
+  rubyDecisions?: PlanRubyAnnotation[];
+  bopomofoDecisions?: PlanBopomofoZone[];
+  inlineEdges?: InlineEdgeEntry[];
+  decorationSegments?: EvidenceDecorationSegment[];
+  emphasisDots?: EvidenceEmphasisDot[];
+  fontSize?: number;
+  overlayWidth?: number;
+}
+
+/** Options bag for renderPreparedParagraphArtifact and renderPreparedParagraphInto. */
+interface PreparedParagraphRenderOptions {
+  styleClassFor?: StyleClassForFn | null;
+  semanticReplay?: string;
+  sourceText?: string;
+  semantics?: SnapshotSemanticOption[];
+  liveSemanticElements?: Element[];
+  renderTextSpans?: RenderTextSpanEntry[];
+  cjkStrongSemantics?: CjkStrongSemanticEntry[];
+  inlineBoxes?: InlineBoxEntry[];
+  emphasisDotColor?: EmphasisDotColorFn | null;
+  inlineObjects?: InlineObjectOptionEntry[];
+  evidenceOverlay?: EvidenceOverlayOptions;
+}
+
+/** Return value of renderPreparedParagraphArtifact. */
+interface PreparedParagraphArtifactResult {
+  readonly html: string;
+  readonly artifact: MarkupArtifact[];
+  readonly liveSemanticCount: number;
+  readonly inlineObjectCount: number;
+  readonly markerCount: number;
+}
+
+/** Return value of renderPreparedParagraphInto. */
+interface PreparedParagraphIntoResult {
+  readonly html: string;
+  readonly markers: Element[];
+}
+
+/** Run object built during prepared paragraph rendering. */
+interface PreparedRun {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  naturalWidth: number;
+  shapingBoundary: boolean;
+  openTypeFeatures?: string[];
+  renderFontFamilies: string[];
+  trailingGap: number;
+  spacing: PreparedSpacingResult;
+  semanticPath: (SnapshotSemanticSpan | LiveSemanticSpan)[];
+  styleDelta: StyleDelta | null;
+  italicEffect: boolean;
+  dashStrategy: string | null;
+  shapingLanguage: string | null;
+  resolvedFace: string | null;
+  glyphIds: string | null;
+  shapingEvidence: string | null;
+  punctuationInkFloor: number | null;
+  punctuationBodyWidth: number | null;
+  evidenceRenderFontFamily: string | null;
+  inlineObjectAdvance: number | null;
+  bopomofoAdvanceWidth: number;
+  styleSignature: string;
+  punctuationSignature: string;
+  semanticSignature?: string;
+}
+
+/** Inline box entry from plan or options. */
+interface InlineBoxEntry {
+  start: number;
+  end: number;
+  inlineStartPx: number;
+  inlineEndPx: number;
+}
+
+/** Render text span entry from options. */
+interface RenderTextSpanEntry {
+  start: number;
+  end: number;
+  fontFamilies: string[];
+}
+
+/** CJK strong emphasis entry. */
+interface CjkStrongSemanticEntry {
+  start: number;
+  end: number;
+  weight: number;
+}
+
+/** Inline object entry from options. */
+interface InlineObjectOptionEntry {
+  start: number;
+  end: number;
+  element?: Element;
+  marginRight?: number;
+}
+
+/** Child entry in the per-line ordered children array. */
+interface LineChildRun {
+  readonly kind: "run";
+  run: PreparedRun;
+  semanticPath: readonly (SnapshotSemanticSpan | LiveSemanticSpan)[];
+}
+interface LineChildInlineObject {
+  readonly kind: "inlineObject";
+  cell: PreparedLayoutPlanCell;
+  carrierMargin: number;
+  semanticPath: readonly (SnapshotSemanticSpan | LiveSemanticSpan)[];
+}
+interface LineChildRuby {
+  readonly kind: "ruby";
+  ruby: RubyAnnotation;
+  lineTop: number;
+  semanticPath: readonly (SnapshotSemanticSpan | LiveSemanticSpan)[];
+}
+interface LineChildBopomofo {
+  readonly kind: "bopomofo";
+  z: BopomofoZone;
+  width: number;
+  lineTop: number;
+  lineHeight: number;
+  semanticPath: readonly (SnapshotSemanticSpan | LiveSemanticSpan)[];
+}
+type LineChildEntry = LineChildRun | LineChildInlineObject | LineChildRuby | LineChildBopomofo;
 
 const SPACING_EPSILON = 0.01;
 // FloatDustSpacingZeroing: justification can leave real stretch of a few
@@ -42,13 +353,13 @@ const PREPARED_DOM_COORDINATOR_VERSION = 1;
 const PREPARED_DOM_BRIDGE_VERSION = 1;
 const SEMANTIC_REPLAY_REVISION = 1;
 const SNAPSHOT_STYLE_OWNER = Object.freeze({});
-const preparedStyleStates = new WeakMap();
-const preparedStyleRootsByHost = new WeakMap();
+const preparedStyleStates = new WeakMap<Element, PreparedStyleState>();
+const preparedStyleRootsByHost = new WeakMap<Element, Element>();
 let nextPreparedStyleScope = 1;
 
 export const PREPARED_DOM_BRIDGE_NAME = "__TiqianPreparedDomRenderer";
 
-function preparedDomBridgeRevision(bridge) {
+function preparedDomBridgeRevision(bridge: BridgeCandidateShape | null | undefined): BridgeRevisionInfo {
   const version = Number(bridge?.version ?? 0);
   const semanticReplayRevision = Number(bridge?.semanticReplayRevision ?? 0);
   return {
@@ -60,7 +371,7 @@ function preparedDomBridgeRevision(bridge) {
   };
 }
 
-function isNewerPreparedDomBridge(candidate, installed) {
+function isNewerPreparedDomBridge(candidate: PreparedDomRendererApi | PreparedDomBridgeCoordinator | null | undefined, installed: PreparedDomRendererApi | PreparedDomBridgeCoordinator | null | undefined) {
   const candidateRevision = preparedDomBridgeRevision(candidate);
   const installedRevision = preparedDomBridgeRevision(installed);
   return candidateRevision.version > installedRevision.version ||
@@ -68,12 +379,12 @@ function isNewerPreparedDomBridge(candidate, installed) {
       candidateRevision.semanticReplayRevision > installedRevision.semanticReplayRevision);
 }
 
-function createPreparedDomBridgeCoordinator(initialBridge) {
+function createPreparedDomBridgeCoordinator(initialBridge: PreparedDomRendererApi) {
   let activeBridge = initialBridge;
-  let coordinator;
+  let coordinator: PreparedDomBridgeCoordinator;
   coordinator = Object.freeze({
     coordinatorVersion: PREPARED_DOM_COORDINATOR_VERSION,
-    install(candidate) {
+    install(candidate: PreparedDomRendererApi) {
       if (isNewerPreparedDomBridge(candidate, activeBridge)) activeBridge = candidate;
       return coordinator;
     },
@@ -92,32 +403,32 @@ function createPreparedDomBridgeCoordinator(initialBridge) {
     get renderRevision() {
       return activeBridge.renderRevision;
     },
-    lower(...args) {
+    lower(...args: Parameters<PreparedDomRendererApi['lower']>) {
       return activeBridge.lower(...args);
     },
-    render(...args) {
+    render(...args: Parameters<PreparedDomRendererApi['render']>) {
       return activeBridge.render(...args);
     },
-    release(...args) {
+    release(...args: Parameters<PreparedDomRendererApi['release']>) {
       return activeBridge.release(...args);
     },
-    releaseRoot(...args) {
+    releaseRoot(...args: Parameters<PreparedDomRendererApi['releaseRoot']>) {
       return activeBridge.releaseRoot(...args);
     },
   });
   return coordinator;
 }
 
-function preparedPlan(value) {
+function preparedPlan(value: string | PreparedLayoutPlan): PreparedLayoutPlan {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
 
-function preparedLocale(value) {
+function preparedLocale(value: string | Record<string, unknown>): string {
   if (typeof value === "string") return value;
   return String(value?.locale ?? DEFAULT_LOCALE);
 }
 
-function snapshotValueStyleClass(index) {
+function snapshotValueStyleClass(index: number) {
   return `tqv-${index.toString(36)}`;
 }
 
@@ -130,7 +441,7 @@ function snapshotValueStyleClass(index) {
 // FNV-1a lanes make the name a pure function of the declaration string with
 // collision odds far below any realistic declaration count, so no probe or
 // registry state participates in naming.
-function runtimeValueStyleKey(declaration) {
+function runtimeValueStyleKey(declaration: string) {
   let a = 0x811c9dc5;
   let b = 0x01000193;
   for (let i = 0; i < declaration.length; i++) {
@@ -145,11 +456,11 @@ function runtimeValueStyleKey(declaration) {
   return `${a.toString(36)}${b.toString(36)}`;
 }
 
-function runtimeValueStyleClass(key) {
+function runtimeValueStyleClass(key: string) {
   return `tqvr-${key}`;
 }
 
-function createPreparedStyleState(root) {
+function createPreparedStyleState(root: Element) {
   const documentObject = root?.ownerDocument ?? globalThis.document;
   const parent = documentObject?.head ?? documentObject?.documentElement ?? documentObject?.body;
   if (!documentObject?.createElement || !parent?.appendChild || !root?.setAttribute) return null;
@@ -173,11 +484,11 @@ function createPreparedStyleState(root) {
   return state;
 }
 
-function preparedStyleState(root) {
+function preparedStyleState(root: Element) {
   return preparedStyleStates.get(root) ?? createPreparedStyleState(root);
 }
 
-function registerPreparedValueStyle(state, declaration) {
+function registerPreparedValueStyle(state: PreparedStyleState, declaration: string) {
   const existing = state.indexes.get(declaration);
   if (existing != null) return existing;
   const index = state.declarations.length;
@@ -187,13 +498,13 @@ function registerPreparedValueStyle(state, declaration) {
   return index;
 }
 
-function syncPreparedValueStyles(state) {
+function syncPreparedValueStyles(state: PreparedStyleState) {
   if (!state.dirty) return;
   const rootScope = `[${VALUE_STYLE_SCOPE_ATTRIBUTE}="${state.scope}"]`;
   const snapshotValuesActive = state.owners.has(SNAPSHOT_STYLE_OWNER);
   const runtimeValuesActive = Array.from(state.owners.keys()).some((owner) =>
     owner !== SNAPSHOT_STYLE_OWNER);
-  state.styleElement.textContent = state.declarations.map((declaration, index) => {
+  state.styleElement.textContent = state.declarations.map((declaration: string, index: number) => {
     // PreparedValueNamespaceIsolation: build-time snapshot CSS remains live in
     // the document so it can restore exact first-paint nodes. Runtime lowering
     // must use a distinct class namespace; otherwise the same compact index can
@@ -211,10 +522,10 @@ function syncPreparedValueStyles(state) {
   state.dirty = false;
 }
 
-function removePreparedStyleState(state) {
+function removePreparedStyleState(state: PreparedStyleState) {
   preparedStyleStates.delete(state.root);
   for (const owner of state.owners.keys()) {
-    if (owner !== SNAPSHOT_STYLE_OWNER) preparedStyleRootsByHost.delete(owner);
+    if (owner !== SNAPSHOT_STYLE_OWNER) preparedStyleRootsByHost.delete(owner as Element);
   }
   state.styleElement.remove?.();
   if (state.styleElement.parentNode) state.styleElement.parentNode.removeChild(state.styleElement);
@@ -223,7 +534,7 @@ function removePreparedStyleState(state) {
 }
 
 /** Installs the compact snapshot's dynamic declarations before DOM adoption. */
-export function installPreparedValueStyles(root, declarations, renderFontFamilies = []) {
+export function installPreparedValueStyles(root: Element, declarations: string[], renderFontFamilies: string[] = []) {
   if (!Array.isArray(declarations)) throw new Error("InvalidPreparedValueStyles");
   if (!Array.isArray(renderFontFamilies) || renderFontFamilies.some((family) =>
     typeof family !== "string" || !family.trim())) throw new Error("InvalidPreparedRenderFontFamilies");
@@ -253,7 +564,7 @@ export function installPreparedValueStyles(root, declarations, renderFontFamilie
  * Kept as an internal compatibility hook. Host-compatible replay inherits the
  * existing font-family, so installing a package-owned family style is a no-op.
  */
-export function installPreparedRenderFontStyle(root, renderFontFamilies) {
+export function installPreparedRenderFontStyle(root: Element, renderFontFamilies: string[]) {
   if (!Array.isArray(renderFontFamilies) || renderFontFamilies.length === 0 ||
       renderFontFamilies.some((family) => typeof family !== "string" || !family.trim())) {
     throw new Error("InvalidPreparedRenderFontFamilies");
@@ -261,11 +572,11 @@ export function installPreparedRenderFontStyle(root, renderFontFamilies) {
   return false;
 }
 
-export function releasePreparedRenderFontStyle(root) {
+export function releasePreparedRenderFontStyle(root: Element) {
   return false;
 }
 
-export function releasePreparedParagraphStyles(host) {
+export function releasePreparedParagraphStyles(host: Element) {
   const root = preparedStyleRootsByHost.get(host);
   if (!root) return false;
   preparedStyleRootsByHost.delete(host);
@@ -276,14 +587,14 @@ export function releasePreparedParagraphStyles(host) {
   return true;
 }
 
-export function releasePreparedValueStyleRoot(root) {
+export function releasePreparedValueStyleRoot(root: Element) {
   const state = preparedStyleStates.get(root);
   if (!state) return false;
   removePreparedStyleState(state);
   return true;
 }
 
-function preparedSpacing(display, naturalWidth, trailingGap) {
+function preparedSpacing(display: string, naturalWidth: number, trailingGap: number) {
   if (Math.abs(trailingGap) < SPACING_DUST_EPSILON) return { kind: "none", px: 0 };
   // NegativeSingleCellFlowAdvance: browsers clamp the border-box width of a
   // one-character inline span at zero when negative letter-spacing exceeds the
@@ -307,15 +618,15 @@ function preparedSpacing(display, naturalWidth, trailingGap) {
 // other signature has no CSS replay rule and must not be silently painted.
 const PREPARED_OPEN_TYPE_FEATURE_SIGNATURES = new Set(["pwid,palt", "fwid"]);
 
-function preparedFeatureSignature(run) {
+function preparedFeatureSignature(run: PreparedRun) {
   return Array.from(run.openTypeFeatures ?? [], String).join(",");
 }
 
-function preparedRenderFontSignature(run) {
+function preparedRenderFontSignature(run: PreparedRun) {
   return Array.from(run.renderFontFamilies ?? [], String).join("\u001f");
 }
 
-function canMergePreparedRun(left, right) {
+function canMergePreparedRun(left: PreparedRun, right: PreparedRun) {
   if (left.rangeEnd !== right.rangeStart ||
       left.semanticSignature !== right.semanticSignature ||
       left.shapingBoundary || right.shapingBoundary ||
@@ -333,7 +644,7 @@ function canMergePreparedRun(left, right) {
     Math.abs(left.spacing.px - right.spacing.px) < SPACING_EPSILON;
 }
 
-function mergePreparedRun(left, right) {
+function mergePreparedRun(left: PreparedRun, right: PreparedRun) {
   left.rangeEnd = right.rangeEnd;
   left.source += right.source;
   left.display += right.display;
@@ -341,7 +652,7 @@ function mergePreparedRun(left, right) {
   left.trailingGap += right.trailingGap;
 }
 
-function renderRun(run, styleClassFor) {
+function renderRun(run: PreparedRun, styleClassFor: StyleClassForFn | null) {
   const featureSignature = preparedFeatureSignature(run);
   const renderFontFamilies = Array.from(run.renderFontFamilies ?? [], String);
   const needsElement = run.shapingBoundary || featureSignature ||
@@ -349,7 +660,7 @@ function renderRun(run, styleClassFor) {
     run.styleDelta != null || run.italicEffect || run.evidenceRenderFontFamily != null ||
     run.dashStrategy != null || run.punctuationInkFloor != null;
   if (!needsElement) return renderedText(run.display);
-  const attributes = {
+  const attributes: Record<string, string | null> = {
     "data-tq-advance": String(
       run.spacing.kind === "letter" || run.spacing.kind === "trailing-letter"
         ? run.naturalWidth + run.trailingGap
@@ -447,10 +758,10 @@ function renderRun(run, styleClassFor) {
  * by both build-time snapshots and browser runtime rendering.
  */
 export function renderPreparedParagraphArtifact(
-  planOrJson,
-  typographyOrLocale = DEFAULT_LOCALE,
-  options = {},
-) {
+  planOrJson: string | PreparedLayoutPlan,
+  typographyOrLocale: string | Record<string, unknown> = DEFAULT_LOCALE,
+  options: PreparedParagraphRenderOptions = {},
+): PreparedParagraphArtifactResult {
   const plan = preparedPlan(planOrJson);
   const locale = preparedLocale(typographyOrLocale);
   const styleClassFor = typeof options.styleClassFor === "function" ? options.styleClassFor : null;
@@ -471,8 +782,8 @@ export function renderPreparedParagraphArtifact(
     ? normalizeLiveSemantics(options.sourceText ?? sourceText, options.semantics ?? [])
     : normalizeSnapshotSemantics(options.sourceText ?? sourceText, options.semantics ?? []);
   if (semanticReplay === "live-source") {
-    const seenSourceIndices = new Set();
-    for (const semantic of semantics) {
+    const seenSourceIndices = new Set<number>();
+    for (const semantic of semantics as LiveSemanticSpan[]) {
       const sourceElement = liveSemanticElements[semantic.sourceIndex];
       if (!sourceElement || typeof sourceElement.cloneNode !== "function" ||
           String(sourceElement.tagName ?? "").toLowerCase() !== semantic.tagName) {
@@ -530,11 +841,11 @@ export function renderPreparedParagraphArtifact(
     inlineStartByOffset.set(box.start, (inlineStartByOffset.get(box.start) ?? 0) + Number(box.inlineStartPx));
     inlineEndByOffset.set(box.end, (inlineEndByOffset.get(box.end) ?? 0) + Number(box.inlineEndPx));
   }
-  const semanticSpansFor = (rangeStart, rangeEnd) => semantics.filter((span) =>
+  const semanticSpansFor = (rangeStart: number, rangeEnd: number) => semantics.filter((span) =>
     rangeStart >= span.start && rangeEnd <= span.end);
-  const semanticSpansCrossing = (offset) => semantics.filter((span) =>
+  const semanticSpansCrossing = (offset: number) => semantics.filter((span) =>
     offset > span.start && offset < span.end);
-  const renderFontFamiliesFor = (rangeStart, rangeEnd) => {
+  const renderFontFamiliesFor = (rangeStart: number, rangeEnd: number) => {
     const owners = renderTextSpans.filter((span) =>
       rangeStart >= span.start && rangeEnd <= span.end);
     if (owners.length === 0) return [];
@@ -544,11 +855,11 @@ export function renderPreparedParagraphArtifact(
     }
     return owners[0].fontFamilies;
   };
-  const nodes = [];
+  const nodes: MarkupNode[] = [];
   let inlineObjectCount = 0;
-  let activeSemantics = [];
-  let activeContainers = [];
-  const semanticContainerFor = (semanticPath) => {
+  let activeSemantics: (SnapshotSemanticSpan | LiveSemanticSpan)[] = [];
+  let activeContainers: MarkupContainer[] = [];
+  const semanticContainerFor = (semanticPath: readonly (SnapshotSemanticSpan | LiveSemanticSpan)[]) => {
     const commonLimit = Math.min(activeSemantics.length, semanticPath.length);
     let common = 0;
     while (common < commonLimit && activeSemantics[common] === semanticPath[common]) common += 1;
@@ -562,10 +873,10 @@ export function renderPreparedParagraphArtifact(
       );
       const attributes = semanticReplay === "live-source"
         ? {
-          [LIVE_SEMANTIC_INDEX_ATTRIBUTE]: String(semantic.sourceIndex),
+          [LIVE_SEMANTIC_INDEX_ATTRIBUTE]: String((semantic as LiveSemanticSpan).sourceIndex),
         }
         : {
-          ...Object.fromEntries(semantic.attributes),
+          ...Object.fromEntries((semantic as SnapshotSemanticSpan).attributes),
           "data-tq-source-semantic": "true",
           ...(cjkStrong ? {
             "data-tq-cjk-emphasis": "true",
@@ -586,12 +897,12 @@ export function renderPreparedParagraphArtifact(
     const line = plan.lines[lineIndex];
     const height = line.bottom - line.top;
     const first = line.cells[0];
-    const flowStart = first ? first.drawX - first.leadingLayoutAdvance : 0;
+    const flowStart = first ? first.drawX - first.leadingLayoutAdvance! : 0;
     const firstInlineStart = first ? inlineStartByOffset.get(first.rangeStart) ?? 0 : 0;
-    if (first && Math.abs(first.leadingLayoutAdvance - firstInlineStart) > RENDER_FLOW_EPSILON_PX) {
+    if (first && Math.abs(first.leadingLayoutAdvance! - firstInlineStart) > RENDER_FLOW_EPSILON_PX) {
       throw new Error(`SnapshotRenderFlowMismatch:line=${lineIndex};leading-layout-advance`);
     }
-    const cells = line.cells.map((cell, index) => {
+    const cells: PreparedRun[] = line.cells.map((cell, index) => {
       const next = line.cells[index + 1];
       const trailingInlineEdge = inlineEndByOffset.get(cell.rangeEnd) ?? 0;
       const nextLeadingInlineEdge = next ? inlineStartByOffset.get(next.rangeStart) ?? 0 : 0;
@@ -649,8 +960,8 @@ export function renderPreparedParagraphArtifact(
     for (const cell of cells) cell.semanticSignature = JSON.stringify(cell.semanticPath);
     // Ordered line children: runs merge as before, but inline-object cells and
     // annotation boundaries flush the pending run so DOM order is preserved.
-    const children = [];
-    let pendingRun = null;
+    const children: LineChildEntry[] = [];
+    let pendingRun: PreparedRun | null = null;
     const flushRun = () => {
       if (pendingRun == null) return;
       children.push({ kind: "run", run: pendingRun, semanticPath: pendingRun.semanticPath });
@@ -701,7 +1012,7 @@ export function renderPreparedParagraphArtifact(
     const hyphenLeadingGap = line.hyphenAdvance > 0
       ? line.indent + line.visualWidth - flowEnd
       : 0;
-    const inlineEdgeWidth = line.cells.reduce((sum, cell) =>
+    const inlineEdgeWidth = line.cells.reduce((sum: number, cell: PreparedLayoutPlanCell) =>
       sum + (inlineStartByOffset.get(cell.rangeStart) ?? 0) +
         (inlineEndByOffset.get(cell.rangeEnd) ?? 0), 0);
     const expectedFlowWidth = flowStart + inlineEdgeWidth + children.reduce((sum, child) => {
@@ -793,7 +1104,7 @@ export function renderPreparedParagraphArtifact(
       }));
     }
     if (lineIndex < plan.lines.length - 1) {
-      const breakAttributes = {
+      const breakAttributes: Record<string, string | null> = {
         "data-tq-engine-break": line.endReason,
       };
       if (line.endReason !== "MandatoryBreak") {
@@ -818,7 +1129,7 @@ export function renderPreparedParagraphArtifact(
       "data-tq-selection-end": "true",
     }, "\u200B"));
   }
-  appendEvidenceOverlays(nodes, plan, options);
+  appendEvidenceOverlays(nodes, plan as EvidenceOverlayPlan, options as EvidenceOverlayOptions);
   return Object.freeze({
     html: nodes.map((node) => node.html).join(""),
     artifact: nodes.map((node) => node.artifact),
@@ -828,7 +1139,7 @@ export function renderPreparedParagraphArtifact(
   });
 }
 
-export function renderPreparedParagraph(planOrJson, typographyOrLocale = DEFAULT_LOCALE) {
+export function renderPreparedParagraph(planOrJson: string | PreparedLayoutPlan, typographyOrLocale: string | Record<string, unknown> = DEFAULT_LOCALE) {
   return renderPreparedParagraphArtifact(planOrJson, typographyOrLocale).html;
 }
 
@@ -838,11 +1149,11 @@ export function renderPreparedParagraph(planOrJson, typographyOrLocale = DEFAULT
  * through snapshot HTML, while Worker-owned geometry stays intact.
  */
 function restoreLiveSemanticElements(
-  host,
-  sourceElements,
-  expectedCount,
-  semantics = [],
-  cjkStrongSemantics = [],
+  host: Element,
+  sourceElements: Element[],
+  expectedCount: number,
+  semantics: LiveSemanticSpan[] = [],
+  cjkStrongSemantics: CjkStrongSemanticEntry[] = [],
 ) {
   if (expectedCount === 0) return;
   const placeholders = Array.from(host.querySelectorAll(`[${LIVE_SEMANTIC_INDEX_ATTRIBUTE}]`));
@@ -875,7 +1186,7 @@ function restoreLiveSemanticElements(
       throw new Error(`LiveSemanticSourceUnavailable:${sourceIndex}`);
     }
     seen.add(sourceIndex);
-    const clone = source.cloneNode(false);
+    const clone = source.cloneNode(false) as HTMLElement;
     clone.setAttribute("data-tq-source-semantic", "true");
     const cjkStrong = cjkBySourceIndex.get(sourceIndex);
     if (cjkStrong != null) {
@@ -895,7 +1206,7 @@ function restoreLiveSemanticElements(
  * trailing-margin branch. Elements cannot ride the Worker plan, so the caller
  * supplies them per range, exactly as it supplies liveSemanticElements.
  */
-function swapInlineObjectClones(host, inlineObjects) {
+function swapInlineObjectClones(host: Element, inlineObjects: InlineObjectOptionEntry[]) {
   const placeholders = Array.from(host.querySelectorAll('[data-tq-inline-object="pending"]'));
   if (placeholders.length === 0) return 0;
   const byRange = new Map();
@@ -929,24 +1240,24 @@ function swapInlineObjectClones(host, inlineObjects) {
  * delivered inside an SSR snapshot template.
  */
 export function renderPreparedParagraphInto(
-  host,
-  planOrJson,
-  typographyOrLocale = DEFAULT_LOCALE,
-  options = {},
-) {
+  host: PreparedParagraphHost,
+  planOrJson: string | PreparedLayoutPlan,
+  typographyOrLocale: string | Record<string, unknown> = DEFAULT_LOCALE,
+  options: PreparedParagraphRenderOptions = {},
+): PreparedParagraphIntoResult {
   if (host == null || !("innerHTML" in Object(host)) || typeof host.querySelectorAll !== "function") {
     throw new Error("InvalidPreparedParagraphHost");
   }
   const root = host.closest?.(ROOT_SELECTOR) ?? host;
   const state = preparedStyleState(root);
-  const usedStyles = new Set();
+  const usedStyles = new Set<number>();
   const emphasisDotColor = options.emphasisDotColor ?? (
     options.semantics && options.liveSemanticElements && typeof globalThis.getComputedStyle === "function"
       ? (offset) => {
           if (!Number.isFinite(offset)) return null;
           let maxOrder = -Infinity;
           let selected = null;
-          for (const semantic of options.semantics) {
+          for (const semantic of options.semantics!) {
             const start = Number(semantic.start);
             const end = Number(semantic.end);
             if (offset >= start && offset < end) {
@@ -958,7 +1269,7 @@ export function renderPreparedParagraphInto(
             }
           }
           if (!selected) return null;
-          const element = options.liveSemanticElements[selected.sourceIndex];
+          const element = options.liveSemanticElements![selected.sourceIndex];
           if (!element) return null;
           try {
             const color = globalThis.getComputedStyle(element)?.color;
@@ -975,7 +1286,7 @@ export function renderPreparedParagraphInto(
       ...options,
       emphasisDotColor,
       styleClassFor: state
-        ? (declaration) => {
+        ? (declaration: string) => {
           const index = registerPreparedValueStyle(state, declaration);
           usedStyles.add(index);
           return runtimeValueStyleClass(runtimeValueStyleKey(declaration));
@@ -1020,8 +1331,8 @@ export function renderPreparedParagraphInto(
   });
 }
 
-export function installPreparedDomRendererBridge(target = globalThis) {
-  const candidate = Object.freeze({
+export function installPreparedDomRendererBridge(target: Record<string, unknown> = globalThis as Record<string, unknown>) {
+  const candidate: PreparedDomRendererApi = Object.freeze({
     version: PREPARED_DOM_BRIDGE_VERSION,
     semanticReplayRevision: SEMANTIC_REPLAY_REVISION,
     schema: SNAPSHOT_SCHEMA,
@@ -1031,8 +1342,8 @@ export function installPreparedDomRendererBridge(target = globalThis) {
     render: renderPreparedParagraphInto,
     release: releasePreparedParagraphStyles,
     releaseRoot: releasePreparedValueStyleRoot,
-  });
-  const installed = target[PREPARED_DOM_BRIDGE_NAME];
+  }) as PreparedDomRendererApi;
+  const installed: PreparedDomBridgeCoordinator | undefined = target[PREPARED_DOM_BRIDGE_NAME] as PreparedDomBridgeCoordinator | undefined;
   if (Number(installed?.coordinatorVersion) >= PREPARED_DOM_COORDINATOR_VERSION &&
       typeof installed?.install === "function") {
     return installed.install(candidate);
