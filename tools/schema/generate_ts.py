@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate TypeScript/JSDoc types and field arrays from the assembly-record schema."""
+"""Generate the TypeScript field-array module from the assembly-record schema."""
 
 import difflib
 import json
@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = REPO_ROOT / "ffi/schema/assembly-record.schema.json"
 TARGET_PATH = (
     REPO_ROOT
-    / "frontend/web/npm-core/core/engine/web-worker/assembly-record-fields.js"
+    / "frontend/web/npm-core/core/engine/web-worker/assembly-record-fields.ts"
 )
 
 
@@ -43,7 +43,7 @@ def generate_ts(schema: dict) -> str:
     lines.append("export const LAYOUT_REQUEST_FIELDS = Object.freeze([")
     for field_name in worker_fields:
         lines.append(f'  "{field_name}",')
-    lines.append("]);")
+    lines.append("] as const);")
     lines.append("")
     lines.append(f"export const ASSEMBLY_RECORD_REVISION = {revision};")
     lines.append("")
