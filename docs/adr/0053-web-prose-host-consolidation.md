@@ -953,6 +953,15 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   的条件性 measure 重置与逐项 splice/上报、rollback 的列表还原、按插入序
   custody.rollback 与按 source 身份补 lastMeasure。12 例单测；npm-core 365 例、
   ts-discipline 通过。
+  进度（Slice 4d-2a，2026-08-23）：02b8aeb。build.gradle.kts 以
+  registerBridgeGenerator 再注册九座桥（lifecycle、worker-request、
+  prepare-paragraph-layout、commit-prepared-paragraph、process-paragraph、
+  canvas-fonts、canvas-metrics、canvas-shaping、browser-metrics-bridge），
+  srcDir 与 compileKotlinJs dependsOn 各补九行。六个包装文件给出类型化
+  external interface（LifecycleBridgeJs 十一成员全量）与 require 型安装
+  accessor；browserMetricsBridge 的安装闭包按 fonts、metrics、shaping、
+  bridge 的依赖序装满四个 global。TiqianWebBridgeInstallTest 七例以 @JsFun
+  探针断言安装产物。compileKotlinJs 与 jsBrowserTest（109 例）通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
