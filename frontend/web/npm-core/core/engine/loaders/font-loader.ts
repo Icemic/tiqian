@@ -4,34 +4,60 @@
 // prose fonts; the retry controller re-enters the connected lifecycle when
 // a bounded wait times out and the fonts settle later.
 
+import type {
+  BrowserFontSessionPreparer,
+  BrowserFontSessionReleaser,
+  BrowserFontSessionRevalidator,
+  BrowserRenderFontPreparer,
+} from "../../measurement/browser-fonts.js";
+import type {
+  PreparedRenderFontStyleInstaller,
+  PreparedRenderFontStyleReleaser,
+} from "../exact-font.js";
+// Ambient global declarations pulled in via import type from owner modules.
+import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
+
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
-function typographyFontDescriptor(style) {
+export type GetComputedStyleFn = (elt: Element, pseudoElt?: string | null) => CSSStyleDeclaration;
+
+function typographyFontDescriptor(style: CSSStyleDeclaration | null | undefined): string | null {
   const family = style?.getPropertyValue?.("font-family")?.trim();
   const size = style?.getPropertyValue?.("font-size")?.trim();
   if (!family || !size) return null;
-  const fontStyle = style.getPropertyValue("font-style").trim() || "normal";
-  const weight = style.getPropertyValue("font-weight").trim() || "400";
-  const stretch = style.getPropertyValue("font-stretch").trim();
+  const fontStyle = style!.getPropertyValue("font-style").trim() || "normal";
+  const weight = style!.getPropertyValue("font-weight").trim() || "400";
+  const stretch = style!.getPropertyValue("font-stretch").trim();
   return [fontStyle, weight, stretch, size, family].filter(Boolean).join(" ");
 }
 
+export type TypographyFontWaitStatus = "settled" | "timeout" | "unsupported";
+
+export interface TypographyFontWaitResult {
+  status: TypographyFontWaitStatus;
+  completion: Promise<unknown>;
+}
+
+export interface TypographyFontWaitOptions {
+  timeoutMs?: number;
+}
+
 export async function waitForTypographyFonts(
-  fonts,
-  elements,
-  getStyle = globalThis.getComputedStyle,
-  { timeoutMs = DEFAULT_TYPOGRAPHY_FONT_WAIT_MS } = {},
-) {
+  fonts: FontFaceSet | null | undefined,
+  elements: Iterable<Element | null | undefined> | null | undefined,
+  getStyle: GetComputedStyleFn = globalThis.getComputedStyle,
+  { timeoutMs = DEFAULT_TYPOGRAPHY_FONT_WAIT_MS }: TypographyFontWaitOptions = {},
+): Promise<TypographyFontWaitResult> {
   if (typeof fonts?.load !== "function" || typeof getStyle !== "function") {
     return { status: "unsupported", completion: Promise.resolve() };
   }
-  const requests = new Map();
+  const requests = new Map<string, Set<string>>();
   for (const element of elements ?? []) {
-    const descriptor = typographyFontDescriptor(getStyle(element));
+    const descriptor = typographyFontDescriptor(getStyle(element!));
     if (!descriptor) continue;
     let sample = requests.get(descriptor);
     if (!sample) {
-      sample = new Set();
+      sample = new Set<string>();
       requests.set(descriptor, sample);
     }
     for (const character of element?.textContent ?? "") sample.add(character);
@@ -54,10 +80,10 @@ export async function waitForTypographyFonts(
     return { status: "settled", completion };
   }
 
-  let timer = 0;
+  let timer: ReturnType<typeof setTimeout> | number = 0;
   const status = await Promise.race([
-    completion.then(() => "settled"),
-    new Promise((resolve) => {
+    completion.then(() => "settled" as const),
+    new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), boundedTimeout);
     }),
   ]);
@@ -67,7 +93,19 @@ export async function waitForTypographyFonts(
   return { status, completion };
 }
 
-export async function awaitInitialTypographyFonts(root, context) {
+export type ContextPredicate = () => boolean;
+export type TypographyElementsProvider = () => Iterable<Element>;
+export type DeferFontSettlement = (generation: number, completion: Promise<unknown>) => void;
+
+export interface InitialTypographyFontContext {
+  generation: number;
+  isCurrent: ContextPredicate;
+  bypassesFontWait: ContextPredicate;
+  typographyElements: TypographyElementsProvider;
+  deferUntilFontsSettle: DeferFontSettlement;
+}
+
+export async function awaitInitialTypographyFonts(root: HTMLElement, context: InitialTypographyFontContext): Promise<boolean> {
   if (!context.isCurrent()) return false;
   // Snapshot validation loads and probes the exact declared faces itself.
   // Repeating a per-paragraph computed-style scan here delayed the first
@@ -90,12 +128,28 @@ export async function awaitInitialTypographyFonts(root, context) {
   return false;
 }
 
-export function createInitialFontRetryController(root, context) {
-  let token = 0;
-  let listener = null;
-  let observer = null;
+export type GenerationPredicate = (generation: number) => boolean;
+export type LifecycleRestarter = () => void;
 
-  function clear() {
+export interface FontRetryControllerContext {
+  isGenerationCurrent: GenerationPredicate;
+  restartConnectedLifecycle: LifecycleRestarter;
+  typographyElements: TypographyElementsProvider;
+}
+
+export type FontRetryClearer = () => void;
+
+export interface InitialFontRetryController {
+  deferUntilFontsSettle: DeferFontSettlement;
+  clear: FontRetryClearer;
+}
+
+export function createInitialFontRetryController(root: HTMLElement, context: FontRetryControllerContext): InitialFontRetryController {
+  let token = 0;
+  let listener: EventListener | null = null;
+  let observer: MutationObserver | null = null;
+
+  function clear(): void {
     token += 1;
     observer?.disconnect();
     observer = null;
@@ -106,7 +160,7 @@ export function createInitialFontRetryController(root, context) {
     }
   }
 
-  function deferUntilFontsSettle(generation, completion) {
+  function deferUntilFontsSettle(generation: number, completion: Promise<unknown>): void {
     clear();
     const captured = token;
     const restart = () => {
@@ -117,7 +171,7 @@ export function createInitialFontRetryController(root, context) {
       context.restartConnectedLifecycle();
     };
     listener = (event) => {
-      if (fontLoadingAffectsTypography(event, context.typographyElements())) restart();
+      if (fontLoadingAffectsTypography(event as FontLoadingEventLike, context.typographyElements())) restart();
     };
     document.fonts?.addEventListener?.("loadingdone", listener);
     document.fonts?.addEventListener?.("loadingerror", listener);
@@ -148,13 +202,22 @@ export function createInitialFontRetryController(root, context) {
 // import gate; the module API path and the custom element path resolve the
 // same browser-font and prepared-dom adapters.
 
-let exactFontFallbackPromise;
+export interface ExactFontFallbackLoader {
+  prepareBrowserFontSession: BrowserFontSessionPreparer;
+  revalidateBrowserFontSession: BrowserFontSessionRevalidator;
+  prepareBrowserRenderFonts: BrowserRenderFontPreparer;
+  releaseBrowserFontSession: BrowserFontSessionReleaser;
+  installPreparedRenderFontStyle: PreparedRenderFontStyleInstaller;
+  releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
+}
 
-export function loadExactFontFallback() {
+let exactFontFallbackPromise: Promise<ExactFontFallbackLoader> | undefined;
+
+export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
   exactFontFallbackPromise ??= Promise.all([
     import("../../measurement/browser-fonts.js"),
     import("../../sampler/snapshot/prepared-dom.js"),
-  ]).then(([fonts, preparedDom]) => {
+  ]).then(([fonts, preparedDom]): ExactFontFallbackLoader => {
     preparedDom.installPreparedDomRendererBridge();
     return {
       prepareBrowserFontSession: fonts.prepareBrowserFontSession,
@@ -165,7 +228,7 @@ export function loadExactFontFallback() {
       releasePreparedRenderFontStyle: preparedDom.releasePreparedRenderFontStyle,
     };
   });
-  return exactFontFallbackPromise;
+  return exactFontFallbackPromise as Promise<ExactFontFallbackLoader>;
 }
 
 // PlainHostPreparedBridge: every paragraph lowers through the prepared DOM
@@ -175,9 +238,9 @@ export function loadExactFontFallback() {
 // already-occupied slot belongs to a test fixture or an exact-session
 // install and is left untouched — loadExactFontFallback keeps its own
 // monotonic upgrade for a stale legacy occupant.
-let preparedBridgePromise;
+let preparedBridgePromise: Promise<PreparedDomRendererApi | undefined> | undefined;
 
-export function ensurePreparedDomBridge() {
+export function ensurePreparedDomBridge(): Promise<PreparedDomRendererApi | undefined> {
   preparedBridgePromise ??= globalThis.__TiqianPreparedDomRenderer
     ? Promise.resolve(globalThis.__TiqianPreparedDomRenderer)
     : import("../../sampler/snapshot/prepared-dom.js").then(
@@ -189,7 +252,7 @@ export function ensurePreparedDomBridge() {
 // CSS font-family parsing and the document font-loading filter moved here
 // from lazy-capabilities.js in ADR 0053 batch 6.
 
-function normalizeFontFamily(value) {
+function normalizeFontFamily(value: unknown): string {
   const trimmed = String(value ?? "").trim();
   const unquoted = trimmed.length >= 2 && (
     (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
@@ -198,8 +261,8 @@ function normalizeFontFamily(value) {
   return unquoted.normalize("NFC").toLocaleLowerCase("en-US");
 }
 
-export function parseCssFontFamilies(value) {
-  const families = [];
+export function parseCssFontFamilies(value: unknown): string[] {
+  const families: string[] = [];
   let token = "";
   let quote = "";
   let escaped = false;
@@ -225,7 +288,7 @@ export function parseCssFontFamilies(value) {
   return families;
 }
 
-function numericFontWeight(value) {
+function numericFontWeight(value: unknown): number | null {
   const normalized = String(value ?? "normal").trim().toLowerCase();
   if (normalized === "normal") return 400;
   if (normalized === "bold") return 700;
@@ -233,15 +296,15 @@ function numericFontWeight(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function fontFaceCoversWeight(faceWeight, requestedWeight) {
+function fontFaceCoversWeight(faceWeight: unknown, requestedWeight: unknown): boolean {
   const requested = numericFontWeight(requestedWeight);
   if (requested == null || faceWeight == null || String(faceWeight).trim() === "") return true;
   const bounds = String(faceWeight).trim().split(/\s+/u).map(numericFontWeight);
   if (bounds.some((value) => value == null)) return true;
-  return requested >= Math.min(...bounds) && requested <= Math.max(...bounds);
+  return requested >= Math.min(...(bounds as number[])) && requested <= Math.max(...(bounds as number[]));
 }
 
-function fontFaceCoversStyle(faceStyle, requestedStyle) {
+function fontFaceCoversStyle(faceStyle: unknown, requestedStyle: unknown): boolean {
   if (faceStyle == null || String(faceStyle).trim() === "") return true;
   const available = String(faceStyle).trim().toLowerCase();
   const requested = String(requestedStyle || "normal").trim().toLowerCase();
@@ -250,17 +313,31 @@ function fontFaceCoversStyle(faceStyle, requestedStyle) {
   return available === "normal";
 }
 
-export function fontLoadingAffectsTypography(event, elements, getStyle = globalThis.getComputedStyle) {
+export interface FontLoadingEventLike {
+  fontfaces?: readonly FontFace[] | FontFace[];
+}
+
+export interface TypographyUsageEntry {
+  families: Set<string>;
+  weight: string;
+  fontStyle: string;
+}
+
+export function fontLoadingAffectsTypography(
+  event: FontLoadingEventLike | null | undefined,
+  elements: Iterable<Element | null | undefined> | null | undefined,
+  getStyle: GetComputedStyleFn = globalThis.getComputedStyle,
+): boolean {
   const faces = Array.from(event?.fontfaces ?? []);
   if (faces.length === 0 || typeof getStyle !== "function") return true;
-  const usages = Array.from(elements ?? []).flatMap((element) => [
+  const usages: TypographyUsageEntry[] = Array.from(elements ?? []).flatMap((element) => [
     null,
     "::before",
     "::after",
     "::first-letter",
     "::first-line",
   ].map((pseudo) => {
-    const style = getStyle(element, pseudo);
+    const style = getStyle(element!, pseudo);
     return {
       families: new Set(parseCssFontFamilies(style.getPropertyValue("font-family"))),
       weight: style.getPropertyValue("font-weight"),
