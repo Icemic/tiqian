@@ -596,7 +596,7 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
 // 2. relayout branch 1: jobKind=Enhance + running state => canonical options
 // ---------------------------------------------------------------------------
 
-test("2. relayout branch 1: Enhance running with state => restart with canonical options (kind Relayout)", function () {
+test("2. relayout branch 1: Enhance running with state => restart with canonical options (kind Enhance)", function () {
   var measures = [100];
   var lifecycle = makeFakeLifecycleWith(measures);
 
@@ -612,7 +612,9 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  // Fake jobKind to return "Enhance"
+  // Fake jobKind to return "Enhance"; restore it in finally so later tests
+  // observe the real job table (test 4 must reach branch 3, not branch 1).
+  var origJobKind = ctx.fakeJob.jobKind;
   ctx.fakeJob.jobKind = function () {
     return "Enhance";
   };
@@ -625,15 +627,18 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
     var root = makeElement();
     relayout(root);
 
-    // Should restart with the running state's canonical options. Canonical
-    // options must go through createRootStateFromCanonical; feeding them to
+    // Should restart with the running state's canonical options. Kotlin's
+    // two-arg overload restarts the interrupted enhance, so the kind stays
+    // Enhance and the finish event stays tiqian:ready. Canonical options
+    // must go through createRootStateFromCanonical; feeding them to
     // createRootState would re-resolve them through optionsFromJs.
     assert.equal(startJobCalls.length, 1);
-    assert.equal(startJobCalls[0].kind, "Relayout");
+    assert.equal(startJobCalls[0].kind, "Enhance");
     assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical.length, 1);
     assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical[0].options, runningState.options);
     assert.equal(ctx.fakeRS._calls.createRootState.length, 0);
   } finally {
+    ctx.fakeJob.jobKind = origJobKind;
     teardown(ctx);
   }
 });
@@ -704,8 +709,10 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
   try {
     relayout(root);
 
-    // cancelJob was called
-    assert.equal(cancelJobCalls.length, 1);
+    // cancelJob ran twice: branch 3 cancels explicitly, then the restart's
+    // engine-less fallback (unit world) cancels again. Both are idempotent;
+    // hosted worlds see the same double through engine.destroy.
+    assert.equal(cancelJobCalls.length, 2);
     // Then restarts with enhance path using the state's canonical options
     assert.equal(startJobCalls.length, 1);
     assert.equal(startJobCalls[0].kind, "Relayout");
@@ -1308,6 +1315,49 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
       return e.type === "tiqian:error";
     });
     assert.equal(errorEvents.length, 1);
+  } finally {
+    teardown(ctx);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 7. New public surface exports (engine-entry.js consumers)
+// ---------------------------------------------------------------------------
+
+test("7a. rejectMissingSharedRuntimeStyles is exposed on the public surface", function () {
+  assert.equal(typeof enhanceProgressively, "function");
+  assert.equal(typeof relayout, "function");
+  assert.equal(typeof globalThis.__TiqianProgressiveDrivers.rejectMissingSharedRuntimeStyles, "function");
+});
+
+test("7b. startProgressiveJob is exposed on the public surface with 9-arg signature", function () {
+  var fn = globalThis.__TiqianProgressiveDrivers.startProgressiveJob;
+  assert.equal(typeof fn, "function");
+  assert.equal(fn.length, 9);
+});
+
+test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
+  var ctx = setupGlobals();
+  try {
+    var root = makeElement();
+    var canonicalOpts = { fontSize: 22 };
+    var startJobCalls = [];
+    ctx.fakeJob.startJob = function (spec) {
+      startJobCalls.push(spec);
+    };
+    // Fake lifecycle to avoid real measures
+    globalThis.__TiqianLifecycle = makeFakeLifecycleWith([100]);
+    var fn = globalThis.__TiqianProgressiveDrivers.enhanceProgressivelyFromCanonical;
+    assert.equal(typeof fn, "function");
+    fn(root, canonicalOpts);
+    // Should use createRootStateFromCanonical (not createRootState) because
+    // fromCanonical is true.
+    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical.length, 1);
+    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical[0].options, canonicalOpts);
+    assert.equal(ctx.fakeRS._calls.createRootState.length, 0);
+    // Should start a job with kind Enhance (not Relayout)
+    assert.equal(startJobCalls.length, 1);
+    assert.equal(startJobCalls[0].kind, "Enhance");
   } finally {
     teardown(ctx);
   }

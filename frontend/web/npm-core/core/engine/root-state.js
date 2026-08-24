@@ -21,7 +21,7 @@
 (function () {
   if (globalThis.__TiqianRootState) return;
 
-  var EXACT_PREPARED_FALLBACK_ATTRIBUTE = "data-tq-exact-layout-fallback";
+  var EXACT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback";
   var ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
   var CAPABILITY_DETAIL_LIMIT = 512;
 

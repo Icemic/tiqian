@@ -1,0 +1,415 @@
+// engine-entry (TsHost runtime port, Slice 6). Constructs the TypeScript host
+// engine entry object that replaces Kotlin @JsExport object TiqianEngine
+// (WebEnhancerEngineExport.kt) and TiqianWebWorkers
+// (WebEnhancerWorkerProtocol.kt), and moves the Kotlin
+// WebEnhancerContentReconcile.kt reconcile orchestration into TS.
+//
+// Consumes __TiqianRootState, __TiqianProgressiveDrivers,
+// __TiqianProgressiveJob, __TiqianCustody, __TiqianLifecycle,
+// __TiqianContentReconcile, __TiqianProcessParagraph,
+// __TiqianWorkerRequest, __TiqianPreparedDomRenderer,
+// __TiqianInstallCopyHandler.
+//
+// Plain script, no exports: running it installs globalThis.__TiqianEngine
+// and globalThis.__TiqianEngineWorkers. Triple installation is guarded.
+//
+// Embedding constraint: the generator wraps this file in a Kotlin raw string,
+// so the source must contain no dollar sign and no triple double-quote
+// sequence. Use string concatenation, never template literals. Use var
+// declarations.
+
+(function () {
+  if (globalThis.__TiqianEngine) return;
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers (from WebEnhancerSupport.kt @JsFun bodies)
+  // ---------------------------------------------------------------------------
+
+  function ensureCopyHandler() {
+    var installer = globalThis.__TiqianInstallCopyHandler;
+    if (installer && globalThis.document) installer(globalThis.document);
+  }
+
+  function releasePreparedRootDomStyles(root) {
+    var r = globalThis.__TiqianPreparedDomRenderer;
+    return !!(r && r.releaseRoot && r.releaseRoot(root) === true);
+  }
+
+  // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
+  // integer and > 0, else 0.
+  function observableSnapshotCount(root) {
+    var raw = root.getAttribute("data-tiqian-snapshot-count");
+    var value = Number(raw);
+    if (Number.isSafeInteger(value) && value > 0) return value;
+    return 0;
+  }
+
+  // CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width -- for
+  // a block fragmented by CSS columns this is the union of every fragment, not
+  // a per-fragment measure. Every caller uses it only for coarse >=0.5px drift
+  // detection, where the union error is dwarfed by the tolerance (see the ADR
+  // 0039 fractional fragment-aware amendment). A caller that needs the widest
+  // live fragment must use elementContentWidth from
+  // npm/core/engine/responsive-measure.js (installed as the responsive measure
+  // bridge) instead.
+  function elementFragmentBorderBoxInlineSize(element) {
+    if (!element) return 0;
+    return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
+  }
+
+  // paragraphViewportDistance: returns 0 when the element is visible in the
+  // viewport, or a positive pixel distance otherwise (negative of bottom for
+  // above-viewport, top minus viewportHeight for below-viewport).
+  function paragraphViewportDistance(element) {
+    if (!element || !element.getBoundingClientRect) return 0;
+    var rect = element.getBoundingClientRect();
+    var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    if (rect.bottom >= 0 && rect.top <= viewportHeight) return 0;
+    return rect.bottom < 0 ? -rect.bottom : rect.top - viewportHeight;
+  }
+
+  function isElement(node) {
+    return !!(node && node.nodeType === 1);
+  }
+
+  // sourcesOf: maps state.paragraphs entries to their source elements
+  // (Kotlin sourcesToArray() equivalent, see WebEnhancerTsHost.kt:315).
+  function sourcesOf(state) {
+    var result = [];
+    for (var i = 0; i < state.paragraphs.length; i += 1) {
+      result.push(state.paragraphs[i].source);
+    }
+    return result;
+  }
+
+  // removeEntryFor: in-place splice to remove the paragraph entry whose source
+  // === element from state.paragraphs (Kotlin removeAllMatching equivalent).
+  function removeEntryFor(state, element) {
+    for (var i = state.paragraphs.length - 1; i >= 0; i -= 1) {
+      if (state.paragraphs[i].source === element) {
+        state.paragraphs.splice(i, 1);
+        return;
+      }
+    }
+  }
+
+  // processParagraphOf: process a single element through the layout pipeline.
+  function processParagraphOf(element, state) {
+    var RS = globalThis.__TiqianRootState;
+    globalThis.__TiqianProcessParagraph.processParagraph(
+      RS.processParagraphArgument(state, element)
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // __TiqianEngine (11 methods)
+  // ---------------------------------------------------------------------------
+
+  var engine = {};
+
+  // 1. enhance(root, optionsBag) -> number
+  // Synchronous one-shot enhance. Internal third param fromCanonical controls
+  // the root-state creation path; public entry passes false.
+  engine.enhance = function enhance(root, optionsBag, fromCanonical) {
+    var RS = globalThis.__TiqianRootState;
+    var DRIVERS = globalThis.__TiqianProgressiveDrivers;
+    ensureCopyHandler();
+    engine.destroy(root);
+    var state = fromCanonical
+      ? RS.createRootStateFromCanonical(root, optionsBag)
+      : RS.createRootState(root, optionsBag);
+    var candidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
+    if (DRIVERS.rejectMissingSharedRuntimeStyles(state, candidates)) return 0;
+    for (var i = 0; i < candidates.length; i += 1) {
+      globalThis.__TiqianProcessParagraph.processParagraph(
+        RS.processParagraphArgument(state, candidates[i])
+      );
+    }
+    RS.publishState(state);
+    return state.paragraphs.length;
+  };
+
+  // 2. enhanceProgressively(root, optionsBag)
+  // The copy handler install and destroy run inside the drivers entry, so
+  // relayout restarts that enter the drivers directly destroy too.
+  engine.enhanceProgressively = function enhanceProgressively(root, optionsBag) {
+    globalThis.__TiqianProgressiveDrivers.enhanceProgressively(root, optionsBag);
+  };
+
+  // 3. enhanceAll(optionsBag) -> number
+  engine.enhanceAll = function enhanceAll(optionsBag) {
+    var doc = globalThis.document;
+    if (!doc) return 0;
+    var roots = doc.querySelectorAll("tiqian-prose, [data-tiqian-root]");
+    var count = 0;
+    for (var i = 0; i < roots.length; i += 1) {
+      var node = roots[i];
+      // NodeList in real browsers returns Element, but fake DOM may expose
+      // item() so guard non-element nodes.
+      var el = typeof roots.item === "function" ? roots.item(i) : node;
+      if (!isElement(el)) continue;
+      count += engine.enhance(el, optionsBag);
+    }
+    return count;
+  };
+
+  // 4. destroy(root) -- aligns WebEnhancer.kt 167-194
+  engine.destroy = function destroy(root) {
+    var RS = globalThis.__TiqianRootState;
+    var PJ = globalThis.__TiqianProgressiveJob;
+    PJ.cancelJob(root);
+    var state = RS.getState(root);
+    RS.deleteState(root);
+    if (state != null) {
+      var j;
+      for (j = 0; j < state.paragraphs.length; j += 1) {
+        globalThis.__TiqianCustody.restoreParagraph(state.paragraphs[j].source);
+      }
+      for (j = 0; j < state.issues.length; j += 1) {
+        globalThis.__TiqianLifecycle.clearIssue(state.issues[j]);
+      }
+      // SnapshotCompactValueCSS: a precomputed snapshot may be live without a
+      // Kotlin runtime state while list-only enhancement starts. Its compact
+      // value CSS belongs to the snapshot owner and must survive that no-op
+      // destroy.
+      releasePreparedRootDomStyles(root);
+    }
+    var snapshotCount = observableSnapshotCount(root);
+    if (snapshotCount > 0) {
+      root.setAttribute("data-tiqian-enhanced", "true");
+      root.setAttribute("data-tiqian-enhanced-count", String(snapshotCount));
+    } else {
+      root.removeAttribute("data-tiqian-enhanced");
+      root.removeAttribute("data-tiqian-enhanced-count");
+    }
+    root.removeAttribute("data-tiqian-issue-count");
+    root.removeAttribute("data-tiqian-relayout-error");
+    root.removeAttribute("data-tiqian-exact-layout-fallback");
+  };
+
+  // 5. detach(root)
+  // DetachedRootWeakOwnership: cancel job and release styles; weak table state
+  // stays for reconnection on the same node.
+  engine.detach = function detach(root) {
+    var PJ = globalThis.__TiqianProgressiveJob;
+    PJ.cancelJob(root);
+    releasePreparedRootDomStyles(root);
+  };
+
+  // 6. relayout(root) -- delegates to drivers.
+  engine.relayout = function relayout(root) {
+    var DRIVERS = globalThis.__TiqianProgressiveDrivers;
+    DRIVERS.relayout(root);
+  };
+
+  // 7. refresh(root, progressively)
+  engine.refresh = function refresh(root, progressively) {
+    var RS = globalThis.__TiqianRootState;
+    var state = RS.getState(root);
+    if (!state) return;
+    if (progressively) {
+      globalThis.__TiqianProgressiveDrivers.enhanceProgressivelyFromCanonical(
+        root,
+        state.options
+      );
+    } else {
+      engine.enhance(root, state.options, true);
+    }
+  };
+
+  // 8. cancelLayoutWork(root)
+  engine.cancelLayoutWork = function cancelLayoutWork(root) {
+    var PJ = globalThis.__TiqianProgressiveJob;
+    PJ.cancelJob(root);
+  };
+
+  // 9. probeContentDrift(root) -> string
+  engine.probeContentDrift = function probeContentDrift(root) {
+    var RS = globalThis.__TiqianRootState;
+    var state = RS.getState(root);
+    if (!state) return '{"unknown":1,"drifted":0,"dead":0,"custody":0}';
+    return globalThis.__TiqianContentReconcile.probeContentDrift(sourcesOf(state));
+  };
+
+  // 10. reconcileContent(root, tainted) -> string
+  // Aligns WebEnhancerContentReconcile.kt 22-95.
+  engine.reconcileContent = function reconcileContent(root, tainted) {
+    var RS = globalThis.__TiqianRootState;
+    var DRIVERS = globalThis.__TiqianProgressiveDrivers;
+    var state = RS.getState(root);
+    if (!state) {
+      return '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}';
+    }
+    var spec = {
+      trackedSources: sourcesOf(state),
+      tainted: tainted,
+      strandedCandidates: RS.strandedSourceParagraphs(root, state),
+      rootSelector: "tiqian-prose, [data-tiqian-root]",
+    };
+    var verdict = globalThis.__TiqianContentReconcile.classifyReconcile(spec);
+
+    // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
+    // onto detached originals. Drop them so re-projected clones are adopted as
+    // fresh candidates.
+    for (var d = state.paragraphs.length - 1; d >= 0; d -= 1) {
+      if (!state.paragraphs[d].source.isConnected) {
+        state.paragraphs.splice(d, 1);
+      }
+    }
+
+    if (verdict.outcome === "idle") return verdict.json;
+
+    // Build action list: each entry is {element, run} closure (Kotlin
+    // ReconcileAction equivalent).
+    var actions = [];
+    var vi;
+    for (vi = 0; vi < verdict.drifted.length; vi += 1) {
+      (function (element) {
+        actions.push({
+          element: element,
+          run: function () {
+            removeEntryFor(state, element);
+            globalThis.__TiqianContentReconcile.prepareTrackedParagraphForRelowering(element);
+            processParagraphOf(element, state);
+          },
+        });
+      })(verdict.drifted[vi]);
+    }
+    for (vi = 0; vi < verdict.custody.length; vi += 1) {
+      // CustodyDriftRerendersFromCustody: a host edit inside the custody
+      // fragment leaves the live paragraph matching the rendered invariant, so
+      // only the custody identity check sees it. Restore hands it back to the
+      // live DOM and processParagraph re-lowers the edited content.
+      (function (element) {
+        actions.push({
+          element: element,
+          run: function () {
+            removeEntryFor(state, element);
+            globalThis.__TiqianCustody.restoreParagraph(element);
+            processParagraphOf(element, state);
+          },
+        });
+      })(verdict.custody[vi]);
+    }
+    for (vi = 0; vi < verdict.tainted.length; vi += 1) {
+      // TaintedEngineOutputRerendersFromCustody: an in-place text edit inside
+      // engine output does not change child identity. The edited node belongs
+      // to the renderer, so the semantic truth stays in custody and the
+      // paragraph re-renders from it.
+      (function (element) {
+        actions.push({
+          element: element,
+          run: function () {
+            removeEntryFor(state, element);
+            globalThis.__TiqianCustody.restoreParagraph(element);
+            processParagraphOf(element, state);
+          },
+        });
+      })(verdict.tainted[vi]);
+    }
+    for (vi = 0; vi < verdict.stranded.length; vi += 1) {
+      (function (element) {
+        actions.push({
+          element: element,
+          run: function () {
+            globalThis.__TiqianContentReconcile.stripEngineMarkupFromStrandedParagraph(element);
+            processParagraphOf(element, state);
+          },
+        });
+      })(verdict.stranded[vi]);
+    }
+
+    // WidthSnapshotPerReconcileJob: mirrors WidthSnapshotPerRelayoutJob -- a
+    // mid-job width move reports stale and element.js schedules one
+    // latest-width follow-up.
+    var distances = new Array(actions.length);
+    var ai;
+    for (ai = 0; ai < actions.length; ai += 1) {
+      distances[ai] = paragraphViewportDistance(actions[ai].element);
+    }
+    var itemTierIndex = new Array(actions.length);
+    for (ai = 0; ai < actions.length; ai += 1) {
+      itemTierIndex[ai] = ai;
+    }
+    itemTierIndex.sort(function (a, b) {
+      return distances[a] - distances[b] || a - b;
+    });
+    var rootWidth = elementFragmentBorderBoxInlineSize(root);
+    DRIVERS.startProgressiveJob(
+      state,
+      "Relayout",
+      actions.length,
+      function (index) { actions[itemTierIndex[index]].run(); },
+      null,
+      null,
+      function () { return Math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5; },
+      itemTierIndex,
+      actions.map(function (a) { return a.element; })
+    );
+    return verdict.json;
+  };
+
+  // 11. workerLayoutRequest(root, paragraph, optionsBag) -> string|null
+  engine.workerLayoutRequest = function workerLayoutRequest(root, paragraph, optionsBag) {
+    var RS = globalThis.__TiqianRootState;
+    var lifecycle = globalThis.__TiqianLifecycle;
+    return globalThis.__TiqianWorkerRequest.workerLayoutRequestForRoot(
+      RS.currentFfi(),
+      root,
+      paragraph,
+      lifecycle.optionsFromJs(optionsBag)
+    );
+  };
+
+  globalThis.__TiqianEngine = engine;
+
+  // ---------------------------------------------------------------------------
+  // __TiqianEngineWorkers (9 worker-prefixed methods)
+  //
+  // WorkerPolledScheduling: the coordinator (coordinator.js 438-479) and
+  // element.js (939-991) consume worker-prefixed names. F2a unpacking means
+  // Kotlin TiqianWebWorkers attach and friends have no producer-side mapping
+  // for these names; this module exposes them directly under the consumption
+  // name so the coordinator contract is satisfied.
+  // ---------------------------------------------------------------------------
+
+  var workers = {};
+
+  workers.workerAttach = function (root) {
+    return globalThis.__TiqianProgressiveJob.attach(root);
+  };
+
+  workers.workerDetach = function (root) {
+    return globalThis.__TiqianProgressiveJob.detach(root);
+  };
+
+  workers.workerHasJob = function (root) {
+    return globalThis.__TiqianProgressiveJob.hasJob(root);
+  };
+
+  workers.workerJobGeneration = function (root) {
+    return globalThis.__TiqianProgressiveJob.jobGeneration(root);
+  };
+
+  workers.workerRunSlice = function (controller, minTier) {
+    return globalThis.__TiqianProgressiveJob.runSlice(controller, minTier);
+  };
+
+  workers.workerPendingInTier = function (root, tier) {
+    return globalThis.__TiqianProgressiveJob.pendingInTier(root, tier);
+  };
+
+  workers.workerParagraphCount = function (root) {
+    return globalThis.__TiqianProgressiveJob.paragraphCount(root);
+  };
+
+  workers.workerParagraphAt = function (root, index) {
+    return globalThis.__TiqianProgressiveJob.paragraphAt(root, index);
+  };
+
+  workers.workerSetParagraphTier = function (root, index, tier) {
+    return globalThis.__TiqianProgressiveJob.setParagraphTier(root, index, tier);
+  };
+
+  globalThis.__TiqianEngineWorkers = workers;
+})();

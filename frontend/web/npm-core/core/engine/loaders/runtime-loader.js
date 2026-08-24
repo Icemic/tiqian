@@ -1,6 +1,8 @@
 // Kotlin runtime loader (ADR 0053 batch 3). The compiled bundle stays at
 // runtime/ in the package root (publishing layout), so the dynamic import
-// below is resolved relative to the root from this subdirectory.
+// below is resolved relative to the root from this subdirectory. Embedded
+// TypeScript engine entries (__TiqianEngine / __TiqianEngineWorkers) take
+// precedence over Kotlin exports, with resolveExport as the legacy fallback.
 let runtimePromise;
 let runtimeModule;
 
@@ -31,6 +33,8 @@ export function setEngineOverride(engine) {
 // a null answer as "engine not ready" and stop there.
 export function engineApi() {
   if (engineOverride) return engineOverride;
+  var tsEngine = globalThis.__TiqianEngine;
+  if (tsEngine) return tsEngine;
   engineInstance ??= resolveExport("TiqianEngine");
   return engineInstance;
 }
@@ -38,6 +42,8 @@ export function engineApi() {
 // Polled worker facade (WorkerPolledScheduling): an IR object singleton
 // behind getInstance; the UMD branch exposes it as globalThis.web.
 export function workerApi() {
+  var tsWorkers = globalThis.__TiqianEngineWorkers;
+  if (tsWorkers) return tsWorkers;
   workerInstance ??= resolveExport("TiqianWebWorkers");
   return workerInstance;
 }

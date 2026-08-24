@@ -208,14 +208,17 @@ test("eligibility_zeroAdvanceGlyphsKeepParagraphNative", async (t) => {
 
   const count = TiqianWeb.enhance(root);
 
+  // Since the Slice 4d-2b host switchover (ADR 0053) the wire face rejects a
+  // computed font size of zero up front with InvalidFontSize; the paragraph
+  // stays native and fail-closed exactly as the zero-advance report did.
   assert.equal(count, 0);
   assert.equal(paragraph.innerHTML, original);
   assert.equal(
     paragraph.getAttribute("data-tiqian-capability-issue"),
-    "InvalidWebShapingAdvance",
+    "WebEnhancementFailure",
   );
   assert.ok(
-    String(paragraph.getAttribute("data-tiqian-capability-detail") ?? "").includes("advance=0"),
+    String(paragraph.getAttribute("data-tiqian-capability-detail") ?? "").includes("InvalidFontSize"),
   );
 });
 

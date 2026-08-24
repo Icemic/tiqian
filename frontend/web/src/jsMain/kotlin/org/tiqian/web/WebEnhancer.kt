@@ -162,6 +162,17 @@ object TiqianWeb {
         canvasFontsBridge()
         browserMetricsBridge()
         progressiveRelayoutSessionBridge()
+        installEmbeddedRootStateScript()
+        installEmbeddedProgressiveDriversScript()
+        installEmbeddedEngineEntryScript()
+        // The copy installer global is defined by the embedded copy script;
+        // install it eagerly so the TypeScript engine entry can reach it.
+        installEmbeddedCopyScript()
+        // The TypeScript reconcile orchestration reads the embedded classify
+        // global directly; its only Kotlin installer caller is deleted with
+        // the Kotlin reconcile path, so install it here.
+        installEmbeddedContentReconcileScript()
+        bindTsRootStateFfi(tsFfiFacade)
     }
 
     fun destroy(root: HTMLElement) {

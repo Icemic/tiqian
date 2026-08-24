@@ -197,7 +197,7 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     const bridge = makeBridge();
     installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
 
-    const root = new FakeElement({ attributes: { "data-tq-exact-layout-fallback": "stale" } });
+    const root = new FakeElement({ attributes: { "data-tiqian-exact-layout-fallback": "stale" } });
 
     // fontSize bag: the snapshot gate routes through withoutExactFontSession.
     const state = rootState.createRootState(root, { fontSize: 19 });
@@ -207,7 +207,7 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     assert.equal(lifecycle.calls.withoutExactFontSession.length, 1);
     assert.equal(lifecycle.calls.withRootDefaults.length, 1);
 
-    assert.equal(root.getAttribute("data-tq-exact-layout-fallback"), null);
+    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
     assert.equal(state.root, root);
     assert.equal(state.options.fontSize, 19);
     assert.equal(state.options.exactFontSession, null);
@@ -317,9 +317,9 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
     rootState.disableExactPreparedDom(state, detail);
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tq-exact-layout-fallback"), "x".repeat(512));
+    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
     assert.equal(
-      root.setAttributeCalls.filter((call) => call[0] === "data-tq-exact-layout-fallback").length,
+      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-exact-layout-fallback").length,
       1
     );
 
@@ -333,9 +333,9 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
     // Idempotent: a second call changes nothing and does not rewrite the attribute.
     rootState.disableExactPreparedDom(state, "second-detail");
     assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tq-exact-layout-fallback"), "x".repeat(512));
+    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
     assert.equal(
-      root.setAttributeCalls.filter((call) => call[0] === "data-tq-exact-layout-fallback").length,
+      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-exact-layout-fallback").length,
       1
     );
   } finally {
@@ -381,7 +381,7 @@ test("4. engineState cross-section: bound ffi, live arrays, callback wiring", ()
 
     engine.onDisableExactPreparedDom("replay-mismatch");
     assert.equal(state.preparedDomEnabled, false);
-    assert.equal(root.getAttribute("data-tq-exact-layout-fallback"), "replay-mismatch");
+    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "replay-mismatch");
   } finally {
     restoreGlobals(saved);
   }

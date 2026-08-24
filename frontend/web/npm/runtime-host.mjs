@@ -3604,11 +3604,12 @@ export function loadHostRuntime() {
   installPreparedRendererFixture();
   runtimePromise ??= import("@tiqian/prose-core/runtime/tiqian-web.js").then((module) => {
     const bag = module.default ?? module;
-    const engine = (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)
-      ?.getInstance?.();
-    const workers = (module.TiqianWebWorkers ??
-      bag.TiqianWebWorkers ??
-      globalThis.web?.TiqianWebWorkers)?.getInstance?.();
+    const engine = globalThis.__TiqianEngine ??
+      (module.TiqianEngine ?? bag.TiqianEngine ?? globalThis.web?.TiqianEngine)?.getInstance?.();
+    const workers = globalThis.__TiqianEngineWorkers ??
+      (module.TiqianWebWorkers ??
+        bag.TiqianWebWorkers ??
+        globalThis.web?.TiqianWebWorkers)?.getInstance?.();
     if (!engine) throw new Error("TiqianEngine export missing from runtime bundle");
     engineInstance = engine;
 
@@ -3658,15 +3659,27 @@ export function loadHostRuntime() {
       },
     };
     if (workers) {
-      bridge.workerAttach = workers.attach.bind(workers);
-      bridge.workerDetach = workers.detach.bind(workers);
-      bridge.workerHasJob = workers.hasJob.bind(workers);
-      bridge.workerJobGeneration = workers.jobGeneration.bind(workers);
-      bridge.workerRunSlice = workers.runSlice.bind(workers);
-      bridge.workerPendingInTier = workers.pendingInTier.bind(workers);
-      bridge.workerParagraphCount = workers.paragraphCount.bind(workers);
-      bridge.workerParagraphAt = workers.paragraphAt.bind(workers);
-      bridge.workerSetParagraphTier = workers.setParagraphTier.bind(workers);
+      // The TypeScript engine workers expose the polled names directly;
+      // the unprefixed fallback keeps the bridge usable with older bundles.
+      const workerAttach = workers.workerAttach || (workers.attach && workers.attach.bind(workers));
+      const workerDetach = workers.workerDetach || (workers.detach && workers.detach.bind(workers));
+      const workerHasJob = workers.workerHasJob || (workers.hasJob && workers.hasJob.bind(workers));
+      const workerJobGeneration = workers.workerJobGeneration || (workers.jobGeneration && workers.jobGeneration.bind(workers));
+      const workerRunSlice = workers.workerRunSlice || (workers.runSlice && workers.runSlice.bind(workers));
+      const workerPendingInTier = workers.workerPendingInTier || (workers.pendingInTier && workers.pendingInTier.bind(workers));
+      const workerParagraphCount = workers.workerParagraphCount || (workers.paragraphCount && workers.paragraphCount.bind(workers));
+      const workerParagraphAt = workers.workerParagraphAt || (workers.paragraphAt && workers.paragraphAt.bind(workers));
+      const workerSetParagraphTier = workers.workerSetParagraphTier || (workers.setParagraphTier && workers.setParagraphTier.bind(workers));
+
+      if (workerAttach) bridge.workerAttach = workerAttach;
+      if (workerDetach) bridge.workerDetach = workerDetach;
+      if (workerHasJob) bridge.workerHasJob = workerHasJob;
+      if (workerJobGeneration) bridge.workerJobGeneration = workerJobGeneration;
+      if (workerRunSlice) bridge.workerRunSlice = workerRunSlice;
+      if (workerPendingInTier) bridge.workerPendingInTier = workerPendingInTier;
+      if (workerParagraphCount) bridge.workerParagraphCount = workerParagraphCount;
+      if (workerParagraphAt) bridge.workerParagraphAt = workerParagraphAt;
+      if (workerSetParagraphTier) bridge.workerSetParagraphTier = workerSetParagraphTier;
     }
     globalThis.TiqianWeb = bridge;
     return bridge;

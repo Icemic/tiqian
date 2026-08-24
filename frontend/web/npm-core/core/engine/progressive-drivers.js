@@ -8,10 +8,12 @@
 // __TiqianProcessParagraph, __TiqianLifecycle, __TiqianResponsiveMeasure.
 //
 // Plain script, no exports: running it installs
-// globalThis.__TiqianProgressiveDrivers. Two consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect)
-// and the Kotlin runtime bundle, into which a future gradle bridge task will
-// embed this source verbatim. Double installation is guarded.
+// globalThis.__TiqianProgressiveDrivers. Three consumers share this file as
+// the single source of truth: the npm host (importing it for the side effect),
+// the Kotlin runtime bundle, into which a future gradle bridge task will
+// embed this source verbatim, and engine-entry.js which reads the public
+// surface for style gates, job dispatch, and canonical re-entry. Double
+// installation is guarded.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -221,8 +223,20 @@
   function enhanceProgressively(root, optionsBag, kind, fromCanonical) {
     var RS = globalThis.__TiqianRootState;
 
-    // Old job cancel and state rebuild.
-    globalThis.__TiqianProgressiveJob.cancelJob(root);
+    // Kotlin's private enhanceProgressively installs the copy handler and
+    // destroys the root before rebuilding state, and the relayout restarts
+    // (branches 1 and 3) enter this function directly. Hosted worlds carry
+    // __TiqianEngine, whose destroy cancels the job, restores every committed
+    // paragraph, and clears the root attributes; the standalone unit-test
+    // world drives this module without an engine entry and keeps the bare
+    // job cancel.
+    var copyInstaller = globalThis.__TiqianInstallCopyHandler;
+    if (copyInstaller && globalThis.document) copyInstaller(globalThis.document);
+    if (globalThis.__TiqianEngine) {
+      globalThis.__TiqianEngine.destroy(root);
+    } else {
+      globalThis.__TiqianProgressiveJob.cancelJob(root);
+    }
     var state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag)
       : RS.createRootState(root, optionsBag);
@@ -320,14 +334,15 @@
     var RS = globalThis.__TiqianRootState;
     var PJ = globalThis.__TiqianProgressiveJob;
 
-    // Branch 1: Enhance is running. Restart with canonical options at
-    // kind Relayout.
+    // Branch 1: Enhance is running. Kotlin restarts the interrupted enhance
+    // through the two-arg overload, so the kind stays Enhance and the finish
+    // event stays tiqian:ready. Running.options is already canonical; route
+    // it through the canonical state builder so the resolved options are
+    // reused, not re-resolved.
     if (PJ.jobKind(root) === "Enhance") {
       var running = RS.getState(root);
       if (running != null) {
-        // Running.options is already canonical; route through the canonical
-        // state builder so the resolved options are reused, not re-resolved.
-        enhanceProgressively(root, running.options, "Relayout", true);
+        enhanceProgressively(root, running.options, "Enhance", true);
         return;
       }
     }
@@ -468,6 +483,11 @@
     enhanceProgressively: function (root, optionsBag) {
       enhanceProgressively(root, optionsBag, "Enhance");
     },
+    enhanceProgressivelyFromCanonical: function (root, canonicalOptions) {
+      enhanceProgressively(root, canonicalOptions, "Enhance", true);
+    },
     relayout: relayout,
+    rejectMissingSharedRuntimeStyles: rejectMissingSharedRuntimeStyles,
+    startProgressiveJob: startProgressiveJob,
   };
 })();

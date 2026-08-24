@@ -388,7 +388,7 @@ test("responsiveMeasure_stableIssueParagraphUntouchedDuringRelayout", async (t) 
   assert.equal(TiqianWeb.enhance(root), 1);
   assert.equal(
     issueParagraph.getAttribute("data-tiqian-capability-issue"),
-    "InvalidWebShapingAdvance",
+    "WebEnhancementFailure",
   );
   const renderedChild = plainParagraph.firstChild;
   assert.ok(renderedChild);
@@ -417,7 +417,7 @@ test("responsiveMeasure_stableIssueParagraphUntouchedDuringRelayout", async (t) 
   assert.equal(issueParagraph.getAttribute("data-tq-rendered"), null);
   assert.equal(
     issueParagraph.getAttribute("data-tiqian-capability-issue"),
-    "InvalidWebShapingAdvance",
+    "WebEnhancementFailure",
   );
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(relayoutReadyCount, 1);

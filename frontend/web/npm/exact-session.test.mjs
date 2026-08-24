@@ -248,7 +248,7 @@ test("exactSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (t) 
   assert.equal(copySelection(paragraph), "正文秘密继续。");
 });
 
-test("exactSession_unkeyedCompletionKeepsExactDashForOtherRuns", async (t) => {
+test("exactSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async (t) => {
   t.after(cleanupMounted);
   t.after(() => clearExactFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
@@ -267,18 +267,25 @@ test("exactSession_unkeyedCompletionKeepsExactDashForOtherRuns", async (t) => {
     },
   };
 
-  assert.equal(TiqianWeb.enhance(root, options), 1);
+  // Since the Slice 4a/4d-2b decisions (ADR 0053) an unkeyed rich paragraph
+  // whose exact session fails one run retries the whole paragraph with
+  // browser metrics; the dash run then fails closed when the dash capability
+  // is non-conforming, and the paragraph stays native.
+  assert.equal(TiqianWeb.enhance(root, options), 0);
 
   const paragraph = root.querySelector("p");
-  assert.ok(exactFontShapeCount() > 0);
   assert.ok(exactFontFallbackCount() > 0);
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
-  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
-  assert.ok(paragraph.querySelector(".tq-line"));
-  assert.equal(copySelection(paragraph), "坏——正文。");
+  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
+  assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
+  assert.equal(paragraph.querySelector(".tq-line"), null);
+  assert.equal(
+    paragraph.getAttribute("data-tiqian-capability-issue"),
+    "NoConformingCjkDashGlyph",
+  );
+  assert.equal(paragraph.innerHTML, "坏——正文。");
 });
 
-test("exactSession_fallbackParagraphKeepsExactLineMetrics", async (t) => {
+test("exactSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
   t.after(cleanupMounted);
   t.after(() => clearExactFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
@@ -298,13 +305,19 @@ test("exactSession_fallbackParagraphKeepsExactLineMetrics", async (t) => {
   const exactLine = exactParagraph.querySelector(".tq-line");
   const fallbackLine = fallbackParagraph.querySelector(".tq-line");
   assert.ok(exactFontFallbackCount() > 0);
+  // The declared line height stays shared; since the Slice 4a whole-paragraph
+  // browser retry (ADR 0053) the fallback paragraph's baseline metrics come
+  // from the browser lane, so they no longer claim the exact session's.
   assert.equal(
     exactLine.style.getPropertyValue("--tq-line-height"),
     fallbackLine.style.getPropertyValue("--tq-line-height"),
   );
-  assert.equal(
+  assert.notEqual(
     exactLine.style.getPropertyValue("--tq-line-baseline-offset"),
     fallbackLine.style.getPropertyValue("--tq-line-baseline-offset"),
+  );
+  assert.ok(
+    fallbackLine.style.getPropertyValue("--tq-line-baseline-offset").length > 0,
   );
 });
 

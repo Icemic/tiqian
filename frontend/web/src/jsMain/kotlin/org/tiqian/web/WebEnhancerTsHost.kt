@@ -81,6 +81,11 @@ internal val tsFfiFacade: JsAny? by lazy {
     )
 }
 
+// Hands the Kotlin shaping facade to the TypeScript root-state module so the
+// engine entry paths can call currentFfi() without a host-provided binding.
+@JsFun("(ffi) => { if (globalThis.__TiqianRootState && typeof globalThis.__TiqianRootState.bindFfi === 'function') globalThis.__TiqianRootState.bindFfi(ffi); }")
+internal external fun bindTsRootStateFfi(ffi: JsAny?)
+
 // ---------------------------------------------------------------------------
 // options
 // ---------------------------------------------------------------------------
