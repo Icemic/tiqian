@@ -1,3 +1,29 @@
+export interface ViewportAnchorRect {
+  top: number;
+  bottom: number;
+}
+
+export interface ViewportAnchor {
+  node: HTMLElement;
+  top: number;
+  edge?: "bottom" | string;
+}
+
+export interface ScrollOwnerResult {
+  element: HTMLElement | null;
+  view: (Window & typeof globalThis) | Window | null;
+}
+
+export interface SavedOverflowAnchor {
+  value: string;
+  priority: string;
+}
+
+export interface NativeScrollAnchoringHold {
+  count: number;
+  saved: SavedOverflowAnchor | null;
+}
+
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const PARAGRAPH_SELECTOR = "p, li";
 const GESTURE_GRACE_MS = 350;
@@ -15,18 +41,18 @@ const MIN_SCROLL_CORRECTION_PX = 0.5;
  * a viewport transition policy — the layout truth in LayoutResult is untouched.
  */
 
-function clockNow() {
+function clockNow(): number {
   const value = globalThis.performance?.now?.();
-  return Number.isFinite(value) ? value : Date.now();
+  return Number.isFinite(value) ? (value as number) : Date.now();
 }
 
-function viewportHeight(root) {
+function viewportHeight(root: HTMLElement): number {
   const view = root.ownerDocument?.defaultView ?? globalThis.window;
   const value = view?.visualViewport?.height ?? view?.innerHeight ?? globalThis.innerHeight;
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
-function readRect(element) {
+function readRect(element: HTMLElement | null | undefined): ViewportAnchorRect | null {
   const rect = element?.getBoundingClientRect?.();
   if (!rect || !Number.isFinite(Number(rect.top))) return null;
   const top = Number(rect.top);
@@ -41,16 +67,16 @@ function readRect(element) {
 // finger lifts, only scroll events. A scroll arriving shortly after a real
 // gesture extends the grace; an isolated scroll (including our own
 // correction) does not.
-let gestureTrackerInstalled = false;
-let lastGestureAt = Number.NEGATIVE_INFINITY;
+let gestureTrackerInstalled: boolean = false;
+let lastGestureAt: number = Number.NEGATIVE_INFINITY;
 
-function installGestureTracker(root) {
+function installGestureTracker(root: HTMLElement): void {
   if (gestureTrackerInstalled) return;
   const view = root.ownerDocument?.defaultView ?? globalThis.window;
   if (typeof view?.addEventListener !== "function") return;
   gestureTrackerInstalled = true;
-  const passiveCapture = { capture: true, passive: true };
-  const markGesture = () => {
+  const passiveCapture: AddEventListenerOptions = { capture: true, passive: true };
+  const markGesture = (): void => {
     lastGestureAt = clockNow();
   };
   for (const type of ["pointerdown", "touchstart", "touchmove", "wheel", "keydown"]) {
@@ -62,11 +88,11 @@ function installGestureTracker(root) {
   }, passiveCapture);
 }
 
-function gestureIsActive() {
+function gestureIsActive(): boolean {
   return clockNow() - lastGestureAt < GESTURE_GRACE_MS;
 }
 
-function belongsToRoot(node, root) {
+function belongsToRoot(node: HTMLElement, root: HTMLElement): boolean {
   if (typeof node.closest !== "function") return true;
   return node.closest(ROOT_SELECTOR) === root;
 }
@@ -75,14 +101,14 @@ function belongsToRoot(node, root) {
 // viewport center is the one the reader is most likely reading; paragraphs
 // above it absorb the height changes that would move it. The root itself is
 // the fallback when no paragraph intersects the viewport.
-function chooseAnchor(root) {
+function chooseAnchor(root: HTMLElement): ViewportAnchor | null {
   const paragraphs = root.querySelectorAll?.(PARAGRAPH_SELECTOR) ?? [];
   const height = viewportHeight(root);
   const center = height > 0 ? height / 2 : 0;
-  let selected = null;
+  let selected: ViewportAnchor | null = null;
   let selectedDistance = Infinity;
   for (let index = 0; index < paragraphs.length; index += 1) {
-    const paragraph = paragraphs[index];
+    const paragraph = paragraphs[index] as HTMLElement;
     if (!belongsToRoot(paragraph, root)) continue;
     const rect = readRect(paragraph);
     if (!rect) continue;
@@ -98,23 +124,23 @@ function chooseAnchor(root) {
   return rootRect ? { node: root, top: rootRect.top } : null;
 }
 
-function computedStyle(element) {
+function computedStyle(element: HTMLElement | null | undefined): CSSStyleDeclaration | null {
   const view = element?.ownerDocument?.defaultView ?? globalThis.window;
   const getter = view?.getComputedStyle ?? globalThis.getComputedStyle;
   if (typeof getter !== "function") return null;
   try {
-    return getter.call(view, element);
+    return getter.call(view, element as HTMLElement);
   } catch {
     return null;
   }
 }
 
-function scrollableOverflow(value) {
+function scrollableOverflow(value: string | null | undefined): boolean {
   return /^(auto|overlay|scroll)$/u.test(String(value ?? "").trim().toLowerCase());
 }
 
-function scrollOwner(root) {
-  for (let element = root; element; element = element.parentElement) {
+function scrollOwner(root: HTMLElement): ScrollOwnerResult {
+  for (let element: HTMLElement | null = root; element; element = element.parentElement) {
     const style = computedStyle(element);
     if (!style) continue;
     if (!scrollableOverflow(style.overflowY || style.overflow)) continue;
@@ -125,7 +151,7 @@ function scrollOwner(root) {
   return { element: null, view: root.ownerDocument?.defaultView ?? globalThis.window };
 }
 
-function applyScrollDelta(root, delta) {
+function applyScrollDelta(root: HTMLElement, delta: number): boolean {
   const owner = scrollOwner(root);
   if (owner.element) {
     const current = Number(owner.element.scrollTop);
@@ -147,7 +173,7 @@ function applyScrollDelta(root, delta) {
   return false;
 }
 
-function scrollOffset(root) {
+function scrollOffset(root: HTMLElement): number {
   const owner = scrollOwner(root);
   if (owner.element) {
     const value = Number(owner.element.scrollTop);
@@ -169,7 +195,7 @@ function scrollOffset(root) {
  * entirely above the viewport anchors on its own bottom edge: every height
  * change inside it displaces the viewport by exactly that edge's movement.
  */
-export function captureViewportAnchor(root) {
+export function captureViewportAnchor(root: HTMLElement): ViewportAnchor | null {
   installGestureTracker(root);
   holdNativeScrollAnchoring(root);
   if (gestureIsActive()) return null;
@@ -190,7 +216,7 @@ export function captureViewportAnchor(root) {
  * task as the capture; a frame boundary in between would let animations and
  * user scrolling pollute the delta.
  */
-export function compensateViewportAnchor(root, anchor) {
+export function compensateViewportAnchor(root: HTMLElement, anchor: ViewportAnchor | null): boolean {
   if (!anchor || anchor.node.isConnected === false) return false;
   const rect = readRect(anchor.node);
   if (!rect) return false;
@@ -199,8 +225,8 @@ export function compensateViewportAnchor(root, anchor) {
   return applyScrollDelta(root, delta);
 }
 
-const heldOwnerByRoot = new WeakMap();
-const ownerHolds = new WeakMap();
+const heldOwnerByRoot: WeakMap<HTMLElement, HTMLElement> = new WeakMap();
+const ownerHolds: WeakMap<HTMLElement, NativeScrollAnchoringHold> = new WeakMap();
 
 /**
  * NativeAnchoringHandover: two anchoring systems must never share one
@@ -213,13 +239,13 @@ const ownerHolds = new WeakMap();
  * restored as soon as the last job ends, so ordinary host content keeps
  * native anchoring at all other times.
  */
-export function holdNativeScrollAnchoring(root) {
+export function holdNativeScrollAnchoring(root: HTMLElement): void {
   if (heldOwnerByRoot.has(root)) return;
   const owner = scrollOwner(root).element ?? root.ownerDocument?.documentElement;
   const style = owner?.style;
   if (typeof style?.setProperty !== "function") return;
-  heldOwnerByRoot.set(root, owner);
-  const hold = ownerHolds.get(owner) ?? { count: 0, saved: null };
+  heldOwnerByRoot.set(root, owner as HTMLElement);
+  const hold: NativeScrollAnchoringHold = ownerHolds.get(owner as HTMLElement) ?? { count: 0, saved: null };
   if (hold.count === 0) {
     hold.saved = {
       value: style.getPropertyValue?.("overflow-anchor") ?? "",
@@ -228,10 +254,10 @@ export function holdNativeScrollAnchoring(root) {
     style.setProperty("overflow-anchor", "none");
   }
   hold.count += 1;
-  ownerHolds.set(owner, hold);
+  ownerHolds.set(owner as HTMLElement, hold);
 }
 
-export function releaseNativeScrollAnchoring(root) {
+export function releaseNativeScrollAnchoring(root: HTMLElement): void {
   const owner = heldOwnerByRoot.get(root);
   if (!owner) return;
   heldOwnerByRoot.delete(root);

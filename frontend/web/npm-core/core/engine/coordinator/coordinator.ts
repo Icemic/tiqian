@@ -5,6 +5,102 @@ import {
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
 } from "./viewport-anchor.js";
+import type { ViewportAnchor } from "./viewport-anchor.js";
+
+export type FrameTaskCallback = (now: number) => void;
+export type GrantStopPredicate = (processedCount: number) => boolean;
+export type WorkerHasJobFn = (element: HTMLElement) => boolean;
+export type WorkerJobGenerationFn = (element: HTMLElement) => number;
+export type WorkerPendingInTierFn = (element: HTMLElement, tier: number) => number;
+export type WorkerRunSliceFn = (controller: GrantController, minTier: number) => number;
+export type ShouldYieldPredicate = () => boolean;
+export type PrepareSettledCallback = (job: PrepareJob) => void;
+export type PrepareStepFn = (shouldYield: ShouldYieldPredicate) => number;
+export type PrepareResolveFn = (count: number) => void;
+export type SpentReporter = (consumedMs: number) => void;
+export type FrameTraceRow = [number, number, number, number, number, number, number, number];
+
+export interface CoordinatorTask {
+  callback: FrameTaskCallback;
+  element: HTMLElement | null;
+  deferCount: number;
+}
+
+export interface DeferredTaskBucket {
+  dueAt: number;
+  tasks: Map<FrameTaskCallback, CoordinatorTask>;
+}
+
+export interface CoordinatorEntry {
+  inViewport: boolean;
+  area?: number;
+  inlineSize?: number;
+  visibleArea?: number;
+  intersectionRatio?: number;
+}
+
+export interface CoordinatorUpdateOptions {
+  inViewport?: boolean;
+  area?: number;
+  inlineSize?: number;
+  visibleArea?: number;
+  intersectionRatio?: number;
+}
+
+export interface GrantController {
+  lane: "grant" | "prepaint" | string;
+  root: HTMLElement;
+  generation: number;
+  deadline: number;
+  quota: number;
+  shouldStop: GrantStopPredicate;
+}
+
+export interface CoordinatorWorkerRuntime {
+  workerHasJob: WorkerHasJobFn;
+  workerJobGeneration: WorkerJobGenerationFn;
+  workerPendingInTier: WorkerPendingInTierFn;
+  workerRunSlice: WorkerRunSliceFn;
+}
+
+export interface CoordinatorWorkerSlot {
+  element: HTMLElement;
+  runtime: CoordinatorWorkerRuntime;
+  active: boolean;
+  pendingByTier: [number, number, number] | number[];
+  generation: number;
+  deferredUntil: number;
+  deferCount: number;
+  lastGrantFrame: number;
+  quota: number;
+}
+
+export interface PrepareJob {
+  readonly done: boolean;
+  onSettled: PrepareSettledCallback | null;
+  settled: Promise<number>;
+  step: PrepareStepFn;
+}
+
+export interface PrepareMember {
+  job: PrepareJob;
+  resolve: PrepareResolveFn | null;
+}
+
+export interface MainSliceAdmission {
+  lane: string;
+  deadline: number;
+  spent: SpentReporter;
+}
+
+export interface TraceConfig {
+  maxEntries?: number;
+}
+
+declare global {
+  var __tqTrace: TraceConfig | undefined;
+  var __tqFrameTrace: FrameTraceRow[] | undefined;
+}
 
 // OffscreenDebounceGate window: an off-screen element's frame task waits this
 // long after its last request before it runs. 200ms covers a full fast-drag
@@ -47,14 +143,14 @@ const IMMEDIATE_GRANT_WINDOW_MS = 8;
 // attached root. Each slot caches liveness plus the three tier counters the
 // Kotlin facade reports, so a polled frame allocates nothing beyond the one
 // scan it already runs; slot objects live from attach to disconnect.
-function sumPendingUpTo(slot, tier) {
+function sumPendingUpTo(slot: CoordinatorWorkerSlot, tier: number): number {
   let total = 0;
   for (let t = 0; t < tier; t++) total += slot.pendingByTier[t];
   return total;
 }
 
 export class TiqianLayoutCoordinator {
-  #entries = new Map();
+  #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
   // OffscreenDebounceGate: when an element is outside the viewport, its frame
   // tasks wait in this deferred lane. Each repeated request while the element
   // stays off-screen pushes the task's due time further out, so a fast drag
@@ -63,25 +159,25 @@ export class TiqianLayoutCoordinator {
   // anti-starvation aging rules still apply. When an element returns to the
   // viewport, its pending task is promoted immediately, so visible content
   // never waits out the debounce.
-  #deferred = new Map();
-  #deferredTimer = 0;
-  #workerSlots = [];
-  #prepareMembers = new Map();
-  #workerWakeTimer = 0;
-  #frameCounter = 0;
+  #deferred: Map<HTMLElement, DeferredTaskBucket> = new Map();
+  #deferredTimer: ReturnType<typeof setTimeout> | number = 0;
+  #workerSlots: CoordinatorWorkerSlot[] = [];
+  #prepareMembers: Map<HTMLElement, PrepareMember> = new Map();
+  #workerWakeTimer: ReturnType<typeof setTimeout> | number = 0;
+  #frameCounter: number = 0;
 
-  register(element) {
+  register(element: HTMLElement): void {
     this.#entries.set(element, { inViewport: true });
   }
 
-  unregister(element) {
+  unregister(element: HTMLElement): void {
     this.#dropDeferred(element);
     this.#removeWorkerSlot(element);
     this.#cancelPrepare(element);
     this.#entries.delete(element);
   }
 
-  update(element, { inViewport, area, inlineSize, visibleArea, intersectionRatio }) {
+  update(element: HTMLElement, { inViewport, area, inlineSize, visibleArea, intersectionRatio }: CoordinatorUpdateOptions): void {
     let entry = this.#entries.get(element);
     if (!entry) {
       entry = {
@@ -104,14 +200,14 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  remove(element) {
+  remove(element: HTMLElement): void {
     this.#dropDeferred(element);
     this.#removeWorkerSlot(element);
     this.#cancelPrepare(element);
     this.#entries.delete(element);
   }
 
-  #dropDeferred(element) {
+  #dropDeferred(element: HTMLElement): void {
     if (!this.#deferred.delete(element)) return;
     if (this.#deferred.size === 0 && this.#deferredTimer) {
       clearTimeout(this.#deferredTimer);
@@ -119,7 +215,7 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  #promoteDeferred(element) {
+  #promoteDeferred(element: HTMLElement): void {
     const bucket = this.#deferred.get(element);
     if (!bucket) return;
     this.#deferred.delete(element);
@@ -135,7 +231,7 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  #flushDeferred = () => {
+  #flushDeferred = (): void => {
     this.#deferredTimer = 0;
     const now = Date.now();
     let nextDueAt = Infinity;
@@ -160,16 +256,16 @@ export class TiqianLayoutCoordinator {
     }
   };
 
-  #callbacks = new Map();
-  #rafId = 0;
-  #budgetMs = 6.0;
-  #lastFrameTimestamp = 0;
-  #hasFrameTimestamp = false;
-  #measuredFrameInterval = 16.67;
-  #immediateWindowStart = -Infinity;
-  #immediateSpentMs = 0;
+  #callbacks: Map<FrameTaskCallback, CoordinatorTask> = new Map();
+  #rafId: number = 0;
+  #budgetMs: number = 6.0;
+  #lastFrameTimestamp: number = 0;
+  #hasFrameTimestamp: boolean = false;
+  #measuredFrameInterval: number = 16.67;
+  #immediateWindowStart: number = -Infinity;
+  #immediateSpentMs: number = 0;
 
-  #runFrameLoop = (now) => {
+  #runFrameLoop = (now: number): void => {
     this.#rafId = 0;
     this.#frameCounter += 1;
 
@@ -283,7 +379,7 @@ export class TiqianLayoutCoordinator {
   // gets one compact row per frame in globalThis.__tqFrameTrace; without the
   // opt-in the cost is one property read per frame.
   // The last column is the pre-paint lane's ledger in the shared admission window.
-  #traceFrame(now, executedCount, workerGrants) {
+  #traceFrame(now: number, executedCount: number, workerGrants: number): void {
     const trace = globalThis.__tqTrace;
     if (!trace) return;
     const ring = globalThis.__tqFrameTrace ?? (globalThis.__tqFrameTrace = []);
@@ -310,7 +406,7 @@ export class TiqianLayoutCoordinator {
   // rendering update; the ceiling follows the same numbers the frame loop
   // uses (frame budget, half the measured frame interval). The lane reports
   // what it spent through the returned voucher.
-  #admitMainSlice(lane) {
+  #admitMainSlice(lane: string): MainSliceAdmission | null {
     const now = performance.now();
     if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
       this.#immediateWindowStart = now;
@@ -322,7 +418,7 @@ export class TiqianLayoutCoordinator {
     return {
       lane,
       deadline: Date.now() + allowance,
-      spent: (consumedMs) => { this.#immediateSpentMs += consumedMs; },
+      spent: (consumedMs: number) => { this.#immediateSpentMs += consumedMs; },
     };
   }
 
@@ -333,7 +429,7 @@ export class TiqianLayoutCoordinator {
   // cost cannot be split by root, so every root that committed in the slow
   // frame is judged. An innocent neighbour recovers its headroom at one
   // quota step per frame.
-  #applyGrantQuotaFeedback(frameDelta) {
+  #applyGrantQuotaFeedback(frameDelta: number): void {
     if (frameDelta <= GRANT_QUOTA_MIN_FRAME_DELTA) return;
     if (frameDelta >= GRANT_QUOTA_MAX_FRAME_DELTA) return;
     const slowFrame = frameDelta > this.#measuredFrameInterval * GRANT_QUOTA_SLOW_FRAME_RATIO;
@@ -352,9 +448,9 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  requestFrame(callback, element = null) {
+  requestFrame(callback: FrameTaskCallback, element: HTMLElement | null = null): void {
     const existing = this.#callbacks.get(callback);
-    const task = {
+    const task: CoordinatorTask = {
       callback,
       element,
       deferCount: existing ? existing.deferCount : 0,
@@ -384,7 +480,7 @@ export class TiqianLayoutCoordinator {
     this.#rafId = requestAnimationFrame(this.#runFrameLoop);
   }
 
-  cancelFrame(callback) {
+  cancelFrame(callback: FrameTaskCallback): void {
     this.#callbacks.delete(callback);
     const deferredBuckets = Array.from(this.#deferred.entries());
     for (let i = 0; i < deferredBuckets.length; i++) {
@@ -399,7 +495,7 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  registerWorker(element, runtime) {
+  registerWorker(element: HTMLElement, runtime: CoordinatorWorkerRuntime): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].element === element) {
         this.#workerSlots[i].runtime = runtime;
@@ -427,8 +523,8 @@ export class TiqianLayoutCoordinator {
   // deadline in the Date.now domain) and draws from a shared per-update
   // allowance; once it is spent, later callers fall back to the scheduled
   // lane. Remaining tiers stay with the polled frame loop.
-  grantImmediate(element) {
-    let slot = null;
+  grantImmediate(element: HTMLElement): boolean {
+    let slot: CoordinatorWorkerSlot | null = null;
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].element === element) {
         slot = this.#workerSlots[i];
@@ -456,7 +552,7 @@ export class TiqianLayoutCoordinator {
           generation,
           deadline: admission.deadline,
           quota,
-          shouldStop(processedCount) {
+          shouldStop(processedCount: number): boolean {
             return processedCount >= quota || Date.now() >= admission.deadline;
           },
         }, 1);
@@ -487,17 +583,17 @@ export class TiqianLayoutCoordinator {
   // the job's onSettled; the returned promise resolves with the stored-plan
   // count once the job settles. A second registration for the same element
   // resolves the previous promise and replaces the member.
-  runPrepare(element, job) {
+  runPrepare(element: HTMLElement, job: PrepareJob): Promise<number> {
     const existing = this.#prepareMembers.get(element);
-    if (existing) existing.resolve(0);
-    let resolve = null;
-    const promise = new Promise((r) => { resolve = r; });
+    if (existing) existing.resolve!(0);
+    let resolve: PrepareResolveFn | null = null;
+    const promise = new Promise<number>((r) => { resolve = r; });
     this.#prepareMembers.set(element, { job, resolve });
-    job.onSettled = (settledJob) => {
+    job.onSettled = (settledJob: PrepareJob): void => {
       if (settledJob.done) {
         const member = this.#prepareMembers.get(element);
         if (member && member.job === settledJob) this.#prepareMembers.delete(element);
-        settledJob.settled.then(resolve);
+        settledJob.settled.then(resolve!);
       } else if (!this.#rafId) {
         this.#rafId = requestAnimationFrame(this.#runFrameLoop);
       }
@@ -506,7 +602,7 @@ export class TiqianLayoutCoordinator {
     return promise;
   }
 
-  #removeWorkerSlot(element) {
+  #removeWorkerSlot(element: HTMLElement): void {
     const slots = this.#workerSlots;
     for (let i = 0; i < slots.length; i++) {
       if (slots[i].element !== element) continue;
@@ -520,14 +616,14 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  #cancelPrepare(element) {
+  #cancelPrepare(element: HTMLElement): void {
     const member = this.#prepareMembers.get(element);
     if (!member) return;
     this.#prepareMembers.delete(element);
-    member.resolve(0);
+    member.resolve!(0);
   }
 
-  setWorkerActive(element, active) {
+  setWorkerActive(element: HTMLElement, active: boolean): void {
     const slot = this.#findWorkerSlot(element);
     if (!slot) return;
     slot.active = active;
@@ -540,12 +636,12 @@ export class TiqianLayoutCoordinator {
   // granted nothing until this trailing window expires. Width changes while
   // the root stays off-screen keep pushing the due time out, so a fast drag
   // lays out only the final width.
-  refreshWorkerDeferred(element) {
+  refreshWorkerDeferred(element: HTMLElement): void {
     const slot = this.#findWorkerSlot(element);
     if (slot) slot.deferredUntil = Date.now() + OFFSCREEN_DEBOUNCE_MS;
   }
 
-  clearWorkerDeferred(element) {
+  clearWorkerDeferred(element: HTMLElement): void {
     const slot = this.#findWorkerSlot(element);
     if (!slot) return;
     slot.deferredUntil = 0;
@@ -554,20 +650,20 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  requestWorkerFrame(element) {
+  requestWorkerFrame(element: HTMLElement): void {
     if (!this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
   }
 
-  #findWorkerSlot(element) {
+  #findWorkerSlot(element: HTMLElement): CoordinatorWorkerSlot | null {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].element === element) return this.#workerSlots[i];
     }
     return null;
   }
 
-  #compareWorkerSlots = (a, b) => {
+  #compareWorkerSlots = (a: CoordinatorWorkerSlot, b: CoordinatorWorkerSlot): number => {
     const entryA = this.#entries.get(a.element);
     const entryB = this.#entries.get(b.element);
     const inViewA = entryA?.inViewport ? 1 : 0;
@@ -592,7 +688,7 @@ export class TiqianLayoutCoordinator {
     return priorityB - priorityA;
   };
 
-  #pollWorkers(startTime, executedCount) {
+  #pollWorkers(startTime: number, executedCount: number): number {
     const slots = this.#workerSlots;
     if (slots.length === 0) return 0;
     const deadline = startTime + this.#budgetMs;
@@ -630,14 +726,14 @@ export class TiqianLayoutCoordinator {
     }
     let grants = 0;
     let workDone = executedCount;
-    const grantSlot = (slot, tier) => {
+    const grantSlot = (slot: CoordinatorWorkerSlot, tier: number): boolean => {
       // SliceCommitAnchorCompensation: every slice this grant runs happens in
       // this same task, so one capture/compensate pair around the drain sees
       // the pure layout displacement of all its commits.
-      let viewportAnchor = null;
+      let viewportAnchor: ViewportAnchor | null = null;
       let anchorCaptured = false;
       let grantProcessed = 0;
-      const finish = (result) => {
+      const finish = (result: boolean): boolean => {
         if (grantProcessed > 0) compensateViewportAnchor(slot.element, viewportAnchor);
         return result;
       };
@@ -667,7 +763,7 @@ export class TiqianLayoutCoordinator {
           generation: slot.generation,
           deadline: grantDeadline,
           quota,
-          shouldStop(processedCount) {
+          shouldStop(processedCount: number): boolean {
             return processedCount >= quota || Date.now() >= grantDeadline;
           },
         }, tier);
@@ -707,7 +803,7 @@ export class TiqianLayoutCoordinator {
     return grants;
   }
 
-  #pollPrepare(startTime) {
+  #pollPrepare(startTime: number): void {
     if (this.#prepareMembers.size === 0) return;
     for (const [element, member] of this.#prepareMembers) {
       const job = member.job;
@@ -723,7 +819,7 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  #retainWorkerFrame() {
+  #retainWorkerFrame(): void {
     let keepFrames = false;
     // Keep the frame loop alive while prepare members are incomplete;
     // idle frames waiting for Worker replies have almost zero cost.
@@ -770,11 +866,10 @@ export class TiqianLayoutCoordinator {
     }
   }
 
-  #flushWorkerWake = () => {
+  #flushWorkerWake = (): void => {
     this.#workerWakeTimer = 0;
     if (!this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
   };
 }
-
