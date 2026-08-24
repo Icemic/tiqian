@@ -178,9 +178,25 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
+      # The runtime .js next to the .ts sources are untracked build products;
+      # the packages must be built before the js oracle runs. Only npm-core
+      # installs from the lock (typescript plus the @tiqian/ffi local link);
+      # prose resolves @tiqian/prose-core through the link:core symlink and
+      # borrows npm-core's tsc, so no @tiqian package comes from a registry.
+      # The build runs with --noCheck: the @tiqian/ffi type declarations are
+      # gradle products (ffi/js/npm/runtime) that a fresh checkout does not
+      # have, and this lane verifies corpus bytes, not types. Full type
+      # checking requires the ffi runtime build and stays with the local
+      # package suites (npm test in both packages) and the release lanes.
+      - name: Install build dependencies
+        working-directory: frontend/web/npm-core
+        run: npm ci
       - name: Link prose-core dependency
         working-directory: frontend/web/npm
         run: npm run link:core
+      - name: Build the TypeScript packages
+        working-directory: frontend/web/npm
+        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
       - name: Regenerate the fixture and fail on drift
         run: |
           node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs
