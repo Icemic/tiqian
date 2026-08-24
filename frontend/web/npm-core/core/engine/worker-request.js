@@ -1,9 +1,9 @@
-// Worker layout request serialization (TsHost runtime port, Slice 3b). Ports
-// workerLayoutRequestJson from WebEnhancerSupport.kt and the lowered-paragraph
-// workerLayoutRequest overload from WebEnhancerParagraphPipeline.kt into one
-// module. The root+paragraph overload that feeds Kotlin-core classifier hooks
-// through lower() ports with the pipeline in Slice 4 and is intentionally not
-// here.
+// Worker layout request serialization (TsHost runtime port, Slices 3b and 4b).
+// Ports workerLayoutRequestJson from WebEnhancerSupport.kt and both
+// workerLayoutRequest overloads from WebEnhancerParagraphPipeline.kt into one
+// module: the lowered-paragraph overload in Slice 3b, and the root+paragraph
+// overload (4b) that feeds Kotlin-core classifier hooks through the markdown
+// lowering bridge.
 //
 // Plain script, no exports: running it installs globalThis.__TiqianWorkerRequest.
 // Two consumers share this file as the single source of truth: the npm host
@@ -26,6 +26,9 @@
   // WebEnhancerSupport.kt INLINE_EDGE_EPSILON: a clone box whose edges stay
   // below this epsilon remains eligible for Worker preparation.
   var INLINE_EDGE_EPSILON = 0.01;
+  // WebEnhancer.kt ROOT_SELECTOR: the selector that identifies a Tiqian prose
+  // root, matched against a paragraph's closest ancestor scope.
+  var ROOT_SELECTOR = 'tiqian-prose, [data-tiqian-root]';
 
   /**
    * Escape a string into the Worker JSON string format.
@@ -200,6 +203,63 @@
   }
 
   /**
+   * Lower a live paragraph through the markdown bridge, then serialize it as a
+   * Worker layout request. Ports the root+paragraph workerLayoutRequest
+   * overload from WebEnhancerParagraphPipeline.kt (lines 28-44).
+   *
+   * ffi carries the injected 3c export surface: classifyFontRole,
+   * unsupportedInlineShapingProperties, firstDivergentInlineShapingProperty.
+   *
+   * The root overload discards the lowering issue: ok !== true returns null
+   * without reading result.issue. Only processParagraph reports lowering
+   * issues, so the Worker path stays silent on failure.
+   *
+   * @param {Record<string, unknown>} ffi
+   * @param {Element} root
+   * @param {Element} paragraph
+   * @param {Record<string, unknown>} options
+   * @returns {(string|null)}
+   */
+  function workerLayoutRequestForRoot(ffi, root, paragraph, options) {
+    // RootScopeGate: a paragraph belongs when it has no owner, owns the root,
+    // or lives outside the root. A nested owner under the root is not in this
+    // paragraph's scope, so it returns null before anything else runs.
+    var owner = paragraph.closest(ROOT_SELECTOR);
+    if (owner && owner !== root && root.contains(owner)) {
+      return null;
+    }
+    if (!globalThis.__TiqianEligibility.shouldTryParagraph(paragraph)) return null;
+    if (!globalThis.__TiqianLifecycle.allowsSnapshotExactLayout(options)) return null;
+    var resolved = globalThis.__TiqianLifecycle.withRootDefaults(options, root);
+    var lowered = null;
+    try {
+      // The options bag mirrors loweringOptionsJs in MarkdownParagraphLowering.kt:
+      // fontSize and lineHeight are nullable, strongAsEmphasisMarks is a boolean,
+      // and locale is fixed to LOWERING_DEFAULT_LOCALE ("zh-Hans").
+      var result = globalThis.__TiqianMarkdownLowering.lower(paragraph, {
+        fontSize: resolved.fontSize,
+        lineHeight: resolved.lineHeight,
+        strongAsEmphasisMarks: resolved.strongAsEmphasisMarks,
+        locale: 'zh-Hans',
+      }, {
+        // classifyRole is the ffi export verbatim.
+        classifyRole: ffi.classifyFontRole,
+        // The inlineShapingDecision wrapper reproduces the Kotlin closure in
+        // MarkdownParagraphLowering.kt: a null divergence property returns null,
+        // otherwise the inlineShapingDecisionResultJs shape is built.
+        inlineShapingDecision: function (tag, elementValues, paragraphValues) {
+          var property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
+          return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
+        },
+        inlineShapingProperties: ffi.unsupportedInlineShapingProperties(),
+      });
+      if (result && result.ok === true) lowered = result.lowered;
+    } catch (error) { lowered = null; }
+    if (lowered == null) return null;
+    return workerLayoutRequest(paragraph, lowered, resolved);
+  }
+
+  /**
    * Gate the lowered paragraph against Worker preparation eligibility, compute
    * the responsive line measure, and serialize the request. Returns null when
    * ineligible.
@@ -249,6 +309,7 @@
 
   globalThis.__TiqianWorkerRequest = {
     workerLayoutRequest: workerLayoutRequest,
+    workerLayoutRequestForRoot: workerLayoutRequestForRoot,
     workerLayoutRequestJson: workerLayoutRequestJson,
   };
 })();

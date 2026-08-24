@@ -2,12 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import "./core/engine/lifecycle.js";
+import "./core/engine/eligibility.js";
 import "./core/engine/worker-request.js";
 
 const lifecycle = globalThis.__TiqianLifecycle;
+const eligibility = globalThis.__TiqianEligibility;
 const workerRequest = globalThis.__TiqianWorkerRequest;
 
 const MEASURE_GLOBALS = ["__TiqianResponsiveMeasure"];
+
+// Root-overload tests also install or replace the eligibility, markdown
+// lowering, and lifecycle bridges, plus a fake getComputedStyle for
+// withRootDefaults, so they must preserve and restore those.
+const ROOT_GLOBALS = [
+  "__TiqianResponsiveMeasure",
+  "__TiqianEligibility",
+  "__TiqianMarkdownLowering",
+  "__TiqianLifecycle",
+  "getComputedStyle",
+];
 
 function preserveGlobals(names) {
   return names.map((name) => ({
@@ -402,6 +415,289 @@ test("workerLayoutRequest emits the effective line measure as maxWidthPx", () =>
     assert.equal(JSON.parse(result).maxWidthPx, 777.25);
     assert.deepEqual(fontSizeArguments, [19]);
   } finally {
+    restoreGlobals(globals);
+  }
+});
+
+// --- Root overload (workerLayoutRequestForRoot) ---
+
+// Install an eligible, snapshot-friendly, happy-path environment: real
+// lifecycle (with a fake getComputedStyle for withRootDefaults), permissive
+// eligibility, responsive measure, and a stub lowering. Returns the stubbed
+// lower function for per-test assertions.
+function installRootHappyPath(lowerImpl = null) {
+  installFakeResponsiveMeasure();
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
+  globalThis.__TiqianEligibility = { shouldTryParagraph: () => true };
+  const lowerCalls = [];
+  const lowerStub = lowerImpl ||
+    (() => ({ ok: true, lowered: paragraph() }));
+  globalThis.__TiqianMarkdownLowering = {
+    lower: (element, options, helpers) => {
+      lowerCalls.push({ element, options, helpers });
+      return lowerStub(element, options, helpers);
+    },
+  };
+  return { lowerCalls, lowerStub };
+}
+
+// A fake element whose closest() returns the given owner. contains() on the
+// root is configurable to model whether the owner lives under the root.
+function scopeParagraph(closestResult, tagName = "P") {
+  return {
+    tagName,
+    closest: (selector) => closestResult,
+    getAttribute: () => null,
+  };
+}
+
+function scopeRoot(containsResult = true) {
+  return {
+    tagName: "DIV",
+    contains: () => containsResult,
+  };
+}
+
+const ROOT_FFI = {
+  classifyFontRole: (text, start, end, locale) => "other",
+  unsupportedInlineShapingProperties: () => ["font-style"],
+  firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => null,
+};
+
+function rootOptions(overrides = {}) {
+  return buildOptions(overrides);
+}
+
+test("workerLayoutRequestForRoot returns null when closest resolves to a nested owner under the root", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const owner = scopeParagraph(null, "SECTION");
+    const root = scopeRoot(true);
+    const paragraphEl = scopeParagraph(owner);
+    installRootHappyPath();
+    assert.equal(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot passes the root gate when owner is the root", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    installRootHappyPath();
+    assert.notEqual(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot passes the root gate when no owner is found", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(null);
+    installRootHappyPath();
+    assert.notEqual(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot returns null when shouldTryParagraph is false", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    installFakeResponsiveMeasure();
+    globalThis.__TiqianEligibility = { shouldTryParagraph: () => false };
+    globalThis.__TiqianMarkdownLowering = { lower: () => ({ ok: true, lowered: paragraph() }) };
+    assert.equal(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot returns null when snapshot exact layout is disallowed", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    installRootHappyPath();
+    const options = rootOptions({ fontSize: 20 });
+    assert.equal(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot returns null when the lowering bridge throws", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    installRootHappyPath(() => {
+      throw new Error("boom");
+    });
+    assert.equal(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot returns null when lowering reports ok !== true and never reads the issue", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    // A getter records access to result.issue: the root overload must not read
+    // it, only processParagraph reports lowering issues.
+    let issueRead = false;
+    const issue = {
+      get name() {
+        issueRead = true;
+        return "UnsupportedParagraph";
+      },
+      get detail() {
+        issueRead = true;
+        return "unsupported";
+      },
+    };
+    installRootHappyPath(() => ({ ok: false, issue }));
+    assert.equal(
+      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      null,
+    );
+    assert.equal(issueRead, false);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot builds the lowering options and helpers shape", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    const { lowerCalls } = installRootHappyPath();
+    const options = rootOptions();
+    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options);
+    assert.notEqual(result, null);
+    assert.equal(lowerCalls.length, 1);
+    const call = lowerCalls[0];
+    assert.equal(call.element, paragraphEl);
+    // Options mirror loweringOptionsJs: fontSize/lineHeight nullable,
+    // strongAsEmphasisMarks boolean, locale fixed to LOWERING_DEFAULT_LOCALE.
+    assert.equal(call.options.fontSize, options.fontSize);
+    assert.equal(call.options.lineHeight, options.lineHeight);
+    assert.equal(call.options.strongAsEmphasisMarks, options.strongAsEmphasisMarks);
+    assert.equal(call.options.locale, "zh-Hans");
+    // Helpers mirror loweringHelpersJs.
+    assert.equal(call.helpers.classifyRole, ROOT_FFI.classifyFontRole);
+    assert.deepEqual(call.helpers.inlineShapingProperties, ["font-style"]);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot inlineShapingDecision wraps the ffi divergence result", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    const ffi = {
+      classifyFontRole: (t, s, e, l) => "other",
+      unsupportedInlineShapingProperties: () => ["font-style"],
+      firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => "fontStyle",
+    };
+    const { lowerCalls } = installRootHappyPath();
+    const result = workerRequest.workerLayoutRequestForRoot(ffi, root, paragraphEl, rootOptions());
+    assert.notEqual(result, null);
+    const decision = lowerCalls[0].helpers.inlineShapingDecision("em", [], []);
+    assert.deepEqual(decision, {
+      name: "UnsupportedInlineShapingStyle",
+      detail: "em:fontStyle",
+    });
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot inlineShapingDecision returns null for a null divergence property", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root);
+    const { lowerCalls } = installRootHappyPath();
+    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions());
+    assert.notEqual(result, null);
+    const decision = lowerCalls[0].helpers.inlineShapingDecision("em", [], []);
+    assert.equal(decision, null);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker request", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root, "P");
+    const lowered = paragraph({ text: "你好世界" });
+    installRootHappyPath(() => ({ ok: true, lowered }));
+    const options = rootOptions();
+    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options);
+    assert.notEqual(result, null);
+    const parsed = JSON.parse(result);
+    assert.equal(parsed.text, "你好世界");
+    assert.equal(parsed.firstLineIndentIc, 0);
+    assert.equal(parsed.sourceTag, "p");
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("workerLayoutRequestForRoot feeds the withRootDefaults result to both lower and the request", () => {
+  const globals = preserveGlobals(ROOT_GLOBALS);
+  // The stub replaces a property on the shared real lifecycle object, so the
+  // original must be restored beside the globals.
+  const originalWithRootDefaults = lifecycle.withRootDefaults;
+  try {
+    const root = scopeRoot();
+    const paragraphEl = scopeParagraph(root, "P");
+    // Stub withRootDefaults to pin that its returned resolved object is the one
+    // feeding both the lowering options and the final request wiring. The raw
+    // options passed in must stay snapshot-eligible so the gate passes.
+    const resolved = rootOptions({ firstLineIndentIc: 7, fontSize: 21 });
+    lifecycle.withRootDefaults = (options, theRoot) => resolved;
+    const { lowerCalls } = installRootHappyPath(() => ({ ok: true, lowered: paragraph() }));
+    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions());
+    assert.notEqual(result, null);
+    // lower read fontSize from the resolved options.
+    assert.equal(lowerCalls[0].options.fontSize, 21);
+    // the request read firstLineIndentIc from the resolved options.
+    assert.equal(JSON.parse(result).firstLineIndentIc, 7);
+  } finally {
+    lifecycle.withRootDefaults = originalWithRootDefaults;
     restoreGlobals(globals);
   }
 });
