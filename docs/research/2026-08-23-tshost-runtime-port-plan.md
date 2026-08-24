@@ -140,6 +140,35 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
    `ExactSessionBrowserFallback*` 两个包装类。
 
 ### Slice 4：Paragraph Pipeline 布局准备与提交管线
+
+Slice 4 按依赖拆四个子片（2026-08-23 决定）：
+
+1. **4a ffi 浏览器度量后端模式**：ADR 0053 的「TS 采集器提供基于 canvas 的
+   度量回调」尚未实现（ffi 现有导出全部按 HarfBuzz 会话取后端）。新增导出
+   `precomputeParagraphWithBrowserMetrics`：与 3d 相同的入参，后端改为两个
+   JS 回调（shaping 段进 `ShapingInput` JSON 串出 `ShapingResult` JSON 串；
+   字体度量请求进 `FontMetricsRequest` JSON 串出 `RawFontMetrics` JSON 串），
+   沿字节进出面惯例。配套把
+   `shaping/web-adapter` 的 `WebCanvasTextShaper.kt`（767 行，含度量缓存、
+   字体加载失效、dash 能力探测、ink bounds 栅格化、hidden-DOM 回退）与
+   `WebCanvasFontMetricsResolver` 的度量逻辑移植为 TS 回调实现模块，固定输入
+   下的输出与 Kotlin 实现逐项比对。`ExactSessionBrowserFallback*` 两个包装类
+   不移植：逐 run 回退由宿主换会话描述重试实现（见 3d 记录）。
+2. **4b TS prepareParagraphLayout**：管线核对模块消费 3d 的
+   plan-with-diagnostics 信封，三项命名判定
+   （capabilityIssue、InvalidWebShapingAdvance 按宿主阈值与 displayText 谓词、
+   InlineCloneDecorationBreakUnsupported 按 plan JSON lines 的
+   rangeStart/rangeEnd）在 TS 复核事实后裁决；引擎调用按会话描述走
+   ffi（exact session id 或 4a 浏览器度量模式）；`workerLayoutRequest`
+   首重载（root 变体，分类器回调经 3c 导出）随本片移植。
+3. **4c TS commit 路径**：`commitPreparedParagraph`、
+   `commitWorkerPreparedParagraph`，prepared-dom 渲染调用、校验器、
+   ExactSessionMetricDistrust 的换宽度重排与 ignoreUnchangedMeasure。
+4. **4d 切换与删除**：TS 管线上线，删除
+   `WebEnhancerParagraphPipeline.kt`、`WebEnhancerSupport.kt` 降级适配器类与
+   `MarkdownParagraphLowering.kt` 解码层；golden 与 demo/web 全量验证。
+
+原范围描述（保留为总述）：
 - **范围**：
   - 在 TypeScript 侧实现 `prepareParagraphLayout`：集成 `LineBreaker`、度量解析器与 TextShaper，执行 shaping 决策核对、advance 校验与克隆装饰跨行拦截。
   - 在 TypeScript 侧实现 `commitPreparedParagraph` 与 `commitWorkerPreparedParagraph`：调用 `__TiqianPreparedDomRenderer.render`，调用校验器，处理精确会话校验失败后的浏览器度量回退重排。
