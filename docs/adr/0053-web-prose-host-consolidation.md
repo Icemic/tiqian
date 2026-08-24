@@ -639,6 +639,16 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   承担；无动画时原生承担方向正确、入场动画进行中会反向跳变（scrollY 5022 到
   5911，锚点移动 1006.69px）。该缺口属调度路径（增强未经授予路径），随 C2/C3
   处置。
+  消费者核对补记（2026-08-23）：52c89c0。EnhanceOptionsOracle：element.js 在
+  增强前把逐 root 已解析 options 写入 dataset.tiqianEnhanceOptions，demo/web
+  暴露 __tiqianOneShot 入口；oneshot-equivalence、oneshot-visual-regression 与
+  resize-destroy-transient 三套测试改读 dataset，删除对已删事件通道的最后依赖，
+  时序 golden 同步再生成。oneshot-equivalence 第一阶段逐字节一致；第二阶段剩余
+  分歧为 dash 探测包络过期（enhance 时读一次 root.textContent，其后追加的
+  长破折号不再探测，协调侧停留 not-needed），修复需在 reconcile 刷新
+  RootState options，随端口计划 Slice 6 处置。drag 预算两断言超限
+  （DragMutationRecordBudget 25189>21000；ResponsiveFinishSkipsDoomedSignatureReads
+  gBCR 12.13>4、gCS 53.13>24，基线注释为 3.0/18.2），待判定缺陷或基线更新。
 - [x] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
   经同一池与同一凭证；executor 私有节奏与 standalone 准入排除。
   验收：时序 golden 授予轮锚点更新后绿。
@@ -803,6 +813,17 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   ci-ts-discipline 同骨架（同对 SHA-pinned actions、concurrency、
   contents: read，无 install 步骤）。正向 78 文件零违规、反向依赖边与
   跨包导入注入各非零退出，均本地验证。
+  进度（demo 消费面，2026-08-23）：c42bca3。demo/web 改为直接消费三包拓扑：
+  package.json 以 file: 覆写把 @tiqian/prose-core 与 @tiqian/ffi 指向
+  frontend/web/npm-core 与 ffi/js/npm 的产物目录，import map 增 /npm-core/
+  路由，layout-worker 路径改由 npm-core 目录解析；framework-commit-conflict
+  与 npm-published-vs-dev 两个测试文件随该提交进入仓库。两条发布金丝雀
+  （npm-published-vs-dev、scroll-adaptive-quota）在下次 @tiqian/prose 发布前
+  保持失败，属设计。
+  进度（jsMain 归零路径，2026-08-23）：876b114。端口计划
+  docs/research/2026-08-23-tshost-runtime-port-plan.md 按七个切片给出 jsMain
+  运行时到 TS 的移植顺序、jsTest 102 个测试函数的删除节奏与 kotlin-js-store
+  归位（Slice 7）。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
@@ -824,6 +845,18 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   Rust 侧语料测试原已随 rust job 的 cargo test 运行；新 job 从 js oracle 再生
   fixture 并以 git diff --exit-code 拒绝漂移（expect 只能由 builder 产出），
   再经 js 语料测试回放同一字节。两条命令在仓库根目录验证通过。
+  进度（双实现修正，2026-08-23）：1ab9b7f。FloatDustSpacingZeroing：两端
+  prepared 实现把 run 路径两处间距归零判定的阈值从 SPACING_EPSILON(0.01)
+  改为 SPACING_DUST_EPSILON(1e-6)，归零范围只覆盖浮点运算误差；两端对齐行
+  在逐边界留有千分之几像素的伸展，0.01 的归零丢弃后累计 0.1342px，触发
+  SnapshotRenderFlowMismatch。语料新增 justified-sub-epsilon-stretch 与
+  float-dust-gap 两例（共 43 例），Rust 侧输出逐字节一致；demo/web 的
+  host-content-mutation、justify-grid、responsive-relayout、viewport-unfreeze
+  与 drag 覆盖 36/36 因此恢复通过。
+  进度（运行时类名寻址，2026-08-23）：14f494e。runtimeValueStyleKey 把
+  tqvr- 类名从逐 root 递增序号改为声明文本的 FNV-1a 内容寻址（双累加器），
+  单次重放在任意宽度与历史下逐字节重现协调 DOM；快照 tqv- 命名空间不变
+  （Rust 侧只生成 tqv-）。
 
 ### KPI 汇总
 
