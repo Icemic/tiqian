@@ -26,8 +26,8 @@ const GLOBALS_TO_DELETE = [
 ];
 
 function makeElement(initialAttributes) {
-  var attrs = new Map(Object.entries(initialAttributes || {}));
-  var rect = { top: 0, bottom: 100, width: 300 };
+  const attrs = new Map(Object.entries(initialAttributes || {}));
+  const rect = { top: 0, bottom: 100, width: 300 };
   return {
     nodeType: 1,
     tagName: "P",
@@ -42,7 +42,7 @@ function makeElement(initialAttributes) {
       attrs.delete(name);
     },
     getBoundingClientRect: function () {
-      var r = this._rect;
+      const r = this._rect;
       return { top: r.top, bottom: r.bottom, width: r.width };
     },
     _rect: rect,
@@ -51,7 +51,7 @@ function makeElement(initialAttributes) {
 
 function makeFakeRootState(opts) {
   opts = opts || {};
-  var calls = {
+  const calls = {
     createRootState: [],
     createRootStateFromCanonical: [],
     getState: [],
@@ -112,7 +112,7 @@ function makeFakeRootState(opts) {
 }
 
 function makeFakeDrivers() {
-  var calls = { enhanceProgressively: [], relayout: [], startProgressiveJob: [] };
+  const calls = { enhanceProgressively: [], relayout: [], startProgressiveJob: [] };
   return {
     _calls: calls,
     rejectMissingSharedRuntimeStyles: function () { return false; },
@@ -132,7 +132,7 @@ function makeFakeDrivers() {
 }
 
 function makeFakeJob() {
-  var calls = { cancelJob: [] };
+  const calls = { cancelJob: [] };
   return {
     _calls: calls,
     cancelJob: function (root) { calls.cancelJob.push(root); },
@@ -149,7 +149,7 @@ function makeFakeJob() {
 }
 
 function makeFakeCustody() {
-  var calls = { restoreParagraph: [] };
+  const calls = { restoreParagraph: [] };
   return {
     _calls: calls,
     restoreParagraph: function (el) { calls.restoreParagraph.push(el); },
@@ -157,7 +157,7 @@ function makeFakeCustody() {
 }
 
 function makeFakeLifecycle() {
-  var calls = { clearIssue: [], optionsFromJs: [] };
+  const calls = { clearIssue: [], optionsFromJs: [] };
   return {
     _calls: calls,
     clearIssue: function (issue) { calls.clearIssue.push(issue); },
@@ -169,7 +169,7 @@ function makeFakeLifecycle() {
 }
 
 function makeFakeContentReconcile() {
-  var calls = { probeContentDrift: [], classifyReconcile: [], prepareTrackedParagraphForRelowering: [], stripEngineMarkupFromStrandedParagraph: [] };
+  const calls = { probeContentDrift: [], classifyReconcile: [], prepareTrackedParagraphForRelowering: [], stripEngineMarkupFromStrandedParagraph: [] };
   return {
     _calls: calls,
     probeContentDrift: function (sources) {
@@ -186,7 +186,7 @@ function makeFakeContentReconcile() {
 }
 
 function makeFakeProcessParagraph() {
-  var calls = [];
+  const calls = [];
   return {
     _calls: calls,
     processParagraph: function (arg) { calls.push(arg); },
@@ -194,7 +194,7 @@ function makeFakeProcessParagraph() {
 }
 
 function makeFakeWorkerRequest() {
-  var calls = [];
+  const calls = [];
   return {
     _calls: calls,
     workerLayoutRequestForRoot: function (ffi, root, paragraph, options) {
@@ -221,7 +221,7 @@ function setupEngine(opts) {
 }
 
 function cleanupEngine() {
-  for (var i = 0; i < GLOBALS_TO_DELETE.length; i += 1) {
+  for (let i = 0; i < GLOBALS_TO_DELETE.length; i += 1) {
     delete globalThis[GLOBALS_TO_DELETE[i]];
   }
 }
@@ -231,13 +231,13 @@ function cleanupEngine() {
 // ---------------------------------------------------------------------------
 
 test("1. enhance: processes each candidate via processParagraph, returns paragraphs.length, calls publishState", function () {
-  var pp = makeFakeProcessParagraph();
-  var fakeState = { root: null, options: { paragraphSelector: "p" }, paragraphs: [{ source: "s1" }], issues: [] };
-  var rs = makeFakeRootState({ state: fakeState, candidates: ["c1", "c2"] });
+  const pp = makeFakeProcessParagraph();
+  const fakeState = { root: null, options: { paragraphSelector: "p" }, paragraphs: [{ source: "s1" }], issues: [] };
+  const rs = makeFakeRootState({ state: fakeState, candidates: ["c1", "c2"] });
   setupEngine({ rs: rs, pp: pp });
   try {
-    var root = makeElement();
-    var result = ENGINE.enhance(root, { fontSize: 20 });
+    const root = makeElement();
+    const result = ENGINE.enhance(root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     assert.equal(pp._calls.length, 2);
@@ -255,13 +255,13 @@ test("1. enhance: processes each candidate via processParagraph, returns paragra
 // ---------------------------------------------------------------------------
 
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
-  var pp = makeFakeProcessParagraph();
-  var drivers = makeFakeDrivers();
+  const pp = makeFakeProcessParagraph();
+  const drivers = makeFakeDrivers();
   drivers.rejectMissingSharedRuntimeStyles = function () { return true; };
-  var rs = makeFakeRootState({ candidates: ["c1"] });
+  const rs = makeFakeRootState({ candidates: ["c1"] });
   setupEngine({ rs: rs, drivers: drivers, pp: pp });
   try {
-    var result = ENGINE.enhance(makeElement(), {});
+    const result = ENGINE.enhance(makeElement(), {});
     assert.equal(result, 0);
     assert.equal(pp._calls.length, 0);
   } finally {
@@ -274,18 +274,18 @@ test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no
 // ---------------------------------------------------------------------------
 
 test("3. enhance: destroy runs before createRootState (call order)", function () {
-  var callOrder = [];
-  var fakeJob = makeFakeJob();
-  var origCancel = fakeJob.cancelJob;
+  const callOrder = [];
+  const fakeJob = makeFakeJob();
+  const origCancel = fakeJob.cancelJob;
   fakeJob.cancelJob = function (root) {
     callOrder.push("destroy");
     origCancel(root);
   };
-  var rs = makeFakeRootState({
+  const rs = makeFakeRootState({
     candidates: [],
     state: { root: null, options: { paragraphSelector: "p" }, paragraphs: [], issues: [] },
   });
-  var origCreate = rs.createRootState;
+  const origCreate = rs.createRootState;
   rs.createRootState = function (root, bag) {
     callOrder.push("createRootState");
     return origCreate(root, bag);
@@ -304,27 +304,27 @@ test("3. enhance: destroy runs before createRootState (call order)", function ()
 // ---------------------------------------------------------------------------
 
 test("4. enhanceAll: scans tiqian-prose and [data-tiqian-root] roots, sums counts", function () {
-  var el1 = makeElement({ "data-tiqian-root": "" });
-  var el2 = makeElement();
+  const el1 = makeElement({ "data-tiqian-root": "" });
+  const el2 = makeElement();
   el2.tagName = "TIQIAN-PROSE";
-  var fakeRoots = [el1, el2];
+  const fakeRoots = [el1, el2];
   fakeRoots.item = function (i) { return fakeRoots[i]; };
   fakeRoots.length = 2;
-  var doc = { querySelectorAll: function () { return fakeRoots; } };
+  const doc = { querySelectorAll: function () { return fakeRoots; } };
 
-  var callCount = 0;
-  var rs = makeFakeRootState({
+  let callCount = 0;
+  const rs = makeFakeRootState({
     candidates: [],
     state: { root: null, options: { paragraphSelector: "p" }, paragraphs: [{ source: "x" }], issues: [] },
   });
-  var origCreate = rs.createRootState;
+  const origCreate = rs.createRootState;
   rs.createRootState = function (root, bag) {
     callCount += 1;
     return origCreate(root, bag);
   };
   setupEngine({ rs: rs, document: doc });
   try {
-    var result = ENGINE.enhanceAll({});
+    const result = ENGINE.enhanceAll({});
     assert.equal(callCount, 2);
     assert.equal(result, 2);
   } finally {
@@ -337,9 +337,9 @@ test("4. enhanceAll: scans tiqian-prose and [data-tiqian-root] roots, sums count
 // ---------------------------------------------------------------------------
 
 test("5. enhanceProgressively delegates to the drivers entry, which owns the copy handler and destroy", function () {
-  var drivers = makeFakeDrivers();
-  var job = makeFakeJob();
-  var copyHandlerInstalled = false;
+  const drivers = makeFakeDrivers();
+  const job = makeFakeJob();
+  let copyHandlerInstalled = false;
   setupEngine({
     drivers: drivers,
     job: job,
@@ -350,8 +350,8 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
     },
   });
   try {
-    var root = makeElement();
-    var bag = { fontSize: 20 };
+    const root = makeElement();
+    const bag = { fontSize: 20 };
     ENGINE.enhanceProgressively(root, bag);
     // The wrapper only delegates. The drivers entry (progressive-drivers.js)
     // installs the copy handler and destroys before rebuilding state, so the
@@ -372,23 +372,23 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
 // ---------------------------------------------------------------------------
 
 test("6. destroy: restores paragraphs, clears issues, releases styles, sets/removes snapshot attrs, cleans 3 attrs", function () {
-  var src1 = makeElement();
-  var src2 = makeElement();
-  var issue1 = { name: "X" };
-  var issue2 = { name: "Y" };
-  var state = {
+  const src1 = makeElement();
+  const src2 = makeElement();
+  const issue1 = { name: "X" };
+  const issue2 = { name: "Y" };
+  const state = {
     root: null,
     options: {},
     paragraphs: [{ source: src1 }, { source: src2 }],
     issues: [issue1, issue2],
   };
-  var custody = makeFakeCustody();
-  var lifecycle = makeFakeLifecycle();
-  var preparedDom = { releaseRoot: function () { return true; } };
-  var rs = makeFakeRootState({ getStateValue: state });
+  const custody = makeFakeCustody();
+  const lifecycle = makeFakeLifecycle();
+  const preparedDom = { releaseRoot: function () { return true; } };
+  const rs = makeFakeRootState({ getStateValue: state });
   setupEngine({ rs: rs, custody: custody, lifecycle: lifecycle, preparedDom: preparedDom });
   try {
-    var root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-exact-layout-fallback": "fb" });
+    const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-exact-layout-fallback": "fb" });
     ENGINE.destroy(root);
     assert.deepEqual(custody._calls.restoreParagraph, [src1, src2]);
     assert.deepEqual(lifecycle._calls.clearIssue, [issue1, issue2]);
@@ -407,12 +407,12 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
 // ---------------------------------------------------------------------------
 
 test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", function () {
-  var custody = makeFakeCustody();
-  var lifecycle = makeFakeLifecycle();
-  var rs = makeFakeRootState({ getStateValue: null });
+  const custody = makeFakeCustody();
+  const lifecycle = makeFakeLifecycle();
+  const rs = makeFakeRootState({ getStateValue: null });
   setupEngine({ rs: rs, custody: custody, lifecycle: lifecycle });
   try {
-    var root = makeElement({ "data-tiqian-relayout-error": "err" });
+    const root = makeElement({ "data-tiqian-relayout-error": "err" });
     ENGINE.destroy(root);
     assert.equal(custody._calls.restoreParagraph.length, 0);
     assert.equal(lifecycle._calls.clearIssue.length, 0);
@@ -428,10 +428,10 @@ test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", fu
 // ---------------------------------------------------------------------------
 
 test("8. detach: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
-  var rs = makeFakeRootState();
+  const rs = makeFakeRootState();
   setupEngine({ rs: rs });
   try {
-    var root = makeElement();
+    const root = makeElement();
     ENGINE.detach(root);
     assert.equal(rs._calls.getState.length, 0);
     assert.equal(rs._calls.deleteState.length, 0);
@@ -447,7 +447,7 @@ test("8. detach: cancelJob + releaseRoot only, does not touch paragraphs/issues/
 // ---------------------------------------------------------------------------
 
 test("9. refresh: no state is no-op; with state progressively => enhanceProgressivelyFromCanonical with state.options", function () {
-  var rsNoState = makeFakeRootState({ getStateValue: null });
+  const rsNoState = makeFakeRootState({ getStateValue: null });
   setupEngine({ rs: rsNoState });
   try {
     ENGINE.refresh(makeElement(), true);
@@ -456,11 +456,11 @@ test("9. refresh: no state is no-op; with state progressively => enhanceProgress
     cleanupEngine();
   }
 
-  var state = { root: null, options: { fontSize: 22 }, paragraphs: [], issues: [] };
-  var drivers = makeFakeDrivers();
-  var fakeJob = makeFakeJob();
+  const state = { root: null, options: { fontSize: 22 }, paragraphs: [], issues: [] };
+  const drivers = makeFakeDrivers();
+  const fakeJob = makeFakeJob();
   fakeJob.cancelJob = function () {};
-  var rs = makeFakeRootState({ getStateValue: state });
+  const rs = makeFakeRootState({ getStateValue: state });
   setupEngine({ rs: rs, drivers: drivers, job: fakeJob });
   try {
     ENGINE.refresh(makeElement(), true);
@@ -478,13 +478,13 @@ test("9. refresh: no state is no-op; with state progressively => enhanceProgress
 // ---------------------------------------------------------------------------
 
 test("10. refresh synchronous: enhance canonical re-entry (fromCanonical=true), optionsFromJs not called", function () {
-  var state = { root: null, options: { fontSize: 19 }, paragraphs: [], issues: [] };
-  var rs = makeFakeRootState({
+  const state = { root: null, options: { fontSize: 19 }, paragraphs: [], issues: [] };
+  const rs = makeFakeRootState({
     getStateValue: state,
     canonicalState: { root: null, options: state.options, paragraphs: [], issues: [] },
     candidates: [],
   });
-  var lifecycle = makeFakeLifecycle();
+  const lifecycle = makeFakeLifecycle();
   setupEngine({ rs: rs, lifecycle: lifecycle });
   try {
     ENGINE.refresh(makeElement(), false);
@@ -502,10 +502,10 @@ test("10. refresh synchronous: enhance canonical re-entry (fromCanonical=true), 
 // ---------------------------------------------------------------------------
 
 test("11. cancelLayoutWork: delegates to ProgressiveJob.cancelJob", function () {
-  var fakeJob = makeFakeJob();
+  const fakeJob = makeFakeJob();
   setupEngine({ job: fakeJob });
   try {
-    var root = makeElement();
+    const root = makeElement();
     ENGINE.cancelLayoutWork(root);
     assert.equal(fakeJob._calls.cancelJob.length, 1);
     assert.equal(fakeJob._calls.cancelJob[0], root);
@@ -520,27 +520,27 @@ test("11. cancelLayoutWork: delegates to ProgressiveJob.cancelJob", function () 
 // ---------------------------------------------------------------------------
 
 test("12. probeContentDrift: no state returns unknown JSON; with state passes sources and returns reconcile JSON", function () {
-  var rsNoState = makeFakeRootState({ getStateValue: null });
+  const rsNoState = makeFakeRootState({ getStateValue: null });
   setupEngine({ rs: rsNoState });
   try {
-    var result = ENGINE.probeContentDrift(makeElement());
+    const result = ENGINE.probeContentDrift(makeElement());
     assert.equal(result, '{"unknown":1,"drifted":0,"dead":0,"custody":0}');
   } finally {
     cleanupEngine();
   }
 
-  var src1 = makeElement();
-  var src2 = makeElement();
-  var state = { root: null, options: {}, paragraphs: [{ source: src1 }, { source: src2 }], issues: [] };
-  var reconcile = makeFakeContentReconcile();
+  const src1 = makeElement();
+  const src2 = makeElement();
+  const state = { root: null, options: {}, paragraphs: [{ source: src1 }, { source: src2 }], issues: [] };
+  const reconcile = makeFakeContentReconcile();
   reconcile.probeContentDrift = function (sources) {
     reconcile._calls.probeContentDrift.push(sources);
     return '{"unknown":0,"drifted":1,"dead":0,"custody":0}';
   };
-  var rs = makeFakeRootState({ getStateValue: state });
+  const rs = makeFakeRootState({ getStateValue: state });
   setupEngine({ rs: rs, reconcile: reconcile });
   try {
-    var result2 = ENGINE.probeContentDrift(makeElement());
+    const result2 = ENGINE.probeContentDrift(makeElement());
     assert.equal(reconcile._calls.probeContentDrift.length, 1);
     assert.deepEqual(reconcile._calls.probeContentDrift[0], [src1, src2]);
     assert.equal(result2, '{"unknown":0,"drifted":1,"dead":0,"custody":0}');
@@ -555,10 +555,10 @@ test("12. probeContentDrift: no state returns unknown JSON; with state passes so
 // ---------------------------------------------------------------------------
 
 test("13a. reconcileContent: no state returns idle JSON", function () {
-  var rs = makeFakeRootState({ getStateValue: null });
+  const rs = makeFakeRootState({ getStateValue: null });
   setupEngine({ rs: rs });
   try {
-    var result = ENGINE.reconcileContent(makeElement(), []);
+    const result = ENGINE.reconcileContent(makeElement(), []);
     assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
   } finally {
     cleanupEngine();
@@ -566,12 +566,12 @@ test("13a. reconcileContent: no state returns idle JSON", function () {
 });
 
 test("13b. reconcileContent: state + idle verdict => returns json, no startProgressiveJob", function () {
-  var state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
-  var reconcile = makeFakeContentReconcile();
-  var drivers = makeFakeDrivers();
+  const state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
+  const reconcile = makeFakeContentReconcile();
+  const drivers = makeFakeDrivers();
   setupEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }), reconcile: reconcile, drivers: drivers });
   try {
-    var result = ENGINE.reconcileContent(makeElement(), []);
+    const result = ENGINE.reconcileContent(makeElement(), []);
     assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
     assert.equal(drivers._calls.startProgressiveJob.length, 0);
   } finally {
@@ -580,13 +580,13 @@ test("13b. reconcileContent: state + idle verdict => returns json, no startProgr
 });
 
 test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded + DeadTrackedParagraphDrop", function () {
-  var deadEl = makeElement();
+  const deadEl = makeElement();
   deadEl.isConnected = false;
-  var driftedEl = makeElement();
-  var custodyEl = makeElement();
-  var taintedEl = makeElement();
-  var strandedEl = makeElement();
-  var state = {
+  const driftedEl = makeElement();
+  const custodyEl = makeElement();
+  const taintedEl = makeElement();
+  const strandedEl = makeElement();
+  const state = {
     root: null, options: {},
     paragraphs: [
       { source: deadEl },
@@ -595,7 +595,7 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     ],
     issues: [],
   };
-  var reconcile = makeFakeContentReconcile();
+  const reconcile = makeFakeContentReconcile();
   reconcile.classifyReconcile = function (spec) {
     reconcile._calls.classifyReconcile.push(spec);
     return {
@@ -608,16 +608,16 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
       json: '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}',
     };
   };
-  var pp = makeFakeProcessParagraph();
-  var custody = makeFakeCustody();
-  var drivers = makeFakeDrivers();
-  var startJobCalls = [];
+  const pp = makeFakeProcessParagraph();
+  const custody = makeFakeCustody();
+  const drivers = makeFakeDrivers();
+  const startJobCalls = [];
   setupEngine({
     rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
     reconcile: reconcile, pp: pp, custody: custody, drivers: drivers,
   });
   try {
-    var result = ENGINE.reconcileContent(makeElement(), [taintedEl]);
+    const result = ENGINE.reconcileContent(makeElement(), [taintedEl]);
     // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs
     assert.equal(state.paragraphs.length, 2);
     assert.equal(state.paragraphs[0].source, driftedEl);
@@ -632,9 +632,9 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     assert.equal(drivers._calls.startProgressiveJob[0][2], 4);
     assert.equal(result, '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}');
     // Execute processItem callbacks to verify action effects
-    var processItem = drivers._calls.startProgressiveJob[0][3];
-    var tierIndex = drivers._calls.startProgressiveJob[0][7];
-    for (var i = 0; i < tierIndex.length; i += 1) {
+    const processItem = drivers._calls.startProgressiveJob[0][3];
+    const tierIndex = drivers._calls.startProgressiveJob[0][7];
+    for (let i = 0; i < tierIndex.length; i += 1) {
       processItem(i);
     }
     // prepareTrackedParagraphForRelowering for drifted
@@ -655,18 +655,18 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
 });
 
 test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale closure detects width drift >= 0.5", function () {
-  var el1 = makeElement();
+  const el1 = makeElement();
   el1._rect = { top: -200, bottom: -100, width: 300 };
-  var el2 = makeElement();
+  const el2 = makeElement();
   el2._rect = { top: 0, bottom: 100, width: 300 };
-  var root = makeElement();
+  const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
-  var state = {
+  const state = {
     root: null, options: {},
     paragraphs: [{ source: el1 }],
     issues: [],
   };
-  var reconcile = makeFakeContentReconcile();
+  const reconcile = makeFakeContentReconcile();
   reconcile.classifyReconcile = function (spec) {
     reconcile._calls.classifyReconcile.push(spec);
     return {
@@ -677,7 +677,7 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
       json: '{"outcome":"work","drifted":2}',
     };
   };
-  var drivers = makeFakeDrivers();
+  const drivers = makeFakeDrivers();
   setupEngine({
     rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
     reconcile: reconcile, drivers: drivers,
@@ -685,7 +685,7 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
   try {
     ENGINE.reconcileContent(root, []);
     assert.equal(drivers._calls.startProgressiveJob.length, 1);
-    var call = drivers._calls.startProgressiveJob[0];
+    const call = drivers._calls.startProgressiveJob[0];
     // el2 visible (distance 0) first, then el1 above viewport (distance 100)
     assert.deepEqual(call[7], [1, 0]);
     // stale closure: root width matches initially
@@ -704,16 +704,16 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
 // ---------------------------------------------------------------------------
 
 test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options pre-processed by optionsFromJs", function () {
-  var workerReq = makeFakeWorkerRequest();
-  var lifecycle = makeFakeLifecycle();
-  var ffiObj = { mock: true };
-  var rs = makeFakeRootState({ ffi: ffiObj });
+  const workerReq = makeFakeWorkerRequest();
+  const lifecycle = makeFakeLifecycle();
+  const ffiObj = { mock: true };
+  const rs = makeFakeRootState({ ffi: ffiObj });
   setupEngine({ rs: rs, workerReq: workerReq, lifecycle: lifecycle });
   try {
-    var root = makeElement();
-    var para = makeElement();
-    var bag = { fontSize: 19 };
-    var result = ENGINE.workerLayoutRequest(root, para, bag);
+    const root = makeElement();
+    const para = makeElement();
+    const bag = { fontSize: 19 };
+    const result = ENGINE.workerLayoutRequest(root, para, bag);
     assert.equal(workerReq._calls.length, 1);
     assert.equal(workerReq._calls[0].ffi, ffiObj);
     assert.equal(workerReq._calls[0].root, root);
@@ -731,10 +731,10 @@ test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options p
 // ---------------------------------------------------------------------------
 
 test("15. workers: 9 methods forward to ProgressiveJob", function () {
-  var fakeJob = makeFakeJob();
+  const fakeJob = makeFakeJob();
   setupEngine({ job: fakeJob });
   try {
-    var root = makeElement();
+    const root = makeElement();
     assert.equal(WORKERS.workerAttach(root), "attached-" + root);
     assert.equal(WORKERS.workerDetach(root), "detached-" + root);
     assert.equal(WORKERS.workerHasJob(root), "hasJob-" + root);

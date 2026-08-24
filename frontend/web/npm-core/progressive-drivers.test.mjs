@@ -33,17 +33,17 @@ function preserveGlobals(names) {
 }
 
 function restoreGlobals(entries) {
-  for (var i = 0; i < entries.length; i += 1) {
-    var e = entries[i];
+  for (let i = 0; i < entries.length; i += 1) {
+    const e = entries[i];
     if (e.own) globalThis[e.name] = e.value;
     else delete globalThis[e.name];
   }
 }
 
 function makeElement(initialAttributes) {
-  var attrs = new Map(Object.entries(initialAttributes || {}));
-  var events = [];
-  var rect = { top: 0, bottom: 100, width: 300 };
+  const attrs = new Map(Object.entries(initialAttributes || {}));
+  const events = [];
+  const rect = { top: 0, bottom: 100, width: 300 };
   return {
     tagName: "P",
     getAttribute: function (name) {
@@ -64,7 +64,7 @@ function makeElement(initialAttributes) {
     getBoundingClientRect: function () {
       // Read through this._rect so tests can swap or mutate the rect after
       // creation; a closure over the original object would ignore both.
-      var r = this._rect;
+      const r = this._rect;
       return { top: r.top, bottom: r.bottom, width: r.width };
     },
     querySelectorAll: function () {
@@ -75,7 +75,7 @@ function makeElement(initialAttributes) {
 
 function makeParagraph(overrides) {
   overrides = overrides || {};
-  var source = overrides.source || makeElement();
+  const source = overrides.source || makeElement();
   return {
     source: source,
     lowered: overrides.lowered || { text: "test" },
@@ -118,17 +118,17 @@ function makeFakeGetComputedStyle() {
 
 function makeFakeRootState(overrides) {
   overrides = overrides || {};
-  var createRootStateCalls = [];
-  var createRootStateFromCanonicalCalls = [];
-  var getStateCalls = [];
-  var setStateCalls = [];
-  var deleteStateCalls = [];
-  var publishStateCalls = [];
-  var processParagraphArgumentCalls = [];
-  var sessionArgumentCalls = [];
-  var prepareArgumentCalls = [];
-  var paragraphCandidatesCalls = [];
-  var strandedSourceParagraphsCalls = [];
+  const createRootStateCalls = [];
+  const createRootStateFromCanonicalCalls = [];
+  const getStateCalls = [];
+  const setStateCalls = [];
+  const deleteStateCalls = [];
+  const publishStateCalls = [];
+  const processParagraphArgumentCalls = [];
+  const sessionArgumentCalls = [];
+  const prepareArgumentCalls = [];
+  const paragraphCandidatesCalls = [];
+  const strandedSourceParagraphsCalls = [];
 
   return {
     _calls: {
@@ -149,7 +149,7 @@ function makeFakeRootState(overrides) {
       return overrides.ffi || { mock: true };
     },
     createRootState: function (root, optionsBag) {
-      var state = {
+      const state = {
         root: root,
         options: overrides.stateOptions || {
           paragraphSelector: "p",
@@ -235,7 +235,7 @@ function makeFakeRootState(overrides) {
 }
 
 function makeFakeLifecycle() {
-  var responsiveSourceMeasureCalls = [];
+  const responsiveSourceMeasureCalls = [];
   return {
     _calls: { responsiveSourceMeasure: responsiveSourceMeasureCalls },
     responsiveSourceMeasure: function (paragraph, fontSize) {
@@ -247,7 +247,7 @@ function makeFakeLifecycle() {
 }
 
 function makeFakeLifecycleWith(measures) {
-  var calls = { responsiveSourceMeasure: [] };
+  const calls = { responsiveSourceMeasure: [] };
   return {
     _calls: calls,
     responsiveSourceMeasure: function (paragraph, fontSize) {
@@ -267,7 +267,7 @@ function makeFakeResponsiveMeasure() {
 }
 
 function makeFakeProcessParagraph() {
-  var calls = [];
+  const calls = [];
   return {
     _calls: calls,
     processParagraph: function (arg) {
@@ -277,7 +277,7 @@ function makeFakeProcessParagraph() {
 }
 
 function makeFakePrepareParagraphLayout() {
-  var calls = [];
+  const calls = [];
   return {
     _calls: calls,
     prepareParagraphLayout: function (ffi, arg) {
@@ -288,9 +288,9 @@ function makeFakePrepareParagraphLayout() {
 }
 
 function makeFakeSession() {
-  var processItemCalls = [];
-  var finishCalls = [];
-  var rollbackCalls = [];
+  const processItemCalls = [];
+  const finishCalls = [];
+  const rollbackCalls = [];
   return {
     _calls: {
       processItem: processItemCalls,
@@ -311,7 +311,7 @@ function makeFakeSession() {
 }
 
 function setupGlobals(rootStateOpts) {
-  var saved = preserveGlobals(GLOBALS_TO_SAVE);
+  const saved = preserveGlobals(GLOBALS_TO_SAVE);
 
   globalThis.window = makeFakeWindow();
   globalThis.document = makeFakeDocument();
@@ -323,15 +323,15 @@ function setupGlobals(rootStateOpts) {
     this.detail = init && init.detail;
   };
 
-  var fakeRS = makeFakeRootState(rootStateOpts || {});
+  const fakeRS = makeFakeRootState(rootStateOpts || {});
   globalThis.__TiqianRootState = fakeRS;
 
   // The relayout main path measures every rendered source before the session
   // starts; every test needs a live responsive measure bridge.
   globalThis.__TiqianResponsiveMeasure = makeFakeResponsiveMeasure();
 
-  var fakeJob = globalThis.__TiqianProgressiveJob;
-  var fakeSession = globalThis.__TiqianProgressiveRelayoutSession;
+  const fakeJob = globalThis.__TiqianProgressiveJob;
+  const fakeSession = globalThis.__TiqianProgressiveRelayoutSession;
 
   return {
     saved: saved,
@@ -350,15 +350,15 @@ function teardown(ctx) {
 // ---------------------------------------------------------------------------
 
 test("1a. cancelJob is called before createRootState", function () {
-  var ctx = setupGlobals();
+  const ctx = setupGlobals();
   try {
-    var cancelJobCalls = [];
-    var origCancelJob = ctx.fakeJob.cancelJob;
+    const cancelJobCalls = [];
+    const origCancelJob = ctx.fakeJob.cancelJob;
     ctx.fakeJob.cancelJob = function (root) {
       cancelJobCalls.push(root);
     };
 
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, { fontSize: 20 });
 
     assert.equal(cancelJobCalls.length, 1);
@@ -376,30 +376,30 @@ test("1b. work order sorted by (distance, index) ascending", function () {
   // Candidates are source elements: p1 above the viewport (distance 100),
   // p2 visible (distance 0), p3 below the viewport (top 900 - innerHeight
   // 800 = distance 100). p1 and p3 tie on distance, so index breaks the tie.
-  var measures = [100, 100, 100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var p1 = makeElement();
+  const measures = [100, 100, 100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const p1 = makeElement();
   p1._rect = { top: -200, bottom: -100, width: 300 };
-  var p2 = makeElement();
+  const p2 = makeElement();
   p2._rect = { top: 0, bottom: 100, width: 300 };
-  var p3 = makeElement();
+  const p3 = makeElement();
   p3._rect = { top: 900, bottom: 1000, width: 300 };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     candidates: [p1, p2, p3],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     assert.equal(startJobCalls.length, 1);
-    var spec = startJobCalls[0];
+    const spec = startJobCalls[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 3);
     // p2 (distance 0, index 1) first, then the distance-100 tie p1 (index 0)
@@ -411,27 +411,27 @@ test("1b. work order sorted by (distance, index) ascending", function () {
 });
 
 test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
-  var measures = [100, 100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var p1 = makeParagraph();
-  var p2 = makeParagraph();
+  const measures = [100, 100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const p1 = makeParagraph();
+  const p2 = makeParagraph();
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     candidates: [p1, p2],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var startJobCalls = [];
-  var origStartJob = ctx.fakeJob.startJob;
+  const startJobCalls = [];
+  const origStartJob = ctx.fakeJob.startJob;
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     assert.equal(startJobCalls.length, 1);
-    var spec = startJobCalls[0];
+    const spec = startJobCalls[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 2);
     // itemTierIndex should be [0, 1] for two elements at distance 0
@@ -448,24 +448,24 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
 test("1d. processItem calls processParagraphArgument and processParagraph for non-stale items", function () {
   // Third 100 is the live re-measure of index 0 inside processItem: it must
   // equal the captured value or the guard marks the item stale.
-  var measures = [100, 100, 100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var pp = makeFakeProcessParagraph();
+  const measures = [100, 100, 100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const pp = makeFakeProcessParagraph();
   globalThis.__TiqianProcessParagraph = pp;
 
-  var p1 = makeParagraph();
-  var p2 = makeParagraph();
-  var ctx = setupGlobals({
+  const p1 = makeParagraph();
+  const p2 = makeParagraph();
+  const ctx = setupGlobals({
     candidates: [p1, p2],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var processItemFn = null;
+  let processItemFn = null;
   ctx.fakeJob.startJob = function (spec) {
     processItemFn = spec.processItem;
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     assert.ok(processItemFn);
@@ -483,26 +483,26 @@ test("1d. processItem calls processParagraphArgument and processParagraph for no
 
 test("1e. processItem sets stale when measure drifts and does not process", function () {
   // Measures: first capture for p1=100, p2=100. Live for p1=200 (drift), p2=100.
-  var measures = [100, 100, 200, 100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var pp = makeFakeProcessParagraph();
+  const measures = [100, 100, 200, 100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const pp = makeFakeProcessParagraph();
   globalThis.__TiqianProcessParagraph = pp;
 
-  var p1 = makeParagraph();
-  var p2 = makeParagraph();
-  var ctx = setupGlobals({
+  const p1 = makeParagraph();
+  const p2 = makeParagraph();
+  const ctx = setupGlobals({
     candidates: [p1, p2],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var isStaleFn = null;
-  var processItemFn = null;
+  let isStaleFn = null;
+  let processItemFn = null;
   ctx.fakeJob.startJob = function (spec) {
     processItemFn = spec.processItem;
     isStaleFn = spec.isStale;
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     // Process index 0: live measure (200) != captured (100) => stale, no process
@@ -516,24 +516,24 @@ test("1e. processItem sets stale when measure drifts and does not process", func
 
 test("1f. onItemsFinished aggregates stale across all items", function () {
   // Capture: p1=100, p2=100. Live recheck: p1=100 (same), p2=200 (drift).
-  var measures = [100, 100, 100, 200];
-  var lifecycle = makeFakeLifecycleWith(measures);
+  const measures = [100, 100, 100, 200];
+  const lifecycle = makeFakeLifecycleWith(measures);
 
-  var p1 = makeParagraph();
-  var p2 = makeParagraph();
-  var ctx = setupGlobals({
+  const p1 = makeParagraph();
+  const p2 = makeParagraph();
+  const ctx = setupGlobals({
     candidates: [p1, p2],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var onItemsFinishedFn = null;
-  var isStaleFn = null;
+  let onItemsFinishedFn = null;
+  let isStaleFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onItemsFinishedFn = spec.onItemsFinished;
     isStaleFn = spec.isStale;
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     assert.ok(onItemsFinishedFn);
@@ -546,11 +546,11 @@ test("1f. onItemsFinished aggregates stale across all items", function () {
 });
 
 test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports MissingSharedRuntimeStyles and does not startJob", function () {
-  var pp = makeFakeProcessParagraph();
+  const pp = makeFakeProcessParagraph();
   globalThis.__TiqianProcessParagraph = pp;
 
-  var p1 = makeParagraph();
-  var ctx = setupGlobals({
+  const p1 = makeParagraph();
+  const ctx = setupGlobals({
     candidates: [p1],
   });
   // Override window.getComputedStyle to return non-1 for --tq-styles-ready
@@ -564,21 +564,21 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
   };
   globalThis.__TiqianLifecycle = makeFakeLifecycleWith([100]);
 
-  var reportedIssues = [];
+  const reportedIssues = [];
   ctx.fakeRS._calls.createRootState = [];
-  var origCreateRootState = ctx.fakeRS.createRootState;
+  const origCreateRootState = ctx.fakeRS.createRootState;
   ctx.fakeRS.createRootState = function (root, bag) {
-    var state = origCreateRootState(root, bag);
+    const state = origCreateRootState(root, bag);
     state.issues = reportedIssues;
     return state;
   };
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     enhanceProgressively(root, {});
 
     // Should not start a job
@@ -597,16 +597,16 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
 // ---------------------------------------------------------------------------
 
 test("2. relayout branch 1: Enhance running with state => restart with canonical options (kind Enhance)", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
 
-  var runningState = {
+  const runningState = {
     options: { fontSize: 22, paragraphSelector: "p" },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: runningState,
     candidates: [makeParagraph()],
   });
@@ -614,17 +614,17 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
 
   // Fake jobKind to return "Enhance"; restore it in finally so later tests
   // observe the real job table (test 4 must reach branch 3, not branch 1).
-  var origJobKind = ctx.fakeJob.jobKind;
+  const origJobKind = ctx.fakeJob.jobKind;
   ctx.fakeJob.jobKind = function () {
     return "Enhance";
   };
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     relayout(root);
 
     // Should restart with the running state's canonical options. Kotlin's
@@ -648,21 +648,21 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
 // ---------------------------------------------------------------------------
 
 test("3. relayout branch 2: no state => cold-start Relayout with bag null", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: null,
     candidates: [makeParagraph()],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
-    var root = makeElement();
+    const root = makeElement();
     relayout(root);
 
     assert.equal(startJobCalls.length, 1);
@@ -680,29 +680,29 @@ test("3. relayout branch 2: no state => cold-start Relayout with bag null", func
 // ---------------------------------------------------------------------------
 
 test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhance path", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var stateWithIssue = {
+  const stateWithIssue = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [{ name: "InlineCloneDecorationBreakUnsupported" }],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: stateWithIssue,
     candidates: [makeParagraph()],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
-  var cancelJobCalls = [];
+  const cancelJobCalls = [];
   ctx.fakeJob.cancelJob = function (root) {
     cancelJobCalls.push(root);
   };
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
@@ -728,25 +728,25 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
 // ---------------------------------------------------------------------------
 
 test("5a. relayout main path: sessionArgument creates session, processItem dispatches stranded and rendered", function () {
-  var measures = [100, 100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var pp = makeFakeProcessParagraph();
+  const measures = [100, 100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const pp = makeFakeProcessParagraph();
   globalThis.__TiqianProcessParagraph = pp;
-  var ppl = makeFakePrepareParagraphLayout();
+  const ppl = makeFakePrepareParagraphLayout();
   globalThis.__TiqianPrepareParagraphLayout = ppl;
-  var fakeSession = makeFakeSession();
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
-  var renderedP = makeParagraph();
-  var strandedP = makeParagraph();
-  var state = {
+  const renderedP = makeParagraph();
+  const strandedP = makeParagraph();
+  const state = {
     root: root,
     options: { fontSize: 19, paragraphSelector: "p" },
     paragraphs: [renderedP],
@@ -760,7 +760,7 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     onDisableExactPreparedDom: function () {},
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     stranded: [strandedP],
     candidates: [],
@@ -772,7 +772,7 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
   };
   ctx.fakeJob.cancelJob = function () {};
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
@@ -780,7 +780,7 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     relayout(root);
 
     assert.equal(startJobCalls.length, 1);
-    var spec = startJobCalls[0];
+    const spec = startJobCalls[0];
     assert.equal(spec.kind, "Relayout");
     // count = rendered(1) + stranded(1) = 2
     assert.equal(spec.itemCount, 2);
@@ -801,21 +801,21 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
 });
 
 test("5b. relayout main path: prepareArgument includes widths", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var ppl = makeFakePrepareParagraphLayout();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const ppl = makeFakePrepareParagraphLayout();
   globalThis.__TiqianPrepareParagraphLayout = ppl;
-  var fakeSession = makeFakeSession();
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var renderedP = makeParagraph();
-  var state = {
+  const renderedP = makeParagraph();
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [renderedP],
@@ -826,7 +826,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
     browserFallback: null,
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -844,21 +844,21 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
   };
   ctx.fakeJob.cancelJob = function () {};
 
-  var prepareArgCalls = [];
-  var origPrepareArg = ctx.fakeRS.prepareArgument;
+  const prepareArgCalls = [];
+  const origPrepareArg = ctx.fakeRS.prepareArgument;
   ctx.fakeRS.prepareArgument = function (state, paragraph, widthOverride) {
     prepareArgCalls.push({ paragraph: paragraph, widthOverride: widthOverride });
     return origPrepareArg(state, paragraph, widthOverride);
   };
 
-  var startJobCalls = [];
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
   };
   try {
     relayout(root);
 
-    var spec = startJobCalls[0];
+    const spec = startJobCalls[0];
     spec.processItem(0);
 
     assert.equal(prepareArgCalls.length, 1);
@@ -871,26 +871,26 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
 });
 
 test("5c. relayout main path: stale when root width drifts >= 0.5", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var fakeSession = makeFakeSession();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -901,8 +901,8 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
   };
   ctx.fakeJob.cancelJob = function () {};
 
-  var staleFn = null;
-  var startJobCalls = [];
+  let staleFn = null;
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
     staleFn = spec.isStale;
@@ -923,25 +923,25 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
 });
 
 test("5d. relayout main path: onFailure calls rollback", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var fakeSession = makeFakeSession();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -952,8 +952,8 @@ test("5d. relayout main path: onFailure calls rollback", function () {
   };
   ctx.fakeJob.cancelJob = function () {};
 
-  var onFailureFn = null;
-  var startJobCalls = [];
+  let onFailureFn = null;
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
     onFailureFn = spec.onFailure;
@@ -970,25 +970,25 @@ test("5d. relayout main path: onFailure calls rollback", function () {
 });
 
 test("5e. relayout main path: onItemsFinished calls finish", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var fakeSession = makeFakeSession();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -999,8 +999,8 @@ test("5e. relayout main path: onItemsFinished calls finish", function () {
   };
   ctx.fakeJob.cancelJob = function () {};
 
-  var onItemsFinishedFn = null;
-  var startJobCalls = [];
+  let onItemsFinishedFn = null;
+  const startJobCalls = [];
   ctx.fakeJob.startJob = function (spec) {
     startJobCalls.push(spec);
     onItemsFinishedFn = spec.onItemsFinished;
@@ -1021,22 +1021,22 @@ test("5e. relayout main path: onItemsFinished calls finish", function () {
 // ---------------------------------------------------------------------------
 
 test("6a. finish: dispatches tiqian:ready with correct detail fields", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var ctx = setupGlobals({
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const ctx = setupGlobals({
     candidates: [makeParagraph()],
   });
   globalThis.__TiqianLifecycle = lifecycle;
 
   // Snapshot count attribute
-  var root = makeElement({ "data-tiqian-snapshot-count": "5" });
+  const root = makeElement({ "data-tiqian-snapshot-count": "5" });
   // Fake publishState to track state
-  var publishCalls = [];
+  const publishCalls = [];
   ctx.fakeRS.publishState = function (state, keepEmpty) {
     publishCalls.push({ state: state, keepEmpty: keepEmpty });
   };
 
-  var onFinishedFn = null;
+  let onFinishedFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onFinishedFn = spec.onFinished;
   };
@@ -1053,13 +1053,13 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
 
     // Check events dispatched on root
     assert.ok(root.events.length > 0);
-    var readyEvent = root.events.find(function (e) {
+    const readyEvent = root.events.find(function (e) {
       return e.type === "tiqian:ready";
     });
     assert.ok(readyEvent);
     assert.equal(readyEvent.bubbles, true);
     assert.equal(readyEvent.composed, true);
-    var d = readyEvent.detail;
+    const d = readyEvent.detail;
     assert.equal(typeof d.enhancedCount, "number");
     assert.equal(d.snapshotCount, 5);
     assert.equal(d.issueCount, 0);
@@ -1074,25 +1074,25 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
 });
 
 test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var fakeSession = makeFakeSession();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement({ "data-tiqian-snapshot-count": "3" });
+  const root = makeElement({ "data-tiqian-snapshot-count": "3" });
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -1104,7 +1104,7 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
   ctx.fakeJob.cancelJob = function () {};
   ctx.fakeRS.publishState = function () {};
 
-  var onFinishedFn = null;
+  let onFinishedFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onFinishedFn = spec.onFinished;
   };
@@ -1119,7 +1119,7 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
       stale: false,
     });
 
-    var relayoutReadyEvent = root.events.find(function (e) {
+    const relayoutReadyEvent = root.events.find(function (e) {
       return e.type === "tiqian:relayout-ready";
     });
     assert.ok(relayoutReadyEvent);
@@ -1134,25 +1134,25 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
 });
 
 test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and summary events", function () {
-  var measures = [100];
-  var lifecycle = makeFakeLifecycleWith(measures);
-  var fakeSession = makeFakeSession();
+  const measures = [100];
+  const lifecycle = makeFakeLifecycleWith(measures);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -1164,7 +1164,7 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
   ctx.fakeJob.cancelJob = function () {};
   ctx.fakeRS.publishState = function () {};
 
-  var onFailedFn = null;
+  let onFailedFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onFailedFn = spec.onFailed;
   };
@@ -1183,7 +1183,7 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), "Something went wrong");
 
     // Error event
-    var errorEvent = root.events.find(function (e) {
+    const errorEvent = root.events.find(function (e) {
       return e.type === "tiqian:relayout-error";
     });
     assert.ok(errorEvent);
@@ -1191,7 +1191,7 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
     assert.equal(errorEvent.detail.error, "Something went wrong");
 
     // Summary event
-    var summaryEvent = root.events.find(function (e) {
+    const summaryEvent = root.events.find(function (e) {
       return e.type === "tiqian:relayout-ready";
     });
     assert.ok(summaryEvent);
@@ -1203,24 +1203,24 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
 });
 
 test("6d. fail: detail truncated to 512 chars", function () {
-  var lifecycle = makeFakeLifecycleWith([100]);
-  var fakeSession = makeFakeSession();
+  const lifecycle = makeFakeLifecycleWith([100]);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -1232,14 +1232,14 @@ test("6d. fail: detail truncated to 512 chars", function () {
   ctx.fakeJob.cancelJob = function () {};
   ctx.fakeRS.publishState = function () {};
 
-  var onFailedFn = null;
+  let onFailedFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onFailedFn = spec.onFailed;
   };
   try {
     relayout(root);
 
-    var longDetail = "X".repeat(1024);
+    const longDetail = "X".repeat(1024);
     onFailedFn({
       kind: "Enhance",
       detail: longDetail,
@@ -1251,7 +1251,7 @@ test("6d. fail: detail truncated to 512 chars", function () {
     assert.equal(root.getAttribute("data-tiqian-relayout-error").length, 512);
 
     // Error event for Enhance kind uses tiqian:error
-    var errorEvent = root.events.find(function (e) {
+    const errorEvent = root.events.find(function (e) {
       return e.type === "tiqian:error";
     });
     assert.ok(errorEvent);
@@ -1262,24 +1262,24 @@ test("6d. fail: detail truncated to 512 chars", function () {
 });
 
 test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-error)", function () {
-  var lifecycle = makeFakeLifecycleWith([100]);
-  var fakeSession = makeFakeSession();
+  const lifecycle = makeFakeLifecycleWith([100]);
+  const fakeSession = makeFakeSession();
   globalThis.__TiqianProgressiveRelayoutSession = {
     createProgressiveRelayoutSession: function () {
       return fakeSession;
     },
   };
 
-  var root = makeElement();
+  const root = makeElement();
 
-  var state = {
+  const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [],
     issues: [],
   };
 
-  var ctx = setupGlobals({
+  const ctx = setupGlobals({
     getStateValue: state,
     candidates: [],
   });
@@ -1291,7 +1291,7 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
   ctx.fakeJob.cancelJob = function () {};
   ctx.fakeRS.publishState = function () {};
 
-  var onFailedFn = null;
+  let onFailedFn = null;
   ctx.fakeJob.startJob = function (spec) {
     onFailedFn = spec.onFailed;
   };
@@ -1306,12 +1306,12 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
     });
 
     // Should have tiqian:error, not tiqian:relayout-error
-    var relayoutErrorEvents = root.events.filter(function (e) {
+    const relayoutErrorEvents = root.events.filter(function (e) {
       return e.type === "tiqian:relayout-error";
     });
     assert.equal(relayoutErrorEvents.length, 0);
 
-    var errorEvents = root.events.filter(function (e) {
+    const errorEvents = root.events.filter(function (e) {
       return e.type === "tiqian:error";
     });
     assert.equal(errorEvents.length, 1);
@@ -1331,23 +1331,23 @@ test("7a. rejectMissingSharedRuntimeStyles is exposed on the public surface", fu
 });
 
 test("7b. startProgressiveJob is exposed on the public surface with 9-arg signature", function () {
-  var fn = globalThis.__TiqianProgressiveDrivers.startProgressiveJob;
+  const fn = globalThis.__TiqianProgressiveDrivers.startProgressiveJob;
   assert.equal(typeof fn, "function");
   assert.equal(fn.length, 9);
 });
 
 test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
-  var ctx = setupGlobals();
+  const ctx = setupGlobals();
   try {
-    var root = makeElement();
-    var canonicalOpts = { fontSize: 22 };
-    var startJobCalls = [];
+    const root = makeElement();
+    const canonicalOpts = { fontSize: 22 };
+    const startJobCalls = [];
     ctx.fakeJob.startJob = function (spec) {
       startJobCalls.push(spec);
     };
     // Fake lifecycle to avoid real measures
     globalThis.__TiqianLifecycle = makeFakeLifecycleWith([100]);
-    var fn = globalThis.__TiqianProgressiveDrivers.enhanceProgressivelyFromCanonical;
+    const fn = globalThis.__TiqianProgressiveDrivers.enhanceProgressivelyFromCanonical;
     assert.equal(typeof fn, "function");
     fn(root, canonicalOpts);
     // Should use createRootStateFromCanonical (not createRootState) because
