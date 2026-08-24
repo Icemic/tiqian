@@ -5,6 +5,8 @@ package org.tiqian.ffi.js
 import kotlin.js.JsExport
 import org.tiqian.font.FontMetricsResolver
 import org.tiqian.layout.ParagraphWireFace
+import org.tiqian.shaping.HarfBuzzSessionFontMetricsResolver
+import org.tiqian.shaping.HarfBuzzSessionTextShaper
 import org.tiqian.shaping.TextShaper
 
 /**
@@ -224,8 +226,8 @@ fun precomputeParagraphWithBrowserMetrics(
 
 internal fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
     PrecomputeBackends(
-        textShaper = HarfBuzzBuildTextShaper(fontSessionId),
-        fontMetricsResolver = HarfBuzzBuildFontMetricsResolver(fontSessionId),
+        textShaper = HarfBuzzSessionTextShaper(fontSessionId),
+        fontMetricsResolver = HarfBuzzSessionFontMetricsResolver(fontSessionId),
     )
 
 fun main() = Unit

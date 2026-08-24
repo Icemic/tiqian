@@ -424,7 +424,10 @@ private fun LayoutResult.appendParagraphRenderEvidence(
 private fun StringBuilder.appendJsonNumber(value: Float): StringBuilder =
     append(if (value == -0f) "0" else ecmaJsonNumber(value))
 
-private fun ecmaJsonNumber(floatValue: Float): String {
+/**
+ * Single source for boundary serialization; `ffi/js` consumes these helpers.
+ */
+public fun ecmaJsonNumber(floatValue: Float): String {
     val raw = floatValue.toDouble().toString()
     val negative = raw.startsWith("-")
     val body = if (negative) raw.substring(1) else raw
