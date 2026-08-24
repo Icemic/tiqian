@@ -1192,11 +1192,34 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   数据依赖这些全局。处置：模块改为正规 ES module 导入导出；ffi 不再作为
   函数参数传递，也不挂全局后跨模块调用；实例状态收回组件；测试读取内部
   数据的机制另行设计；构造函数的参数编排逐个复核。
-- [ ] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
+- [x] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
   frontend/rust 相同：导出 tiqian Kotlin 模块的全部 API 供下游消费。实际产物
   移动了部分源代码，包内混入新实现的宿主逻辑，属于 web 侧的逻辑应留在 web
   仓库；ffi 包只做引擎代码导出，Rust FFI 与 JS FFI 的导出面保持平行；现有
   混入内容收回库内或删除；HarfBuzzBuildBackend 的消费点核对后处置。
+
+  进度（G3，2026-08-24）：外部委托 完成只读审计（导出清单、Rust 对照面、
+  平行性分歧表、消费点与 npm 目录核查），审计逐项裁定后执行。
+  裁定与结果：
+
+  - `LoweringHelperExports.kt` 三个函数（`classifyFontRole` 等）不含宿主
+    概念，实现是引擎策略（`CjkFontRoleClassifier`、`InlineShapingStylePolicy`）
+    的委托加字符串编码，编码属于 ffi 边界的 ABI 职责，保留原位；
+    `WireFormatPerBoundary` 已记录 JS 边界的字符串与 JSON 线格式。
+  - `BrowserMetricsExports.kt` 的 JSON codec 与回调适配器运行在边界的
+    Kotlin 一侧（宿主度量经 JSON 回调进出引擎），等价于 Rust 侧
+    `install_font_backend` 的宿主供后端模式，保留；其中与
+    `layout/PreparedParagraph.kt` 逐字节重复的四个数字规范化函数
+    （PlanNumberCanonicalForm 第二份拷贝）已删除，ffi/js 改用 layout 的
+    `ecmaJsonNumber` 单源（layout 仅该函数提升 public）。
+  - `HarfBuzzBuildBackend.kt` 两个 typealias 是纯重命名层，唯一消费点在
+    `PrecomputeExports.kt` 的后端组装；文件已删除，组装处直接使用库内
+    `HarfBuzzSessionTextShaper` 与 `HarfBuzzSessionFontMetricsResolver`。
+  - source map 嵌源（A4 既定行为）与 npm 目录下的构建、验证、发布脚本
+    （开发期工具，不在 `files` 白名单）维持现状。
+  - 提交 1c0d63a8。验证：`:layout:jvmTest`、`:ffi:js:jsNodeTest`、
+    ffi/js npm 测试与 `verify:package`、Native 编译全部通过；导出面
+    7 个符号与签名前后不变。
 
 ### KPI 汇总
 
