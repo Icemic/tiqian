@@ -383,7 +383,7 @@ class TiqianWebExactSessionTest {
     }
 
     @Test
-    fun unkeyedRuntimeCompletionKeepsExactDashWhenAnotherRunNeedsBrowserFallback() {
+    fun unkeyedRunFailureRetriesWholeParagraphAndFailsClosedOnUnavailableDash() {
         installExactFontSessionFixture(failShaping = false, failText = "坏")
         try {
             val root = mount(
@@ -393,6 +393,8 @@ class TiqianWebExactSessionTest {
                 </div>
                 """.trimIndent(),
             )
+            val paragraph = root.querySelector("p") as HTMLElement
+            val original = paragraph.innerHTML
             val options = exactTestOptions().copy(
                 paragraphSelector = "p:not([data-tq-snapshot-key])",
                 cjkDashCapability = WebCjkDashCapability(
@@ -401,16 +403,21 @@ class TiqianWebExactSessionTest {
                 ),
             )
 
-            assertEquals(1, TiqianWeb.enhance(root, options))
+            // Slice 4a decision: the per-run ExactSessionBrowserFallback
+            // wrappers are not ported. One run failing the exact session
+            // retries the whole paragraph through browser metrics, and the
+            // CJK dash fails closed there while no conforming dash glyph
+            // source exists, so the paragraph stays native with the dash
+            // capability issue.
+            assertEquals(0, TiqianWeb.enhance(root, options))
 
-            val paragraph = root.querySelector("p") as HTMLElement
-            assertTrue(exactFontShapeCount() > 0)
             assertTrue(exactFontFallbackCount() > 0)
-            assertEquals("true", paragraph.getAttribute("data-tq-canonical-plain"))
-            assertNull(paragraph.getAttribute("data-tiqian-capability-issue"))
-            assertNotNull(paragraph.querySelector(".tq-line"))
-            assertNotNull(paragraph.querySelector("[data-tq-exact-rendered]"))
-            assertEquals("坏——正文。", copySelection(paragraph))
+            assertEquals(original, paragraph.innerHTML)
+            assertEquals("NoConformingCjkDashGlyph", paragraph.getAttribute("data-tiqian-capability-issue"))
+            assertNull(paragraph.getAttribute("data-tq-canonical-plain"))
+            assertNull(paragraph.getAttribute("data-tq-rendered"))
+            assertNull(paragraph.querySelector(".tq-line"))
+            assertNull(paragraph.querySelector("[data-tq-exact-rendered]"))
         } finally {
             clearExactFontSessionFixture()
         }

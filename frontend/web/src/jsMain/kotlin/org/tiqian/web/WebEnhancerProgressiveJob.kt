@@ -88,7 +88,7 @@ private fun TiqianWeb.dispatchProgressiveSummary(
     error: String?,
     stale: Boolean,
 ) {
-    val runtimeEnhancedCount = state.paragraphs.size
+    val runtimeEnhancedCount = state.paragraphs.length
     val snapshotCount = observableSnapshotCount(state.root)
     if (kind == "Relayout") {
         dispatchTiqianRelayoutReady(
@@ -96,7 +96,7 @@ private fun TiqianWeb.dispatchProgressiveSummary(
             enhancedCount = runtimeEnhancedCount + snapshotCount,
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
-            issueCount = state.issues.size,
+            issueCount = state.issues.length,
             durationMs = durationMs,
             maxSliceMs = maxSliceMs,
             failed = failed,
@@ -109,7 +109,7 @@ private fun TiqianWeb.dispatchProgressiveSummary(
             enhancedCount = runtimeEnhancedCount + snapshotCount,
             runtimeEnhancedCount = runtimeEnhancedCount,
             snapshotCount = snapshotCount,
-            issueCount = state.issues.size,
+            issueCount = state.issues.length,
             durationMs = durationMs,
             maxSliceMs = maxSliceMs,
             stale = stale,

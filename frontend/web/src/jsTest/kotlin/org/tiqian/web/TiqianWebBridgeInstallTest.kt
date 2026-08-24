@@ -10,6 +10,8 @@ import kotlin.test.assertTrue
 private external fun globalIsFunction(path: String): Boolean
 @JsFun("(name) => typeof globalThis[name] === 'object' && globalThis[name] !== null")
 private external fun globalIsObject(name: String): Boolean
+@JsFun("(name, target) => target != null && typeof target[name] === 'function'")
+private external fun globalIsFunctionOn(name: String, target: JsAny?): Boolean
 
 class TiqianWebBridgeInstallTest {
     @Test
@@ -32,6 +34,7 @@ class TiqianWebBridgeInstallTest {
     fun workerRequestBridgeInstallsWorkerLayoutRequest() {
         workerRequestBridge()
         assertTrue(globalIsFunction("__TiqianWorkerRequest.workerLayoutRequest"))
+        assertTrue(globalIsFunction("__TiqianWorkerRequest.workerLayoutRequestForRoot"))
     }
 
     @Test
@@ -71,5 +74,29 @@ class TiqianWebBridgeInstallTest {
         assertTrue(globalIsFunction("__TiqianCanvasMetrics.createMetricsResolver"))
         assertTrue(globalIsFunction("__TiqianCanvasShaping.createTextShaper"))
         assertTrue(globalIsFunction("__TiqianBrowserMetricsBridge.createBrowserMetricsBridge"))
+    }
+
+    @Test
+    fun preparedMetadataBridgeInstallsJsonBuilders() {
+        preparedMetadataBridge()
+        assertTrue(globalIsFunction("__TiqianPreparedMetadata.preparedSemanticReplayJson"))
+        assertTrue(globalIsFunction("__TiqianPreparedMetadata.preparedInlineObjectMetaJson"))
+        assertTrue(globalIsFunction("__TiqianPreparedMetadata.preparedCjkStrongSemanticsJson"))
+    }
+
+    @Test
+    fun progressiveRelayoutSessionBridgeInstallsSessionFactory() {
+        progressiveRelayoutSessionBridge()
+        assertTrue(globalIsFunction("__TiqianProgressiveRelayoutSession.createProgressiveRelayoutSession"))
+    }
+
+    @Test
+    fun ffiFacadeExposesAllFiveMembers() {
+        val facade = tsFfiFacade
+        assertTrue(globalIsFunctionOn("classifyFontRole", facade))
+        assertTrue(globalIsFunctionOn("unsupportedInlineShapingProperties", facade))
+        assertTrue(globalIsFunctionOn("firstDivergentInlineShapingProperty", facade))
+        assertTrue(globalIsFunctionOn("precomputeParagraphWithDiagnostics", facade))
+        assertTrue(globalIsFunctionOn("precomputeParagraphWithBrowserMetrics", facade))
     }
 }

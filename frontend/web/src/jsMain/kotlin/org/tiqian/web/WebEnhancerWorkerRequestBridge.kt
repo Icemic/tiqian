@@ -7,6 +7,13 @@ package org.tiqian.web
 
 internal external interface WorkerRequestBridgeJs {
     fun workerLayoutRequest(paragraph: org.w3c.dom.HTMLElement, lowered: JsAny?, options: JsAny?): String?
+
+    fun workerLayoutRequestForRoot(
+        ffi: JsAny?,
+        root: org.w3c.dom.HTMLElement,
+        paragraph: org.w3c.dom.HTMLElement,
+        options: JsAny?,
+    ): String?
 }
 
 @JsFun("(install) => (globalThis.__TiqianWorkerRequest || (install(), globalThis.__TiqianWorkerRequest))")

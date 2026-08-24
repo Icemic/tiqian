@@ -302,7 +302,10 @@ class TiqianWebSourceFidelityTest {
         TiqianWeb.install()
 
         assertEquals(1, TiqianWeb.enhance(root))
-        assertEquals("InvalidWebShapingAdvance", issueParagraph.getAttribute("data-tiqian-capability-issue"))
+        // Zero computed font-size is rejected by the ffi wire face before
+        // shaping; the reported issue is the generic failure wrapping the
+        // InvalidFontSize rejection reason. It stays stable across relayout.
+        assertEquals("WebEnhancementFailure", issueParagraph.getAttribute("data-tiqian-capability-issue"))
         val renderedChild = assertNotNull(plainParagraph.firstChild)
         val initial = renderedLineSignature(plainParagraph)
         var relayoutReadyCount = 0
@@ -325,7 +328,7 @@ class TiqianWebSourceFidelityTest {
         assertNotEquals(initial, renderedLineSignature(plainParagraph))
         assertTrue(issueParagraph.firstChild === issueSourceChild)
         assertNull(issueParagraph.getAttribute("data-tq-rendered"))
-        assertEquals("InvalidWebShapingAdvance", issueParagraph.getAttribute("data-tiqian-capability-issue"))
+        assertEquals("WebEnhancementFailure", issueParagraph.getAttribute("data-tiqian-capability-issue"))
         assertEquals("1", root.getAttribute("data-tiqian-enhanced-count"))
         assertEquals(1, relayoutReadyCount)
     }

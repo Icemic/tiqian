@@ -110,8 +110,14 @@ class TiqianWebProgressiveRelayoutTest {
 
         assertEquals(0, count)
         assertEquals(original, paragraph.innerHTML)
-        assertEquals("InvalidWebShapingAdvance", paragraph.getAttribute("data-tiqian-capability-issue"))
-        assertTrue(paragraph.getAttribute("data-tiqian-capability-detail")?.contains("advance=0") == true)
+        // A zero computed font-size never reaches shaping: the ffi wire face
+        // rejects the input and process-paragraph reports the throw as a
+        // WebEnhancementFailure whose detail carries the rejection reason.
+        assertEquals(
+            "WebEnhancementFailure",
+            paragraph.getAttribute("data-tiqian-capability-issue"),
+        )
+        assertTrue(paragraph.getAttribute("data-tiqian-capability-detail")?.contains("InvalidFontSize") == true)
     }
 
     @Test

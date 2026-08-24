@@ -16,14 +16,14 @@ import org.w3c.dom.HTMLElement
 internal fun TiqianWeb.probeContentDrift(root: HTMLElement): String {
     val state = states.get(root) as? RootState
         ?: return """{"unknown":1,"drifted":0,"dead":0,"custody":0}"""
-    return contentReconcileBridge().probeContentDrift(state.paragraphs.map { it.source }.toTypedArray())
+    return contentReconcileBridge().probeContentDrift(state.paragraphs.sourcesToArray())
 }
 
 internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLElement>): String {
     val state = states.get(root) as? RootState
         ?: return """{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}"""
     val spec: ReconcileSpecJs = js("({})").unsafeCast<ReconcileSpecJs>()
-    spec.trackedSources = state.paragraphs.map { it.source }.toTypedArray()
+    spec.trackedSources = state.paragraphs.sourcesToArray()
     spec.tainted = tainted
     spec.strandedCandidates = strandedSourceParagraphs(root, state).toTypedArray()
     spec.rootSelector = ROOT_SELECTOR
@@ -31,15 +31,15 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
     // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
     // onto detached originals. Such entries can never render again; drop
     // them so the re-projected clones are adopted as fresh candidates.
-    state.paragraphs.removeAll { !it.source.isConnected }
+    state.paragraphs.removeAllMatching { !it.source.isConnected }
     if (verdict.outcome == "idle") return verdict.json
     class ReconcileAction(val element: HTMLElement, val run: () -> Unit)
     val actions = mutableListOf<ReconcileAction>()
     for (element in verdict.drifted) {
         actions += ReconcileAction(element) {
-            state.paragraphs.removeAll { it.source === element }
+            state.paragraphs.removeAllMatching { it.source === element }
             contentReconcileBridge().prepareTrackedParagraphForRelowering(element)
-            processParagraph(element, state)
+            processParagraphTs(element, state)
         }
     }
     for (element in verdict.custody) {
@@ -50,9 +50,9 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
         // restore hands it back to the live DOM and processParagraph
         // re-lowers the edited content.
         actions += ReconcileAction(element) {
-            state.paragraphs.removeAll { it.source === element }
+            state.paragraphs.removeAllMatching { it.source === element }
             custodyBridge().restoreParagraph(element)
-            processParagraph(element, state)
+            processParagraphTs(element, state)
         }
     }
     for (element in verdict.tainted) {
@@ -61,15 +61,15 @@ internal fun TiqianWeb.reconcileContent(root: HTMLElement, tainted: Array<HTMLEl
         // node belongs to the renderer, so the semantic truth stays in
         // custody and the paragraph re-renders from it.
         actions += ReconcileAction(element) {
-            state.paragraphs.removeAll { it.source === element }
+            state.paragraphs.removeAllMatching { it.source === element }
             custodyBridge().restoreParagraph(element)
-            processParagraph(element, state)
+            processParagraphTs(element, state)
         }
     }
     for (element in verdict.stranded) {
         actions += ReconcileAction(element) {
             contentReconcileBridge().stripEngineMarkupFromStrandedParagraph(element)
-            processParagraph(element, state)
+            processParagraphTs(element, state)
         }
     }
     // WidthSnapshotPerReconcileJob mirrors WidthSnapshotPerRelayoutJob: a

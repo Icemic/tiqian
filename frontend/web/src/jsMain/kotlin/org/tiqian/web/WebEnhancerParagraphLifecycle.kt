@@ -4,7 +4,6 @@ import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
 import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.web.TiqianWeb.CapabilityIssue
 import org.tiqian.web.TiqianWeb.EnhanceOptions
-import org.tiqian.web.TiqianWeb.EnhancedParagraph
 import org.tiqian.web.TiqianWeb.ExactFontSessionCapability
 import org.tiqian.web.TiqianWeb.FontFamilyOptions
 import org.tiqian.web.TiqianWeb.SourceInlineSize

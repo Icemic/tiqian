@@ -3,13 +3,6 @@ package org.tiqian.web
 import kotlin.js.js
 import kotlinx.browser.document
 import org.tiqian.core.DEFAULT_EMPHASIS_DOT_GAP_EM
-import org.tiqian.core.LayoutResult
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
-import org.tiqian.layout.LookaheadLineBreaker
-import org.tiqian.shaping.HarfBuzzSessionFontMetricsResolver
-import org.tiqian.shaping.HarfBuzzSessionTextShaper
-import org.tiqian.shaping.web.WebCanvasFontMetricsResolver
-import org.tiqian.shaping.web.WebCanvasTextShaper
 import org.tiqian.shaping.web.WebCjkDashCapability
 import org.tiqian.shaping.web.WebFontFamilies
 import org.w3c.dom.HTMLElement
@@ -54,10 +47,10 @@ object TiqianWeb {
         val candidates = paragraphCandidates(root, state.options.paragraphSelector)
         if (rejectMissingSharedRuntimeStyles(state, candidates)) return 0
         for (paragraph in candidates) {
-            processParagraph(paragraph, state)
+            processParagraphTs(paragraph, state)
         }
         publishState(state)
-        return state.paragraphs.size
+        return state.paragraphs.length
     }
 
     /**
@@ -104,7 +97,7 @@ object TiqianWeb {
                 if (liveMeasure(index) != capturedMeasures[index]) {
                     stale = true
                 } else {
-                    processParagraph(candidates[index], state)
+                    processParagraphTs(candidates[index], state)
                 }
             },
             onItemsFinished = {
@@ -137,24 +130,38 @@ object TiqianWeb {
     ): Boolean {
         if (computedStyle(state.root, "--tq-styles-ready").trim() == "1") return false
         for (paragraph in candidates) {
-            val issue = CapabilityIssue(
+            val issue = tsCapabilityIssueJs(
                 name = "MissingSharedRuntimeStyles",
                 detail = "Load @tiqian/prose/styles.css before TiqianWeb.enhance",
                 element = paragraph,
+                reportToConsole = true,
             )
-            state.issues += issue
-            reportIssue(issue)
+            state.issues.push(issue)
+            lifecycleBridge().reportIssue(issue)
         }
         publishState(state)
         return true
     }
 
     init {
-        // Install the embedded custody, eligibility, and progressive-job scripts
-        // eagerly so every world that reaches this object has the globals available.
+        // Install every embedded engine script eagerly so any world that
+        // reaches this object finds the globals available. browserMetricsBridge
+        // installs the canvas fonts, metrics, shaping and bridge scripts in
+        // their load order.
         custodyBridge()
         eligibilityBridge()
         progressiveJobBridge()
+        lifecycleBridge()
+        workerRequestBridge()
+        markdownLoweringBridge()
+        responsiveMeasureBridge()
+        prepareParagraphLayoutBridge()
+        commitPreparedParagraphBridge()
+        processParagraphBridge()
+        preparedMetadataBridge()
+        canvasFontsBridge()
+        browserMetricsBridge()
+        progressiveRelayoutSessionBridge()
     }
 
     fun destroy(root: HTMLElement) {
@@ -162,11 +169,11 @@ object TiqianWeb {
         val state = states.get(root) as? RootState
         states.delete(root)
         if (state != null) {
-            for (paragraph in state.paragraphs) {
-                custodyBridge().restoreParagraph(paragraph.source)
+            for (index in 0 until state.paragraphs.length) {
+                custodyBridge().restoreParagraph(jsLiveListGet(state.paragraphs, index)!!.source)
             }
-            for (issue in state.issues) {
-                clearIssue(issue)
+            for (index in 0 until state.issues.length) {
+                lifecycleBridge().clearIssue(jsLiveListGet(state.issues, index))
             }
             // A precomputed snapshot may be live without a Kotlin runtime
             // state while list-only enhancement starts. Its compact value CSS
@@ -204,49 +211,13 @@ object TiqianWeb {
             options.copy(exactFontSession = null)
         }
         val resolved = exactEligibleOptions.withRootDefaults(root)
-        val exactSessionId = resolved.conformingExactFontSessionId()
-        val browserMetrics = WebCanvasFontMetricsResolver(resolved.fonts)
-        val browserShaper = WebCanvasTextShaper(resolved.fonts, resolved.cjkDashCapability)
-        fun lineBreaker(): org.tiqian.layout.LineBreaker = LookaheadLineBreaker()
-        val browserEngine = ExplainableStubParagraphLayoutEngine(
-            lineBreaker = lineBreaker(),
-            fontMetricsResolver = browserMetrics,
-            textShaper = browserShaper,
-        )
-        val exactMetrics = exactSessionId?.let(::HarfBuzzSessionFontMetricsResolver)
-        val exactShaper = exactSessionId?.let(::HarfBuzzSessionTextShaper)
-        val engine = if (exactMetrics != null && exactShaper != null) {
-            ExplainableStubParagraphLayoutEngine(
-                lineBreaker = lineBreaker(),
-                fontMetricsResolver = exactMetrics,
-                textShaper = exactShaper,
-            )
-        } else {
-            browserEngine
-        }
-        val semanticExactEngine = if (exactMetrics != null && exactShaper != null) {
-            ExplainableStubParagraphLayoutEngine(
-                lineBreaker = lineBreaker(),
-                fontMetricsResolver = ExactSessionBrowserFallbackFontMetricsResolver(
-                    exact = exactMetrics,
-                    browser = browserMetrics,
-                ),
-                textShaper = ExactSessionBrowserFallbackTextShaper(
-                    exact = exactShaper,
-                    browser = browserShaper,
-                ),
-            )
-        } else {
-            null
-        }
         return RootState(
             root = root,
             options = resolved,
-            engine = engine,
-            semanticExactEngine = semanticExactEngine,
-            browserFallbackEngine = browserEngine.takeIf { exactSessionId != null },
-            paragraphs = mutableListOf(),
-            issues = mutableListOf(),
+            tsOptions = resolved.toTsOptions(root),
+            browserFallback = buildBrowserFallbackDescriptor(resolved),
+            paragraphs = jsLiveListOf(),
+            issues = jsLiveListOf(),
         )
     }
 
@@ -269,7 +240,7 @@ object TiqianWeb {
     }
 
     internal fun publishState(state: RootState, keepEmpty: Boolean = false) {
-        val hasWork = state.paragraphs.isNotEmpty() || state.issues.isNotEmpty()
+        val hasWork = state.paragraphs.length > 0 || state.issues.length > 0
         if (!hasWork && !keepEmpty) {
             states.delete(state.root)
             state.root.removeAttribute("data-tiqian-enhanced")
@@ -281,20 +252,22 @@ object TiqianWeb {
         state.root.setAttribute("data-tiqian-enhanced", "true")
         state.root.setAttribute(
             "data-tiqian-enhanced-count",
-            "${state.paragraphs.size + observableSnapshotCount(state.root)}",
+            "${state.paragraphs.length + observableSnapshotCount(state.root)}",
         )
-        if (state.issues.isEmpty()) {
+        if (state.issues.length == 0) {
             state.root.removeAttribute("data-tiqian-issue-count")
         } else {
-            state.root.setAttribute("data-tiqian-issue-count", "${state.issues.size}")
+            state.root.setAttribute("data-tiqian-issue-count", "${state.issues.length}")
         }
     }
 
     internal fun strandedSourceParagraphs(root: HTMLElement, state: RootState): List<HTMLElement> {
         val candidates = paragraphCandidates(root, state.options.paragraphSelector)
-        if (state.paragraphs.isEmpty()) return candidates
-        val renderedSources = HashSet<HTMLElement>(state.paragraphs.size * 2)
-        for (paragraph in state.paragraphs) renderedSources.add(paragraph.source)
+        if (state.paragraphs.length == 0) return candidates
+        val renderedSources = HashSet<HTMLElement>(state.paragraphs.length * 2)
+        for (index in 0 until state.paragraphs.length) {
+            renderedSources.add(jsLiveListGet(state.paragraphs, index)!!.source)
+        }
         return candidates.filter { it !in renderedSources }
     }
 
@@ -310,11 +283,11 @@ object TiqianWeb {
             enhanceProgressively(root, EnhanceOptions(), "Relayout")
             return
         }
-        val activeOptions = state.activeOptions()
-        val activeEngine = state.activeEngine()
-        val activeExactFallbackEngine = state.activeExactFallbackEngine()
         progressiveJobBridge().cancelJob(root)
-        if (state.issues.any { it.name in WIDTH_DEPENDENT_CAPABILITY_ISSUES }) {
+        val hasWidthDependentIssue = (0 until state.issues.length).any { index ->
+            tsIssueNameJs(jsLiveListGet(state.issues, index)) in WIDTH_DEPENDENT_CAPABILITY_ISSUES
+        }
+        if (hasWidthDependentIssue) {
             // WidthDependentCapabilityTransitionRetry: only named
             // capabilities whose eligibility depends on line count need to be
             // lowered again at the new width. Restore semantic source once,
@@ -329,14 +302,14 @@ object TiqianWeb {
         // only job that will reach them. Fold them into the work set at the
         // live width; the rendered ones keep the snapshot path below.
         val stranded = strandedSourceParagraphs(root, state)
-        val renderedCount = rendered.size
+        val renderedCount = rendered.length
         val count = renderedCount + stranded.size
         val workOrder = if (paragraphViewportDistance(root) <= 0.0) {
             IntArray(count) { it }
         } else {
             val distances = DoubleArray(count) { mixIndex ->
                 if (mixIndex < renderedCount) {
-                    paragraphViewportDistance(rendered[mixIndex].source)
+                    paragraphViewportDistance(jsLiveListGet(rendered, mixIndex)!!.source)
                 } else {
                     paragraphViewportDistance(stranded[mixIndex - renderedCount])
                 }
@@ -349,10 +322,9 @@ object TiqianWeb {
         // geometry seen when the job starts. If the host changes again while
         // slices are running, element.js schedules one latest-width follow-up
         // instead of allowing a queue of obsolete widths to replay.
-        val widths = FloatArray(renderedCount) { paragraphWidth(rendered[it]) }
-        val commitSession = ProgressiveRelayoutSession(
-            paragraphs = rendered,
-            state = state,
+        val widths = FloatArray(renderedCount) { paragraphWidthTs(jsLiveListGet(rendered, it)!!) }
+        val commitSession = progressiveRelayoutSessionBridge().createProgressiveRelayoutSession(
+            state.sessionArgument(),
         )
         val rootWidth = elementFragmentBorderBoxInlineSize(root)
         startProgressiveJob(
@@ -365,27 +337,23 @@ object TiqianWeb {
                 }
                 val mixIndex = workOrder[index]
                 if (mixIndex >= renderedCount) {
-                    processParagraph(stranded[mixIndex - renderedCount], state)
+                    processParagraphTs(stranded[mixIndex - renderedCount], state)
                     return@startProgressiveJob
                 }
-                val paragraph = rendered[mixIndex]
-                val preparation = prepareParagraphLayout(
-                    paragraph = paragraph,
-                    options = activeOptions,
-                    engine = activeEngine,
-                    semanticExactEngine = state.activeSemanticExactEngine(),
-                    browserFallbackEngine = activeExactFallbackEngine,
-                    widthOverride = widths[mixIndex],
+                val paragraph = jsLiveListGet(rendered, mixIndex)!!
+                val preparation = prepareParagraphLayoutBridge().prepareParagraphLayout(
+                    ffi = tsFfiFacade,
+                    argument = state.prepareArgument(paragraph, widths[mixIndex].toDouble()),
                 )
                 commitSession.processItem(mixIndex, preparation)
             },
-            onItemsFinished = commitSession::finish,
-            onFailure = commitSession::rollback,
+            onItemsFinished = { commitSession.finish() },
+            onFailure = { commitSession.rollback() },
             stale = {
                 commitSession.stale || kotlin.math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5f
             },
             itemTierIndex = workOrder,
-            paragraphsByDoc = rendered.map { it.source } + stranded,
+            paragraphsByDoc = rendered.sourcesToArray().toList() + stranded,
         )
     }
 
@@ -401,78 +369,6 @@ object TiqianWeb {
             enhanceProgressively(root, options)
         } else {
             enhance(root, options)
-        }
-    }
-
-    private class ProgressiveRelayoutSession(
-        paragraphs: List<EnhancedParagraph>,
-        private val state: RootState,
-    ) {
-        private val paragraphs = paragraphs.toList()
-        private val snapshots = LinkedHashMap<EnhancedParagraph, CustodyLiveSnapshotJs>()
-        private val successful = mutableListOf<Pair<EnhancedParagraph, Float>>()
-        private val unsupported = mutableListOf<Pair<EnhancedParagraph, CapabilityIssue>>()
-        private val stateParagraphsBefore = state.paragraphs.toList()
-        private val stateIssuesBefore = state.issues.toList()
-        var stale: Boolean = false
-
-        fun processItem(index: Int, preparation: ParagraphLayoutPreparation) {
-            val paragraph = paragraphs[index]
-            when (preparation) {
-                ParagraphLayoutPreparation.Unchanged -> Unit
-                is ParagraphLayoutPreparation.Unsupported -> {
-                    snapshots[paragraph] = custodyBridge().captureLive(paragraph.source, paragraph.lastMeasure)
-                    unsupported += paragraph to preparation.issue
-                    custodyBridge().restoreParagraph(paragraph.source)
-                }
-                is ParagraphLayoutPreparation.Ready -> {
-                    snapshots[paragraph] = custodyBridge().captureLive(paragraph.source, paragraph.lastMeasure)
-                    when (
-                        val result = TiqianWeb.commitPreparedParagraph(
-                            paragraph = paragraph,
-                            preparation = preparation,
-                            options = state.options,
-                            browserFallbackEngine = state.browserFallbackEngine,
-                            onExactPreparedDomFallback = state::disableExactPreparedDom,
-                        )
-                    ) {
-                        is ParagraphCommitResult.Success -> {
-                            paragraph.lastMeasure = result.measure
-                            successful += paragraph to result.measure
-                        }
-                        is ParagraphCommitResult.Unsupported -> {
-                            unsupported += paragraph to result.issue
-                            custodyBridge().restoreParagraph(paragraph.source)
-                        }
-                    }
-                }
-            }
-        }
-
-        fun finish() {
-            for ((paragraph, measure) in successful) {
-                if (unsupported.none { (unsupportedParagraph, _) -> unsupportedParagraph === paragraph }) {
-                    paragraph.lastMeasure = measure
-                }
-            }
-            for ((paragraph, issue) in unsupported) {
-                state.paragraphs.remove(paragraph)
-                state.issues += issue
-                TiqianWeb.reportIssue(issue)
-            }
-        }
-
-        fun rollback() {
-            state.paragraphs.clear()
-            state.paragraphs.addAll(stateParagraphsBefore)
-            state.issues.clear()
-            state.issues.addAll(stateIssuesBefore)
-            val snapshotsArray = snapshots.values.toTypedArray()
-            val results = custodyBridge().asDynamic().rollback(snapshotsArray).unsafeCast<Array<CustodyRollbackResultJs>>()
-            val paragraphBySource = paragraphs.associateBy { it.source }
-            for (result in results) {
-                paragraphBySource[result.source]?.lastMeasure = result.lastMeasure
-            }
         }
     }
 
@@ -558,11 +454,14 @@ object TiqianWeb {
     internal data class RootState(
         val root: HTMLElement,
         var options: EnhanceOptions,
-        var engine: ExplainableStubParagraphLayoutEngine,
-        var semanticExactEngine: ExplainableStubParagraphLayoutEngine?,
-        var browserFallbackEngine: ExplainableStubParagraphLayoutEngine?,
-        val paragraphs: MutableList<EnhancedParagraph>,
-        val issues: MutableList<CapabilityIssue>,
+        // Canonical TS options and the browser fallback descriptor are built
+        // once per root and consumed by every embedded TS orchestrator.
+        val tsOptions: JsAny?,
+        val browserFallback: JsAny?,
+        // Live JS arrays: the TS session module splices and pushes these by
+        // reference, so the Kotlin host mutates the same storage.
+        val paragraphs: JsLiveList<EnhancedParagraphJs>,
+        val issues: JsLiveList<JsAny?>,
         // PreparedDomLane: every paragraph renders through the prepared DOM,
         // including roots that never configured an exact font session. After
         // a replay fails geometry validation the flag distrusts the exact
@@ -575,14 +474,11 @@ object TiqianWeb {
         fun activeOptions(): EnhanceOptions =
             if (preparedDomEnabled) options else options.withoutExactFontSession()
 
-        fun activeEngine(): ExplainableStubParagraphLayoutEngine =
-            if (preparedDomEnabled) engine else browserFallbackEngine ?: engine
+        fun activeTsOptions(): JsAny? =
+            if (preparedDomEnabled) tsOptions else lifecycleBridge().withoutExactFontSession(tsOptions)
 
-        fun activeSemanticExactEngine(): ExplainableStubParagraphLayoutEngine? =
-            semanticExactEngine.takeIf { preparedDomEnabled }
-
-        fun activeExactFallbackEngine(): ExplainableStubParagraphLayoutEngine? =
-            browserFallbackEngine.takeIf { preparedDomEnabled }
+        fun activeExactSessionDescriptor(): JsAny? =
+            activeOptions().conformingExactFontSessionId()?.let(::buildExactSessionDescriptorJs)
 
         fun disableExactPreparedDom(detail: String) {
             if (!preparedDomEnabled) return
@@ -591,31 +487,6 @@ object TiqianWeb {
             root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, preparedDomFallback!!)
         }
     }
-
-
-    internal sealed class ParagraphLayoutPreparation {
-        data object Unchanged : ParagraphLayoutPreparation()
-
-        data class Ready(
-            val result: LayoutResult,
-            val width: Float,
-            val measure: Float,
-            val exactFontSessionUsed: Boolean,
-        ) : ParagraphLayoutPreparation()
-
-        data class Unsupported(val issue: CapabilityIssue) : ParagraphLayoutPreparation()
-    }
-
-    internal sealed class ParagraphCommitResult {
-        data class Success(val measure: Float) : ParagraphCommitResult()
-        data class Unsupported(val issue: CapabilityIssue) : ParagraphCommitResult()
-    }
-
-    internal data class EnhancedParagraph(
-        val source: HTMLElement,
-        val lowered: LoweredParagraph,
-        var lastMeasure: Float? = null,
-    )
 
     internal data class SourceInlineSize(
         val borderBoxWidth: Double,
