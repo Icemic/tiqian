@@ -63,6 +63,8 @@
 - 中期切片组合出 TypeScript 宿主引擎对象，在 `face.js` 中直接接入（或通过 `setEngineOverride` 在测试中优先验证）。
 - 最终切片切换生产导出并移除 Kotlin/JS 产物通道与源文件。
 
+Kotlin 删除时机的一般规则：剩余各文件（管线、`WebEnhancer.kt`、引擎导出）的消费者存活到 Slice 6 的 TS 入口接线，为它们搭中间桥只产出 Slice 4..6 内会再删除的脚手架。因此 Slice 1..5 各自只让 TS 实现就位并由测试覆盖；Kotlin 实现随其消费者所在文件的删除刀次统一消失：Slice 4 删管线文件与解码层，Slice 5 删会话与作业文件，Slice 6 删 `WebEnhancer.kt`、lifecycle 实现、reconcile 壳与引擎导出。各切片范围中「删除对应 Kotlin 实现」的表述按此规则理解。
+
 ```
 Slice 1: LoweredParagraph 数据模型与谓词的 TS 侧就位
   ↓
@@ -95,7 +97,7 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
   - 在 TypeScript 侧实现 `EnhanceOptions` 解析（`optionsFromJs`、字号、行高、缩进、着重号间隙、字体族回退解析及 `conformingExactFontSessionId` 等方法）。
   - 在 TypeScript 侧实现宿主字体应用与尺寸稳定化（`applyConfiguredHostFontSize`, `captureSourceInlineSize`, `stabilizeContentSizedItemInlineSize`, `responsiveSourceMeasure`）。
   - 在 TypeScript 侧实现 `CapabilityIssue` 管理与 DOM 属性标注（`reportIssue`, `clearIssue`, `restoreAttribute`）。
-  - 删除 `WebEnhancerParagraphLifecycle.kt` 中的对应 Kotlin 实现。
+  - `WebEnhancerParagraphLifecycle.kt` 的 Kotlin 实现本切片不删（消费者存活到 Slice 4 与 Slice 6，见删除时机规则），随消费者所在文件删除。
 - **依赖顺序**：依赖 Slice 1。
 - **验收**：
   - 运行 `npm test`，验证 `npm/eligibility.test.mjs` 与 `npm/responsive-measure.test.mjs`。
@@ -106,7 +108,7 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
 - **范围**：
   - 在 TypeScript 侧实现 `workerLayoutRequest` 与 `workerLayoutRequestJson`。
   - 在 TypeScript 侧实现富文本渲染元数据生成函数（`preparedSemanticReplayJson`, `preparedInlineObjectMetaJson`, `preparedCjkStrongSemanticsJson`）。
-  - 删除 `WebEnhancerSupport.kt` 中用于请求字符串拼接与元数据生成的 Kotlin 代码（[WebEnhancerSupport.kt:21-135](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancerSupport.kt#L21-L135) 与 [378-426](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancerSupport.kt#L378-L426)）。
+  - `WebEnhancerSupport.kt` 中请求字符串拼接与元数据生成的 Kotlin 代码（[WebEnhancerSupport.kt:21-135](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancerSupport.kt#L21-L135) 与 [378-426](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancerSupport.kt#L378-L426)）本切片不删（消费者为管线与引擎导出，见删除时机规则）。
 - **依赖顺序**：依赖 Slice 1 与 Slice 2。
 - **验收**：
   - 运行 `npm test`，验证 `npm/exact-session.test.mjs` 中的 Worker 请求断言。
@@ -130,7 +132,7 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
   - 在 TypeScript 侧实现 `RootState` 状态维护与弱引用管理（`states = new WeakMap()`）。
   - 在 TypeScript 侧实现 `ProgressiveRelayoutSession`：记录快照、执行 processItem、完成时更新 state、发生异常时调用 `custody.rollback` 回滚。
   - 在 TypeScript 侧实现 `relayout` 与 `enhanceProgressively` 的作业调度包装，对接 `npm-core/core/engine/progressive-job.js`。
-  - 删除 `WebEnhancer.kt` 中的 `ProgressiveRelayoutSession`（[WebEnhancer.kt:407-477](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancer.kt#L407-L477)）与 `WebEnhancerProgressiveJob.kt`。
+  - `WebEnhancer.kt` 中的 `ProgressiveRelayoutSession`（[WebEnhancer.kt:407-477](frontend/web/src/jsMain/kotlin/org/tiqian/web/WebEnhancer.kt#L407-L477)）与 `WebEnhancerProgressiveJob.kt` 本切片不删（驱动方是 Kotlin 引擎入口，Slice 6 接线，见删除时机规则）。
 - **依赖顺序**：依赖 Slice 4。
 - **验收**：
   - 运行 `npm test`，验证 `npm/progressive.test.mjs` 与 `npm/custody.test.mjs`。
