@@ -942,6 +942,17 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   helpers 以内联孪生进入模块（ESM 源不可 import）；issue 对象补 element
   与 reportToConsole 缺省（reportIssue 读这两个字段，等价 Kotlin
   CapabilityIssue 缺省）。12 例单测；npm-core 352 例、ts-discipline 通过。
+  进度（Slice 5a，2026-08-23）：3d8341c。process-paragraph 的三个内联元数据
+  构建器与 escapeJson 移入 core/engine/prepared-metadata.js，成为各编排模块
+  共用的单一 plain-script 模块，编排模块改为消费 __TiqianPreparedMetadata。
+  新增 core/engine/progressive-relayout-session.js：WebEnhancer.kt 407-477
+  ProgressiveRelayoutSession 的 TS 移植。构造快照（段落切片、Map 快照、
+  成功与不支持两组配对、两个状态前照）、processItem 三分支（unchanged 直返；
+  unsupported 先 captureLive 再入组并 restoreParagraph；ready 先 captureLive
+  再以 RAW state.options 提交、成功记 lastMeasure、失败入组并还原）、finish
+  的条件性 measure 重置与逐项 splice/上报、rollback 的列表还原、按插入序
+  custody.rollback 与按 source 身份补 lastMeasure。12 例单测；npm-core 365 例、
+  ts-discipline 通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
