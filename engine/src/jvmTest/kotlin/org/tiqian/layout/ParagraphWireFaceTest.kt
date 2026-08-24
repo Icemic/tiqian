@@ -21,6 +21,8 @@ class ParagraphWireFaceTest {
     private fun plan(
         text: String,
         shaper: TextShaper = this.shaper,
+        textSpans: String = "",
+        renderEvidenceOverride: Boolean? = null,
     ): String =
         ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics).plan(
             text = text,
@@ -34,9 +36,10 @@ class ParagraphWireFaceTest {
             firstLineIndentIc = 2.0,
             lineLengthGridEnabled = false,
             sourceBoundaries = "",
-            textSpans = "",
+            textSpans = textSpans,
             inlineBoxes = "",
             lineBreakSpans = "",
+            renderEvidenceOverride = renderEvidenceOverride,
         )
 
     private fun planWithDiagnostics(
@@ -45,6 +48,8 @@ class ParagraphWireFaceTest {
         decorations: String = "",
         emphasisDotGapEm: Double? = null,
         shaper: TextShaper = this.shaper,
+        textSpans: String = "",
+        renderEvidenceOverride: Boolean? = null,
     ): String =
         ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics).planWithDiagnostics(
             text = text,
@@ -58,12 +63,13 @@ class ParagraphWireFaceTest {
             firstLineIndentIc = 2.0,
             lineLengthGridEnabled = false,
             sourceBoundaries = "",
-            textSpans = "",
+            textSpans = textSpans,
             inlineBoxes = "",
             lineBreakSpans = "",
             zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
             decorations = decorations,
             emphasisDotGapEm = emphasisDotGapEm,
+            renderEvidenceOverride = renderEvidenceOverride,
         )
 
     @Test
@@ -375,6 +381,65 @@ class ParagraphWireFaceTest {
             )
         }
         assertContains(e.message ?: "", "InvalidDecorationRange")
+    }
+
+    // The span only swaps the font family, so the natural plan stays
+    // byte-identical to the plain form; only the evidence sections differ.
+    private val paintOnlySpan =
+        "0\u001d4\u001d\u001fSource Han Sans SC\u001d16.0\u001d400\u001dfalse\u001d0.0"
+
+    @Test
+    fun planOmittedOverrideKeepsWireDerivedEvidence() {
+        val plain = plan("你好世界")
+        assertFalse(plain.contains("\"fontSize\":"))
+        val styled = plan("你好世界", textSpans = paintOnlySpan)
+        assertContains(styled, "\"fontSize\":16")
+        assertContains(styled, "\"overlayWidth\"")
+        assertContains(styled, "\"style\":{}")
+    }
+
+    @Test
+    fun planOverrideTrueOnPlainInputAddsEvidenceSections() {
+        val result = plan("你好世界", renderEvidenceOverride = true)
+        assertContains(result, "\"fontSize\":16")
+        assertContains(result, "\"overlayWidth\"")
+    }
+
+    @Test
+    fun planOverrideFalseOnRichInputRemovesEvidenceSections() {
+        val plain = plan("你好世界")
+        val stripped = plan("你好世界", textSpans = paintOnlySpan, renderEvidenceOverride = false)
+        assertEquals(plain, stripped)
+        assertFalse(stripped.contains("\"style\":{"))
+    }
+
+    @Test
+    fun planWithDiagnosticsOmittedOverrideKeepsWireDerivedEvidence() {
+        val plain = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01)
+        assertFalse(plain.contains("\\\"fontSize\\\""))
+        val styled = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01, textSpans = paintOnlySpan)
+        assertContains(styled, "\\\"fontSize\\\":16")
+        assertContains(styled, "\\\"overlayWidth\\\"")
+    }
+
+    @Test
+    fun planWithDiagnosticsOverrideTrueOnPlainInputAddsEvidenceSections() {
+        val envelope = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01, renderEvidenceOverride = true)
+        assertContains(envelope, "\\\"fontSize\\\":16")
+        assertContains(envelope, "\\\"overlayWidth\\\"")
+    }
+
+    @Test
+    fun planWithDiagnosticsOverrideFalseOnRichInputRemovesEvidenceSections() {
+        val plain = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01)
+        val stripped = planWithDiagnostics(
+            "你好世界",
+            zeroAdvanceEpsilonPx = 0.01,
+            textSpans = paintOnlySpan,
+            renderEvidenceOverride = false,
+        )
+        assertEquals(plain, stripped)
+        assertFalse(stripped.contains("\\\"style\\\"{"))
     }
 }
 

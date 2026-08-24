@@ -157,6 +157,7 @@ class ParagraphWireFace(
         inlineBoxes: String,
         lineBreakSpans: String,
         inlineObjects: String = "",
+        renderEvidenceOverride: Boolean? = null,
     ): String {
         val result = layout(
             text = text,
@@ -179,10 +180,13 @@ class ParagraphWireFace(
         // evidence exists for exactly the non-plain wire shapes the runtime
         // path also evidences (inline objects and styled/boxed runs); plain
         // plans stay byte-identical to the evidence-free form.
+        // The wire derives evidence from the wire-visible collections. The host
+        // passes the six-collection verdict as the override because sourceSpans
+        // and domInlineObjects never travel the wire.
         return result.toPreparedParagraphJson(
-            renderEvidence = textSpans.isNotBlank() ||
+            renderEvidence = renderEvidenceOverride ?: (textSpans.isNotBlank() ||
                 inlineBoxes.isNotBlank() ||
-                result.input.inlineObjects.isNotEmpty(),
+                result.input.inlineObjects.isNotEmpty()),
         )
     }
 
@@ -212,6 +216,7 @@ class ParagraphWireFace(
         zeroAdvanceEpsilonPx: Double,
         decorations: String = "",
         emphasisDotGapEm: Double? = null,
+        renderEvidenceOverride: Boolean? = null,
     ): String {
         val result = layout(
             text = text,
@@ -233,10 +238,13 @@ class ParagraphWireFace(
             emphasisDotGapEm = emphasisDotGapEm,
         )
         return result.toPlanWithDiagnosticsJson(
-            renderEvidence = textSpans.isNotBlank() ||
+            // The wire derives evidence from the wire-visible collections. The
+            // host passes the six-collection verdict as the override because
+            // sourceSpans and domInlineObjects never travel the wire.
+            renderEvidence = renderEvidenceOverride ?: (textSpans.isNotBlank() ||
                 inlineBoxes.isNotBlank() ||
                 decorations.isNotBlank() ||
-                result.input.inlineObjects.isNotEmpty(),
+                result.input.inlineObjects.isNotEmpty()),
             zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx.toFloat(),
         )
     }

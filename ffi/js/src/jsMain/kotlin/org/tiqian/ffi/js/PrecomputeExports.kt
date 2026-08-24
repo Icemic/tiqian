@@ -72,9 +72,11 @@ fun precomputeParagraph(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
-    // Nullable so pre-inline-object JS callers that omit the trailing
-    // argument (undefined) keep working across package version skew.
+    // Nullable so pre-inline-object / pre-render-evidence-override JS callers
+    // that omit the trailing argument (undefined) keep working across package
+    // version skew.
     inlineObjects: String?,
+    renderEvidenceOverride: Boolean? = null,
 ): String {
     val backends = buildPrecomputeBackends(fontSessionId)
     return ParagraphWireFace(
@@ -96,6 +98,7 @@ fun precomputeParagraph(
         inlineBoxes = inlineBoxes,
         lineBreakSpans = lineBreakSpans,
         inlineObjects = inlineObjects ?: "",
+        renderEvidenceOverride = renderEvidenceOverride,
     )
 }
 
@@ -122,12 +125,14 @@ fun precomputeParagraphWithDiagnostics(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
-    // Nullable so pre-inline-object / pre-decoration JS callers that omit
-    // trailing arguments (undefined) keep working across package version skew.
+    // Nullable so pre-inline-object / pre-decoration / pre-render-evidence-override
+    // JS callers that omit trailing arguments (undefined) keep working across
+    // package version skew.
     inlineObjects: String?,
     zeroAdvanceEpsilonPx: Double,
     decorations: String? = null,
     emphasisDotGapEm: Double? = null,
+    renderEvidenceOverride: Boolean? = null,
 ): String {
     val backends = buildPrecomputeBackends(fontSessionId)
     return ParagraphWireFace(
@@ -152,6 +157,7 @@ fun precomputeParagraphWithDiagnostics(
         zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
         decorations = decorations ?: "",
         emphasisDotGapEm = emphasisDotGapEm,
+        renderEvidenceOverride = renderEvidenceOverride,
     )
 }
 
@@ -179,14 +185,16 @@ fun precomputeParagraphWithBrowserMetrics(
     textSpans: String,
     inlineBoxes: String,
     lineBreakSpans: String,
-    // Nullable so pre-inline-object / pre-decoration JS callers that omit
-    // trailing arguments (undefined) keep working across package version skew.
+    // Nullable so pre-inline-object / pre-decoration / pre-render-evidence-override
+    // JS callers that omit trailing arguments (undefined) keep working across
+    // package version skew.
     inlineObjects: String?,
     zeroAdvanceEpsilonPx: Double,
     shapeJson: (String) -> String,
     metricsJson: (String) -> String,
     decorations: String? = null,
     emphasisDotGapEm: Double? = null,
+    renderEvidenceOverride: Boolean? = null,
 ): String {
     return ParagraphWireFace(
         textShaper = JsCallbackTextShaper(shapeJson),
@@ -210,6 +218,7 @@ fun precomputeParagraphWithBrowserMetrics(
         zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
         decorations = decorations ?: "",
         emphasisDotGapEm = emphasisDotGapEm,
+        renderEvidenceOverride = renderEvidenceOverride,
     )
 }
 
