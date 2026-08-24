@@ -44,6 +44,10 @@ globalThis.addEventListener("message", async (event) => {
       request.sourceBoundaries,
       workerExactSubsetSourceBoundaries(session.faces, request),
     );
+    // WorkerRenderEvidencePassthrough: the field passes through verbatim; an
+    // old sender omits it, undefined reaches the nullable ffi parameter as
+    // null, and the wire-derived verdict applies, so package version skew
+    // keeps both directions working.
     const plan = precomputeParagraph(
       session.id,
       request.text,
@@ -61,6 +65,7 @@ globalThis.addEventListener("message", async (event) => {
       request.inlineBoxes,
       request.lineBreakSpans,
       request.inlineObjects,
+      request.renderEvidence,
     );
     globalThis.postMessage({ id, ok: true, plan });
   } catch (error) {

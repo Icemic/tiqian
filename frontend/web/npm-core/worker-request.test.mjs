@@ -201,6 +201,7 @@ const RICH_EXPECTED =
   '"inlineBoxes":"8\\u001d10\\u001d1.5\\u001d2.25\\u001dNarrow",' +
   '"lineBreakSpans":"2\\u001d6\\u001dProgressiveTechnical",' +
   '"inlineObjects":"10\\u001d11\\u001d6.5\\u001d5\\u001d1.25",' +
+  '"renderEvidence":true,' +
   '"semantics":[{"start":0,"end":2,"tagName":"em","attributes":[["class","x"]],"sourceIndex":0,"order":1},' +
   '{"start":2,"end":4,"tagName":"span","attributes":[["data-x","y"],["title","t"]],"sourceIndex":1,"order":2}],' +
   '"renderInlineBoxes":[{"start":8,"end":10,"inlineStartPx":1.5,"inlineEndPx":2.25,"outerSpacing":"Narrow"}],' +
@@ -267,6 +268,7 @@ test("workerLayoutRequestJson output round-trips through JSON.parse into the str
     inlineBoxes: "8\u001d10\u001d1.5\u001d2.25\u001dNarrow",
     lineBreakSpans: "2\u001d6\u001dProgressiveTechnical",
     inlineObjects: "10\u001d11\u001d6.5\u001d5\u001d1.25",
+    renderEvidence: true,
     semantics: [
       { start: 0, end: 2, tagName: "em", attributes: [["class", "x"]], sourceIndex: 0, order: 1 },
       { start: 2, end: 4, tagName: "span", attributes: [["data-x", "y"], ["title", "t"]], sourceIndex: 1, order: 2 },
@@ -276,6 +278,24 @@ test("workerLayoutRequestJson output round-trips through JSON.parse into the str
     ],
     sourceTag: "p",
   });
+});
+
+test("workerLayoutRequestJson carries true render evidence for a sourceSpans-only lowered", () => {
+  const lowered = paragraph({
+    sourceSpans: [sourceSpan()],
+  });
+  const actual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, lowered, 678.9, 2);
+  assert.equal(JSON.parse(actual).renderEvidence, true);
+});
+
+test("workerLayoutRequestJson render evidence: spans-only yields true, plain yields false", () => {
+  const styled = paragraph({ spans: [span()] });
+  const styledActual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, styled, 678.9, 2);
+  assert.equal(JSON.parse(styledActual).renderEvidence, true);
+
+  const plain = paragraph();
+  const plainActual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, plain, 678.9, 2);
+  assert.equal(JSON.parse(plainActual).renderEvidence, false);
 });
 
 test("workerLayoutRequest returns null without a conforming exact font session", () => {

@@ -85,6 +85,19 @@
     }));
   }
 
+  // CanonicalPlainParagraphEvidence: twin of isCanonicalPlainParagraph in
+  // lowered-paragraph.js (six collections). sourceSpans and domInlineObjects
+  // never travel the layout wire, so the request carries the full-model verdict
+  // for the worker to pass as the render-evidence override.
+  function hasRenderEvidence(lowered) {
+    return lowered.spans.length > 0 ||
+      lowered.decorations.length > 0 ||
+      lowered.inlineBoxes.length > 0 ||
+      lowered.inlineObjects.length > 0 ||
+      lowered.domInlineObjects.length > 0 ||
+      lowered.sourceSpans.length > 0;
+  }
+
   /**
    * Serialize a lowered paragraph into the Worker layout request text, matching
    * the Kotlin builder field for field.
@@ -196,6 +209,7 @@
       '"inlineBoxes":' + escapeJson(inlineBoxes) + ',' +
       '"lineBreakSpans":' + escapeJson(lineBreakSpans) + ',' +
       '"inlineObjects":' + escapeJson(inlineObjects) + ',' +
+      '"renderEvidence":' + (hasRenderEvidence(lowered) ? 'true' : 'false') + ',' +
       '"semantics":' + semantics + '],' +
       '"renderInlineBoxes":' + renderInlineBoxes + '],' +
       '"sourceTag":' + escapeJson(paragraph.tagName.toLowerCase()) +
