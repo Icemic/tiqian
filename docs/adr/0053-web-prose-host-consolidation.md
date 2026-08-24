@@ -899,6 +899,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   渲染证据。两条诊断路径 ffi 导出尾部加可空同形参数，JS 调用方省略尾参时
   行为不变。ParagraphWireFaceTest 六例、BrowserMetricsExportsTest 一例；
   golden 零差异。
+  进度（Slice 4b 第二批，2026-08-23）：caa289d。npm-core 新增
+  prepare-paragraph-layout.js：准备步骤直连移植，返回 unchanged、
+  unsupported（命名能力事实）或 ready 三种裁决；wire 序列化器与
+  worker-request.js 同值双写，两文件保持可嵌入；exact session 命名能力
+  失败时整段改走 browser metrics，逐 run 回退不移植（沿 Slice 4a 记录）；
+  maxWidthPx 取量化测度，ready.width 保留原始宽度。21 例单测含两条 ffi
+  导出位置参数的字节锁。npm-core 327 例、ts-discipline 通过。
+  进度（Slice 4b 第三批，2026-08-23）：42bde2c。worker-request.js 新增
+  workerLayoutRequestForRoot：root 范围判定、shouldTryParagraph、
+  allowsSnapshotExactLayout、withRootDefaults 之后经 markdown lowering 桥
+  取 lowered，helpers 由 3c 的三个导出注入；lowering 抛错或 ok 不真返回
+  null 且不读 issue（只有 processParagraph 报告 lowering 问题）；随后走
+  既有 lowered 序列化。12 例单测；withRootDefaults 打桩在还原段恢复原
+  方法。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
