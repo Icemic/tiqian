@@ -1181,11 +1181,53 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 
 ### G Slice 7 后代码品控（2026-08-24 登记待办）
 
-- [ ] **G1 TypeScript 落实**（`ActualTypeScriptMigration`）：端口产物目前仍是
+- [x] **G1 TypeScript 落实**（`ActualTypeScriptMigration`）：端口产物目前仍是
   JS；ESLint 配置未包含泛型相关约束，与开发文档要求的 TypeScript 约束不一致；
   测试文件与仓库工具同样停留在 JS，部分文件把 JSDoc 当作 TypeScript 的替代。
   处置：先产出依赖树分析，自叶模块起逐层完成类型标注与语法转换；Lint 按
   ADR 已登记的禁用语法配置；类型定义严格去重，同一形状只允许一处定义。
+
+  进度（G1，2026-08-24）：npm-core 运行时源全部转为同名 .ts（62 文件），
+  就地 emit（tsconfig composite + verbatimModuleSyntax +
+  erasableSyntaxOnly），.js 成为 emit 产物。按依赖序分 14 波执行，每波
+  验收：值代码零改动以 emit 对 HEAD 原 .js 逐字节 diff 为准，非空差异走
+  AST 等价判定（printer 固定类别规范化差异可接受）；npm-core 419 例、
+  eslint 零错误（ts-discipline 规则集含 inline 对象与函数类型注解两条
+  禁令）；类型逐文件登记 `.agent-specs/g1-type-registry.md`，两包类型名
+  唯一。ambient 全局收敛到单属主 declare global（18 个 `__Tiqian*`）。
+  ffi 消费面合并为单一声明：`core/engine/ffi-face.ts` 以
+  `typeof import("@tiqian/ffi").<fn>` 派生 `EngineFfiFacade`，五个引擎
+  文件的本地 ffi 声明与成员别名删除，emit 零 .js 差异。prose 包 P1 完成
+  （api、copy、两个 re-export shim 转换，三个手写 .d.ts 退役，emit 的
+  声明随包分发；npm-core package.json files 增 `*.d.ts` glob）；prose
+  245 例、npm-core 419 例、verify-package 与 verify-release 全部通过。
+  P2 完成（element.js 2350 行转换、element.d.ts 退役；emit 等价经
+  第 7 类规范化判定：类含私有成员且其体内引用类名时，TS 类变换把该引用
+  提升为模块级临时变量，对原件施加同一机械变换后 AST 等价）。收尾矩阵
+  全绿：npm-core 419、prose 245、eslint 零错误、类型名唯一、
+  package-topology、astro 集成 fixture 10 例、gradle build（本机
+  Skiko 原生库缺失使 :shaping:skia:jvmTest 环境性失败，经 HEAD worktree
+  强制重跑证实与转换无关）。提交区间 1b08d188..e55bdb80（26 个提交，
+  按 14 波转换与集成、ffi 面孔、prose P1/P2、lint 禁令与 CI 构建步骤
+  分批）。
+  .test.mjs 测试与
+  工具脚本维持 JS：它们是运行时面的消费方，按 node:test 通道执行，不进
+  tsc 程序。
+  产物跟踪（2026-08-24 裁定）：emit 出的 .js/.d.ts 是构建产物，不进
+  版本库；发布面由包脚本在打包时再生（两包 pretest/prepack 均先跑
+  tsc），两包 .gitignore 以 `*.js`/`*.d.ts`/`*.tsbuildinfo` 覆盖全部
+  产物。执行首版曾把 emit 产物提交进库（npm-core 59 个 .js、prose
+  根 6 个 .js 与 4 个 .d.ts），同日裁定后重写本地提交历史为 rename
+  形态，上述区间即重写后的哈希。消费侧缺口与处置：
+  ci-native-precompute 的 prepared-dom-corpus 泳道此前靠树里的 .js
+  免构建，现改为 npm-core `npm ci`（锁内 @tiqian/ffi 是本地路径链接，
+  不触 registry）、prose `link:core`、借用 npm-core 的 tsc 做
+  `tsc -b --noCheck`。用 --noCheck 的原因：@tiqian/ffi 的类型声明是
+  gradle 产物（ffi/js/npm/runtime），fresh checkout 不构建 ffi 就没有，
+  而该泳道验证的是语料字节；两包完整 typecheck 需要 ffi runtime，
+  本地流程按 CLAUDE.md 先跑 `:ffi:js:assembleNpmPackage` 再
+  `npm test`，publish 链经 prepack 自带构建。注意 CI 目前没有任何
+  泳道执行两包测试套件，此缺口在 G1 之前已存在，与产物跟踪裁定无关。
 - [ ] **G2 模块边界与副作用**（`ModuleBoundaryDiscipline`）：运行时以
   `__Tiqian*` 下划线全局变量互相调用，模块体以 IIFE 与 `var` 编写，模块装载
   即产生全局副作用；应属于组件实例的状态存放在全局闭包；测试环境读取内部
