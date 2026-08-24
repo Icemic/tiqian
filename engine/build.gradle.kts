@@ -80,12 +80,30 @@ kotlin {
             implementation(project(":platforms:jvm:shaping"))
             implementation(project(":platforms:jvm:skia"))
             implementation(project(":test-support"))
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
             runtimeOnly("org.jetbrains.skiko:skiko-awt-runtime-macos-arm64:0.144.6")
         }
     }
 }
 
 val jvmTestCompilation = kotlin.targets.getByName("jvm").compilations.getByName("test")
+
+val fixtureId = providers.gradleProperty("fixtureId")
+
+tasks.register<JavaExec>("exportLayoutFixture") {
+    group = "verification"
+    description = "Writes one EarlyLayoutFixture's effective layout input as JSON to standard output."
+    dependsOn("jvmTestClasses")
+    mainClass.set("org.tiqian.layout.tooling.FixtureJsonMainKt")
+    classpath = files(jvmTestCompilation.output.allOutputs) +
+        configurations.named("jvmTestRuntimeClasspath").get()
+    doFirst {
+        check(fixtureId.isPresent) {
+            "Pass one fixture id with -PfixtureId=<id>."
+        }
+        args = listOf(fixtureId.get())
+    }
+}
 
 tasks.register<JavaExec>("generateLayoutReport") {
     group = "verification"
