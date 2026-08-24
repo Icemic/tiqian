@@ -58,6 +58,24 @@ import {
   createRootSizeObservation,
   createRootVisibilityObservation,
 } from "@tiqian/prose-core/core/sampler/observers.js";
+import type { TiqianEngineWorkersInstance } from "@tiqian/prose-core/core/engine/engine-entry.js";
+import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
+import type { ExactFontSessionEntry } from "@tiqian/prose-core/core/engine/exact-font.js";
+import type {
+  FontLoadingEventLike,
+  GetComputedStyleFn,
+  InitialFontRetryController,
+} from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
+import type { SnapshotAdoptAnchors } from "@tiqian/prose-core/core/sampler/snapshot/precomputed.js";
+import type { TypographyViewportEntry } from "@tiqian/prose-core/core/sampler/signatures.js";
+import type {
+  ContentInvalidationSource,
+  RootSizeObservationSource,
+  RootVisibilityObservationSource,
+  TypographyInvalidationSource,
+  ViewportResizeInvalidationSource,
+} from "@tiqian/prose-core/core/sampler/observers.js";
+import type { TiqianWebOptions } from "./api.js";
 
 const ELEMENT_NAME = "tiqian-prose";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
@@ -69,16 +87,23 @@ const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
   "SnapshotWidthMismatch",
   "SnapshotWidthChangedDuringValidation",
 ]);
-const HTMLElementBase = typeof globalThis.HTMLElement === "function"
-  ? globalThis.HTMLElement
-  : class TiqianSsrElement {};
+type DomElementCtor = typeof HTMLElement;
+const HTMLElementBase: DomElementCtor =
+  typeof globalThis.HTMLElement === "function"
+    ? globalThis.HTMLElement
+    : class TiqianSsrElement {} as DomElementCtor;
 globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
 // Snapshot-table loads start at module evaluation, ahead of the first root
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
 // no-op in non-browser entry points.
 prefetchSnapshotTables();
 
-function exactFontMissDatasetValue(error) {
+interface TiqianElementExactFontMissCandidate {
+  code?: string;
+  detail?: string;
+}
+
+function exactFontMissDatasetValue(error: TiqianElementExactFontMissCandidate): string {
   if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
     const pipeIndex = error.detail.indexOf("|");
     if (pipeIndex !== -1) {
@@ -91,27 +116,27 @@ function exactFontMissDatasetValue(error) {
   return error?.code ?? "ExactFontSessionUnavailable";
 }
 
-function nextFrame() {
+function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
-function belongsToRootScope(element, root) {
+function belongsToRootScope(element: Element, root: Element): boolean {
   return element.closest(ROOT_SELECTOR) === root;
 }
 
-function isPureBlockImageParagraph(element) {
+function isPureBlockImageParagraph(element: Element): boolean {
   if (element.tagName !== "P" || (element.textContent ?? "").trim() !== "") return false;
   const children = Array.from(element.querySelectorAll(":scope > *"));
   if (children.length === 0) return false;
   const view = element.ownerDocument?.defaultView;
-  const getStyle = view?.getComputedStyle ?? globalThis.getComputedStyle;
+  const getStyle: GetComputedStyleFn = view?.getComputedStyle ?? globalThis.getComputedStyle;
   if (typeof getStyle !== "function") return false;
   return children.every((child) =>
     child.tagName === "IMG" && getStyle.call(view, child).display.trim().toLowerCase() === "block"
   );
 }
 
-function rendererOwnedProgressiveStyleMutation(record, root) {
+function rendererOwnedProgressiveStyleMutation(record: MutationRecord, root: HTMLElement): boolean {
   if (record.attributeName !== "style") return false;
   const target = record.target;
   if (
@@ -156,7 +181,7 @@ function rendererOwnedProgressiveStyleMutation(record, root) {
   return rendererPropertyFound && projected.style.cssText === previous.style.cssText;
 }
 
-function isRuntimeCompletionCandidate(element, root) {
+function isRuntimeCompletionCandidate(element: Element, root: Element): boolean {
   if (!belongsToRootScope(element, root)) return false;
   if (element.closest(SKIPPED_ANCESTOR_SELECTOR)) return false;
   // PureBlockImageParagraphExclusion must match the Kotlin runtime candidate
@@ -169,7 +194,7 @@ function isRuntimeCompletionCandidate(element, root) {
   return true;
 }
 
-function snapshotCompletionSelector(root) {
+function snapshotCompletionSelector(root: HTMLElement): string {
   const selector = ":is(p, li):not([data-tq-snapshot-key])";
   return Array.from(root.querySelectorAll(selector))
     .some((paragraph) => isRuntimeCompletionCandidate(paragraph, root))
@@ -179,8 +204,53 @@ function snapshotCompletionSelector(root) {
 
 const coordinator = new TiqianLayoutCoordinator();
 
+interface TiqianParagraphTierInfo {
+  index: number;
+  tier: number;
+}
+
+type TiqianReadyEventDetail = {
+  snapshot?: boolean;
+  runtimeEnhancedCount: number;
+  snapshotCount: number;
+  enhancedCount: number;
+  durationMs: number;
+  maxSliceMs: number;
+  relayout?: boolean;
+  stale?: boolean;
+};
+
+type TiqianBoundResponsiveCommitFn = () => void;
+
+type TiqianBeforeDispatchFn = () => void;
+
+interface TiqianEnhanceDispatchOptions {
+  beforeDispatch?: TiqianBeforeDispatchFn | null;
+  paragraphSelector?: string | null;
+  revalidateExactFont?: boolean;
+}
+
+interface TiqianLayoutWorkOptions {
+  usesCapturedMeasure?: boolean;
+  captureSignatures?: boolean;
+}
+
+interface TiqianSnapshotInvalidateOptions {
+  restoreBeforeLoad?: boolean;
+}
+
+interface TiqianSourceRefreshOptions {
+  revalidateExactFont?: boolean;
+}
+
+type TiqianSnapshotAdoptionOutcome =
+  | { adopted: false; reason?: string }
+  | { adopted: true; count: number };
+
+type TiqianRootPausedCommitFn = () => void;
+
 class TiqianProseElement extends HTMLElementBase {
-  static observedAttributes = [
+  static observedAttributes: string[] = [
     "disabled",
     "emphasis-dot-gap-em",
     "strong-as-emphasis-marks",
@@ -189,26 +259,26 @@ class TiqianProseElement extends HTMLElementBase {
 
   #forceTypographyRefresh = false;
   #acceptLayoutCompletion = false;
-  #boundResponsiveCommit = () => {
+  #boundResponsiveCommit: TiqianBoundResponsiveCommitFn = () => {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
   #connected = false;
   #custodyReentry = false;
-  #detachAttributeSnapshot = null;
+  #detachAttributeSnapshot: (string | null)[] | null = null;
   #layoutWorkIsRelayout = false;
   #lastCommittedParagraphMeasures = "";
-  #contentInvalidation = null;
+  #contentInvalidation: ContentInvalidationSource | null = null;
   #contentProbeFrame = 0;
   #contentReconcileRequired = false;
-  #contentTainted = new Set();
+  #contentTainted = new Set<Element>();
   #deferredTypographyCheck = false;
-  #typographyInvalidation = null;
+  #typographyInvalidation: TypographyInvalidationSource | null = null;
   #geometryRevision = 0;
   #generation = 0;
   #hasDispatched = false;
   #inViewport = true;
-  #initialFontRetry = null;
-  #visibilityObservation = null;
+  #initialFontRetry: InitialFontRetryController | null = null;
+  #visibilityObservation: RootVisibilityObservationSource | null = null;
   #layoutWorkInFlight = false;
   #layoutWorkerAttached = false;
   #layoutWorkSignaturesCaptured = false;
@@ -216,25 +286,25 @@ class TiqianProseElement extends HTMLElementBase {
   #layoutWorkMaximumMeasure = false;
   #layoutWorkMeasureSignature = "";
   #layoutWorkTypographySignature = "";
-  #layoutWorkViewportTypographyEntries = [];
-  #layoutWorkTypographyInvalidation = null;
+  #layoutWorkViewportTypographyEntries: TypographyViewportEntry[] = [];
+  #layoutWorkTypographyInvalidation: TypographyInvalidationSource | null = null;
   #layoutWorkUsesCapturedMeasure = false;
   #layoutOperation = 0;
   #layoutWorkRevision = 0;
   #enhanceRequest = 0;
   #exactFontRejectedAttempt = "";
-  #exactFontSession = null;
+  #exactFontSession: ExactFontSessionEntry | null = null;
   #lastObservedWidth = 0;
   #lastWidth = 0;
   #lastParagraphMeasures = "";
   #lastParagraphWidths = "";
   #lastTypography = "";
-  #paragraphObserver = null;
-  #paragraphTierIndex = new Map();
-  #readyListener = null;
+  #paragraphObserver: IntersectionObserver | null = null;
+  #paragraphTierIndex = new Map<Element, TiqianParagraphTierInfo>();
+  #readyListener: EventListener | null = null;
   #resizeFrame = 0;
   #resizeObserverFrame = 0;
-  #sizeObservation = null;
+  #sizeObservation: RootSizeObservationSource | null = null;
   #gridMetricsState = createParagraphGridMetricsState();
   #pendingCommittedMeasures = "";
   #responsiveCommitRequired = false;
@@ -244,22 +314,22 @@ class TiqianProseElement extends HTMLElementBase {
   #snapshotAdopted = false;
   #snapshotEnhancedCount = 0;
   #typographyFrame = 0;
-  #viewportResizeInvalidation = null;
+  #viewportResizeInvalidation: ViewportResizeInvalidationSource | null = null;
 
-  get disabled() {
+  get disabled(): boolean {
     return this.hasAttribute("disabled");
   }
 
-  set disabled(value) {
+  set disabled(value: boolean) {
     this.toggleAttribute("disabled", Boolean(value));
   }
 
-  get emphasisDotGapEm() {
-    const value = Number.parseFloat(this.getAttribute("emphasis-dot-gap-em"));
+  get emphasisDotGapEm(): number | null {
+    const value = Number.parseFloat(this.getAttribute("emphasis-dot-gap-em") as string);
     return Number.isFinite(value) ? value : null;
   }
 
-  set emphasisDotGapEm(value) {
+  set emphasisDotGapEm(value: number | null) {
     if (value == null) {
       this.removeAttribute("emphasis-dot-gap-em");
     } else {
@@ -267,19 +337,19 @@ class TiqianProseElement extends HTMLElementBase {
     }
   }
 
-  get strongAsEmphasisMarks() {
+  get strongAsEmphasisMarks(): boolean {
     return this.hasAttribute("strong-as-emphasis-marks");
   }
 
-  set strongAsEmphasisMarks(value) {
+  set strongAsEmphasisMarks(value: boolean) {
     this.toggleAttribute("strong-as-emphasis-marks", Boolean(value));
   }
 
-  get snapshotRef() {
+  get snapshotRef(): string | null {
     return this.getAttribute("snapshot-ref");
   }
 
-  set snapshotRef(value) {
+  set snapshotRef(value: string | null) {
     if (value == null) {
       this.removeAttribute("snapshot-ref");
     } else {
@@ -341,7 +411,7 @@ class TiqianProseElement extends HTMLElementBase {
         generation !== this.#generation || !this.#hasDispatched ||
         !this.#acceptLayoutCompletion
       ) return;
-      const detail = event.detail ?? {};
+      const detail = (event as CustomEvent<TiqianReadyEventDetail>).detail ?? {};
       if (this.#snapshotAdopted && this.#snapshotEnhancedCount > 0) {
         const snapshotCount = this.#snapshotEnhancedCount;
         const runtimeEnhancedCount = detail.snapshot
@@ -425,7 +495,7 @@ class TiqianProseElement extends HTMLElementBase {
     // runtime import or enhance failure inside the frame task became an
     // unhandled rejection: no RuntimeLoadFailed marker, the ready listener
     // left attached, and consumers awaiting tiqian:ready hanging forever.
-    const failInitialEnhance = (error) => {
+    const failInitialEnhance = (error: unknown) => {
       if (generation !== this.#generation) return;
       this.#acceptLayoutCompletion = false;
       this.#layoutWorkInFlight = false;
@@ -462,7 +532,7 @@ class TiqianProseElement extends HTMLElementBase {
           if (!this.isConnected || generation !== this.#generation) return;
           const enhanceStartedAt = Date.now();
           const operation = this.#beginLayoutWork({ captureSignatures: false });
-          let snapshot = { adopted: false };
+          let snapshot: TiqianSnapshotAdoptionOutcome = { adopted: false };
           try {
             if (!strongEmphasisRuntimeRequired) {
               snapshot = await tryAdoptRequestedSnapshot(
@@ -634,7 +704,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#scheduleTypographyCheck();
   }
 
-  attributeChangedCallback(name, oldValue, newValue) {
+  attributeChangedCallback(name: string, oldValue: string | null, newValue: string | null) {
     if (oldValue === newValue) return;
     if (name === "disabled") {
       // DisabledAttributeOwnsTeardown: adding the attribute uses the same
@@ -672,7 +742,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#refreshRuntimeFromSource();
   }
 
-  #baseEnhanceOptions() {
+  #baseEnhanceOptions(): TiqianWebOptions | undefined {
     const emphasisDotGapEm = this.emphasisDotGapEm;
     const strongAsEmphasisMarks = this.strongAsEmphasisMarks;
     if (
@@ -687,7 +757,7 @@ class TiqianProseElement extends HTMLElementBase {
     };
   }
 
-  #deferInitialEnhancementUntilFontsSettle(generation, completion) {
+  #deferInitialEnhancementUntilFontsSettle(generation: number, completion: Promise<unknown>) {
     this.#initialFontRetry ??= createInitialFontRetryController(this, {
       isGenerationCurrent: (candidate) => candidate === this.#generation,
       typographyElements: () => this.#typographyElements(),
@@ -738,7 +808,7 @@ class TiqianProseElement extends HTMLElementBase {
   // SnapshotAdoptionAnchorCompensation adapter: the adoption loop in
   // precomputed.js commits one paragraph per cooperative slice; this feeds
   // its per-commit bracket from this element's anchor policy.
-  #snapshotAdoptionAnchors() {
+  #snapshotAdoptionAnchors(): SnapshotAdoptAnchors {
     return {
       capture: () => captureViewportAnchor(this),
       compensate: (anchor) => compensateViewportAnchor(this, anchor),
@@ -746,13 +816,13 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   async #dispatchProgressiveEnhance(
-    generation,
+    generation: number,
     {
       beforeDispatch = null,
       paragraphSelector = null,
       revalidateExactFont = true,
-    } = {},
-  ) {
+    }: TiqianEnhanceDispatchOptions = {},
+  ): Promise<boolean> {
     const request = ++this.#enhanceRequest;
     // PlainHostPreparedBridge: the runtime lowers every paragraph through
     // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without an exact
@@ -767,7 +837,7 @@ class TiqianProseElement extends HTMLElementBase {
       ...(paragraphSelector ? { paragraphSelector } : {}),
     };
     const needsDash = needsCjkDashShaping(this);
-    let exactFontSession = null;
+    let exactFontSession: BrowserFontSessionHandle | null = null;
     const exactFontSessionAlreadyPrepared = !revalidateExactFont &&
       this.#exactFontSession?.reference === this.getAttribute("snapshot-ref");
     try {
@@ -782,7 +852,7 @@ class TiqianProseElement extends HTMLElementBase {
         this.isConnected && generation === this.#generation &&
         request === this.#enhanceRequest
       ) this.#releaseExactFontSession();
-      this.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error);
+      this.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error as TiqianElementExactFontMissCandidate);
       console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
     }
     if (!this.isConnected || generation !== this.#generation || request !== this.#enhanceRequest) {
@@ -804,9 +874,9 @@ class TiqianProseElement extends HTMLElementBase {
     this.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
     if (exactFontSession) {
       try {
-        this.#exactFontSession.installRenderFont(
+        this.#exactFontSession!.installRenderFont(
           this,
-          exactFontSession.renderFontFamilies,
+          exactFontSession.renderFontFamilies as string[],
         );
         this.setAttribute(EXACT_RENDER_FONT_ATTRIBUTE, "true");
         // HostRenderFontReadyBeforeCommit: server replay already owns the
@@ -818,7 +888,7 @@ class TiqianProseElement extends HTMLElementBase {
         // still take the validating path; a responsive retarget can start the
         // latest-width paragraph queue without repeating font probes first.
         if (!exactFontSessionAlreadyPrepared) {
-          await this.#exactFontSession.prepareRenderFont(this, exactFontSession);
+          await this.#exactFontSession!.prepareRenderFont(this, exactFontSession);
         }
         if (
           !this.isConnected || generation !== this.#generation ||
@@ -956,7 +1026,7 @@ class TiqianProseElement extends HTMLElementBase {
     coordinator.setWorkerActive(this, false);
   }
 
-  #observeParagraphTiers(runtime) {
+  #observeParagraphTiers(runtime: TiqianEngineWorkersInstance) {
     const count = runtime.workerParagraphCount(this);
     if (count === 0) {
       this.#stopParagraphTierObservation();
@@ -982,7 +1052,7 @@ class TiqianProseElement extends HTMLElementBase {
     // Paragraph hosts survive relayout; atomic swaps replace only their
     // children. The diff converges: a stable article adds and drops nothing
     // and the observer set stops churning.
-    const live = new Set();
+    const live = new Set<Element>();
     for (let index = 0; index < count; index++) {
       const paragraph = runtime.workerParagraphAt(this, index);
       if (!paragraph) continue;
@@ -1002,7 +1072,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
   }
 
-  #paragraphTierFromEntry(entry) {
+  #paragraphTierFromEntry(entry: IntersectionObserverEntry): number {
     // ParagraphTierGating: the observer band spans one full viewport in each
     // direction via rootMargin 100%. A paragraph crossing the visible
     // viewport is tier 1; inside the band but off-screen is tier 2; beyond
@@ -1020,7 +1090,11 @@ class TiqianProseElement extends HTMLElementBase {
     this.#paragraphTierIndex.clear();
   }
 
-  async #prepareExactFontSession(generation, request, revalidateExisting = true) {
+  async #prepareExactFontSession(
+    generation: number,
+    request: number,
+    revalidateExisting = true,
+  ): Promise<BrowserFontSessionHandle | null> {
     const reference = this.getAttribute("snapshot-ref");
     if (!reference) {
       if (generation === this.#generation && request === this.#enhanceRequest) {
@@ -1072,7 +1146,7 @@ class TiqianProseElement extends HTMLElementBase {
     return releaseExactFontSession(entry, this);
   }
 
-  #exactFontAttemptSignature(reference = this.getAttribute("snapshot-ref")) {
+  #exactFontAttemptSignature(reference: string | null = this.getAttribute("snapshot-ref")) {
     if (!reference) return "";
     const paragraph = this.querySelector("p[data-tq-snapshot-key], p, li");
     if (!paragraph) return `${reference}\u0000missing`;
@@ -1083,7 +1157,7 @@ class TiqianProseElement extends HTMLElementBase {
     return `${reference}\u0000${Math.fround(fontSize)}\u0000${measure ?? `invalid:${width.toFixed(3)}`}`;
   }
 
-  #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure } = {}) {
+  #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure }: TiqianLayoutWorkOptions = {}): number {
     this.#clearResponsiveRetarget();
     const operation = ++this.#layoutOperation;
     this.#layoutWorkInFlight = true;
@@ -1122,7 +1196,7 @@ class TiqianProseElement extends HTMLElementBase {
     return operation;
   }
 
-  #finishLayoutWorkAndObserve(expectedOperation = null) {
+  #finishLayoutWorkAndObserve(expectedOperation: number | null = null): boolean {
     if (expectedOperation != null && expectedOperation !== this.#layoutOperation) return false;
     const signaturesCaptured = this.#layoutWorkSignaturesCaptured;
     const rawGeometryChangedDuringWork = this.#layoutWorkInFlight &&
@@ -1159,7 +1233,7 @@ class TiqianProseElement extends HTMLElementBase {
         !this.#layoutWorkUsesCapturedMeasure
       ? this.#paragraphWidthSignature()
       : this.#lastParagraphWidths;
-    let currentMeasures;
+    let currentMeasures: string;
     if (signaturesConsumedByFinish) {
       currentMeasures = this.#layoutWorkUsesCapturedMeasure && !rawGeometryChangedDuringWork
         ? this.#lastParagraphMeasures
@@ -1241,7 +1315,7 @@ class TiqianProseElement extends HTMLElementBase {
     return true;
   }
 
-  #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false } = {}) {
+  #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
     if (!this.#snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
     const generation = this.#generation;
     this.#hasDispatched = false;
@@ -1277,7 +1351,7 @@ class TiqianProseElement extends HTMLElementBase {
       });
   }
 
-  #recoverSnapshotEnhanceFailure(generation, request, error) {
+  #recoverSnapshotEnhanceFailure(generation: number, request: number, error: unknown) {
     if (
       !this.isConnected || generation !== this.#generation ||
       request !== this.#enhanceRequest
@@ -1404,7 +1478,11 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #recoverRuntimeAfterSnapshotMiss(operation, reason, runtimeSnapshotBackingRestored = false) {
+  #recoverRuntimeAfterSnapshotMiss(
+    operation: number,
+    reason: string,
+    runtimeSnapshotBackingRestored = false,
+  ) {
     if (operation !== this.#layoutOperation) return;
     if (runtimeSnapshotBackingRestored) {
       // Validation failed after the synchronous SSR backing restore. Rebuild
@@ -1451,7 +1529,7 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #dispatchRelayout(observedMeasures = null) {
+  #dispatchRelayout(observedMeasures: string | null = null) {
     if (!this.#runtimeStateActive) {
       this.#finishLayoutWorkAndObserve();
       return;
@@ -1478,12 +1556,12 @@ class TiqianProseElement extends HTMLElementBase {
     this.#syncLayoutWorker();
   }
 
-  #relayoutRuntimeAfterSnapshotMiss(operation) {
+  #relayoutRuntimeAfterSnapshotMiss(operation: number) {
     if (operation !== this.#layoutOperation) return;
     this.#dispatchRelayout();
   }
 
-  #refreshRuntimeFromSource({ revalidateExactFont = true } = {}) {
+  #refreshRuntimeFromSource({ revalidateExactFont = true }: TiqianSourceRefreshOptions = {}) {
     // A source refresh replaces the rendered paragraphs, so the seeded grid
     // metrics are for nodes about to leave the tree; drop them and let the
     // observer re-seed the rebuilt paragraphs.
@@ -1536,7 +1614,7 @@ class TiqianProseElement extends HTMLElementBase {
     // height. Seed and compare only border-box inline sizes so those commits do
     // not trigger a redundant responsive pass. Persistent observation without
     // pausing ensures drag interactions and live geometry changes are never lost.
-    const widths = new WeakMap();
+    const widths = new WeakMap<Element, number>();
     const targets = [
       this,
       ...Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR))
@@ -1693,7 +1771,7 @@ class TiqianProseElement extends HTMLElementBase {
   // unobserved around the synchronous commit so its own height change
   // cannot queue a same-depth observation for the browser's ResizeObserver
   // loop guard to report, then re-observed with the original box option.
-  #withRootObservationPaused(commit) {
+  #withRootObservationPaused(commit: TiqianRootPausedCommitFn): boolean {
     this.#sizeObservation?.unobserve(this);
     try {
       commit();
@@ -1960,7 +2038,7 @@ class TiqianProseElement extends HTMLElementBase {
           }
           if (snapshotLiveIssue) this.dataset.tiqianSnapshotLiveIssue = snapshotLiveIssue;
           const relevantFaceLoaded = fontLoadingAffectsTypography(
-            event,
+            event as FontLoadingEventLike,
             this.#typographyElements(),
           );
           const force = this.#forceTypographyRefresh || relevantFaceLoaded;
@@ -1999,7 +2077,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#contentInvalidation?.syncCustody();
   }
 
-  #custodyParagraphFor(node) {
+  #custodyParagraphFor(node: Node) {
     return this.#contentInvalidation?.paragraphFor(node) ?? null;
   }
 
@@ -2012,7 +2090,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#contentReconcileRequired = false;
   }
 
-  #handleContentMutationRecords(records) {
+  #handleContentMutationRecords(records: MutationRecord[]) {
     if (!this.#hasDispatched) return;
     const { taintedParagraphs, paragraphSignal, structureSignal } =
       classifyContentMutationRecords(records, {
@@ -2082,13 +2160,13 @@ class TiqianProseElement extends HTMLElementBase {
     }
   }
 
-  #dispatchContentReconcile(paragraphs) {
+  #dispatchContentReconcile(paragraphs: Element[]): boolean {
     if (!this.#runtimeStateActive) return false;
     this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    const outcome = engineFace.reconcileContent(this, paragraphs);
+    const outcome = engineFace.reconcileContent(this, paragraphs as HTMLElement[]);
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready
@@ -2144,7 +2222,7 @@ class TiqianProseElement extends HTMLElementBase {
         onFontEvent: (event) => {
           if (
             this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure &&
-            fontLoadingAffectsTypography(event, this.#typographyElements())
+            fontLoadingAffectsTypography(event as FontLoadingEventLike, this.#typographyElements())
           ) this.#cancelCapturedLayoutForTypographyChange();
         },
       });
@@ -2249,23 +2327,23 @@ class TiqianProseElement extends HTMLElementBase {
     });
   }
 
-  #typographySignature(includeGenerated = true) {
+  #typographySignature(includeGenerated = true): string {
     return typographySignature(this, includeGenerated);
   }
 
-  #elementTypographySignature(element, includeGenerated = true, properties = TYPOGRAPHY_PROPERTIES) {
+  #elementTypographySignature(element: Element, includeGenerated = true, properties = TYPOGRAPHY_PROPERTIES): string {
     return elementTypographySignature(element, includeGenerated, properties);
   }
 
-  #captureLayoutWorkViewportTypographyEntries() {
+  #captureLayoutWorkViewportTypographyEntries(): TypographyViewportEntry[] {
     return captureLayoutWorkViewportTypographyEntries(this);
   }
 
-  #layoutWorkViewportTypographyChanged() {
+  #layoutWorkViewportTypographyChanged(): boolean {
     return layoutWorkViewportTypographyChanged(this, this.#layoutWorkViewportTypographyEntries);
   }
 
-  #typographyElements() {
+  #typographyElements(): Element[] {
     return typographyElements(this);
   }
 
@@ -2306,23 +2384,23 @@ class TiqianProseElement extends HTMLElementBase {
     this.#visibilityObservation = null;
   }
 
-  #paragraphWidthSignature() {
+  #paragraphWidthSignature(): string {
     return paragraphWidthSignature(this);
   }
 
-  #responsiveGeometrySignature() {
+  #responsiveGeometrySignature(): string {
     return responsiveGeometrySignature(this);
   }
 
-  #paragraphMeasureSignature() {
+  #paragraphMeasureSignature(): string {
     return paragraphMeasureSignature(this, Boolean(this.#exactFontSession));
   }
 
-  #paragraphMeasureEntry(paragraph, exactFontLayout) {
+  #paragraphMeasureEntry(paragraph: Element, exactFontLayout: boolean): string {
     return paragraphMeasureEntry(paragraph, exactFontLayout);
   }
 
-  #paragraphMeasureSignatureFromObserved() {
+  #paragraphMeasureSignatureFromObserved(): string {
     return paragraphMeasureSignatureFromObserved(
       this,
       this.#gridMetricsState,
@@ -2332,8 +2410,14 @@ class TiqianProseElement extends HTMLElementBase {
     );
   }
 
-  #seedParagraphGridMetrics(paragraph) {
+  #seedParagraphGridMetrics(paragraph: Element) {
     seedParagraphGridMetrics(this.#gridMetricsState, paragraph);
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "tiqian-prose": TiqianProseElement;
   }
 }
 

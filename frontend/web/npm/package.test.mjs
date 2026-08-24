@@ -234,7 +234,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(browserFontsSource, /await requirePreparedOrExactContract\(root\)/u);
   assert.match(
     browserFontsSource,
-    /if \(prepared\?\.matches\) return prepared;[\s\S]*?return requireExactContract\(root\)/u,
+    /if \(prepared\?\.matches\)\s*return prepared;[\s\S]*?return requireExactContract\(root\)/u,
   );
   assert.match(browserFontsSource, /ExistingSessionLiveContractRevalidation/u);
   assert.match(browserFontsSource, /ServerReplayNeedsNoBrowserFontBytes/u);
@@ -259,21 +259,21 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /observedAttributes = \[[\s\S]*?"disabled",[\s\S]*?"emphasis-dot-gap-em",[\s\S]*?"strong-as-emphasis-marks",[\s\S]*?"snapshot-ref",[\s\S]*?\]/u,
   );
   assert.match(elementSource, /get disabled\(\)[\s\S]*?hasAttribute\("disabled"\)/u);
-  assert.match(elementDeclarations, /disabled: boolean/u);
+  assert.match(elementDeclarations, /get disabled\(\): boolean/u);
   assert.match(
     elementSource,
-    /ReversibleDisabledEnhancement[\s\S]*?if \(this\.disabled\) return/u,
+    /ReversibleDisabledEnhancement[\s\S]*?if \(this\.disabled\)\s*return/u,
   );
   assert.match(
     elementSource,
     /DisabledAttributeOwnsTeardown[\s\S]*?#restartConnectedLifecycle\(\)/u,
   );
   assert.match(elementSource, /get strongAsEmphasisMarks\(\)[\s\S]*?hasAttribute\("strong-as-emphasis-marks"\)/u);
-  assert.match(elementDeclarations, /strongAsEmphasisMarks: boolean/u);
+  assert.match(elementDeclarations, /get strongAsEmphasisMarks\(\): boolean/u);
   assert.match(apiDeclarations, /strongAsEmphasisMarks\?: boolean/u);
   assert.match(
     elementSource,
-    /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#connected\) this\.#restartConnectedLifecycle\(\)/u,
+    /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#connected\)\s*this\.#restartConnectedLifecycle\(\)/u,
   );
   assert.match(
     elementSource,
@@ -455,7 +455,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /this\.#responsiveRelayoutRequired = !this\.#layoutWorkUsesCapturedMeasure/u,
   );
   assert.match(elementSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
-  assert.match(elementSource, /if \(stale\) this\.#responsiveCommitRequired = true/u);
+  assert.match(elementSource, /if \(stale\)\s*this\.#responsiveCommitRequired = true/u);
   assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
   assert.match(elementSource, /engineFace\.cancelLayoutWork\(this\)/u);
   assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
@@ -566,7 +566,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
   // prefix — with anti-starvation aging ordering only within a class.
   assert.match(
     coordinatorSource,
-    /if \(inViewA !== inViewB\) return inViewB - inViewA;/u,
+    /if \(inViewA !== inViewB\)\s*return inViewB - inViewA;/u,
   );
   assert.match(
     coordinatorSource,
@@ -617,11 +617,11 @@ test("layout coordinator implements visual prominence scoring, proportional back
   );
   assert.match(
     coordinatorSource,
-    /if \(grantProcessed > 0\) compensateViewportAnchor\(slot\.element, viewportAnchor\);/u,
+    /if \(grantProcessed > 0\)\s*compensateViewportAnchor\(slot\.element, viewportAnchor\);/u,
   );
   // NativeAnchoringHandover: capture holds the scroller's native anchoring
   // for the job window; every path that ends or abandons a job releases it.
-  assert.match(coordinatorSource, /if \(!slot\.active\) releaseNativeScrollAnchoring\(element\);/u);
+  assert.match(coordinatorSource, /if \(!slot\.active\)\s*releaseNativeScrollAnchoring\(element\);/u);
   assert.match(coordinatorSource, /releaseNativeScrollAnchoring\(slot\.element\);/u);
   assert.match(elementSource, /releaseNativeScrollAnchoring\(this\);/u);
 });
