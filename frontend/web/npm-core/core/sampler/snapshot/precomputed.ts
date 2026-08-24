@@ -16,13 +16,283 @@ import {
   releasePreparedValueStyleRoot,
 } from "./prepared-dom.js";
 import { expandSnapshotManifest } from "../../../snapshot-manifest.js";
+import type {
+  ExpandedSnapshotManifest,
+  SnapshotManifestEntry,
+  SnapshotManifestEvidenceVersions,
+  SnapshotManifestFace,
+  SnapshotManifestFontEvidence,
+  SnapshotManifestTypographyValue,
+  SnapshotManifestWire,
+  SnapshotManifestWireEntry,
+  SnapshotTablesPin,
+} from "../../../snapshot-manifest.js";
 import { loadedSnapshotTablesForRoot, snapshotTablesForRoot } from "../../../snapshot-tables.js";
+import type {
+  SnapshotProbe,
+  SnapshotTableBinaryView,
+} from "../../../snapshot-table-binary.js";
 import {
   snapshotSourceArtifactFromDom,
   snapshotSourceArtifactString,
 } from "./snapshot-source.js";
 import { lineLengthGridMeasure } from "../grid-metrics.js";
 import { declaredFaceSheets } from "./declared-faces.js";
+import type {
+  ViewportAnchor,
+} from "../../engine/coordinator/viewport-anchor.js";
+import type {
+  SnapshotFontReplayWire,
+} from "../../../snapshot-manifest.js";
+
+// SnapshotTransportManifest / SnapshotTransportEntry are the transport wire
+// shape read directly at the JSON.parse boundary (inventory A/B tables). The
+// expanded runtime shape (inventory D) home is snapshot-manifest.ts; table
+// rows home is snapshot-table-binary.ts.
+export interface SnapshotTransportFaceEvidence {
+  faceRef: number;
+  probeRef?: number;
+  coverageText?: string;
+}
+
+export interface SnapshotTransportEntry {
+  key: string;
+  sourceSha256: string;
+  sourceArtifactSha256?: string;
+  semantic?: boolean;
+  typographyRef: number;
+  maxWidthPx: number;
+  fontFaceEvidence: SnapshotTransportFaceEvidence[];
+  renderArtifactSha256: string;
+}
+
+export interface SnapshotTransportManifest {
+  schema: number;
+  tables: SnapshotTablesPin;
+  layoutRevision?: string;
+  renderRevision?: string;
+  fontSourcePolicy?: string;
+  paragraphSelector?: string;
+  // renderFontFamilies is validated but has no reader at this boundary
+  // (inventory A7 dead parameter path).
+  renderFontFamilies?: string[];
+  entrySource?: "font-contract-v1" | "server-dom-v1";
+  // fontReplay is validated during expansion and passed through; no reader at
+  // this boundary (worker sessions parse their own transport).
+  fontReplay?: SnapshotFontReplayWire | null;
+  entries: SnapshotTransportEntry[];
+  fontContractEntries?: SnapshotTransportEntry[];
+}
+
+interface SnapshotRuntimeEntry extends SnapshotManifestEntry {
+  typography: SnapshotManifestTypographyValue;
+}
+
+type UnicodeRange = [number, number];
+
+interface CollectedFontFace {
+  family: string;
+  style: string;
+  weight: string;
+  stretch: string;
+  unicodeRanges: UnicodeRange[] | null;
+  urls: string[];
+  hasLocalSource: boolean;
+  localNames: string[];
+  sizeAdjust: string;
+  ascentOverride: string;
+  descentOverride: string;
+  lineGapOverride: string;
+  featureSettings: string;
+  variationSettings: string;
+  languageOverride: string;
+  namedInstance: string;
+  display: string;
+}
+
+interface CollectedFontFaceCollection {
+  faces: CollectedFontFace[];
+  unverifiable: boolean;
+}
+
+interface CollectedFontFaceCooperativeCollection extends CollectedFontFaceCollection {
+  superseded: boolean;
+}
+
+interface FontFaceLiveSignatureResult {
+  signature: string;
+  unverifiable: boolean;
+}
+
+interface FontEvidenceGroup {
+  representative: SnapshotManifestFace;
+  coverage: Set<string>;
+  probes: Map<string, SnapshotManifestFace>;
+}
+
+type EvidenceGroupMap = Map<string, FontEvidenceGroup>;
+
+interface FontEvidenceValidation {
+  evidence: SnapshotManifestFace;
+  featureContract: OpenTypeFeatureContract;
+}
+
+interface LoadRequest {
+  descriptor: string;
+  coverage: Set<string>;
+}
+
+interface OpenTypeFeatureContract {
+  signature: string;
+  fontFeatureSettings: string;
+  fontVariantEastAsian: string;
+  fontVariantNumeric: string;
+}
+
+type CssFaceContractDetail =
+  | { kind: "EmptyCandidateSet" }
+  | {
+    kind: "FieldMismatch";
+    expectedFaces: number;
+    actualFaces: number;
+    firstField: string;
+  };
+
+type CssFaceContractResult =
+  | { matches: true; compatibleLocalDeclared: boolean }
+  | { matches: false; compatibleLocalDeclared: false; detail: CssFaceContractDetail };
+
+interface FontContractValidationResult {
+  matches: boolean;
+  reason: string | null;
+  paragraphSelector?: string;
+  compatibleLocalDeclared?: boolean;
+  detail?: CssFaceContractDetail;
+}
+
+export type SnapshotAdoptOutcome =
+  | { adopted: true; count: number }
+  | { adopted: false; reason: string };
+
+interface ManifestFontContractResult {
+  reason: string | null;
+  detail?: CssFaceContractDetail;
+  compatibleLocalDeclared?: boolean;
+}
+
+interface GroupedFontEvidenceResult {
+  evidenceGroups: EvidenceGroupMap | null;
+  superseded?: boolean;
+}
+
+type ValidationYield = (sliceStartedAt: number) => Promise<number>;
+
+interface SnapshotAdoptedEntry {
+  paragraph: Element;
+  originalContent: DocumentFragment;
+  originalRenderedAttribute: string | null;
+  originalLangAttribute: string | null;
+  originalCanonicalPlainAttribute: string | null;
+  originalCanonicalSourceAttribute: string | null;
+  originalExactPreparedDomAttribute: string | null;
+}
+
+interface SnapshotAdoptionState {
+  paragraphs: SnapshotAdoptedEntry[];
+  manifest: ExpandedSnapshotManifest;
+  valueStylesInstalled: boolean;
+  originalExactRenderFontAttribute: string | null;
+  serverRenderedEntries: boolean;
+}
+
+interface PreparedEntry {
+  paragraph: HTMLElement;
+  snapshot: Element;
+  sourceSnapshot: Element | null;
+  entry: SnapshotManifestEntry;
+}
+
+interface ParagraphSourceArtifact {
+  text: string;
+  serialized: string | null;
+}
+
+type IsCurrent = () => boolean;
+
+export type AnchorCapture = () => ViewportAnchor | null;
+
+export type AnchorCompensate = (anchor: ViewportAnchor | null) => boolean;
+
+export interface SnapshotAdoptAnchors {
+  capture: AnchorCapture;
+  compensate: AnchorCompensate;
+}
+
+interface PreparedDomValidatorIssueFn {
+  (host: Element, width: number): string | null;
+}
+
+export interface PreparedDomValidatorInterface {
+  issue: PreparedDomValidatorIssueFn;
+}
+
+interface TypographyIssueOptions {
+  allowLiveFontSizeAndLineHeight?: boolean;
+}
+
+type MessageLike = { message?: string };
+
+interface CssRuleLike {
+  type: number;
+  style?: CSSStyleDeclaration;
+  cssRules?: CSSRuleList;
+  parentStyleSheet?: CSSStyleSheet | null;
+}
+
+interface PostTaskOptions {
+  priority: string;
+}
+
+type PostTaskCallback = (value?: unknown) => void;
+
+interface SchedulerPostTaskFn {
+  (callback: PostTaskCallback, options?: PostTaskOptions): Promise<void>;
+}
+
+interface SchedulerYieldFn {
+  (): Promise<void>;
+}
+
+interface SchedulerLike {
+  yield: SchedulerYieldFn;
+  postTask: SchedulerPostTaskFn;
+}
+
+type CanonicalNode =
+  | ["#", string]
+  | [string, [string, string][], CanonicalNode[]];
+
+interface TextFlowStyleDeclaration {
+  fontLanguageOverride?: string;
+  textJustify?: string;
+  textAutospace?: string;
+}
+
+interface ExactFontReplayProof {
+  reference: string | undefined;
+  template: HTMLTemplateElement | null;
+  manifestText: string | null | undefined;
+  requestedFamilies: Set<string>;
+  cssSignature: string;
+  paragraphSelector: string | undefined;
+  compatibleLocalDeclared: boolean | undefined;
+  renderSource: string;
+}
+
+declare global {
+  var __TiqianPreparedDomValidator: PreparedDomValidatorInterface | undefined;
+  var scheduler: SchedulerLike | undefined;
+}
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const WIDTH_TOLERANCE_PX = 0.5;
@@ -50,7 +320,7 @@ const INLINE_POSITION_TOLERANCE_PX = PROBE_ABSOLUTE_TOLERANCE_PX +
   BROWSER_SUBPIXEL_QUANTIZATION_PX + GEOMETRY_COMPARISON_EPSILON_PX;
 const LINE_VERTICAL_TOLERANCE_PX = 0.75;
 const PREPARED_VERTICAL_TOLERANCE_PX = 0.02;
-const exactFontReplayProofs = new WeakMap();
+const exactFontReplayProofs: WeakMap<HTMLElement, ExactFontReplayProof> = new WeakMap();
 const FONT_FACE_LIVE_SIGNATURE_PROPERTIES = Object.freeze([
   "font-family",
   "font-style",
@@ -72,9 +342,9 @@ const VALIDATION_SLICE_BUDGET_MS = 8;
 // Direct SSR is already exact, readable DOM; its proof can favor input and
 // host rendering more aggressively without delaying a visible takeover.
 const DIRECT_SSR_VALIDATION_SLICE_BUDGET_MS = 4;
-const unicodeRangeCache = new Map();
+const unicodeRangeCache: Map<string, UnicodeRange[]> = new Map();
 
-async function yieldValidationIfNeeded(sliceStartedAt) {
+async function yieldValidationIfNeeded(sliceStartedAt: number): Promise<number> {
   if (performance.now() - sliceStartedAt < VALIDATION_SLICE_BUDGET_MS) {
     return sliceStartedAt;
   }
@@ -86,7 +356,7 @@ async function yieldValidationIfNeeded(sliceStartedAt) {
   return performance.now();
 }
 
-async function yieldDirectSsrValidationIfNeeded(sliceStartedAt) {
+async function yieldDirectSsrValidationIfNeeded(sliceStartedAt: number): Promise<number> {
   if (performance.now() - sliceStartedAt < DIRECT_SSR_VALIDATION_SLICE_BUDGET_MS) {
     return sliceStartedAt;
   }
@@ -113,7 +383,10 @@ async function yieldDirectSsrValidationIfNeeded(sliceStartedAt) {
   return performance.now();
 }
 
-function yieldSnapshotValidationIfNeeded(sliceStartedAt, serverRenderedEntries) {
+function yieldSnapshotValidationIfNeeded(
+  sliceStartedAt: number,
+  serverRenderedEntries: boolean,
+): Promise<number> {
   return serverRenderedEntries
     ? yieldDirectSsrValidationIfNeeded(sliceStartedAt)
     : yieldValidationIfNeeded(sliceStartedAt);
@@ -128,10 +401,10 @@ const EXACT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom";
 const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
 const EXACT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-exact-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
-const states = new WeakMap();
-const directServerArtifacts = new WeakMap();
+const states: WeakMap<HTMLElement, SnapshotAdoptionState> = new WeakMap();
+const directServerArtifacts: WeakMap<HTMLElement, Map<string, Element>> = new WeakMap();
 
-function parseFontFamilies(value) {
+function parseFontFamilies(value: unknown): string[] {
   const families = [];
   let token = "";
   let quote = "";
@@ -158,7 +431,7 @@ function parseFontFamilies(value) {
   return families;
 }
 
-function snapshotEntryWidthMatches(width, entry) {
+function snapshotEntryWidthMatches(width: number, entry: SnapshotRuntimeEntry): boolean {
   if (!Number.isFinite(width) || !Number.isFinite(entry?.maxWidthPx)) return false;
   if (entry.typography?.lineLengthGridEnabled === true) {
     const fontSize = Number(entry.typography.fontSizePx);
@@ -170,12 +443,12 @@ function snapshotEntryWidthMatches(width, entry) {
   return Math.abs(width - entry.maxWidthPx) <= WIDTH_TOLERANCE_PX;
 }
 
-function parseUnicodeRange(value) {
+function parseUnicodeRange(value: unknown): UnicodeRange[] | null {
   const serialized = String(value ?? "").trim();
   if (!serialized) return null;
   const cached = unicodeRangeCache.get(serialized);
   if (cached) return cached;
-  const ranges = [];
+  const ranges: UnicodeRange[] = [];
   for (const item of serialized.split(",")) {
     const token = item.trim().toUpperCase();
     if (!token.startsWith("U+")) continue;
@@ -193,7 +466,7 @@ function parseUnicodeRange(value) {
     ranges.push([start, Number.parseInt(match[2] ?? match[1], 16)]);
   }
   ranges.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
-  const merged = [];
+  const merged: UnicodeRange[] = [];
   for (const range of ranges) {
     const previous = merged.at(-1);
     if (previous && range[0] <= previous[1] + 1) {
@@ -210,7 +483,7 @@ function parseUnicodeRange(value) {
   return merged;
 }
 
-function unicodeRangesIntersectCoverage(ranges, codePoints) {
+function unicodeRangesIntersectCoverage(ranges: UnicodeRange[] | null, codePoints: number[]): boolean {
   if (ranges == null) return true;
   // UnicodeRangeFaceGroupIntersection: both inputs are sorted and parsed CSS
   // ranges are merged. Search whichever collection is smaller in the other
@@ -243,11 +516,11 @@ function unicodeRangesIntersectCoverage(ranges, codePoints) {
   return false;
 }
 
-function unicodeRangesContainCodePoint(ranges, codePoint) {
+function unicodeRangesContainCodePoint(ranges: UnicodeRange[] | null, codePoint: number): boolean {
   return ranges == null || ranges.some(([start, end]) => codePoint >= start && codePoint <= end);
 }
 
-function unquote(value) {
+function unquote(value: unknown): string {
   const normalized = String(value ?? "").trim();
   if (
     normalized.length >= 2 &&
@@ -257,7 +530,7 @@ function unquote(value) {
   return normalized;
 }
 
-function sourceUrls(value, baseUrl) {
+function sourceUrls(value: unknown, baseUrl: string): string[] {
   const urls = [];
   const expression = /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*?))\s*\)/giu;
   for (const match of String(value ?? "").matchAll(expression)) {
@@ -272,7 +545,7 @@ function sourceUrls(value, baseUrl) {
   return urls;
 }
 
-function sourceLocalNames(value) {
+function sourceLocalNames(value: unknown): string[] {
   const names = [];
   const expression = /local\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*?))\s*\)/giu;
   for (const match of String(value ?? "").matchAll(expression)) {
@@ -282,24 +555,27 @@ function sourceLocalNames(value) {
   return names;
 }
 
-function canonicalLocalFontName(value) {
+function canonicalLocalFontName(value: unknown): string {
   return String(value ?? "")
     .normalize("NFC")
     .trim()
     .toLowerCase();
 }
 
-function compatibleLocalSources(face, evidence) {
+function compatibleLocalSources(face: CollectedFontFace, evidence: SnapshotManifestFace): boolean {
   if (!face.hasLocalSource) return true;
   const allowed = new Set(Array.from(evidence.localNames ?? [], canonicalLocalFontName));
   return face.localNames.length > 0 && face.localNames.every((name) =>
     allowed.has(canonicalLocalFontName(name)));
 }
 
-export function collectFontFaces(documentObject, requestedFamilies = null) {
-  const faces = [];
+export function collectFontFaces(
+  documentObject: Document,
+  requestedFamilies: Set<string> | null = null,
+): CollectedFontFaceCollection {
+  const faces: CollectedFontFace[] = [];
   let unverifiable = false;
-  const visit = (rules, fallbackBaseUrl) => {
+  const visit = (rules: Iterable<CssRuleLike> | null, fallbackBaseUrl: string): void => {
     if (!rules) return;
     for (const rule of rules) {
       if (rule.type === 5 && rule.style) {
@@ -350,15 +626,15 @@ export function collectFontFaces(documentObject, requestedFamilies = null) {
 }
 
 async function collectFontFacesCooperatively(
-  documentObject,
-  requestedFamilies = null,
-  isCurrent = () => true,
-  yieldIfNeeded = yieldValidationIfNeeded,
-) {
-  const faces = [];
+  documentObject: Document,
+  requestedFamilies: Set<string> | null = null,
+  isCurrent: IsCurrent = () => true,
+  yieldIfNeeded: ValidationYield = yieldValidationIfNeeded,
+): Promise<CollectedFontFaceCooperativeCollection> {
+  const faces: CollectedFontFace[] = [];
   let unverifiable = false;
   let sliceStartedAt = performance.now();
-  const visit = async (rules, fallbackBaseUrl) => {
+  const visit = async (rules: Iterable<CssRuleLike> | null, fallbackBaseUrl: string): Promise<boolean> => {
     if (!rules) return true;
     for (const rule of rules) {
       if (rule.type === 5 && rule.style) {
@@ -419,10 +695,13 @@ async function collectFontFacesCooperatively(
   return { faces, unverifiable, superseded: !isCurrent() };
 }
 
-function relevantFontFaceLiveSignature(documentObject, requestedFamilies) {
-  const descriptors = [];
+function relevantFontFaceLiveSignature(
+  documentObject: Document,
+  requestedFamilies: Set<string>,
+): FontFaceLiveSignatureResult {
+  const descriptors: (string | null)[][] = [];
   let unverifiable = false;
-  const visit = (rules, fallbackBaseUrl) => {
+  const visit = (rules: Iterable<CssRuleLike> | null, fallbackBaseUrl: string): void => {
     if (!rules) return;
     for (const rule of rules) {
       if (rule.type === 5 && rule.style) {
@@ -431,7 +710,7 @@ function relevantFontFaceLiveSignature(documentObject, requestedFamilies) {
         descriptors.push([
           rule.parentStyleSheet?.href || fallbackBaseUrl,
           ...FONT_FACE_LIVE_SIGNATURE_PROPERTIES.map((property) =>
-            rule.style.getPropertyValue(property)),
+            rule.style!.getPropertyValue(property)),
         ]);
       } else {
         try {
@@ -452,8 +731,8 @@ function relevantFontFaceLiveSignature(documentObject, requestedFamilies) {
   return { signature: stableStringify(descriptors), unverifiable };
 }
 
-function manifestFontFamilies(manifest) {
-  const families = new Set();
+function manifestFontFamilies(manifest: ExpandedSnapshotManifest): Set<string> {
+  const families: Set<string> = new Set();
   for (const entry of [...(manifest.entries ?? []), ...(manifest.fontContractEntries ?? [])]) {
     for (const face of entry?.fontEvidence?.faces ?? []) {
       if (typeof face?.family === "string" && face.family.trim()) {
@@ -464,7 +743,7 @@ function manifestFontFamilies(manifest) {
   return families;
 }
 
-function numericWeight(value) {
+function numericWeight(value: unknown): number {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "normal") return 400;
   if (normalized === "bold") return 700;
@@ -472,13 +751,13 @@ function numericWeight(value) {
   return Number.isFinite(parsed) ? parsed : 400;
 }
 
-function weightRangeMatches(descriptor, expected) {
+function weightRangeMatches(descriptor: unknown, expected: unknown): boolean {
   if (!Array.isArray(expected) || expected.length !== 2) return false;
   const values = String(descriptor ?? "400").trim().split(/\s+/u).map(numericWeight);
   return Math.min(...values) === Number(expected[0]) && Math.max(...values) === Number(expected[1]);
 }
 
-function cssWeightPreference(descriptor, requested) {
+function cssWeightPreference(descriptor: unknown, requested: number): [number, number] {
   const values = String(descriptor ?? "400").trim().split(/\s+/u).map(numericWeight);
   const low = Math.min(...values);
   const high = Math.max(...values);
@@ -494,7 +773,7 @@ function cssWeightPreference(descriptor, requested) {
   return low > requested ? [1, low - requested] : [2, requested - high];
 }
 
-function cssWeightMatchedFaces(faces, requested) {
+function cssWeightMatchedFaces(faces: CollectedFontFace[], requested: number): CollectedFontFace[] {
   if (faces.length <= 1) return faces;
   const ranked = faces.map((face) => ({ face, rank: cssWeightPreference(face.weight, requested) }));
   ranked.sort((left, right) =>
@@ -504,18 +783,18 @@ function cssWeightMatchedFaces(faces, requested) {
     .map(({ face }) => face);
 }
 
-function styleMatches(descriptor, italic) {
+function styleMatches(descriptor: unknown, italic: boolean): boolean {
   const available = String(descriptor ?? "normal").trim().toLowerCase();
   return italic ? available.startsWith("italic") : available === "normal";
 }
 
-function cssFamilyToken(family) {
+function cssFamilyToken(family: unknown): string {
   return `"${String(family).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
 }
 
-function canonicalRenderedPlainSource(parent) {
+function canonicalRenderedPlainSource(parent: Node): string {
   let result = "";
-  const children = Array.from(parent.childNodes ?? []);
+  const children = Array.from(parent.childNodes ?? []) as Element[];
   for (let index = 0; index < children.length; index += 1) {
     const node = children[index];
     if (node.nodeType === 3) {
@@ -539,7 +818,7 @@ function canonicalRenderedPlainSource(parent) {
   return result;
 }
 
-function paragraphSourceArtifact(paragraph) {
+function paragraphSourceArtifact(paragraph: HTMLElement): ParagraphSourceArtifact | null {
   if (
     paragraph.getAttribute("data-tq-rendered") === "true" &&
     (paragraph.getAttribute("data-tq-canonical-source") === "true" ||
@@ -562,30 +841,30 @@ function paragraphSourceArtifact(paragraph) {
   }
 }
 
-function plainParagraphSource(paragraph) {
+function plainParagraphSource(paragraph: HTMLElement): string | null {
   return paragraphSourceArtifact(paragraph)?.text ?? null;
 }
 
-async function sourceArtifactMatches(paragraph, entry) {
+async function sourceArtifactMatches(paragraph: HTMLElement, entry: SnapshotManifestEntry): Promise<boolean> {
   if (typeof entry.sourceArtifactSha256 !== "string") return true;
   const source = paragraphSourceArtifact(paragraph);
   if (source?.serialized == null) return true;
   return await sha256Text(source.serialized) === entry.sourceArtifactSha256;
 }
 
-async function sha256Text(value) {
+async function sha256Text(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function numericCssPx(value) {
+function numericCssPx(value: unknown): number {
   const normalized = String(value ?? "").trim();
   if (!normalized.endsWith("px")) return Number.NaN;
   return Number.parseFloat(normalized);
 }
 
-function contentBoxWidth(element) {
+function contentBoxWidth(element: Element): number {
   const style = getComputedStyle(element);
   const padding = [style.paddingLeft, style.paddingRight]
     .reduce((sum, value) => sum + (numericCssPx(value) || 0), 0);
@@ -601,7 +880,7 @@ function contentBoxWidth(element) {
   return element.getBoundingClientRect().width - padding - border;
 }
 
-function canonicalPreparedFlow(paragraph) {
+function canonicalPreparedFlow(paragraph: Element): boolean {
   return paragraph.getAttribute("data-tq-rendered") === "true" &&
     (paragraph.getAttribute("data-tq-canonical-source") === "true" ||
       paragraph.getAttribute("data-tq-canonical-plain") === "true");
@@ -610,7 +889,7 @@ function canonicalPreparedFlow(paragraph) {
 // TranslationOnlyAncestorTransformCompatibility: an ancestor's visual x/y
 // offset does not change the paragraph's advances, line boxes, or content width.
 // Every linear, perspective, and z component remains fail-closed.
-function translationOnlyAncestorTransformIsSafe(value) {
+function translationOnlyAncestorTransformIsSafe(value: unknown): boolean {
   const normalized = String(value ?? "none").trim();
   if (!normalized || normalized === "none") return true;
   const match = /^(matrix|matrix3d)\((.*)\)$/u.exec(normalized);
@@ -631,7 +910,7 @@ function translationOnlyAncestorTransformIsSafe(value) {
     values[14] === 0 && values[15] === 1;
 }
 
-function ancestorFragmentationIsSafe(element) {
+function ancestorFragmentationIsSafe(element: Element): boolean {
   for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
     const style = getComputedStyle(ancestor);
     if (!new Set(["", "auto"]).has(style.columnCount || "auto")) return false;
@@ -661,7 +940,7 @@ const FEATURE_OVERRIDABLE_BOUNDARY_STYLE_PROPERTIES = new Set([
   "fontVariantEastAsian",
 ]);
 
-function openTypeFeatureContract(features) {
+function openTypeFeatureContract(features: string[] | null | undefined): OpenTypeFeatureContract | null {
   if (features == null || (Array.isArray(features) && features.length === 0)) {
     return Object.freeze({
       signature: "",
@@ -690,17 +969,17 @@ function openTypeFeatureContract(features) {
   });
 }
 
-function boundaryOpenTypeFeatureContract(element) {
+function boundaryOpenTypeFeatureContract(element: Element): OpenTypeFeatureContract | null {
   const signature = element.getAttribute("data-tq-open-type-features");
   return signature == null
     ? openTypeFeatureContract([])
     : openTypeFeatureContract(signature.split(","));
 }
 
-function parsedOpenTypeFeatureSettings(value) {
+function parsedOpenTypeFeatureSettings(value: unknown): Map<string, number> | null {
   const serialized = String(value ?? "").trim();
   if (!serialized || serialized === "normal") return new Map();
-  const result = new Map();
+  const result: Map<string, number> = new Map();
   for (const item of serialized.split(",")) {
     const match = /^\s*["']([A-Za-z0-9]{4})["'](?:\s+(-?\d+))?\s*$/u.exec(item);
     if (!match || result.has(match[1])) return null;
@@ -709,13 +988,20 @@ function parsedOpenTypeFeatureSettings(value) {
   return result;
 }
 
-function canonicalEnginePunctuationFeatureSettings(value, proportionalQuote = false) {
+function canonicalEnginePunctuationFeatureSettings(
+  value: unknown,
+  proportionalQuote = false,
+): boolean {
   const settings = parsedOpenTypeFeatureSettings(value);
   if (!settings || settings.get("halt") !== 0 || settings.get("chws") !== 0) return false;
   return settings.size === 3 && settings.get("palt") === (proportionalQuote ? 1 : 0);
 }
 
-function boundaryOpenTypeFeatureIssue(element, style, contract) {
+function boundaryOpenTypeFeatureIssue(
+  element: Element,
+  style: CSSStyleDeclaration,
+  contract: OpenTypeFeatureContract | null,
+): string | null {
   if (!contract) return "Boundary:openTypeFeatures";
   if (!contract.signature) return null;
   if (style.fontVariantEastAsian !== contract.fontVariantEastAsian) {
@@ -727,28 +1013,30 @@ function boundaryOpenTypeFeatureIssue(element, style, contract) {
   return null;
 }
 
-function pseudoGeneratedContentIsEmpty(element) {
-  const pseudoHasContent = (pseudo) => {
+function pseudoGeneratedContentIsEmpty(element: Element): boolean {
+  const pseudoHasContent = (pseudo: string): boolean => {
     const content = String(getComputedStyle(element, pseudo).content ?? "normal").trim();
     return !new Set(["", "none", "normal", "\"\"", "''"]).has(content);
   };
   return !pseudoHasContent("::before") && !pseudoHasContent("::after");
 }
 
-function pseudoTypographyIssue(element, style) {
+function pseudoTypographyIssue(element: Element, style: CSSStyleDeclaration): string | null {
   if (!pseudoGeneratedContentIsEmpty(element)) return "GeneratedContent";
   const firstLetter = getComputedStyle(element, "::first-letter");
   const firstLine = getComputedStyle(element, "::first-line");
   const firstLetterMismatch = SHAPING_STYLE_PROPERTIES.find((property) =>
-    String(firstLetter[property] ?? style[property] ?? "") !== String(style[property] ?? ""));
+    String(firstLetter[property as keyof CSSStyleDeclaration] ?? style[property as keyof CSSStyleDeclaration] ?? "") !==
+    String(style[property as keyof CSSStyleDeclaration] ?? ""));
   if (firstLetterMismatch) return `FirstLetter:${firstLetterMismatch}`;
   const firstLineMismatch = SHAPING_STYLE_PROPERTIES.find((property) =>
-    String(firstLine[property] ?? style[property] ?? "") !== String(style[property] ?? ""));
+    String(firstLine[property as keyof CSSStyleDeclaration] ?? style[property as keyof CSSStyleDeclaration] ?? "") !==
+    String(style[property as keyof CSSStyleDeclaration] ?? ""));
   if (firstLineMismatch) return `FirstLine:${firstLineMismatch}`;
   return new Set(["", "none"]).has(firstLetter.cssFloat || "none") ? null : "FirstLetter:float";
 }
 
-function generatedGeometryIssue(element, paragraph) {
+function generatedGeometryIssue(element: Element, paragraph: Element): string | null {
   const style = getComputedStyle(element);
   let inheritedStyle = getComputedStyle(paragraph);
   for (let ancestor = element.parentElement; ancestor && ancestor !== paragraph; ancestor = ancestor.parentElement) {
@@ -781,7 +1069,7 @@ function generatedGeometryIssue(element, paragraph) {
       unicodeBidi: "isolate",
     };
     const stableMismatch = Object.entries(contract).find(([property, expected]) =>
-      style[property] !== expected);
+      style[property as keyof CSSStyleDeclaration] !== expected);
     if (stableMismatch) return `Boundary:${stableMismatch[0]}`;
     const featureContract = boundaryOpenTypeFeatureContract(element);
     const inheritedProperties = (featureContract?.signature
@@ -795,7 +1083,8 @@ function generatedGeometryIssue(element, paragraph) {
       .filter((property) => property !== "letterSpacing" &&
         (!projectedRenderFont || property !== "fontFamily"));
     const inheritedMismatch = inheritedProperties.find((property) =>
-      String(style[property] ?? "") !== String(inheritedStyle[property] ?? ""));
+      String(style[property as keyof CSSStyleDeclaration] ?? "") !==
+      String(inheritedStyle[property as keyof CSSStyleDeclaration] ?? ""));
     if (inheritedMismatch) return `Boundary:${inheritedMismatch}`;
     const featureIssue = boundaryOpenTypeFeatureIssue(element, style, featureContract);
     if (featureIssue) return featureIssue;
@@ -813,20 +1102,22 @@ function generatedGeometryIssue(element, paragraph) {
         unicodeBidi: "isolate",
       };
       const stableMismatch = Object.entries(contract).find(([property, expected]) =>
-        style[property] !== expected);
+        style[property as keyof CSSStyleDeclaration] !== expected);
       if (stableMismatch) return `Geometry:${stableMismatch[0]}`;
     }
     const inheritedMismatch = BOUNDARY_STYLE_PROPERTIES
       .filter((property) => property !== "letterSpacing" &&
         (!projectedRenderFont || property !== "fontFamily"))
-      .find((property) => String(style[property] ?? "") !== String(inheritedStyle[property] ?? ""));
+      .find((property) =>
+        String(style[property as keyof CSSStyleDeclaration] ?? "") !==
+        String(inheritedStyle[property as keyof CSSStyleDeclaration] ?? ""));
     if (inheritedMismatch) return `Geometry:${inheritedMismatch}`;
   }
   return null;
 }
 
-function sameLeadingCssFamily(actualFamily, expectedFamily) {
-  const first = (value) => {
+function sameLeadingCssFamily(actualFamily: string, expectedFamily: string): boolean {
+  const first = (value: string): string => {
     let quote = "";
     let token = "";
     for (const char of String(value || "")) {
@@ -847,7 +1138,7 @@ function sameLeadingCssFamily(actualFamily, expectedFamily) {
   return first(actualFamily).toLocaleLowerCase() === first(expectedFamily).toLocaleLowerCase();
 }
 
-function renderedDashFaceIssue(paragraph) {
+function renderedDashFaceIssue(paragraph: Element): string | null {
   const elements = Array.from(paragraph.querySelectorAll("[data-tq-dash-font-family]"));
   for (let index = 0; index < elements.length; index += 1) {
     const element = elements[index];
@@ -860,7 +1151,7 @@ function renderedDashFaceIssue(paragraph) {
   return null;
 }
 
-function renderedBoundaryAdvanceIssue(paragraph) {
+function renderedBoundaryAdvanceIssue(paragraph: Element): number | string | null {
   const boundaries = Array.from(paragraph.querySelectorAll("[data-tq-shaping-boundary]"));
   if (boundaries.some((boundary) => !boundary.hasAttribute("data-tq-advance"))) return 0;
   const contributors = Array.from(paragraph.querySelectorAll("[data-tq-advance]"));
@@ -885,10 +1176,10 @@ function renderedBoundaryAdvanceIssue(paragraph) {
   return null;
 }
 
-function renderedLineAdvanceIssue(paragraph, contentWidth) {
-  const children = [];
-  const appendFlowNodes = (parent) => {
-    for (const node of Array.from(parent.childNodes ?? [])) {
+function renderedLineAdvanceIssue(paragraph: Element, contentWidth: number): string | null {
+  const children: Element[] = [];
+  const appendFlowNodes = (parent: Node): void => {
+    for (const node of Array.from(parent.childNodes ?? []) as Element[]) {
       if (node.nodeType === 1 && node.hasAttribute("data-tq-source-semantic")) {
         appendFlowNodes(node);
       } else {
@@ -901,7 +1192,7 @@ function renderedLineAdvanceIssue(paragraph, contentWidth) {
   const sentinels = Array.from(paragraph.querySelectorAll("[data-tq-line-end-sentinel]"));
   if (markers.length === 0 || markers.length !== sentinels.length) return "markers";
   for (let lineIndex = 0; lineIndex < markers.length; lineIndex += 1) {
-    const issue = (detail) => `${lineIndex};${detail}`;
+    const issue = (detail: string): string => `${lineIndex};${detail}`;
     const marker = markers[lineIndex];
     const sentinel = sentinels[lineIndex];
     const markerIndex = children.indexOf(marker);
@@ -917,7 +1208,7 @@ function renderedLineAdvanceIssue(paragraph, contentWidth) {
     const markerRect = marker.getBoundingClientRect();
     const markerMarginLeft = numericCssPx(markerStyle.marginLeft) || 0;
     const origin = markerRect.left - markerMarginLeft;
-    const contributorTops = new Map();
+    const contributorTops: Map<string, number> = new Map();
     let contributorIndex = 0;
     for (let index = markerIndex + 1; index < sentinelIndex; index += 1) {
       const node = children[index];
@@ -961,7 +1252,7 @@ function renderedLineAdvanceIssue(paragraph, contentWidth) {
         const verticalSignature = stableStringify(Object.fromEntries([
           "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight",
           "verticalAlign", "fontVariantPosition",
-        ].map((property) => [property, String(style[property] ?? "")])));
+        ].map((property) => [property, String(style[property as keyof CSSStyleDeclaration] ?? "")])));
         const contributorTop = contributorTops.get(verticalSignature);
         if (contributorTop == null) contributorTops.set(verticalSignature, rect.top);
         else if (Math.abs(rect.top - contributorTop) > LINE_VERTICAL_TOLERANCE_PX) {
@@ -986,7 +1277,7 @@ function renderedLineAdvanceIssue(paragraph, contentWidth) {
   return null;
 }
 
-function renderedLineVerticalIssue(paragraph) {
+function renderedLineVerticalIssue(paragraph: Element): string | null {
   const markers = Array.from(paragraph.querySelectorAll("[data-tq-line-flow-width]"));
   const sentinels = Array.from(paragraph.querySelectorAll("[data-tq-line-end-sentinel]"));
   if (markers.length === 0 || markers.length !== sentinels.length) return "markers";
@@ -998,7 +1289,7 @@ function renderedLineVerticalIssue(paragraph) {
     .reduce((sum, value) => sum + (numericCssPx(value) || 0), 0);
   const contentTop = paragraphRect.top + topInset;
   const contentHeight = paragraphRect.height - topInset - bottomInset;
-  let expectedParagraphHeight = null;
+  let expectedParagraphHeight: number | null = null;
   for (let lineIndex = 0; lineIndex < markers.length; lineIndex += 1) {
     const marker = markers[lineIndex];
     const sentinel = sentinels[lineIndex];
@@ -1029,7 +1320,7 @@ function renderedLineVerticalIssue(paragraph) {
   return null;
 }
 
-function renderedFlowContractMatches(style) {
+function renderedFlowContractMatches(style: CSSStyleDeclaration & TextFlowStyleDeclaration): boolean {
   return (style.whiteSpaceCollapse || "preserve") === "preserve" &&
     (style.textWrapMode || "nowrap") === "nowrap" &&
     (style.overflowWrap || "normal") === "normal" &&
@@ -1043,9 +1334,9 @@ function renderedFlowContractMatches(style) {
  * for the canonical DOM freshly emitted by the browser runtime.
  */
 export function renderedPreparedParagraphIssue(
-  paragraph,
+  paragraph: Element,
   expectedContentWidth = contentBoxWidth(paragraph),
-) {
+): string | null {
   if (!Number.isFinite(expectedContentWidth) || expectedContentWidth <= 0) {
     return "RenderedPreparedParagraphWidthInvalid";
   }
@@ -1080,7 +1371,7 @@ export function renderedPreparedParagraphIssue(
 
 globalThis.__TiqianPreparedDomValidator = Object.freeze({
   revision: RENDER_REVISION,
-  issue(paragraph, expectedContentWidth) {
+  issue(paragraph: Element, expectedContentWidth: number): string | null {
     const issue = renderedPreparedParagraphIssue(paragraph, expectedContentWidth);
     if (issue) {
       const key = paragraph.getAttribute("data-tq-snapshot-key") ?? "unkeyed";
@@ -1091,15 +1382,15 @@ globalThis.__TiqianPreparedDomValidator = Object.freeze({
 });
 
 function computedTypographyIssue(
-  paragraph,
-  contract,
+  paragraph: HTMLElement,
+  contract: SnapshotManifestTypographyValue,
   canonicalPreparedFlow = false,
-  renderFontFamilies = null,
-  { allowLiveFontSizeAndLineHeight = false } = {},
-) {
-  const style = getComputedStyle(paragraph);
+  renderFontFamilies: string[] | null | undefined = null,
+  { allowLiveFontSizeAndLineHeight = false }: TypographyIssueOptions = {},
+): string | null {
+  const style = getComputedStyle(paragraph) as CSSStyleDeclaration & TextFlowStyleDeclaration;
   const actualFamilies = parseFontFamilies(style.fontFamily).map((family) => family.toLowerCase());
-  const expectedFamilies = contract.fontFamilies.map((family) => family.toLowerCase());
+  const expectedFamilies = contract.fontFamilies!.map((family) => family.toLowerCase());
   if (actualFamilies.length !== expectedFamilies.length ||
       actualFamilies.some((family, index) => family !== expectedFamilies[index])) {
     const root = paragraph.closest(ROOT_SELECTOR);
@@ -1109,8 +1400,8 @@ function computedTypographyIssue(
     return `fontFamily:${actualFamilies.join("|")}!=${expectedFamilies.join("|")};projection=${projection};fallback=${fallback};rendered=${rendered}`;
   }
   if (!allowLiveFontSizeAndLineHeight &&
-      Math.abs(numericCssPx(style.fontSize) - contract.fontSizePx) > 0.01) return "fontSize";
-  const expectedLineHeight = canonicalPreparedFlow ? 0 : contract.lineHeightPx;
+      Math.abs(numericCssPx(style.fontSize) - contract.fontSizePx!) > 0.01) return "fontSize";
+  const expectedLineHeight = canonicalPreparedFlow ? 0 : contract.lineHeightPx!;
   if (!allowLiveFontSizeAndLineHeight &&
       Math.abs(numericCssPx(style.lineHeight) - expectedLineHeight) > 0.01) return "lineHeight";
   if (numericWeight(style.fontWeight) !== contract.fontWeight) return "fontWeight";
@@ -1119,7 +1410,7 @@ function computedTypographyIssue(
     return "fontStyle";
   }
   const letterSpacing = style.letterSpacing === "normal" ? 0 : numericCssPx(style.letterSpacing);
-  if (!Number.isFinite(letterSpacing) || Math.abs(letterSpacing - contract.letterSpacingPx) > 0.01) {
+  if (!Number.isFinite(letterSpacing) || Math.abs(letterSpacing - contract.letterSpacingPx!) > 0.01) {
     return "letterSpacing";
   }
   if (canonicalPreparedFlow) {
@@ -1187,11 +1478,11 @@ function computedTypographyIssue(
 }
 
 function computedTypographyMatches(
-  paragraph,
-  contract,
+  paragraph: HTMLElement,
+  contract: SnapshotManifestTypographyValue,
   canonicalPreparedFlow = false,
-  renderFontFamilies = null,
-) {
+  renderFontFamilies: string[] | null | undefined = null,
+): boolean {
   return computedTypographyIssue(
     paragraph,
     contract,
@@ -1200,23 +1491,28 @@ function computedTypographyMatches(
   ) == null;
 }
 
-function canonicalUnicodeRanges(ranges) {
+function canonicalUnicodeRanges(ranges: UnicodeRange[] | null): UnicodeRange[] | null {
   if (ranges == null) return null;
-  return ranges.map(([start, end]) => [start, end]).sort((left, right) =>
+  return ranges.map(([start, end]) => [start, end] as UnicodeRange).sort((left, right) =>
     left[0] - right[0] || left[1] - right[1]);
 }
 
-function unicodeRangesMatch(left, right) {
+function unicodeRangesMatch(left: UnicodeRange[] | null, right: UnicodeRange[] | null): boolean {
   return JSON.stringify(canonicalUnicodeRanges(left)) === JSON.stringify(canonicalUnicodeRanges(right));
 }
 
-function computeFirstMismatchingField(evidence, faces, expectedRanges, coveragePoints) {
+function computeFirstMismatchingField(
+  evidence: SnapshotManifestFace,
+  faces: CollectedFontFace[],
+  expectedRanges: UnicodeRange[] | null,
+  coveragePoints: number[],
+): string {
   const familyMatched = faces.filter((face) =>
     face.family.toLowerCase() === evidence.family.toLowerCase());
   if (familyMatched.length === 0) return "family";
 
   const styleMatched = familyMatched.filter((face) =>
-    styleMatches(face.style, evidence.probe.italic));
+    styleMatches(face.style, evidence.probe!.italic));
   if (styleMatched.length === 0) return "style";
 
   const weightMatched = styleMatched.filter((face) =>
@@ -1231,27 +1527,34 @@ function computeFirstMismatchingField(evidence, faces, expectedRanges, coverageP
   return "src";
 }
 
-export function cssFaceContract(evidence, faces, documentObject, requireExactFirstPaintDisplay = true) {
+export function cssFaceContract(
+  evidence: SnapshotManifestFace,
+  faces: CollectedFontFace[],
+  documentObject: Document,
+  requireExactFirstPaintDisplay = true,
+): CssFaceContractResult {
   const expectedUrl = new URL(evidence.publicUrl, documentObject.baseURI).href;
-  const coverageText = evidence.coverageText || evidence.probe.text;
+  const coverageText = evidence.coverageText || evidence.probe!.text;
   const coveragePoints = Array.from(
-    new Set(Array.from(coverageText, (point) => point.codePointAt(0))),
+    new Set(Array.from(coverageText, (point) => point.codePointAt(0)!)),
   ).sort((left, right) => left - right);
   const expectedRanges = parseUnicodeRange(evidence.unicodeRange);
   const familyCandidates = faces.filter((face) =>
     face.family.toLowerCase() === evidence.family.toLowerCase() &&
-    styleMatches(face.style, evidence.probe.italic) &&
+    styleMatches(face.style, evidence.probe!.italic) &&
     unicodeRangesIntersectCoverage(face.unicodeRanges, coveragePoints));
-  const weightedCandidates = cssWeightMatchedFaces(familyCandidates, evidence.probe.fontWeight);
+  const weightedCandidates = cssWeightMatchedFaces(familyCandidates, evidence.probe!.fontWeight);
   // CSS Fonts composite faces resolve an overlapping code point to the later
   // rule with otherwise equal descriptors. Validate the effective face instead
   // of requiring every shadowed shard to have the selected shard's range/URL.
   const candidates = Array.from(new Set(coveragePoints.map((codePoint) =>
     weightedCandidates.findLast((face) =>
-      unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))))).filter(Boolean);
-  const defaultDescriptor = (value, defaults) => defaults.has(String(value ?? "").trim().toLowerCase());
-  const exactFirstPaintDisplay = (value) => new Set(["", "auto", "block"])
-    .has(String(value ?? "").trim().toLowerCase());
+      unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))))).filter(Boolean) as CollectedFontFace[];
+  const defaultDescriptor = (value: unknown, defaults: Set<string>): boolean =>
+    defaults.has(String(value ?? "").trim().toLowerCase());
+  const exactFirstPaintDisplay = (value: unknown): boolean =>
+    new Set(["", "auto", "block"])
+      .has(String(value ?? "").trim().toLowerCase());
   const matches = candidates.length > 0 && coveragePoints.every((codePoint) =>
     candidates.some((face) => unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))) &&
     candidates.every((face) =>
@@ -1293,9 +1596,13 @@ export function cssFaceContract(evidence, faces, documentObject, requireExactFir
   };
 }
 
-function createFontEvidenceProbe(evidence, documentObject, featureContract) {
+function createFontEvidenceProbe(
+  evidence: SnapshotManifestFace,
+  documentObject: Document,
+  featureContract: OpenTypeFeatureContract,
+): HTMLSpanElement {
   const probe = documentObject.createElement("span");
-  probe.textContent = evidence.probe.text;
+  probe.textContent = evidence.probe!.text;
   probe.setAttribute("aria-hidden", "true");
   probe.style.cssText = [
     "all:initial!important",
@@ -1304,9 +1611,9 @@ function createFontEvidenceProbe(evidence, documentObject, featureContract) {
     "pointer-events:none!important",
     "white-space:pre!important",
     `font-family:${cssFamilyToken(evidence.family)}!important`,
-    `font-size:${evidence.probe.fontSizePx}px!important`,
-    `font-weight:${evidence.probe.fontWeight}!important`,
-    `font-style:${evidence.probe.italic ? "italic" : "normal"}!important`,
+    `font-size:${evidence.probe!.fontSizePx}px!important`,
+    `font-weight:${evidence.probe!.fontWeight}!important`,
+    `font-style:${evidence.probe!.italic ? "italic" : "normal"}!important`,
     `font-variant-east-asian:${featureContract.fontVariantEastAsian}!important`,
     `font-variant-numeric:${featureContract.fontVariantNumeric}!important`,
     `font-feature-settings:${featureContract.fontFeatureSettings}!important`,
@@ -1315,20 +1622,23 @@ function createFontEvidenceProbe(evidence, documentObject, featureContract) {
     "font-optical-sizing:none!important",
     "letter-spacing:normal!important",
   ].join(";");
-  probe.lang = evidence.probe.language;
+  probe.lang = evidence.probe!.language;
   return probe;
 }
 
-async function observeFontEvidenceProbeWidths(probes, documentObject) {
+async function observeFontEvidenceProbeWidths(
+  probes: HTMLSpanElement[],
+  documentObject: Document,
+): Promise<(number | undefined)[] | null> {
   const ResizeObserverConstructor = documentObject.defaultView?.ResizeObserver ??
     globalThis.ResizeObserver;
   if (typeof ResizeObserverConstructor !== "function") {
     return probes.map((probe) => probe.getBoundingClientRect().width);
   }
-  return new Promise((resolve) => {
-    const widths = new Map();
+  return new Promise<(number | undefined)[] | null>((resolve) => {
+    const widths: Map<Element, number> = new Map();
     let settled = false;
-    const finish = (value) => {
+    const finish = (value: (number | undefined)[] | null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -1362,13 +1672,13 @@ async function observeFontEvidenceProbeWidths(probes, documentObject) {
  * all original advances against the same single layout snapshot.
  */
 async function validateFontEvidenceGroups(
-  evidenceGroups,
-  documentObject,
-  isCurrent = () => true,
-  yieldIfNeeded = yieldValidationIfNeeded,
-) {
-  const validations = [];
-  const loadRequests = new Map();
+  evidenceGroups: EvidenceGroupMap,
+  documentObject: Document,
+  isCurrent: IsCurrent = () => true,
+  yieldIfNeeded: ValidationYield = yieldValidationIfNeeded,
+): Promise<string | null> {
+  const validations: FontEvidenceValidation[] = [];
+  const loadRequests: Map<string, LoadRequest> = new Map();
   let groupIndex = 0;
   let sliceStartedAt = performance.now();
   for (const group of evidenceGroups.values()) {
@@ -1378,18 +1688,18 @@ async function validateFontEvidenceGroups(
       // this group and were already validated against aggregate coverage by
       // validateManifestFontContract(). Repeating that CSSOM proof for each
       // shaping run is quadratic article work and adds no evidence.
-      const featureContract = openTypeFeatureContract(evidence.probe.features);
+      const featureContract = openTypeFeatureContract(evidence.probe!.features);
       if (!featureContract) return "FontProbeFeaturesUnsupported";
-      const descriptor = `${evidence.probe.italic ? "italic" : "normal"} ` +
-        `${evidence.probe.fontWeight} ${evidence.probe.fontSizePx}px ` +
+      const descriptor = `${evidence.probe!.italic ? "italic" : "normal"} ` +
+        `${evidence.probe!.fontWeight} ${evidence.probe!.fontSizePx}px ` +
         cssFamilyToken(evidence.family);
       const loadKey = `${groupIndex}\u0000${descriptor}`;
       let request = loadRequests.get(loadKey);
       if (!request) {
-        request = { descriptor, coverage: new Set() };
+        request = { descriptor, coverage: new Set<string>() };
         loadRequests.set(loadKey, request);
       }
-      for (const point of evidence.probe.text) request.coverage.add(point);
+      for (const point of evidence.probe!.text) request.coverage.add(point);
       validations.push({ evidence, featureContract });
     }
     groupIndex += 1;
@@ -1429,8 +1739,8 @@ async function validateFontEvidenceGroups(
       // AbsoluteProbeBoxAdvance: the probe is a shrink-to-fit, unpadded,
       // single-line `white-space: pre` box, so its observed border-box width is
       // the complete text advance and preserves trailing whitespace.
-      const actual = widths[index];
-      const expected = evidence.probe.advancePx;
+      const actual = widths[index]!;
+      const expected = evidence.probe!.advancePx;
       const tolerance = Math.max(
         PROBE_ABSOLUTE_TOLERANCE_PX,
         expected * PROBE_RELATIVE_TOLERANCE,
@@ -1447,7 +1757,7 @@ async function validateFontEvidenceGroups(
   }
 }
 
-function manifestScriptText(template) {
+function manifestScriptText(template: HTMLTemplateElement): string {
   const script = template.content?.querySelector?.("[data-tq-snapshot-manifest]");
   if (!script?.textContent) throw new Error("MissingSnapshotManifest");
   return script.textContent;
@@ -1459,8 +1769,8 @@ function manifestScriptText(template) {
  * that has not finished loading fails the read and the preflight reports a
  * miss.
  */
-function preflightTemplateManifest(template, root) {
-  const parsed = JSON.parse(manifestScriptText(template));
+function preflightTemplateManifest(template: HTMLTemplateElement, root: HTMLElement): ExpandedSnapshotManifest {
+  const parsed = JSON.parse(manifestScriptText(template)) as SnapshotTransportManifest;
   const expected = typeof parsed.tables?.snapshot === "string"
     ? parsed.tables.snapshot
     : null;
@@ -1474,9 +1784,9 @@ function preflightTemplateManifest(template, root) {
  * load surfaces as `SnapshotTablesMissing` so the caller records the miss
  * and falls back.
  */
-async function resolveTemplateManifest(root, template) {
+async function resolveTemplateManifest(root: HTMLElement, template: HTMLTemplateElement): Promise<ExpandedSnapshotManifest> {
   const text = manifestScriptText(template);
-  const parsed = JSON.parse(text);
+  const parsed = JSON.parse(text) as SnapshotTransportManifest;
   const expected = typeof parsed.tables?.snapshot === "string"
     ? parsed.tables.snapshot
     : null;
@@ -1485,20 +1795,20 @@ async function resolveTemplateManifest(root, template) {
   return expandSnapshotManifest(parsed, table.view);
 }
 
-function manifestReadReason(error) {
-  return error?.message === "SnapshotTablesMissing"
+function manifestReadReason(error: unknown): string {
+  return (error as MessageLike)?.message === "SnapshotTablesMissing"
     ? "SnapshotTablesMissing"
     : "SnapshotManifestInvalid";
 }
 
-function manifestValueStylesAreValid(manifest) {
+function manifestValueStylesAreValid(manifest: ExpandedSnapshotManifest): boolean {
   // The table content hash was verified against the manifest pin before
   // expansion; the spliced rows need shape validation only.
   return Array.isArray(manifest?.valueStyles) &&
     manifest.valueStyles.every((row) => typeof row === "string");
 }
 
-function manifestEntryKeysAreUnique(manifest) {
+function manifestEntryKeysAreUnique(manifest: ExpandedSnapshotManifest): boolean {
   if (!Array.isArray(manifest?.entries)) return false;
   const keys = [...manifest.entries, ...(manifest.fontContractEntries ?? [])]
     .map((entry) => entry?.key);
@@ -1506,38 +1816,38 @@ function manifestEntryKeysAreUnique(manifest) {
     new Set(keys).size === keys.length;
 }
 
-function manifestRenderFontFamiliesAreValid(manifest) {
+function manifestRenderFontFamiliesAreValid(manifest: ExpandedSnapshotManifest): boolean {
   return Array.isArray(manifest?.renderFontFamilies) && manifest.renderFontFamilies.length > 0 &&
     manifest.renderFontFamilies.every((family) =>
       typeof family === "string" && family.trim().length > 0);
 }
 
-function fontContractOnlyManifest(manifest) {
+function fontContractOnlyManifest(manifest: ExpandedSnapshotManifest): boolean {
   return manifest?.entrySource === "font-contract-v1";
 }
 
-function liveRenderFontFamilies(root, manifest, paragraph) {
+function liveRenderFontFamilies(root: HTMLElement, manifest: ExpandedSnapshotManifest, paragraph: HTMLElement): null {
   return null;
 }
 
-function templateEntry(template, key, root = null) {
+function templateEntry(template: HTMLTemplateElement, key: string, root: HTMLElement | null = null): Element | null {
   for (const entry of template.content?.querySelectorAll?.("[data-tq-entry]") ?? []) {
     if (entry.getAttribute("data-tq-entry") === key) return entry;
   }
-  return directServerArtifacts.get(root)?.get(key) ?? null;
+  return directServerArtifacts.get(root as HTMLElement)?.get(key) ?? null;
 }
 
 async function captureServerRenderedSnapshotArtifacts(
-  root,
-  manifest,
-  paragraphsByKey,
-  isCurrent = () => true,
-) {
-  const artifacts = new Map();
+  root: HTMLElement,
+  manifest: ExpandedSnapshotManifest,
+  paragraphsByKey: Map<string | null, HTMLElement>,
+  isCurrent: IsCurrent = () => true,
+): Promise<boolean> {
+  const artifacts: Map<string, Element> = new Map();
   let sliceStartedAt = performance.now();
   for (const entry of manifest.entries) {
     const paragraph = paragraphsByKey.get(entry?.key);
-    if (paragraph) artifacts.set(entry.key, paragraph.cloneNode(true));
+    if (paragraph) artifacts.set(entry.key, paragraph.cloneNode(true) as Element);
     sliceStartedAt = await yieldDirectSsrValidationIfNeeded(sliceStartedAt);
     if (!isCurrent()) return false;
   }
@@ -1545,8 +1855,8 @@ async function captureServerRenderedSnapshotArtifacts(
   return true;
 }
 
-function templateSourceEntry(documentObject, reference, key) {
-  const sourceTemplate = documentObject.getElementById(`${reference}-source`);
+function templateSourceEntry(documentObject: Document, reference: string, key: string): Element | null {
+  const sourceTemplate = documentObject.getElementById(`${reference}-source`) as HTMLTemplateElement | null;
   if (!sourceTemplate?.content) return null;
   for (const entry of sourceTemplate.content.querySelectorAll?.("[data-tq-source-entry]") ?? []) {
     if (entry.getAttribute("data-tq-source-entry") === key) return entry;
@@ -1561,13 +1871,13 @@ function templateSourceEntry(documentObject, reference, key) {
  * direct entry. Once restored, clear the marker so a later maximum-measure
  * adoption reads the immutable prepared artifact from the normal template.
  */
-function restoreServerRenderedSnapshotSource(root) {
+function restoreServerRenderedSnapshotSource(root: HTMLElement): boolean {
   const reference = root?.getAttribute?.("snapshot-ref");
   if (!reference || root.getAttribute(SERVER_RENDERED_SNAPSHOT_ATTRIBUTE) !== reference) {
     return false;
   }
   const documentObject = root.ownerDocument || document;
-  const sourceTemplate = documentObject.getElementById(`${reference}-source`);
+  const sourceTemplate = documentObject.getElementById(`${reference}-source`) as HTMLTemplateElement | null;
   if (!sourceTemplate?.content) return false;
   const sourceEntries = Array.from(
     sourceTemplate.content.querySelectorAll?.("[data-tq-source-entry]") ?? [],
@@ -1580,7 +1890,7 @@ function restoreServerRenderedSnapshotSource(root) {
   );
   const restoreEntries = sourceEntries.map((source) => ({
     source,
-    paragraph: paragraphs.get(source.getAttribute("data-tq-source-entry")),
+    paragraph: paragraphs.get(source.getAttribute("data-tq-source-entry")) as Element,
   }));
   if (restoreEntries.some(({ paragraph }) => !paragraph)) return false;
   for (const { source, paragraph } of restoreEntries) {
@@ -1597,23 +1907,23 @@ function restoreServerRenderedSnapshotSource(root) {
   return true;
 }
 
-function canonicalSnapshotNode(node) {
+function canonicalSnapshotNode(node: Node): CanonicalNode {
   if (node.nodeType === 3) return ["#", String(node.textContent ?? "")];
   if (node.nodeType !== 1) throw new Error("UnsupportedSnapshotArtifactNode");
-  const attributes = Array.from(node.attributes ?? [], (attribute) => (
+  const attributes = Array.from((node as Element).attributes ?? [], (attribute) => (
     Array.isArray(attribute)
       ? [String(attribute[0]), String(attribute[1])]
       : [String(attribute.name), String(attribute.value)]
   ))
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0) as [string, string][];
   return [
-    String(node.tagName).toLowerCase(),
+    String((node as Element).tagName).toLowerCase(),
     attributes,
-    Array.from(node.childNodes ?? [], canonicalSnapshotNode),
+    Array.from((node as Element).childNodes ?? [], canonicalSnapshotNode),
   ];
 }
 
-async function snapshotArtifactMatches(snapshot, expectedSha256) {
+async function snapshotArtifactMatches(snapshot: Element, expectedSha256: unknown): Promise<boolean> {
   if (typeof expectedSha256 !== "string") return false;
   try {
     const artifact = Array.from(snapshot.childNodes ?? [], canonicalSnapshotNode);
@@ -1623,27 +1933,27 @@ async function snapshotArtifactMatches(snapshot, expectedSha256) {
   }
 }
 
-function rootParagraphs(root, selector) {
+function rootParagraphs(root: HTMLElement, selector: string): HTMLElement[] {
   return Array.from(root.querySelectorAll(selector)).filter((paragraph) =>
-    paragraph.closest(ROOT_SELECTOR) === root);
+    paragraph.closest(ROOT_SELECTOR) === root) as HTMLElement[];
 }
 
-function miss(root, reason) {
+function miss(root: HTMLElement, reason: string): SnapshotAdoptOutcome {
   restoreServerRenderedSnapshotSource(root);
   root.dataset.tiqianSnapshotMiss = reason;
   delete root.dataset.tiqianSnapshot;
   return { adopted: false, reason };
 }
 
-function groupedFontEvidence(manifest) {
-  const evidenceGroups = new Map();
+function groupedFontEvidence(manifest: ExpandedSnapshotManifest): EvidenceGroupMap | null {
+  const evidenceGroups: EvidenceGroupMap = new Map();
   for (const entry of [...manifest.entries, ...(manifest.fontContractEntries ?? [])]) {
     if (!addFontEvidenceEntry(evidenceGroups, entry)) return null;
   }
   return evidenceGroups;
 }
 
-function addFontEvidenceEntry(evidenceGroups, entry) {
+function addFontEvidenceEntry(evidenceGroups: EvidenceGroupMap, entry: SnapshotManifestEntry): boolean {
   if (!entry?.fontEvidence || !Array.isArray(entry.fontEvidence.faces) ||
       entry.fontEvidence.faces.length === 0) return false;
   for (const evidence of entry.fontEvidence.faces) {
@@ -1661,10 +1971,14 @@ function addFontEvidenceEntry(evidenceGroups, entry) {
     ].join(":");
     let group = evidenceGroups.get(key);
     if (!group) {
-      group = { representative: evidence, coverage: new Set(), probes: new Map() };
+      group = {
+        representative: evidence,
+        coverage: new Set<string>(),
+        probes: new Map<string, SnapshotManifestFace>(),
+      };
       evidenceGroups.set(key, group);
     }
-    for (const point of evidence.coverageText || evidence.probe.text) group.coverage.add(point);
+    for (const point of evidence.coverageText || evidence.probe!.text) group.coverage.add(point);
     const probeKey = JSON.stringify(evidence.probe);
     if (!group.probes.has(probeKey)) group.probes.set(probeKey, evidence);
   }
@@ -1672,11 +1986,11 @@ function addFontEvidenceEntry(evidenceGroups, entry) {
 }
 
 async function groupedFontEvidenceCooperatively(
-  manifest,
-  isCurrent = () => true,
-  yieldIfNeeded = yieldValidationIfNeeded,
-) {
-  const evidenceGroups = new Map();
+  manifest: ExpandedSnapshotManifest,
+  isCurrent: IsCurrent = () => true,
+  yieldIfNeeded: ValidationYield = yieldValidationIfNeeded,
+): Promise<GroupedFontEvidenceResult> {
+  const evidenceGroups: EvidenceGroupMap = new Map();
   let sliceStartedAt = performance.now();
   for (const entry of [...manifest.entries, ...(manifest.fontContractEntries ?? [])]) {
     if (!addFontEvidenceEntry(evidenceGroups, entry)) return { evidenceGroups: null };
@@ -1687,11 +2001,11 @@ async function groupedFontEvidenceCooperatively(
 }
 
 async function validateManifestFontContract(
-  manifest,
-  documentObject,
-  isCurrent = () => true,
-  yieldIfNeeded = yieldValidationIfNeeded,
-) {
+  manifest: ExpandedSnapshotManifest,
+  documentObject: Document,
+  isCurrent: IsCurrent = () => true,
+  yieldIfNeeded: ValidationYield = yieldValidationIfNeeded,
+): Promise<ManifestFontContractResult> {
   let sliceStartedAt = performance.now();
   if ([...manifest.entries, ...(manifest.fontContractEntries ?? [])].some((entry) =>
     entry?.fontEvidence?.backendRevision !== FONT_BACKEND_REVISION)) {
@@ -1751,15 +2065,18 @@ async function validateManifestFontContract(
  * lookup is the paragraph/run eligibility gate, and an uncovered host style
  * falls back without poisoning covered paragraphs in the same root.
  */
-export async function validatePrecomputedSnapshotExactFontContract(root, isCurrent = () => true) {
+export async function validatePrecomputedSnapshotExactFontContract(
+  root: HTMLElement,
+  isCurrent: IsCurrent = () => true,
+): Promise<FontContractValidationResult> {
   root?.removeAttribute?.(TYPOGRAPHY_ISSUE_ATTRIBUTE);
   if (!isCurrent()) return { matches: false, reason: "superseded" };
   const reference = root?.getAttribute?.("snapshot-ref");
   if (!reference) return { matches: false, reason: "SnapshotReferenceMissing" };
   const documentObject = root.ownerDocument || document;
-  const template = documentObject.getElementById(reference);
+  const template = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   if (!template?.content) return { matches: false, reason: "SnapshotTemplateMissing" };
-  let manifest;
+  let manifest: ExpandedSnapshotManifest;
   try {
     manifest = await resolveTemplateManifest(root, template);
   } catch (error) {
@@ -1902,17 +2219,20 @@ export async function validatePrecomputedSnapshotExactFontContract(root, isCurre
  * snapshot paints through the host's @font-face rules, so both the CSS face
  * inventory and browser advances are part of the first-paint proof.
  */
-export async function validatePrecomputedExactFontReplayContract(root, isCurrent = () => true) {
+export async function validatePrecomputedExactFontReplayContract(
+  root: HTMLElement,
+  isCurrent: IsCurrent = () => true,
+): Promise<FontContractValidationResult> {
   root?.removeAttribute?.(TYPOGRAPHY_ISSUE_ATTRIBUTE);
   if (!isCurrent()) return { matches: false, reason: "superseded" };
   const reference = root?.getAttribute?.("snapshot-ref");
   if (!reference) return { matches: false, reason: "SnapshotReferenceMissing" };
   const documentObject = root.ownerDocument || document;
-  const template = documentObject.getElementById(reference);
+  const template = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   if (!template?.content) return { matches: false, reason: "SnapshotTemplateMissing" };
   const manifestScript = template.content.querySelector?.("[data-tq-snapshot-manifest]");
   const manifestText = manifestScript?.textContent;
-  let manifest;
+  let manifest: ExpandedSnapshotManifest;
   try {
     manifest = await resolveTemplateManifest(root, template);
   } catch (error) {
@@ -1950,7 +2270,7 @@ export async function validatePrecomputedExactFontReplayContract(root, isCurrent
     ...(fontContract.detail ? { detail: fontContract.detail } : {}),
   };
   if (!isCurrent()) return { matches: false, reason: "superseded" };
-  const currentTemplate = documentObject.getElementById(reference);
+  const currentTemplate = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   const currentManifestText = currentTemplate?.content
     ?.querySelector?.("[data-tq-snapshot-manifest]")?.textContent;
   if (currentTemplate !== template || currentManifestText !== manifestText) {
@@ -1979,13 +2299,18 @@ export async function validatePrecomputedExactFontReplayContract(root, isCurrent
 }
 
 /** Rechecks the live identity of an already proven replay contract without repeating probes. */
-export function validatePrecomputedExactFontReplayLiveContract(root, isCurrent = () => true) {
+export function validatePrecomputedExactFontReplayLiveContract(
+  root: HTMLElement,
+  isCurrent: IsCurrent = () => true,
+): FontContractValidationResult {
   if (!isCurrent()) return { matches: false, reason: "superseded" };
   const proof = exactFontReplayProofs.get(root);
   if (!proof) return { matches: false, reason: "ExactFontReplayProofMissing" };
   const reference = root?.getAttribute?.("snapshot-ref");
   const documentObject = root.ownerDocument || document;
-  const template = reference ? documentObject.getElementById(reference) : null;
+  const template = reference
+    ? documentObject.getElementById(reference) as HTMLTemplateElement | null
+    : null;
   const manifestText = template?.content
     ?.querySelector?.("[data-tq-snapshot-manifest]")?.textContent;
   if (
@@ -2004,7 +2329,7 @@ export function validatePrecomputedExactFontReplayLiveContract(root, isCurrent =
   };
 }
 
-export function isPrecomputedSnapshotAdopted(root) {
+export function isPrecomputedSnapshotAdopted(root: HTMLElement): boolean {
   return states.has(root);
 }
 
@@ -2015,7 +2340,10 @@ export function isPrecomputedSnapshotAdopted(root) {
  * `loadingdone` handler would create another loading cycle. A changed CSS face
  * contract or any resulting prepared geometry drift still fails closed.
  */
-export async function adoptedPrecomputedSnapshotLiveIssue(root, isCurrent = () => true) {
+export async function adoptedPrecomputedSnapshotLiveIssue(
+  root: HTMLElement,
+  isCurrent: IsCurrent = () => true,
+): Promise<string | null> {
   if (!isCurrent()) return "superseded";
   const state = states.get(root);
   const manifest = state?.manifest;
@@ -2048,7 +2376,7 @@ export async function adoptedPrecomputedSnapshotLiveIssue(root, isCurrent = () =
     if (!isCurrent()) return "superseded";
   }
 
-  const paragraphs = rootParagraphs(root, manifest.paragraphSelector);
+  const paragraphs = rootParagraphs(root, manifest.paragraphSelector as string);
   if (paragraphs.length !== manifest.entries.length) return "SnapshotCandidateSetMismatch";
   const byKey = new Map(paragraphs.map((paragraph) => [
     paragraph.getAttribute("data-tq-snapshot-key"),
@@ -2083,13 +2411,13 @@ export async function adoptedPrecomputedSnapshotLiveIssue(root, isCurrent = () =
  * source, typography, font and geometry still go through the full adoption
  * contract before any DOM is changed.
  */
-export function precomputedSnapshotMaximumMeasureMatches(root) {
+export function precomputedSnapshotMaximumMeasureMatches(root: HTMLElement): boolean {
   const reference = root?.getAttribute?.("snapshot-ref");
   if (!reference) return false;
   const documentObject = root.ownerDocument || document;
-  const template = documentObject.getElementById(reference);
+  const template = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   if (!template?.content) return false;
-  let manifest;
+  let manifest: ExpandedSnapshotManifest;
   try {
     manifest = preflightTemplateManifest(template, root);
   } catch {
@@ -2113,7 +2441,7 @@ export function precomputedSnapshotMaximumMeasureMatches(root) {
   });
 }
 
-export function restorePrecomputedSnapshot(root) {
+export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
   const state = states.get(root);
   if (!state) return false;
   states.delete(root);
@@ -2169,24 +2497,28 @@ export function restorePrecomputedSnapshot(root) {
  * the semantic backing if the same custom element is later reconnected; when
  * the detached tree becomes unreachable, the backing is collected with it.
  */
-export function detachPrecomputedSnapshot(root) {
+export function detachPrecomputedSnapshot(root: HTMLElement): boolean {
   const state = states.get(root);
   if (!state) return false;
   if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root);
   return true;
 }
 
-export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, anchors = null) {
+export async function tryAdoptPrecomputedSnapshot(
+  root: HTMLElement,
+  isCurrent: IsCurrent = () => true,
+  anchors: SnapshotAdoptAnchors | null = null,
+): Promise<SnapshotAdoptOutcome> {
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
   restorePrecomputedSnapshot(root);
   delete root.dataset.tiqianSnapshotMiss;
   const reference = root.getAttribute("snapshot-ref");
   if (!reference) return { adopted: false, reason: "not-requested" };
   const documentObject = root.ownerDocument || document;
-  const template = documentObject.getElementById(reference);
+  const template = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   if (!template?.content) return miss(root, "SnapshotTemplateMissing");
 
-  let manifest;
+  let manifest: ExpandedSnapshotManifest;
   try {
     manifest = await resolveTemplateManifest(root, template);
   } catch (error) {
@@ -2226,7 +2558,7 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, 
       return { adopted: false, reason: "superseded" };
     }
   }
-  const prepared = [];
+  const prepared: PreparedEntry[] = [];
   let sliceStartedAt = performance.now();
   for (const entry of manifest.entries) {
     if (
@@ -2282,7 +2614,7 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, 
   // mixed snapshot/runtime completion does not immediately repeat every
   // browser font probe.
   const fontContract = await validatePrecomputedExactFontReplayContract(root, isCurrent);
-  if (!fontContract.matches) return miss(root, fontContract.reason);
+  if (!fontContract.matches) return miss(root, fontContract.reason as string);
   const compatibleLocalDeclared = fontContract.compatibleLocalDeclared;
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
 
@@ -2318,7 +2650,7 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, 
   }
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
 
-  const adopted = [];
+  const adopted: SnapshotAdoptedEntry[] = [];
   let valueStylesInstalled = false;
   const originalExactRenderFontAttribute = root.getAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
   const adoptionState = {
@@ -2389,7 +2721,7 @@ export async function tryAdoptPrecomputedSnapshot(root, isCurrent = () => true, 
       if (entry.semantic === true) paragraph.removeAttribute("data-tq-canonical-plain");
       else paragraph.setAttribute("data-tq-canonical-plain", "true");
       paragraph.setAttribute("data-tq-canonical-source", "true");
-      paragraph.setAttribute("lang", entry.typography.locale);
+      paragraph.setAttribute("lang", entry.typography.locale as string);
       if (!serverRenderedEntries) {
         const clone = snapshot.cloneNode(true);
         while (clone.firstChild) paragraph.appendChild(clone.firstChild);
