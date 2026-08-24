@@ -913,6 +913,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   null 且不读 issue（只有 processParagraph 报告 lowering 问题）；随后走
   既有 lowered 序列化。12 例单测；withRootDefaults 打桩在还原段恢复原
   方法。
+  进度（Slice 4b 第四批与 4c，2026-08-23）：d3285a9、65de4fc、9c3d85d。
+  排版线 ParagraphWireFace 的 plan 与 planWithDiagnostics 以及三条 precompute
+  ffi 导出尾部新增可空 renderEvidenceOverride：省略时沿用 wire 四集合判定，
+  传入时取宿主判定（isCanonicalPlainParagraph 的六集合；sourceSpans 与
+  domInlineObjects 不上 wire，纯链接段落两条路径的 renderEvidence 结论不同）。
+  prepare-paragraph-layout.js 计算六集合判定并作为尾参传两条布局导出；Kotlin
+  侧 plan、planWithDiagnostics 各三形态加 ffi 一例共七例，golden 零差异。
+  npm-core 新增 commit-prepared-paragraph.js：两个 commit 函数直连移植，
+  worker 路径记录 effectiveLineMeasure 并 stampRendered，直连路径 mismatch
+  时按 ExactSessionMetricDistrust 以去 exactFontSession 的选项重准备并递归
+  提交一次（browserFallback 置空，二次 mismatch 关闭为 PreparedDomRender
+  Mismatch）；渲染包在 __tqCustodyEngineWrites 计数窗口内，planJson 直接取
+  准备裁决（六集合判定已经由准备步骤传入，与 Kotlin 提交时再序列化的结果
+  一致）。10 例单测；npm-core 338 例、ts-discipline 通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
