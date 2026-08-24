@@ -1,4 +1,32 @@
 import { normalizeReplayNumber } from "./replay-entry-codec.js";
+import type { ReplayShapeResult } from "./replay-entry-codec.js";
+
+export interface ProbeMeasureResult {
+  width: number;
+  fontBoundingBoxAscent?: number;
+  fontBoundingBoxDescent?: number;
+  actualBoundingBoxAscent?: number;
+  actualBoundingBoxDescent?: number;
+  ideographicBaseline?: number;
+}
+
+export type ProbeMeasure = (cssFont: string, text: string) => ProbeMeasureResult | null;
+
+export interface ShapeProbeInput {
+  displayText: string;
+  serializedFamilies: string;
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+}
+
+export interface MetricProbeInput {
+  serializedFamilies: string;
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  role: string;
+}
 
 /**
  * CanvasMeasureReplayProbePolicy (ADR 0053 A5b).
@@ -31,16 +59,16 @@ export const ZERO_ADVANCE_EPSILON = 0.01;
  * `undefined` and are handled by the probe functions' fallback chain; a
  * throwing measureText resolves to `null` so the probe treats it as a miss.
  */
-export function createOffscreenCanvasMeasureAdapter() {
+export function createOffscreenCanvasMeasureAdapter(): ProbeMeasure | null {
   if (typeof OffscreenCanvas === "undefined") return null;
-  let ctx;
+  let ctx: OffscreenCanvasRenderingContext2D | null;
   try {
     ctx = new OffscreenCanvas(1, 1).getContext("2d");
   } catch {
     return null;
   }
   if (!ctx) return null;
-  let currentCanvasFont = null;
+  let currentCanvasFont: string | null = null;
   return (cssFont, text) => {
     try {
       if (cssFont !== currentCanvasFont) {
@@ -62,7 +90,7 @@ export function createOffscreenCanvasMeasureAdapter() {
   };
 }
 
-export function replayProbeCssFont(serializedFamilies, fontWeight, italic, fontSize) {
+export function replayProbeCssFont(serializedFamilies: string, fontWeight: number, italic: boolean, fontSize: number): string {
   const stack = (typeof serializedFamilies === "string" ? serializedFamilies : "")
     .split("\u001f")
     .filter((family) => family.length > 0)
@@ -72,12 +100,12 @@ export function replayProbeCssFont(serializedFamilies, fontWeight, italic, fontS
 }
 
 export function probeShapeReplayResult(
-  { displayText, serializedFamilies, fontSize, fontWeight, italic },
-  measure,
-) {
+  { displayText, serializedFamilies, fontSize, fontWeight, italic }: ShapeProbeInput,
+  measure: ProbeMeasure,
+): ReplayShapeResult | null {
   if (typeof measure !== "function") return null;
   const cssFont = replayProbeCssFont(serializedFamilies, fontWeight, italic, fontSize);
-  let m;
+  let m: ProbeMeasureResult | null;
   try {
     m = measure(cssFont, displayText);
   } catch {
@@ -112,14 +140,14 @@ export function probeShapeReplayResult(
 }
 
 export function probeMetricReplayValues(
-  { serializedFamilies, fontSize, fontWeight, italic, role },
-  measure,
-) {
+  { serializedFamilies, fontSize, fontWeight, italic, role }: MetricProbeInput,
+  measure: ProbeMeasure,
+): (number | null)[] | null {
   if (typeof measure !== "function") return null;
   const cjkBox = role === "CjkText" || role === "CjkPunctuation";
   const probeText = cjkBox ? CJK_METRIC_PROBE_TEXT : LATIN_METRIC_PROBE_TEXT;
   const cssFont = replayProbeCssFont(serializedFamilies, fontWeight, italic, fontSize);
-  let m;
+  let m: ProbeMeasureResult | null;
   try {
     m = measure(cssFont, probeText);
   } catch {
@@ -134,8 +162,8 @@ export function probeMetricReplayValues(
   const descentPx = m.fontBoundingBoxDescent ?? m.actualBoundingBoxDescent;
   if (typeof descentPx !== "number" || !Number.isFinite(descentPx)) return null;
   const leadingPx = 0;
-  let typoAscentPx = null;
-  let typoDescentPx = null;
+  let typoAscentPx: number | null = null;
+  let typoDescentPx: number | null = null;
   if (cjkBox && typeof m.ideographicBaseline === "number" && Number.isFinite(m.ideographicBaseline)) {
     const ideographicDescent = -m.ideographicBaseline;
     typoAscentPx = Math.max(fontSize - ideographicDescent, 0);

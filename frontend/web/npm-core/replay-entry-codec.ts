@@ -2,6 +2,73 @@ import {
   metricReplayKey,
   shapeReplayKey,
 } from "./snapshot-schema.js";
+import type { SnapshotMetricRow } from "./snapshot-table-binary.js";
+
+export type StringAt = (ref: number) => string;
+
+export interface ReplayShapeGlyph {
+  id: number;
+  advanceEm: number;
+  xEm: number;
+  yEm: number;
+  boundsEm: number[] | null;
+}
+
+export interface ReplayShapeResult {
+  faceId: string;
+  fontInstanceId: string;
+  script: string;
+  features: string[];
+  unsafeBreakCount: number;
+  advanceEm: number;
+  glyphs: ReplayShapeGlyph[];
+}
+
+export interface ReplayShapeItem {
+  key: string;
+  result: ReplayShapeResult;
+}
+
+export interface ReplayMetricItem {
+  key: string;
+  valuesEm: (number | null)[];
+}
+
+export interface ShapeReplayWireRow {
+  0: number;
+  1: number;
+  2: number;
+  3: number;
+  4: number;
+  5: number;
+  6: number;
+  7: number;
+  8: number;
+  9: number;
+  10: number[];
+  11: number;
+  12: number;
+  13: number[];
+  length: 14;
+}
+
+export interface ScaledShapeGlyph {
+  id: number;
+  advance: number;
+  x: number;
+  y: number;
+  bounds: number[] | null;
+}
+
+export interface ScaledShapeResult {
+  faceId: string;
+  fontInstanceId: string;
+  script: string;
+  features: string[];
+  unsafeBreakCount: number;
+  advance: number;
+  glyphs: ScaledShapeGlyph[];
+}
 
 /**
  * Shape and metric replay entry codec (ADR 0053 A5a). One module owns row
@@ -16,7 +83,7 @@ import {
  * values name the field in `InvalidServerShapingReplay:<field>` (moved
  * verbatim from browser-font-replay.js).
  */
-function finiteNumber(value, field) {
+function finiteNumber(value: number, field: string): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(`InvalidServerShapingReplay:${field}`);
   }
@@ -30,13 +97,13 @@ function finiteNumber(value, field) {
  * length and italic flag are validated first; each 8-slot glyph quad then
  * either carries four non-null bounds values or a whole null `boundsEm`.
  */
-export function decodeShapeReplayRow(row, stringAt) {
+export function decodeShapeReplayRow(row: ShapeReplayWireRow, stringAt: StringAt): ReplayShapeItem {
   if (!Array.isArray(row) || row.length !== 14 || !Array.isArray(row[10]) ||
       !Array.isArray(row[13]) || row[13].length % 8 !== 0 ||
       (row[3] !== 0 && row[3] !== 1)) {
     throw new Error("SnapshotFontReplayShapeTransportInvalid");
   }
-  const glyphs = [];
+  const glyphs: ReplayShapeGlyph[] = [];
   for (let index = 0; index < row[13].length; index += 8) {
     const bounds = row[13].slice(index + 4, index + 8);
     const allNull = bounds.every((value) => value == null);
@@ -86,7 +153,7 @@ export function decodeShapeReplayRow(row, stringAt) {
  * `replayMetricsOf`). No validation: the table view already decoded the binary
  * bytes, so missing fields are mirrored without throwing.
  */
-export function decodeMetricReplayRow(row) {
+export function decodeMetricReplayRow(row: SnapshotMetricRow): ReplayMetricItem {
   return {
     key: metricReplayKey(
       row.serializedFamilies,
@@ -106,7 +173,7 @@ export function decodeMetricReplayRow(row) {
  * semantics are unchanged; the shape result is re-created, so callers own the
  * returned object.
  */
-export function scaleShapeReplayItem(item, fontSize) {
+export function scaleShapeReplayItem(item: ReplayShapeItem, fontSize: number): ScaledShapeResult {
   const result = item?.result;
   if (!result || typeof result !== "object" || !Array.isArray(result.glyphs)) {
     throw new Error("InvalidServerShapingReplay:shape-result");
@@ -155,7 +222,7 @@ export function scaleShapeReplayItem(item, fontSize) {
  * `scaledMetrics`). Null values pass through as `Number.NaN`, matching the
  * Kotlin side mapping non-finite typo values to null.
  */
-export function scaleMetricReplayItem(item, fontSize) {
+export function scaleMetricReplayItem(item: ReplayMetricItem, fontSize: number): number[] {
   if (!Array.isArray(item?.valuesEm) || item.valuesEm.length !== 5) {
     throw new Error("InvalidServerShapingReplay:metrics-result");
   }
@@ -174,7 +241,7 @@ export function scaleMetricReplayItem(item, fontSize) {
  * `{:.12}` formatter, so probe-backfilled entries share the write-side bytes.
  * A normalized `-0` reads back as `0`.
  */
-export function normalizeReplayNumber(value, fontSize) {
+export function normalizeReplayNumber(value: number, fontSize: number): number | null {
   if (!Number.isFinite(value)) return null;
   const normalized = Number((value / fontSize).toFixed(12));
   return normalized === 0 ? 0 : normalized;

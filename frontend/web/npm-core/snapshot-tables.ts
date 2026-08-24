@@ -6,30 +6,37 @@
 // table in its own context.
 
 import { decodeSnapshotTableBinary, isSnapshotTableBinary } from "./snapshot-table-binary.js";
+import type { SnapshotTableBinaryView } from "./snapshot-table-binary.js";
 
 const TABLES_ATTRIBUTE = "tq-tables";
 
+export interface LoadedSnapshotTable {
+  bytes: Uint8Array;
+  view: SnapshotTableBinaryView;
+  sha256: string;
+}
+
 /** Reference key to loaded table; successes stay for the page lifetime. */
-const loadedTables = new Map();
+const loadedTables = new Map<string, Promise<LoadedSnapshotTable>>();
 /** Reference key to the resolved, verified table, readable synchronously. */
-const resolvedTables = new Map();
+const resolvedTables = new Map<string, LoadedSnapshotTable>();
 
 /**
  * Builds the accessor surface of one table file. The binary form is the only
  * file form this build reads; any other bytes fail closed.
  */
-export function snapshotTablesFromBytes(bytes) {
+export function snapshotTablesFromBytes(bytes: Uint8Array): SnapshotTableBinaryView {
   if (!(bytes instanceof Uint8Array)) throw new Error("SnapshotTablesInvalid");
   if (!isSnapshotTableBinary(bytes)) throw new Error("SnapshotTablesInvalid");
   return decodeSnapshotTableBinary(bytes);
 }
 
-async function digestBytes(bytes) {
+async function digestBytes(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function loadTableBytes(key) {
+async function loadTableBytes(key: string): Promise<Uint8Array<ArrayBuffer>> {
   if (typeof globalThis.fetch !== "function") {
     throw new Error("SnapshotTablesFetchUnavailable");
   }
@@ -39,14 +46,14 @@ async function loadTableBytes(key) {
   return new Uint8Array(buffer);
 }
 
-function tablePromiseFor(key) {
+function tablePromiseFor(key: string): Promise<LoadedSnapshotTable> {
   let promise = loadedTables.get(key);
   if (promise) return promise;
   // Failed loads stay uncached so a later root can retry after a transient
   // network failure; the map only memoizes verified tables.
-  promise = (async () => {
+  promise = (async (): Promise<LoadedSnapshotTable> => {
     const bytes = await loadTableBytes(key);
-    const table = {
+    const table: LoadedSnapshotTable = {
       bytes,
       view: snapshotTablesFromBytes(bytes),
       sha256: await digestBytes(bytes),
@@ -59,7 +66,7 @@ function tablePromiseFor(key) {
   return promise;
 }
 
-function tableReferences(root) {
+function tableReferences(root: Element | null): string[] {
   const raw = root?.getAttribute?.(TABLES_ATTRIBUTE);
   if (typeof raw !== "string" || raw.trim() === "") return [];
   return raw.split(/\s+/u).filter((value) => value.length > 0);
@@ -71,9 +78,12 @@ function tableReferences(root) {
  * mismatch keeps walking the ladder so a stale file degrades the same way a
  * missing one does.
  */
-export async function snapshotTablesForRoot(root, expectedSha256 = null) {
+export async function snapshotTablesForRoot(
+  root: Element | null,
+  expectedSha256: string | null = null,
+): Promise<LoadedSnapshotTable | null> {
   for (const key of tableReferences(root)) {
-    let table;
+    let table: LoadedSnapshotTable;
     try {
       table = await tablePromiseFor(key);
     } catch {
@@ -90,7 +100,10 @@ export async function snapshotTablesForRoot(root, expectedSha256 = null) {
  * best-effort cache read; adoption paths resolve tables through the async
  * map instead.
  */
-export function loadedSnapshotTablesForRoot(root, expectedSha256 = null) {
+export function loadedSnapshotTablesForRoot(
+  root: Element | null,
+  expectedSha256: string | null = null,
+): LoadedSnapshotTable | null {
   for (const key of tableReferences(root)) {
     const table = resolvedTables.get(key);
     if (table == null) continue;
@@ -104,7 +117,7 @@ export function loadedSnapshotTablesForRoot(root, expectedSha256 = null) {
  * the first root hydrates; ADR 0052 keeps this free of ordering contracts,
  * so a reference no root claims simply stays unused.
  */
-export function prefetchSnapshotTables() {
+export function prefetchSnapshotTables(): void {
   const documentObject = globalThis.document;
   if (!documentObject?.querySelectorAll) return;
   for (const element of documentObject.querySelectorAll(`[${TABLES_ATTRIBUTE}]`)) {
