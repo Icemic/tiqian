@@ -1,25 +1,19 @@
 #!/usr/bin/env node
 
-// Package verification for @tiqian/prose-core. The Kotlin/JS runtime guards
-// moved here from the @tiqian/prose verifier when the runtime artifact lane
-// moved (ADR 0053 F2); the checks keep their original strength.
+// Package integrity check for @tiqian/prose-core. Verifies the manifest name,
+// license, dependency surface, and that every required published file exists
+// and is non-empty. The engine runtime installs through
+// core/engine/loaders/ts-runtime.js at import time; no bundled Kotlin/JS
+// runtime artifact is scanned here anymore.
 
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 
 const EXPECTED_NAME = "@tiqian/prose-core";
-const RUNTIMES = [
-  {
-    directory: "runtime/",
-    path: "runtime/tiqian-web.js",
-    marker: "TiqianEngine",
-    forbiddenMarkers: ["__TiqianWebFontShaping", "WebAssembly"],
-  },
-];
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
   "core/",
-  "runtime/",
+  "runtime.js",
   "snapshot-schema.js",
   "snapshot-tables.js",
   "layout-worker.js",
@@ -56,30 +50,10 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
     fail("LICENSE is not the MPL-2.0 text");
   }
   if (!readme.includes(EXPECTED_NAME)) fail(`README.md does not name ${EXPECTED_NAME}`);
-
-  const verified = [];
-  for (const runtime of RUNTIMES) {
-    const source = await readFile(new URL(runtime.path, packageRoot), "utf8");
-    if (source.length <= 100 || !source.includes(runtime.marker)) {
-      fail(`${runtime.path} is not a non-empty Kotlin/JS runtime`);
-    }
-    for (const marker of runtime.forbiddenMarkers ?? []) {
-      if (source.includes(marker)) fail(`${runtime.path} contains forbidden browser marker ${marker}`);
-    }
-    const runtimeEntries = await readdir(new URL(runtime.directory, packageRoot));
-    const wasmEntry = runtimeEntries.find((entry) => entry.endsWith(".wasm"));
-    if (wasmEntry) {
-      fail(`${runtime.directory}${wasmEntry} must not be published`);
-    }
-    verified.push({ path: runtime.path, size: Buffer.byteLength(source) });
-  }
-  return verified;
 }
 
 const isEntryPoint = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 if (isEntryPoint) {
-  const verified = await verifyPackage();
-  for (const entry of verified) {
-    console.log(`verified ${entry.path} (${entry.size} bytes)`);
-  }
+  await verifyPackage();
+  console.log(`verified ${EXPECTED_NAME}`);
 }

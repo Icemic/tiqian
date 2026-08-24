@@ -39,7 +39,7 @@ try {
 } catch {
   addonBuildExists = false;
 }
-const proseRuntimeExists = existsSync(new URL("../../npm/runtime/tiqian-web.js", import.meta.url));
+const proseCoreLinkExists = existsSync(new URL("../../npm/node_modules/@tiqian/prose-core", import.meta.url));
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
@@ -317,7 +317,7 @@ test("concurrent requests cannot exchange assets that reuse an explicit id", { s
   await tiqian.close();
 });
 
-test("component builds in a real SvelteKit application", { skip: proseRuntimeExists ? false : "no @tiqian/prose runtime artifact" }, async () => {
+test("component builds in a real SvelteKit application", { skip: proseCoreLinkExists ? false : "no @tiqian/prose working-tree link" }, async () => {
   const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-fixture-"));
   try {
     const routes = path.join(root, "src", "routes");

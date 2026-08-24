@@ -3,14 +3,14 @@
 // manual "checkout base, rebuild, swap artifacts, eyeball" workflow as a
 // repeatable tool. Each ref builds inside its own git worktree, so the
 // working tree is never touched and each side's artifact cannot leak into
-// the other (the artifact under frontend/web/npm/runtime/tiqian-web.js is
+// the other (the artifact under ffi/js/npm/runtime/Tiqian-tiqian-ffi-js.mjs is
 // git-ignored, which made manual swapping produce a false green once).
 //
 // Usage (from demo/web, inside nix develop):
 //   node tests/ab/compare-refs.mjs --base <git-ref> [--head <git-ref>]
 //
 // --head defaults to the current working tree, uncommitted changes included.
-// Both refs must know the :platforms:web:frontend:assembleNpmPackage task. The demo
+// Both refs must know the :ffi:js:assembleNpmPackage task. The demo
 // page, viewport, fonts, and capture plan are identical constants for both
 // sides, so the only variable is the engine build.
 //
@@ -465,10 +465,10 @@ async function captureSide({ label, pkgDir, port, cdpPort, plans }) {
 }
 
 async function buildSide(label, sideDir) {
-  console.log(`[${label}] building :platforms:web:frontend:assembleNpmPackage in ${sideDir}`);
+  console.log(`[${label}] building :ffi:js:assembleNpmPackage in ${sideDir}`);
   await new Promise((resolve, reject) => {
     const proc = spawn("./gradlew", [
-      ":platforms:web:frontend:assembleNpmPackage",
+      ":ffi:js:assembleNpmPackage",
       "--no-build-cache",
     ], { cwd: sideDir, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
@@ -487,7 +487,7 @@ async function buildSide(label, sideDir) {
       else reject(new Error(`[${label}] gradle build failed (${code})`));
     });
   });
-  const artifact = join(sideDir, "frontend/web/npm/runtime/tiqian-web.js");
+  const artifact = join(sideDir, "ffi/js/npm/runtime/Tiqian-tiqian-ffi-js.mjs");
   const info = await stat(artifact);
   const bytes = await readFile(artifact);
   const hash = createHash("md5").update(bytes).digest("hex");

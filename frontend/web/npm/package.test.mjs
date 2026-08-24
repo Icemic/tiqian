@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("published package includes the generated runtime and no repository-only bin", async () => {
+test("published package ships the TS runtime modules and no repository-only bin", async () => {
   const manifest = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
   const lock = JSON.parse(await readFile(new URL("./package-lock.json", import.meta.url), "utf8"));
 
@@ -65,7 +65,8 @@ test("published package includes the generated runtime and no repository-only bi
   assert.equal(coreManifest.version, manifest.version);
   assert.deepEqual(coreManifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
   assert.ok(coreManifest.files.includes("core/"));
-  assert.ok(coreManifest.files.includes("runtime/"));
+  assert.equal(coreManifest.files.includes("runtime/"), false, "the Kotlin bundle directory is retired");
+  assert.ok(coreManifest.files.includes("runtime.js"));
   assert.ok(coreManifest.files.includes("layout-worker.js"));
 });
 
@@ -119,19 +120,6 @@ test("the release verifier accepts the verified package files", async () => {
 
   assert.ok(artifacts.length > 0);
   assert.ok(artifacts.every((artifact) => artifact.size > 0));
-});
-
-test("the release build clears the Kotlin/JS package target and bypasses build cache in prose-core", async () => {
-  const source = await readFile(new URL("../npm-core/build-runtime.mjs", import.meta.url), "utf8");
-
-  assert.match(source, /process\.platform === "win32"/u);
-  assert.match(source, /"\.\.\/\.\.\/\.\.\/gradlew\.bat"/u);
-  assert.match(source, /process\.env\.ComSpec/u);
-  assert.match(source, /\["\/d", "\/c", "call", gradleWrapper, \.\.\.gradleArguments\]/u);
-  assert.doesNotMatch(source, /ffi:js/u);
-  assert.match(source, /":frontend:web:clean"/u);
-  assert.match(source, /":frontend:web:assembleNpmPackage"/u);
-  assert.match(source, /"--no-build-cache"/u);
 });
 
 test("the custom element validates a snapshot before dynamically loading the browser runtime", async () => {

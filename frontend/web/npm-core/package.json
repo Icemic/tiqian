@@ -29,7 +29,6 @@
     "tag": "alpha"
   },
   "scripts": {
-    "build:runtime": "node ./build-runtime.mjs",
     "link:ffi": "node ./link-ffi.mjs",
     "test": "node --test *.test.mjs core/engine/web-worker/*.test.mjs",
     "verify:package": "node ./verify-package.mjs"
@@ -46,7 +45,6 @@
     "replay-entry-codec.js",
     "replay-probe.js",
     "runtime.js",
-    "runtime/",
     "snapshot-manifest.js",
     "snapshot-schema.js",
     "snapshot-source.js",
@@ -142,8 +140,7 @@
     },
     "./runtime.js": {
       "default": "./runtime.js"
-    },
-    "./runtime/*": "./runtime/*"
+    }
   },
   "dependencies": {
     "@tiqian/ffi": "0.1.0-alpha.1"
