@@ -70,7 +70,7 @@ ffi/js 自身同时做三件事：PrecomputeWire.kt 在一个文件内做分隔�
 
 ### 自管 webfont 宿主与 CSSOM 证据缺口
 
-`cssFaceContract`（precomputed.js:1161）把页面 CSSOM 的 @font-face 规则与构建期证据逐字段比对（family、style、weight 区间、unicode-range 集、src local() 列表、解析后的 url、描述符缺省），候选集只从 document.styleSheets 收集。宿主自己管理 webfont 加载是常见做法。sveltekit 站点 的实测：首屏只内联 plexsc-fallback.css（20 个度量改写 faces），用户交互后的空闲期取回 CSS 文本、经 FontFace API 每帧注册 32 个 face 并写 plexsc-ready=1；回访改经 `<link>` 进 CSSOM（432 个 IBM Plex faces），校验通过。FontFace API 注册的 faces 进入 document.fonts，但不产生 CSSFontFaceRule，且 FontFace 接口不暴露 src，采集器无法从 document.fonts 读证据。结果：首次访问在任何浏览器上都判 `SnapshotExactFontContractMismatch:FontFaceContractMismatch`，命中的是命名的 fallback；回访才通过。这是证据来源缺口，与浏览器差异无关。
+`cssFaceContract`（precomputed.js:1161）把页面 CSSOM 的 @font-face 规则与构建期证据逐字段比对（family、style、weight 区间、unicode-range 集、src local() 列表、解析后的 url、描述符缺省），候选集只从 document.styleSheets 收集。宿主自己管理 webfont 加载是常见做法。sveltekit 站点的实测：首屏只内联 plexsc-fallback.css（20 个度量改写 faces），用户交互后的空闲期取回 CSS 文本、经 FontFace API 每帧注册 32 个 face 并写 plexsc-ready=1；回访改经 `<link>` 进 CSSOM（432 个 IBM Plex faces），校验通过。FontFace API 注册的 faces 进入 document.fonts，但不产生 CSSFontFaceRule，且 FontFace 接口不暴露 src，采集器无法从 document.fonts 读证据。结果：首次访问在任何浏览器上都判 `SnapshotExactFontContractMismatch:FontFaceContractMismatch`，命中的是命名的 fallback；回访才通过。这是证据来源缺口，与浏览器差异无关。
 
 ### 无消费者导出与 shared 副本落后
 
@@ -163,10 +163,10 @@ ffi/js 后归位。
 
 ### `DeclaredFaceEvidence`：声明式字体证据与不匹配解释
 
-- **宿主声明通道**：`declareTiqianFontFaces(cssText, options?)`，`options.baseUrl` 指明声明文本的 URL 基准。宿主把自行管理、不会进入 CSSOM 的 @font-face CSS 文本交给采集器；sveltekit 站点 一类的预热流程在注册 FontFace 的同一处调用。注册表是模块级的，不新增 globalThis 名（与 `SingleCoordinator` 的通道废除同向）。`baseUrl` 必须显式传入：从远端取回的 CSS 文本里 src 是相对该 CSS 文件地址的相对路径，构造 sheet 的 `href` 为 null；采集器现有的 `sheet.href || document.baseURI` 回退（precomputed.js:336）会把相对 URL 错按页面地址解析。
+- **宿主声明通道**：`declareTiqianFontFaces(cssText, options?)`，`options.baseUrl` 指明声明文本的 URL 基准。宿主把自行管理、不会进入 CSSOM 的 @font-face CSS 文本交给采集器；sveltekit 站点一类的预热流程在注册 FontFace 的同一处调用。注册表是模块级的，不新增 globalThis 名（与 `SingleCoordinator` 的通道废除同向）。`baseUrl` 必须显式传入：从远端取回的 CSS 文本里 src 是相对该 CSS 文件地址的相对路径，构造 sheet 的 `href` 为 null；采集器现有的 `sheet.href || document.baseURI` 回退（precomputed.js:336）会把相对 URL 错按页面地址解析。
 - **解析复用且无副作用**：声明文本经与 CSSOM 相同的解析器读取，以 `new CSSStyleSheet({ baseURL: options.baseUrl })` 构造（`baseURL` 是 CSSStyleSheetInit 的既定选项，相对 url() 按它解析）、`replaceSync` 装载后读 rules；构造的 sheet 不采用进 document，不触发字体加载。不支持该选项的环境相对 URL 按 document.baseURI 解析，校验比对按字段不匹配进入 miss，fail-closed 不变。`replaceSync` 抛错（语法错误、@import 触发的 NotAllowedError）按该条声明缺席处理，diagnostic 记 `DeclaredTextInvalid`，detail 携带异常名，两类原因可区分。不支持构造 sheet 的环境降级为构造 detached `<style>` 元素读取其 rules（不接进 document，不触发样式计算）；detached `<style>` 也取不到 rules 的环境同样按声明缺席处理并记录。fail-closed 不受影响：声明只补充校验候选集，后续仍有 `document.fonts.load` 与 advance 几何探测两道独立校验，伪造声明绕不过构建期证据。
 - **候选集合并与顺序**：校验候选集 = 声明文本规则加 CSSOM 规则，数组里声明在前、CSSOM 在后。现有挑选用 `findLast`（precomputed.js:1177），后出现的规则胜出；该顺序下 CSSOM 覆盖声明，与「同一 face 以 CSSOM 为准」一致。`BoundedInitialFontGate` 行为不变（仍只等正文用到 faces 的完成承诺）。未声明的宿主行为不变，校验仍 fail-closed。
-- **声明唤醒，重验入池**：声明注册表变更时同步通知活跃会话；通知只负责唤醒，不内联执行。既有唤起只有 `document.fonts` 的 loadingdone/loadingerror（element.js:1475-1476、2763-2764）；宿主先完成 FontFace 注册、字体已 loaded 时，之后调用声明不会再有任何字体事件，被动等待会永久停留在 fallback。重验作为任务进协调器任务池：每个 root 至多一个 pending 重验任务，同帧多次声明合并为一次，任务执行前又有新声明只保持 pending；执行时以当前合并候选集整批比对。宿主的分批节奏是宿主侧的自由（sveltekit 站点 每帧 32 个是它的注册步调；本设计不定义该常量），本设计的成本上界来自合并，不来自跟随宿主节奏。
+- **声明唤醒，重验入池**：声明注册表变更时同步通知活跃会话；通知只负责唤醒，不内联执行。既有唤起只有 `document.fonts` 的 loadingdone/loadingerror（element.js:1475-1476、2763-2764）；宿主先完成 FontFace 注册、字体已 loaded 时，之后调用声明不会再有任何字体事件，被动等待会永久停留在 fallback。重验作为任务进协调器任务池：每个 root 至多一个 pending 重验任务，同帧多次声明合并为一次，任务执行前又有新声明只保持 pending；执行时以当前合并候选集整批比对。宿主的分批节奏是宿主侧的自由（sveltekit 站点每帧 32 个是它的注册步调；本设计不定义该常量），本设计的成本上界来自合并，不来自跟随宿主节奏。
 - **不匹配解释结构化**：`SnapshotExactFontContractMismatch` 的 detail 区分两类：候选集为空（EmptyCandidateSet：页面与声明都拿不出可核对的 face）与字段不符（FieldMismatch：给出期望/实际面数与第一个不符字段）。逐字段核对顺序固定为 family → style → weight 区间 → unicode-range → src。`dataset.tiqianExactFontMiss` 保留命中名并携带该 detail；detail 字段形态进分解报告第 11 节的时序 golden。
 - **注册表生命周期**：多次调用按追加处理，同一 `(cssText, baseUrl)` 判重跳过并计数递增，注销递减，计数归零才移除记录（两个组件注册同一声明时，单方注销不撤销另一方仍在用的声明）；空串与全空白是 no-op。调用返回注销函数，移除该条声明并同样触发重验；SPA 路由切换与微前端卸载（ADR 0042 框架集成的场景）需要撤走声明。不设 replace 模式，追加加注销已覆盖。
 
@@ -1013,8 +1013,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   先验证 npm 侧 exact-session（19 例）、renderer-output（10 例）、
   renderer-source-fidelity（10 例）与 timing-golden（1 例）四套件 40 例通过，
   再删 TiqianWebExactSessionTest.kt（20 个测试，规格已由上述 TS 套件覆盖）。
-  compileKotlinJs 与 jsBrowserTest（92/92）通过。执行经 外部委托（实现删除）
-  与 外部委托（套件验证与测试删除）两路并行委托，复核 diff 后补删规格
+  compileKotlinJs 与 jsBrowserTest（92/92）通过。实现删除一路委托执行
+  与（套件验证与测试删除）两路并行委托，diff 复核后补删规格
   范围外的零引用成员。
   进度（Slice 5，2026-08-24）：6fd90cf、70f269a。npm-core 新增
   core/engine/root-state.js（globalThis.__TiqianRootState：WeakMap 状态表与
@@ -1040,8 +1040,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   覆盖，再删 TiqianWebProgressiveRelayoutTest.kt（25 个测试，974 行）与
   TiqianWebEnhancerTestSupport.kt、TiqianWebEnhancerTestFixtures.kt 里仅被
   该文件引用的辅助成员 304 行（删除后零引用，逐一 grep 验证）；
-  jsBrowserTest 67/67 通过。实现经 外部委托（root-state）与 外部委托（驱动）
-  两路并行委托，复核驱动初版 16/20 后修复三处测试装配（假元素
+  jsBrowserTest 67/67 通过。root-state 与驱动两路并行委托
+  两路并行委托，驱动初版 16/20 复核后修复三处测试装配（假元素
   rect 读取、ResponsiveMeasure 全局缺省、measures 序列缺 live 采样）与
   一处实现缺陷（canonical 再入误走 bag 解析），并补删委托规格范围外的
   零引用辅助簇。demo/web 基线同步复核：33/35 稳定通过，
@@ -1093,11 +1093,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   （TiqianWebEnhancerTest.kt、TiqianWebSourceFidelityTest.kt），bundle 导出
   面只剩 web 命名空间。npm-core 全套 413 例、npm 侧 246 例（删除 Kotlin 导出
   后在新 bundle 上复跑）、jsBrowserTest 10/10（仅剩 TiqianWebBridgeInstallTest）、
-  demo/web 33/35（仅余两项已知失败）均维持基线。实现经 外部委托（engine-entry
-  模块）与 外部委托（接线）两路并行委托；复核后修复上述分支一 kind 与
+  demo/web 33/35（仅余两项已知失败）均维持基线。engine-entry 模块与接线两路并行委托；复核后修复上述分支一 kind 与
   destroy 次序两处缺陷、补 content-reconcile 的 eager 安装（映射删除后
-  bundle 内无人再装该 global），并核实 外部委托 路汇报的「npm 246/246 旧
-  bundle 回归验证」不成立：其运行时间先于 engine-entry.js 产生，
+  bundle 内无人再装该 global），并核实「npm 246/246 旧 bundle 回归验证」的汇报不成立：其运行时间先于 engine-entry.js 产生，
   InvalidFontSize 等期望滞后项与 bundle 无关，4d-2b 之后的任何时间点都
   不应全部通过。
   进度（Slice 7，2026-08-24）：fcbda548、bcc1402f、341be9d3。npm-core 新增
@@ -1140,8 +1138,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   package-topology OK、verify-package 两侧、npm-core pack 69 文件含
   ts-runtime.js、npm verify:release 隔离消费者通过、:ffi:js:jsNodeTest 与
   assembleNpmPackage 绿、demo/web 33/35（两项已知失败：发布金丝雀
-  npm-published-vs-dev 与 OneShotEquivalence）。实现经 外部委托（ts-runtime
-  安装器与 loader/host 接线）与 外部委托（target 删除与包面收缩）两路
+  npm-published-vs-dev 与 OneShotEquivalence）。ts-runtime 一路委托
+  安装器与 loader/host 接线）与（target 删除与包面收缩）两路
   并行委托；复核后实证 Main.kt 掩蔽链、裁决 package.test.mjs 的
   runtime/ 期望过时并迁移、修复 demo import map、完成文档与提交拆分。
   Kotlin/JS 编译自此只余 :ffi:js。
@@ -1240,7 +1238,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   仓库；ffi 包只做引擎代码导出，Rust FFI 与 JS FFI 的导出面保持平行；现有
   混入内容收回库内或删除；HarfBuzzBuildBackend 的消费点核对后处置。
 
-  进度（G3，2026-08-24）：外部委托 完成只读审计（导出清单、Rust 对照面、
+  进度（G3，2026-08-24）：只读审计完成（导出清单、Rust 对照面、
   平行性分歧表、消费点与 npm 目录核查），审计逐项裁定后执行。
   裁定与结果：
 
@@ -1278,4 +1276,4 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 | npm 包拓扑 | 1（@tiqian/prose；ffi 未独立发包） | 3（ffi、core、web-component），依赖方向 web-component → core → ffi 单向 |
 | 跨包相对导入 | 无检查 | 0 |
 | core 与 web-component 包内手写 JS 源文件 | 全部为 .js | 0（全部为 .ts） |
-| any、as unknown as、object/Object/{}、内联类型 与 eslint-disable | 无检查 | 全部为 0 |
+| any、as unknown as、object/Object/{}、内联类型与 eslint-disable | 无检查 | 全部为 0 |

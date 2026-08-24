@@ -94,7 +94,7 @@ element.js 2351 行，最后两批处理）。
 
 ## 5. G3 方案
 
-只读审计进行中（外部委托，报告 `.b2-tmp/g3-audit-report.md`）。处置按审计
+只读审计进行中（报告 `.b2-tmp/g3-audit-report.md`）。处置按审计
 结论分批：混入的 web 宿主逻辑收回 `frontend/web/npm-core`（作为 G1 批次之一
 或独立小批）；Rust FFI 与 JS FFI 导出面平行性分歧逐符号处置；
 HarfBuzzBuildBackend 两个 typealias 按消费点结论保留或内联删除。

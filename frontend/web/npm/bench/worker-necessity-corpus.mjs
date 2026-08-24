@@ -27,9 +27,9 @@ import { parseSnapshotManifest } from "@tiqian/prose-core/snapshot-manifest.js";
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(BENCH_DIR, "fixtures", "corpus");
 
-// The built page the corpus mirrors. Read-only; kept as a literal so the bench
-// stays reproducible across machines.
-const SOURCE_PAGE_PATH = "/sveltekit 站点/build/2019/12/17/oh-my-2019.html";
+// The built page the corpus mirrors. It lives outside this repository, so its
+// location comes from the environment; read-only.
+const SOURCE_PAGE_PATH = process.env.TIQIAN_BENCH_SOURCE_PAGE;
 
 // Font selection order (from the task spec): IBM Plex Sans SC first, then
 // Noto Sans SC / Source Han Sans SC / WenQuanYi, then any CJK-covering face.

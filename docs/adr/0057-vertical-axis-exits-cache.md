@@ -96,7 +96,7 @@ lineHeight 退出 typography 身份与失效 digest，修订 ADR 0053 五表规�
 重画，横向条目与身份判定不受影响，不存在 invalidate。烘焙期引擎调用的
 lineHeight 取级联解析值（见 ADR 0054 的 `TypographyConfigFromCss`），只进 dump。
 
-直接后果：sveltekit 站点 的 p（30px）与 li（28px）字号相同、行高不同，合并为一个
+直接后果：sveltekit 站点的 p（30px）与 li（28px）字号相同、行高不同，合并为一个
 context；脚注（13px）因字号仍在身份而独立，其合并待比例域（ADR 0054 的
 `FontSizeRatioDomainSpike`）。本决定不动引擎算术，独立可回退。
 
@@ -111,7 +111,7 @@ context；脚注（13px）因字号仍在身份而独立，其合并待比例域
 - SVG 可整体 em 化：svg 元素的 width/height 用 em，viewBox 用等值的无单位
   数值（1 用户单位 = 1 em），浏览器缩放连带 stroke-width（线粗是 em 量，
   缩放性质相合）。纵向随字号均匀缩放的前提是宿主行高为 em 写法
-  （`line-height: 1.94` 一类，lineHeightEm 固定）；绝对 px 行高（sveltekit 站点 的
+  （`line-height: 1.94` 一类，lineHeightEm 固定）；绝对 px 行高（sveltekit 站点的
   30px）下 lineHeightEm 随字号变化，纵轴仍走公式。该约束即「行高绝对值不是
   字号比例量」。
 - 绘制载体按装饰形状分派：离散、矩形、圆形改用 CSS em 盒，着重号点是
@@ -144,7 +144,7 @@ context；脚注（13px）因字号仍在身份而独立，其合并待比例域
 
 - 本轮（ADR 0054 批次）纵轴与装饰层维持现状运行，实施时机由 roadmap 排定。
 - lineHeight 成为普通 CSS 属性：宿主改行高只触发浏览器重排重画，无缓存失效；
-  sveltekit 站点 的 p 与 li 合并为一个 context；条目存量减少 y 列，overlay 与几何
+  sveltekit 站点的 p 与 li 合并为一个 context；条目存量减少 y 列，overlay 与几何
   反查的 y 从运行时公式取得。
 - 与 ADR 0054 的衔接：实施时其格数区间表条目的「行几何值」改为横轴几何，
   身份收敛表的行高行随之生效，`FontSizeRatioDomainSpike` 的纵轴阻碍项解除。

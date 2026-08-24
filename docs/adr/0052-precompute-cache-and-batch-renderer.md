@@ -10,11 +10,11 @@
 ## Context
 
 0050 的缓存设计停留在文字，没有对应代码。`PreparedParagraphCache` trait 与其
-NoCache、Memory、Directory、SQLite 实现均未开工。两个接入站点（sveltekit 站点 与 astro 站点）为此
+NoCache、Memory、Directory、SQLite 实现均未开工。两个接入站点（sveltekit 站点与 astro 站点）为此
 各自维护宿主侧缓存：context 指纹计算与并发去重在两个站点重复出现，compact 序列化、
 原子写、逐条失效只在其中一个站点实现。
 
-缓存条目的内容构成可以量化。sveltekit 站点 一次完整构建的缓存共 306 个条目、115.2 MB，逐字段
+缓存条目的内容构成可以量化。sveltekit 站点一次完整构建的缓存共 306 个条目、115.2 MB，逐字段
 数据见附录。结构性事实有三条。第一，每篇产物的两个 template 各内嵌一份 manifest：
 clientTemplate 里是 FontContract manifest，inertTemplate 里是段落 manifest，两份又各自内嵌一份
 相同的 fontReplay 与 fontEvidence，等于每篇把字体回放与字体证据存了两遍，合计
@@ -31,11 +31,11 @@ Json DOM 后逐字段读取；结果沿同一路径返回。FontContract 批量�
 时，这段串行成本先成为固定下限。
 
 线程模型受调用边界限制。批处理入口按调用切批，线程池随调用结束解散；宿主走逐条入口
-时（astro 站点 的单段入口），并行度取决于宿主自身的并发组织。两个站点的构建内存峰值
+时（astro 站点的单段入口），并行度取决于宿主自身的并发组织。两个站点的构建内存峰值
 分别是 1.86–2.06 GiB 与 2.04–2.18 GiB（0050 附录），持久化写缓冲的预算有宿主余量可依。
 
 两个参考站点接入宿主缓存后的构建耗时对照见 0050 第三附录：相对各自 JS 引擎基线，
-从空缓存构建 sveltekit 站点 为 263.3 s 对 55.0 s，astro 站点 为 137.3 s 对 29.3 s；缓存可
+从空缓存构建 sveltekit 站点为 263.3 s 对 55.0 s，astro 站点为 137.3 s 对 29.3 s；缓存可
 命中时分别为 14.3 s 与 9.2 s。
 
 ## Decision
@@ -208,7 +208,7 @@ schema 自 1 升 2：读写两侧都只认识 schema 2，schema 1 的读取路�
 `renderSnapshotTemplate` 删除。HTML 预备 lane 在单次调用内部走同一条拆分路径，
 返回结果对象与表文件字节。
 
-按附录的字节构成重排，sveltekit 站点 形态的缓存体积预计约 50 MB，为当前 115.2 MB 的 43%
+按附录的字节构成重排，sveltekit 站点形态的缓存体积预计约 50 MB，为当前 115.2 MB 的 43%
 左右；HTML 产物里内嵌的 manifest 同步变小。
 
 ### `TableTransport`：表经根属性按需加载
@@ -357,9 +357,9 @@ Deno 的模块，加载时探测。三张表：条目（层、键、context、�
   体积；当次构建内重复段落的命中计数。
 - 内存：写缓冲预算取保守值时，构建内存峰值不高于现状。
 
-## 附录（2026-08-21）：sveltekit 站点 构建缓存输出测量
+## 附录（2026-08-21）：sveltekit 站点构建缓存输出测量
 
-对象为 sveltekit 站点 一次完整构建的缓存目录：306 个 JSON 条目，磁盘 115,221,583 字节。字段
+对象为 sveltekit 站点一次完整构建的缓存目录：306 个 JSON 条目，磁盘 115,221,583 字节。字段
 字节数按条目反序列化后对各字段值单独以 UTF-8 编码统计；manifest 自 template 字段的
 `data-tq-snapshot-manifest` script 标记提取。同篇两个 manifest 中的 fontReplay 与
 fontEvidence 内容相同（抽验首 60 篇）。
@@ -541,7 +541,7 @@ string、95 face、2 typography、95 fontPreload）在两种文件形态下的�
 
 ## 附录（2026-08-22 第五批）：持久存储的行压缩与初始化维护
 
-sveltekit 站点 的引擎缓存文件长到 937,504,768 B。分解：三个 context（6,192 条 447.9 MB、
+sveltekit 站点的引擎缓存文件长到 937,504,768 B。分解：三个 context（6,192 条 447.9 MB、
 848 条 40.8 MB、71 条约 0）都是当次构建的活 lane，没有失效行；多余的是
 106,823 个空闲页（437 MB），来自历次 prune 与替换删除，文件内没有任何
 VACUUM。单条平均 69 KB，最大的 242,894 B。
@@ -554,7 +554,7 @@ VACUUM。单条平均 69 KB，最大的 242,894 B。
   还原；deflate 按构造满足。不带外层的旧行按明文读，命中路径不变，该行下次被
   引擎排出时落成压缩形态。未知版本字节视为 miss，内容路径重算并覆写。
 - **存储维护入口**：`createSqliteCacheStore(path, { contexts })`。`contexts`
-  声明该文件服务的全部 context（sveltekit 站点 的三个 precomputer 会话共用一个文件，
+  声明该文件服务的全部 context（sveltekit 站点的三个 precomputer 会话共用一个文件，
   声明三个指纹；空列表不删任何行），打开时删去条目、文章行、哈希行里的其余
   context；随后读取空闲页计数，大于零才 VACUUM，没有声明时也执行这一步。
   VACUUM 拿不到锁时跳过，删除已经落盘，下次打开再回收。`dropOtherContexts`

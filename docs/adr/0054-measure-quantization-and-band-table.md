@@ -66,7 +66,7 @@ normalize.rs:81-84 把未声明视为默认开启。引擎文档（TextModel.kt:
 
 缓存字节是 `(source, typography, 格数)` 的纯函数；typography 现含 fontSizePx、
 lineHeightPx 与 fontFamilies，字号与行高都以 px 绝对值参与身份。宿主配置靠手抄：
-sveltekit 站点 把 CSS 规则里的数字抄进 `src/lib/server/tiqian.ts`，成为传给
+sveltekit 站点把 CSS 规则里的数字抄进 `src/lib/server/tiqian.ts`，成为传给
 `createPrecomputer` 的三份配置（`.article-entry p` 15.5/30，行高声明在
 layout.css:302；`li` 15.5/28，:306；脚注区 13/24，:437）。引擎不读样式表：同一
 数字在引擎层与 CSS 层各出现一次，引擎层那份决定快照按什么算，CSS 层那份决定
@@ -281,7 +281,7 @@ plan 对行长的依赖是阶梯函数：格量化无条件化之后，引擎看
 ### `RequestQuantizedAtBoundary`：请求与缓存键按格数构造
 
 引擎请求与 plan 缓存键在构造处先过格量化：同格数区间的宽度共享同一条请求与
-缓存条目。请求携带格数整数，引擎入口以 格数 × 字号 还原计量（乘法），不再对
+缓存条目。请求携带格数整数，引擎入口以格数 × 字号还原计量（乘法），不再对
 请求宽度做第二次 `floor`；量化宽度先乘后除的双舍入（`fl(N × fontSize) / fontSize`
 可落回 N−1）由此不存在。请求的宽度字段升 f64 并携带量化后的计量值，仅作诊断与
 日志，格数以请求携带的整数字段为准。入口还原的计量不做 `min` 守卫：格数计量
@@ -479,7 +479,7 @@ HTML 树形不是跨带稳定结构。source 偏移稳定，跳表在补丁时�
    读取按 miss 处理）有断言；批次 0 判定数据按分解报告 §5 记录。
 6. `RequestQuantizedAtBoundary` 实施：同区间不同像素宽度只产生一条 plan 缓存
    条目（计数断言）。
-7. `TypographyConfigFromCss` 实施：窄级联对 sveltekit 站点 三组标量的解析值与现行手抄值
+7. `TypographyConfigFromCss` 实施：窄级联对 sveltekit 站点三组标量的解析值与现行手抄值
    逐字段相等；note 的 17.05 进入烘焙集合有断言；媒体查询其他档的不匹配走 miss
    与引擎重排、不走浏览器降级有断言；font-size-adjust 非 `none` 的段落跳过增强
    并记录 capability issue 有断言；开工门槛通过后补条目回填命中断言。
@@ -515,7 +515,7 @@ HTML 树形不是跨带稳定结构。source 偏移稳定，跳表在补丁时�
   验收：Verification 6 的计数断言。
 - [ ] **54-4 窄级联配置生成**（`TypographyConfigFromCss` 先行部分）：六项继承属性
   解析、maxWidth 与 locale 分派、font-size-adjust 守卫；`tiqian.ts` 三份配置删除。
-  KPI：sveltekit 站点 三组标量逐字段与手抄值相等；note 的 17.05 进烘焙集合。
+  KPI：sveltekit 站点三组标量逐字段与手抄值相等；note 的 17.05 进烘焙集合。
   验收：Verification 7 除回填断言外全部；回填断言归 54-10。
 
 ### 第二组：开工门槛
@@ -582,4 +582,4 @@ HTML 树形不是跨带稳定结构。source 偏移稳定，跳表在补丁时�
 | 每带首访重算成本 | 无既有数据 | 进程内引擎调用毫秒数 |
 | 表体积 | 现行单带 HTML 产物字节 | 可达带全集二进制产物字节 |
 | 边界翻转频率 | 无既有数据 | 拖动停在格数边界的 N/N+1 翻转次数 |
-| 回填命中 | 无既有数据 | sveltekit 站点 与 astro 站点 换带命中率 |
+| 回填命中 | 无既有数据 | sveltekit 站点与 astro 站点换带命中率 |

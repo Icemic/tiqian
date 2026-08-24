@@ -112,7 +112,7 @@ shapeGlyphAdvance 等）是注册表 Map 读取与属性访问（browser-font-re
 | 24 段 299.1/308.9/307.6 ms，Wasm 683 ms | ADR 0039:43–46 | Kotlin/JS 对 Kotlin/Wasm 的后端选型基准。Edge「增强的安全性」（JIT 受限）下跑完整 pipeline。证明 JS 后端比 Wasm 快、无 JIT 时引擎本体最坏成本；不含 Worker 或 resize 的成本数据 |
 | Firefox width-slider profile（910 次同步 reflow、365ms eventDelay 峰值） | ADR 0039:583 | 主线程路径的提交与守卫粒度问题，不含 Worker 往返 |
 | 2026-08-18 Zen profile（拖动 JS 3.1%）与 demo CDP burst 基线 | ADR 0039:692、:708 | 主线程路径优化后的占比与逐帧宽度振荡下的表现 |
-| sveltekit 站点 263→55s、neo 137→29s | Slice 39 benchmark matrix | 构建期 precompute，与运行时无关 |
+| sveltekit 站点 263→55s、astro 站点 137→29s | Slice 39 benchmark matrix | 构建期 precompute，与运行时无关 |
 
 Worker 必要性没有孤立的 benchmark。`ExactWorkerFailureMustStayNative`
 （worker-layout.js:251）记录的教训：同步回退在 JIT 受限浏览器上重演滚动停顿。
