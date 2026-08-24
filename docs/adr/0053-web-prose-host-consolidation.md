@@ -1100,6 +1100,51 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   bundle 回归验证」不成立：其运行时间先于 engine-entry.js 产生，
   InvalidFontSize 等期望滞后项与 bundle 无关，4d-2b 之后的任何时间点都
   不应全部通过。
+  进度（Slice 7，2026-08-24）：fcbda548、bcc1402f、341be9d3。npm-core 新增
+  core/engine/loaders/ts-runtime.js 与 ts-runtime.test.mjs：ts-runtime 按
+  build.gradle.kts bridge 次序以副作用 import 安装全部 21 个引擎脚本，从
+  @tiqian/ffi 直接引用五个函数组成 facade，经 __TiqianRootState.bindFfi
+  注入；runtime-loader.js 的 loadTiqianRuntime 改为 import("./ts-runtime.js")，
+  engineApi/workerApi 改从 globalThis.__TiqianEngine/__TiqianEngineWorkers
+  解析；runtime-host.mjs 的 bridge.install 自行安装 copy handler。bundle
+  世界的安装方是 webpack demo main()（Main.kt 的 fun main() 调
+  TiqianWeb.install()，模块求值即把剪贴板监听注册到测试宿主缓存的
+  document double 上），bridge.install 的空实现因此从未被触发；在实际
+  宿主环境 import 旧 bundle，实测监听计数为 1，空实现回归为 0，
+  bridge.install 补调 installer 后恢复 1，该修复随本切片必要。npm 侧
+  五个 bridge 测试头注释同步。Lane B 删除：frontend/web/src 全树
+  （jsMain 23 文件、jsTest 3 文件，jsBrowserTest 退出）、
+  frontend/web/build.gradle.kts（299 行）、npm-core/build-runtime.mjs 与
+  runtime/ 产物目录（tiqian-web.js 580535 字节，git 忽略）、
+  shaping/web-adapter（两个 .kt 与 build 脚本）；settings.gradle.kts 撤
+  两个 include；npm-core package.json 的 files/exports/scripts 撤
+  runtime/ 通道，verify-package.mjs 保留 runtime.js 必备项并停止扫描
+  runtime 产物；package.test.mjs 把「发布包含 runtime/」的既有断言迁移为
+  TS runtime 模块断言并删除 build:runtime 内容测试（npm 245 例为 246 删
+  1）；sveltekit 集成门从 npm/runtime/tiqian-web.js 的存在性检查（F2a
+  之后恒为 false、测试静默 skip）改为 @tiqian/prose-core 链接检查，
+  「component builds in a real SvelteKit application」自此执行并通过
+  （14/14）；compare-refs A/B 改为指纹 :ffi:js:assembleNpmPackage 的
+  Tiqian-tiqian-ffi-js.mjs；kotlin-js-store/yarn.lock 再生（+30/-1198，
+  webpack dev-server 依赖树随 project 撤除），F2 登记的 kotlin-js-store
+  归位就此完成。demo 消费面：framework-commit-conflict 与
+  npm-published-vs-dev 两个 fixture 的 import map 补
+  "@tiqian/ffi": "/npm-ffi/Tiqian-tiqian-ffi-js.mjs"；bundle 时代引擎链
+  自包含、无需 bare specifier 映射，ts-runtime 的文档上下文 import 需要
+  该条目（worker 侧 rewrite 维持原状）；framework-commit-conflict 在
+  运行时切换后两次复现「initial mount never rendered」，根因即此，补映射
+  后单跑与全套通过。文档同步：AGENTS.md 撤 :frontend:web 两条 gradle
+  命令与 shaping/web-adapter，architecture.md 与 contributing.md 同步，
+  roadmap 行 36 验证命令列改 :ffi:js 路径。验证：npm-core 419、npm 245、
+  sveltekit 14、astro 10、ts-discipline eslint 通过且两条 grep 零命中、
+  package-topology OK、verify-package 两侧、npm-core pack 69 文件含
+  ts-runtime.js、npm verify:release 隔离消费者通过、:ffi:js:jsNodeTest 与
+  assembleNpmPackage 绿、demo/web 33/35（两项已知失败：发布金丝雀
+  npm-published-vs-dev 与 OneShotEquivalence）。实现经 外部委托（ts-runtime
+  安装器与 loader/host 接线）与 外部委托（target 删除与包面收缩）两路
+  并行委托；复核后实证 Main.kt 掩蔽链、裁决 package.test.mjs 的
+  runtime/ 期望过时并迁移、修复 demo import map、完成文档与提交拆分。
+  Kotlin/JS 编译自此只余 :ffi:js。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。

@@ -119,7 +119,6 @@ cluster、glyph、advance 和 ink bounds。可重放后端还用稳定 `FontFace
 - `platforms/android/shaping`：Compose 默认的 Android 公开平台后端。API 31+ 保留
   `TextRunShaper` 返回的 glyph id、placement 与 `Font`；API 23–30 以
   `LegacyPlatformRunReplay` 保证测量与 `drawTextRun` 共用同一 run 接口；
-- `platforms/web/shaping`：浏览器离屏 Canvas 度量，并按需要使用可验证字体证据；
 - `platforms/apple/shaping`：Apple Core Text shaping、系统字体度量与 glyph ink。语言和显式 OpenType
   feature 进入同一条 `CTLine` 测绘路径；无法施加的 feature 以具名 capability issue 降级，不能
   只把请求原样写进 `GlyphRun`。
@@ -205,7 +204,7 @@ TalkBack character-location 能力不属于当前静态正文路径。
 ### Web
 
 `frontend/web` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
-HTML 先保持可读，Kotlin/JS runtime 与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
+HTML 先保持可读，TS runtime（`@tiqian/prose-core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
 inline 与 CSS 仍由宿主持有；引擎只写入断行和 spacing geometry。
 
 同仓库的 `frontend/web/integrations/sveltekit` 与 `frontend/web/integrations/astro` 分别发布

@@ -51,9 +51,7 @@ roadmap 不是贡献许可清单。修复明确的 bug、增加测试或改善�
 ```shell
 ./gradlew :engine:jvmTest
 ./gradlew :platforms:compose:compose:jvmTest
-./gradlew :frontend:web:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :frontend:web:assembleNpmPackage
 ./gradlew :demo:android:assembleDebug
 ```
 

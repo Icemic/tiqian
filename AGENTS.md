@@ -23,8 +23,8 @@
 
 ## Build 与验证
 
-项目使用 Gradle Kotlin Multiplatform，JVM toolchain 为 25；同时包含 Android、浏览器 Kotlin/JS
-与 Node Kotlin/JS target。
+项目使用 Gradle Kotlin Multiplatform，JVM toolchain 为 25；同时包含 Android 与
+`:ffi:js` 的 Kotlin/JS target。
 
 ```shell
 ./gradlew build
@@ -38,9 +38,7 @@
 ./gradlew :demo:android:assembleDebug
 ./gradlew runComposeDemo
 
-./gradlew :frontend:web:jsBrowserTest
 ./gradlew :ffi:js:jsNodeTest
-./gradlew :frontend:web:assembleNpmPackage
 ./gradlew :ffi:js:assembleNpmPackage
 (cd frontend/web/npm && npm run link:ffi && npm test)
 (cd ffi/js/npm && npm test)
@@ -71,7 +69,7 @@ Layout report 位于
   `clreq`、`layout`、`shaping/api`）定义数据、字体策略、断行、中文规则、shaping 接口定义与
   最终 `LayoutResult`；内部按 `org.tiqian.{core,font,linebreak,clreq,layout,shaping}` 包分簇。
 - **平台 shaping**：shaping 接口定义在 `engine`；`platforms/jvm/{shaping,skia}`、
-  `platforms/android/{shaping,native-font}`、`platforms/web/shaping`、
+  `platforms/android/{shaping,native-font}`、
   `platforms/apple/shaping` 提供各平台实现。
 - **前端**：`platforms/compose/{compose,material3}`、`frontend/web`、
   `platforms/android/view`、`platforms/apple/frontend` 只消费布局结果并呈现。
