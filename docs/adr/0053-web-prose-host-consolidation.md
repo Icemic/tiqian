@@ -1231,7 +1231,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   即产生全局副作用；应属于组件实例的状态存放在全局闭包；测试环境读取内部
   数据依赖这些全局。处置：模块改为正规 ES module 导入导出；ffi 不再作为
   函数参数传递，也不挂全局后跨模块调用；实例状态收回组件；测试读取内部
-  数据的机制另行设计；构造函数的参数编排逐个复核。
+  数据的机制另行设计；构造函数的参数编排逐个复核；`var` 声明全部替换为
+  let/const，不保留任何 var 写法（2026-08-24 复审补充：var 属必须清除的
+  过时语法，G2 批内一并执行）。
 - [x] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
   frontend/rust 相同：导出 tiqian Kotlin 模块的全部 API 供下游消费。实际产物
   移动了部分源代码，包内混入新实现的宿主逻辑，属于 web 侧的逻辑应留在 web
@@ -1260,6 +1262,24 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   - 提交 1c0d63a8。验证：`:layout:jvmTest`、`:ffi:js:jsNodeTest`、
     ffi/js npm 测试与 `verify:package`、Native 编译全部通过；导出面
     7 个符号与签名前后不变。
+
+#### QA 复审记录（2026-08-24，G3 后续录，原文照录，依序处置）
+
+- 执行过程当中要求是 `@tiqian/core`，结果被执行成了 `@tiqian/prose-core`，
+  冗余的模块重新导出；alpha 版本的软件不需要考虑兼容性问题。
+- 工具脚本和程序源码混在一起，工具应该在 scripts 里，源码应该在 src 里。
+- npm-core 是一个错误的文件夹名称，它应该叫 core；npm-core/core 这个
+  Core 里有 Core 的逻辑也非常怪；npm-core 根目录下有大量散装文件没有进
+  src 也没有按照职能进入对应目录。
+- CI 炸了，Rust 侧编译完成后发现数据结构对不上，可以用 gh 看一下；
+  Kotlin 迁出的时候 CI 就已经跑不过了，cargo build 的时候 test 合不上。
+- .b2-tmp、.agent-specs 目录挂在哪里有点怪：首先里面的内容已经不只是 b2，
+  其次如果它有价值可以供以后的 Agent 参考，至少应该把它放到 git ignore 里，
+  现在都堵在未提交文件里面有点让人困扰。
+- 我怎么感觉 Kotlin、Rust、JS 之间的精度问题逻辑开始出现分散的情况了，
+  之前好像是都集中在 Rust 侧处理了。
+- FFI 包还是脏的，里面还是有独立的 Kotlin 文件不知道被谁用过，非常奇怪。
+  对于所有包，所有测试还是 js 文件不是 ts 文件，ffi 包里面也都是 js 文件。
 
 ### KPI 汇总
 
