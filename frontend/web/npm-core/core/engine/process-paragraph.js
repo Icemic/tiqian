@@ -260,11 +260,15 @@
       activeOptions
     );
     var sessionKey = globalThis.__TiqianLifecycle.conformingExactFontSessionId(activeOptions);
-    var workerPlan = workerRequest != null && sessionKey != null
-      ? globalThis.__TiqianLayoutWorker.take(paragraph, sessionKey, workerRequest)
+    // The layout Worker channel is installed by the host page bundle and by
+    // test worlds per test; an absent channel reads as no reusable plan, the
+    // same tolerance the former Kotlin shims applied.
+    var layoutWorker = globalThis.__TiqianLayoutWorker;
+    var workerPlan = workerRequest != null && sessionKey != null && layoutWorker != null
+      ? layoutWorker.take(paragraph, sessionKey, workerRequest)
       : null;
-    var workerIssue = workerRequest != null && workerPlan == null && sessionKey != null
-      ? globalThis.__TiqianLayoutWorker.issue(paragraph, sessionKey, workerRequest)
+    var workerIssue = workerRequest != null && workerPlan == null && sessionKey != null && layoutWorker != null
+      ? layoutWorker.issue(paragraph, sessionKey, workerRequest)
       : null;
 
     // WorkerIneligibleRichRunBrowserFallback: SSR and the exact Worker

@@ -809,3 +809,53 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
     restoreGlobals(saved);
   }
 });
+
+test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
+  const saved = preserveGlobals(PROCESS_GLOBALS);
+  try {
+    const prepareCalls = [];
+
+    globalThis.__TiqianEligibility = {
+      shouldTryParagraph: () => true,
+    };
+    globalThis.__TiqianMarkdownLowering = {
+      lower: () => ({ ok: true, lowered: makeLowered() }),
+    };
+    globalThis.__TiqianLifecycle = {
+      applyConfiguredHostFontSize: () => false,
+      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
+      withoutExactFontSession: (opt) => opt,
+      conformingExactFontSessionId: () => "session-1",
+      stabilizeContentSizedItemInlineSize: () => null,
+      reportIssue: () => {},
+    };
+    globalThis.__TiqianCustody = {
+      begin: () => {},
+      take: () => {},
+      commit: () => {},
+      restoreParagraph: () => {},
+    };
+    globalThis.__TiqianWorkerRequest = {
+      workerLayoutRequest: () => '{"text":"req"}',
+    };
+    delete globalThis.__TiqianLayoutWorker;
+    globalThis.__TiqianPrepareParagraphLayout = {
+      prepareParagraphLayout: (ffiArg, arg) => {
+        prepareCalls.push(arg);
+        return { kind: "unchanged" };
+      },
+    };
+
+    const paragraph = makeElement();
+    const state = makeState();
+    const ffi = makeFakeFfi();
+
+    processParagraph({ ffi, paragraph, state });
+
+    assert.equal(prepareCalls.length, 1);
+    assert.equal(state.paragraphs.length, 1);
+    assert.equal(state.issues.length, 0);
+  } finally {
+    restoreGlobals(saved);
+  }
+});
