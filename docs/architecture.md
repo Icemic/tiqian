@@ -269,7 +269,7 @@ caret/selection 几何；平台 tokenizer 不参与 shaping、断行或字位计
   font contract、断行机会与西文断词、中文 profile / 标点分类 / 禁则 / 空间策略、段落布局 / 修复 /
   行调整与结构化 decision。
 - `platforms/jvm/{shaping,skia}`、`platforms/android/{shaping,native-font}`、
-  `platforms/web/shaping`、`platforms/apple/shaping`：各宿主的 shaping / replayable font 实现；
+  `platforms/apple/shaping`：各宿主的 shaping / replayable font 实现；
   `platforms/android/shaping` 是 Compose Android 默认的公开平台 run 后端，
   `platforms/android/native-font` 持有宿主可显式选择的共享字体源、受控 face、
   HarfBuzz / FreeType 与同源 outline replay。
