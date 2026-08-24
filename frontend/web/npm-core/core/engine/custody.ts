@@ -10,19 +10,141 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+// The prepared DOM renderer owns release; its global type is declared in
+// prepare-paragraph-layout.ts.
+import type {} from "./prepare-paragraph-layout.js";
+
+// Per-paragraph custody state, keyed weakly so a discarded paragraph can be
+// collected together with its state. The original-attribute snapshots mirror
+// what begin captured before the engine overwrote host-owned markup.
+interface CustodyState {
+  originalContent: DocumentFragment | null;
+  renderedNodes: Node[];
+  custodyNodes: Node[];
+  originalRenderedAttribute: string | null;
+  originalPreparedFlowAttribute: string | null;
+  originalCanonicalSourceAttribute: string | null;
+  originalExactPreparedDomAttribute: string | null;
+  originalLangAttribute: string | null;
+  originalStyleAttribute: string | null;
+  originalPosition: string;
+  originalPositionPriority: string;
+  originalInlineSize: string;
+  originalInlineSizePriority: string;
+  originalFontSize: string;
+  originalFontSizePriority: string;
+  originalHostInlineSizeAttribute: string | null;
+  containingBlockApplied: boolean;
+  hostInlineSizeApplied: string | null;
+  hostFontSizeApplied: string | null;
+}
+
+// A paragraph under custody: the host's semantic children live in the
+// published fragment, and the four mutation methods redirect host commits
+// into it unless the engine write counter is above zero. The counter field is
+// read as a number (not a boolean) so engineWriteSuspension in the prepared
+// DOM bridge can increment and decrement it around engine writes.
+type CustodyRemoveChildFn = (child: Node) => Node;
+type CustodyInsertBeforeFn = (node: Node, ref: Node | null) => Node;
+type CustodyReplaceChildFn = (next: Node, prev: Node) => Node;
+type CustodyAppendChildFn = (node: Node) => Node;
+
+type CustodyParagraphElement = Omit<
+  Element,
+  "removeChild" | "insertBefore" | "replaceChild" | "appendChild"
+> & {
+  __tqCustodyFragment: DocumentFragment;
+  __tqCustodyForwarding: boolean;
+  __tqCustodyEngineWrites: number;
+  removeChild: CustodyRemoveChildFn;
+  insertBefore: CustodyInsertBeforeFn;
+  replaceChild: CustodyReplaceChildFn;
+  appendChild: CustodyAppendChildFn;
+};
+
+// Live rendered-output snapshot taken by captureLive at a slice boundary and
+// replayed by rollback in reverse order.
+export type CustodySnapshot = {
+  source: Element;
+  content: DocumentFragment;
+  renderedAttribute: string | null;
+  preparedFlowAttribute: string | null;
+  canonicalSourceAttribute: string | null;
+  exactPreparedDomAttribute: string | null;
+  langAttribute: string | null;
+  styleAttribute: string | null;
+  capabilityNameAttribute: string | null;
+  capabilityDetailAttribute: string | null;
+  lastMeasure: number | null;
+  containingBlockApplied: boolean;
+  hostInlineSizeApplied: string | null;
+  hostInlineSizeAttribute: string | null;
+  originalContentHadChildren: boolean;
+};
+
+export type CustodyRollbackResult = {
+  source: Element;
+  lastMeasure: number | null;
+};
+
+type CustodyBeginFn = (
+  source: Element,
+  renderedAttribute: string | null,
+  preparedFlowAttribute: string | null,
+  canonicalSourceAttribute: string | null,
+  exactPreparedDomAttribute: string | null,
+  langAttribute: string | null,
+  styleAttribute: string | null,
+  position: string,
+  positionPriority: string,
+  inlineSize: string,
+  inlineSizePriority: string,
+  fontSize: string,
+  fontSizePriority: string,
+  hostInlineSizeAttribute: string | null,
+) => void;
+type CustodyTakeFn = (source: Element, hostFontSizeApplied: string | null) => void;
+type CustodyCommitFn = (source: Element, hostInlineSizeApplied: string | null) => void;
+type CustodyStampRenderedFn = (source: Element) => void;
+type CustodyRenderedMatchesFn = (source: Element) => boolean;
+type CustodyMatchesFn = (source: Element) => boolean;
+type CustodyCaptureLiveFn = (source: Element, lastMeasure: number | null) => CustodySnapshot;
+type CustodyRollbackFn = (snapshots: CustodySnapshot[]) => CustodyRollbackResult[];
+type CustodyRestoreParagraphFn = (source: Element) => void;
+type CustodyRestoreShellFn = (source: HTMLElement) => void;
+type CustodyEnsureContainingBlockFn = (source: HTMLElement) => void;
+
+export type CustodyApi = {
+  begin: CustodyBeginFn;
+  take: CustodyTakeFn;
+  commit: CustodyCommitFn;
+  stampRendered: CustodyStampRenderedFn;
+  renderedMatches: CustodyRenderedMatchesFn;
+  custodyMatches: CustodyMatchesFn;
+  captureLive: CustodyCaptureLiveFn;
+  rollback: CustodyRollbackFn;
+  restoreParagraph: CustodyRestoreParagraphFn;
+  restoreShell: CustodyRestoreShellFn;
+  ensureContainingBlock: CustodyEnsureContainingBlockFn;
+};
+
+declare global {
+  var __TiqianCustody: CustodyApi | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianCustody) return;
 
-  var CANONICAL_SOURCE_ATTRIBUTE = "data-tq-canonical-source";
-  var EXACT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom";
-  var RUNTIME_RENDER_FONT_ATTRIBUTE = "data-tq-runtime-render-font";
-  var HOST_INLINE_SIZE_ATTRIBUTE = "data-tq-host-inline-size";
+  var CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
+  var EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
+  var RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
+  var HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
 
   // Per-paragraph custody state, keyed weakly so a discarded paragraph can
   // be collected together with its state.
-  var states = new WeakMap();
+  var states = new WeakMap<Element, CustodyState>();
 
-  function stateOf(source) {
+  function stateOf(source: Element): CustodyState {
     var state = states.get(source);
     if (!state) {
       throw new Error("custody state missing for paragraph");
@@ -30,9 +152,9 @@
     return state;
   }
 
-  function liveChildNodes(element) {
-    var nodes = [];
-    var child = element.firstChild;
+  function liveChildNodes(element: Node): Node[] {
+    var nodes: Node[] = [];
+    var child: ChildNode | null = element.firstChild;
     while (child) {
       nodes.push(child);
       child = child.nextSibling;
@@ -40,7 +162,7 @@
     return nodes;
   }
 
-  function restoreAttribute(element, name, value) {
+  function restoreAttribute(element: Element, name: string, value: string | null): void {
     if (value === null || value === undefined) {
       element.removeAttribute(name);
     } else {
@@ -48,13 +170,13 @@
     }
   }
 
-  function stampCustodyContent(state, source) {
-    state.custodyNodes = liveChildNodes(state.originalContent);
-    source.__tqCustodyFragment = state.originalContent;
-    installCustodyCommitForwarding(source);
+  function stampCustodyContent(state: CustodyState, source: Element): void {
+    state.custodyNodes = liveChildNodes(state.originalContent as DocumentFragment);
+    (source as CustodyParagraphElement).__tqCustodyFragment = state.originalContent as DocumentFragment;
+    installCustodyCommitForwarding(source as CustodyParagraphElement);
   }
 
-  function stampRenderedContent(state, source) {
+  function stampRenderedContent(state: CustodyState, source: Element): void {
     state.renderedNodes = liveChildNodes(source);
   }
 
@@ -66,7 +188,7 @@
   // a re-take with a fresh fragment needs no re-install. An empty fragment
   // means the paragraph is not under custody and every branch falls through
   // to native.
-  function installCustodyCommitForwarding(paragraph) {
+  function installCustodyCommitForwarding(paragraph: CustodyParagraphElement): void {
     if (paragraph.__tqCustodyForwarding) {
       return;
     }
@@ -74,23 +196,23 @@
     var nativeInsertBefore = Node.prototype.insertBefore;
     var nativeReplaceChild = Node.prototype.replaceChild;
     var nativeAppendChild = Node.prototype.appendChild;
-    var activeCustody = function () {
+    var activeCustody = function (): DocumentFragment | null {
       var fragment = paragraph.__tqCustodyFragment;
       return fragment && fragment.childNodes.length > 0 ? fragment : null;
     };
-    var heldInCustody = function (node) {
+    var heldInCustody = function (node: Node | null): boolean {
       var fragment = paragraph.__tqCustodyFragment;
       return !!fragment && !!node && node.parentNode === fragment;
     };
-    var engineWriting = function () {
+    var engineWriting = function (): boolean {
       return paragraph.__tqCustodyEngineWrites > 0;
     };
-    paragraph.removeChild = function (child) {
+    paragraph.removeChild = function (child: Node): Node {
       if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
       if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
       return nativeRemoveChild.call(paragraph, child);
     };
-    paragraph.insertBefore = function (node, ref) {
+    paragraph.insertBefore = function (node: Node, ref: Node | null): Node {
       if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
       if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
       if (!ref && node && node.nodeType !== 11) {
@@ -99,12 +221,12 @@
       }
       return nativeInsertBefore.call(paragraph, node, ref);
     };
-    paragraph.replaceChild = function (next, prev) {
+    paragraph.replaceChild = function (next: Node, prev: Node): Node {
       if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
       if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
       return nativeReplaceChild.call(paragraph, next, prev);
     };
-    paragraph.appendChild = function (node) {
+    paragraph.appendChild = function (node: Node): Node {
       if (engineWriting()) return nativeAppendChild.call(paragraph, node);
       if (node && node.nodeType !== 11) {
         var fragment = activeCustody();
@@ -119,21 +241,21 @@
   // overwrite during takeover. Must run before the first engine write of the
   // current takeover (applyConfiguredHostFontSize in the pipeline).
   function begin(
-    source,
-    renderedAttribute,
-    preparedFlowAttribute,
-    canonicalSourceAttribute,
-    exactPreparedDomAttribute,
-    langAttribute,
-    styleAttribute,
-    position,
-    positionPriority,
-    inlineSize,
-    inlineSizePriority,
-    fontSize,
-    fontSizePriority,
-    hostInlineSizeAttribute
-  ) {
+    source: Element,
+    renderedAttribute: string | null,
+    preparedFlowAttribute: string | null,
+    canonicalSourceAttribute: string | null,
+    exactPreparedDomAttribute: string | null,
+    langAttribute: string | null,
+    styleAttribute: string | null,
+    position: string,
+    positionPriority: string,
+    inlineSize: string,
+    inlineSizePriority: string,
+    fontSize: string,
+    fontSizePriority: string,
+    hostInlineSizeAttribute: string | null
+  ): void {
     states.set(source, {
       originalContent: null,
       renderedNodes: [],
@@ -158,32 +280,32 @@
   }
 
   // Moves the semantic source children into a detached custody fragment.
-  function take(source, hostFontSizeApplied) {
+  function take(source: Element, hostFontSizeApplied: string | null): void {
     var state = stateOf(source);
     state.hostFontSizeApplied = hostFontSizeApplied;
     var fragment = globalThis.document.createDocumentFragment();
     while (source.firstChild) {
-      fragment.appendChild(source.firstChild);
+      fragment.appendChild(source.firstChild as ChildNode);
     }
     state.originalContent = fragment;
   }
 
   // Publishes the custody fragment on the paragraph and installs commit
   // forwarding. Runs after the pipeline stabilized the source inline size.
-  function commit(source, hostInlineSizeApplied) {
+  function commit(source: Element, hostInlineSizeApplied: string | null): void {
     var state = stateOf(source);
     state.hostInlineSizeApplied = hostInlineSizeApplied;
     stampCustodyContent(state, source);
   }
 
-  function stampRendered(source) {
+  function stampRendered(source: Element): void {
     stampRenderedContent(stateOf(source), source);
   }
 
-  function renderedMatches(source) {
+  function renderedMatches(source: Element): boolean {
     var state = stateOf(source);
     var recorded = state.renderedNodes;
-    var child = source.firstChild;
+    var child: ChildNode | null = source.firstChild;
     var index = 0;
     while (child) {
       if (index >= recorded.length || recorded[index] !== child) return false;
@@ -193,10 +315,10 @@
     return index === recorded.length;
   }
 
-  function custodyMatches(source) {
+  function custodyMatches(source: Element): boolean {
     var state = stateOf(source);
     var recorded = state.custodyNodes;
-    var child = state.originalContent.firstChild;
+    var child: ChildNode | null = (state.originalContent as DocumentFragment).firstChild;
     var index = 0;
     while (child) {
       if (index >= recorded.length || recorded[index] !== child) return false;
@@ -210,10 +332,10 @@
   // so a later rollback can replay it. Drains the live children into the
   // snapshot fragment. Reads snapshot attributes before draining, matching
   // the previous Kotlin ordering.
-  function captureLive(source, lastMeasure) {
+  function captureLive(source: Element, lastMeasure: number | null): CustodySnapshot {
     var state = stateOf(source);
     var content = globalThis.document.createDocumentFragment();
-    var snapshot = {
+    var snapshot: CustodySnapshot = {
       source: source,
       content: content,
       renderedAttribute: source.getAttribute("data-tq-rendered"),
@@ -228,10 +350,10 @@
       containingBlockApplied: state.containingBlockApplied,
       hostInlineSizeApplied: state.hostInlineSizeApplied,
       hostInlineSizeAttribute: source.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE),
-      originalContentHadChildren: state.originalContent.firstChild !== null,
+      originalContentHadChildren: (state.originalContent as DocumentFragment).firstChild !== null,
     };
     while (source.firstChild) {
-      content.appendChild(source.firstChild);
+      content.appendChild(source.firstChild as ChildNode);
     }
     stampRenderedContent(state, source);
     return snapshot;
@@ -240,23 +362,23 @@
   // Replays snapshots in reverse order. Each replayed paragraph gets its
   // snapshot content, attributes and flags back; the caller receives the
   // lastMeasure per source element.
-  function rollback(snapshots) {
-    var results = [];
+  function rollback(snapshots: CustodySnapshot[]): CustodyRollbackResult[] {
+    var results: CustodyRollbackResult[] = [];
     for (var i = snapshots.length - 1; i >= 0; i--) {
       var snapshot = snapshots[i];
       var source = snapshot.source;
       var state = stateOf(source);
-      if (snapshot.originalContentHadChildren && state.originalContent.firstChild === null) {
+      if (snapshot.originalContentHadChildren && (state.originalContent as DocumentFragment).firstChild === null) {
         // restoreParagraph() handed the semantic source fragment back to the
         // live DOM; move those exact nodes into source custody again before
         // replaying the previous rendered fragment.
         while (source.firstChild) {
-          state.originalContent.appendChild(source.firstChild);
+          (state.originalContent as DocumentFragment).appendChild(source.firstChild as ChildNode);
         }
         stampCustodyContent(state, source);
       } else {
         while (source.firstChild) {
-          source.removeChild(source.firstChild);
+          source.removeChild(source.firstChild as ChildNode);
         }
       }
       source.appendChild(snapshot.content);
@@ -279,27 +401,27 @@
 
   // Hands the semantic source back to the live DOM and restores the shell
   // the engine overwrote. Used by destroy and by unsupported relayouts.
-  function restoreParagraph(source) {
+  function restoreParagraph(source: Element): void {
     var state = stateOf(source);
     var renderer = globalThis.__TiqianPreparedDomRenderer;
     if (renderer) {
       renderer.release(source);
     }
     while (source.firstChild) {
-      source.removeChild(source.firstChild);
+      source.removeChild(source.firstChild as ChildNode);
     }
-    source.appendChild(state.originalContent);
+    source.appendChild(state.originalContent as DocumentFragment);
     // The drain empties custody. Restamp so a paragraph that stays tracked
     // through the relayout-unsupported window does not read as host drift.
     stampCustodyContent(state, source);
-    restoreShell(source);
+    restoreShell(source as HTMLElement);
     stampRenderedContent(state, source);
   }
 
   // Restores the paragraph element attributes and inline style entries the
   // engine overwrote during takeover. Shared by the custody restore path and
   // the content-reconcile path that keeps host-mutated live children.
-  function restoreShell(source) {
+  function restoreShell(source: HTMLElement): void {
     var state = stateOf(source);
     var style = source.style;
     restoreAttribute(source, "data-tq-rendered", state.originalRenderedAttribute);
@@ -357,7 +479,7 @@
 
   // The engine positions line markers absolutely against the paragraph, so a
   // statically positioned paragraph must become its containing block first.
-  function ensureContainingBlock(source) {
+  function ensureContainingBlock(source: HTMLElement): void {
     var state = stateOf(source);
     if (state.containingBlockApplied) return;
     var position = globalThis.getComputedStyle(source).getPropertyValue("position");

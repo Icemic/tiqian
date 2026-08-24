@@ -18,28 +18,163 @@
 // sequence. Use string concatenation, never template literals. Use var
 // declarations.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { EligibilityGlobal } from "./eligibility.js";
+import type { BrowserMetricsBridgeInstance } from "./browser-metrics-bridge.js";
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+import type { CanvasContextLike } from "./canvas-metrics.js";
+import type { CanvasShapingEnv, ProbeElementLike } from "./canvas-shaping.js";
+import type { EnhanceOptions, LifecycleApi, ResolvedEnhanceOptions } from "./lifecycle.js";
+import type { EngineFfiFacade } from "./ffi-face.js";
+
+// Descriptor returned by activeExactSessionDescriptor: a conforming snapshot
+// session id, or null when the active options lower the session.
+export type ExactSessionDescriptor = { sessionId: string };
+
+// Browser fallback descriptor built once per root and embedded in every lane
+// argument. Type alias (not interface) so it stays assignable to the loose
+// Record<string, unknown> slots in the orchestrator globals.
+export type BrowserFallbackDescriptor = { bridge: BrowserMetricsBridgeInstance };
+
+// One tracked semantic paragraph in engine state: the custody source element,
+// its lowered markdown tree, and the last applied measure.
+export type TrackedParagraph = {
+  source: Element;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+};
+
+// Issue record stored in state.issues and reported through lifecycle
+// reportIssue/clearIssue. Producers fill name/detail/element; the lifecycle
+// layer owns marker bookkeeping.
+export type RootStateIssueRecord = {
+  kind?: string;
+  name?: string;
+  detail?: string;
+  element?: Element;
+  measure?: number;
+  reportToConsole?: boolean;
+};
+
+export type RootState = {
+  root: Element;
+  options: ResolvedEnhanceOptions;
+  browserFallback: BrowserFallbackDescriptor;
+  paragraphs: TrackedParagraph[];
+  issues: RootStateIssueRecord[];
+  preparedDomEnabled: boolean;
+  preparedDomFallback: string | null;
+};
+
+type RootStateOnIssueFn = (issue: RootStateIssueRecord) => void;
+type RootStateOnParagraphCommittedFn = (item: TrackedParagraph) => void;
+type RootStateOnDisableExactPreparedDomFn = (detail: unknown) => void;
+
+// Live view handed to the embedded TS orchestrators: callbacks splice/push the
+// same arrays the host mutates.
+export type EngineState = {
+  ffi: EngineFfiFacade | null;
+  options: EnhanceOptions;
+  preparedDomEnabled: boolean;
+  exactSession: ExactSessionDescriptor | null;
+  browserFallback: BrowserFallbackDescriptor | null;
+  onIssue: RootStateOnIssueFn;
+  onParagraphCommitted: RootStateOnParagraphCommittedFn;
+  onDisableExactPreparedDom: RootStateOnDisableExactPreparedDomFn;
+  paragraphs: TrackedParagraph[];
+  issues: RootStateIssueRecord[];
+};
+
+export type ProcessParagraphArgument = {
+  ffi: EngineFfiFacade | null;
+  paragraph: Element;
+  state: EngineState;
+};
+
+export type SessionArgument = {
+  paragraphs: TrackedParagraph[];
+  state: EngineState;
+};
+
+export type PrepareArgument = {
+  paragraph: TrackedParagraph;
+  options: EnhanceOptions;
+  exactSession: ExactSessionDescriptor | null;
+  browserFallback: BrowserFallbackDescriptor;
+  widthOverride: number | null;
+};
+
+type RootStateBindFfiFn = (bound: EngineFfiFacade) => void;
+type RootStateCurrentFfiFn = () => EngineFfiFacade | null;
+type RootStateCreateFn = (root: Element, optionsBag: Record<string, unknown>) => RootState;
+type RootStateCreateFromCanonicalFn = (root: Element, canonicalOptions: EnhanceOptions) => RootState;
+type RootStateActiveTsOptionsFn = (state: RootState) => EnhanceOptions;
+type RootStateActiveExactSessionDescriptorFn = (state: RootState) => ExactSessionDescriptor | null;
+type RootStateDisableExactPreparedDomFn = (state: RootState, detail: unknown) => void;
+type RootStateEngineStateFn = (state: RootState) => EngineState;
+type RootStateProcessParagraphArgumentFn = (
+  state: RootState,
+  paragraph: Element,
+) => ProcessParagraphArgument;
+type RootStateSessionArgumentFn = (state: RootState) => SessionArgument;
+type RootStatePrepareArgumentFn = (
+  state: RootState,
+  paragraph: TrackedParagraph,
+  widthOverride: number | null,
+) => PrepareArgument;
+type RootStateGetFn = (root: Element) => RootState | undefined;
+type RootStateSetFn = (root: Element, state: RootState) => void;
+type RootStateDeleteFn = (root: Element) => void;
+type RootStateParagraphCandidatesFn = (root: Element, selector: string) => Element[];
+type RootStateStrandedSourceParagraphsFn = (root: Element, state: RootState) => Element[];
+type RootStatePublishFn = (state: RootState, keepEmpty?: boolean) => void;
+
+export type RootStateApi = {
+  bindFfi: RootStateBindFfiFn;
+  currentFfi: RootStateCurrentFfiFn;
+  createRootState: RootStateCreateFn;
+  createRootStateFromCanonical: RootStateCreateFromCanonicalFn;
+  activeTsOptions: RootStateActiveTsOptionsFn;
+  activeExactSessionDescriptor: RootStateActiveExactSessionDescriptorFn;
+  disableExactPreparedDom: RootStateDisableExactPreparedDomFn;
+  engineState: RootStateEngineStateFn;
+  processParagraphArgument: RootStateProcessParagraphArgumentFn;
+  sessionArgument: RootStateSessionArgumentFn;
+  prepareArgument: RootStatePrepareArgumentFn;
+  getState: RootStateGetFn;
+  setState: RootStateSetFn;
+  deleteState: RootStateDeleteFn;
+  paragraphCandidates: RootStateParagraphCandidatesFn;
+  strandedSourceParagraphs: RootStateStrandedSourceParagraphsFn;
+  publishState: RootStatePublishFn;
+};
+
+declare global {
+  var __TiqianRootState: RootStateApi | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianRootState) return;
 
-  var EXACT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback";
-  var ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
-  var CAPABILITY_DETAIL_LIMIT = 512;
+  var EXACT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
+  var ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
+  var CAPABILITY_DETAIL_LIMIT: number = 512;
 
   // DetachedRootWeakOwnership: navigation can discard a rendered article
   // without reconstructing its semantic DOM. Weak ownership retains the
   // source fragments only if a host later reconnects that exact element.
-  var states = new WeakMap();
+  var states = new WeakMap<Element, RootState>();
 
   // The ffi facade the TS orchestrators consume. The Kotlin side owns it as
   // the module-level tsFfiFacade val; here the TS engine entry binds it once
   // at startup and tests bind a fake.
-  var ffi = null;
+  var ffi: EngineFfiFacade | null = null;
 
-  function bindFfi(bound) {
+  function bindFfi(bound: EngineFfiFacade): void {
     ffi = bound;
   }
 
-  function currentFfi() {
+  function currentFfi(): EngineFfiFacade | null {
     return ffi;
   }
 
@@ -47,7 +182,7 @@
   // scope-owning ancestor is absent, is the root itself, or lives outside the
   // root. Mirror of the belongsToRootScope @JsFun in WebEnhancerSupport.kt;
   // the closest guard keeps fake elements honest.
-  function belongsToRootScope(paragraph, root, selector) {
+  function belongsToRootScope(paragraph: Element, root: Element, selector: string): boolean {
     if (!paragraph.closest) return true;
     var owner = paragraph.closest(selector);
     return !owner || owner === root || !root.contains(owner);
@@ -58,9 +193,9 @@
   // Measuring a host-owned outer <li> and later rendering its
   // child <p> changes the container's live width/measure, which
   // used to roll back every valid child as a false stale job.
-  function paragraphCandidates(root, selector) {
+  function paragraphCandidates(root: Element, selector: string): Element[] {
     var nodes = root.querySelectorAll(selector);
-    var eligibility = globalThis.__TiqianEligibility;
+    var eligibility = globalThis.__TiqianEligibility!;
     var result = [];
     for (var i = 0; i < nodes.length; i += 1) {
       var paragraph = nodes[i];
@@ -74,16 +209,16 @@
 
   // The canvas modules own their probe nodes; attachProbe keeps the probe in
   // the document without duplicating it across measures.
-  function browserMetricsEnv() {
+  function browserMetricsEnv(): CanvasShapingEnv {
     return {
-      createCanvasContext: function () {
-        return document.createElement("canvas").getContext("2d");
+      createCanvasContext: function (): CanvasContextLike {
+        return document.createElement("canvas").getContext("2d") as CanvasContextLike;
       },
-      createProbeElement: function () {
-        return document.createElement("span");
+      createProbeElement: function (): ProbeElementLike {
+        return document.createElement("span") as ProbeElementLike;
       },
-      attachProbe: function (node) {
-        if (!node.parentNode) document.body.appendChild(node);
+      attachProbe: function (node: ProbeElementLike): void {
+        if (!node.parentNode) document.body.appendChild(node as HTMLElement);
       },
     };
   }
@@ -91,7 +226,7 @@
   // The {bridge} descriptor every TS layout lane consumes. The inner bridge
   // adapts the canvas shaper and metrics resolver to the two JSON callbacks
   // of precomputeParagraphWithBrowserMetrics. Built once per root.
-  function buildBrowserFallbackDescriptor(resolved) {
+  function buildBrowserFallbackDescriptor(resolved: ResolvedEnhanceOptions): BrowserFallbackDescriptor {
     var fontFamilies = resolved.fontFamilies;
     // buildFontFamiliesConfigJs renames the resolved monospace family to the
     // latinMonospace key that canvas-fonts.js reads for the LatinText role.
@@ -110,9 +245,9 @@
     return { bridge: bridge };
   }
 
-  function createRootState(root, optionsBag) {
+  function createRootState(root: Element, optionsBag: Record<string, unknown>): RootState {
     root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
-    var lifecycle = globalThis.__TiqianLifecycle;
+    var lifecycle = globalThis.__TiqianLifecycle!;
     var canonical = lifecycle.optionsFromJs(optionsBag);
     // allowsSnapshotExactLayout ? options : options.copy(exactFontSession =
     // null): an exact snapshot only reproduces the host with root defaults,
@@ -124,11 +259,11 @@
     return newRootState(root, resolved);
   }
 
-  function createRootStateFromCanonical(root, canonicalOptions) {
+  function createRootStateFromCanonical(root: Element, canonicalOptions: EnhanceOptions): RootState {
     // Re-entry path for relayout/refresh: the canonical options already came
     // from optionsFromJs output shape, so the snapshot gate is skipped.
     root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
-    var resolved = globalThis.__TiqianLifecycle.withRootDefaults(canonicalOptions, root);
+    var resolved = globalThis.__TiqianLifecycle!.withRootDefaults(canonicalOptions, root);
     return newRootState(root, resolved);
   }
 
@@ -142,7 +277,7 @@
   // session metrics for the whole root; paragraphs keep rendering
   // through the prepared bridge with browser metrics, and the
   // per-paragraph validator still guards every render.
-  function newRootState(root, resolved) {
+  function newRootState(root: Element, resolved: ResolvedEnhanceOptions): RootState {
     return {
       root: root,
       options: resolved,
@@ -154,63 +289,63 @@
     };
   }
 
-  function getState(root) {
+  function getState(root: Element): RootState | undefined {
     return states.get(root);
   }
 
-  function setState(root, state) {
+  function setState(root: Element, state: RootState): void {
     states.set(root, state);
   }
 
-  function deleteState(root) {
+  function deleteState(root: Element): void {
     states.delete(root);
   }
 
-  function activeTsOptions(state) {
+  function activeTsOptions(state: RootState): EnhanceOptions {
     if (state.preparedDomEnabled) return state.options;
-    return globalThis.__TiqianLifecycle.withoutExactFontSession(state.options);
+    return globalThis.__TiqianLifecycle!.withoutExactFontSession(state.options);
   }
 
   // Kotlin resolves the descriptor off activeOptions().conformingExactFont
   // SessionId(), so once prepared DOM is disabled the session is always null;
   // the TS options lane reads the same active options here.
-  function activeExactSessionDescriptor(state) {
-    var sessionId = globalThis.__TiqianLifecycle.conformingExactFontSessionId(activeTsOptions(state));
+  function activeExactSessionDescriptor(state: RootState): ExactSessionDescriptor | null {
+    var sessionId = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeTsOptions(state));
     if (sessionId == null) return null;
     return { sessionId: sessionId };
   }
 
-  function disableExactPreparedDom(state, detail) {
+  function disableExactPreparedDom(state: RootState, detail: unknown): void {
     if (!state.preparedDomEnabled) return;
     state.preparedDomEnabled = false;
     state.preparedDomFallback = String(detail).slice(0, CAPABILITY_DETAIL_LIMIT);
     state.root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, state.preparedDomFallback);
   }
 
-  function engineState(state) {
+  function engineState(state: RootState): EngineState {
     return {
       ffi: currentFfi(),
       options: state.options,
       preparedDomEnabled: state.preparedDomEnabled,
       exactSession: activeExactSessionDescriptor(state),
       browserFallback: state.browserFallback,
-      onIssue: function (issue) { state.issues.push(issue); },
-      onParagraphCommitted: function (item) { state.paragraphs.push(item); },
-      onDisableExactPreparedDom: function (detail) { disableExactPreparedDom(state, detail); },
+      onIssue: function (issue: RootStateIssueRecord): void { state.issues.push(issue); },
+      onParagraphCommitted: function (item: TrackedParagraph): void { state.paragraphs.push(item); },
+      onDisableExactPreparedDom: function (detail: unknown): void { disableExactPreparedDom(state, detail); },
       paragraphs: state.paragraphs,
       issues: state.issues,
     };
   }
 
-  function processParagraphArgument(state, paragraph) {
+  function processParagraphArgument(state: RootState, paragraph: Element): ProcessParagraphArgument {
     return { ffi: currentFfi(), paragraph: paragraph, state: engineState(state) };
   }
 
-  function sessionArgument(state) {
+  function sessionArgument(state: RootState): SessionArgument {
     return { paragraphs: state.paragraphs, state: engineState(state) };
   }
 
-  function prepareArgument(state, paragraph, widthOverride) {
+  function prepareArgument(state: RootState, paragraph: TrackedParagraph, widthOverride: number | null): PrepareArgument {
     return {
       paragraph: paragraph,
       options: activeTsOptions(state),
@@ -220,7 +355,7 @@
     };
   }
 
-  function strandedSourceParagraphs(root, state) {
+  function strandedSourceParagraphs(root: Element, state: RootState): Element[] {
     var candidates = paragraphCandidates(root, state.options.paragraphSelector);
     if (state.paragraphs.length === 0) return candidates;
     var renderedSources = new Set();
@@ -234,12 +369,12 @@
     return result;
   }
 
-  function observableSnapshotCount(root) {
+  function observableSnapshotCount(root: Element): number {
     var value = Number(root.getAttribute("data-tiqian-snapshot-count"));
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
   }
 
-  function publishState(state, keepEmpty) {
+  function publishState(state: RootState, keepEmpty?: boolean): void {
     var hasWork = state.paragraphs.length > 0 || state.issues.length > 0;
     if (!hasWork && !keepEmpty) {
       deleteState(state.root);

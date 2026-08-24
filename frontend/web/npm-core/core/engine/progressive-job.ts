@@ -10,24 +10,137 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+import type { GrantController, GrantStopPredicate } from "./coordinator/coordinator.js";
+
+// Finish event payload reported through onFinished when a job completes.
+// stale reports the stale-measure guard result; the old Kotlin job's
+// commitSkipped flag was dropped because no writer ever set it.
+export type ProgressiveJobFinishReport = {
+  kind: string;
+  startedAt: number;
+  maxSliceMs: number;
+  stale: boolean;
+};
+
+// Failure event payload reported through onFailed when an item or the
+// finish path throws.
+export type ProgressiveJobFailureReport = {
+  kind: string;
+  detail: string;
+  startedAt: number;
+  maxSliceMs: number;
+};
+
+// Catch-boundary shape: a thrown value may or may not carry a message. The
+// cast happens once at the catch sites; the failJob body reads message when
+// present and falls back to String(error).
+interface CaughtError {
+  message?: string;
+}
+
+type ProgressiveJobProcessItemFn = (index: number) => void;
+type ProgressiveJobVoidCallbackFn = () => void;
+type ProgressiveJobStaleCheckFn = () => boolean;
+type ProgressiveJobFinishHandlerFn = (report: ProgressiveJobFinishReport) => void;
+type ProgressiveJobFailureHandlerFn = (failure: ProgressiveJobFailureReport) => void;
+
+// Spec handed to startJob. itemTierIndex maps item index to doc-order index;
+// paragraphsByDoc lists the source elements in doc order.
+export type ProgressiveJobSpec = {
+  root: Element;
+  kind: string;
+  itemCount: number;
+  processItem: ProgressiveJobProcessItemFn;
+  onItemsFinished?: ProgressiveJobVoidCallbackFn | null;
+  onFailure?: ProgressiveJobVoidCallbackFn | null;
+  isStale?: ProgressiveJobStaleCheckFn | null;
+  onProgress?: ProgressiveJobVoidCallbackFn | null;
+  onFinished: ProgressiveJobFinishHandlerFn;
+  onFailed: ProgressiveJobFailureHandlerFn;
+  startedAt: number;
+  itemTierIndex?: number[] | null;
+  paragraphsByDoc?: HTMLElement[] | null;
+  coordinated: boolean;
+};
+
+// Live job record keyed by root. The tier-tracking arrays are null until
+// installTierTracking runs for a spec with an itemTierIndex.
+type ProgressiveJob = {
+  root: Element;
+  kind: string;
+  itemCount: number;
+  processItem: ProgressiveJobProcessItemFn;
+  onItemsFinished: ProgressiveJobVoidCallbackFn | null;
+  onFailure: ProgressiveJobVoidCallbackFn | null;
+  isStale: ProgressiveJobStaleCheckFn | null;
+  onProgress: ProgressiveJobVoidCallbackFn | null;
+  onFinished: ProgressiveJobFinishHandlerFn;
+  onFailed: ProgressiveJobFailureHandlerFn;
+  startedAt: number;
+  itemTierIndex: number[] | null;
+  paragraphsByDoc: HTMLElement[] | null;
+  coordinated: boolean;
+  generation: number;
+  nextIndex: number;
+  maxSliceDuration: number;
+  paragraphTiers: number[] | null;
+  tierPending: number[] | null;
+  itemDone: boolean[] | null;
+  docToItem: number[] | null;
+};
+
+type ProgressiveJobStartFn = (spec: ProgressiveJobSpec) => void;
+type ProgressiveJobCancelFn = (root: Element) => void;
+type ProgressiveJobRunSliceFn = (controller: GrantController | null, minTier: number) => number;
+type ProgressiveJobHasFn = (root: Element) => boolean;
+type ProgressiveJobGenerationFn = (root: Element) => number;
+type ProgressiveJobKindFn = (root: Element) => string | null;
+type ProgressiveJobPendingInTierFn = (root: Element, tier: number) => number;
+type ProgressiveJobParagraphCountFn = (root: Element) => number;
+type ProgressiveJobParagraphAtFn = (root: Element, index: number) => HTMLElement | null;
+type ProgressiveJobSetTierFn = (root: Element, index: number, tier: number) => boolean;
+type ProgressiveJobAttachFn = (root: Element) => boolean;
+type ProgressiveJobDetachFn = (root: Element) => boolean;
+type ProgressiveJobIsAttachedFn = (root: Element) => boolean;
+
+export type ProgressiveJobApi = {
+  startJob: ProgressiveJobStartFn;
+  cancelJob: ProgressiveJobCancelFn;
+  runSlice: ProgressiveJobRunSliceFn;
+  hasJob: ProgressiveJobHasFn;
+  jobGeneration: ProgressiveJobGenerationFn;
+  jobKind: ProgressiveJobKindFn;
+  pendingInTier: ProgressiveJobPendingInTierFn;
+  paragraphCount: ProgressiveJobParagraphCountFn;
+  paragraphAt: ProgressiveJobParagraphAtFn;
+  setParagraphTier: ProgressiveJobSetTierFn;
+  attach: ProgressiveJobAttachFn;
+  detach: ProgressiveJobDetachFn;
+  isAttached: ProgressiveJobIsAttachedFn;
+};
+
+declare global {
+  var __TiqianProgressiveJob: ProgressiveJobApi | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianProgressiveJob) return;
 
   // ParagraphTierGating: three priority bands, tier 1 in viewport, 2 near,
   // 3 far. A gate of TIER_COUNT admits every tier; run-to-completion jobs
   // use it as their default gate.
-  var TIER_COUNT = 3;
-  var TIER_IN_VIEWPORT = 1;
+  var TIER_COUNT: number = 3;
+  var TIER_IN_VIEWPORT: number = 1;
 
   // Job registry: one job per root. Grants address jobs by generation:
   // every started job increments the counter and carries the value, so a
   // grant built for an older job is rejected once the root's job has been
   // replaced.
-  var jobs = new Map();
-  var attachedRoots = new WeakSet();
-  var jobGenerationCounter = 0;
+  var jobs = new Map<Element, ProgressiveJob>();
+  var attachedRoots = new WeakSet<Element>();
+  var jobGenerationCounter: number = 0;
 
-  function installTierTracking(job) {
+  function installTierTracking(job: ProgressiveJob): void {
     var itemTierIndex = job.itemTierIndex;
     if (!itemTierIndex) return;
     var count = itemTierIndex.length;
@@ -40,20 +153,20 @@
     }
   }
 
-  function markItemDone(job, item) {
+  function markItemDone(job: ProgressiveJob, item: number): void {
     var done = job.itemDone;
     if (!done) return;
     if (done[item]) return;
     done[item] = true;
     var pending = job.tierPending;
     if (!pending) return;
-    var tier = job.paragraphTiers[job.itemTierIndex[item]];
+    var tier = (job.paragraphTiers as number[])[(job.itemTierIndex as number[])[item]];
     if (tier < 1) tier = 1;
     if (tier > TIER_COUNT) tier = TIER_COUNT;
     if (pending[tier - 1] > 0) pending[tier - 1] -= 1;
   }
 
-  function skipRemainingItems(job) {
+  function skipRemainingItems(job: ProgressiveJob): void {
     var done = job.itemDone;
     if (!done) {
       job.nextIndex = job.itemCount;
@@ -65,7 +178,7 @@
     job.nextIndex = job.itemCount;
   }
 
-  function finishJob(job) {
+  function finishJob(job: ProgressiveJob): void {
     if (jobs.get(job.root) !== job) return;
     jobs.delete(job.root);
     job.onFinished({
@@ -79,7 +192,7 @@
     });
   }
 
-  function failJob(job, error) {
+  function failJob(job: ProgressiveJob, error: CaughtError): void {
     if (jobs.get(job.root) !== job) return;
     jobs.delete(job.root);
     job.onFailed({
@@ -90,18 +203,18 @@
     });
   }
 
-  function runSliceInternal(job, controller, gate) {
+  function runSliceInternal(job: ProgressiveJob, controller: GrantController | null, gate: number): number {
     if (jobs.get(job.root) !== job) return 0;
     // The admission question bounds one grant: a coordinated slice receives
     // the coordinator's controller. A slice without a grant belongs to the
     // RunToCompletionWithoutCoordinator path and carries no stop terms; the
     // per-item measure guard inside processItem is the only boundary, so
     // the whole job runs in this one pass.
-    var shouldStop = controller
-      ? function (processed) { return controller.shouldStop(processed); }
-      : function () { return false; };
+    var shouldStop: GrantStopPredicate = controller
+      ? function (processed: number) { return controller.shouldStop(processed); }
+      : function (): boolean { return false; };
     var sliceStartedAt = Date.now();
-    var processedInSlice = 0;
+    var processedInSlice: number = 0;
     // StaleMeasureGuardPerSlice: a relayout job prepares every paragraph
     // against the width snapshot taken when the job started. When the host
     // width has drifted since the snapshot, the remaining items are skipped
@@ -143,7 +256,7 @@
       }
     } catch (error) {
       if (job.onFailure) job.onFailure();
-      failJob(job, error);
+      failJob(job, error as CaughtError);
       return processedInSlice;
     }
     var sliceDuration = Date.now() - sliceStartedAt;
@@ -159,18 +272,18 @@
         finishJob(job);
       } catch (error) {
         if (job.onFailure) job.onFailure();
-        failJob(job, error);
+        failJob(job, error as CaughtError);
       }
     }
     return processedInSlice;
   }
 
   globalThis.__TiqianProgressiveJob = {
-    startJob: function (spec) {
+    startJob: function (spec: ProgressiveJobSpec): void {
       var root = spec.root;
       cancelJob(root);
       jobGenerationCounter += 1;
-      var job = {
+      var job: ProgressiveJob = {
         root: root,
         kind: spec.kind,
         itemCount: spec.itemCount,
@@ -201,7 +314,7 @@
           finishJob(job);
         } catch (error) {
           if (job.onFailure) job.onFailure();
-          failJob(job, error);
+          failJob(job, error as CaughtError);
         }
         return;
       }
@@ -220,7 +333,7 @@
       }
     },
     cancelJob: cancelJob,
-    runSlice: function (controller, minTier) {
+    runSlice: function (controller: GrantController | null, minTier: number): number {
       if (!controller) return 0;
       var job = jobs.get(controller.root);
       if (!job) return 0;
@@ -229,32 +342,32 @@
       var gate = minTier < 1 ? 1 : (minTier > TIER_COUNT ? TIER_COUNT : minTier);
       return runSliceInternal(job, controller, gate);
     },
-    hasJob: function (root) { return jobs.has(root); },
-    jobGeneration: function (root) {
+    hasJob: function (root: Element): boolean { return jobs.has(root); },
+    jobGeneration: function (root: Element): number {
       var job = jobs.get(root);
       return job ? job.generation : 0;
     },
-    jobKind: function (root) {
+    jobKind: function (root: Element): string | null {
       var job = jobs.get(root);
       return job ? job.kind : null;
     },
-    pendingInTier: function (root, tier) {
+    pendingInTier: function (root: Element, tier: number): number {
       if (tier < 1 || tier > TIER_COUNT) return 0;
       var job = jobs.get(root);
       return job && job.tierPending ? job.tierPending[tier - 1] : 0;
     },
-    paragraphCount: function (root) {
+    paragraphCount: function (root: Element): number {
       var job = jobs.get(root);
       return job && job.paragraphsByDoc ? job.paragraphsByDoc.length : 0;
     },
-    paragraphAt: function (root, index) {
+    paragraphAt: function (root: Element, index: number): HTMLElement | null {
       var job = jobs.get(root);
       if (!job || !job.paragraphsByDoc) return null;
       return index >= 0 && index < job.paragraphsByDoc.length
         ? job.paragraphsByDoc[index]
         : null;
     },
-    setParagraphTier: function (root, index, tier) {
+    setParagraphTier: function (root: Element, index: number, tier: number): boolean {
       if (tier < 1 || tier > TIER_COUNT) return false;
       var job = jobs.get(root);
       if (!job) return false;
@@ -273,13 +386,13 @@
       }
       return true;
     },
-    attach: function (root) {
+    attach: function (root: Element): boolean {
       attachedRoots.add(root);
       var job = jobs.get(root);
       if (job) job.coordinated = true;
       return true;
     },
-    detach: function (root) {
+    detach: function (root: Element): boolean {
       attachedRoots.delete(root);
       var job = jobs.get(root);
       if (job && job.coordinated) {
@@ -293,10 +406,10 @@
       }
       return true;
     },
-    isAttached: function (root) { return attachedRoots.has(root); },
+    isAttached: function (root: Element): boolean { return attachedRoots.has(root); },
   };
 
-  function cancelJob(root) {
+  function cancelJob(root: Element): void {
     jobs.delete(root);
   }
 })();

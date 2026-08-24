@@ -12,59 +12,187 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+import type { CjkDashCapability } from "./canvas-shaping.js";
+import type {} from "./responsive-measure.js";
+
+// Canonical EnhanceOptions decoded from the host options bag (the plain-object
+// shape Kotlin WebEnhancerParagraphLifecycle.kt optionsFromJs produces).
+export type EnhanceFontFamilies = {
+  cjk: string | null;
+  latin: string | null;
+  monospace: string | null;
+  cjkSerif: string | null;
+  latinSerif: string | null;
+};
+
+// Post-withRootDefaults view: the five families are resolved to concrete
+// stacks (option, inherited font-family, or built-in default), so the family
+// fields are non-null strings here.
+export type ResolvedEnhanceFontFamilies = {
+  cjk: string;
+  latin: string;
+  monospace: string;
+  cjkSerif: string;
+  latinSerif: string;
+};
+
+export type EnhanceExactFontSessionOption = {
+  status: string;
+  sessionId: string | null;
+  detail: string | null;
+};
+
+export type EnhanceOptions = {
+  fontFamilies: EnhanceFontFamilies;
+  fontSize: number | null;
+  lineHeight: number | null;
+  firstLineIndentIc: number;
+  emphasisDotGapEm: number;
+  strongAsEmphasisMarks: boolean;
+  paragraphSelector: string;
+  cjkDashCapability: CjkDashCapability | null;
+  exactFontSession: EnhanceExactFontSessionOption | null;
+  requireExactLayoutWorker: boolean;
+};
+
+export type ResolvedEnhanceOptions = {
+  fontFamilies: ResolvedEnhanceFontFamilies;
+  fontSize: number | null;
+  lineHeight: number | null;
+  firstLineIndentIc: number;
+  emphasisDotGapEm: number;
+  strongAsEmphasisMarks: boolean;
+  paragraphSelector: string;
+  cjkDashCapability: CjkDashCapability | null;
+  exactFontSession: EnhanceExactFontSessionOption | null;
+  requireExactLayoutWorker: boolean;
+};
+
+// Capability issue record reported through reportIssue/clearIssue and stored
+// in engine state. name/detail/element are required because reportIssue marks
+// them onto the DOM; the original-attribute snapshots are filled lazily on
+// first report.
+export type CapabilityIssueRecord = {
+  element?: Element;
+  name?: string | null;
+  detail?: string | null;
+  reportToConsole?: boolean;
+  markerCaptured?: boolean;
+  originalNameAttribute?: string | null;
+  originalDetailAttribute?: string | null;
+};
+
+// Pre-fixup decode drafts: optionString may read null before the status
+// fallback assigns "unavailable". These stay internal to optionsFromJs.
+interface EnhanceCjkDashCapabilityDraft {
+  status: string | null;
+  detail: string | null;
+}
+
+interface EnhanceExactFontSessionDraft {
+  status: string | null;
+  sessionId: string | null;
+  detail: string | null;
+}
+
+// Inline size capture produced by captureSourceInlineSize and consumed by
+// stabilizeContentSizedItemInlineSize (SourceMeasureBeforeCustodyTransfer).
+export type SourceInlineSizeCapture = {
+  borderBoxWidth: number;
+  contentBoxWidth: number;
+  borderBoxSizing: boolean;
+};
+
+type LifecycleOptionsFromJsFn = (options: Record<string, unknown>) => EnhanceOptions;
+type LifecycleOptionFloatFn = (options: Record<string, unknown>, name: string) => number | null;
+type LifecycleConformingExactFontSessionIdFn = (options: EnhanceOptions) => string | null;
+type LifecycleAllowsSnapshotExactLayoutFn = (options: EnhanceOptions) => boolean;
+type LifecycleWithoutExactFontSessionFn = (options: EnhanceOptions) => EnhanceOptions;
+type LifecycleWithRootDefaultsFn = (options: EnhanceOptions, root: Element) => ResolvedEnhanceOptions;
+type LifecycleReportIssueFn = (issue: CapabilityIssueRecord) => void;
+type LifecycleClearIssueFn = (issue: CapabilityIssueRecord) => void;
+type LifecycleRestoreAttributeFn = (element: Element, name: string, value: string | null) => void;
+type LifecycleCaptureSourceInlineSizeFn = (paragraph: Element) => SourceInlineSizeCapture;
+type LifecycleApplyConfiguredHostFontSizeFn = (paragraph: HTMLElement, fontSize?: number | null) => string | null;
+type LifecycleResponsiveSourceMeasureFn = (paragraph: HTMLElement, configuredFontSize: number | null) => number;
+type LifecycleStabilizeContentSizedItemInlineSizeFn = (
+  paragraph: HTMLElement,
+  source: SourceInlineSizeCapture,
+) => string | null;
+
+export type LifecycleApi = {
+  optionsFromJs: LifecycleOptionsFromJsFn;
+  optionFloat: LifecycleOptionFloatFn;
+  conformingExactFontSessionId: LifecycleConformingExactFontSessionIdFn;
+  allowsSnapshotExactLayout: LifecycleAllowsSnapshotExactLayoutFn;
+  withoutExactFontSession: LifecycleWithoutExactFontSessionFn;
+  withRootDefaults: LifecycleWithRootDefaultsFn;
+  reportIssue: LifecycleReportIssueFn;
+  clearIssue: LifecycleClearIssueFn;
+  restoreAttribute: LifecycleRestoreAttributeFn;
+  captureSourceInlineSize: LifecycleCaptureSourceInlineSizeFn;
+  applyConfiguredHostFontSize: LifecycleApplyConfiguredHostFontSizeFn;
+  responsiveSourceMeasure: LifecycleResponsiveSourceMeasureFn;
+  stabilizeContentSizedItemInlineSize: LifecycleStabilizeContentSizedItemInlineSizeFn;
+};
+
+declare global {
+  var __TiqianLifecycle: LifecycleApi | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianLifecycle) return;
 
   // Constants copied from the Kotlin sources: DEFAULT_EMPHASIS_DOT_GAP_EM in
   // core TextModel.kt, DEFAULT_FONT_SIZE and the default families in
   // WebEnhancerSupport.kt, DEFAULT_PARAGRAPH_SELECTOR in WebEnhancer.kt.
-  var DEFAULT_EMPHASIS_DOT_GAP_EM = 0.1;
-  var DEFAULT_FONT_SIZE = 19;
-  var DEFAULT_PARAGRAPH_SELECTOR = "p, li";
-  var CAPABILITY_DETAIL_LIMIT = 512;
-  var HOST_INLINE_SIZE_ATTRIBUTE = "data-tq-host-inline-size";
-  var DEFAULT_CJK_FONT_FAMILY = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
-  var DEFAULT_LATIN_FONT_FAMILY = '"InterVariable", "Inter", "MiSans VF", sans-serif';
-  var DEFAULT_MONOSPACE_FONT_FAMILY =
+  var DEFAULT_EMPHASIS_DOT_GAP_EM: number = 0.1;
+  var DEFAULT_FONT_SIZE: number = 19;
+  var DEFAULT_PARAGRAPH_SELECTOR: string = "p, li";
+  var CAPABILITY_DETAIL_LIMIT: number = 512;
+  var HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
+  var DEFAULT_CJK_FONT_FAMILY: string = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+  var DEFAULT_LATIN_FONT_FAMILY: string = '"InterVariable", "Inter", "MiSans VF", sans-serif';
+  var DEFAULT_MONOSPACE_FONT_FAMILY: string =
     '"JetBrains Mono Variable", "SFMono-Regular", Menlo, Consolas, "MiSans VF", monospace';
-  var DEFAULT_CJK_SERIF_FONT_FAMILY = '"MetroSungPlus-SC", "Songti SC", serif';
-  var DEFAULT_LATIN_SERIF_FONT_FAMILY = 'Georgia, "Times New Roman", serif';
+  var DEFAULT_CJK_SERIF_FONT_FAMILY: string = '"MetroSungPlus-SC", "Songti SC", serif';
+  var DEFAULT_LATIN_SERIF_FONT_FAMILY: string = 'Georgia, "Times New Roman", serif';
 
   // Plain-object reads mirroring the @JsFun option helpers in
   // WebEnhancerSupport.kt. Null and undefined both read as null.
-  function optionString(options, name) {
+  function optionString(options: Record<string, unknown>, name: string): string | null {
     return options && options[name] != null ? String(options[name]) : null;
   }
 
-  function optionNumber(options, name) {
+  function optionNumber(options: Record<string, unknown>, name: string): number {
     if (!options || options[name] == null) return Number.NaN;
     var number = Number(options[name]);
     return Number.isFinite(number) ? number : Number.NaN;
   }
 
-  function optionFloat(options, name) {
+  function optionFloat(options: Record<string, unknown>, name: string): number | null {
     var number = optionNumber(options, name);
     return Number.isFinite(number) ? number : null;
   }
 
-  function optionBoolean(options, name) {
+  function optionBoolean(options: Record<string, unknown>, name: string): boolean | null {
     return options && typeof options[name] === "boolean" ? options[name] : null;
   }
 
-  function optionObject(options, name) {
-    return options && options[name] && typeof options[name] === "object" ? options[name] : null;
+  function optionObject(options: Record<string, unknown>, name: string): Record<string, unknown> | null {
+    return options && options[name] && typeof options[name] === "object" ? (options[name] as Record<string, unknown>) : null;
   }
 
   // ComputedStylePort: the Kotlin external reads getPropertyValue off the
   // computed style object.
-  function computedStyle(element, property) {
+  function computedStyle(element: Element, property: string): string {
     return globalThis.getComputedStyle(element).getPropertyValue(property);
   }
 
   // CssFragmentedBlockInlineMeasure: getBoundingClientRect().width is the
   // union of every CSS column fragment, so callers use it only for coarse
   // drift detection against the 0.5px tolerance.
-  function elementFragmentBorderBoxInlineSize(element) {
+  function elementFragmentBorderBoxInlineSize(element: Element | null): number {
     if (!element) return 0;
     return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
   }
@@ -72,10 +200,10 @@
   // FragmentFractionalContentMeasureFallback: without the responsive measure
   // bridge, subtract the computed inline padding and borders from the border
   // box to approximate the content box.
-  function computedContentBoxWidth(paragraph) {
+  function computedContentBoxWidth(paragraph: Element | null): number {
     if (!paragraph) return 0;
     var style = globalThis.getComputedStyle(paragraph);
-    var number = function (value) {
+    var number = function (value: string): number {
       return Number.parseFloat(value) || 0;
     };
     return elementFragmentBorderBoxInlineSize(paragraph) -
@@ -87,7 +215,7 @@
 
   // The responsive measure module is installed alongside; only the content
   // width read is defensive here, mirroring the Kotlin bridge contract.
-  function elementContentWidth(paragraph) {
+  function elementContentWidth(paragraph: Element | null): number {
     var measure = globalThis.__TiqianResponsiveMeasure;
     if (measure && typeof measure.elementContentWidth === "function") {
       return measure.elementContentWidth(paragraph);
@@ -95,16 +223,16 @@
     return computedContentBoxWidth(paragraph);
   }
 
-  function effectiveLineMeasure(width, fontSize) {
-    return globalThis.__TiqianResponsiveMeasure.effectiveLineMeasure(width, fontSize);
+  function effectiveLineMeasure(width: number, fontSize: number): number {
+    return globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(width, fontSize);
   }
 
-  function sourceParagraphWidth(paragraph) {
-    return globalThis.__TiqianResponsiveMeasure.sourceParagraphWidth(paragraph);
+  function sourceParagraphWidth(paragraph: Element): number {
+    return globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(paragraph);
   }
 
   // Parse a "Npx" length; anything else reads as null.
-  function parseCssPx(value) {
+  function parseCssPx(value: string): number | null {
     var trimmed = value.trim();
     if (!trimmed.endsWith("px")) return null;
     var stripped = trimmed.slice(0, -2).trim();
@@ -115,7 +243,7 @@
 
   // EnhanceOptionsJsPort: decode the host options bag into the plain-object
   // EnhanceOptions shape (WebEnhancerParagraphLifecycle.kt optionsFromJs).
-  function optionsFromJs(options) {
+  function optionsFromJs(options: Record<string, unknown>): EnhanceOptions {
     var cjk = optionString(options, "cjkFontFamily");
     var latin = optionString(options, "latinFontFamily");
     var monospace = optionString(options, "monospaceFontFamily");
@@ -134,7 +262,7 @@
     var requireExactLayoutWorker = optionBoolean(options, "requireExactLayoutWorker");
     if (requireExactLayoutWorker === null) requireExactLayoutWorker = false;
     var dashCapabilityObject = optionObject(options, "cjkDashCapability");
-    var cjkDashCapability = null;
+    var cjkDashCapability: EnhanceCjkDashCapabilityDraft | null = null;
     if (dashCapabilityObject != null) {
       cjkDashCapability = {
         status: optionString(dashCapabilityObject, "status"),
@@ -143,7 +271,7 @@
       if (cjkDashCapability.status === null) cjkDashCapability.status = "unavailable";
     }
     var exactFontSessionObject = optionObject(options, "exactFontSession");
-    var exactFontSession = null;
+    var exactFontSession: EnhanceExactFontSessionDraft | null = null;
     if (exactFontSessionObject != null) {
       exactFontSession = {
         status: optionString(exactFontSessionObject, "status"),
@@ -166,13 +294,13 @@
       emphasisDotGapEm: emphasisDotGapEm,
       strongAsEmphasisMarks: strongAsEmphasisMarks,
       paragraphSelector: paragraphSelector,
-      cjkDashCapability: cjkDashCapability,
-      exactFontSession: exactFontSession,
+      cjkDashCapability: cjkDashCapability as CjkDashCapability | null,
+      exactFontSession: exactFontSession as EnhanceExactFontSessionOption | null,
       requireExactLayoutWorker: requireExactLayoutWorker,
     };
   }
 
-  function conformingExactFontSessionId(options) {
+  function conformingExactFontSessionId(options: EnhanceOptions): string | null {
     var session = options && options.exactFontSession;
     if (!session || session.status !== "conforming" ||
         typeof session.sessionId !== "string" || session.sessionId.trim().length === 0) {
@@ -181,7 +309,7 @@
     return session.sessionId;
   }
 
-  function allowsSnapshotExactLayout(options) {
+  function allowsSnapshotExactLayout(options: EnhanceOptions): boolean {
     return options.fontSize == null &&
       options.lineHeight == null &&
       options.firstLineIndentIc === 0 &&
@@ -192,7 +320,7 @@
       options.fontFamilies.latinSerif == null;
   }
 
-  function withoutExactFontSession(options) {
+  function withoutExactFontSession(options: EnhanceOptions): EnhanceOptions {
     var copy = Object.assign({}, options);
     copy.exactFontSession = null;
     return copy;
@@ -200,13 +328,13 @@
 
   // WithRootDefaultsPort: resolve the five families from the option, the
   // inherited font-family, or the defaults, without mutating the input.
-  function withRootDefaults(options, root) {
+  function withRootDefaults(options: EnhanceOptions, root: Element): ResolvedEnhanceOptions {
     if (options.fontSize != null && (!Number.isFinite(options.fontSize) || options.fontSize <= 0)) {
       throw new Error("InvalidFontSize");
     }
-    var inherited = computedStyle(root, "font-family").trim();
+    var inherited: string | null = computedStyle(root, "font-family").trim();
     if (inherited.length === 0) inherited = null;
-    var families = options.fontFamilies || {};
+    var families: Partial<EnhanceFontFamilies> = options.fontFamilies || {};
     var resolvedCjk = families.cjk != null ? families.cjk : (inherited != null ? inherited : DEFAULT_CJK_FONT_FAMILY);
     var resolvedLatin = families.latin != null ? families.latin : (inherited != null ? inherited : DEFAULT_LATIN_FONT_FAMILY);
     var resolvedMonospace = families.monospace != null ? families.monospace : DEFAULT_MONOSPACE_FONT_FAMILY;
@@ -226,27 +354,27 @@
   // PendingCapabilityIsObservableNotTerminal: the semantic paragraph is kept
   // native while the asynchronous dash-face probe is in flight; reserve the
   // console warning for the retry's final unavailable/mismatch result.
-  function reportIssue(issue) {
+  function reportIssue(issue: CapabilityIssueRecord): void {
     if (!issue.markerCaptured) {
-      issue.originalNameAttribute = issue.element.getAttribute("data-tiqian-capability-issue");
-      issue.originalDetailAttribute = issue.element.getAttribute("data-tiqian-capability-detail");
+      issue.originalNameAttribute = issue.element!.getAttribute("data-tiqian-capability-issue");
+      issue.originalDetailAttribute = issue.element!.getAttribute("data-tiqian-capability-detail");
       issue.markerCaptured = true;
     }
-    issue.element.setAttribute("data-tiqian-capability-issue", issue.name);
-    issue.element.setAttribute("data-tiqian-capability-detail", issue.detail.slice(0, CAPABILITY_DETAIL_LIMIT));
+    issue.element!.setAttribute("data-tiqian-capability-issue", issue.name!);
+    issue.element!.setAttribute("data-tiqian-capability-detail", issue.detail!.slice(0, CAPABILITY_DETAIL_LIMIT));
     if (issue.reportToConsole) {
       console.warn("TiqianWeb skipped paragraph: " + issue.name + " (" + issue.detail + ")");
     }
   }
 
-  function clearIssue(issue) {
+  function clearIssue(issue: CapabilityIssueRecord): void {
     if (!issue.markerCaptured) return;
-    restoreAttribute(issue.element, "data-tiqian-capability-issue", issue.originalNameAttribute);
-    restoreAttribute(issue.element, "data-tiqian-capability-detail", issue.originalDetailAttribute);
+    restoreAttribute(issue.element!, "data-tiqian-capability-issue", issue.originalNameAttribute);
+    restoreAttribute(issue.element!, "data-tiqian-capability-detail", issue.originalDetailAttribute);
     issue.markerCaptured = false;
   }
 
-  function restoreAttribute(element, name, value) {
+  function restoreAttribute(element: Element, name: string, value?: string | null): void {
     if (value == null) {
       element.removeAttribute(name);
     } else {
@@ -254,7 +382,7 @@
     }
   }
 
-  function captureSourceInlineSize(paragraph) {
+  function captureSourceInlineSize(paragraph: Element): SourceInlineSizeCapture {
     return {
       borderBoxWidth: elementFragmentBorderBoxInlineSize(paragraph),
       contentBoxWidth: elementContentWidth(paragraph),
@@ -262,13 +390,13 @@
     };
   }
 
-  function applyConfiguredHostFontSize(paragraph, fontSize) {
+  function applyConfiguredHostFontSize(paragraph: HTMLElement, fontSize?: number | null): string | null {
     if (fontSize == null) return null;
     paragraph.style.setProperty("font-size", fontSize + "px", "important");
     return paragraph.style.getPropertyValue("font-size");
   }
 
-  function responsiveSourceMeasure(paragraph, configuredFontSize) {
+  function responsiveSourceMeasure(paragraph: HTMLElement, configuredFontSize: number | null): number {
     if (configuredFontSize == null) {
       var computedFontSize = parseCssPx(computedStyle(paragraph, "font-size"));
       if (computedFontSize === null) computedFontSize = DEFAULT_FONT_SIZE;
@@ -293,7 +421,7 @@
   // before/after used size detects the real dependency instead of guessing
   // parent display modes. Ordinary blocks keep their host auto sizing; only a
   // custody-induced width change is stabilized.
-  function stabilizeContentSizedItemInlineSize(paragraph, source) {
+  function stabilizeContentSizedItemInlineSize(paragraph: HTMLElement, source: SourceInlineSizeCapture): string | null {
     var empty = captureSourceInlineSize(paragraph);
     var sourceUsedInlineSize = source.borderBoxSizing ? source.borderBoxWidth : source.contentBoxWidth;
     var emptyUsedInlineSize = source.borderBoxSizing ? empty.borderBoxWidth : empty.contentBoxWidth;
