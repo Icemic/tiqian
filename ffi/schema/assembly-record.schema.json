@@ -327,8 +327,8 @@
         "inlineBoxes",
         "fontSessionId"
       ],
-      "producer": "frontend/rust/tiqian/src/layout_request.rs",
-      "typeGeneration": "generated struct and enum declarations in frontend/rust/tiqian"
+      "producer": "ffi/rust/tiqian/src/layout_request.rs",
+      "typeGeneration": "generated struct and enum declarations in ffi/rust/tiqian"
     },
     "engineWireFace": {
       "transport": "separator wire: record \\u001e, field \\u001d, family \\u001f",

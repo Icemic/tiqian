@@ -9,7 +9,7 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_PATH = REPO_ROOT / "ffi/schema/assembly-record.schema.json"
-TARGET_PATH = REPO_ROOT / "frontend/rust/tiqian/src/assembly_record_spec.rs"
+TARGET_PATH = REPO_ROOT / "ffi/rust/tiqian/src/assembly_record_spec.rs"
 
 
 def camel_to_snake(name: str) -> str:

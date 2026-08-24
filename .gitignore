@@ -17,5 +17,5 @@ layout/src/jvmTest/resources/lit-zh-corpus.txt
 .claude/launch.json
 
 # Rust
-frontend/rust/target/
+ffi/rust/target/
 frontend/web-precompute/rust/target/

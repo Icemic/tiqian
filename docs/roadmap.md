@@ -45,12 +45,12 @@ Kotlin/JS layout core 重放服务器生成的 shaping / metrics。回放证据�
   `@tiqian/precompute` 等包迁入统一 workspace，集中管理版本号、bump、lock 更新与发版，
   以 blurest 的 workspace 组织为参照；`frontend/web` 的 `src`、`npm`、`integrations`
   三目录收拢为对等源码布局；Rust 侧按 `tiqian-precompute-core` / `tiqian-precompute-binding`
-  命名分层。分层不变式：precompute 域对引擎的全部访问只经 `frontend/rust` 的绑定；
+  命名分层。分层不变式：precompute 域对引擎的全部访问只经 `ffi/rust` 的绑定；
   Kotlin 出口（js 门面与 C ABI 门面）归引擎层，不留在 precompute 目录；plan JSON 格式与
   snapshot revision / replay 定义独立为 web-core，prose 与 precompute 共同依赖，
-  消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`frontend/rust` 同时
+  消掉 revision 常量两侧声明靠测试对齐的重复。允许的唯一耦合：`ffi/rust` 同时
   绑定引擎与 web-core，ABI 携带 web plan JSON 由此合法；除此之外各层不得互串，
-  `frontend/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
+  `ffi/rust` 不再宣称中性引擎绑定。现状的出口错层、供给方与消费方同目录、
   格式定义散落是 ADR 0050 施工顺序造成的历史形态，按本裁定修正，不留渐进回转；
   ADR 0050 随重组出修订段。Gradle/KMP 只约束 Kotlin 模块与其产物路径，npm 目录
   布局与命名不受它强制。动工时机随 Slice 39 收尾确定，先于 Neon 编排接入可避免
@@ -121,7 +121,7 @@ metrics / ink / outline replay，但不再传递进 Compose artifact。两条路
 [ADR 0050](adr/0050-native-precompute-rust-bindings.md)）。Node precompute 从 Kotlin/JS 与
 WASM 运行时迁往 Kotlin/Native 静态库与 Rust 编排：`ffi/native` 以 linuxX64、linuxArm64、
 macosArm64、mingwX64 四个目标暴露引擎级 packed C ABI，js 门面迁入 `ffi/js` 服务浏览器回退与
-parity oracle；Rust 侧分两个 workspace，`frontend/rust` 持有 `tiqian` sys 绑定，
+parity oracle；Rust 侧分两个 workspace，`ffi/rust` 持有 `tiqian` sys 绑定，
 `frontend/web-precompute/rust` 持有 `tiqian-precompute` 与 `tiqian-precompute-neon`；npm 侧
 precompute 迁入独立的 `@tiqian/precompute` 包，现有导出同名同签名保留。实现按四个切片推进：
 A 目标与 workspace 骨架，B 字体会话，C 编排与 Neon，D 平台包发布与 legacy 移除。A、B、C

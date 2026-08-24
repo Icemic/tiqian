@@ -1,7 +1,7 @@
 # Rust unsafe inventory
 
 This document lists every `unsafe` block, function, and trait implementation in
-the two Rust workspaces (`frontend/rust`, `frontend/web-precompute/rust`), and
+the two Rust workspaces (`ffi/rust`, `frontend/web-precompute/rust`), and
 states for each one why it exists and which obligations the caller carries.
 Occurrences of the word `unsafe` that are not unsafe code (`unsafe_break_count`
 fields, the `unsafeBreakCount` JSON key, the `unsafe_href` function, test
@@ -28,7 +28,7 @@ and the host node process. Code outside these boundaries is safe Rust.
 
 ## engine.rs: engine call side
 
-File `frontend/rust/tiqian/src/engine.rs`.
+File `ffi/rust/tiqian/src/engine.rs`.
 
 | Site | Form | Why it exists |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ A status outside 0 and 1 releases nothing.
 
 ## font_backend.rs: vtable type declarations
 
-File `frontend/rust/tiqian/src/font_backend.rs`. The three
+File `ffi/rust/tiqian/src/font_backend.rs`. The three
 `pub type ... = unsafe extern "C" fn` items declare function pointer types.
 They mark the callbacks as callable and run nothing. They must match the C
 function pointer signatures the Kotlin side declares.

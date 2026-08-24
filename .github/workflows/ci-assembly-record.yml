@@ -6,7 +6,7 @@ on:
       - 'ffi/schema/**'
       - 'tools/schema/**'
       - 'frontend/web/npm-core/core/engine/web-worker/**'
-      - 'frontend/rust/tiqian/src/**'
+      - 'ffi/rust/tiqian/src/**'
       - '.github/workflows/ci-assembly-record.yml'
   push:
     branches: [main]
@@ -14,7 +14,7 @@ on:
       - 'ffi/schema/**'
       - 'tools/schema/**'
       - 'frontend/web/npm-core/core/engine/web-worker/**'
-      - 'frontend/rust/tiqian/src/**'
+      - 'ffi/rust/tiqian/src/**'
       - '.github/workflows/ci-assembly-record.yml'
   workflow_dispatch:
 

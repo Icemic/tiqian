@@ -68,7 +68,7 @@ const ignores = [
   "layout/**",
   "ffi/native/**",
   "ffi/schema/**",
-  "frontend/rust/**",
+  "ffi/rust/**",
   "frontend/web-precompute/**",
   "frontend/web/integrations/**",
 ];

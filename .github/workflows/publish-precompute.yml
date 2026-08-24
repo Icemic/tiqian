@@ -2,7 +2,7 @@ name: Publish precompute packages
 
 # Release workflow for @tiqian/precompute and its four platform packages
 # (ADR 0050). The linux addons link the Kotlin/Native engine archive: that
-# link is the one wired in frontend/rust/tiqian/build.rs and covered by the
+# link is the one wired in ffi/rust/tiqian/build.rs and covered by the
 # parity job of ci-native-precompute.yml. The darwin and windows addons build
 # without the archive; their paragraph entry reports EngineNotLinked until
 # those links gain their own system-library evidence.
