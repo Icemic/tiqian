@@ -363,6 +363,42 @@ test("wire byte lock: diagnostics call carries the full positional argument list
     assert.equal(args[16], 0.01);
     assert.equal(args[17], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
     assert.equal(args[18], null);
+    assert.equal(args[19], true);
+  } finally {
+    restoreGlobals(globals);
+  }
+});
+
+test("render evidence override carries the six-collection verdict", () => {
+  const globals = preserveGlobals(MEASURE_GLOBALS);
+  installFakeEnv();
+  const { ffi, calls } = stubFfi();
+  // A paragraph with ONLY sourceSpans (a plain unstyled link) has wire-empty
+  // collections; the host verdict is still true because the commit path
+  // counts sourceSpans and domInlineObjects.
+  const linkOnly = paragraph({
+    text: "abcde",
+    sourceSpans: [sourceSpan({ start: 0, end: 5 })],
+  });
+  const plain = paragraph({ text: "abcde" });
+  try {
+    prepare.prepareParagraphLayout(ffi, exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
+    }));
+    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], true);
+
+    prepare.prepareParagraphLayout(ffi, exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered: plain, lastMeasure: null },
+    }));
+    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], false);
+
+    // The browser-metrics retry path carries the override after the trailing
+    // decorations and emphasis dot gap.
+    const retry = stubFfi({ diagnosticsThrow: new Error("NoExactFontFace: miss") });
+    prepare.prepareParagraphLayout(retry.ffi, exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
+    }));
+    assert.equal(retry.calls.browserMetrics[0][20], true);
   } finally {
     restoreGlobals(globals);
   }

@@ -136,6 +136,20 @@
     });
   }
 
+  // CanonicalPlainParagraphEvidence: twin of isCanonicalPlainParagraph in
+  // lowered-paragraph.js (six collections). The wire predicate inside the
+  // layout module cannot see sourceSpans or domInlineObjects because they
+  // never travel the wire, so the host passes this full-model verdict as the
+  // render-evidence override on both layout calls.
+  function hasRenderEvidence(lowered) {
+    return lowered.spans.length > 0 ||
+      lowered.decorations.length > 0 ||
+      lowered.inlineBoxes.length > 0 ||
+      lowered.inlineObjects.length > 0 ||
+      lowered.domInlineObjects.length > 0 ||
+      lowered.sourceSpans.length > 0;
+  }
+
   // PreparedDomUnifiedEligibility: inline the WebEnhancerSupport.kt
   // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
   // shape, schema, and matching layout revision.
@@ -162,13 +176,14 @@
   // BrowserMetricsCallArguments: the browser-metric export is the diagnostics
   // list without the leading sessionId, plus the shape and metrics callbacks
   // inserted before the trailing decorations and emphasis dot gap.
-  function browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm) {
+  function browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride) {
     return paragraphArguments.concat([
       ZERO_ADVANCE_EPSILON,
       browserFallback.bridge.shapeJson,
       browserFallback.bridge.metricsJson,
       wire.decorations,
       emphasisDotGapEm,
+      renderEvidenceOverride,
     ]);
   }
 
@@ -239,6 +254,7 @@
     var emphasisDotGapEm = options.emphasisDotGapEm == null
       ? null
       : options.emphasisDotGapEm;
+    var renderEvidenceOverride = hasRenderEvidence(lowered);
 
     // EngineLineMeasureMatchesResponsiveGrid: feed the quantized measure, not
     // the raw width, as maxWidthPx to every layout path.
@@ -287,6 +303,7 @@
           ZERO_ADVANCE_EPSILON,
           wire.decorations,
           emphasisDotGapEm,
+          renderEvidenceOverride,
         );
       } catch (error) {
         if (!isExactSessionCapabilityFailure(error)) throw error;
@@ -297,7 +314,7 @@
         exactFontSessionUsed = false;
         rawEnvelope = ffi.precomputeParagraphWithBrowserMetrics.apply(
           null,
-          browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm),
+          browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       }
     } else {
@@ -307,7 +324,7 @@
       exactFontSessionUsed = false;
       rawEnvelope = ffi.precomputeParagraphWithBrowserMetrics.apply(
         null,
-        browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm),
+        browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
       );
     }
 
