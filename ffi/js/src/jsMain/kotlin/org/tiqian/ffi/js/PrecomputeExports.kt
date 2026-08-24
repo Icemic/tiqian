@@ -99,6 +99,58 @@ fun precomputeParagraph(
     )
 }
 
+/**
+ * Plan-plus-diagnostics envelope for the TsHost web-host prepare step. The
+ * host passes its own ZERO_ADVANCE_EPSILON as [zeroAdvanceEpsilonPx] so the
+ * layout module holds no host policy; the returned JSON embeds the plan plus
+ * the capability-issue and suspicious-advance facts for the host-side checks.
+ */
+@JsExport
+fun precomputeParagraphWithDiagnostics(
+    fontSessionId: String,
+    text: String,
+    maxWidthPx: Double,
+    fontFamilies: String,
+    fontSizePx: Double,
+    lineHeightPx: Double,
+    locale: String,
+    fontWeight: Int,
+    italic: Boolean,
+    firstLineIndentIc: Double,
+    lineLengthGridEnabled: Boolean,
+    sourceBoundaries: String,
+    textSpans: String,
+    inlineBoxes: String,
+    lineBreakSpans: String,
+    // Nullable so pre-inline-object JS callers that omit the trailing
+    // argument (undefined) keep working across package version skew.
+    inlineObjects: String?,
+    zeroAdvanceEpsilonPx: Double,
+): String {
+    val backends = buildPrecomputeBackends(fontSessionId)
+    return ParagraphWireFace(
+        textShaper = backends.textShaper,
+        fontMetricsResolver = backends.fontMetricsResolver,
+    ).planWithDiagnostics(
+        text = text,
+        maxWidthPx = maxWidthPx,
+        fontFamilies = fontFamilies,
+        fontSizePx = fontSizePx,
+        lineHeightPx = lineHeightPx,
+        locale = locale,
+        fontWeight = fontWeight,
+        italic = italic,
+        firstLineIndentIc = firstLineIndentIc,
+        lineLengthGridEnabled = lineLengthGridEnabled,
+        sourceBoundaries = sourceBoundaries,
+        textSpans = textSpans,
+        inlineBoxes = inlineBoxes,
+        lineBreakSpans = lineBreakSpans,
+        inlineObjects = inlineObjects ?: "",
+        zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
+    )
+}
+
 internal fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
     PrecomputeBackends(
         textShaper = HarfBuzzBuildTextShaper(fontSessionId),

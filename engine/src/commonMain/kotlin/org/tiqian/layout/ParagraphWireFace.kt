@@ -6,6 +6,7 @@ import org.tiqian.core.InlineBoxSpan
 import org.tiqian.core.InlineObjectSpan
 import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
+import org.tiqian.core.LayoutResult
 import org.tiqian.core.LineBreakPolicy
 import org.tiqian.core.LineBreakSpan
 import org.tiqian.core.LineLengthGrid
@@ -139,6 +140,101 @@ class ParagraphWireFace(
         lineBreakSpans: String,
         inlineObjects: String = "",
     ): String {
+        val result = layout(
+            text = text,
+            maxWidthPx = maxWidthPx,
+            fontFamilies = fontFamilies,
+            fontSizePx = fontSizePx,
+            lineHeightPx = lineHeightPx,
+            locale = locale,
+            fontWeight = fontWeight,
+            italic = italic,
+            firstLineIndentIc = firstLineIndentIc,
+            lineLengthGridEnabled = lineLengthGridEnabled,
+            sourceBoundaries = sourceBoundaries,
+            textSpans = textSpans,
+            inlineBoxes = inlineBoxes,
+            lineBreakSpans = lineBreakSpans,
+            inlineObjects = inlineObjects,
+        )
+        // WorkerRichPlanEvidence: the Worker runs the pure exact session, so
+        // evidence exists for exactly the non-plain wire shapes the runtime
+        // path also evidences (inline objects and styled/boxed runs); plain
+        // plans stay byte-identical to the evidence-free form.
+        return result.toPreparedParagraphJson(
+            renderEvidence = textSpans.isNotBlank() ||
+                inlineBoxes.isNotBlank() ||
+                result.input.inlineObjects.isNotEmpty(),
+        )
+    }
+
+    /**
+     * Plan-plus-diagnostics envelope for the TsHost worker/precompute path.
+     * [zeroAdvanceEpsilonPx] is the host threshold (ZERO_ADVANCE_EPSILON on
+     * the web host), passed in so the layout module holds no host policy.
+     * Diagnostics carry facts only — the verdicts for the web pipeline's
+     * named capability checks stay host-side.
+     */
+    fun planWithDiagnostics(
+        text: String,
+        maxWidthPx: Double,
+        fontFamilies: String,
+        fontSizePx: Double,
+        lineHeightPx: Double,
+        locale: String,
+        fontWeight: Int,
+        italic: Boolean,
+        firstLineIndentIc: Double,
+        lineLengthGridEnabled: Boolean,
+        sourceBoundaries: String,
+        textSpans: String,
+        inlineBoxes: String,
+        lineBreakSpans: String,
+        inlineObjects: String = "",
+        zeroAdvanceEpsilonPx: Double,
+    ): String {
+        val result = layout(
+            text = text,
+            maxWidthPx = maxWidthPx,
+            fontFamilies = fontFamilies,
+            fontSizePx = fontSizePx,
+            lineHeightPx = lineHeightPx,
+            locale = locale,
+            fontWeight = fontWeight,
+            italic = italic,
+            firstLineIndentIc = firstLineIndentIc,
+            lineLengthGridEnabled = lineLengthGridEnabled,
+            sourceBoundaries = sourceBoundaries,
+            textSpans = textSpans,
+            inlineBoxes = inlineBoxes,
+            lineBreakSpans = lineBreakSpans,
+            inlineObjects = inlineObjects,
+        )
+        return result.toPlanWithDiagnosticsJson(
+            renderEvidence = textSpans.isNotBlank() ||
+                inlineBoxes.isNotBlank() ||
+                result.input.inlineObjects.isNotEmpty(),
+            zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx.toFloat(),
+        )
+    }
+
+    private fun layout(
+        text: String,
+        maxWidthPx: Double,
+        fontFamilies: String,
+        fontSizePx: Double,
+        lineHeightPx: Double,
+        locale: String,
+        fontWeight: Int,
+        italic: Boolean,
+        firstLineIndentIc: Double,
+        lineLengthGridEnabled: Boolean,
+        sourceBoundaries: String,
+        textSpans: String,
+        inlineBoxes: String,
+        lineBreakSpans: String,
+        inlineObjects: String,
+    ): LayoutResult {
         require(text.isNotBlank()) { "EmptyParagraph" }
         require(maxWidthPx.isFinite() && maxWidthPx > 0.0) { "InvalidMaximumMeasure" }
         require(fontSizePx.isFinite() && fontSizePx > 0.0) { "InvalidFontSize" }
@@ -174,19 +270,10 @@ class ParagraphWireFace(
             inlineBoxes = parseInlineBoxes(inlineBoxes, text.length),
             inlineObjects = parsedInlineObjects,
         )
-        val result = ExplainableStubParagraphLayoutEngine(
+        return ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             fontMetricsResolver = fontMetricsResolver,
             textShaper = textShaper,
         ).layout(input)
-        // WorkerRichPlanEvidence: the Worker runs the pure exact session, so
-        // evidence exists for exactly the non-plain wire shapes the runtime
-        // path also evidences (inline objects and styled/boxed runs); plain
-        // plans stay byte-identical to the evidence-free form.
-        return result.toPreparedParagraphJson(
-            renderEvidence = textSpans.isNotBlank() ||
-                inlineBoxes.isNotBlank() ||
-                parsedInlineObjects.isNotEmpty(),
-        )
     }
 }

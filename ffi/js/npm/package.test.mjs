@@ -45,6 +45,7 @@ test("the generated declarations name the whole export surface", async () => {
     "firstDivergentInlineShapingProperty",
     "precomputePlainParagraph",
     "precomputeParagraph",
+    "precomputeParagraphWithDiagnostics",
   ]);
 });
 
@@ -74,6 +75,7 @@ test("the engine entry loads from the package exports surface", async () => {
   assert.equal(typeof ffi.firstDivergentInlineShapingProperty, "function");
   assert.equal(typeof ffi.precomputePlainParagraph, "function");
   assert.equal(typeof ffi.precomputeParagraph, "function");
+  assert.equal(typeof ffi.precomputeParagraphWithDiagnostics, "function");
   assert.match(import.meta.resolve("@tiqian/ffi"), /Tiqian-tiqian-ffi-js\.mjs$/u);
 });
 

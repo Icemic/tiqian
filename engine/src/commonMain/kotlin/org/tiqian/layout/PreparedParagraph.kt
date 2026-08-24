@@ -150,6 +150,50 @@ fun LayoutResult.toPreparedParagraphJson(renderEvidence: Boolean = false): Strin
 }
 
 /**
+ * Plan-plus-diagnostics envelope for the TsHost worker/precompute path
+ * (ADR 0053). The plan is embedded as an escaped JSON string value so the
+ * host decodes a single document. Diagnostics carry facts only — the verdicts
+ * for the web pipeline's named checks stay host-side: the capability-issue
+ * and InvalidWebShapingAdvance checks read these two lists, while the
+ * clone-decoration cross-line check reads the plan lines' rangeStart/rangeEnd,
+ * which is why it has no diagnostics entry. [zeroAdvanceEpsilonPx] is the host
+ * threshold passed through so the layout module holds no host policy.
+ */
+fun LayoutResult.toPlanWithDiagnosticsJson(renderEvidence: Boolean, zeroAdvanceEpsilonPx: Float): String =
+    buildString {
+        append("{\"plan\":")
+        appendJsonString(toPreparedParagraphJson(renderEvidence))
+        append(",\"diagnostics\":{\"capabilityIssues\":[")
+        var firstCapabilityIssue = true
+        for (decision in debug.shapingDecisions) {
+            val capabilityIssue = decision.capabilityIssue ?: continue
+            if (!firstCapabilityIssue) append(',')
+            firstCapabilityIssue = false
+            append("{\"name\":").appendJsonString(capabilityIssue)
+            append(",\"reason\":").appendJsonString(decision.reason)
+            append(",\"rangeStart\":").append(decision.range.start)
+            append(",\"rangeEnd\":").append(decision.range.end)
+            append('}')
+        }
+        append("],\"advanceSuspects\":[")
+        var firstAdvanceSuspect = true
+        for (decision in debug.shapingDecisions) {
+            if (decision.advance.isFinite() && decision.advance > zeroAdvanceEpsilonPx) continue
+            if (!firstAdvanceSuspect) append(',')
+            firstAdvanceSuspect = false
+            append("{\"displayText\":").appendJsonString(decision.displayText)
+            // The advance is always a JSON string: toString renders "NaN"
+            // and "Infinity" so the non-finite cases survive the wire.
+            append(",\"advance\":\"").append(decision.advance.toString()).append('"')
+            append(",\"reason\":").appendJsonString(decision.reason)
+            append(",\"rangeStart\":").append(decision.range.start)
+            append(",\"rangeEnd\":").append(decision.range.end)
+            append('}')
+        }
+        append("]}}")
+    }
+
+/**
  * Per-cell render evidence (all fields omitted at default). Field values and
  * lookup orders mirror DomParagraphRenderer so the plan-driven lowerer paints
  * the same DOM: `expectedShapedAdvance` is deliberately absent because it is
