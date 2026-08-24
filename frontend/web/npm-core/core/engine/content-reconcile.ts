@@ -14,14 +14,54 @@
 // no for-of loops, no bare catch. Use explicit conditionals, indexed loops
 // and apply instead.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { CustodyApi } from "./custody.js";
+import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
+
+export interface ReconcileSpec {
+  trackedSources: Element[];
+  tainted?: Element[];
+  strandedCandidates?: Element[];
+  rootSelector: string;
+}
+
+export interface ReconcileResult {
+  outcome: "idle" | "work";
+  drifted: Element[];
+  custody: Element[];
+  tainted: Element[];
+  stranded: Element[];
+  dead: number;
+  json: string;
+}
+
+type ReconcileProbeDriftFn = (trackedSources: Element[]) => string;
+
+type ReconcileClassifyFn = (spec: ReconcileSpec) => ReconcileResult;
+
+type ReconcilePrepareReloweringFn = (element: HTMLElement) => void;
+
+type ReconcileStripEngineMarkupFn = (paragraph: HTMLElement) => void;
+
+export interface ReconcileGlobal {
+  probeContentDrift: ReconcileProbeDriftFn;
+  classifyReconcile: ReconcileClassifyFn;
+  prepareTrackedParagraphForRelowering: ReconcilePrepareReloweringFn;
+  stripEngineMarkupFromStrandedParagraph: ReconcileStripEngineMarkupFn;
+}
+
+declare global {
+  var __TiqianContentReconcile: ReconcileGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianContentReconcile) return;
 
   function custodyApi() {
-    return globalThis.__TiqianCustody;
+    return globalThis.__TiqianCustody!;
   }
 
-  function releasePreparedStyles(element) {
+  function releasePreparedStyles(element: Element): boolean {
     var renderer = globalThis.__TiqianPreparedDomRenderer;
     if (renderer && renderer.release && renderer.release(element) === true) return true;
     return false;
@@ -30,7 +70,7 @@
   // Read-only drift probe for captured in-flight jobs: answers the same
   // per-paragraph classification question as classifyReconcile without
   // touching the DOM, so element.js cancels only on real drift.
-  function probeContentDrift(trackedSources) {
+  function probeContentDrift(trackedSources: Element[]): string {
     var drifted = 0;
     var dead = 0;
     var custody = 0;
@@ -55,12 +95,12 @@
   // inside a root, tracked, and not already classified as drifted. A
   // stranded candidate is skipped when it already failed lowering with a
   // capability marker and was never rendered (StrandedCapabilityNoRetry).
-  function classifyReconcile(spec) {
+  function classifyReconcile(spec: ReconcileSpec): ReconcileResult {
     var trackedSources = spec.trackedSources;
-    var drifted = [];
-    var custodyDrifted = [];
+    var drifted: Element[] = [];
+    var custodyDrifted: Element[] = [];
     var dead = 0;
-    var trackedSet = new Set();
+    var trackedSet = new Set<Element>();
     for (var trackIndex = 0; trackIndex < trackedSources.length; trackIndex++) {
       var trackedSource = trackedSources[trackIndex];
       trackedSet.add(trackedSource);
@@ -72,7 +112,7 @@
         custodyDrifted.push(trackedSource);
       }
     }
-    var driftedSources = new Set();
+    var driftedSources = new Set<Element>();
     var driftedIndex;
     for (driftedIndex = 0; driftedIndex < drifted.length; driftedIndex++) {
       driftedSources.add(drifted[driftedIndex]);
@@ -81,7 +121,7 @@
       driftedSources.add(custodyDrifted[driftedIndex]);
     }
     var tainted = spec.tainted || [];
-    var taintedTracked = [];
+    var taintedTracked: Element[] = [];
     for (var taintedIndex = 0; taintedIndex < tainted.length; taintedIndex++) {
       var host = tainted[taintedIndex];
       if (!host.isConnected) continue;
@@ -90,7 +130,7 @@
       if (driftedSources.has(host)) continue;
       taintedTracked.push(host);
     }
-    var stranded = [];
+    var stranded: Element[] = [];
     var candidates = spec.strandedCandidates || [];
     for (var candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
       var candidate = candidates[candidateIndex];
@@ -119,7 +159,7 @@
   // rendered paragraph. Release prepared styles, restore the engine-owned
   // shell, stamp the rendered marker, and let the caller re-lower the
   // surviving live content as the new custody source.
-  function prepareTrackedParagraphForRelowering(element) {
+  function prepareTrackedParagraphForRelowering(element: HTMLElement): void {
     releasePreparedStyles(element);
     custodyApi().restoreShell(element);
     custodyApi().stampRendered(element);
@@ -131,7 +171,7 @@
   // takeover attributes. Remove exactly those engine-authored artifacts so
   // the clone lowers as ordinary host content. Host elements and host
   // inline styles survive untouched.
-  function stripEngineMarkupFromStrandedParagraph(paragraph) {
+  function stripEngineMarkupFromStrandedParagraph(paragraph: HTMLElement): void {
     releasePreparedStyles(paragraph);
     // The hidden data-tq-hard-break span is the only place a cloned hard
     // break keeps its source form. Restore a bare br before removing
@@ -154,10 +194,10 @@
     // Engine run spans position glyphs through --tq-* custom properties.
     // Those values are meaningless on host content and would survive
     // lowering, so strip them from every remaining descendant.
-    var descendants = paragraph.querySelectorAll("*");
+    var descendants = paragraph.querySelectorAll<HTMLElement>("*");
     for (var descIndex = 0; descIndex < descendants.length; descIndex++) {
       var element = descendants[descIndex];
-      var engineProperties = [];
+      var engineProperties: string[] = [];
       for (var styleIndex = 0; styleIndex < element.style.length; styleIndex++) {
         var name = element.style.item(styleIndex);
         if (name.indexOf("--tq-") === 0) engineProperties.push(name);
@@ -200,3 +240,5 @@
     stripEngineMarkupFromStrandedParagraph: stripEngineMarkupFromStrandedParagraph,
   };
 })();
+
+export {};

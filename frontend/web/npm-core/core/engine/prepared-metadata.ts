@@ -11,11 +11,25 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+
+type PreparedMetadataBuilderFn = (lowered: LoweredParagraph) => string;
+
+export interface PreparedMetadataGlobal {
+  preparedSemanticReplayJson: PreparedMetadataBuilderFn;
+  preparedInlineObjectMetaJson: PreparedMetadataBuilderFn;
+  preparedCjkStrongSemanticsJson: PreparedMetadataBuilderFn;
+}
+
+declare global {
+  var __TiqianPreparedMetadata: PreparedMetadataGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianPreparedMetadata) return;
 
   // Escape a string into valid JSON string characters.
-  function escapeJson(value) {
+  function escapeJson(value: string): string {
     var result = '"';
     for (var i = 0; i < value.length; i += 1) {
       var ch = value.charAt(i);
@@ -58,7 +72,7 @@
   // PreparedSemanticReplayJson: inline twin of preparedSemanticReplayJson in
   // lowered-paragraph.js (line 186). The builder now has a single
   // plain-script home shared by every orchestrator.
-  function preparedSemanticReplayJson(lowered) {
+  function preparedSemanticReplayJson(lowered: LoweredParagraph): string {
     var result = '[';
     for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
       if (i > 0) {
@@ -78,7 +92,7 @@
   // PreparedInlineObjectMetaJson: inline twin of preparedInlineObjectMetaJson
   // in lowered-paragraph.js (line 208). The builder now has a single
   // plain-script home shared by every orchestrator.
-  function preparedInlineObjectMetaJson(lowered) {
+  function preparedInlineObjectMetaJson(lowered: LoweredParagraph): string {
     var result = '[';
     for (var i = 0; i < lowered.domInlineObjects.length; i += 1) {
       if (i > 0) {
@@ -97,7 +111,7 @@
   // preparedCjkStrongSemanticsJson in lowered-paragraph.js (line 230).
   // The builder now has a single plain-script home shared by every
   // orchestrator.
-  function preparedCjkStrongSemanticsJson(lowered) {
+  function preparedCjkStrongSemanticsJson(lowered: LoweredParagraph): string {
     var result = '[';
     var first = true;
     for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
@@ -124,3 +138,5 @@
     preparedCjkStrongSemanticsJson: preparedCjkStrongSemanticsJson,
   };
 })();
+
+export {};

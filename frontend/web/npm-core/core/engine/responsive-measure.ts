@@ -10,10 +10,29 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+type ResponsiveMeasureLineMeasureFn = (width: number, fontSize: number) => number;
+
+type ResponsiveMeasureElementWidthFn = (element: Element | null) => number;
+
+type ResponsiveMeasureParagraphWidthFn = (paragraph: Element) => number;
+
+type ResponsiveMeasureIsCurrentFn = (preparedWidth: number, currentWidth: number, fontSize: number) => boolean;
+
+export interface ResponsiveMeasureGlobal {
+  effectiveLineMeasure: ResponsiveMeasureLineMeasureFn;
+  elementContentWidth: ResponsiveMeasureElementWidthFn;
+  sourceParagraphWidth: ResponsiveMeasureParagraphWidthFn;
+  isCurrentResponsiveMeasure: ResponsiveMeasureIsCurrentFn;
+}
+
+declare global {
+  var __TiqianResponsiveMeasure: ResponsiveMeasureGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianResponsiveMeasure) return;
 
-  function effectiveLineMeasure(width, fontSize) {
+  function effectiveLineMeasure(width: number, fontSize: number): number {
     // InvalidTypographyPreservesCapabilityDiagnosis: a zero or non-finite
     // host font size has no meaningful character grid. Keep the positive
     // host width so shaping can report its precise zero-advance capability
@@ -23,10 +42,10 @@
     return Math.min(gridCells * fontSize, width);
   }
 
-  function elementContentWidth(element) {
+  function elementContentWidth(element: Element | null): number {
     if (!element) return 0;
     var style = globalThis.getComputedStyle(element);
-    var number = function (value) {
+    var number = function (value: string): number {
       return Number.parseFloat(value) || 0;
     };
     // FractionalFragmentContentMeasure: clientWidth rounds to integer
@@ -48,7 +67,7 @@
       number(style.borderLeftWidth) - number(style.borderRightWidth);
   }
 
-  function sourceParagraphWidth(paragraph) {
+  function sourceParagraphWidth(paragraph: Element): number {
     // ContentBoxLineMeasure: LayoutConstraints describe the inline content
     // box where glyphs are placed. A host may add padding directly to a
     // paragraph-shaped list item; using its border-box width lays the line
@@ -63,7 +82,7 @@
     return 320;
   }
 
-  function isCurrentResponsiveMeasure(preparedWidth, currentWidth, fontSize) {
+  function isCurrentResponsiveMeasure(preparedWidth: number, currentWidth: number, fontSize: number): boolean {
     return effectiveLineMeasure(preparedWidth, fontSize) ===
       effectiveLineMeasure(currentWidth, fontSize);
   }
@@ -75,3 +94,5 @@
     isCurrentResponsiveMeasure: isCurrentResponsiveMeasure,
   };
 })();
+
+export {};

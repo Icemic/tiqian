@@ -10,6 +10,25 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+type EligibilityParagraphPredicateFn = (paragraph: Element | null) => boolean;
+
+type EligibilityTagPredicateFn = (tag: string) => boolean;
+
+type EligibilityDisplayPredicateFn = (display: string) => boolean;
+
+export interface EligibilityGlobal {
+  shouldTryParagraph: EligibilityParagraphPredicateFn;
+  isPureBlockImageParagraph: EligibilityParagraphPredicateFn;
+  hasOpaqueInlineCandidate: EligibilityParagraphPredicateFn;
+  isNonTextInlineTag: EligibilityTagPredicateFn;
+  isOpaqueInlineDisplay: EligibilityDisplayPredicateFn;
+  isOpaqueInlineLevelDisplay: EligibilityDisplayPredicateFn;
+}
+
+declare global {
+  var __TiqianEligibility: EligibilityGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianEligibility) return;
 
@@ -46,26 +65,26 @@
     "inline",
   ]);
 
-  function isBlank(text) {
+  function isBlank(text: string | null | undefined): boolean {
     return text === null || text === undefined || text.trim() === "";
   }
 
-  function isNonTextInlineTag(tag) {
+  function isNonTextInlineTag(tag: string): boolean {
     if (typeof tag !== "string") return false;
     return nonTextInlineTags.has(tag.toUpperCase());
   }
 
-  function isOpaqueInlineDisplay(display) {
+  function isOpaqueInlineDisplay(display: string): boolean {
     if (typeof display !== "string") return false;
     return opaqueInlineDisplays.has(display.trim().toLowerCase());
   }
 
-  function isOpaqueInlineLevelDisplay(display) {
+  function isOpaqueInlineLevelDisplay(display: string): boolean {
     if (typeof display !== "string") return false;
     return opaqueInlineLevelDisplays.has(display.trim().toLowerCase());
   }
 
-  function isPureBlockImageParagraph(paragraph) {
+  function isPureBlockImageParagraph(paragraph: Element | null): boolean {
     // A null textContent answers not-blank, matching the Kotlin original's
     // `textContent?.isBlank() != true` early return.
     if (
@@ -90,7 +109,7 @@
     return true;
   }
 
-  function hasOpaqueInlineCandidate(paragraph) {
+  function hasOpaqueInlineCandidate(paragraph: Element | null): boolean {
     if (!paragraph) return false;
     var descendants = paragraph.querySelectorAll("*");
     for (var index = 0; index < descendants.length; index++) {
@@ -104,7 +123,7 @@
     return false;
   }
 
-  function shouldTryParagraph(paragraph) {
+  function shouldTryParagraph(paragraph: Element | null): boolean {
     if (!paragraph) return false;
     if (paragraph.closest(skippedAncestorSelector)) return false;
     if (paragraph.getAttribute("data-tiqian-skip") !== null) return false;
@@ -139,3 +158,5 @@
     isOpaqueInlineLevelDisplay: isOpaqueInlineLevelDisplay,
   };
 })();
+
+export {};

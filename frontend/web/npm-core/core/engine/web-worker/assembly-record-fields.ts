@@ -15,7 +15,7 @@ export const LAYOUT_REQUEST_FIELDS = Object.freeze([
   "inlineBoxes",
   "lineBreakSpans",
   "inlineObjects",
-]);
+] as const);
 
 export const ASSEMBLY_RECORD_REVISION = 1;
 

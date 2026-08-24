@@ -7,107 +7,96 @@
  * Kotlin `LoweredParagraph` data class remains the decode target for now.
  */
 
-/**
- * @typedef {Object} TextStyle
- * @property {string[]} fontFamilies
- * @property {number} fontSize
- * @property {number} fontWeight
- * @property {boolean} italic
- * @property {number} baselineShift
- * @property {string} locale
- */
+export interface TextStyle {
+  fontFamilies: string[];
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShift: number;
+  locale: string;
+}
 
-/**
- * @typedef {Object} TextSpan
- * @property {number} start
- * @property {number} end
- * @property {TextStyle} style
- */
+export interface TextSpan {
+  start: number;
+  end: number;
+  style: TextStyle;
+}
 
-/**
- * @typedef {Object} DecorationSpan
- * @property {number} start
- * @property {number} end
- * @property {string} kind Currently always "Emphasis".
- */
+export interface DecorationSpan {
+  start: number;
+  end: number;
+  /** Currently always "Emphasis". */
+  kind: string;
+}
 
-/**
- * @typedef {Object} InlineBoxSpan
- * @property {number} start
- * @property {number} end
- * @property {number} inlineStart
- * @property {number} inlineEnd
- */
+export interface InlineBoxSpan {
+  start: number;
+  end: number;
+  inlineStart: number;
+  inlineEnd: number;
+}
 
-/**
- * @typedef {Object} InlineObjectSpan
- * @property {number} start
- * @property {number} end
- * @property {number} advance
- * @property {number} ascent
- * @property {number} descent
- */
+export interface InlineObjectSpan {
+  start: number;
+  end: number;
+  advance: number;
+  ascent: number;
+  descent: number;
+}
 
-/**
- * @typedef {Object} DomInlineObject
- * @property {number} start
- * @property {number} end
- * @property {Element} element
- * @property {number} marginRight
- */
+export interface DomInlineObject {
+  start: number;
+  end: number;
+  element: Element;
+  marginRight: number;
+}
 
-/**
- * @typedef {Object} DomInlineBoxStyle
- * @property {number} inlineStart
- * @property {number} inlineEnd
- * @property {number} marginRight
- * @property {number} letterSpacing
- * @property {string} boxDecorationBreak
- */
+export interface DomInlineBoxStyle {
+  inlineStart: number;
+  inlineEnd: number;
+  marginRight: number;
+  letterSpacing: number;
+  boxDecorationBreak: string;
+}
 
-/**
- * @typedef {Object} DomSourceSpan
- * @property {number} start
- * @property {number} end
- * @property {Element} element
- * @property {number} depth
- * @property {(number|null)} cjkStrongBaseWeight
- * @property {(string|null)} computedColor
- * @property {DomInlineBoxStyle} inlineBoxStyle
- */
+export interface DomSourceSpan {
+  start: number;
+  end: number;
+  element: Element;
+  depth: number;
+  cjkStrongBaseWeight: number | null;
+  computedColor: string | null;
+  inlineBoxStyle: DomInlineBoxStyle;
+}
 
-/**
- * @typedef {Object} LineBreakSpan
- * @property {number} start
- * @property {number} end
- * @property {string} policy Currently always "ProgressiveTechnical".
- */
+export interface LineBreakSpan {
+  start: number;
+  end: number;
+  /** Currently always "ProgressiveTechnical". */
+  policy: string;
+}
 
-/**
- * @typedef {Object} LoweredParagraph
- * @property {string} text
- * @property {TextStyle} textStyle
- * @property {number} lineHeight
- * @property {TextSpan[]} spans
- * @property {DecorationSpan[]} decorations
- * @property {InlineBoxSpan[]} inlineBoxes
- * @property {InlineObjectSpan[]} inlineObjects
- * @property {DomInlineObject[]} domInlineObjects
- * @property {DomSourceSpan[]} sourceSpans
- * @property {number[]} sourceBoundaries
- * @property {LineBreakSpan[]} lineBreakSpans
- */
+export interface LoweredParagraph {
+  text: string;
+  textStyle: TextStyle;
+  lineHeight: number;
+  spans: TextSpan[];
+  decorations: DecorationSpan[];
+  inlineBoxes: InlineBoxSpan[];
+  inlineObjects: InlineObjectSpan[];
+  domInlineObjects: DomInlineObject[];
+  sourceSpans: DomSourceSpan[];
+  sourceBoundaries: number[];
+  lineBreakSpans: LineBreakSpan[];
+}
 
 /**
  * CanonicalPlainParagraph: classifies the shape the prepared plain host path
  * and the re-lowerer promise treat as canonical plain (PreparedPlainHostPromise
  * in WebEnhancerParagraphPipeline.kt): every styled collection on the wire is
  * empty.
- *
- * @param {LoweredParagraph} lowered
- * @returns {boolean}
  */
-export function isCanonicalPlainParagraph(lowered) {
+export function isCanonicalPlainParagraph(lowered: LoweredParagraph): boolean {
   return lowered.spans.length === 0 &&
     lowered.decorations.length === 0 &&
     lowered.inlineBoxes.length === 0 &&
@@ -121,21 +110,15 @@ export function isCanonicalPlainParagraph(lowered) {
  * spans through plan evidence, and the plan wire carries one paragraph locale,
  * so the bridge cannot replay a span shaped under a different one.
  * Locale-mismatching spans fail closed with SpanLocaleMismatchUnsupported.
- *
- * @param {LoweredParagraph} lowered
- * @returns {boolean}
  */
-export function isRuntimeExactPreparedDomEligible(lowered) {
+export function isRuntimeExactPreparedDomEligible(lowered: LoweredParagraph): boolean {
   return lowered.spans.every((span) => span.style.locale === lowered.textStyle.locale);
 }
 
 /**
  * Escape a string into JSON format matching worker JSON string serialization.
- *
- * @param {string} value
- * @returns {string}
  */
-function escapeJson(value) {
+function escapeJson(value: string): string {
   let result = '"';
   for (let i = 0; i < value.length; i += 1) {
     const ch = value[i];
@@ -179,11 +162,8 @@ function escapeJson(value) {
  * RuntimeRichPreparedDomOptions (ADR 0053 B8.1): source spans become
  * live-source semantics whose sourceIndex addresses the same-order element
  * array and whose order carries the nesting depth as the tie-break.
- *
- * @param {LoweredParagraph} lowered
- * @returns {string}
  */
-export function preparedSemanticReplayJson(lowered) {
+export function preparedSemanticReplayJson(lowered: LoweredParagraph): string {
   let result = "[";
   for (let i = 0; i < lowered.sourceSpans.length; i += 1) {
     if (i > 0) {
@@ -201,11 +181,8 @@ export function preparedSemanticReplayJson(lowered) {
  * paired with an element array. marginRight prints through plain number
  * toString: the compiled Kotlin/JS Float append is n.toString() with no
  * 32-bit rounding, so the wire value passes through unchanged.
- *
- * @param {LoweredParagraph} lowered
- * @returns {string}
  */
-export function preparedInlineObjectMetaJson(lowered) {
+export function preparedInlineObjectMetaJson(lowered: LoweredParagraph): string {
   let result = "[";
   for (let i = 0; i < lowered.domInlineObjects.length; i += 1) {
     if (i > 0) {
@@ -223,11 +200,8 @@ export function preparedInlineObjectMetaJson(lowered) {
  * inherited base weight on each weighted source span; the prepared lowerer
  * replays the same marks from this metadata, matched by range equality.
  * Empty unless strong-as-emphasis lowering produced weighted spans.
- *
- * @param {LoweredParagraph} lowered
- * @returns {string}
  */
-export function preparedCjkStrongSemanticsJson(lowered) {
+export function preparedCjkStrongSemanticsJson(lowered: LoweredParagraph): string {
   let result = "[";
   let first = true;
   for (let i = 0; i < lowered.sourceSpans.length; i += 1) {
