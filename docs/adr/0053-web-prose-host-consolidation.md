@@ -962,6 +962,35 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   accessor；browserMetricsBridge 的安装闭包按 fonts、metrics、shaping、
   bridge 的依赖序装满四个 global。TiqianWebBridgeInstallTest 七例以 @JsFun
   探针断言安装产物。compileKotlinJs 与 jsBrowserTest（109 例）通过。
+  进度（Slice 4d-2b，2026-08-24）：7684ee3。宿主切换到 TS 编排模块。build
+  gradle 再注册 prepared-metadata 与 progressive-relayout-session 两座桥并补
+  api(project(":ffi:js"))。新增 WebEnhancerTsHost.kt 为互操作核心：ffi facade
+  五成员以显式参量 lambda 包装 @JsExport（browserMetrics 被
+  prepare-paragraph-layout.js 以 apply 展开，缺省参量不匹配该调用形态）；
+  选项双轨规范化，toTsOptions 先 optionsFromJs 再 withRootDefaults 供引擎
+  state，toTsCanonicalOptions 只做 optionsFromJs 供 worker 请求（TS 侧自跑
+  快照准入判断与 root 缺省，喂入已解析字体族会让该判断每次失败）；
+  browserFallback 描述符内建 canvas 与 span 探针工厂（env 描述符含
+  attachProbe 幂等挂载）；引擎 state 描述符携带 ffi、选项、exact 会话、
+  browserFallback、三个回调与两个按引用共享的活数组（TS 会话模块对同一
+  数组 push 与 splice，Kotlin 宿主经 @JsFun 索引器读写，external interface
+  上的 operator get 编译为 .get() 方法调用而普通数组没有该方法）。段落级
+  processParagraph 参数为 {ffi, paragraph, state}，ffi 位于参数顶层（模块读
+  argument.ffi）。WebEnhancer.kt 的 enhance、enhanceProgressively、relayout、
+  destroy、refresh 全部改走 TS 编排器：relayout 会话经
+  createProgressiveRelayoutSession，宽度采样经 responsive-measure 桥；Kotlin
+  侧 ProgressiveRelayoutSession、ParagraphLayoutPreparation、
+  ParagraphCommitResult、EnhancedParagraph 四个类删除；
+  WebEnhancerParagraphPipeline.kt 的删除从 4d-3 提前到本切片（切换点就是
+  它的全部消费者）。行为差异两处随切换固化：其一，计算字号为零的段落先前
+  进入引擎并由 advanceSuspects 报 InvalidWebShapingAdvance，现在
+  ParagraphWireFace 的输入校验先行拒绝（InvalidFontSize），process-paragraph
+  的 catch 汇报为 WebEnhancementFailure、detail 携带 InvalidFontSize，段落
+  保持原生与 issue 上报的失败关闭结果不变，两例 jsTest 期望随之更新；其二，
+  无键富段落在 exact 会话单 run 失败时按 4a 决策整段重试 browser 度量，
+  dash 能力非 conforming 时该 run 失败关闭（NoConformingCjkDashGlyph），
+  段落保持原生，原 per-run 混排用例改写为记录此结果。
+  jsBrowserTest 112/112 通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
