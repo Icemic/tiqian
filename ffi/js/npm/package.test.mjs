@@ -46,6 +46,7 @@ test("the generated declarations name the whole export surface", async () => {
     "precomputePlainParagraph",
     "precomputeParagraph",
     "precomputeParagraphWithDiagnostics",
+    "precomputeParagraphWithBrowserMetrics",
   ]);
 });
 
@@ -76,6 +77,7 @@ test("the engine entry loads from the package exports surface", async () => {
   assert.equal(typeof ffi.precomputePlainParagraph, "function");
   assert.equal(typeof ffi.precomputeParagraph, "function");
   assert.equal(typeof ffi.precomputeParagraphWithDiagnostics, "function");
+  assert.equal(typeof ffi.precomputeParagraphWithBrowserMetrics, "function");
   assert.match(import.meta.resolve("@tiqian/ffi"), /Tiqian-tiqian-ffi-js\.mjs$/u);
 });
 

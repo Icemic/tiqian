@@ -151,6 +151,60 @@ fun precomputeParagraphWithDiagnostics(
     )
 }
 
+/**
+ * Plan-plus-diagnostics envelope using host-provided browser measurement callbacks.
+ *
+ * The layout engine runs in Kotlin while text shaping and font metric resolution
+ * are delegated to JavaScript callbacks ([shapeJson] and [metricsJson]). No native
+ * font session is created. The callbacks run on the same synchronous call stack,
+ * and every shape() request re-sends the segment text.
+ */
+@JsExport
+fun precomputeParagraphWithBrowserMetrics(
+    text: String,
+    maxWidthPx: Double,
+    fontFamilies: String,
+    fontSizePx: Double,
+    lineHeightPx: Double,
+    locale: String,
+    fontWeight: Int,
+    italic: Boolean,
+    firstLineIndentIc: Double,
+    lineLengthGridEnabled: Boolean,
+    sourceBoundaries: String,
+    textSpans: String,
+    inlineBoxes: String,
+    lineBreakSpans: String,
+    // Nullable so pre-inline-object JS callers that omit the trailing
+    // argument (undefined) keep working across package version skew.
+    inlineObjects: String?,
+    zeroAdvanceEpsilonPx: Double,
+    shapeJson: (String) -> String,
+    metricsJson: (String) -> String,
+): String {
+    return ParagraphWireFace(
+        textShaper = JsCallbackTextShaper(shapeJson),
+        fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
+    ).planWithDiagnostics(
+        text = text,
+        maxWidthPx = maxWidthPx,
+        fontFamilies = fontFamilies,
+        fontSizePx = fontSizePx,
+        lineHeightPx = lineHeightPx,
+        locale = locale,
+        fontWeight = fontWeight,
+        italic = italic,
+        firstLineIndentIc = firstLineIndentIc,
+        lineLengthGridEnabled = lineLengthGridEnabled,
+        sourceBoundaries = sourceBoundaries,
+        textSpans = textSpans,
+        inlineBoxes = inlineBoxes,
+        lineBreakSpans = lineBreakSpans,
+        inlineObjects = inlineObjects ?: "",
+        zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
+    )
+}
+
 internal fun buildPrecomputeBackends(fontSessionId: String): PrecomputeBackends =
     PrecomputeBackends(
         textShaper = HarfBuzzBuildTextShaper(fontSessionId),

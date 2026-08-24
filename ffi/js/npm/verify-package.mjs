@@ -70,6 +70,7 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
     "precomputePlainParagraph",
     "precomputeParagraph",
     "precomputeParagraphWithDiagnostics",
+    "precomputeParagraphWithBrowserMetrics",
   ]) {
     if (!new RegExp(`export declare function ${name}\\(`).test(declarations)) {
       fail(`runtime/Tiqian-tiqian-ffi-js.d.mts does not declare ${name}`);
