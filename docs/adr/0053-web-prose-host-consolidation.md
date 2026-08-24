@@ -1047,6 +1047,59 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   零引用辅助簇。demo/web 基线同步复核：33/35 稳定通过，
   NpmPublishedVsDev 在下次 @tiqian/prose 发布前按设计保持失败，
   OneShotEquivalence 失败原因已另档记录（增量通道不刷新 dash 能力属性）。
+  进度（Slice 6，2026-08-24）：ffe44b4a、d56b8aaa、080451dd。npm-core 新增
+  core/engine/engine-entry.js（globalThis.__TiqianEngine：enhance 的
+  bag/canonical 双入口与 destroy 先行序、enhanceAll 根扫描、destroy 的
+  custody/issue/快照属性收尾、detach 的 DetachedRootWeakOwnership 最小面、
+  refresh 双分支、cancelLayoutWork、probeContentDrift 的 unknown 缺省
+  JSON、reconcileContent 的 ReconcileSpec 组装与 drifted/custody/tainted/
+  stranded 四类动作编排、DeadTrackedParagraphDrop、
+  WidthSnapshotPerReconcileJob 的（距离，索引）双键 itemTierIndex 与
+  0.5px stale 闭包、workerLayoutRequest 的 optionsFromJs 前置；
+  globalThis.__TiqianEngineWorkers 以 worker 前缀名直暴露九个轮询方法）与
+  engine-entry.test.mjs（18 例）；progressive-drivers.js 追加
+  rejectMissingSharedRuntimeStyles、startProgressiveJob、
+  enhanceProgressivelyFromCanonical 三个公开导出（实现零变化，
+  progressive-drivers.test.mjs 增至 23 例）。宿主接线：build.gradle.kts
+  新增 rootStateBridge、progressiveDriversBridge、engineEntryBridge 三座
+  嵌入生成器；TiqianWeb init 块 eager 安装三个 TS 模块与 copy、
+  content-reconcile 两个脚本并经 bindTsRootStateFfi 注入 shaping
+  facade；runtime-loader.js 与 runtime-host.mjs 的 engine/workers 解析改为
+  TS global 优先、Kotlin 导出回退。Slice 5 固化的「驱动层不含 destroy
+  语义」决定随本切片修正：relayout 分支一与分支三直接再入驱动内部函数，
+  不经引擎入口包装层，destroy 连同 copy handler 安装因此移入
+  progressive-drivers.js 的 enhanceProgressively 入口（无引擎入口的单测
+  世界回退裸 cancelJob），引擎入口两处包装层只余委派；relayout 分支一的
+  重启 kind 同时改正为 Kotlin 双参重载默认的 Enhance（初版误写 Relayout，
+  完成事件因此误发 tiqian:relayout-ready，tiqian:ready 不触发）。npm 侧
+  测试期望同步：4d-2b 宿主切换后滞后的五处期望更新（InvalidFontSize
+  前置拒绝改走 WebEnhancementFailure 上报、无键富段落单 run 失败整段回退
+  浏览器度量且 dash 不合规失败关闭、回退段落基线来源改为浏览器度量），
+  root-state.js 一处转写笔误修正
+  （EXACT_PREPARED_FALLBACK_ATTRIBUTE 误写 data-tq- 前缀，测试 7 处同步），
+  progressiveJob 两例按上述 kind 与 destroy 修复恢复；npm-core 侧修复
+  progressive-drivers.test.mjs 测试 2 覆写单例 jobKind 后未还原的问题（测试 4
+  在顺序执行时因此从未进入分支三，单跑即 2!==1 失败，已还原 jobKind 并按
+  分支三语义改期望）。随本切片关闭一项既有缺陷：F2a 拆包删除了 attach 系短名到
+  worker 前缀名的映射后，真 bundle 内 coordinator 的 worker 面板自
+  2026-08-23 起从未生效（#ensureLayoutWorker 早退，轮询与逐切片视口补偿
+  未注册），__TiqianEngineWorkers 直接以消费名暴露后恢复；demo/web 基线
+  （33/35、drag 预算）测于该缺陷存续期，修复后复测仍为 33/35，仅余两项已知
+  失败，drag 与滚动预算断言通过，预算数字未因 worker 面板恢复轮询而调整；清
+  parcel 缓存后的首跑曾报 31/35，两个额外失败在单跑与复跑中均未复现，判定为
+  冷缓存下的负载时序敏感，非本切片回归。
+  删除 Kotlin 三文件（WebEnhancerContentReconcile.kt、
+  WebEnhancerEngineExport.kt、WebEnhancerWorkerProtocol.kt）与 jsTest 两文件
+  （TiqianWebEnhancerTest.kt、TiqianWebSourceFidelityTest.kt），bundle 导出
+  面只剩 web 命名空间。npm-core 全套 413 例、npm 侧 246 例（删除 Kotlin 导出
+  后在新 bundle 上复跑）、jsBrowserTest 10/10（仅剩 TiqianWebBridgeInstallTest）、
+  demo/web 33/35（仅余两项已知失败）均维持基线。实现经 外部委托（engine-entry
+  模块）与 外部委托（接线）两路并行委托；复核后修复上述分支一 kind 与
+  destroy 次序两处缺陷、补 content-reconcile 的 eager 安装（映射删除后
+  bundle 内无人再装该 global），并核实 外部委托 路汇报的「npm 246/246 旧
+  bundle 回归验证」不成立：其运行时间先于 engine-entry.js 产生，
+  InvalidFontSize 等期望滞后项与 bundle 无关，4d-2b 之后的任何时间点都
+  不应全部通过。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
