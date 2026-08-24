@@ -18,6 +18,77 @@
 // self-contained: ffi and the measure/renderer/validator/custody globals are
 // injected by the caller or read from globalThis.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
+import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
+import type { PreparedDomValidatorInterface } from "../sampler/snapshot/precomputed.js";
+import type { EngineFfiFacade } from "./ffi-face.js";
+
+// The commit verdict is a discriminated union on kind. Every original
+// construction site sets the fields of its own member only.
+interface CommitSuccessResult {
+  kind: "success";
+  measure: number;
+  [key: string]: unknown;
+}
+
+interface CommitUnsupportedResult {
+  kind: "unsupported";
+  name: string;
+  detail?: string;
+  element?: Element;
+  [key: string]: unknown;
+}
+
+export type CommitResult = CommitSuccessResult | CommitUnsupportedResult;
+
+interface CommitParagraphTarget {
+  source: Element;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+}
+
+type CommitExactPreparedDomFallbackCallback = (issue: unknown) => void;
+
+interface CommitWorkerPreparedParagraphArgument {
+  paragraph: CommitParagraphTarget;
+  workerPlan: string;
+  onExactPreparedDomFallback: CommitExactPreparedDomFallbackCallback;
+  inlineObjectMetaJson: string;
+  cjkStrongSemanticsJson: string;
+}
+
+interface CommitPreparedParagraphArgument {
+  ffi: EngineFfiFacade;
+  paragraph: CommitParagraphTarget;
+  preparation: PrepareReadyResult;
+  options: Record<string, unknown>;
+  browserFallback: Record<string, unknown> | null;
+  onExactPreparedDomFallback: CommitExactPreparedDomFallbackCallback;
+  semanticReplayJson: string;
+  inlineObjectMetaJson: string;
+  cjkStrongSemanticsJson: string;
+}
+
+type CommitWorkerPreparedParagraphFn = (argument: CommitWorkerPreparedParagraphArgument) => CommitResult | null;
+type CommitPreparedParagraphFn = (argument: CommitPreparedParagraphArgument) => CommitResult;
+
+export interface TiqianCommitPreparedParagraphGlobal {
+  commitWorkerPreparedParagraph: CommitWorkerPreparedParagraphFn;
+  commitPreparedParagraph: CommitPreparedParagraphFn;
+}
+
+interface CommitCustodyEngineWritesHost {
+  __tqCustodyEngineWrites?: number;
+}
+
+type CommitEngineWriteSuspensionFn = () => unknown;
+
+declare global {
+  var __TiqianCommitPreparedParagraph: TiqianCommitPreparedParagraphGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianCommitPreparedParagraph) return;
 
@@ -28,7 +99,7 @@
   // lowered-paragraph.js (line 110). True when all six styled collections are
   // empty. The module cannot import the ESM function, so it carries an inline
   // copy.
-  function isCanonicalPlain(lowered) {
+  function isCanonicalPlain(lowered: LoweredParagraph): boolean {
     return lowered.spans.length === 0 &&
       lowered.decorations.length === 0 &&
       lowered.inlineBoxes.length === 0 &&
@@ -40,7 +111,7 @@
   // PreparedDomValidatorIsTestOnly: inline twin of validatePreparedParagraphDom
   // in WebEnhancerSupport.kt. The validator global exists only in test worlds;
   // an absent validator reports null and never throws.
-  function rendererIssue(host, width) {
+  function rendererIssue(host: Element, width: number): string | null {
     var validator = globalThis.__TiqianPreparedDomValidator;
     return (validator && typeof validator.issue === 'function')
       ? validator.issue(host, width)
@@ -50,7 +121,7 @@
   // ReleasePreparedParagraphDomStyles: inline twin of
   // releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
   // installed renderer. Callers ignore the return value.
-  function releasePreparedDomStyles(host) {
+  function releasePreparedDomStyles(host: Element): boolean {
     var renderer = globalThis.__TiqianPreparedDomRenderer;
     return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
   }
@@ -59,7 +130,7 @@
   // into the live paragraph with plain element and text arguments, which the
   // host custody forwarding overrides would otherwise redirect; the overrides
   // run native while the counter is positive.
-  function engineWriteSuspension(host, fn) {
+  function engineWriteSuspension(host: Element & CommitCustodyEngineWritesHost, fn: CommitEngineWriteSuspensionFn): unknown {
     host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
     try {
       return fn();
@@ -71,19 +142,19 @@
   // RenderPreparedWorkerParagraphDom: direct port of the
   // renderPreparedWorkerParagraphDom @JsFun body in WebEnhancerSupport.kt.
   function renderWorkerPrepared(
-    host,
-    recordJson,
-    locale,
-    sourceText,
-    semanticElements,
-    inlineObjectElements,
-    inlineObjectMetaJson,
-    cjkStrongSemanticsJson
-  ) {
+    host: Element,
+    recordJson: string,
+    locale: string,
+    sourceText: string,
+    semanticElements: Element[],
+    inlineObjectElements: Element[],
+    inlineObjectMetaJson: string,
+    cjkStrongSemanticsJson: string
+  ): unknown {
     var record = JSON.parse(recordJson);
     var inlineObjects = Array.from(inlineObjectElements || []);
     var meta = JSON.parse(inlineObjectMetaJson || '[]');
-    var inlineObjectsMetaPaired = meta.map(function (entry, index) {
+    var inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
       return {
         start: entry.start,
         end: entry.end,
@@ -92,7 +163,7 @@
       };
     });
     return engineWriteSuspension(host, function () {
-      return globalThis.__TiqianPreparedDomRenderer.render(
+      return globalThis.__TiqianPreparedDomRenderer!.render(
         host,
         record.plan,
         locale,
@@ -112,22 +183,22 @@
   // RenderPreparedParagraphDom: direct port of the renderPreparedParagraphDom
   // @JsFun body in WebEnhancerSupport.kt.
   function renderPrepared(
-    host,
-    planJson,
-    locale,
-    sourceText,
-    semanticElements,
-    semanticsJson,
-    inlineObjectElements,
-    inlineObjectMetaJson,
-    cjkStrongSemanticsJson
-  ) {
+    host: Element,
+    planJson: string,
+    locale: string,
+    sourceText: string,
+    semanticElements: Element[],
+    semanticsJson: string,
+    inlineObjectElements: Element[],
+    inlineObjectMetaJson: string,
+    cjkStrongSemanticsJson: string
+  ): unknown {
     var semantics = Array.from(semanticElements || []);
     var inlineObjects = Array.from(inlineObjectElements || []);
     var hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
     return engineWriteSuspension(host, function () {
       var meta = JSON.parse(inlineObjectMetaJson || '[]');
-      var inlineObjectsMetaPaired = meta.map(function (entry, index) {
+      var inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
         return {
           start: entry.start,
           end: entry.end,
@@ -143,7 +214,7 @@
         inlineObjects: inlineObjectsMetaPaired,
         cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
       } : undefined;
-      return globalThis.__TiqianPreparedDomRenderer.render(
+      return globalThis.__TiqianPreparedDomRenderer!.render(
         host,
         planJson,
         locale,
@@ -158,11 +229,11 @@
    * @param {Object} argument
    * @returns {Object|null}
    */
-  function commitWorkerPreparedParagraph(argument) {
+  function commitWorkerPreparedParagraph(argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
     var paragraph = argument.paragraph;
     var source = paragraph.source;
     var lowered = paragraph.lowered;
-    var width = globalThis.__TiqianResponsiveMeasure.sourceParagraphWidth(source);
+    var width = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(source);
 
     source.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, 'true');
     source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
@@ -217,11 +288,11 @@
 
     // WorkerCommitRecordsMeasure: cache the effective line measure computed from
     // the measured width and the paragraph font size.
-    paragraph.lastMeasure = globalThis.__TiqianResponsiveMeasure.effectiveLineMeasure(
+    paragraph.lastMeasure = globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(
       width,
       lowered.textStyle.fontSize
     );
-    globalThis.__TiqianCustody.stampRendered(source);
+    globalThis.__TiqianCustody!.stampRendered(source);
     return null;
   }
 
@@ -231,7 +302,7 @@
    * @param {Object} argument
    * @returns {Object}
    */
-  function commitPreparedParagraph(argument) {
+  function commitPreparedParagraph(argument: CommitPreparedParagraphArgument): CommitResult {
     var paragraph = argument.paragraph;
     var preparation = argument.preparation;
     var source = paragraph.source;
@@ -260,7 +331,7 @@
     // directly.
     renderPrepared(
       source,
-      preparation.planJson,
+      preparation.planJson!,
       lowered.textStyle.locale,
       lowered.text,
       sourceSpansElements,
@@ -270,9 +341,9 @@
       argument.cjkStrongSemanticsJson
     );
 
-    var preparedDomIssue = rendererIssue(source, preparation.width);
+    var preparedDomIssue = rendererIssue(source, preparation.width!);
     if (preparedDomIssue == null) {
-      globalThis.__TiqianCustody.stampRendered(source);
+      globalThis.__TiqianCustody!.stampRendered(source);
       return {
         kind: 'success',
         measure: preparation.measure,
@@ -292,7 +363,7 @@
       // against a result shaped by the exact session, so re-lay the paragraph
       // out with browser metrics and replay it through the prepared bridge once
       // more; the per-paragraph validator still guards that second render.
-      var fallbackOptions = {};
+      var fallbackOptions: Record<string, unknown> = {};
       for (var key in argument.options) {
         if (Object.prototype.hasOwnProperty.call(argument.options, key)) {
           fallbackOptions[key] = argument.options[key];
@@ -300,7 +371,7 @@
       }
       fallbackOptions.exactFontSession = null;
 
-      var fallbackPreparation = globalThis.__TiqianPrepareParagraphLayout.prepareParagraphLayout(
+      var fallbackPreparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
         argument.ffi,
         {
           paragraph: paragraph,
@@ -354,3 +425,5 @@
     commitPreparedParagraph: commitPreparedParagraph,
   };
 })();
+
+export {};

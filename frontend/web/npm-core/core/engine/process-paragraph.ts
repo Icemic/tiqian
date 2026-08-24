@@ -20,6 +20,65 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+import type { MarkdownLoweringApi } from "./markdown-lowering.js";
+import type { EligibilityGlobal } from "./eligibility.js";
+import type { PreparedMetadataGlobal } from "./prepared-metadata.js";
+import type { CapabilityIssueRecord, EnhanceOptions, LifecycleApi } from "./lifecycle.js";
+import type { TiqianLayoutWorkerInstance } from "./web-worker/worker-channel.js";
+import type { CustodyApi } from "./custody.js";
+import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
+import type { TiqianWorkerRequestGlobal } from "./worker-request.js";
+import type { TiqianPrepareParagraphLayoutGlobal } from "./prepare-paragraph-layout.js";
+import type { TiqianCommitPreparedParagraphGlobal } from "./commit-prepared-paragraph.js";
+import type { EngineFfiFacade } from "./ffi-face.js";
+
+interface ProcessParagraphTarget {
+  source: Element;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+}
+
+interface ProcessExactSessionDescriptor {
+  sessionId: string;
+}
+
+type ProcessIssueHandler = (issue: Record<string, unknown>) => void;
+type ProcessParagraphCommittedHandler = (item: ProcessParagraphTarget) => void;
+type ProcessDisableExactPreparedDomHandler = (issue: unknown) => void;
+
+interface ProcessParagraphState {
+  onIssue: ProcessIssueHandler;
+  onParagraphCommitted: ProcessParagraphCommittedHandler;
+  preparedDomEnabled: boolean;
+  options: EnhanceOptions;
+  exactSession: ProcessExactSessionDescriptor | null;
+  browserFallback: Record<string, unknown> | null;
+  onDisableExactPreparedDom: ProcessDisableExactPreparedDomHandler;
+}
+
+interface ProcessParagraphInvocation {
+  ffi: EngineFfiFacade | null;
+  paragraph: Element;
+  state: ProcessParagraphState;
+}
+
+type ProcessParagraphFn = (argument: ProcessParagraphInvocation) => void;
+
+export interface TiqianProcessParagraphGlobal {
+  processParagraph: ProcessParagraphFn;
+}
+
+interface ProcessInlineShapingDecisionResult {
+  name: string;
+  detail: string;
+}
+
+declare global {
+  var __TiqianProcessParagraph: TiqianProcessParagraphGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianProcessParagraph) return;
 
@@ -40,7 +99,7 @@
   // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
   // lowered-paragraph.js (line 110). True when all six styled collections
   // are empty.
-  function isCanonicalPlain(lowered) {
+  function isCanonicalPlain(lowered: LoweredParagraph): boolean {
     return lowered.spans.length === 0 &&
       lowered.decorations.length === 0 &&
       lowered.inlineBoxes.length === 0 &&
@@ -52,7 +111,7 @@
   // CapabilityFailureDetail: inline twin of
   // isExactFontSessionCapabilityFailureDetail in WebEnhancerSupport.kt
   // (line 140). Returns false when detail is null.
-  function isCapabilityFailureDetail(detail) {
+  function isCapabilityFailureDetail(detail: unknown): boolean {
     if (detail == null) return false;
     var str = String(detail);
     for (var i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
@@ -65,10 +124,10 @@
 
   // LoweringHelpers: inline twin of the helpers builder in worker-request.js
   // (lines 258-269).
-  function loweringHelpers(ffi) {
+  function loweringHelpers(ffi: EngineFfiFacade): Record<string, unknown> {
     return {
       classifyRole: ffi.classifyFontRole,
-      inlineShapingDecision: function (tag, elementValues, paragraphValues) {
+      inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): ProcessInlineShapingDecisionResult | null {
         var property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
         return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
       },
@@ -82,26 +141,26 @@
    *
    * @param {Object} argument
    */
-  function processParagraph(argument) {
+  function processParagraph(argument: ProcessParagraphInvocation): void {
     var ffi = argument.ffi;
     var paragraph = argument.paragraph;
     var state = argument.state;
     // Prepared metadata builders shared across orchestrators.
-    var metadata = globalThis.__TiqianPreparedMetadata;
+    var metadata = globalThis.__TiqianPreparedMetadata!;
 
-    if (!globalThis.__TiqianEligibility.shouldTryParagraph(paragraph)) return;
+    if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return;
 
     // Capture host-owned inline typography before any computed-style probe.
     // CSSStyleDeclaration can leave an empty style attribute after a
     // temporary property is removed even when the source had no attribute.
     var originalStyleAttribute = paragraph.getAttribute('style');
 
-    var lowered = null;
+    var lowered: LoweredParagraph | null = null;
     try {
-      var loweringResult = globalThis.__TiqianMarkdownLowering.lower(
+      var loweringResult = globalThis.__TiqianMarkdownLowering!.lower(
         paragraph,
         state.options,
-        loweringHelpers(ffi)
+        loweringHelpers(ffi!)
       );
       if (loweringResult && loweringResult.ok === true) {
         lowered = loweringResult.lowered;
@@ -114,24 +173,24 @@
         };
         if (issue.element == null) issue.element = paragraph;
         if (issue.reportToConsole == null) issue.reportToConsole = true;
-        globalThis.__TiqianLifecycle.reportIssue(issue);
+        globalThis.__TiqianLifecycle!.reportIssue(issue);
         state.onIssue(issue);
         return;
       }
     } catch (error) {
-      var loweringIssue = {
+      var loweringIssue: CapabilityIssueRecord = {
         name: 'DomLoweringFailure',
-        detail: (error && error.message) || 'unexpected DOM lowering failure',
+        detail: ((error && (error as { message?: string }).message) as string) || 'unexpected DOM lowering failure',
         element: paragraph,
         reportToConsole: true,
       };
-      globalThis.__TiqianLifecycle.reportIssue(loweringIssue);
+      globalThis.__TiqianLifecycle!.reportIssue(loweringIssue);
       state.onIssue(loweringIssue);
       return;
     }
 
-    var paragraphStyle = paragraph.style;
-    globalThis.__TiqianCustody.begin(
+    var paragraphStyle = (paragraph as HTMLElement).style;
+    globalThis.__TiqianCustody!.begin(
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -148,22 +207,22 @@
       paragraph.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE)
     );
 
-    var hostFontSizeApplied = globalThis.__TiqianLifecycle.applyConfiguredHostFontSize(
-      paragraph,
-      state.options ? state.options.fontSize : undefined
+    var hostFontSizeApplied = globalThis.__TiqianLifecycle!.applyConfiguredHostFontSize(
+      paragraph as HTMLElement,
+      state.options ? (state.options.fontSize as number | undefined) : undefined
     );
-    var sourceInlineSize = globalThis.__TiqianLifecycle.captureSourceInlineSize(paragraph);
+    var sourceInlineSize = globalThis.__TiqianLifecycle!.captureSourceInlineSize(paragraph);
 
     var activeOptions = state.preparedDomEnabled
       ? state.options
-      : globalThis.__TiqianLifecycle.withoutExactFontSession(state.options);
+      : globalThis.__TiqianLifecycle!.withoutExactFontSession(state.options);
 
-    var workerRequest = globalThis.__TiqianWorkerRequest.workerLayoutRequest(
+    var workerRequest = globalThis.__TiqianWorkerRequest!.workerLayoutRequest(
       paragraph,
       lowered,
       activeOptions
     );
-    var sessionKey = globalThis.__TiqianLifecycle.conformingExactFontSessionId(activeOptions);
+    var sessionKey = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeOptions);
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the
     // same tolerance the former Kotlin shims applied.
@@ -201,32 +260,32 @@
         element: paragraph,
         reportToConsole: true,
       };
-      globalThis.__TiqianLifecycle.reportIssue(exactWorkerIssue);
+      globalThis.__TiqianLifecycle!.reportIssue(exactWorkerIssue);
       state.onIssue(exactWorkerIssue);
       return;
     }
 
-    globalThis.__TiqianCustody.take(paragraph, hostFontSizeApplied);
-    var hostInlineSizeApplied = globalThis.__TiqianLifecycle.stabilizeContentSizedItemInlineSize(
-      paragraph,
+    globalThis.__TiqianCustody!.take(paragraph, hostFontSizeApplied);
+    var hostInlineSizeApplied = globalThis.__TiqianLifecycle!.stabilizeContentSizedItemInlineSize(
+      paragraph as HTMLElement,
       sourceInlineSize
     );
 
     paragraph.setAttribute('data-tq-rendered', 'true');
     paragraph.setAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE, 'true');
 
-    var item = {
+    var item: ProcessParagraphTarget = {
       source: paragraph,
       lowered: lowered,
       lastMeasure: null,
     };
 
-    globalThis.__TiqianCustody.commit(paragraph, hostInlineSizeApplied);
+    globalThis.__TiqianCustody!.commit(paragraph, hostInlineSizeApplied);
 
     var layoutIssue = null;
     try {
       if (workerPlan != null) {
-        layoutIssue = globalThis.__TiqianCommitPreparedParagraph.commitWorkerPreparedParagraph({
+        layoutIssue = globalThis.__TiqianCommitPreparedParagraph!.commitWorkerPreparedParagraph({
           paragraph: item,
           workerPlan: workerPlan,
           onExactPreparedDomFallback: state.onDisableExactPreparedDom,
@@ -234,8 +293,8 @@
           cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
         });
       } else {
-        var preparation = globalThis.__TiqianPrepareParagraphLayout.prepareParagraphLayout(
-          ffi,
+        var preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
+          ffi!,
           {
             paragraph: item,
             options: activeOptions,
@@ -248,8 +307,8 @@
         } else if (preparation.kind === 'unsupported') {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
-          var commitResult = globalThis.__TiqianCommitPreparedParagraph.commitPreparedParagraph({
-            ffi: ffi,
+          var commitResult = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph({
+            ffi: ffi!,
             paragraph: item,
             preparation: preparation,
             options: activeOptions,
@@ -270,7 +329,7 @@
     } catch (error) {
       layoutIssue = {
         name: 'WebEnhancementFailure',
-        detail: (error && error.message) || 'unexpected layout or DOM rendering failure',
+        detail: (error && (error as { message?: string }).message) || 'unexpected layout or DOM rendering failure',
         element: paragraph,
         reportToConsole: true,
       };
@@ -279,14 +338,14 @@
     if (layoutIssue == null) {
       state.onParagraphCommitted(item);
     } else {
-      globalThis.__TiqianCustody.restoreParagraph(paragraph);
+      globalThis.__TiqianCustody!.restoreParagraph(paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }
       if (layoutIssue.reportToConsole == null) {
         layoutIssue.reportToConsole = true;
       }
-      globalThis.__TiqianLifecycle.reportIssue(layoutIssue);
+      globalThis.__TiqianLifecycle!.reportIssue(layoutIssue as CapabilityIssueRecord);
       state.onIssue(layoutIssue);
     }
   }
@@ -295,3 +354,5 @@
     processParagraph: processParagraph,
   };
 })();
+
+export {};

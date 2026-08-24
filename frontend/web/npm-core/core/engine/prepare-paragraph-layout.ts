@@ -18,6 +18,122 @@
 // self-contained: ffi and the measure/renderer globals are injected by the
 // caller or read from globalThis.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
+import type { EngineFfiFacade } from "./ffi-face.js";
+
+interface WireArguments {
+  text: string;
+  fontFamilies: string;
+  fontSize: number;
+  lineHeight: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  sourceBoundaries: string;
+  textSpans: string;
+  inlineBoxes: string;
+  lineBreakSpans: string;
+  inlineObjects: string;
+  decorations: string;
+}
+
+interface LayoutPlanLine {
+  rangeStart: number;
+  rangeEnd: number;
+}
+
+interface LayoutPlan {
+  lines: LayoutPlanLine[];
+}
+
+interface LayoutCapabilityIssue {
+  name: string;
+  reason: string;
+}
+
+interface LayoutAdvanceSuspect {
+  displayText: string;
+  advance: number;
+  reason: string;
+}
+
+interface LayoutDiagnostics {
+  capabilityIssues: LayoutCapabilityIssue[];
+  advanceSuspects: LayoutAdvanceSuspect[];
+}
+
+// The prepare verdict is a discriminated union on kind. Every original
+// construction site sets the fields of its own member only.
+interface PrepareUnchangedResult {
+  kind: "unchanged";
+}
+
+interface PrepareUnsupportedResult {
+  kind: "unsupported";
+  name: string;
+  detail?: string;
+  element?: Element;
+  rawEnvelope?: string;
+  reportToConsole?: boolean;
+  [key: string]: unknown;
+}
+
+export interface PrepareReadyResult {
+  kind: "ready";
+  rawEnvelope: string;
+  planJson: string;
+  plan: LayoutPlan;
+  diagnostics: LayoutDiagnostics;
+  width: number;
+  measure: number;
+  exactFontSessionUsed: boolean;
+  [key: string]: unknown;
+}
+
+export type PrepareLayoutResult =
+  | PrepareUnchangedResult
+  | PrepareUnsupportedResult
+  | PrepareReadyResult;
+
+type BrowserBridgeShapeJsonFn = (input: string) => string;
+type BrowserBridgeMetricsJsonFn = (input: string) => string;
+
+interface BrowserBridgeDescriptor {
+  shapeJson: BrowserBridgeShapeJsonFn;
+  metricsJson: BrowserBridgeMetricsJsonFn;
+}
+
+interface PrepareParagraphTarget {
+  source: Element;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+}
+
+interface PrepareExactSessionDescriptor {
+  sessionId: string;
+}
+
+interface PrepareParagraphLayoutInvocation {
+  paragraph: PrepareParagraphTarget;
+  options: Record<string, unknown>;
+  exactSession: PrepareExactSessionDescriptor | null;
+  browserFallback: Record<string, unknown> | null;
+  widthOverride?: number | null;
+  ignoreUnchangedMeasure?: boolean;
+}
+
+type PrepareParagraphLayoutFn = (ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation) => PrepareLayoutResult;
+
+export interface TiqianPrepareParagraphLayoutGlobal {
+  prepareParagraphLayout: PrepareParagraphLayoutFn;
+}
+
+declare global {
+  var __TiqianPrepareParagraphLayout: TiqianPrepareParagraphLayoutGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianPrepareParagraphLayout) return;
 
@@ -50,7 +166,7 @@
   // Serialize the lowered paragraph onto the shared ffi wire. Twins of the
   // worker-request.js serializer functions (lines 96-153), copied locally so
   // both files stay embeddable and import-free.
-  function wireArguments(lowered) {
+  function wireArguments(lowered: LoweredParagraph): WireArguments {
     var textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
@@ -130,7 +246,7 @@
   // RuntimeExactPreparedDomScope: inline the lowered-paragraph.js predicate
   // isRuntimeExactPreparedDomEligible, which requires every span to share the
   // paragraph locale. The plan wire carries one paragraph locale.
-  function isPreparedDomEligible(lowered) {
+  function isPreparedDomEligible(lowered: LoweredParagraph): boolean {
     return lowered.spans.every(function (span) {
       return span.style.locale === lowered.textStyle.locale;
     });
@@ -141,7 +257,7 @@
   // layout module cannot see sourceSpans or domInlineObjects because they
   // never travel the wire, so the host passes this full-model verdict as the
   // render-evidence override on both layout calls.
-  function hasRenderEvidence(lowered) {
+  function hasRenderEvidence(lowered: LoweredParagraph): boolean {
     return lowered.spans.length > 0 ||
       lowered.decorations.length > 0 ||
       lowered.inlineBoxes.length > 0 ||
@@ -153,7 +269,7 @@
   // PreparedDomUnifiedEligibility: inline the WebEnhancerSupport.kt
   // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
   // shape, schema, and matching layout revision.
-  function isPreparedDomBridgeAvailable() {
+  function isPreparedDomBridgeAvailable(): boolean {
     var renderer = globalThis.__TiqianPreparedDomRenderer;
     return !!(renderer &&
       typeof renderer.render === 'function' &&
@@ -163,8 +279,8 @@
       renderer.layoutRevision === PREPARED_LAYOUT_REVISION);
   }
 
-  function isExactSessionCapabilityFailure(error) {
-    var message = String(error && error.message);
+  function isExactSessionCapabilityFailure(error: unknown): boolean {
+    var message = String(error && (error as { message?: string }).message);
     for (var i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
       if (message.indexOf(EXACT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
         return true;
@@ -176,11 +292,11 @@
   // BrowserMetricsCallArguments: the browser-metric export is the diagnostics
   // list without the leading sessionId, plus the shape and metrics callbacks
   // inserted before the trailing decorations and emphasis dot gap.
-  function browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride) {
+  function browserMetricsArguments(browserFallback: Record<string, unknown>, paragraphArguments: unknown[], wire: WireArguments, emphasisDotGapEm: number | null, renderEvidenceOverride: boolean): unknown[] {
     return paragraphArguments.concat([
       ZERO_ADVANCE_EPSILON,
-      browserFallback.bridge.shapeJson,
-      browserFallback.bridge.metricsJson,
+      (browserFallback.bridge as BrowserBridgeDescriptor).shapeJson,
+      (browserFallback.bridge as BrowserBridgeDescriptor).metricsJson,
       wire.decorations,
       emphasisDotGapEm,
       renderEvidenceOverride,
@@ -195,7 +311,7 @@
    * @param {Object} argument
    * @returns {Object}
    */
-  function prepareParagraphLayout(ffi, argument) {
+  function prepareParagraphLayout(ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
     var paragraph = argument.paragraph;
     var options = argument.options;
     var exactSession = argument.exactSession;
@@ -205,7 +321,7 @@
     var lowered = paragraph.lowered;
     var element = paragraph.source;
 
-    var responsive = globalThis.__TiqianResponsiveMeasure;
+    var responsive = globalThis.__TiqianResponsiveMeasure!;
     var width = widthOverride != null
       ? widthOverride
       : responsive.sourceParagraphWidth(paragraph.source);
@@ -247,13 +363,13 @@
     var wire = wireArguments(lowered);
     var firstLineIndentIc = element.tagName.toUpperCase() === 'LI'
       ? 0
-      : options.firstLineIndentIc;
+      : (options.firstLineIndentIc as number);
     // The Kotlin direct path builds ParagraphStyle without lineLengthGrid,
     // whose data-class default is LineLengthGrid(enabled = true).
     var lineLengthGridEnabled = true;
-    var emphasisDotGapEm = options.emphasisDotGapEm == null
+    var emphasisDotGapEm: number | null = options.emphasisDotGapEm == null
       ? null
-      : options.emphasisDotGapEm;
+      : (options.emphasisDotGapEm as number);
     var renderEvidenceOverride = hasRenderEvidence(lowered);
 
     // EngineLineMeasureMatchesResponsiveGrid: feed the quantized measure, not
@@ -285,21 +401,21 @@
         // plain paragraph and the semantic DOM, so no engine pair exists.
         rawEnvelope = ffi.precomputeParagraphWithDiagnostics(
           exactSession.sessionId,
-          paragraphArguments[0],
-          paragraphArguments[1],
-          paragraphArguments[2],
-          paragraphArguments[3],
-          paragraphArguments[4],
-          paragraphArguments[5],
-          paragraphArguments[6],
-          paragraphArguments[7],
-          paragraphArguments[8],
-          paragraphArguments[9],
-          paragraphArguments[10],
-          paragraphArguments[11],
-          paragraphArguments[12],
-          paragraphArguments[13],
-          paragraphArguments[14],
+          paragraphArguments[0] as string,
+          paragraphArguments[1] as number,
+          paragraphArguments[2] as string,
+          paragraphArguments[3] as number,
+          paragraphArguments[4] as number,
+          paragraphArguments[5] as string,
+          paragraphArguments[6] as number,
+          paragraphArguments[7] as boolean,
+          paragraphArguments[8] as number,
+          paragraphArguments[9] as boolean,
+          paragraphArguments[10] as string,
+          paragraphArguments[11] as string,
+          paragraphArguments[12] as string,
+          paragraphArguments[13] as string,
+          paragraphArguments[14] as string,
           ZERO_ADVANCE_EPSILON,
           wire.decorations,
           emphasisDotGapEm,
@@ -314,7 +430,7 @@
         exactFontSessionUsed = false;
         rawEnvelope = ffi.precomputeParagraphWithBrowserMetrics.apply(
           null,
-          browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+          browserMetricsArguments(browserFallback!, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       }
     } else {
@@ -407,3 +523,5 @@
     prepareParagraphLayout: prepareParagraphLayout,
   };
 })();
+
+export {};

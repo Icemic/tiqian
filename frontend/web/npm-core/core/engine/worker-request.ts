@@ -15,6 +15,33 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
+// Ambient global declarations pulled in via import type from owner modules.
+import type { LoweredParagraph } from "./lowered-paragraph.js";
+import type { EligibilityGlobal } from "./eligibility.js";
+import type { EnhanceOptions, LifecycleApi } from "./lifecycle.js";
+import type { MarkdownLoweringApi } from "./markdown-lowering.js";
+import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
+import type { EngineFfiFacade } from "./ffi-face.js";
+
+interface WorkerInlineShapingDecisionResult {
+  name: string;
+  detail: string;
+}
+
+type WorkerLayoutRequestFn = (paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions) => string | null;
+type WorkerLayoutRequestForRootFn = (ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions) => string | null;
+type WorkerLayoutRequestJsonFn = (paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number) => string;
+
+export interface TiqianWorkerRequestGlobal {
+  workerLayoutRequest: WorkerLayoutRequestFn;
+  workerLayoutRequestForRoot: WorkerLayoutRequestForRootFn;
+  workerLayoutRequestJson: WorkerLayoutRequestJsonFn;
+}
+
+declare global {
+  var __TiqianWorkerRequest: TiqianWorkerRequestGlobal | undefined;
+}
+
 (function () {
   if (globalThis.__TiqianWorkerRequest) return;
 
@@ -36,7 +63,7 @@
    * @param {string} value
    * @returns {string}
    */
-  function escapeJson(value) {
+  function escapeJson(value: string): string {
     var result = '"';
     for (var i = 0; i < value.length; i += 1) {
       var ch = value.charAt(i);
@@ -79,7 +106,7 @@
   // elementAttributesJson in WebEnhancerSupport.kt is a @JsFun around
   // JSON.stringify of the [name, value] pairs; the result is already JSON and
   // is appended verbatim, never re-escaped.
-  function elementAttributesJson(element) {
+  function elementAttributesJson(element: Element): string {
     return JSON.stringify(Array.from(element.attributes || [], function (attribute) {
       return [attribute.name, attribute.value];
     }));
@@ -89,7 +116,7 @@
   // lowered-paragraph.js (six collections). sourceSpans and domInlineObjects
   // never travel the layout wire, so the request carries the full-model verdict
   // for the worker to pass as the render-evidence override.
-  function hasRenderEvidence(lowered) {
+  function hasRenderEvidence(lowered: LoweredParagraph): boolean {
     return lowered.spans.length > 0 ||
       lowered.decorations.length > 0 ||
       lowered.inlineBoxes.length > 0 ||
@@ -108,7 +135,7 @@
    * @param {number} firstLineIndentIc
    * @returns {string}
    */
-  function workerLayoutRequestJson(paragraph, lowered, width, firstLineIndentIc) {
+  function workerLayoutRequestJson(paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number): string {
     var textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
@@ -234,7 +261,7 @@
    * @param {Record<string, unknown>} options
    * @returns {(string|null)}
    */
-  function workerLayoutRequestForRoot(ffi, root, paragraph, options) {
+  function workerLayoutRequestForRoot(ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions): string | null {
     // RootScopeGate: a paragraph belongs when it has no owner, owns the root,
     // or lives outside the root. A nested owner under the root is not in this
     // paragraph's scope, so it returns null before anything else runs.
@@ -242,18 +269,18 @@
     if (owner && owner !== root && root.contains(owner)) {
       return null;
     }
-    if (!globalThis.__TiqianEligibility.shouldTryParagraph(paragraph)) return null;
-    if (!globalThis.__TiqianLifecycle.allowsSnapshotExactLayout(options)) return null;
-    var resolved = globalThis.__TiqianLifecycle.withRootDefaults(options, root);
+    if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return null;
+    if (!globalThis.__TiqianLifecycle!.allowsSnapshotExactLayout(options)) return null;
+    var resolved = globalThis.__TiqianLifecycle!.withRootDefaults(options, root);
     var lowered = null;
     try {
       // The options bag mirrors loweringOptionsJs in MarkdownParagraphLowering.kt:
       // fontSize and lineHeight are nullable, strongAsEmphasisMarks is a boolean,
       // and locale is fixed to LOWERING_DEFAULT_LOCALE ("zh-Hans").
-      var result = globalThis.__TiqianMarkdownLowering.lower(paragraph, {
-        fontSize: resolved.fontSize,
-        lineHeight: resolved.lineHeight,
-        strongAsEmphasisMarks: resolved.strongAsEmphasisMarks,
+      var result = globalThis.__TiqianMarkdownLowering!.lower(paragraph, {
+        fontSize: resolved.fontSize as number | undefined,
+        lineHeight: resolved.lineHeight as number | undefined,
+        strongAsEmphasisMarks: resolved.strongAsEmphasisMarks as boolean | undefined,
         locale: 'zh-Hans',
       }, {
         // classifyRole is the ffi export verbatim.
@@ -261,7 +288,7 @@
         // The inlineShapingDecision wrapper reproduces the Kotlin closure in
         // MarkdownParagraphLowering.kt: a null divergence property returns null,
         // otherwise the inlineShapingDecisionResultJs shape is built.
-        inlineShapingDecision: function (tag, elementValues, paragraphValues) {
+        inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): WorkerInlineShapingDecisionResult | null {
           var property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
           return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
         },
@@ -283,8 +310,8 @@
    * @param {Record<string, unknown>} options
    * @returns {(string|null)}
    */
-  function workerLayoutRequest(paragraph, lowered, options) {
-    if (globalThis.__TiqianLifecycle.conformingExactFontSessionId(options) == null) return null;
+  function workerLayoutRequest(paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions): string | null {
+    if (globalThis.__TiqianLifecycle!.conformingExactFontSessionId(options) == null) return null;
     // WorkerRequestMatchesRuntimeEligibility: inline objects no longer exclude
     // a paragraph from Worker preparation; their measured geometry travels on
     // the request wire and the live elements enter at commit time, the same
@@ -304,20 +331,20 @@
         })) {
       return null;
     }
-    var rawWidth = globalThis.__TiqianResponsiveMeasure.sourceParagraphWidth(paragraph);
+    var rawWidth = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(paragraph);
     if (!Number.isFinite(rawWidth) || rawWidth <= 0) return null;
     // WorkerLineMeasureMatchesResponsiveGrid: the responsive coordinator
     // intentionally treats widths within the same floor(width / fontSize) cell
     // count as one layout input. Serialize that effective measure, not the
     // transient CSS width observed while a window is being dragged, so
     // preparation and commit use the same Worker plan inside the grid.
-    var measure = globalThis.__TiqianResponsiveMeasure.effectiveLineMeasure(
+    var measure = globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(
       rawWidth,
       lowered.textStyle.fontSize,
     );
     var firstLineIndentIc = paragraph.tagName.toUpperCase() === 'LI'
       ? 0
-      : options.firstLineIndentIc;
+      : (options.firstLineIndentIc as number);
     return workerLayoutRequestJson(paragraph, lowered, measure, firstLineIndentIc);
   }
 
@@ -327,3 +354,5 @@
     workerLayoutRequestJson: workerLayoutRequestJson,
   };
 })();
+
+export {};
