@@ -247,29 +247,29 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   （判定以回填后重测为准）、时序锚点 golden 冻结。
   KPI：golden 覆盖 §11 表六类锚点，锚点数记录（报告 §11，合计 151）。
   验收：npm test、jsBrowserTest、demo/web 测试全部通过；golden 套件入库。
-  提交：b0b9cba、fe7febe、a5de443、35d2571、28c4a19、c0564dc、7b92e8f。
+  提交：30528c9、b80a3bd、e34ce30、35a6abf、3874a9f、0172554、c1b457a。
 - [x] **P1 批次 1**：八个模块纯移动归位，.d.ts 随同名 JS，根路径重导出。
   验收：同 P0 命令全部通过；golden 零 diff。
-  提交：bda3f77。
+  提交：fc8cf38。
 - [x] **P2 批次 2**：core/sampler/observers.js，失效源接口与四实例，A 类双职拆分。
   验收：npm test；demo/web resize 与 drag 系列。
-  提交：6bdcfb3。
+  提交：18dae52。
 - [x] **P3 批次 3**：engine/loaders，connectedCallback 收缩到生命周期。
   验收：npm test；demo/web。
-  提交：e861a99。
+  提交：5e6f04e。
 - [x] **P4 批次 4**：engine/exact-font.js，两套会话状态机合并。
   验收：npm test；package.test.mjs。
-  提交：0feaf8f。
+  提交：5039835。
 - [x] **P5 批次 5**：engine/face.js，派发点收拢，globalThis 读取收敛，detail.result
   改返回值（两份 loadExactFontFallback 已在批次 4 合并）。验收：npm test；jsBrowserTest；demo/web。
-  提交：15509f7。
+  提交：095c170。
 - [x] **P6 批次 6**：快照四件归位，lazy-capabilities 拆分，element 快照失效区域
   提取，sync:shared 路径更新。验收：npm test；jsBrowserTest；web-precompute parity。
-  提交：a41ddc4、27525a1（6a）；befa1a3（6b）。
+  提交：5097307、784d2ff（6a）；ea2dda8（6b）。
 - [x] **P7 批次 7**：demo/web 以 @tiqian/prose 符号链接替换做 A/B 对比。
   验收：demo/web 对比数据记录。对照由 demo/web `npm-published-vs-dev` 套件执行：
   同一浏览器经 CDP 双开两页，一侧加载符号链接农场指向的工作树（含批次 0-6，
-  HEAD befa1a3），一侧加载 registry 的 `@tiqian/prose@0.1.0-alpha.5`（重构前
+  HEAD ea2dda8），一侧加载 registry 的 `@tiqian/prose@0.1.0-alpha.5`（重构前
   发布）。2026-08-23 记录：四个相位（initial@900、initial@700、
   after-dom-change@940、after-dom-change@700）两侧增强段落数相同（dev=41
   published=41），initial 相位像素逐字节一致，全程几何报告一致，宿主 DOM
@@ -281,17 +281,17 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   TS 与 Rust 类型同源生成；源语义投影规则写进规格定义。
   KPI：两侧手写类型文件 0 份；字段与 ADR 清单一致。
   验收：Verification 1 前半；类型生成进 CI。
-  进度（2026-08-23）：7911114 定义 ffi/schema/assembly-record.schema.json
+  进度（2026-08-23）：ef06ac7 定义 ffi/schema/assembly-record.schema.json
   （revision 1，标量与六表字段、验证错误名、三 surface 字段序与两侧差异
   （gridEnabled 仅引擎面、inlineObjects 仅运行时面、fontSessionId 仅构建面）、
-  六条源语义投影规则与实现/测试指针）；c770e5a 生成器 tools/schema/
+  六条源语义投影规则与实现/测试指针）；371629a 生成器 tools/schema/
   generate_ts.py 与 generate_rust.py（零依赖、确定性输出、--check 模式），
   worker-channel 与 bench 的手写字段表删除改导入生成模块，layout_request.rs
   类型定义改生成物（#[path] 挂载），ci-assembly-record.yml 新鲜度检查进 CI。
   cargo check/fmt/test 与 npm test 393 例通过。
 - [x] **A2 parity 语料扩充**：prepared-dom-corpus fixture 扩充，两侧采样器对同一
   输入输出逐字节一致。验收：Verification 1 后半，CI 强制。
-  进度（2026-08-23）：39af0ff 用例 35 扩到 41（ruby plan ascent、emphasis dot
+  进度（2026-08-23）：3777e5b 用例 35 扩到 41（ruby plan ascent、emphasis dot
   颜色回调、cjk-emphasis 属性、second-line indent、三行 style-delta、
   inlineEdges 与 renderTextSpans 组合）。两侧命名模式（styleClassFor 之外新增
   emphasisDotColor）在 fixture 保留模式名字符串、两侧测试映射成回调，颜色字面量
@@ -304,7 +304,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   组装移入引擎入口，`PrecomputeWire` parse 降为编解码器。
   KPI：ffi/js 内装配逻辑（非编解码）行数归零。
   验收：jsNodeTest 全部通过；golden 零 diff。
-  提交：bc19f8c（整体移入 `layout` 模块 `ParagraphWireFace`，`PrecomputeWire.kt`
+  提交：da92871（整体移入 `layout` 模块 `ParagraphWireFace`，`PrecomputeWire.kt`
   删除，ffi/js 只剩导出面转发与会话接线）。
 - [x] **A4 ffi/js 独立 npm 包**：单独发包，产物导出类型定义与 source map。
   KPI：.d.ts 与 .js.map 覆盖全部导出面；@tiqian/prose 依赖切换完成。
@@ -319,7 +319,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   与 jsBrowserTest 通过；两包 tarball 在隔离消费者成对安装并导入；demo/web 35/35。
   module worker 读取不到文档 import map，无打包器宿主无法加载 worker；现有宿主均经
   打包器消费，demo 的两个 import map 服务型用例在服务层把 worker 内对 `@tiqian/ffi`
-  的导入改写为绝对 URL。提交：8346920（ffi 包）、b6d9cff（prose 依赖切换）。
+  的导入改写为绝对 URL。提交：1ce873d（ffi 包）、15fb028（prose 依赖切换）。
 - [ ] **A5 度量回放表扩展**（`MetricTableAsEngineInput`）：canvas 探测按同一规范键
   写同一表结构，引擎只认表；无 bake 路径经 ffi 唯一接口产出 plan。
   KPI：度量表示结构份数 1。
@@ -327,14 +327,14 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   进度（2026-08-23）：现状调查与分片设计见
   docs/research/2026-08-23-a5-metric-table-unification.md（两套结构的位置、
   Worker 无 DOM 约束、空表会话与条目证据字段的待决点、A5a..A5d 顺序）。
-  进度（A5a，2026-08-23）：899de33。npm-core/replay-entry-codec.js 单点持有
+  进度（A5a，2026-08-23）：3de7052。npm-core/replay-entry-codec.js 单点持有
   条目展开（decodeShapeReplayRow/decodeMetricReplayRow）、读侧缩放
   （scaleShapeReplayItem/scaleMetricReplayItem）与 px→em 规范化
   （normalizeReplayNumber，镜像 replay.rs 的 12 位小数与 -0 归 0）；
   snapshot-manifest.js 与 browser-font-replay.js 改为调用该模块，键函数与
   修订常量留在 snapshot-schema.js。18 例 roundtrip、损坏输入与 Rust 测试向量
   对齐；npm-core 167 例加 prose 246 例通过。
-  进度（A5b，2026-08-23）：8091d83。npm-core/replay-probe.js
+  进度（A5b，2026-08-23）：46182fc。npm-core/replay-probe.js
   （CanvasMeasureReplayProbePolicy）：会话可选注入同步 measure
   （cssFont, text）→ 度量结果；shape miss 探测产出单 glyph 条目
   （id 0、bounds null、faceId 以 canvas-probe: 前缀命名证据来源），metric
@@ -342,7 +342,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   normalizeReplayNumber，同键再访走表；探测失败或未注入时
   MissingServerShapingReplay 语义不变；条目校验复用 A5a 的 scale 函数。
   13 例新测试；npm-core 180 例加 prose 246 例通过。
-  进度（A5c，2026-08-23）：58fac0b（含 f16ea29 的发布件修复）。空表会话判定
+  进度（A5c，2026-08-23）：de926c8（含 88557fc 的发布件修复）。空表会话判定
   放宽为「无 probe 才抛 ServerShapingReplayEmpty」，probe 校验前移到空表判定
   之前；replay-probe.js 增 createOffscreenCanvasMeasureAdapter（OffscreenCanvas
   或 2d context 不可用返回 null；ctx.font 缓存比较与 Kotlin currentCanvasFont
@@ -355,7 +355,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   WebCanvasFontMetricsResolver 的 scripted backend，两侧 plan 字节一致、容差
   零命中（变异自检改 advance 立即检出）；npm-core 187 例加 prose 246 例通过。
   伴随缺陷：拆分把 core/engine/loaders/styles.js 移入 npm-core 后其相对引用的
-  styles.css 不在包内，parcel 静态解析失败、运行时 URL 404；f16ea29 在 npm-core
+  styles.css 不在包内，parcel 静态解析失败、运行时 URL 404；88557fc 在 npm-core
   落同名副本并列入 files，prose 测试断言两份字节一致。
 
 ### B TS 宿主重写（`TsHostRuntime`）
@@ -373,13 +373,13 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   CustodyMoveAdoption 重连采纳）以 custody.js（382 行）进 npm/core/engine，
   经通用化 gradle 生成器嵌入运行时 bundle；Kotlin 侧删除对应实现 451 行
   （WebEnhancerParagraphLifecycle、ParagraphPipeline 与 Support 的 custody
-  段），WebEnhancerCustodyBridge.kt 桥接调用。断言经 f13233b 移植
-  （custody-bridge.test.mjs，347 行）。提交：f13233b、7140d88、f92bfbe。
+  段），WebEnhancerCustodyBridge.kt 桥接调用。断言经 fd50dc6 移植
+  （custody-bridge.test.mjs，347 行）。提交：fd50dc6、5c978f4、febeea7。
   验证：npm test 与 jsBrowserTest 在提交后历次批次运行与当前树复验
   （315/315 两次）均通过。
 - [x] **B3 渐进任务状态机**（ProgressiveJob 队列与 pending 计数）。
-  产出（2026-08-23）：断言半段 9af4470（progressive.test.mjs 456 行，
-  runtime-host.mjs 补 worker 作业驱动与滚动几何助手）；实现半段 e04daa7，
+  产出（2026-08-23）：断言半段 71ae9a9（progressive.test.mjs 456 行，
+  runtime-host.mjs 补 worker 作业驱动与滚动几何助手）；实现半段 0b03b91，
   状态机整体迁入 `npm/core/engine/progressive-job.js`（302 行 plain script，
   经 generateProgressiveJobBridge 嵌入运行时），按 custody 模式经
   `WebEnhancerProgressiveJobBridge.kt` 调用。作业注册表、generation、
@@ -406,7 +406,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   迁入 `npm/core/engine/eligibility.js`，按 custody 模式经通用化 gradle 生成器
   嵌入运行时，Kotlin 侧与 MarkdownParagraphLowering 经
   `WebEnhancerEligibilityBridge.kt` 调用；嵌入式单测 6 条
-  （npm/eligibility-bridge.test.mjs）。提交：57f3f70。
+  （npm/eligibility-bridge.test.mjs）。提交：4a74774。
   响应式度量半段（2026-08-23）：effectiveLineMeasure、sourceParagraphWidth、
   isCurrentResponsiveMeasure 与 elementContentWidth 的 JS 体（原
   WebEnhancerSupport.kt 的 @JsFun）迁入 `npm/core/engine/responsive-measure.js`，
@@ -416,7 +416,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   量化格数、最宽 fragment 减 padding、rects 为空退 bounding rect、三级宽度
   回退、同格判定）；jsBrowserTest 102/102、npm test 372/372、时序 golden 零 diff。
 - [x] **B5 内容 reconcile**。
-  产出（2026-08-23）：断言半段此前已随行为测试批完成；实现半段 4c08198，
+  产出（2026-08-23）：断言半段此前已随行为测试批完成；实现半段 b194156，
   分类（dead、drifted、custody、tainted、stranded 与
   StrandedCapabilityNoRetry 门槛）、只读探针 probeContentDrift 与两个 DOM
   准备助手（HostEditRelowering、CloneDescaffoldEngineMarkup，含
@@ -435,8 +435,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   0 残留；content-reconcile.js 嵌入方言检查（可选链、空值合并、展开、
   for-of、裸 catch、美元符、三引号）0 命中。
 - [x] **B6 复制保真**（copy.js 投影语义保持）。
-  产出（2026-08-23）：断言半段 4e3d3f7（copy-fidelity.test.mjs 经 runtime-host
-  驱动运行时的 copy 事件）；实现半段 d733286，`npm/core/utils/copy.js` 改为
+  产出（2026-08-23）：断言半段 4e0cebf（copy-fidelity.test.mjs 经 runtime-host
+  驱动运行时的 copy 事件）；实现半段 8cf6ea3，`npm/core/utils/copy.js` 改为
   plain script，安装 globalThis.__TiqianCreateClipboardPayload 与
   __TiqianInstallCopyHandler，按 custody 模式经 generateCopyBridge 嵌入运行时，
   Kotlin 侧经 `WebEnhancerCopyBridge.kt` 在原有三个调用点安装，
@@ -453,12 +453,12 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   copy-fidelity.test.mjs 注释。
 - [x] **B7 lowerer 统一**（`SinglePlanLowerer` 先行形态）：prepared-dom.js 改接受
   plan 对象，成为绘制规格唯一实现；DomParagraphRenderer 删除。
-  产出（B7.1，2026-08-23）：f54e869，`toPreparedParagraphJson(renderEvidence)` 以
+  产出（B7.1，2026-08-23）：62a7cc9，`toPreparedParagraphJson(renderEvidence)` 以
   默认省略的可选字段追加 cell 级与段落级绘制证据；默认路径字节不变，schema 仍为
   1，两个既有读者（prepared-dom.js、tiqian-precompute plan.rs）按字段名读取、
   容忍未知字段，无需改动。`:layout:jvmTest`（含 LayoutDumpGoldenTest 零 diff）与
   `:frontend:web:jsBrowserTest` 通过。B7.2 起改 prepared-dom.js 读取这些字段。
-  产出（B7.2，2026-08-23）：ebb65df。prepared-dom.js 读取 B7.1 的证据字段：dash 属性
+  产出（B7.2，2026-08-23）：90de8da。prepared-dom.js 读取 B7.1 的证据字段：dash 属性
   （strategy/advance/font-family/face/glyph-ids/evidence 与 lang）、标点 ink-floor 与
   body-width、样式增量（font-size/weight/style 带 important）、latin 在着重范围内补
   italic、行内对象占位 span（data-tq-inline-object="pending" 加 object-range）、
@@ -473,7 +473,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   dash 属性、标点属性与断 run、样式增量、latin 着重 italic 正反例、占位流宽、ruby
   比例 ascent、bopomofo 松量与声调字号公式、覆盖层、inlineEdges 优先级）；
   `:frontend:web:jsBrowserTest` 通过。
-  产出（B7.4，2026-08-23）：00c94aa。ruby 注文 ascent 进 plan：B7.1 序列化补
+  产出（B7.4，2026-08-23）：7569649。ruby 注文 ascent 进 plan：B7.1 序列化补
   `RubyDecisionInfo.ascent` 字段（注文字面的 declared ascent，来自度量 resolver），
   prepared-dom-evidence.js 优先读 plan ascent，缺失时退 RubyAscentRatioFallback
   （fontSize×0.8，只与 stub 度量一致，真字体 ascent 并非 0.8em）。验证：
@@ -482,8 +482,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   `:frontend:web:jsBrowserTest` 通过。
 - [x] **B8 浏览器后处理**：占位符替换式语义克隆、SVG 行间线与着重号、
   ruby/bopomofo span 挂载、原子换入。SVG 行间线与着重号、ruby/bopomofo span
-  已随 B7.2 进入 lowered HTML（ebb65df）。
-  产出（克隆换入原语，2026-08-23）：45efc96。占位 span 在尾隙绝对值 ≥ 0.01 时
+  已随 B7.2 进入 lowered HTML（90de8da）。
+  产出（克隆换入原语，2026-08-23）：4fe2227。占位 span 在尾隙绝对值 ≥ 0.01 时
   增加 data-tq-object-trailing-margin（值为该尾隙）；renderPreparedParagraphInto
   在 innerHTML 换入后把 data-tq-inline-object="pending" 占位替换为调用方经
   options.inlineObjects 按 start-end 对位传入的源元素深克隆，克隆带
@@ -522,7 +522,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   判定从 sourceSpans.isEmpty() 改为 isCanonicalPlainParagraph()，行内对象段落
   重排时重测对象，不再误标纯段落。
   产出（着重圆点颜色、cjk-emphasis 标记与 dash 面校验进 prepared 路径，
-  2026-08-23）：5dc7ec1。着重圆点颜色在渲染时解析：取覆盖该 cluster 且 order
+  2026-08-23）：e2be1b4。着重圆点颜色在渲染时解析：取覆盖该 cluster 且 order
   （嵌套深度）最大的 semantic 的 getComputedStyle 颜色，无命中回落
   currentColor，与 native 渲染器 sourceSpans.maxByOrNull{depth} 的取值一致；
   无 live 元素时圆点维持 currentColor，artifact 输出字节不变。npm 侧新增
@@ -573,14 +573,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   段落全部 prepared 渲染，基准段 24/24，含 CJK dash 的 1 段按
   NoConformingCjkDashGlyph 保持输入原样。
 - [x] **B9 MarkdownParagraphLowering 迁移**（880 行）。
-  进度（第一步，2026-08-23）：a18a293。降层逻辑移植 npm/core/engine/
+  进度（第一步，2026-08-23）：33f6526。降层逻辑移植 npm/core/engine/
   markdown-lowering.js（IIFE 安装 globalThis.__TiqianMarkdownLowering，嵌入
   raw-string 约束内），gradle generateMarkdownLoweringBridge 三处接线，
   WebEnhancerMarkdownLoweringBridge.kt 只做声明。返回 `{ok, lowered|issue}`，
   classifyRole 经 helpers 回调（策略留 Kotlin，B10 处置）。npm 新增
   markdown-lowering-bridge.test.mjs 20 例（投影三模式、run 切分、opaque
   对象、失败路径、canonical 快速路径）。
-  进度（第二步，2026-08-23）：eacd5d8。facade 改调桥并解码
+  进度（第二步，2026-08-23）：c866219。facade 改调桥并解码
   （MarkdownParagraphLowering.kt 899→303 行），降层实现删除；locale 通道补齐
   （JS 缺省 zh-Hans 与 core TextStyle 一致，非空 options.locale 覆盖）；
   `??` 全部改 firstDefined（@JsFun 嵌入体不接受空值合并运算符）；
@@ -588,7 +588,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   `:frontend:web:jsBrowserTest`（B9a 断言组全量重放）与 npm test 393 例通过。
 - [x] **B10 引擎策略出 ABI**：富文本 run 降级判定与 dash 能力判定经 ABI 输出
   决策，不迁 TS。验收补充：策略行为与现行判定逐例一致（jsTest 对应组）。
-  进度（2026-08-23）：策略点 2（富文本 run 降级判定）完成，提交 3ac617d：
+  进度（2026-08-23）：策略点 2（富文本 run 降级判定）完成，提交 7dc65e1：
   十六属性清单与首个分叉判定移入 font 模块 `InlineShapingStylePolicy`
   （`InlineShapingStyleParityContract`），markdown-lowering 只按清单收集
   归一化 computed 值，经 helpers.inlineShapingDecision 回调问判定（与
@@ -596,7 +596,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   测试改经回调 stub 断言同名 detail（em:font-kerning），新增归一化值捕获
   与无回调跳过两例；jsTest SourceFidelity 组不改且通过，npm test 395 例、
   golden 零 diff。
-  进度（策略点 1，2026-08-23）：5c1c0c6。dash issue 命名与 detail 组装移入
+  进度（策略点 1，2026-08-23）：9ef3606。dash issue 命名与 detail 组装移入
   font 模块 `CjkDashCapabilityPolicy`（null status、空白 detail、带 detail
   共五分支 commonTest），WebCanvasTextShaper 只递探针的 status/detail 证据
   并调用策略，name 与 detail 输出字节不变。TS 门 cjk-dash.js 删除无消费者
@@ -625,9 +625,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   验证：运行时 grep，11 个内部事件名与 globalThis 挂载均为 0（`tiqian:` 剩余命中为
   element 级公开事件 ready/relayout-ready/relayout-error）；npm test 307/307 两次；
   jsBrowserTest 通过；verify-package 与 verify-release 通过；golden 更新后零 diff。
-  提交：584e083、0d16190、92eca33、262fffa、f3a72c2。
-  消费者核对（2026-08-23 补记）：demo/web 全套 31/35。四项失败在 15d8d66（A4 提交）
-  与 f13233b 的净检出 worktree 复测中逐字节相同，C1 与 B4c 的提交不引入这些失败；
+  提交：d78b725、5028c8f、158db36、876612e、767ecbb。
+  消费者核对（2026-08-23 补记）：demo/web 全套 31/35。四项失败在 14357f3（A4 提交）
+  与 fd50dc6 的净检出 worktree 复测中逐字节相同，C1 与 B4c 的提交不引入这些失败；
   此前两次 35/35 记录产生于含未提交改动的夜间工作树。两项按如下处置：
   resize-destroy 的 relayout 计数从已删的 `tiqian:relayout` 迁到 element 级
   `tiqian:relayout-ready`（事件记录器同时从事件 target 取 root），迁移后该套件
@@ -639,7 +639,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   承担；无动画时原生承担方向正确、入场动画进行中会反向跳变（scrollY 5022 到
   5911，锚点移动 1006.69px）。该缺口属调度路径（增强未经授予路径），随 C2/C3
   处置。
-  消费者核对补记（2026-08-23）：52c89c0。EnhanceOptionsOracle：element.js 在
+  消费者核对补记（2026-08-23）：4370925。EnhanceOptionsOracle：element.js 在
   增强前把逐 root 已解析 options 写入 dataset.tiqianEnhanceOptions，demo/web
   暴露 __tiqianOneShot 入口；oneshot-equivalence、oneshot-visual-regression 与
   resize-destroy-transient 三套测试改读 dataset，删除对已删事件通道的最后依赖，
@@ -652,14 +652,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [x] **C2 任务池统一入池**（`CoordinatorOwnedDispatch` 进程内段）：帧内全部工作
   经同一池与同一凭证；executor 私有节奏与 standalone 准入排除。
   验收：时序 golden 授予轮锚点更新后绿。
-  产出（C2a，提交 696975b）：worker-channel 准备循环删除自有节拍
+  产出（C2a，提交 c7acecf）：worker-channel 准备循环删除自有节拍
   （MAIN_SLICE_BUDGET_MS 与 yieldMainIfNeeded），逐段向 coordinator 申请共享准入；
   grantImmediate 的立即窗口提取为 #admitMainSlice，prepaint 与 prepare 两条帧外
   主线程路径共用同一份额；凭证加 `lane` 字段（polled 授予 grant、pre-paint 授予
   prepaint），帧 trace 末列记录窗口已花费；准备循环只把同步段计入窗口
   （SyncOnlySliceAccounting），worker 往返等待不计入。element.js 传入
   coordinator 单例；browser-fonts 与 timing-golden 的通道测试改传总是准许的池。
-  产出（C2b，提交 14be60f）：standaloneGrantAdmission 与两个上限常量删除，无
+  产出（C2b，提交 6e3e906）：standaloneGrantAdmission 与两个上限常量删除，无
   coordinator 的直调宿主作业一次跑完；宽度正确性由 processItem 内逐条 measure
   守卫承担，切片头部 stale 检查保留为协调路径的中途放弃。
   验证：npm test 313/313 两次（两批各自跑）；jsBrowserTest 通过（两批各自）；
@@ -718,7 +718,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [x] **E1 声明通道与解析**：`declareTiqianFontFaces` 与显式 `baseUrl`；
   CSSStyleSheet 构造解析、detached style 降级、缺席记录；候选集声明在前
   CSSOM 在后。验收：Verification 7 前三组用例。
-  产出（2026-08-23）：7bc32d1，`npm/core/sampler/snapshot/declared-faces.js`
+  产出（2026-08-23）：897245a，`npm/core/sampler/snapshot/declared-faces.js`
   模块级注册表：同一 `(cssText, baseUrl)` 引用计数，注销函数归零移除，空串与
   全空白 no-op，变更同步通知 `onDeclaredFacesChanged` 订阅者，不新增
   globalThis 名。解析阶梯为构造 CSSStyleSheet 加 replaceSync，降级构造
@@ -737,7 +737,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   E2 的通知，不进 CSSOM 漂移签名）。
 - [x] **E2 重验入池与注册表生命周期**：唤醒不内联执行；每 root 至多一个 pending
   重验任务、同帧合并；引用计数注销。验收：Verification 7 对应用例。
-  产出（2026-08-23）：2451c34。`createTypographyInvalidationSource` 在 start() 订阅
+  产出（2026-08-23）：402ea3a。`createTypographyInvalidationSource` 在 start() 订阅
   `onDeclaredFacesChanged`、stop() 退订；element.js 的 handler 以 force 走
   `#scheduleTypographyCheck(true)`，注册表变更无 FontFaceSetEvent 且声明 sheet 不进
   CSSOM 签名，必须 force 才能越过比较。同帧合并由 `#scheduleTypographyCheck` 既有的
@@ -752,7 +752,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   不变。
 - [x] **E3 不匹配解释结构化**：EmptyCandidateSet 与 FieldMismatch 两类 detail、
   字段核对顺序固定、dataset detail 进时序 golden。验收：Verification 7 末组用例。
-  产出（2026-08-23）：eb41766。`cssFaceContract` 的失败返回携带结构化 detail
+  产出（2026-08-23）：b97b794。`cssFaceContract` 的失败返回携带结构化 detail
   （候选集为空时 `{kind: "EmptyCandidateSet"}`；有候选时不符时
   `{kind: "FieldMismatch", expectedFaces, actualFaces, firstField}`），
   `computeFirstMismatchingField` 按 family → style → weight → unicode-range →
@@ -770,11 +770,11 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 ### F 收尾
 
 - [x] **F1 无消费者导出清理与 shared 删除**（`UnusedExportCleanup`）。
-  进度（第一步，2026-08-23）：02be1be。删 digest.js、font-contract.js 与
+  进度（第一步，2026-08-23）：93124d6。删 digest.js、font-contract.js 与
   package.json files 条目；删 validatePrecomputedExactFontReplayRuntimeContract
   别名与 loadedPrecomputedSnapshots 导出，两处测试改用正名
   （validatePrecomputedExactFontReplayContract 与 isLoadedSnapshotAdopted）。
-  进度（第二步，2026-08-23）：3287114。prose 包新增 ./prepared-dom 导出与
+  进度（第二步，2026-08-23）：c0d2712。prose 包新增 ./prepared-dom 导出与
   prepared-dom.d.ts；web-precompute 删除 shared/ 五个副本与
   sync:shared/check:shared 脚本，改依赖 @tiqian/prose 0.1.0-alpha.5
   （link-prose.mjs 建工作树符号链接），renderPreparedParagraph 与 styles.css
@@ -786,7 +786,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   全程处于包边界内，跨层引用即时暴露。
   KPI：包数 3；跨包相对导入 0。
   验收：Verification 8；verify-package；demo/web 测试。
-  进度（第一步，2026-08-23）：d0fa187。新包 @tiqian/prose-core
+  进度（第一步，2026-08-23）：bf506b3。新包 @tiqian/prose-core
   （frontend/web/npm-core，0.1.0-alpha.5，依赖 @tiqian/ffi）：core/ 整树、
   顶层引擎模块（snapshot-schema/manifest/tables/table-binary、
   browser-font-replay、layout-worker 与六个顶层垫片）与运行时产物通道迁入；
@@ -803,7 +803,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   各留一份副本。待办：kotlin-js-store 归位（随 jsMain 归零）；demo/web
   消费面指向旧快照副本，刷新为独立后续；Verification 8 的 CI 拓扑检查随
   F3 配置。
-  进度（拓扑 CI，2026-08-23）：9822b2a。tools/package-topology/check.mjs
+  进度（拓扑 CI，2026-08-23）：e2123ca。tools/package-topology/check.mjs
   （零依赖 node 脚本）查两件事：三包 package.json 的 @tiqian/* 边只允许
   prose→prose-core、prose→ffi、prose-core→ffi；发布源内相对导入解析后
   逸出本包且落入另一拓扑包即失败。扫描口径与 ts-discipline 的 patterns、
@@ -813,48 +813,48 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   ci-ts-discipline 同骨架（同对 SHA-pinned actions、concurrency、
   contents: read，无 install 步骤）。正向 78 文件零违规、反向依赖边与
   跨包导入注入各非零退出，均本地验证。
-  进度（demo 消费面，2026-08-23）：c42bca3。demo/web 改为直接消费三包拓扑：
+  进度（demo 消费面，2026-08-23）：93371ea。demo/web 改为直接消费三包拓扑：
   package.json 以 file: 覆写把 @tiqian/prose-core 与 @tiqian/ffi 指向
   frontend/web/npm-core 与 ffi/js/npm 的产物目录，import map 增 /npm-core/
   路由，layout-worker 路径改由 npm-core 目录解析；framework-commit-conflict
   与 npm-published-vs-dev 两个测试文件随该提交进入仓库。两条发布金丝雀
   （npm-published-vs-dev、scroll-adaptive-quota）在下次 @tiqian/prose 发布前
   保持失败，属设计。
-  进度（jsMain 归零路径，2026-08-23）：876b114。端口计划
+  进度（jsMain 归零路径，2026-08-23）：a460ab7。端口计划
   docs/research/2026-08-23-tshost-runtime-port-plan.md 按七个切片给出 jsMain
   运行时到 TS 的移植顺序、jsTest 102 个测试函数的删除节奏与 kotlin-js-store
-  归位（Slice 7）。该计划同时更正两处依赖次序：jsTest 计数随 a9b6a6c 等五个提交
-  漂移到 102；Kotlin 删除统一推迟到消费者所在文件被删除的切片（266a479），
+  归位（Slice 7）。该计划同时更正两处依赖次序：jsTest 计数随 5c76cf6 等五个提交
+  漂移到 102；Kotlin 删除统一推迟到消费者所在文件被删除的切片（6aae1b7），
   中间桥只产出后续切片会删除的脚手架。
-  进度（Slice 1，2026-08-23）：36d0ec2。npm-core 新增
+  进度（Slice 1，2026-08-23）：43bed65。npm-core 新增
   core/engine/lowered-paragraph.js（LoweredParagraph 传输格式的 JSDoc 模型与
   isCanonicalPlainParagraph、isRuntimeExactPreparedDomEligible 两个谓词，
   语义与 Kotlin 扩展逐条一致）与 lowered-paragraph.test.mjs（10 例）。
   npm-core 197 例、ts-discipline 通过、LayoutDumpGoldenTest 零 diff。
-  进度（Slice 2a，2026-08-23）：7accba4。npm-core 新增 core/engine/lifecycle.js
+  进度（Slice 2a，2026-08-23）：0be8ac5。npm-core 新增 core/engine/lifecycle.js
   （globalThis.__TiqianLifecycle：optionsFromJs 解码、精确字体 session 谓词、
   capability 标记的捕获与还原、宿主尺寸捕获与稳定；Kotlin 同名实现随 Slice 6
   删除）与 lifecycle.test.mjs（26 例）。
-  进度（Slice 3a，2026-08-23）：d187ad9。lowered-paragraph.js 增补
+  进度（Slice 3a，2026-08-23）：b8bc5d9。lowered-paragraph.js 增补
   preparedSemanticReplayJson、preparedInlineObjectMetaJson、
   preparedCjkStrongSemanticsJson 与 escapeJson。复查时对照
   npm-core/runtime/tiqian-web.js 的编译产物更正一处数值格式：Kotlin/JS 的
   Float append 编译为 n.toString()，整个产物没有 fround，marginRight 按原值
   输出，不做 32 位舍入。
-  进度（Slice 3b，2026-08-23）：77177c6。npm-core 新增
+  进度（Slice 3b，2026-08-23）：733d779。npm-core 新增
   core/engine/worker-request.js（globalThis.__TiqianWorkerRequest：
   workerLayoutRequestJson 按 Support.kt 的字段次序逐字段序列化，
   workerLayoutRequest 按 Pipeline.kt 第二重载做准入判断后取
   effectiveLineMeasure；首重载随 Slice 4 移植）与 worker-request.test.mjs
   （13 例，含富语料整串比对与逐条准入判断）。npm-core 249 例、ts-discipline
   通过。
-  进度（Slice 3c，2026-08-23）：7227fe5。ffi/js 新增
+  进度（Slice 3c，2026-08-23）：7776c20。ffi/js 新增
   LoweringHelperExports.kt：classifyFontRole、
   unsupportedInlineShapingProperties、firstDivergentInlineShapingProperty
   三个 @JsExport，字体模块保持唯一实现；package.test.mjs 与
   verify-package.mjs 的导出面清单同步到五项。:ffi:js 的 npm 测试与
   jsNodeTest 通过。
-  进度（Slice 3d，2026-08-23）：75017a9。layout 的 ParagraphWireFace 拆出
+  进度（Slice 3d，2026-08-23）：cbb3f9e。layout 的 ParagraphWireFace 拆出
   共有的 layout 组装，新增 planWithDiagnostics(zeroAdvanceEpsilonPx)；
   PreparedParagraph 增补 toPlanWithDiagnosticsJson：diagnostics 内嵌
   capabilityIssues 与 advanceSuspects 两组事实，suspect 的 advance 一律
@@ -862,20 +862,20 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   @JsExport precomputeParagraphWithDiagnostics（十六参加 epsilon），
   ParagraphWireFaceTest 增四例，导出面清单同步到六项。:layout:jvmTest 与
   golden 零 diff；:ffi:js 的 npm 测试与 jsNodeTest 通过。
-  进度（Slice 4a 第一批，2026-08-23）：6ba1e13。npm-core 新增
+  进度（Slice 4a 第一批，2026-08-23）：73d46db。npm-core 新增
   core/engine/canvas-fonts.js 与 canvas-metrics.js：WebFontFamilies、
   cssFamilyToken、StubFontMetricsResolver 与 WebCanvasFontMetricsResolver
   的 TS 移植，度量经注入的 canvas context 工厂取得，模块自身不触碰
   document；canvas-fonts.test.mjs 与 canvas-metrics.test.mjs 共 27 例。
   npm-core 276 例、ts-discipline 通过。canvas shaper 移植与 ffi
   browser-metrics 导出随后分片进行。
-  进度（Slice 4a 第二批，2026-08-23）：3a596fb。npm-core 新增
+  进度（Slice 4a 第二批，2026-08-23）：6625372。npm-core 新增
   core/engine/canvas-shaping.js：WebCanvasTextShaper 的 TS 移植，含共享 LRU
   度量缓存（命中重插、超 2048 逐出最旧）、字体加载失效、dash 能力策略、
   ellipsis 显示替换判定、hidden-DOM 回退与栅格化 ink bounds，全部经注入的
   env 取 DOM 与 canvas。canvas-shaping.test.mjs 13 例；npm-core 289 例、
   ts-discipline 通过。
-  进度（Slice 4a 第三批，2026-08-23）：2bed9f1。ffi/js 新增 BrowserMetricsExports：
+  进度（Slice 4a 第三批，2026-08-23）：4256f83。ffi/js 新增 BrowserMetricsExports：
   JsCallbackTextShaper 与 JsCallbackFontMetricsResolver 经两个 JSON 回调承接
   shaping 与字体度量，ShapingInput 与 FontMetricsRequest 的序列化字段序固定；
   解析侧按字段族区分 null 语义（advance 族 null 还原 NaN，偏移族 null 取 0），
@@ -883,14 +883,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   precomputeParagraphWithBrowserMetrics（十六参加 epsilon 加两回调）走
   planWithDiagnostics。BrowserMetricsExportsTest 八例含回调回显与直连
   字节相等；导出面清单同步到七项。
-  进度（Slice 4a 第四批，2026-08-23）：71a31b6。npm-core 新增
+  进度（Slice 4a 第四批，2026-08-23）：7205314。npm-core 新增
   core/engine/browser-metrics-bridge.js：__TiqianBrowserMetricsBridge 把
   canvas shaper 与 metrics resolver 适配为 precomputeParagraphWithBrowserMetrics
   的两个 JSON 回调，唯一字段映射是 candidateKey 到 candidate.key，NaN 由
   JSON.stringify 的 null 表示承载。browser-metrics-bridge.test.mjs 六例：两组
   请求字节锁、端到端 plan、与 scripted canvas-model 后端全量比对、dash 能力
   透传。npm-core 295 例、ts-discipline 通过。Slice 4a 完成。
-  进度（Slice 4b 第一批，2026-08-23）：33c5106。排版线
+  进度（Slice 4b 第一批，2026-08-23）：5502736。排版线
   ParagraphWireFace 新增 parseDecorations（三字段记录，InvalidDecorationWire、
   InvalidDecorationRange，DecorationKind 按名解析），layout 与
   planWithDiagnostics 尾部携带 decorations 与 emphasisDotGapEm（null 取
@@ -899,21 +899,21 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   渲染证据。两条诊断路径 ffi 导出尾部加可空同形参数，JS 调用方省略尾参时
   行为不变。ParagraphWireFaceTest 六例、BrowserMetricsExportsTest 一例；
   golden 零差异。
-  进度（Slice 4b 第二批，2026-08-23）：caa289d。npm-core 新增
+  进度（Slice 4b 第二批，2026-08-23）：5ff3a99。npm-core 新增
   prepare-paragraph-layout.js：准备步骤直连移植，返回 unchanged、
   unsupported（命名能力事实）或 ready 三种裁决；wire 序列化器与
   worker-request.js 同值双写，两文件保持可嵌入；exact session 命名能力
   失败时整段改走 browser metrics，逐 run 回退不移植（沿 Slice 4a 记录）；
   maxWidthPx 取量化测度，ready.width 保留原始宽度。21 例单测含两条 ffi
   导出位置参数的字节锁。npm-core 327 例、ts-discipline 通过。
-  进度（Slice 4b 第三批，2026-08-23）：42bde2c。worker-request.js 新增
+  进度（Slice 4b 第三批，2026-08-23）：dae7929。worker-request.js 新增
   workerLayoutRequestForRoot：root 范围判定、shouldTryParagraph、
   allowsSnapshotExactLayout、withRootDefaults 之后经 markdown lowering 桥
   取 lowered，helpers 由 3c 的三个导出注入；lowering 抛错或 ok 不真返回
   null 且不读 issue（只有 processParagraph 报告 lowering 问题）；随后走
   既有 lowered 序列化。12 例单测；withRootDefaults 打桩在还原段恢复原
   方法。
-  进度（Slice 4b 第四批与 4c，2026-08-23）：d3285a9、65de4fc、9c3d85d。
+  进度（Slice 4b 第四批与 4c，2026-08-23）：f31638b、bd4e719、6496422。
   排版线 ParagraphWireFace 的 plan 与 planWithDiagnostics 以及三条 precompute
   ffi 导出尾部新增可空 renderEvidenceOverride：省略时沿用 wire 四集合判定，
   传入时取宿主判定（isCanonicalPlainParagraph 的六集合；sourceSpans 与
@@ -927,10 +927,10 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   Mismatch）；渲染包在 __tqCustodyEngineWrites 计数窗口内，planJson 直接取
   准备裁决（六集合判定已经由准备步骤传入，与 Kotlin 提交时再序列化的结果
   一致）。10 例单测；npm-core 338 例、ts-discipline 通过。
-  进度（Slice 4b 第五批与 4d-1，2026-08-23）：406d5f6、6f44c64。worker
+  进度（Slice 4b 第五批与 4d-1，2026-08-23）：aece337、a2caef8。worker
   请求 JSON 在 inlineObjects 之后携带 renderEvidence 六集合判定，layout
   worker 原样转发为 ffi 尾参（旧宿主缺字段时 undefined 落到可空参数为
-  null，wire 判定兜底，双向版本偏斜安全；仓库内 ffi 调试副本已随 65de4fc
+  null，wire 判定兜底，双向版本偏斜安全；仓库内 ffi 调试副本已随 bd4e719
   重建，npm-core canary 全量走新签名）。npm-core 新增 process-paragraph.js：
   processParagraph 与 layoutParagraph 分发的 TS 编排模块，按 Kotlin 89-264
   逐步移植——eligibility、样式捕获、降级（DomLoweringFailure 与
@@ -942,7 +942,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   helpers 以内联孪生进入模块（ESM 源不可 import）；issue 对象补 element
   与 reportToConsole 缺省（reportIssue 读这两个字段，等价 Kotlin
   CapabilityIssue 缺省）。12 例单测；npm-core 352 例、ts-discipline 通过。
-  进度（Slice 5a，2026-08-23）：3d8341c。process-paragraph 的三个内联元数据
+  进度（Slice 5a，2026-08-23）：f3e0874。process-paragraph 的三个内联元数据
   构建器与 escapeJson 移入 core/engine/prepared-metadata.js，成为各编排模块
   共用的单一 plain-script 模块，编排模块改为消费 __TiqianPreparedMetadata。
   新增 core/engine/progressive-relayout-session.js：WebEnhancer.kt 407-477
@@ -953,7 +953,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   的条件性 measure 重置与逐项 splice/上报、rollback 的列表还原、按插入序
   custody.rollback 与按 source 身份补 lastMeasure。12 例单测；npm-core 365 例、
   ts-discipline 通过。
-  进度（Slice 4d-2a，2026-08-23）：02b8aeb。build.gradle.kts 以
+  进度（Slice 4d-2a，2026-08-23）：eeebdb6。build.gradle.kts 以
   registerBridgeGenerator 再注册九座桥（lifecycle、worker-request、
   prepare-paragraph-layout、commit-prepared-paragraph、process-paragraph、
   canvas-fonts、canvas-metrics、canvas-shaping、browser-metrics-bridge），
@@ -962,7 +962,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   accessor；browserMetricsBridge 的安装闭包按 fonts、metrics、shaping、
   bridge 的依赖序装满四个 global。TiqianWebBridgeInstallTest 七例以 @JsFun
   探针断言安装产物。compileKotlinJs 与 jsBrowserTest（109 例）通过。
-  进度（Slice 4d-2b，2026-08-24）：7684ee3。宿主切换到 TS 编排模块。build
+  进度（Slice 4d-2b，2026-08-24）：6f5e031。宿主切换到 TS 编排模块。build
   gradle 再注册 prepared-metadata 与 progressive-relayout-session 两座桥并补
   api(project(":ffi:js"))。新增 WebEnhancerTsHost.kt 为互操作核心：ffi facade
   五成员以显式参量 lambda 包装 @JsExport（browserMetrics 被
@@ -991,8 +991,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   dash 能力非 conforming 时该 run 失败关闭（NoConformingCjkDashGlyph），
   段落保持原生，原 per-run 混排用例改写为记录此结果。
   jsBrowserTest 112/112 通过。
-  进度（Slice 4d-3，2026-08-24）：fa54213、fdd7c5f。删除随切换退役的
-  Kotlin 实现与对应 jsTest。实现部分（fa54213，-747 行）：
+  进度（Slice 4d-3，2026-08-24）：78adf6a、596c0a1。删除随切换退役的
+  Kotlin 实现与对应 jsTest。实现部分（78adf6a，-747 行）：
   WebEnhancerSupport.kt 删 ExactSessionBrowserFallback 两包装类、
   workerLayoutRequestJson 与三个 worker 记录分隔符、LoweredParagraph 的三个
   prepared 元数据 JSON 扩展、takePreparedWorkerLayoutPlan 与
@@ -1009,14 +1009,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   markdown-lowering.js 为唯一实现，markdownLoweringBridge 的全局安装与桥文件
   保留）；WebEnhancerParagraphLifecycle.kt 删 reportIssue、clearIssue 与
   restoreAttribute 三个成员（optionsFromJs 保留，EngineExport 仍消费）；
-  WebEnhancer.kt 删 CapabilityIssue data class。测试部分（fdd7c5f，-750 行）：
+  WebEnhancer.kt 删 CapabilityIssue data class。测试部分（596c0a1，-750 行）：
   先验证 npm 侧 exact-session（19 例）、renderer-output（10 例）、
   renderer-source-fidelity（10 例）与 timing-golden（1 例）四套件 40 例通过，
   再删 TiqianWebExactSessionTest.kt（20 个测试，规格已由上述 TS 套件覆盖）。
   compileKotlinJs 与 jsBrowserTest（92/92）通过。实现删除一路委托执行
   与（套件验证与测试删除）两路并行委托，diff 复核后补删规格
   范围外的零引用成员。
-  进度（Slice 5，2026-08-24）：6fd90cf、70f269a。npm-core 新增
+  进度（Slice 5，2026-08-24）：afb0fde、62be699。npm-core 新增
   core/engine/root-state.js（globalThis.__TiqianRootState：WeakMap 状态表与
   DetachedRootWeakOwnership、createRootState 自 bag 起点的解析链与快照
   准入门、createRootStateFromCanonical 供已解析选项再入、engineState 十字段
@@ -1047,7 +1047,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   零引用辅助簇。demo/web 基线同步复核：33/35 稳定通过，
   NpmPublishedVsDev 在下次 @tiqian/prose 发布前按设计保持失败，
   OneShotEquivalence 失败原因已另档记录（增量通道不刷新 dash 能力属性）。
-  进度（Slice 6，2026-08-24）：ffe44b4a、d56b8aaa、080451dd。npm-core 新增
+  进度（Slice 6，2026-08-24）：9f799c97、e8752ae4、65608fde。npm-core 新增
   core/engine/engine-entry.js（globalThis.__TiqianEngine：enhance 的
   bag/canonical 双入口与 destroy 先行序、enhanceAll 根扫描、destroy 的
   custody/issue/快照属性收尾、detach 的 DetachedRootWeakOwnership 最小面、
@@ -1098,7 +1098,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   bundle 内无人再装该 global），并核实「npm 246/246 旧 bundle 回归验证」的汇报不成立：其运行时间先于 engine-entry.js 产生，
   InvalidFontSize 等期望滞后项与 bundle 无关，4d-2b 之后的任何时间点都
   不应全部通过。
-  进度（Slice 7，2026-08-24）：fcbda548、bcc1402f、341be9d3。npm-core 新增
+  进度（Slice 7，2026-08-24）：73449b70、2aafd7f1、6cccf7e9。npm-core 新增
   core/engine/loaders/ts-runtime.js 与 ts-runtime.test.mjs：ts-runtime 按
   build.gradle.kts bridge 次序以副作用 import 安装全部 21 个引擎脚本，从
   @tiqian/ffi 直接引用五个函数组成 facade，经 __TiqianRootState.bindFfi
@@ -1146,7 +1146,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
-  进度（2026-08-23）：7d9a9d5。tools/ts-discipline 私有工具目录（eslint 10.9.0、
+  进度（2026-08-23）：f8a5f3b。tools/ts-discipline 私有工具目录（eslint 10.9.0、
   typescript-eslint 8.67.0，精确版本）持 flat config：no-explicit-any、
   no-restricted-types（object/Object/{} 各给替代写法）与 no-restricted-syntax
   （TSAsExpression 双重断言）三条全部 error，lint 对象为三包的非生成 js/mjs/d.ts。
@@ -1164,7 +1164,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   Rust 侧语料测试原已随 rust job 的 cargo test 运行；新 job 从 js oracle 再生
   fixture 并以 git diff --exit-code 拒绝漂移（expect 只能由 builder 产出），
   再经 js 语料测试回放同一字节。两条命令在仓库根目录验证通过。
-  进度（双实现修正，2026-08-23）：1ab9b7f。FloatDustSpacingZeroing：两端
+  进度（双实现修正，2026-08-23）：6ff37b4。FloatDustSpacingZeroing：两端
   prepared 实现把 run 路径两处间距归零判定的阈值从 SPACING_EPSILON(0.01)
   改为 SPACING_DUST_EPSILON(1e-6)，归零范围只覆盖浮点运算误差；两端对齐行
   在逐边界留有千分之几像素的伸展，0.01 的归零丢弃后累计 0.1342px，触发
@@ -1172,7 +1172,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   float-dust-gap 两例（共 43 例），Rust 侧输出逐字节一致；demo/web 的
   host-content-mutation、justify-grid、responsive-relayout、viewport-unfreeze
   与 drag 覆盖 36/36 因此恢复通过。
-  进度（运行时类名寻址，2026-08-23）：14f494e。runtimeValueStyleKey 把
+  进度（运行时类名寻址，2026-08-23）：ba01d04。runtimeValueStyleKey 把
   tqvr- 类名从逐 root 递增序号改为声明文本的 FNV-1a 内容寻址（双累加器），
   单次重放在任意宽度与历史下逐字节重现协调 DOM；快照 tqv- 命名空间不变
   （Rust 侧只生成 tqv-）。
@@ -1205,7 +1205,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   全绿：npm-core 419、prose 245、eslint 零错误、类型名唯一、
   package-topology、astro 集成 fixture 10 例、gradle build（本机
   Skiko 原生库缺失使 :shaping:skia:jvmTest 环境性失败，经 HEAD worktree
-  强制重跑证实与转换无关）。提交区间 1b08d188..e55bdb80（26 个提交，
+  强制重跑证实与转换无关）。提交区间 8cbc0820..32c3647e（26 个提交，
   按 14 波转换与集成、ffi 面孔、prose P1/P2、lint 禁令与 CI 构建步骤
   分批）。
   .test.mjs 测试与

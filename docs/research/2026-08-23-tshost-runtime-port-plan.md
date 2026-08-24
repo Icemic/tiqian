@@ -119,7 +119,7 @@ Slice 7: jsMain 源码清除、桥生成器移除与构建配置收敛
 
 1. **3a 元数据构建器**：`preparedSemanticReplayJson` 等三个函数进
    `lowered-paragraph.js`（ES module，消费者是宿主安装的 prepared 渲染桥，终点形态
-   不经 Kotlin 运行时）。已提交 d187ad9。
+   不经 Kotlin 运行时）。已提交 b8bc5d9。
 2. **3b 请求序列化**：`workerLayoutRequestJson` 与第二重载
    `workerLayoutRequest(paragraph, lowered, options)` 进
    `core/engine/worker-request.js`（普通脚本安装 `globalThis.__TiqianWorkerRequest`，
@@ -226,7 +226,7 @@ Slice 4 按依赖拆四个子片（2026-08-23 决定）：
 
 当前仍保留在 `src/jsTest/kotlin/` 中的 4 个测试文件（共 102 个测试函数）与已有的 TypeScript 测试套件对照如下：
 
-`docs/ts-port-assertion-checklist.md` 冻结于 92eca33，当时 4 个文件共 100 个测试函数、689 条断言。此后四个提交移动了计数：9524fda、7fa9f20、5de923a 向 `TiqianWebExactSessionTest.kt` 净增 3 个测试（语义段落经运行时 prepared 路径回放、inline object 经 worker 与浏览器两条路径回放、带 CJK strong metadata 的装饰段落准入）；a9b6a6c 把该文件的 prepared 几何不一致测试重写为常驻校验失败与浏览器度量重试两个测试，并删除 `TiqianWebProgressiveRelayoutTest.kt` 的 2 个多字符 run 间隙测试（对应规格 `rendererOutput_negativeGapResolvesToOverlapCarrier` 与 `rendererOutput_positiveGapUsesSelectableZeroHeightCarrier` 已在 `npm/renderer-output.test.mjs`）。下表主题行的测试数与断言数沿用 checklist 冻结值；删除文件前以文件内 `@Test` 实数为准。
+`docs/ts-port-assertion-checklist.md` 冻结于 158db36，当时 4 个文件共 100 个测试函数、689 条断言。此后四个提交移动了计数：9bd7105、f6049f1、0835074 向 `TiqianWebExactSessionTest.kt` 净增 3 个测试（语义段落经运行时 prepared 路径回放、inline object 经 worker 与浏览器两条路径回放、带 CJK strong metadata 的装饰段落准入）；5c76cf6 把该文件的 prepared 几何不一致测试重写为常驻校验失败与浏览器度量重试两个测试，并删除 `TiqianWebProgressiveRelayoutTest.kt` 的 2 个多字符 run 间隙测试（对应规格 `rendererOutput_negativeGapResolvesToOverlapCarrier` 与 `rendererOutput_positiveGapUsesSelectableZeroHeightCarrier` 已在 `npm/renderer-output.test.mjs`）。下表主题行的测试数与断言数沿用 checklist 冻结值；删除文件前以文件内 `@Test` 实数为准。
 
 | 行为主题 | jsTest 来源文件与测试数 | 断言数 | TS 验收测试套件文件 | 覆盖状态与移植要求 |
 |---|---|---|---|---|
