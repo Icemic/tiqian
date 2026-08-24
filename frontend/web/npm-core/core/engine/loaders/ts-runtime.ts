@@ -34,8 +34,9 @@ import {
   precomputeParagraphWithDiagnostics,
   precomputeParagraphWithBrowserMetrics,
 } from "@tiqian/ffi";
+import type { EngineFfiFacade } from "../ffi-face.js";
 
-const tsFfiFacade = {
+const tsFfiFacade: EngineFfiFacade = {
   classifyFontRole,
   unsupportedInlineShapingProperties,
   firstDivergentInlineShapingProperty,
@@ -43,6 +44,6 @@ const tsFfiFacade = {
   precomputeParagraphWithBrowserMetrics,
 };
 
-globalThis.__TiqianRootState.bindFfi(tsFfiFacade);
+globalThis.__TiqianRootState!.bindFfi(tsFfiFacade);
 
 export { tsFfiFacade };
