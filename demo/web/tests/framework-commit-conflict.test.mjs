@@ -33,6 +33,7 @@ import { compile } from "svelte/compiler";
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const npmDir = join(repoRoot, "frontend/web/npm");
+const npmCoreDir = join(repoRoot, "frontend/web/npm-core");
 const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
 const nodeModules = join(webDemoDir, "node_modules");
 
@@ -376,9 +377,9 @@ function startFixtureServer(svelteComponents) {
       const data = await readFile(file).catch(() => null);
       if (data) {
         // Module workers do not see the document import map, so the dev-tree
-        // layout worker gets its bare "@tiqian/ffi" import rewritten to the
-        // absolute /npm-ffi/ URL served below.
-        if (file === join(npmDir, "layout-worker.js")) {
+        // layout worker in npm-core gets its bare "@tiqian/ffi" import
+        // rewritten to the absolute /npm-ffi/ URL served below.
+        if (file === join(npmCoreDir, "layout-worker.js")) {
           const source = data.toString("utf8");
           const occurrences = source.split('from "@tiqian/ffi"').length - 1;
           assert.ok(occurrences <= 1, `unexpected engine import count ${occurrences}`);
@@ -411,6 +412,7 @@ function startFixtureServer(svelteComponents) {
   "imports": {
     "@tiqian/prose/element": "/npm/element.js",
     "@tiqian/prose/": "/npm/",
+    "@tiqian/prose-core/": "/npm-core/",
     "svelte": "/svelte/src/index-client.js",
     "svelte/internal/client": "/svelte/src/internal/client/index.js",
     "svelte/internal/disclose-version": "/svelte/src/internal/disclose-version.js",
@@ -480,6 +482,12 @@ function startFixtureServer(svelteComponents) {
         const rest = path.slice("/npm/".length);
         const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmDir, rest), type);
+        return;
+      }
+      if (path.startsWith("/npm-core/")) {
+        const rest = path.slice("/npm-core/".length);
+        const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
+        await sendFile(join(npmCoreDir, rest), type);
         return;
       }
       res.statusCode = 404;

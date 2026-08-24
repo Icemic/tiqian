@@ -212,9 +212,11 @@ function compareScreenshots(a, b) {
 }
 
 // Serves the demo page with an import map so main.js's bare specifier
-// "@tiqian/prose/element" resolves to the chosen package directory. The
-// stylesheet link "../../frontend/web/npm/styles.css" resolves from the page
-// root to the same directory, so published CSS pairs with published JS.
+// "@tiqian/prose/element" resolves to the chosen package directory. The dev
+// side also maps "@tiqian/prose-core/" to the npm-core working tree, from
+// which the dev layout worker loads. The stylesheet link
+// "../../frontend/web/npm/styles.css" resolves from the page root to the same
+// directory, so published CSS pairs with published JS.
 function startDemoServer(port, pkgDir) {
   const notFound = [];
   const server = createServer(async (req, res) => {
@@ -223,7 +225,7 @@ function startDemoServer(port, pkgDir) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js","@tiqian/prose-core/":"/frontend/web/npm-core/"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
@@ -236,19 +238,23 @@ function startDemoServer(port, pkgDir) {
         if (path.endsWith(".css")) type = "text/css";
       } else if (path.startsWith("/ffi/")) {
         // Module workers do not see the document import map, so the dev-tree
-        // layout worker gets its bare "@tiqian/ffi" import rewritten below to
-        // this absolute URL. The published side predates the dependency and
-        // keeps its relative precompute-runtime import.
+        // layout worker in npm-core gets its bare "@tiqian/ffi" import
+        // rewritten below to this absolute URL. The published side predates
+        // the dependency and keeps its relative precompute-runtime import.
         const rest = path.slice("/ffi/".length);
         file = join(ffiRuntimeDir, rest);
       } else if (path.startsWith("/frontend/web/npm/")) {
         const rest = path.slice("/frontend/web/npm/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
+      } else if (path.startsWith("/frontend/web/npm-core/")) {
+        const rest = path.slice("/frontend/web/npm-core/".length);
+        file = join(repoRoot, "frontend/web/npm-core", rest);
+        if (rest.endsWith(".css")) type = "text/css";
       }
       const data = file ? await readFile(file).catch(() => null) : null;
       if (data) {
-        if (path === "/frontend/web/npm/layout-worker.js") {
+        if (path === "/frontend/web/npm-core/layout-worker.js") {
           const source = data.toString("utf8");
           const occurrences = source.split('from "@tiqian/ffi"').length - 1;
           if (occurrences > 1) throw new Error(`unexpected engine import count ${occurrences}`);
