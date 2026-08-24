@@ -1,7 +1,9 @@
-let stylesheetPromise;
-let stylesheetElement;
+let stylesheetPromise: Promise<HTMLLinkElement> | undefined;
+let stylesheetElement: HTMLLinkElement | undefined;
 
-export function ensureTiqianStyles(root = null) {
+export function ensureTiqianStyles(
+  root: Element | null = null,
+): Promise<HTMLLinkElement | null> {
   // StaticStylesheetFastPath: bundlers can include the public CSS entry in the
   // server-rendered head. In that case its readiness marker is already in the
   // cascade and injecting a duplicate runtime <link> would only delay takeover.
@@ -9,7 +11,9 @@ export function ensureTiqianStyles(root = null) {
     root && typeof getComputedStyle === "function" &&
     getComputedStyle(root).getPropertyValue("--tq-styles-ready").trim() === "1"
   ) return Promise.resolve(null);
-  const existing = document.querySelector("link[data-tiqian-stylesheet]");
+  const existing = document.querySelector<HTMLLinkElement>(
+    "link[data-tiqian-stylesheet]",
+  );
   if (existing?.sheet) {
     stylesheetElement = existing;
     return Promise.resolve(existing);
@@ -27,7 +31,7 @@ export function ensureTiqianStyles(root = null) {
     link.dataset.tiqianStylesheet = "true";
   }
   stylesheetElement = link;
-  stylesheetPromise = new Promise((resolve, reject) => {
+  stylesheetPromise = new Promise<HTMLLinkElement>((resolve, reject) => {
     link.addEventListener("load", () => resolve(link), { once: true });
     link.addEventListener(
       "error",
@@ -35,7 +39,7 @@ export function ensureTiqianStyles(root = null) {
       { once: true },
     );
     if (!existing) document.head.append(link);
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     if (stylesheetElement === link) {
       stylesheetElement = undefined;
       stylesheetPromise = undefined;

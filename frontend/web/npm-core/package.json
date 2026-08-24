@@ -30,8 +30,11 @@
   },
   "scripts": {
     "link:ffi": "node ./link-ffi.mjs",
+    "build": "tsc",
+    "pretest": "npm run build",
     "test": "node --test *.test.mjs core/engine/web-worker/*.test.mjs",
-    "verify:package": "node ./verify-package.mjs"
+    "verify:package": "node ./verify-package.mjs",
+    "preverify:package": "npm run build"
   },
   "files": [
     "LICENSE",
@@ -144,5 +147,8 @@
   },
   "dependencies": {
     "@tiqian/ffi": "0.1.0-alpha.1"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

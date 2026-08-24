@@ -7,12 +7,19 @@
 const CJK_DASH_SOURCE = "——";
 const TWO_EM_DASH = "⸺";
 
-export function needsCjkDashShaping(root) {
+interface TextBearingRoot {
+  textContent: string | null;
+}
+
+export function needsCjkDashShaping(root: TextBearingRoot | null | undefined): boolean {
   const text = root?.textContent ?? "";
   return text.includes(CJK_DASH_SOURCE) || text.includes(TWO_EM_DASH);
 }
 
-export function prepareCjkDashShapingIfNeeded(root, options = {}) {
+export function prepareCjkDashShapingIfNeeded(
+  root: TextBearingRoot | null | undefined,
+  options: { exactFontSession?: unknown } = {},
+) {
   if (!needsCjkDashShaping(root)) return Promise.resolve({ status: "not-needed" });
   return Promise.resolve({
     status: "unavailable",

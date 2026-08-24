@@ -30,12 +30,14 @@ const patterns = [
   ...targetPackages.flatMap((pkg) => [
     path.join(repoRoot, pkg, "**/*.js"),
     path.join(repoRoot, pkg, "**/*.mjs"),
+    path.join(repoRoot, pkg, "**/*.ts"),
     path.join(repoRoot, pkg, "**/*.d.ts"),
     path.join(repoRoot, pkg, "*.d.ts"),
   ]),
   ...targetPackages.flatMap((pkg) => [
     `${pkg}/**/*.js`,
     `${pkg}/**/*.mjs`,
+    `${pkg}/**/*.ts`,
     `${pkg}/**/*.d.ts`,
     `${pkg}/*.d.ts`,
   ]),

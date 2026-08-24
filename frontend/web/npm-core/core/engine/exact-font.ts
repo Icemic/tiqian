@@ -5,6 +5,28 @@
 // per-root WeakMap registry superseded by generation. Currency predicates
 // stay with the callers; entry construction and release live here.
 
+// Loader operations carry the browser font session implementation; their
+// precise signatures arrive with the browser-fonts conversion wave.
+type BrowserFontSessionOperation = (...args: unknown[]) => unknown;
+
+export interface ExactFontLoader {
+  revalidateBrowserFontSession: BrowserFontSessionOperation;
+  prepareBrowserRenderFonts: BrowserFontSessionOperation;
+  releaseBrowserFontSession: BrowserFontSessionOperation;
+  installPreparedRenderFontStyle: BrowserFontSessionOperation;
+  releasePreparedRenderFontStyle: BrowserFontSessionOperation;
+}
+
+export interface ExactFontSessionEntry {
+  reference: unknown;
+  handle: unknown;
+  revalidate: BrowserFontSessionOperation;
+  prepareRenderFont: BrowserFontSessionOperation;
+  release: BrowserFontSessionOperation;
+  installRenderFont: BrowserFontSessionOperation;
+  releaseRenderFont: BrowserFontSessionOperation;
+}
+
 const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
   "fontSize",
   "lineHeight",
@@ -13,9 +35,13 @@ const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
   "monospaceFontFamily",
   "cjkSerifFontFamily",
   "latinSerifFontFamily",
-];
+] as const;
 
-export function createExactFontSessionEntry(reference, handle, loader) {
+export function createExactFontSessionEntry(
+  reference: unknown,
+  handle: unknown,
+  loader: ExactFontLoader,
+): ExactFontSessionEntry {
   return {
     reference,
     handle,
@@ -27,12 +53,14 @@ export function createExactFontSessionEntry(reference, handle, loader) {
   };
 }
 
-export function releaseExactFontSession(entry, root) {
+export function releaseExactFontSession(entry: ExactFontSessionEntry, root: unknown): unknown {
   entry.releaseRenderFont(root);
   return entry.release(entry.handle);
 }
 
-export function hasSnapshotLayoutOverride(options) {
+export function hasSnapshotLayoutOverride(
+  options: Record<string, unknown> | null | undefined,
+): boolean {
   if (!options || typeof options !== "object") return false;
   if (SNAPSHOT_LAYOUT_OVERRIDE_KEYS.some((key) => options[key] != null)) return true;
   return options.firstLineIndentIc != null && Number(options.firstLineIndentIc) !== 0;

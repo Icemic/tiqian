@@ -27,7 +27,8 @@
 // names, never repo-relative paths.
 //
 // The scanned source set mirrors tools/ts-discipline/eslint.config.mjs so both
-// checks share one scope definition: **/*.js, **/*.mjs and **/*.d.ts under the
+// checks share one scope definition: **/*.js, **/*.mjs, **/*.ts and **/*.d.ts
+// under the
 // three package directories, ignoring node_modules/, runtime/, build/,
 // .gradle/, .b2-tmp/, target/ and demo/, plus the task-level exclusions
 // *.test.mjs and lock files (lock files are never matched anyway because only
@@ -93,7 +94,8 @@ function isScannedSourceFile(fileName) {
   return (
     fileName.endsWith(".d.ts") ||
     fileName.endsWith(".js") ||
-    fileName.endsWith(".mjs")
+    fileName.endsWith(".mjs") ||
+    fileName.endsWith(".ts")
   );
 }
 

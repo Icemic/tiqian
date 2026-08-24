@@ -32,17 +32,21 @@
 ### 3.1 编译策略：就地 emit
 
 - 源文件 `.js` 改名 `.ts`，逐文件补类型；tsc 就地输出同名 `.js` 与
-  `.d.ts`。两包 package.json 的 exports/files 路径全部不变（指向的 `.js`
-  从手写变为编译产物）。
+  `.d.ts`（不设 outDir，默认写回源旁）。两包 package.json 的 exports/files
+  路径全部不变（指向的 `.js` 从手写变为编译产物）。
 - import 说明符保持 `.js` 后缀（`moduleResolution: nodenext`）：emit 产物、
   浏览器 raw 服务、符号链接农场、demo fixture 全部零路径改动。测试与工具
   若直接引 `.ts`，说明符用 `.ts`（仅限 Node type stripping 路径）。
+- `allowJs` 全程 `false`。实测证据（scratch 探针）：`allowJs: true` 时 tsc
+  会把被 import 的手写 `.js` 一并重发（TS5055 覆盖输入报错，且先落了
+  伴生 `.d.ts`）。叶先序批次保证任何 `.ts` 只 import 已转换的 `.ts`，
+  未转换依赖触发 TS7016，编译器因此成为批次纪律的执行者；环成员同批转换。
 - 语法约束：只允许可擦除语法（标注、interface、type、`satisfies`）；禁
   enum、namespace、参数属性（Node stripping 与 emit 双路径兼容）。tsconfig
   `strict: true`，`erasableSyntaxOnly: true`。
 - 产物 `.js`/`.d.ts` 与源同名共存：`.gitignore` 按目录规则忽略编译产物
   （有 `.ts` 处的 `.js` 视为产物），KPI 检查以「包内是否存在无 `.ts` 兄弟的
-  手写 `.js`」为准。发布包含 `.js` 与 `.d.ts`；`.ts` 是否随包发布在第一波
+  手写 `.js`」为准。发布包含 `.js` 与 `.d.ts`；`.ts` 是否随包发布在第一批
   定案（默认随包发布，便于消费端调试）。
 - 构建接线：两包各加 `build`（tsc）脚本；`npm test` 的 `pretest` 先构建；
   `@tiqian/prose` 依赖 prose-core 经链接农场的产物与 `.d.ts` 做类型检查，
@@ -60,20 +64,20 @@
 - verify-package / prepare-release：必备文件清单从手写 `.js` 改为 emit
   产物存在性检查。
 
-### 3.3 波次（叶先序，每波一次提交）
+### 3.3 批次（叶先序，每批一次提交）
 
-按依赖图叶先序推进，每波 8 到 12 文件，按目录簇对齐不拆簇；每波验收：
+按依赖图叶先序推进，每批 8 到 12 文件，按目录簇对齐不拆簇；每批验收：
 tsc 零错误、两包 npm 测试维持基线（prose-core 419、prose 245）、
-ts-discipline 与 topology 检查通过、受影响 demo 子集通过。全量波次完成后跑
-demo/web 全套与 sveltekit/astro 集成。预计 7 到 8 波（prose 的 6 文件含
-element.js 2351 行，最后两波处理）。
+ts-discipline 与 topology 检查通过、受影响 demo 子集通过。全量批次完成后跑
+demo/web 全套与 sveltekit/astro 集成。预计 7 到 8 批（prose 的 6 文件含
+element.js 2351 行，最后两批处理）。
 
 ### 3.4 不变式
 
 - 行为逐字节等价：emit 产物与原 `.js` 在测试面等价（golden、时序 golden、
   corpus 不动）。
-- 每波只做「改名、补类型、修 import 说明符」；发现设计问题登记到 G2 待办，
-  不在 G1 波内顺手重构。
+- 每批只做「改名、补类型、修 import 说明符」；发现设计问题登记到 G2 待办，
+  不在 G1 批内顺手重构。
 
 ## 4. G2 方案要点
 
@@ -82,16 +86,16 @@ element.js 2351 行，最后两波处理）。
   显式参数或模块单例注入；组件实例状态（当前存全局闭包）收回实例字段。
 - 测试读取内部数据的机制另行设计：测试改为经公开导出或专用 test hook
   模块读取，替代直接读 `__Tiqian*`。
-- 波次按「叶模块导出化 → 调度与驱动 → element.js 与 root-state → 测试机制
+- 批次按「叶模块导出化 → 调度与驱动 → element.js 与 root-state → 测试机制
   切换」推进；`engineApi()/workerApi()` 的全局解析在此阶段删除，
   runtime-loader 只保留安装与访问语义。
-- 每波验收同 G1，另加 demo/web 全套（custody 与 framework-commit 路径对
+- 每批验收同 G1，另加 demo/web 全套（custody 与 framework-commit 路径对
   全局消除最敏感）。
 
 ## 5. G3 方案
 
 只读审计进行中（外部委托，报告 `.b2-tmp/g3-audit-report.md`）。处置按审计
-结论分批：混入的 web 宿主逻辑收回 `frontend/web/npm-core`（作为 G1 波次之一
+结论分批：混入的 web 宿主逻辑收回 `frontend/web/npm-core`（作为 G1 批次之一
 或独立小批）；Rust FFI 与 JS FFI 导出面平行性分歧逐符号处置；
 HarfBuzzBuildBackend 两个 typealias 按消费点结论保留或内联删除。
 
@@ -101,6 +105,6 @@ HarfBuzzBuildBackend 两个 typealias 按消费点结论保留或内联删除。
   兄弟的 `.js` 为零）兜底，CI 检查。
 - 浏览器 fixture 依赖 `pretest` 产物在场：CI 与本地流程在 demo 前先跑
   两包 build；fixture 的存在性门与 `files` 断言同步。
-- element.js 与 precomputed.js 体量大：拆波处理，各自独立提交，golden 与
+- element.js 与 precomputed.js 体量大：拆批处理，各自独立提交，golden 与
   demo 全套验收。
-- 每波独立提交，回退以波为单位。
+- 每批独立提交，回退以批为单位。
