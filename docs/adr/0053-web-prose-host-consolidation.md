@@ -869,6 +869,27 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   document；canvas-fonts.test.mjs 与 canvas-metrics.test.mjs 共 27 例。
   npm-core 276 例、ts-discipline 通过。canvas shaper 移植与 ffi
   browser-metrics 导出随后分片进行。
+  进度（Slice 4a 第二批，2026-08-23）：3a596fb。npm-core 新增
+  core/engine/canvas-shaping.js：WebCanvasTextShaper 的 TS 移植，含共享 LRU
+  度量缓存（命中重插、超 2048 逐出最旧）、字体加载失效、dash 能力策略、
+  ellipsis 显示替换判定、hidden-DOM 回退与栅格化 ink bounds，全部经注入的
+  env 取 DOM 与 canvas。canvas-shaping.test.mjs 13 例；npm-core 289 例、
+  ts-discipline 通过。
+  进度（Slice 4a 第三批，2026-08-23）：2bed9f1。ffi/js 新增 BrowserMetricsExports：
+  JsCallbackTextShaper 与 JsCallbackFontMetricsResolver 经两个 JSON 回调承接
+  shaping 与字体度量，ShapingInput 与 FontMetricsRequest 的序列化字段序固定；
+  解析侧按字段族区分 null 语义（advance 族 null 还原 NaN，偏移族 null 取 0），
+  FontMetricSource 按名解析、未知值抛出。@JsExport
+  precomputeParagraphWithBrowserMetrics（十六参加 epsilon 加两回调）走
+  planWithDiagnostics。BrowserMetricsExportsTest 八例含回调回显与直连
+  字节相等；导出面清单同步到七项。
+  进度（Slice 4a 第四批，2026-08-23）：71a31b6。npm-core 新增
+  core/engine/browser-metrics-bridge.js：__TiqianBrowserMetricsBridge 把
+  canvas shaper 与 metrics resolver 适配为 precomputeParagraphWithBrowserMetrics
+  的两个 JSON 回调，唯一字段映射是 candidateKey 到 candidate.key，NaN 由
+  JSON.stringify 的 null 表示承载。browser-metrics-bridge.test.mjs 六例：两组
+  请求字节锁、端到端 plan、与 scripted canvas-model 后端全量比对、dash 能力
+  透传。npm-core 295 例、ts-discipline 通过。Slice 4a 完成。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
