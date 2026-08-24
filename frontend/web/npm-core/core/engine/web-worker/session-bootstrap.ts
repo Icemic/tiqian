@@ -1,8 +1,12 @@
 import { createServerReplayFontSession } from "../../../browser-font-replay.js";
+import type { ServerReplayFontSession } from "../../../browser-font-replay.js";
 import { createOffscreenCanvasMeasureAdapter } from "../../../replay-probe.js";
+import type { ProbeMeasure } from "../../../replay-probe.js";
 import { parseSnapshotManifest } from "../../../snapshot-manifest.js";
+import type { SnapshotManifestFace } from "../../../snapshot-manifest.js";
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
 import { snapshotTablesFromBytes } from "../../../snapshot-tables.js";
+import type { SnapshotTableBinaryView } from "../../../snapshot-table-binary.js";
 
 /**
  * Worker session bootstrap (ADR 0053 A5c).
@@ -15,10 +19,18 @@ import { snapshotTablesFromBytes } from "../../../snapshot-tables.js";
  * bytes are required up front.
  */
 
-export function createManifestFontSession(manifestText, tablesBytes, sessionKey) {
+export interface ProbeBootstrapOptions {
+  measureAdapter?: ProbeMeasure | null;
+}
+
+export function createManifestFontSession(
+  manifestText: string,
+  tablesBytes: Uint8Array | null | undefined,
+  sessionKey: string,
+): Promise<ServerReplayFontSession> {
   // The coordinator verified the table bytes against the manifest pin before
   // handing them over; decoding revalidates the shape for the worker context.
-  const tables = tablesBytes instanceof Uint8Array && tablesBytes.length > 0
+  const tables: SnapshotTableBinaryView | null = tablesBytes instanceof Uint8Array && tablesBytes.length > 0
     ? snapshotTablesFromBytes(tablesBytes)
     : null;
   const manifest = parseSnapshotManifest(manifestText, tables);
@@ -27,8 +39,8 @@ export function createManifestFontSession(manifestText, tablesBytes, sessionKey)
   if (evidence.length === 0 || !manifest.fontReplay) {
     throw new Error("LayoutWorkerFontContractInvalid");
   }
-  const faces = [];
-  const seen = new Set();
+  const faces: SnapshotManifestFace[] = [];
+  const seen: Set<string> = new Set();
   for (const face of evidence) {
     const key = JSON.stringify([
       face.sfntSha256,
@@ -57,7 +69,10 @@ export function createManifestFontSession(manifestText, tablesBytes, sessionKey)
   );
 }
 
-export function createProbeBootstrapFontSession(sessionKey, options = {}) {
+export function createProbeBootstrapFontSession(
+  sessionKey: string,
+  options: ProbeBootstrapOptions = {},
+): Promise<ServerReplayFontSession> {
   const adapter = options.measureAdapter === undefined
     ? createOffscreenCanvasMeasureAdapter()
     : options.measureAdapter;
@@ -72,3 +87,4 @@ export function createProbeBootstrapFontSession(sessionKey, options = {}) {
     probe: { measure: adapter },
   });
 }
+
