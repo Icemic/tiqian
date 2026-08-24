@@ -4,22 +4,29 @@
 // to the engine font policy (font module CjkDashCapabilityPolicy); this host
 // only produces the status/detail evidence envelope.
 
-const CJK_DASH_SOURCE = "——";
-const TWO_EM_DASH = "⸺";
-
 interface TextBearingRoot {
   textContent: string | null;
 }
+
+interface CjkDashPrepareOptions {
+  exactFontSession?: unknown;
+}
+
+const CJK_DASH_SOURCE = "——";
+const TWO_EM_DASH = "⸺";
 
 export function needsCjkDashShaping(root: TextBearingRoot | null | undefined): boolean {
   const text = root?.textContent ?? "";
   return text.includes(CJK_DASH_SOURCE) || text.includes(TWO_EM_DASH);
 }
 
-export function prepareCjkDashShapingIfNeeded(
-  root: TextBearingRoot | null | undefined,
-  options: { exactFontSession?: unknown } = {},
-) {
+/** Outcome envelope of the dash shaping gate; detail names the reason. */
+export interface CjkDashShapingOutcome {
+  status: string;
+  detail?: string;
+}
+
+export function prepareCjkDashShapingIfNeeded(root: TextBearingRoot | null | undefined, options: CjkDashPrepareOptions = {}): Promise<CjkDashShapingOutcome> {
   if (!needsCjkDashShaping(root)) return Promise.resolve({ status: "not-needed" });
   return Promise.resolve({
     status: "unavailable",

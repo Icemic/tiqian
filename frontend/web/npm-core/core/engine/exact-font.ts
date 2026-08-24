@@ -5,26 +5,41 @@
 // per-root WeakMap registry superseded by generation. Currency predicates
 // stay with the callers; entry construction and release live here.
 
+import type {
+  BrowserFontSessionHandle,
+  BrowserFontSessionReleaser,
+  BrowserFontSessionRevalidator,
+  BrowserRenderFontPreparer,
+} from "../measurement/browser-fonts.js";
+
+export type PreparedRenderFontStyleInstaller = (root: Element, renderFontFamilies: string[]) => boolean;
+export type PreparedRenderFontStyleReleaser = (root: Element) => boolean;
+
 // Loader operations carry the browser font session implementation; their
 // precise signatures arrive with the browser-fonts conversion wave.
-type BrowserFontSessionOperation = (...args: unknown[]) => unknown;
+type BrowserFontSessionOperation =
+  | BrowserFontSessionRevalidator
+  | BrowserRenderFontPreparer
+  | BrowserFontSessionReleaser
+  | PreparedRenderFontStyleInstaller
+  | PreparedRenderFontStyleReleaser;
 
 export interface ExactFontLoader {
-  revalidateBrowserFontSession: BrowserFontSessionOperation;
-  prepareBrowserRenderFonts: BrowserFontSessionOperation;
-  releaseBrowserFontSession: BrowserFontSessionOperation;
-  installPreparedRenderFontStyle: BrowserFontSessionOperation;
-  releasePreparedRenderFontStyle: BrowserFontSessionOperation;
+  revalidateBrowserFontSession: BrowserFontSessionRevalidator;
+  prepareBrowserRenderFonts: BrowserRenderFontPreparer;
+  releaseBrowserFontSession: BrowserFontSessionReleaser;
+  installPreparedRenderFontStyle: PreparedRenderFontStyleInstaller;
+  releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
 export interface ExactFontSessionEntry {
-  reference: unknown;
-  handle: unknown;
-  revalidate: BrowserFontSessionOperation;
-  prepareRenderFont: BrowserFontSessionOperation;
-  release: BrowserFontSessionOperation;
-  installRenderFont: BrowserFontSessionOperation;
-  releaseRenderFont: BrowserFontSessionOperation;
+  reference: string | null;
+  handle: BrowserFontSessionHandle;
+  revalidate: BrowserFontSessionRevalidator;
+  prepareRenderFont: BrowserRenderFontPreparer;
+  release: BrowserFontSessionReleaser;
+  installRenderFont: PreparedRenderFontStyleInstaller;
+  releaseRenderFont: PreparedRenderFontStyleReleaser;
 }
 
 const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
@@ -37,11 +52,7 @@ const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
   "latinSerifFontFamily",
 ] as const;
 
-export function createExactFontSessionEntry(
-  reference: unknown,
-  handle: unknown,
-  loader: ExactFontLoader,
-): ExactFontSessionEntry {
+export function createExactFontSessionEntry(reference: string | null, handle: BrowserFontSessionHandle, loader: ExactFontLoader): ExactFontSessionEntry {
   return {
     reference,
     handle,
@@ -53,14 +64,12 @@ export function createExactFontSessionEntry(
   };
 }
 
-export function releaseExactFontSession(entry: ExactFontSessionEntry, root: unknown): unknown {
+export function releaseExactFontSession(entry: ExactFontSessionEntry, root: HTMLElement): boolean {
   entry.releaseRenderFont(root);
   return entry.release(entry.handle);
 }
 
-export function hasSnapshotLayoutOverride(
-  options: Record<string, unknown> | null | undefined,
-): boolean {
+export function hasSnapshotLayoutOverride(options: Record<string, unknown> | null | undefined): boolean {
   if (!options || typeof options !== "object") return false;
   if (SNAPSHOT_LAYOUT_OVERRIDE_KEYS.some((key) => options[key] != null)) return true;
   return options.firstLineIndentIc != null && Number(options.firstLineIndentIc) !== 0;
