@@ -46,7 +46,7 @@ WORDS = [
     "互不推导", "三面", "三段式", "会话级", "进程级", "字节级", "内容级",
     "全 0",
     # coined technical-sounding words replaced by plain statements
-    "失配", "真源", "转出口", "合批", "同批", "执行位", "线格式", "零违例",
+    "失配", "真源", "转出口", "合批", "同批", "执行位", "线格式", "零违例", "违例",
     # colloquial shorthand
     "毛躁", "全绿", "全红", "锁相", "塞进", "收进", "测试绿", "测试红",
     # decorative adjectives and vague quantifiers: judge each line by context
