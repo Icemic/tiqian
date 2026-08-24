@@ -227,7 +227,7 @@ JS 版与 Rust 移植版并存是明确决定：渲染位于原生并行循环�
 3. 双侧调度协议有独立测试：紧急批晚于后台批发送、先于其完成（优先级反转用例）；generation 不符的请求在 Worker 段间丢弃；在途窗口随 deadline 命中与超时扩缩；打包二进制请求与规格派生编码 roundtrip 一致。
 4. TS 宿主重写以现 jsTest 套件为验收规格：同名行为断言逐项移植并通过后才删除对应 Kotlin 源；`LayoutDumpGoldenTest` 全程零 diff。
 5. 迁移期间每个中间态满足：snapshot digest 校验照常通过、`verify-package` 与 `verify-release` 通过、已部署站点（blog 参考宿主）浏览器手工检查不回归。
-6. 无消费者导出清理与 shared/ 删除各自独立提交，均以全量测试绿与 golden 零 diff 为准。
+6. 无消费者导出清理与 shared/ 删除各自独立提交，均以全量测试通过与 golden 零 diff 为准。
 7. 声明通道有独立测试：声明在前 CSSOM 在后的合并顺序（findLast 语义下 CSSOM 胜出）、`baseUrl` 相对 URL 解析、字体已 loaded 后声明仍唤醒重验（无字体事件场景）、同帧多次声明合并为一个重验任务且执行前新声明不追加、`replaceSync` 抛错按声明缺席处理并记 DeclaredTextInvalid、注销函数移除声明并触发重验、EmptyCandidateSet 与 FieldMismatch 两类 detail 的字段形态各一组用例；dataset detail 进入时序 golden。
 8. 三包拓扑有 CI 检查：包间依赖方向为 web-component → core → ffi，该方向之外的包间依赖与跨包相对路径导入使 CI 失败；`StrictTsDiscipline` 的 eslint 与 grep 检查覆盖三个包的全部 TS 代码。
 
@@ -308,7 +308,7 @@ D 组在 0054 执行清单的 54-10（回填）完成后重测判定。B7 先按
   删除，ffi/js 只剩导出面转发与会话接线）。
 - [x] **A4 ffi/js 独立 npm 包**：单独发包，产物导出类型定义与 source map。
   KPI：.d.ts 与 .js.map 覆盖全部导出面；@tiqian/prose 依赖切换完成。
-  验收：包产物检查；消费者构建与测试绿。
+  验收：包产物检查；消费者构建与测试通过。
   包位于 `ffi/js/npm`（`@tiqian/ffi` 0.1.0-alpha.1）。`generateTypeScriptDefinitions()`
   产出 `Tiqian-tiqian-ffi-js.d.mts`，声明两个 `@JsExport` 函数；九个引擎模块各带
   嵌入 sources 的 `.mjs.map`（dom-api 兼容层无源文件可嵌）。`@tiqian/prose` 声明
@@ -708,7 +708,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   - 移除：exact 与 fallback 回主线程；修订清单（`HostDeviceTopology` 执行装置项
     与 Consequences 图、`ExecutionInWorker` 全条、`WireFormatPerBoundary` Worker 段、
     `CoordinatorOwnedDispatch` 在途窗口与紧急批发送段、Verification 3 跨线程用例）
-    随判定提交。验收：修订后全量测试绿。
+    随判定提交。验收：修订后全量测试通过。
   - 保留：执行移入 Worker，首批视口同步快路径保留；deadline 与 generation 双标量、
     在途窗口、紧急批实施；二进制请求打包与 transfer。验收：Verification 3 四用例；
     时序 golden 换带帧记录。
@@ -823,7 +823,24 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   进度（jsMain 归零路径，2026-08-23）：876b114。端口计划
   docs/research/2026-08-23-tshost-runtime-port-plan.md 按七个切片给出 jsMain
   运行时到 TS 的移植顺序、jsTest 102 个测试函数的删除节奏与 kotlin-js-store
-  归位（Slice 7）。
+  归位（Slice 7）。该计划同时更正两处依赖次序：jsTest 计数随 a9b6a6c 等五个提交
+  漂移到 102；Kotlin 删除统一推迟到消费者所在文件被删除的切片（266a479），
+  中间桥只产出后续切片会删除的脚手架。
+  进度（Slice 1，2026-08-23）：36d0ec2。npm-core 新增
+  core/engine/lowered-paragraph.js（LoweredParagraph 传输格式的 JSDoc 模型与
+  isCanonicalPlainParagraph、isRuntimeExactPreparedDomEligible 两个谓词，
+  语义与 Kotlin 扩展逐条一致）与 lowered-paragraph.test.mjs（10 例）。
+  npm-core 197 例、ts-discipline 通过、LayoutDumpGoldenTest 零 diff。
+  进度（Slice 2a，2026-08-23）：7accba4。npm-core 新增 core/engine/lifecycle.js
+  （globalThis.__TiqianLifecycle：optionsFromJs 解码、精确字体 session 谓词、
+  capability 标记的捕获与还原、宿主尺寸捕获与稳定；Kotlin 同名实现随 Slice 6
+  删除）与 lifecycle.test.mjs（26 例）。
+  进度（Slice 3a，2026-08-23）：d187ad9。lowered-paragraph.js 增补
+  preparedSemanticReplayJson、preparedInlineObjectMetaJson、
+  preparedCjkStrongSemanticsJson 与 escapeJson。复查时对照
+  npm-core/runtime/tiqian-web.js 的编译产物更正一处数值格式：Kotlin/JS 的
+  Float append 编译为 n.toString()，整个产物没有 fround，marginRight 按原值
+  输出，不做 32 位舍入。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
