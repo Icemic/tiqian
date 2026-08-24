@@ -890,6 +890,15 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   JSON.stringify 的 null 表示承载。browser-metrics-bridge.test.mjs 六例：两组
   请求字节锁、端到端 plan、与 scripted canvas-model 后端全量比对、dash 能力
   透传。npm-core 295 例、ts-discipline 通过。Slice 4a 完成。
+  进度（Slice 4b 第一批，2026-08-23）：33c5106。排版线
+  ParagraphWireFace 新增 parseDecorations（三字段记录，InvalidDecorationWire、
+  InvalidDecorationRange，DecorationKind 按名解析），layout 与
+  planWithDiagnostics 尾部携带 decorations 与 emphasisDotGapEm（null 取
+  DEFAULT_EMPHASIS_DOT_GAP_EM，非有限或负值抛 InvalidEmphasisDotGapEm）；
+  renderEvidence 判定补 decorations 非空，装饰独占的段落与直连路径一致取得
+  渲染证据。两条诊断路径 ffi 导出尾部加可空同形参数，JS 调用方省略尾参时
+  行为不变。ParagraphWireFaceTest 六例、BrowserMetricsExportsTest 一例；
+  golden 零差异。
 - [x] **F3 类型制度上 CI**（`StrictTsDiscipline`）：eslint 三规则设 error；
   CI grep `eslint-disable`。KPI：`any`、`as unknown as`、`object`/`Object`/`{}`、
   `eslint-disable` 计数均为 0（三包 TS 面）。验收：CI 任务绿。
