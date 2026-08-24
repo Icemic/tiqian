@@ -6,9 +6,10 @@
 // direct prepare/commit dispatch, and capability issue reporting.
 //
 // Consumes __TiqianPreparedMetadata, __TiqianEligibility,
-// __TiqianMarkdownLowering, __TiqianLifecycle, __TiqianCustody,
-// __TiqianWorkerRequest, __TiqianLayoutWorker,
-// __TiqianPrepareParagraphLayout, and __TiqianCommitPreparedParagraph.
+// __TiqianLifecycle, __TiqianCustody, __TiqianWorkerRequest,
+// __TiqianLayoutWorker, __TiqianPrepareParagraphLayout, and
+// __TiqianCommitPreparedParagraph, plus the lower function imported from
+// markdown-lowering.js.
 //
 // Plain script, no exports: running it installs
 // globalThis.__TiqianProcessParagraph. Two consumers share this file as
@@ -22,7 +23,6 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import type { MarkdownLoweringApi } from "./markdown-lowering.js";
 import type { EligibilityGlobal } from "./eligibility.js";
 import type { PreparedMetadataGlobal } from "./prepared-metadata.js";
 import type { CapabilityIssueRecord, EnhanceOptions, LifecycleApi } from "./lifecycle.js";
@@ -33,6 +33,7 @@ import type { TiqianWorkerRequestGlobal } from "./worker-request.js";
 import type { TiqianPrepareParagraphLayoutGlobal } from "./prepare-paragraph-layout.js";
 import type { TiqianCommitPreparedParagraphGlobal } from "./commit-prepared-paragraph.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
+import { lower } from "./markdown-lowering.js";
 
 interface ProcessParagraphTarget {
   source: Element;
@@ -84,11 +85,11 @@ declare global {
 
   // Constants named after the Kotlin constants in WebEnhancerSupport.kt:
   // lines 470-475 and 483-489.
-  var CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-  var EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
-  var RUNTIME_RENDER_FONT_ATTRIBUTE = 'data-tq-runtime-render-font';
-  var HOST_INLINE_SIZE_ATTRIBUTE = 'data-tq-host-inline-size';
-  var EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
+  const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
+  const EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+  const RUNTIME_RENDER_FONT_ATTRIBUTE = 'data-tq-runtime-render-font';
+  const HOST_INLINE_SIZE_ATTRIBUTE = 'data-tq-host-inline-size';
+  const EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
     'NoExactFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
@@ -113,8 +114,8 @@ declare global {
   // (line 140). Returns false when detail is null.
   function isCapabilityFailureDetail(detail: unknown): boolean {
     if (detail == null) return false;
-    var str = String(detail);
-    for (var i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
+    const str = String(detail);
+    for (let i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
       if (str.indexOf(EXACT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
         return true;
       }
@@ -128,7 +129,7 @@ declare global {
     return {
       classifyRole: ffi.classifyFontRole,
       inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): ProcessInlineShapingDecisionResult | null {
-        var property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
+        const property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
         return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
       },
       inlineShapingProperties: ffi.unsupportedInlineShapingProperties(),
@@ -142,22 +143,22 @@ declare global {
    * @param {Object} argument
    */
   function processParagraph(argument: ProcessParagraphInvocation): void {
-    var ffi = argument.ffi;
-    var paragraph = argument.paragraph;
-    var state = argument.state;
+    const ffi = argument.ffi;
+    const paragraph = argument.paragraph;
+    const state = argument.state;
     // Prepared metadata builders shared across orchestrators.
-    var metadata = globalThis.__TiqianPreparedMetadata!;
+    const metadata = globalThis.__TiqianPreparedMetadata!;
 
     if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return;
 
     // Capture host-owned inline typography before any computed-style probe.
     // CSSStyleDeclaration can leave an empty style attribute after a
     // temporary property is removed even when the source had no attribute.
-    var originalStyleAttribute = paragraph.getAttribute('style');
+    const originalStyleAttribute = paragraph.getAttribute('style');
 
-    var lowered: LoweredParagraph | null = null;
+    let lowered: LoweredParagraph | null = null;
     try {
-      var loweringResult = globalThis.__TiqianMarkdownLowering!.lower(
+      const loweringResult = lower(
         paragraph,
         state.options,
         loweringHelpers(ffi!)
@@ -165,7 +166,7 @@ declare global {
       if (loweringResult && loweringResult.ok === true) {
         lowered = loweringResult.lowered;
       } else {
-        var issue = (loweringResult && loweringResult.issue) || {
+        const issue = (loweringResult && loweringResult.issue) || {
           name: 'UnsupportedParagraph',
           detail: 'paragraph could not be lowered',
           element: paragraph,
@@ -178,7 +179,7 @@ declare global {
         return;
       }
     } catch (error) {
-      var loweringIssue: CapabilityIssueRecord = {
+      const loweringIssue: CapabilityIssueRecord = {
         name: 'DomLoweringFailure',
         detail: ((error && (error as { message?: string }).message) as string) || 'unexpected DOM lowering failure',
         element: paragraph,
@@ -189,7 +190,7 @@ declare global {
       return;
     }
 
-    var paragraphStyle = (paragraph as HTMLElement).style;
+    const paragraphStyle = (paragraph as HTMLElement).style;
     globalThis.__TiqianCustody!.begin(
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
@@ -207,30 +208,30 @@ declare global {
       paragraph.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE)
     );
 
-    var hostFontSizeApplied = globalThis.__TiqianLifecycle!.applyConfiguredHostFontSize(
+    const hostFontSizeApplied = globalThis.__TiqianLifecycle!.applyConfiguredHostFontSize(
       paragraph as HTMLElement,
       state.options ? (state.options.fontSize as number | undefined) : undefined
     );
-    var sourceInlineSize = globalThis.__TiqianLifecycle!.captureSourceInlineSize(paragraph);
+    const sourceInlineSize = globalThis.__TiqianLifecycle!.captureSourceInlineSize(paragraph);
 
-    var activeOptions = state.preparedDomEnabled
+    const activeOptions = state.preparedDomEnabled
       ? state.options
       : globalThis.__TiqianLifecycle!.withoutExactFontSession(state.options);
 
-    var workerRequest = globalThis.__TiqianWorkerRequest!.workerLayoutRequest(
+    const workerRequest = globalThis.__TiqianWorkerRequest!.workerLayoutRequest(
       paragraph,
       lowered,
       activeOptions
     );
-    var sessionKey = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeOptions);
+    const sessionKey = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeOptions);
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the
     // same tolerance the former Kotlin shims applied.
-    var layoutWorker = globalThis.__TiqianLayoutWorker;
-    var workerPlan = workerRequest != null && sessionKey != null && layoutWorker != null
+    const layoutWorker = globalThis.__TiqianLayoutWorker;
+    const workerPlan = workerRequest != null && sessionKey != null && layoutWorker != null
       ? layoutWorker.take(paragraph, sessionKey, workerRequest)
       : null;
-    var workerIssue = workerRequest != null && workerPlan == null && sessionKey != null && layoutWorker != null
+    const workerIssue = workerRequest != null && workerPlan == null && sessionKey != null && layoutWorker != null
       ? layoutWorker.issue(paragraph, sessionKey, workerRequest)
       : null;
 
@@ -240,7 +241,7 @@ declare global {
     // unsupported run through its resolved host font while covered runs
     // remain on the exact session. The progressive scheduler bounds this
     // main-thread fallback to the individual paragraph slice.
-    var canUseRichBrowserFallback = !isCanonicalPlain(lowered) && isCapabilityFailureDetail(workerIssue);
+    const canUseRichBrowserFallback = !isCanonicalPlain(lowered) && isCapabilityFailureDetail(workerIssue);
 
     if (
       activeOptions &&
@@ -254,7 +255,7 @@ declare global {
       } else {
         paragraph.setAttribute('style', originalStyleAttribute);
       }
-      var exactWorkerIssue = {
+      const exactWorkerIssue = {
         name: 'ExactLayoutWorkerPlanUnavailable',
         detail: workerIssue || 'the exact layout Worker produced no reusable plan',
         element: paragraph,
@@ -266,7 +267,7 @@ declare global {
     }
 
     globalThis.__TiqianCustody!.take(paragraph, hostFontSizeApplied);
-    var hostInlineSizeApplied = globalThis.__TiqianLifecycle!.stabilizeContentSizedItemInlineSize(
+    const hostInlineSizeApplied = globalThis.__TiqianLifecycle!.stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
     );
@@ -274,7 +275,7 @@ declare global {
     paragraph.setAttribute('data-tq-rendered', 'true');
     paragraph.setAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE, 'true');
 
-    var item: ProcessParagraphTarget = {
+    const item: ProcessParagraphTarget = {
       source: paragraph,
       lowered: lowered,
       lastMeasure: null,
@@ -282,7 +283,7 @@ declare global {
 
     globalThis.__TiqianCustody!.commit(paragraph, hostInlineSizeApplied);
 
-    var layoutIssue = null;
+    let layoutIssue = null;
     try {
       if (workerPlan != null) {
         layoutIssue = globalThis.__TiqianCommitPreparedParagraph!.commitWorkerPreparedParagraph({
@@ -293,7 +294,7 @@ declare global {
           cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
         });
       } else {
-        var preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
+        const preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
           ffi!,
           {
             paragraph: item,
@@ -307,7 +308,7 @@ declare global {
         } else if (preparation.kind === 'unsupported') {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
-          var commitResult = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph({
+          const commitResult = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph({
             ffi: ffi!,
             paragraph: item,
             preparation: preparation,

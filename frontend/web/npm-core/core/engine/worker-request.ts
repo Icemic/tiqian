@@ -19,9 +19,9 @@
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { EligibilityGlobal } from "./eligibility.js";
 import type { EnhanceOptions, LifecycleApi } from "./lifecycle.js";
-import type { MarkdownLoweringApi } from "./markdown-lowering.js";
 import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
+import { lower } from "./markdown-lowering.js";
 
 interface WorkerInlineShapingDecisionResult {
   name: string;
@@ -47,15 +47,15 @@ declare global {
 
   // Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
   // records join by U+001E, fields by U+001D, families by U+001F.
-  var WORKER_RECORD_SEPARATOR = '\u001e';
-  var WORKER_FIELD_SEPARATOR = '\u001d';
-  var WORKER_FAMILY_SEPARATOR = '\u001f';
+  const WORKER_RECORD_SEPARATOR = '\u001e';
+  const WORKER_FIELD_SEPARATOR = '\u001d';
+  const WORKER_FAMILY_SEPARATOR = '\u001f';
   // WebEnhancerSupport.kt INLINE_EDGE_EPSILON: a clone box whose edges stay
   // below this epsilon remains eligible for Worker preparation.
-  var INLINE_EDGE_EPSILON = 0.01;
+  const INLINE_EDGE_EPSILON = 0.01;
   // WebEnhancer.kt ROOT_SELECTOR: the selector that identifies a Tiqian prose
   // root, matched against a paragraph's closest ancestor scope.
-  var ROOT_SELECTOR = 'tiqian-prose, [data-tiqian-root]';
+  const ROOT_SELECTOR = 'tiqian-prose, [data-tiqian-root]';
 
   /**
    * Escape a string into the Worker JSON string format.
@@ -64,10 +64,10 @@ declare global {
    * @returns {string}
    */
   function escapeJson(value: string): string {
-    var result = '"';
-    for (var i = 0; i < value.length; i += 1) {
-      var ch = value.charAt(i);
-      var code = value.charCodeAt(i);
+    let result = '"';
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value.charAt(i);
+      const code = value.charCodeAt(i);
       switch (ch) {
         case '"':
           result += '\\"';
@@ -136,7 +136,7 @@ declare global {
    * @returns {string}
    */
   function workerLayoutRequestJson(paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number): string {
-    var textSpans = lowered.spans.map(function (span) {
+    const textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -153,7 +153,7 @@ declare global {
     // decodeInlineBoxes) constructs InlineBoxSpan with the constructor default
     // InlineBoxOuterSpacing.Narrow (core TextModel.kt), so every inlineBoxes
     // join field and renderInlineBoxes entry emits the string Narrow.
-    var inlineBoxes = lowered.inlineBoxes.map(function (box) {
+    const inlineBoxes = lowered.inlineBoxes.map(function (box) {
       return [
         String(box.start),
         String(box.end),
@@ -166,7 +166,7 @@ declare global {
     // LineBreakPolicy decode: the Kotlin decode maps every wire policy string
     // to the same member, so the join always emits ProgressiveTechnical
     // regardless of the source span's policy value.
-    var lineBreakSpans = lowered.lineBreakSpans.map(function (span) {
+    const lineBreakSpans = lowered.lineBreakSpans.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -178,7 +178,7 @@ declare global {
     // feeds its engine (advance, ascent, descent) so the Worker lays the
     // replacement character out identically; the live element stays on the
     // main thread and enters at commit time.
-    var inlineObjects = lowered.inlineObjects.map(function (span) {
+    const inlineObjects = lowered.inlineObjects.map(function (span) {
       return [
         String(span.start),
         String(span.end),
@@ -191,17 +191,17 @@ declare global {
     // SourceBoundary wire: the Kotlin decode builds a deduped Set, then the
     // builder emits it sorted ascending joined by ",". Array.from(new Set(...))
     // dedupes; the numeric sort keeps the ascending order.
-    var sourceBoundaries = Array.from(new Set(lowered.sourceBoundaries))
+    const sourceBoundaries = Array.from(new Set(lowered.sourceBoundaries))
       .sort(function (a, b) { return a - b; })
       .join(',');
 
     // WorkerSemanticHierarchyOrder: sourceSpans are collected after their
     // children, so the list index identifies the live element but cannot also
     // describe outer-to-inner replay order.
-    var semantics = '[';
-    for (var i = 0; i < lowered.sourceSpans.length; i += 1) {
+    let semantics = '[';
+    for (let i = 0; i < lowered.sourceSpans.length; i += 1) {
       if (i > 0) semantics += ',';
-      var sourceSpan = lowered.sourceSpans[i];
+      const sourceSpan = lowered.sourceSpans[i];
       semantics += '{"start":' + String(sourceSpan.start) +
         ',"end":' + String(sourceSpan.end) +
         ',"tagName":' + escapeJson(sourceSpan.element.tagName.toLowerCase()) +
@@ -210,10 +210,10 @@ declare global {
         ',"order":' + String(sourceSpan.depth) + '}';
     }
 
-    var renderInlineBoxes = '[';
-    for (var j = 0; j < lowered.inlineBoxes.length; j += 1) {
+    let renderInlineBoxes = '[';
+    for (let j = 0; j < lowered.inlineBoxes.length; j += 1) {
       if (j > 0) renderInlineBoxes += ',';
-      var inlineBox = lowered.inlineBoxes[j];
+      const inlineBox = lowered.inlineBoxes[j];
       renderInlineBoxes += '{"start":' + String(inlineBox.start) +
         ',"end":' + String(inlineBox.end) +
         ',"inlineStartPx":' + String(inlineBox.inlineStart) +
@@ -265,19 +265,19 @@ declare global {
     // RootScopeGate: a paragraph belongs when it has no owner, owns the root,
     // or lives outside the root. A nested owner under the root is not in this
     // paragraph's scope, so it returns null before anything else runs.
-    var owner = paragraph.closest(ROOT_SELECTOR);
+    const owner = paragraph.closest(ROOT_SELECTOR);
     if (owner && owner !== root && root.contains(owner)) {
       return null;
     }
     if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return null;
     if (!globalThis.__TiqianLifecycle!.allowsSnapshotExactLayout(options)) return null;
-    var resolved = globalThis.__TiqianLifecycle!.withRootDefaults(options, root);
-    var lowered = null;
+    const resolved = globalThis.__TiqianLifecycle!.withRootDefaults(options, root);
+    let lowered = null;
     try {
       // The options bag mirrors loweringOptionsJs in MarkdownParagraphLowering.kt:
       // fontSize and lineHeight are nullable, strongAsEmphasisMarks is a boolean,
       // and locale is fixed to LOWERING_DEFAULT_LOCALE ("zh-Hans").
-      var result = globalThis.__TiqianMarkdownLowering!.lower(paragraph, {
+      const result = lower(paragraph, {
         fontSize: resolved.fontSize as number | undefined,
         lineHeight: resolved.lineHeight as number | undefined,
         strongAsEmphasisMarks: resolved.strongAsEmphasisMarks as boolean | undefined,
@@ -289,7 +289,7 @@ declare global {
         // MarkdownParagraphLowering.kt: a null divergence property returns null,
         // otherwise the inlineShapingDecisionResultJs shape is built.
         inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): WorkerInlineShapingDecisionResult | null {
-          var property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
+          const property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
           return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
         },
         inlineShapingProperties: ffi.unsupportedInlineShapingProperties(),
@@ -331,18 +331,18 @@ declare global {
         })) {
       return null;
     }
-    var rawWidth = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(paragraph);
+    const rawWidth = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(paragraph);
     if (!Number.isFinite(rawWidth) || rawWidth <= 0) return null;
     // WorkerLineMeasureMatchesResponsiveGrid: the responsive coordinator
     // intentionally treats widths within the same floor(width / fontSize) cell
     // count as one layout input. Serialize that effective measure, not the
     // transient CSS width observed while a window is being dragged, so
     // preparation and commit use the same Worker plan inside the grid.
-    var measure = globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(
+    const measure = globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(
       rawWidth,
       lowered.textStyle.fontSize,
     );
-    var firstLineIndentIc = paragraph.tagName.toUpperCase() === 'LI'
+    const firstLineIndentIc = paragraph.tagName.toUpperCase() === 'LI'
       ? 0
       : (options.firstLineIndentIc as number);
     return workerLayoutRequestJson(paragraph, lowered, measure, firstLineIndentIc);

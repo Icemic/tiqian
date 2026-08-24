@@ -4,6 +4,7 @@ import test from "node:test";
 import "./core/engine/lifecycle.js";
 import "./core/engine/eligibility.js";
 import "./core/engine/worker-request.js";
+import { setMarkdownLoweringForTest } from "./core/engine/markdown-lowering.js";
 
 const lifecycle = globalThis.__TiqianLifecycle;
 const eligibility = globalThis.__TiqianEligibility;
@@ -11,13 +12,12 @@ const workerRequest = globalThis.__TiqianWorkerRequest;
 
 const MEASURE_GLOBALS = ["__TiqianResponsiveMeasure"];
 
-// Root-overload tests also install or replace the eligibility, markdown
-// lowering, and lifecycle bridges, plus a fake getComputedStyle for
-// withRootDefaults, so they must preserve and restore those.
+// Root-overload tests also install or replace the eligibility and lifecycle
+// bridges, plus a fake getComputedStyle for withRootDefaults, so they must
+// preserve and restore those.
 const ROOT_GLOBALS = [
   "__TiqianResponsiveMeasure",
   "__TiqianEligibility",
-  "__TiqianMarkdownLowering",
   "__TiqianLifecycle",
   "getComputedStyle",
 ];
@@ -443,8 +443,10 @@ test("workerLayoutRequest emits the effective line measure as maxWidthPx", () =>
 
 // Install an eligible, snapshot-friendly, happy-path environment: real
 // lifecycle (with a fake getComputedStyle for withRootDefaults), permissive
-// eligibility, responsive measure, and a stub lowering. Returns the stubbed
-// lower function for per-test assertions.
+// eligibility, responsive measure, and a stubbed lowerer. The stub goes
+// through setMarkdownLoweringForTest because worker-request.js imports lower()
+// as a module binding. Returns the stubbed lower function for per-test
+// assertions; restoreRootGlobals restores the real lowerer.
 function installRootHappyPath(lowerImpl = null) {
   installFakeResponsiveMeasure();
   globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
@@ -452,13 +454,17 @@ function installRootHappyPath(lowerImpl = null) {
   const lowerCalls = [];
   const lowerStub = lowerImpl ||
     (() => ({ ok: true, lowered: paragraph() }));
-  globalThis.__TiqianMarkdownLowering = {
-    lower: (element, options, helpers) => {
-      lowerCalls.push({ element, options, helpers });
-      return lowerStub(element, options, helpers);
-    },
-  };
+  setMarkdownLoweringForTest((element, options, helpers) => {
+    lowerCalls.push({ element, options, helpers });
+    return lowerStub(element, options, helpers);
+  });
   return { lowerCalls, lowerStub };
+}
+
+// Root-overload tests restore the globals and the lowerer seam together.
+function restoreRootGlobals(entries) {
+  restoreGlobals(entries);
+  setMarkdownLoweringForTest(null);
 }
 
 // A fake element whose closest() returns the given owner. contains() on the
@@ -500,7 +506,7 @@ test("workerLayoutRequestForRoot returns null when closest resolves to a nested 
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -515,7 +521,7 @@ test("workerLayoutRequestForRoot passes the root gate when owner is the root", (
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -530,7 +536,7 @@ test("workerLayoutRequestForRoot passes the root gate when no owner is found", (
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -541,13 +547,12 @@ test("workerLayoutRequestForRoot returns null when shouldTryParagraph is false",
     const paragraphEl = scopeParagraph(root);
     installFakeResponsiveMeasure();
     globalThis.__TiqianEligibility = { shouldTryParagraph: () => false };
-    globalThis.__TiqianMarkdownLowering = { lower: () => ({ ok: true, lowered: paragraph() }) };
     assert.equal(
       workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -563,7 +568,7 @@ test("workerLayoutRequestForRoot returns null when snapshot exact layout is disa
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -580,7 +585,7 @@ test("workerLayoutRequestForRoot returns null when the lowering bridge throws", 
       null,
     );
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -609,7 +614,7 @@ test("workerLayoutRequestForRoot returns null when lowering reports ok !== true 
     );
     assert.equal(issueRead, false);
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -635,7 +640,7 @@ test("workerLayoutRequestForRoot builds the lowering options and helpers shape",
     assert.equal(call.helpers.classifyRole, ROOT_FFI.classifyFontRole);
     assert.deepEqual(call.helpers.inlineShapingProperties, ["font-style"]);
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -658,7 +663,7 @@ test("workerLayoutRequestForRoot inlineShapingDecision wraps the ffi divergence 
       detail: "em:fontStyle",
     });
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -673,7 +678,7 @@ test("workerLayoutRequestForRoot inlineShapingDecision returns null for a null d
     const decision = lowerCalls[0].helpers.inlineShapingDecision("em", [], []);
     assert.equal(decision, null);
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -692,7 +697,7 @@ test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker 
     assert.equal(parsed.firstLineIndentIc, 0);
     assert.equal(parsed.sourceTag, "p");
   } finally {
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });
 
@@ -709,7 +714,7 @@ test("workerLayoutRequestForRoot feeds the withRootDefaults result to both lower
     // options passed in must stay snapshot-eligible so the gate passes.
     const resolved = rootOptions({ firstLineIndentIc: 7, fontSize: 21 });
     lifecycle.withRootDefaults = (options, theRoot) => resolved;
-    const { lowerCalls } = installRootHappyPath(() => ({ ok: true, lowered: paragraph() }));
+    const { lowerCalls } = installRootHappyPath();
     const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions());
     assert.notEqual(result, null);
     // lower read fontSize from the resolved options.
@@ -718,6 +723,6 @@ test("workerLayoutRequestForRoot feeds the withRootDefaults result to both lower
     assert.equal(JSON.parse(result).firstLineIndentIc, 7);
   } finally {
     lifecycle.withRootDefaults = originalWithRootDefaults;
-    restoreGlobals(globals);
+    restoreRootGlobals(globals);
   }
 });

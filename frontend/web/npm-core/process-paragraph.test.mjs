@@ -3,20 +3,24 @@ import test from "node:test";
 
 import "./core/engine/prepared-metadata.js";
 import "./core/engine/process-paragraph.js";
+import { setMarkdownLoweringForTest } from "./core/engine/markdown-lowering.js";
 
 const processParagraph = globalThis.__TiqianProcessParagraph.processParagraph;
 
 const PROCESS_GLOBALS = [
   "__TiqianProcessParagraph",
   "__TiqianEligibility",
-  "__TiqianMarkdownLowering",
-  "__TiqianLifecycle",
+    "__TiqianLifecycle",
   "__TiqianCustody",
   "__TiqianWorkerRequest",
   "__TiqianLayoutWorker",
   "__TiqianPrepareParagraphLayout",
   "__TiqianCommitPreparedParagraph",
 ];
+
+// The lowerer stub goes through setMarkdownLoweringForTest because
+// process-paragraph.js imports lower() as a module binding from
+// markdown-lowering.js; every finally resets it beside the globals.
 
 function preserveGlobals(names) {
   return names.map((name) => ({
@@ -131,9 +135,8 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => true,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -210,6 +213,7 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     assert.equal(state.issues.length, 0);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -225,9 +229,8 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       domInlineObjects: [{ start: 0, end: 1, marginRight: 4 }],
       sourceSpans: [{ start: 0, end: 2, cjkStrongBaseWeight: 700, depth: 0, element: { tagName: "STRONG" } }],
     });
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -284,6 +287,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     assert.equal(state.issues.length, 0);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -296,11 +300,10 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (c
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => {
-        throw new Error("lowering syntax error");
-      },
-    };
+    setMarkdownLoweringForTest(() => {
+      throw new Error("lowering syntax error");
+    });
+
     globalThis.__TiqianLifecycle = {
       reportIssue: (issue) => reportedLifecycleIssues.push(issue),
     };
@@ -324,6 +327,7 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (c
     assert.equal(reportedLifecycleIssues[0].name, "DomLoweringFailure");
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -336,15 +340,14 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({
-        ok: false,
-        issue: {
-          name: "UnsupportedInlineTag",
-          detail: "TAG:DIV",
-        },
-      }),
-    };
+    setMarkdownLoweringForTest(() => ({
+      ok: false,
+      issue: {
+        name: "UnsupportedInlineTag",
+        detail: "TAG:DIV",
+      },
+    }));
+
     globalThis.__TiqianLifecycle = {
       reportIssue: (issue) => reportedLifecycleIssues.push(issue),
     };
@@ -367,6 +370,7 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -379,9 +383,8 @@ test("5. Lowering ok false without an issue -> UnsupportedParagraph", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: false }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: false }));
+
     globalThis.__TiqianLifecycle = {
       reportIssue: (issue) => reportedLifecycleIssues.push(issue),
     };
@@ -404,6 +407,7 @@ test("5. Lowering ok false without an issue -> UnsupportedParagraph", () => {
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -416,9 +420,8 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }), // plain lowered
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() })); // plain lowered
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -458,6 +461,7 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -473,9 +477,8 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     const richLowered = makeLowered({
       spans: [{ start: 0, end: 2, style: { fontFamilies: ["CodeFont"], fontSize: 19, fontWeight: 400, italic: false, baselineShift: 0, locale: "zh-Hans" } }],
     });
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: richLowered }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: richLowered }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -527,6 +530,7 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     assert.equal(state.issues.length, 0);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -538,9 +542,8 @@ test("8. prepare unchanged -> item committed, no commit call", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -579,6 +582,7 @@ test("8. prepare unchanged -> item committed, no commit call", () => {
     assert.equal(state.issues.length, 0);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -591,9 +595,8 @@ test("9. prepare unsupported -> issue reported, custody restored", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -636,6 +639,7 @@ test("9. prepare unsupported -> issue reported, custody restored", () => {
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -648,9 +652,8 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -702,6 +705,7 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -714,9 +718,8 @@ test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -756,6 +759,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
     assert.equal(reportedLifecycleIssues.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -767,9 +771,8 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -808,6 +811,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
     assert.equal(state.paragraphs.length, 1);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });
 
@@ -819,9 +823,8 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
     globalThis.__TiqianEligibility = {
       shouldTryParagraph: () => true,
     };
-    globalThis.__TiqianMarkdownLowering = {
-      lower: () => ({ ok: true, lowered: makeLowered() }),
-    };
+    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
+
     globalThis.__TiqianLifecycle = {
       applyConfiguredHostFontSize: () => false,
       captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
@@ -858,5 +861,6 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
     assert.equal(state.issues.length, 0);
   } finally {
     restoreGlobals(saved);
+    setMarkdownLoweringForTest(null);
   }
 });

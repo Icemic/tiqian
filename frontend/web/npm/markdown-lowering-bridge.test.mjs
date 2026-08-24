@@ -1,10 +1,10 @@
-// Unit tests for the markdown-lowering engine module installed by ts-runtime.
-// npm-core/core/engine/markdown-lowering.js installs __TiqianMarkdownLowering; these
-// tests drive that global directly.
+// Unit tests for the markdown-lowering engine module.
+// npm-core/core/engine/markdown-lowering.js exports lower(); these tests
+// drive that function directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "@tiqian/prose-core/core/engine/markdown-lowering.js";
+import { lower } from "@tiqian/prose-core/core/engine/markdown-lowering.js";
 import { cleanupMounted, loadHostRuntime, mount } from "./runtime-host.mjs";
 
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation
@@ -21,7 +21,7 @@ function lowerParagraph(html, options = {}, roleStub = cjkRoleStub) {
   const root = mount(`<div data-tiqian-root="true">${html}</div>`);
   const paragraph = root.querySelector("p");
   assert.ok(paragraph, "mount must produce a <p>");
-  const result = globalThis.__TiqianMarkdownLowering.lower(paragraph, options, {
+  const result = lower(paragraph, options, {
     classifyRole: roleStub,
   });
   return { root, paragraph, result };
@@ -70,7 +70,7 @@ function shapingHelpers(decision = inlineShapingDecisionStub) {
 }
 
 function lowerWithHelpers(paragraph, helpers, options = {}) {
-  return globalThis.__TiqianMarkdownLowering.lower(paragraph, options, helpers);
+  return lower(paragraph, options, helpers);
 }
 
 function lowerParagraphWithShapingDecision(html, options = {}) {
@@ -121,14 +121,9 @@ function withComputedStyleOverrideFor(element, overrides, fn) {
   }
 }
 
-test("markdownLoweringBridge_installedByScriptImport", async () => {
+test("markdownLoweringBridge_exportsLowerFunction", async () => {
   await loadHostRuntime();
-  const lowering = globalThis.__TiqianMarkdownLowering;
-  assert.ok(
-    lowering,
-    "importing markdown-lowering.js must install globalThis.__TiqianMarkdownLowering",
-  );
-  assert.equal(typeof lowering.lower, "function");
+  assert.equal(typeof lower, "function");
 });
 
 test("markdownLoweringBridge_plainTextParagraphLoweredWithDefaults", async (t) => {
@@ -164,7 +159,7 @@ test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", async (t) => {
   const result = withComputedStyleOverride(
     { "font-size": "normal" },
     () =>
-      globalThis.__TiqianMarkdownLowering.lower(paragraph, {}, { classifyRole: cjkRoleStub }),
+      lower(paragraph, {}, { classifyRole: cjkRoleStub }),
   );
   assert.equal(result.ok, true);
   const lowered = result.lowered;
