@@ -18,56 +18,202 @@
 // draws with, or advances will not match the drawn glyphs.
 //
 // Plain script, no exports: running it installs globalThis.__TiqianCanvasShaping.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which a future gradle bridge task will embed this source verbatim. Double
-// installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals. Use var
-// declarations.
+// The single consumer is the npm host (importing it for the side effect);
+// duplicate installation is guarded.
+
+import type { FontRoleName, WebFontFamiliesInstance } from "./canvas-fonts.js";
+import type { CanvasContextLike } from "./canvas-metrics.js";
+
+export interface TextMetricsLike {
+  width: number;
+  actualBoundingBoxLeft: number;
+  actualBoundingBoxAscent: number;
+  actualBoundingBoxRight: number;
+  actualBoundingBoxDescent: number;
+}
+
+export interface RectLike {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+interface ShapingProbeRectWidth {
+  width: number;
+}
+
+type ShapingSetAttributeFn = (name: string, value: string) => void;
+
+type ShapingSetPropertyFn = (name: string, value: string, priority?: string) => void;
+
+interface ShapingProbeElementStyle {
+  setProperty: ShapingSetPropertyFn;
+}
+
+type ShapingProbeRectFn = () => ShapingProbeRectWidth;
+
+type ShapingCreateCanvasContextFn = () => CanvasContextLike;
+
+type ShapingCreateProbeElementFn = () => ProbeElementLike;
+
+type ShapingAttachProbeFn = (element: ProbeElementLike) => void;
+
+interface ShapingTextRange {
+  start: number;
+  end: number;
+}
+
+interface ShapingInputStyle {
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  fontFamilies: string[];
+  locale?: string;
+}
+
+interface ShapingFontCandidate {
+  key: string;
+}
+
+interface ShapingFontDecision {
+  role: FontRoleName | string;
+  candidate: ShapingFontCandidate;
+}
+
+export interface ProbeElementLike {
+  setAttribute: ShapingSetAttributeFn;
+  style: ShapingProbeElementStyle;
+  parentNode: HTMLElement | Record<string, unknown> | null;
+  textContent: string;
+  getBoundingClientRect: ShapingProbeRectFn;
+}
+
+export interface CanvasShapingEnv {
+  createCanvasContext: ShapingCreateCanvasContextFn;
+  createProbeElement: ShapingCreateProbeElementFn;
+  attachProbe: ShapingAttachProbeFn;
+}
+
+export interface ShapeInput {
+  text: string;
+  range: ShapingTextRange;
+  style: ShapingInputStyle;
+  fontDecision: ShapingFontDecision;
+  displayText?: string;
+  openTypeFeatures?: string[];
+}
+
+export interface MeasuredTextLike {
+  advance: number;
+  bounds: RectLike | null;
+  requestedFont: string;
+  actualFont: string;
+  boundsAdjustment: string | null;
+}
+
+export interface ShapingCluster {
+  range: ShapingTextRange;
+  text: string;
+  displayText: string;
+  fontKey: string;
+  advance: number;
+}
+
+export interface ShapingGlyph {
+  id: number;
+  clusterRange: ShapingTextRange;
+  advance: number;
+  x: number;
+  bounds: RectLike | null;
+}
+
+export interface ShapingGlyphRun {
+  range: ShapingTextRange;
+  fontKey: string;
+  glyphs: ShapingGlyph[];
+  advance: number;
+  openTypeFeatures: string[];
+}
+
+export interface ShapingDecision {
+  range: ShapingTextRange;
+  sourceText: string;
+  displayText: string;
+  fontKey: string;
+  glyphCount: number;
+  advance: number;
+  source: string;
+  reason: string;
+  glyphsWithoutInkBounds: number;
+  capabilityIssue: string | null;
+  featureEvidence: string | null;
+}
+
+export interface CanvasShapingResult {
+  clusters: ShapingCluster[];
+  glyphRuns: ShapingGlyphRun[];
+  decisions: ShapingDecision[];
+}
+
+type ShapingShapeFn = (input: ShapeInput) => CanvasShapingResult;
+
+export interface CanvasTextShaperInstance {
+  shape: ShapingShapeFn;
+}
+
+export interface CjkDashCapability {
+  status: string;
+  detail: string | null;
+}
+
+interface CapabilityIssue {
+  name: string;
+  detail: string;
+}
+
+type ShapingComputeMeasurementFn = () => MeasuredTextLike;
+
+interface ShapingOverhangNormalization {
+  bounds: RectLike;
+  adjustment: string | null;
+}
+
+interface ShapingImageDataLike {
+  data: Uint8ClampedArray | ArrayLike<number>;
+}
+
+type ShapingVoidCallbackFn = () => void;
+
+type ShapingSizeFn = () => number;
+
+type ShapingAddEventListenerFn = (type: string, listener: ShapingVoidCallbackFn) => void;
+
+interface ShapingFontSetLike {
+  addEventListener: ShapingAddEventListenerFn;
+}
+
+type ShapingInstallFontLoadInvalidationFn = (fontSet?: ShapingFontSetLike | FontFaceSet | null) => void;
+
+type ShapingCreateTextShaperFn = (
+  fonts: WebFontFamiliesInstance,
+  cjkDashCapability: CjkDashCapability | null,
+  env: CanvasShapingEnv,
+) => CanvasTextShaperInstance;
+
+interface CanvasShapingGlobal {
+  createTextShaper: ShapingCreateTextShaperFn;
+  installFontLoadInvalidation: ShapingInstallFontLoadInvalidationFn;
+  clearMeasurementCache: ShapingVoidCallbackFn;
+  measurementCacheSize: ShapingSizeFn;
+}
+
+declare global {
+  var __TiqianCanvasShaping: CanvasShapingGlobal;
+}
 
 (function () {
   if (globalThis.__TiqianCanvasShaping) return;
-
-  /**
-   * @typedef {{
-   *   width: number,
-   *   actualBoundingBoxLeft: number,
-   *   actualBoundingBoxAscent: number,
-   *   actualBoundingBoxRight: number,
-   *   actualBoundingBoxDescent: number,
-   * }} TextMetricsLike
-   * @typedef {{ left: number, top: number, right: number, bottom: number }} RectLike
-   * @typedef {{ canvas: { width: number, height: number } }} CanvasContextLike
-   * @typedef {{
-   *   setAttribute: (name: string, value: string) => void,
-   *   style: { setProperty: (name: string, value: string, priority: string) => void },
-   *   parentNode: (HTMLElement|null),
-   *   textContent: string,
-   *   getBoundingClientRect: () => { width: number },
-   * }} ProbeElementLike
-   * @typedef {{
-   *   createCanvasContext: () => CanvasContextLike,
-   *   createProbeElement: () => ProbeElementLike,
-   *   attachProbe: (element: ProbeElementLike) => void,
-   * }} CanvasShapingEnv
-   * @typedef {{
-   *   text: string,
-   *   range: { start: number, end: number },
-   *   style: { fontSize: number, fontWeight: number, italic: boolean, fontFamilies: string[] },
-   *   fontDecision: { role: string, candidate: { key: string } },
-   *   displayText: string,
-   * }} ShapeInput
-   * @typedef {{
-   *   advance: number,
-   *   bounds: (RectLike|null),
-   *   requestedFont: string,
-   *   actualFont: string,
-   *   boundsAdjustment: (string|null),
-   * }} MeasuredTextLike
-   */
 
   var DEGENERATE_INK_PROBE_TEXT = "\u3002"; // "。"
   var DEGENERATE_INK_EPSILON_PX = 0.1;
@@ -90,23 +236,23 @@
   // cannot retain every glyph run it has ever measured. A hit reinserts its
   // entry, so eviction drops the least recently used key.
   var MEASUREMENT_CACHE_MAX_ENTRIES = 2048;
-  var measurementCache = new Map();
+  var measurementCache = new Map<string, MeasuredTextLike>();
   // Probe verdicts live beside the shared measurement cache they qualify, and
   // both invalidate together on webfont arrival below.
-  var degenerateInkBoundsByFont = {};
-  var canvasAdvanceParityByFont = {};
+  var degenerateInkBoundsByFont: Record<string, boolean> = {};
+  var canvasAdvanceParityByFont: Record<string, boolean> = {};
   var fontLoadInvalidationInstalled = false;
 
   // MeasurementKey is structural equality over four strings; JSON round-trips
   // that exactly. The separator joins used elsewhere are unsafe here because
   // display text is arbitrary user input that could contain the separator.
-  function measurementCacheKey(actualFont, display, featureSignature, role) {
+  function measurementCacheKey(actualFont: string, display: string, featureSignature: string, role: string): string {
     return JSON.stringify([actualFont, display, featureSignature, role]);
   }
 
-  function measurementCacheGetOrPut(key, compute) {
+  function measurementCacheGetOrPut(key: string, compute: ShapingComputeMeasurementFn): MeasuredTextLike {
     if (measurementCache.has(key)) {
-      var hit = measurementCache.get(key);
+      var hit = measurementCache.get(key)!;
       measurementCache.delete(key);
       measurementCache.set(key, hit);
       return hit;
@@ -114,7 +260,7 @@
     var value = compute();
     measurementCache.set(key, value);
     while (measurementCache.size > MEASUREMENT_CACHE_MAX_ENTRIES) {
-      var eldestKey = measurementCache.keys().next().value;
+      var eldestKey = measurementCache.keys().next().value!;
       measurementCache.delete(eldestKey);
     }
     return value;
@@ -130,7 +276,7 @@
    * @param {{ addEventListener: Function }} fontSet
    * @returns {void}
    */
-  function installFontLoadInvalidation(fontSet) {
+  function installFontLoadInvalidation(fontSet?: ShapingFontSetLike | FontFaceSet | null): void {
     if (fontLoadInvalidationInstalled) return;
     fontLoadInvalidationInstalled = true;
     if (!fontSet || typeof fontSet.addEventListener !== "function") return;
@@ -144,7 +290,7 @@
    *
    * @returns {void}
    */
-  function clearMeasurementCache() {
+  function clearMeasurementCache(): void {
     measurementCache.clear();
     degenerateInkBoundsByFont = {};
     canvasAdvanceParityByFont = {};
@@ -155,7 +301,7 @@
    *
    * @returns {number}
    */
-  function measurementCacheSize() {
+  function measurementCacheSize(): number {
     return measurementCache.size;
   }
 
@@ -163,7 +309,7 @@
   // shaping outcome fails closed while no conforming glyph source exists.
   // "conforming" names the missing exact font session; any other status
   // (including null) reports the absence of a conforming CJK dash glyph.
-  function dashIssueNameFor(status) {
+  function dashIssueNameFor(status?: string | null): string {
     return status === "conforming"
       ? "ConformingCjkDashRequiresExactFontSession"
       : "NoConformingCjkDashGlyph";
@@ -172,7 +318,7 @@
   // issueDetailFor: a null status means shaping was never prepared. A null or
   // blank detail keeps only the status prefix; otherwise the host detail is
   // appended after "; ".
-  function dashIssueDetailFor(status, detail) {
+  function dashIssueDetailFor(status?: string | null, detail?: string | null): string {
     if (status == null) return "CjkDashFontShapingNotPrepared";
     if (detail == null || String(detail).trim() === "") return "status=" + status;
     return "status=" + status + "; " + detail;
@@ -187,13 +333,13 @@
    * @param {string} display
    * @returns {boolean}
    */
-  function isUnverifiedEllipsisDisplaySubstitution(source, display) {
-    if (source.length === 0 || source.length !== display.length) return false;
+  function isUnverifiedEllipsisDisplaySubstitution(source: string, display?: string): boolean {
+    if (source.length === 0 || source.length !== display!.length) return false;
     for (var i = 0; i < source.length; i += 1) {
       if (source.charCodeAt(i) !== 0x2026) return false;
     }
-    for (var j = 0; j < display.length; j += 1) {
-      if (display.charCodeAt(j) !== 0x22ef) return false;
+    for (var j = 0; j < display!.length; j += 1) {
+      if (display!.charCodeAt(j) !== 0x22ef) return false;
     }
     return true;
   }
@@ -208,7 +354,7 @@
    * @param {string} display
    * @returns {string[]}
    */
-  function contextualWebOpenTypeFeatures(role, display) {
+  function contextualWebOpenTypeFeatures(role: string, display: string): string[] {
     if (role === "LatinText") {
       for (var i = 0; i < display.length; i += 1) {
         var code = display.charCodeAt(i);
@@ -234,7 +380,7 @@
    * @param {number} advance
    * @returns {{ bounds: RectLike, adjustment: (string|null) }}
    */
-  function normalizeSubpixelCanvasInkOverhang(bounds, advance) {
+  function normalizeSubpixelCanvasInkOverhang(bounds: RectLike, advance: number): ShapingOverhangNormalization {
     var leftOverhang = Math.max(-bounds.left, 0);
     var rightOverhang = Math.max(bounds.right - advance, 0);
     var clampLeft = leftOverhang > 0 && leftOverhang < CANVAS_INK_OVERHANG_EVIDENCE_THRESHOLD_PX;
@@ -255,11 +401,11 @@
     };
   }
 
-  function buildCssFont(style, fontWeight, size, family) {
+  function buildCssFont(style: string, fontWeight: number, size: number, family: string): string {
     return style + " " + fontWeight + " " + size + "px " + family;
   }
 
-  function hasUsableAdvance(advance) {
+  function hasUsableAdvance(advance: number): boolean {
     return Number.isFinite(advance) && advance > ZERO_ADVANCE_EPSILON;
   }
 
@@ -275,19 +421,23 @@
    * @param {CanvasShapingEnv} env
    * @returns {{ shape: (input: ShapeInput) => Object }}
    */
-  function createTextShaper(fonts, cjkDashCapability, env) {
-    var currentCanvasFont = null;
-    var measureCtx = null;
-    var inkProbeCtx = null;
-    var parityMeasureProbe = null;
-    var featureMeasureProbe = null;
+  function createTextShaper(
+    fonts: WebFontFamiliesInstance,
+    cjkDashCapability: CjkDashCapability | null,
+    env: CanvasShapingEnv,
+  ): CanvasTextShaperInstance {
+    var currentCanvasFont: string | null = null;
+    var measureCtx: CanvasContextLike | null = null;
+    var inkProbeCtx: CanvasContextLike | null = null;
+    var parityMeasureProbe: ProbeElementLike | null = null;
+    var featureMeasureProbe: ProbeElementLike | null = null;
 
-    function getMeasureCtx() {
+    function getMeasureCtx(): CanvasContextLike {
       if (!measureCtx) measureCtx = env.createCanvasContext();
       return measureCtx;
     }
 
-    function getInkProbeCtx() {
+    function getInkProbeCtx(): CanvasContextLike {
       if (!inkProbeCtx) inkProbeCtx = env.createCanvasContext();
       return inkProbeCtx;
     }
@@ -298,7 +448,7 @@
     // every longhand. Kerning is left at the browser default (auto) to match
     // how non-canonical paragraphs paint; canonical paragraphs pin normal,
     // which resolves identically in the engines this gate serves.
-    function getParityMeasureProbe() {
+    function getParityMeasureProbe(): ProbeElementLike {
       if (!parityMeasureProbe) {
         parityMeasureProbe = env.createProbeElement();
         parityMeasureProbe.setAttribute("aria-hidden", "true");
@@ -310,7 +460,7 @@
       return parityMeasureProbe;
     }
 
-    function getFeatureMeasureProbe() {
+    function getFeatureMeasureProbe(): ProbeElementLike {
       if (!featureMeasureProbe) {
         featureMeasureProbe = env.createProbeElement();
         featureMeasureProbe.setAttribute("aria-hidden", "true");
@@ -327,7 +477,7 @@
       return featureMeasureProbe;
     }
 
-    function measureViaHiddenDom(display, cssFont) {
+    function measureViaHiddenDom(display: string, cssFont: string): number {
       var probe = getParityMeasureProbe();
       env.attachProbe(probe);
       probe.textContent = display;
@@ -335,7 +485,7 @@
       return probe.getBoundingClientRect().width;
     }
 
-    function measureProportionalCurlyQuote(display, cssFont) {
+    function measureProportionalCurlyQuote(display: string, cssFont: string): number {
       var probe = getFeatureMeasureProbe();
       env.attachProbe(probe);
       probe.textContent = display;
@@ -356,7 +506,7 @@
      * @param {string} actualFont
      * @returns {boolean}
      */
-    function canvasInkBoundsDegenerate(actualFont) {
+    function canvasInkBoundsDegenerate(actualFont: string): boolean {
       if (Object.prototype.hasOwnProperty.call(degenerateInkBoundsByFont, actualFont)) {
         return degenerateInkBoundsByFont[actualFont];
       }
@@ -381,7 +531,7 @@
      * @param {number} fontSizePx
      * @returns {(RectLike|null)}
      */
-    function rasterizedInlineInkBounds(display, advance, fontSizePx) {
+    function rasterizedInlineInkBounds(display: string, advance: number, fontSizePx: number): RectLike | null {
       var scale = RASTER_INK_SCALE;
       var margin = fontSizePx;
       var width = Math.max(Math.floor((advance + 2 * margin) * scale), 1);
@@ -396,13 +546,13 @@
       if (currentCanvasFont == null) return null;
       probeCtx.font = currentCanvasFont;
       probeCtx.fillText(display, 0, 0);
-      var image;
+      var image: ImageData | ShapingImageDataLike | undefined;
       try {
         image = probeCtx.getImageData(0, 0, width, height);
       } catch (error) {
         return null;
       }
-      var data = image.data;
+      var data = image!.data;
       var minX = -1;
       var maxX = -1;
       var stride = width * 4;
@@ -463,7 +613,7 @@
      * @param {string} actualFont
      * @returns {boolean}
      */
-    function canvasAdvanceTrusted(role, cssFont, actualFont) {
+    function canvasAdvanceTrusted(role: string, cssFont: string, actualFont: string): boolean {
       // Gated by role, not code points: the divergence lives in the
       // Latin-side stack every non-CJK role shares. CJK roles are exempt —
       // their advances agree across parsers, a Latin probe string would
@@ -497,7 +647,7 @@
      * @param {string} role
      * @returns {MeasuredTextLike}
      */
-    function measure(display, cssFont, openTypeFeatures, role) {
+    function measure(display: string, cssFont: string, openTypeFeatures: string[], role: string): MeasuredTextLike {
       var context = getMeasureCtx();
       if (cssFont !== currentCanvasFont) {
         context.font = cssFont;
@@ -518,7 +668,7 @@
           };
         }
         var m = context.measureText(display);
-        var advance;
+        var advance: number;
         if (featureSignature === PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE) {
           advance = measureProportionalCurlyQuote(display, cssFont);
         } else {
@@ -528,7 +678,7 @@
           var match = FONT_PX_SIZE_REGEX.exec(actualFont);
           var parsedPx = match ? Number(match[1]) : Number.NaN;
           var fontSizePx = Number.isFinite(parsedPx) ? parsedPx : null;
-          var rasterized = null;
+          var rasterized: RectLike | null = null;
           if (fontSizePx != null && fontSizePx > 0) {
             rasterized = rasterizedInlineInkBounds(display, advance, fontSizePx);
           }
@@ -542,13 +692,13 @@
               : "DegenerateCanvasInkBoundsProbe",
           };
         }
-        var canvasBounds = {
+        var canvasBounds: RectLike = {
           left: -m.actualBoundingBoxLeft,
           top: -m.actualBoundingBoxAscent,
           right: m.actualBoundingBoxRight,
           bottom: m.actualBoundingBoxDescent,
         };
-        var normalized;
+        var normalized: ShapingOverhangNormalization;
         if (role === "CjkPunctuation") {
           normalized = normalizeSubpixelCanvasInkOverhang(canvasBounds, advance);
         } else {
@@ -564,7 +714,7 @@
       });
     }
 
-    function shapeWithCanvas(input, capabilityIssue) {
+    function shapeWithCanvas(input: ShapeInput, capabilityIssue?: CapabilityIssue | null): CanvasShapingResult {
       var size = input.style.fontSize;
       var key = input.fontDecision.candidate.key;
       var source = input.text.substring(input.range.start, input.range.end);
@@ -600,21 +750,21 @@
       var advance = measured.advance;
       var bounds = measured.bounds;
 
-      var cluster = {
+      var cluster: ShapingCluster = {
         range: input.range,
         text: source,
         displayText: display,
         fontKey: key,
         advance: advance,
       };
-      var glyph = {
+      var glyph: ShapingGlyph = {
         id: 0,
         clusterRange: input.range,
         advance: advance,
         x: 0,
         bounds: bounds,
       };
-      var run = {
+      var run: ShapingGlyphRun = {
         range: input.range,
         fontKey: key,
         glyphs: [glyph],
@@ -634,7 +784,7 @@
       if (capabilityIssue != null) {
         reason += "; " + capabilityIssue.detail;
       }
-      var decision = {
+      var decision: ShapingDecision = {
         range: input.range,
         sourceText: source,
         displayText: display,
@@ -650,7 +800,7 @@
       return { clusters: [cluster], glyphRuns: [run], decisions: [decision] };
     }
 
-    function dashCapabilityIssue() {
+    function dashCapabilityIssue(): CapabilityIssue {
       var status = cjkDashCapability != null ? cjkDashCapability.status : null;
       var detail = cjkDashCapability != null ? cjkDashCapability.detail : null;
       return {
@@ -668,7 +818,7 @@
      * @param {ShapeInput} input
      * @returns {Object}
      */
-    function shape(input) {
+    function shape(input: ShapeInput): CanvasShapingResult {
       var source = input.text.substring(input.range.start, input.range.end);
       if (isUnverifiedEllipsisDisplaySubstitution(source, input.displayText)) {
         return shapeWithCanvas(input, {
@@ -694,3 +844,4 @@
     },
   };
 })();
+

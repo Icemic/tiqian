@@ -13,20 +13,70 @@
 // entries). The two default sets live at different layers and differ by design.
 //
 // Plain script, no exports: running it installs globalThis.__TiqianCanvasFonts.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which a future gradle bridge task will embed this source verbatim. Double
-// installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals. Use var
-// declarations.
+// The single consumer is the npm host (importing it for the side effect);
+// duplicate installation is guarded.
+
+export type FontRoleName =
+  | "CjkText"
+  | "CjkPunctuation"
+  | "LatinText"
+  | "Symbol"
+  | "Emoji"
+  | "Unknown";
+
+type FontsForRoleFn = (role: FontRoleName | string, preferredFamilies?: string[]) => string;
+
+type FontsFallbackStacksFn = (role: FontRoleName | string, preferredFamilies?: string[]) => string[];
+
+type FontsPreferredFamiliesToFamilyFn = (preferredFamilies?: string[]) => string;
+
+type FontsForRoleNameFn = (name?: string | null, preferredFamilies?: string[]) => string;
+
+type FontsCreateFamiliesFn = (config?: WebFontFamiliesConfig) => WebFontFamiliesInstance;
+
+type FontsCssFamilyTokenFn = (value: string) => string;
+
+interface CanvasFontsGlobal {
+  createFontFamilies: FontsCreateFamiliesFn;
+  cssFamilyToken: FontsCssFamilyTokenFn;
+  BOPOMOFO_FALLBACK_FAMILIES: string[];
+  DEFAULT_LATIN_MONOSPACE_FONT_FAMILY: string;
+  DEFAULT_CJK_SERIF_FONT_FAMILY: string;
+  DEFAULT_LATIN_SERIF_FONT_FAMILY: string;
+  DEFAULT_BOPOMOFO_FONT_FAMILY: string;
+}
+
+export interface WebFontFamiliesInstance {
+  cjk: string;
+  latin: string;
+  latinMonospace: string;
+  cjkSerif: string;
+  latinSerif: string;
+  bopomofo: string;
+  forRole: FontsForRoleFn;
+  fallbackStacks: FontsFallbackStacksFn;
+  forRuby: FontsPreferredFamiliesToFamilyFn;
+  forBopomofo: FontsPreferredFamiliesToFamilyFn;
+  forRoleName: FontsForRoleNameFn;
+}
+
+interface WebFontFamiliesConfig {
+  cjk?: string;
+  latin?: string;
+  latinMonospace?: string;
+  cjkSerif?: string;
+  latinSerif?: string;
+  bopomofo?: string;
+}
+
+declare global {
+  var __TiqianCanvasFonts: CanvasFontsGlobal;
+}
 
 (function () {
   if (globalThis.__TiqianCanvasFonts) return;
 
-  var GENERIC_FAMILY_KEYWORDS = {
+  var GENERIC_FAMILY_KEYWORDS: Record<string, boolean> = {
     "serif": true,
     "sans-serif": true,
     "sansserif": true,
@@ -42,7 +92,7 @@
    * @param {string} value
    * @returns {string}
    */
-  function cssFamilyToken(value) {
+  function cssFamilyToken(value: string): string {
     var str = String(value);
     var lower = str.toLowerCase();
     if (GENERIC_FAMILY_KEYWORDS[lower]) {
@@ -58,7 +108,7 @@
   // Dedicated Bopomofo fonts stay after TC sans faces: many machines do not
   // ship them, and their metrics are not the fallback profile the web renderer
   // mirrors (ADR 0033). Ming/Song fallbacks still usually have correct marks.
-  var BOPOMOFO_FALLBACK_FAMILIES = [
+  var BOPOMOFO_FALLBACK_FAMILIES: string[] = [
     "PingFang TC",
     "Hiragino Sans CNS",
     "Heiti TC",
@@ -79,13 +129,13 @@
     "sans-serif",
   ];
 
-  var DEFAULT_LATIN_MONOSPACE_FONT_FAMILY =
+  var DEFAULT_LATIN_MONOSPACE_FONT_FAMILY: string =
     '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
-  var DEFAULT_CJK_SERIF_FONT_FAMILY =
+  var DEFAULT_CJK_SERIF_FONT_FAMILY: string =
     '"Songti SC", "Noto Serif CJK SC", serif';
-  var DEFAULT_LATIN_SERIF_FONT_FAMILY =
+  var DEFAULT_LATIN_SERIF_FONT_FAMILY: string =
     'Georgia, "Times New Roman", serif';
-  var DEFAULT_BOPOMOFO_FONT_FAMILY = BOPOMOFO_FALLBACK_FAMILIES.map(cssFamilyToken).join(", ");
+  var DEFAULT_BOPOMOFO_FONT_FAMILY: string = BOPOMOFO_FALLBACK_FAMILIES.map(cssFamilyToken).join(", ");
 
   /**
    * Create a WebFontFamilies instance matching the Kotlin shaping adapter.
@@ -93,8 +143,8 @@
    * @param {{ cjk: string, latin: string, latinMonospace?: string, cjkSerif?: string, latinSerif?: string, bopomofo?: string }} config
    * @returns {WebFontFamiliesInstance}
    */
-  function createFontFamilies(config) {
-    var cfg = config || {};
+  function createFontFamilies(config?: WebFontFamiliesConfig): WebFontFamiliesInstance {
+    var cfg: Partial<WebFontFamiliesConfig> = config || {};
     var cjk = cfg.cjk || "";
     var latin = cfg.latin || "";
     var latinMonospace = cfg.latinMonospace != null ? cfg.latinMonospace : DEFAULT_LATIN_MONOSPACE_FONT_FAMILY;
@@ -102,16 +152,16 @@
     var latinSerif = cfg.latinSerif != null ? cfg.latinSerif : DEFAULT_LATIN_SERIF_FONT_FAMILY;
     var bopomofo = cfg.bopomofo != null ? cfg.bopomofo : DEFAULT_BOPOMOFO_FONT_FAMILY;
 
-    var roleFamilyCache = {};
+    var roleFamilyCache: Record<string, string> = {};
 
-    function forRole(role, preferredFamilies) {
+    function forRole(role: FontRoleName | string, preferredFamilies?: string[]): string {
       var families = preferredFamilies || [];
       var key = role + "\u001f" + families.join("\u001f");
       if (Object.prototype.hasOwnProperty.call(roleFamilyCache, key)) {
         return roleFamilyCache[key];
       }
       var defaultFamily = (role === "LatinText") ? latin : cjk;
-      var resolved;
+      var resolved: string;
       if (families.length === 0) {
         resolved = defaultFamily;
       } else if (families.length === 1) {
@@ -138,13 +188,13 @@
      * continues through the CSS stack in that case, so measurement must probe the
      * same suffixes instead of hard-coding a family name to exclude.
      */
-    function fallbackStacks(role, preferredFamilies) {
+    function fallbackStacks(role: FontRoleName | string, preferredFamilies?: string[]): string[] {
       var families = preferredFamilies || [];
       if (families.length <= 1) {
         return [forRole(role, families)];
       }
-      var result = [];
-      var seen = {};
+      var result: string[] = [];
+      var seen: Record<string, boolean> = {};
       for (var i = 0; i < families.length; i += 1) {
         var sub = families.slice(i);
         var formatted = sub.map(cssFamilyToken).join(", ");
@@ -156,11 +206,11 @@
       return result;
     }
 
-    function forRuby(preferredFamilies) {
+    function forRuby(preferredFamilies?: string[]): string {
       return forRole("LatinText", preferredFamilies);
     }
 
-    function forBopomofo(preferredFamilies) {
+    function forBopomofo(preferredFamilies?: string[]): string {
       var families = preferredFamilies || [];
       if (families.length === 0) {
         return bopomofo;
@@ -168,7 +218,7 @@
       return families.map(cssFamilyToken).join(", ") + ", " + bopomofo;
     }
 
-    function forRoleName(name, preferredFamilies) {
+    function forRoleName(name?: string | null, preferredFamilies?: string[]): string {
       var role = (name === "LatinText") ? "LatinText" : "CjkText";
       return forRole(role, preferredFamilies);
     }
@@ -198,3 +248,4 @@
     DEFAULT_BOPOMOFO_FONT_FAMILY: DEFAULT_BOPOMOFO_FONT_FAMILY,
   };
 })();
+

@@ -11,15 +11,93 @@
 // compiles without 32-bit rounding in this product).
 //
 // Plain script, no exports: running it installs globalThis.__TiqianCanvasMetrics.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which a future gradle bridge task will embed this source verbatim. Double
-// installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals. Use var
-// declarations.
+// The single consumer is the npm host (importing it for the side effect);
+// duplicate installation is guarded.
+
+import type { FontRoleName, WebFontFamiliesInstance } from "./canvas-fonts.js";
+
+interface MetricsCanvasSize {
+  width: number;
+  height: number;
+}
+
+type MetricsMeasureTextFn = (text: string) => CanvasTextMetricsLike | TextMetrics;
+
+type MetricsSetTransformFn = (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+
+type MetricsClearRectFn = (x: number, y: number, w: number, h: number) => void;
+
+type MetricsFillTextFn = (text: string, x: number, y: number) => void;
+
+interface MetricsImageDataLike {
+  data: Uint8ClampedArray | ArrayLike<number>;
+}
+
+type MetricsGetImageDataFn = (sx: number, sy: number, sw: number, sh: number) => ImageData | MetricsImageDataLike;
+
+type MetricsResolveFn = (request: CanvasFontMetricsRequest) => CanvasFontMetricsResult;
+
+type MetricsCreateResolverFn = (
+  fonts: WebFontFamiliesInstance,
+  createCanvasContext: MetricsCreateCanvasContextFn,
+) => CanvasMetricsResolverInstance;
+
+type MetricsCreateCanvasContextFn = () => CanvasContextLike;
+
+interface CanvasMetricsGlobal {
+  stubFontMetrics: MetricsResolveFn;
+  createMetricsResolver: MetricsCreateResolverFn;
+  ZERO_ADVANCE_EPSILON: number;
+}
+
+export interface CanvasFontMetricsRequest {
+  role: FontRoleName | string;
+  fontSize: number;
+  fontWeight?: number;
+  italic?: boolean;
+  locale?: string;
+  fontKey?: string;
+  fontFamilies?: string[];
+  faceSelectionText?: string;
+}
+
+export interface CanvasFontMetricsResult {
+  ascent: number;
+  descent: number;
+  leading: number;
+  source: string;
+  typoAscent: number | null;
+  typoDescent: number | null;
+}
+
+export interface CanvasTextMetricsLike {
+  width: number;
+  actualBoundingBoxLeft: number;
+  actualBoundingBoxAscent: number;
+  actualBoundingBoxRight: number;
+  actualBoundingBoxDescent: number;
+  fontBoundingBoxAscent?: number | null;
+  fontBoundingBoxDescent?: number | null;
+  ideographicBaseline?: number | null;
+}
+
+export interface CanvasContextLike {
+  font: string;
+  canvas: MetricsCanvasSize;
+  measureText: MetricsMeasureTextFn;
+  setTransform: MetricsSetTransformFn;
+  clearRect: MetricsClearRectFn;
+  fillText: MetricsFillTextFn;
+  getImageData: MetricsGetImageDataFn;
+}
+
+export interface CanvasMetricsResolverInstance {
+  resolve: MetricsResolveFn;
+}
+
+declare global {
+  var __TiqianCanvasMetrics: CanvasMetricsGlobal;
+}
 
 (function () {
   if (globalThis.__TiqianCanvasMetrics) return;
@@ -35,7 +113,7 @@
    * @param {number|undefined|null} value
    * @returns {number|null}
    */
-  function positiveOrNull(value) {
+  function positiveOrNull(value: number | undefined | null): number | null {
     return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
   }
 
@@ -45,7 +123,7 @@
    * @param {{ role: string, fontSize: number, fontWeight?: number, italic?: boolean, locale?: string, fontKey?: string, fontFamilies?: string[], faceSelectionText?: string }} request
    * @returns {{ ascent: number, descent: number, leading: number, source: string, typoAscent: number|null, typoDescent: number|null }}
    */
-  function stubFontMetrics(request) {
+  function stubFontMetrics(request: CanvasFontMetricsRequest): CanvasFontMetricsResult {
     var fontSize = request.fontSize;
     var role = request.role;
 
@@ -93,7 +171,7 @@
    * @param {{ role: string, fontSize: number, fontWeight?: number, italic?: boolean, locale?: string, fontKey?: string, fontFamilies?: string[] }} request
    * @returns {string}
    */
-  function fontMetricsCacheKey(request) {
+  function fontMetricsCacheKey(request: CanvasFontMetricsRequest): string {
     var families = request.fontFamilies ? request.fontFamilies.join("\u001f") : "";
     var weight = request.fontWeight != null ? request.fontWeight : 400;
     var italic = request.italic ? "1" : "0";
@@ -115,19 +193,22 @@
    * @param {() => CanvasContextLike} createCanvasContext
    * @returns {MetricsResolverInstance}
    */
-  function createMetricsResolver(fonts, createCanvasContext) {
-    var ctx = null;
-    var currentCanvasFont = null;
-    var cache = {};
+  function createMetricsResolver(
+    fonts: WebFontFamiliesInstance,
+    createCanvasContext: MetricsCreateCanvasContextFn,
+  ): CanvasMetricsResolverInstance {
+    var ctx: CanvasContextLike | null = null;
+    var currentCanvasFont: string | null = null;
+    var cache: Record<string, CanvasFontMetricsResult> = {};
 
-    function getContext() {
+    function getContext(): CanvasContextLike {
       if (!ctx) {
         ctx = createCanvasContext();
       }
       return ctx;
     }
 
-    function resolve(request) {
+    function resolve(request: CanvasFontMetricsRequest): CanvasFontMetricsResult {
       // Canvas selects metrics from the role probe and CSS stack, not from
       // the source cluster. Excluding faceSelectionText keeps the cache at
       // one entry per actual typography instance instead of per ideograph.
@@ -178,14 +259,14 @@
           ? positiveOrNull(-m.ideographicBaseline)
           : null;
 
-        var typoAscent = null;
-        var typoDescent = null;
+        var typoAscent: number | null = null;
+        var typoDescent: number | null = null;
         if (cjkBox && ideographicDescent != null) {
           typoAscent = Math.max(fontSize - ideographicDescent, 0);
           typoDescent = Math.max(ideographicDescent, 0);
         }
 
-        var result = {
+        var result: CanvasFontMetricsResult = {
           ascent: ascent,
           descent: descent,
           leading: 0,
@@ -213,3 +294,4 @@
     ZERO_ADVANCE_EPSILON: ZERO_ADVANCE_EPSILON,
   };
 })();
+
