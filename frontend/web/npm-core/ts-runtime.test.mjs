@@ -4,7 +4,7 @@ import test from "node:test";
 import { loadTiqianRuntime, engineApi, workerApi, setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
 import { tsFfiFacade } from "./core/engine/loaders/ts-runtime.js";
 
-// Global names installed by the 21 engine scripts (source-of-truth from each module).
+// Global names installed by the engine scripts (source-of-truth from each module).
 const EXPECTED_GLOBALS = [
   "__TiqianCustody",
   "__TiqianEligibility",
@@ -12,16 +12,11 @@ const EXPECTED_GLOBALS = [
   "__TiqianInstallCopyHandler",
   "__TiqianContentReconcile",
   "__TiqianResponsiveMeasure",
-  "__TiqianMarkdownLowering",
   "__TiqianLifecycle",
   "__TiqianWorkerRequest",
   "__TiqianPrepareParagraphLayout",
   "__TiqianCommitPreparedParagraph",
   "__TiqianProcessParagraph",
-  "__TiqianCanvasFonts",
-  "__TiqianCanvasMetrics",
-  "__TiqianCanvasShaping",
-  "__TiqianBrowserMetricsBridge",
   "__TiqianPreparedMetadata",
   "__TiqianProgressiveRelayoutSession",
   "__TiqianRootState",

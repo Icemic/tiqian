@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import "./core/engine/root-state.js";
+import { setCanvasRuntimeForTest } from "./core/engine/canvas-runtime.js";
 
 const rootState = globalThis.__TiqianRootState;
 
@@ -9,8 +10,6 @@ const ROOT_STATE_GLOBALS = [
   "__TiqianRootState",
   "__TiqianLifecycle",
   "__TiqianEligibility",
-  "__TiqianCanvasFonts",
-  "__TiqianBrowserMetricsBridge",
 ];
 
 function preserveGlobals(names) {
@@ -144,9 +143,11 @@ function makeBridge() {
 
 function installGlobals({ lifecycle, fonts, bridge, eligibility }) {
   globalThis.__TiqianLifecycle = lifecycle;
-  globalThis.__TiqianCanvasFonts = fonts;
-  globalThis.__TiqianBrowserMetricsBridge = bridge;
   globalThis.__TiqianEligibility = eligibility || { shouldTryParagraph: () => true };
+  setCanvasRuntimeForTest({
+    createFontFamilies: fonts.createFontFamilies,
+    createBrowserMetricsBridge: bridge.createBrowserMetricsBridge,
+  });
 }
 
 class FakeElement {
@@ -252,6 +253,7 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     assert.equal(lifecycle.calls.withoutExactFontSession.length, 1);
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -292,6 +294,7 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
     assert.equal(state.preparedDomFallback, null);
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -340,6 +343,7 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
     );
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -384,6 +388,7 @@ test("4. engineState cross-section: bound ffi, live arrays, callback wiring", ()
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "replay-mismatch");
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -441,6 +446,7 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
     assert.equal(rootIssue.getAttribute("data-tiqian-issue-count"), "1");
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -467,6 +473,7 @@ test("6. strandedSourceParagraphs: empty paragraphs returns all candidates; rend
     assert.deepEqual(rootState.strandedSourceParagraphs(root, stateRendered), [c1]);
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });
 
@@ -510,5 +517,6 @@ test("7. paragraphCandidates: root-scope and eligibility filtering", () => {
     assert.equal(eligibilityCalls.length, 4);
   } finally {
     restoreGlobals(saved);
+    setCanvasRuntimeForTest(null);
   }
 });

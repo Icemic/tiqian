@@ -1,14 +1,16 @@
 // Tests for the canvas text shaping adapter (TsHost runtime port, Slice 4a
-// part 2). Uses the real __TiqianCanvasFonts module for font stack resolution
+// part 2). Uses the real canvas-fonts module for font stack resolution
 // and a fake DOM injection surface (env) for measurement.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/canvas-fonts.js";
-import "./core/engine/canvas-shaping.js";
-
-const canvasFonts = globalThis.__TiqianCanvasFonts;
-const canvasShaping = globalThis.__TiqianCanvasShaping;
+import { createFontFamilies } from "./core/engine/canvas-fonts.js";
+import {
+  createTextShaper,
+  installFontLoadInvalidation,
+  clearMeasurementCache,
+  measurementCacheSize,
+} from "./core/engine/canvas-shaping.js";
 
 const PARITY_PROBE_TEXT = "Benjamini-Hochberg WAVE fjord, 0x7f.";
 const DEGENERATE_PROBE_TEXT = "\u3002";
@@ -16,7 +18,7 @@ const DEGENERATE_PROBE_TEXT = "\u3002";
 // A fresh, programmable env and fonts instance per call. clearMeasurementCache
 // isolates the shared measurement/verdict caches from earlier tests.
 function makeHarness(program) {
-  canvasShaping.clearMeasurementCache();
+  clearMeasurementCache();
   const cfg = program;
   const measureCount = {};
   const probes = [];
@@ -77,12 +79,12 @@ function makeHarness(program) {
     if (element.parentNode == null) element.parentNode = {};
   }
 
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"CJK", sans-serif',
     latin: '"Latin", sans-serif',
   });
   const env = { createCanvasContext, createProbeElement, attachProbe, probes };
-  const shaper = canvasShaping.createTextShaper(fonts, cfg.cjkDashCapability, env);
+  const shaper = createTextShaper(fonts, cfg.cjkDashCapability, env);
   return { env, fonts, shaper, measureCount };
 }
 
@@ -419,13 +421,13 @@ test("ellipsis: unverified display substitution carries the U+22EF issue", () =>
 });
 
 test("shared LRU cache: shared across shapers, bounded, and re-touched entries survive", () => {
-  canvasShaping.clearMeasurementCache();
+  clearMeasurementCache();
 
   function makeSharer() {
     const program = {
       measureText: () => defaultMetrics(),
     };
-    const fonts = canvasFonts.createFontFamilies({
+    const fonts = createFontFamilies({
       cjk: '"CJK", sans-serif',
       latin: '"Latin", sans-serif',
     });
@@ -460,7 +462,7 @@ test("shared LRU cache: shared across shapers, bounded, and re-touched entries s
       },
       attachProbe() {},
     };
-    const shaper = canvasShaping.createTextShaper(fonts, null, env);
+    const shaper = createTextShaper(fonts, null, env);
     return { shaper, measureCount };
   }
 
@@ -485,7 +487,7 @@ test("shared LRU cache: shared across shapers, bounded, and re-touched entries s
   for (let i = 0; i < 2047; i += 1) {
     shapeText(c.shaper, "e" + String(i).padStart(4, "0"));
   }
-  assert.equal(canvasShaping.measurementCacheSize(), 2048);
+  assert.equal(measurementCacheSize(), 2048);
   // "keep" survived (re-touched); "elder" was evicted.
   shapeText(c.shaper, "keep");
   assert.equal(c.measureCount["keep"], 1); // cache hit, no re-measure
@@ -494,7 +496,7 @@ test("shared LRU cache: shared across shapers, bounded, and re-touched entries s
 });
 
 test("clearMeasurementCache and installFontLoadInvalidation", () => {
-  canvasShaping.clearMeasurementCache();
+  clearMeasurementCache();
 
   const fontSet = {
     listeners: {},
@@ -502,7 +504,7 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
       this.listeners[name] = fn;
     },
   };
-  canvasShaping.installFontLoadInvalidation(fontSet);
+  installFontLoadInvalidation(fontSet);
   // once-guard: a second call with a different fontSet adds no listener.
   const fontSet2 = {
     listeners: {},
@@ -510,7 +512,7 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
       this.listeners[name] = fn;
     },
   };
-  canvasShaping.installFontLoadInvalidation(fontSet2);
+  installFontLoadInvalidation(fontSet2);
   assert.equal(Object.keys(fontSet2.listeners).length, 0);
   assert.equal(typeof fontSet.listeners["loadingdone"], "function");
 
@@ -522,7 +524,7 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
     },
     probeWidth: (text) => (text === PARITY_PROBE_TEXT ? 200 : 50),
   };
-  const fonts = canvasFonts.createFontFamilies({ cjk: '"CJK", sans-serif', latin: '"Latin", sans-serif' });
+  const fonts = createFontFamilies({ cjk: '"CJK", sans-serif', latin: '"Latin", sans-serif' });
   const probes = [];
   const env = {
     createCanvasContext() {
@@ -560,17 +562,17 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
     },
     attachProbe() {},
   };
-  const shaper = canvasShaping.createTextShaper(fonts, null, env);
+  const shaper = createTextShaper(fonts, null, env);
   shaper.shape(
     input({ text: "hello", displayText: "hello", fontDecision: { role: "LatinText", candidate: { key: "k" } } }),
   );
-  assert.ok(canvasShaping.measurementCacheSize() >= 1);
+  assert.ok(measurementCacheSize() >= 1);
   const parityProbe = probes.find((p) => !p.styleEntries.border);
   assert.equal(parityProbe.textMeasureCalls[PARITY_PROBE_TEXT], 1);
 
   // loadingdone callback clears the cache and both verdict caches.
   fontSet.listeners["loadingdone"]();
-  assert.equal(canvasShaping.measurementCacheSize(), 0);
+  assert.equal(measurementCacheSize(), 0);
   shaper.shape(
     input({ text: "hello", displayText: "hello", fontDecision: { role: "LatinText", candidate: { key: "k" } } }),
   );

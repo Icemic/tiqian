@@ -4,8 +4,8 @@
 // argument descriptors from WebEnhancerTsHost.kt (lines 225-270). The TS
 // engine entry (Slice 6) binds the ffi facade once at startup.
 //
-// Consumes __TiqianLifecycle, __TiqianEligibility, __TiqianCanvasFonts, and
-// __TiqianBrowserMetricsBridge.
+// Consumes __TiqianLifecycle, __TiqianEligibility, and the canvasRuntime
+// factories from canvas-runtime.js.
 //
 // Plain script, no exports: running it installs globalThis.__TiqianRootState.
 // Two consumers share this file as the single source of truth: the npm host
@@ -19,13 +19,13 @@
 // declarations.
 
 // Ambient global declarations pulled in via import type from owner modules.
-import type { EligibilityGlobal } from "./eligibility.js";
 import type { BrowserMetricsBridgeInstance } from "./browser-metrics-bridge.js";
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { CanvasContextLike } from "./canvas-metrics.js";
 import type { CanvasShapingEnv, ProbeElementLike } from "./canvas-shaping.js";
-import type { EnhanceOptions, LifecycleApi, ResolvedEnhanceOptions } from "./lifecycle.js";
+import type { EnhanceOptions, ResolvedEnhanceOptions } from "./lifecycle.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
+import { canvasRuntime } from "./canvas-runtime.js";
 
 // Descriptor returned by activeExactSessionDescriptor: a conforming snapshot
 // session id, or null when the active options lower the session.
@@ -230,14 +230,14 @@ declare global {
     var fontFamilies = resolved.fontFamilies;
     // buildFontFamiliesConfigJs renames the resolved monospace family to the
     // latinMonospace key that canvas-fonts.js reads for the LatinText role.
-    var fonts = globalThis.__TiqianCanvasFonts.createFontFamilies({
+    var fonts = canvasRuntime.createFontFamilies({
       cjk: fontFamilies.cjk,
       latin: fontFamilies.latin,
       latinMonospace: fontFamilies.monospace,
       cjkSerif: fontFamilies.cjkSerif,
       latinSerif: fontFamilies.latinSerif,
     });
-    var bridge = globalThis.__TiqianBrowserMetricsBridge.createBrowserMetricsBridge({
+    var bridge = canvasRuntime.createBrowserMetricsBridge({
       fonts: fonts,
       cjkDashCapability: resolved.cjkDashCapability,
       env: browserMetricsEnv(),

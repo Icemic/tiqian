@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/canvas-fonts.js";
-
-const canvasFonts = globalThis.__TiqianCanvasFonts;
+import {
+  createFontFamilies,
+  cssFamilyToken,
+  DEFAULT_LATIN_MONOSPACE_FONT_FAMILY,
+  DEFAULT_CJK_SERIF_FONT_FAMILY,
+  DEFAULT_LATIN_SERIF_FONT_FAMILY,
+  DEFAULT_BOPOMOFO_FONT_FAMILY,
+} from "./core/engine/canvas-fonts.js";
 
 const EXPECTED_LATIN_MONOSPACE =
   '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
@@ -14,18 +19,17 @@ const EXPECTED_LATIN_SERIF =
 const EXPECTED_BOPOMOFO =
   '"PingFang TC", "Hiragino Sans CNS", "Heiti TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "Source Han Sans TC", "Noto Sans Bopomofo", "Noto Serif Bopomofo", "BpmfGenYoGothic", "BpmfGenSenRounded", "Apple LiGothic", "Apple LiSung", "PMingLiU", "MingLiU", "Noto Serif CJK TC", "Source Han Serif TC", sans-serif';
 
-test("canvas-fonts module installs global and exposes defaults and helper", () => {
-  assert.ok(canvasFonts);
-  assert.equal(typeof canvasFonts.createFontFamilies, "function");
-  assert.equal(typeof canvasFonts.cssFamilyToken, "function");
-  assert.equal(canvasFonts.DEFAULT_LATIN_MONOSPACE_FONT_FAMILY, EXPECTED_LATIN_MONOSPACE);
-  assert.equal(canvasFonts.DEFAULT_CJK_SERIF_FONT_FAMILY, EXPECTED_CJK_SERIF);
-  assert.equal(canvasFonts.DEFAULT_LATIN_SERIF_FONT_FAMILY, EXPECTED_LATIN_SERIF);
-  assert.equal(canvasFonts.DEFAULT_BOPOMOFO_FONT_FAMILY, EXPECTED_BOPOMOFO);
+test("canvas-fonts module exports defaults and helper", () => {
+  assert.equal(typeof createFontFamilies, "function");
+  assert.equal(typeof cssFamilyToken, "function");
+  assert.equal(DEFAULT_LATIN_MONOSPACE_FONT_FAMILY, EXPECTED_LATIN_MONOSPACE);
+  assert.equal(DEFAULT_CJK_SERIF_FONT_FAMILY, EXPECTED_CJK_SERIF);
+  assert.equal(DEFAULT_LATIN_SERIF_FONT_FAMILY, EXPECTED_LATIN_SERIF);
+  assert.equal(DEFAULT_BOPOMOFO_FONT_FAMILY, EXPECTED_BOPOMOFO);
 });
 
 test("createFontFamilies applies default stack strings verbatim", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
@@ -39,7 +43,7 @@ test("createFontFamilies applies default stack strings verbatim", () => {
 });
 
 test("createFontFamilies allows overriding optional default stacks", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
     latinMonospace: "CustomMono, monospace",
@@ -55,7 +59,7 @@ test("createFontFamilies allows overriding optional default stacks", () => {
 });
 
 test("cssFamilyToken quotes bare names and preserves generic keywords / quoted strings", () => {
-  const token = canvasFonts.cssFamilyToken;
+  const token = cssFamilyToken;
 
   // Generic keywords remain unquoted
   assert.equal(token("serif"), "serif");
@@ -79,7 +83,7 @@ test("cssFamilyToken quotes bare names and preserves generic keywords / quoted s
 });
 
 test("forRole selects role defaults when preferredFamilies is empty", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -95,7 +99,7 @@ test("forRole selects role defaults when preferredFamilies is empty", () => {
 });
 
 test("forRole resolves single-keyword generic aliases per role", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -124,7 +128,7 @@ test("forRole resolves single-keyword generic aliases per role", () => {
 });
 
 test("forRole formats multi-family preference with cssFamilyToken", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -139,7 +143,7 @@ test("forRole formats multi-family preference with cssFamilyToken", () => {
 });
 
 test("fallbackStacks generates single stack for 0 or 1 preferred family", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -151,7 +155,7 @@ test("fallbackStacks generates single stack for 0 or 1 preferred family", () => 
 });
 
 test("fallbackStacks generates suffix sublists and collapses duplicate suffix stacks", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -175,7 +179,7 @@ test("fallbackStacks generates suffix sublists and collapses duplicate suffix st
 });
 
 test("forRuby delegates to forRole with LatinText", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -186,7 +190,7 @@ test("forRuby delegates to forRole with LatinText", () => {
 });
 
 test("forBopomofo returns default stack or prepends explicit families", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -199,7 +203,7 @@ test("forBopomofo returns default stack or prepends explicit families", () => {
 });
 
 test("forRoleName maps LatinText to LatinText and anything else to CjkText", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -215,7 +219,7 @@ test("forRoleName maps LatinText to LatinText and anything else to CjkText", () 
 });
 
 test("roleFamilyCache returns the identical string instance on repeated queries", () => {
-  const fonts = canvasFonts.createFontFamilies({
+  const fonts = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });

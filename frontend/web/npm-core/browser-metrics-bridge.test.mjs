@@ -3,14 +3,9 @@ import test from "node:test";
 
 import { precomputeParagraphWithBrowserMetrics, precomputePlainParagraph } from "@tiqian/ffi";
 
-import "./core/engine/canvas-fonts.js";
-import "./core/engine/canvas-metrics.js";
-import "./core/engine/canvas-shaping.js";
-import "./core/engine/browser-metrics-bridge.js";
-
-const canvasFonts = globalThis.__TiqianCanvasFonts;
-const canvasShaping = globalThis.__TiqianCanvasShaping;
-const browserMetricsBridge = globalThis.__TiqianBrowserMetricsBridge;
+import { createFontFamilies } from "./core/engine/canvas-fonts.js";
+import { clearMeasurementCache } from "./core/engine/canvas-shaping.js";
+import { createBrowserMetricsBridge } from "./core/engine/browser-metrics-bridge.js";
 
 const EXPECTED_FIRST_SHAPING_REQUEST =
   '{"text":"\u4e2d\u6587\u4e2d\u6587","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"\u4e2d","openTypeFeatures":[]}';
@@ -160,20 +155,18 @@ function comparePlans(left, right, path) {
   assert.strictEqual(left, right, path);
 }
 
-test("API surface exposes exactly createBrowserMetricsBridge", () => {
-  assert.ok(browserMetricsBridge);
-  assert.deepEqual(Object.keys(browserMetricsBridge), ["createBrowserMetricsBridge"]);
-  assert.strictEqual(typeof browserMetricsBridge.createBrowserMetricsBridge, "function");
+test("API surface exposes createBrowserMetricsBridge", () => {
+  assert.strictEqual(typeof createBrowserMetricsBridge, "function");
 });
 
 test("Shaping wire byte lock", () => {
-  canvasShaping.clearMeasurementCache();
-  const fonts = canvasFonts.createFontFamilies({
+  clearMeasurementCache();
+  const fonts = createFontFamilies({
     cjk: '"Fixture CJK", sans-serif',
     latin: '"Fixture Latin", sans-serif',
   });
   const env = makeFakeEnv();
-  const bridge = browserMetricsBridge.createBrowserMetricsBridge({
+  const bridge = createBrowserMetricsBridge({
     fonts,
     cjkDashCapability: null,
     env,
@@ -210,13 +203,13 @@ test("Shaping wire byte lock", () => {
 });
 
 test("Metrics wire byte lock", () => {
-  canvasShaping.clearMeasurementCache();
-  const fonts = canvasFonts.createFontFamilies({
+  clearMeasurementCache();
+  const fonts = createFontFamilies({
     cjk: '"Fixture CJK", sans-serif',
     latin: '"Fixture Latin", sans-serif',
   });
   const env = makeFakeEnv();
-  const bridge = browserMetricsBridge.createBrowserMetricsBridge({
+  const bridge = createBrowserMetricsBridge({
     fonts,
     cjkDashCapability: null,
     env,
@@ -253,13 +246,13 @@ test("Metrics wire byte lock", () => {
 });
 
 test("End-to-end plan", () => {
-  canvasShaping.clearMeasurementCache();
-  const fonts = canvasFonts.createFontFamilies({
+  clearMeasurementCache();
+  const fonts = createFontFamilies({
     cjk: '"Fixture CJK", sans-serif',
     latin: '"Fixture Latin", sans-serif',
   });
   const env = makeFakeEnv();
-  const bridge = browserMetricsBridge.createBrowserMetricsBridge({
+  const bridge = createBrowserMetricsBridge({
     fonts,
     cjkDashCapability: null,
     env,
@@ -297,13 +290,13 @@ test("End-to-end plan", () => {
 });
 
 test("Parity against the scripted canvas-model backend", () => {
-  canvasShaping.clearMeasurementCache();
-  const fonts = canvasFonts.createFontFamilies({
+  clearMeasurementCache();
+  const fonts = createFontFamilies({
     cjk: '"Fixture CJK", sans-serif',
     latin: '"Fixture Latin", sans-serif',
   });
   const env = makeFakeEnv();
-  const bridge = browserMetricsBridge.createBrowserMetricsBridge({
+  const bridge = createBrowserMetricsBridge({
     fonts,
     cjkDashCapability: null,
     env,
@@ -341,13 +334,13 @@ test("Parity against the scripted canvas-model backend", () => {
 });
 
 test("Dash capability passthrough", () => {
-  canvasShaping.clearMeasurementCache();
-  const fonts = canvasFonts.createFontFamilies({
+  clearMeasurementCache();
+  const fonts = createFontFamilies({
     cjk: '"Fixture CJK", sans-serif',
     latin: '"Fixture Latin", sans-serif',
   });
   const env = makeFakeEnv();
-  const bridge = browserMetricsBridge.createBrowserMetricsBridge({
+  const bridge = createBrowserMetricsBridge({
     fonts,
     cjkDashCapability: { status: "partial", detail: "probe-detail" },
     env,

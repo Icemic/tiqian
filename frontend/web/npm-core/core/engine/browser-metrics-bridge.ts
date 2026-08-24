@@ -2,18 +2,18 @@
 // Adapts the canvas font metrics resolver and canvas text shaper to the
 // JSON-string ABI expected by precomputeParagraphWithBrowserMetrics.
 //
-// Plain script, no exports: running it installs
-// globalThis.__TiqianBrowserMetricsBridge. Two consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect)
-// and the Kotlin runtime bundle, into which a future gradle bridge task will
-// embed this source verbatim. Double installation is guarded.
+// ES module: exports createBrowserMetricsBridge as a named binding. The
+// shaper and resolver factories come from the named exports of
+// canvas-shaping.js and canvas-metrics.js.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
 
 import type { WebFontFamiliesInstance } from "./canvas-fonts.js";
 import type { CanvasFontMetricsRequest } from "./canvas-metrics.js";
-import type { CanvasShapingEnv, CjkDashCapability, ShapeInput } from "./canvas-shaping.js";
+import type { CanvasShapingEnv, CjkDashCapability } from "./canvas-shaping.js";
+import { createMetricsResolver } from "./canvas-metrics.js";
+import { createTextShaper } from "./canvas-shaping.js";
 
 interface BridgeTextRange {
   start: number;
@@ -34,12 +34,6 @@ interface BridgeWireFontDecision {
 }
 
 type BridgeJsonWireFn = (requestJson: string) => string;
-
-type BridgeCreateInstanceFn = (options?: BrowserMetricsBridgeOptions) => BrowserMetricsBridgeInstance;
-
-interface BrowserMetricsBridgeGlobal {
-  createBrowserMetricsBridge: BridgeCreateInstanceFn;
-}
 
 export interface BridgeShapeWireRequest {
   text: string;
@@ -63,61 +57,48 @@ export interface BrowserMetricsBridgeInstance {
   metricsJson: BridgeJsonWireFn;
 }
 
-declare global {
-  var __TiqianBrowserMetricsBridge: BrowserMetricsBridgeGlobal;
-}
+/**
+ * Create a browser metrics bridge instance.
+ *
+ * @param {{ fonts: Object, cjkDashCapability: Object|null, env: { createCanvasContext: Function, createProbeElement: Function, attachProbe: Function } }} options
+ * @returns {{ shapeJson: (requestJson: string) => string, metricsJson: (requestJson: string) => string }}
+ */
+export function createBrowserMetricsBridge(options?: BrowserMetricsBridgeOptions): BrowserMetricsBridgeInstance {
+  const opts = options || {} as Partial<BrowserMetricsBridgeOptions>;
+  const fonts = opts.fonts!;
+  const cjkDashCapability = opts.cjkDashCapability != null ? opts.cjkDashCapability : null;
+  const env = opts.env || {} as CanvasShapingEnv;
 
-(function () {
-  if (globalThis.__TiqianBrowserMetricsBridge) return;
+  const shaper = createTextShaper(fonts, cjkDashCapability, env);
+  const resolver = createMetricsResolver(fonts, env.createCanvasContext);
 
-  /**
-   * Create a browser metrics bridge instance.
-   *
-   * @param {{ fonts: Object, cjkDashCapability: Object|null, env: { createCanvasContext: Function, createProbeElement: Function, attachProbe: Function } }} options
-   * @returns {{ shapeJson: (requestJson: string) => string, metricsJson: (requestJson: string) => string }}
-   */
-  function createBrowserMetricsBridge(options?: BrowserMetricsBridgeOptions): BrowserMetricsBridgeInstance {
-    var opts = options || {} as Partial<BrowserMetricsBridgeOptions>;
-    var fonts = opts.fonts!;
-    var cjkDashCapability = opts.cjkDashCapability != null ? opts.cjkDashCapability : null;
-    var env = opts.env || {} as CanvasShapingEnv;
-
-    var shaper = globalThis.__TiqianCanvasShaping.createTextShaper(fonts, cjkDashCapability, env);
-    var resolver = globalThis.__TiqianCanvasMetrics.createMetricsResolver(fonts, env.createCanvasContext);
-
-    function shapeJson(requestJson: string): string {
-      var wireInput = JSON.parse(requestJson) as BridgeShapeWireRequest;
-      var fontDecision = wireInput.fontDecision;
-      var shaperInput = {
-        text: wireInput.text,
-        range: wireInput.range,
-        style: wireInput.style,
-        fontDecision: {
-          role: fontDecision ? fontDecision.role : "",
-          candidate: {
-            key: fontDecision ? fontDecision.candidateKey : "",
-          },
+  function shapeJson(requestJson: string): string {
+    const wireInput = JSON.parse(requestJson) as BridgeShapeWireRequest;
+    const fontDecision = wireInput.fontDecision;
+    const shaperInput = {
+      text: wireInput.text,
+      range: wireInput.range,
+      style: wireInput.style,
+      fontDecision: {
+        role: fontDecision ? fontDecision.role : "",
+        candidate: {
+          key: fontDecision ? fontDecision.candidateKey : "",
         },
-        displayText: wireInput.displayText,
-      };
-      var result = shaper.shape(shaperInput);
-      return JSON.stringify(result);
-    }
-
-    function metricsJson(requestJson: string): string {
-      var request = JSON.parse(requestJson) as BridgeMetricsWireRequest;
-      var result = resolver.resolve(request);
-      return JSON.stringify(result);
-    }
-
-    return {
-      shapeJson: shapeJson,
-      metricsJson: metricsJson,
+      },
+      displayText: wireInput.displayText,
     };
+    const result = shaper.shape(shaperInput);
+    return JSON.stringify(result);
   }
 
-  globalThis.__TiqianBrowserMetricsBridge = {
-    createBrowserMetricsBridge: createBrowserMetricsBridge,
-  };
-})();
+  function metricsJson(requestJson: string): string {
+    const request = JSON.parse(requestJson) as BridgeMetricsWireRequest;
+    const result = resolver.resolve(request);
+    return JSON.stringify(result);
+  }
 
+  return {
+    shapeJson: shapeJson,
+    metricsJson: metricsJson,
+  };
+}
