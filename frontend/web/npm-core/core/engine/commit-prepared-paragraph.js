@@ -1,0 +1,356 @@
+// commitPreparedParagraph (TsHost runtime port, Slice 4c). Ports the two
+// paragraph layout COMMIT functions of the web host from
+// WebEnhancerParagraphPipeline.kt (commitWorkerPreparedParagraph, lines 266-313,
+// and commitPreparedParagraph, lines 500-583). The module mounts the rendered
+// prepared DOM, sets canonical-source and canonical-plain attributes, checks
+// validator verdicts, manages custody engine write suspensions, and handles
+// exact-session distrust retries.
+//
+// Plain script, no exports: running it installs
+// globalThis.__TiqianCommitPreparedParagraph. Two consumers share this file as
+// the single source of truth: the npm host (importing it for the side effect)
+// and the Kotlin runtime bundle, into which a future gradle bridge task will
+// embed this source verbatim. Double installation is guarded.
+//
+// Embedding constraint: the generator wraps this file in a Kotlin raw string,
+// so the source must contain no dollar sign and no triple double-quote
+// sequence. Use string concatenation, never template literals. The module is
+// self-contained: ffi and the measure/renderer/validator/custody globals are
+// injected by the caller or read from globalThis.
+
+(function () {
+  if (globalThis.__TiqianCommitPreparedParagraph) return;
+
+  var CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
+  var EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+
+  // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
+  // lowered-paragraph.js (line 110). True when all six styled collections are
+  // empty. The module cannot import the ESM function, so it carries an inline
+  // copy.
+  function isCanonicalPlain(lowered) {
+    return lowered.spans.length === 0 &&
+      lowered.decorations.length === 0 &&
+      lowered.inlineBoxes.length === 0 &&
+      lowered.inlineObjects.length === 0 &&
+      lowered.domInlineObjects.length === 0 &&
+      lowered.sourceSpans.length === 0;
+  }
+
+  // PreparedDomValidatorIsTestOnly: inline twin of validatePreparedParagraphDom
+  // in WebEnhancerSupport.kt. The validator global exists only in test worlds;
+  // an absent validator reports null and never throws.
+  function rendererIssue(host, width) {
+    var validator = globalThis.__TiqianPreparedDomValidator;
+    return (validator && typeof validator.issue === 'function')
+      ? validator.issue(host, width)
+      : null;
+  }
+
+  // ReleasePreparedParagraphDomStyles: inline twin of
+  // releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
+  // installed renderer. Callers ignore the return value.
+  function releasePreparedDomStyles(host) {
+    var renderer = globalThis.__TiqianPreparedDomRenderer;
+    return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
+  }
+
+  // CustodyEngineWriteSuspension: the prepared DOM bridge writes engine output
+  // into the live paragraph with plain element and text arguments, which the
+  // host custody forwarding overrides would otherwise redirect; the overrides
+  // run native while the counter is positive.
+  function engineWriteSuspension(host, fn) {
+    host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
+    try {
+      return fn();
+    } finally {
+      host.__tqCustodyEngineWrites -= 1;
+    }
+  }
+
+  // RenderPreparedWorkerParagraphDom: direct port of the
+  // renderPreparedWorkerParagraphDom @JsFun body in WebEnhancerSupport.kt.
+  function renderWorkerPrepared(
+    host,
+    recordJson,
+    locale,
+    sourceText,
+    semanticElements,
+    inlineObjectElements,
+    inlineObjectMetaJson,
+    cjkStrongSemanticsJson
+  ) {
+    var record = JSON.parse(recordJson);
+    var inlineObjects = Array.from(inlineObjectElements || []);
+    var meta = JSON.parse(inlineObjectMetaJson || '[]');
+    var inlineObjectsMetaPaired = meta.map(function (entry, index) {
+      return {
+        start: entry.start,
+        end: entry.end,
+        marginRight: entry.marginRight,
+        element: inlineObjects[index],
+      };
+    });
+    return engineWriteSuspension(host, function () {
+      return globalThis.__TiqianPreparedDomRenderer.render(
+        host,
+        record.plan,
+        locale,
+        {
+          sourceText: sourceText,
+          semanticReplay: record.semanticReplay || 'snapshot-safe',
+          semantics: record.semantics || [],
+          inlineBoxes: record.inlineBoxes || [],
+          liveSemanticElements: Array.from(semanticElements || []),
+          inlineObjects: inlineObjectsMetaPaired,
+          cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
+        }
+      );
+    });
+  }
+
+  // RenderPreparedParagraphDom: direct port of the renderPreparedParagraphDom
+  // @JsFun body in WebEnhancerSupport.kt.
+  function renderPrepared(
+    host,
+    planJson,
+    locale,
+    sourceText,
+    semanticElements,
+    semanticsJson,
+    inlineObjectElements,
+    inlineObjectMetaJson,
+    cjkStrongSemanticsJson
+  ) {
+    var semantics = Array.from(semanticElements || []);
+    var inlineObjects = Array.from(inlineObjectElements || []);
+    var hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
+    return engineWriteSuspension(host, function () {
+      var meta = JSON.parse(inlineObjectMetaJson || '[]');
+      var inlineObjectsMetaPaired = meta.map(function (entry, index) {
+        return {
+          start: entry.start,
+          end: entry.end,
+          marginRight: entry.marginRight,
+          element: inlineObjects[index],
+        };
+      });
+      var options = hasLiveSources ? {
+        sourceText: sourceText,
+        semanticReplay: 'live-source',
+        semantics: JSON.parse(semanticsJson || '[]'),
+        liveSemanticElements: semantics,
+        inlineObjects: inlineObjectsMetaPaired,
+        cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
+      } : undefined;
+      return globalThis.__TiqianPreparedDomRenderer.render(
+        host,
+        planJson,
+        locale,
+        options
+      );
+    });
+  }
+
+  /**
+   * Commit a worker-prepared paragraph to the DOM.
+   *
+   * @param {Object} argument
+   * @returns {Object|null}
+   */
+  function commitWorkerPreparedParagraph(argument) {
+    var paragraph = argument.paragraph;
+    var source = paragraph.source;
+    var lowered = paragraph.lowered;
+    var width = globalThis.__TiqianResponsiveMeasure.sourceParagraphWidth(source);
+
+    source.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, 'true');
+    source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
+
+    // CanonicalPlainMatchesRuntimeScope: the re-lowering treats a paragraph as
+    // a prepared plain host only when the paragraph shape really is plain.
+    // Inline-object paragraphs carry replacement characters the re-lowering
+    // must re-measure, so sourceSpans alone must not mark them plain.
+    if (isCanonicalPlain(lowered)) {
+      source.setAttribute('data-tq-canonical-plain', 'true');
+    } else {
+      source.removeAttribute('data-tq-canonical-plain');
+    }
+
+    source.setAttribute('lang', lowered.textStyle.locale);
+
+    var sourceSpansElements = lowered.sourceSpans.map(function (s) {
+      return s.element;
+    });
+    var domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
+      return s.element;
+    });
+
+    renderWorkerPrepared(
+      source,
+      argument.workerPlan,
+      lowered.textStyle.locale,
+      lowered.text,
+      sourceSpansElements,
+      domInlineObjectsElements,
+      argument.inlineObjectMetaJson,
+      argument.cjkStrongSemanticsJson
+    );
+
+    var preparedDomIssue = rendererIssue(source, width);
+    if (preparedDomIssue != null) {
+      if (typeof argument.onExactPreparedDomFallback === 'function') {
+        argument.onExactPreparedDomFallback(preparedDomIssue);
+      }
+      releasePreparedDomStyles(source);
+      source.removeAttribute(EXACT_PREPARED_DOM_ATTRIBUTE);
+      source.removeAttribute('data-tq-canonical-plain');
+      source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
+      source.removeAttribute('lang');
+      return {
+        kind: 'unsupported',
+        name: 'WorkerPreparedDomContractMismatch',
+        detail: preparedDomIssue,
+        element: source,
+      };
+    }
+
+    // WorkerCommitRecordsMeasure: cache the effective line measure computed from
+    // the measured width and the paragraph font size.
+    paragraph.lastMeasure = globalThis.__TiqianResponsiveMeasure.effectiveLineMeasure(
+      width,
+      lowered.textStyle.fontSize
+    );
+    globalThis.__TiqianCustody.stampRendered(source);
+    return null;
+  }
+
+  /**
+   * Commit a direct prepared paragraph layout result to the DOM.
+   *
+   * @param {Object} argument
+   * @returns {Object}
+   */
+  function commitPreparedParagraph(argument) {
+    var paragraph = argument.paragraph;
+    var preparation = argument.preparation;
+    var source = paragraph.source;
+    var lowered = paragraph.lowered;
+
+    // PreparedPlainHostPromise: canonical-plain promises the re-lowerer a
+    // prepared plain host, so a rich prepared paragraph only carries
+    // canonical-source and re-lowers through its live clones.
+    if (isCanonicalPlain(lowered)) {
+      source.setAttribute('data-tq-canonical-plain', 'true');
+    }
+    source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
+    source.setAttribute('lang', lowered.textStyle.locale);
+
+    var sourceSpansElements = lowered.sourceSpans.map(function (s) {
+      return s.element;
+    });
+    var domInlineObjectsElements = lowered.domInlineObjects.map(function (s) {
+      return s.element;
+    });
+
+    // Kotlin re-serializes its LayoutResult via toPreparedParagraphJson with
+    // renderEvidence = !isCanonicalPlainParagraph(); the TS prepare step passes
+    // the same six-collection verdict as the render-evidence override, so
+    // preparation.planJson is already the byte-equivalent wire form and is used
+    // directly.
+    renderPrepared(
+      source,
+      preparation.planJson,
+      lowered.textStyle.locale,
+      lowered.text,
+      sourceSpansElements,
+      argument.semanticReplayJson,
+      domInlineObjectsElements,
+      argument.inlineObjectMetaJson,
+      argument.cjkStrongSemanticsJson
+    );
+
+    var preparedDomIssue = rendererIssue(source, preparation.width);
+    if (preparedDomIssue == null) {
+      globalThis.__TiqianCustody.stampRendered(source);
+      return {
+        kind: 'success',
+        measure: preparation.measure,
+      };
+    }
+
+    if (typeof argument.onExactPreparedDomFallback === 'function') {
+      argument.onExactPreparedDomFallback(preparedDomIssue);
+    }
+    releasePreparedDomStyles(source);
+    source.removeAttribute('data-tq-canonical-plain');
+    source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
+    source.removeAttribute('lang');
+
+    if (preparation.exactFontSessionUsed && argument.browserFallback != null) {
+      // ExactSessionMetricDistrust: the replay failed geometry validation
+      // against a result shaped by the exact session, so re-lay the paragraph
+      // out with browser metrics and replay it through the prepared bridge once
+      // more; the per-paragraph validator still guards that second render.
+      var fallbackOptions = {};
+      for (var key in argument.options) {
+        if (Object.prototype.hasOwnProperty.call(argument.options, key)) {
+          fallbackOptions[key] = argument.options[key];
+        }
+      }
+      fallbackOptions.exactFontSession = null;
+
+      var fallbackPreparation = globalThis.__TiqianPrepareParagraphLayout.prepareParagraphLayout(
+        argument.ffi,
+        {
+          paragraph: paragraph,
+          options: fallbackOptions,
+          exactSession: null,
+          browserFallback: argument.browserFallback,
+          widthOverride: preparation.width,
+          ignoreUnchangedMeasure: true,
+        }
+      );
+
+      switch (fallbackPreparation.kind) {
+        case 'unchanged':
+          throw new Error('Exact prepared DOM fallback unexpectedly skipped relayout');
+        case 'unsupported':
+          return {
+            kind: 'unsupported',
+            name: fallbackPreparation.name,
+            detail: fallbackPreparation.detail,
+            element: fallbackPreparation.element,
+          };
+        case 'ready':
+          return commitPreparedParagraph({
+            ffi: argument.ffi,
+            paragraph: paragraph,
+            preparation: fallbackPreparation,
+            options: fallbackOptions,
+            browserFallback: null,
+            onExactPreparedDomFallback: argument.onExactPreparedDomFallback,
+            semanticReplayJson: argument.semanticReplayJson,
+            inlineObjectMetaJson: argument.inlineObjectMetaJson,
+            cjkStrongSemanticsJson: argument.cjkStrongSemanticsJson,
+          });
+      }
+    }
+
+    // PreparedDomRenderMismatch: the bridge disagreed with a result the browser
+    // itself measured, so no re-layout can repair the replay. There is no second
+    // renderer to fall back to; the paragraph fails closed and the caller
+    // restores its source.
+    return {
+      kind: 'unsupported',
+      name: 'PreparedDomRenderMismatch',
+      detail: preparedDomIssue,
+      element: source,
+    };
+  }
+
+  globalThis.__TiqianCommitPreparedParagraph = {
+    commitWorkerPreparedParagraph: commitWorkerPreparedParagraph,
+    commitPreparedParagraph: commitPreparedParagraph,
+  };
+})();
