@@ -227,7 +227,7 @@ function selectMetadataFace(
     }
   }
   throw new Error(
-    `NoExactFontFace:families=${style.fontFamilies.join(",")};` +
+    `NoSnapshotFontFace:families=${style.fontFamilies.join(",")};` +
     `weight=${style.fontWeight};italic=${style.italic};text=${JSON.stringify(point)}`,
   );
 }

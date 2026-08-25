@@ -139,10 +139,10 @@ interface PrepareParagraphLayoutInvocation {
   // that mark an snapshot-session layout failure as a font capability issue,
   // after which the whole paragraph retries through the browser bridge.
   const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
-    'NoExactFontFace',
+    'NoSnapshotFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
-    'NoExactMetricFace',
+    'NoSnapshotMetricFace',
     'NonUniformUnicodeRangeMetrics',
   ];
 

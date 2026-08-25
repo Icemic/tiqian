@@ -169,7 +169,7 @@ fn metadata_face_identity(face: &MetadataFace) -> String {
 
 /// `selectMetadataFace`: family, style, then CSS weight rank, then the later
 /// `@font-face` rule for overlapping unicode-range coverage. A point outside
-/// every declared range is a `NoExactFontFace` miss.
+/// every declared range is a `NoSnapshotFontFace` miss.
 fn select_metadata_face<'a>(
     faces: &'a [MetadataFace],
     style: &BoundaryStyle,
@@ -470,7 +470,7 @@ mod tests {
         let request = request("B", "MiSans VF", "");
         assert_eq!(
             worker_exact_subset_source_boundaries(&faces, &request).unwrap_err(),
-            "NoExactFontFace:families=MiSans VF;weight=460;italic=false;text=\"B\""
+            "NoSnapshotFontFace:families=MiSans VF;weight=460;italic=false;text=\"B\""
         );
     }
 

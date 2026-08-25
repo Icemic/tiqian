@@ -12,7 +12,7 @@ use crate::json::json_string;
 use crate::shaping::FontEngine;
 use crate::NamedError;
 
-/// `NoExactFontFace:families=...;weight=...;italic=...;text=...`
+/// `NoSnapshotFontFace:families=...;weight=...;italic=...;text=...`
 pub fn no_exact_font_face_message(
     families: &[String],
     weight: f64,
@@ -20,7 +20,7 @@ pub fn no_exact_font_face_message(
     text: &str,
 ) -> String {
     format!(
-        "NoExactFontFace:families={};weight={};italic={};text={}",
+        "NoSnapshotFontFace:families={};weight={};italic={};text={}",
         families.join(","),
         js_number_string(weight),
         italic,
@@ -107,7 +107,7 @@ pub fn find_face<'a>(
     Ok(None)
 }
 
-/// `selectFace`: `findFace` with the `NoExactFontFace` throw on a miss.
+/// `selectFace`: `findFace` with the `NoSnapshotFontFace` throw on a miss.
 pub fn select_face<'a>(
     records: &'a [Arc<FontRecord>],
     families: &[String],
@@ -175,7 +175,7 @@ pub fn render_families(
     }
     if result.is_empty() {
         return Err(format!(
-            "NoExactRenderFontFamily:families={}",
+            "NoSnapshotRenderFontFamily:families={}",
             requested_families.join(",")
         ));
     }

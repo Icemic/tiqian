@@ -3289,7 +3289,7 @@ export function installPreparedRendererFixture() {
 // entry per request from the replay key itself. Synthesis keeps the old
 // fixture geometry: one glyph per code point at advance 1em, bounds
 // [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
-// [1, 0.25, 0, 0.88, 0.12]em, and the NoExactFontFace failure injections.
+// [1, 0.25, 0, 0.88, 0.12]em, and the NoSnapshotFontFace failure injections.
 export function installSnapshotFontSessionFixture({
   failShaping = false,
   failFamily = null,
@@ -3310,7 +3310,7 @@ export function installSnapshotFontSessionFixture({
       const [displayText, serializedFamilies] = JSON.parse(key);
       if (shapeFailure(displayText, serializedFamilies)) {
         globalThis.__TiqianSnapshotFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
+        throw new Error("NoSnapshotFontFace:test");
       }
       globalThis.__TiqianSnapshotFontShapeCount += 1;
       const glyphs = [];
@@ -3349,7 +3349,7 @@ export function installSnapshotFontSessionFixture({
       const [serializedFamilies] = JSON.parse(key);
       if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
         globalThis.__TiqianSnapshotFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
+        throw new Error("NoSnapshotFontFace:test");
       }
       return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
     }

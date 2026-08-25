@@ -24,9 +24,9 @@ const FIELD_SEPARATOR: char = '\u{001d}';
 /// Issues the paragraph pipeline reports as capability limits instead of
 /// crashes; the order is the js classification order.
 pub const PARAGRAPH_CAPABILITY_ISSUES: &[&str] = &[
-    "NoExactFontFace",
+    "NoSnapshotFontFace",
     "MissingGlyph",
-    "NoExactMetricFace",
+    "NoSnapshotMetricFace",
     "NonUniformUnicodeRangeMetrics",
     "MissingShapingFontEvidence",
     "EmptyParagraph",
@@ -794,8 +794,8 @@ mod tests {
             Some("MissingGlyph")
         );
         assert_eq!(
-            paragraph_capability_issue("engine reports NoExactMetricFace at 3"),
-            Some("NoExactMetricFace")
+            paragraph_capability_issue("engine reports NoSnapshotMetricFace at 3"),
+            Some("NoSnapshotMetricFace")
         );
         assert_eq!(paragraph_capability_issue("some other failure"), None);
         // The message contains two issues; the earlier list entry wins.

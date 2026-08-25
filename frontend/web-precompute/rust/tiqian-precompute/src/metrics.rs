@@ -40,7 +40,7 @@ pub fn select_metrics_face<'a>(
             .next()
             .ok_or_else(|| {
                 format!(
-                    "NoExactMetricFace:families={};weight={};italic={}",
+                    "NoSnapshotMetricFace:families={};weight={};italic={}",
                     families.join(","),
                     js_number_string(font_weight),
                     italic
