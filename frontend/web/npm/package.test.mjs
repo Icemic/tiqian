@@ -495,7 +495,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /disconnectedCallback\(\)[\s\S]*?\+\+this\.#generation[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
+    /disconnectedCallback\(\)[\s\S]*?this\.#context.beginEnhanceCycle\(\)[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
   );
   assert.match(stylesSource, /\[data-tq-geometry="true"\]::before/u);
   assert.match(stylesSource, /\[data-tq-rendered="true"\]::before,[\s\S]*?content: none !important/u);

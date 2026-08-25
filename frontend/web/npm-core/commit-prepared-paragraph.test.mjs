@@ -1,3 +1,4 @@
+import { getOrCreateEnhanceContext } from "./core/engine/context/enhance-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -66,7 +67,7 @@ function withEnv(fn, overrides = {}) {
             plan,
             locale,
             options,
-            rawDomCounterDuringRender: host.__tqRawDomEngineWrites,
+            rawDomCounterDuringRender: getOrCreateEnhanceContext(host).rawDomParagraphs.get(host)?.engineWriteDepth,
           });
         },
         release: (host) => {
@@ -159,6 +160,20 @@ function installFakeRawDom(overrides = {}) {
       if (overrides.stampRendered) overrides.stampRendered(el);
     },
     stamped,
+    suspendEngineWrites: (source, action) => {
+      const context = getOrCreateEnhanceContext(source);
+      let record = context.rawDomParagraphs.get(source);
+      if (!record) {
+        record = { fragment: null, engineWriteDepth: 0, forwarding: false };
+        context.rawDomParagraphs.set(source, record);
+      }
+      record.engineWriteDepth += 1;
+      try {
+        return action();
+      } finally {
+        record.engineWriteDepth -= 1;
+      }
+    },
   };
 }
 
@@ -259,7 +274,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(renderCall.plan, record.plan);
     assert.equal(renderCall.locale, "zh-Hans");
     assert.equal(renderCall.rawDomCounterDuringRender, 1);
-    assert.equal(paragraph.source.__tqRawDomEngineWrites, 0);
+    assert.equal(getOrCreateEnhanceContext(paragraph.source).rawDomParagraphs.get(paragraph.source)?.engineWriteDepth, 0);
 
     assert.deepEqual(renderCall.options, {
       sourceText: "hello world",

@@ -108,7 +108,7 @@ function withPreparedBridge(fn, overrides = {}) {
 test("1. unchanged verdict: no rawDom call, no state change", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: (...args) => {
       captureLiveCalls.push(args);
       return { snap: true };
@@ -137,7 +137,7 @@ test("1. unchanged verdict: no rawDom call, no state change", () => {
 test("2. unsupported verdict: captureLive + restoreParagraph called, finish() removes the paragraph from state.paragraphs, pushes the issue, reports it", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: (source, lastMeasure) => {
       captureLiveCalls.push({ source, lastMeasure });
       return { source, snapshot: true };
@@ -184,7 +184,7 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, rawDom.
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
   const stampRenderedCalls = [];
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: (...args) => {
       captureLiveCalls.push(args);
       return { snap: true };
@@ -223,7 +223,7 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, rawDom.
 
 test("4. ready + commit unsupported: real validator rejects, restoreParagraph called, finish() removes and reports", () => {
   const restoreParagraphCalls = [];
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: () => ({ snap: true }),
     restoreParagraph: (source) => {
       restoreParagraphCalls.push(source);
@@ -260,7 +260,7 @@ test("4. ready + commit unsupported: real validator rejects, restoreParagraph ca
 
 test("5. ready path passes the exact metadata JSON strings to the prepared-DOM renderer (assert captured render options)", () => {
   const renderCalls = [];
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: () => ({ snap: true }),
     restoreParagraph: () => {},
     stampRendered: () => {},
@@ -337,7 +337,7 @@ test("5. ready path passes the exact metadata JSON strings to the prepared-DOM r
 
 test("6. rollback(): state lists restored to before, rawDom.rollback receives the captured snapshots in insertion order, lastMeasure patched from a result", () => {
   let rollbackSnapshots = null;
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: (source, lastMeasure) => ({ source, lastMeasure, snapshot: true }),
     restoreParagraph: () => {},
     stampRendered: () => {},
@@ -389,7 +389,7 @@ test("6. rollback(): state lists restored to before, rawDom.rollback receives th
 
 test("7. rollback() with a result whose source is not in the session paragraphs: skipped without throwing", () => {
   const unknownElement = makeElement();
-  const rawDom = {
+  const rawDom = { suspendEngineWrites: (s, a) => a(),
     captureLive: (source, lastMeasure) => ({ source, lastMeasure, snapshot: true }),
     restoreParagraph: () => {},
     rollback: () => [

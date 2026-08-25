@@ -3,13 +3,13 @@
 // WebEnhancerParagraphPipeline.kt (commitWorkerPreparedParagraph, lines 266-313,
 // and commitPreparedParagraph, lines 500-583). The module mounts the rendered
 // prepared DOM, sets canonical-source and canonical-plain attributes, checks
-// validator verdicts, manages detached-fragment backup engine write suspensions, and handles
+// validator verdicts, manages rawDom engine write suspensions, and handles
 // exact-session distrust retries.
 //
 // Stateless module: commitWorkerPreparedParagraph(rawDom, argument) and
 // commitPreparedParagraph(rawDom, argument) are named functions that receive
 // the raw-DOM collaborator as an explicit first parameter. Consumers import
-// the functions directly; tests call the functions with a fake detached-fragment backup.
+// the functions directly; tests call the functions with a fake rawDom.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -73,12 +73,6 @@ interface CommitPreparedParagraphArgument {
 // parameter. Consumers import the functions directly; the engine bootstrap
 // passes the single shared raw-DOM instance.
 
-interface CommitRawDomEngineWritesHost {
-  __tqRawDomEngineWrites?: number;
-}
-
-type CommitEngineWriteSuspensionFn = () => unknown;
-
 const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
 const EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
 
@@ -113,22 +107,10 @@ function releasePreparedDomStyles(host: Element): boolean {
   return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
 }
 
-// RawDomEngineWriteSuspension: the prepared DOM bridge writes engine output
-// into the live paragraph with plain element and text arguments, which the
-// host detached-fragment backup forwarding overrides would otherwise redirect; the overrides
-// run native while the counter is positive.
-function rawDomEngineWriteSuspension(host: Element & CommitRawDomEngineWritesHost, fn: CommitEngineWriteSuspensionFn): unknown {
-  host.__tqRawDomEngineWrites = (host.__tqRawDomEngineWrites || 0) + 1;
-  try {
-    return fn();
-  } finally {
-    host.__tqRawDomEngineWrites -= 1;
-  }
-}
-
 // RenderPreparedWorkerParagraphDom: direct port of the
 // renderPreparedWorkerParagraphDom @JsFun body in WebEnhancerSupport.kt.
 function renderWorkerPrepared(
+  rawDom: RawDomApi,
   host: Element,
   recordJson: string,
   locale: string,
@@ -149,7 +131,7 @@ function renderWorkerPrepared(
       element: inlineObjects[index],
     };
   });
-  return rawDomEngineWriteSuspension(host, function () {
+  return rawDom.suspendEngineWrites(host, function () {
     return globalThis.__TiqianPreparedDomRenderer!.render(
       host,
       record.plan,
@@ -170,6 +152,7 @@ function renderWorkerPrepared(
 // RenderPreparedParagraphDom: direct port of the renderPreparedParagraphDom
 // @JsFun body in WebEnhancerSupport.kt.
 function renderPrepared(
+  rawDom: RawDomApi,
   host: Element,
   planJson: string,
   locale: string,
@@ -183,7 +166,7 @@ function renderPrepared(
   const semantics = Array.from(semanticElements || []);
   const inlineObjects = Array.from(inlineObjectElements || []);
   const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
-  return rawDomEngineWriteSuspension(host, function () {
+  return rawDom.suspendEngineWrites(host, function () {
     const meta = JSON.parse(inlineObjectMetaJson || '[]');
     const inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
       return {
@@ -213,7 +196,7 @@ function renderPrepared(
 /**
  * Commit a worker-prepared paragraph to the DOM.
  *
- * @param {Object} detached-fragment backup
+ * @param {Object} rawDom
  * @param {Object} argument
  * @returns {Object|null}
  */
@@ -246,6 +229,7 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
   });
 
   renderWorkerPrepared(
+    rawDom,
     source,
     argument.workerPlan,
     lowered.textStyle.locale,
@@ -287,7 +271,7 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
 /**
  * Commit a direct prepared paragraph layout result to the DOM.
  *
- * @param {Object} detached-fragment backup
+ * @param {Object} rawDom
  * @param {Object} argument
  * @returns {Object}
  */
@@ -319,6 +303,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
   // preparation.planJson is already the byte-equivalent wire form and is used
   // directly.
   renderPrepared(
+    rawDom,
     source,
     preparation.planJson!,
     lowered.textStyle.locale,

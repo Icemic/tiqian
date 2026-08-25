@@ -48,9 +48,6 @@ type RawDomParagraphElement = Omit<
   Element,
   "removeChild" | "insertBefore" | "replaceChild" | "appendChild"
 > & {
-  __tqRawDomFragment: DocumentFragment;
-  __tqRawDomForwarding: boolean;
-  __tqRawDomEngineWrites: number;
   removeChild: RawDomRemoveChildFn;
   insertBefore: RawDomInsertBeforeFn;
   replaceChild: RawDomReplaceChildFn;
@@ -108,6 +105,8 @@ type RawDomRollbackFn = (snapshots: RawDomSnapshot[]) => RawDomRollbackResult[];
 type RawDomRestoreParagraphFn = (source: Element) => void;
 type RawDomRestoreShellFn = (source: HTMLElement) => void;
 type RawDomEnsureContainingBlockFn = (source: HTMLElement) => void;
+type RawDomSuspendEngineWritesActionFn<T> = () => T;
+type RawDomSuspendEngineWritesFn = <T>(source: Element, action: RawDomSuspendEngineWritesActionFn<T>) => T;
 
 export type RawDomApi = {
   begin: RawDomBeginFn;
@@ -121,6 +120,7 @@ export type RawDomApi = {
   restoreParagraph: RawDomRestoreParagraphFn;
   restoreShell: RawDomRestoreShellFn;
   ensureContainingBlock: RawDomEnsureContainingBlockFn;
+  suspendEngineWrites: RawDomSuspendEngineWritesFn;
 };
 
 const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
@@ -146,74 +146,17 @@ function restoreAttribute(element: Element, name: string, value: string | null):
   }
 }
 
-function stampRawDomContent(state: RawDomState, source: Element): void {
-  state.rawDomNodes = liveChildNodes(state.originalContent as DocumentFragment);
-  (source as RawDomParagraphElement).__tqRawDomFragment = state.originalContent as DocumentFragment;
-  installRawDomCommitForwarding(source as RawDomParagraphElement);
-}
-
 function stampRenderedContent(state: RawDomState, source: Element): void {
   state.renderedNodes = liveChildNodes(source);
 }
 
-// RawDomAnchoredCommitForwarding: host frameworks keep node references
-// and commit edits through the paragraph's own mutation methods while the
-// semantic source lives in raw-DOM backup. Redirect those calls into the published
-// fragment unless the engine itself is writing (__tqRawDomEngineWrites
-// above zero). The overrides read the published fragment at call time, so
-// a re-take with a fresh fragment needs no re-install. An empty fragment
-// means the paragraph is not under raw-DOM backup and every branch falls through
-// to native.
-function installRawDomCommitForwarding(paragraph: RawDomParagraphElement): void {
-  if (paragraph.__tqRawDomForwarding) {
-    return;
-  }
-  const nativeRemoveChild = Node.prototype.removeChild;
-  const nativeInsertBefore = Node.prototype.insertBefore;
-  const nativeReplaceChild = Node.prototype.replaceChild;
-  const nativeAppendChild = Node.prototype.appendChild;
-  const activeRawDom = function (): DocumentFragment | null {
-    const fragment = paragraph.__tqRawDomFragment;
-    return fragment && fragment.childNodes.length > 0 ? fragment : null;
-  };
-  const heldInRawDom = function (node: Node | null): boolean {
-    const fragment = paragraph.__tqRawDomFragment;
-    return !!fragment && !!node && node.parentNode === fragment;
-  };
-  const engineWriting = function (): boolean {
-    return paragraph.__tqRawDomEngineWrites > 0;
-  };
-  paragraph.removeChild = function (child: Node): Node {
-    if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
-    if (heldInRawDom(child)) return paragraph.__tqRawDomFragment.removeChild(child);
-    return nativeRemoveChild.call(paragraph, child);
-  };
-  paragraph.insertBefore = function (node: Node, ref: Node | null): Node {
-    if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
-    if (heldInRawDom(ref)) return paragraph.__tqRawDomFragment.insertBefore(node, ref);
-    if (!ref && node && node.nodeType !== 11) {
-      const fragment = activeRawDom();
-      if (fragment) return fragment.appendChild(node);
-    }
-    return nativeInsertBefore.call(paragraph, node, ref);
-  };
-  paragraph.replaceChild = function (next: Node, prev: Node): Node {
-    if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
-    if (heldInRawDom(prev)) return paragraph.__tqRawDomFragment.replaceChild(next, prev);
-    return nativeReplaceChild.call(paragraph, next, prev);
-  };
-  paragraph.appendChild = function (node: Node): Node {
-    if (engineWriting()) return nativeAppendChild.call(paragraph, node);
-    if (node && node.nodeType !== 11) {
-      const fragment = activeRawDom();
-      if (fragment) return fragment.appendChild(node);
-    }
-    return nativeAppendChild.call(paragraph, node);
-  };
-  paragraph.__tqRawDomForwarding = true;
+type GetEnhanceContextFn = (element: Element) => import("./context/enhance-context.js").EnhancedElementContext;
+
+export interface RawDomDeps {
+  getEnhanceContext: GetEnhanceContextFn;
 }
 
-export function deriveRawDom(): RawDomApi {
+export function deriveRawDom(deps: RawDomDeps): RawDomApi {
   // Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
   // collected together with its state.
   const states = new WeakMap<Element, RawDomState>();
@@ -224,6 +167,72 @@ export function deriveRawDom(): RawDomApi {
       throw new Error("rawDom state missing for paragraph");
     }
     return state;
+  }
+
+  function recordOf(source: Element) {
+    const table = deps.getEnhanceContext(source).rawDomParagraphs;
+    let record = table.get(source);
+    if (!record) {
+      record = { fragment: null, engineWriteDepth: 0, forwarding: false };
+      table.set(source, record);
+    }
+    return record;
+  }
+
+  function stampRawDomContent(state: RawDomState, source: Element): void {
+    state.rawDomNodes = liveChildNodes(state.originalContent as DocumentFragment);
+    const record = recordOf(source);
+    record.fragment = state.originalContent as DocumentFragment;
+    installRawDomCommitForwarding(source, record);
+  }
+
+  function installRawDomCommitForwarding(paragraph: Element, record: import("./context/enhance-context.js").RawDomParagraphRecord): void {
+    if (record.forwarding) {
+      return;
+    }
+    const nativeRemoveChild = Node.prototype.removeChild;
+    const nativeInsertBefore = Node.prototype.insertBefore;
+    const nativeReplaceChild = Node.prototype.replaceChild;
+    const nativeAppendChild = Node.prototype.appendChild;
+    const activeRawDom = function (): DocumentFragment | null {
+      const fragment = record.fragment;
+      return fragment && fragment.childNodes.length > 0 ? fragment : null;
+    };
+    const heldInRawDom = function (node: Node | null): boolean {
+      const fragment = record.fragment;
+      return !!fragment && !!node && node.parentNode === fragment;
+    };
+    const engineWriting = function (): boolean {
+      return record.engineWriteDepth > 0;
+    };
+    paragraph.removeChild = function <T extends Node>(child: T): T {
+      if (engineWriting()) return nativeRemoveChild.call(paragraph, child) as T;
+      if (heldInRawDom(child)) return record.fragment!.removeChild(child) as T;
+      return nativeRemoveChild.call(paragraph, child) as T;
+    };
+    paragraph.insertBefore = function <T extends Node>(node: T, ref: Node | null): T {
+      if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref) as T;
+      if (heldInRawDom(ref)) return record.fragment!.insertBefore(node, ref) as T;
+      if (!ref && node && node.nodeType !== 11) {
+        const fragment = activeRawDom();
+        if (fragment) return fragment.appendChild(node) as T;
+      }
+      return nativeInsertBefore.call(paragraph, node, ref) as T;
+    };
+    paragraph.replaceChild = function <T extends Node>(next: Node, prev: T): T {
+      if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev) as T;
+      if (heldInRawDom(prev)) return record.fragment!.replaceChild(next, prev) as T;
+      return nativeReplaceChild.call(paragraph, next, prev) as T;
+    };
+    paragraph.appendChild = function <T extends Node>(node: T): T {
+      if (engineWriting()) return nativeAppendChild.call(paragraph, node) as T;
+      if (node && node.nodeType !== 11) {
+        const fragment = activeRawDom();
+        if (fragment) return fragment.appendChild(node) as T;
+      }
+      return nativeAppendChild.call(paragraph, node) as T;
+    };
+    record.forwarding = true;
   }
 
   // Captures every host-owned attribute and inline style entry the engine may
@@ -477,6 +486,16 @@ export function deriveRawDom(): RawDomApi {
     state.containingBlockApplied = true;
   }
 
+  function suspendEngineWrites<T>(source: Element, action: RawDomSuspendEngineWritesActionFn<T>): T {
+    const record = recordOf(source);
+    record.engineWriteDepth = (record.engineWriteDepth || 0) + 1;
+    try {
+      return action();
+    } finally {
+      record.engineWriteDepth -= 1;
+    }
+  }
+
   return {
     begin: begin,
     take: take,
@@ -489,5 +508,6 @@ export function deriveRawDom(): RawDomApi {
     restoreParagraph: restoreParagraph,
     restoreShell: restoreShell,
     ensureContainingBlock: ensureContainingBlock,
+    suspendEngineWrites: suspendEngineWrites,
   };
 }

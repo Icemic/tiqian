@@ -18,6 +18,12 @@
 
 import type { ExactFontSessionEntry } from "../exact-font.js";
 
+export interface RawDomParagraphRecord {
+  fragment: DocumentFragment | null;  // detached original children
+  engineWriteDepth: number;           // host engine-write suspension counter
+  forwarding: boolean;                // commit-forwarding installed flag
+}
+
 interface ExactFontSessionState {
   entry: ExactFontSessionEntry | null;
 }
@@ -26,6 +32,7 @@ interface EnhancedElementContext {
   readonly element: Element;
   readonly generation: number;
   readonly exactFontSession: ExactFontSessionState;
+  readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
   beginEnhanceCycle(): number;
 }
 
@@ -39,6 +46,7 @@ function getContextForElement(element: Element): EnhancedElementContext | undefi
 function createEnhanceContext(element: Element): EnhancedElementContext {
   let generation = 0;
   const exactFontSession: ExactFontSessionState = { entry: null };
+  const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
 
   const context: EnhancedElementContext = {
     element,
@@ -46,6 +54,7 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
       return generation;
     },
     exactFontSession,
+    rawDomParagraphs,
     beginEnhanceCycle() {
       generation += 1;
       return generation;
@@ -56,5 +65,13 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
   return context;
 }
 
-export { createEnhanceContext, getContextForElement };
+function getOrCreateEnhanceContext(element: Element): EnhancedElementContext {
+  let context = elementContexts.get(element);
+  if (!context) {
+    context = createEnhanceContext(element);
+  }
+  return context;
+}
+
+export { createEnhanceContext, getContextForElement, getOrCreateEnhanceContext };
 export type { EnhancedElementContext, ExactFontSessionState };

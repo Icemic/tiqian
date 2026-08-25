@@ -255,12 +255,17 @@ function makeFakeRawDom(overrides = {}) {
     begin: [],
     take: [],
     commit: [],
+    suspendEngineWrites: [],
   };
   return {
     _calls: calls,
     restoreParagraph: function (el) { calls.restoreParagraph.push(el); },
     restoreShell: function (el) { calls.restoreShell.push(el); },
     stampRendered: function (el) { calls.stampRendered.push(el); },
+    suspendEngineWrites: function (el, action) {
+      calls.suspendEngineWrites.push(el);
+      return action();
+    },
     renderedMatches: function (el) {
       calls.renderedMatches.push(el);
       return overrides.renderedMatches ? overrides.renderedMatches(el) : true;

@@ -158,13 +158,12 @@ export function createViewportResizeInvalidationSource(handlers: ViewportResizeI
   };
 }
 
+type GetRawDomParagraphsFn = () => Iterable<[Element, import("../engine/context/enhance-context.js").RawDomParagraphRecord]>;
+
 export interface ContentInvalidationHandlers {
   belongsToRootScope: RootScopeMembershipCallback;
   onRecords: MutationRecordsCallback;
-}
-
-export interface ParagraphWithRawDomFragment extends Element {
-  __tqRawDomFragment?: DocumentFragment;
+  getRawDomParagraphs: GetRawDomParagraphsFn;
 }
 
 export interface ContentInvalidationSource {
@@ -180,7 +179,7 @@ export function createContentInvalidationSource(root: Element, handlers: Content
   let observer: MutationObserver | null = null;
   const rawDomTargets = new Map<DocumentFragment, Element>();
 
-  // Attribution for a record under a detached-fragment backup fragment: walk up to the
+  // Attribution for a record under a raw-DOM backup fragment: walk up to the
   // enclosing detached fragment and map it back to its live paragraph. Live
   // nodes never reach a DocumentFragment ancestor, so the walk is safe there.
   function paragraphFor(node: Node) {
@@ -197,21 +196,17 @@ export function createContentInvalidationSource(root: Element, handlers: Content
   // RawDomFragmentObservation: takeover moves the host's semantic children
   // into a detached fragment the engine holds. Frameworks keep references to
   // those original nodes (React's text update writes .data on them), so host
-  // edits land inside detached-fragment backup where the live-DOM subtree never sees them.
+  // edits land inside the raw-DOM backup where the live-DOM subtree never sees them.
   // Kotlin publishes the current fragment on each rendered paragraph; observe
   // every tracked fragment alongside the root. Re-lowering creates a fresh
   // fragment, so diff the desired set at every job boundary and re-target the
   // observer only when it changed.
   function syncRawDom() {
     const desired = new Map<DocumentFragment, Element>();
-    const paragraphs = root.querySelectorAll(
-      `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
-    );
-    for (let i = 0; i < paragraphs.length; i++) {
-      const paragraph = paragraphs[i];
+    for (const [paragraph, record] of handlers.getRawDomParagraphs()) {
+      if (paragraph.getAttribute("data-tq-rendered") !== "true") continue;
       if (!handlers.belongsToRootScope(paragraph, root)) continue;
-      const fragment = (paragraph as ParagraphWithRawDomFragment).__tqRawDomFragment;
-      if (fragment) desired.set(fragment, paragraph);
+      if (record.fragment) desired.set(record.fragment, paragraph);
     }
     let unchanged = desired.size === rawDomTargets.size;
     if (unchanged) {
@@ -272,7 +267,7 @@ export interface ContentMutationClassification {
 }
 
 // Stateless per-record classification for the content invalidation source.
-// The element supplies the detached-fragment backup attribution, the root-scope membership
+// The element supplies the raw-DOM backup attribution, the root-scope membership
 // test and the root; everything here is a pure decision over the records.
 export function classifyContentMutationRecords(
   records: MutationRecord[],
@@ -293,10 +288,10 @@ export function classifyContentMutationRecords(
     const rawDomParagraph = context.rawDomParagraphFor(record.target);
     if (rawDomParagraph) {
       // RawDomCharacterDataIsHostCertain: the engine only moves whole
-      // nodes in and out of detached-fragment backup and never rewrites text inside it, so
+      // nodes in and out of the raw-DOM backup and never rewrites text inside it, so
       // a characterData record there is a framework editing the original
       // node it still holds. Taint directly. A childList record may be the
-      // engine's own re-take or rollback refill; the detached-fragment backup identity
+      // engine's own re-take or rollback refill; the raw-DOM backup identity
       // check in the probe tells them apart, so it only raises the flag.
       if (record.type === "characterData") taintedParagraphs.push(rawDomParagraph);
       paragraphSignal = true;

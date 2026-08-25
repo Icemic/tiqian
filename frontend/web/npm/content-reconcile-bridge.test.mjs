@@ -1,7 +1,7 @@
 // Unit tests for the content-reconcile engine module behind ts-runtime.
 // npm-core/core/engine/content-reconcile.js exports the four named functions;
 // these tests call them with a real deriveRawDom() instance and drive the
-// detached-fragment backup graph directly, so no full runtime boot is required.
+// raw-DOM backup graph directly, so no full runtime boot is required.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -13,11 +13,12 @@ import {
   stripEngineMarkupFromStrandedParagraph,
 } from "@tiqian/prose-core/core/engine/content-reconcile.js";
 import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
+import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
-const rawDom = deriveRawDom();
+const rawDom = deriveRawDom({ getEnhanceContext: getOrCreateEnhanceContext });
 
 // Move a mounted paragraph into the enhanced state: take the host children
-// into detached-fragment backup, publish the fragment, write one engine-owned rendered child
+// into the raw-DOM backup, publish the fragment, write one engine-owned rendered child
 // (through the engine-write suspension), and stamp the rendered output.
 function enhanceParagraph(paragraph, t) {
   t.after(cleanupMounted);
@@ -39,11 +40,12 @@ function enhanceParagraph(paragraph, t) {
   );
   rawDom.take(paragraph, null);
   rawDom.commit(paragraph, null);
-  paragraph.__tqRawDomEngineWrites = 1;
-  const rendered = globalThis.document.createElement("span");
-  rendered.textContent = "rendered";
-  paragraph.appendChild(rendered);
-  paragraph.__tqRawDomEngineWrites = 0;
+  let rendered;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    rendered = globalThis.document.createElement("span");
+    rendered.textContent = "rendered";
+    paragraph.appendChild(rendered);
+  });
   rawDom.stampRendered(paragraph);
   return rendered;
 }

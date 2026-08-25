@@ -20,7 +20,7 @@ import type { TiqianEngineInstance } from "@tiqian/prose-core/core/engine/engine
 import type { CjkDashShapingOutcome } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
 import type { ExactFontSessionEntry } from "@tiqian/prose-core/core/engine/exact-font.js";
-import { createEnhanceContext, getContextForElement } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
+import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js";
@@ -87,14 +87,6 @@ function exactFontMissDatasetValue(error: TiqianExactFontMissCandidate): string 
     }
   }
   return error?.code ?? "ExactFontSessionUnavailable";
-}
-
-function getOrCreateContext(root: HTMLElement) {
-  let context = getContextForElement(root);
-  if (!context) {
-    context = createEnhanceContext(root);
-  }
-  return context;
 }
 
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
@@ -170,7 +162,7 @@ async function withTiqianWeb<T>(
   options: TiqianWebOptions,
   action: TiqianWebAction<T>,
 ): Promise<HTMLElement | T> {
-  const context = getOrCreateContext(root);
+  const context = getOrCreateEnhanceContext(root);
   await restoreAdoptedSnapshot(root);
   const generation = context.beginEnhanceCycle();
   let fontSession: BrowserFontSessionHandle | null = null;
@@ -224,7 +216,7 @@ export function enhanceProgressively(root: HTMLElement = document.body, options:
 }
 
 export function destroy(root: HTMLElement = document.body): Promise<void> {
-  const context = getOrCreateContext(root);
+  const context = getOrCreateEnhanceContext(root);
   const generation = context.beginEnhanceCycle();
   return restoreAdoptedSnapshot(root).then((restored) => {
     if (restored && !currentTiqianRuntime()) {

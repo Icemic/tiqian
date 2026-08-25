@@ -6,8 +6,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { cleanupMounted, mount } from "./runtime-host.mjs";
 import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
+import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
-const rawDom = deriveRawDom();
+const rawDom = deriveRawDom({ getEnhanceContext: getOrCreateEnhanceContext });
 
 function rawDomParagraph(t, markup) {
   const root = mount(markup);
@@ -62,15 +63,15 @@ test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
 
   assert.equal(paragraph.firstChild, null);
   assert.equal(rawDom.rawDomMatches(paragraph), false);
-  assert.equal(paragraph.__tqRawDomFragment, undefined);
+  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment, undefined);
 
   rawDom.commit(paragraph, null);
 
-  const fragment = paragraph.__tqRawDomFragment;
+  const fragment = getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment;
   assert.ok(fragment);
   assert.equal(fragment.firstChild, child);
   assert.equal(rawDom.rawDomMatches(paragraph), true);
-  assert.equal(paragraph.__tqRawDomForwarding, true);
+  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.forwarding, true);
 });
 
 test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
@@ -81,7 +82,7 @@ test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
 
   const node = globalThis.document.createTextNode("宿主新增");
   paragraph.appendChild(node);
-  assert.equal(node.parentNode, paragraph.__tqRawDomFragment);
+  assert.equal(node.parentNode, getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment);
   assert.equal(rawDom.rawDomMatches(paragraph), false);
 
   paragraph.removeChild(node);
@@ -95,15 +96,15 @@ test("rawDomBridge_engineWritesBypassForwarding", (t) => {
   rawDom.take(paragraph, null);
   rawDom.commit(paragraph, null);
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  const node = globalThis.document.createTextNode("引擎输出");
-  paragraph.appendChild(node);
-  assert.equal(node.parentNode, paragraph);
-  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    const node = globalThis.document.createTextNode("引擎输出");
+    paragraph.appendChild(node);
+    assert.equal(node.parentNode, paragraph);
+  });
 
   const hostNode = globalThis.document.createTextNode("宿主输出");
   paragraph.appendChild(hostNode);
-  assert.equal(hostNode.parentNode, paragraph.__tqRawDomFragment);
+  assert.equal(hostNode.parentNode, getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment);
 });
 
 test("rawDomBridge_renderedDriftDetection", (t) => {
@@ -112,16 +113,17 @@ test("rawDomBridge_renderedDriftDetection", (t) => {
   rawDom.take(paragraph, null);
   rawDom.commit(paragraph, null);
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  const rendered = globalThis.document.createElement("span");
-  paragraph.appendChild(rendered);
-  paragraph.__tqRawDomEngineWrites = 0;
+  let rendered;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    rendered = globalThis.document.createElement("span");
+    paragraph.appendChild(rendered);
+  });
   rawDom.stampRendered(paragraph);
   assert.equal(rawDom.renderedMatches(paragraph), true);
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  paragraph.removeChild(rendered);
-  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    paragraph.removeChild(rendered);
+  });
   assert.equal(rawDom.renderedMatches(paragraph), false);
 
   rawDom.stampRendered(paragraph);
@@ -134,12 +136,13 @@ test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   rawDom.take(paragraph, null);
   rawDom.commit(paragraph, null);
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  const rendered = globalThis.document.createElement("span");
-  paragraph.appendChild(rendered);
-  paragraph.setAttribute("data-tq-rendered", "true");
-  paragraph.setAttribute("lang", "zh-Hans");
-  paragraph.__tqRawDomEngineWrites = 0;
+  let rendered;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    rendered = globalThis.document.createElement("span");
+    paragraph.appendChild(rendered);
+    paragraph.setAttribute("data-tq-rendered", "true");
+    paragraph.setAttribute("lang", "zh-Hans");
+  });
   rawDom.stampRendered(paragraph);
 
   const snapshot = rawDom.captureLive(paragraph, 3.5);
@@ -150,11 +153,11 @@ test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   assert.equal(snapshot.renderedAttribute, "true");
   assert.equal(snapshot.langAttribute, "zh-Hans");
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  const newer = globalThis.document.createElement("div");
-  paragraph.appendChild(newer);
-  paragraph.setAttribute("lang", "ja");
-  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    const newer = globalThis.document.createElement("div");
+    paragraph.appendChild(newer);
+    paragraph.setAttribute("lang", "ja");
+  });
 
   const results = rawDom.rollback([snapshot]);
   assert.equal(results.length, 1);
@@ -173,10 +176,11 @@ test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
   rawDom.take(paragraph, null);
   rawDom.commit(paragraph, null);
 
-  paragraph.__tqRawDomEngineWrites = 1;
-  const rendered = globalThis.document.createElement("span");
-  paragraph.appendChild(rendered);
-  paragraph.__tqRawDomEngineWrites = 0;
+  let rendered;
+  rawDom.suspendEngineWrites(paragraph, () => {
+    rendered = globalThis.document.createElement("span");
+    paragraph.appendChild(rendered);
+  });
   rawDom.stampRendered(paragraph);
 
   const snapshot = rawDom.captureLive(paragraph, null);
@@ -185,12 +189,12 @@ test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
 
   rawDom.restoreParagraph(paragraph);
   assert.equal(paragraph.firstChild, originalChild);
-  assert.equal(paragraph.__tqRawDomFragment.firstChild, null);
+  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment.firstChild, null);
 
   const results = rawDom.rollback([snapshot]);
   assert.equal(results.length, 1);
   assert.equal(paragraph.firstChild, rendered);
-  assert.equal(paragraph.__tqRawDomFragment.firstChild, originalChild);
+  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment.firstChild, originalChild);
   assert.equal(rawDom.rawDomMatches(paragraph), true);
   assert.equal(rawDom.renderedMatches(paragraph), true);
 });

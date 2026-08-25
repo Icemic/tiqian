@@ -1,3 +1,4 @@
+import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 import {
   copyInstaller,
   loadTiqianRuntime,
@@ -279,7 +280,7 @@ class TiqianProseElement extends HTMLElementBase {
   #deferredTypographyCheck = false;
   #typographyInvalidation: TypographyInvalidationSource | null = null;
   #geometryRevision = 0;
-  #generation = 0;
+  #context = getOrCreateEnhanceContext(this);
   #hasDispatched = false;
   #inViewport = true;
   #initialFontRetry: InitialFontRetryController | null = null;
@@ -385,7 +386,7 @@ class TiqianProseElement extends HTMLElementBase {
     // font, snapshot, runtime and observer work until the host removes it.
     if (this.disabled) return;
     this.#exactFontRejectedAttempt = "";
-    const generation = ++this.#generation;
+    const generation = this.#context.beginEnhanceCycle();
     this.#clearInitialFontRetry();
     this.#acceptLayoutCompletion = false;
     this.#hasDispatched = false;
@@ -413,7 +414,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopTypographyObservation();
     this.#readyListener = (event) => {
       if (
-        generation !== this.#generation || !this.#hasDispatched ||
+        generation !== this.#context.generation || !this.#hasDispatched ||
         !this.#acceptLayoutCompletion
       ) return;
       const detail = (event as CustomEvent<TiqianReadyEventDetail>).detail ?? {};
@@ -501,7 +502,7 @@ class TiqianProseElement extends HTMLElementBase {
     // unhandled rejection: no RuntimeLoadFailed marker, the ready listener
     // left attached, and consumers awaiting tiqian:ready hanging forever.
     const failInitialEnhance = (error: unknown) => {
-      if (generation !== this.#generation) return;
+      if (generation !== this.#context.generation) return;
       this.#acceptLayoutCompletion = false;
       this.#layoutWorkInFlight = false;
       this.#layoutWorkViewportTypographyEntries = [];
@@ -522,7 +523,7 @@ class TiqianProseElement extends HTMLElementBase {
       .then(nextFrame)
       .then(() => awaitInitialTypographyFonts(this, {
         generation,
-        isCurrent: () => this.isConnected && generation === this.#generation,
+        isCurrent: () => this.isConnected && generation === this.#context.generation,
         bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
           !strongEmphasisRuntimeRequired,
         typographyElements: () => this.#typographyElements(),
@@ -532,9 +533,9 @@ class TiqianProseElement extends HTMLElementBase {
       .then((fontGateOpen) => fontGateOpen ? nextFrame().then(() => true) : false)
       .then(async (fontGateOpen) => {
         if (!fontGateOpen) return;
-        if (!this.isConnected || generation !== this.#generation) return;
+        if (!this.isConnected || generation !== this.#context.generation) return;
         const runInitialEnhance = async () => {
-          if (!this.isConnected || generation !== this.#generation) return;
+          if (!this.isConnected || generation !== this.#context.generation) return;
           const enhanceStartedAt = Date.now();
           const operation = this.#beginLayoutWork({ captureSignatures: false });
           let snapshot: TiqianSnapshotAdoptionOutcome = { adopted: false };
@@ -542,7 +543,7 @@ class TiqianProseElement extends HTMLElementBase {
             if (!strongEmphasisRuntimeRequired) {
               snapshot = await tryAdoptRequestedSnapshot(
                 this,
-                () => this.isConnected && generation === this.#generation &&
+                () => this.isConnected && generation === this.#context.generation &&
                   operation === this.#layoutOperation,
                 this.#snapshotAdoptionAnchors(),
               );
@@ -555,7 +556,7 @@ class TiqianProseElement extends HTMLElementBase {
           // browser's own anchoring until the next commit path holds it.
           releaseNativeScrollAnchoring(this);
           if (
-            !this.isConnected || generation !== this.#generation ||
+            !this.isConnected || generation !== this.#context.generation ||
             operation !== this.#layoutOperation
           ) {
             if (snapshot.adopted) restoreLoadedSnapshot(this);
@@ -572,7 +573,7 @@ class TiqianProseElement extends HTMLElementBase {
             const completionSelector = snapshotCompletionSelector(this);
             if (completionSelector) {
               await (runtimePromise ?? loadTiqianRuntime());
-              if (!this.isConnected || generation !== this.#generation) {
+              if (!this.isConnected || generation !== this.#context.generation) {
                 return;
               }
               this.#acceptValidatedSnapshotGeometry();
@@ -600,7 +601,7 @@ class TiqianProseElement extends HTMLElementBase {
           }
           this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
           await (runtimePromise ?? loadTiqianRuntime());
-          if (!this.isConnected || generation !== this.#generation) return;
+          if (!this.isConnected || generation !== this.#context.generation) return;
           if (!(await this.#dispatchProgressiveEnhance(generation))) return;
         };
         coordinationService().requestFrame(() => {
@@ -615,7 +616,7 @@ class TiqianProseElement extends HTMLElementBase {
     // RawDomMoveTeardownDeferral: React, Svelte and other reconcilers move a
     // node by removing and re-inserting it inside one synchronous commit.
     // Settling the disconnection synchronously destroys a rendered article
-    // that never left host detached-fragment backup, so the settle runs one microtask later.
+    // that never left the host raw-DOM backup, so the settle runs one microtask later.
     // A same-task reconnection then re-enters the live lifecycle through
     // RawDomMoveAdoption. A real navigation settles exactly as before, still
     // before the next frame. The remount variant of
@@ -637,7 +638,7 @@ class TiqianProseElement extends HTMLElementBase {
     releaseNativeScrollAnchoring(this);
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
-    ++this.#generation;
+    this.#context.beginEnhanceCycle();
     this.#enhanceRequest += 1;
     this.#layoutOperation += 1;
     this.#acceptLayoutCompletion = false;
@@ -677,7 +678,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#connected || !this.#rawDomReentry) return false;
     if (!this.#runtimeStateActive || this.disabled) return false;
     if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
-      // Snapshot detached-fragment backup keeps the restore and re-adopt path. Its backing is
+      // Snapshot-based raw-DOM backup keeps the restore and re-adopt path. Its backing is
       // cheap to rebuild and shares document-scoped styles with the runtime.
       return false;
     }
@@ -689,7 +690,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   // RawDomMoveAdoption: a reconnection inside the deferred settle window is
-  // a host detached-fragment backup move. The committed LayoutResult, the exact font session
+  // a host raw-DOM backup move. The committed LayoutResult, the exact font session
   // and any in-flight job stayed valid through the move, so only the
   // observers and the geometry baseline need re-entry. A width change from
   // the move routes through the responsive commit lane and relayouts in
@@ -764,7 +765,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #deferInitialEnhancementUntilFontsSettle(generation: number, completion: Promise<unknown>) {
     this.#initialFontRetry ??= createInitialFontRetryController(this, {
-      isGenerationCurrent: (candidate) => candidate === this.#generation,
+      isGenerationCurrent: (candidate) => candidate === this.#context.generation,
       typographyElements: () => this.#typographyElements(),
       restartConnectedLifecycle: () => this.#restartConnectedLifecycle(),
     });
@@ -789,7 +790,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #restartConnectedLifecycle() {
-    ++this.#generation;
+    this.#context.beginEnhanceCycle();
     this.#enhanceRequest += 1;
     this.#hasDispatched = false;
     this.#acceptLayoutCompletion = false;
@@ -854,14 +855,14 @@ class TiqianProseElement extends HTMLElementBase {
       delete this.dataset.tiqianExactFontMiss;
     } catch (error) {
       if (
-        this.isConnected && generation === this.#generation &&
+        this.isConnected && generation === this.#context.generation &&
         request === this.#enhanceRequest
       ) this.#releaseExactFontSession();
       this.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error as TiqianElementExactFontMissCandidate);
       console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
     }
-    if (!this.isConnected || generation !== this.#generation || request !== this.#enhanceRequest) {
-      if (!this.isConnected || generation !== this.#generation) this.#releaseExactFontSession();
+    if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
+      if (!this.isConnected || generation !== this.#context.generation) this.#releaseExactFontSession();
       return false;
     }
     // PreparedSnapshotTransition: callers leaving a precomputed snapshot keep
@@ -896,7 +897,7 @@ class TiqianProseElement extends HTMLElementBase {
           await this.#exactFontSession!.prepareRenderFont(this, exactFontSession);
         }
         if (
-          !this.isConnected || generation !== this.#generation ||
+          !this.isConnected || generation !== this.#context.generation ||
           request !== this.#enhanceRequest
         ) {
           this.#releaseExactFontSession();
@@ -904,7 +905,7 @@ class TiqianProseElement extends HTMLElementBase {
         }
       } catch (error) {
         if (
-          !this.isConnected || generation !== this.#generation ||
+          !this.isConnected || generation !== this.#context.generation ||
           request !== this.#enhanceRequest
         ) {
           this.#releaseExactFontSession();
@@ -930,7 +931,7 @@ class TiqianProseElement extends HTMLElementBase {
           ...(exactFontSession ? { exactFontSession } : {}),
         })
       : { status: "not-needed" };
-    if (!this.isConnected || generation !== this.#generation || request !== this.#enhanceRequest) {
+    if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
       this.#releaseExactFontSession();
       return false;
     }
@@ -960,7 +961,7 @@ class TiqianProseElement extends HTMLElementBase {
           this,
           exactFontSession,
           preparedOptions,
-          () => this.isConnected && generation === this.#generation &&
+          () => this.isConnected && generation === this.#context.generation &&
             request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
         );
         if (prepareJob) await coordinationService().runPrepare(this, prepareJob);
@@ -971,10 +972,10 @@ class TiqianProseElement extends HTMLElementBase {
         console.warn("Tiqian Web layout Worker unavailable; retaining native paragraphs", error);
       }
       if (
-        !this.isConnected || generation !== this.#generation ||
+        !this.isConnected || generation !== this.#context.generation ||
         request !== this.#enhanceRequest || layoutOperation !== this.#layoutOperation
       ) {
-        if (!this.isConnected || generation !== this.#generation) {
+        if (!this.isConnected || generation !== this.#context.generation) {
           this.#releaseExactFontSession();
         }
         return false;
@@ -1102,7 +1103,7 @@ class TiqianProseElement extends HTMLElementBase {
   ): Promise<BrowserFontSessionHandle | null> {
     const reference = this.getAttribute("snapshot-ref");
     if (!reference) {
-      if (generation === this.#generation && request === this.#enhanceRequest) {
+      if (generation === this.#context.generation && request === this.#enhanceRequest) {
         this.#releaseExactFontSession();
       }
       return null;
@@ -1124,14 +1125,14 @@ class TiqianProseElement extends HTMLElementBase {
       // same live contract without repeating width-independent font probes.
       if (revalidateExisting) await existing.revalidate(this, existing.handle);
       if (
-        !this.isConnected || generation !== this.#generation ||
+        !this.isConnected || generation !== this.#context.generation ||
         request !== this.#enhanceRequest || this.getAttribute("snapshot-ref") !== reference
       ) return null;
       return existing.handle;
     }
     const handle = await loader.prepareBrowserFontSession(this);
     if (
-      !this.isConnected || generation !== this.#generation ||
+      !this.isConnected || generation !== this.#context.generation ||
       request !== this.#enhanceRequest || this.getAttribute("snapshot-ref") !== reference
     ) {
       loader.releaseBrowserFontSession(handle);
@@ -1322,7 +1323,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
     if (!this.#snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
-    const generation = this.#generation;
+    const generation = this.#context.generation;
     this.#hasDispatched = false;
     let activeRequest = ++this.#enhanceRequest;
     this.#beginLayoutWork();
@@ -1340,7 +1341,7 @@ class TiqianProseElement extends HTMLElementBase {
     loadTiqianRuntime()
       .then(() => {
         if (
-          !this.isConnected || generation !== this.#generation ||
+          !this.isConnected || generation !== this.#context.generation ||
           activeRequest !== this.#enhanceRequest
         ) return false;
         const enhancement = this.#dispatchProgressiveEnhance(generation, restoreBeforeLoad
@@ -1358,7 +1359,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #recoverSnapshotEnhanceFailure(generation: number, request: number, error: unknown) {
     if (
-      !this.isConnected || generation !== this.#generation ||
+      !this.isConnected || generation !== this.#context.generation ||
       request !== this.#enhanceRequest
     ) return;
     // Runtime/module failure must not strand the element in an unobserved
@@ -1389,7 +1390,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #tryReadoptSnapshotAtMaximumMeasure() {
     if (!this.hasAttribute("snapshot-ref")) return;
-    const generation = this.#generation;
+    const generation = this.#context.generation;
     const startedAt = Date.now();
     const operation = this.#beginLayoutWork();
     const runtimeSnapshotBackingRestored = this.#runtimeStateActive;
@@ -1407,7 +1408,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     tryAdoptRequestedSnapshot(
       this,
-      () => this.isConnected && generation === this.#generation &&
+      () => this.isConnected && generation === this.#context.generation &&
         operation === this.#layoutOperation,
       this.#snapshotAdoptionAnchors(),
     ).then(async (snapshot) => {
@@ -1415,7 +1416,7 @@ class TiqianProseElement extends HTMLElementBase {
       // browser's own anchoring until the next commit path holds it.
       releaseNativeScrollAnchoring(this);
       if (
-        !this.isConnected || generation !== this.#generation ||
+        !this.isConnected || generation !== this.#context.generation ||
         operation !== this.#layoutOperation
       ) {
         if (snapshot.adopted) restoreLoadedSnapshot(this);
@@ -1441,7 +1442,7 @@ class TiqianProseElement extends HTMLElementBase {
       if (completionSelector) {
         await loadTiqianRuntime();
         if (
-          !this.isConnected || generation !== this.#generation ||
+          !this.isConnected || generation !== this.#context.generation ||
           operation !== this.#layoutOperation
         ) {
           return;
@@ -1470,7 +1471,7 @@ class TiqianProseElement extends HTMLElementBase {
       }));
     }).catch((error) => {
       if (
-        !this.isConnected || generation !== this.#generation ||
+        !this.isConnected || generation !== this.#context.generation ||
         operation !== this.#layoutOperation
       ) return;
       this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
@@ -1493,9 +1494,9 @@ class TiqianProseElement extends HTMLElementBase {
       // Validation failed after the synchronous SSR backing restore. Rebuild
       // runtime state from that source for every miss category; a width-only
       // relayout cannot operate after the prior runtime instance was destroyed.
-      const generation = this.#generation;
+      const generation = this.#context.generation;
       this.#dispatchProgressiveEnhance(generation).catch((error) => {
-        if (!this.isConnected || generation !== this.#generation) return;
+        if (!this.isConnected || generation !== this.#context.generation) return;
         this.#finishLayoutWorkAndObserve();
         this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
         console.warn("Tiqian Web snapshot miss recovery failed", error);
@@ -1512,9 +1513,9 @@ class TiqianProseElement extends HTMLElementBase {
       // that validation then misses, the DOM is readable native backing but no
       // owner remains to enhance it. Start a fresh latest-geometry job instead
       // of observing the permanently unclaimed source.
-      const generation = this.#generation;
+      const generation = this.#context.generation;
       this.#dispatchProgressiveEnhance(generation).catch((error) => {
-        if (!this.isConnected || generation !== this.#generation) return;
+        if (!this.isConnected || generation !== this.#context.generation) return;
         this.#finishLayoutWorkAndObserve();
         this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
         console.warn("Tiqian Web unclaimed snapshot miss recovery failed", error);
@@ -1525,9 +1526,9 @@ class TiqianProseElement extends HTMLElementBase {
     // the old lowered source or exact-font session untrustworthy. Re-lower and
     // rebuild the font session; a cheap width-only relayout is valid only for
     // the two explicit geometry miss reasons above.
-    const generation = this.#generation;
+    const generation = this.#context.generation;
     this.#dispatchProgressiveEnhance(generation).catch((error) => {
-      if (!this.isConnected || generation !== this.#generation) return;
+      if (!this.isConnected || generation !== this.#context.generation) return;
       this.#finishLayoutWorkAndObserve();
       this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
       console.warn("Tiqian Web snapshot miss recovery failed", error);
@@ -1571,7 +1572,7 @@ class TiqianProseElement extends HTMLElementBase {
     // metrics are for nodes about to leave the tree; drop them and let the
     // observer re-seed the rebuilt paragraphs.
     this.#gridMetricsState.metrics = null;
-    const generation = this.#generation;
+    const generation = this.#context.generation;
     if (this.#runtimeStateActive) {
       // ResponsiveNativeBacking: pre-broken Tiqian lines cannot reflow while a
       // new width or typography is being prepared. Restore the complete
@@ -1581,7 +1582,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#runtimeStateActive = false;
     }
     this.#dispatchProgressiveEnhance(generation, { revalidateExactFont }).catch((error) => {
-      if (!this.isConnected || generation !== this.#generation) return;
+      if (!this.isConnected || generation !== this.#context.generation) return;
       this.#finishLayoutWorkAndObserve();
       this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
       console.warn("Tiqian Web source refresh failed", error);
@@ -1878,11 +1879,11 @@ class TiqianProseElement extends HTMLElementBase {
         // snapshot as proof that every paragraph is settled.
         const completionSelector = snapshotCompletionSelector(this);
         if (completionSelector && !this.#runtimeStateActive) {
-          const generation = this.#generation;
+          const generation = this.#context.generation;
           this.#dispatchProgressiveEnhance(generation, {
             paragraphSelector: completionSelector,
           }).catch((error) => {
-            if (!this.isConnected || generation !== this.#generation) return;
+            if (!this.isConnected || generation !== this.#context.generation) return;
             this.#finishLayoutWorkAndObserve();
             this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
             console.warn("Tiqian Web snapshot completion restart failed", error);
@@ -2016,21 +2017,21 @@ class TiqianProseElement extends HTMLElementBase {
         // reads) so the revalidate cycle re-collects the merged candidates.
         onDeclaredFacesChanged: () => this.#scheduleTypographyCheck(true),
         onFontEvent: async (event) => {
-          const generation = this.#generation;
+          const generation = this.#context.generation;
           const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
           let snapshotLiveIssue = null;
           if (snapshotAdopted) {
             try {
               snapshotLiveIssue = await loadedAdoptedSnapshotLiveIssue(
                 this,
-                () => this.isConnected && generation === this.#generation &&
+                () => this.isConnected && generation === this.#context.generation &&
                   (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)),
               );
             } catch {
               snapshotLiveIssue = "SnapshotLiveValidationFailed";
             }
           }
-          if (!this.isConnected || generation !== this.#generation ||
+          if (!this.isConnected || generation !== this.#context.generation ||
               snapshotLiveIssue === "superseded") return;
           if (snapshotAdopted && snapshotLiveIssue == null) {
             // SnapshotFontLoadCycleAlreadyValidated: snapshot adoption awaited
@@ -2073,6 +2074,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#contentInvalidation = createContentInvalidationSource(this, {
         onRecords: (records) => this.#handleContentMutationRecords(records),
         belongsToRootScope,
+        getRawDomParagraphs: () => this.#context.rawDomParagraphs,
       });
     }
     this.#contentInvalidation.start();
@@ -2140,8 +2142,8 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #probeContentDrift() {
-    // Mid-job takeovers publish fresh detached-fragment backup fragments; adopt them before
-    // reading detached-fragment backup identity so a host edit made during enhancement is
+    // Mid-job takeovers publish fresh raw-DOM backup fragments; adopt them before
+    // reading raw-DOM backup identity so a host edit made during enhancement is
     // already under observation when the probe runs.
     this.#syncRawDomObservation();
     const drift = engineFace.probeContentDrift(this);

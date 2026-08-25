@@ -267,7 +267,7 @@ test("1. Direct happy path: lowering ok, rawDom begin called with 14 args, prepa
     let rawDomCommitCalled = false;
     let rawDomRestoreCalled = false;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: (...args) => rawDomBeginArgs.push(args),
       take: () => { rawDomTakeCalled = true; },
       commit: () => { rawDomCommitCalled = true; },
@@ -335,7 +335,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     });
     objSpan.parentNode = paragraph;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -382,7 +382,7 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (r
   withEnv(() => {
     let rawDomBeginCalled = false;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => { rawDomBeginCalled = true; },
     };
 
@@ -406,7 +406,7 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
   withEnv(() => {
     let rawDomBeginCalled = false;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => { rawDomBeginCalled = true; },
     };
 
@@ -437,7 +437,7 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
   withEnv(() => {
     let rawDomTakeCalled = false;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => { rawDomTakeCalled = true; },
       commit: () => {},
@@ -474,7 +474,7 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
   withEnv(() => {
     let rawDomTakeCalled = false;
 
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => { rawDomTakeCalled = true; },
       commit: () => {},
@@ -511,7 +511,7 @@ test("9. prepare unsupported -> issue reported, rawDom restored", () => {
     let rawDomRestored = false;
 
     const paragraph = makeElement();
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -539,7 +539,7 @@ test("10. commit unsupported -> issue reported, rawDom restored", () => {
     let rawDomRestored = false;
 
     const paragraph = makeElement();
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -570,7 +570,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
       let rawDomRestored = false;
 
       const paragraph = makeElement();
-      const rawDom = {
+      const rawDom = { suspendEngineWrites: (s, a) => a(),
         begin: () => {},
         take: () => {},
         commit: () => {},
@@ -599,7 +599,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
 
 test("12. preparedDomEnabled false -> active options come from withoutExactFontSession", () => {
   withEnv(() => {
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -633,7 +633,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
 
 test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
   withEnv(() => {
-    const rawDom = {
+    const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
       take: () => {},
       commit: () => {},
