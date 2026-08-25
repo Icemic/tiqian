@@ -336,7 +336,7 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-exact-layout-issue",
+          "name": "data-tiqian-snapshot-layout-issue",
           "value": null
         },
         {
@@ -411,7 +411,7 @@
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-layout-issue",
+          "name": "data-tiqian-snapshot-layout-issue",
           "value": null
         },
         {

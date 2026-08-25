@@ -838,14 +838,14 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
     template.content.removeChild(entry);
     const firstPaintNode = paragraph.firstChild;
     root.setAttribute(
-      "data-tiqian-exact-layout-issue",
+      "data-tiqian-snapshot-layout-issue",
       "p-0:RenderedPreparedParagraphLineAdvanceMismatch:stale",
     );
 
     assert.deepEqual(await tryAdoptPrecomputedSnapshot(root), { adopted: true, count: 1 });
     assert.strictEqual(paragraph.firstChild, firstPaintNode);
     assert.equal(root.dataset.tiqianSnapshot, "maximum-measure");
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-issue"), null);
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-issue"), null);
 
     assert.equal(restorePrecomputedSnapshot(root), true);
     assert.equal(paragraph.textContent, "中国");
