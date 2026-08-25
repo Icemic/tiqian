@@ -1,5 +1,7 @@
-import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
+import * as preparedDom from "../../sampler/snapshot/prepared-dom.js";
+import * as precomputed from "../../sampler/snapshot/precomputed.js";
 import type { PreparedDomValidatorInterface } from "../../sampler/snapshot/precomputed.js";
+import * as tsRuntime from "./ts-runtime.js";
 // Runtime loader for the Tiqian engine (Slice 7 Lane A). After bundle
 // retirement the engine graph is built by ts-runtime.js through the concrete
 // composition root; this module re-exports the installation promise and
@@ -19,6 +21,9 @@ import type { CopyInstaller } from "../../utils/copy.js";
 
 export type RuntimeAction<T> = (engine: TiqianEngineInstance | null) => T;
 
+// EngineLoadState: the mutable record behind the loader accessors. The load
+// memo and the installed engine/workers are per-bootstrap function-scope
+// state; engineApi/workerApi read it, loadTiqianRuntime fills it.
 type EngineLoadFn = () => Promise<unknown>;
 type EngineCurrentFn = () => Promise<unknown> | undefined;
 type EngineApiFn = () => TiqianEngineInstance | null;
@@ -26,14 +31,11 @@ type WorkerApiFn = () => TiqianEngineWorkersInstance | null;
 type SetOverrideFn = (engine: TiqianEngineInstance | null | undefined) => void;
 type GetCopyInstallerFn = () => CopyInstaller;
 
-// EngineLoadState: the mutable record behind the loader accessors. The load
-// memo and the installed engine/workers are per-bootstrap function-scope
-// state; engineApi/workerApi read it, loadTiqianRuntime fills it.
-export type LoadRendererFn = () => Promise<typeof PreparedDomNamespace>;
-export type RendererModuleFn = () => typeof PreparedDomNamespace | null;
+export type LoadRendererFn = () => Promise<typeof preparedDom>;
+export type RendererModuleFn = () => typeof preparedDom | null;
 export type ValidatorFn = () => PreparedDomValidatorInterface | null;
-export type SetRendererForTestFn = (renderer: typeof PreparedDomNamespace | null) => void;
-export type SetValidatorForTestFn = (validator: PreparedDomValidatorInterface | null) => void;
+export type SetRendererForTestFn = (renderer: typeof preparedDom | null | undefined) => void;
+export type SetValidatorForTestFn = (validator: PreparedDomValidatorInterface | null | undefined) => void;
 
 type EngineLoadState = {
   load: EngineLoadFn;
@@ -49,41 +51,26 @@ type EngineLoadState = {
   setValidatorForTest: SetValidatorForTestFn;
 };
 
-
 function createLoaderState(): EngineLoadState {
   let runtimePromise: Promise<unknown> | undefined;
   let engineInstance: TiqianEngineInstance | null = null;
   let workerInstance: TiqianEngineWorkersInstance | null = null;
   let engineOverride: TiqianEngineInstance | null = null;
   let copyInstallerInstance: CopyInstaller | null = null;
-  let loadedRendererModule: typeof PreparedDomNamespace | null = null;
-  let loadedValidator: PreparedDomValidatorInterface | null = null;
-  let rendererOverride: typeof PreparedDomNamespace | null = null;
-  let validatorOverride: PreparedDomValidatorInterface | null = null;
-  let rendererPromise: Promise<typeof PreparedDomNamespace> | undefined;
+  let rendererOverride: typeof preparedDom | null | undefined = undefined;
+  let validatorOverride: PreparedDomValidatorInterface | null | undefined = undefined;
 
-  function loadRenderer(): Promise<typeof PreparedDomNamespace> {
-    if (!rendererPromise) {
-      rendererPromise = Promise.all([
-        import("../../sampler/snapshot/prepared-dom.js"),
-        import("../../sampler/snapshot/precomputed.js")
-      ]).then(([preparedDom, precomputed]) => {
-        loadedRendererModule = preparedDom;
-        loadedValidator = precomputed.preparedDomValidator;
-        return preparedDom;
-      });
-    }
-    return rendererPromise;
+  function loadRenderer(): Promise<typeof preparedDom> {
+    return Promise.resolve(rendererOverride !== undefined ? (rendererOverride ?? preparedDom) : preparedDom);
   }
 
   // Builds the engine graph once and installs the resulting engine/workers
   // into this loader state.
-  async function buildRuntime(): Promise<unknown> {
-    const tsRuntime = await import("./ts-runtime.js");
+  function buildRuntime(): Promise<unknown> {
     const entry = tsRuntime.engineEntry({ copyInstaller: getCopyInstaller() });
     engineInstance = entry.engine;
     workerInstance = entry.workers;
-    return entry;
+    return Promise.resolve(entry);
   }
 
   function load(): Promise<unknown> {
@@ -120,8 +107,8 @@ function createLoaderState(): EngineLoadState {
     setOverride: setOverride,
     getCopyInstaller: getCopyInstaller,
     loadRenderer,
-    rendererModule: () => rendererOverride ?? loadedRendererModule,
-    validator: () => validatorOverride ?? loadedValidator,
+    rendererModule: () => rendererOverride !== undefined ? rendererOverride : preparedDom,
+    validator: () => validatorOverride !== undefined ? validatorOverride : precomputed.preparedDomValidator,
     setRendererForTest: (renderer) => { rendererOverride = renderer; },
     setValidatorForTest: (validator) => { validatorOverride = validator; }
   };
@@ -170,21 +157,21 @@ export async function withTiqianRuntime<T>(action: RuntimeAction<T>): Promise<T>
   await loadTiqianRuntime();
   return action(engineApi());
 }
-export type PreparedDomRendererModuleGetter = () => typeof PreparedDomNamespace | null;
+export type PreparedDomRendererModuleGetter = () => typeof preparedDom | null;
 export const getPreparedDomRendererModule: PreparedDomRendererModuleGetter = () => loaderState.rendererModule();
 
-export function loadPreparedDomRenderer(): Promise<typeof PreparedDomNamespace> {
+export function loadPreparedDomRenderer(): Promise<typeof preparedDom> {
   return loaderState.loadRenderer();
 }
-export function preparedDomRendererModule(): typeof PreparedDomNamespace | null {
+export function preparedDomRendererModule(): typeof preparedDom | null {
   return loaderState.rendererModule();
 }
 export function preparedDomValidator(): PreparedDomValidatorInterface | null {
   return loaderState.validator();
 }
-export function setPreparedDomRendererForTest(renderer: typeof PreparedDomNamespace | null): void {
+export function setPreparedDomRendererForTest(renderer: typeof preparedDom | null | undefined): void {
   loaderState.setRendererForTest(renderer);
 }
-export function setPreparedDomValidatorForTest(validator: PreparedDomValidatorInterface | null): void {
+export function setPreparedDomValidatorForTest(validator: PreparedDomValidatorInterface | null | undefined): void {
   loaderState.setValidatorForTest(validator);
 }

@@ -9,7 +9,6 @@
 // The modules below no longer self-install on globalThis; the composition
 // root wires the products into the engine entry instead.
 import { deriveRawDom } from "../raw-dom.js";
-import { getOrCreateEnhanceContext } from "../context/enhance-context.js";
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
 import { createLayoutJobPool } from "../layout-job-pool.js";
@@ -18,10 +17,6 @@ import {
   createEngineEntry,
 } from "../engine-entry.js";
 import type { EngineEntryHandle } from "../engine-entry.js";
-import { createFontFamilies } from "../canvas-fonts.js";
-import { createBrowserMetricsBridge } from "../browser-metrics-bridge.js";
-
-import { preparedDomRendererModule } from "./runtime-loader.js";
 
 // EngineEntryOptions: the concrete composition root accepts an optional
 // externally-owned copy installer so the page-level copy handler is shared
@@ -34,17 +29,11 @@ export interface EngineEntryOptions {
 // root-state, layout-job-pool, and the engine+worker facade. Every product is
 // built here; the engine entry only wires what it receives.
 export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
-  const rawDom = deriveRawDom({ 
-    getEnhanceContext: getOrCreateEnhanceContext,
-    getPreparedDomRendererModule: preparedDomRendererModule,
-  });
+  const rawDom = deriveRawDom();
   const copyInstaller = options && options.copyInstaller
     ? options.copyInstaller
     : createCopyInstaller();
-  const rootState = createRootState({
-    createFontFamilies: createFontFamilies,
-    createBrowserMetricsBridge: createBrowserMetricsBridge,
-  });
+  const rootState = createRootState();
   const layoutJobPool = createLayoutJobPool();
   return createEngineEntry(rawDom, copyInstaller, rootState, layoutJobPool);
 }

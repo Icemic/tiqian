@@ -328,7 +328,23 @@ const LIVE_SEMANTIC_INDEX_ATTRIBUTE = "data-tq-live-semantic-index";
 const SNAPSHOT_STYLE_OWNER = Object.freeze({});
 const preparedStyleStates = new WeakMap<Element, PreparedStyleState>();
 const preparedStyleRootsByHost = new WeakMap<Element, Element>();
-let nextPreparedStyleScope = 1;
+type ScopeCounterKey = Node | Record<string, unknown>;
+interface PreparedScopeCounter {
+  next: number;
+}
+const preparedScopeCounters = new WeakMap<ScopeCounterKey, PreparedScopeCounter>();
+
+function nextPreparedScopeForDocument(documentObject: ScopeCounterKey | null | undefined): number {
+  if (!documentObject) return 1;
+  let counter = preparedScopeCounters.get(documentObject);
+  if (!counter) {
+    counter = { next: 1 };
+    preparedScopeCounters.set(documentObject, counter);
+  }
+  const current = counter.next;
+  counter.next += 1;
+  return current;
+}
 
 function preparedPlan(value: string | PreparedLayoutPlan): PreparedLayoutPlan {
   return typeof value === "string" ? JSON.parse(value) : value;
@@ -376,7 +392,7 @@ function createPreparedStyleState(root: Element) {
   const parent = documentObject?.head ?? documentObject?.documentElement ?? documentObject?.body;
   if (!documentObject?.createElement || !parent?.appendChild || !root?.setAttribute) return null;
   const styleElement = documentObject.createElement("style");
-  const scope = `tqv${nextPreparedStyleScope++}`;
+  const scope = `tqv${nextPreparedScopeForDocument(documentObject)}`;
   styleElement.setAttribute(VALUE_STYLE_ELEMENT_ATTRIBUTE, scope);
   const originalScope = root.getAttribute(VALUE_STYLE_SCOPE_ATTRIBUTE);
   root.setAttribute(VALUE_STYLE_SCOPE_ATTRIBUTE, scope);

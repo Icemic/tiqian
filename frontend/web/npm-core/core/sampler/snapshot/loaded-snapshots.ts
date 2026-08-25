@@ -1,53 +1,42 @@
-// Lazy access to the precomputed snapshot module: one dynamic import is
-// memoized and every accessor delegates to it, failing closed before the
-// module loads. Moved from lazy-capabilities.js in ADR 0053 batch 6.
+// Access to the precomputed snapshot module: imported statically at module
+// scope; accessors delegate directly to precomputed snapshot methods.
+// Moved from lazy-capabilities.js in ADR 0053 batch 6.
 
+import * as precomputed from "./precomputed.js";
 import type { SnapshotAdoptAnchors, SnapshotAdoptOutcome } from "./precomputed.js";
 
 type SnapshotIsCurrent = () => boolean;
-type PrecomputedSnapshotModule = typeof import("./precomputed.js");
-
-let precomputedModule!: PrecomputedSnapshotModule | null;
-let precomputedPromise!: Promise<PrecomputedSnapshotModule> | null;
+export type PrecomputedSnapshotModule = typeof precomputed;
 
 export function loadPrecomputedSnapshots(): Promise<PrecomputedSnapshotModule> {
-  precomputedPromise ??= import("./precomputed.js").then((module) => {
-    precomputedModule = module as PrecomputedSnapshotModule;
-    return module as PrecomputedSnapshotModule;
-  });
-  return precomputedPromise;
+  return Promise.resolve(precomputed);
 }
 
 export function isLoadedSnapshotAdopted(root: HTMLElement): boolean {
-  return precomputedModule?.isPrecomputedSnapshotAdopted(root) ?? false;
+  return precomputed.isPrecomputedSnapshotAdopted(root);
 }
 
 export async function loadedAdoptedSnapshotLiveIssue(
   root: HTMLElement,
   isCurrent: SnapshotIsCurrent = () => true,
 ): Promise<string | null> {
-  return precomputedModule
-    ? precomputedModule.adoptedPrecomputedSnapshotLiveIssue(root, isCurrent)
-    : "SnapshotModuleUnavailable";
+  return precomputed.adoptedPrecomputedSnapshotLiveIssue(root, isCurrent);
 }
 
 export function loadedSnapshotMaximumMeasureMatches(root: HTMLElement): boolean {
-  return precomputedModule?.precomputedSnapshotMaximumMeasureMatches(root) ?? false;
+  return precomputed.precomputedSnapshotMaximumMeasureMatches(root);
 }
 
 export function restoreLoadedSnapshot(root: HTMLElement): boolean {
-  return precomputedModule?.restorePrecomputedSnapshot(root) ?? false;
+  return precomputed.restorePrecomputedSnapshot(root);
 }
 
 export function detachLoadedSnapshot(root: HTMLElement): boolean {
-  return precomputedModule?.detachPrecomputedSnapshot(root) ?? false;
+  return precomputed.detachPrecomputedSnapshot(root);
 }
 
 export async function restoreAdoptedSnapshot(root: HTMLElement): Promise<boolean> {
-  const snapshots = precomputedModule ?? (
-    root?.dataset?.tiqianSnapshot ? await loadPrecomputedSnapshots() : null
-  );
-  return snapshots?.restorePrecomputedSnapshot(root) ?? false;
+  return precomputed.restorePrecomputedSnapshot(root);
 }
 
 export async function tryAdoptRequestedSnapshot(
@@ -58,6 +47,5 @@ export async function tryAdoptRequestedSnapshot(
   if (!root?.getAttribute?.("snapshot-ref")) {
     return { adopted: false, reason: "not-requested" };
   }
-  const snapshots = await loadPrecomputedSnapshots();
-  return snapshots.tryAdoptPrecomputedSnapshot(root, isCurrent, anchors);
+  return precomputed.tryAdoptPrecomputedSnapshot(root, isCurrent, anchors);
 }

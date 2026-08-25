@@ -79,16 +79,20 @@ function withEnv(fn, overrides = {}) {
         renders,
         releases,
       });
+    } else {
+      setPreparedDomRendererForTest(null);
     }
     if (overrides.validator !== undefined) {
       setPreparedDomValidatorForTest({
         issue: overrides.validator,
       });
+    } else {
+      setPreparedDomValidatorForTest(null);
     }
     return fn();
   } finally {
-    setPreparedDomRendererForTest(null);
-    setPreparedDomValidatorForTest(null);
+    setPreparedDomRendererForTest(undefined);
+    setPreparedDomValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }

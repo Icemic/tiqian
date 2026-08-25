@@ -6,6 +6,7 @@
 
 import { DEFAULT_PARAGRAPH_SELECTOR, fragmentedBorderBoxInlineSize } from "./signatures.js";
 import { onDeclaredFacesChanged } from "./snapshot/declared-faces.js";
+import type { RawDomParagraphRecord } from "../engine/context/enhance-context.js";
 
 type EmptyCallback = () => void;
 type DeclaredFacesUnsubscribe = () => boolean;
@@ -158,7 +159,7 @@ export function createViewportResizeInvalidationSource(handlers: ViewportResizeI
   };
 }
 
-type GetRawDomParagraphsFn = () => Iterable<[Element, import("../engine/context/enhance-context.js").RawDomParagraphRecord]>;
+type GetRawDomParagraphsFn = () => Iterable<[Element, RawDomParagraphRecord]>;
 
 export interface ContentInvalidationHandlers {
   belongsToRootScope: RootScopeMembershipCallback;

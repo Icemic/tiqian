@@ -41,42 +41,9 @@ function withComputedStyle(fn) {
   }
 }
 
-function makeCanvasFonts() {
-  const calls = { createFontFamilies: [] };
-  const instances = [];
-  const fonts = {
-    createFontFamilies(config) {
-      calls.createFontFamilies.push(config);
-      const instance = { config, kind: "fonts" };
-      instances.push(instance);
-      return instance;
-    },
-  };
-  return { fonts, calls, instances };
-}
-
-function makeBridge() {
-  const calls = { createBrowserMetricsBridge: [] };
-  const instances = [];
-  const bridge = {
-    createBrowserMetricsBridge(config) {
-      calls.createBrowserMetricsBridge.push(config);
-      const instance = { shapeJson: () => "{}", metricsJson: () => "{}" };
-      instances.push(instance);
-      return instance;
-    },
-  };
-  return { bridge, calls, instances };
-}
-
-function makeRootState(overrides = {}) {
-  const fonts = overrides.fonts || makeCanvasFonts();
-  const bridge = overrides.bridge || makeBridge();
-  const rs = createRootState({
-    createFontFamilies: fonts.fonts.createFontFamilies,
-    createBrowserMetricsBridge: bridge.bridge.createBrowserMetricsBridge,
-  });
-  return { rs, fonts, bridge };
+function makeRootState() {
+  const rs = createRootState();
+  return { rs };
 }
 
 class FakeElement {
@@ -121,9 +88,7 @@ class FakeElement {
 
 test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRootDefaults; full field set", () => {
   withComputedStyle(() => {
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const { rs } = makeRootState({ fonts, bridge });
+    const { rs } = makeRootState();
 
     const root = new FakeElement({ attributes: { "data-tiqian-exact-layout-fallback": "stale" } });
 
@@ -143,27 +108,9 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
     assert.equal(state.preparedDomFallback, null);
-    assert.equal(state.browserFallback.bridge, bridge.instances[0]);
-
-    // The five families feed createFontFamilies from resolved.fontFamilies.
-    assert.equal(fonts.calls.createFontFamilies.length, 1);
-    const fontsConfig = fonts.calls.createFontFamilies[0];
-    assert.equal(fontsConfig.cjk, DEFAULT_CJK_FONT_FAMILY);
-    assert.equal(fontsConfig.latin, DEFAULT_LATIN_FONT_FAMILY);
-    assert.equal(fontsConfig.latinMonospace, DEFAULT_MONOSPACE_FONT_FAMILY);
-    assert.equal(fontsConfig.cjkSerif, DEFAULT_CJK_SERIF_FONT_FAMILY);
-    assert.equal(fontsConfig.latinSerif, DEFAULT_LATIN_SERIF_FONT_FAMILY);
-
-    // Bridge config carries fonts, cjkDashCapability and the lazy env factory.
-    assert.equal(bridge.calls.createBrowserMetricsBridge.length, 1);
-    const bridgeConfig = bridge.calls.createBrowserMetricsBridge[0];
-    assert.equal(bridgeConfig.fonts, fonts.instances[0]);
-    assert.equal(bridgeConfig.cjkDashCapability, null);
-    assert.equal(typeof bridgeConfig.env.createCanvasContext, "function");
-    assert.equal(typeof bridgeConfig.env.createProbeElement, "function");
-    assert.equal(typeof bridgeConfig.env.attachProbe, "function");
-    // env factories stay lazy: document is never touched during createRootState.
-    assert.equal(typeof document, "undefined");
+    assert.ok(state.browserFallback.bridge);
+    assert.equal(typeof state.browserFallback.bridge.shapeJson, "function");
+    assert.equal(typeof state.browserFallback.bridge.metricsJson, "function");
 
     // All-default bag: the snapshot gate passes straight through, so the
     // withoutExactFontSession path is never taken.
@@ -178,9 +125,7 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
 
 test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate but runs withRootDefaults", () => {
   withComputedStyle(() => {
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const { rs } = makeRootState({ fonts, bridge });
+    const { rs } = makeRootState();
 
     const root = new FakeElement();
     const canonical = {
@@ -211,9 +156,7 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
 
 test("3. preparedDom toggle: active options, exact session descriptor, attribute write, truncation, idempotence", () => {
   withComputedStyle(() => {
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const { rs } = makeRootState({ fonts, bridge });
+    const { rs } = makeRootState();
 
     const root = new FakeElement();
     const state = rs.createRootState(root, {
@@ -255,9 +198,7 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
 
 test("4. engineState cross-section: live arrays, callback wiring", () => {
   withComputedStyle(() => {
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const { rs } = makeRootState({ fonts, bridge });
+    const { rs } = makeRootState();
 
     const root = new FakeElement();
     const state = rs.createRootState(root, {
@@ -290,9 +231,7 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
 
 test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot count participation", () => {
   withComputedStyle(() => {
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const { rs } = makeRootState({ fonts, bridge });
+    const { rs } = makeRootState();
 
     // Work branch: attributes written, WeakMap retains the state, and the
     // observable snapshot count participates in the enhanced count.

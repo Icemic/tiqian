@@ -10,6 +10,13 @@ import type {
   BrowserFontSessionRevalidator,
   BrowserRenderFontPreparer,
 } from "../../measurement/browser-fonts.js";
+import {
+  prepareBrowserFontSession,
+  prepareBrowserRenderFonts,
+  releaseBrowserFontSession,
+  revalidateBrowserFontSession,
+} from "../../measurement/browser-fonts.js";
+import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
 import type {
   PreparedRenderFontStyleInstaller,
   PreparedRenderFontStyleReleaser,
@@ -213,20 +220,17 @@ export interface ExactFontFallbackLoader {
 import { loadPreparedDomRenderer, preparedDomRendererModule } from "./runtime-loader.js";
 
 // The exact-font-fallback and prepared-dom-bridge memos live on the
-// service-owned FontCoordinationState (page-level once-per-document). They
-// are consulted lazily at use time so this module imports the service
-// accessor without creating an init-time cycle.
+// service-owned FontCoordinationState (page-level once-per-document). Now
+// that browser-fonts is imported statically without evaluation hazard, the
+// fallback loader resolves through loadPreparedDomRenderer synchronously.
 export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
   const state = globalServices().fonts;
-  state.exactFontFallbackPromise ??= Promise.all([
-    import("../../measurement/browser-fonts.js"),
-    loadPreparedDomRenderer(),
-  ]).then(([fonts, preparedDom]): ExactFontFallbackLoader => {
+  state.exactFontFallbackPromise ??= loadPreparedDomRenderer().then((preparedDom): ExactFontFallbackLoader => {
     return {
-      prepareBrowserFontSession: fonts.prepareBrowserFontSession,
-      revalidateBrowserFontSession: fonts.revalidateBrowserFontSession,
-      prepareBrowserRenderFonts: fonts.prepareBrowserRenderFonts,
-      releaseBrowserFontSession: fonts.releaseBrowserFontSession,
+      prepareBrowserFontSession,
+      revalidateBrowserFontSession,
+      prepareBrowserRenderFonts,
+      releaseBrowserFontSession,
       installPreparedRenderFontStyle: preparedDom.installPreparedRenderFontStyle,
       releasePreparedRenderFontStyle: preparedDom.releasePreparedRenderFontStyle,
     };
@@ -236,12 +240,10 @@ export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
 
 // PlainHostPreparedBridge: every paragraph lowers through the prepared DOM
 // (ADR 0053 B8.3c), so a host without an exact font session still needs the
-// renderer bridge before its first enhance. The dynamic import keeps the
-// renderer out of the entry chunk; the module self-installs the bridge. An
-// already-occupied slot belongs to a test fixture or an exact-session
-// install and is left untouched — loadExactFontFallback keeps its own
-// monotonic upgrade for a stale legacy occupant.
-export function ensurePreparedDomBridge(): Promise<typeof import("../../sampler/snapshot/prepared-dom.js") | undefined> {
+// renderer bridge before its first enhance. An already-occupied slot belongs
+// to a test fixture or an exact-session install and is left untouched —
+// loadExactFontFallback keeps its own monotonic upgrade for a stale legacy occupant.
+export function ensurePreparedDomBridge(): Promise<typeof PreparedDomNamespace | undefined> {
   const state = globalServices().fonts;
   state.preparedBridgePromise ??= preparedDomRendererModule()
     ? Promise.resolve(preparedDomRendererModule()!)

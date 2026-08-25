@@ -10,6 +10,7 @@ import type { ViewportAnchor } from "./viewport-anchor.js";
 import type { FontCoordinationState } from "./fonts.js";
 import { createReplayRegistry } from "./fonts.js";
 import type { MeasurementCoordinationState } from "./measurement.js";
+import type { TraceConfig } from "../lifecycle.js";
 
 export type LayoutWorkerTakeFn = (
   element: Element | null | undefined,
@@ -168,7 +169,7 @@ function sumPendingUpTo(slot: CoordinatorWorkerSlot, tier: number): number {
 
 export class CoordinationService {
   layoutWorker?: TiqianLayoutWorkerInstance;
-  traceConfig?: import("../lifecycle.js").TraceConfig;
+  traceConfig?: TraceConfig;
   frameTrace?: FrameTraceRow[];
   #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
   // FontCoordinationState and MeasurementCoordinationState: page-wide

@@ -13,9 +13,8 @@ import {
   stripEngineMarkupFromStrandedParagraph,
 } from "@tiqian/prose-core/core/engine/content-reconcile.js";
 import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
-import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
-const rawDom = deriveRawDom({ getEnhanceContext: getOrCreateEnhanceContext });
+const rawDom = deriveRawDom();
 
 // Move a mounted paragraph into the enhanced state: take the host children
 // into the raw-DOM backup, publish the fragment, write one engine-owned rendered child

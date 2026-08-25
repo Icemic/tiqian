@@ -21,6 +21,7 @@
 // and stays byte-identical.
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
 import type { ExactFontFallbackLoader } from "../loaders/font-loader.js";
+import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
 import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
 import type { BrowserFontSessionLoader } from "../../measurement/browser-fonts.js";
 import type { ReplayRegistry } from "../../../browser-font-replay.js";
@@ -33,7 +34,7 @@ const REPLAY_REGISTRY_KEY: unique symbol = Symbol.for(`org.tiqian.web.font-repla
 
 export interface FontCoordinationState {
   exactFontFallbackPromise: Promise<ExactFontFallbackLoader> | undefined;
-  preparedBridgePromise: Promise<typeof import("../../sampler/snapshot/prepared-dom.js") | undefined> | undefined;
+  preparedBridgePromise: Promise<typeof PreparedDomNamespace | undefined> | undefined;
   declaredFacesEntries: Map<string, DeclaredFaceEntry>;
   declaredFacesChangeListeners: Set<DeclaredFaceVoidCallbackFn>;
   // Constructed lazily on first use (see browser-fonts.ts): constructing it

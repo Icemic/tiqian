@@ -99,6 +99,8 @@ function withPreparedBridge(fn, overrides = {}) {
     });
     return fn();
   } finally {
+    setPreparedDomRendererForTest(undefined);
+    setPreparedDomValidatorForTest(undefined);
     for (const entry of saved) {
       if (entry.own) globalThis[entry.name] = entry.value;
       else delete globalThis[entry.name];

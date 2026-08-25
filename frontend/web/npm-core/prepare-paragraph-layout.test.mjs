@@ -67,6 +67,13 @@ function withEnv(fn, overrides = {}) {
         schema: 1,
         layoutRevision: overrides.layoutRevision ?? "tiqian-layout-v2",
       });
+    } else {
+      setPreparedDomRendererForTest(null);
+    }
+    if (overrides.validator !== undefined) {
+      setPreparedDomValidatorForTest({ issue: overrides.validator });
+    } else {
+      setPreparedDomValidatorForTest(null);
     }
     globalThis.getComputedStyle = (target, pseudo) =>
       target && target._computedValues
@@ -74,8 +81,8 @@ function withEnv(fn, overrides = {}) {
         : computedStyle();
     return fn();
   } finally {
-    setPreparedDomRendererForTest(null);
-    setPreparedDomValidatorForTest(null);
+    setPreparedDomRendererForTest(undefined);
+    setPreparedDomValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }

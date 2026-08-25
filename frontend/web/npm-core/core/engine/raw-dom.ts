@@ -1,13 +1,6 @@
-// Source raw-DOM backup for enhanced paragraphs.
-//
-// ES module exporting the raw-DOM backup factory. The composition root
-// (loaders/ts-runtime.ts) constructs one instance per engine bootstrap and
-// passes it to process-paragraph, commit-prepared-paragraph,
-// content-reconcile, and relayout-session through their deps.
-
-// The prepared DOM renderer owns release; its global type is declared in
-// prepare-paragraph-layout.ts.
-import type {} from "./prepare-paragraph-layout.js";
+import { getOrCreateEnhanceContext } from "./context/enhance-context.js";
+import type { RawDomParagraphRecord } from "./context/enhance-context.js";
+import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 
 // Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
 // collected together with its state. The original-attribute snapshots mirror
@@ -150,15 +143,7 @@ function stampRenderedContent(state: RawDomState, source: Element): void {
   state.renderedNodes = liveChildNodes(source);
 }
 
-type GetEnhanceContextFn = (element: Element) => import("./context/enhance-context.js").EnhancedElementContext;
-
-export type GetPreparedDomRendererModuleFn = () => typeof import("../sampler/snapshot/prepared-dom.js") | null;
-export interface RawDomDeps {
-  getEnhanceContext: GetEnhanceContextFn;
-  getPreparedDomRendererModule?: GetPreparedDomRendererModuleFn;
-}
-
-export function deriveRawDom(deps: RawDomDeps): RawDomApi {
+export function deriveRawDom(): RawDomApi {
   // Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
   // collected together with its state.
   const states = new WeakMap<Element, RawDomState>();
@@ -172,7 +157,7 @@ export function deriveRawDom(deps: RawDomDeps): RawDomApi {
   }
 
   function recordOf(source: Element) {
-    const table = deps.getEnhanceContext(source).rawDomParagraphs;
+    const table = getOrCreateEnhanceContext(source).rawDomParagraphs;
     let record = table.get(source);
     if (!record) {
       record = { fragment: null, engineWriteDepth: 0, forwarding: false };
@@ -188,7 +173,7 @@ export function deriveRawDom(deps: RawDomDeps): RawDomApi {
     installRawDomCommitForwarding(source, record);
   }
 
-  function installRawDomCommitForwarding(paragraph: Element, record: import("./context/enhance-context.js").RawDomParagraphRecord): void {
+  function installRawDomCommitForwarding(paragraph: Element, record: RawDomParagraphRecord): void {
     if (record.forwarding) {
       return;
     }
@@ -403,7 +388,7 @@ export function deriveRawDom(deps: RawDomDeps): RawDomApi {
   // the engine overwrote. Used by destroy and by unsupported relayouts.
   function restoreParagraph(source: Element): void {
     const state = stateOf(source);
-    const renderer = deps.getPreparedDomRendererModule?.();
+    const renderer = preparedDomRendererModule();
     if (renderer) {
       renderer.release(source);
     }

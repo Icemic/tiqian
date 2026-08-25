@@ -23,6 +23,8 @@
 //      (G2 module boundary).
 //   8. prefer-const on TypeScript sources: a let that is never reassigned is a
 //      const (G2 module boundary).
+//   9. Zero inline `typeof import(...)` / `import(...)` in type annotations (`TSImportType`):
+//      types must use top-level `import type` declarations.
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -155,6 +157,11 @@ export default [
             "VariableDeclaration[kind=\"var\"]:not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"])):not(TSModuleBlock VariableDeclaration)",
           message:
             "var is forbidden; use const, or let when reassigned. Exemptions: the TypeScript printer's synthesized `var _a` hoist in emit products, and ambient type-only declarations inside `declare global` blocks (erased at compile time) (G2 module boundary).",
+        },
+        {
+          selector: "TSImportType",
+          message:
+            "Inline `typeof import(...)` or `import(...)` type annotations are forbidden; use named top-level `import type` declarations instead.",
         },
       ],
     },

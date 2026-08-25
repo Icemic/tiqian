@@ -26,11 +26,6 @@ import { createFontFamilies } from "./canvas-fonts.js";
 import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
 import { shouldTryParagraph } from "./eligibility.js";
 
-export interface RootStateDeps {
-  createFontFamilies: typeof createFontFamilies;
-  createBrowserMetricsBridge: typeof createBrowserMetricsBridge;
-}
-
 // Descriptor returned by activeExactSessionDescriptor: a conforming snapshot
 // session id, or null when the active options lower the session.
 export type ExactSessionDescriptor = { sessionId: string };
@@ -147,7 +142,7 @@ export type RootStateApi = {
   publishState: RootStatePublishFn;
 };
 
-export function createRootState(deps: RootStateDeps): RootStateApi {
+export function createRootState(): RootStateApi {
   const EXACT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
   const ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
   const CAPABILITY_DETAIL_LIMIT: number = 512;
@@ -208,14 +203,14 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
     const fontFamilies = resolved.fontFamilies;
     // buildFontFamiliesConfigJs renames the resolved monospace family to the
     // latinMonospace key that canvas-fonts.js reads for the LatinText role.
-    const fonts = deps.createFontFamilies({
+    const fonts = createFontFamilies({
       cjk: fontFamilies.cjk,
       latin: fontFamilies.latin,
       latinMonospace: fontFamilies.monospace,
       cjkSerif: fontFamilies.cjkSerif,
       latinSerif: fontFamilies.latinSerif,
     });
-    const bridge = deps.createBrowserMetricsBridge({
+    const bridge = createBrowserMetricsBridge({
       fonts: fonts,
       cjkDashCapability: resolved.cjkDashCapability,
       env: browserMetricsEnv(),

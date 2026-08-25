@@ -97,9 +97,13 @@ function withEnv(fn, overrides = {}) {
         renders,
         releases,
       });
+    } else {
+      setPreparedDomRendererForTest(null);
     }
     if (overrides.validator !== undefined) {
       setPreparedDomValidatorForTest({ issue: overrides.validator });
+    } else {
+      setPreparedDomValidatorForTest(null);
     }
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
@@ -120,8 +124,8 @@ function withEnv(fn, overrides = {}) {
     return fn();
   } finally {
     if (backend) backend.uninstall();
-    setPreparedDomRendererForTest(null);
-    setPreparedDomValidatorForTest(null);
+    setPreparedDomRendererForTest(undefined);
+    setPreparedDomValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }

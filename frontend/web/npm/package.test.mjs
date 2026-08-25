@@ -207,14 +207,14 @@ test("the custom element validates a snapshot before dynamically loading the bro
     elementSource,
     /if \(!strongEmphasisRuntimeRequired\) \{[\s\S]*?tryAdoptRequestedSnapshot\(/u,
   );
-  assert.match(runtimeSource, /import\("\.\/ts-runtime\.js"\)/u);
+  assert.match(runtimeSource, /from "\.\/ts-runtime\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
-  assert.match(fontLoaderSource, /import\("\.\.\/\.\.\/measurement\/browser-fonts\.js"\)/u);
+  assert.match(fontLoaderSource, /from "\.\.\/\.\.\/measurement\/browser-fonts\.js"/u);
   // The prepared-dom renderer import moved to runtime-loader (S4); font-loader
   // reaches it through loadPreparedDomRenderer and no longer installs the
   // deleted prepared-dom bridge itself.
-  assert.match(runtimeSource, /import\("\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"\)/u);
-  assert.doesNotMatch(fontLoaderSource, /import\("\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"\)/u);
+  assert.match(runtimeSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
+  assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.match(fontLoaderSource, /loadPreparedDomRenderer\(\)/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
   assert.match(elementSource, /import\("@tiqian\/prose-core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
@@ -223,7 +223,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /from "\.\/font-shaping\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/font-shaping\.js"/u);
-  assert.match(loadedSnapshotsSource, /import\("\.\/precomputed\.js"\)/u);
+  assert.match(loadedSnapshotsSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(loadedSnapshotsSource, /font-shaping\.js/u);
   assert.doesNotMatch(elementSource, /lazy-capabilities/u);
   assert.doesNotMatch(apiSource, /lazy-capabilities/u);

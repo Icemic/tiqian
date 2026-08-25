@@ -8,7 +8,7 @@ import { cleanupMounted, mount } from "./runtime-host.mjs";
 import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
 import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
-const rawDom = deriveRawDom({ getEnhanceContext: getOrCreateEnhanceContext });
+const rawDom = deriveRawDom();
 
 function rawDomParagraph(t, markup) {
   const root = mount(markup);

@@ -8,6 +8,7 @@ import {
   relayout,
   startLayoutJob,
 } from "./core/engine/progressive-drivers.js";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest } from "./core/engine/loaders/runtime-loader.js";
 
 // The drivers functions take fake rootState/engine/layoutJobPool/copyInstaller
 // deps; the relayout-session and process-paragraph deps bundles
@@ -69,8 +70,20 @@ function withEnv(fn, overrides = {}) {
       this.composed = init && init.composed;
       this.detail = init && init.detail;
     };
+    if (overrides.renderer !== undefined) {
+      setPreparedDomRendererForTest(overrides.renderer);
+    } else {
+      setPreparedDomRendererForTest(null);
+    }
+    if (overrides.validator !== undefined) {
+      setPreparedDomValidatorForTest({ issue: overrides.validator });
+    } else {
+      setPreparedDomValidatorForTest(null);
+    }
     return fn();
   } finally {
+    setPreparedDomRendererForTest(undefined);
+    setPreparedDomValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }
