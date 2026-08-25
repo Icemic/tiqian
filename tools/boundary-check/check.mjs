@@ -129,12 +129,6 @@ function readLines(file) {
 const EXEMPTIONS = [
   // R2: the wire codec sits in engine commonMain until 纠偏 2/#103 moves the
   // parsers back to ffi/js.
-  {
-    task: "#103",
-    rules: ["R2-filename", "R2-top-level-name"],
-    file: "engine/src/commonMain/kotlin/org/tiqian/layout/ParagraphWireFace.kt",
-    reason: "Wire format codec wrongly placed in engine commonMain (A3 ruled wrong); moves to the ffi/js data conversion layer.",
-  },
 
   // R3b: export entries awaiting their corrective wave instead of an engine
   // counterpart sign-off.
@@ -149,10 +143,10 @@ const EXEMPTIONS = [
   // payloads cross the boundary as declared DTOs (纠偏 5/#106), except the
   // wire-face test which dies with the codec move (#103).
   {
-    task: "#103",
+    task: "#106",
     rules: ["R4-separator-literal"],
-    file: "engine/src/jvmTest/kotlin/org/tiqian/layout/ParagraphWireFaceTest.kt",
-    reason: "Fixtures of the wire codec under test; removed together with ParagraphWireFace when the parsers move back to ffi/js.",
+    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/ParagraphWireFaceTest.kt",
+    reason: "Wire codec test fixtures; deleted with the string wire format in corrective wave 5 (#106)."
   },
   {
     task: "#106",
@@ -354,7 +348,7 @@ const REVIEWED_WIRE_FACE_NAMES = new Set([
 // the current wire codec, and the parity oracle whose frozen-text byte
 // comparison the ruling explicitly retains.
 const SEPARATOR_CODEC_MODULES = [
-  "engine/src/commonMain/kotlin/org/tiqian/layout/ParagraphWireFace.kt",
+  "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireFace.kt",
   "frontend/web-precompute/scripts/plan-parity-oracle.mjs",
 ];
 
