@@ -424,6 +424,10 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
   ["firstDivergentInlineShapingProperty", "org.tiqian.font.InlineShapingStylePolicy divergence check"],
   ["tiqian_layout_paragraph", "packed TQLR layout request into the paragraph layout pipeline (declared, version-checked)"],
   ["tiqian_release_buffer", "native buffer release paired with tiqian_layout_paragraph"],
+  [
+    "tiqian_layout_paragraph_json",
+    "debug-named dump entry returning the engine plan JSON for the parity oracle and golden only; production returns the packed contract (ADR 0053 disposal record, ADR 0050 amendment 2026-08-25)",
+  ],
   ["tiqian_install_font_backend", "installed font-backend vtable per ADR 0050"],
 ]);
 
