@@ -83,7 +83,7 @@ function installFontPreloads(documentObject: Document, urls: string[]): void {
 }
 
 /**
- * Registers the compact exact-font manifest before a client-routed article
+ * Registers the compact snapshot-font manifest before a client-routed article
  * creates its <tiqian-prose>. Client navigation keeps native source DOM and
  * uses the manifest-backed server-replay runtime path instead of duplicating the
  * prepared paragraph HTML in page data.

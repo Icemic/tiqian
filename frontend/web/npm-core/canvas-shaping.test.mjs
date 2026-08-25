@@ -380,7 +380,7 @@ test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
   const cResult = conforming.shaper.shape(
     input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
   );
-  assert.equal(cResult.decisions[0].capabilityIssue, "ConformingCjkDashRequiresExactFontSession");
+  assert.equal(cResult.decisions[0].capabilityIssue, "ConformingCjkDashRequiresSnapshotFontSession");
   assert.ok(cResult.decisions[0].reason.includes("; status=conforming"));
 
   const partial = makeHarness({

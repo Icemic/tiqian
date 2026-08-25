@@ -2,7 +2,7 @@
 // declared-face coordination record. Per the service-directory rule (see
 // core/services/global-services.ts), font readiness, declared @font-face
 // registration, the browser font session loader and the replay registry are
-// all page-wide singletons by definition: one document owns one exact-font
+// all page-wide singletons by definition: one document owns one snapshot-font
 // fallback gate, one refcounted declared-face registry and one browser font
 // backend regardless of how many roots attach or how many times a duplicated
 // bundle chunk evaluates this module.
@@ -17,7 +17,7 @@
 // service instance; it is shared across bundle copies through the
 // globalServices container (Symbol.for key).
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
-import type { ExactFontFallbackLoader } from "../loaders/font-loader.js";
+import type { SnapshotFontFallbackLoader } from "../loaders/font-loader.js";
 import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
 import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
 import type { BrowserFontSessionLoader } from "../../measurement/browser-fonts.js";
@@ -28,7 +28,7 @@ import type {
 } from "../../sampler/snapshot/declared-faces.js";
 
 export interface FontCoordinationState {
-  exactFontFallbackPromise: Promise<ExactFontFallbackLoader> | undefined;
+  snapshotFontFallbackPromise: Promise<SnapshotFontFallbackLoader> | undefined;
   preparedBridgePromise: Promise<typeof PreparedDomNamespace | undefined> | undefined;
   declaredFacesEntries: Map<string, DeclaredFaceEntry>;
   declaredFacesChangeListeners: Set<DeclaredFaceVoidCallbackFn>;

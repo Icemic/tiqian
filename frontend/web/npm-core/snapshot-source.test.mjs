@@ -108,7 +108,7 @@ test("live semantics keep hierarchy order separate from live source indices", ()
   }]);
 });
 
-test("inline code requires an explicit exact-font and box metric contract", () => {
+test("inline code requires an explicit snapshot-font and box metric contract", () => {
   const semantics = normalizeSnapshotSemantics("中code文", [{
     start: 1,
     end: 5,

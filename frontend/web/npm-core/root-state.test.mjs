@@ -92,13 +92,13 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
 
     const root = new FakeElement({ attributes: { "data-tiqian-exact-layout-fallback": "stale" } });
 
-    // fontSize bag: the snapshot gate routes through withoutExactFontSession.
+    // fontSize bag: the snapshot gate routes through withoutSnapshotFontSession.
     const state = rs.createRootState(root, { fontSize: 19 });
 
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
     assert.equal(state.root, root);
     assert.equal(state.options.fontSize, 19);
-    assert.equal(state.options.exactFontSession, null);
+    assert.equal(state.options.snapshotFontSession, null);
     assert.equal(state.options.fontFamilies.cjk, DEFAULT_CJK_FONT_FAMILY);
     assert.equal(state.options.fontFamilies.latin, DEFAULT_LATIN_FONT_FAMILY);
     assert.equal(state.options.fontFamilies.monospace, DEFAULT_MONOSPACE_FONT_FAMILY);
@@ -113,9 +113,9 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     assert.equal(typeof state.browserFallback.bridge.metricsJson, "function");
 
     // All-default bag: the snapshot gate passes straight through, so the
-    // withoutExactFontSession path is never taken.
+    // withoutSnapshotFontSession path is never taken.
     const allDefault = rs.createRootState(root, {});
-    assert.equal(allDefault.options.exactFontSession, null);
+    assert.equal(allDefault.options.snapshotFontSession, null);
 
     // null bag also works.
     const nullBag = rs.createRootState(root, null);
@@ -137,8 +137,8 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
       strongAsEmphasisMarks: false,
       paragraphSelector: "p, li",
       cjkDashCapability: null,
-      exactFontSession: { status: "conforming", sessionId: "canonical-session" },
-      requireExactLayoutWorker: false,
+      snapshotFontSession: { status: "conforming", sessionId: "canonical-session" },
+      requireSnapshotLayoutWorker: false,
     };
 
     const state = rs.createRootStateFromCanonical(root, canonical);
@@ -146,7 +146,7 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
     assert.equal(state.root, root);
     // Explicit families pass through unchanged; the snapshot gate is skipped.
     assert.equal(state.options.fontFamilies.cjk, "CJK");
-    assert.equal(state.options.exactFontSession.sessionId, "canonical-session");
+    assert.equal(state.options.snapshotFontSession.sessionId, "canonical-session");
     assert.deepEqual(state.paragraphs, []);
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
@@ -154,25 +154,25 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
   });
 });
 
-test("3. preparedDom toggle: active options, exact session descriptor, attribute write, truncation, idempotence", () => {
+test("3. preparedDom toggle: active options, snapshot session descriptor, attribute write, truncation, idempotence", () => {
   withComputedStyle(() => {
     const { rs } = makeRootState();
 
     const root = new FakeElement();
     const state = rs.createRootState(root, {
-      exactFontSession: { status: "conforming", sessionId: "sess-1" },
+      snapshotFontSession: { status: "conforming", sessionId: "sess-1" },
     });
 
     // While prepared DOM is enabled the active options are state.options and
     // the descriptor resolves the session id into the callback pair ffi takes
     // as call parameters; an unregistered id only fails at call time.
     assert.equal(rs.activeTsOptions(state), state.options);
-    const descriptor = rs.activeExactSessionDescriptor(state);
+    const descriptor = rs.activeSnapshotSessionDescriptor(state);
     assert.equal(typeof descriptor.shapeJson, "function");
     assert.equal(typeof descriptor.metricsJson, "function");
 
     const detail = "x".repeat(600);
-    rs.disableExactPreparedDom(state, detail);
+    rs.disableSnapshotPreparedDom(state, detail);
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(state.preparedDomFallback, "x".repeat(512));
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
@@ -181,15 +181,15 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
       1
     );
 
-    // After disable: active options drop the exact font session and the
+    // After disable: active options drop the snapshot font session and the
     // descriptor becomes null.
     const active = rs.activeTsOptions(state);
     assert.notEqual(active, state.options);
-    assert.equal(active.exactFontSession, null);
-    assert.equal(rs.activeExactSessionDescriptor(state), null);
+    assert.equal(active.snapshotFontSession, null);
+    assert.equal(rs.activeSnapshotSessionDescriptor(state), null);
 
     // Idempotent: a second call changes nothing and does not rewrite the attribute.
-    rs.disableExactPreparedDom(state, "second-detail");
+    rs.disableSnapshotPreparedDom(state, "second-detail");
     assert.equal(state.preparedDomFallback, "x".repeat(512));
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
     assert.equal(
@@ -205,14 +205,14 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
 
     const root = new FakeElement();
     const state = rs.createRootState(root, {
-      exactFontSession: { status: "conforming", sessionId: "sess-1" },
+      snapshotFontSession: { status: "conforming", sessionId: "sess-1" },
     });
     const engine = rs.engineState(state);
 
     assert.equal(engine.options, state.options);
     assert.equal(engine.preparedDomEnabled, true);
-    assert.equal(typeof engine.exactSession.shapeJson, "function");
-    assert.equal(typeof engine.exactSession.metricsJson, "function");
+    assert.equal(typeof engine.snapshotSession.shapeJson, "function");
+    assert.equal(typeof engine.snapshotSession.metricsJson, "function");
     assert.equal(engine.browserFallback, state.browserFallback);
     assert.equal(engine.paragraphs, state.paragraphs);
     assert.equal(engine.issues, state.issues);
@@ -227,7 +227,7 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.paragraphs[0], item);
 
-    engine.onDisableExactPreparedDom("replay-mismatch");
+    engine.onDisableSnapshotPreparedDom("replay-mismatch");
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "replay-mismatch");
   });

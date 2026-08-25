@@ -1,4 +1,4 @@
-// Exact font session state machines (ADR 0053 batch 4; decomposition report
+// Snapshot font session state machines (ADR 0053 batch 4; decomposition report
 // section 8). Both host entries share one session entry shape and one
 // release ordering: the custom element holds its session in a per-root field
 // (live revalidation and render fonts), the module API holds sessions in a
@@ -24,7 +24,7 @@ type BrowserFontSessionOperation =
   | PreparedRenderFontStyleInstaller
   | PreparedRenderFontStyleReleaser;
 
-export interface ExactFontLoader {
+export interface SnapshotFontLoader {
   revalidateBrowserFontSession: BrowserFontSessionRevalidator;
   prepareBrowserRenderFonts: BrowserRenderFontPreparer;
   releaseBrowserFontSession: BrowserFontSessionReleaser;
@@ -32,7 +32,7 @@ export interface ExactFontLoader {
   releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
-export interface ExactFontSessionEntry {
+export interface SnapshotFontSessionEntry {
   reference: string | null;
   handle: BrowserFontSessionHandle;
   revalidate: BrowserFontSessionRevalidator;
@@ -52,7 +52,7 @@ const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
   "latinSerifFontFamily",
 ] as const;
 
-export function createExactFontSessionEntry(reference: string | null, handle: BrowserFontSessionHandle, loader: ExactFontLoader): ExactFontSessionEntry {
+export function createSnapshotFontSessionEntry(reference: string | null, handle: BrowserFontSessionHandle, loader: SnapshotFontLoader): SnapshotFontSessionEntry {
   return {
     reference,
     handle,
@@ -64,7 +64,7 @@ export function createExactFontSessionEntry(reference: string | null, handle: Br
   };
 }
 
-export function releaseExactFontSession(entry: ExactFontSessionEntry, root: HTMLElement): boolean {
+export function releaseSnapshotFontSession(entry: SnapshotFontSessionEntry, root: HTMLElement): boolean {
   entry.releaseRenderFont(root);
   return entry.release(entry.handle);
 }

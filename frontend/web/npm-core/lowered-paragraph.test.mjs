@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   isCanonicalPlainParagraph,
-  isRuntimeExactPreparedDomEligible,
+  isRuntimeSnapshotPreparedDomEligible,
 } from "./core/engine/lowered-paragraph.js";
 
 function textStyle(overrides = {}) {
@@ -103,26 +103,26 @@ test("isCanonicalPlainParagraph rejects a non-empty sourceSpans collection", () 
   );
 });
 
-test("isRuntimeExactPreparedDomEligible accepts an empty spans collection", () => {
-  assert.equal(isRuntimeExactPreparedDomEligible(paragraph()), true);
+test("isRuntimeSnapshotPreparedDomEligible accepts an empty spans collection", () => {
+  assert.equal(isRuntimeSnapshotPreparedDomEligible(paragraph()), true);
 });
 
-test("isRuntimeExactPreparedDomEligible accepts spans matching the paragraph locale", () => {
+test("isRuntimeSnapshotPreparedDomEligible accepts spans matching the paragraph locale", () => {
   const lowered = paragraph({
     spans: [
       span({ start: 0, end: 2 }),
       span({ start: 2, end: 4 }),
     ],
   });
-  assert.equal(isRuntimeExactPreparedDomEligible(lowered), true);
+  assert.equal(isRuntimeSnapshotPreparedDomEligible(lowered), true);
 });
 
-test("isRuntimeExactPreparedDomEligible fails closed on a locale-mismatching span", () => {
+test("isRuntimeSnapshotPreparedDomEligible fails closed on a locale-mismatching span", () => {
   const lowered = paragraph({
     spans: [
       span({ start: 0, end: 2 }),
       span({ start: 2, end: 4, style: textStyle({ locale: "ja" }) }),
     ],
   });
-  assert.equal(isRuntimeExactPreparedDomEligible(lowered), false);
+  assert.equal(isRuntimeSnapshotPreparedDomEligible(lowered), false);
 });

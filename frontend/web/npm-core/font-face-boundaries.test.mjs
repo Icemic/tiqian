@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   mergeSerializedSourceBoundaries,
-  workerExactSubsetSourceBoundaries,
+  workerSnapshotSubsetSourceBoundaries,
 } from "./core/sampler/font-face-boundaries.js";
 
 function face(sourceOrder, unicodeRange, publicUrl) {
@@ -33,7 +33,7 @@ test("Worker recreates an exact subset boundary between Latin and curly-quote sh
     textSpans: "",
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), [1]);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), [1]);
   assert.equal(mergeSerializedSourceBoundaries("", [1]), "1");
 });
 
@@ -59,7 +59,7 @@ test("Worker subset boundaries preserve DOM style boundaries and UTF-16 offsets"
     ].join("\u001d"),
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), [1, 2]);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), [1, 2]);
   assert.equal(mergeSerializedSourceBoundaries("2,0", [1, 2]), "0,1,2");
 });
 
@@ -77,7 +77,7 @@ test("Worker follows CSS source order when subset declarations overlap", () => {
     textSpans: "",
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), [1]);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), [1]);
 });
 
 test("Worker does not require a font face for zero-width soft-break controls", () => {
@@ -94,7 +94,7 @@ test("Worker does not require a font face for zero-width soft-break controls", (
     textSpans: "",
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), [2]);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), [2]);
 });
 
 test("Worker does not require font coverage for mandatory-break controls", () => {
@@ -110,7 +110,7 @@ test("Worker does not require font coverage for mandatory-break controls", () =>
     textSpans: "",
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), []);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), []);
 });
 
 test("Worker preserves UTF-16 face boundaries across CRLF", () => {
@@ -127,5 +127,5 @@ test("Worker preserves UTF-16 face boundaries across CRLF", () => {
     textSpans: "",
   };
 
-  assert.deepEqual(workerExactSubsetSourceBoundaries(faces, request), [3]);
+  assert.deepEqual(workerSnapshotSubsetSourceBoundaries(faces, request), [3]);
 });

@@ -348,14 +348,14 @@ installBridge();
 // frame loop drives it, matching the grant lanes.
 export async function createPrepareJob(
   root: HTMLElement | null | undefined,
-  exactFontSession: BrowserFontSessionHandle | null | undefined,
+  snapshotFontSession: BrowserFontSessionHandle | null | undefined,
   options: PrepareJobOptions | null | undefined,
   isCurrent: IsCurrentPredicate,
 ): Promise<PrepareJob | null> {
-  if (!root || !exactFontSession || !isCurrent()) return null;
+  if (!root || !snapshotFontSession || !isCurrent()) return null;
   const api: TiqianEngineInstance | null = engineApi();
   if (typeof api?.workerLayoutRequest !== "function") return null;
-  const contract = browserFontSessionWorkerContract(exactFontSession);
+  const contract = browserFontSessionWorkerContract(snapshotFontSession);
   // WorkerCandidateSetMatchesCommitSet: mixed snapshot/runtime roots dispatch
   // Kotlin with an explicit completion-only paragraph selector. A full
   // runtime fallback, however, has no explicit selector and Kotlin visits all
@@ -418,7 +418,7 @@ export async function createPrepareJob(
             stored += 1;
           })
           .catch((error: unknown) => {
-            // ExactWorkerFailureMustStayNative: falling back to synchronous Kotlin/JS
+            // SnapshotWorkerFailureMustStayNative: falling back to synchronous Kotlin/JS
             // recreates the navigation/scroll stall this Worker exists to remove,
             // especially under Edge's enhanced-security JIT restrictions. Publish a
             // per-request capability issue for the main-thread coordinator instead;

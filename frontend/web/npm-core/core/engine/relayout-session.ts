@@ -88,7 +88,7 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
             preparation: preparation,
             options: state.options,
             browserFallback: state.browserFallback,
-            onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+            onSnapshotPreparedDomFallback: state.onDisableSnapshotPreparedDom,
             semanticReplayJson: preparedSemanticReplayJson(paragraph.lowered),
             inlineObjectMetaJson: preparedInlineObjectMetaJson(paragraph.lowered),
             cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(paragraph.lowered),

@@ -18,8 +18,8 @@ import type { ExpandedSnapshotManifest, SnapshotManifestWire } from "../../snaps
 import { snapshotTablesForRoot } from "../../snapshot-tables.js";
 import type { LoadedSnapshotTable } from "../../snapshot-tables.js";
 import {
-  validatePrecomputedExactFontReplayContract,
-  validatePrecomputedExactFontReplayLiveContract,
+  validatePrecomputedSnapshotFontReplayContract,
+  validatePrecomputedSnapshotFontReplayLiveContract,
 } from "../sampler/snapshot/precomputed.js";
 // Ambient global declarations pulled in via import type from owner modules.
 import type { TiqianLayoutWorkerInstance } from "../engine/coordination/coordination-service.js";
@@ -48,24 +48,24 @@ export class BrowserFontSessionError extends Error {
   }
 }
 
-export interface ExactFontContractDetail {
+export interface SnapshotFontContractDetail {
   kind?: string;
   expectedFaces?: unknown;
   actualFaces?: unknown;
   firstField?: unknown;
 }
 
-export interface ExactFontContractResult {
+export interface SnapshotFontContractResult {
   matches: boolean;
   reason?: string | null;
-  detail?: ExactFontContractDetail | null;
+  detail?: SnapshotFontContractDetail | null;
   paragraphSelector?: string;
   compatibleLocalDeclared?: boolean;
 }
 
-export type ExactFontContractValidator = (root: HTMLElement) => Promise<ExactFontContractResult> | ExactFontContractResult;
+export type SnapshotFontContractValidator = (root: HTMLElement) => Promise<SnapshotFontContractResult> | SnapshotFontContractResult;
 
-function formatContractMismatchDetail(result: ExactFontContractResult | null | undefined): string {
+function formatContractMismatchDetail(result: SnapshotFontContractResult | null | undefined): string {
   const reason = result?.reason ?? "unknown";
   if (!result?.detail) return reason;
   const { kind, expectedFaces, actualFaces, firstField } = result.detail;
@@ -548,8 +548,8 @@ export type FontSessionCreator = (
 
 export interface BrowserFontSessionLoaderOptions {
   createFontSession?: FontSessionCreator;
-  validateContract?: ExactFontContractValidator;
-  validatePreparedContract?: ExactFontContractValidator;
+  validateContract?: SnapshotFontContractValidator;
+  validatePreparedContract?: SnapshotFontContractValidator;
 }
 
 interface RenderFontFaceSpec {
@@ -604,52 +604,52 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
   const createSession = options.createFontSession ?? createServerReplayFontSession;
   const preferPreparedContract = options.validateContract == null ||
     options.validatePreparedContract != null;
-  const validateContract: ExactFontContractValidator = options.validateContract ??
-    validatePrecomputedExactFontReplayContract;
-  const validatePreparedContract: ExactFontContractValidator = options.validatePreparedContract ?? (
+  const validateContract: SnapshotFontContractValidator = options.validateContract ??
+    validatePrecomputedSnapshotFontReplayContract;
+  const validatePreparedContract: SnapshotFontContractValidator = options.validatePreparedContract ?? (
     options.validateContract
       ? validateContract
-      : validatePrecomputedExactFontReplayLiveContract
+      : validatePrecomputedSnapshotFontReplayLiveContract
   );
   const cache = new WeakMap<HTMLTemplateElement, Map<string, BrowserFontSessionState>>();
 
-  async function validateExactContract(root: HTMLElement): Promise<ExactFontContractResult> {
-    let result: ExactFontContractResult;
+  async function validateSnapshotContract(root: HTMLElement): Promise<SnapshotFontContractResult> {
+    let result: SnapshotFontContractResult;
     try {
       result = await validateContract(root);
     } catch (error) {
-      fail("SnapshotExactFontContractValidationFailed", undefined, error);
+      fail("SnapshotFontContractValidationFailed", undefined, error);
     }
     return result;
   }
 
-  async function validateExactPreparedContract(root: HTMLElement): Promise<ExactFontContractResult> {
-    let result: ExactFontContractResult;
+  async function validateSnapshotPreparedContract(root: HTMLElement): Promise<SnapshotFontContractResult> {
+    let result: SnapshotFontContractResult;
     try {
       result = await validatePreparedContract(root);
     } catch (error) {
-      fail("SnapshotExactFontContractValidationFailed", undefined, error);
+      fail("SnapshotFontContractValidationFailed", undefined, error);
     }
     if (!result?.matches) {
-      fail("SnapshotExactFontContractMismatch", formatContractMismatchDetail(result));
+      fail("SnapshotFontContractMismatch", formatContractMismatchDetail(result));
     }
     return result;
   }
 
-  async function requirePreparedOrExactContract(root: HTMLElement): Promise<ExactFontContractResult> {
+  async function requirePreparedOrSnapshotContract(root: HTMLElement): Promise<SnapshotFontContractResult> {
     if (preferPreparedContract) {
-      let prepared: ExactFontContractResult | undefined;
+      let prepared: SnapshotFontContractResult | undefined;
       try {
         prepared = await validatePreparedContract(root);
       } catch (error) {
-        fail("SnapshotExactFontContractValidationFailed", undefined, error);
+        fail("SnapshotFontContractValidationFailed", undefined, error);
       }
       if (prepared?.matches) return prepared;
     }
-    return requireExactContract(root);
+    return requireSnapshotContract(root);
   }
 
-  async function waitForParserContract(root: HTMLElement, initialResult: ExactFontContractResult): Promise<ExactFontContractResult> {
+  async function waitForParserContract(root: HTMLElement, initialResult: SnapshotFontContractResult): Promise<SnapshotFontContractResult> {
     const documentObject = root?.ownerDocument;
     const MutationObserverConstructor = documentObject?.defaultView?.MutationObserver ??
       globalThis.MutationObserver;
@@ -664,7 +664,7 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
       let validating = false;
       let queued = false;
       let settled = false;
-      const finish = (result: ExactFontContractResult) => {
+      const finish = (result: SnapshotFontContractResult) => {
         if (settled) return;
         settled = true;
         observer.disconnect();
@@ -685,9 +685,9 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
           return;
         }
         validating = true;
-        let result: ExactFontContractResult;
+        let result: SnapshotFontContractResult;
         try {
-          result = await validateExactContract(root);
+          result = await validateSnapshotContract(root);
         } catch (error) {
           failValidation(error);
           return;
@@ -717,10 +717,10 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
     });
   }
 
-  async function requireExactContract(root: HTMLElement): Promise<ExactFontContractResult> {
-    const result = await waitForParserContract(root, await validateExactContract(root));
+  async function requireSnapshotContract(root: HTMLElement): Promise<SnapshotFontContractResult> {
+    const result = await waitForParserContract(root, await validateSnapshotContract(root));
     if (!result?.matches) {
-      fail("SnapshotExactFontContractMismatch", formatContractMismatchDetail(result));
+      fail("SnapshotFontContractMismatch", formatContractMismatchDetail(result));
     }
     return result;
   }
@@ -776,7 +776,7 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
   async function prepare(root: HTMLElement): Promise<BrowserFontSessionHandle> {
     // HostCompatibleReplayContract: both snapshots and runtime replay paint
     // through the host family, so the same live CSS/probe proof gates both.
-    await requirePreparedOrExactContract(root);
+    await requirePreparedOrSnapshotContract(root);
     const context = await snapshotContext(root);
     const cacheKey = context.manifestText;
     let versions = cache.get(context.template);
@@ -815,7 +815,7 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
     let session: ServerReplayFontSession;
     try {
       session = await state.promise!;
-      await validateExactPreparedContract(root);
+      await validateSnapshotPreparedContract(root);
       const current = await snapshotContext(root);
       if (
         current.template !== context.template || current.manifestText !== context.manifestText
@@ -840,7 +840,7 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
     }
     // ExistingSessionLiveContractRevalidation: replay data is immutable, but
     // the host font cascade remains a live rendering dependency.
-    await requirePreparedOrExactContract(root);
+    await requirePreparedOrSnapshotContract(root);
     const context = await snapshotContext(root);
     const cacheKey = context.manifestText;
     const { state } = token;

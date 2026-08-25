@@ -186,11 +186,11 @@ function makeState(overrides = {}, root, optionsOverride) {
     paragraphs: overrides.paragraphs || [],
     issues: overrides.issues || [],
     preparedDomEnabled: true,
-    exactSession: overrides.exactSession || null,
+    snapshotSession: overrides.snapshotSession || null,
     browserFallback: overrides.browserFallback || null,
     onIssue: overrides.onIssue || function () {},
     onParagraphCommitted: overrides.onParagraphCommitted || function () {},
-    onDisableExactPreparedDom: overrides.onDisableExactPreparedDom || function () {},
+    onDisableSnapshotPreparedDom: overrides.onDisableSnapshotPreparedDom || function () {},
   };
 }
 
@@ -251,7 +251,7 @@ function makeFakeRootState(overrides = {}) {
       return {
         paragraph: paragraph,
         options: state.options || {},
-        exactSession: state.exactSession || null,
+        snapshotSession: state.snapshotSession || null,
         browserFallback: state.browserFallback || null,
         widthOverride: widthOverride,
       };
@@ -627,11 +627,11 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     paragraphs: [renderedP],
     issues: [],
     ffi: null,
-    exactSession: null,
+    snapshotSession: null,
     browserFallback: null,
     onIssue: function () {},
     onParagraphCommitted: function () {},
-    onDisableExactPreparedDom: function () {},
+    onDisableSnapshotPreparedDom: function () {},
   };
 
   withEnv(() => {
@@ -676,7 +676,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
     paragraphs: [renderedP],
     issues: [],
     ffi: null,
-    exactSession: null,
+    snapshotSession: null,
     browserFallback: null,
   };
 
@@ -750,7 +750,7 @@ test("5d. relayout main path: onFailure calls rollback", function () {
     paragraphs: [renderedP],
     issues: [],
     ffi: null,
-    exactSession: null,
+    snapshotSession: null,
     browserFallback: null,
   };
 
@@ -781,7 +781,7 @@ test("5e. relayout main path: onItemsFinished calls finish which ejects unsuppor
     paragraphs: [renderedP],
     issues: [],
     ffi: null,
-    exactSession: null,
+    snapshotSession: null,
     browserFallback: null,
   };
 

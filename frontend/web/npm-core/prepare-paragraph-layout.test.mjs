@@ -250,23 +250,23 @@ function makeBridge() {
 
 const RICH_BROWSER_FALLBACK = { bridge: makeBridge() };
 
-// The exact-session descriptor carries the shaping callbacks ffi takes as
+// The snapshot-session descriptor carries the shaping callbacks ffi takes as
 // call parameters; the fixture backend supplies the same pair the old global
 // installation shaped through.
-function exactSessionCallbacksOf(backend) {
+function snapshotSessionCallbacksOf(backend) {
   return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
 
-function fixtureExactSession() {
-  return exactSessionCallbacksOf(installFixtureFontBackend());
+function fixtureSnapshotSession() {
+  return snapshotSessionCallbacksOf(installFixtureFontBackend());
 }
 
-function exactArgument(overrides = {}) {
-  const { exactSession = fixtureExactSession(), ...rest } = overrides;
+function snapshotArgument(overrides = {}) {
+  const { snapshotSession = fixtureSnapshotSession(), ...rest } = overrides;
   return {
     paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
     options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
-    exactSession,
+    snapshotSession,
     browserFallback: RICH_BROWSER_FALLBACK,
     widthOverride: null,
     ignoreUnchangedMeasure: false,
@@ -278,7 +278,7 @@ const DEFAULT_MEASURE = effectiveLineMeasure(320, 19);
 
 test("returns unchanged when lastMeasure matches the effective measure", () => {
   withEnv(() => {
-    const result = prepareParagraphLayout(exactArgument({
+    const result = prepareParagraphLayout(snapshotArgument({
       paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
     }));
     assert.deepEqual(result, { kind: "unchanged" });
@@ -289,7 +289,7 @@ test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
   const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({
+      const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
         ignoreUnchangedMeasure: true,
       }));
@@ -305,14 +305,14 @@ test("widthOverride wins and ready.width is raw while ffi receives the measure",
   try {
     withEnv(() => {
       const expectedMeasure = effectiveLineMeasure(200, 19);
-      const result = prepareParagraphLayout(exactArgument({ widthOverride: 200 }));
+      const result = prepareParagraphLayout(snapshotArgument({ widthOverride: 200 }));
       assert.equal(result.kind, "ready");
       assert.equal(result.width, 200);
       assert.equal(result.measure, expectedMeasure);
-      // The exact-session wire consumed the measure as maxWidthPx and the
+      // The snapshot-session wire consumed the measure as maxWidthPx and the
       // rich lowered text as the source.
       const wire = wireArguments(RICH_LOWERED);
-      const args = precomputeDiagnosticsArguments(fixtureExactSession(), ["abcde", expectedMeasure, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, "0,2,5", wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects], wire, null, true);
+      const args = precomputeDiagnosticsArguments(fixtureSnapshotSession(), ["abcde", expectedMeasure, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, "0,2,5", wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects], wire, null, true);
       assert.equal(args[1], expectedMeasure);
       assert.equal(args[0], "abcde");
     });
@@ -323,7 +323,7 @@ test("widthOverride wins and ready.width is raw while ffi receives the measure",
 
 test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
   withEnv(() => {
-    const result = prepareParagraphLayout(exactArgument());
+    const result = prepareParagraphLayout(snapshotArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
@@ -335,7 +335,7 @@ test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
 
 test("PreparedDomBridgeUnavailable when the layout revision mismatches", () => {
   withEnv(() => {
-    const result = prepareParagraphLayout(exactArgument());
+    const result = prepareParagraphLayout(snapshotArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
@@ -354,7 +354,7 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
         span({ start: 0, end: 2, style: textStyle({ locale: "ko" }) }),
       ],
     });
-    const result = prepareParagraphLayout(exactArgument({
+    const result = prepareParagraphLayout(snapshotArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "unsupported");
@@ -366,7 +366,7 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
 test("wire byte lock: diagnostics call carries the full positional argument list", () => {
   withEnv(() => {
     const wire = wireArguments(RICH_LOWERED);
-    const session = fixtureExactSession();
+    const session = fixtureSnapshotSession();
     const args = precomputeDiagnosticsArguments(
       session,
       ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
@@ -396,12 +396,12 @@ test("wire byte lock: diagnostics call carries the full positional argument list
     assert.equal(args[19], null);
     assert.equal(args[20], true);
 
-    // The wire byte lock is not a dead computation: the real exact-session
+    // The wire byte lock is not a dead computation: the real snapshot-session
     // ffi call is a one-line consumer of the same tuple, observable as the
     // ready result the tuple would produce.
     const backend = installFixtureFontBackend();
     try {
-      const result = prepareParagraphLayout(exactArgument());
+      const result = prepareParagraphLayout(snapshotArgument());
       assert.equal(result.kind, "ready");
       assert.equal(result.measure, DEFAULT_MEASURE);
     } finally {
@@ -419,7 +419,7 @@ test("render evidence override carries the six-collection verdict", () => {
         sourceSpans: [sourceSpan({ start: 0, end: 5 })],
       });
       const plain = paragraph({ text: "abcde" });
-      const session = fixtureExactSession();
+      const session = fixtureSnapshotSession();
       const linkWire = wireArguments(linkOnly);
       const plainWire = wireArguments(plain);
       const linkArgs = precomputeDiagnosticsArguments(
@@ -461,13 +461,13 @@ test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
   const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
-      const li = prepareParagraphLayout(exactArgument({
+      const li = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: element("LI"), lowered: RICH_LOWERED, lastMeasure: null },
         options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
       }));
       assert.equal(li.kind, "ready");
 
-      const nonLi = prepareParagraphLayout(exactArgument({
+      const nonLi = prepareParagraphLayout(snapshotArgument({
         options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
       }));
       assert.equal(nonLi.kind, "ready");
@@ -478,7 +478,7 @@ test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
   const bridge = makeBridge();
   const originalShapeJson = bridge.shapeJson;
   bridge.shapeJson = function (req) {
@@ -499,7 +499,7 @@ test("capabilityIssues[0] produces an unsupported verdict with name and reason",
   };
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend), browserFallback: { bridge } }));
+      const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend), browserFallback: { bridge } }));
       assert.deepEqual(result, {
         kind: "unsupported",
         name: "NoConformingCjkDashGlyph",
@@ -553,9 +553,9 @@ test("advance suspects skip empty and newline display text, then the first real 
       text: "\u200b\u4e2d\u2014",
       sourceSpans: [sourceSpan({ start: 0, end: 3 })],
     });
-    const result = prepareParagraphLayout(exactArgument({
+    const result = prepareParagraphLayout(snapshotArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
-      exactSession: null,
+      snapshotSession: null,
       browserFallback: { bridge },
     }));
     assert.deepEqual(result, {
@@ -583,7 +583,7 @@ test("clone decoration crossed by two plan lines is unsupported with the lowerca
         ],
       });
       // A width that forces a two-line plan crossing the clone span.
-      const result = prepareParagraphLayout(exactArgument({
+      const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
         widthOverride: 64,
       }));
@@ -614,7 +614,7 @@ test("clone decoration on a single line does not trigger", () => {
           }),
         ],
       });
-      const result = prepareParagraphLayout(exactArgument({
+      const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
       }));
       assert.equal(result.kind, "ready");
@@ -639,7 +639,7 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
           }),
         ],
       });
-      const result = prepareParagraphLayout(exactArgument({
+      const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
       }));
       assert.equal(result.kind, "ready");
@@ -650,12 +650,12 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) }));
+      const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.exactFontSessionUsed, false);
+      assert.equal(result.snapshotFontSessionUsed, false);
     });
   } finally {
     backend.uninstall();
@@ -666,9 +666,9 @@ test("another capability-failure name triggers the retry", () => {
   const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay"));
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) }));
+      const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.exactFontSessionUsed, false);
+      assert.equal(result.snapshotFontSessionUsed, false);
     });
   } finally {
     backend.uninstall();
@@ -679,28 +679,28 @@ test("a non-matching error rethrows", () => {
   const backend = installThrowingFontBackend(new Error("some unrelated failure"));
   try {
     withEnv(() => {
-      assert.throws(() => prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) })), /some unrelated failure/);
+      assert.throws(() => prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) })), /some unrelated failure/);
     });
   } finally {
     backend.uninstall();
   }
 });
 
-test("exactSession == null runs the browser metrics call directly without a sessionId", () => {
+test("snapshotSession == null runs the browser metrics call directly without a sessionId", () => {
   withEnv(() => {
-    const result = prepareParagraphLayout(exactArgument({
-      exactSession: null,
+    const result = prepareParagraphLayout(snapshotArgument({
+      snapshotSession: null,
       browserFallback: RICH_BROWSER_FALLBACK,
     }));
     assert.equal(result.kind, "ready");
-    assert.equal(result.exactFontSessionUsed, false);
+    assert.equal(result.snapshotFontSessionUsed, false);
   });
 });
 
-test("exactSession == null with a missing browserFallback throws", () => {
+test("snapshotSession == null with a missing browserFallback throws", () => {
   withEnv(() => {
     assert.throws(
-      () => prepareParagraphLayout(exactArgument({ exactSession: null, browserFallback: null })),
+      () => prepareParagraphLayout(snapshotArgument({ snapshotSession: null, browserFallback: null })),
       /missing browserFallback descriptor/,
     );
   });
@@ -710,11 +710,11 @@ test("ready shape carries the envelope pieces on the happy exact path", () => {
   const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({
+      const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
       }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.exactFontSessionUsed, true);
+      assert.equal(result.snapshotFontSessionUsed, true);
       assert.equal(result.width, 320);
       assert.equal(result.measure, DEFAULT_MEASURE);
       // The real plan covers the full rich text range on one line.
@@ -734,7 +734,7 @@ test("emphasisDotGapEm passes through to the trailing ffi argument", () => {
   try {
     withEnv(() => {
       const wire = wireArguments(RICH_LOWERED);
-      const session = fixtureExactSession();
+      const session = fixtureSnapshotSession();
       const withGap = precomputeDiagnosticsArguments(
         session,
         ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],

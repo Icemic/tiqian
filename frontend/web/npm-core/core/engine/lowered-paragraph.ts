@@ -106,12 +106,12 @@ export function isCanonicalPlainParagraph(lowered: LoweredParagraph): boolean {
 }
 
 /**
- * RuntimeExactPreparedDomScope: the runtime prepared-DOM bridge replays styled
+ * RuntimeSnapshotPreparedDomScope: the runtime prepared-DOM bridge replays styled
  * spans through plan evidence, and the plan wire carries one paragraph locale,
  * so the bridge cannot replay a span shaped under a different one.
  * Locale-mismatching spans fail closed with SpanLocaleMismatchUnsupported.
  */
-export function isRuntimeExactPreparedDomEligible(lowered: LoweredParagraph): boolean {
+export function isRuntimeSnapshotPreparedDomEligible(lowered: LoweredParagraph): boolean {
   return lowered.spans.every((span) => span.style.locale === lowered.textStyle.locale);
 }
 

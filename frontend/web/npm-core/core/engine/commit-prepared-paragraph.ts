@@ -4,7 +4,7 @@
 // and commitPreparedParagraph, lines 500-583). The module mounts the rendered
 // prepared DOM, sets canonical-source and canonical-plain attributes, checks
 // validator verdicts, manages rawDom engine write suspensions, and handles
-// exact-session distrust retries.
+// snapshot-session distrust retries.
 //
 // Stateless module: commitWorkerPreparedParagraph(rawDom, argument) and
 // commitPreparedParagraph(rawDom, argument) are named functions that receive
@@ -47,12 +47,12 @@ interface CommitParagraphTarget {
   lastMeasure: number | null;
 }
 
-type CommitExactPreparedDomFallbackCallback = (issue: unknown) => void;
+type CommitSnapshotPreparedDomFallbackCallback = (issue: unknown) => void;
 
 interface CommitWorkerPreparedParagraphArgument {
   paragraph: CommitParagraphTarget;
   workerPlan: string;
-  onExactPreparedDomFallback: CommitExactPreparedDomFallbackCallback;
+  onSnapshotPreparedDomFallback: CommitSnapshotPreparedDomFallbackCallback;
   inlineObjectMetaJson: string;
   cjkStrongSemanticsJson: string;
 }
@@ -62,7 +62,7 @@ interface CommitPreparedParagraphArgument {
   preparation: PrepareReadyResult;
   options: Record<string, unknown>;
   browserFallback: Record<string, unknown> | null;
-  onExactPreparedDomFallback: CommitExactPreparedDomFallbackCallback;
+  onSnapshotPreparedDomFallback: CommitSnapshotPreparedDomFallbackCallback;
   semanticReplayJson: string;
   inlineObjectMetaJson: string;
   cjkStrongSemanticsJson: string;
@@ -73,7 +73,7 @@ interface CommitPreparedParagraphArgument {
 // passes the single shared raw-DOM instance.
 
 const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-const EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
 
 // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
 // lowered-paragraph.js (line 110). True when all six styled collections are
@@ -205,7 +205,7 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
   const lowered = paragraph.lowered;
   const width = sourceParagraphWidth(source);
 
-  source.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, 'true');
+  source.setAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE, 'true');
   source.setAttribute(CANONICAL_SOURCE_ATTRIBUTE, 'true');
 
   // CanonicalPlainMatchesRuntimeScope: the re-lowering treats a paragraph as
@@ -241,11 +241,11 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
 
   const preparedDomIssue = rendererIssue(source, width);
   if (preparedDomIssue != null) {
-    if (typeof argument.onExactPreparedDomFallback === 'function') {
-      argument.onExactPreparedDomFallback(preparedDomIssue);
+    if (typeof argument.onSnapshotPreparedDomFallback === 'function') {
+      argument.onSnapshotPreparedDomFallback(preparedDomIssue);
     }
     releasePreparedDomStyles(source);
-    source.removeAttribute(EXACT_PREPARED_DOM_ATTRIBUTE);
+    source.removeAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE);
     source.removeAttribute('data-tq-canonical-plain');
     source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
     source.removeAttribute('lang');
@@ -323,17 +323,17 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
     };
   }
 
-  if (typeof argument.onExactPreparedDomFallback === 'function') {
-    argument.onExactPreparedDomFallback(preparedDomIssue);
+  if (typeof argument.onSnapshotPreparedDomFallback === 'function') {
+    argument.onSnapshotPreparedDomFallback(preparedDomIssue);
   }
   releasePreparedDomStyles(source);
   source.removeAttribute('data-tq-canonical-plain');
   source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
   source.removeAttribute('lang');
 
-  if (preparation.exactFontSessionUsed && argument.browserFallback != null) {
-    // ExactSessionMetricDistrust: the replay failed geometry validation
-    // against a result shaped by the exact session, so re-lay the paragraph
+  if (preparation.snapshotFontSessionUsed && argument.browserFallback != null) {
+    // SnapshotSessionMetricDistrust: the replay failed geometry validation
+    // against a result shaped by the snapshot session, so re-lay the paragraph
     // out with browser metrics and replay it through the prepared bridge once
     // more; the per-paragraph validator still guards that second render.
     const fallbackOptions: Record<string, unknown> = {};
@@ -342,13 +342,13 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
         fallbackOptions[key] = argument.options[key];
       }
     }
-    fallbackOptions.exactFontSession = null;
+    fallbackOptions.snapshotFontSession = null;
 
     const fallbackPreparation = prepareParagraphLayout(
       {
         paragraph: paragraph,
         options: fallbackOptions,
-        exactSession: null,
+        snapshotSession: null,
         browserFallback: argument.browserFallback,
         widthOverride: preparation.width,
         ignoreUnchangedMeasure: true,
@@ -357,7 +357,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
 
     switch (fallbackPreparation.kind) {
       case 'unchanged':
-        throw new Error('Exact prepared DOM fallback unexpectedly skipped relayout');
+        throw new Error('Snapshot prepared DOM fallback unexpectedly skipped relayout');
       case 'unsupported':
         return {
           kind: 'unsupported',
@@ -371,7 +371,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
           preparation: fallbackPreparation,
           options: fallbackOptions,
           browserFallback: null,
-          onExactPreparedDomFallback: argument.onExactPreparedDomFallback,
+          onSnapshotPreparedDomFallback: argument.onSnapshotPreparedDomFallback,
           semanticReplayJson: argument.semanticReplayJson,
           inlineObjectMetaJson: argument.inlineObjectMetaJson,
           cjkStrongSemanticsJson: argument.cjkStrongSemanticsJson,

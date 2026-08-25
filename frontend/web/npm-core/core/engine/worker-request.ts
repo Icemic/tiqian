@@ -12,7 +12,7 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { EnhanceOptions } from "./lifecycle.js";
-import { allowsSnapshotExactLayout, conformingExactFontSessionId, withRootDefaults } from "./lifecycle.js";
+import { allowsSnapshotLayout, conformingSnapshotFontSessionId, withRootDefaults } from "./lifecycle.js";
 import {
   classifyFontRole,
   firstDivergentInlineShapingProperty,
@@ -251,7 +251,7 @@ interface WorkerInlineShapingDecisionResult {
       return null;
     }
     if (!shouldTryParagraph(paragraph)) return null;
-    if (!allowsSnapshotExactLayout(options)) return null;
+    if (!allowsSnapshotLayout(options)) return null;
     const resolved = withRootDefaults(options, root);
     let lowered = null;
     try {
@@ -292,7 +292,7 @@ interface WorkerInlineShapingDecisionResult {
    * @returns {(string|null)}
    */
   export function workerLayoutRequest(paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions): string | null {
-    if (conformingExactFontSessionId(options) == null) return null;
+    if (conformingSnapshotFontSessionId(options) == null) return null;
     // WorkerRequestMatchesRuntimeEligibility: inline objects no longer exclude
     // a paragraph from Worker preparation; their measured geometry travels on
     // the request wire and the live elements enter at commit time, the same
@@ -300,7 +300,7 @@ interface WorkerInlineShapingDecisionResult {
     // because the request wire carries no decoration input; they lower on the
     // main thread, whose LayoutInput carries the decorations, and commit
     // through the same prepared bridge. Every other exclusion mirrors
-    // isRuntimeExactPreparedDomEligible so both exact paths adopt one shape.
+    // isRuntimeSnapshotPreparedDomEligible so both exact paths adopt one shape.
     if (lowered.decorations.length > 0 ||
         lowered.sourceSpans.some(function (span) {
           return span.inlineBoxStyle.boxDecorationBreak === 'clone' &&

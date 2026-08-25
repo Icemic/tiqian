@@ -16,23 +16,23 @@ import type { CanvasContextLike } from "./canvas-metrics.js";
 import type { CanvasShapingEnv, ProbeElementLike } from "./canvas-shaping.js";
 import type { EnhanceOptions, ResolvedEnhanceOptions } from "./lifecycle.js";
 import {
-  allowsSnapshotExactLayout,
-  conformingExactFontSessionId,
+  allowsSnapshotLayout,
+  conformingSnapshotFontSessionId,
   optionsFromJs,
-  withoutExactFontSession,
+  withoutSnapshotFontSession,
   withRootDefaults,
 } from "./lifecycle.js";
 import { createFontFamilies } from "./canvas-fonts.js";
 import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
 import { shouldTryParagraph } from "./eligibility.js";
-import { exactSessionCallbacks } from "../../browser-font-replay.js";
+import { snapshotSessionCallbacks } from "../../browser-font-replay.js";
 import type { MetricsJsonFn, ShapeJsonFn } from "../../browser-font-replay.js";
 
-// Descriptor returned by activeExactSessionDescriptor: the shaping callbacks
+// Descriptor returned by activeSnapshotSessionDescriptor: the shaping callbacks
 // of a conforming snapshot session, or null when the active options lower the
 // session. ffi takes the callbacks as call parameters; no session id crosses
 // the boundary.
-export type ExactSessionDescriptor = {
+export type SnapshotSessionDescriptor = {
   shapeJson: ShapeJsonFn;
   metricsJson: MetricsJsonFn;
 };
@@ -74,18 +74,18 @@ export type RootState = {
 
 type RootStateOnIssueFn = (issue: RootStateIssueRecord) => void;
 type RootStateOnParagraphCommittedFn = (item: TrackedParagraph) => void;
-type RootStateOnDisableExactPreparedDomFn = (detail: unknown) => void;
+type RootStateOnDisableSnapshotPreparedDomFn = (detail: unknown) => void;
 
 // Live view handed to the embedded TS orchestrators: callbacks splice/push the
 // same arrays the host mutates.
 export type EngineState = {
   options: EnhanceOptions;
   preparedDomEnabled: boolean;
-  exactSession: ExactSessionDescriptor | null;
+  snapshotSession: SnapshotSessionDescriptor | null;
   browserFallback: BrowserFallbackDescriptor | null;
   onIssue: RootStateOnIssueFn;
   onParagraphCommitted: RootStateOnParagraphCommittedFn;
-  onDisableExactPreparedDom: RootStateOnDisableExactPreparedDomFn;
+  onDisableSnapshotPreparedDom: RootStateOnDisableSnapshotPreparedDomFn;
   paragraphs: TrackedParagraph[];
   issues: RootStateIssueRecord[];
 };
@@ -103,7 +103,7 @@ export type SessionArgument = {
 export type PrepareArgument = {
   paragraph: TrackedParagraph;
   options: EnhanceOptions;
-  exactSession: ExactSessionDescriptor | null;
+  snapshotSession: SnapshotSessionDescriptor | null;
   browserFallback: BrowserFallbackDescriptor;
   widthOverride: number | null;
 };
@@ -111,8 +111,8 @@ export type PrepareArgument = {
 type RootStateCreateFn = (root: Element, optionsBag: Record<string, unknown>) => RootState;
 type RootStateCreateFromCanonicalFn = (root: Element, canonicalOptions: EnhanceOptions) => RootState;
 type RootStateActiveTsOptionsFn = (state: RootState) => EnhanceOptions;
-type RootStateActiveExactSessionDescriptorFn = (state: RootState) => ExactSessionDescriptor | null;
-type RootStateDisableExactPreparedDomFn = (state: RootState, detail: unknown) => void;
+type RootStateActiveSnapshotSessionDescriptorFn = (state: RootState) => SnapshotSessionDescriptor | null;
+type RootStateDisableSnapshotPreparedDomFn = (state: RootState, detail: unknown) => void;
 type RootStateEngineStateFn = (state: RootState) => EngineState;
 type RootStateProcessParagraphArgumentFn = (
   state: RootState,
@@ -135,8 +135,8 @@ export type RootStateApi = {
   createRootState: RootStateCreateFn;
   createRootStateFromCanonical: RootStateCreateFromCanonicalFn;
   activeTsOptions: RootStateActiveTsOptionsFn;
-  activeExactSessionDescriptor: RootStateActiveExactSessionDescriptorFn;
-  disableExactPreparedDom: RootStateDisableExactPreparedDomFn;
+  activeSnapshotSessionDescriptor: RootStateActiveSnapshotSessionDescriptorFn;
+  disableSnapshotPreparedDom: RootStateDisableSnapshotPreparedDomFn;
   engineState: RootStateEngineStateFn;
   processParagraphArgument: RootStateProcessParagraphArgumentFn;
   sessionArgument: RootStateSessionArgumentFn;
@@ -150,7 +150,7 @@ export type RootStateApi = {
 };
 
 export function createRootState(): RootStateApi {
-  const EXACT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
+  const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
   const ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
   const CAPABILITY_DETAIL_LIMIT: number = 512;
 
@@ -226,15 +226,15 @@ export function createRootState(): RootStateApi {
   }
 
   function createRootState(root: Element, optionsBag: Record<string, unknown>): RootState {
-    root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
+    root.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     const canonical = optionsFromJs(optionsBag);
-    // allowsSnapshotExactLayout ? options : options.copy(exactFontSession =
+    // allowsSnapshotLayout ? options : options.copy(snapshotFontSession =
     // null): an exact snapshot only reproduces the host with root defaults,
-    // so configured typography lowers the exact font session.
-    const exactEligible = allowsSnapshotExactLayout(canonical)
+    // so configured typography lowers the snapshot font session.
+    const snapshotEligible = allowsSnapshotLayout(canonical)
       ? canonical
-      : withoutExactFontSession(canonical);
-    const resolved = withRootDefaults(exactEligible, root);
+      : withoutSnapshotFontSession(canonical);
+    const resolved = withRootDefaults(snapshotEligible, root);
     if (resolved.trace) globalServices().coordination.traceConfig = resolved.trace;
     return newRootState(root, resolved);
   }
@@ -242,7 +242,7 @@ export function createRootState(): RootStateApi {
   function createRootStateFromCanonical(root: Element, canonicalOptions: EnhanceOptions): RootState {
     // Re-entry path for relayout/refresh: the canonical options already came
     // from optionsFromJs output shape, so the snapshot gate is skipped.
-    root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
+    root.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     const resolved = withRootDefaults(canonicalOptions, root);
     if (resolved.trace) globalServices().coordination.traceConfig = resolved.trace;
     return newRootState(root, resolved);
@@ -253,7 +253,7 @@ export function createRootState(): RootStateApi {
   // arrays: the TS session module splices and pushes these by reference,
   // so the host mutates the same storage.
   // PreparedDomLane: every paragraph renders through the prepared DOM,
-  // including roots that never configured an exact font session. After
+  // including roots that never configured an snapshot font session. After
   // a replay fails geometry validation the flag distrusts the exact
   // session metrics for the whole root; paragraphs keep rendering
   // through the prepared bridge with browser metrics, and the
@@ -284,34 +284,34 @@ export function createRootState(): RootStateApi {
 
   function activeTsOptions(state: RootState): EnhanceOptions {
     if (state.preparedDomEnabled) return state.options;
-    return withoutExactFontSession(state.options);
+    return withoutSnapshotFontSession(state.options);
   }
 
-  // Kotlin resolves the descriptor off activeOptions().conformingExactFont
+  // Kotlin resolves the descriptor off activeOptions().conformingSnapshotFont
   // SessionId(), so once prepared DOM is disabled the session is always null;
   // the TS options lane reads the same active options here.
-  function activeExactSessionDescriptor(state: RootState): ExactSessionDescriptor | null {
-    const sessionId = conformingExactFontSessionId(activeTsOptions(state));
+  function activeSnapshotSessionDescriptor(state: RootState): SnapshotSessionDescriptor | null {
+    const sessionId = conformingSnapshotFontSessionId(activeTsOptions(state));
     if (sessionId == null) return null;
-    return exactSessionCallbacks(sessionId);
+    return snapshotSessionCallbacks(sessionId);
   }
 
-  function disableExactPreparedDom(state: RootState, detail: unknown): void {
+  function disableSnapshotPreparedDom(state: RootState, detail: unknown): void {
     if (!state.preparedDomEnabled) return;
     state.preparedDomEnabled = false;
     state.preparedDomFallback = String(detail).slice(0, CAPABILITY_DETAIL_LIMIT);
-    state.root.setAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE, state.preparedDomFallback);
+    state.root.setAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE, state.preparedDomFallback);
   }
 
   function engineState(state: RootState): EngineState {
     return {
       options: state.options,
       preparedDomEnabled: state.preparedDomEnabled,
-      exactSession: activeExactSessionDescriptor(state),
+      snapshotSession: activeSnapshotSessionDescriptor(state),
       browserFallback: state.browserFallback,
       onIssue: function (issue: RootStateIssueRecord): void { state.issues.push(issue); },
       onParagraphCommitted: function (item: TrackedParagraph): void { state.paragraphs.push(item); },
-      onDisableExactPreparedDom: function (detail: unknown): void { disableExactPreparedDom(state, detail); },
+      onDisableSnapshotPreparedDom: function (detail: unknown): void { disableSnapshotPreparedDom(state, detail); },
       paragraphs: state.paragraphs,
       issues: state.issues,
     };
@@ -329,7 +329,7 @@ export function createRootState(): RootStateApi {
     return {
       paragraph: paragraph,
       options: activeTsOptions(state),
-      exactSession: activeExactSessionDescriptor(state),
+      snapshotSession: activeSnapshotSessionDescriptor(state),
       browserFallback: state.browserFallback,
       widthOverride: widthOverride == null ? null : widthOverride,
     };
@@ -380,8 +380,8 @@ export function createRootState(): RootStateApi {
     createRootState: createRootState,
     createRootStateFromCanonical: createRootStateFromCanonical,
     activeTsOptions: activeTsOptions,
-    activeExactSessionDescriptor: activeExactSessionDescriptor,
-    disableExactPreparedDom: disableExactPreparedDom,
+    activeSnapshotSessionDescriptor: activeSnapshotSessionDescriptor,
+    disableSnapshotPreparedDom: disableSnapshotPreparedDom,
     engineState: engineState,
     processParagraphArgument: processParagraphArgument,
     sessionArgument: sessionArgument,

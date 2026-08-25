@@ -10,7 +10,7 @@ import { installFixtureFontBackend } from "./test-support/fixture-font-backend.m
 // The commit functions run for real; only the detached-fragment backup dep and the
 // host-installed prepared-DOM renderer/validator globals are fakes. The direct
 // distrust-retry path drives the real prepareParagraphLayout, so the planted
-// fixture font backend must answer the exact-session prepare and the
+// fixture font backend must answer the snapshot-session prepare and the
 // browserFallback bridge must answer the browser-metrics re-prepare.
 
 function saveGlobals(names) {
@@ -257,7 +257,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     const result = commitWorkerPreparedParagraph(rawDom, {
       paragraph,
       workerPlan,
-      onExactPreparedDomFallback: () => {
+      onSnapshotPreparedDomFallback: () => {
         fallbackCalled = true;
       },
       inlineObjectMetaJson,
@@ -307,7 +307,7 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
     const result = commitWorkerPreparedParagraph(rawDom, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
-      onExactPreparedDomFallback: (issue) => {
+      onSnapshotPreparedDomFallback: (issue) => {
         fallbackIssue = issue;
       },
       inlineObjectMetaJson: "[]",
@@ -369,7 +369,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       planJson: '{"lines":[]}',
       width: 320,
       measure: 339,
-      exactFontSessionUsed: false,
+      snapshotFontSessionUsed: false,
     };
 
     const result = commitPreparedParagraph(rawDom, {
@@ -378,7 +378,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       preparation,
       options: {},
       browserFallback: null,
-      onExactPreparedDomFallback: () => {},
+      onSnapshotPreparedDomFallback: () => {},
       semanticReplayJson: "[]",
       inlineObjectMetaJson: "[]",
       cjkStrongSemanticsJson: "[]",
@@ -417,7 +417,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
       planJson: '{"lines":[]}',
       width: 320,
       measure: 339,
-      exactFontSessionUsed: false,
+      snapshotFontSessionUsed: false,
     };
 
     const semanticReplayJson = JSON.stringify([{ sourceIndex: 0, tag: "em" }]);
@@ -451,7 +451,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
   }, { validator: () => null });
 });
 
-test("direct mismatch, exactFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
+test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
     const rawDom = installFakeRawDom();
 
@@ -461,7 +461,7 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
       planJson: '{"lines":[]}',
       width: 320,
       measure: 339,
-      exactFontSessionUsed: false,
+      snapshotFontSessionUsed: false,
     };
 
     let fallbackCalled = false;
@@ -471,7 +471,7 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
       preparation,
       options: {},
       browserFallback: { bridge: {} },
-      onExactPreparedDomFallback: (issue) => {
+      onSnapshotPreparedDomFallback: (issue) => {
         fallbackCalled = issue;
       },
     });
@@ -498,7 +498,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
   let validateCount = 0;
   const validator = () => {
     validateCount += 1;
-    return validateCount === 1 ? "ExactSessionMismatch" : null;
+    return validateCount === 1 ? "SnapshotSessionMismatch" : null;
   };
   withEnv(() => {
     const rawDom = installFakeRawDom();
@@ -509,12 +509,12 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
       planJson: '{"plan":"first"}',
       width: 320,
       measure: 320,
-      exactFontSessionUsed: true,
+      snapshotFontSessionUsed: true,
     };
 
     const browserFallback = { bridge: makeValidBridge() };
     const originalOptions = {
-      exactFontSession: { session: 1 },
+      snapshotFontSession: { session: 1 },
       firstLineIndentIc: 2,
     };
 
@@ -525,12 +525,12 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
       preparation,
       options: originalOptions,
       browserFallback,
-      onExactPreparedDomFallback: (issue) => {
+      onSnapshotPreparedDomFallback: (issue) => {
         fallbackReported = issue;
       },
     });
 
-    assert.equal(fallbackReported, "ExactSessionMismatch");
+    assert.equal(fallbackReported, "SnapshotSessionMismatch");
 
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 2);
@@ -555,7 +555,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       planJson: '{"plan":"first"}',
       width: 320,
       measure: 320,
-      exactFontSessionUsed: true,
+      snapshotFontSessionUsed: true,
     };
 
     const bridge = makeValidBridge();
@@ -580,7 +580,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
     const result = commitPreparedParagraph(rawDom, {
       paragraph,
       preparation,
-      options: { exactFontSession: {} },
+      options: { snapshotFontSession: {} },
       browserFallback: { bridge },
     });
 
@@ -590,7 +590,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       detail: "unsupported glyph",
       element: paragraph.source,
     });
-  }, { validator: () => "ExactSessionMismatch" });
+  }, { validator: () => "SnapshotSessionMismatch" });
 });
 
 test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
@@ -603,13 +603,13 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       planJson: '{"plan":"first"}',
       width: 320,
       measure: 320,
-      exactFontSessionUsed: true,
+      snapshotFontSessionUsed: true,
     };
 
     const result = commitPreparedParagraph(rawDom, {
       paragraph,
       preparation,
-      options: { exactFontSession: {} },
+      options: { snapshotFontSession: {} },
       browserFallback: { bridge: makeValidBridge() },
     });
 

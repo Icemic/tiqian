@@ -200,14 +200,14 @@ interface SnapshotAdoptedEntry {
   originalLangAttribute: string | null;
   originalCanonicalPlainAttribute: string | null;
   originalCanonicalSourceAttribute: string | null;
-  originalExactPreparedDomAttribute: string | null;
+  originalSnapshotPreparedDomAttribute: string | null;
 }
 
 interface SnapshotAdoptionState {
   paragraphs: SnapshotAdoptedEntry[];
   manifest: ExpandedSnapshotManifest;
   valueStylesInstalled: boolean;
-  originalExactRenderFontAttribute: string | null;
+  originalSnapshotRenderFontAttribute: string | null;
   serverRenderedEntries: boolean;
 }
 
@@ -284,7 +284,7 @@ interface TextFlowStyleDeclaration {
   textAutospace?: string;
 }
 
-interface ExactFontReplayProof {
+interface SnapshotFontReplayProof {
   reference: string | undefined;
   template: HTMLTemplateElement | null;
   manifestText: string | null | undefined;
@@ -322,7 +322,7 @@ const INLINE_POSITION_TOLERANCE_PX = PROBE_ABSOLUTE_TOLERANCE_PX +
   BROWSER_SUBPIXEL_QUANTIZATION_PX + GEOMETRY_COMPARISON_EPSILON_PX;
 const LINE_VERTICAL_TOLERANCE_PX = 0.75;
 const PREPARED_VERTICAL_TOLERANCE_PX = 0.02;
-const exactFontReplayProofs: WeakMap<HTMLElement, ExactFontReplayProof> = new WeakMap();
+const snapshotFontReplayProofs: WeakMap<HTMLElement, SnapshotFontReplayProof> = new WeakMap();
 const FONT_FACE_LIVE_SIGNATURE_PROPERTIES = Object.freeze([
   "font-family",
   "font-style",
@@ -403,10 +403,10 @@ const PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE = "pwid,palt";
 const ENGINE_PUNCTUATION_FEATURE_SETTINGS = '"halt" 0, "chws" 0, "palt" 0';
 const PROPORTIONAL_CURLY_QUOTE_FEATURE_SETTINGS =
   '"halt" 0, "chws" 0, "palt" 1';
-export const EXACT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
-const EXACT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom";
+export const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom";
 const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
-const EXACT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-exact-layout-issue";
+const SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-exact-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
 const states: WeakMap<HTMLElement, SnapshotAdoptionState> = new WeakMap();
 const directServerArtifacts: WeakMap<HTMLElement, Map<string, Element>> = new WeakMap();
@@ -1382,7 +1382,7 @@ export const preparedDomValidator: PreparedDomValidatorInterface = Object.freeze
     const issue = renderedPreparedParagraphIssue(paragraph, expectedContentWidth);
     if (issue) {
       const key = paragraph.getAttribute("data-tq-snapshot-key") ?? "unkeyed";
-      paragraph.closest(ROOT_SELECTOR)?.setAttribute(EXACT_LAYOUT_ISSUE_ATTRIBUTE, `${key}:${issue}`);
+      paragraph.closest(ROOT_SELECTOR)?.setAttribute(SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE, `${key}:${issue}`);
     }
     return issue;
   },
@@ -1401,7 +1401,7 @@ function computedTypographyIssue(
   if (actualFamilies.length !== expectedFamilies.length ||
       actualFamilies.some((family, index) => family !== expectedFamilies[index])) {
     const root = paragraph.closest(ROOT_SELECTOR);
-    const projection = root?.getAttribute(EXACT_RENDER_FONT_ATTRIBUTE) ?? "missing";
+    const projection = root?.getAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE) ?? "missing";
     const fallback = root?.hasAttribute("data-tiqian-exact-layout-fallback") ?? false;
     const rendered = paragraph.getAttribute("data-tq-rendered") ?? "missing";
     return `fontFamily:${actualFamilies.join("|")}!=${expectedFamilies.join("|")};projection=${projection};fallback=${fallback};rendered=${rendered}`;
@@ -1538,7 +1538,7 @@ export function cssFaceContract(
   evidence: SnapshotManifestFace,
   faces: CollectedFontFace[],
   documentObject: Document,
-  requireExactFirstPaintDisplay = true,
+  requireSnapshotFirstPaintDisplay = true,
 ): CssFaceContractResult {
   const expectedUrl = new URL(evidence.publicUrl, documentObject.baseURI).href;
   const coverageText = evidence.coverageText || evidence.probe!.text;
@@ -1559,7 +1559,7 @@ export function cssFaceContract(
       unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))))).filter(Boolean) as CollectedFontFace[];
   const defaultDescriptor = (value: unknown, defaults: Set<string>): boolean =>
     defaults.has(String(value ?? "").trim().toLowerCase());
-  const exactFirstPaintDisplay = (value: unknown): boolean =>
+  const snapshotFirstPaintDisplay = (value: unknown): boolean =>
     new Set(["", "auto", "block"])
       .has(String(value ?? "").trim().toLowerCase());
   const matches = candidates.length > 0 && coveragePoints.every((codePoint) =>
@@ -1577,7 +1577,7 @@ export function cssFaceContract(
     defaultDescriptor(face.variationSettings, new Set(["", "normal"])) &&
     defaultDescriptor(face.languageOverride, new Set(["", "normal"])) &&
     defaultDescriptor(face.namedInstance, new Set(["", "auto"])) &&
-    (!requireExactFirstPaintDisplay || exactFirstPaintDisplay(face.display)));
+    (!requireSnapshotFirstPaintDisplay || snapshotFirstPaintDisplay(face.display)));
   if (matches) {
     return {
       matches: true,
@@ -1910,7 +1910,7 @@ function restoreServerRenderedSnapshotSource(root: HTMLElement): boolean {
     paragraph.removeAttribute("data-tq-canonical-source");
   }
   root.removeAttribute(SERVER_RENDERED_SNAPSHOT_ATTRIBUTE);
-  root.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+  root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
   return true;
 }
 
@@ -2037,7 +2037,7 @@ async function validateManifestFontContract(
   sliceStartedAt = await yieldIfNeeded(sliceStartedAt);
   if (!isCurrent()) return { reason: "superseded" };
   const cssFaces = cssFaceCollection.faces;
-  const requireExactFirstPaintDisplay = manifest.entrySource === "server-dom-v1";
+  const requireSnapshotFirstPaintDisplay = manifest.entrySource === "server-dom-v1";
   let compatibleLocalDeclared = false;
   for (const group of evidenceGroups.values()) {
     const aggregate = { ...group.representative, coverageText: Array.from(group.coverage).join("") };
@@ -2045,7 +2045,7 @@ async function validateManifestFontContract(
       aggregate,
       cssFaces,
       documentObject,
-      requireExactFirstPaintDisplay,
+      requireSnapshotFirstPaintDisplay,
     );
     if (!faceContract.matches) return {
       reason: "FontFaceContractMismatch",
@@ -2066,13 +2066,13 @@ async function validateManifestFontContract(
 }
 
 /**
- * Validates immutable exact-font evidence and, for a real layout snapshot,
+ * Validates immutable snapshot-font evidence and, for a real layout snapshot,
  * every live input needed to adopt that snapshot. A compact runtime font
  * contract is instead a reusable replay corpus: the exact shaper's ShapingInput
  * lookup is the paragraph/run eligibility gate, and an uncovered host style
  * falls back without poisoning covered paragraphs in the same root.
  */
-export async function validatePrecomputedSnapshotExactFontContract(
+export async function validatePrecomputedSnapshotFontContract(
   root: HTMLElement,
   isCurrent: IsCurrent = () => true,
 ): Promise<FontContractValidationResult> {
@@ -2226,7 +2226,7 @@ export async function validatePrecomputedSnapshotExactFontContract(
  * snapshot paints through the host's @font-face rules, so both the CSS face
  * inventory and browser advances are part of the first-paint proof.
  */
-export async function validatePrecomputedExactFontReplayContract(
+export async function validatePrecomputedSnapshotFontReplayContract(
   root: HTMLElement,
   isCurrent: IsCurrent = () => true,
 ): Promise<FontContractValidationResult> {
@@ -2287,7 +2287,7 @@ export async function validatePrecomputedExactFontReplayContract(
   if (currentCss.unverifiable || currentCss.signature !== initialCss.signature) {
     return { matches: false, reason: "FontFaceContractChangedDuringValidation" };
   }
-  exactFontReplayProofs.set(root, {
+  snapshotFontReplayProofs.set(root, {
     reference,
     template,
     manifestText,
@@ -2306,13 +2306,13 @@ export async function validatePrecomputedExactFontReplayContract(
 }
 
 /** Rechecks the live identity of an already proven replay contract without repeating probes. */
-export function validatePrecomputedExactFontReplayLiveContract(
+export function validatePrecomputedSnapshotFontReplayLiveContract(
   root: HTMLElement,
   isCurrent: IsCurrent = () => true,
 ): FontContractValidationResult {
   if (!isCurrent()) return { matches: false, reason: "superseded" };
-  const proof = exactFontReplayProofs.get(root);
-  if (!proof) return { matches: false, reason: "ExactFontReplayProofMissing" };
+  const proof = snapshotFontReplayProofs.get(root);
+  if (!proof) return { matches: false, reason: "SnapshotFontReplayProofMissing" };
   const reference = root?.getAttribute?.("snapshot-ref");
   const documentObject = root.ownerDocument || document;
   const template = reference
@@ -2366,7 +2366,7 @@ export async function adoptedPrecomputedSnapshotLiveIssue(
     String(group.representative.family).toLowerCase()));
   const cssFaceCollection = collectFontFaces(documentObject, requestedFamilies);
   if (cssFaceCollection.unverifiable) return "FontFaceCssomUnverifiable";
-  const requireExactFirstPaintDisplay = manifest.entrySource === "server-dom-v1";
+  const requireSnapshotFirstPaintDisplay = manifest.entrySource === "server-dom-v1";
   let sliceStartedAt = performance.now();
   for (const group of evidenceGroups.values()) {
     const aggregate = {
@@ -2377,7 +2377,7 @@ export async function adoptedPrecomputedSnapshotLiveIssue(
       aggregate,
       cssFaceCollection.faces,
       documentObject,
-      requireExactFirstPaintDisplay,
+      requireSnapshotFirstPaintDisplay,
     ).matches) return "FontFaceContractMismatch";
     sliceStartedAt = await yieldValidationIfNeeded(sliceStartedAt);
     if (!isCurrent()) return "superseded";
@@ -2475,20 +2475,20 @@ export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
     } else {
       item.paragraph.setAttribute("data-tq-canonical-source", item.originalCanonicalSourceAttribute);
     }
-    if (item.originalExactPreparedDomAttribute == null) {
-      item.paragraph.removeAttribute(EXACT_PREPARED_DOM_ATTRIBUTE);
+    if (item.originalSnapshotPreparedDomAttribute == null) {
+      item.paragraph.removeAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE);
     } else {
-      item.paragraph.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, item.originalExactPreparedDomAttribute);
+      item.paragraph.setAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE, item.originalSnapshotPreparedDomAttribute);
     }
   }
   if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root);
   if (state.serverRenderedEntries) {
     root.removeAttribute(SERVER_RENDERED_SNAPSHOT_ATTRIBUTE);
-    root.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
-  } else if (state.originalExactRenderFontAttribute == null) {
-    root.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+    root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
+  } else if (state.originalSnapshotRenderFontAttribute == null) {
+    root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
   } else {
-    root.setAttribute(EXACT_RENDER_FONT_ATTRIBUTE, state.originalExactRenderFontAttribute);
+    root.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, state.originalSnapshotRenderFontAttribute);
   }
   root.removeAttribute("data-tiqian-enhanced");
   root.removeAttribute("data-tiqian-enhanced-count");
@@ -2620,7 +2620,7 @@ export async function tryAdoptPrecomputedSnapshot(
   // the same exact face evidence. Publish the successful proof on this root so
   // mixed snapshot/runtime completion does not immediately repeat every
   // browser font probe.
-  const fontContract = await validatePrecomputedExactFontReplayContract(root, isCurrent);
+  const fontContract = await validatePrecomputedSnapshotFontReplayContract(root, isCurrent);
   if (!fontContract.matches) return miss(root, fontContract.reason as string);
   const compatibleLocalDeclared = fontContract.compatibleLocalDeclared;
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
@@ -2659,12 +2659,12 @@ export async function tryAdoptPrecomputedSnapshot(
 
   const adopted: SnapshotAdoptedEntry[] = [];
   let valueStylesInstalled = false;
-  const originalExactRenderFontAttribute = root.getAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+  const originalSnapshotRenderFontAttribute = root.getAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
   const adoptionState = {
     paragraphs: adopted,
     manifest,
     valueStylesInstalled,
-    originalExactRenderFontAttribute,
+    originalSnapshotRenderFontAttribute,
     serverRenderedEntries,
   };
   try {
@@ -2673,7 +2673,7 @@ export async function tryAdoptPrecomputedSnapshot(
       manifest.valueStyles,
     );
     adoptionState.valueStylesInstalled = valueStylesInstalled;
-    root.setAttribute(EXACT_RENDER_FONT_ATTRIBUTE, "true");
+    root.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true");
     // ProgressiveSnapshotCommitProof: preflight has already proven the whole
     // source/font/typography contract. Publish one provisional owner before
     // touching live DOM, then commit and prove one paragraph at a time. Each
@@ -2711,9 +2711,9 @@ export async function tryAdoptPrecomputedSnapshot(
       const originalCanonicalSourceAttribute = serverRenderedEntries
         ? null
         : paragraph.getAttribute("data-tq-canonical-source");
-      const originalExactPreparedDomAttribute = serverRenderedEntries
+      const originalSnapshotPreparedDomAttribute = serverRenderedEntries
         ? null
-        : paragraph.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE);
+        : paragraph.getAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE);
       adopted.push({
         paragraph,
         originalContent,
@@ -2721,10 +2721,10 @@ export async function tryAdoptPrecomputedSnapshot(
         originalLangAttribute,
         originalCanonicalPlainAttribute,
         originalCanonicalSourceAttribute,
-        originalExactPreparedDomAttribute,
+        originalSnapshotPreparedDomAttribute,
       });
       paragraph.setAttribute("data-tq-rendered", "true");
-      paragraph.setAttribute(EXACT_PREPARED_DOM_ATTRIBUTE, "true");
+      paragraph.setAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE, "true");
       if (entry.semantic === true) paragraph.removeAttribute("data-tq-canonical-plain");
       else paragraph.setAttribute("data-tq-canonical-plain", "true");
       paragraph.setAttribute("data-tq-canonical-source", "true");
@@ -2761,7 +2761,7 @@ export async function tryAdoptPrecomputedSnapshot(
   root.setAttribute("data-tiqian-snapshot-count", String(adopted.length));
   root.dataset.tiqianSnapshot = "maximum-measure";
   root.dataset.tiqianSnapshotFontPolicy = compatibleLocalDeclared ? "compatible-local" : "url-only";
-  root.removeAttribute(EXACT_LAYOUT_ISSUE_ATTRIBUTE);
+  root.removeAttribute(SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE);
   delete root.dataset.tiqianSnapshotMiss;
   return { adopted: true, count: adopted.length };
 }

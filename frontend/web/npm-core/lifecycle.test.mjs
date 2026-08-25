@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  allowsSnapshotExactLayout,
+  allowsSnapshotLayout,
   applyConfiguredHostFontSize,
   captureSourceInlineSize,
   clearIssue,
-  conformingExactFontSessionId,
+  conformingSnapshotFontSessionId,
   optionFloat,
   optionsFromJs,
   reportIssue,
   responsiveSourceMeasure,
   restoreAttribute,
   stabilizeContentSizedItemInlineSize,
-  withoutExactFontSession,
+  withoutSnapshotFontSession,
   withRootDefaults,
 } from "./core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
@@ -62,8 +62,8 @@ function fullOptions(overrides = {}) {
     strongAsEmphasisMarks: false,
     paragraphSelector: "p, li",
     cjkDashCapability: null,
-    exactFontSession: null,
-    requireExactLayoutWorker: false,
+    snapshotFontSession: null,
+    requireSnapshotLayoutWorker: false,
     ...rest,
   };
 }
@@ -142,9 +142,9 @@ test("optionsFromJs decodes the full options object", () => {
     emphasisDotGapEm: 0.25,
     strongAsEmphasisMarks: true,
     paragraphSelector: "article p",
-    requireExactLayoutWorker: true,
+    requireSnapshotLayoutWorker: true,
     cjkDashCapability: { status: "available", detail: "dash ok" },
-    exactFontSession: { status: "conforming", sessionId: "s-1", detail: "session" },
+    snapshotFontSession: { status: "conforming", sessionId: "s-1", detail: "session" },
   });
   assert.deepEqual(parsed, {
     fontFamilies: {
@@ -161,8 +161,8 @@ test("optionsFromJs decodes the full options object", () => {
     strongAsEmphasisMarks: true,
     paragraphSelector: "article p",
     cjkDashCapability: { status: "available", detail: "dash ok" },
-    exactFontSession: { status: "conforming", sessionId: "s-1", detail: "session" },
-    requireExactLayoutWorker: true,
+    snapshotFontSession: { status: "conforming", sessionId: "s-1", detail: "session" },
+    requireSnapshotLayoutWorker: true,
   });
 });
 
@@ -183,22 +183,22 @@ test("optionsFromJs turns non-finite fontSize and lineHeight into null", () => {
 test("optionsFromJs decodes capability objects with unavailable as the default status", () => {
   const parsed = optionsFromJs({
     cjkDashCapability: { detail: "no face" },
-    exactFontSession: { sessionId: "s", detail: "d" },
+    snapshotFontSession: { sessionId: "s", detail: "d" },
   });
   assert.deepEqual(parsed.cjkDashCapability, { status: "unavailable", detail: "no face" });
-  assert.deepEqual(parsed.exactFontSession, { status: "unavailable", sessionId: "s", detail: "d" });
+  assert.deepEqual(parsed.snapshotFontSession, { status: "unavailable", sessionId: "s", detail: "d" });
 
   const withStatus = optionsFromJs({
     cjkDashCapability: { status: "available" },
-    exactFontSession: { status: "conforming" },
+    snapshotFontSession: { status: "conforming" },
   });
   assert.equal(withStatus.cjkDashCapability.status, "available");
   assert.equal(withStatus.cjkDashCapability.detail, null);
-  assert.equal(withStatus.exactFontSession.status, "conforming");
-  assert.equal(withStatus.exactFontSession.sessionId, null);
+  assert.equal(withStatus.snapshotFontSession.status, "conforming");
+  assert.equal(withStatus.snapshotFontSession.sessionId, null);
 
   assert.equal(optionsFromJs({}).cjkDashCapability, null);
-  assert.equal(optionsFromJs({}).exactFontSession, null);
+  assert.equal(optionsFromJs({}).snapshotFontSession, null);
 });
 
 test("optionFloat returns a finite number and null otherwise", () => {
@@ -210,46 +210,46 @@ test("optionFloat returns a finite number and null otherwise", () => {
   assert.equal(optionFloat(null, "size"), null);
 });
 
-test("conformingExactFontSessionId returns only a conforming, non-blank session id", () => {
+test("conformingSnapshotFontSessionId returns only a conforming, non-blank session id", () => {
   assert.equal(
-    conformingExactFontSessionId({ exactFontSession: { status: "conforming", sessionId: "s-1" } }),
+    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "s-1" } }),
     "s-1",
   );
   assert.equal(
-    conformingExactFontSessionId({ exactFontSession: { status: "conforming", sessionId: "  " } }),
+    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "  " } }),
     null,
   );
   assert.equal(
-    conformingExactFontSessionId({ exactFontSession: { status: "conforming", sessionId: "" } }),
+    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "" } }),
     null,
   );
   assert.equal(
-    conformingExactFontSessionId({ exactFontSession: { status: "conforming", sessionId: null } }),
+    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: null } }),
     null,
   );
   assert.equal(
-    conformingExactFontSessionId({ exactFontSession: { status: "mismatch", sessionId: "s-1" } }),
+    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "mismatch", sessionId: "s-1" } }),
     null,
   );
-  assert.equal(conformingExactFontSessionId({}), null);
-  assert.equal(conformingExactFontSessionId(null), null);
+  assert.equal(conformingSnapshotFontSessionId({}), null);
+  assert.equal(conformingSnapshotFontSessionId(null), null);
 });
 
-test("allowsSnapshotExactLayout is true only for the all-null snapshot shape", () => {
-  assert.equal(allowsSnapshotExactLayout(fullOptions()), true);
-  assert.equal(allowsSnapshotExactLayout(fullOptions({ fontSize: 16 })), false);
-  assert.equal(allowsSnapshotExactLayout(fullOptions({ lineHeight: 1.5 })), false);
-  assert.equal(allowsSnapshotExactLayout(fullOptions({ firstLineIndentIc: 2 })), false);
-  assert.equal(allowsSnapshotExactLayout(fullOptions({ fontFamilies: { cjk: "CJK" } })), false);
-  assert.equal(allowsSnapshotExactLayout(fullOptions({ fontFamilies: { latinSerif: "Serif" } })), false);
+test("allowsSnapshotLayout is true only for the all-null snapshot shape", () => {
+  assert.equal(allowsSnapshotLayout(fullOptions()), true);
+  assert.equal(allowsSnapshotLayout(fullOptions({ fontSize: 16 })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ lineHeight: 1.5 })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ firstLineIndentIc: 2 })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { cjk: "CJK" } })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { latinSerif: "Serif" } })), false);
 });
 
-test("withoutExactFontSession nulls the session on a shallow copy", () => {
-  const options = fullOptions({ exactFontSession: { status: "conforming", sessionId: "s-1" } });
-  const copy = withoutExactFontSession(options);
+test("withoutSnapshotFontSession nulls the session on a shallow copy", () => {
+  const options = fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "s-1" } });
+  const copy = withoutSnapshotFontSession(options);
   assert.notEqual(copy, options);
-  assert.equal(copy.exactFontSession, null);
-  assert.equal(options.exactFontSession.sessionId, "s-1");
+  assert.equal(copy.snapshotFontSession, null);
+  assert.equal(options.snapshotFontSession.sessionId, "s-1");
   assert.equal(copy.fontFamilies, options.fontFamilies);
   assert.equal(copy.fontSize, options.fontSize);
 });
@@ -349,16 +349,16 @@ test("reportIssue truncates the detail marker to 512 chars and clearIssue restor
   globalThis.console.warn = (message) => warns.push(message);
   try {
     const detail = "x".repeat(600);
-    const issue = { name: "NoExactFontFace", detail, element, reportToConsole: true };
+    const issue = { name: "NoSnapshotFontFace", detail, element, reportToConsole: true };
     reportIssue(issue);
     reportIssue(issue);
     assert.equal(issue.markerCaptured, true);
     assert.equal(issue.originalNameAttribute, "pre-name");
     assert.equal(issue.originalDetailAttribute, "pre-detail");
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "NoExactFontFace");
+    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "NoSnapshotFontFace");
     assert.equal(element.getAttribute("data-tiqian-capability-detail"), "x".repeat(512));
     assert.equal(warns.length, 2);
-    assert.equal(warns[0], "TiqianWeb skipped paragraph: NoExactFontFace (" + detail + ")");
+    assert.equal(warns[0], "TiqianWeb skipped paragraph: NoSnapshotFontFace (" + detail + ")");
 
     clearIssue(issue);
     assert.equal(issue.markerCaptured, false);

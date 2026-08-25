@@ -4,7 +4,7 @@ import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, prepared
 import test from "node:test";
 
 import { processParagraph } from "./core/engine/process-paragraph.js";
-import { withoutExactFontSession } from "./core/engine/lifecycle.js";
+import { withoutSnapshotFontSession } from "./core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 import { installFixtureFontBackend, installThrowingFontBackend } from "./test-support/fixture-font-backend.mjs";
 
@@ -239,14 +239,14 @@ function makeFakeDocument(baselineBottom) {
   };
 }
 
-// The exact-session descriptor carries the shaping callbacks ffi takes as
+// The snapshot-session descriptor carries the shaping callbacks ffi takes as
 // call parameters; the fixture backend supplies a working pair.
-function exactSessionCallbacksOf(backend) {
+function snapshotSessionCallbacksOf(backend) {
   return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
 
-function fixtureExactSession() {
-  return exactSessionCallbacksOf(installFixtureFontBackend());
+function fixtureSnapshotSession() {
+  return snapshotSessionCallbacksOf(installFixtureFontBackend());
 }
 
 function makeState(overrides = {}) {
@@ -256,7 +256,7 @@ function makeState(overrides = {}) {
   return {
     options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    exactSession: overrides.exactSession ?? fixtureExactSession(),
+    snapshotSession: overrides.snapshotSession ?? fixtureSnapshotSession(),
     browserFallback: overrides.browserFallback ?? null,
     onIssue: (issue) => {
       issues.push(issue);
@@ -266,9 +266,9 @@ function makeState(overrides = {}) {
       paragraphs.push(item);
       if (overrides.onParagraphCommitted) overrides.onParagraphCommitted(item);
     },
-    onDisableExactPreparedDom: (detail) => {
+    onDisableSnapshotPreparedDom: (detail) => {
       fallbacks.push(detail);
-      if (overrides.onDisableExactPreparedDom) overrides.onDisableExactPreparedDom(detail);
+      if (overrides.onDisableSnapshotPreparedDom) overrides.onDisableSnapshotPreparedDom(detail);
     },
     issues,
     paragraphs,
@@ -364,7 +364,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       options: {
         fontSize: 19,
         strongAsEmphasisMarks: true,
-        exactFontSession: { status: "conforming", sessionId: "session-1" },
+        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
 
@@ -445,7 +445,7 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
   });
 });
 
-test("6. Exact worker gate: requireExactLayoutWorker true, worker request built, plan null, rich fallback not applicable -> style attribute restored, ExactLayoutWorkerPlanUnavailable", () => {
+test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, worker request built, plan null, rich fallback not applicable -> style attribute restored, SnapshotLayoutWorkerPlanUnavailable", () => {
   const layoutWorker = {
     take: () => null,
     issue: () => "No worker available in this context",
@@ -464,8 +464,8 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     const paragraph = makeElement({ style: "margin: 10px;" });
     const state = makeState({
       options: {
-        requireExactLayoutWorker: true,
-        exactFontSession: { status: "conforming", sessionId: "session-1" },
+        requireSnapshotLayoutWorker: true,
+        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
     processParagraph(rawDom, { paragraph, state });
@@ -473,12 +473,12 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
     assert.equal(rawDomTakeCalled, false);
     assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "ExactLayoutWorkerPlanUnavailable");
+    assert.equal(state.issues[0].name, "SnapshotLayoutWorkerPlanUnavailable");
     assert.equal(state.issues[0].detail, "No worker available in this context");
     assert.equal(state.issues[0].element, paragraph);
     assert.equal(state.issues[0].reportToConsole, true);
     // The lifecycle marker was written onto the paragraph element.
-    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "ExactLayoutWorkerPlanUnavailable");
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "SnapshotLayoutWorkerPlanUnavailable");
   }, { layoutWorker });
 });
 
@@ -505,8 +505,8 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     });
     const state = makeState({
       options: {
-        requireExactLayoutWorker: true,
-        exactFontSession: { status: "conforming", sessionId: "session-1" },
+        requireSnapshotLayoutWorker: true,
+        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
 
@@ -596,7 +596,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
       };
 
 
-      const state = makeState({ exactSession: exactSessionCallbacksOf(backend) });
+      const state = makeState({ snapshotSession: snapshotSessionCallbacksOf(backend) });
 
       processParagraph(rawDom, { paragraph, state });
 
@@ -613,7 +613,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   }
 });
 
-test("12. preparedDomEnabled false -> active options come from withoutExactFontSession", () => {
+test("12. preparedDomEnabled false -> active options come from withoutSnapshotFontSession", () => {
   withEnv(() => {
     const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
@@ -625,7 +625,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
 
 
     const paragraph = makeElement();
-    const rawOptions = { fontSize: 20, exactFontSession: { sessionId: "sess-abc" } };
+    const rawOptions = { fontSize: 20, snapshotFontSession: { sessionId: "sess-abc" } };
     const state = makeState({
       options: rawOptions,
       preparedDomEnabled: false,
@@ -633,13 +633,13 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
 
     processParagraph(rawDom, { paragraph, state });
 
-    // The real pipeline reuses withoutExactFontSession when prepared DOM is
-    // disabled: the exact font session is dropped into a fresh options object
+    // The real pipeline reuses withoutSnapshotFontSession when prepared DOM is
+    // disabled: the snapshot font session is dropped into a fresh options object
     // while the remaining options are preserved.
-    const active = withoutExactFontSession(rawOptions);
+    const active = withoutSnapshotFontSession(rawOptions);
     assert.notEqual(active, rawOptions);
     assert.equal(active.fontSize, 20);
-    assert.equal(active.exactFontSession, null);
+    assert.equal(active.snapshotFontSession, null);
     // The direct lane proceeded and committed through the planted renderer.
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
@@ -663,7 +663,7 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
 
     processParagraph(rawDom, { paragraph, state });
 
-    // No layout worker channel is installed, so the direct exact-session lane
+    // No layout worker channel is installed, so the direct snapshot-session lane
     // ran the real prepare and commit.
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);

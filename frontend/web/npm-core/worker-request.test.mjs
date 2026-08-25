@@ -15,7 +15,7 @@ const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 // helpers are all real now: sourceParagraphWidth reads element geometry and
 // globalThis.getComputedStyle, effectiveLineMeasure is imported above,
 // shouldTryParagraph reads plain element properties, and the snapshot gate,
-// withRootDefaults and conformingExactFontSessionId run from the stateless
+// withRootDefaults and conformingSnapshotFontSessionId run from the stateless
 // lifecycle module. No module seam exists anymore.
 
 function textStyle(overrides = {}) {
@@ -111,8 +111,8 @@ function canonicalOptions(overrides = {}) {
     strongAsEmphasisMarks: false,
     paragraphSelector: "p, li",
     cjkDashCapability: null,
-    exactFontSession: { status: "conforming", sessionId: "s1", detail: null },
-    requireExactLayoutWorker: false,
+    snapshotFontSession: { status: "conforming", sessionId: "s1", detail: null },
+    requireSnapshotLayoutWorker: false,
     ...overrides,
   };
 }
@@ -326,12 +326,12 @@ test("workerLayoutRequestJson render evidence: spans-only yields true, plain yie
   assert.equal(JSON.parse(plainActual).renderEvidence, false);
 });
 
-test("workerLayoutRequest returns null without a conforming exact font session", () => {
+test("workerLayoutRequest returns null without a conforming snapshot font session", () => {
   const nonConforming = canonicalOptions({
-    exactFontSession: { status: "unavailable", sessionId: "s1", detail: null },
+    snapshotFontSession: { status: "unavailable", sessionId: "s1", detail: null },
   });
   assert.equal(workerLayoutRequest(element(), paragraph(), nonConforming), null);
-  const omitted = canonicalOptions({ exactFontSession: null });
+  const omitted = canonicalOptions({ snapshotFontSession: null });
   assert.equal(workerLayoutRequest(element(), paragraph(), omitted), null);
 });
 

@@ -186,7 +186,7 @@ export function snapshotSourceArtifactString(textValue: unknown, semanticsValue:
   return stableStringify(snapshotSourceArtifact(textValue, semanticsValue));
 }
 
-function exactRangeContract(
+function snapshotRangeContract(
   spans: unknown,
   semantic: SnapshotSemanticSpan,
   predicate: SnapshotMetricContractPredicate,
@@ -213,14 +213,14 @@ export function snapshotSemanticMetricContractIssue(
 ): string | null {
   const codeSpans = Array.from(semanticsValue ?? []).filter((span) => span.tagName === "code");
   for (const semantic of codeSpans) {
-    const hasTextStyle = exactRangeContract(textSpansValue, semantic, (span) =>
+    const hasTextStyle = snapshotRangeContract(textSpansValue, semantic, (span) =>
       Array.isArray(span.fontFamilies) && span.fontFamilies.length > 0 &&
       Number.isFinite(Number(span.fontSizePx)) &&
       Number.isSafeInteger(Number(span.fontWeight)) &&
       typeof span.italic === "boolean" &&
       Number.isFinite(Number(span.baselineShiftPx)));
     if (!hasTextStyle) return "InlineCodeFontContractUnavailable";
-    const hasInlineBox = exactRangeContract(inlineBoxesValue, semantic, (box) =>
+    const hasInlineBox = snapshotRangeContract(inlineBoxesValue, semantic, (box) =>
       Number.isFinite(Number(box.inlineStartPx)) && Number.isFinite(Number(box.inlineEndPx)));
     if (!hasInlineBox) return "InlineCodeBoxContractUnavailable";
   }

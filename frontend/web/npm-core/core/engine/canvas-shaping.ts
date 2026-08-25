@@ -283,11 +283,11 @@ export function measurementCacheSize(): number {
 
 // CjkDashCapabilityPolicy ports inline (see the font module): the CJK dash
 // shaping outcome fails closed while no conforming glyph source exists.
-// "conforming" names the missing exact font session; any other status
+// "conforming" names the missing snapshot font session; any other status
 // (including null) reports the absence of a conforming CJK dash glyph.
 function dashIssueNameFor(status?: string | null): string {
   return status === "conforming"
-    ? "ConformingCjkDashRequiresExactFontSession"
+    ? "ConformingCjkDashRequiresSnapshotFontSession"
     : "NoConformingCjkDashGlyph";
 }
 

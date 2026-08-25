@@ -148,7 +148,7 @@ export function fontRecordMatchesFamily(record: FontFaceRecord, requestedFamily:
 }
 
 /**
- * ExactSubsetCoverageBoundary: keep shaping runs inside one selected CSS face.
+ * SnapshotSubsetCoverageBoundary: keep shaping runs inside one selected CSS face.
  * The selector remains injectable because Node can additionally verify nominal
  * glyph coverage while the browser Worker only owns validated face metadata.
  */
@@ -169,7 +169,7 @@ export function sourceBoundariesForSelectedFace<F>(
       // StructuralBreakControlNoShape: UAX #14 mandatory breaks and U+200B are
       // source-faithful layout controls, not glyph-bearing characters. The
       // layout core creates their zero-advance clusters before shaping, so
-      // exact-font face selection must neither require a covering face nor
+      // snapshot-font face selection must neither require a covering face nor
       // disturb adjacent face runs. CRLF advances as two UTF-16 code units but
       // remains one mandatory-break cluster in the core.
       offset += point.length;
@@ -227,7 +227,7 @@ function selectMetadataFace(
     }
   }
   throw new Error(
-    `NoExactFontFace:families=${style.fontFamilies.join(",")};` +
+    `NoSnapshotFontFace:families=${style.fontFamilies.join(",")};` +
     `weight=${style.fontWeight};italic=${style.italic};text=${JSON.stringify(point)}`,
   );
 }
@@ -261,7 +261,7 @@ function workerTextSpans(value: unknown): WorkerTextSpan[] {
 }
 
 /** Rebuild build-time font-shard boundaries from the validated Worker contract. */
-export function workerExactSubsetSourceBoundaries(
+export function workerSnapshotSubsetSourceBoundaries(
   faceMetadata: Iterable<FontFaceRecord> | null | undefined,
   request: WorkerFontContractRequest,
 ): number[] {

@@ -172,10 +172,10 @@ test("manifest sessions keep the baked contract path", async () => {
   );
 });
 
-test("layout-worker keeps its ffi import and exact-subset wiring", async () => {
+test("layout-worker keeps its ffi import and snapshot-subset wiring", async () => {
   const source = await readFile(new URL("../../../layout-worker.js", import.meta.url), "utf8");
   assert.match(source, /createProbeBootstrapFontSession/u);
   assert.match(source, /createManifestFontSession/u);
   assert.match(source, /from "@tiqian\/ffi"/u);
-  assert.match(source, /workerExactSubsetSourceBoundaries\(session\.faces, request\)/u);
+  assert.match(source, /workerSnapshotSubsetSourceBoundaries\(session\.faces, request\)/u);
 });

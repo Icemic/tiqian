@@ -1,5 +1,5 @@
 import { globalServices } from "./core/services/global-services.js";
-import { exactSessionCallbacks } from "./browser-font-replay.js";
+import { snapshotSessionCallbacks } from "./browser-font-replay.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -546,7 +546,7 @@ test("live snapshot font contract is required before creating replay state", asy
   await assert.rejects(
     state.loader.prepare(state.root),
     (error) => {
-      assertCode("SnapshotExactFontContractMismatch")(error);
+      assertCode("SnapshotFontContractMismatch")(error);
       assert.match(error.message, /SnapshotSourceMismatch/u);
       return true;
     },
@@ -623,7 +623,7 @@ test("parser completion makes an unresolved source mismatch fail closed", async 
   parserComplete();
 
   await assert.rejects(pending, (error) => {
-    assertCode("SnapshotExactFontContractMismatch")(error);
+    assertCode("SnapshotFontContractMismatch")(error);
     assert.match(error.message, /SnapshotSourceMismatch/u);
     return true;
   });
@@ -644,14 +644,14 @@ test("live snapshot font contract is revalidated after asynchronous font prepara
 
   await assert.rejects(
     state.loader.prepare(state.root),
-    assertCode("SnapshotExactFontContractMismatch"),
+    assertCode("SnapshotFontContractMismatch"),
   );
   assert.equal(state.requests.length, 0);
   assert.equal(state.createCalls.length, 1);
   assert.equal(state.closeCount(), 1);
 });
 
-test("SnapshotExactFontContractMismatch message carries structured suffix for FieldMismatch and EmptyCandidateSet", async () => {
+test("SnapshotFontContractMismatch message carries structured suffix for FieldMismatch and EmptyCandidateSet", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
 
@@ -674,10 +674,10 @@ test("SnapshotExactFontContractMismatch message carries structured suffix for Fi
   await assert.rejects(
     fieldMismatchState.loader.prepare(fieldMismatchState.root),
     (error) => {
-      assertCode("SnapshotExactFontContractMismatch")(error);
+      assertCode("SnapshotFontContractMismatch")(error);
       assert.match(
         error.message,
-        /SnapshotExactFontContractMismatch:FontFaceContractMismatch\|FieldMismatch\|expectedFaces=1\|actualFaces=1\|firstField=style/u,
+        /SnapshotFontContractMismatch:FontFaceContractMismatch\|FieldMismatch\|expectedFaces=1\|actualFaces=1\|firstField=style/u,
       );
       return true;
     },
@@ -699,10 +699,10 @@ test("SnapshotExactFontContractMismatch message carries structured suffix for Fi
   await assert.rejects(
     emptyCandidateState.loader.prepare(emptyCandidateState.root),
     (error) => {
-      assertCode("SnapshotExactFontContractMismatch")(error);
+      assertCode("SnapshotFontContractMismatch")(error);
       assert.match(
         error.message,
-        /SnapshotExactFontContractMismatch:FontFaceContractMismatch\|EmptyCandidateSet/u,
+        /SnapshotFontContractMismatch:FontFaceContractMismatch\|EmptyCandidateSet/u,
       );
       return true;
     },
@@ -934,7 +934,7 @@ test("the default browser session scales server shaping evidence without loading
   // The default session resolves through the coordination registry, so the
   // callbacks for the prepared handle id address the same replay tables the
   // former handle-based global backend exposed.
-  const { shapeJson, metricsJson } = exactSessionCallbacks(handle.id);
+  const { shapeJson, metricsJson } = snapshotSessionCallbacks(handle.id);
   const shapeResponse = JSON.parse(shapeJson(JSON.stringify({
     text: "正文",
     sourceText: "正文",

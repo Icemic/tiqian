@@ -62,7 +62,7 @@ export interface ReplayFontSessionFace {
 export type ShapeJsonFn = (requestJson: string) => string;
 export type MetricsJsonFn = (requestJson: string) => string;
 
-export interface ExactSessionCallbacks {
+export interface SnapshotSessionCallbacks {
   shapeJson: ShapeJsonFn;
   metricsJson: MetricsJsonFn;
 }
@@ -291,7 +291,7 @@ function createMetricsJsonCallback(registry: ReplayRegistry, sessionId: string):
  * the session was created in, so a conforming sessionId is sufficient; the
  * closures report an unknown id only if the session was released meanwhile.
  */
-export function exactSessionCallbacks(sessionId: string): ExactSessionCallbacks {
+export function snapshotSessionCallbacks(sessionId: string): SnapshotSessionCallbacks {
   const registry = replayRegistry();
   return {
     shapeJson: createShapeJsonCallback(registry, sessionId),

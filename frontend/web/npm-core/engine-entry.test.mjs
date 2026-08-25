@@ -151,9 +151,9 @@ function withEnv(fn, overrides = {}) {
   }
 }
 
-// The exact-session descriptor carries the shaping callbacks ffi takes as
+// The snapshot-session descriptor carries the shaping callbacks ffi takes as
 // call parameters; the fixture backend supplies a working pair.
-function fixtureExactSession() {
+function fixtureSnapshotSession() {
   const backend = installFixtureFontBackend();
   return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
@@ -165,12 +165,12 @@ function makeStateWithCallbacks(overrides = {}) {
     paragraphs: overrides.paragraphs ?? [],
     issues: overrides.issues ?? [],
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    exactSession: overrides.exactSession ?? fixtureExactSession(),
+    snapshotSession: overrides.snapshotSession ?? fixtureSnapshotSession(),
     browserFallback: overrides.browserFallback ?? null,
   };
   state.onIssue = overrides.onIssue ?? function (issue) { state.issues.push(issue); };
   state.onParagraphCommitted = overrides.onParagraphCommitted ?? function (item) { state.paragraphs.push(item); };
-  state.onDisableExactPreparedDom = overrides.onDisableExactPreparedDom ?? function () {};
+  state.onDisableSnapshotPreparedDom = overrides.onDisableSnapshotPreparedDom ?? function () {};
   return state;
 }
 
@@ -757,13 +757,13 @@ test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options p
     const ctx = makeEngine();
     const root = makeElement();
     const para = makeElement();
-    // Without a conforming exact font session in the bag, optionsFromJs yields
+    // Without a conforming snapshot font session in the bag, optionsFromJs yields
     // a null session and workerLayoutRequestForRoot returns null.
     assert.equal(ctx.engine.workerLayoutRequest(root, para, {}), null);
     // With a conforming session in the bag, the request builds: the bag's
-    // exactFontSession reached the real workerLayoutRequestForRoot through
+    // snapshotFontSession reached the real workerLayoutRequestForRoot through
     // optionsFromJs, which is the pre-processing this method owns.
-    const bag = { exactFontSession: { status: "conforming", sessionId: "s1" } };
+    const bag = { snapshotFontSession: { status: "conforming", sessionId: "s1" } };
     const result = ctx.engine.workerLayoutRequest(root, para, bag);
     assert.notEqual(result, null);
     const parsed = JSON.parse(result);

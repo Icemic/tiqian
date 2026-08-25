@@ -20,9 +20,9 @@ import {
   renderedPreparedParagraphIssue,
   restorePrecomputedSnapshot,
   tryAdoptPrecomputedSnapshot,
-  validatePrecomputedExactFontReplayContract,
-  validatePrecomputedExactFontReplayLiveContract,
-  validatePrecomputedSnapshotExactFontContract,
+  validatePrecomputedSnapshotFontReplayContract,
+  validatePrecomputedSnapshotFontReplayLiveContract,
+  validatePrecomputedSnapshotFontContract,
 } from "./core/sampler/snapshot/precomputed.js";
 import { FONT_REPLAY_REVISION, stableStringify } from "./snapshot-schema.js";
 import { snapshotTablesForRoot } from "./snapshot-tables.js";
@@ -309,7 +309,7 @@ test("exact runtime fallback accepts a width miss only while every live input st
     const { documentObject, root, paragraph } = fixture();
     paragraph.width = 240;
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -317,17 +317,17 @@ test("exact runtime fallback accepts a width miss only while every live input st
     });
 
     paragraph.innerText = "中国—";
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: false,
       reason: "SnapshotSourceMismatch",
     });
-    assert.deepEqual(await validatePrecomputedExactFontReplayContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(validatePrecomputedExactFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -341,7 +341,7 @@ test("exact runtime fallback accepts a width miss only while every live input st
       "unicode-range": "U+4E00-9FFF",
       src: 'url("/assets/changed-feedface.woff2")',
     });
-    assert.deepEqual(validatePrecomputedExactFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
       matches: false,
       reason: "FontFaceContractChangedDuringFontPreparation",
     });
@@ -355,13 +355,13 @@ test("runtime font replay validates the same host CSS contract as snapshots", as
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root } = fixture();
-    assert.deepEqual(await validatePrecomputedExactFontReplayContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(validatePrecomputedExactFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -381,7 +381,7 @@ test("snapshot list items preserve their native marker display contract", async 
       paragraphSelector: ":is(p, li)[data-tq-snapshot-key]",
     });
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: ":is(p, li)[data-tq-snapshot-key]",
@@ -407,7 +407,7 @@ test("exact runtime font evidence remains valid across responsive size and line-
       element === paragraph ? { fontSize: "15.75px", lineHeight: "28px" } : {},
     );
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -433,7 +433,7 @@ test("exact font validation rechecks live source after asynchronous font probes"
       return [{}];
     };
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: false,
       reason: "SnapshotSourceChangedDuringValidation",
     });
@@ -492,7 +492,7 @@ test("an unreadable stylesheet makes the exact font source contract unverifiable
       },
     });
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: false,
       reason: "FontFaceCssomUnverifiable",
     });
@@ -513,7 +513,7 @@ test("a compact client font contract enables the exact runtime without claiming 
       entrySource: "font-contract-v1",
     });
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -558,7 +558,7 @@ test("article-sized exact font evidence loads by face and shares one layout snap
       return element;
     };
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p",
@@ -594,7 +594,7 @@ test("one host typography variant cannot poison a sibling runtime font replay", 
         : {},
     );
 
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: true,
       reason: null,
       paragraphSelector: "p",
@@ -997,7 +997,7 @@ test("duplicate manifest keys cannot corrupt source restoration", async () => {
     manifestScript.textContent = JSON.stringify(manifest);
 
     assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
-    assert.deepEqual(await validatePrecomputedSnapshotExactFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
       matches: false,
       reason: "SnapshotManifestEntryKeyInvalid",
     });
@@ -1761,7 +1761,7 @@ test("snapshot exact font validation carries EmptyCandidateSet and FieldMismatch
     // EmptyCandidateSet: stylesheet has no rules
     const emptySetup = fixture();
     emptySetup.documentObject.styleSheets[0].cssRules = [];
-    const emptyResult = await validatePrecomputedSnapshotExactFontContract(emptySetup.root);
+    const emptyResult = await validatePrecomputedSnapshotFontContract(emptySetup.root);
     assert.deepEqual(emptyResult, {
       matches: false,
       reason: "FontFaceContractMismatch",
@@ -1778,7 +1778,7 @@ test("snapshot exact font validation carries EmptyCandidateSet and FieldMismatch
       "unicode-range": "U+4E00-9FFF",
       src: "url(\"/assets/fixture-deadbeef.woff2\")",
     });
-    const fieldResult = await validatePrecomputedSnapshotExactFontContract(fieldSetup.root);
+    const fieldResult = await validatePrecomputedSnapshotFontContract(fieldSetup.root);
     assert.deepEqual(fieldResult, {
       matches: false,
       reason: "FontFaceContractMismatch",

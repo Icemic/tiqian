@@ -51,7 +51,7 @@ export interface TraceConfig {
   maxEntries?: number;
 }
 
-export type EnhanceExactFontSessionOption = {
+export type EnhanceSnapshotFontSessionOption = {
   status: string;
   sessionId: string | null;
   detail: string | null;
@@ -66,8 +66,8 @@ export type EnhanceOptions = {
   strongAsEmphasisMarks: boolean;
   paragraphSelector: string;
   cjkDashCapability: CjkDashCapability | null;
-  exactFontSession: EnhanceExactFontSessionOption | null;
-  requireExactLayoutWorker: boolean;
+  snapshotFontSession: EnhanceSnapshotFontSessionOption | null;
+  requireSnapshotLayoutWorker: boolean;
   trace?: TraceConfig;
 };
 
@@ -80,8 +80,8 @@ export type ResolvedEnhanceOptions = {
   strongAsEmphasisMarks: boolean;
   paragraphSelector: string;
   cjkDashCapability: CjkDashCapability | null;
-  exactFontSession: EnhanceExactFontSessionOption | null;
-  requireExactLayoutWorker: boolean;
+  snapshotFontSession: EnhanceSnapshotFontSessionOption | null;
+  requireSnapshotLayoutWorker: boolean;
   trace?: TraceConfig;
 };
 
@@ -114,7 +114,7 @@ interface EnhanceCjkDashCapabilityDraft {
   detail: string | null;
 }
 
-interface EnhanceExactFontSessionDraft {
+interface EnhanceSnapshotFontSessionDraft {
   status: string | null;
   sessionId: string | null;
   detail: string | null;
@@ -187,8 +187,8 @@ export function optionsFromJs(options: Record<string, unknown>): EnhanceOptions 
   if (strongAsEmphasisMarks === null) strongAsEmphasisMarks = false;
   let paragraphSelector = optionString(options, "paragraphSelector");
   if (paragraphSelector === null) paragraphSelector = DEFAULT_PARAGRAPH_SELECTOR;
-  let requireExactLayoutWorker = optionBoolean(options, "requireExactLayoutWorker");
-  if (requireExactLayoutWorker === null) requireExactLayoutWorker = false;
+  let requireSnapshotLayoutWorker = optionBoolean(options, "requireSnapshotLayoutWorker");
+  if (requireSnapshotLayoutWorker === null) requireSnapshotLayoutWorker = false;
   const dashCapabilityObject = optionObject(options, "cjkDashCapability");
   let cjkDashCapability: EnhanceCjkDashCapabilityDraft | null = null;
   if (dashCapabilityObject != null) {
@@ -198,15 +198,15 @@ export function optionsFromJs(options: Record<string, unknown>): EnhanceOptions 
     };
     if (cjkDashCapability.status === null) cjkDashCapability.status = "unavailable";
   }
-  const exactFontSessionObject = optionObject(options, "exactFontSession");
-  let exactFontSession: EnhanceExactFontSessionDraft | null = null;
-  if (exactFontSessionObject != null) {
-    exactFontSession = {
-      status: optionString(exactFontSessionObject, "status"),
-      sessionId: optionString(exactFontSessionObject, "sessionId"),
-      detail: optionString(exactFontSessionObject, "detail"),
+  const snapshotFontSessionObject = optionObject(options, "snapshotFontSession");
+  let snapshotFontSession: EnhanceSnapshotFontSessionDraft | null = null;
+  if (snapshotFontSessionObject != null) {
+    snapshotFontSession = {
+      status: optionString(snapshotFontSessionObject, "status"),
+      sessionId: optionString(snapshotFontSessionObject, "sessionId"),
+      detail: optionString(snapshotFontSessionObject, "detail"),
     };
-    if (exactFontSession.status === null) exactFontSession.status = "unavailable";
+    if (snapshotFontSession.status === null) snapshotFontSession.status = "unavailable";
   }
   return {
     fontFamilies: {
@@ -223,13 +223,13 @@ export function optionsFromJs(options: Record<string, unknown>): EnhanceOptions 
     strongAsEmphasisMarks: strongAsEmphasisMarks,
     paragraphSelector: paragraphSelector,
     cjkDashCapability: cjkDashCapability as CjkDashCapability | null,
-    exactFontSession: exactFontSession as EnhanceExactFontSessionOption | null,
-    requireExactLayoutWorker: requireExactLayoutWorker,
+    snapshotFontSession: snapshotFontSession as EnhanceSnapshotFontSessionOption | null,
+    requireSnapshotLayoutWorker: requireSnapshotLayoutWorker,
   };
 }
 
-export function conformingExactFontSessionId(options: EnhanceOptions): string | null {
-  const session = options && options.exactFontSession;
+export function conformingSnapshotFontSessionId(options: EnhanceOptions): string | null {
+  const session = options && options.snapshotFontSession;
   if (!session || session.status !== "conforming" ||
       typeof session.sessionId !== "string" || session.sessionId.trim().length === 0) {
     return null;
@@ -237,7 +237,7 @@ export function conformingExactFontSessionId(options: EnhanceOptions): string | 
   return session.sessionId;
 }
 
-export function allowsSnapshotExactLayout(options: EnhanceOptions): boolean {
+export function allowsSnapshotLayout(options: EnhanceOptions): boolean {
   return options.fontSize == null &&
     options.lineHeight == null &&
     options.firstLineIndentIc === 0 &&
@@ -248,9 +248,9 @@ export function allowsSnapshotExactLayout(options: EnhanceOptions): boolean {
     options.fontFamilies.latinSerif == null;
 }
 
-export function withoutExactFontSession(options: EnhanceOptions): EnhanceOptions {
+export function withoutSnapshotFontSession(options: EnhanceOptions): EnhanceOptions {
   const copy = Object.assign({}, options);
-  copy.exactFontSession = null;
+  copy.snapshotFontSession = null;
   return copy;
 }
 

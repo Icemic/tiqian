@@ -11,12 +11,12 @@
 //
 // Scope of this wave (S3-a first half): the invalidation generation (one
 // counting mechanism replacing api.ts's rootGenerations WeakMap) and the
-// exact font session entry (replacing api.ts's rootFontSessions WeakMap).
+// snapshot font session entry (replacing api.ts's rootFontSessions WeakMap).
 // beginEnhanceCycle() supersedes in-flight work started under an earlier
 // generation; readers compare context.generation against the value they
 // captured before their first await.
 
-import type { ExactFontSessionEntry } from "../exact-font.js";
+import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 
 export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
@@ -24,14 +24,14 @@ export interface RawDomParagraphRecord {
   forwarding: boolean;                // commit-forwarding installed flag
 }
 
-interface ExactFontSessionState {
-  entry: ExactFontSessionEntry | null;
+interface SnapshotFontSessionState {
+  entry: SnapshotFontSessionEntry | null;
 }
 
 interface EnhancedElementContext {
   readonly element: Element;
   readonly generation: number;
-  readonly exactFontSession: ExactFontSessionState;
+  readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
   beginEnhanceCycle(): number;
 }
@@ -45,7 +45,7 @@ function getContextForElement(element: Element): EnhancedElementContext | undefi
 
 function createEnhanceContext(element: Element): EnhancedElementContext {
   let generation = 0;
-  const exactFontSession: ExactFontSessionState = { entry: null };
+  const snapshotFontSession: SnapshotFontSessionState = { entry: null };
   const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
 
   const context: EnhancedElementContext = {
@@ -53,7 +53,7 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
     get generation() {
       return generation;
     },
-    exactFontSession,
+    snapshotFontSession,
     rawDomParagraphs,
     beginEnhanceCycle() {
       generation += 1;
@@ -74,4 +74,4 @@ function getOrCreateEnhanceContext(element: Element): EnhancedElementContext {
 }
 
 export { createEnhanceContext, getContextForElement, getOrCreateEnhanceContext };
-export type { EnhancedElementContext, ExactFontSessionState };
+export type { EnhancedElementContext, SnapshotFontSessionState };

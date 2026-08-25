@@ -3,7 +3,7 @@
 // WebEnhancerParagraphPipeline.kt (prepareParagraphLayout, lines 319-498).
 // The module computes the responsive measure, gates the prepared-DOM bridge,
 // checks prepared-DOM eligibility, serializes the lowered paragraph onto the
-// shared ffi wire, runs the exact-session or browser-metric layout call, and
+// shared ffi wire, runs the snapshot-session or browser-metric layout call, and
 // re-checks the plan envelope facts into three named capability verdicts.
 //
 // Stateless module: prepareParagraphLayout() is exported directly and reads
@@ -83,7 +83,7 @@ export interface PrepareReadyResult {
   diagnostics: LayoutDiagnostics;
   width: number;
   measure: number;
-  exactFontSessionUsed: boolean;
+  snapshotFontSessionUsed: boolean;
   [key: string]: unknown;
 }
 
@@ -106,7 +106,7 @@ interface PrepareParagraphTarget {
   lastMeasure: number | null;
 }
 
-interface PrepareExactSessionDescriptor {
+interface PrepareSnapshotSessionDescriptor {
   shapeJson: BrowserBridgeShapeJsonFn;
   metricsJson: BrowserBridgeMetricsJsonFn;
 }
@@ -114,7 +114,7 @@ interface PrepareExactSessionDescriptor {
 interface PrepareParagraphLayoutInvocation {
   paragraph: PrepareParagraphTarget;
   options: Record<string, unknown>;
-  exactSession: PrepareExactSessionDescriptor | null;
+  snapshotSession: PrepareSnapshotSessionDescriptor | null;
   browserFallback: Record<string, unknown> | null;
   widthOverride?: number | null;
   ignoreUnchangedMeasure?: boolean;
@@ -135,14 +135,14 @@ interface PrepareParagraphLayoutInvocation {
   // PreparedParagraph.kt PREPARED_PARAGRAPH_LAYOUT_REVISION: the plan wire
   // revision the installed prepared-DOM renderer must report.
   const PREPARED_LAYOUT_REVISION = 'tiqian-layout-v2';
-  // WebEnhancerSupport.kt EXACT_FONT_SESSION_CAPABILITY_FAILURES: substrings
-  // that mark an exact-session layout failure as a font capability issue,
+  // WebEnhancerSupport.kt SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES: substrings
+  // that mark an snapshot-session layout failure as a font capability issue,
   // after which the whole paragraph retries through the browser bridge.
-  const EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
-    'NoExactFontFace',
+  const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
+    'NoSnapshotFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
-    'NoExactMetricFace',
+    'NoSnapshotMetricFace',
     'NonUniformUnicodeRangeMetrics',
   ];
 
@@ -226,8 +226,8 @@ interface PrepareParagraphLayoutInvocation {
     };
   }
 
-  // RuntimeExactPreparedDomScope: inline the lowered-paragraph.js predicate
-  // isRuntimeExactPreparedDomEligible, which requires every span to share the
+  // RuntimeSnapshotPreparedDomScope: inline the lowered-paragraph.js predicate
+  // isRuntimeSnapshotPreparedDomEligible, which requires every span to share the
   // paragraph locale. The plan wire carries one paragraph locale.
   function isPreparedDomEligible(lowered: LoweredParagraph): boolean {
     return lowered.spans.every(function (span) {
@@ -262,10 +262,10 @@ interface PrepareParagraphLayoutInvocation {
       renderer.layoutRevision === PREPARED_LAYOUT_REVISION);
   }
 
-  function isExactSessionCapabilityFailure(error: unknown): boolean {
+  function isSnapshotSessionCapabilityFailure(error: unknown): boolean {
     const message = String(error && (error as { message?: string }).message);
-    for (let i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
-      if (message.indexOf(EXACT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
+    for (let i = 0; i < SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
+      if (message.indexOf(SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
         return true;
       }
     }
@@ -295,11 +295,11 @@ interface PrepareParagraphLayoutInvocation {
     ]) as BrowserMetricsArguments;
   }
 
-  // The exact-session diagnostics export argument tuple, byte-locked so tests
+  // The snapshot-session diagnostics export argument tuple, byte-locked so tests
   // can assert the full positional list the wire sends to ffi. The direct ffi
   // call spreads this tuple unchanged; no value is reordered or recomputed.
   export function precomputeDiagnosticsArguments(
-    exactSession: PrepareExactSessionDescriptor,
+    snapshotSession: PrepareSnapshotSessionDescriptor,
     paragraphArguments: unknown[],
     wire: WireArguments,
     emphasisDotGapEm: number | null,
@@ -322,8 +322,8 @@ interface PrepareParagraphLayoutInvocation {
       paragraphArguments[13] as string,
       paragraphArguments[14] as string,
       ZERO_ADVANCE_EPSILON,
-      exactSession.shapeJson,
-      exactSession.metricsJson,
+      snapshotSession.shapeJson,
+      snapshotSession.metricsJson,
       wire.decorations,
       emphasisDotGapEm,
       renderEvidenceOverride,
@@ -340,7 +340,7 @@ interface PrepareParagraphLayoutInvocation {
   export function prepareParagraphLayout(argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
     const paragraph = argument.paragraph;
     const options = argument.options;
-    const exactSession = argument.exactSession;
+    const snapshotSession = argument.snapshotSession;
     const browserFallback = argument.browserFallback;
     const widthOverride = argument.widthOverride;
     const ignoreUnchangedMeasure = argument.ignoreUnchangedMeasure;
@@ -417,23 +417,23 @@ interface PrepareParagraphLayoutInvocation {
       wire.inlineObjects,
     ];
 
-    let exactFontSessionUsed = browserFallback != null;
+    let snapshotFontSessionUsed = browserFallback != null;
 
     let rawEnvelope;
-    if (exactSession != null) {
+    if (snapshotSession != null) {
       try {
-        // ExactSessionSemanticLayout: one font session serves the canonical
+        // SnapshotSessionSemanticLayout: one font session serves the canonical
         // plain paragraph and the semantic DOM, so no engine pair exists.
         rawEnvelope = precomputeParagraphWithDiagnostics(
-          ...precomputeDiagnosticsArguments(exactSession, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+          ...precomputeDiagnosticsArguments(snapshotSession, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       } catch (error) {
-        if (!isExactSessionCapabilityFailure(error)) throw error;
+        if (!isSnapshotSessionCapabilityFailure(error)) throw error;
         // PreparedDomAfterSessionFailure: a capability failure retries the
         // whole paragraph through the browser bridge. The per-run
-        // ExactSessionBrowserFallback* wrappers are deliberately not ported
+        // SnapshotSessionBrowserFallback* wrappers are deliberately not ported
         // (Slice 4a note); the whole paragraph re-runs instead.
-        exactFontSessionUsed = false;
+        snapshotFontSessionUsed = false;
         rawEnvelope = precomputeParagraphWithBrowserMetrics(
           ...browserMetricsArguments(browserFallback!, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
@@ -442,7 +442,7 @@ interface PrepareParagraphLayoutInvocation {
       if (browserFallback == null) {
         throw new Error('missing browserFallback descriptor for browser-metric layout');
       }
-      exactFontSessionUsed = false;
+      snapshotFontSessionUsed = false;
       rawEnvelope = precomputeParagraphWithBrowserMetrics(
         ...browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
       );
@@ -519,6 +519,6 @@ interface PrepareParagraphLayoutInvocation {
       diagnostics: diagnostics,
       width: width,
       measure: measure,
-      exactFontSessionUsed: exactFontSessionUsed,
+      snapshotFontSessionUsed: snapshotFontSessionUsed,
     };
   }

@@ -12,7 +12,7 @@ interface RawDomState {
   originalRenderedAttribute: string | null;
   originalPreparedFlowAttribute: string | null;
   originalCanonicalSourceAttribute: string | null;
-  originalExactPreparedDomAttribute: string | null;
+  originalSnapshotPreparedDomAttribute: string | null;
   originalLangAttribute: string | null;
   originalStyleAttribute: string | null;
   originalPosition: string;
@@ -55,7 +55,7 @@ export type RawDomSnapshot = {
   renderedAttribute: string | null;
   preparedFlowAttribute: string | null;
   canonicalSourceAttribute: string | null;
-  exactPreparedDomAttribute: string | null;
+  snapshotPreparedDomAttribute: string | null;
   langAttribute: string | null;
   styleAttribute: string | null;
   capabilityNameAttribute: string | null;
@@ -77,7 +77,7 @@ type RawDomBeginFn = (
   renderedAttribute: string | null,
   preparedFlowAttribute: string | null,
   canonicalSourceAttribute: string | null,
-  exactPreparedDomAttribute: string | null,
+  snapshotPreparedDomAttribute: string | null,
   langAttribute: string | null,
   styleAttribute: string | null,
   position: string,
@@ -117,7 +117,7 @@ export type RawDomApi = {
 };
 
 const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
-const EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
 const RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
 const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
 
@@ -230,7 +230,7 @@ export function deriveRawDom(): RawDomApi {
     renderedAttribute: string | null,
     preparedFlowAttribute: string | null,
     canonicalSourceAttribute: string | null,
-    exactPreparedDomAttribute: string | null,
+    snapshotPreparedDomAttribute: string | null,
     langAttribute: string | null,
     styleAttribute: string | null,
     position: string,
@@ -248,7 +248,7 @@ export function deriveRawDom(): RawDomApi {
       originalRenderedAttribute: renderedAttribute,
       originalPreparedFlowAttribute: preparedFlowAttribute,
       originalCanonicalSourceAttribute: canonicalSourceAttribute,
-      originalExactPreparedDomAttribute: exactPreparedDomAttribute,
+      originalSnapshotPreparedDomAttribute: snapshotPreparedDomAttribute,
       originalLangAttribute: langAttribute,
       originalStyleAttribute: styleAttribute,
       originalPosition: position,
@@ -326,7 +326,7 @@ export function deriveRawDom(): RawDomApi {
       renderedAttribute: source.getAttribute("data-tq-rendered"),
       preparedFlowAttribute: source.getAttribute("data-tq-canonical-plain"),
       canonicalSourceAttribute: source.getAttribute(CANONICAL_SOURCE_ATTRIBUTE),
-      exactPreparedDomAttribute: source.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE),
+      snapshotPreparedDomAttribute: source.getAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE),
       langAttribute: source.getAttribute("lang"),
       styleAttribute: source.getAttribute("style"),
       capabilityNameAttribute: source.getAttribute("data-tiqian-capability-issue"),
@@ -370,7 +370,7 @@ export function deriveRawDom(): RawDomApi {
       restoreAttribute(source, "data-tq-rendered", snapshot.renderedAttribute);
       restoreAttribute(source, "data-tq-canonical-plain", snapshot.preparedFlowAttribute);
       restoreAttribute(source, CANONICAL_SOURCE_ATTRIBUTE, snapshot.canonicalSourceAttribute);
-      restoreAttribute(source, EXACT_PREPARED_DOM_ATTRIBUTE, snapshot.exactPreparedDomAttribute);
+      restoreAttribute(source, SNAPSHOT_PREPARED_DOM_ATTRIBUTE, snapshot.snapshotPreparedDomAttribute);
       restoreAttribute(source, "lang", snapshot.langAttribute);
       restoreAttribute(source, "style", snapshot.styleAttribute);
       restoreAttribute(source, "data-tiqian-capability-issue", snapshot.capabilityNameAttribute);
@@ -412,7 +412,7 @@ export function deriveRawDom(): RawDomApi {
     restoreAttribute(source, "data-tq-rendered", state.originalRenderedAttribute);
     restoreAttribute(source, "data-tq-canonical-plain", state.originalPreparedFlowAttribute);
     restoreAttribute(source, CANONICAL_SOURCE_ATTRIBUTE, state.originalCanonicalSourceAttribute);
-    restoreAttribute(source, EXACT_PREPARED_DOM_ATTRIBUTE, state.originalExactPreparedDomAttribute);
+    restoreAttribute(source, SNAPSHOT_PREPARED_DOM_ATTRIBUTE, state.originalSnapshotPreparedDomAttribute);
     source.removeAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE);
     restoreAttribute(source, "lang", state.originalLangAttribute);
     if (

@@ -9,7 +9,7 @@ interface TextBearingRoot {
 }
 
 interface CjkDashPrepareOptions {
-  exactFontSession?: unknown;
+  snapshotFontSession?: unknown;
 }
 
 const CJK_DASH_SOURCE = "——";
@@ -30,7 +30,7 @@ export function prepareCjkDashShapingIfNeeded(root: TextBearingRoot | null | und
   if (!needsCjkDashShaping(root)) return Promise.resolve({ status: "not-needed" });
   return Promise.resolve({
     status: "unavailable",
-    detail: options?.exactFontSession
+    detail: options?.snapshotFontSession
       ? "ServerShapingReplayRequired"
       : "BrowserHarfBuzzDisabled",
   });

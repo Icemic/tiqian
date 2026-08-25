@@ -8,7 +8,7 @@
 // is the synchronous JSON request/response contract the real @tiqian/ffi runtime
 // uses.
 //
-// Tests pass the returned callbacks as the exact-session descriptor or the
+// Tests pass the returned callbacks as the snapshot-session descriptor or the
 // scripted canvas model; the ffi entries take them as call parameters, so
 // there is no global to install or restore.
 
@@ -100,7 +100,7 @@ function installFixtureFontBackend() {
 }
 
 // A throwing backend variant: every shape request throws the given error.
-// This is how tests force the exact-session capability-failure retry and the
+// This is how tests force the snapshot-session capability-failure retry and the
 // rethrow path through the real precompute exports.
 function installThrowingFontBackend(error) {
   return {

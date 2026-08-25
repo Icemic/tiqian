@@ -59,7 +59,7 @@ export function paragraphMeasureSignatureFromObserved(
   root: Element,
   state: ParagraphGridMetricsState,
   widths: WeakMap<Element, number> | null,
-  exactFontLayout: boolean,
+  snapshotFontLayout: boolean,
   readBased: ReadBasedSignature,
 ) {
   // Seeded metrics freeze each paragraph's fontSize at observation time,
@@ -83,12 +83,12 @@ export function paragraphMeasureSignatureFromObserved(
     const m = metrics.get(paragraph);
     let width = widths.get(paragraph);
     if (m == null || width == null) {
-      signature += paragraphMeasureEntry(paragraph, exactFontLayout);
+      signature += paragraphMeasureEntry(paragraph, snapshotFontLayout);
       continue;
     }
-    if (exactFontLayout) width -= m.inset;
+    if (snapshotFontLayout) width -= m.inset;
     if (!(width > 0)) {
-      signature += paragraphMeasureEntry(paragraph, exactFontLayout);
+      signature += paragraphMeasureEntry(paragraph, snapshotFontLayout);
       continue;
     }
     const measure = lineLengthGridMeasure(width, m.fontSize);

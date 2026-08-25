@@ -1,6 +1,6 @@
 import {
   mergeSerializedSourceBoundaries,
-  workerExactSubsetSourceBoundaries,
+  workerSnapshotSubsetSourceBoundaries,
 } from "./core/sampler/font-face-boundaries.js";
 import {
   createManifestFontSession,
@@ -55,7 +55,7 @@ function errorDetail(error: unknown): string {
     const request: WorkerLayoutRequestBody = message.request;
     const sourceBoundaries = mergeSerializedSourceBoundaries(
       request.sourceBoundaries,
-      workerExactSubsetSourceBoundaries(session.faces, request),
+      workerSnapshotSubsetSourceBoundaries(session.faces, request),
     );
     // WorkerRenderEvidencePassthrough: the field passes through verbatim; an
     // old sender omits it, undefined reaches the nullable ffi parameter as

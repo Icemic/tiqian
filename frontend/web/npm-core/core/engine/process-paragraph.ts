@@ -4,7 +4,7 @@ import type { MetricsJsonFn, ShapeJsonFn } from "../../browser-font-replay.js";
 // processing orchestration from WebEnhancerParagraphPipeline.kt
 // (processParagraph, lines 89-227, and layoutParagraph, lines 229-264).
 // The module coordinates paragraph eligibility, style capture, markdown
-// lowering, exact layout Worker queries with rich fallback detection,
+// lowering, snapshot layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
 // Stateless module: processParagraph(rawDom, argument) is a named function
@@ -24,10 +24,10 @@ import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
 import {
   applyConfiguredHostFontSize,
   captureSourceInlineSize,
-  conformingExactFontSessionId,
+  conformingSnapshotFontSessionId,
   reportIssue,
   stabilizeContentSizedItemInlineSize,
-  withoutExactFontSession,
+  withoutSnapshotFontSession,
 } from "./lifecycle.js";
 import {
   classifyFontRole,
@@ -55,23 +55,23 @@ interface ProcessParagraphTarget {
   lastMeasure: number | null;
 }
 
-interface ProcessExactSessionDescriptor {
+interface ProcessSnapshotSessionDescriptor {
   shapeJson: ShapeJsonFn;
   metricsJson: MetricsJsonFn;
 }
 
 type ProcessIssueHandler = (issue: Record<string, unknown>) => void;
 type ProcessParagraphCommittedHandler = (item: ProcessParagraphTarget) => void;
-type ProcessDisableExactPreparedDomHandler = (issue: unknown) => void;
+type ProcessDisableSnapshotPreparedDomHandler = (issue: unknown) => void;
 
 interface ProcessParagraphState {
   onIssue: ProcessIssueHandler;
   onParagraphCommitted: ProcessParagraphCommittedHandler;
   preparedDomEnabled: boolean;
   options: EnhanceOptions;
-  exactSession: ProcessExactSessionDescriptor | null;
+  snapshotSession: ProcessSnapshotSessionDescriptor | null;
   browserFallback: Record<string, unknown> | null;
-  onDisableExactPreparedDom: ProcessDisableExactPreparedDomHandler;
+  onDisableSnapshotPreparedDom: ProcessDisableSnapshotPreparedDomHandler;
 }
 
 interface ProcessParagraphInvocation {
@@ -87,14 +87,14 @@ interface ProcessInlineShapingDecisionResult {
   // Constants named after the Kotlin constants in WebEnhancerSupport.kt:
   // lines 470-475 and 483-489.
   const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-  const EXACT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+  const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
   const RUNTIME_RENDER_FONT_ATTRIBUTE = 'data-tq-runtime-render-font';
   const HOST_INLINE_SIZE_ATTRIBUTE = 'data-tq-host-inline-size';
-  const EXACT_FONT_SESSION_CAPABILITY_FAILURES = [
-    'NoExactFontFace',
+  const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
+    'NoSnapshotFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
-    'NoExactMetricFace',
+    'NoSnapshotMetricFace',
     'NonUniformUnicodeRangeMetrics',
   ];
 
@@ -111,13 +111,13 @@ interface ProcessInlineShapingDecisionResult {
   }
 
   // CapabilityFailureDetail: inline twin of
-  // isExactFontSessionCapabilityFailureDetail in WebEnhancerSupport.kt
+  // isSnapshotFontSessionCapabilityFailureDetail in WebEnhancerSupport.kt
   // (line 140). Returns false when detail is null.
   function isCapabilityFailureDetail(detail: unknown): boolean {
     if (detail == null) return false;
     const str = String(detail);
-    for (let i = 0; i < EXACT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
-      if (str.indexOf(EXACT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
+    for (let i = 0; i < SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES.length; i += 1) {
+      if (str.indexOf(SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES[i]) !== -1) {
         return true;
       }
     }
@@ -196,7 +196,7 @@ interface ProcessInlineShapingDecisionResult {
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
       paragraph.getAttribute(CANONICAL_SOURCE_ATTRIBUTE),
-      paragraph.getAttribute(EXACT_PREPARED_DOM_ATTRIBUTE),
+      paragraph.getAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE),
       paragraph.getAttribute('lang'),
       originalStyleAttribute,
       paragraphStyle ? paragraphStyle.getPropertyValue('position') : '',
@@ -216,14 +216,14 @@ interface ProcessInlineShapingDecisionResult {
 
     const activeOptions = state.preparedDomEnabled
       ? state.options
-      : withoutExactFontSession(state.options);
+      : withoutSnapshotFontSession(state.options);
 
     const workerRequest = workerLayoutRequest(
       paragraph,
       lowered,
       activeOptions
     );
-    const sessionKey = conformingExactFontSessionId(activeOptions);
+    const sessionKey = conformingSnapshotFontSessionId(activeOptions);
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the
     // same tolerance the former Kotlin shims applied.
@@ -239,13 +239,13 @@ interface ProcessInlineShapingDecisionResult {
     // still fail closed when a semantic run has no replayable font
     // evidence. In the live browser, a rich paragraph can shape just that
     // unsupported run through its resolved host font while covered runs
-    // remain on the exact session. The progressive scheduler bounds this
+    // remain on the snapshot session. The progressive scheduler bounds this
     // main-thread fallback to the individual paragraph slice.
     const canUseRichBrowserFallback = !isCanonicalPlain(lowered) && isCapabilityFailureDetail(workerIssue);
 
     if (
       activeOptions &&
-      activeOptions.requireExactLayoutWorker &&
+      activeOptions.requireSnapshotLayoutWorker &&
       workerRequest != null &&
       workerPlan == null &&
       !canUseRichBrowserFallback
@@ -255,14 +255,14 @@ interface ProcessInlineShapingDecisionResult {
       } else {
         paragraph.setAttribute('style', originalStyleAttribute);
       }
-      const exactWorkerIssue = {
-        name: 'ExactLayoutWorkerPlanUnavailable',
-        detail: workerIssue || 'the exact layout Worker produced no reusable plan',
+      const snapshotWorkerIssue = {
+        name: 'SnapshotLayoutWorkerPlanUnavailable',
+        detail: workerIssue || 'the snapshot layout Worker produced no reusable plan',
         element: paragraph,
         reportToConsole: true,
       };
-      reportIssue(exactWorkerIssue);
-      state.onIssue(exactWorkerIssue);
+      reportIssue(snapshotWorkerIssue);
+      state.onIssue(snapshotWorkerIssue);
       return;
     }
 
@@ -291,7 +291,7 @@ interface ProcessInlineShapingDecisionResult {
           {
             paragraph: item,
             workerPlan: workerPlan,
-            onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+            onSnapshotPreparedDomFallback: state.onDisableSnapshotPreparedDom,
             inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
             cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
           }
@@ -301,7 +301,7 @@ interface ProcessInlineShapingDecisionResult {
           {
             paragraph: item,
             options: activeOptions,
-            exactSession: state.exactSession,
+            snapshotSession: state.snapshotSession,
             browserFallback: state.browserFallback,
           }
         );
@@ -317,7 +317,7 @@ interface ProcessInlineShapingDecisionResult {
               preparation: preparation,
               options: activeOptions,
               browserFallback: state.browserFallback,
-              onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+              onSnapshotPreparedDomFallback: state.onDisableSnapshotPreparedDom,
               semanticReplayJson: preparedSemanticReplayJson(lowered),
               inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
               cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),

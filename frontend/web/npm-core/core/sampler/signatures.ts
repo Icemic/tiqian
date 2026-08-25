@@ -80,12 +80,12 @@ function styleLengthPx(value: string) {
   return Number.parseFloat(value) || 0;
 }
 
-// Shared by the measure-signature builders: exact-font sessions measure the
+// Shared by the measure-signature builders: snapshot-font sessions measure the
 // content box, browser-metric sessions the border box. Module scope keeps
 // the AllocationFreeSignatureIteration promise — no per-paragraph closures.
-function paragraphLayoutWidth(element: Element, elementStyle: CSSStyleDeclaration, exactFontLayout: boolean) {
+function paragraphLayoutWidth(element: Element, elementStyle: CSSStyleDeclaration, snapshotFontLayout: boolean) {
   const value = fragmentedBorderBoxInlineSize(element);
-  if (!exactFontLayout) return value;
+  if (!snapshotFontLayout) return value;
   return value - styleLengthPx(elementStyle.paddingLeft) - styleLengthPx(elementStyle.paddingRight) -
     styleLengthPx(elementStyle.borderLeftWidth) - styleLengthPx(elementStyle.borderRightWidth);
 }
@@ -223,23 +223,23 @@ export function responsiveGeometrySignature(root: Element) {
   return signature;
 }
 
-export function paragraphMeasureSignature(root: Element, exactFontLayout: boolean) {
+export function paragraphMeasureSignature(root: Element, snapshotFontLayout: boolean) {
   const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
   let signature = "";
   for (let i = 0; i < paragraphs.length; i++) {
     if (i > 0) signature += "\u001f";
-    signature += paragraphMeasureEntry(paragraphs[i], exactFontLayout);
+    signature += paragraphMeasureEntry(paragraphs[i], snapshotFontLayout);
   }
   return signature;
 }
 
-export function paragraphMeasureEntry(paragraph: Element, exactFontLayout: boolean) {
+export function paragraphMeasureEntry(paragraph: Element, snapshotFontLayout: boolean) {
   const style = getComputedStyle(paragraph);
   const fontSize = Number.parseFloat(style.fontSize);
-  let width = paragraphLayoutWidth(paragraph, style, exactFontLayout);
+  let width = paragraphLayoutWidth(paragraph, style, snapshotFontLayout);
   if (!(width > 0)) {
     const parent = paragraph.parentElement;
-    if (parent) width = paragraphLayoutWidth(parent, getComputedStyle(parent), exactFontLayout);
+    if (parent) width = paragraphLayoutWidth(parent, getComputedStyle(parent), snapshotFontLayout);
   }
   const measure = lineLengthGridMeasure(width, fontSize);
   return measure == null

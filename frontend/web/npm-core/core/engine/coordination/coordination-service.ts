@@ -176,7 +176,7 @@ export class CoordinationService {
   // font/measurement singletons the absorbed loader modules consult (see
   // fonts.ts / measurement.ts for why each is page-level single).
   readonly fonts: FontCoordinationState = {
-    exactFontFallbackPromise: undefined,
+    snapshotFontFallbackPromise: undefined,
     preparedBridgePromise: undefined,
     declaredFacesEntries: new Map(),
     declaredFacesChangeListeners: new Set(),

@@ -65,11 +65,11 @@ function makeState(overrides = {}) {
   return {
     options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    exactSession: overrides.exactSession ?? { sessionId: "session-1" },
+    snapshotSession: overrides.snapshotSession ?? { sessionId: "session-1" },
     browserFallback: overrides.browserFallback ?? null,
     onIssue: overrides.onIssue ?? ((issue) => {}),
     onParagraphCommitted: overrides.onParagraphCommitted ?? ((item) => {}),
-    onDisableExactPreparedDom: overrides.onDisableExactPreparedDom ?? ((detail) => {}),
+    onDisableSnapshotPreparedDom: overrides.onDisableSnapshotPreparedDom ?? ((detail) => {}),
     paragraphs,
     issues,
   };
@@ -295,12 +295,12 @@ test("5. ready path passes the exact metadata JSON strings to the prepared-DOM r
   const p1 = makeParagraph({ lowered });
   const rawOptions = { fontSize: 22, custom: "yes" };
   const rawBrowserFallback = { fallbackEngine: true };
-  const disableExact = () => {};
+  const disableSnapshot = () => {};
   const state = makeState({
     paragraphs: [p1],
     options: rawOptions,
     browserFallback: rawBrowserFallback,
-    onDisableExactPreparedDom: disableExact,
+    onDisableSnapshotPreparedDom: disableSnapshot,
   });
 
   const active = session.create({ paragraphs: [p1], state });
