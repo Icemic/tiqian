@@ -1,10 +1,8 @@
 // Progressive layout and enhance job state machine.
 //
-// Plain script, no exports: running it installs globalThis.__TiqianProgressiveJob.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which the generateProgressiveJobBridge gradle task embeds this source verbatim.
-// Double installation is guarded.
+// Stateful module: createProgressiveJob() owns the per-root job registry and
+// the attachment set. The engine bootstrap constructs one instance and hands
+// it to its consumers; tests construct one per file.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -119,13 +117,7 @@ export type ProgressiveJobApi = {
   isAttached: ProgressiveJobIsAttachedFn;
 };
 
-declare global {
-  var __TiqianProgressiveJob: ProgressiveJobApi | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianProgressiveJob) return;
-
+export function createProgressiveJob(): ProgressiveJobApi {
   // ParagraphTierGating: three priority bands, tier 1 in viewport, 2 near,
   // 3 far. A gate of TIER_COUNT admits every tier; run-to-completion jobs
   // use it as their default gate.
@@ -278,7 +270,7 @@ declare global {
     return processedInSlice;
   }
 
-  globalThis.__TiqianProgressiveJob = {
+  return {
     startJob: function (spec: ProgressiveJobSpec): void {
       const root = spec.root;
       cancelJob(root);
@@ -412,4 +404,4 @@ declare global {
   function cancelJob(root: Element): void {
     jobs.delete(root);
   }
-})();
+}

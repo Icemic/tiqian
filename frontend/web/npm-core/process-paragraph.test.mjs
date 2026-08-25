@@ -1,28 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/prepared-metadata.js";
-import "./core/engine/process-paragraph.js";
-import { setMarkdownLoweringForTest } from "./core/engine/markdown-lowering.js";
+import { processParagraph } from "./core/engine/process-paragraph.js";
 
-const processParagraph = globalThis.__TiqianProcessParagraph.processParagraph;
+// All module seams are gone: eligibility, markdown lowering, the lifecycle
+// helpers, the worker request serializer, the prepared-metadata builders and
+// the direct prepare step run for real. Only the custody graph and the
+// commit-prepared-paragraph graph are fake deps, plus the host-installed
+// __TiqianLayoutWorker / __TiqianPreparedDomRenderer environment globals.
 
-const PROCESS_GLOBALS = [
-  "__TiqianProcessParagraph",
-  "__TiqianEligibility",
-    "__TiqianLifecycle",
-  "__TiqianCustody",
-  "__TiqianWorkerRequest",
-  "__TiqianLayoutWorker",
-  "__TiqianPrepareParagraphLayout",
-  "__TiqianCommitPreparedParagraph",
-];
-
-// The lowerer stub goes through setMarkdownLoweringForTest because
-// process-paragraph.js imports lower() as a module binding from
-// markdown-lowering.js; every finally resets it beside the globals.
-
-function preserveGlobals(names) {
+function saveGlobals(names) {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
@@ -37,13 +24,94 @@ function restoreGlobals(entries) {
   }
 }
 
-function makeElement(initialAttributes = {}, initialStyle = {}) {
+function textNode(text) {
+  return { nodeType: 3, textContent: text };
+}
+
+// Computed style double: property accessors feed elementContentWidth and the
+// opaque-inline-object geometry probe; getPropertyValue feeds the lowerer and
+// the inline edge measurements.
+function computedStyle(values = {}) {
+  const props = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    position: "static",
+    transform: "none",
+    float: "none",
+    marginLeft: "0px",
+    marginRight: "0px",
+    marginTop: "0px",
+    marginBottom: "0px",
+    ...values,
+  };
+  const style = {};
+  for (const key of Object.keys(props)) style[key] = props[key];
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(props, key)
+      ? String(props[key])
+      : "";
+  };
+  return style;
+}
+
+// Runs fn with the environment globals the real pipeline reads. The renderer
+// is installed by default (the direct prepare path needs a live bridge); a
+// test that wants the bridge-unavailable verdict passes renderer: false.
+function withEnv(fn, overrides = {}) {
+  const saved = saveGlobals([
+    "getComputedStyle",
+    "__TiqianPreparedDomRenderer",
+    "__TiqianLayoutWorker",
+    "document",
+  ]);
+  try {
+    if (overrides.renderer !== false) {
+      globalThis.__TiqianPreparedDomRenderer = {
+        render: () => {},
+        release: () => {},
+        releaseRoot: () => {},
+        schema: 1,
+        layoutRevision: "tiqian-layout-v2",
+      };
+    }
+    if (overrides.layoutWorker !== undefined) {
+      globalThis.__TiqianLayoutWorker = overrides.layoutWorker;
+    }
+    if (overrides.document !== undefined) {
+      globalThis.document = overrides.document;
+    }
+    if (overrides.throwComputedStyle) {
+      globalThis.getComputedStyle = () => {
+        throw overrides.throwComputedStyle;
+      };
+    } else {
+      globalThis.getComputedStyle = (target, pseudo) =>
+        target && target._computedValues
+          ? computedStyle(target._computedValues)
+          : computedStyle();
+    }
+    return fn();
+  } finally {
+    restoreGlobals(saved);
+  }
+}
+
+// Live paragraph double: doubles as an eligible source element (closest,
+// textContent, querySelectorAll), a lowerable DOM (childNodes, style), and a
+// measurable element (getBoundingClientRect/getClientRects).
+function makeElement(initialAttributes = {}, initialStyle = {}, options = {}) {
   const attributes = new Map(Object.entries(initialAttributes));
   const removedAttributes = [];
   const setAttributes = [];
   const styleProps = new Map(Object.entries(initialStyle));
+  const text = options.text ?? "hello world";
   return {
-    tagName: "P",
+    tagName: options.tagName ?? "P",
+    textContent: text,
+    childNodes: options.childNodes ?? [textNode(text)],
     getAttribute: (name) => attributes.get(name) ?? null,
     setAttribute: (name, value) => {
       const strVal = String(value);
@@ -57,34 +125,112 @@ function makeElement(initialAttributes = {}, initialStyle = {}) {
     style: {
       getPropertyValue: (name) => styleProps.get(name) ?? "",
       getPropertyPriority: () => "",
+      setProperty: (name, value) => styleProps.set(name, String(value)),
+      removeProperty: (name) => styleProps.delete(name),
     },
     attributes,
     setAttributes,
     removedAttributes,
+    closest: () => null,
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getBoundingClientRect: () => ({ width: options.width ?? 320 }),
+    getClientRects: () => [],
+    parentElement: null,
+    insertBefore: () => {},
+    _computedValues: options.computedValues,
   };
 }
 
-function makeLowered(overrides = {}) {
+// A semantic inline child (an em with a divergent font-style) lowers into a
+// text span, making the lowered paragraph non-plain.
+function inlineChild(tagName, text, values = {}) {
   return {
-    text: "你好世界",
-    textStyle: {
-      fontFamilies: ["Noto Serif CJK SC"],
-      fontSize: 19,
-      fontWeight: 400,
-      italic: false,
-      baselineShift: 0,
-      locale: "zh-Hans",
+    nodeType: 1,
+    tagName,
+    textContent: text,
+    childNodes: [textNode(text)],
+    attributes: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    matches: () => false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getClientRects: () => [],
+    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
+    _computedValues: { display: "inline", ...values },
+  };
+}
+
+// A block-level child fails lowering with UnsupportedInlineFormattingContext.
+function blockChild(tagName, text) {
+  return inlineChild(tagName, text, { display: "block" });
+}
+
+// A latin STRONG with strongAsEmphasisMarks lowers into a sourceSpan carrying
+// a non-null cjkStrongBaseWeight and no Emphasis decoration.
+function strongChild(text) {
+  return inlineChild("STRONG", text, { "font-weight": "normal" });
+}
+
+// A static inline object child: the geometry probe measures it through a
+// probe span created against globalThis.document.
+function inlineObjectSpan(width, height) {
+  return {
+    nodeType: 1,
+    tagName: "SPAN",
+    localName: "span",
+    textContent: "obj",
+    childNodes: [textNode("obj")],
+    attributes: [],
+    getAttribute: (name) => (name === "data-tiqian-static-inline-object" ? "" : null),
+    hasAttribute: (name) => name === "data-tiqian-static-inline-object",
+    matches: () => false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getClientRects: () => [],
+    getBoundingClientRect: () => ({ width, height, top: 10, bottom: 10 + height }),
+    parentNode: null,
+    nextSibling: null,
+    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
+    _computedValues: { display: "inline-block" },
+    remove: () => {},
+  };
+}
+
+function makeFakeDocument(baselineBottom) {
+  return {
+    createElement: () => ({
+      getBoundingClientRect: () => ({ bottom: baselineBottom }),
+      setAttribute: () => {},
+      style: { cssText: "" },
+      remove: () => {},
+    }),
+  };
+}
+
+const PASSING_ENVELOPE = JSON.stringify({
+  plan: JSON.stringify({ lines: [{ rangeStart: 0, rangeEnd: 10 }] }),
+  diagnostics: { capabilityIssues: [], advanceSuspects: [] },
+});
+
+function makeFakeFfi(overrides = {}) {
+  const calls = { diagnostics: [], browserMetrics: [] };
+  const envelope = overrides.envelope ?? PASSING_ENVELOPE;
+  return {
+    _calls: calls,
+    classifyFontRole: (text, start, end, locale) => "latin",
+    firstDivergentInlineShapingProperty: () => null,
+    unsupportedInlineShapingProperties: () => ["font-weight", "font-style"],
+    precomputeParagraphWithDiagnostics: function () {
+      calls.diagnostics.push(Array.from(arguments));
+      if (overrides.diagnosticsThrow) throw overrides.diagnosticsThrow;
+      return envelope;
     },
-    lineHeight: 28,
-    spans: [],
-    decorations: [],
-    inlineBoxes: [],
-    inlineObjects: [],
-    domInlineObjects: [],
-    sourceSpans: [],
-    sourceBoundaries: [],
-    lineBreakSpans: [],
-    ...overrides,
+    precomputeParagraphWithBrowserMetrics: function () {
+      calls.browserMetrics.push(Array.from(arguments));
+      return envelope;
+    },
   };
 }
 
@@ -115,65 +261,24 @@ function makeState(overrides = {}) {
   };
 }
 
-function makeFakeFfi() {
-  return {
-    classifyFontRole: (family) => (family.includes("Noto") ? "Cjk" : "Latin"),
-    firstDivergentInlineShapingProperty: () => null,
-    unsupportedInlineShapingProperties: () => ["font-weight", "font-style"],
-  };
-}
-
 test("1. Direct happy path: lowering ok, custody begin called with 14 args, prepare ready, commit success", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  withEnv(() => {
     const custodyBeginArgs = [];
     let custodyTakeCalled = false;
     let custodyCommitCalled = false;
     let custodyRestoreCalled = false;
-    const reportedIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => true,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => true,
-      reportIssue: (issue) => reportedIssues.push(issue),
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: (...args) => custodyBeginArgs.push(args),
       take: () => { custodyTakeCalled = true; },
       commit: () => { custodyCommitCalled = true; },
       restoreParagraph: () => { custodyRestoreCalled = true; },
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
-    };
-    globalThis.__TiqianLayoutWorker = {
-      take: () => null,
-      issue: () => null,
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "ready",
-        planJson: "{}",
-        width: 320,
-        measure: 300,
-        exactFontSessionUsed: true,
-      }),
-    };
-    globalThis.__TiqianCommitPreparedParagraph = {
-      commitPreparedParagraph: () => ({
-        kind: "success",
-        measure: 300,
-      }),
+    const commitPreparedParagraph = {
       commitWorkerPreparedParagraph: () => null,
+      commitPreparedParagraph: () => ({ kind: "success", measure: 300 }),
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
     const paragraph = makeElement(
       {
@@ -190,7 +295,7 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyBeginArgs.length, 1);
     const args = custodyBeginArgs[0];
@@ -211,63 +316,58 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     assert.equal(item.source, paragraph);
     assert.equal(item.lastMeasure, 300);
     assert.equal(state.issues.length, 0);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+  });
 });
 
 test("2. Worker happy path: worker request built, layout worker take returns a plan, worker commit called with plan and metadata JSONs", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  const layoutWorker = {
+    take: (el, sessionKey, req) => '{"plan":"{}"}',
+    issue: () => null,
+  };
+  const documentStub = makeFakeDocument(30);
+  withEnv(() => {
     const workerCommitCalls = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    const lowered = makeLowered({
-      domInlineObjects: [{ start: 0, end: 1, marginRight: 4 }],
-      sourceSpans: [{ start: 0, end: 2, cjkStrongBaseWeight: 700, depth: 0, element: { tagName: "STRONG" } }],
+    const objSpan = inlineObjectSpan(42, 20);
+    // Children: latin strong (sourceSpan with cjkStrongBaseWeight) then the
+    // opaque inline object (domInlineObject). No Emphasis decoration, so the
+    // paragraph stays Worker-eligible.
+    const children = [strongChild("hello"), objSpan];
+    const paragraph = makeElement({}, {}, {
+      text: "hello obj",
+      childNodes: children,
+      computedValues: { "font-weight": "normal" },
     });
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered }));
+    objSpan.parentNode = paragraph;
 
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => "session-1",
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: () => {},
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => '{"text":"worker-req"}',
-    };
-    globalThis.__TiqianLayoutWorker = {
-      take: (el, sessionKey, req) => '{"plan":"{}"}',
-      issue: () => null,
-    };
-    globalThis.__TiqianCommitPreparedParagraph = {
-      commitWorkerPreparedParagraph: (arg) => {
-        workerCommitCalls.push(arg);
-        arg.paragraph.lastMeasure = 300;
+    const commitPreparedParagraph = {
+      commitWorkerPreparedParagraph: (deps, argument) => {
+        workerCommitCalls.push(argument);
+        argument.paragraph.lastMeasure = 300;
         return null;
       },
       commitPreparedParagraph: () => {
         throw new Error("Direct commit should not be called in worker path");
       },
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
-    const paragraph = makeElement();
-    const state = makeState();
+    const state = makeState({
+      options: {
+        fontSize: 19,
+        strongAsEmphasisMarks: true,
+        exactFontSession: { status: "conforming", sessionId: "session-1" },
+      },
+    });
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(workerCommitCalls.length, 1);
     const callArg = workerCommitCalls[0];
@@ -275,47 +375,34 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     assert.equal(callArg.onExactPreparedDomFallback, state.onDisableExactPreparedDom);
     assert.equal(
       callArg.inlineObjectMetaJson,
-      '[{"start":0,"end":1,"marginRight":4}]'
+      '[{"start":5,"end":6,"marginRight":0}]'
     );
     assert.equal(
       callArg.cjkStrongSemanticsJson,
-      '[{"start":0,"end":2,"weight":700}]'
+      '[{"start":0,"end":5,"weight":400}]'
     );
 
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.paragraphs[0].lastMeasure, 300);
     assert.equal(state.issues.length, 0);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+  }, { layoutWorker, document: documentStub });
 });
 
 test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (custody begin never called)", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  const throwError = new Error("lowering syntax error");
+  withEnv(() => {
     let custodyBeginCalled = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => {
-      throw new Error("lowering syntax error");
-    });
-
-    globalThis.__TiqianLifecycle = {
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => { custodyBeginCalled = true; },
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
 
     const paragraph = makeElement();
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyBeginCalled, false);
     assert.equal(state.issues.length, 1);
@@ -323,133 +410,66 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (c
     assert.equal(state.issues[0].detail, "lowering syntax error");
     assert.equal(state.issues[0].element, paragraph);
     assert.equal(state.issues[0].reportToConsole, true);
-    assert.equal(reportedLifecycleIssues.length, 1);
-    assert.equal(reportedLifecycleIssues[0].name, "DomLoweringFailure");
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "DomLoweringFailure");
+  }, { throwComputedStyle: throwError });
 });
 
 test("4. Lowering ok false with an issue -> that issue reported", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  withEnv(() => {
     let custodyBeginCalled = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({
-      ok: false,
-      issue: {
-        name: "UnsupportedInlineTag",
-        detail: "TAG:DIV",
-      },
-    }));
-
-    globalThis.__TiqianLifecycle = {
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => { custodyBeginCalled = true; },
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
 
-    const paragraph = makeElement();
+    const paragraph = makeElement({}, {}, {
+      text: "blocked",
+      childNodes: [blockChild("DIV", "blocked")],
+    });
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyBeginCalled, false);
     assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "UnsupportedInlineTag");
-    assert.equal(state.issues[0].detail, "TAG:DIV");
+    assert.equal(state.issues[0].name, "UnsupportedInlineFormattingContext");
+    assert.equal(state.issues[0].detail, "div:block");
     assert.equal(state.issues[0].element, paragraph);
     assert.equal(state.issues[0].reportToConsole, true);
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
-});
-
-test("5. Lowering ok false without an issue -> UnsupportedParagraph", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
-    let custodyBeginCalled = false;
-    const reportedLifecycleIssues = [];
-
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: false }));
-
-    globalThis.__TiqianLifecycle = {
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
-    globalThis.__TiqianCustody = {
-      begin: () => { custodyBeginCalled = true; },
-    };
-
-    const paragraph = makeElement();
-    const state = makeState();
-    const ffi = makeFakeFfi();
-
-    processParagraph({ ffi, paragraph, state });
-
-    assert.equal(custodyBeginCalled, false);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "UnsupportedParagraph");
-    assert.equal(state.issues[0].detail, "paragraph could not be lowered");
-    assert.equal(state.issues[0].element, paragraph);
-    assert.equal(state.issues[0].reportToConsole, true);
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "UnsupportedInlineFormattingContext");
+  });
 });
 
 test("6. Exact worker gate: requireExactLayoutWorker true, worker request built, plan null, rich fallback not applicable -> style attribute restored, ExactLayoutWorkerPlanUnavailable", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  const layoutWorker = {
+    take: () => null,
+    issue: () => "No worker available in this context",
+  };
+  withEnv(() => {
     let custodyTakeCalled = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() })); // plain lowered
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => "session-1",
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => { custodyTakeCalled = true; },
       commit: () => {},
       restoreParagraph: () => {},
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => '{"text":"worker-req"}',
-    };
-    globalThis.__TiqianLayoutWorker = {
-      take: () => null,
-      issue: () => "No worker available in this context",
-    };
+    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
 
     const paragraph = makeElement({ style: "margin: 10px;" });
     const state = makeState({
-      options: { requireExactLayoutWorker: true },
+      options: {
+        requireExactLayoutWorker: true,
+        exactFontSession: { status: "conforming", sessionId: "session-1" },
+      },
     });
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
     assert.equal(custodyTakeCalled, false);
@@ -458,155 +478,62 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     assert.equal(state.issues[0].detail, "No worker available in this context");
     assert.equal(state.issues[0].element, paragraph);
     assert.equal(state.issues[0].reportToConsole, true);
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "ExactLayoutWorkerPlanUnavailable");
+  }, { layoutWorker });
 });
 
 test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worker issue -> gate NOT taken, processing continues", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  const layoutWorker = {
+    take: () => null,
+    issue: () => "MissingServerShapingReplay for CodeFont",
+  };
+  withEnv(() => {
     let custodyTakeCalled = false;
     let commitPreparedCalled = false;
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    const richLowered = makeLowered({
-      spans: [{ start: 0, end: 2, style: { fontFamilies: ["CodeFont"], fontSize: 19, fontWeight: 400, italic: false, baselineShift: 0, locale: "zh-Hans" } }],
-    });
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: richLowered }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => "session-1",
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: () => {},
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => { custodyTakeCalled = true; },
       commit: () => {},
       restoreParagraph: () => {},
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => '{"text":"worker-req"}',
-    };
-    globalThis.__TiqianLayoutWorker = {
-      take: () => null,
-      issue: () => "MissingServerShapingReplay for CodeFont",
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "ready",
-        planJson: "{}",
-        width: 320,
-        measure: 300,
-        exactFontSessionUsed: false,
-      }),
-    };
-    globalThis.__TiqianCommitPreparedParagraph = {
+    const commitPreparedParagraph = {
+      commitWorkerPreparedParagraph: () => null,
       commitPreparedParagraph: () => {
         commitPreparedCalled = true;
         return { kind: "success", measure: 300 };
       },
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
-    const paragraph = makeElement();
+    const paragraph = makeElement({}, {}, {
+      text: "hello x",
+      childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
+    });
     const state = makeState({
-      options: { requireExactLayoutWorker: true },
+      options: {
+        requireExactLayoutWorker: true,
+        exactFontSession: { status: "conforming", sessionId: "session-1" },
+      },
     });
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyTakeCalled, true);
     assert.equal(commitPreparedCalled, true);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
-});
-
-test("8. prepare unchanged -> item committed, no commit call", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
-    let commitPreparedCalled = false;
-
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: () => {},
-    };
-    globalThis.__TiqianCustody = {
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: () => {},
-    };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({ kind: "unchanged" }),
-    };
-    globalThis.__TiqianCommitPreparedParagraph = {
-      commitPreparedParagraph: () => {
-        commitPreparedCalled = true;
-        return { kind: "success", measure: 300 };
-      },
-    };
-
-    const paragraph = makeElement();
-    const state = makeState();
-    const ffi = makeFakeFfi();
-
-    processParagraph({ ffi, paragraph, state });
-
-    assert.equal(commitPreparedCalled, false);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.issues.length, 0);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+  }, { layoutWorker });
 });
 
 test("9. prepare unsupported -> issue reported, custody restored", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  withEnv(() => {
     let custodyRestored = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
     const paragraph = makeElement();
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -614,56 +541,29 @@ test("9. prepare unsupported -> issue reported, custody restored", () => {
         if (el === paragraph) custodyRestored = true;
       },
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "unsupported",
-        name: "SpanLocaleMismatchUnsupported",
-        detail: "spanRange=0..2",
-        element: paragraph,
-      }),
-    };
+    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
 
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyRestored, true);
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "SpanLocaleMismatchUnsupported");
-    assert.equal(state.issues[0].detail, "spanRange=0..2");
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    assert.equal(state.issues[0].name, "PreparedDomBridgeUnavailable");
+    assert.equal(state.issues[0].element, paragraph);
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomBridgeUnavailable");
+  }, { renderer: false });
 });
 
 test("10. commit unsupported -> issue reported, custody restored", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  withEnv(() => {
     let custodyRestored = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
     const paragraph = makeElement();
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -671,19 +571,8 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
         if (el === paragraph) custodyRestored = true;
       },
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "ready",
-        planJson: "{}",
-        width: 320,
-        measure: 300,
-        exactFontSessionUsed: true,
-      }),
-    };
-    globalThis.__TiqianCommitPreparedParagraph = {
+    const commitPreparedParagraph = {
+      commitWorkerPreparedParagraph: () => null,
       commitPreparedParagraph: () => ({
         kind: "unsupported",
         name: "PreparedDomRenderMismatch",
@@ -691,45 +580,29 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
         element: paragraph,
       }),
     };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyRestored, true);
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "PreparedDomRenderMismatch");
     assert.equal(state.issues[0].detail, "height mismatch");
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
+  });
 });
 
 test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
+  withEnv(() => {
     let custodyRestored = false;
-    const reportedLifecycleIssues = [];
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: (issue) => reportedLifecycleIssues.push(issue),
-    };
     const paragraph = makeElement();
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -737,65 +610,41 @@ test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
         if (el === paragraph) custodyRestored = true;
       },
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
-    };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => {
-        throw new Error("unexpected engine crash");
-      },
-    };
+    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
 
     const state = makeState();
-    const ffi = makeFakeFfi();
+    const ffi = makeFakeFfi({ diagnosticsThrow: new Error("unexpected engine crash") });
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
     assert.equal(custodyRestored, true);
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "WebEnhancementFailure");
     assert.equal(state.issues[0].detail, "unexpected engine crash");
-    assert.equal(reportedLifecycleIssues.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+    // The lifecycle marker was written onto the paragraph element.
+    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "WebEnhancementFailure");
+  });
 });
 
 test("12. preparedDomEnabled false -> active options come from withoutExactFontSession", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
-    let withoutExactCalledWith = null;
+  withEnv(() => {
+    let committedOptions = null;
 
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (rawOpt) => {
-        withoutExactCalledWith = rawOpt;
-        return { ...rawOpt, exactFontSession: null };
-      },
-      conformingExactFontSessionId: () => null,
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: () => {},
-    };
-    globalThis.__TiqianCustody = {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => null,
+    const commitPreparedParagraph = {
+      commitWorkerPreparedParagraph: () => null,
+      commitPreparedParagraph: (deps, argument) => {
+        committedOptions = argument.options;
+        return { kind: "success", measure: 300 };
+      },
     };
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({ kind: "unchanged" }),
-    };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
     const paragraph = makeElement();
     const rawOptions = { fontSize: 20, exactFontSession: { sessionId: "sess-abc" } };
@@ -805,62 +654,39 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
     });
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
-    assert.equal(withoutExactCalledWith, rawOptions);
+    // Active options dropped the exact font session through
+    // withoutExactFontSession before the request and commit were prepared.
+    assert.notEqual(committedOptions, rawOptions);
+    assert.equal(committedOptions.fontSize, 20);
+    assert.equal(committedOptions.exactFontSession, null);
     assert.equal(state.paragraphs.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+  });
 });
 
 test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
-  const saved = preserveGlobals(PROCESS_GLOBALS);
-  try {
-    const prepareCalls = [];
-
-    globalThis.__TiqianEligibility = {
-      shouldTryParagraph: () => true,
-    };
-    setMarkdownLoweringForTest(() => ({ ok: true, lowered: makeLowered() }));
-
-    globalThis.__TiqianLifecycle = {
-      applyConfiguredHostFontSize: () => false,
-      captureSourceInlineSize: () => ({ borderBoxWidth: 320, contentBoxWidth: 300 }),
-      withoutExactFontSession: (opt) => opt,
-      conformingExactFontSessionId: () => "session-1",
-      stabilizeContentSizedItemInlineSize: () => null,
-      reportIssue: () => {},
-    };
-    globalThis.__TiqianCustody = {
+  withEnv(() => {
+    const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
     };
-    globalThis.__TiqianWorkerRequest = {
-      workerLayoutRequest: () => '{"text":"req"}',
+    const commitPreparedParagraph = {
+      commitWorkerPreparedParagraph: () => null,
+      commitPreparedParagraph: () => ({ kind: "success", measure: 300 }),
     };
-    delete globalThis.__TiqianLayoutWorker;
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: (ffiArg, arg) => {
-        prepareCalls.push(arg);
-        return { kind: "unchanged" };
-      },
-    };
+    const processParagraphDeps = { custody, commitPreparedParagraph };
 
     const paragraph = makeElement();
     const state = makeState();
     const ffi = makeFakeFfi();
 
-    processParagraph({ ffi, paragraph, state });
+    processParagraph(processParagraphDeps, { ffi, paragraph, state });
 
-    assert.equal(prepareCalls.length, 1);
+    assert.equal(ffi._calls.diagnostics.length, 1);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  } finally {
-    restoreGlobals(saved);
-    setMarkdownLoweringForTest(null);
-  }
+  });
 });

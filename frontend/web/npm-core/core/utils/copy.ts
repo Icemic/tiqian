@@ -1,14 +1,9 @@
 // Source-faithful clipboard projection (SourceFaithfulSemanticClipboard).
 //
-// Plain script: running it installs globalThis.__TiqianCreateClipboardPayload
-// and globalThis.__TiqianInstallCopyHandler. Two consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect)
-// and the Kotlin runtime bundle, into which the generateCopyBridge gradle
-// task embeds this source verbatim.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals.
+// ES module exporting createTiqianClipboardPayload and createCopyInstaller().
+// Each installer owns its per-document WeakSet, so the
+// one-listener-per-document invariant is instance state rather than a module
+// side table.
 
 const BLOCK_ELEMENTS = new Set([
   "ADDRESS",
@@ -111,7 +106,7 @@ function stripEngineStyles(element: HTMLElement, rendered: boolean, sourceSemant
  * source substitutions and hard breaks, then serialize block-aware plain text
  * plus host-owned semantic HTML. Visual soft wraps never enter either payload.
  */
-function createTiqianClipboardPayload(fragment: DocumentFragment | null, documentObject: Document = globalThis.document): ClipboardPayload {
+export function createTiqianClipboardPayload(fragment: DocumentFragment | null, documentObject: Document = globalThis.document): ClipboardPayload {
   if (!fragment || !fragment.querySelectorAll || !documentObject || !documentObject.createElement) {
     return { text: "", html: "" };
   }
@@ -164,55 +159,59 @@ function createTiqianClipboardPayload(fragment: DocumentFragment | null, documen
   };
 }
 
-function installTiqianCopyHandler(documentObject: Document = globalThis.document): void {
-  if (!documentObject || globalThis.__tiqianCopyHandlerInstalled) return;
-  globalThis.__tiqianCopyHandlerInstalled = true;
-  documentObject.addEventListener("copy", (event) => {
-    const hostWindow = globalThis.window;
-    const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    const renderedAncestor = (node: Node | null): Element | null => {
-      const element = node && node.nodeType === 1 ? node as Element : (node ? node.parentElement : null);
-      return element && element.closest ? element.closest("[data-tq-rendered]") : null;
-    };
-    let touchesRendered = Boolean(
-      renderedAncestor(range.startContainer) || renderedAncestor(range.endContainer),
-    );
-    if (!touchesRendered) {
-      const common = range.commonAncestorContainer;
-      const commonElement = common && common.nodeType === 1 ? common as Element : (common ? common.parentElement : null);
-      const candidates = commonElement && commonElement.querySelectorAll
-        ? Array.from(commonElement.querySelectorAll("[data-tq-rendered]"))
-        : [];
-      if (commonElement && commonElement.matches && commonElement.matches("[data-tq-rendered]")) {
-        candidates.unshift(commonElement);
-      }
-      touchesRendered = candidates.some((candidate) => {
-        try {
-          return range.intersectsNode(candidate);
-        } catch (error) {
-          return false;
+export interface CopyInstaller {
+  install(documentObject?: Document): void;
+}
+
+export function createCopyInstaller(): CopyInstaller {
+  // Documents that already carry the copy listener. A per-document weak set
+  // keeps the one-listener-per-document invariant, and a host that swaps in a
+  // fresh document still gets the handler.
+  const installedDocuments = new WeakSet<Document>();
+
+  function install(documentObject: Document = globalThis.document): void {
+    if (!documentObject || installedDocuments.has(documentObject) ||
+        typeof documentObject.addEventListener !== "function")
+      return;
+    installedDocuments.add(documentObject);
+    documentObject.addEventListener("copy", (event) => {
+      const hostWindow = globalThis.window;
+      const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      const renderedAncestor = (node: Node | null): Element | null => {
+        const element = node && node.nodeType === 1 ? node as Element : (node ? node.parentElement : null);
+        return element && element.closest ? element.closest("[data-tq-rendered]") : null;
+      };
+      let touchesRendered = Boolean(
+        renderedAncestor(range.startContainer) || renderedAncestor(range.endContainer),
+      );
+      if (!touchesRendered) {
+        const common = range.commonAncestorContainer;
+        const commonElement = common && common.nodeType === 1 ? common as Element : (common ? common.parentElement : null);
+        const candidates = commonElement && commonElement.querySelectorAll
+          ? Array.from(commonElement.querySelectorAll("[data-tq-rendered]"))
+          : [];
+        if (commonElement && commonElement.matches && commonElement.matches("[data-tq-rendered]")) {
+          candidates.unshift(commonElement);
         }
-      });
-    }
-    if (!touchesRendered) return;
-    const payload = createTiqianClipboardPayload(range.cloneContents(), documentObject);
-    if ((payload.text || payload.html) && event.clipboardData) {
-      event.clipboardData.setData("text/plain", payload.text);
-      if (payload.html) event.clipboardData.setData("text/html", payload.html);
-      event.preventDefault();
-    }
-  });
+        touchesRendered = candidates.some((candidate) => {
+          try {
+            return range.intersectsNode(candidate);
+          } catch (error) {
+            return false;
+          }
+        });
+      }
+      if (!touchesRendered) return;
+      const payload = createTiqianClipboardPayload(range.cloneContents(), documentObject);
+      if ((payload.text || payload.html) && event.clipboardData) {
+        event.clipboardData.setData("text/plain", payload.text);
+        if (payload.html) event.clipboardData.setData("text/html", payload.html);
+        event.preventDefault();
+      }
+    });
+  }
+
+  return { install: install };
 }
-
-declare global {
-  var __TiqianCreateClipboardPayload: typeof createTiqianClipboardPayload | undefined;
-  var __TiqianInstallCopyHandler: typeof installTiqianCopyHandler | undefined;
-  var __tiqianCopyHandlerInstalled: boolean | undefined;
-}
-
-globalThis.__TiqianCreateClipboardPayload = createTiqianClipboardPayload;
-globalThis.__TiqianInstallCopyHandler = installTiqianCopyHandler;
-
-export {};

@@ -1,30 +1,33 @@
-// Unit tests for the eligibility engine module installed by ts-runtime.
-// npm-core/core/engine/eligibility.js installs __TiqianEligibility; these
-// tests drive that global directly.
+// Unit tests for the eligibility engine module behind ts-runtime.
+// npm-core/core/engine/eligibility.js exports the eligibility predicates as
+// plain named functions; these tests drive them directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanupMounted, loadHostRuntime, mount } from "./runtime-host.mjs";
+import { cleanupMounted, mount } from "./runtime-host.mjs";
+import {
+  shouldTryParagraph,
+  isPureBlockImageParagraph,
+  hasOpaqueInlineCandidate,
+  isNonTextInlineTag,
+  isOpaqueInlineDisplay,
+  isOpaqueInlineLevelDisplay,
+} from "@tiqian/prose-core/core/engine/eligibility.js";
 
-test("eligibilityBridge_installedByRuntimeBoot", async () => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
-  assert.ok(eligibility, "runtime boot must install globalThis.__TiqianEligibility");
-  for (const name of [
-    "shouldTryParagraph",
-    "isPureBlockImageParagraph",
-    "hasOpaqueInlineCandidate",
-    "isNonTextInlineTag",
-    "isOpaqueInlineDisplay",
-    "isOpaqueInlineLevelDisplay",
+test("eligibilityBridge_exportsFullApiSurface", () => {
+  for (const predicate of [
+    shouldTryParagraph,
+    isPureBlockImageParagraph,
+    hasOpaqueInlineCandidate,
+    isNonTextInlineTag,
+    isOpaqueInlineDisplay,
+    isOpaqueInlineLevelDisplay,
   ]) {
-    assert.equal(typeof eligibility[name], "function", "missing bridge method: " + name);
+    assert.equal(typeof predicate, "function", "missing eligibility predicate");
   }
 });
 
-test("eligibilityBridge_leafListItemAdmittedNestedListItemRejected", async (t) => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
+test("eligibilityBridge_leafListItemAdmittedNestedListItemRejected", (t) => {
   const root = mount(`
     <div data-tiqian-root="true">
       <ul>
@@ -36,13 +39,11 @@ test("eligibilityBridge_leafListItemAdmittedNestedListItemRejected", async (t) =
   t.after(cleanupMounted);
   const nestedLi = root.querySelector("#nested-li");
   const plainLi = root.querySelector("#plain-li");
-  assert.equal(eligibility.shouldTryParagraph(nestedLi), false);
-  assert.equal(eligibility.shouldTryParagraph(plainLi), true);
+  assert.equal(shouldTryParagraph(nestedLi), false);
+  assert.equal(shouldTryParagraph(plainLi), true);
 });
 
-test("eligibilityBridge_pureBlockImageParagraphRejectedInlineAdmitted", async (t) => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
+test("eligibilityBridge_pureBlockImageParagraphRejectedInlineAdmitted", (t) => {
   const root = mount(`
     <div data-tiqian-root="true">
       <p id="block-img-p"><img src="data:," style="display: block" /></p>
@@ -52,15 +53,13 @@ test("eligibilityBridge_pureBlockImageParagraphRejectedInlineAdmitted", async (t
   t.after(cleanupMounted);
   const blockImgP = root.querySelector("#block-img-p");
   const inlineImgP = root.querySelector("#inline-img-p");
-  assert.equal(eligibility.isPureBlockImageParagraph(blockImgP), true);
-  assert.equal(eligibility.shouldTryParagraph(blockImgP), false);
-  assert.equal(eligibility.isPureBlockImageParagraph(inlineImgP), false);
-  assert.equal(eligibility.shouldTryParagraph(inlineImgP), true);
+  assert.equal(isPureBlockImageParagraph(blockImgP), true);
+  assert.equal(shouldTryParagraph(blockImgP), false);
+  assert.equal(isPureBlockImageParagraph(inlineImgP), false);
+  assert.equal(shouldTryParagraph(inlineImgP), true);
 });
 
-test("eligibilityBridge_blankParagraphRejectedUnlessOpaqueCandidate", async (t) => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
+test("eligibilityBridge_blankParagraphRejectedUnlessOpaqueCandidate", (t) => {
   const root = mount(`
     <div data-tiqian-root="true">
       <p id="blank-p">   </p>
@@ -70,15 +69,13 @@ test("eligibilityBridge_blankParagraphRejectedUnlessOpaqueCandidate", async (t) 
   t.after(cleanupMounted);
   const blankP = root.querySelector("#blank-p");
   const opaqueP = root.querySelector("#opaque-p");
-  assert.equal(eligibility.hasOpaqueInlineCandidate(blankP), false);
-  assert.equal(eligibility.shouldTryParagraph(blankP), false);
-  assert.equal(eligibility.hasOpaqueInlineCandidate(opaqueP), true);
-  assert.equal(eligibility.shouldTryParagraph(opaqueP), true);
+  assert.equal(hasOpaqueInlineCandidate(blankP), false);
+  assert.equal(shouldTryParagraph(blankP), false);
+  assert.equal(hasOpaqueInlineCandidate(opaqueP), true);
+  assert.equal(shouldTryParagraph(opaqueP), true);
 });
 
-test("eligibilityBridge_skippedAncestorsAndDataAttributeRejected", async (t) => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
+test("eligibilityBridge_skippedAncestorsAndDataAttributeRejected", (t) => {
   const root = mount(`
     <div data-tiqian-root="true">
       <div class="not-prose"><p id="not-prose-p">非散文跳过</p></div>
@@ -90,17 +87,15 @@ test("eligibilityBridge_skippedAncestorsAndDataAttributeRejected", async (t) => 
   const notProseP = root.querySelector("#not-prose-p");
   const skipAttrP = root.querySelector("#skip-attr-p");
   const normalP = root.querySelector("#normal-p");
-  assert.equal(eligibility.shouldTryParagraph(notProseP), false);
-  assert.equal(eligibility.shouldTryParagraph(skipAttrP), false);
-  assert.equal(eligibility.shouldTryParagraph(normalP), true);
+  assert.equal(shouldTryParagraph(notProseP), false);
+  assert.equal(shouldTryParagraph(skipAttrP), false);
+  assert.equal(shouldTryParagraph(normalP), true);
 });
 
-test("eligibilityBridge_tagAndDisplayPredicates", async () => {
-  await loadHostRuntime();
-  const eligibility = globalThis.__TiqianEligibility;
-  assert.equal(eligibility.isNonTextInlineTag("IMG"), true);
-  assert.equal(eligibility.isNonTextInlineTag("SPAN"), false);
-  assert.equal(eligibility.isOpaqueInlineDisplay("inline-block"), true);
-  assert.equal(eligibility.isOpaqueInlineDisplay("inline"), false);
-  assert.equal(eligibility.isOpaqueInlineLevelDisplay("inline"), true);
+test("eligibilityBridge_tagAndDisplayPredicates", () => {
+  assert.equal(isNonTextInlineTag("IMG"), true);
+  assert.equal(isNonTextInlineTag("SPAN"), false);
+  assert.equal(isOpaqueInlineDisplay("inline-block"), true);
+  assert.equal(isOpaqueInlineDisplay("inline"), false);
+  assert.equal(isOpaqueInlineLevelDisplay("inline"), true);
 });

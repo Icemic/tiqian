@@ -1,10 +1,13 @@
-// Unit tests for the custody engine module installed by ts-runtime.
-// npm-core/core/engine/custody.js installs globalThis.__TiqianCustody; these
-// tests drive that global directly.
+// Unit tests for the custody engine module behind ts-runtime.
+// npm-core/core/engine/custody.js exports createCustody(); these tests drive
+// a factory-constructed instance directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanupMounted, loadHostRuntime, mount } from "./runtime-host.mjs";
+import { cleanupMounted, mount } from "./runtime-host.mjs";
+import { createCustody } from "@tiqian/prose-core/core/engine/custody.js";
+
+const custody = createCustody();
 
 function custodyParagraph(t, markup) {
   const root = mount(markup);
@@ -13,7 +16,7 @@ function custodyParagraph(t, markup) {
 }
 
 function beginDefaults(paragraph) {
-  globalThis.__TiqianCustody.begin(
+  custody.begin(
     paragraph,
     null,
     null,
@@ -31,10 +34,7 @@ function beginDefaults(paragraph) {
   );
 }
 
-test("custodyBridge_installedByRuntimeBoot", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
-  assert.ok(custody, "runtime boot must install globalThis.__TiqianCustody");
+test("custodyBridge_exportsFullApiSurface", () => {
   for (const name of [
     "begin",
     "take",
@@ -48,13 +48,11 @@ test("custodyBridge_installedByRuntimeBoot", async (t) => {
     "restoreShell",
     "ensureContainingBlock",
   ]) {
-    assert.equal(typeof custody[name], "function", "missing bridge method: " + name);
+    assert.equal(typeof custody[name], "function", "missing api method: " + name);
   }
 });
 
-test("custodyBridge_takeMovesSourceIntoCustodyAndCommitPublishes", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_takeMovesSourceIntoCustodyAndCommitPublishes", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
   const child = paragraph.firstChild;
   assert.ok(child);
@@ -75,9 +73,7 @@ test("custodyBridge_takeMovesSourceIntoCustodyAndCommitPublishes", async (t) => 
   assert.equal(paragraph.__tqCustodyForwarding, true);
 });
 
-test("custodyBridge_hostCommitsRouteIntoCustody", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_hostCommitsRouteIntoCustody", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
   beginDefaults(paragraph);
   custody.take(paragraph, null);
@@ -93,9 +89,7 @@ test("custodyBridge_hostCommitsRouteIntoCustody", async (t) => {
   assert.equal(custody.custodyMatches(paragraph), true);
 });
 
-test("custodyBridge_engineWritesBypassForwarding", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_engineWritesBypassForwarding", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
   beginDefaults(paragraph);
   custody.take(paragraph, null);
@@ -112,9 +106,7 @@ test("custodyBridge_engineWritesBypassForwarding", async (t) => {
   assert.equal(hostNode.parentNode, paragraph.__tqCustodyFragment);
 });
 
-test("custodyBridge_renderedDriftDetection", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_renderedDriftDetection", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
   beginDefaults(paragraph);
   custody.take(paragraph, null);
@@ -136,9 +128,7 @@ test("custodyBridge_renderedDriftDetection", async (t) => {
   assert.equal(custody.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_captureLiveRollbackRoundTrip", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_captureLiveRollbackRoundTrip", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
   beginDefaults(paragraph);
   custody.take(paragraph, null);
@@ -176,9 +166,7 @@ test("custodyBridge_captureLiveRollbackRoundTrip", async (t) => {
   assert.equal(custody.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_rollbackReadoptsCustodyAfterRestore", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_rollbackReadoptsCustodyAfterRestore", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
   const originalChild = paragraph.firstChild;
   beginDefaults(paragraph);
@@ -207,9 +195,7 @@ test("custodyBridge_rollbackReadoptsCustodyAfterRestore", async (t) => {
   assert.equal(custody.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_restoreParagraphRestoresShell", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_restoreParagraphRestoresShell", (t) => {
   const paragraph = custodyParagraph(
     t,
     "<div data-tiqian-root='true'><p>还原要清掉引擎覆盖。</p></div>",
@@ -218,7 +204,7 @@ test("custodyBridge_restoreParagraphRestoresShell", async (t) => {
   // so initialize the host-owned declaration through the proxy itself.
   paragraph.style.setProperty("width", "10px");
   const originalChild = paragraph.firstChild;
-  globalThis.__TiqianCustody.begin(
+  custody.begin(
     paragraph,
     null,
     null,
@@ -253,15 +239,13 @@ test("custodyBridge_restoreParagraphRestoresShell", async (t) => {
   assert.equal(paragraph.getAttribute("style"), "width: 10px");
 });
 
-test("custodyBridge_restoreShellKeepsOriginalInlineSize", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_restoreShellKeepsOriginalInlineSize", (t) => {
   const paragraph = custodyParagraph(
     t,
     "<div data-tiqian-root='true'><p>原始 inline-size 要写回。</p></div>",
   );
   paragraph.style.setProperty("inline-size", "55px");
-  globalThis.__TiqianCustody.begin(
+  custody.begin(
     paragraph,
     null,
     null,
@@ -288,9 +272,7 @@ test("custodyBridge_restoreShellKeepsOriginalInlineSize", async (t) => {
   assert.equal(paragraph.style.getPropertyPriority("inline-size"), "");
 });
 
-test("custodyBridge_ensureContainingBlockAppliesAndRestores", async (t) => {
-  await loadHostRuntime();
-  const custody = globalThis.__TiqianCustody;
+test("custodyBridge_ensureContainingBlockAppliesAndRestores", (t) => {
   const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
   const realGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (element, pseudo) => {
@@ -320,28 +302,4 @@ test("custodyBridge_ensureContainingBlockAppliesAndRestores", async (t) => {
   // restoreShell only touches attributes and inline style; the live children
   // stay untouched, so the text child is still present.
   assert.ok(paragraph.firstChild);
-});
-
-test("custodyBridge_existingInstallWinsOverEmbeddedScript", async () => {
-  const sentinel = { marker: "host-installed" };
-  const previous = globalThis.__TiqianCustody;
-  globalThis.__TiqianCustody = sentinel;
-  try {
-    await loadHostRuntime();
-    assert.notEqual(globalThis.__TiqianCustody, undefined);
-    // The embedded script must not replace an existing installation.
-    // loadHostRuntime may reuse an already-loaded module; either way the
-    // sentinel or the embedded bridge must be present, never an error state.
-    assert.ok(globalThis.__TiqianCustody === sentinel || typeof globalThis.__TiqianCustody.begin === "function");
-    if (globalThis.__TiqianCustody !== sentinel) {
-      globalThis.__TiqianCustody = sentinel;
-      assert.equal(typeof globalThis.__TiqianCustody.begin, undefined);
-    }
-  } finally {
-    if (previous === undefined) {
-      delete globalThis.__TiqianCustody;
-    } else {
-      globalThis.__TiqianCustody = previous;
-    }
-  }
 });

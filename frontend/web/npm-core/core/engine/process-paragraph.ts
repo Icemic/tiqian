@@ -5,17 +5,12 @@
 // lowering, exact layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
-// Consumes __TiqianPreparedMetadata, __TiqianEligibility,
-// __TiqianLifecycle, __TiqianCustody, __TiqianWorkerRequest,
-// __TiqianLayoutWorker, __TiqianPrepareParagraphLayout, and
-// __TiqianCommitPreparedParagraph, plus the lower function imported from
-// markdown-lowering.js.
-//
-// Plain script, no exports: running it installs
-// globalThis.__TiqianProcessParagraph. Two consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect)
-// and the Kotlin runtime bundle, into which a future gradle bridge task will
-// embed this source verbatim. Double installation is guarded.
+// Stateless module: processParagraph(deps, argument) is a named function that
+// receives the custody and commit-prepared-paragraph collaborators as an
+// explicit first parameter. The engine bootstrap wires the deps object; tests
+// pass fakes. The stateless worker-request, prepare-paragraph-layout,
+// lifecycle, eligibility, markdown-lowering and prepared-metadata helpers are
+// imported directly.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -23,17 +18,27 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import type { EligibilityGlobal } from "./eligibility.js";
-import type { PreparedMetadataGlobal } from "./prepared-metadata.js";
-import type { CapabilityIssueRecord, EnhanceOptions, LifecycleApi } from "./lifecycle.js";
-import type { TiqianLayoutWorkerInstance } from "./web-worker/worker-channel.js";
-import type { CustodyApi } from "./custody.js";
-import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
-import type { TiqianWorkerRequestGlobal } from "./worker-request.js";
-import type { TiqianPrepareParagraphLayoutGlobal } from "./prepare-paragraph-layout.js";
-import type { TiqianCommitPreparedParagraphGlobal } from "./commit-prepared-paragraph.js";
+import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
+import {
+  applyConfiguredHostFontSize,
+  captureSourceInlineSize,
+  conformingExactFontSessionId,
+  reportIssue,
+  stabilizeContentSizedItemInlineSize,
+  withoutExactFontSession,
+} from "./lifecycle.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
-import { lower } from "./markdown-lowering.js";
+import type { CustodyApi } from "./custody.js";
+import type { CommitPreparedParagraphBundle } from "./commit-prepared-paragraph.js";
+import { shouldTryParagraph } from "./eligibility.js";
+import { lowerMarkdown } from "./markdown-lowering.js";
+import {
+  preparedCjkStrongSemanticsJson,
+  preparedInlineObjectMetaJson,
+  preparedSemanticReplayJson,
+} from "./prepared-metadata.js";
+import { workerLayoutRequest } from "./worker-request.js";
+import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
 
 interface ProcessParagraphTarget {
   source: Element;
@@ -65,23 +70,15 @@ interface ProcessParagraphInvocation {
   state: ProcessParagraphState;
 }
 
-type ProcessParagraphFn = (argument: ProcessParagraphInvocation) => void;
-
-export interface TiqianProcessParagraphGlobal {
-  processParagraph: ProcessParagraphFn;
+export interface ProcessParagraphDeps {
+  custody: CustodyApi;
+  commitPreparedParagraph: CommitPreparedParagraphBundle;
 }
 
 interface ProcessInlineShapingDecisionResult {
   name: string;
   detail: string;
 }
-
-declare global {
-  var __TiqianProcessParagraph: TiqianProcessParagraphGlobal | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianProcessParagraph) return;
 
   // Constants named after the Kotlin constants in WebEnhancerSupport.kt:
   // lines 470-475 and 483-489.
@@ -140,16 +137,16 @@ declare global {
    * Process a single paragraph element through markdown lowering, custody
    * takeover, layout preparation, and commit.
    *
+   * @param {Object} deps
    * @param {Object} argument
    */
-  function processParagraph(argument: ProcessParagraphInvocation): void {
+  export function processParagraph(deps: ProcessParagraphDeps, argument: ProcessParagraphInvocation): void {
     const ffi = argument.ffi;
     const paragraph = argument.paragraph;
     const state = argument.state;
     // Prepared metadata builders shared across orchestrators.
-    const metadata = globalThis.__TiqianPreparedMetadata!;
 
-    if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return;
+    if (!shouldTryParagraph(paragraph)) return;
 
     // Capture host-owned inline typography before any computed-style probe.
     // CSSStyleDeclaration can leave an empty style attribute after a
@@ -158,7 +155,7 @@ declare global {
 
     let lowered: LoweredParagraph | null = null;
     try {
-      const loweringResult = lower(
+      const loweringResult = lowerMarkdown(
         paragraph,
         state.options,
         loweringHelpers(ffi!)
@@ -174,7 +171,7 @@ declare global {
         };
         if (issue.element == null) issue.element = paragraph;
         if (issue.reportToConsole == null) issue.reportToConsole = true;
-        globalThis.__TiqianLifecycle!.reportIssue(issue);
+        reportIssue(issue);
         state.onIssue(issue);
         return;
       }
@@ -185,13 +182,13 @@ declare global {
         element: paragraph,
         reportToConsole: true,
       };
-      globalThis.__TiqianLifecycle!.reportIssue(loweringIssue);
+      reportIssue(loweringIssue);
       state.onIssue(loweringIssue);
       return;
     }
 
     const paragraphStyle = (paragraph as HTMLElement).style;
-    globalThis.__TiqianCustody!.begin(
+    deps.custody.begin(
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -208,22 +205,22 @@ declare global {
       paragraph.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE)
     );
 
-    const hostFontSizeApplied = globalThis.__TiqianLifecycle!.applyConfiguredHostFontSize(
+    const hostFontSizeApplied = applyConfiguredHostFontSize(
       paragraph as HTMLElement,
       state.options ? (state.options.fontSize as number | undefined) : undefined
     );
-    const sourceInlineSize = globalThis.__TiqianLifecycle!.captureSourceInlineSize(paragraph);
+    const sourceInlineSize = captureSourceInlineSize(paragraph);
 
     const activeOptions = state.preparedDomEnabled
       ? state.options
-      : globalThis.__TiqianLifecycle!.withoutExactFontSession(state.options);
+      : withoutExactFontSession(state.options);
 
-    const workerRequest = globalThis.__TiqianWorkerRequest!.workerLayoutRequest(
+    const workerRequest = workerLayoutRequest(
       paragraph,
       lowered,
       activeOptions
     );
-    const sessionKey = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeOptions);
+    const sessionKey = conformingExactFontSessionId(activeOptions);
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the
     // same tolerance the former Kotlin shims applied.
@@ -261,13 +258,13 @@ declare global {
         element: paragraph,
         reportToConsole: true,
       };
-      globalThis.__TiqianLifecycle!.reportIssue(exactWorkerIssue);
+      reportIssue(exactWorkerIssue);
       state.onIssue(exactWorkerIssue);
       return;
     }
 
-    globalThis.__TiqianCustody!.take(paragraph, hostFontSizeApplied);
-    const hostInlineSizeApplied = globalThis.__TiqianLifecycle!.stabilizeContentSizedItemInlineSize(
+    deps.custody.take(paragraph, hostFontSizeApplied);
+    const hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
     );
@@ -281,20 +278,23 @@ declare global {
       lastMeasure: null,
     };
 
-    globalThis.__TiqianCustody!.commit(paragraph, hostInlineSizeApplied);
+    deps.custody.commit(paragraph, hostInlineSizeApplied);
 
     let layoutIssue = null;
     try {
       if (workerPlan != null) {
-        layoutIssue = globalThis.__TiqianCommitPreparedParagraph!.commitWorkerPreparedParagraph({
-          paragraph: item,
-          workerPlan: workerPlan,
-          onExactPreparedDomFallback: state.onDisableExactPreparedDom,
-          inlineObjectMetaJson: metadata.preparedInlineObjectMetaJson(lowered),
-          cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
-        });
+        layoutIssue = deps.commitPreparedParagraph.commitWorkerPreparedParagraph(
+          { custody: deps.custody },
+          {
+            paragraph: item,
+            workerPlan: workerPlan,
+            onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+            inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
+            cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
+          }
+        );
       } else {
-        const preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
+        const preparation = prepareParagraphLayout(
           ffi!,
           {
             paragraph: item,
@@ -308,17 +308,20 @@ declare global {
         } else if (preparation.kind === 'unsupported') {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
-          const commitResult = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph({
-            ffi: ffi!,
-            paragraph: item,
-            preparation: preparation,
-            options: activeOptions,
-            browserFallback: state.browserFallback,
-            onExactPreparedDomFallback: state.onDisableExactPreparedDom,
-            semanticReplayJson: metadata.preparedSemanticReplayJson(lowered),
-            inlineObjectMetaJson: metadata.preparedInlineObjectMetaJson(lowered),
-            cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(lowered),
-          });
+          const commitResult = deps.commitPreparedParagraph.commitPreparedParagraph(
+            { custody: deps.custody },
+            {
+              ffi: ffi!,
+              paragraph: item,
+              preparation: preparation,
+              options: activeOptions,
+              browserFallback: state.browserFallback,
+              onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+              semanticReplayJson: preparedSemanticReplayJson(lowered),
+              inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
+              cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
+            }
+          );
           if (commitResult.kind === 'success') {
             item.lastMeasure = commitResult.measure;
             layoutIssue = null;
@@ -339,21 +342,14 @@ declare global {
     if (layoutIssue == null) {
       state.onParagraphCommitted(item);
     } else {
-      globalThis.__TiqianCustody!.restoreParagraph(paragraph);
+      deps.custody.restoreParagraph(paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }
       if (layoutIssue.reportToConsole == null) {
         layoutIssue.reportToConsole = true;
       }
-      globalThis.__TiqianLifecycle!.reportIssue(layoutIssue as CapabilityIssueRecord);
+      reportIssue(layoutIssue as CapabilityIssueRecord);
       state.onIssue(layoutIssue);
     }
   }
-
-  globalThis.__TiqianProcessParagraph = {
-    processParagraph: processParagraph,
-  };
-})();
-
-export {};

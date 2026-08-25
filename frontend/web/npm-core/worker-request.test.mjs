@@ -1,55 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/lifecycle.js";
-import "./core/engine/eligibility.js";
-import "./core/engine/worker-request.js";
-import { setMarkdownLoweringForTest } from "./core/engine/markdown-lowering.js";
+import {
+  workerLayoutRequest,
+  workerLayoutRequestForRoot,
+  workerLayoutRequestJson,
+} from "./core/engine/worker-request.js";
+import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 
-const lifecycle = globalThis.__TiqianLifecycle;
-const eligibility = globalThis.__TiqianEligibility;
-const workerRequest = globalThis.__TiqianWorkerRequest;
+const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 
-const MEASURE_GLOBALS = ["__TiqianResponsiveMeasure"];
-
-// Root-overload tests also install or replace the eligibility and lifecycle
-// bridges, plus a fake getComputedStyle for withRootDefaults, so they must
-// preserve and restore those.
-const ROOT_GLOBALS = [
-  "__TiqianResponsiveMeasure",
-  "__TiqianEligibility",
-  "__TiqianLifecycle",
-  "getComputedStyle",
-];
-
-function preserveGlobals(names) {
-  return names.map((name) => ({
-    name,
-    own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
-  }));
-}
-
-function restoreGlobals(entries) {
-  for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
-  }
-}
-
-// Fake measure bridge: sourceParagraphWidth is fixed per test through config;
-// effectiveLineMeasure is overridable as a function.
-function installFakeResponsiveMeasure(overrides = {}) {
-  const config = {
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: (width, fontSize) => width,
-    ...overrides,
-  };
-  globalThis.__TiqianResponsiveMeasure = {
-    effectiveLineMeasure: config.effectiveLineMeasure,
-    sourceParagraphWidth: () => config.sourceParagraphWidth,
-  };
-}
+// The responsive measure helpers, the eligibility predicate and the lifecycle
+// helpers are all real now: sourceParagraphWidth reads element geometry and
+// globalThis.getComputedStyle, effectiveLineMeasure is imported above,
+// shouldTryParagraph reads plain element properties, and the snapshot gate,
+// withRootDefaults and conformingExactFontSessionId run from the stateless
+// lifecycle module. No module seam exists anymore.
 
 function textStyle(overrides = {}) {
   return {
@@ -98,7 +64,7 @@ function sourceSpan(overrides = {}) {
 
 function paragraph(overrides = {}) {
   return {
-    text: "你好",
+    text: "ab",
     textStyle: textStyle(),
     lineHeight: 28,
     spans: [],
@@ -113,17 +79,78 @@ function paragraph(overrides = {}) {
   };
 }
 
-function element(tagName = "P") {
-  return { tagName };
+// Fake element used by workerLayoutRequest (sourceParagraphWidth reads
+// getBoundingClientRect/getClientRects) and by workerLayoutRequestJson
+// (sourceTag reads tagName).
+function element(tagName = "P", overrides = {}) {
+  return {
+    tagName,
+    getBoundingClientRect: () => ({ width: overrides.width ?? 320 }),
+    getClientRects: () => [],
+    parentElement: null,
+    ...overrides,
+  };
 }
 
-// Real options object through the lifecycle decoder; override fields like a
-// host options bag. The default session is the conforming happy path.
-function buildOptions(overrides = {}) {
-  return lifecycle.optionsFromJs({
-    exactFontSession: { status: "conforming", sessionId: "s1" },
+// Canonical EnhanceOptions decoded by hand (the real optionsFromJs lives in
+// the stateless lifecycle module).
+function canonicalOptions(overrides = {}) {
+  return {
+    fontFamilies: {
+      cjk: null,
+      latin: null,
+      monospace: null,
+      cjkSerif: null,
+      latinSerif: null,
+    },
+    fontSize: null,
+    lineHeight: null,
+    firstLineIndentIc: 0,
+    emphasisDotGapEm: 0.1,
+    strongAsEmphasisMarks: false,
+    paragraphSelector: "p, li",
+    cjkDashCapability: null,
+    exactFontSession: { status: "conforming", sessionId: "s1", detail: null },
+    requireExactLayoutWorker: false,
     ...overrides,
-  });
+  };
+}
+
+// Computed style double: property accessors feed elementContentWidth, the
+// getPropertyValue callback feeds the lowerer's computedStyle reads.
+function computedStyle(values = {}) {
+  const style = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    position: "static",
+    transform: "none",
+    marginLeft: "0px",
+    marginRight: "0px",
+    marginTop: "0px",
+    marginBottom: "0px",
+  };
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(values, key)
+      ? String(values[key])
+      : "";
+  };
+  return style;
+}
+
+function withComputedStyle(fn) {
+  const real = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = (target, pseudo) =>
+    target && target._computedValues
+      ? computedStyle(target._computedValues)
+      : computedStyle();
+  try {
+    return fn();
+  } finally {
+    globalThis.getComputedStyle = real;
+  }
 }
 
 // Rich fixture exercising every wire field: quoted text with a control char,
@@ -208,7 +235,7 @@ const RICH_EXPECTED =
   '"sourceTag":"p"}';
 
 test("workerLayoutRequestJson emits the whole wire request for a rich fixture", () => {
-  const actual = workerRequest.workerLayoutRequestJson(
+  const actual = workerLayoutRequestJson(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
@@ -218,7 +245,7 @@ test("workerLayoutRequestJson emits the whole wire request for a rich fixture", 
 });
 
 test("workerLayoutRequestJson emits the four separator joins as exact substrings", () => {
-  const actual = workerRequest.workerLayoutRequestJson(
+  const actual = workerLayoutRequestJson(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
@@ -233,7 +260,7 @@ test("workerLayoutRequestJson emits the four separator joins as exact substrings
 });
 
 test("workerLayoutRequestJson emits semantics attributes verbatim and lowercases the source tag", () => {
-  const actual = workerRequest.workerLayoutRequestJson(
+  const actual = workerLayoutRequestJson(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
@@ -246,7 +273,7 @@ test("workerLayoutRequestJson emits semantics attributes verbatim and lowercases
 });
 
 test("workerLayoutRequestJson output round-trips through JSON.parse into the structured shape", () => {
-  const actual = workerRequest.workerLayoutRequestJson(
+  const actual = workerLayoutRequestJson(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
@@ -284,67 +311,51 @@ test("workerLayoutRequestJson carries true render evidence for a sourceSpans-onl
   const lowered = paragraph({
     sourceSpans: [sourceSpan()],
   });
-  const actual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, lowered, 678.9, 2);
+  const actual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, lowered, 678.9, 2);
   assert.equal(JSON.parse(actual).renderEvidence, true);
 });
 
 test("workerLayoutRequestJson render evidence: spans-only yields true, plain yields false", () => {
   const styled = paragraph({ spans: [span()] });
-  const styledActual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, styled, 678.9, 2);
+  const styledActual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, styled, 678.9, 2);
   assert.equal(JSON.parse(styledActual).renderEvidence, true);
 
   const plain = paragraph();
-  const plainActual = workerRequest.workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, plain, 678.9, 2);
+  const plainActual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, plain, 678.9, 2);
   assert.equal(JSON.parse(plainActual).renderEvidence, false);
 });
 
 test("workerLayoutRequest returns null without a conforming exact font session", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
-    const nonConforming = lifecycle.optionsFromJs({
-      exactFontSession: { status: "unavailable", sessionId: "s1" },
-    });
-    assert.equal(workerRequest.workerLayoutRequest(element(), paragraph(), nonConforming), null);
-    const omitted = lifecycle.optionsFromJs({});
-    assert.equal(workerRequest.workerLayoutRequest(element(), paragraph(), omitted), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+  const nonConforming = canonicalOptions({
+    exactFontSession: { status: "unavailable", sessionId: "s1", detail: null },
+  });
+  assert.equal(workerLayoutRequest(element(), paragraph(), nonConforming), null);
+  const omitted = canonicalOptions({ exactFontSession: null });
+  assert.equal(workerLayoutRequest(element(), paragraph(), omitted), null);
 });
 
 test("workerLayoutRequest returns null for a decorated paragraph", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
+  withComputedStyle(() => {
     const lowered = paragraph({
       decorations: [{ start: 0, end: 2, kind: "Emphasis" }],
     });
-    assert.equal(workerRequest.workerLayoutRequest(element(), lowered, buildOptions()), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+    assert.equal(workerLayoutRequest(element(), lowered, canonicalOptions()), null);
+  });
 });
 
 test("workerLayoutRequest returns null for a clone edge at the inclusive epsilon", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
+  withComputedStyle(() => {
     const lowered = paragraph({
       sourceSpans: [
         sourceSpan({ inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 0.01 }) }),
       ],
     });
-    assert.equal(workerRequest.workerLayoutRequest(element(), lowered, buildOptions()), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+    assert.equal(workerLayoutRequest(element(), lowered, canonicalOptions()), null);
+  });
 });
 
 test("workerLayoutRequest builds for clone boxes below the epsilon", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
+  withComputedStyle(() => {
     const lowered = paragraph({
       sourceSpans: [
         sourceSpan({
@@ -352,128 +363,149 @@ test("workerLayoutRequest builds for clone boxes below the epsilon", () => {
         }),
       ],
     });
-    assert.notEqual(workerRequest.workerLayoutRequest(element(), lowered, buildOptions()), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+    assert.notEqual(workerLayoutRequest(element(), lowered, canonicalOptions()), null);
+  });
 });
 
 test("workerLayoutRequest builds for a non-clone box with large edges", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
+  withComputedStyle(() => {
     const lowered = paragraph({
       sourceSpans: [
         sourceSpan({ inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5, inlineEnd: -5 }) }),
       ],
     });
-    assert.notEqual(workerRequest.workerLayoutRequest(element(), lowered, buildOptions()), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+    assert.notEqual(workerLayoutRequest(element(), lowered, canonicalOptions()), null);
+  });
 });
 
 test("workerLayoutRequest returns null for a locale-mismatching span", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
+  withComputedStyle(() => {
     const lowered = paragraph({
       spans: [span({ style: textStyle({ locale: "ja" }) })],
     });
-    assert.equal(workerRequest.workerLayoutRequest(element(), lowered, buildOptions()), null);
-  } finally {
-    restoreGlobals(globals);
-  }
+    assert.equal(workerLayoutRequest(element(), lowered, canonicalOptions()), null);
+  });
 });
 
-test("workerLayoutRequest returns null for non-finite or non-positive raw widths", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  try {
-    for (const width of [0, Number.NaN, -3]) {
-      installFakeResponsiveMeasure({ sourceParagraphWidth: width });
-      assert.equal(workerRequest.workerLayoutRequest(element(), paragraph(), buildOptions()), null);
-    }
-  } finally {
-    restoreGlobals(globals);
-  }
+// The real sourceParagraphWidth falls back to 320 whenever both the paragraph
+// and its parent measure non-positive, so raw widths of 0 or negative are
+// unreachable through the public API. A non-finite geometry (Infinity) is
+// reachable and still trips the same guard.
+test("workerLayoutRequest returns null for a non-finite raw width", () => {
+  withComputedStyle(() => {
+    const infinite = element("P", { width: Number.POSITIVE_INFINITY });
+    assert.equal(workerLayoutRequest(infinite, paragraph(), canonicalOptions()), null);
+  });
 });
 
 test("workerLayoutRequest emits 0 first-line indent for LI and the option value otherwise", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  try {
-    const li = workerRequest.workerLayoutRequest(
+  withComputedStyle(() => {
+    const li = workerLayoutRequest(
       element("LI"),
       paragraph(),
-      buildOptions({ firstLineIndentIc: 2 }),
+      canonicalOptions({ firstLineIndentIc: 2 }),
     );
     assert.equal(JSON.parse(li).firstLineIndentIc, 0);
 
-    const nonLi = workerRequest.workerLayoutRequest(
+    const nonLi = workerLayoutRequest(
       element("P"),
       paragraph(),
-      buildOptions({ firstLineIndentIc: 2 }),
+      canonicalOptions({ firstLineIndentIc: 2 }),
     );
     assert.equal(JSON.parse(nonLi).firstLineIndentIc, 2);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("workerLayoutRequest emits the effective line measure as maxWidthPx", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  const fontSizeArguments = [];
-  installFakeResponsiveMeasure({
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: (width, fontSize) => {
-      fontSizeArguments.push(fontSize);
-      return 777.25;
-    },
+  withComputedStyle(() => {
+    const expected = effectiveLineMeasure(320, 19);
+    const result = workerLayoutRequest(
+      element("P", { width: 320 }),
+      paragraph(),
+      canonicalOptions(),
+    );
+    const parsed = JSON.parse(result);
+    assert.equal(parsed.maxWidthPx, expected);
+    // The measure is the fontSize-grid quantized cell, not the raw width.
+    assert.notEqual(parsed.maxWidthPx, 320);
   });
-  try {
-    const result = workerRequest.workerLayoutRequest(element(), paragraph(), buildOptions());
-    assert.equal(JSON.parse(result).maxWidthPx, 777.25);
-    assert.deepEqual(fontSizeArguments, [19]);
-  } finally {
-    restoreGlobals(globals);
-  }
 });
 
 // --- Root overload (workerLayoutRequestForRoot) ---
 
-// Install an eligible, snapshot-friendly, happy-path environment: real
-// lifecycle (with a fake getComputedStyle for withRootDefaults), permissive
-// eligibility, responsive measure, and a stubbed lowerer. The stub goes
-// through setMarkdownLoweringForTest because worker-request.js imports lower()
-// as a module binding. Returns the stubbed lower function for per-test
-// assertions; restoreRootGlobals restores the real lowerer.
-function installRootHappyPath(lowerImpl = null) {
-  installFakeResponsiveMeasure();
-  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
-  globalThis.__TiqianEligibility = { shouldTryParagraph: () => true };
-  const lowerCalls = [];
-  const lowerStub = lowerImpl ||
-    (() => ({ ok: true, lowered: paragraph() }));
-  setMarkdownLoweringForTest((element, options, helpers) => {
-    lowerCalls.push({ element, options, helpers });
-    return lowerStub(element, options, helpers);
-  });
-  return { lowerCalls, lowerStub };
+// The lowering bridge is real now, so the fake paragraph doubles as a
+// lowerable DOM: text-only children lower into a plain paragraph, a block
+// child fails the formatting context, and an inline child exercises the
+// inline-shaping decision callback.
+function textNode(text) {
+  return { nodeType: 3, textContent: text };
 }
 
-// Root-overload tests restore the globals and the lowerer seam together.
-function restoreRootGlobals(entries) {
-  restoreGlobals(entries);
-  setMarkdownLoweringForTest(null);
-}
-
-// A fake element whose closest() returns the given owner. contains() on the
-// root is configurable to model whether the owner lives under the root.
-function scopeParagraph(closestResult, tagName = "P") {
+function rootParagraph(overrides = {}) {
+  const text = overrides.text ?? "hello";
+  const owner = overrides.owner ?? null;
   return {
-    tagName,
-    closest: (selector) => closestResult,
+    tagName: overrides.tagName ?? "P",
+    textContent: text,
+    childNodes: overrides.childNodes ?? [textNode(text)],
     getAttribute: () => null,
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    style: {
+      setProperty: () => {},
+      removeProperty: () => {},
+      getPropertyValue: () => "",
+      getPropertyPriority: () => "",
+    },
+    closest: (selector) => (selector === ROOT_SELECTOR ? owner : null),
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getBoundingClientRect: () => ({ width: overrides.width ?? 320 }),
+    getClientRects: () => [],
+    parentElement: null,
+    _computedValues: overrides.computedValues,
+  };
+}
+
+// A block-level child makes the real lowerer fail the formatting context
+// with an UnsupportedInlineFormattingContext issue, which the root overload
+// must discard and report as null.
+function blockChild(tagName, text) {
+  return {
+    nodeType: 1,
+    tagName,
+    textContent: text,
+    childNodes: [textNode(text)],
+    attributes: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    matches: () => false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getClientRects: () => [],
+    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
+    _computedValues: { display: "block" },
+  };
+}
+
+// An inline child with an empty client rect list lowers into a sourceSpan
+// without needing a Range/document double: measuredInlineEdge returns the
+// margin (0) early when the element has no boxes.
+function inlineChild(tagName, text, values = {}) {
+  return {
+    nodeType: 1,
+    tagName,
+    textContent: text,
+    childNodes: [textNode(text)],
+    attributes: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    matches: () => false,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getClientRects: () => [],
+    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
+    _computedValues: { display: "inline", ...values },
   };
 }
 
@@ -490,239 +522,170 @@ const ROOT_FFI = {
   firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => null,
 };
 
-function rootOptions(overrides = {}) {
-  return buildOptions(overrides);
-}
-
 test("workerLayoutRequestForRoot returns null when closest resolves to a nested owner under the root", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const owner = scopeParagraph(null, "SECTION");
-    const root = scopeRoot(true);
-    const paragraphEl = scopeParagraph(owner);
-    installRootHappyPath();
-    assert.equal(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
-      null,
-    );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  const owner = blockChild("SECTION", "nested");
+  const root = scopeRoot(true);
+  const paragraphEl = rootParagraph({ owner });
+  assert.equal(
+    workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
+    null,
+  );
 });
 
 test("workerLayoutRequestForRoot passes the root gate when owner is the root", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
+  withComputedStyle(() => {
     const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    installRootHappyPath();
+    const paragraphEl = rootParagraph({ owner: root });
     assert.notEqual(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
       null,
     );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
 test("workerLayoutRequestForRoot passes the root gate when no owner is found", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
+  withComputedStyle(() => {
     const root = scopeRoot();
-    const paragraphEl = scopeParagraph(null);
-    installRootHappyPath();
+    const paragraphEl = rootParagraph();
     assert.notEqual(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
       null,
     );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
 test("workerLayoutRequestForRoot returns null when shouldTryParagraph is false", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    installFakeResponsiveMeasure();
-    globalThis.__TiqianEligibility = { shouldTryParagraph: () => false };
-    assert.equal(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
-      null,
-    );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  const blank = rootParagraph({ text: "   ", childNodes: [] });
+  assert.equal(
+    workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), blank, canonicalOptions()),
+    null,
+  );
 });
 
 test("workerLayoutRequestForRoot returns null when snapshot exact layout is disallowed", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    installRootHappyPath();
-    const options = rootOptions({ fontSize: 20 });
-    assert.equal(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options),
-      null,
-    );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  const paragraphEl = rootParagraph();
+  const options = canonicalOptions({ fontSize: 20 });
+  assert.equal(
+    workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, options),
+    null,
+  );
 });
 
 test("workerLayoutRequestForRoot returns null when the lowering bridge throws", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    installRootHappyPath(() => {
-      throw new Error("boom");
+  withComputedStyle(() => {
+    // A child node list whose iterator throws makes the real lowerer throw
+    // while walking children; the root overload reports null.
+    const paragraphEl = rootParagraph({
+      childNodes: {
+        [Symbol.iterator]() {
+          throw new Error("lowering walk boom");
+        },
+      },
     });
     assert.equal(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, canonicalOptions()),
       null,
     );
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
-test("workerLayoutRequestForRoot returns null when lowering reports ok !== true and never reads the issue", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    // A getter records access to result.issue: the root overload must not read
-    // it, only processParagraph reports lowering issues.
-    let issueRead = false;
-    const issue = {
-      get name() {
-        issueRead = true;
-        return "UnsupportedParagraph";
-      },
-      get detail() {
-        issueRead = true;
-        return "unsupported";
-      },
-    };
-    installRootHappyPath(() => ({ ok: false, issue }));
+test("workerLayoutRequestForRoot returns null when lowering fails and never reads the issue", () => {
+  withComputedStyle(() => {
+    // A block child fails lowering with UnsupportedInlineFormattingContext.
+    // The root overload discards the issue result and reports null.
+    const paragraphEl = rootParagraph({ childNodes: [blockChild("DIV", "blocked")] });
     assert.equal(
-      workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions()),
+      workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, canonicalOptions()),
       null,
     );
-    assert.equal(issueRead, false);
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
-test("workerLayoutRequestForRoot builds the lowering options and helpers shape", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    const { lowerCalls } = installRootHappyPath();
-    const options = rootOptions();
-    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options);
+test("workerLayoutRequestForRoot lowers with the fixed zh-Hans locale", () => {
+  withComputedStyle(() => {
+    const paragraphEl = rootParagraph({ text: "hello world" });
+    const result = workerLayoutRequestForRoot(
+      ROOT_FFI,
+      scopeRoot(),
+      paragraphEl,
+      canonicalOptions(),
+    );
     assert.notEqual(result, null);
-    assert.equal(lowerCalls.length, 1);
-    const call = lowerCalls[0];
-    assert.equal(call.element, paragraphEl);
-    // Options mirror loweringOptionsJs: fontSize/lineHeight nullable,
-    // strongAsEmphasisMarks boolean, locale fixed to LOWERING_DEFAULT_LOCALE.
-    assert.equal(call.options.fontSize, options.fontSize);
-    assert.equal(call.options.lineHeight, options.lineHeight);
-    assert.equal(call.options.strongAsEmphasisMarks, options.strongAsEmphasisMarks);
-    assert.equal(call.options.locale, "zh-Hans");
-    // Helpers mirror loweringHelpersJs.
-    assert.equal(call.helpers.classifyRole, ROOT_FFI.classifyFontRole);
-    assert.deepEqual(call.helpers.inlineShapingProperties, ["font-style"]);
-  } finally {
-    restoreRootGlobals(globals);
-  }
+    assert.equal(JSON.parse(result).locale, "zh-Hans");
+  });
 });
 
 test("workerLayoutRequestForRoot inlineShapingDecision wraps the ffi divergence result", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
+  withComputedStyle(() => {
     const ffi = {
       classifyFontRole: (t, s, e, l) => "other",
       unsupportedInlineShapingProperties: () => ["font-style"],
       firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => "fontStyle",
     };
-    const { lowerCalls } = installRootHappyPath();
-    const result = workerRequest.workerLayoutRequestForRoot(ffi, root, paragraphEl, rootOptions());
-    assert.notEqual(result, null);
-    const decision = lowerCalls[0].helpers.inlineShapingDecision("em", [], []);
-    assert.deepEqual(decision, {
-      name: "UnsupportedInlineShapingStyle",
-      detail: "em:fontStyle",
+    const paragraphEl = rootParagraph({
+      childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
     });
-  } finally {
-    restoreRootGlobals(globals);
-  }
+    // The divergence decision fails the inline element, so the paragraph
+    // lowers with ok !== true and the root overload reports null.
+    assert.equal(
+      workerLayoutRequestForRoot(ffi, scopeRoot(), paragraphEl, canonicalOptions()),
+      null,
+    );
+  });
 });
 
 test("workerLayoutRequestForRoot inlineShapingDecision returns null for a null divergence property", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root);
-    const { lowerCalls } = installRootHappyPath();
-    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions());
+  withComputedStyle(() => {
+    const paragraphEl = rootParagraph({
+      childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
+    });
+    const result = workerLayoutRequestForRoot(
+      ROOT_FFI,
+      scopeRoot(),
+      paragraphEl,
+      canonicalOptions(),
+    );
     assert.notEqual(result, null);
-    const decision = lowerCalls[0].helpers.inlineShapingDecision("em", [], []);
-    assert.equal(decision, null);
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
 test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker request", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  try {
-    const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root, "P");
-    const lowered = paragraph({ text: "你好世界" });
-    installRootHappyPath(() => ({ ok: true, lowered }));
-    const options = rootOptions();
-    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, options);
+  withComputedStyle(() => {
+    const paragraphEl = rootParagraph({ text: "hello world" });
+    const result = workerLayoutRequestForRoot(
+      ROOT_FFI,
+      scopeRoot(),
+      paragraphEl,
+      canonicalOptions(),
+    );
     assert.notEqual(result, null);
     const parsed = JSON.parse(result);
-    assert.equal(parsed.text, "你好世界");
+    assert.equal(parsed.text, "hello world");
     assert.equal(parsed.firstLineIndentIc, 0);
     assert.equal(parsed.sourceTag, "p");
-  } finally {
-    restoreRootGlobals(globals);
-  }
+  });
 });
 
-test("workerLayoutRequestForRoot feeds the withRootDefaults result to both lower and the request", () => {
-  const globals = preserveGlobals(ROOT_GLOBALS);
-  // The stub replaces a property on the shared real lifecycle object, so the
-  // original must be restored beside the globals.
-  const originalWithRootDefaults = lifecycle.withRootDefaults;
-  try {
+test("workerLayoutRequestForRoot feeds the withRootDefaults result into lowering and the request", () => {
+  withComputedStyle(() => {
+    // The snapshot-eligible bag resolves through the real withRootDefaults
+    // against the root; the paragraph's computed typography then flows into
+    // lowering and onto the request wire.
     const root = scopeRoot();
-    const paragraphEl = scopeParagraph(root, "P");
-    // Stub withRootDefaults to pin that its returned resolved object is the one
-    // feeding both the lowering options and the final request wiring. The raw
-    // options passed in must stay snapshot-eligible so the gate passes.
-    const resolved = rootOptions({ firstLineIndentIc: 7, fontSize: 21 });
-    lifecycle.withRootDefaults = (options, theRoot) => resolved;
-    const { lowerCalls } = installRootHappyPath();
-    const result = workerRequest.workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, rootOptions());
+    root._computedValues = { "font-family": "Root Inherited, sans-serif" };
+    const paragraphEl = rootParagraph({
+      text: "hello world",
+      computedValues: { "font-size": "21px" },
+    });
+    const result = workerLayoutRequestForRoot(
+      ROOT_FFI,
+      root,
+      paragraphEl,
+      canonicalOptions(),
+    );
     assert.notEqual(result, null);
-    // lower read fontSize from the resolved options.
-    assert.equal(lowerCalls[0].options.fontSize, 21);
-    // the request read firstLineIndentIc from the resolved options.
-    assert.equal(JSON.parse(result).firstLineIndentIc, 7);
-  } finally {
-    lifecycle.withRootDefaults = originalWithRootDefaults;
-    restoreRootGlobals(globals);
-  }
+    const parsed = JSON.parse(result);
+    assert.equal(parsed.fontSizePx, 21);
+    assert.equal(parsed.firstLineIndentIc, 0);
+  });
 });

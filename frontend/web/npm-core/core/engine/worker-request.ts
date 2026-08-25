@@ -5,48 +5,26 @@
 // overload (4b) that feeds Kotlin-core classifier hooks through the markdown
 // lowering bridge.
 //
-// Plain script, no exports: running it installs globalThis.__TiqianWorkerRequest.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which a future gradle bridge task will embed this source verbatim. Double
-// installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals.
+// Stateless module: the three serializers are exported directly. The module
+// reads the stateless lifecycle, eligibility, responsive-measure and
+// markdown-lowering helpers inside function bodies.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import type { EligibilityGlobal } from "./eligibility.js";
-import type { EnhanceOptions, LifecycleApi } from "./lifecycle.js";
-import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
+import type { EnhanceOptions } from "./lifecycle.js";
+import { allowsSnapshotExactLayout, conformingExactFontSessionId, withRootDefaults } from "./lifecycle.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
-import { lower } from "./markdown-lowering.js";
+import { shouldTryParagraph } from "./eligibility.js";
+import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
+import { lowerMarkdown } from "./markdown-lowering.js";
 
 interface WorkerInlineShapingDecisionResult {
   name: string;
   detail: string;
 }
 
-type WorkerLayoutRequestFn = (paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions) => string | null;
-type WorkerLayoutRequestForRootFn = (ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions) => string | null;
-type WorkerLayoutRequestJsonFn = (paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number) => string;
-
-export interface TiqianWorkerRequestGlobal {
-  workerLayoutRequest: WorkerLayoutRequestFn;
-  workerLayoutRequestForRoot: WorkerLayoutRequestForRootFn;
-  workerLayoutRequestJson: WorkerLayoutRequestJsonFn;
-}
-
-declare global {
-  var __TiqianWorkerRequest: TiqianWorkerRequestGlobal | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianWorkerRequest) return;
-
-  // Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
-  // records join by U+001E, fields by U+001D, families by U+001F.
+// Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
+// records join by U+001E, fields by U+001D, families by U+001F.
   const WORKER_RECORD_SEPARATOR = '\u001e';
   const WORKER_FIELD_SEPARATOR = '\u001d';
   const WORKER_FAMILY_SEPARATOR = '\u001f';
@@ -135,7 +113,7 @@ declare global {
    * @param {number} firstLineIndentIc
    * @returns {string}
    */
-  function workerLayoutRequestJson(paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number): string {
+  export function workerLayoutRequestJson(paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number): string {
     const textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
@@ -261,7 +239,7 @@ declare global {
    * @param {Record<string, unknown>} options
    * @returns {(string|null)}
    */
-  function workerLayoutRequestForRoot(ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions): string | null {
+  export function workerLayoutRequestForRoot(ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions): string | null {
     // RootScopeGate: a paragraph belongs when it has no owner, owns the root,
     // or lives outside the root. A nested owner under the root is not in this
     // paragraph's scope, so it returns null before anything else runs.
@@ -269,15 +247,15 @@ declare global {
     if (owner && owner !== root && root.contains(owner)) {
       return null;
     }
-    if (!globalThis.__TiqianEligibility!.shouldTryParagraph(paragraph)) return null;
-    if (!globalThis.__TiqianLifecycle!.allowsSnapshotExactLayout(options)) return null;
-    const resolved = globalThis.__TiqianLifecycle!.withRootDefaults(options, root);
+    if (!shouldTryParagraph(paragraph)) return null;
+    if (!allowsSnapshotExactLayout(options)) return null;
+    const resolved = withRootDefaults(options, root);
     let lowered = null;
     try {
       // The options bag mirrors loweringOptionsJs in MarkdownParagraphLowering.kt:
       // fontSize and lineHeight are nullable, strongAsEmphasisMarks is a boolean,
       // and locale is fixed to LOWERING_DEFAULT_LOCALE ("zh-Hans").
-      const result = lower(paragraph, {
+      const result = lowerMarkdown(paragraph, {
         fontSize: resolved.fontSize as number | undefined,
         lineHeight: resolved.lineHeight as number | undefined,
         strongAsEmphasisMarks: resolved.strongAsEmphasisMarks as boolean | undefined,
@@ -310,8 +288,8 @@ declare global {
    * @param {Record<string, unknown>} options
    * @returns {(string|null)}
    */
-  function workerLayoutRequest(paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions): string | null {
-    if (globalThis.__TiqianLifecycle!.conformingExactFontSessionId(options) == null) return null;
+  export function workerLayoutRequest(paragraph: Element, lowered: LoweredParagraph, options: EnhanceOptions): string | null {
+    if (conformingExactFontSessionId(options) == null) return null;
     // WorkerRequestMatchesRuntimeEligibility: inline objects no longer exclude
     // a paragraph from Worker preparation; their measured geometry travels on
     // the request wire and the live elements enter at commit time, the same
@@ -331,14 +309,14 @@ declare global {
         })) {
       return null;
     }
-    const rawWidth = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(paragraph);
+    const rawWidth = sourceParagraphWidth(paragraph);
     if (!Number.isFinite(rawWidth) || rawWidth <= 0) return null;
     // WorkerLineMeasureMatchesResponsiveGrid: the responsive coordinator
     // intentionally treats widths within the same floor(width / fontSize) cell
     // count as one layout input. Serialize that effective measure, not the
     // transient CSS width observed while a window is being dragged, so
     // preparation and commit use the same Worker plan inside the grid.
-    const measure = globalThis.__TiqianResponsiveMeasure!.effectiveLineMeasure(
+    const measure = effectiveLineMeasure(
       rawWidth,
       lowered.textStyle.fontSize,
     );
@@ -347,12 +325,3 @@ declare global {
       : (options.firstLineIndentIc as number);
     return workerLayoutRequestJson(paragraph, lowered, measure, firstLineIndentIc);
   }
-
-  globalThis.__TiqianWorkerRequest = {
-    workerLayoutRequest: workerLayoutRequest,
-    workerLayoutRequestForRoot: workerLayoutRequestForRoot,
-    workerLayoutRequestJson: workerLayoutRequestJson,
-  };
-})();
-
-export {};

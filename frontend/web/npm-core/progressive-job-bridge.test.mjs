@@ -1,14 +1,14 @@
 // Unit tests for the progressive-job engine (npm/core/engine/progressive-job.js).
-// Imports the script for side-effect installation and tests globalThis.__TiqianProgressiveJob.
+// The module exports a createProgressiveJob() factory; each test drives one
+// instance.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "./core/engine/progressive-job.js";
-
-const engine = globalThis.__TiqianProgressiveJob;
+import { createProgressiveJob } from "./core/engine/progressive-job.js";
 
 test("progressiveJobBridge_installedByScriptImport", () => {
-  assert.ok(engine, "importing progressive-job.js must install globalThis.__TiqianProgressiveJob");
+  const engine = createProgressiveJob();
+  assert.ok(engine, "createProgressiveJob must return the job engine");
   for (const name of [
     "startJob",
     "cancelJob",
@@ -29,6 +29,7 @@ test("progressiveJobBridge_installedByScriptImport", () => {
 });
 
 test("progressiveJobBridge_startJobRegistrationAndCancel", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-1" };
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
@@ -60,6 +61,7 @@ test("progressiveJobBridge_startJobRegistrationAndCancel", () => {
 });
 
 test("progressiveJobBridge_zeroItemCountFinishesImmediately", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-zero" };
   const events = [];
   let finishReport = null;
@@ -88,6 +90,7 @@ test("progressiveJobBridge_zeroItemCountFinishesImmediately", () => {
 });
 
 test("progressiveJobBridge_uncoordinatedJobRunsToCompletionSynchronously", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-uncoordinated" };
   const processed = [];
   let progressCount = 0;
@@ -117,6 +120,7 @@ test("progressiveJobBridge_uncoordinatedJobRunsToCompletionSynchronously", () =>
 });
 
 test("progressiveJobBridge_coordinatedJobSlicesAndGenerationGuard", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-coord" };
   const processed = [];
   let finished = false;
@@ -165,6 +169,7 @@ test("progressiveJobBridge_coordinatedJobSlicesAndGenerationGuard", () => {
 });
 
 test("progressiveJobBridge_tierGatingAndPendingCounts", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-tier" };
   const processed = [];
   let finished = false;
@@ -226,6 +231,7 @@ test("progressiveJobBridge_tierGatingAndPendingCounts", () => {
 });
 
 test("progressiveJobBridge_staleMeasureGuardSkipsRemaining", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-stale" };
   const processed = [];
   let finished = false;
@@ -268,6 +274,7 @@ test("progressiveJobBridge_staleMeasureGuardSkipsRemaining", () => {
 });
 
 test("progressiveJobBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-error" };
   const events = [];
   let failurePayload = null;
@@ -305,6 +312,7 @@ test("progressiveJobBridge_processItemErrorTriggersOnFailureAndOnFailed", () => 
 });
 
 test("progressiveJobBridge_attachAndDetachStateTransitions", () => {
+  const engine = createProgressiveJob();
   const root = { id: "root-detach" };
   const processed = [];
   let finished = false;

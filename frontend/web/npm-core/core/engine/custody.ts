@@ -1,14 +1,9 @@
 // Source custody for enhanced paragraphs.
 //
-// Plain script, no exports: running it installs globalThis.__TiqianCustody.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which the generateCustodyBridge gradle task embeds this source verbatim.
-// Double installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals.
+// ES module exporting the custody factory. The composition root
+// (loaders/ts-runtime.ts) constructs one instance per engine bootstrap and
+// passes it to process-paragraph, commit-prepared-paragraph,
+// content-reconcile, and progressive-relayout-session through their deps.
 
 // The prepared DOM renderer owns release; its global type is declared in
 // prepare-paragraph-layout.ts.
@@ -128,20 +123,99 @@ export type CustodyApi = {
   ensureContainingBlock: CustodyEnsureContainingBlockFn;
 };
 
-declare global {
-  var __TiqianCustody: CustodyApi | undefined;
+const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
+const EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
+const RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
+const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
+
+function liveChildNodes(element: Node): Node[] {
+  const nodes: Node[] = [];
+  let child: ChildNode | null = element.firstChild;
+  while (child) {
+    nodes.push(child);
+    child = child.nextSibling;
+  }
+  return nodes;
 }
 
-(function () {
-  if (globalThis.__TiqianCustody) return;
+function restoreAttribute(element: Element, name: string, value: string | null): void {
+  if (value === null || value === undefined) {
+    element.removeAttribute(name);
+  } else {
+    element.setAttribute(name, value);
+  }
+}
 
-  const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
-  const EXACT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
-  const RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
-  const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
+function stampCustodyContent(state: CustodyState, source: Element): void {
+  state.custodyNodes = liveChildNodes(state.originalContent as DocumentFragment);
+  (source as CustodyParagraphElement).__tqCustodyFragment = state.originalContent as DocumentFragment;
+  installCustodyCommitForwarding(source as CustodyParagraphElement);
+}
 
-  // Per-paragraph custody state, keyed weakly so a discarded paragraph can
-  // be collected together with its state.
+function stampRenderedContent(state: CustodyState, source: Element): void {
+  state.renderedNodes = liveChildNodes(source);
+}
+
+// CustodyAnchoredCommitForwarding: host frameworks keep node references
+// and commit edits through the paragraph's own mutation methods while the
+// semantic source lives in custody. Redirect those calls into the published
+// fragment unless the engine itself is writing (__tqCustodyEngineWrites
+// above zero). The overrides read the published fragment at call time, so
+// a re-take with a fresh fragment needs no re-install. An empty fragment
+// means the paragraph is not under custody and every branch falls through
+// to native.
+function installCustodyCommitForwarding(paragraph: CustodyParagraphElement): void {
+  if (paragraph.__tqCustodyForwarding) {
+    return;
+  }
+  const nativeRemoveChild = Node.prototype.removeChild;
+  const nativeInsertBefore = Node.prototype.insertBefore;
+  const nativeReplaceChild = Node.prototype.replaceChild;
+  const nativeAppendChild = Node.prototype.appendChild;
+  const activeCustody = function (): DocumentFragment | null {
+    const fragment = paragraph.__tqCustodyFragment;
+    return fragment && fragment.childNodes.length > 0 ? fragment : null;
+  };
+  const heldInCustody = function (node: Node | null): boolean {
+    const fragment = paragraph.__tqCustodyFragment;
+    return !!fragment && !!node && node.parentNode === fragment;
+  };
+  const engineWriting = function (): boolean {
+    return paragraph.__tqCustodyEngineWrites > 0;
+  };
+  paragraph.removeChild = function (child: Node): Node {
+    if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
+    if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
+    return nativeRemoveChild.call(paragraph, child);
+  };
+  paragraph.insertBefore = function (node: Node, ref: Node | null): Node {
+    if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
+    if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
+    if (!ref && node && node.nodeType !== 11) {
+      const fragment = activeCustody();
+      if (fragment) return fragment.appendChild(node);
+    }
+    return nativeInsertBefore.call(paragraph, node, ref);
+  };
+  paragraph.replaceChild = function (next: Node, prev: Node): Node {
+    if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
+    if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
+    return nativeReplaceChild.call(paragraph, next, prev);
+  };
+  paragraph.appendChild = function (node: Node): Node {
+    if (engineWriting()) return nativeAppendChild.call(paragraph, node);
+    if (node && node.nodeType !== 11) {
+      const fragment = activeCustody();
+      if (fragment) return fragment.appendChild(node);
+    }
+    return nativeAppendChild.call(paragraph, node);
+  };
+  paragraph.__tqCustodyForwarding = true;
+}
+
+export function createCustody(): CustodyApi {
+  // Per-paragraph custody state, keyed weakly so a discarded paragraph can be
+  // collected together with its state.
   const states = new WeakMap<Element, CustodyState>();
 
   function stateOf(source: Element): CustodyState {
@@ -150,91 +224,6 @@ declare global {
       throw new Error("custody state missing for paragraph");
     }
     return state;
-  }
-
-  function liveChildNodes(element: Node): Node[] {
-    const nodes: Node[] = [];
-    let child: ChildNode | null = element.firstChild;
-    while (child) {
-      nodes.push(child);
-      child = child.nextSibling;
-    }
-    return nodes;
-  }
-
-  function restoreAttribute(element: Element, name: string, value: string | null): void {
-    if (value === null || value === undefined) {
-      element.removeAttribute(name);
-    } else {
-      element.setAttribute(name, value);
-    }
-  }
-
-  function stampCustodyContent(state: CustodyState, source: Element): void {
-    state.custodyNodes = liveChildNodes(state.originalContent as DocumentFragment);
-    (source as CustodyParagraphElement).__tqCustodyFragment = state.originalContent as DocumentFragment;
-    installCustodyCommitForwarding(source as CustodyParagraphElement);
-  }
-
-  function stampRenderedContent(state: CustodyState, source: Element): void {
-    state.renderedNodes = liveChildNodes(source);
-  }
-
-  // CustodyAnchoredCommitForwarding: host frameworks keep node references
-  // and commit edits through the paragraph's own mutation methods while the
-  // semantic source lives in custody. Redirect those calls into the published
-  // fragment unless the engine itself is writing (__tqCustodyEngineWrites
-  // above zero). The overrides read the published fragment at call time, so
-  // a re-take with a fresh fragment needs no re-install. An empty fragment
-  // means the paragraph is not under custody and every branch falls through
-  // to native.
-  function installCustodyCommitForwarding(paragraph: CustodyParagraphElement): void {
-    if (paragraph.__tqCustodyForwarding) {
-      return;
-    }
-    const nativeRemoveChild = Node.prototype.removeChild;
-    const nativeInsertBefore = Node.prototype.insertBefore;
-    const nativeReplaceChild = Node.prototype.replaceChild;
-    const nativeAppendChild = Node.prototype.appendChild;
-    const activeCustody = function (): DocumentFragment | null {
-      const fragment = paragraph.__tqCustodyFragment;
-      return fragment && fragment.childNodes.length > 0 ? fragment : null;
-    };
-    const heldInCustody = function (node: Node | null): boolean {
-      const fragment = paragraph.__tqCustodyFragment;
-      return !!fragment && !!node && node.parentNode === fragment;
-    };
-    const engineWriting = function (): boolean {
-      return paragraph.__tqCustodyEngineWrites > 0;
-    };
-    paragraph.removeChild = function (child: Node): Node {
-      if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
-      if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
-      return nativeRemoveChild.call(paragraph, child);
-    };
-    paragraph.insertBefore = function (node: Node, ref: Node | null): Node {
-      if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
-      if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
-      if (!ref && node && node.nodeType !== 11) {
-        const fragment = activeCustody();
-        if (fragment) return fragment.appendChild(node);
-      }
-      return nativeInsertBefore.call(paragraph, node, ref);
-    };
-    paragraph.replaceChild = function (next: Node, prev: Node): Node {
-      if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
-      if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
-      return nativeReplaceChild.call(paragraph, next, prev);
-    };
-    paragraph.appendChild = function (node: Node): Node {
-      if (engineWriting()) return nativeAppendChild.call(paragraph, node);
-      if (node && node.nodeType !== 11) {
-        const fragment = activeCustody();
-        if (fragment) return fragment.appendChild(node);
-      }
-      return nativeAppendChild.call(paragraph, node);
-    };
-    paragraph.__tqCustodyForwarding = true;
   }
 
   // Captures every host-owned attribute and inline style entry the engine may
@@ -488,7 +477,7 @@ declare global {
     state.containingBlockApplied = true;
   }
 
-  globalThis.__TiqianCustody = {
+  return {
     begin: begin,
     take: take,
     commit: commit,
@@ -501,4 +490,4 @@ declare global {
     restoreShell: restoreShell,
     ensureContainingBlock: ensureContainingBlock,
   };
-})();
+}

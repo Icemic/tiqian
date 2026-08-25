@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/root-state.js";
-import { setCanvasRuntimeForTest } from "./core/engine/canvas-runtime.js";
+import { createRootState } from "./core/engine/root-state.js";
 
-const rootState = globalThis.__TiqianRootState;
-
-const ROOT_STATE_GLOBALS = [
-  "__TiqianRootState",
-  "__TiqianLifecycle",
-  "__TiqianEligibility",
-];
+// Real lifecycle defaults resolved by withRootDefaults when the root inherits
+// nothing.
+const DEFAULT_CJK_FONT_FAMILY = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
+const DEFAULT_LATIN_FONT_FAMILY = '"InterVariable", "Inter", "MiSans VF", sans-serif';
+const DEFAULT_MONOSPACE_FONT_FAMILY =
+  '"JetBrains Mono Variable", "SFMono-Regular", Menlo, Consolas, "MiSans VF", monospace';
+const DEFAULT_CJK_SERIF_FONT_FAMILY = '"MetroSungPlus-SC", "Songti SC", serif';
+const DEFAULT_LATIN_SERIF_FONT_FAMILY = 'Georgia, "Times New Roman", serif';
 
 function preserveGlobals(names) {
   return names.map((name) => ({
@@ -27,90 +27,18 @@ function restoreGlobals(entries) {
   }
 }
 
-function makeLifecycle() {
-  const calls = {
-    optionsFromJs: [],
-    allowsSnapshotExactLayout: [],
-    withoutExactFontSession: [],
-    withRootDefaults: [],
-    conformingExactFontSessionId: [],
-  };
-  const lifecycle = {
-    optionsFromJs(bag) {
-      calls.optionsFromJs.push(bag);
-      return {
-        fontFamilies: {
-          cjk: bag && bag.cjkFontFamily != null ? String(bag.cjkFontFamily) : null,
-          latin: bag && bag.latinFontFamily != null ? String(bag.latinFontFamily) : null,
-          monospace: bag && bag.monospaceFontFamily != null ? String(bag.monospaceFontFamily) : null,
-          cjkSerif: bag && bag.cjkSerifFontFamily != null ? String(bag.cjkSerifFontFamily) : null,
-          latinSerif: bag && bag.latinSerifFontFamily != null ? String(bag.latinSerifFontFamily) : null,
-        },
-        fontSize: bag && bag.fontSize != null ? Number(bag.fontSize) : null,
-        lineHeight: bag && bag.lineHeight != null ? Number(bag.lineHeight) : null,
-        firstLineIndentIc: bag && bag.firstLineIndentIc != null ? Number(bag.firstLineIndentIc) : 0,
-        emphasisDotGapEm: bag && bag.emphasisDotGapEm != null ? Number(bag.emphasisDotGapEm) : 0.1,
-        strongAsEmphasisMarks: !!(bag && bag.strongAsEmphasisMarks),
-        paragraphSelector: bag && bag.paragraphSelector != null ? String(bag.paragraphSelector) : "p, li",
-        requireExactLayoutWorker: !!(bag && bag.requireExactLayoutWorker),
-        cjkDashCapability: bag && bag.cjkDashCapability ? bag.cjkDashCapability : null,
-        exactFontSession:
-          bag && bag.exactFontSession
-            ? {
-                status: bag.exactFontSession.status != null ? String(bag.exactFontSession.status) : "unavailable",
-                sessionId: bag.exactFontSession.sessionId != null ? String(bag.exactFontSession.sessionId) : null,
-                detail: bag.exactFontSession.detail != null ? String(bag.exactFontSession.detail) : null,
-              }
-            : null,
-      };
-    },
-    allowsSnapshotExactLayout(options) {
-      calls.allowsSnapshotExactLayout.push(options);
-      return (
-        options.fontSize == null &&
-        options.lineHeight == null &&
-        options.firstLineIndentIc === 0 &&
-        options.fontFamilies.cjk == null &&
-        options.fontFamilies.latin == null &&
-        options.fontFamilies.monospace == null &&
-        options.fontFamilies.cjkSerif == null &&
-        options.fontFamilies.latinSerif == null
-      );
-    },
-    withoutExactFontSession(options) {
-      calls.withoutExactFontSession.push(options);
-      const copy = Object.assign({}, options);
-      copy.exactFontSession = null;
-      return copy;
-    },
-    withRootDefaults(options, root) {
-      calls.withRootDefaults.push({ options, root });
-      const families = options.fontFamilies || {};
-      return Object.assign({}, options, {
-        fontFamilies: {
-          cjk: families.cjk != null ? families.cjk : "DEFAULT_CJK",
-          latin: families.latin != null ? families.latin : "DEFAULT_LATIN",
-          monospace: families.monospace != null ? families.monospace : "DEFAULT_MONO",
-          cjkSerif: families.cjkSerif != null ? families.cjkSerif : "DEFAULT_SERIF",
-          latinSerif: families.latinSerif != null ? families.latinSerif : "DEFAULT_LATIN_SERIF",
-        },
-      });
-    },
-    conformingExactFontSessionId(options) {
-      calls.conformingExactFontSessionId.push(options);
-      const session = options && options.exactFontSession;
-      if (
-        !session ||
-        session.status !== "conforming" ||
-        typeof session.sessionId !== "string" ||
-        session.sessionId.trim().length === 0
-      ) {
-        return null;
-      }
-      return session.sessionId;
-    },
-  };
-  return { lifecycle, calls };
+// withRootDefaults reads the root's computed font-family; an empty answer
+// makes every family fall back to the built-in default stack.
+function withComputedStyle(fn) {
+  const saved = preserveGlobals(["getComputedStyle"]);
+  globalThis.getComputedStyle = () => ({
+    getPropertyValue: () => "",
+  });
+  try {
+    return fn();
+  } finally {
+    restoreGlobals(saved);
+  }
 }
 
 function makeCanvasFonts() {
@@ -141,13 +69,14 @@ function makeBridge() {
   return { bridge, calls, instances };
 }
 
-function installGlobals({ lifecycle, fonts, bridge, eligibility }) {
-  globalThis.__TiqianLifecycle = lifecycle;
-  globalThis.__TiqianEligibility = eligibility || { shouldTryParagraph: () => true };
-  setCanvasRuntimeForTest({
-    createFontFamilies: fonts.createFontFamilies,
-    createBrowserMetricsBridge: bridge.createBrowserMetricsBridge,
+function makeRootState(overrides = {}) {
+  const fonts = overrides.fonts || makeCanvasFonts();
+  const bridge = overrides.bridge || makeBridge();
+  const rs = createRootState({
+    createFontFamilies: fonts.fonts.createFontFamilies,
+    createBrowserMetricsBridge: bridge.bridge.createBrowserMetricsBridge,
   });
+  return { rs, fonts, bridge };
 }
 
 class FakeElement {
@@ -191,32 +120,25 @@ class FakeElement {
 }
 
 test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRootDefaults; full field set", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
+  withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+    const { rs } = makeRootState({ fonts, bridge });
 
     const root = new FakeElement({ attributes: { "data-tiqian-exact-layout-fallback": "stale" } });
 
     // fontSize bag: the snapshot gate routes through withoutExactFontSession.
-    const state = rootState.createRootState(root, { fontSize: 19 });
-
-    assert.equal(lifecycle.calls.optionsFromJs.length, 1);
-    assert.equal(lifecycle.calls.allowsSnapshotExactLayout.length, 1);
-    assert.equal(lifecycle.calls.withoutExactFontSession.length, 1);
-    assert.equal(lifecycle.calls.withRootDefaults.length, 1);
+    const state = rs.createRootState(root, { fontSize: 19 });
 
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
     assert.equal(state.root, root);
     assert.equal(state.options.fontSize, 19);
     assert.equal(state.options.exactFontSession, null);
-    assert.equal(state.options.fontFamilies.cjk, "DEFAULT_CJK");
-    assert.equal(state.options.fontFamilies.latin, "DEFAULT_LATIN");
-    assert.equal(state.options.fontFamilies.monospace, "DEFAULT_MONO");
-    assert.equal(state.options.fontFamilies.cjkSerif, "DEFAULT_SERIF");
-    assert.equal(state.options.fontFamilies.latinSerif, "DEFAULT_LATIN_SERIF");
+    assert.equal(state.options.fontFamilies.cjk, DEFAULT_CJK_FONT_FAMILY);
+    assert.equal(state.options.fontFamilies.latin, DEFAULT_LATIN_FONT_FAMILY);
+    assert.equal(state.options.fontFamilies.monospace, DEFAULT_MONOSPACE_FONT_FAMILY);
+    assert.equal(state.options.fontFamilies.cjkSerif, DEFAULT_CJK_SERIF_FONT_FAMILY);
+    assert.equal(state.options.fontFamilies.latinSerif, DEFAULT_LATIN_SERIF_FONT_FAMILY);
     assert.deepEqual(state.paragraphs, []);
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
@@ -226,11 +148,11 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     // The five families feed createFontFamilies from resolved.fontFamilies.
     assert.equal(fonts.calls.createFontFamilies.length, 1);
     const fontsConfig = fonts.calls.createFontFamilies[0];
-    assert.equal(fontsConfig.cjk, "DEFAULT_CJK");
-    assert.equal(fontsConfig.latin, "DEFAULT_LATIN");
-    assert.equal(fontsConfig.latinMonospace, "DEFAULT_MONO");
-    assert.equal(fontsConfig.cjkSerif, "DEFAULT_SERIF");
-    assert.equal(fontsConfig.latinSerif, "DEFAULT_LATIN_SERIF");
+    assert.equal(fontsConfig.cjk, DEFAULT_CJK_FONT_FAMILY);
+    assert.equal(fontsConfig.latin, DEFAULT_LATIN_FONT_FAMILY);
+    assert.equal(fontsConfig.latinMonospace, DEFAULT_MONOSPACE_FONT_FAMILY);
+    assert.equal(fontsConfig.cjkSerif, DEFAULT_CJK_SERIF_FONT_FAMILY);
+    assert.equal(fontsConfig.latinSerif, DEFAULT_LATIN_SERIF_FONT_FAMILY);
 
     // Bridge config carries fonts, cjkDashCapability and the lazy env factory.
     assert.equal(bridge.calls.createBrowserMetricsBridge.length, 1);
@@ -243,27 +165,22 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     // env factories stay lazy: document is never touched during createRootState.
     assert.equal(typeof document, "undefined");
 
-    // All-default bag: the snapshot gate passes straight through.
-    rootState.createRootState(root, {});
-    assert.equal(lifecycle.calls.withoutExactFontSession.length, 1);
+    // All-default bag: the snapshot gate passes straight through, so the
+    // withoutExactFontSession path is never taken.
+    const allDefault = rs.createRootState(root, {});
+    assert.equal(allDefault.options.exactFontSession, null);
 
     // null bag also works.
-    rootState.createRootState(root, null);
-    assert.equal(lifecycle.calls.optionsFromJs.length, 3);
-    assert.equal(lifecycle.calls.withoutExactFontSession.length, 1);
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+    const nullBag = rs.createRootState(root, null);
+    assert.equal(nullBag.options.fontSize, null);
+  });
 });
 
 test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate but runs withRootDefaults", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
+  withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+    const { rs } = makeRootState({ fonts, bridge });
 
     const root = new FakeElement();
     const canonical = {
@@ -279,45 +196,37 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
       requireExactLayoutWorker: false,
     };
 
-    const state = rootState.createRootStateFromCanonical(root, canonical);
+    const state = rs.createRootStateFromCanonical(root, canonical);
 
-    assert.equal(lifecycle.calls.optionsFromJs.length, 0);
-    assert.equal(lifecycle.calls.allowsSnapshotExactLayout.length, 0);
-    assert.equal(lifecycle.calls.withoutExactFontSession.length, 0);
-    assert.equal(lifecycle.calls.withRootDefaults.length, 1);
     assert.equal(state.root, root);
+    // Explicit families pass through unchanged; the snapshot gate is skipped.
     assert.equal(state.options.fontFamilies.cjk, "CJK");
     assert.equal(state.options.exactFontSession.sessionId, "canonical-session");
     assert.deepEqual(state.paragraphs, []);
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
     assert.equal(state.preparedDomFallback, null);
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  });
 });
 
 test("3. preparedDom toggle: active options, exact session descriptor, attribute write, truncation, idempotence", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
+  withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+    const { rs } = makeRootState({ fonts, bridge });
 
     const root = new FakeElement();
-    const state = rootState.createRootState(root, {
+    const state = rs.createRootState(root, {
       exactFontSession: { status: "conforming", sessionId: "sess-1" },
     });
 
     // While prepared DOM is enabled the active options are state.options and
     // the conforming session id is visible.
-    assert.equal(rootState.activeTsOptions(state), state.options);
-    assert.deepEqual(rootState.activeExactSessionDescriptor(state), { sessionId: "sess-1" });
+    assert.equal(rs.activeTsOptions(state), state.options);
+    assert.deepEqual(rs.activeExactSessionDescriptor(state), { sessionId: "sess-1" });
 
     const detail = "x".repeat(600);
-    rootState.disableExactPreparedDom(state, detail);
+    rs.disableExactPreparedDom(state, detail);
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(state.preparedDomFallback, "x".repeat(512));
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
@@ -328,42 +237,37 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
 
     // After disable: active options drop the exact font session and the
     // descriptor becomes null.
-    const active = rootState.activeTsOptions(state);
+    const active = rs.activeTsOptions(state);
     assert.notEqual(active, state.options);
     assert.equal(active.exactFontSession, null);
-    assert.equal(rootState.activeExactSessionDescriptor(state), null);
+    assert.equal(rs.activeExactSessionDescriptor(state), null);
 
     // Idempotent: a second call changes nothing and does not rewrite the attribute.
-    rootState.disableExactPreparedDom(state, "second-detail");
+    rs.disableExactPreparedDom(state, "second-detail");
     assert.equal(state.preparedDomFallback, "x".repeat(512));
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
     assert.equal(
       root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-exact-layout-fallback").length,
       1
     );
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  });
 });
 
 test("4. engineState cross-section: bound ffi, live arrays, callback wiring", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
+  withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+    const { rs } = makeRootState({ fonts, bridge });
 
     const ffi = { classifyFontRole: () => "Cjk" };
-    rootState.bindFfi(ffi);
-    assert.equal(rootState.currentFfi(), ffi);
+    rs.bindFfi(ffi);
+    assert.equal(rs.currentFfi(), ffi);
 
     const root = new FakeElement();
-    const state = rootState.createRootState(root, {
+    const state = rs.createRootState(root, {
       exactFontSession: { status: "conforming", sessionId: "sess-1" },
     });
-    const engine = rootState.engineState(state);
+    const engine = rs.engineState(state);
 
     assert.equal(engine.ffi, ffi);
     assert.equal(engine.options, state.options);
@@ -386,37 +290,32 @@ test("4. engineState cross-section: bound ffi, live arrays, callback wiring", ()
     engine.onDisableExactPreparedDom("replay-mismatch");
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "replay-mismatch");
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  });
 });
 
 test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot count participation", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
+  withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+    const { rs } = makeRootState({ fonts, bridge });
 
     // Work branch: attributes written, WeakMap retains the state, and the
     // observable snapshot count participates in the enhanced count.
     const rootWork = new FakeElement();
-    const stateWork = rootState.createRootState(rootWork, {});
+    const stateWork = rs.createRootState(rootWork, {});
     stateWork.paragraphs.push({ source: rootWork, lowered: null, lastMeasure: null });
     rootWork.setAttribute("data-tiqian-snapshot-count", "3");
-    rootState.publishState(stateWork);
+    rs.publishState(stateWork);
     assert.equal(rootWork.getAttribute("data-tiqian-enhanced"), "true");
     assert.equal(rootWork.getAttribute("data-tiqian-enhanced-count"), "4");
     assert.equal(rootWork.getAttribute("data-tiqian-issue-count"), null);
-    assert.equal(rootState.getState(rootWork), stateWork);
+    assert.equal(rs.getState(rootWork), stateWork);
 
     // keepEmpty: no work but the state is retained and attributes still write.
     const rootKeep = new FakeElement();
-    const stateKeep = rootState.createRootState(rootKeep, {});
-    rootState.publishState(stateKeep, true);
-    assert.equal(rootState.getState(rootKeep), stateKeep);
+    const stateKeep = rs.createRootState(rootKeep, {});
+    rs.publishState(stateKeep, true);
+    assert.equal(rs.getState(rootKeep), stateKeep);
     assert.equal(rootKeep.getAttribute("data-tiqian-enhanced"), "true");
     assert.equal(rootKeep.getAttribute("data-tiqian-enhanced-count"), "0");
     assert.equal(rootKeep.getAttribute("data-tiqian-issue-count"), null);
@@ -430,93 +329,69 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
         "data-tiqian-issue-count": "1",
       },
     });
-    const stateDelete = rootState.createRootState(rootDelete, {});
-    rootState.setState(rootDelete, stateDelete);
-    rootState.publishState(stateDelete);
-    assert.equal(rootState.getState(rootDelete), undefined);
+    const stateDelete = rs.createRootState(rootDelete, {});
+    rs.setState(rootDelete, stateDelete);
+    rs.publishState(stateDelete);
+    assert.equal(rs.getState(rootDelete), undefined);
     assert.equal(rootDelete.getAttribute("data-tiqian-enhanced"), null);
     assert.equal(rootDelete.getAttribute("data-tiqian-enhanced-count"), null);
     assert.equal(rootDelete.getAttribute("data-tiqian-issue-count"), null);
 
     // Issue count branch: issues present -> issue-count written.
     const rootIssue = new FakeElement();
-    const stateIssue = rootState.createRootState(rootIssue, {});
+    const stateIssue = rs.createRootState(rootIssue, {});
     stateIssue.issues.push({ name: "MissingSharedRuntimeStyles" });
-    rootState.publishState(stateIssue);
+    rs.publishState(stateIssue);
     assert.equal(rootIssue.getAttribute("data-tiqian-issue-count"), "1");
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  });
 });
 
 test("6. strandedSourceParagraphs: empty paragraphs returns all candidates; rendered sources subtracted", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    installGlobals({ lifecycle: lifecycle.lifecycle, fonts: fonts.fonts, bridge: bridge.bridge });
+  const { rs } = makeRootState();
 
-    const c0 = new FakeElement();
-    const c1 = new FakeElement();
-    const c2 = new FakeElement();
-    const root = new FakeElement({ children: [c0, c1, c2] });
+  const c0 = new FakeElement();
+  const c1 = new FakeElement();
+  const c2 = new FakeElement();
+  const root = new FakeElement({ children: [c0, c1, c2] });
 
-    const stateEmpty = { options: { paragraphSelector: "p, li" }, paragraphs: [] };
-    assert.deepEqual(rootState.strandedSourceParagraphs(root, stateEmpty), [c0, c1, c2]);
+  const stateEmpty = { options: { paragraphSelector: "p, li" }, paragraphs: [] };
+  assert.deepEqual(rs.strandedSourceParagraphs(root, stateEmpty), [c0, c1, c2]);
 
-    const stateRendered = {
-      options: { paragraphSelector: "p, li" },
-      paragraphs: [{ source: c0 }, { source: c2 }],
-    };
-    assert.deepEqual(rootState.strandedSourceParagraphs(root, stateRendered), [c1]);
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  const stateRendered = {
+    options: { paragraphSelector: "p, li" },
+    paragraphs: [{ source: c0 }, { source: c2 }],
+  };
+  assert.deepEqual(rs.strandedSourceParagraphs(root, stateRendered), [c1]);
 });
 
-test("7. paragraphCandidates: root-scope and eligibility filtering", () => {
-  const saved = preserveGlobals(ROOT_STATE_GLOBALS);
-  try {
-    const lifecycle = makeLifecycle();
-    const fonts = makeCanvasFonts();
-    const bridge = makeBridge();
-    const eligibilityCalls = [];
-    installGlobals({
-      lifecycle: lifecycle.lifecycle,
-      fonts: fonts.fonts,
-      bridge: bridge.bridge,
-      eligibility: {
-        shouldTryParagraph(paragraph) {
-          eligibilityCalls.push(paragraph);
-          return paragraph !== p3;
-        },
-      },
-    });
+test("7. paragraphCandidates: root-scope and real eligibility filtering", () => {
+  const { rs } = makeRootState();
+  const root = new FakeElement();
+  const innerEl = new FakeElement({ parent: root });
+  const outsideEl = new FakeElement();
+  // closest answers the root-scope owner for the root selector and stays null
+  // for every other selector (including eligibility's skip-list ancestor
+  // selector), so the real shouldTryParagraph predicate is exercised.
+  const rootScopedClosest = (owner) => (selector) =>
+    selector === "tiqian-prose, [data-tiqian-root]" ? owner : null;
+  // closest null -> owner absent, in scope, eligible.
+  const p1 = new FakeElement({ parent: root });
+  // owner lives outside the root -> in scope, eligible.
+  const p2 = new FakeElement({ parent: root, closestFn: rootScopedClosest(outsideEl) });
+  // owner is the root itself -> the root owns the paragraph, in scope.
+  const p3 = new FakeElement({ parent: root, closestFn: rootScopedClosest(root) });
+  // owner is a descendant inside the root -> out of scope even when eligible.
+  const p4 = new FakeElement({ parent: root, closestFn: rootScopedClosest(innerEl) });
+  // a plain in-scope paragraph is eligible.
+  const p5 = new FakeElement({ parent: root });
+  // data-tiqian-skip marks an in-scope paragraph ineligible.
+  const p6 = new FakeElement({ parent: root, attributes: { "data-tiqian-skip": "" } });
+  root.querySelectorAllResult = [p1, p2, p3, p4, p5, p6];
 
-    const root = new FakeElement();
-    const innerEl = new FakeElement({ parent: root });
-    const outsideEl = new FakeElement();
-    // closest null -> owner absent, in scope, eligible.
-    const p1 = new FakeElement({ parent: root });
-    // owner lives outside the root -> in scope, eligible.
-    const p2 = new FakeElement({ parent: root, closestFn: () => outsideEl });
-    // owner is the root -> in scope but ineligible.
-    const p3 = new FakeElement({ parent: root, closestFn: () => root });
-    // owner is a descendant inside the root -> out of scope even when eligible.
-    const p4 = new FakeElement({ parent: root, closestFn: () => innerEl });
-    // no closest method -> defensive in-scope, eligible.
-    const p5 = { tagName: "P", parent: root, textContent: "text" };
-    root.querySelectorAllResult = [p1, p2, p3, p4, p5];
-
-    const candidates = rootState.paragraphCandidates(root, "p, li");
-    assert.deepEqual(candidates, [p1, p2, p5]);
-    // p4 is rejected by the root-scope gate before eligibility is consulted.
-    assert.equal(eligibilityCalls.length, 4);
-  } finally {
-    restoreGlobals(saved);
-    setCanvasRuntimeForTest(null);
-  }
+  const candidates = rs.paragraphCandidates(root, "p, li");
+  assert.deepEqual(candidates, [p1, p2, p3, p5]);
+  // p4 is rejected by the root-scope gate (its scope owner is a nested
+  // element inside the root); p6 by the real eligibility predicate
+  // (data-tiqian-skip). p3 stays a candidate because its nearest scope
+  // owner is the root being enhanced.
 });

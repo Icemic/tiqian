@@ -4,22 +4,16 @@
 // tracking live custody snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Consumes __TiqianCustody, __TiqianCommitPreparedParagraph,
-// __TiqianPreparedMetadata, and __TiqianLifecycle.
-//
-// Plain script, no exports: running it installs
-// globalThis.__TiqianProgressiveRelayoutSession. Two consumers share this
-// file as the single source of truth: the npm host (importing it for the
-// side effect) and the Kotlin runtime bundle, into which a future gradle
-// bridge task will embed this source verbatim. Double installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals.
+// Stateless module: openProgressiveRelayoutSession(deps, argument) is a named
+// function that receives the custody and commit-prepared-paragraph
+// collaborators as an explicit first parameter and returns a fresh session
+// object for one run; the per-run Map and arrays live on that session, never
+// on module state. The engine bootstrap wires the deps object; tests pass
+// fakes. The stateless lifecycle helper is imported directly.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
-import type { CommitResult, TiqianCommitPreparedParagraphGlobal } from "./commit-prepared-paragraph.js";
+import type { CommitPreparedParagraphBundle, CommitResult } from "./commit-prepared-paragraph.js";
 import type {
   TrackedParagraph,
   SessionArgument,
@@ -27,8 +21,13 @@ import type {
 } from "./root-state.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
 import type { CustodyApi, CustodySnapshot } from "./custody.js";
-import type { CapabilityIssueRecord, LifecycleApi } from "./lifecycle.js";
-import type { PreparedMetadataGlobal } from "./prepared-metadata.js";
+import type { CapabilityIssueRecord } from "./lifecycle.js";
+import { reportIssue } from "./lifecycle.js";
+import {
+  preparedCjkStrongSemanticsJson,
+  preparedInlineObjectMetaJson,
+  preparedSemanticReplayJson,
+} from "./prepared-metadata.js";
 
 type ProgressiveRelayoutSessionProcessItemFn = (
   index: number,
@@ -36,9 +35,6 @@ type ProgressiveRelayoutSessionProcessItemFn = (
 ) => void;
 type ProgressiveRelayoutSessionFinishFn = () => void;
 type ProgressiveRelayoutSessionRollbackFn = () => void;
-type ProgressiveRelayoutSessionCreateFn = (
-  argument: SessionArgument,
-) => ProgressiveRelayoutSession;
 
 // Live session handed back to the driver: processItem dispatches one item,
 // finish finalizes committed measures, rollback restores the pre-session
@@ -50,26 +46,21 @@ export type ProgressiveRelayoutSession = {
   stale: boolean;
 };
 
-export type ProgressiveRelayoutSessionApi = {
-  createProgressiveRelayoutSession: ProgressiveRelayoutSessionCreateFn;
-};
-
-declare global {
-  var __TiqianProgressiveRelayoutSession: ProgressiveRelayoutSessionApi | undefined;
+export interface ProgressiveRelayoutSessionDeps {
+  custody: CustodyApi;
+  commitPreparedParagraph: CommitPreparedParagraphBundle;
 }
 
-(function () {
-  if (globalThis.__TiqianProgressiveRelayoutSession) return;
-
-  /**
-   * Create a progressive relayout session.
-   *
-   * @param {Object} argument
-   * @param {Array} argument.paragraphs
-   * @param {Object} argument.state
-   * @returns {Object}
-   */
-  function createProgressiveRelayoutSession(argument: SessionArgument): ProgressiveRelayoutSession {
+/**
+ * Open a progressive relayout session for one run.
+ *
+ * @param {Object} deps
+ * @param {Object} argument
+ * @param {Array} argument.paragraphs
+ * @param {Object} argument.state
+ * @returns {Object}
+ */
+export function openProgressiveRelayoutSession(deps: ProgressiveRelayoutSessionDeps, argument: SessionArgument): ProgressiveRelayoutSession {
     const paragraphs = argument.paragraphs.slice();
     const state = argument.state;
     const snapshots = new Map<TrackedParagraph, CustodySnapshot>();
@@ -86,7 +77,7 @@ declare global {
       if (preparation.kind === 'unchanged') {
         return;
       }
-      const custody = globalThis.__TiqianCustody!;
+      const custody = deps.custody;
       if (preparation.kind === 'unsupported') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
         unsupported.push([paragraph, preparation]);
@@ -95,19 +86,21 @@ declare global {
       }
       if (preparation.kind === 'ready') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
-        const metadata = globalThis.__TiqianPreparedMetadata!;
-        const commitPreparedParagraph = globalThis.__TiqianCommitPreparedParagraph!.commitPreparedParagraph;
-        const result: CommitResult = commitPreparedParagraph({
-          ffi: state.ffi as EngineFfiFacade,
-          paragraph: paragraph,
-          preparation: preparation,
-          options: state.options,
-          browserFallback: state.browserFallback,
-          onExactPreparedDomFallback: state.onDisableExactPreparedDom,
-          semanticReplayJson: metadata.preparedSemanticReplayJson(paragraph.lowered),
-          inlineObjectMetaJson: metadata.preparedInlineObjectMetaJson(paragraph.lowered),
-          cjkStrongSemanticsJson: metadata.preparedCjkStrongSemanticsJson(paragraph.lowered),
-        });
+        const commitPreparedParagraph = deps.commitPreparedParagraph.commitPreparedParagraph;
+        const result: CommitResult = commitPreparedParagraph(
+          { custody: deps.custody },
+          {
+            ffi: state.ffi as EngineFfiFacade,
+            paragraph: paragraph,
+            preparation: preparation,
+            options: state.options,
+            browserFallback: state.browserFallback,
+            onExactPreparedDomFallback: state.onDisableExactPreparedDom,
+            semanticReplayJson: preparedSemanticReplayJson(paragraph.lowered),
+            inlineObjectMetaJson: preparedInlineObjectMetaJson(paragraph.lowered),
+            cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(paragraph.lowered),
+          }
+        );
         if (result.kind === 'success') {
           paragraph.lastMeasure = result.measure;
           successful.push([paragraph, result.measure]);
@@ -153,7 +146,7 @@ declare global {
           issue.reportToConsole = true;
         }
         state.issues.push(issue);
-        globalThis.__TiqianLifecycle!.reportIssue(issue as CapabilityIssueRecord);
+        reportIssue(issue as CapabilityIssueRecord);
       }
     }
 
@@ -170,7 +163,7 @@ declare global {
         state.issues.push(stateIssuesBefore[is]);
       }
       const snapshotsArray = Array.from(snapshots.values());
-      const results = globalThis.__TiqianCustody!.rollback(snapshotsArray);
+      const results = deps.custody.rollback(snapshotsArray);
       const paragraphBySource = new Map<Element, TrackedParagraph>();
       for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);
@@ -193,8 +186,3 @@ declare global {
       stale: false,
     };
   }
-
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: createProgressiveRelayoutSession,
-  };
-})();

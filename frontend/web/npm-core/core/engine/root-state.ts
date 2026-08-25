@@ -1,31 +1,36 @@
 // RootState maintenance for the enhance pipeline (TsHost runtime port,
 // Slice 5). Ports the Kotlin RootState data class and its state methods from
 // WebEnhancer.kt (lines 206-272, 454-489) together with the engine-state and
-// argument descriptors from WebEnhancerTsHost.kt (lines 225-270). The TS
-// engine entry (Slice 6) binds the ffi facade once at startup.
+// argument descriptors from WebEnhancerTsHost.kt (lines 225-270).
 //
-// Consumes __TiqianLifecycle, __TiqianEligibility, and the canvasRuntime
-// factories from canvas-runtime.js.
-//
-// Plain script, no exports: running it installs globalThis.__TiqianRootState.
-// Two consumers share this file as the single source of truth: the npm host
-// (importing it for the side effect) and the Kotlin runtime bundle, into
-// which a future gradle bridge task will embed this source verbatim. Double
-// installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals. Use var
-// declarations.
+// Stateful module: createRootState(deps) closes over the font-families and
+// browser-metrics-bridge factories and calls the eligibility
+// shouldTryParagraph predicate directly. The engine bootstrap constructs one
+// instance and binds the ffi facade through it; tests construct one with
+// fakes. The per-root state registries (WeakMap) and the bound ffi facade are
+// instance state, never module state.
 
-// Ambient global declarations pulled in via import type from owner modules.
 import type { BrowserMetricsBridgeInstance } from "./browser-metrics-bridge.js";
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { CanvasContextLike } from "./canvas-metrics.js";
 import type { CanvasShapingEnv, ProbeElementLike } from "./canvas-shaping.js";
 import type { EnhanceOptions, ResolvedEnhanceOptions } from "./lifecycle.js";
+import {
+  allowsSnapshotExactLayout,
+  conformingExactFontSessionId,
+  optionsFromJs,
+  withoutExactFontSession,
+  withRootDefaults,
+} from "./lifecycle.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
-import { canvasRuntime } from "./canvas-runtime.js";
+import { createFontFamilies } from "./canvas-fonts.js";
+import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
+import { shouldTryParagraph } from "./eligibility.js";
+
+export interface RootStateDeps {
+  createFontFamilies: typeof createFontFamilies;
+  createBrowserMetricsBridge: typeof createBrowserMetricsBridge;
+}
 
 // Descriptor returned by activeExactSessionDescriptor: a conforming snapshot
 // session id, or null when the active options lower the session.
@@ -149,26 +154,20 @@ export type RootStateApi = {
   publishState: RootStatePublishFn;
 };
 
-declare global {
-  var __TiqianRootState: RootStateApi | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianRootState) return;
-
-  var EXACT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
-  var ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
-  var CAPABILITY_DETAIL_LIMIT: number = 512;
+export function createRootState(deps: RootStateDeps): RootStateApi {
+  const EXACT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
+  const ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
+  const CAPABILITY_DETAIL_LIMIT: number = 512;
 
   // DetachedRootWeakOwnership: navigation can discard a rendered article
   // without reconstructing its semantic DOM. Weak ownership retains the
   // source fragments only if a host later reconnects that exact element.
-  var states = new WeakMap<Element, RootState>();
+  const states = new WeakMap<Element, RootState>();
 
   // The ffi facade the TS orchestrators consume. The Kotlin side owns it as
-  // the module-level tsFfiFacade val; here the TS engine entry binds it once
+  // the module-level tsFfiFacade val; here the engine entry binds it once
   // at startup and tests bind a fake.
-  var ffi: EngineFfiFacade | null = null;
+  let ffi: EngineFfiFacade | null = null;
 
   function bindFfi(bound: EngineFfiFacade): void {
     ffi = bound;
@@ -184,7 +183,7 @@ declare global {
   // the closest guard keeps fake elements honest.
   function belongsToRootScope(paragraph: Element, root: Element, selector: string): boolean {
     if (!paragraph.closest) return true;
-    var owner = paragraph.closest(selector);
+    const owner = paragraph.closest(selector);
     return !owner || owner === root || !root.contains(owner);
   }
 
@@ -194,13 +193,12 @@ declare global {
   // child <p> changes the container's live width/measure, which
   // used to roll back every valid child as a false stale job.
   function paragraphCandidates(root: Element, selector: string): Element[] {
-    var nodes = root.querySelectorAll(selector);
-    var eligibility = globalThis.__TiqianEligibility!;
-    var result = [];
-    for (var i = 0; i < nodes.length; i += 1) {
-      var paragraph = nodes[i];
+    const nodes = root.querySelectorAll(selector);
+    const result = [];
+    for (let i = 0; i < nodes.length; i += 1) {
+      const paragraph = nodes[i];
       if (belongsToRootScope(paragraph, root, ROOT_SELECTOR) &&
-          eligibility.shouldTryParagraph(paragraph)) {
+          shouldTryParagraph(paragraph)) {
         result.push(paragraph);
       }
     }
@@ -227,17 +225,17 @@ declare global {
   // adapts the canvas shaper and metrics resolver to the two JSON callbacks
   // of precomputeParagraphWithBrowserMetrics. Built once per root.
   function buildBrowserFallbackDescriptor(resolved: ResolvedEnhanceOptions): BrowserFallbackDescriptor {
-    var fontFamilies = resolved.fontFamilies;
+    const fontFamilies = resolved.fontFamilies;
     // buildFontFamiliesConfigJs renames the resolved monospace family to the
     // latinMonospace key that canvas-fonts.js reads for the LatinText role.
-    var fonts = canvasRuntime.createFontFamilies({
+    const fonts = deps.createFontFamilies({
       cjk: fontFamilies.cjk,
       latin: fontFamilies.latin,
       latinMonospace: fontFamilies.monospace,
       cjkSerif: fontFamilies.cjkSerif,
       latinSerif: fontFamilies.latinSerif,
     });
-    var bridge = canvasRuntime.createBrowserMetricsBridge({
+    const bridge = deps.createBrowserMetricsBridge({
       fonts: fonts,
       cjkDashCapability: resolved.cjkDashCapability,
       env: browserMetricsEnv(),
@@ -247,15 +245,14 @@ declare global {
 
   function createRootState(root: Element, optionsBag: Record<string, unknown>): RootState {
     root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
-    var lifecycle = globalThis.__TiqianLifecycle!;
-    var canonical = lifecycle.optionsFromJs(optionsBag);
+    const canonical = optionsFromJs(optionsBag);
     // allowsSnapshotExactLayout ? options : options.copy(exactFontSession =
     // null): an exact snapshot only reproduces the host with root defaults,
     // so configured typography lowers the exact font session.
-    var exactEligible = lifecycle.allowsSnapshotExactLayout(canonical)
+    const exactEligible = allowsSnapshotExactLayout(canonical)
       ? canonical
-      : lifecycle.withoutExactFontSession(canonical);
-    var resolved = lifecycle.withRootDefaults(exactEligible, root);
+      : withoutExactFontSession(canonical);
+    const resolved = withRootDefaults(exactEligible, root);
     return newRootState(root, resolved);
   }
 
@@ -263,7 +260,7 @@ declare global {
     // Re-entry path for relayout/refresh: the canonical options already came
     // from optionsFromJs output shape, so the snapshot gate is skipped.
     root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
-    var resolved = globalThis.__TiqianLifecycle!.withRootDefaults(canonicalOptions, root);
+    const resolved = withRootDefaults(canonicalOptions, root);
     return newRootState(root, resolved);
   }
 
@@ -303,14 +300,14 @@ declare global {
 
   function activeTsOptions(state: RootState): EnhanceOptions {
     if (state.preparedDomEnabled) return state.options;
-    return globalThis.__TiqianLifecycle!.withoutExactFontSession(state.options);
+    return withoutExactFontSession(state.options);
   }
 
   // Kotlin resolves the descriptor off activeOptions().conformingExactFont
   // SessionId(), so once prepared DOM is disabled the session is always null;
   // the TS options lane reads the same active options here.
   function activeExactSessionDescriptor(state: RootState): ExactSessionDescriptor | null {
-    var sessionId = globalThis.__TiqianLifecycle!.conformingExactFontSessionId(activeTsOptions(state));
+    const sessionId = conformingExactFontSessionId(activeTsOptions(state));
     if (sessionId == null) return null;
     return { sessionId: sessionId };
   }
@@ -356,26 +353,26 @@ declare global {
   }
 
   function strandedSourceParagraphs(root: Element, state: RootState): Element[] {
-    var candidates = paragraphCandidates(root, state.options.paragraphSelector);
+    const candidates = paragraphCandidates(root, state.options.paragraphSelector);
     if (state.paragraphs.length === 0) return candidates;
-    var renderedSources = new Set();
-    for (var i = 0; i < state.paragraphs.length; i += 1) {
+    const renderedSources = new Set();
+    for (let i = 0; i < state.paragraphs.length; i += 1) {
       renderedSources.add(state.paragraphs[i].source);
     }
-    var result = [];
-    for (var j = 0; j < candidates.length; j += 1) {
+    const result = [];
+    for (let j = 0; j < candidates.length; j += 1) {
       if (!renderedSources.has(candidates[j])) result.push(candidates[j]);
     }
     return result;
   }
 
   function observableSnapshotCount(root: Element): number {
-    var value = Number(root.getAttribute("data-tiqian-snapshot-count"));
+    const value = Number(root.getAttribute("data-tiqian-snapshot-count"));
     return Number.isSafeInteger(value) && value > 0 ? value : 0;
   }
 
   function publishState(state: RootState, keepEmpty?: boolean): void {
-    var hasWork = state.paragraphs.length > 0 || state.issues.length > 0;
+    const hasWork = state.paragraphs.length > 0 || state.issues.length > 0;
     if (!hasWork && !keepEmpty) {
       deleteState(state.root);
       state.root.removeAttribute("data-tiqian-enhanced");
@@ -396,7 +393,7 @@ declare global {
     }
   }
 
-  globalThis.__TiqianRootState = {
+  return {
     bindFfi: bindFfi,
     currentFfi: currentFfi,
     createRootState: createRootState,
@@ -415,4 +412,4 @@ declare global {
     strandedSourceParagraphs: strandedSourceParagraphs,
     publishState: publishState,
   };
-})();
+}

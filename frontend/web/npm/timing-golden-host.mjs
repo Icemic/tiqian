@@ -63,7 +63,7 @@ export const FRAME_STEP_MS = 16;
 export const ELEMENT_DRIVE_GLOBALS = [
   "document", "HTMLElement", "customElements", "getComputedStyle",
   "MutationObserver", "window", "CustomEvent", "ResizeObserver",
-  "TiqianWeb", "fetch", "__tiqianCopyHandlerInstalled", "IntersectionObserver",
+  "TiqianWeb", "fetch", "IntersectionObserver",
 ];
 
 const typography = {
@@ -374,7 +374,6 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   globalThis.ResizeObserver = FakeResizeObserver;
   globalThis.window = { addEventListener() {}, removeEventListener() {} };
   delete globalThis.TiqianWeb;
-  delete globalThis.__tiqianCopyHandlerInstalled;
   delete globalThis.IntersectionObserver;
 
   // rAF accounting wrapper so we can detect frame-loop quiescence.

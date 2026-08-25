@@ -1,9 +1,9 @@
 import {
+  copyInstaller,
   currentTiqianRuntime,
   loadTiqianRuntime,
   withTiqianRuntime,
 } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
-import "@tiqian/prose-core/core/utils/copy.js";
 import { prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
 import { restoreAdoptedSnapshot } from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
 import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
@@ -76,7 +76,7 @@ interface TiqianCjkDashPrepareOptions extends TiqianWebOptions {
 const rootGenerations = new WeakMap<HTMLElement, number>();
 const rootFontSessions = new WeakMap<HTMLElement, ExactFontSessionEntry>();
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
-globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
+copyInstaller().install(globalThis.document);
 
 function supersedeRootWork(root: HTMLElement): number {
   const generation = (rootGenerations.get(root) ?? 0) + 1;

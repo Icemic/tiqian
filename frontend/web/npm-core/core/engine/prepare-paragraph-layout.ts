@@ -6,22 +6,14 @@
 // shared ffi wire, runs the exact-session or browser-metric layout call, and
 // re-checks the plan envelope facts into three named capability verdicts.
 //
-// Plain script, no exports: running it installs
-// globalThis.__TiqianPrepareParagraphLayout. Two consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect)
-// and the Kotlin runtime bundle, into which a future gradle bridge task will
-// embed this source verbatim. Double installation is guarded.
-//
-// Embedding constraint: the generator wraps this file in a Kotlin raw string,
-// so the source must contain no dollar sign and no triple double-quote
-// sequence. Use string concatenation, never template literals. The module is
-// self-contained: ffi and the measure/renderer globals are injected by the
-// caller or read from globalThis.
+// Stateless module: prepareParagraphLayout() is exported directly and reads
+// the installed prepared-DOM renderer from globalThis inside the body.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
+import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 
 interface WireArguments {
   text: string;
@@ -124,20 +116,7 @@ interface PrepareParagraphLayoutInvocation {
   ignoreUnchangedMeasure?: boolean;
 }
 
-type PrepareParagraphLayoutFn = (ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation) => PrepareLayoutResult;
-
-export interface TiqianPrepareParagraphLayoutGlobal {
-  prepareParagraphLayout: PrepareParagraphLayoutFn;
-}
-
-declare global {
-  var __TiqianPrepareParagraphLayout: TiqianPrepareParagraphLayoutGlobal | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianPrepareParagraphLayout) return;
-
-  // Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
+// Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
   // records join by U+001E, fields by U+001D, families by U+001F. Twin of the
   // worker-request.js serializers, which use the same values.
   const PREPARE_RECORD_SEPARATOR = '\u001e';
@@ -311,7 +290,7 @@ declare global {
    * @param {Object} argument
    * @returns {Object}
    */
-  function prepareParagraphLayout(ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
+  export function prepareParagraphLayout(ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
     const paragraph = argument.paragraph;
     const options = argument.options;
     const exactSession = argument.exactSession;
@@ -321,12 +300,11 @@ declare global {
     const lowered = paragraph.lowered;
     const element = paragraph.source;
 
-    const responsive = globalThis.__TiqianResponsiveMeasure!;
     const width = widthOverride != null
       ? widthOverride
-      : responsive.sourceParagraphWidth(paragraph.source);
+      : sourceParagraphWidth(paragraph.source);
     const fontSize = lowered.textStyle.fontSize;
-    const measure = responsive.effectiveLineMeasure(width, fontSize);
+    const measure = effectiveLineMeasure(width, fontSize);
 
     if (!ignoreUnchangedMeasure && paragraph.lastMeasure === measure) {
       return { kind: 'unchanged' };
@@ -518,10 +496,3 @@ declare global {
       exactFontSessionUsed: exactFontSessionUsed,
     };
   }
-
-  globalThis.__TiqianPrepareParagraphLayout = {
-    prepareParagraphLayout: prepareParagraphLayout,
-  };
-})();
-
-export {};

@@ -1,11 +1,7 @@
 // Markdown paragraph lowering for the enhance pipeline.
 //
-// ES module exporting lower(paragraph, options, helpers) as the single
-// entry point. worker-request and process-paragraph import the function
-// directly; the ts-runtime loader imports the module to keep engine
-// initialization in load order.
-//
-// The lowerer returns a plain object carrying either the lowered paragraph
+// ES module exporting lowerMarkdown() as the single entry point. The lowerer
+// returns a plain object carrying either the lowered paragraph
 // ({ ok: true, lowered: ... }) or the first capability issue it hit
 // ({ ok: false, issue: { name, detail } }).
 
@@ -21,20 +17,9 @@ import type {
   DomSourceSpan,
   LineBreakSpan,
 } from "./lowered-paragraph.js";
-import type { EligibilityGlobal } from "./eligibility.js";
-
-type IsNonTextInlineTagFn = (tag: string) => boolean;
-type IsOpaqueInlineDisplayFn = (display: string) => boolean;
-type IsOpaqueInlineLevelDisplayFn = (display: string) => boolean;
+import { isNonTextInlineTag, isOpaqueInlineDisplay, isOpaqueInlineLevelDisplay } from "./eligibility.js";
 
 // --- Internal types (module-scoped) ---
-
-/** Eligibility functions resolved from globalThis or local fallback tables. */
-interface EligibilityFunctions {
-  isNonTextInlineTag: IsNonTextInlineTagFn;
-  isOpaqueInlineDisplay: IsOpaqueInlineDisplayFn;
-  isOpaqueInlineLevelDisplay: IsOpaqueInlineLevelDisplayFn;
-}
 
 /** White-space mode string constant. */
 type WhiteSpaceMode = string;
@@ -146,62 +131,6 @@ const INLINE_OBJECT_REPLACEMENT_CHAR = "\uFFFC";
 const MODE_COLLAPSE = "collapse";
 const MODE_COLLAPSE_PRESERVE_BREAKS = "collapse-preserve-breaks";
 const MODE_PRESERVE = "preserve";
-
-// FallbackLocalEligibilityTable: the lowering engine classifies opaque
-// inline candidates through globalThis.__TiqianEligibility when that module
-// is installed (the Kotlin runtime installs it on first use). A standalone
-// import in a foreign host may have no eligibility engine yet, so the tag
-// and display tables are mirrored here with the same membership rules.
-const NON_TEXT_INLINE_TAGS = new Set([
-  "AREA",
-  "AUDIO",
-  "BUTTON",
-  "CANVAS",
-  "EMBED",
-  "IFRAME",
-  "IMG",
-  "INPUT",
-  "MATH",
-  "OBJECT",
-  "PICTURE",
-  "SCRIPT",
-  "SELECT",
-  "STYLE",
-  "SVG",
-  "TEMPLATE",
-  "TEXTAREA",
-  "VIDEO",
-]);
-const OPAQUE_INLINE_DISPLAYS = new Set(["inline-block", "inline-flex", "inline-grid"]);
-const OPAQUE_INLINE_LEVEL_DISPLAYS = new Set([
-  "inline-block",
-  "inline-flex",
-  "inline-grid",
-  "inline",
-]);
-
-function resolveEligibilityFunctions(): EligibilityFunctions {
-  const eligibility = globalThis.__TiqianEligibility;
-  if (
-    eligibility &&
-    typeof eligibility.isNonTextInlineTag === "function" &&
-    typeof eligibility.isOpaqueInlineDisplay === "function" &&
-    typeof eligibility.isOpaqueInlineLevelDisplay === "function"
-  ) {
-    return eligibility as EligibilityFunctions;
-  }
-  return {
-    isNonTextInlineTag: function (tag: string): boolean {
-      return typeof tag === "string" && NON_TEXT_INLINE_TAGS.has(tag.toUpperCase());
-    },
-    isOpaqueInlineDisplay: function (display: string): boolean {
-      return typeof display === "string" && OPAQUE_INLINE_DISPLAYS.has(display.trim().toLowerCase());
-    },
-    isOpaqueInlineLevelDisplay: function (display: string): boolean {
-      return typeof display === "string" && OPAQUE_INLINE_LEVEL_DISPLAYS.has(display.trim().toLowerCase());
-    },
-  };
-}
 
 function computedStyle(element: Element, property: string): string {
   return globalThis.getComputedStyle(element).getPropertyValue(property);
@@ -943,7 +872,6 @@ interface LoweringBuilderInstance {
   helpers: NormalizedInlineShapingHelpers;
   issue: LoweringIssue;
   inlineShapingParagraphValues: string[];
-  eligibility: EligibilityFunctions;
   text: string;
   spans: TextSpan[];
   decorations: DecorationSpan[];
@@ -1009,7 +937,6 @@ function LoweringBuilder(
   this.helpers = helpers;
   this.issue = issue;
   this.inlineShapingParagraphValues = collectShapingValues(sourceElement, helpers.inlineShapingProperties);
-  this.eligibility = resolveEligibilityFunctions();
   this.text = "";
   this.spans = [];
   this.decorations = [];
@@ -1064,11 +991,11 @@ LoweringBuilder.prototype.appendElement = function (this: LoweringBuilder, eleme
     return true;
   }
   const display = computedStyle(element, "display").trim().toLowerCase();
-  const opaqueCandidate = this.eligibility.isNonTextInlineTag(tag) ||
+  const opaqueCandidate = isNonTextInlineTag(tag) ||
     tag.indexOf("-") !== -1 ||
-    this.eligibility.isOpaqueInlineDisplay(display);
+    isOpaqueInlineDisplay(display);
   if (opaqueCandidate) {
-    if (!this.eligibility.isOpaqueInlineLevelDisplay(display)) {
+    if (!isOpaqueInlineLevelDisplay(display)) {
       return this.unsupported(
         "UnsupportedInlineFormattingContext",
         tag.toLowerCase() + ":" + display,
@@ -1358,17 +1285,11 @@ LoweringBuilder.prototype.build = function (this: LoweringBuilder): LoweredParag
   };
 };
 
-type MarkdownLowerFn = (
-  paragraph: Element,
-  options: LoweringOptions,
-  helpers: InlineShapingHelpers,
-) => LoweringResult;
-
 /**
  * Lower a paragraph element against the live DOM and return either the
  * lowered paragraph or the first capability issue.
  */
-function lowerMarkdown(paragraph: Element, options: LoweringOptions, helpers: InlineShapingHelpers): LoweringResult {
+export function lowerMarkdown(paragraph: Element, options: LoweringOptions, helpers: InlineShapingHelpers): LoweringResult {
   options = options as LoweringOptions || {};
   const locale = resolveLocale(options);
   const classifyRole = (helpers && typeof helpers.classifyRole === "function")
@@ -1401,13 +1322,4 @@ function lowerMarkdown(paragraph: Element, options: LoweringOptions, helpers: In
     return { ok: false, issue: { name: issue.name, detail: issue.detail } };
   }
   return { ok: true, lowered: lowered };
-}
-
-// Test seam in the setEngineOverride shape: node's test runner cannot swap an
-// ES module binding, so the orchestration suites inject a fake lowerer here.
-// Named-import bindings are live, so every consumer sees the swap.
-export let lower: MarkdownLowerFn = lowerMarkdown;
-
-export function setMarkdownLoweringForTest(replacement: MarkdownLowerFn | null): void {
-  lower = replacement === null ? lowerMarkdown : replacement;
 }

@@ -381,8 +381,7 @@ function isNewerPreparedDomBridge(candidate: PreparedDomRendererApi | PreparedDo
 
 function createPreparedDomBridgeCoordinator(initialBridge: PreparedDomRendererApi) {
   let activeBridge = initialBridge;
-  let coordinator: PreparedDomBridgeCoordinator;
-  coordinator = Object.freeze({
+  const coordinator: PreparedDomBridgeCoordinator = Object.freeze({
     coordinatorVersion: PREPARED_DOM_COORDINATOR_VERSION,
     install(candidate: PreparedDomRendererApi) {
       if (isNewerPreparedDomBridge(candidate, activeBridge)) activeBridge = candidate;

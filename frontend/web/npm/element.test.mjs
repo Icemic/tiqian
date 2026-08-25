@@ -66,7 +66,6 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     "clearTimeout",
     "window",
     "TiqianWeb",
-    "__tiqianCopyHandlerInstalled",
   ];
   const globals = preserveGlobals(globalNames);
   const documentListeners = new Map();
@@ -207,7 +206,6 @@ test("disabled is reversible and cancels stale initial font work", async () => {
       addEventListener() {},
       removeEventListener() {},
     };
-    delete globalThis.__tiqianCopyHandlerInstalled;
 
     const module = await import(`./element.js?font-lifecycle=${Date.now()}`);
     const element = new module.TiqianProseElement();

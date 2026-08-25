@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/prepared-metadata.js";
-
-const metadata = globalThis.__TiqianPreparedMetadata;
+import {
+  preparedSemanticReplayJson,
+  preparedInlineObjectMetaJson,
+  preparedCjkStrongSemanticsJson,
+} from "./core/engine/prepared-metadata.js";
 
 test("1. Empty lowered yields '[]' for all three metadata builders", () => {
   const lowered = {
@@ -11,9 +13,9 @@ test("1. Empty lowered yields '[]' for all three metadata builders", () => {
     domInlineObjects: [],
   };
 
-  assert.equal(metadata.preparedSemanticReplayJson(lowered), "[]");
-  assert.equal(metadata.preparedInlineObjectMetaJson(lowered), "[]");
-  assert.equal(metadata.preparedCjkStrongSemanticsJson(lowered), "[]");
+  assert.equal(preparedSemanticReplayJson(lowered), "[]");
+  assert.equal(preparedInlineObjectMetaJson(lowered), "[]");
+  assert.equal(preparedCjkStrongSemanticsJson(lowered), "[]");
 });
 
 test("2. preparedSemanticReplayJson: sourceSpan pairs yield exact JSON string with lowercased tag names and depth as order", () => {
@@ -38,7 +40,7 @@ test("2. preparedSemanticReplayJson: sourceSpan pairs yield exact JSON string wi
     '[{"start":0,"end":5,"tagName":"em","sourceIndex":0,"order":1},' +
     '{"start":5,"end":10,"tagName":"strong","sourceIndex":1,"order":2}]';
 
-  assert.equal(metadata.preparedSemanticReplayJson(lowered), expected);
+  assert.equal(preparedSemanticReplayJson(lowered), expected);
 });
 
 test("3. preparedInlineObjectMetaJson: domInlineObjects yield exact JSON string", () => {
@@ -53,7 +55,7 @@ test("3. preparedInlineObjectMetaJson: domInlineObjects yield exact JSON string"
     '[{"start":2,"end":3,"marginRight":8.5},' +
     '{"start":7,"end":8,"marginRight":0}]';
 
-  assert.equal(metadata.preparedInlineObjectMetaJson(lowered), expected);
+  assert.equal(preparedInlineObjectMetaJson(lowered), expected);
 });
 
 test("4. preparedCjkStrongSemanticsJson: spans without cjkStrongBaseWeight are skipped while weighted spans are emitted", () => {
@@ -92,5 +94,5 @@ test("4. preparedCjkStrongSemanticsJson: spans without cjkStrongBaseWeight are s
     '[{"start":3,"end":7,"weight":700},' +
     '{"start":12,"end":15,"weight":900}]';
 
-  assert.equal(metadata.preparedCjkStrongSemanticsJson(lowered), expected);
+  assert.equal(preparedCjkStrongSemanticsJson(lowered), expected);
 });

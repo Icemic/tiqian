@@ -1,81 +1,114 @@
-// Unit tests for the content-reconcile engine module installed by ts-runtime.
-// npm-core/core/engine/content-reconcile.js installs __TiqianContentReconcile; these
-// tests drive that global directly.
+// Unit tests for the content-reconcile engine module behind ts-runtime.
+// npm-core/core/engine/content-reconcile.js exports the four named functions;
+// these tests call them with a real createCustody() instance and drive the
+// custody graph directly, so no full runtime boot is required.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import "@tiqian/prose-core/core/engine/content-reconcile.js";
+import { cleanupMounted, mount } from "./runtime-host.mjs";
 import {
-  cleanupMounted,
-  loadHostRuntime,
-  mount,
-  testOptions,
-} from "./runtime-host.mjs";
+  classifyReconcile,
+  prepareTrackedParagraphForRelowering,
+  probeContentDrift,
+  stripEngineMarkupFromStrandedParagraph,
+} from "@tiqian/prose-core/core/engine/content-reconcile.js";
+import { createCustody } from "@tiqian/prose-core/core/engine/custody.js";
 
-test("contentReconcileBridge_installedByRuntimeBoot", async () => {
-  await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
-  assert.ok(bridge, "runtime boot must install globalThis.__TiqianContentReconcile");
-  for (const name of [
-    "probeContentDrift",
-    "classifyReconcile",
-    "prepareTrackedParagraphForRelowering",
-    "stripEngineMarkupFromStrandedParagraph",
+const custody = createCustody();
+const deps = { custody };
+
+// Move a mounted paragraph into the enhanced state: take the host children
+// into custody, publish the fragment, write one engine-owned rendered child
+// (through the engine-write suspension), and stamp the rendered output.
+function enhanceParagraph(paragraph, t) {
+  t.after(cleanupMounted);
+  custody.begin(
+    paragraph,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    null,
+  );
+  custody.take(paragraph, null);
+  custody.commit(paragraph, null);
+  paragraph.__tqCustodyEngineWrites = 1;
+  const rendered = globalThis.document.createElement("span");
+  rendered.textContent = "rendered";
+  paragraph.appendChild(rendered);
+  paragraph.__tqCustodyEngineWrites = 0;
+  custody.stampRendered(paragraph);
+  return rendered;
+}
+
+test("contentReconcileBridge_constructsFullApiSurface", () => {
+  for (const fn of [
+    probeContentDrift,
+    classifyReconcile,
+    prepareTrackedParagraphForRelowering,
+    stripEngineMarkupFromStrandedParagraph,
   ]) {
-    assert.equal(typeof bridge[name], "function", "missing bridge method: " + name);
+    assert.equal(typeof fn, "function");
   }
 });
 
-test("contentReconcileProbe_countsDeadDriftAndCustody", async (t) => {
-  t.after(cleanupMounted);
-  const TiqianWeb = await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
-
-  const unenhancedRoot = mount(`
+test("contentReconcileProbe_countsDeadDriftAndCustody", (t) => {
+  const root = mount(`
     <div data-tiqian-root="true" style="width: 320px">
-      <p style="font-size: 18px; line-height: 30px">未增强根</p>
+      <p style="font-size: 18px; line-height: 30px">enhanced drift probe</p>
     </div>
   `);
   assert.equal(
-    bridge.probeContentDrift([]),
+    probeContentDrift(deps,[]),
     '{"unknown":0,"drifted":0,"dead":0,"custody":0}',
   );
 
-  const enhancedRoot = mount(`
-    <div data-tiqian-root="true" style="width: 320px">
-      <p style="font-size: 18px; line-height: 30px">增强根后测试漂移</p>
-    </div>
-  `);
-  assert.equal(TiqianWeb.enhance(enhancedRoot, testOptions()), 1);
-  const paragraph = enhancedRoot.querySelector("p");
-  const firstChild = paragraph.firstChild;
-  assert.ok(firstChild);
-  paragraph.removeChild(firstChild);
+  const paragraph = root.querySelector("p");
+  const rendered = enhanceParagraph(paragraph, t);
+  assert.ok(rendered);
+  paragraph.removeChild(rendered);
 
-  const result = JSON.parse(bridge.probeContentDrift([paragraph]));
+  const result = JSON.parse(probeContentDrift(deps,[paragraph]));
   assert.deepEqual(result, {
     unknown: 0,
     drifted: 1,
     dead: 0,
     custody: 0,
   });
+
+  // A detached tracked source counts as dead.
+  const detached = mount(`
+    <div data-tiqian-root="true"><p>detached paragraph</p></div>
+  `).querySelector("p");
+  detached.remove();
+  const deadResult = JSON.parse(probeContentDrift(deps,[detached]));
+  assert.deepEqual(deadResult, {
+    unknown: 0,
+    drifted: 0,
+    dead: 1,
+    custody: 0,
+  });
 });
 
-test("contentReconcileProbe_staysReadOnly", async (t) => {
-  t.after(cleanupMounted);
-  const TiqianWeb = await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
-
+test("contentReconcileProbe_staysReadOnly", (t) => {
   const root = mount(`
     <div data-tiqian-root="true" style="width: 320px">
-      <p style="font-size: 18px; line-height: 30px">探针只读测试段落</p>
+      <p style="font-size: 18px; line-height: 30px">read-only probe paragraph</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
   const paragraph = root.querySelector("p");
+  enhanceParagraph(paragraph, t);
   const beforeNodes = Array.from(paragraph.childNodes);
 
-  bridge.probeContentDrift([paragraph]);
+  probeContentDrift(deps,[paragraph]);
 
   const afterNodes = Array.from(paragraph.childNodes);
   assert.equal(afterNodes.length, beforeNodes.length);
@@ -84,10 +117,8 @@ test("contentReconcileProbe_staysReadOnly", async (t) => {
   }
 });
 
-test("contentReconcileClassify_jsonVerdicts", async (t) => {
+test("contentReconcileClassify_jsonVerdicts", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
 
   const emptySpec = {
     trackedSources: [],
@@ -95,7 +126,7 @@ test("contentReconcileClassify_jsonVerdicts", async (t) => {
     strandedCandidates: [],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const emptyVerdict = bridge.classifyReconcile(emptySpec);
+  const emptyVerdict = classifyReconcile(deps,emptySpec);
   assert.equal(emptyVerdict.outcome, "idle");
   assert.deepEqual(emptyVerdict.drifted, []);
   assert.deepEqual(emptyVerdict.custody, []);
@@ -117,8 +148,8 @@ test("contentReconcileClassify_jsonVerdicts", async (t) => {
 
   const root = mount(`
     <div data-tiqian-root="true">
-      <p id="p-stranded">滞留候选段落</p>
-      <p id="p-skipped" data-tiqian-capability-issue="true">跳过候选段落</p>
+      <p id="p-stranded">stranded candidate</p>
+      <p id="p-skipped" data-tiqian-capability-issue="true">skipped candidate</p>
     </div>
   `);
   const pStranded = root.querySelector("#p-stranded");
@@ -130,7 +161,7 @@ test("contentReconcileClassify_jsonVerdicts", async (t) => {
     strandedCandidates: [pStranded, pSkipped],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const verdict = bridge.classifyReconcile(spec);
+  const verdict = classifyReconcile(deps,spec);
   assert.equal(verdict.outcome, "work");
   assert.deepEqual(verdict.drifted, []);
   assert.deepEqual(verdict.custody, []);
@@ -143,45 +174,41 @@ test("contentReconcileClassify_jsonVerdicts", async (t) => {
   );
 });
 
-test("contentReconcilePrepare_restoresShellAndStamps", async (t) => {
-  t.after(cleanupMounted);
-  const TiqianWeb = await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
-  const custody = globalThis.__TiqianCustody;
-
+test("contentReconcilePrepare_restoresShellAndStamps", (t) => {
   const root = mount(`
     <div data-tiqian-root="true" style="width: 320px">
-      <p style="font-size: 18px; line-height: 30px">准备重新 lowering 测试</p>
+      <p style="font-size: 18px; line-height: 30px">prepare relowering paragraph</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
   const paragraph = root.querySelector("p");
+  const rendered = enhanceParagraph(paragraph, t);
 
   assert.ok(paragraph.firstChild);
-  paragraph.removeChild(paragraph.firstChild);
+  paragraph.removeChild(rendered);
   assert.equal(custody.renderedMatches(paragraph), false);
 
-  bridge.prepareTrackedParagraphForRelowering(paragraph);
+  prepareTrackedParagraphForRelowering(deps,paragraph);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(custody.renderedMatches(paragraph), true);
 });
 
-test("contentReconcileStrip_removesEngineMarkup", async (t) => {
+test("contentReconcileStrip_removesEngineMarkup", (t) => {
   t.after(cleanupMounted);
-  const TiqianWeb = await loadHostRuntime();
-  const bridge = globalThis.__TiqianContentReconcile;
-
   const root = mount(`
     <div data-tiqian-root="true" style="width: 320px">
-      <p style="font-size: 18px; line-height: 30px">第一行<br>第二行</p>
+      <p data-tq-rendered="true" data-tq-canonical-plain="true">
+        <span data-tq-hard-break="true" data-tq-src="first">first</span>
+        <br data-tq-engine-break="MandatoryBreak">
+        <span data-tq-copy-ignore="true">hidden</span>
+        second
+      </p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
   root.innerHTML = root.innerHTML;
   const clonedParagraph = root.querySelector("p");
   assert.ok(clonedParagraph);
 
-  bridge.stripEngineMarkupFromStrandedParagraph(clonedParagraph);
+  stripEngineMarkupFromStrandedParagraph(deps,clonedParagraph);
 
   assert.equal(clonedParagraph.querySelectorAll("[data-tq-hard-break]").length, 0);
   assert.ok(clonedParagraph.querySelector("br"), "bare br must exist");

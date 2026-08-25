@@ -3,17 +3,15 @@
 // reporting layer from WebEnhancer.kt and WebEnhancerProgressiveJob.kt into
 // a pure TS module.
 //
-// Consumes __TiqianRootState, __TiqianProgressiveJob,
-// __TiqianProgressiveRelayoutSession, __TiqianPrepareParagraphLayout,
-// __TiqianProcessParagraph, __TiqianLifecycle, __TiqianResponsiveMeasure.
-//
-// Plain script, no exports: running it installs
-// globalThis.__TiqianProgressiveDrivers. Three consumers share this file as
-// the single source of truth: the npm host (importing it for the side effect),
-// the Kotlin runtime bundle, into which a future gradle bridge task will
-// embed this source verbatim, and engine-entry.js which reads the public
-// surface for style gates, job dispatch, and canonical re-entry. Double
-// installation is guarded.
+// Stateless module: enhanceProgressively(deps, ...), relayout(deps, ...),
+// rejectMissingSharedRuntimeStyles(deps, ...) and startProgressiveJob(deps, ...)
+// are named functions that receive the root-state, engine, copy-installer,
+// progressive-job and collaborator deps as an explicit first parameter. The
+// engine bootstrap wires the deps object once, then the engine instance is
+// back-filled into its engine slot; the progressive-relayout-session and
+// process-paragraph deps bundles ride inside. The stateless
+// prepare-paragraph-layout, lifecycle and responsive-measure helpers are
+// imported directly.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -36,34 +34,26 @@ import type {
 } from "./progressive-job.js";
 import type {
   ProgressiveRelayoutSession,
-  ProgressiveRelayoutSessionApi,
+  ProgressiveRelayoutSessionDeps,
 } from "./progressive-relayout-session.js";
-import type { PrepareLayoutResult, TiqianPrepareParagraphLayoutGlobal } from "./prepare-paragraph-layout.js";
-import type { CapabilityIssueRecord, EnhanceOptions, LifecycleApi } from "./lifecycle.js";
-import type { ResponsiveMeasureGlobal } from "./responsive-measure.js";
-import type {} from "../utils/copy.js";
+import { openProgressiveRelayoutSession } from "./progressive-relayout-session.js";
+import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
+import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
+import { reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
 import type { TiqianEngineInstance } from "./engine-entry.js";
-import type { TiqianProcessParagraphGlobal } from "./process-paragraph.js";
+import type { ProcessParagraphDeps } from "./process-paragraph.js";
+import { processParagraph } from "./process-paragraph.js";
+import type { CopyInstaller } from "../utils/copy.js";
+import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
+import { sourceParagraphWidth } from "./responsive-measure.js";
 
-// Public surface installed as globalThis.__TiqianProgressiveDrivers. The
-// enhanceProgressively entry accepts the raw host options bag (or null for a
-// cold-start relayout); the canonical entry takes already-resolved options.
-export interface ProgressiveDriversApi {
-  enhanceProgressively(root: Element, optionsBag: Record<string, unknown> | null): void;
-  enhanceProgressivelyFromCanonical(root: Element, canonicalOptions: EnhanceOptions): void;
-  relayout(root: Element): void;
-  rejectMissingSharedRuntimeStyles(state: RootState, candidates: Element[]): boolean;
-  startProgressiveJob(
-    state: RootState,
-    kind: string,
-    itemCount: number,
-    processItem: ProgressiveDriverProcessItem,
-    onItemsFinished: ProgressiveDriverItemsFinished | null,
-    onFailure: ProgressiveDriverFailure | null,
-    isStale: ProgressiveDriverStaleCheck | null,
-    itemTierIndex: number[] | null,
-    paragraphsByDoc: HTMLElement[] | null,
-  ): void;
+export interface ProgressiveDriversDeps {
+  rootState: RootStateApi;
+  engine: TiqianEngineInstance | null;
+  copyInstaller: CopyInstaller;
+  progressiveJob: ProgressiveJobApi;
+  progressiveRelayoutSession: ProgressiveRelayoutSessionDeps;
+  processParagraph: ProcessParagraphDeps;
 }
 
 // One-argument view of RootStateApi.publishState: the two call sites that
@@ -125,24 +115,16 @@ type ProgressiveDriverEventDetail =
   | EnhanceReadyDetail
   | ProgressiveErrorDetail;
 
-declare global {
-  var __TiqianProgressiveDrivers: ProgressiveDriversApi | undefined;
-}
-
-(function () {
-  if (globalThis.__TiqianProgressiveDrivers) return;
-
-  const CAPABILITY_DETAIL_LIMIT: number = 512;
-  const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreakUnsupported"];
+const CAPABILITY_DETAIL_LIMIT: number = 512;
+const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreakUnsupported"];
 
   // CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width -- for
   // a block fragmented by CSS columns this is the union of every fragment, not
   // a per-fragment measure. Every caller uses it only for coarse >=0.5px drift
   // detection, where the union error is dwarfed by the tolerance (see the ADR
   // 0039 fractional fragment-aware amendment). A caller that needs the widest
-  // live fragment must use elementContentWidth from
-  // npm/core/engine/responsive-measure.js (installed as the responsive measure
-  // bridge) instead.
+  // live fragment must use elementContentWidth from the responsive-measure.js
+  // module instead.
   function elementFragmentBorderBoxInlineSize(element: Element | null): number {
     if (!element) return 0;
     return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
@@ -176,7 +158,7 @@ declare global {
   // package stylesheet for its line strut, reset, and nowrap invariants. The
   // public ESM entry waits for that stylesheet; direct callers must do the
   // same instead of silently painting a second browser-owned layout.
-  function rejectMissingSharedRuntimeStyles(state: RootState, candidates: Element[]): boolean {
+  export function rejectMissingSharedRuntimeStyles(deps: ProgressiveDriversDeps, state: RootState, candidates: Element[]): boolean {
     const ready: string = computedStyle(state.root, "--tq-styles-ready").trim();
     if (ready === "1") return false;
     for (let i = 0; i < candidates.length; i += 1) {
@@ -188,16 +170,17 @@ declare global {
         markerCaptured: false,
       };
       state.issues.push(issue);
-      globalThis.__TiqianLifecycle!.reportIssue(issue as CapabilityIssueRecord);
+      reportIssue(issue as CapabilityIssueRecord);
     }
-    (globalThis.__TiqianRootState!.publishState as PublishRootState)(state);
+    (deps.rootState.publishState as PublishRootState)(state);
     return true;
   }
 
   // startProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
   // startProgressiveJob. Builds the spec and hands it to the progressive job
   // module.
-  function startProgressiveJob(
+  export function startProgressiveJob(
+    deps: ProgressiveDriversDeps,
     state: RootState,
     kind: string,
     itemCount: number,
@@ -218,26 +201,26 @@ declare global {
       onFailure: onFailure || null,
       isStale: stale || null,
       onProgress: function () {
-        globalThis.__TiqianRootState!.publishState(state, true);
+        deps.rootState.publishState(state, true);
       },
       onFinished: function (report) {
-        finishProgressiveJob(state, report);
+        finishProgressiveJob(deps, state, report);
       },
       onFailed: function (failure) {
-        failProgressiveJob(state, failure);
+        failProgressiveJob(deps, state, failure);
       },
       startedAt: Date.now(),
       itemTierIndex: itemTierIndex || null,
       paragraphsByDoc: paragraphsByDoc || null,
-      coordinated: globalThis.__TiqianProgressiveJob!.isAttached(state.root),
+      coordinated: deps.progressiveJob.isAttached(state.root),
     };
-    globalThis.__TiqianProgressiveJob!.startJob(spec);
+    deps.progressiveJob.startJob(spec);
   }
 
   // finishProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
   // finishProgressiveJob.
-  function finishProgressiveJob(state: RootState, report: ProgressiveJobFinishReport): void {
-    (globalThis.__TiqianRootState!.publishState as PublishRootState)(state);
+  function finishProgressiveJob(deps: ProgressiveDriversDeps, state: RootState, report: ProgressiveJobFinishReport): void {
+    (deps.rootState.publishState as PublishRootState)(state);
     dispatchProgressiveSummary(
       state,
       report.kind,
@@ -252,10 +235,10 @@ declare global {
   // failProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
   // failProgressiveJob. Truncates detail, sets error attribute, dispatches
   // error and summary events.
-  function failProgressiveJob(state: RootState, failure: ProgressiveJobFailureReport): void {
+  function failProgressiveJob(deps: ProgressiveDriversDeps, state: RootState, failure: ProgressiveJobFailureReport): void {
     const detail: string = String(failure.detail).slice(0, CAPABILITY_DETAIL_LIMIT);
     state.root.setAttribute("data-tiqian-relayout-error", detail);
-    globalThis.__TiqianRootState!.publishState(state, true);
+    deps.rootState.publishState(state, true);
     dispatchTiqianProgressiveError(
       state.root,
       failure.kind,
@@ -348,8 +331,8 @@ declare global {
   // this module stores in state.options. Relayout restarts arrive with the
   // canonical shape, so fromCanonical routes them through
   // createRootStateFromCanonical instead of re-resolving the bag.
-  function enhanceProgressively(root: Element, optionsBag: Record<string, unknown> | null, kind: string, fromCanonical?: boolean): void {
-    const RS = globalThis.__TiqianRootState!;
+  function enhanceProgressivelyCore(deps: ProgressiveDriversDeps, root: Element, optionsBag: Record<string, unknown> | null, kind: string, fromCanonical?: boolean): void {
+    const RS = deps.rootState;
 
     // Kotlin's private enhanceProgressively installs the copy handler and
     // destroys the root before rebuilding state, and the relayout restarts
@@ -358,12 +341,11 @@ declare global {
     // paragraph, and clears the root attributes; the standalone unit-test
     // world drives this module without an engine entry and keeps the bare
     // job cancel.
-    const copyInstaller = globalThis.__TiqianInstallCopyHandler;
-    if (copyInstaller && globalThis.document) copyInstaller(globalThis.document);
-    if (globalThis.__TiqianEngine) {
-      globalThis.__TiqianEngine.destroy(root as HTMLElement);
+    if (globalThis.document) deps.copyInstaller.install(globalThis.document);
+    if (deps.engine) {
+      deps.engine.destroy(root as HTMLElement);
     } else {
-      globalThis.__TiqianProgressiveJob!.cancelJob(root);
+      deps.progressiveJob.cancelJob(root);
     }
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
@@ -372,7 +354,7 @@ declare global {
     const sourceCandidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
 
     // SharedRuntimeStylesCapabilityGate.
-    if (rejectMissingSharedRuntimeStyles(state, sourceCandidates)) return;
+    if (rejectMissingSharedRuntimeStyles(deps, state, sourceCandidates)) return;
 
     // Work order sorts by viewport distance; itemTierIndex keeps the
     // document-order index of each work item, so a coordinator tier flip
@@ -400,7 +382,7 @@ declare global {
     // Capture responsive measures for staleness detection.
     const capturedMeasures: number[] = new Array(candidates.length);
     for (let m = 0; m < candidates.length; m += 1) {
-      capturedMeasures[m] = globalThis.__TiqianLifecycle!.responsiveSourceMeasure(
+      capturedMeasures[m] = responsiveSourceMeasure(
         candidates[m] as HTMLElement,
         state.options.fontSize
       );
@@ -408,16 +390,17 @@ declare global {
     let stale: boolean = false;
 
     function liveMeasure(index: number): number {
-      return globalThis.__TiqianLifecycle!.responsiveSourceMeasure(
+      return responsiveSourceMeasure(
         candidates[index] as HTMLElement,
         state.options.fontSize
       );
     }
 
     RS.setState(root, state);
-    globalThis.__TiqianRootState!.publishState(state, true);
+    deps.rootState.publishState(state, true);
 
     startProgressiveJob(
+      deps,
       state,
       kind,
       candidates.length,
@@ -427,7 +410,8 @@ declare global {
         if (liveMeasure(index) !== capturedMeasures[index]) {
           stale = true;
         } else {
-          globalThis.__TiqianProcessParagraph!.processParagraph(
+          processParagraph(
+            deps.processParagraph,
             RS.processParagraphArgument(state, candidates[index])
           );
         }
@@ -458,9 +442,9 @@ declare global {
   // relayout
   // ---------------------------------------------------------------------------
 
-  function relayout(root: Element): void {
-    const RS = globalThis.__TiqianRootState!;
-    const PJ = globalThis.__TiqianProgressiveJob!;
+  export function relayout(deps: ProgressiveDriversDeps, root: Element): void {
+    const RS = deps.rootState;
+    const PJ = deps.progressiveJob;
 
     // Branch 1: Enhance is running. Kotlin restarts the interrupted enhance
     // through the two-arg overload, so the kind stays Enhance and the finish
@@ -470,7 +454,7 @@ declare global {
     if (PJ.jobKind(root) === "Enhance") {
       const running = RS.getState(root);
       if (running != null) {
-        enhanceProgressively(root, running.options, "Enhance", true);
+        enhanceProgressivelyCore(deps, root, running.options, "Enhance", true);
         return;
       }
     }
@@ -478,7 +462,7 @@ declare global {
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
     const state = RS.getState(root);
     if (state == null) {
-      enhanceProgressively(root, null, "Relayout");
+      enhanceProgressivelyCore(deps, root, null, "Relayout");
       return;
     }
 
@@ -499,7 +483,7 @@ declare global {
       // the new width. Restore semantic source once, then let viewport-near
       // paragraphs take over atomically in bounded slices just like any other
       // source refresh. state.options is canonical.
-      enhanceProgressively(root, state.options, "Relayout", true);
+      enhanceProgressivelyCore(deps, root, state.options, "Relayout", true);
       return;
     }
 
@@ -547,10 +531,11 @@ declare global {
     // instead of allowing a queue of obsolete widths to replay.
     const widths: number[] = new Array(renderedCount);
     for (let p = 0; p < renderedCount; p += 1) {
-      widths[p] = globalThis.__TiqianResponsiveMeasure!.sourceParagraphWidth(rendered[p].source);
+      widths[p] = sourceParagraphWidth(rendered[p].source);
     }
 
-    const commitSession = globalThis.__TiqianProgressiveRelayoutSession!.createProgressiveRelayoutSession(
+    const commitSession = openProgressiveRelayoutSession(
+      deps.progressiveRelayoutSession,
       RS.sessionArgument(state)
     );
     const rootWidth: number = elementFragmentBorderBoxInlineSize(root);
@@ -565,6 +550,7 @@ declare global {
     }
 
     startProgressiveJob(
+      deps,
       state,
       "Relayout",
       count,
@@ -574,15 +560,16 @@ declare global {
         const mixIndex = workOrder[index];
         if (mixIndex >= renderedCount) {
           // Stranded paragraph: process through the enhance path.
-          globalThis.__TiqianProcessParagraph!.processParagraph(
+          processParagraph(
+            deps.processParagraph,
             RS.processParagraphArgument(state as RootState, stranded[mixIndex - renderedCount])
           );
           return;
         }
         // Rendered paragraph: prepare and commit through the relayout session.
         const paragraph = rendered[mixIndex];
-        const preparation = globalThis.__TiqianPrepareParagraphLayout!.prepareParagraphLayout(
-          globalThis.__TiqianRootState!.currentFfi() as EngineFfiFacade,
+        const preparation = prepareParagraphLayout(
+          deps.rootState.currentFfi() as EngineFfiFacade,
           RS.prepareArgument(
             state as RootState,
             paragraph,
@@ -611,15 +598,14 @@ declare global {
   // public surface
   // ---------------------------------------------------------------------------
 
-  globalThis.__TiqianProgressiveDrivers = {
-    enhanceProgressively: function (root: Element, optionsBag: Record<string, unknown> | null): void {
-      enhanceProgressively(root, optionsBag, "Enhance");
-    },
-    enhanceProgressivelyFromCanonical: function (root: Element, canonicalOptions: EnhanceOptions): void {
-      enhanceProgressively(root, canonicalOptions, "Enhance", true);
-    },
-    relayout: relayout,
-    rejectMissingSharedRuntimeStyles: rejectMissingSharedRuntimeStyles,
-    startProgressiveJob: startProgressiveJob,
-  };
-})();
+  // enhanceProgressively: raw host options bag (or null for a cold-start
+  // relayout). The canonical entry enhanceProgressivelyFromCanonical accepts
+  // already-resolved options and routes them through the canonical state
+  // builder.
+  export function enhanceProgressively(deps: ProgressiveDriversDeps, root: Element, optionsBag: Record<string, unknown> | null): void {
+    enhanceProgressivelyCore(deps, root, optionsBag, "Enhance", false);
+  }
+
+  export function enhanceProgressivelyFromCanonical(deps: ProgressiveDriversDeps, root: Element, canonicalOptions: EnhanceOptions): void {
+    enhanceProgressivelyCore(deps, root, canonicalOptions, "Enhance", true);
+  }

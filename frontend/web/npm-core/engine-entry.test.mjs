@@ -1,52 +1,176 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/progressive-job.js";
-import "./core/engine/progressive-drivers.js";
-import "./core/engine/engine-entry.js";
+import { createEngineEntry } from "./core/engine/engine-entry.js";
+import { optionsFromJs } from "./core/engine/lifecycle.js";
 
-const ENGINE = globalThis.__TiqianEngine;
-const WORKERS = globalThis.__TiqianEngineWorkers;
+const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPreparedDomRenderer"];
 
-const GLOBALS_TO_DELETE = [
-  "__TiqianEngine",
-  "__TiqianEngineWorkers",
-  "__TiqianRootState",
-  "__TiqianProgressiveDrivers",
-  "__TiqianProgressiveJob",
-  "__TiqianCustody",
-  "__TiqianLifecycle",
-  "__TiqianContentReconcile",
-  "__TiqianProcessParagraph",
-  "__TiqianWorkerRequest",
-  "__TiqianPreparedDomRenderer",
-  "__TiqianInstallCopyHandler",
-  "window",
-  "document",
-];
+// The engine entry runs the real process-paragraph, content-reconcile and
+// progressive-drivers functions against fake ledgers (custody, root-state,
+// progressive-job, copy-installer, ffi). The commit bundle inside the
+// process-paragraph deps is fake, so the direct commit verdict is controlled;
+// the prepare step and every other orchestration seam run for real.
 
-function makeElement(initialAttributes) {
+function makeElement(initialAttributes, options = {}) {
   const attrs = new Map(Object.entries(initialAttributes || {}));
+  const setAttributes = [];
+  const removedAttributes = [];
+  const styleProps = new Map();
+  const text = options.text ?? "hello world";
   const rect = { top: 0, bottom: 100, width: 300 };
   return {
     nodeType: 1,
-    tagName: "P",
-    isConnected: true,
+    tagName: options.tagName ?? "P",
+    isConnected: options.isConnected !== false,
+    textContent: text,
+    childNodes: options.childNodes ?? [{ nodeType: 3, textContent: text }],
     getAttribute: function (name) {
       return attrs.has(name) ? attrs.get(name) : null;
     },
     setAttribute: function (name, value) {
-      attrs.set(name, String(value));
+      const strVal = String(value);
+      attrs.set(name, strVal);
+      setAttributes.push({ name, value: strVal });
     },
     removeAttribute: function (name) {
       attrs.delete(name);
+      removedAttributes.push(name);
+    },
+    hasAttribute: function (name) {
+      return attrs.has(name);
+    },
+    closest: function (selector) {
+      if (options.closestTo && selector === "tiqian-prose, [data-tiqian-root]") {
+        return options.closestTo;
+      }
+      return null;
+    },
+    querySelectorAll: function () {
+      return [];
+    },
+    querySelector: function () {
+      return null;
+    },
+    style: {
+      getPropertyValue: (name) => styleProps.get(name) ?? "",
+      getPropertyPriority: () => "",
+      setProperty: (name, value) => styleProps.set(name, String(value)),
+      removeProperty: (name) => styleProps.delete(name),
+      item: () => "",
+      length: 0,
     },
     getBoundingClientRect: function () {
-      const r = this._rect;
+      const r = this._rect || rect;
       return { top: r.top, bottom: r.bottom, width: r.width };
     },
     _rect: rect,
+    getClientRects: function () {
+      return [];
+    },
+    parentElement: null,
+    parentNode: null,
+    insertBefore: function () {},
+    attributes: attrs,
+    setAttributes,
+    removedAttributes,
   };
+}
+
+function makeFakeFfi(overrides = {}) {
+  const envelope = overrides.envelope ?? JSON.stringify({
+    plan: JSON.stringify({ lines: [{ rangeStart: 0, rangeEnd: 10 }] }),
+    diagnostics: { capabilityIssues: [], advanceSuspects: [] },
+  });
+  const calls = { diagnostics: [], browserMetrics: [] };
+  return {
+    _calls: calls,
+    classifyFontRole: (text, start, end, locale) => "latin",
+    firstDivergentInlineShapingProperty: () => null,
+    unsupportedInlineShapingProperties: () => [],
+    precomputeParagraphWithDiagnostics: function () {
+      calls.diagnostics.push(Array.from(arguments));
+      return envelope;
+    },
+    precomputeParagraphWithBrowserMetrics: function () {
+      calls.browserMetrics.push(Array.from(arguments));
+      return envelope;
+    },
+  };
+}
+
+function saveEnv() {
+  return ENV_GLOBALS.map((name) => ({
+    name,
+    own: Object.prototype.hasOwnProperty.call(globalThis, name),
+    value: globalThis[name],
+  }));
+}
+
+function restoreEnv(entries) {
+  for (const { name, own, value } of entries) {
+    if (own) globalThis[name] = value;
+    else delete globalThis[name];
+  }
+}
+
+function withEnv(fn, overrides = {}) {
+  const saved = saveEnv();
+  try {
+    const computed = (el, pseudo) => {
+      const props = {
+        paddingLeft: "0px",
+        paddingRight: "0px",
+        borderLeftWidth: "0px",
+        borderRightWidth: "0px",
+        ...(overrides.computedStyleValues || { "--tq-styles-ready": "1" }),
+      };
+      const style = {};
+      for (const key of Object.keys(props)) style[key] = props[key];
+      style.getPropertyValue = (name) => {
+        const key = String(name).toLowerCase();
+        return Object.prototype.hasOwnProperty.call(props, key)
+          ? String(props[key])
+          : "";
+      };
+      return style;
+    };
+    globalThis.getComputedStyle = computed;
+    globalThis.window = { innerHeight: 800, getComputedStyle: computed };
+    globalThis.document = overrides.document || {
+      querySelectorAll: function () {
+        return { length: 0, item: function () { return undefined; } };
+      },
+    };
+    if (overrides.preparedDom !== false) {
+      globalThis.__TiqianPreparedDomRenderer = {
+        render: function () {},
+        release: function () { return true; },
+        releaseRoot: function () { return true; },
+        schema: 1,
+        layoutRevision: "tiqian-layout-v2",
+      };
+    }
+    return fn();
+  } finally {
+    restoreEnv(saved);
+  }
+}
+
+function makeStateWithCallbacks(overrides = {}) {
+  const state = {
+    root: overrides.root ?? null,
+    options: overrides.options ?? { paragraphSelector: "p", fontSize: 19 },
+    paragraphs: overrides.paragraphs ?? [],
+    issues: overrides.issues ?? [],
+    preparedDomEnabled: overrides.preparedDomEnabled ?? true,
+    exactSession: overrides.exactSession ?? { sessionId: "session-1" },
+    browserFallback: overrides.browserFallback ?? null,
+  };
+  state.onIssue = overrides.onIssue ?? function (issue) { state.issues.push(issue); };
+  state.onParagraphCommitted = overrides.onParagraphCommitted ?? function (item) { state.paragraphs.push(item); };
+  state.onDisableExactPreparedDom = overrides.onDisableExactPreparedDom ?? function () {};
+  return state;
 }
 
 function makeFakeRootState(opts) {
@@ -55,6 +179,7 @@ function makeFakeRootState(opts) {
     createRootState: [],
     createRootStateFromCanonical: [],
     getState: [],
+    setState: [],
     deleteState: [],
     publishState: [],
     paragraphCandidates: [],
@@ -70,25 +195,33 @@ function makeFakeRootState(opts) {
     },
     createRootState: function (root, bag) {
       calls.createRootState.push({ root: root, bag: bag });
-      return opts.state || {
+      if (opts.state) {
+        // The real createRootState records the enhanced root on the state.
+        opts.state.root = root;
+        return opts.state;
+      }
+      return makeStateWithCallbacks({
         root: root,
         options: opts.stateOptions || { paragraphSelector: "p" },
         paragraphs: opts.paragraphs || [],
         issues: opts.issues || [],
-      };
+      });
     },
     createRootStateFromCanonical: function (root, options) {
       calls.createRootStateFromCanonical.push({ root: root, options: options });
-      return opts.canonicalState || {
+      return opts.canonicalState || makeStateWithCallbacks({
         root: root,
         options: options,
         paragraphs: opts.paragraphs || [],
         issues: opts.issues || [],
-      };
+      });
     },
     getState: function (root) {
       calls.getState.push(root);
       return opts.getStateValue !== undefined ? opts.getStateValue : null;
+    },
+    setState: function (root, state) {
+      calls.setState.push({ root: root, state: state });
     },
     deleteState: function (root) {
       calls.deleteState.push(root);
@@ -111,31 +244,13 @@ function makeFakeRootState(opts) {
   };
 }
 
-function makeFakeDrivers() {
-  const calls = { enhanceProgressively: [], relayout: [], startProgressiveJob: [] };
-  return {
-    _calls: calls,
-    rejectMissingSharedRuntimeStyles: function () { return false; },
-    enhanceProgressively: function (root, optionsBag) {
-      calls.enhanceProgressively.push({ root: root, optionsBag: optionsBag });
-    },
-    enhanceProgressivelyFromCanonical: function (root, options) {
-      calls.enhanceProgressively.push({ root: root, optionsBag: options, canonical: true });
-    },
-    relayout: function (root) {
-      calls.relayout.push(root);
-    },
-    startProgressiveJob: function () {
-      calls.startProgressiveJob.push(Array.prototype.slice.call(arguments));
-    },
-  };
-}
-
 function makeFakeJob() {
-  const calls = { cancelJob: [] };
+  const calls = { cancelJob: [], startJob: [] };
   return {
     _calls: calls,
     cancelJob: function (root) { calls.cancelJob.push(root); },
+    startJob: function (spec) { calls.startJob.push(spec); },
+    isAttached: function () { return false; },
     attach: function (root) { return "attached-" + root; },
     detach: function (root) { return "detached-" + root; },
     hasJob: function (root) { return "hasJob-" + root; },
@@ -148,48 +263,41 @@ function makeFakeJob() {
   };
 }
 
-function makeFakeCustody() {
-  const calls = { restoreParagraph: [] };
+function makeFakeCustody(overrides = {}) {
+  const calls = {
+    restoreParagraph: [],
+    restoreShell: [],
+    stampRendered: [],
+    renderedMatches: [],
+    custodyMatches: [],
+    begin: [],
+    take: [],
+    commit: [],
+  };
   return {
     _calls: calls,
     restoreParagraph: function (el) { calls.restoreParagraph.push(el); },
+    restoreShell: function (el) { calls.restoreShell.push(el); },
+    stampRendered: function (el) { calls.stampRendered.push(el); },
+    renderedMatches: function (el) {
+      calls.renderedMatches.push(el);
+      return overrides.renderedMatches ? overrides.renderedMatches(el) : true;
+    },
+    custodyMatches: function (el) {
+      calls.custodyMatches.push(el);
+      return overrides.custodyMatches ? overrides.custodyMatches(el) : true;
+    },
+    begin: function (...args) { calls.begin.push(args); },
+    take: function () {},
+    commit: function () {},
   };
 }
 
-function makeFakeLifecycle() {
-  const calls = { clearIssue: [], optionsFromJs: [] };
+function makeFakeCopyInstaller() {
+  const calls = { install: [] };
   return {
     _calls: calls,
-    clearIssue: function (issue) { calls.clearIssue.push(issue); },
-    optionsFromJs: function (bag) {
-      calls.optionsFromJs.push(bag);
-      return bag || {};
-    },
-  };
-}
-
-function makeFakeContentReconcile() {
-  const calls = { probeContentDrift: [], classifyReconcile: [], prepareTrackedParagraphForRelowering: [], stripEngineMarkupFromStrandedParagraph: [] };
-  return {
-    _calls: calls,
-    probeContentDrift: function (sources) {
-      calls.probeContentDrift.push(sources);
-      return '{"unknown":0,"drifted":0,"dead":0,"custody":0}';
-    },
-    classifyReconcile: function (spec) {
-      calls.classifyReconcile.push(spec);
-      return { outcome: "idle", drifted: [], custody: [], tainted: [], stranded: [], dead: 0, json: '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}' };
-    },
-    prepareTrackedParagraphForRelowering: function (el) { calls.prepareTrackedParagraphForRelowering.push(el); },
-    stripEngineMarkupFromStrandedParagraph: function (el) { calls.stripEngineMarkupFromStrandedParagraph.push(el); },
-  };
-}
-
-function makeFakeProcessParagraph() {
-  const calls = [];
-  return {
-    _calls: calls,
-    processParagraph: function (arg) { calls.push(arg); },
+    install: function (doc) { calls.install.push(doc); },
   };
 }
 
@@ -204,50 +312,85 @@ function makeFakeWorkerRequest() {
   };
 }
 
-function setupEngine(opts) {
+function makeEngine(opts) {
   opts = opts || {};
-  globalThis.window = { innerHeight: 800 };
-  globalThis.document = opts.document || { querySelectorAll: function () { return { length: 0, item: function () { return undefined; } }; } };
-  globalThis.__TiqianRootState = opts.rs || makeFakeRootState(opts.rsOpts || {});
-  globalThis.__TiqianProgressiveDrivers = opts.drivers || makeFakeDrivers();
-  globalThis.__TiqianProgressiveJob = opts.job || makeFakeJob();
-  globalThis.__TiqianCustody = opts.custody || makeFakeCustody();
-  globalThis.__TiqianLifecycle = opts.lifecycle || makeFakeLifecycle();
-  globalThis.__TiqianContentReconcile = opts.reconcile || makeFakeContentReconcile();
-  globalThis.__TiqianProcessParagraph = opts.pp || makeFakeProcessParagraph();
-  globalThis.__TiqianWorkerRequest = opts.workerReq || makeFakeWorkerRequest();
-  globalThis.__TiqianPreparedDomRenderer = opts.preparedDom || { releaseRoot: function () { return true; } };
-  globalThis.__TiqianInstallCopyHandler = opts.installCopyHandler || function () {};
-}
-
-function cleanupEngine() {
-  for (let i = 0; i < GLOBALS_TO_DELETE.length; i += 1) {
-    delete globalThis[GLOBALS_TO_DELETE[i]];
-  }
+  const ffi = opts.ffi || makeFakeFfi();
+  const rs = opts.rs || makeFakeRootState({ ...(opts.rsOpts || {}), ffi: ffi });
+  const job = opts.job || makeFakeJob();
+  const custody = opts.custody || makeFakeCustody();
+  const copyInstaller = opts.copyInstaller || makeFakeCopyInstaller();
+  const workerReq = opts.workerReq || makeFakeWorkerRequest();
+  const commitBundle = opts.commitBundle || {
+    commitWorkerPreparedParagraph: function (deps, argument) {
+      return null;
+    },
+    commitPreparedParagraph: function (deps, argument) {
+      return { kind: "success", measure: 300 };
+    },
+  };
+  const processParagraphDeps = {
+    custody: custody,
+    commitPreparedParagraph: commitBundle,
+  };
+  const reconcileDeps = { custody: custody };
+  const driversDeps = {
+    rootState: rs,
+    engine: null,
+    copyInstaller: copyInstaller,
+    progressiveJob: job,
+    progressiveRelayoutSession: {
+      custody: custody,
+      commitPreparedParagraph: commitBundle,
+    },
+    processParagraph: processParagraphDeps,
+  };
+  const entry = createEngineEntry({
+    ffi: ffi,
+    custody: custody,
+    copyInstaller: copyInstaller,
+    rootState: rs,
+    progressiveJob: job,
+    progressiveDriversDeps: driversDeps,
+    processParagraphDeps: processParagraphDeps,
+    reconcileDeps: reconcileDeps,
+    workerLayoutRequestForRoot: workerReq.workerLayoutRequestForRoot,
+  });
+  return {
+    engine: entry.engine,
+    workers: entry.workers,
+    rs: rs,
+    job: job,
+    custody: custody,
+    copyInstaller: copyInstaller,
+    workerReq: workerReq,
+    ffi: ffi,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // 1. enhance: synchronous loop processes candidates, returns count, publishes
 // ---------------------------------------------------------------------------
 
-test("1. enhance: processes each candidate via processParagraph, returns paragraphs.length, calls publishState", function () {
-  const pp = makeFakeProcessParagraph();
-  const fakeState = { root: null, options: { paragraphSelector: "p" }, paragraphs: [{ source: "s1" }], issues: [] };
-  const rs = makeFakeRootState({ state: fakeState, candidates: ["c1", "c2"] });
-  setupEngine({ rs: rs, pp: pp });
-  try {
+test("1. enhance: processes each candidate via the real processParagraph, returns paragraphs.length, calls publishState", function () {
+  const c1 = makeElement();
+  const c2 = makeElement();
+  const fakeState = makeStateWithCallbacks({ root: null });
+  const ffi = makeFakeFfi();
+  const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2], ffi: ffi });
+  withEnv(() => {
+    const ctx = makeEngine({ ffi: ffi, rs: rs });
     const root = makeElement();
-    const result = ENGINE.enhance(root, { fontSize: 20 });
+    const result = ctx.engine.enhance(root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
-    assert.equal(pp._calls.length, 2);
-    assert.equal(pp._calls[0].paragraph, "c1");
-    assert.equal(pp._calls[1].paragraph, "c2");
+    // The real processParagraph ran once per candidate and committed both
+    // through the fake commit bundle, observable on the custody ledger.
+    assert.equal(ctx.custody._calls.begin.length, 2);
+    assert.equal(ctx.custody._calls.begin[0][0], c1);
+    assert.equal(ctx.custody._calls.begin[1][0], c2);
     assert.equal(rs._calls.publishState.length, 1);
-    assert.equal(result, 1);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(result, 2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -255,18 +398,13 @@ test("1. enhance: processes each candidate via processParagraph, returns paragra
 // ---------------------------------------------------------------------------
 
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
-  const pp = makeFakeProcessParagraph();
-  const drivers = makeFakeDrivers();
-  drivers.rejectMissingSharedRuntimeStyles = function () { return true; };
-  const rs = makeFakeRootState({ candidates: ["c1"] });
-  setupEngine({ rs: rs, drivers: drivers, pp: pp });
-  try {
-    const result = ENGINE.enhance(makeElement(), {});
+  const rs = makeFakeRootState({ candidates: [makeElement()] });
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs });
+    const result = ctx.engine.enhance(makeElement(), {});
     assert.equal(result, 0);
-    assert.equal(pp._calls.length, 0);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(ctx.custody._calls.begin.length, 0);
+  }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });
 
 // ---------------------------------------------------------------------------
@@ -283,20 +421,18 @@ test("3. enhance: destroy runs before createRootState (call order)", function ()
   };
   const rs = makeFakeRootState({
     candidates: [],
-    state: { root: null, options: { paragraphSelector: "p" }, paragraphs: [], issues: [] },
+    state: makeStateWithCallbacks({ root: null }),
   });
   const origCreate = rs.createRootState;
   rs.createRootState = function (root, bag) {
     callOrder.push("createRootState");
     return origCreate(root, bag);
   };
-  setupEngine({ rs: rs, job: fakeJob });
-  try {
-    ENGINE.enhance(makeElement(), {});
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, job: fakeJob });
+    ctx.engine.enhance(makeElement(), {});
     assert.deepEqual(callOrder, ["destroy", "createRootState"]);
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -315,21 +451,19 @@ test("4. enhanceAll: scans tiqian-prose and [data-tiqian-root] roots, sums count
   let callCount = 0;
   const rs = makeFakeRootState({
     candidates: [],
-    state: { root: null, options: { paragraphSelector: "p" }, paragraphs: [{ source: "x" }], issues: [] },
+    state: makeStateWithCallbacks({ root: null }),
   });
   const origCreate = rs.createRootState;
   rs.createRootState = function (root, bag) {
     callCount += 1;
     return origCreate(root, bag);
   };
-  setupEngine({ rs: rs, document: doc });
-  try {
-    const result = ENGINE.enhanceAll({});
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, document: doc });
+    const result = ctx.engine.enhanceAll({});
     assert.equal(callCount, 2);
-    assert.equal(result, 2);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(result, 0);
+  }, { document: doc });
 });
 
 // ---------------------------------------------------------------------------
@@ -337,33 +471,31 @@ test("4. enhanceAll: scans tiqian-prose and [data-tiqian-root] roots, sums count
 // ---------------------------------------------------------------------------
 
 test("5. enhanceProgressively delegates to the drivers entry, which owns the copy handler and destroy", function () {
-  const drivers = makeFakeDrivers();
   const job = makeFakeJob();
-  let copyHandlerInstalled = false;
-  setupEngine({
-    drivers: drivers,
-    job: job,
-    installCopyHandler: function () { copyHandlerInstalled = true; },
-    rsOpts: {
-      state: { root: null, options: {}, paragraphs: [], issues: [] },
-      candidates: [],
-    },
-  });
-  try {
+  const copyInstaller = makeFakeCopyInstaller();
+  withEnv(() => {
+    const ctx = makeEngine({
+      job: job,
+      copyInstaller: copyInstaller,
+      rsOpts: {
+        state: makeStateWithCallbacks({ root: null }),
+        candidates: [],
+      },
+    });
     const root = makeElement();
     const bag = { fontSize: 20 };
-    ENGINE.enhanceProgressively(root, bag);
-    // The wrapper only delegates. The drivers entry (progressive-drivers.js)
-    // installs the copy handler and destroys before rebuilding state, so the
-    // relayout restarts that enter the drivers directly destroy too.
-    assert.equal(drivers._calls.enhanceProgressively.length, 1);
-    assert.equal(drivers._calls.enhanceProgressively[0].root, root);
-    assert.equal(drivers._calls.enhanceProgressively[0].optionsBag, bag);
-    assert.equal(copyHandlerInstalled, false);
-    assert.equal(job._calls.cancelJob.length, 0);
-  } finally {
-    cleanupEngine();
-  }
+    ctx.engine.enhanceProgressively(root, bag);
+    // The real drivers entry installs the copy handler and cancels the job
+    // before rebuilding state.
+    assert.equal(copyInstaller._calls.install.length, 1);
+    assert.equal(job._calls.cancelJob.length, 1);
+    assert.equal(job._calls.cancelJob[0], root);
+    assert.equal(ctx.rs._calls.createRootState.length, 1);
+    assert.equal(ctx.rs._calls.createRootState[0].bag.fontSize, 20);
+    // The real startProgressiveJob starts one Enhance job.
+    assert.equal(job._calls.startJob.length, 1);
+    assert.equal(job._calls.startJob[0].kind, "Enhance");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -374,8 +506,20 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
 test("6. destroy: restores paragraphs, clears issues, releases styles, sets/removes snapshot attrs, cleans 3 attrs", function () {
   const src1 = makeElement();
   const src2 = makeElement();
-  const issue1 = { name: "X" };
-  const issue2 = { name: "Y" };
+  const issue1 = {
+    name: "X",
+    element: src1,
+    markerCaptured: true,
+    originalNameAttribute: "orig-name",
+    originalDetailAttribute: "orig-detail",
+  };
+  const issue2 = {
+    name: "Y",
+    element: src2,
+    markerCaptured: true,
+    originalNameAttribute: "orig-name-2",
+    originalDetailAttribute: "orig-detail-2",
+  };
   const state = {
     root: null,
     options: {},
@@ -383,23 +527,23 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
     issues: [issue1, issue2],
   };
   const custody = makeFakeCustody();
-  const lifecycle = makeFakeLifecycle();
-  const preparedDom = { releaseRoot: function () { return true; } };
   const rs = makeFakeRootState({ getStateValue: state });
-  setupEngine({ rs: rs, custody: custody, lifecycle: lifecycle, preparedDom: preparedDom });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, custody: custody });
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-exact-layout-fallback": "fb" });
-    ENGINE.destroy(root);
+    ctx.engine.destroy(root);
     assert.deepEqual(custody._calls.restoreParagraph, [src1, src2]);
-    assert.deepEqual(lifecycle._calls.clearIssue, [issue1, issue2]);
+    // clearIssue restored the captured original attributes.
+    assert.equal(issue1.markerCaptured, false);
+    assert.equal(issue2.markerCaptured, false);
+    assert.equal(src1.getAttribute("data-tiqian-capability-issue"), "orig-name");
+    assert.equal(src2.getAttribute("data-tiqian-capability-detail"), "orig-detail-2");
     assert.equal(root.getAttribute("data-tiqian-enhanced"), "true");
     assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "5");
     assert.equal(root.getAttribute("data-tiqian-issue-count"), null);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -408,19 +552,15 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
 
 test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", function () {
   const custody = makeFakeCustody();
-  const lifecycle = makeFakeLifecycle();
   const rs = makeFakeRootState({ getStateValue: null });
-  setupEngine({ rs: rs, custody: custody, lifecycle: lifecycle });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, custody: custody });
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
-    ENGINE.destroy(root);
+    ctx.engine.destroy(root);
     assert.equal(custody._calls.restoreParagraph.length, 0);
-    assert.equal(lifecycle._calls.clearIssue.length, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -429,17 +569,15 @@ test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", fu
 
 test("8. detach: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
   const rs = makeFakeRootState();
-  setupEngine({ rs: rs });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs });
     const root = makeElement();
-    ENGINE.detach(root);
+    ctx.engine.detach(root);
     assert.equal(rs._calls.getState.length, 0);
     assert.equal(rs._calls.deleteState.length, 0);
-    assert.equal(globalThis.__TiqianProgressiveJob._calls.cancelJob.length, 1);
-    assert.equal(globalThis.__TiqianProgressiveJob._calls.cancelJob[0], root);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(ctx.job._calls.cancelJob.length, 1);
+    assert.equal(ctx.job._calls.cancelJob[0], root);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -448,28 +586,25 @@ test("8. detach: cancelJob + releaseRoot only, does not touch paragraphs/issues/
 
 test("9. refresh: no state is no-op; with state progressively => enhanceProgressivelyFromCanonical with state.options", function () {
   const rsNoState = makeFakeRootState({ getStateValue: null });
-  setupEngine({ rs: rsNoState });
-  try {
-    ENGINE.refresh(makeElement(), true);
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rsNoState });
+    ctx.engine.refresh(makeElement(), true);
     assert.equal(rsNoState._calls.deleteState.length, 0);
-  } finally {
-    cleanupEngine();
-  }
+  });
 
-  const state = { root: null, options: { fontSize: 22 }, paragraphs: [], issues: [] };
-  const drivers = makeFakeDrivers();
+  const state = makeStateWithCallbacks({ root: null, options: { fontSize: 22 } });
   const fakeJob = makeFakeJob();
-  fakeJob.cancelJob = function () {};
   const rs = makeFakeRootState({ getStateValue: state });
-  setupEngine({ rs: rs, drivers: drivers, job: fakeJob });
-  try {
-    ENGINE.refresh(makeElement(), true);
-    assert.equal(drivers._calls.enhanceProgressively.length, 1);
-    assert.equal(drivers._calls.enhanceProgressively[0].canonical, true);
-    assert.equal(drivers._calls.enhanceProgressively[0].optionsBag, state.options);
-  } finally {
-    cleanupEngine();
-  }
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, job: fakeJob });
+    ctx.engine.refresh(makeElement(), true);
+    // The real drivers canonical entry re-enters through
+    // createRootStateFromCanonical with state.options and starts an Enhance job.
+    assert.equal(rs._calls.createRootStateFromCanonical.length, 1);
+    assert.equal(rs._calls.createRootStateFromCanonical[0].options, state.options);
+    assert.equal(fakeJob._calls.startJob.length, 1);
+    assert.equal(fakeJob._calls.startJob[0].kind, "Enhance");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -478,23 +613,22 @@ test("9. refresh: no state is no-op; with state progressively => enhanceProgress
 // ---------------------------------------------------------------------------
 
 test("10. refresh synchronous: enhance canonical re-entry (fromCanonical=true), optionsFromJs not called", function () {
-  const state = { root: null, options: { fontSize: 19 }, paragraphs: [], issues: [] };
+  const state = makeStateWithCallbacks({ root: null, options: { fontSize: 19 } });
   const rs = makeFakeRootState({
     getStateValue: state,
-    canonicalState: { root: null, options: state.options, paragraphs: [], issues: [] },
+    canonicalState: makeStateWithCallbacks({ root: null, options: state.options }),
     candidates: [],
   });
-  const lifecycle = makeFakeLifecycle();
-  setupEngine({ rs: rs, lifecycle: lifecycle });
-  try {
-    ENGINE.refresh(makeElement(), false);
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs });
+    // optionsFromJs is only exercised through engine.workerLayoutRequest; a
+    // synchronous refresh re-enters enhance with the canonical options, so no
+    // options bag is decoded.
+    ctx.engine.refresh(makeElement(), false);
     assert.equal(rs._calls.createRootStateFromCanonical.length, 1);
     assert.equal(rs._calls.createRootStateFromCanonical[0].options, state.options);
-    assert.equal(lifecycle._calls.optionsFromJs.length, 0);
     assert.equal(rs._calls.createRootState.length, 0);
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -503,50 +637,42 @@ test("10. refresh synchronous: enhance canonical re-entry (fromCanonical=true), 
 
 test("11. cancelLayoutWork: delegates to ProgressiveJob.cancelJob", function () {
   const fakeJob = makeFakeJob();
-  setupEngine({ job: fakeJob });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ job: fakeJob });
     const root = makeElement();
-    ENGINE.cancelLayoutWork(root);
+    ctx.engine.cancelLayoutWork(root);
     assert.equal(fakeJob._calls.cancelJob.length, 1);
     assert.equal(fakeJob._calls.cancelJob[0], root);
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
 // 12. probeContentDrift: no state => unknown JSON; with state => sources to
-//     content-reconcile, returns its JSON
+//     the real probe, which reads the fake custody ledger
 // ---------------------------------------------------------------------------
 
-test("12. probeContentDrift: no state returns unknown JSON; with state passes sources and returns reconcile JSON", function () {
+test("12. probeContentDrift: no state returns unknown JSON; with state passes sources to the real probe", function () {
   const rsNoState = makeFakeRootState({ getStateValue: null });
-  setupEngine({ rs: rsNoState });
-  try {
-    const result = ENGINE.probeContentDrift(makeElement());
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rsNoState });
+    const result = ctx.engine.probeContentDrift(makeElement());
     assert.equal(result, '{"unknown":1,"drifted":0,"dead":0,"custody":0}');
-  } finally {
-    cleanupEngine();
-  }
+  });
 
   const src1 = makeElement();
   const src2 = makeElement();
   const state = { root: null, options: {}, paragraphs: [{ source: src1 }, { source: src2 }], issues: [] };
-  const reconcile = makeFakeContentReconcile();
-  reconcile.probeContentDrift = function (sources) {
-    reconcile._calls.probeContentDrift.push(sources);
-    return '{"unknown":0,"drifted":1,"dead":0,"custody":0}';
-  };
+  const custody = makeFakeCustody();
   const rs = makeFakeRootState({ getStateValue: state });
-  setupEngine({ rs: rs, reconcile: reconcile });
-  try {
-    const result2 = ENGINE.probeContentDrift(makeElement());
-    assert.equal(reconcile._calls.probeContentDrift.length, 1);
-    assert.deepEqual(reconcile._calls.probeContentDrift[0], [src1, src2]);
-    assert.equal(result2, '{"unknown":0,"drifted":1,"dead":0,"custody":0}');
-  } finally {
-    cleanupEngine();
-  }
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, custody: custody });
+    const result2 = ctx.engine.probeContentDrift(makeElement());
+    // The real probe classified both matching sources through the custody
+    // ledger, so nothing drifted, died or fell out of custody.
+    assert.deepEqual(custody._calls.renderedMatches, [src1, src2]);
+    assert.deepEqual(custody._calls.custodyMatches, [src1, src2]);
+    assert.equal(result2, '{"unknown":0,"drifted":0,"dead":0,"custody":0}');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -556,102 +682,84 @@ test("12. probeContentDrift: no state returns unknown JSON; with state passes so
 
 test("13a. reconcileContent: no state returns idle JSON", function () {
   const rs = makeFakeRootState({ getStateValue: null });
-  setupEngine({ rs: rs });
-  try {
-    const result = ENGINE.reconcileContent(makeElement(), []);
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs });
+    const result = ctx.engine.reconcileContent(makeElement(), []);
     assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 test("13b. reconcileContent: state + idle verdict => returns json, no startProgressiveJob", function () {
   const state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
-  const reconcile = makeFakeContentReconcile();
-  const drivers = makeFakeDrivers();
-  setupEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }), reconcile: reconcile, drivers: drivers });
-  try {
-    const result = ENGINE.reconcileContent(makeElement(), []);
+  withEnv(() => {
+    const ctx = makeEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
+    const result = ctx.engine.reconcileContent(makeElement(), []);
     assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
-    assert.equal(drivers._calls.startProgressiveJob.length, 0);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(ctx.job._calls.startJob.length, 0);
+  });
 });
 
 test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded + DeadTrackedParagraphDrop", function () {
-  const deadEl = makeElement();
-  deadEl.isConnected = false;
+  const deadEl = makeElement({}, { isConnected: false });
   const driftedEl = makeElement();
   const custodyEl = makeElement();
-  const taintedEl = makeElement();
+  const taintedEl = makeElement({}, { closestTo: { tagName: "TIQIAN-PROSE" } });
   const strandedEl = makeElement();
-  const state = {
-    root: null, options: {},
+  const root = makeElement();
+  const state = makeStateWithCallbacks({
+    root: root,
+    options: {},
     paragraphs: [
       { source: deadEl },
       { source: driftedEl },
       { source: custodyEl },
+      { source: taintedEl },
     ],
-    issues: [],
-  };
-  const reconcile = makeFakeContentReconcile();
-  reconcile.classifyReconcile = function (spec) {
-    reconcile._calls.classifyReconcile.push(spec);
-    return {
-      outcome: "work",
-      drifted: [driftedEl],
-      custody: [custodyEl],
-      tainted: [taintedEl],
-      stranded: [strandedEl],
-      dead: 1,
-      json: '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}',
-    };
-  };
-  const pp = makeFakeProcessParagraph();
-  const custody = makeFakeCustody();
-  const drivers = makeFakeDrivers();
-  const startJobCalls = [];
-  setupEngine({
-    rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
-    reconcile: reconcile, pp: pp, custody: custody, drivers: drivers,
   });
-  try {
-    const result = ENGINE.reconcileContent(makeElement(), [taintedEl]);
-    // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs
-    assert.equal(state.paragraphs.length, 2);
+  const custody = makeFakeCustody({
+    renderedMatches: (el) => el !== driftedEl,
+    custodyMatches: (el) => el !== custodyEl,
+  });
+  const ffi = makeFakeFfi();
+  withEnv(() => {
+    const ctx = makeEngine({
+      ffi: ffi,
+      rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl], ffi: ffi }),
+      custody: custody,
+    });
+    const result = ctx.engine.reconcileContent(root, [taintedEl]);
+    // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs.
+    assert.equal(state.paragraphs.length, 3);
     assert.equal(state.paragraphs[0].source, driftedEl);
     assert.equal(state.paragraphs[1].source, custodyEl);
-    // classifyReconcile received spec
-    assert.equal(reconcile._calls.classifyReconcile.length, 1);
-    assert.deepEqual(reconcile._calls.classifyReconcile[0].trackedSources, [deadEl, driftedEl, custodyEl]);
-    assert.equal(reconcile._calls.classifyReconcile[0].tainted[0], taintedEl);
-    // startProgressiveJob called with kind Relayout and 4 actions
-    assert.equal(drivers._calls.startProgressiveJob.length, 1);
-    assert.equal(drivers._calls.startProgressiveJob[0][1], "Relayout");
-    assert.equal(drivers._calls.startProgressiveJob[0][2], 4);
+    assert.equal(state.paragraphs[2].source, taintedEl);
+    // The real classifyReconcile produced the expected verdict.
     assert.equal(result, '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}');
-    // Execute processItem callbacks to verify action effects
-    const processItem = drivers._calls.startProgressiveJob[0][3];
-    const tierIndex = drivers._calls.startProgressiveJob[0][7];
+    // startProgressiveJob called with kind Relayout and 4 actions.
+    assert.equal(ctx.job._calls.startJob.length, 1);
+    const call = ctx.job._calls.startJob[0];
+    assert.equal(call.kind, "Relayout");
+    assert.equal(call.itemCount, 4);
+    // Execute processItem callbacks to verify action effects.
+    const processItem = call.processItem;
+    const tierIndex = call.itemTierIndex;
     for (let i = 0; i < tierIndex.length; i += 1) {
       processItem(i);
     }
-    // prepareTrackedParagraphForRelowering for drifted
-    assert.equal(reconcile._calls.prepareTrackedParagraphForRelowering.length, 1);
-    assert.equal(reconcile._calls.prepareTrackedParagraphForRelowering[0], driftedEl);
-    // restoreParagraph for custody and tainted
-    assert.equal(custody._calls.restoreParagraph.length, 2);
-    assert.equal(custody._calls.restoreParagraph[0], custodyEl);
-    assert.equal(custody._calls.restoreParagraph[1], taintedEl);
-    // stripEngineMarkup for stranded
-    assert.equal(reconcile._calls.stripEngineMarkupFromStrandedParagraph.length, 1);
-    assert.equal(reconcile._calls.stripEngineMarkupFromStrandedParagraph[0], strandedEl);
-    // processParagraph for each action (4 total)
-    assert.equal(pp._calls.length, 4);
-  } finally {
-    cleanupEngine();
-  }
+    // prepareTrackedParagraphForRelowering for drifted.
+    assert.deepEqual(custody._calls.restoreShell, [driftedEl]);
+    assert.deepEqual(custody._calls.stampRendered, [driftedEl]);
+    // restoreParagraph for custody and tainted.
+    assert.deepEqual(custody._calls.restoreParagraph, [custodyEl, taintedEl]);
+    // stripEngineMarkupFromStrandedParagraph ran inside the stranded action
+    // (removals recorded on the fixture), then the re-process stamped the
+    // paragraph rendered again through the real pipeline.
+    assert.ok(strandedEl.removedAttributes.includes("data-tq-rendered"));
+    assert.ok(strandedEl.removedAttributes.includes("data-tq-canonical-plain"));
+    assert.equal(strandedEl.getAttribute("data-tq-rendered"), "true");
+    // The real processParagraph ran once per action (4 total).
+    assert.equal(custody._calls.begin.length, 4);
+  });
 });
 
 test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale closure detects width drift >= 0.5", function () {
@@ -662,40 +770,27 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
   const state = {
-    root: null, options: {},
-    paragraphs: [{ source: el1 }],
+    root: root, options: {},
+    paragraphs: [{ source: el1 }, { source: el2 }],
     issues: [],
   };
-  const reconcile = makeFakeContentReconcile();
-  reconcile.classifyReconcile = function (spec) {
-    reconcile._calls.classifyReconcile.push(spec);
-    return {
-      outcome: "work",
-      drifted: [el1, el2],
-      custody: [], tainted: [], stranded: [],
-      dead: 0,
-      json: '{"outcome":"work","drifted":2}',
-    };
-  };
-  const drivers = makeFakeDrivers();
-  setupEngine({
-    rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
-    reconcile: reconcile, drivers: drivers,
-  });
-  try {
-    ENGINE.reconcileContent(root, []);
-    assert.equal(drivers._calls.startProgressiveJob.length, 1);
-    const call = drivers._calls.startProgressiveJob[0];
-    // el2 visible (distance 0) first, then el1 above viewport (distance 100)
-    assert.deepEqual(call[7], [1, 0]);
-    // stale closure: root width matches initially
-    assert.equal(call[6](), false);
-    // After root width drift of 1.0
+  const custody = makeFakeCustody({ renderedMatches: () => false });
+  withEnv(() => {
+    const ctx = makeEngine({
+      rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
+      custody: custody,
+    });
+    ctx.engine.reconcileContent(root, []);
+    assert.equal(ctx.job._calls.startJob.length, 1);
+    const call = ctx.job._calls.startJob[0];
+    // el2 visible (distance 0) first, then el1 above viewport (distance 100).
+    assert.deepEqual(call.itemTierIndex, [1, 0]);
+    // stale closure: root width matches initially.
+    assert.equal(call.isStale(), false);
+    // After root width drift of 1.0.
     root._rect.width = 301;
-    assert.equal(call[6](), true);
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(call.isStale(), true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -705,25 +800,21 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
 
 test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options pre-processed by optionsFromJs", function () {
   const workerReq = makeFakeWorkerRequest();
-  const lifecycle = makeFakeLifecycle();
-  const ffiObj = { mock: true };
+  const ffiObj = makeFakeFfi();
   const rs = makeFakeRootState({ ffi: ffiObj });
-  setupEngine({ rs: rs, workerReq: workerReq, lifecycle: lifecycle });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ rs: rs, workerReq: workerReq });
     const root = makeElement();
     const para = makeElement();
     const bag = { fontSize: 19 };
-    const result = ENGINE.workerLayoutRequest(root, para, bag);
+    const result = ctx.engine.workerLayoutRequest(root, para, bag);
     assert.equal(workerReq._calls.length, 1);
     assert.equal(workerReq._calls[0].ffi, ffiObj);
     assert.equal(workerReq._calls[0].root, root);
     assert.equal(workerReq._calls[0].paragraph, para);
-    assert.equal(lifecycle._calls.optionsFromJs.length, 1);
-    assert.equal(lifecycle._calls.optionsFromJs[0], bag);
+    assert.deepEqual(workerReq._calls[0].options, optionsFromJs(bag));
     assert.equal(result, "worker-result");
-  } finally {
-    cleanupEngine();
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -732,19 +823,17 @@ test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options p
 
 test("15. workers: 9 methods forward to ProgressiveJob", function () {
   const fakeJob = makeFakeJob();
-  setupEngine({ job: fakeJob });
-  try {
+  withEnv(() => {
+    const ctx = makeEngine({ job: fakeJob });
     const root = makeElement();
-    assert.equal(WORKERS.workerAttach(root), "attached-" + root);
-    assert.equal(WORKERS.workerDetach(root), "detached-" + root);
-    assert.equal(WORKERS.workerHasJob(root), "hasJob-" + root);
-    assert.equal(WORKERS.workerJobGeneration(root), 42);
-    assert.equal(WORKERS.workerRunSlice({}, 0), "ran");
-    assert.equal(WORKERS.workerPendingInTier(root, 1), 7);
-    assert.equal(WORKERS.workerParagraphCount(root), 3);
-    assert.equal(WORKERS.workerParagraphAt(root, 0), "p-0");
-    assert.equal(WORKERS.workerSetParagraphTier(root, 0, 2), "set");
-  } finally {
-    cleanupEngine();
-  }
+    assert.equal(ctx.workers.workerAttach(root), "attached-" + root);
+    assert.equal(ctx.workers.workerDetach(root), "detached-" + root);
+    assert.equal(ctx.workers.workerHasJob(root), "hasJob-" + root);
+    assert.equal(ctx.workers.workerJobGeneration(root), 42);
+    assert.equal(ctx.workers.workerRunSlice({}, 0), "ran");
+    assert.equal(ctx.workers.workerPendingInTier(root, 1), 7);
+    assert.equal(ctx.workers.workerParagraphCount(root), 3);
+    assert.equal(ctx.workers.workerParagraphAt(root, 0), "p-0");
+    assert.equal(ctx.workers.workerSetParagraphTier(root, 0, 2), "set");
+  });
 });

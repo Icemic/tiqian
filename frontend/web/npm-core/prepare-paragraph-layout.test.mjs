@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/prepare-paragraph-layout.js";
+import { prepareParagraphLayout } from "./core/engine/prepare-paragraph-layout.js";
+import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 
-const prepare = globalThis.__TiqianPrepareParagraphLayout;
+// The responsive measure helpers are real: sourceParagraphWidth reads element
+// geometry through globalThis.getComputedStyle and effectiveLineMeasure is
+// imported above. Tests compute expected measures by calling the real helper.
+// Only the host-installed __TiqianPreparedDomRenderer global stays fake.
 
-const MEASURE_GLOBALS = ["__TiqianResponsiveMeasure", "__TiqianPreparedDomRenderer"];
-
-function preserveGlobals(names) {
+function saveGlobals(names) {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
@@ -22,39 +24,45 @@ function restoreGlobals(entries) {
   }
 }
 
-function installFakeResponsiveMeasure(overrides = {}) {
-  const config = {
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: (width, fontSize) => width,
-    ...overrides,
+function computedStyle(values = {}) {
+  const props = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    ...values,
   };
-  globalThis.__TiqianResponsiveMeasure = {
-    effectiveLineMeasure: config.effectiveLineMeasure,
-    sourceParagraphWidth: () => config.sourceParagraphWidth,
+  const style = {};
+  for (const key of Object.keys(props)) style[key] = props[key];
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(props, key)
+      ? String(props[key])
+      : "";
   };
+  return style;
 }
 
-function installFakePreparedDomRenderer(overrides = {}) {
-  const config = {
-    render: () => {},
-    release: () => {},
-    releaseRoot: () => {},
-    schema: 1,
-    layoutRevision: "tiqian-layout-v2",
-    ...overrides,
-  };
-  globalThis.__TiqianPreparedDomRenderer = {
-    render: config.render,
-    release: config.release,
-    releaseRoot: config.releaseRoot,
-    schema: config.schema,
-    layoutRevision: config.layoutRevision,
-  };
-}
-
-function installFakeEnv() {
-  installFakeResponsiveMeasure();
-  installFakePreparedDomRenderer();
+function withEnv(fn, overrides = {}) {
+  const saved = saveGlobals(["getComputedStyle", "__TiqianPreparedDomRenderer"]);
+  try {
+    if (overrides.renderer !== false) {
+      globalThis.__TiqianPreparedDomRenderer = {
+        render: () => {},
+        release: () => {},
+        releaseRoot: () => {},
+        schema: 1,
+        layoutRevision: overrides.layoutRevision ?? "tiqian-layout-v2",
+      };
+    }
+    globalThis.getComputedStyle = (target, pseudo) =>
+      target && target._computedValues
+        ? computedStyle(target._computedValues)
+        : computedStyle();
+    return fn();
+  } finally {
+    restoreGlobals(saved);
+  }
 }
 
 function textStyle(overrides = {}) {
@@ -104,7 +112,7 @@ function sourceSpan(overrides = {}) {
 
 function paragraph(overrides = {}) {
   return {
-    text: "你好",
+    text: "ab",
     textStyle: textStyle(),
     lineHeight: 28,
     spans: [],
@@ -119,8 +127,16 @@ function paragraph(overrides = {}) {
   };
 }
 
-function element(tagName = "P") {
-  return { tagName };
+// Measurable fake element: sourceParagraphWidth reads its bounding box and
+// client rects through elementContentWidth.
+function element(tagName = "P", overrides = {}) {
+  return {
+    tagName,
+    getBoundingClientRect: () => ({ width: overrides.width ?? 320 }),
+    getClientRects: () => [],
+    parentElement: null,
+    ...overrides,
+  };
 }
 
 // Build a canned envelope. planJson is a real escaped string because the
@@ -215,130 +231,94 @@ function exactArgument(overrides = {}) {
   };
 }
 
+const DEFAULT_MEASURE = effectiveLineMeasure(320, 19);
+
 test("returns unchanged when lastMeasure matches the effective measure", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  const sourceWidths = [];
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  installFakeResponsiveMeasure({
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: () => 777,
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: 777 },
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
     }));
     assert.deepEqual(result, { kind: "unchanged" });
     assert.equal(calls.diagnostics.length, 0);
     assert.equal(calls.browserMetrics.length, 0);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  installFakeResponsiveMeasure({ effectiveLineMeasure: () => 777 });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: 777 },
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
       ignoreUnchangedMeasure: true,
     }));
     assert.equal(result.kind, "ready");
     assert.equal(calls.diagnostics.length, 1);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("widthOverride wins and ready.width is raw while ffi receives the measure", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  installFakeResponsiveMeasure({
-    sourceParagraphWidth: 999,
-    effectiveLineMeasure: (width) => width * 0.5,
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({ widthOverride: 200 }));
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const expectedMeasure = effectiveLineMeasure(200, 19);
+    const result = prepareParagraphLayout(ffi, exactArgument({ widthOverride: 200 }));
     assert.equal(result.kind, "ready");
     assert.equal(result.width, 200);
-    assert.equal(result.measure, 100);
-    assert.equal(calls.diagnostics[0][2], 100);
+    assert.equal(result.measure, expectedMeasure);
+    assert.equal(calls.diagnostics[0][2], expectedMeasure);
     assert.equal(calls.diagnostics[0][1], RICH_LOWERED.text);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  delete globalThis.__TiqianPreparedDomRenderer;
-  const { ffi } = stubFfi();
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
       detail: "expectedLayoutRevision=tiqian-layout-v2",
       element: RICH_ELEMENT,
     });
-  } finally {
-    restoreGlobals(globals);
-  }
+  }, { renderer: false });
 });
 
 test("PreparedDomBridgeUnavailable when the layout revision mismatches", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeResponsiveMeasure();
-  installFakePreparedDomRenderer({ layoutRevision: "tiqian-layout-v1" });
-  const { ffi } = stubFfi();
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
       detail: "expectedLayoutRevision=tiqian-layout-v2",
       element: RICH_ELEMENT,
     });
-  } finally {
-    restoreGlobals(globals);
-  }
+  }, { layoutRevision: "tiqian-layout-v1" });
 });
 
 test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi } = stubFfi();
-  const lowered = paragraph({
-    text: "abcde",
-    spans: [
-      span({ start: 2, end: 5, style: textStyle({ locale: "ja" }) }),
-      span({ start: 0, end: 2, style: textStyle({ locale: "ko" }) }),
-    ],
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi } = stubFfi();
+    const lowered = paragraph({
+      text: "abcde",
+      spans: [
+        span({ start: 2, end: 5, style: textStyle({ locale: "ja" }) }),
+        span({ start: 0, end: 2, style: textStyle({ locale: "ko" }) }),
+      ],
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "unsupported");
     assert.equal(result.name, "SpanLocaleMismatchUnsupported");
     assert.equal(result.detail, "spanRange=2..5; spanLocale=ja; paragraphLocale=zh-Hans");
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("wire byte lock: diagnostics call carries the full positional argument list", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  installFakeResponsiveMeasure({ effectiveLineMeasure: () => 777 });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
       options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
     }));
@@ -346,7 +326,7 @@ test("wire byte lock: diagnostics call carries the full positional argument list
     const args = calls.diagnostics[0];
     assert.equal(args[0], "s1");
     assert.equal(args[1], "abcde");
-    assert.equal(args[2], 777);
+    assert.equal(args[2], DEFAULT_MEASURE);
     assert.equal(args[3], "Serif A\u001fSerif B");
     assert.equal(args[4], 19);
     assert.equal(args[5], 28);
@@ -364,30 +344,26 @@ test("wire byte lock: diagnostics call carries the full positional argument list
     assert.equal(args[17], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
     assert.equal(args[18], null);
     assert.equal(args[19], true);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("render evidence override carries the six-collection verdict", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  // A paragraph with ONLY sourceSpans (a plain unstyled link) has wire-empty
-  // collections; the host verdict is still true because the commit path
-  // counts sourceSpans and domInlineObjects.
-  const linkOnly = paragraph({
-    text: "abcde",
-    sourceSpans: [sourceSpan({ start: 0, end: 5 })],
-  });
-  const plain = paragraph({ text: "abcde" });
-  try {
-    prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    // A paragraph with ONLY sourceSpans (a plain unstyled link) has wire-empty
+    // collections; the host verdict is still true because the commit path
+    // counts sourceSpans and domInlineObjects.
+    const linkOnly = paragraph({
+      text: "abcde",
+      sourceSpans: [sourceSpan({ start: 0, end: 5 })],
+    });
+    const plain = paragraph({ text: "abcde" });
+    prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
     }));
     assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], true);
 
-    prepare.prepareParagraphLayout(ffi, exactArgument({
+    prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: plain, lastMeasure: null },
     }));
     assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], false);
@@ -395,110 +371,94 @@ test("render evidence override carries the six-collection verdict", () => {
     // The browser-metrics retry path carries the override after the trailing
     // decorations and emphasis dot gap.
     const retry = stubFfi({ diagnosticsThrow: new Error("NoExactFontFace: miss") });
-    prepare.prepareParagraphLayout(retry.ffi, exactArgument({
+    prepareParagraphLayout(retry.ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
     }));
     assert.equal(retry.calls.browserMetrics[0][20], true);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  try {
-    const li = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const li = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: element("LI"), lowered: RICH_LOWERED, lastMeasure: null },
       options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
     }));
     assert.equal(li.kind, "ready");
     assert.equal(calls.diagnostics[calls.diagnostics.length - 1][9], 0);
 
-    const nonLi = prepare.prepareParagraphLayout(ffi, exactArgument({
+    const nonLi = prepareParagraphLayout(ffi, exactArgument({
       options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
     }));
     assert.equal(nonLi.kind, "ready");
     assert.equal(calls.diagnostics[calls.diagnostics.length - 1][9], 4);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi } = stubFfi({
-    diagnosticsEnvelope: makeEnvelope(
-      { lines: [] },
-      { capabilityIssues: [{ name: "NoConformingCjkDashGlyph", reason: "no dash face", rangeStart: 0, rangeEnd: 1 }], advanceSuspects: [] },
-    ),
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi } = stubFfi({
+      diagnosticsEnvelope: makeEnvelope(
+        { lines: [] },
+        { capabilityIssues: [{ name: "NoConformingCjkDashGlyph", reason: "no dash face", rangeStart: 0, rangeEnd: 1 }], advanceSuspects: [] },
+      ),
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "NoConformingCjkDashGlyph",
       detail: "no dash face",
       element: RICH_ELEMENT,
     });
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("advance suspects skip empty and newline display text, then the first real suspect wins", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi } = stubFfi({
-    diagnosticsEnvelope: makeEnvelope(
-      { lines: [] },
-      {
-        capabilityIssues: [],
-        advanceSuspects: [
-          { displayText: "", advance: "NaN", reason: "empty", rangeStart: 0, rangeEnd: 1 },
-          { displayText: "a\nb", advance: "Infinity", reason: "newline", rangeStart: 0, rangeEnd: 2 },
-          { displayText: "\u2014", advance: "0", reason: "zero advance", rangeStart: 0, rangeEnd: 3 },
-        ],
-      },
-    ),
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi } = stubFfi({
+      diagnosticsEnvelope: makeEnvelope(
+        { lines: [] },
+        {
+          capabilityIssues: [],
+          advanceSuspects: [
+            { displayText: "", advance: "NaN", reason: "empty", rangeStart: 0, rangeEnd: 1 },
+            { displayText: "a\nb", advance: "Infinity", reason: "newline", rangeStart: 0, rangeEnd: 2 },
+            { displayText: "\u2014", advance: "0", reason: "zero advance", rangeStart: 0, rangeEnd: 3 },
+          ],
+        },
+      ),
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "InvalidWebShapingAdvance",
       detail: "text=\u2014; advance=0; zero advance",
       element: RICH_ELEMENT,
     });
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("clone decoration crossed by two plan lines is unsupported with the lowercased tag", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi } = stubFfi({
-    diagnosticsEnvelope: makeEnvelope(
-      { lines: [{ rangeStart: 0, rangeEnd: 2 }, { rangeStart: 2, rangeEnd: 5 }] },
-      { capabilityIssues: [], advanceSuspects: [] },
-    ),
-  });
-  const lowered = paragraph({
-    text: "abcde",
-    sourceSpans: [
-      sourceSpan({
-        start: 1,
-        end: 3,
-        element: { tagName: "SPAN" },
-        inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
-      }),
-    ],
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi } = stubFfi({
+      diagnosticsEnvelope: makeEnvelope(
+        { lines: [{ rangeStart: 0, rangeEnd: 2 }, { rangeStart: 2, rangeEnd: 5 }] },
+        { capabilityIssues: [], advanceSuspects: [] },
+      ),
+    });
+    const lowered = paragraph({
+      text: "abcde",
+      sourceSpans: [
+        sourceSpan({
+          start: 1,
+          end: 3,
+          element: { tagName: "SPAN" },
+          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
+        }),
+      ],
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.deepEqual(result, {
@@ -507,71 +467,59 @@ test("clone decoration crossed by two plan lines is unsupported with the lowerca
       detail: "span",
       element: RICH_ELEMENT,
     });
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("clone decoration on a single line does not trigger", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  const lowered = paragraph({
-    text: "abcde",
-    sourceSpans: [
-      sourceSpan({
-        start: 1,
-        end: 3,
-        element: { tagName: "SPAN" },
-        inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
-      }),
-    ],
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const lowered = paragraph({
+      text: "abcde",
+      sourceSpans: [
+        sourceSpan({
+          start: 1,
+          end: 3,
+          element: { tagName: "SPAN" },
+          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
+        }),
+      ],
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "ready");
     assert.equal(calls.diagnostics.length, 1);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("a non-clone span with edges never triggers the clone verdict", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  const lowered = paragraph({
-    text: "abcde",
-    sourceSpans: [
-      sourceSpan({
-        start: 1,
-        end: 3,
-        element: { tagName: "SPAN" },
-        inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5 }),
-      }),
-    ],
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const lowered = paragraph({
+      text: "abcde",
+      sourceSpans: [
+        sourceSpan({
+          start: 1,
+          end: 3,
+          element: { tagName: "SPAN" },
+          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5 }),
+        }),
+      ],
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "ready");
     assert.equal(calls.diagnostics.length, 1);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi({
-    diagnosticsThrow: new Error("NoExactFontFace: session miss"),
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi, calls } = stubFfi({
+      diagnosticsThrow: new Error("NoExactFontFace: session miss"),
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.equal(result.kind, "ready");
     assert.equal(result.exactFontSessionUsed, false);
     assert.equal(calls.diagnostics.length, 1);
@@ -582,47 +530,35 @@ test("a capability-failure throws retry through the browser metrics call", () =>
     assert.equal(typeof args[16], "function");
     assert.equal(typeof args[17], "function");
     assert.equal(args[18], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("another capability-failure name triggers the retry", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi({
-    diagnosticsThrow: new Error("MissingServerShapingReplay: no replay"),
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument());
+  withEnv(() => {
+    const { ffi, calls } = stubFfi({
+      diagnosticsThrow: new Error("MissingServerShapingReplay: no replay"),
+    });
+    const result = prepareParagraphLayout(ffi, exactArgument());
     assert.equal(result.kind, "ready");
     assert.equal(result.exactFontSessionUsed, false);
     assert.equal(calls.browserMetrics.length, 1);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("a non-matching error rethrows", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi({
-    diagnosticsThrow: new Error("some unrelated failure"),
-  });
-  try {
-    assert.throws(() => prepare.prepareParagraphLayout(ffi, exactArgument()), /some unrelated failure/);
+  withEnv(() => {
+    const { ffi, calls } = stubFfi({
+      diagnosticsThrow: new Error("some unrelated failure"),
+    });
+    assert.throws(() => prepareParagraphLayout(ffi, exactArgument()), /some unrelated failure/);
     assert.equal(calls.browserMetrics.length, 0);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("exactSession == null runs the browser metrics call directly without a sessionId", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
       exactSession: null,
       browserFallback: RICH_BROWSER_FALLBACK,
     }));
@@ -631,35 +567,23 @@ test("exactSession == null runs the browser metrics call directly without a sess
     assert.equal(calls.diagnostics.length, 0);
     assert.equal(calls.browserMetrics.length, 1);
     assert.equal(typeof calls.browserMetrics[0][17], "function");
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("exactSession == null with a missing browserFallback throws", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi } = stubFfi();
-  try {
+  withEnv(() => {
+    const { ffi } = stubFfi();
     assert.throws(
-      () => prepare.prepareParagraphLayout(ffi, exactArgument({ exactSession: null, browserFallback: null })),
+      () => prepareParagraphLayout(ffi, exactArgument({ exactSession: null, browserFallback: null })),
       /missing browserFallback descriptor/,
     );
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("ready shape carries the envelope pieces on the happy exact path", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  installFakeResponsiveMeasure({
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: () => 777,
-  });
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
     }));
     assert.equal(result.kind, "ready");
@@ -668,31 +592,25 @@ test("ready shape carries the envelope pieces on the happy exact path", () => {
     assert.deepEqual(result.plan, { lines: [{ rangeStart: 0, rangeEnd: 5 }] });
     assert.deepEqual(result.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
     assert.equal(result.width, 320);
-    assert.equal(result.measure, 777);
+    assert.equal(result.measure, DEFAULT_MEASURE);
     assert.equal(result.exactFontSessionUsed, true);
     assert.equal(calls.diagnostics.length, 1);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });
 
 test("emphasisDotGapEm passes through to the trailing ffi argument", () => {
-  const globals = preserveGlobals(MEASURE_GLOBALS);
-  installFakeEnv();
-  const { ffi, calls } = stubFfi();
-  try {
-    const result = prepare.prepareParagraphLayout(ffi, exactArgument({
+  withEnv(() => {
+    const { ffi, calls } = stubFfi();
+    const result = prepareParagraphLayout(ffi, exactArgument({
       options: { firstLineIndentIc: 2, emphasisDotGapEm: 0.25 },
     }));
     assert.equal(result.kind, "ready");
     assert.equal(calls.diagnostics[0][18], 0.25);
 
-    const omitted = prepare.prepareParagraphLayout(ffi, exactArgument({
+    const omitted = prepareParagraphLayout(ffi, exactArgument({
       options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
     }));
     assert.equal(omitted.kind, "ready");
     assert.equal(calls.diagnostics[1][18], null);
-  } finally {
-    restoreGlobals(globals);
-  }
+  });
 });

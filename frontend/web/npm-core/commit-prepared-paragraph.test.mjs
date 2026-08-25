@@ -1,21 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/commit-prepared-paragraph.js";
-import "./core/engine/prepare-paragraph-layout.js";
+import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "./core/engine/commit-prepared-paragraph.js";
+import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 
-const commit = globalThis.__TiqianCommitPreparedParagraph;
+// The commit functions run for real; only the custody dep, the host-installed
+// prepared-DOM renderer/validator globals and the ffi are fakes. The direct
+// distrust-retry path drives the real prepareParagraphLayout, so the ffi must
+// answer the browser-metrics envelope.
 
-const COMMIT_GLOBALS = [
-  "__TiqianCommitPreparedParagraph",
-  "__TiqianPrepareParagraphLayout",
-  "__TiqianResponsiveMeasure",
-  "__TiqianPreparedDomRenderer",
-  "__TiqianPreparedDomValidator",
-  "__TiqianCustody",
-];
-
-function preserveGlobals(names) {
+function saveGlobals(names) {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
@@ -30,7 +24,72 @@ function restoreGlobals(entries) {
   }
 }
 
-function makeElement(initialAttributes = {}) {
+function computedStyle(values = {}) {
+  const props = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    ...values,
+  };
+  const style = {};
+  for (const key of Object.keys(props)) style[key] = props[key];
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(props, key)
+      ? String(props[key])
+      : "";
+  };
+  return style;
+}
+
+function withEnv(fn, overrides = {}) {
+  const saved = saveGlobals([
+    "getComputedStyle",
+    "__TiqianPreparedDomRenderer",
+    "__TiqianPreparedDomValidator",
+  ]);
+  try {
+    globalThis.getComputedStyle = (target, pseudo) =>
+      target && target._computedValues
+        ? computedStyle(target._computedValues)
+        : computedStyle();
+    if (overrides.renderer !== false) {
+      const renders = [];
+      const releases = [];
+      globalThis.__TiqianPreparedDomRenderer = {
+        render: (host, plan, locale, options) => {
+          renders.push({
+            host,
+            plan,
+            locale,
+            options,
+            custodyCounterDuringRender: host.__tqCustodyEngineWrites,
+          });
+        },
+        release: (host) => {
+          releases.push(host);
+          return true;
+        },
+        releaseRoot: () => true,
+        schema: 1,
+        layoutRevision: "tiqian-layout-v2",
+        renders,
+        releases,
+      };
+    }
+    if (overrides.validator !== undefined) {
+      globalThis.__TiqianPreparedDomValidator = {
+        issue: overrides.validator,
+      };
+    }
+    return fn();
+  } finally {
+    restoreGlobals(saved);
+  }
+}
+
+function makeElement(initialAttributes = {}, options = {}) {
   const attributes = new Map(Object.entries(initialAttributes));
   const removedAttributes = [];
   const setAttributes = [];
@@ -49,6 +108,9 @@ function makeElement(initialAttributes = {}) {
     attributes,
     setAttributes,
     removedAttributes,
+    getBoundingClientRect: () => ({ width: options.width ?? 320 }),
+    getClientRects: () => [],
+    parentElement: null,
   };
 }
 
@@ -67,7 +129,7 @@ function textStyle(overrides = {}) {
 function makeParagraph(overrides = {}) {
   const source = overrides.source ?? makeElement();
   const lowered = {
-    text: "你好",
+    text: "hello",
     textStyle: textStyle(),
     lineHeight: 28,
     spans: [],
@@ -87,21 +149,9 @@ function makeParagraph(overrides = {}) {
   };
 }
 
-function installFakeResponsiveMeasure(overrides = {}) {
-  const config = {
-    sourceParagraphWidth: 320,
-    effectiveLineMeasure: (width, fontSize) => width + fontSize,
-    ...overrides,
-  };
-  globalThis.__TiqianResponsiveMeasure = {
-    effectiveLineMeasure: config.effectiveLineMeasure,
-    sourceParagraphWidth: () => config.sourceParagraphWidth,
-  };
-}
-
 function installFakeCustody(overrides = {}) {
   const stamped = [];
-  globalThis.__TiqianCustody = {
+  return {
     stampRendered: (el) => {
       stamped.push(el);
       if (overrides.stampRendered) overrides.stampRendered(el);
@@ -110,55 +160,50 @@ function installFakeCustody(overrides = {}) {
   };
 }
 
-function installFakePreparedDomRenderer(overrides = {}) {
-  const renders = [];
-  const releases = [];
-  globalThis.__TiqianPreparedDomRenderer = {
-    render: (host, plan, locale, options) => {
-      renders.push({
-        host,
-        plan,
-        locale,
-        options,
-        custodyCounterDuringRender: host.__tqCustodyEngineWrites,
-      });
-      if (overrides.render) return overrides.render(host, plan, locale, options);
+function makeFakeFfi(overrides = {}) {
+  const calls = { diagnostics: [], browserMetrics: [] };
+  return {
+    _calls: calls,
+    precomputeParagraphWithDiagnostics: function () {
+      calls.diagnostics.push(Array.from(arguments));
+      if (overrides.diagnosticsThrow) throw overrides.diagnosticsThrow;
+      return overrides.diagnosticsEnvelope;
     },
-    release: (host) => {
-      releases.push(host);
-      if (overrides.release) return overrides.release(host);
-      return true;
+    precomputeParagraphWithBrowserMetrics: function () {
+      calls.browserMetrics.push(Array.from(arguments));
+      return overrides.browserMetricsEnvelope;
     },
-    releaseRoot: () => true,
-    schema: 1,
-    layoutRevision: "tiqian-layout-v2",
-    renders,
-    releases,
-    ...overrides,
   };
 }
 
-function installFakeValidator(issueFn) {
-  globalThis.__TiqianPreparedDomValidator = {
-    issue: issueFn || (() => null),
-  };
+function browserEnvelope(planJson) {
+  return JSON.stringify({
+    plan: planJson,
+    diagnostics: { capabilityIssues: [], advanceSuspects: [] },
+  });
+}
+
+function browserEnvelopeWithIssue(name, reason) {
+  return JSON.stringify({
+    plan: "{}",
+    diagnostics: {
+      capabilityIssues: [{ name, reason }],
+      advanceSuspects: [],
+    },
+  });
 }
 
 test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps custody, returns null", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure({
-      sourceParagraphWidth: 300,
-      effectiveLineMeasure: (w, f) => w + f,
-    });
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => null);
+  withEnv(() => {
+    const source = makeElement({}, { width: 300 });
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const domObjElement = makeElement();
     const paragraph = makeParagraph({
+      source,
       lowered: {
-        text: "你好世界",
+        text: "hello world",
         textStyle: textStyle({ locale: "zh-Hans", fontSize: 19 }),
         domInlineObjects: [{ element: domObjElement }],
       },
@@ -174,7 +219,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
     let fallbackCalled = false;
-    const result = commit.commitWorkerPreparedParagraph({
+    const result = commitWorkerPreparedParagraph(deps, {
       paragraph,
       workerPlan,
       onExactPreparedDomFallback: () => {
@@ -190,7 +235,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null); // not plain due to domInlineObjects
     assert.equal(paragraph.source.getAttribute("data-tq-exact-prepared-dom"), "true");
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
-    assert.equal(paragraph.lastMeasure, 319);
+    assert.equal(paragraph.lastMeasure, effectiveLineMeasure(300, 19));
 
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 1);
@@ -202,7 +247,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(paragraph.source.__tqCustodyEngineWrites, 0);
 
     assert.deepEqual(renderCall.options, {
-      sourceText: "你好世界",
+      sourceText: "hello world",
       semanticReplay: "snapshot-safe",
       semantics: [{ start: 0, end: 2 }],
       inlineBoxes: [{ start: 0, end: 1 }],
@@ -211,26 +256,20 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
       cjkStrongSemantics: [{ start: 0, end: 1 }],
     });
 
-    const custody = globalThis.__TiqianCustody;
     assert.equal(custody.stamped.length, 1);
     assert.equal(custody.stamped[0], paragraph.source);
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => null });
 });
 
 test("worker mismatch: validator issue triggers fallback callback, releases styles, strips attributes, returns unsupported", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure({ sourceParagraphWidth: 320 });
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => "LineHeightMismatch");
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     let fallbackIssue = null;
 
-    const result = commit.commitWorkerPreparedParagraph({
+    const result = commitWorkerPreparedParagraph(deps, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       onExactPreparedDomFallback: (issue) => {
@@ -256,18 +295,13 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
       detail: "LineHeightMismatch",
       element: paragraph.source,
     });
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => "LineHeightMismatch" });
 });
 
 test("worker rich lowered: removes canonical-plain attribute for rich lowered", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure({ sourceParagraphWidth: 320 });
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => null);
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const source = makeElement({ "data-tq-canonical-plain": "true" });
     const paragraph = makeParagraph({
@@ -277,7 +311,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
       },
     });
 
-    const result = commit.commitWorkerPreparedParagraph({
+    const result = commitWorkerPreparedParagraph(deps, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       inlineObjectMetaJson: "[]",
@@ -287,18 +321,13 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
     assert.equal(result, null);
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
     assert.ok(paragraph.source.removedAttributes.includes("data-tq-canonical-plain"));
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => null });
 });
 
 test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps custody, returns success", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => null);
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -308,7 +337,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       exactFontSessionUsed: false,
     };
 
-    const result = commit.commitPreparedParagraph({
+    const result = commitPreparedParagraph(deps, {
       ffi: {},
       paragraph,
       preparation,
@@ -329,27 +358,21 @@ test("direct happy path, no live sources: renders with undefined options, sets c
     assert.equal(renderer.renders.length, 1);
     assert.equal(renderer.renders[0].options, undefined);
 
-    const custody = globalThis.__TiqianCustody;
     assert.equal(custody.stamped.length, 1);
     assert.equal(custody.stamped[0], paragraph.source);
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => null });
 });
 
 test("direct rich path with sourceSpans elements: renders with live-source replay options", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => null);
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const spanElement = makeElement();
     const objElement = makeElement();
     const paragraph = makeParagraph({
       lowered: {
-        text: "你好世界",
+        text: "hello world",
         sourceSpans: [{ element: spanElement }],
         domInlineObjects: [{ element: objElement }],
       },
@@ -366,7 +389,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const inlineObjectMetaJson = JSON.stringify([{ start: 1, end: 2, marginRight: 5 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
-    const result = commit.commitPreparedParagraph({
+    const result = commitPreparedParagraph(deps, {
       ffi: {},
       paragraph,
       preparation,
@@ -383,25 +406,20 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 1);
     assert.deepEqual(renderer.renders[0].options, {
-      sourceText: "你好世界",
+      sourceText: "hello world",
       semanticReplay: "live-source",
       semantics: [{ sourceIndex: 0, tag: "em" }],
       liveSemanticElements: [spanElement],
       inlineObjects: [{ start: 1, end: 2, marginRight: 5, element: objElement }],
       cjkStrongSemantics: [{ start: 0, end: 1 }],
     });
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => null });
 });
 
 test("direct mismatch, exactFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => "GeometryMismatch");
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -412,7 +430,7 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
     };
 
     let fallbackCalled = false;
-    const result = commit.commitPreparedParagraph({
+    const result = commitPreparedParagraph(deps, {
       ffi: {},
       paragraph,
       preparation,
@@ -438,23 +456,18 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
       detail: "GeometryMismatch",
       element: paragraph.source,
     });
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => "GeometryMismatch" });
 });
 
 test("direct mismatch with distrust retry: prepares with browser metrics fallback and commits second plan on success", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-
-    let validateCount = 0;
-    installFakeValidator(() => {
-      validateCount += 1;
-      return validateCount === 1 ? "ExactSessionMismatch" : null;
-    });
+  let validateCount = 0;
+  const validator = () => {
+    validateCount += 1;
+    return validateCount === 1 ? "ExactSessionMismatch" : null;
+  };
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -464,31 +477,19 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
       exactFontSessionUsed: true,
     };
 
-    const browserFallback = { bridge: { shapeJson: "{}", metricsJson: "{}" } };
+    const browserFallback = { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } };
     const originalOptions = {
       exactFontSession: { session: 1 },
       firstLineIndentIc: 2,
     };
 
-    let prepareCalledWith = null;
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: (ffi, arg) => {
-        prepareCalledWith = { ffi, arg };
-        return {
-          kind: "ready",
-          planJson: '{"plan":"second"}',
-          width: arg.widthOverride,
-          measure: 345,
-          exactFontSessionUsed: false,
-        };
-      },
-    };
-
-    const ffiStub = { name: "ffiStub" };
+    const ffi = makeFakeFfi({
+      browserMetricsEnvelope: browserEnvelope('{"plan":"second"}'),
+    });
     let fallbackReported = null;
 
-    const result = commit.commitPreparedParagraph({
-      ffi: ffiStub,
+    const result = commitPreparedParagraph(deps, {
+      ffi,
       paragraph,
       preparation,
       options: originalOptions,
@@ -499,34 +500,24 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
     });
 
     assert.equal(fallbackReported, "ExactSessionMismatch");
-    assert.ok(prepareCalledWith);
-    assert.equal(prepareCalledWith.ffi, ffiStub);
-    assert.equal(prepareCalledWith.arg.paragraph, paragraph);
-    assert.equal(prepareCalledWith.arg.widthOverride, 320);
-    assert.equal(prepareCalledWith.arg.ignoreUnchangedMeasure, true);
-    assert.equal(prepareCalledWith.arg.exactSession, null);
-    assert.equal(prepareCalledWith.arg.browserFallback, browserFallback);
-    assert.equal(prepareCalledWith.arg.options.exactFontSession, null);
-    assert.equal(prepareCalledWith.arg.options.firstLineIndentIc, 2);
+    // The retry re-prepared through the real browser-metrics lane, so the ffi
+    // saw one browser-metrics call (no exact-session call for the fallback).
+    assert.equal(ffi._calls.diagnostics.length, 0);
+    assert.equal(ffi._calls.browserMetrics.length, 1);
 
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 2);
     assert.equal(renderer.renders[0].plan, '{"plan":"first"}');
     assert.equal(renderer.renders[1].plan, '{"plan":"second"}');
 
-    assert.deepEqual(result, { kind: "success", measure: 345 });
-  } finally {
-    restoreGlobals(saved);
-  }
+    assert.deepEqual(result, { kind: "success", measure: effectiveLineMeasure(320, 19) });
+  }, { validator });
 });
 
 test("distrust retry returning unsupported: propagated as the final unsupported verdict", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => "ExactSessionMismatch");
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -536,21 +527,16 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       exactFontSessionUsed: true,
     };
 
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "unsupported",
-        name: "BrowserFallbackUnsupported",
-        detail: "unsupported glyph",
-        element: paragraph.source,
-      }),
-    };
+    const ffi = makeFakeFfi({
+      browserMetricsEnvelope: browserEnvelopeWithIssue("BrowserFallbackUnsupported", "unsupported glyph"),
+    });
 
-    const result = commit.commitPreparedParagraph({
-      ffi: {},
+    const result = commitPreparedParagraph(deps, {
+      ffi,
       paragraph,
       preparation,
       options: { exactFontSession: {} },
-      browserFallback: { bridge: {} },
+      browserFallback: { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } },
     });
 
     assert.deepEqual(result, {
@@ -559,60 +545,13 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       detail: "unsupported glyph",
       element: paragraph.source,
     });
-  } finally {
-    restoreGlobals(saved);
-  }
-});
-
-test("distrust retry returning unchanged: throws exact error message", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => "ExactSessionMismatch");
-
-    const paragraph = makeParagraph();
-    const preparation = {
-      planJson: '{"plan":"first"}',
-      width: 320,
-      measure: 320,
-      exactFontSessionUsed: true,
-    };
-
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => ({
-        kind: "unchanged",
-      }),
-    };
-
-    assert.throws(
-      () => {
-        commit.commitPreparedParagraph({
-          ffi: {},
-          paragraph,
-          preparation,
-          options: { exactFontSession: {} },
-          browserFallback: { bridge: {} },
-        });
-      },
-      {
-        name: "Error",
-        message: "Exact prepared DOM fallback unexpectedly skipped relayout",
-      },
-    );
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => "ExactSessionMismatch" });
 });
 
 test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
-  const saved = preserveGlobals(COMMIT_GLOBALS);
-  try {
-    installFakeResponsiveMeasure();
-    installFakeCustody();
-    installFakePreparedDomRenderer();
-    installFakeValidator(() => "PersistentMismatch");
+  withEnv(() => {
+    const custody = installFakeCustody();
+    const deps = { custody };
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -622,29 +561,22 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       exactFontSessionUsed: true,
     };
 
-    let prepareCalls = 0;
-    globalThis.__TiqianPrepareParagraphLayout = {
-      prepareParagraphLayout: () => {
-        prepareCalls += 1;
-        return {
-          kind: "ready",
-          planJson: '{"plan":"second"}',
-          width: 320,
-          measure: 345,
-          exactFontSessionUsed: true,
-        };
-      },
-    };
+    const ffi = makeFakeFfi({
+      browserMetricsEnvelope: browserEnvelope('{"plan":"second"}'),
+    });
 
-    const result = commit.commitPreparedParagraph({
-      ffi: {},
+    const result = commitPreparedParagraph(deps, {
+      ffi,
       paragraph,
       preparation,
       options: { exactFontSession: {} },
-      browserFallback: { bridge: {} },
+      browserFallback: { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } },
     });
 
-    assert.equal(prepareCalls, 1);
+    // One exact-session prepare (the first commit uses the given preparation,
+    // so none) and one browser-metrics prepare for the distrust retry.
+    assert.equal(ffi._calls.diagnostics.length, 0);
+    assert.equal(ffi._calls.browserMetrics.length, 1);
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 2);
 
@@ -654,7 +586,5 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       detail: "PersistentMismatch",
       element: paragraph.source,
     });
-  } finally {
-    restoreGlobals(saved);
-  }
+  }, { validator: () => "PersistentMismatch" });
 });

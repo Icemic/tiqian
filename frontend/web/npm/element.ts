@@ -1,5 +1,7 @@
-import { loadTiqianRuntime } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
-import "@tiqian/prose-core/core/utils/copy.js";
+import {
+  copyInstaller,
+  loadTiqianRuntime,
+} from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
@@ -92,7 +94,7 @@ const HTMLElementBase: DomElementCtor =
   typeof globalThis.HTMLElement === "function"
     ? globalThis.HTMLElement
     : class TiqianSsrElement {} as DomElementCtor;
-globalThis.__TiqianInstallCopyHandler?.(globalThis.document);
+copyInstaller().install(globalThis.document);
 // Snapshot-table loads start at module evaluation, ahead of the first root
 // hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
 // no-op in non-browser entry points.

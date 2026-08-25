@@ -1,49 +1,56 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { loadTiqianRuntime, engineApi, workerApi, setEngineOverride } from "./core/engine/loaders/runtime-loader.js";
-import { tsFfiFacade } from "./core/engine/loaders/ts-runtime.js";
+import {
+  currentTiqianRuntime,
+  engineApi,
+  loadTiqianRuntime,
+  setEngineOverride,
+  workerApi,
+} from "./core/engine/loaders/runtime-loader.js";
+import { engineEntry } from "./core/engine/loaders/ts-runtime.js";
 
-// Global names installed by the engine scripts (source-of-truth from each module).
-const EXPECTED_GLOBALS = [
-  "__TiqianCustody",
-  "__TiqianEligibility",
-  "__TiqianProgressiveJob",
-  "__TiqianInstallCopyHandler",
-  "__TiqianContentReconcile",
-  "__TiqianResponsiveMeasure",
-  "__TiqianLifecycle",
-  "__TiqianWorkerRequest",
-  "__TiqianPrepareParagraphLayout",
-  "__TiqianCommitPreparedParagraph",
-  "__TiqianProcessParagraph",
-  "__TiqianPreparedMetadata",
-  "__TiqianProgressiveRelayoutSession",
-  "__TiqianRootState",
-  "__TiqianProgressiveDrivers",
-  "__TiqianEngine",
-  "__TiqianEngineWorkers",
-];
+// The runtime loader owns the single memoized engine graph. Before the load
+// promise resolves the accessors answer null; after it resolves they stay
+// stable for the process. The composition root's engineEntry() itself builds a
+// fresh graph per call, so direct calls are distinct from the loader's engine.
 
-test("loadTiqianRuntime installs all engine globals", async () => {
+test("engineApi and workerApi answer null before the runtime is loaded", () => {
+  assert.equal(engineApi(), null);
+  assert.equal(workerApi(), null);
+});
+
+test("currentTiqianRuntime is undefined before load and returns the memoized promise once started", async () => {
+  assert.equal(currentTiqianRuntime(), undefined);
+  const promise = loadTiqianRuntime();
+  const current = currentTiqianRuntime();
+  assert.equal(current, promise);
+  await promise;
+  assert.equal(currentTiqianRuntime(), promise);
+});
+
+test("loadTiqianRuntime memoizes: repeated calls return the same promise", async () => {
+  const first = loadTiqianRuntime();
+  const second = loadTiqianRuntime();
+  assert.equal(first, second);
+  await first;
+  const after = loadTiqianRuntime();
+  assert.equal(after, first);
+});
+
+test("engineApi and workerApi become non-null and stable after load", async () => {
   await loadTiqianRuntime();
-
-  const missing = EXPECTED_GLOBALS.filter((name) => {
-    const val = globalThis[name];
-    return val === undefined || val === null;
-  });
-
-  assert.deepEqual(missing, [], "Missing globals: " + missing.join(", "));
+  const engine = engineApi();
+  const workers = workerApi();
+  assert.ok(engine, "engineApi() must be non-null after load");
+  assert.ok(workers, "workerApi() must be non-null after load");
+  assert.equal(engineApi(), engine);
+  assert.equal(workerApi(), workers);
 });
 
-test("engineApi returns __TiqianEngine", () => {
-  const api = engineApi();
-  assert.ok(api, "engineApi() should be truthy");
-  assert.equal(api, globalThis.__TiqianEngine);
-});
-
-test("setEngineOverride and restore", () => {
+test("setEngineOverride substitutes the engineApi face and restoring returns the loaded engine", () => {
   const original = engineApi();
+  assert.ok(original, "loader engine must be installed by the prior load tests");
   const fakeEngine = { x: 1 };
   setEngineOverride(fakeEngine);
   assert.equal(engineApi(), fakeEngine);
@@ -51,22 +58,13 @@ test("setEngineOverride and restore", () => {
   assert.equal(engineApi(), original);
 });
 
-test("workerApi returns __TiqianEngineWorkers", () => {
-  const api = workerApi();
-  assert.ok(api, "workerApi() should be truthy");
-  assert.equal(api, globalThis.__TiqianEngineWorkers);
-});
-
-test("tsFfiFacade has all 5 members as functions", () => {
-  assert.equal(typeof tsFfiFacade.classifyFontRole, "function");
-  assert.equal(typeof tsFfiFacade.unsupportedInlineShapingProperties, "function");
-  assert.equal(typeof tsFfiFacade.firstDivergentInlineShapingProperty, "function");
-  assert.equal(typeof tsFfiFacade.precomputeParagraphWithDiagnostics, "function");
-  assert.equal(typeof tsFfiFacade.precomputeParagraphWithBrowserMetrics, "function");
-});
-
-test("classifyFontRole executes the real engine through the linked ffi package", () => {
-  // A deterministic role answer proves the @tiqian/ffi link resolves to the
-  // real engine rather than an unbound stub.
-  assert.equal(tsFfiFacade.classifyFontRole("汉", 0, 1, "zh-Hans"), "cjk-text");
+test("engineEntry builds a fresh graph per call, distinct from the loader engine", () => {
+  const loaded = engineApi();
+  assert.ok(loaded, "loader engine must be installed by the prior load tests");
+  const first = engineEntry();
+  const second = engineEntry();
+  assert.notEqual(first, second);
+  assert.notEqual(first.engine, second.engine);
+  assert.notEqual(first.workers, second.workers);
+  assert.notEqual(first.engine, loaded);
 });

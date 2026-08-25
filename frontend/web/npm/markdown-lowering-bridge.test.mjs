@@ -1,11 +1,11 @@
 // Unit tests for the markdown-lowering engine module.
-// npm-core/core/engine/markdown-lowering.js exports lower(); these tests
-// drive that function directly.
+// npm-core/core/engine/markdown-lowering.js exports lowerMarkdown() as a
+// plain function; these tests drive it directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { lower } from "@tiqian/prose-core/core/engine/markdown-lowering.js";
-import { cleanupMounted, loadHostRuntime, mount } from "./runtime-host.mjs";
+import { lowerMarkdown } from "@tiqian/prose-core/core/engine/markdown-lowering.js";
+import { cleanupMounted, mount } from "./runtime-host.mjs";
 
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation
 // is cjk-punctuation, everything else is a latin run. The engine only treats
@@ -21,7 +21,7 @@ function lowerParagraph(html, options = {}, roleStub = cjkRoleStub) {
   const root = mount(`<div data-tiqian-root="true">${html}</div>`);
   const paragraph = root.querySelector("p");
   assert.ok(paragraph, "mount must produce a <p>");
-  const result = lower(paragraph, options, {
+  const result = lowerMarkdown(paragraph, options, {
     classifyRole: roleStub,
   });
   return { root, paragraph, result };
@@ -70,7 +70,7 @@ function shapingHelpers(decision = inlineShapingDecisionStub) {
 }
 
 function lowerWithHelpers(paragraph, helpers, options = {}) {
-  return lower(paragraph, options, helpers);
+  return lowerMarkdown(paragraph, options, helpers);
 }
 
 function lowerParagraphWithShapingDecision(html, options = {}) {
@@ -121,14 +121,12 @@ function withComputedStyleOverrideFor(element, overrides, fn) {
   }
 }
 
-test("markdownLoweringBridge_exportsLowerFunction", async () => {
-  await loadHostRuntime();
-  assert.equal(typeof lower, "function");
+test("markdownLoweringBridge_exportsLowerFunction", () => {
+  assert.equal(typeof lowerMarkdown, "function");
 });
 
-test("markdownLoweringBridge_plainTextParagraphLoweredWithDefaults", async (t) => {
+test("markdownLoweringBridge_plainTextParagraphLoweredWithDefaults", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p>中文正文。</p>");
   assert.equal(result.ok, true);
   const lowered = result.lowered;
@@ -149,9 +147,8 @@ test("markdownLoweringBridge_plainTextParagraphLoweredWithDefaults", async (t) =
   assert.deepEqual(lowered.lineBreakSpans, []);
 });
 
-test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", async (t) => {
+test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   // buildWorld() re-installs the fake getComputedStyle on every mount, so the
   // patch must wrap only the lower call, not the mount.
   const root = mount('<div data-tiqian-root="true"><p>中文正文。</p></div>');
@@ -159,7 +156,7 @@ test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", async (t) => {
   const result = withComputedStyleOverride(
     { "font-size": "normal" },
     () =>
-      lower(paragraph, {}, { classifyRole: cjkRoleStub }),
+      lowerMarkdown(paragraph, {}, { classifyRole: cjkRoleStub }),
   );
   assert.equal(result.ok, true);
   const lowered = result.lowered;
@@ -169,9 +166,8 @@ test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", async (t) => {
   assert.equal(lowered.textStyle.italic, false);
 });
 
-test("markdownLoweringBridge_localeOptionThreadsThroughTextStyles", async (t) => {
+test("markdownLoweringBridge_localeOptionThreadsThroughTextStyles", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<p style=\"font-family: 'BaseFace'\"><em style=\"font-style: italic; font-family: 'StrongFace'\">斜</em>尾</p>",
     { locale: "zh-TW" },
@@ -183,9 +179,8 @@ test("markdownLoweringBridge_localeOptionThreadsThroughTextStyles", async (t) =>
   assert.equal(lowered.spans[0].style.locale, "zh-TW");
 });
 
-test("markdownLoweringBridge_strongAsEmphasisMarksSplitsCjkFromLatinRuns", async (t) => {
+test("markdownLoweringBridge_strongAsEmphasisMarksSplitsCjkFromLatinRuns", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<p style=\"font-family: 'BaseFace'\">中文<strong style=\"font-family: 'StrongFace'; font-weight: 700\">粗体👍🏽ab</strong>后</p>",
     { strongAsEmphasisMarks: true },
@@ -210,9 +205,8 @@ test("markdownLoweringBridge_strongAsEmphasisMarksSplitsCjkFromLatinRuns", async
   assert.equal(lowered.text.slice(4, 8), "👍🏽");
 });
 
-test("markdownLoweringBridge_graphemeBoundariesViaIntlSegmenter", async (t) => {
+test("markdownLoweringBridge_graphemeBoundariesViaIntlSegmenter", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   // U+FE0F attaches to the preceding CJK base as one grapheme; a code-point
   // traversal would split the base and the variation selector into two runs.
   const { result } = lowerParagraph(
@@ -232,33 +226,29 @@ test("markdownLoweringBridge_graphemeBoundariesViaIntlSegmenter", async (t) => {
   ]);
 });
 
-test("markdownLoweringBridge_whiteSpaceCollapseNormalMode", async (t) => {
+test("markdownLoweringBridge_whiteSpaceCollapseNormalMode", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p style=\"white-space: normal\">  甲  乙 丙  </p>");
   assert.equal(result.ok, true);
   assert.equal(result.lowered.text, "甲 乙 丙");
 });
 
-test("markdownLoweringBridge_whiteSpacePrePreservesEverything", async (t) => {
+test("markdownLoweringBridge_whiteSpacePrePreservesEverything", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p style=\"white-space: pre\">  甲  乙\n丙  </p>");
   assert.equal(result.ok, true);
   assert.equal(result.lowered.text, "  甲  乙\n丙  ");
 });
 
-test("markdownLoweringBridge_whiteSpacePreLineCollapsesButKeepsBreaks", async (t) => {
+test("markdownLoweringBridge_whiteSpacePreLineCollapsesButKeepsBreaks", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p style=\"white-space: pre-line\">  甲\n  乙  </p>");
   assert.equal(result.ok, true);
   assert.equal(result.lowered.text, "甲\n乙");
 });
 
-test("markdownLoweringBridge_structuralBreakAndCrLfProduceSingleNewline", async (t) => {
+test("markdownLoweringBridge_structuralBreakAndCrLfProduceSingleNewline", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const brCase = lowerParagraph("<p>甲<br>乙</p>");
   assert.equal(brCase.result.ok, true);
   assert.equal(brCase.result.lowered.text, "甲\n乙");
@@ -267,9 +257,8 @@ test("markdownLoweringBridge_structuralBreakAndCrLfProduceSingleNewline", async 
   assert.equal(crlfCase.result.lowered.text, "甲\n乙");
 });
 
-test("markdownLoweringBridge_projectedRangesShiftWithCollapse", async (t) => {
+test("markdownLoweringBridge_projectedRangesShiftWithCollapse", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const preCase = lowerParagraph(
     "<p style=\"white-space: pre\">x<code style=\"font-family: 'MonoFace'\">  cd  </code>y</p>",
   );
@@ -289,9 +278,8 @@ test("markdownLoweringBridge_projectedRangesShiftWithCollapse", async (t) => {
   assert.equal(collapseCase.result.lowered.spans[0].end, 2);
 });
 
-test("markdownLoweringBridge_plainInlineEmitsNoTextSpanStyledInlineEmitsOne", async (t) => {
+test("markdownLoweringBridge_plainInlineEmitsNoTextSpanStyledInlineEmitsOne", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<p>平<span>原样</span><em style=\"font-style: italic\">斜</em>尾</p>",
   );
@@ -308,9 +296,8 @@ test("markdownLoweringBridge_plainInlineEmitsNoTextSpanStyledInlineEmitsOne", as
   assert.deepEqual(lowered.sourceBoundaries, [1, 3, 4]);
 });
 
-test("markdownLoweringBridge_nestedInlineDepthIncrements", async (t) => {
+test("markdownLoweringBridge_nestedInlineDepthIncrements", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<p><em style=\"font-style: italic\">外<strong style=\"font-weight: 700\">内</strong></em>尾</p>",
   );
@@ -331,9 +318,8 @@ test("markdownLoweringBridge_nestedInlineDepthIncrements", async (t) => {
   assert.deepEqual(lowered.sourceBoundaries, [1, 2]);
 });
 
-test("markdownLoweringBridge_opaqueInlineObjectCarriesLiveElementAndGeometry", async (t) => {
+test("markdownLoweringBridge_opaqueInlineObjectCarriesLiveElementAndGeometry", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result, paragraph } = lowerParagraph(
     "<p><span data-tiqian-static-inline-object style=\"display:inline-block; width:42px; height:20px\">obj</span>后</p>",
   );
@@ -355,18 +341,16 @@ test("markdownLoweringBridge_opaqueInlineObjectCarriesLiveElementAndGeometry", a
   assert.equal(lowered.domInlineObjects[0].element, span);
 });
 
-test("markdownLoweringBridge_blockLevelDisplayFailsFormattingContext", async (t) => {
+test("markdownLoweringBridge_blockLevelDisplayFailsFormattingContext", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p>前<div>块</div>后</p>");
   assert.equal(result.ok, false);
   assert.equal(result.issue.name, "UnsupportedInlineFormattingContext");
   assert.equal(result.issue.detail, "div:block");
 });
 
-test("markdownLoweringBridge_rootGeneratedContentFailsGeneratedInline", async (t) => {
+test("markdownLoweringBridge_rootGeneratedContentFailsGeneratedInline", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<div data-tiqian-root=\"true\"><style>.generated-root::before { content: \"※\"; }</style><p class=\"generated-root\">正文</p></div>",
   );
@@ -375,9 +359,8 @@ test("markdownLoweringBridge_rootGeneratedContentFailsGeneratedInline", async (t
   assert.ok(result.issue.detail.startsWith("p::before:"));
 });
 
-test("markdownLoweringBridge_divergentInlineShapingStyleFails", async (t) => {
+test("markdownLoweringBridge_divergentInlineShapingStyleFails", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   // The downgrade decision lives Kotlin-side (InlineShapingStylePolicy); the
   // stub passed here mirrors it the way cjkRoleStub mirrors the classifier.
   const { result } = lowerParagraphWithShapingDecision(
@@ -388,9 +371,8 @@ test("markdownLoweringBridge_divergentInlineShapingStyleFails", async (t) => {
   assert.equal(result.issue.detail, "em:font-kerning");
 });
 
-test("markdownLoweringBridge_inlineShapingDecisionReceivesNormalizedValues", async (t) => {
+test("markdownLoweringBridge_inlineShapingDecisionReceivesNormalizedValues", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const root = mount('<div data-tiqian-root="true"><p><em style="font-kerning: none">斜</em>尾</p></div>');
   const paragraph = root.querySelector("p");
   let captured = null;
@@ -415,9 +397,8 @@ test("markdownLoweringBridge_inlineShapingDecisionReceivesNormalizedValues", asy
   assert.equal(captured.paragraphValues[kerning], "none");
 });
 
-test("markdownLoweringBridge_missingDecisionCallbackSkipsDowngrade", async (t) => {
+test("markdownLoweringBridge_missingDecisionCallbackSkipsDowngrade", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   // Without the callback the host runs the reduced policy (same shape as the
   // classifyRole "other" default): the styled element lowers without a
   // downgrade issue.
@@ -425,18 +406,16 @@ test("markdownLoweringBridge_missingDecisionCallbackSkipsDowngrade", async (t) =
   assert.equal(result.ok, true);
 });
 
-test("markdownLoweringBridge_emptyParagraphFails", async (t) => {
+test("markdownLoweringBridge_emptyParagraphFails", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph("<p>   </p>");
   assert.equal(result.ok, false);
   assert.equal(result.issue.name, "EmptyParagraph");
   assert.equal(result.issue.detail, "paragraph has no text");
 });
 
-test("markdownLoweringBridge_canonicalPreparedPlainSourceFastPath", async (t) => {
+test("markdownLoweringBridge_canonicalPreparedPlainSourceFastPath", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result, paragraph } = lowerParagraph(
     "<p data-tq-rendered=\"true\" data-tq-canonical-plain=\"true\">" +
       "正文<span data-tq-src=\"替代\">丢弃</span>" +
@@ -459,9 +438,8 @@ test("markdownLoweringBridge_canonicalPreparedPlainSourceFastPath", async (t) =>
   assert.equal(paragraph.getAttribute("style"), null);
 });
 
-test("markdownLoweringBridge_canonicalPreparedUnpairedHardBreakKeepsSource", async (t) => {
+test("markdownLoweringBridge_canonicalPreparedUnpairedHardBreakKeepsSource", (t) => {
   t.after(cleanupMounted);
-  await loadHostRuntime();
   const { result } = lowerParagraph(
     "<p data-tq-rendered=\"true\" data-tq-canonical-plain=\"true\">" +
       "<span data-tq-hard-break=\"true\" data-tq-src=\"未配对\">对</span></p>",

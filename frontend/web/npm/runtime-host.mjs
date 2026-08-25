@@ -2634,6 +2634,7 @@ export function eventDetailInt(event, name) {
 // helpers keep their export names but call the TiqianEngine facade directly.
 let engineInstance = null;
 
+
 export function dispatchRelayout(root) {
   engineInstance.relayout(root);
 }
@@ -3603,9 +3604,9 @@ export function loadHostRuntime() {
   installPreparedRendererFixture();
   runtimePromise ??= import("@tiqian/prose-core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
     await loader.loadTiqianRuntime();
-    const engine = globalThis.__TiqianEngine;
-    const workers = globalThis.__TiqianEngineWorkers;
-    if (!engine) throw new Error("TiqianEngine global missing after ts-runtime install");
+    const engine = loader.engineApi();
+    const workers = loader.workerApi();
+    if (!engine) throw new Error("engine unavailable after loadTiqianRuntime");
     engineInstance = engine;
 
     const bridge = {
@@ -3614,8 +3615,10 @@ export function loadHostRuntime() {
       // missing call here while the bundle existed). With ts-runtime there is
       // no main(), so the bridge performs the install itself.
       install() {
-        const installer = globalThis.__TiqianInstallCopyHandler;
-        if (installer && globalThis.document) installer(globalThis.document);
+        // The loader's copy installer is the one the engine graph shares
+        // (one-listener-per-document); the harness must install the same
+        // instance, not a second one.
+        if (globalThis.document) loader.copyInstaller().install(globalThis.document);
       },
       enhance(root, options) {
         engine.enhance(root, options);

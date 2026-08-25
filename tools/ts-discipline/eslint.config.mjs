@@ -18,6 +18,13 @@
 //   6. No inline function types inside annotations (`TSTypeAnnotation TSFunctionType`):
 //      function types must be named (e.g. `type Handler = (x: number) => string`).
 //      Rules 5-6 follow the G1 code standard (.agent-specs/g1-code-standard.md).
+//   7. Zero `var`: executable `var` is forbidden (const, or let when reassigned).
+//      Two exemptions: ambient `var` inside `declare global` blocks (the
+//      type-level spelling of a globalThis property, it dies with its global)
+//      and the TypeScript printer's synthesized `var _a` hoist in emit products
+//      (G2 module boundary).
+//   8. prefer-const on TypeScript sources: a let that is never reassigned is a
+//      const (G2 module boundary).
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +49,21 @@ const patterns = [
   ...targetPackages.flatMap((pkg) => [
     `${pkg}/**/*.js`,
     `${pkg}/**/*.mjs`,
+    `${pkg}/**/*.ts`,
+    `${pkg}/**/*.d.ts`,
+    `${pkg}/*.d.ts`,
+  ]),
+];
+
+// TypeScript sources only: prefer-const is a source discipline; handwritten
+// .mjs test files and printer emit products stay out of its scope.
+const tsPatterns = [
+  ...targetPackages.flatMap((pkg) => [
+    path.join(repoRoot, pkg, "**/*.ts"),
+    path.join(repoRoot, pkg, "**/*.d.ts"),
+    path.join(repoRoot, pkg, "*.d.ts"),
+  ]),
+  ...targetPackages.flatMap((pkg) => [
     `${pkg}/**/*.ts`,
     `${pkg}/**/*.d.ts`,
     `${pkg}/*.d.ts`,
@@ -130,7 +152,19 @@ export default [
           message:
             "Inline function type in annotation: name the type (e.g. `type Handler = (x: number) => string`) first, then reference it (G1 code standard rule 5).",
         },
+        {
+          selector:
+            "VariableDeclaration[kind=\"var\"]:not(TSModuleBlock VariableDeclaration):not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"]))",
+          message:
+            "var is forbidden; use const, or let when reassigned. Two exemptions: ambient var inside declare global (the type-level spelling of a globalThis property, dies with its global) and the TypeScript printer's synthesized `var _a` hoist in emit products (G2 module boundary).",
+        },
       ],
+    },
+  },
+  {
+    files: tsPatterns,
+    rules: {
+      "prefer-const": "error",
     },
   },
 ];

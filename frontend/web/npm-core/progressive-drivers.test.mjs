@@ -1,204 +1,230 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./core/engine/progressive-job.js";
-import "./core/engine/progressive-relayout-session.js";
-import "./core/engine/progressive-drivers.js";
+import {
+  enhanceProgressively,
+  enhanceProgressivelyFromCanonical,
+  rejectMissingSharedRuntimeStyles,
+  relayout,
+  startProgressiveJob,
+} from "./core/engine/progressive-drivers.js";
 
-const enhanceProgressively =
-  globalThis.__TiqianProgressiveDrivers.enhanceProgressively;
-const relayout = globalThis.__TiqianProgressiveDrivers.relayout;
+// The drivers functions take fake rootState/engine/progressiveJob/copyInstaller
+// deps; the progressive-relayout-session and process-paragraph deps bundles
+// carry a fake custody. The real openProgressiveRelayoutSession and the real
+// processParagraph run against those fakes, so the relayout main path and the
+// enhance processItem path are observable through the fake custody ledger. The
+// direct prepare step, the lifecycle helpers and sourceParagraphWidth also run
+// for real, so the relayout main path needs measurable source elements and the
+// getComputedStyle global.
 
-const GLOBALS_TO_SAVE = [
-  "__TiqianProgressiveDrivers",
-  "__TiqianRootState",
-  "__TiqianProgressiveJob",
-  "__TiqianProgressiveRelayoutSession",
-  "__TiqianPrepareParagraphLayout",
-  "__TiqianProcessParagraph",
-  "__TiqianLifecycle",
-  "__TiqianResponsiveMeasure",
-  "window",
-  "getComputedStyle",
-];
-
-function preserveGlobals(names) {
-  return names.map(function (name) {
-    return {
-      name: name,
-      own: Object.prototype.hasOwnProperty.call(globalThis, name),
-      value: globalThis[name],
-    };
-  });
+function saveGlobals(names) {
+  return names.map((name) => ({
+    name,
+    own: Object.prototype.hasOwnProperty.call(globalThis, name),
+    value: globalThis[name],
+  }));
 }
 
 function restoreGlobals(entries) {
-  for (let i = 0; i < entries.length; i += 1) {
-    const e = entries[i];
-    if (e.own) globalThis[e.name] = e.value;
-    else delete globalThis[e.name];
+  for (const { name, own, value } of entries) {
+    if (own) globalThis[name] = value;
+    else delete globalThis[name];
   }
 }
 
-function makeElement(initialAttributes) {
+function makeComputedStyle(values = {}) {
+  const props = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    ...values,
+  };
+  const style = {};
+  for (const key of Object.keys(props)) style[key] = props[key];
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(props, key)
+      ? String(props[key])
+      : "";
+  };
+  return style;
+}
+
+function withEnv(fn, overrides = {}) {
+  const saved = saveGlobals(["window", "document", "getComputedStyle", "CustomEvent"]);
+  try {
+    const values = overrides.computedStyleValues ?? { "--tq-styles-ready": "1" };
+    const computed = (el, pseudo) => makeComputedStyle(values);
+    globalThis.getComputedStyle = computed;
+    globalThis.window = {
+      innerHeight: 800,
+      getComputedStyle: computed,
+    };
+    globalThis.document = { documentElement: { clientHeight: 800 } };
+    globalThis.CustomEvent = function (type, init) {
+      this.type = type;
+      this.bubbles = init && init.bubbles;
+      this.composed = init && init.composed;
+      this.detail = init && init.detail;
+    };
+    return fn();
+  } finally {
+    restoreGlobals(saved);
+  }
+}
+
+// Live paragraph double: doubles as an eligible source element (closest,
+// textContent, querySelectorAll), a lowerable DOM (childNodes, style), and a
+// measurable element (getBoundingClientRect/getClientRects). The tests mutate
+// _rect to simulate viewport distance and width drift.
+function makeElement(initialAttributes, options = {}) {
   const attrs = new Map(Object.entries(initialAttributes || {}));
-  const events = [];
-  const rect = { top: 0, bottom: 100, width: 300 };
+  const setAttributes = [];
+  const removedAttributes = [];
+  const styleProps = new Map();
+  const text = options.text ?? "hello world";
+  const rect = { top: 0, bottom: 100, width: options.width ?? 300 };
   return {
-    tagName: "P",
+    tagName: options.tagName ?? "P",
+    textContent: text,
+    childNodes: options.childNodes ?? [{ nodeType: 3, textContent: text }],
     getAttribute: function (name) {
       return attrs.has(name) ? attrs.get(name) : null;
     },
     setAttribute: function (name, value) {
-      attrs.set(name, String(value));
+      const strVal = String(value);
+      attrs.set(name, strVal);
+      setAttributes.push({ name, value: strVal });
     },
     removeAttribute: function (name) {
       attrs.delete(name);
+      removedAttributes.push(name);
     },
-    dispatchEvent: function (event) {
-      events.push(event);
-      return true;
+    style: {
+      getPropertyValue: (name) => styleProps.get(name) ?? "",
+      getPropertyPriority: () => "",
+      setProperty: (name, value) => styleProps.set(name, String(value)),
+      removeProperty: (name) => styleProps.delete(name),
     },
-    events: events,
-    _rect: rect,
+    closest: () => null,
+    querySelectorAll: () => [],
+    querySelector: () => null,
     getBoundingClientRect: function () {
-      // Read through this._rect so tests can swap or mutate the rect after
-      // creation; a closure over the original object would ignore both.
-      const r = this._rect;
+      const r = this._rect || rect;
       return { top: r.top, bottom: r.bottom, width: r.width };
     },
-    querySelectorAll: function () {
-      return { length: 0 };
+    getClientRects: function () {
+      return [];
     },
+    parentElement: null,
+    insertBefore: () => {},
+    dispatchEvent: function (event) {
+      this.events.push(event);
+      return true;
+    },
+    events: [],
+    attributes: attrs,
+    setAttributes,
+    removedAttributes,
+    _rect: rect,
   };
 }
 
-function makeParagraph(overrides) {
+function makeParagraph(overrides = {}) {
   overrides = overrides || {};
   const source = overrides.source || makeElement();
+  const lowered = overrides.lowered || {
+    text: "test",
+    textStyle: {
+      fontFamilies: [],
+      fontSize: 19,
+      fontWeight: 400,
+      italic: false,
+      baselineShift: 0,
+      locale: "zh-Hans",
+    },
+    lineHeight: 28,
+    spans: [],
+    decorations: [],
+    inlineBoxes: [],
+    inlineObjects: [],
+    domInlineObjects: [],
+    sourceSpans: [],
+    sourceBoundaries: [],
+    lineBreakSpans: [],
+  };
   return {
     source: source,
-    lowered: overrides.lowered || { text: "test" },
+    lowered: lowered,
     lastMeasure: overrides.lastMeasure || null,
   };
 }
 
-function makeFakeWindow() {
+function makeState(overrides = {}, root, optionsOverride) {
   return {
-    innerHeight: 800,
-    getComputedStyle: function (element) {
-      return {
-        getPropertyValue: function (prop) {
-          if (prop === "--tq-styles-ready") return "1";
-          if (prop === "font-size") return "19px";
-          return "";
-        },
-      };
-    },
-  };
-}
-
-function makeFakeDocument() {
-  return {
-    documentElement: { clientHeight: 800 },
-  };
-}
-
-function makeFakeGetComputedStyle() {
-  return function (element) {
-    return {
-      getPropertyValue: function (prop) {
-        if (prop === "--tq-styles-ready") return "1";
-        if (prop === "font-size") return "19px";
-        return "";
+    root: root,
+    options: optionsOverride ||
+      overrides.stateOptions || {
+        paragraphSelector: "p",
+        fontSize: 19,
       },
-    };
+    paragraphs: overrides.paragraphs || [],
+    issues: overrides.issues || [],
+    preparedDomEnabled: true,
+    ffi: overrides.ffi || { mock: true },
+    exactSession: overrides.exactSession || null,
+    browserFallback: overrides.browserFallback || null,
+    onIssue: overrides.onIssue || function () {},
+    onParagraphCommitted: overrides.onParagraphCommitted || function () {},
+    onDisableExactPreparedDom: overrides.onDisableExactPreparedDom || function () {},
   };
 }
 
-function makeFakeRootState(overrides) {
-  overrides = overrides || {};
-  const createRootStateCalls = [];
-  const createRootStateFromCanonicalCalls = [];
-  const getStateCalls = [];
-  const setStateCalls = [];
-  const deleteStateCalls = [];
-  const publishStateCalls = [];
-  const processParagraphArgumentCalls = [];
-  const sessionArgumentCalls = [];
-  const prepareArgumentCalls = [];
-  const paragraphCandidatesCalls = [];
-  const strandedSourceParagraphsCalls = [];
-
+function makeFakeRootState(overrides = {}) {
+  const calls = {
+    createRootState: [],
+    createRootStateFromCanonical: [],
+    getState: [],
+    setState: [],
+    deleteState: [],
+    publishState: [],
+    processParagraphArgument: [],
+    sessionArgument: [],
+    prepareArgument: [],
+    paragraphCandidates: [],
+    strandedSourceParagraphs: [],
+  };
   return {
-    _calls: {
-      createRootState: createRootStateCalls,
-      createRootStateFromCanonical: createRootStateFromCanonicalCalls,
-      getState: getStateCalls,
-      setState: setStateCalls,
-      deleteState: deleteStateCalls,
-      publishState: publishStateCalls,
-      processParagraphArgument: processParagraphArgumentCalls,
-      sessionArgument: sessionArgumentCalls,
-      prepareArgument: prepareArgumentCalls,
-      paragraphCandidates: paragraphCandidatesCalls,
-      strandedSourceParagraphs: strandedSourceParagraphsCalls,
-    },
+    _calls: calls,
     bindFfi: function () {},
     currentFfi: function () {
       return overrides.ffi || { mock: true };
     },
     createRootState: function (root, optionsBag) {
-      const state = {
-        root: root,
-        options: overrides.stateOptions || {
-          paragraphSelector: "p",
-          fontSize: 19,
-        },
-        paragraphs: overrides.paragraphs || [],
-        issues: overrides.issues || [],
-        preparedDomEnabled: true,
-        tsOptions: overrides.tsOptions || { ts: true },
-        exactSession: overrides.exactSession || { sessionId: "s1" },
-        browserFallback: overrides.browserFallback || null,
-        onIssue: overrides.onIssue || function () {},
-        onParagraphCommitted: overrides.onParagraphCommitted || function () {},
-        onDisableExactPreparedDom: overrides.onDisableExactPreparedDom || function () {},
-      };
-      createRootStateCalls.push({ root: root, optionsBag: optionsBag });
-      return state;
+      calls.createRootState.push({ root: root, optionsBag: optionsBag });
+      return makeState(overrides, root);
     },
     createRootStateFromCanonical: function (root, options) {
-      createRootStateFromCanonicalCalls.push({ root: root, options: options });
-      return overrides.canonicalState || {
-        root: root,
-        options: options,
-        paragraphs: [],
-        issues: [],
-        preparedDomEnabled: true,
-        tsOptions: {},
-        exactSession: null,
-        browserFallback: null,
-        onIssue: function () {},
-        onParagraphCommitted: function () {},
-        onDisableExactPreparedDom: function () {},
-      };
+      calls.createRootStateFromCanonical.push({ root: root, options: options });
+      return makeState(overrides, root, options);
     },
     getState: function (root) {
-      getStateCalls.push(root);
+      calls.getState.push(root);
       return overrides.getStateValue !== undefined ? overrides.getStateValue : null;
     },
     setState: function (root, state) {
-      setStateCalls.push({ root: root, state: state });
+      calls.setState.push({ root: root, state: state });
     },
     deleteState: function (root) {
-      deleteStateCalls.push(root);
+      calls.deleteState.push(root);
     },
     publishState: function (state, keepEmpty) {
-      publishStateCalls.push({ state: state, keepEmpty: keepEmpty });
+      calls.publishState.push({ state: state, keepEmpty: keepEmpty });
     },
     processParagraphArgument: function (state, paragraph) {
-      processParagraphArgumentCalls.push({ state: state, paragraph: paragraph });
+      calls.processParagraphArgument.push({ state: state, paragraph: paragraph });
       return {
         ffi: state.ffi || overrides.ffi || { mock: true },
         paragraph: paragraph,
@@ -206,143 +232,156 @@ function makeFakeRootState(overrides) {
       };
     },
     sessionArgument: function (state) {
-      sessionArgumentCalls.push({ state: state });
+      calls.sessionArgument.push({ state: state });
       return { paragraphs: state.paragraphs, state: state };
     },
     prepareArgument: function (state, paragraph, widthOverride) {
-      prepareArgumentCalls.push({
+      calls.prepareArgument.push({
         state: state,
         paragraph: paragraph,
         widthOverride: widthOverride,
       });
       return {
         paragraph: paragraph,
-        options: state.tsOptions || {},
+        options: state.options || {},
         exactSession: state.exactSession || null,
         browserFallback: state.browserFallback || null,
         widthOverride: widthOverride,
       };
     },
     paragraphCandidates: function (root, selector) {
-      paragraphCandidatesCalls.push({ root: root, selector: selector });
+      calls.paragraphCandidates.push({ root: root, selector: selector });
       return overrides.candidates || [];
     },
     strandedSourceParagraphs: function (root, state) {
-      strandedSourceParagraphsCalls.push({ root: root, state: state });
+      calls.strandedSourceParagraphs.push({ root: root, state: state });
       return overrides.stranded || [];
     },
   };
 }
 
-function makeFakeLifecycle() {
-  const responsiveSourceMeasureCalls = [];
+function makeFakeFfi() {
   return {
-    _calls: { responsiveSourceMeasure: responsiveSourceMeasureCalls },
-    responsiveSourceMeasure: function (paragraph, fontSize) {
-      responsiveSourceMeasureCalls.push({ paragraph: paragraph, fontSize: fontSize });
-      return 100;
-    },
-    reportIssue: function () {},
+    classifyFontRole: (text, start, end, locale) => "latin",
+    firstDivergentInlineShapingProperty: () => null,
+    unsupportedInlineShapingProperties: () => [],
+    precomputeParagraphWithDiagnostics: () => "{}",
+    precomputeParagraphWithBrowserMetrics: () => "{}",
   };
 }
 
-function makeFakeLifecycleWith(measures) {
-  const calls = { responsiveSourceMeasure: [] };
+function makeFakeCustody() {
+  const calls = {
+    begin: [],
+    take: [],
+    commit: [],
+    restoreParagraph: [],
+    captureLive: [],
+    rollback: [],
+    stampRendered: [],
+    restoreShell: [],
+  };
   return {
     _calls: calls,
-    responsiveSourceMeasure: function (paragraph, fontSize) {
-      calls.responsiveSourceMeasure.push({ paragraph: paragraph, fontSize: fontSize });
-      return measures[calls.responsiveSourceMeasure.length - 1];
+    begin: function (...args) {
+      calls.begin.push(args);
     },
-    reportIssue: function () {},
+    take: function (el, applied) {
+      calls.take.push({ el: el, applied: applied });
+    },
+    commit: function (el, applied) {
+      calls.commit.push({ el: el, applied: applied });
+    },
+    restoreParagraph: function (el) {
+      calls.restoreParagraph.push(el);
+    },
+    captureLive: function (source, lastMeasure) {
+      calls.captureLive.push({ source: source, lastMeasure: lastMeasure });
+      return { source: source, lastMeasure: lastMeasure, snapshot: true };
+    },
+    rollback: function (snapshots) {
+      calls.rollback.push(snapshots);
+      return [];
+    },
+    stampRendered: function (el) {
+      calls.stampRendered.push(el);
+    },
+    restoreShell: function (el) {
+      calls.restoreShell.push(el);
+    },
   };
 }
 
-function makeFakeResponsiveMeasure() {
+function makeFakeProgressiveJob(overrides = {}) {
+  const startJobCalls = [];
+  const cancelJobCalls = [];
   return {
-    sourceParagraphWidth: function () {
-      return 300;
+    _calls: { startJob: startJobCalls, cancelJob: cancelJobCalls },
+    startJob: function (spec) {
+      startJobCalls.push(spec);
+      if (overrides.startJob) overrides.startJob(spec);
+    },
+    cancelJob: function (root) {
+      cancelJobCalls.push(root);
+      if (overrides.cancelJob) overrides.cancelJob(root);
+    },
+    jobKind: function (root) {
+      return overrides.jobKind ? overrides.jobKind(root) : null;
+    },
+    isAttached: function () {
+      return false;
     },
   };
 }
 
-function makeFakeProcessParagraph() {
+function makeFakeCopyInstaller() {
   const calls = [];
   return {
     _calls: calls,
-    processParagraph: function (arg) {
-      calls.push(arg);
+    install: function (doc) {
+      calls.push(doc);
     },
   };
 }
 
-function makeFakePrepareParagraphLayout() {
-  const calls = [];
+function makeDrivers(overrides = {}) {
+  const ffi = overrides.ffi || makeFakeFfi();
+  const custody = overrides.custody || makeFakeCustody();
+  const rootState = overrides.rootState || makeFakeRootState({ ...overrides, ffi: ffi });
+  const progressiveJob = overrides.progressiveJob || makeFakeProgressiveJob(overrides);
+  const copyInstaller = overrides.copyInstaller || makeFakeCopyInstaller();
+  const commitPreparedParagraphBundle = overrides.commitBundle || {
+    commitWorkerPreparedParagraph: function (deps, argument) {
+      return null;
+    },
+    commitPreparedParagraph: function (deps, argument) {
+      return { kind: "success", measure: 300 };
+    },
+  };
+  const progressiveRelayoutSessionDeps = {
+    custody: custody,
+    commitPreparedParagraph: commitPreparedParagraphBundle,
+  };
+  const processParagraphDeps = {
+    custody: custody,
+    commitPreparedParagraph: commitPreparedParagraphBundle,
+  };
+  const deps = {
+    rootState: rootState,
+    engine: null,
+    copyInstaller: copyInstaller,
+    progressiveJob: progressiveJob,
+    progressiveRelayoutSession: progressiveRelayoutSessionDeps,
+    processParagraph: processParagraphDeps,
+  };
   return {
-    _calls: calls,
-    prepareParagraphLayout: function (ffi, arg) {
-      calls.push({ ffi: ffi, argument: arg });
-      return { kind: "ready", planJson: "{}" };
-    },
+    deps: deps,
+    rootState: rootState,
+    progressiveJob: progressiveJob,
+    copyInstaller: copyInstaller,
+    custody: custody,
+    ffi: ffi,
   };
-}
-
-function makeFakeSession() {
-  const processItemCalls = [];
-  const finishCalls = [];
-  const rollbackCalls = [];
-  return {
-    _calls: {
-      processItem: processItemCalls,
-      finish: finishCalls,
-      rollback: rollbackCalls,
-    },
-    processItem: function (index, preparation) {
-      processItemCalls.push({ index: index, preparation: preparation });
-    },
-    finish: function () {
-      finishCalls.push(true);
-    },
-    rollback: function () {
-      rollbackCalls.push(true);
-    },
-    stale: false,
-  };
-}
-
-function setupGlobals(rootStateOpts) {
-  const saved = preserveGlobals(GLOBALS_TO_SAVE);
-
-  globalThis.window = makeFakeWindow();
-  globalThis.document = makeFakeDocument();
-  globalThis.getComputedStyle = makeFakeGetComputedStyle();
-  globalThis.CustomEvent = function (type, init) {
-    this.type = type;
-    this.bubbles = init && init.bubbles;
-    this.composed = init && init.composed;
-    this.detail = init && init.detail;
-  };
-
-  const fakeRS = makeFakeRootState(rootStateOpts || {});
-  globalThis.__TiqianRootState = fakeRS;
-
-  // The relayout main path measures every rendered source before the session
-  // starts; every test needs a live responsive measure bridge.
-  globalThis.__TiqianResponsiveMeasure = makeFakeResponsiveMeasure();
-
-  const fakeJob = globalThis.__TiqianProgressiveJob;
-  const fakeSession = globalThis.__TiqianProgressiveRelayoutSession;
-
-  return {
-    saved: saved,
-    fakeRS: fakeRS,
-    fakeJob: fakeJob,
-    fakeSession: fakeSession,
-  };
-}
-
-function teardown(ctx) {
-  restoreGlobals(ctx.saved);
 }
 
 // ---------------------------------------------------------------------------
@@ -350,34 +389,24 @@ function teardown(ctx) {
 // ---------------------------------------------------------------------------
 
 test("1a. cancelJob is called before createRootState", function () {
-  const ctx = setupGlobals();
-  try {
-    const cancelJobCalls = [];
-    const origCancelJob = ctx.fakeJob.cancelJob;
-    ctx.fakeJob.cancelJob = function (root) {
-      cancelJobCalls.push(root);
-    };
-
+  withEnv(() => {
+    const ctx = makeDrivers();
     const root = makeElement();
-    enhanceProgressively(root, { fontSize: 20 });
+    enhanceProgressively(ctx.deps, root, { fontSize: 20 });
 
-    assert.equal(cancelJobCalls.length, 1);
-    assert.equal(cancelJobCalls[0], root);
-    assert.equal(ctx.fakeRS._calls.createRootState.length, 1);
-    assert.equal(ctx.fakeRS._calls.createRootState[0].optionsBag.fontSize, 20);
+    assert.equal(ctx.progressiveJob._calls.cancelJob.length, 1);
+    assert.equal(ctx.progressiveJob._calls.cancelJob[0], root);
+    assert.equal(ctx.rootState._calls.createRootState.length, 1);
+    assert.equal(ctx.rootState._calls.createRootState[0].optionsBag.fontSize, 20);
     // cancelJob happens before createRootState
-    assert.ok(cancelJobCalls.length > 0);
-  } finally {
-    teardown(ctx);
-  }
+    assert.ok(ctx.progressiveJob._calls.cancelJob.length > 0);
+  });
 });
 
 test("1b. work order sorted by (distance, index) ascending", function () {
   // Candidates are source elements: p1 above the viewport (distance 100),
   // p2 visible (distance 0), p3 below the viewport (top 900 - innerHeight
   // 800 = distance 100). p1 and p3 tie on distance, so index breaks the tie.
-  const measures = [100, 100, 100];
-  const lifecycle = makeFakeLifecycleWith(measures);
   const p1 = makeElement();
   p1._rect = { top: -200, bottom: -100, width: 300 };
   const p2 = makeElement();
@@ -385,211 +414,138 @@ test("1b. work order sorted by (distance, index) ascending", function () {
   const p3 = makeElement();
   p3._rect = { top: 900, bottom: 1000, width: 300 };
 
-  const ctx = setupGlobals({
-    candidates: [p1, p2, p3],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1, p2, p3],
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
-    assert.equal(startJobCalls.length, 1);
-    const spec = startJobCalls[0];
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    const spec = ctx.progressiveJob._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 3);
     // p2 (distance 0, index 1) first, then the distance-100 tie p1 (index 0)
     // before p3 (index 2).
     assert.deepEqual(spec.itemTierIndex, [1, 0, 2]);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
-  const measures = [100, 100];
-  const lifecycle = makeFakeLifecycleWith(measures);
   const p1 = makeParagraph();
   const p2 = makeParagraph();
 
-  const ctx = setupGlobals({
-    candidates: [p1, p2],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  const startJobCalls = [];
-  const origStartJob = ctx.fakeJob.startJob;
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1.source, p2.source],
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
-    assert.equal(startJobCalls.length, 1);
-    const spec = startJobCalls[0];
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    const spec = ctx.progressiveJob._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 2);
     // itemTierIndex should be [0, 1] for two elements at distance 0
     assert.deepEqual(spec.itemTierIndex, [0, 1]);
     // paragraphsByDoc should be the source candidates (original order)
     assert.equal(spec.paragraphsByDoc.length, 2);
-    assert.equal(spec.paragraphsByDoc[0], p1);
-    assert.equal(spec.paragraphsByDoc[1], p2);
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(spec.paragraphsByDoc[0], p1.source);
+    assert.equal(spec.paragraphsByDoc[1], p2.source);
+  });
 });
 
 test("1d. processItem calls processParagraphArgument and processParagraph for non-stale items", function () {
-  // Third 100 is the live re-measure of index 0 inside processItem: it must
-  // equal the captured value or the guard marks the item stale.
-  const measures = [100, 100, 100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const pp = makeFakeProcessParagraph();
-  globalThis.__TiqianProcessParagraph = pp;
-
   const p1 = makeParagraph();
   const p2 = makeParagraph();
-  const ctx = setupGlobals({
-    candidates: [p1, p2],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
 
-  let processItemFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    processItemFn = spec.processItem;
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1.source, p2.source],
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
-    assert.ok(processItemFn);
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.processItem);
 
-    // Call processItem for index 0: live measure matches captured => processParagraph
-    processItemFn(0);
-    assert.equal(ctx.fakeRS._calls.processParagraphArgument.length, 1);
-    assert.equal(ctx.fakeRS._calls.processParagraphArgument[0].paragraph, p1);
-    assert.equal(pp._calls.length, 1);
-    assert.equal(pp._calls[0].paragraph, p1);
-  } finally {
-    teardown(ctx);
-  }
+    // Call processItem for index 0: live measure matches captured => the real
+    // processParagraph runs and reaches custody.begin.
+    spec.processItem(0);
+    assert.equal(ctx.rootState._calls.processParagraphArgument.length, 1);
+    assert.equal(ctx.rootState._calls.processParagraphArgument[0].paragraph, p1.source);
+    assert.equal(ctx.custody._calls.begin.length, 1);
+    assert.equal(ctx.custody._calls.begin[0][0], p1.source);
+  });
 });
 
 test("1e. processItem sets stale when measure drifts and does not process", function () {
-  // Measures: first capture for p1=100, p2=100. Live for p1=200 (drift), p2=100.
-  const measures = [100, 100, 200, 100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const pp = makeFakeProcessParagraph();
-  globalThis.__TiqianProcessParagraph = pp;
-
   const p1 = makeParagraph();
   const p2 = makeParagraph();
-  const ctx = setupGlobals({
-    candidates: [p1, p2],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
 
-  let isStaleFn = null;
-  let processItemFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    processItemFn = spec.processItem;
-    isStaleFn = spec.isStale;
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1.source, p2.source],
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
-    // Process index 0: live measure (200) != captured (100) => stale, no process
-    processItemFn(0);
-    assert.equal(pp._calls.length, 0);
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    const isStaleFn = spec.isStale;
+    assert.ok(spec.processItem);
+
+    // Live measure for index 0 drifts from the captured measure: widening the
+    // element changes the responsive grid cell, so the item is stale and no
+    // paragraph is processed.
+    p1.source._rect.width = 600;
+    spec.processItem(0);
+    assert.equal(ctx.custody._calls.begin.length, 0);
     assert.equal(isStaleFn(), true);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("1f. onItemsFinished aggregates stale across all items", function () {
-  // Capture: p1=100, p2=100. Live recheck: p1=100 (same), p2=200 (drift).
-  const measures = [100, 100, 100, 200];
-  const lifecycle = makeFakeLifecycleWith(measures);
-
   const p1 = makeParagraph();
   const p2 = makeParagraph();
-  const ctx = setupGlobals({
-    candidates: [p1, p2],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
 
-  let onItemsFinishedFn = null;
-  let isStaleFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onItemsFinishedFn = spec.onItemsFinished;
-    isStaleFn = spec.isStale;
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1.source, p2.source],
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
-    assert.ok(onItemsFinishedFn);
-    onItemsFinishedFn();
-    // After finish, stale should be true because p2 drifted
-    assert.equal(isStaleFn(), true);
-  } finally {
-    teardown(ctx);
-  }
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onItemsFinished);
+    // p2's live re-measure drifts from its captured measure, so the finish
+    // pass reports the job stale.
+    p2.source._rect.width = 600;
+    spec.onItemsFinished();
+    assert.equal(spec.isStale(), true);
+  });
 });
 
 test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports MissingSharedRuntimeStyles and does not startJob", function () {
-  const pp = makeFakeProcessParagraph();
-  globalThis.__TiqianProcessParagraph = pp;
-
-  const p1 = makeParagraph();
-  const ctx = setupGlobals({
-    candidates: [p1],
-  });
-  // Override window.getComputedStyle to return non-1 for --tq-styles-ready
-  globalThis.window.getComputedStyle = function () {
-    return {
-      getPropertyValue: function (prop) {
-        if (prop === "--tq-styles-ready") return "0";
-        return "";
-      },
-    };
-  };
-  globalThis.__TiqianLifecycle = makeFakeLifecycleWith([100]);
-
   const reportedIssues = [];
-  ctx.fakeRS._calls.createRootState = [];
-  const origCreateRootState = ctx.fakeRS.createRootState;
-  ctx.fakeRS.createRootState = function (root, bag) {
-    const state = origCreateRootState(root, bag);
-    state.issues = reportedIssues;
-    return state;
-  };
+  const p1 = makeParagraph();
 
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [p1.source],
+      issues: reportedIssues,
+    });
     const root = makeElement();
-    enhanceProgressively(root, {});
+    enhanceProgressively(ctx.deps, root, {});
 
     // Should not start a job
-    assert.equal(startJobCalls.length, 0);
-    // Should have reported the issue
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 0);
+    // The gate issue is pushed into state.issues (the reportedIssues array)
+    // before the lifecycle marker is written.
     assert.ok(reportedIssues.length > 0);
     assert.equal(reportedIssues[0].name, "MissingSharedRuntimeStyles");
     assert.equal(reportedIssues[0].detail, "Load @tiqian/prose/styles.css before TiqianWeb.enhance");
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(p1.source.getAttribute("data-tiqian-capability-issue"), "MissingSharedRuntimeStyles");
+  }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });
 
 // ---------------------------------------------------------------------------
@@ -597,50 +553,32 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
 // ---------------------------------------------------------------------------
 
 test("2. relayout branch 1: Enhance running with state => restart with canonical options (kind Enhance)", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-
   const runningState = {
     options: { fontSize: 22, paragraphSelector: "p" },
     paragraphs: [],
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: runningState,
-    candidates: [makeParagraph()],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  // Fake jobKind to return "Enhance"; restore it in finally so later tests
-  // observe the real job table (test 4 must reach branch 3, not branch 1).
-  const origJobKind = ctx.fakeJob.jobKind;
-  ctx.fakeJob.jobKind = function () {
-    return "Enhance";
-  };
-
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: runningState,
+      candidates: [makeParagraph().source],
+      progressiveJob: makeFakeProgressiveJob({ jobKind: () => "Enhance" }),
+    });
     const root = makeElement();
-    relayout(root);
+    relayout(ctx.deps, root);
 
     // Should restart with the running state's canonical options. Kotlin's
     // two-arg overload restarts the interrupted enhance, so the kind stays
     // Enhance and the finish event stays tiqian:ready. Canonical options
     // must go through createRootStateFromCanonical; feeding them to
     // createRootState would re-resolve them through optionsFromJs.
-    assert.equal(startJobCalls.length, 1);
-    assert.equal(startJobCalls[0].kind, "Enhance");
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical[0].options, runningState.options);
-    assert.equal(ctx.fakeRS._calls.createRootState.length, 0);
-  } finally {
-    ctx.fakeJob.jobKind = origJobKind;
-    teardown(ctx);
-  }
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Enhance");
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, runningState.options);
+    assert.equal(ctx.rootState._calls.createRootState.length, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -648,31 +586,20 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
 // ---------------------------------------------------------------------------
 
 test("3. relayout branch 2: no state => cold-start Relayout with bag null", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-
-  const ctx = setupGlobals({
-    getStateValue: null,
-    candidates: [makeParagraph()],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: null,
+      candidates: [makeParagraph().source],
+    });
     const root = makeElement();
-    relayout(root);
+    relayout(ctx.deps, root);
 
-    assert.equal(startJobCalls.length, 1);
-    assert.equal(startJobCalls[0].kind, "Relayout");
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Relayout");
     // createRootState was called with bag null
-    assert.equal(ctx.fakeRS._calls.createRootState.length, 1);
-    assert.equal(ctx.fakeRS._calls.createRootState[0].optionsBag, null);
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(ctx.rootState._calls.createRootState.length, 1);
+    assert.equal(ctx.rootState._calls.createRootState[0].optionsBag, null);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -680,9 +607,6 @@ test("3. relayout branch 2: no state => cold-start Relayout with bag null", func
 // ---------------------------------------------------------------------------
 
 test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhance path", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-
   const root = makeElement();
 
   const stateWithIssue = {
@@ -692,35 +616,23 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
     issues: [{ name: "InlineCloneDecorationBreakUnsupported" }],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: stateWithIssue,
-    candidates: [makeParagraph()],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  const cancelJobCalls = [];
-  ctx.fakeJob.cancelJob = function (root) {
-    cancelJobCalls.push(root);
-  };
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
-    relayout(root);
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: stateWithIssue,
+      candidates: [makeParagraph().source],
+    });
+    relayout(ctx.deps, root);
 
     // cancelJob ran twice: branch 3 cancels explicitly, then the restart's
     // engine-less fallback (unit world) cancels again. Both are idempotent;
     // hosted worlds see the same double through engine.destroy.
-    assert.equal(cancelJobCalls.length, 2);
+    assert.equal(ctx.progressiveJob._calls.cancelJob.length, 2);
     // Then restarts with enhance path using the state's canonical options
-    assert.equal(startJobCalls.length, 1);
-    assert.equal(startJobCalls[0].kind, "Relayout");
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical[0].options, stateWithIssue.options);
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Relayout");
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, stateWithIssue.options);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -728,19 +640,6 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
 // ---------------------------------------------------------------------------
 
 test("5a. relayout main path: sessionArgument creates session, processItem dispatches stranded and rendered", function () {
-  const measures = [100, 100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const pp = makeFakeProcessParagraph();
-  globalThis.__TiqianProcessParagraph = pp;
-  const ppl = makeFakePrepareParagraphLayout();
-  globalThis.__TiqianPrepareParagraphLayout = ppl;
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
@@ -751,8 +650,7 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     options: { fontSize: 19, paragraphSelector: "p" },
     paragraphs: [renderedP],
     issues: [],
-    ffi: { mock: true },
-    tsOptions: { ts: true },
+    ffi: null,
     exactSession: null,
     browserFallback: null,
     onIssue: function () {},
@@ -760,126 +658,80 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     onDisableExactPreparedDom: function () {},
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    stranded: [strandedP],
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      stranded: [strandedP.source],
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    relayout(ctx.deps, root);
 
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
-    relayout(root);
-
-    assert.equal(startJobCalls.length, 1);
-    const spec = startJobCalls[0];
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    const spec = ctx.progressiveJob._calls.startJob[0];
     assert.equal(spec.kind, "Relayout");
     // count = rendered(1) + stranded(1) = 2
     assert.equal(spec.itemCount, 2);
 
-    // Process rendered item (mixIndex 0): should call prepareParagraphLayout
+    // Process rendered item (mixIndex 0): the real prepare runs (returns
+    // PreparedDomBridgeUnavailable without a renderer), the real session
+    // captures a live custody snapshot for the unsupported verdict.
     spec.processItem(0);
-    assert.equal(ppl._calls.length, 1);
-    assert.equal(fakeSession._calls.processItem.length, 1);
-    assert.equal(fakeSession._calls.processItem[0].index, 0);
+    assert.equal(ctx.custody._calls.captureLive.length, 1);
+    assert.equal(ctx.custody._calls.captureLive[0].source, renderedP.source);
 
-    // Process stranded item (mixIndex 1): should call processParagraph
+    // Process stranded item (mixIndex 1): the real processParagraph runs and
+    // reaches custody.begin.
     spec.processItem(1);
-    assert.equal(pp._calls.length, 1);
-    assert.equal(pp._calls[0].paragraph, strandedP);
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(ctx.custody._calls.begin.length, 1);
+    assert.equal(ctx.custody._calls.begin[0][0], strandedP.source);
+  });
 });
 
 test("5b. relayout main path: prepareArgument includes widths", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const ppl = makeFakePrepareParagraphLayout();
-  globalThis.__TiqianPrepareParagraphLayout = ppl;
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
 
   const renderedP = makeParagraph();
+  renderedP.source._rect.width = 250;
   const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [renderedP],
     issues: [],
-    ffi: { mock: true },
-    tsOptions: { ts: true },
+    ffi: null,
     exactSession: null,
     browserFallback: null,
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-  // setupGlobals installs the default responsive measure; this test wants a
-  // distinct width so the assertion proves prepareArgument received it.
-  globalThis.__TiqianResponsiveMeasure = {
-    sourceParagraphWidth: function () {
-      return 250;
-    },
-  };
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
 
-  const prepareArgCalls = [];
-  const origPrepareArg = ctx.fakeRS.prepareArgument;
-  ctx.fakeRS.prepareArgument = function (state, paragraph, widthOverride) {
-    prepareArgCalls.push({ paragraph: paragraph, widthOverride: widthOverride });
-    return origPrepareArg(state, paragraph, widthOverride);
-  };
+    const prepareArgCalls = [];
+    const origPrepareArg = ctx.rootState.prepareArgument;
+    ctx.rootState.prepareArgument = function (st, paragraph, widthOverride) {
+      prepareArgCalls.push({ paragraph: paragraph, widthOverride: widthOverride });
+      return origPrepareArg(st, paragraph, widthOverride);
+    };
 
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-  };
-  try {
-    relayout(root);
+    relayout(ctx.deps, root);
 
-    const spec = startJobCalls[0];
+    const spec = ctx.progressiveJob._calls.startJob[0];
     spec.processItem(0);
 
     assert.equal(prepareArgCalls.length, 1);
     assert.equal(prepareArgCalls[0].paragraph, renderedP);
-    // width should come from responsive measure
+    // width should come from the measured source element
     assert.equal(prepareArgCalls[0].widthOverride, 250);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("5c. relayout main path: stale when root width drifts >= 0.5", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
@@ -890,25 +742,17 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    relayout(ctx.deps, root);
 
-  let staleFn = null;
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-    staleFn = spec.isStale;
-  };
-  try {
-    relayout(root);
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    const staleFn = spec.isStale;
 
     // Initially root width matches (300) => not stale from width drift
     // But session.stale is also false
@@ -917,103 +761,74 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
     // Simulate root width drift
     root._rect.width = 301;
     assert.equal(staleFn(), true);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("5d. relayout main path: onFailure calls rollback", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
 
+  const renderedP = makeParagraph();
   const state = {
     root: root,
     options: { fontSize: 19 },
-    paragraphs: [],
+    paragraphs: [renderedP],
     issues: [],
+    ffi: null,
+    exactSession: null,
+    browserFallback: null,
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
+
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    relayout(ctx.deps, root);
+
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onFailure);
+    spec.onFailure();
+    // The real session rollback hands the captured snapshots to custody.
+    assert.equal(ctx.custody._calls.rollback.length, 1);
   });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-
-  let onFailureFn = null;
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-    onFailureFn = spec.onFailure;
-  };
-  try {
-    relayout(root);
-
-    assert.ok(onFailureFn);
-    onFailureFn();
-    assert.equal(fakeSession._calls.rollback.length, 1);
-  } finally {
-    teardown(ctx);
-  }
 });
 
-test("5e. relayout main path: onItemsFinished calls finish", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
+test("5e. relayout main path: onItemsFinished calls finish which ejects unsupported paragraphs", function () {
   const root = makeElement();
 
+  const renderedP = makeParagraph();
   const state = {
     root: root,
     options: { fontSize: 19 },
-    paragraphs: [],
+    paragraphs: [renderedP],
     issues: [],
+    ffi: null,
+    exactSession: null,
+    browserFallback: null,
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
+
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    relayout(ctx.deps, root);
+
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onItemsFinished);
+    // The rendered item prepares to PreparedDomBridgeUnavailable (no
+    // renderer), so the real session marks it unsupported; finish ejects it
+    // from state.paragraphs and reports the issue.
+    spec.processItem(0);
+    spec.onItemsFinished();
+    assert.equal(state.paragraphs.length, 0);
+    assert.equal(state.issues.length, 1);
+    assert.equal(state.issues[0].name, "PreparedDomBridgeUnavailable");
   });
-  globalThis.__TiqianLifecycle = lifecycle;
-
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-
-  let onItemsFinishedFn = null;
-  const startJobCalls = [];
-  ctx.fakeJob.startJob = function (spec) {
-    startJobCalls.push(spec);
-    onItemsFinishedFn = spec.onItemsFinished;
-  };
-  try {
-    relayout(root);
-
-    assert.ok(onItemsFinishedFn);
-    onItemsFinishedFn();
-    assert.equal(fakeSession._calls.finish.length, 1);
-  } finally {
-    teardown(ctx);
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1021,30 +836,23 @@ test("5e. relayout main path: onItemsFinished calls finish", function () {
 // ---------------------------------------------------------------------------
 
 test("6a. finish: dispatches tiqian:ready with correct detail fields", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const ctx = setupGlobals({
-    candidates: [makeParagraph()],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
-
   // Snapshot count attribute
   const root = makeElement({ "data-tiqian-snapshot-count": "5" });
-  // Fake publishState to track state
-  const publishCalls = [];
-  ctx.fakeRS.publishState = function (state, keepEmpty) {
-    publishCalls.push({ state: state, keepEmpty: keepEmpty });
-  };
 
-  let onFinishedFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onFinishedFn = spec.onFinished;
-  };
-  try {
-    enhanceProgressively(root, {});
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [makeParagraph().source],
+    });
+    const publishCalls = [];
+    ctx.rootState.publishState = function (state, keepEmpty) {
+      publishCalls.push({ state: state, keepEmpty: keepEmpty });
+    };
 
-    assert.ok(onFinishedFn);
-    onFinishedFn({
+    enhanceProgressively(ctx.deps, root, {});
+
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onFinished);
+    spec.onFinished({
       kind: "Enhance",
       startedAt: Date.now() - 100,
       maxSliceMs: 50,
@@ -1068,21 +876,10 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
     assert.equal(d.stale, true);
     // enhancedCount = runtimeEnhancedCount + snapshotCount
     assert.equal(d.enhancedCount, d.runtimeEnhancedCount + d.snapshotCount);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement({ "data-tiqian-snapshot-count": "3" });
 
   const state = {
@@ -1092,27 +889,20 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-  ctx.fakeRS.publishState = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    ctx.rootState.publishState = function () {};
 
-  let onFinishedFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onFinishedFn = spec.onFinished;
-  };
-  try {
-    relayout(root);
+    relayout(ctx.deps, root);
 
-    assert.ok(onFinishedFn);
-    onFinishedFn({
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onFinished);
+    spec.onFinished({
       kind: "Relayout",
       startedAt: Date.now() - 200,
       maxSliceMs: 30,
@@ -1128,21 +918,10 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
     assert.equal(relayoutReadyEvent.detail.error, null);
     assert.equal(relayoutReadyEvent.detail.snapshotCount, 3);
     assert.equal(relayoutReadyEvent.detail.stale, false);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and summary events", function () {
-  const measures = [100];
-  const lifecycle = makeFakeLifecycleWith(measures);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
 
   const state = {
@@ -1152,27 +931,20 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-  ctx.fakeRS.publishState = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    ctx.rootState.publishState = function () {};
 
-  let onFailedFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onFailedFn = spec.onFailed;
-  };
-  try {
-    relayout(root);
+    relayout(ctx.deps, root);
 
-    assert.ok(onFailedFn);
-    onFailedFn({
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.ok(spec.onFailed);
+    spec.onFailed({
       kind: "Relayout",
       detail: "Something went wrong",
       startedAt: Date.now() - 150,
@@ -1197,20 +969,10 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
     assert.ok(summaryEvent);
     assert.equal(summaryEvent.detail.failed, true);
     assert.equal(summaryEvent.detail.error, "Something went wrong");
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("6d. fail: detail truncated to 512 chars", function () {
-  const lifecycle = makeFakeLifecycleWith([100]);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
 
   const state = {
@@ -1220,27 +982,20 @@ test("6d. fail: detail truncated to 512 chars", function () {
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-  ctx.fakeRS.publishState = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    ctx.rootState.publishState = function () {};
 
-  let onFailedFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onFailedFn = spec.onFailed;
-  };
-  try {
-    relayout(root);
+    relayout(ctx.deps, root);
 
+    const spec = ctx.progressiveJob._calls.startJob[0];
     const longDetail = "X".repeat(1024);
-    onFailedFn({
+    spec.onFailed({
       kind: "Enhance",
       detail: longDetail,
       startedAt: Date.now(),
@@ -1256,20 +1011,10 @@ test("6d. fail: detail truncated to 512 chars", function () {
     });
     assert.ok(errorEvent);
     assert.equal(errorEvent.detail.kind, "Enhance");
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-error)", function () {
-  const lifecycle = makeFakeLifecycleWith([100]);
-  const fakeSession = makeFakeSession();
-  globalThis.__TiqianProgressiveRelayoutSession = {
-    createProgressiveRelayoutSession: function () {
-      return fakeSession;
-    },
-  };
-
   const root = makeElement();
 
   const state = {
@@ -1279,26 +1024,19 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
     issues: [],
   };
 
-  const ctx = setupGlobals({
-    getStateValue: state,
-    candidates: [],
-  });
-  globalThis.__TiqianLifecycle = lifecycle;
+  withEnv(() => {
+    const ctx = makeDrivers({
+      getStateValue: state,
+      candidates: [],
 
-  ctx.fakeJob.jobKind = function () {
-    return null;
-  };
-  ctx.fakeJob.cancelJob = function () {};
-  ctx.fakeRS.publishState = function () {};
+      progressiveJob: makeFakeProgressiveJob(),
+    });
+    ctx.rootState.publishState = function () {};
 
-  let onFailedFn = null;
-  ctx.fakeJob.startJob = function (spec) {
-    onFailedFn = spec.onFailed;
-  };
-  try {
-    relayout(root);
+    relayout(ctx.deps, root);
 
-    onFailedFn({
+    const spec = ctx.progressiveJob._calls.startJob[0];
+    spec.onFailed({
       kind: "Enhance",
       detail: "test error",
       startedAt: Date.now(),
@@ -1315,50 +1053,39 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
       return e.type === "tiqian:error";
     });
     assert.equal(errorEvents.length, 1);
-  } finally {
-    teardown(ctx);
-  }
+  });
 });
 
 // ---------------------------------------------------------------------------
 // 7. New public surface exports (engine-entry.js consumers)
 // ---------------------------------------------------------------------------
 
-test("7a. rejectMissingSharedRuntimeStyles is exposed on the public surface", function () {
+test("7a. named functions are exposed on the module surface", function () {
   assert.equal(typeof enhanceProgressively, "function");
   assert.equal(typeof relayout, "function");
-  assert.equal(typeof globalThis.__TiqianProgressiveDrivers.rejectMissingSharedRuntimeStyles, "function");
+  assert.equal(typeof rejectMissingSharedRuntimeStyles, "function");
 });
 
-test("7b. startProgressiveJob is exposed on the public surface with 9-arg signature", function () {
-  const fn = globalThis.__TiqianProgressiveDrivers.startProgressiveJob;
-  assert.equal(typeof fn, "function");
-  assert.equal(fn.length, 9);
+test("7b. startProgressiveJob has the 10-arg deps-first signature", function () {
+  assert.equal(typeof startProgressiveJob, "function");
+  assert.equal(startProgressiveJob.length, 10);
 });
 
 test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
-  const ctx = setupGlobals();
-  try {
+  withEnv(() => {
+    const ctx = makeDrivers({
+      candidates: [],
+    });
     const root = makeElement();
     const canonicalOpts = { fontSize: 22 };
-    const startJobCalls = [];
-    ctx.fakeJob.startJob = function (spec) {
-      startJobCalls.push(spec);
-    };
-    // Fake lifecycle to avoid real measures
-    globalThis.__TiqianLifecycle = makeFakeLifecycleWith([100]);
-    const fn = globalThis.__TiqianProgressiveDrivers.enhanceProgressivelyFromCanonical;
-    assert.equal(typeof fn, "function");
-    fn(root, canonicalOpts);
+    enhanceProgressivelyFromCanonical(ctx.deps, root, canonicalOpts);
     // Should use createRootStateFromCanonical (not createRootState) because
     // fromCanonical is true.
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.fakeRS._calls.createRootStateFromCanonical[0].options, canonicalOpts);
-    assert.equal(ctx.fakeRS._calls.createRootState.length, 0);
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
+    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, canonicalOpts);
+    assert.equal(ctx.rootState._calls.createRootState.length, 0);
     // Should start a job with kind Enhance (not Relayout)
-    assert.equal(startJobCalls.length, 1);
-    assert.equal(startJobCalls[0].kind, "Enhance");
-  } finally {
-    teardown(ctx);
-  }
+    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
+    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Enhance");
+  });
 });
