@@ -48,7 +48,7 @@
 //       sites (parity oracle, golden evidence), which is why the oracle script
 //       is part of the codec list.
 //
-// Scanned roots: engine/, ffi/, frontend/ (npm, npm-core, web-precompute).
+// Scanned roots: engine/, ffi/, frontend/ (npm, core, web-precompute).
 // Source extensions only: .kt .rs .ts .tsx .js .mjs .cjs. Checked-in dump,
 // golden and fixture data files are byte-comparison artifacts sanctioned by
 // the ruling and are not scanned.
@@ -175,103 +175,103 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm/runtime-host.mjs",
+    file: "frontend/web/npm/tests/runtime-host.mjs",
     reason: "Split/join over the untyped worker payload records and fields; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/engine/canvas-fonts.ts",
+    file: "frontend/web/core/core/engine/canvas-fonts.ts",
     reason: "Family separator split of the untyped payload string; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/engine/canvas-metrics.ts",
+    file: "frontend/web/core/core/engine/canvas-metrics.ts",
     reason: "Record/field/family splits of the untyped payload strings; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/engine/prepare-paragraph-layout.ts",
+    file: "frontend/web/core/core/engine/prepare-paragraph-layout.ts",
     reason: "Separator spans of the untyped layout request; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/engine/worker-request.ts",
+    file: "frontend/web/core/core/engine/worker-request.ts",
     reason: "Request parser holding private separator copies shared by convention with the Kotlin side; parser moves into ffi/js and payloads become declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/sampler/font-face-boundaries.ts",
+    file: "frontend/web/core/core/sampler/font-face-boundaries.ts",
     reason: "Separator use in untyped sampling payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/sampler/grid-metrics.ts",
+    file: "frontend/web/core/core/sampler/grid-metrics.ts",
     reason: "Separator use in untyped sampling payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/sampler/signatures.ts",
+    file: "frontend/web/core/core/sampler/signatures.ts",
     reason: "Separator joins building cache signatures over untyped fields; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/core/sampler/snapshot/prepared-dom.ts",
+    file: "frontend/web/core/core/sampler/snapshot/prepared-dom.ts",
     reason: "Separator use in untyped snapshot payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/font-face-boundaries.test.mjs",
+    file: "frontend/web/core/tests/font-face-boundaries.test.mjs",
     reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/lowered-paragraph-metadata.test.mjs",
+    file: "frontend/web/core/tests/lowered-paragraph-metadata.test.mjs",
     reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/prepare-paragraph-layout.test.mjs",
+    file: "frontend/web/core/tests/prepare-paragraph-layout.test.mjs",
     reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/replay-entry-codec.test.mjs",
+    file: "frontend/web/core/tests/replay-entry-codec.test.mjs",
     reason: "Separator fixture strings of the replay entry codec pending the typed-DTO wave.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/replay-probe.test.mjs",
+    file: "frontend/web/core/tests/replay-probe.test.mjs",
     reason: "Separator fixture strings of the untyped replay probe; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/replay-probe.ts",
+    file: "frontend/web/core/core/measurement/replay-probe.ts",
     reason: "Separator splits in the replay probe over untyped payloads; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/browser-font-replay.ts",
+    file: "frontend/web/core/core/measurement/browser-font-replay.ts",
     reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback lane in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm-core/worker-request.test.mjs",
+    file: "frontend/web/core/tests/worker-request.test.mjs",
     reason: "Separator fixture strings of the request parser; parser moves into ffi/js and payloads become declared DTOs.",
   },
   {

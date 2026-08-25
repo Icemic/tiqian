@@ -12,7 +12,7 @@
     "@tiqian/prose": "file:../../frontend/web/npm"
   },
   "overrides": {
-    "@tiqian/core": "file:../../frontend/web/npm-core",
+    "@tiqian/core": "file:../../frontend/web/core",
     "@tiqian/ffi": "file:../../../ffi/js/npm"
   },
   "devDependencies": {

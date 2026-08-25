@@ -4,7 +4,7 @@
 //
 // This configuration enforces a strict type discipline across the three npm packages:
 //   - frontend/web/npm
-//   - frontend/web/npm-core
+//   - frontend/web/core
 //   - ffi/js/npm
 //
 // Policy:
@@ -34,7 +34,7 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const targetPackages = [
   "frontend/web/npm",
-  "frontend/web/npm-core",
+  "frontend/web/core",
   "ffi/js/npm",
 ];
 
@@ -72,7 +72,6 @@ const tsPatterns = [
 
 const ignores = [
   "**/node_modules/**",
-  "frontend/web/npm-core/runtime/**",
   "ffi/js/npm/runtime/**",
   "**/runtime/**",
   "**/build/**",

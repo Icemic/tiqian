@@ -11,7 +11,7 @@ on:
   pull_request:
     paths:
       - 'frontend/web/npm/**'
-      - 'frontend/web/npm-core/**'
+      - 'frontend/web/core/**'
       - 'ffi/js/npm/**'
       - 'tools/package-topology/**'
       - '.github/workflows/ci-package-topology.yml'
@@ -19,7 +19,7 @@ on:
     branches: [main]
     paths:
       - 'frontend/web/npm/**'
-      - 'frontend/web/npm-core/**'
+      - 'frontend/web/core/**'
       - 'ffi/js/npm/**'
       - 'tools/package-topology/**'
       - '.github/workflows/ci-package-topology.yml'

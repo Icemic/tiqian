@@ -9,7 +9,7 @@
 //
 // Packages and the only allowed dependency edges:
 //   @tiqian/prose      (frontend/web/npm)       web-component layer
-//   @tiqian/core (frontend/web/npm-core)  core layer
+//   @tiqian/core (frontend/web/core)  core layer
 //   @tiqian/ffi        (ffi/js/npm)             ffi layer
 //   @tiqian/prose      -> @tiqian/core
 //   @tiqian/prose      -> @tiqian/ffi
@@ -52,7 +52,7 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const PACKAGES = [
   { name: "@tiqian/prose", dir: "frontend/web/npm" },
-  { name: "@tiqian/core", dir: "frontend/web/npm-core" },
+  { name: "@tiqian/core", dir: "frontend/web/core" },
   { name: "@tiqian/ffi", dir: "ffi/js/npm" },
 ];
 

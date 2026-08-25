@@ -1,5 +1,5 @@
 {
-  "references": [{ "path": "../npm-core" }],
+  "references": [{ "path": "../core" }],
   "compilerOptions": {
     "target": "es2022",
     "lib": ["es2022", "dom", "dom.iterable"],

@@ -33,7 +33,7 @@ import { compile } from "svelte/compiler";
 const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const npmDir = join(repoRoot, "frontend/web/npm");
-const npmCoreDir = join(repoRoot, "frontend/web/npm-core");
+const npmCoreDir = join(repoRoot, "frontend/web/core");
 const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
 const nodeModules = join(webDemoDir, "node_modules");
 
@@ -377,7 +377,7 @@ function startFixtureServer(svelteComponents) {
       const data = await readFile(file).catch(() => null);
       if (data) {
         // Module workers do not see the document import map, so the dev-tree
-        // layout worker in npm-core gets its bare "@tiqian/ffi" import
+        // layout worker in core gets its bare "@tiqian/ffi" import
         // rewritten to the absolute /npm-ffi/ URL served below.
         if (file === join(npmCoreDir, "layout-worker.js")) {
           const source = data.toString("utf8");
@@ -412,7 +412,7 @@ function startFixtureServer(svelteComponents) {
   "imports": {
     "@tiqian/prose/element": "/npm/element.js",
     "@tiqian/prose/": "/npm/",
-    "@tiqian/core/": "/npm-core/",
+    "@tiqian/core/": "/core/",
     "@tiqian/ffi": "/npm-ffi/Tiqian-tiqian-ffi-js.mjs",
     "svelte": "/svelte/src/index-client.js",
     "svelte/internal/client": "/svelte/src/internal/client/index.js",
@@ -485,8 +485,8 @@ function startFixtureServer(svelteComponents) {
         await sendFile(join(npmDir, rest), type);
         return;
       }
-      if (path.startsWith("/npm-core/")) {
-        const rest = path.slice("/npm-core/".length);
+      if (path.startsWith("/core/")) {
+        const rest = path.slice("/core/".length);
         const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmCoreDir, rest), type);
         return;

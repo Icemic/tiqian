@@ -135,7 +135,7 @@ jobs:
       # rm -rf and cannot execute the extensionless .bin shims; run every
       # step of this block under bash like the build steps below.
       - name: Install build dependencies
-        working-directory: frontend/web/npm-core
+        working-directory: frontend/web/core
         shell: bash
         run: npm ci
       - name: Link core dependency
@@ -145,7 +145,7 @@ jobs:
       - name: Emit the prose packages
         working-directory: frontend/web/npm
         shell: bash
-        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
+        run: ../core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
         shell: bash
@@ -210,14 +210,14 @@ jobs:
       # the typecheck script (the Native precompute CI runs the full checks
       # over the same sources).
       - name: Install build dependencies
-        working-directory: frontend/web/npm-core
+        working-directory: frontend/web/core
         run: npm ci
       - name: Link core dependency
         working-directory: frontend/web/npm
         run: npm run link:core
       - name: Emit the prose packages
         working-directory: frontend/web/npm
-        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
+        run: ../core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
         run: |
