@@ -3,14 +3,16 @@ import test from "node:test";
 
 import { createEngineEntry } from "./core/engine/engine-entry.js";
 import { optionsFromJs } from "./core/engine/lifecycle.js";
+import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
-const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPreparedDomRenderer"];
+const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPreparedDomRenderer", "__TiqianFontBackend", "__TiqianPreparedDomValidator"];
 
 // The engine entry runs the real process-paragraph, content-reconcile and
 // progressive-drivers functions against fake ledgers (custody, root-state,
-// layout-job-pool, copy-installer, ffi). The commit bundle inside the
-// process-paragraph deps is fake, so the direct commit verdict is controlled;
-// the prepare step and every other orchestration seam run for real.
+// layout-job-pool, copy-installer). The process-paragraph and commit helpers
+// are direct imports, so a ready commit path only proceeds through an
+// installed prepared-DOM bridge; without one the prepare step returns
+// PreparedDomBridgeUnavailable first.
 
 function makeElement(initialAttributes, options = {}) {
   const attrs = new Map(Object.entries(initialAttributes || {}));
@@ -77,28 +79,6 @@ function makeElement(initialAttributes, options = {}) {
   };
 }
 
-function makeFakeFfi(overrides = {}) {
-  const envelope = overrides.envelope ?? JSON.stringify({
-    plan: JSON.stringify({ lines: [{ rangeStart: 0, rangeEnd: 10 }] }),
-    diagnostics: { capabilityIssues: [], advanceSuspects: [] },
-  });
-  const calls = { diagnostics: [], browserMetrics: [] };
-  return {
-    _calls: calls,
-    classifyFontRole: (text, start, end, locale) => "latin",
-    firstDivergentInlineShapingProperty: () => null,
-    unsupportedInlineShapingProperties: () => [],
-    precomputeParagraphWithDiagnostics: function () {
-      calls.diagnostics.push(Array.from(arguments));
-      return envelope;
-    },
-    precomputeParagraphWithBrowserMetrics: function () {
-      calls.browserMetrics.push(Array.from(arguments));
-      return envelope;
-    },
-  };
-}
-
 function saveEnv() {
   return ENV_GLOBALS.map((name) => ({
     name,
@@ -116,6 +96,7 @@ function restoreEnv(entries) {
 
 function withEnv(fn, overrides = {}) {
   const saved = saveEnv();
+  const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
     const computed = (el, pseudo) => {
       const props = {
@@ -123,6 +104,8 @@ function withEnv(fn, overrides = {}) {
         paddingRight: "0px",
         borderLeftWidth: "0px",
         borderRightWidth: "0px",
+        "line-height": "33px",
+        "font-family": "Fixture CJK",
         ...(overrides.computedStyleValues || { "--tq-styles-ready": "1" }),
       };
       const style = {};
@@ -151,8 +134,12 @@ function withEnv(fn, overrides = {}) {
         layoutRevision: "tiqian-layout-v2",
       };
     }
+    if (overrides.validator !== undefined) {
+      globalThis.__TiqianPreparedDomValidator = { issue: overrides.validator };
+    }
     return fn();
   } finally {
+    if (backend) backend.uninstall();
     restoreEnv(saved);
   }
 }
@@ -185,14 +172,9 @@ function makeFakeRootState(opts) {
     paragraphCandidates: [],
     strandedSourceParagraphs: [],
     processParagraphArgument: [],
-    currentFfi: [],
   };
   return {
     _calls: calls,
-    currentFfi: function () {
-      calls.currentFfi.push(true);
-      return opts.ffi || { mock: true };
-    },
     createRootState: function (root, bag) {
       calls.createRootState.push({ root: root, bag: bag });
       if (opts.state) {
@@ -239,7 +221,7 @@ function makeFakeRootState(opts) {
     },
     processParagraphArgument: function (state, paragraph) {
       calls.processParagraphArgument.push({ state: state, paragraph: paragraph });
-      return { ffi: opts.ffi || { mock: true }, paragraph: paragraph, state: state };
+      return { paragraph: paragraph, state: state };
     },
   };
 }
@@ -301,60 +283,13 @@ function makeFakeCopyInstaller() {
   };
 }
 
-function makeFakeWorkerRequest() {
-  const calls = [];
-  return {
-    _calls: calls,
-    workerLayoutRequestForRoot: function (ffi, root, paragraph, options) {
-      calls.push({ ffi: ffi, root: root, paragraph: paragraph, options: options });
-      return "worker-result";
-    },
-  };
-}
-
 function makeEngine(opts) {
   opts = opts || {};
-  const ffi = opts.ffi || makeFakeFfi();
-  const rs = opts.rs || makeFakeRootState({ ...(opts.rsOpts || {}), ffi: ffi });
+  const rs = opts.rs || makeFakeRootState(opts.rsOpts || {});
   const job = opts.job || makeFakeJob();
   const custody = opts.custody || makeFakeCustody();
   const copyInstaller = opts.copyInstaller || makeFakeCopyInstaller();
-  const workerReq = opts.workerReq || makeFakeWorkerRequest();
-  const commitBundle = opts.commitBundle || {
-    commitWorkerPreparedParagraph: function (deps, argument) {
-      return null;
-    },
-    commitPreparedParagraph: function (deps, argument) {
-      return { kind: "success", measure: 300 };
-    },
-  };
-  const processParagraphDeps = {
-    custody: custody,
-    commitPreparedParagraph: commitBundle,
-  };
-  const reconcileDeps = { custody: custody };
-  const driversDeps = {
-    rootState: rs,
-    engine: null,
-    copyInstaller: copyInstaller,
-    layoutJobPool: job,
-    progressiveRelayoutSession: {
-      custody: custody,
-      commitPreparedParagraph: commitBundle,
-    },
-    processParagraph: processParagraphDeps,
-  };
-  const entry = createEngineEntry({
-    ffi: ffi,
-    custody: custody,
-    copyInstaller: copyInstaller,
-    rootState: rs,
-    layoutJobPool: job,
-    progressiveDriversDeps: driversDeps,
-    processParagraphDeps: processParagraphDeps,
-    reconcileDeps: reconcileDeps,
-    workerLayoutRequestForRoot: workerReq.workerLayoutRequestForRoot,
-  });
+  const entry = createEngineEntry(custody, copyInstaller, rs, job);
   return {
     engine: entry.engine,
     workers: entry.workers,
@@ -362,8 +297,6 @@ function makeEngine(opts) {
     job: job,
     custody: custody,
     copyInstaller: copyInstaller,
-    workerReq: workerReq,
-    ffi: ffi,
   };
 }
 
@@ -375,16 +308,15 @@ test("1. enhance: processes each candidate via the real processParagraph, return
   const c1 = makeElement();
   const c2 = makeElement();
   const fakeState = makeStateWithCallbacks({ root: null });
-  const ffi = makeFakeFfi();
-  const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2], ffi: ffi });
+  const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2] });
   withEnv(() => {
-    const ctx = makeEngine({ ffi: ffi, rs: rs });
+    const ctx = makeEngine({ rs: rs });
     const root = makeElement();
     const result = ctx.engine.enhance(root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
-    // The real processParagraph ran once per candidate and committed both
-    // through the fake commit bundle, observable on the custody ledger.
+    // The real processParagraph ran once per candidate, observable on the
+    // custody ledger.
     assert.equal(ctx.custody._calls.begin.length, 2);
     assert.equal(ctx.custody._calls.begin[0][0], c1);
     assert.equal(ctx.custody._calls.begin[1][0], c2);
@@ -720,11 +652,9 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     renderedMatches: (el) => el !== driftedEl,
     custodyMatches: (el) => el !== custodyEl,
   });
-  const ffi = makeFakeFfi();
   withEnv(() => {
     const ctx = makeEngine({
-      ffi: ffi,
-      rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl], ffi: ffi }),
+      rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] }),
       custody: custody,
     });
     const result = ctx.engine.reconcileContent(root, [taintedEl]);
@@ -746,9 +676,14 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     for (let i = 0; i < tierIndex.length; i += 1) {
       processItem(i);
     }
-    // prepareTrackedParagraphForRelowering for drifted.
+    // prepareTrackedParagraphForRelowering for drifted stamps it once before
+    // re-lowering, and the re-processing commit stamps it again; every other
+    // action stamps once on its successful commit, all in tier order.
     assert.deepEqual(custody._calls.restoreShell, [driftedEl]);
-    assert.deepEqual(custody._calls.stampRendered, [driftedEl]);
+    assert.deepEqual(
+      custody._calls.stampRendered,
+      [driftedEl, driftedEl, custodyEl, taintedEl, strandedEl],
+    );
     // restoreParagraph for custody and tainted.
     assert.deepEqual(custody._calls.restoreParagraph, [custodyEl, taintedEl]);
     // stripEngineMarkupFromStrandedParagraph ran inside the stranded action
@@ -799,21 +734,23 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
 // ---------------------------------------------------------------------------
 
 test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options pre-processed by optionsFromJs", function () {
-  const workerReq = makeFakeWorkerRequest();
-  const ffiObj = makeFakeFfi();
-  const rs = makeFakeRootState({ ffi: ffiObj });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, workerReq: workerReq });
+    const ctx = makeEngine();
     const root = makeElement();
     const para = makeElement();
-    const bag = { fontSize: 19 };
+    // Without a conforming exact font session in the bag, optionsFromJs yields
+    // a null session and workerLayoutRequestForRoot returns null.
+    assert.equal(ctx.engine.workerLayoutRequest(root, para, {}), null);
+    // With a conforming session in the bag, the request builds: the bag's
+    // exactFontSession reached the real workerLayoutRequestForRoot through
+    // optionsFromJs, which is the pre-processing this method owns.
+    const bag = { exactFontSession: { status: "conforming", sessionId: "s1" } };
     const result = ctx.engine.workerLayoutRequest(root, para, bag);
-    assert.equal(workerReq._calls.length, 1);
-    assert.equal(workerReq._calls[0].ffi, ffiObj);
-    assert.equal(workerReq._calls[0].root, root);
-    assert.equal(workerReq._calls[0].paragraph, para);
-    assert.deepEqual(workerReq._calls[0].options, optionsFromJs(bag));
-    assert.equal(result, "worker-result");
+    assert.notEqual(result, null);
+    const parsed = JSON.parse(result);
+    const expected = optionsFromJs(bag);
+    assert.equal(parsed.firstLineIndentIc, expected.firstLineIndentIc);
+    assert.equal(parsed.sourceTag, "p");
   });
 });
 

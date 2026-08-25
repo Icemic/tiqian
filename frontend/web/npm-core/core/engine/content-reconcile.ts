@@ -1,11 +1,11 @@
 // HostContentReconcile: classification and DOM preparation for live-DOM
 // content changes on an enhanced root.
 //
-// Stateless module: probeContentDrift(deps, ...), classifyReconcile(deps, ...),
-// prepareTrackedParagraphForRelowering(deps, ...) and
-// stripEngineMarkupFromStrandedParagraph(deps, ...) are named functions that
-// receive the custody collaborator as an explicit first parameter. The engine
-// bootstrap wires the deps object; tests pass a fake custody.
+// Stateless module: probeContentDrift(custody, ...), classifyReconcile(
+// custody, ...), prepareTrackedParagraphForRelowering(custody, ...) and
+// stripEngineMarkupFromStrandedParagraph(custody, ...) are named functions
+// that receive the custody collaborator as an explicit first parameter. The
+// engine bootstrap passes the shared custody instance; tests pass a fake.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw
 // string, so the source must contain no dollar sign and no triple
@@ -35,10 +35,6 @@ export interface ReconcileResult {
   json: string;
 }
 
-export interface ContentReconcileDeps {
-  custody: CustodyApi;
-}
-
 function releasePreparedStyles(element: Element): boolean {
   const renderer = globalThis.__TiqianPreparedDomRenderer;
   if (renderer && renderer.release && renderer.release(element) === true) return true;
@@ -48,22 +44,22 @@ function releasePreparedStyles(element: Element): boolean {
 // Read-only drift probe for captured in-flight jobs: answers the same
 // per-paragraph classification question as classifyReconcile without
 // touching the DOM, so element.js cancels only on real drift.
-export function probeContentDrift(deps: ContentReconcileDeps, trackedSources: Element[]): string {
+export function probeContentDrift(custody: CustodyApi, trackedSources: Element[]): string {
   let drifted = 0;
   let dead = 0;
-  let custody = 0;
+  let custodyCount = 0;
   for (let index = 0; index < trackedSources.length; index++) {
     const source = trackedSources[index];
     if (!source.isConnected) {
       dead += 1;
-    } else if (!deps.custody.renderedMatches(source)) {
+    } else if (!custody.renderedMatches(source)) {
       drifted += 1;
-    } else if (!deps.custody.custodyMatches(source)) {
-      custody += 1;
+    } else if (!custody.custodyMatches(source)) {
+      custodyCount += 1;
     }
   }
   return '{"unknown":0,"drifted":' + drifted + ',"dead":' + dead +
-    ',"custody":' + custody + '}';
+    ',"custody":' + custodyCount + '}';
 }
 
 // Per-paragraph classification, never per MutationRecord. DeadTrackedParagraphDrop
@@ -73,7 +69,7 @@ export function probeContentDrift(deps: ContentReconcileDeps, trackedSources: El
 // inside a root, tracked, and not already classified as drifted. A
 // stranded candidate is skipped when it already failed lowering with a
 // capability marker and was never rendered (StrandedCapabilityNoRetry).
-export function classifyReconcile(deps: ContentReconcileDeps, spec: ReconcileSpec): ReconcileResult {
+export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): ReconcileResult {
   const trackedSources = spec.trackedSources;
   const drifted: Element[] = [];
   const custodyDrifted: Element[] = [];
@@ -84,9 +80,9 @@ export function classifyReconcile(deps: ContentReconcileDeps, spec: ReconcileSpe
     trackedSet.add(trackedSource);
     if (!trackedSource.isConnected) {
       dead += 1;
-    } else if (!deps.custody.renderedMatches(trackedSource)) {
+    } else if (!custody.renderedMatches(trackedSource)) {
       drifted.push(trackedSource);
-    } else if (!deps.custody.custodyMatches(trackedSource)) {
+    } else if (!custody.custodyMatches(trackedSource)) {
       custodyDrifted.push(trackedSource);
     }
   }
@@ -137,10 +133,10 @@ export function classifyReconcile(deps: ContentReconcileDeps, spec: ReconcileSpe
 // rendered paragraph. Release prepared styles, restore the engine-owned
 // shell, stamp the rendered marker, and let the caller re-lower the
 // surviving live content as the new custody source.
-export function prepareTrackedParagraphForRelowering(deps: ContentReconcileDeps, element: HTMLElement): void {
+export function prepareTrackedParagraphForRelowering(custody: CustodyApi, element: HTMLElement): void {
   releasePreparedStyles(element);
-  deps.custody.restoreShell(element);
-  deps.custody.stampRendered(element);
+  custody.restoreShell(element);
+  custody.stampRendered(element);
 }
 
 // CloneDescaffoldEngineMarkup: innerHTML re-projection hands the runtime a
@@ -149,7 +145,7 @@ export function prepareTrackedParagraphForRelowering(deps: ContentReconcileDeps,
 // takeover attributes. Remove exactly those engine-authored artifacts so
 // the clone lowers as ordinary host content. Host elements and host
 // inline styles survive untouched.
-export function stripEngineMarkupFromStrandedParagraph(deps: ContentReconcileDeps, paragraph: HTMLElement): void {
+export function stripEngineMarkupFromStrandedParagraph(custody: CustodyApi, paragraph: HTMLElement): void {
   releasePreparedStyles(paragraph);
   // The hidden data-tq-hard-break span is the only place a cloned hard
   // break keeps its source form. Restore a bare br before removing

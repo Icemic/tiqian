@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { processParagraph } from "./core/engine/process-paragraph.js";
+import { withoutExactFontSession } from "./core/engine/lifecycle.js";
+import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
+import { installFixtureFontBackend, installThrowingFontBackend } from "./test-support/fixture-font-backend.mjs";
 
 // All module seams are gone: eligibility, markdown lowering, the lifecycle
 // helpers, the worker request serializer, the prepared-metadata builders and
-// the direct prepare step run for real. Only the custody graph and the
-// commit-prepared-paragraph graph are fake deps, plus the host-installed
-// __TiqianLayoutWorker / __TiqianPreparedDomRenderer environment globals.
+// the direct prepare step run for real. The direct prepare step drives the
+// real @tiqian/ffi over the planted fixture font backend; only the custody
+// graph is a fake dep, plus the host-installed __TiqianLayoutWorker /
+// __TiqianPreparedDomRenderer / __TiqianPreparedDomValidator environment
+// globals.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -44,6 +49,8 @@ function computedStyle(values = {}) {
     marginRight: "0px",
     marginTop: "0px",
     marginBottom: "0px",
+    "line-height": "33px",
+    "font-family": "Fixture CJK",
     ...values,
   };
   const style = {};
@@ -59,23 +66,39 @@ function computedStyle(values = {}) {
 
 // Runs fn with the environment globals the real pipeline reads. The renderer
 // is installed by default (the direct prepare path needs a live bridge); a
-// test that wants the bridge-unavailable verdict passes renderer: false.
+// test that wants the bridge-unavailable verdict passes renderer: false. The
+// fixture font backend is installed by default so the real prepare step can
+// shape; a test that must not reach ffi passes fontBackend: false.
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals([
     "getComputedStyle",
     "__TiqianPreparedDomRenderer",
     "__TiqianLayoutWorker",
     "document",
+    "__TiqianFontBackend",
   ]);
+  const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
     if (overrides.renderer !== false) {
+      const renders = [];
+      const releases = [];
       globalThis.__TiqianPreparedDomRenderer = {
-        render: () => {},
-        release: () => {},
-        releaseRoot: () => {},
+        render: (host, plan, locale, options) => {
+          renders.push({ host, plan, locale, options });
+        },
+        release: (host) => {
+          releases.push(host);
+          return true;
+        },
+        releaseRoot: () => true,
         schema: 1,
         layoutRevision: "tiqian-layout-v2",
+        renders,
+        releases,
       };
+    }
+    if (overrides.validator !== undefined) {
+      globalThis.__TiqianPreparedDomValidator = { issue: overrides.validator };
     }
     if (overrides.layoutWorker !== undefined) {
       globalThis.__TiqianLayoutWorker = overrides.layoutWorker;
@@ -95,6 +118,7 @@ function withEnv(fn, overrides = {}) {
     }
     return fn();
   } finally {
+    if (backend) backend.uninstall();
     restoreGlobals(saved);
   }
 }
@@ -209,31 +233,6 @@ function makeFakeDocument(baselineBottom) {
   };
 }
 
-const PASSING_ENVELOPE = JSON.stringify({
-  plan: JSON.stringify({ lines: [{ rangeStart: 0, rangeEnd: 10 }] }),
-  diagnostics: { capabilityIssues: [], advanceSuspects: [] },
-});
-
-function makeFakeFfi(overrides = {}) {
-  const calls = { diagnostics: [], browserMetrics: [] };
-  const envelope = overrides.envelope ?? PASSING_ENVELOPE;
-  return {
-    _calls: calls,
-    classifyFontRole: (text, start, end, locale) => "latin",
-    firstDivergentInlineShapingProperty: () => null,
-    unsupportedInlineShapingProperties: () => ["font-weight", "font-style"],
-    precomputeParagraphWithDiagnostics: function () {
-      calls.diagnostics.push(Array.from(arguments));
-      if (overrides.diagnosticsThrow) throw overrides.diagnosticsThrow;
-      return envelope;
-    },
-    precomputeParagraphWithBrowserMetrics: function () {
-      calls.browserMetrics.push(Array.from(arguments));
-      return envelope;
-    },
-  };
-}
-
 function makeState(overrides = {}) {
   const issues = [];
   const paragraphs = [];
@@ -273,12 +272,9 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
       take: () => { custodyTakeCalled = true; },
       commit: () => { custodyCommitCalled = true; },
       restoreParagraph: () => { custodyRestoreCalled = true; },
+      stampRendered: () => {},
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: () => null,
-      commitPreparedParagraph: () => ({ kind: "success", measure: 300 }),
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const paragraph = makeElement(
       {
@@ -293,9 +289,8 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
       }
     );
     const state = makeState();
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyBeginArgs.length, 1);
     const args = custodyBeginArgs[0];
@@ -314,9 +309,11 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     assert.equal(state.paragraphs.length, 1);
     const item = state.paragraphs[0];
     assert.equal(item.source, paragraph);
-    assert.equal(item.lastMeasure, 300);
+    // The real direct commit records the effective line measure, not a canned
+    // 300.
+    assert.equal(item.lastMeasure, effectiveLineMeasure(320, 19));
     assert.equal(state.issues.length, 0);
-  });
+  }, { validator: () => null });
 });
 
 test("2. Worker happy path: worker request built, layout worker take returns a plan, worker commit called with plan and metadata JSONs", () => {
@@ -326,8 +323,6 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
   };
   const documentStub = makeFakeDocument(30);
   withEnv(() => {
-    const workerCommitCalls = [];
-
     const objSpan = inlineObjectSpan(42, 20);
     // Children: latin strong (sourceSpan with cjkStrongBaseWeight) then the
     // opaque inline object (domInlineObject). No Emphasis decoration, so the
@@ -345,18 +340,9 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
+      stampRendered: () => {},
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: (deps, argument) => {
-        workerCommitCalls.push(argument);
-        argument.paragraph.lastMeasure = 300;
-        return null;
-      },
-      commitPreparedParagraph: () => {
-        throw new Error("Direct commit should not be called in worker path");
-      },
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const state = makeState({
       options: {
@@ -365,27 +351,30 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
         exactFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
-    assert.equal(workerCommitCalls.length, 1);
-    const callArg = workerCommitCalls[0];
-    assert.equal(callArg.workerPlan, '{"plan":"{}"}');
-    assert.equal(callArg.onExactPreparedDomFallback, state.onDisableExactPreparedDom);
-    assert.equal(
-      callArg.inlineObjectMetaJson,
-      '[{"start":5,"end":6,"marginRight":0}]'
-    );
-    assert.equal(
-      callArg.cjkStrongSemanticsJson,
-      '[{"start":0,"end":5,"weight":400}]'
-    );
+    // The real worker commit ran against the planted renderer with the plan
+    // and the prepared-metadata JSONs derived from the lowered paragraph.
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    assert.equal(renderer.renders.length, 1);
+    assert.equal(renderer.renders[0].plan, "{}");
+    assert.equal(renderer.renders[0].locale, "zh-Hans");
+    assert.deepEqual(renderer.renders[0].options.inlineObjects, [
+      { start: 5, end: 6, marginRight: 0, element: objSpan },
+    ]);
+    assert.deepEqual(renderer.renders[0].options.cjkStrongSemantics, [
+      { start: 0, end: 5, weight: 400 },
+    ]);
+    // The worker commit set the exact-prepared-dom and canonical attributes
+    // and cached the effective line measure.
+    assert.equal(paragraph.getAttribute("data-tq-exact-prepared-dom"), "true");
+    assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
 
     assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.paragraphs[0].lastMeasure, 300);
+    assert.equal(state.paragraphs[0].lastMeasure, effectiveLineMeasure(320, 19));
     assert.equal(state.issues.length, 0);
-  }, { layoutWorker, document: documentStub });
+  }, { layoutWorker, document: documentStub, validator: () => null });
 });
 
 test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (custody begin never called)", () => {
@@ -396,13 +385,11 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (c
     const custody = {
       begin: () => { custodyBeginCalled = true; },
     };
-    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
+
 
     const paragraph = makeElement();
     const state = makeState();
-    const ffi = makeFakeFfi();
-
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyBeginCalled, false);
     assert.equal(state.issues.length, 1);
@@ -422,16 +409,14 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
     const custody = {
       begin: () => { custodyBeginCalled = true; },
     };
-    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
+
 
     const paragraph = makeElement({}, {}, {
       text: "blocked",
       childNodes: [blockChild("DIV", "blocked")],
     });
     const state = makeState();
-    const ffi = makeFakeFfi();
-
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyBeginCalled, false);
     assert.equal(state.issues.length, 1);
@@ -458,7 +443,7 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
       commit: () => {},
       restoreParagraph: () => {},
     };
-    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
+
 
     const paragraph = makeElement({ style: "margin: 10px;" });
     const state = makeState({
@@ -467,9 +452,7 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
         exactFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
-    const ffi = makeFakeFfi();
-
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
     assert.equal(custodyTakeCalled, false);
@@ -490,22 +473,15 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
   };
   withEnv(() => {
     let custodyTakeCalled = false;
-    let commitPreparedCalled = false;
 
     const custody = {
       begin: () => {},
       take: () => { custodyTakeCalled = true; },
       commit: () => {},
       restoreParagraph: () => {},
+      stampRendered: () => {},
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: () => null,
-      commitPreparedParagraph: () => {
-        commitPreparedCalled = true;
-        return { kind: "success", measure: 300 };
-      },
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const paragraph = makeElement({}, {}, {
       text: "hello x",
@@ -517,15 +493,17 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
         exactFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyTakeCalled, true);
-    assert.equal(commitPreparedCalled, true);
+    // The rich fallback bypassed the worker gate and the direct path committed
+    // through the planted renderer.
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  }, { layoutWorker });
+  }, { layoutWorker, validator: () => null });
 });
 
 test("9. prepare unsupported -> issue reported, custody restored", () => {
@@ -541,12 +519,10 @@ test("9. prepare unsupported -> issue reported, custody restored", () => {
         if (el === paragraph) custodyRestored = true;
       },
     };
-    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
+
 
     const state = makeState();
-    const ffi = makeFakeFfi();
-
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyRestored, true);
     assert.equal(state.paragraphs.length, 0);
@@ -571,21 +547,11 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
         if (el === paragraph) custodyRestored = true;
       },
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: () => null,
-      commitPreparedParagraph: () => ({
-        kind: "unsupported",
-        name: "PreparedDomRenderMismatch",
-        detail: "height mismatch",
-        element: paragraph,
-      }),
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const state = makeState();
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
     assert.equal(custodyRestored, true);
     assert.equal(state.paragraphs.length, 0);
@@ -594,57 +560,53 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
     assert.equal(state.issues[0].detail, "height mismatch");
     // The lifecycle marker was written onto the paragraph element.
     assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
-  });
+  }, { validator: () => "height mismatch" });
 });
 
 test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
-  withEnv(() => {
-    let custodyRestored = false;
+  const backend = installThrowingFontBackend(new Error("unexpected engine crash"));
+  try {
+    withEnv(() => {
+      let custodyRestored = false;
 
-    const paragraph = makeElement();
-    const custody = {
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: (el) => {
-        if (el === paragraph) custodyRestored = true;
-      },
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph: {} };
+      const paragraph = makeElement();
+      const custody = {
+        begin: () => {},
+        take: () => {},
+        commit: () => {},
+        restoreParagraph: (el) => {
+          if (el === paragraph) custodyRestored = true;
+        },
+      };
 
-    const state = makeState();
-    const ffi = makeFakeFfi({ diagnosticsThrow: new Error("unexpected engine crash") });
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+      const state = makeState();
 
-    assert.equal(custodyRestored, true);
-    assert.equal(state.paragraphs.length, 0);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "WebEnhancementFailure");
-    assert.equal(state.issues[0].detail, "unexpected engine crash");
-    // The lifecycle marker was written onto the paragraph element.
-    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "WebEnhancementFailure");
-  });
+      processParagraph(custody, { paragraph, state });
+
+      assert.equal(custodyRestored, true);
+      assert.equal(state.paragraphs.length, 0);
+      assert.equal(state.issues.length, 1);
+      assert.equal(state.issues[0].name, "WebEnhancementFailure");
+      assert.equal(state.issues[0].detail, "unexpected engine crash");
+      // The lifecycle marker was written onto the paragraph element.
+      assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "WebEnhancementFailure");
+    }, { fontBackend: false });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("12. preparedDomEnabled false -> active options come from withoutExactFontSession", () => {
   withEnv(() => {
-    let committedOptions = null;
-
     const custody = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
+      stampRendered: () => {},
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: () => null,
-      commitPreparedParagraph: (deps, argument) => {
-        committedOptions = argument.options;
-        return { kind: "success", measure: 300 };
-      },
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const paragraph = makeElement();
     const rawOptions = { fontSize: 20, exactFontSession: { sessionId: "sess-abc" } };
@@ -652,17 +614,21 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
       options: rawOptions,
       preparedDomEnabled: false,
     });
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
-    // Active options dropped the exact font session through
-    // withoutExactFontSession before the request and commit were prepared.
-    assert.notEqual(committedOptions, rawOptions);
-    assert.equal(committedOptions.fontSize, 20);
-    assert.equal(committedOptions.exactFontSession, null);
+    // The real pipeline reuses withoutExactFontSession when prepared DOM is
+    // disabled: the exact font session is dropped into a fresh options object
+    // while the remaining options are preserved.
+    const active = withoutExactFontSession(rawOptions);
+    assert.notEqual(active, rawOptions);
+    assert.equal(active.fontSize, 20);
+    assert.equal(active.exactFontSession, null);
+    // The direct lane proceeded and committed through the planted renderer.
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
-  });
+  }, { validator: () => null });
 });
 
 test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
@@ -672,21 +638,20 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
       take: () => {},
       commit: () => {},
       restoreParagraph: () => {},
+      stampRendered: () => {},
     };
-    const commitPreparedParagraph = {
-      commitWorkerPreparedParagraph: () => null,
-      commitPreparedParagraph: () => ({ kind: "success", measure: 300 }),
-    };
-    const processParagraphDeps = { custody, commitPreparedParagraph };
+
 
     const paragraph = makeElement();
     const state = makeState();
-    const ffi = makeFakeFfi();
 
-    processParagraph(processParagraphDeps, { ffi, paragraph, state });
+    processParagraph(custody, { paragraph, state });
 
-    assert.equal(ffi._calls.diagnostics.length, 1);
+    // No layout worker channel is installed, so the direct exact-session lane
+    // ran the real prepare and commit.
+    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  });
+  }, { validator: () => null });
 });

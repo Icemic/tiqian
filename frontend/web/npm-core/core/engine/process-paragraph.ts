@@ -5,12 +5,12 @@
 // lowering, exact layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
-// Stateless module: processParagraph(deps, argument) is a named function that
-// receives the custody and commit-prepared-paragraph collaborators as an
-// explicit first parameter. The engine bootstrap wires the deps object; tests
-// pass fakes. The stateless worker-request, prepare-paragraph-layout,
-// lifecycle, eligibility, markdown-lowering and prepared-metadata helpers are
-// imported directly.
+// Stateless module: processParagraph(custody, argument) is a named function
+// that receives the custody collaborator as an explicit first parameter. The
+// engine bootstrap passes the shared custody instance; tests pass a fake.
+// The stateless worker-request, prepare-paragraph-layout, lifecycle,
+// eligibility, markdown-lowering, prepared-metadata and
+// commit-prepared-paragraph helpers are imported directly.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -27,9 +27,12 @@ import {
   stabilizeContentSizedItemInlineSize,
   withoutExactFontSession,
 } from "./lifecycle.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
+import {
+  classifyFontRole,
+  firstDivergentInlineShapingProperty,
+  unsupportedInlineShapingProperties,
+} from "@tiqian/ffi";
 import type { CustodyApi } from "./custody.js";
-import type { CommitPreparedParagraphBundle } from "./commit-prepared-paragraph.js";
 import { shouldTryParagraph } from "./eligibility.js";
 import { lowerMarkdown } from "./markdown-lowering.js";
 import {
@@ -39,6 +42,10 @@ import {
 } from "./prepared-metadata.js";
 import { workerLayoutRequest } from "./worker-request.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
+import {
+  commitPreparedParagraph,
+  commitWorkerPreparedParagraph,
+} from "./commit-prepared-paragraph.js";
 
 interface ProcessParagraphTarget {
   source: Element;
@@ -65,14 +72,8 @@ interface ProcessParagraphState {
 }
 
 interface ProcessParagraphInvocation {
-  ffi: EngineFfiFacade | null;
   paragraph: Element;
   state: ProcessParagraphState;
-}
-
-export interface ProcessParagraphDeps {
-  custody: CustodyApi;
-  commitPreparedParagraph: CommitPreparedParagraphBundle;
 }
 
 interface ProcessInlineShapingDecisionResult {
@@ -122,14 +123,14 @@ interface ProcessInlineShapingDecisionResult {
 
   // LoweringHelpers: inline twin of the helpers builder in worker-request.js
   // (lines 258-269).
-  function loweringHelpers(ffi: EngineFfiFacade): Record<string, unknown> {
+  function loweringHelpers(): Record<string, unknown> {
     return {
-      classifyRole: ffi.classifyFontRole,
+      classifyRole: classifyFontRole,
       inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): ProcessInlineShapingDecisionResult | null {
-        const property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
+        const property = firstDivergentInlineShapingProperty(elementValues, paragraphValues);
         return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
       },
-      inlineShapingProperties: ffi.unsupportedInlineShapingProperties(),
+      inlineShapingProperties: unsupportedInlineShapingProperties(),
     };
   }
 
@@ -137,11 +138,10 @@ interface ProcessInlineShapingDecisionResult {
    * Process a single paragraph element through markdown lowering, custody
    * takeover, layout preparation, and commit.
    *
-   * @param {Object} deps
+   * @param {Object} custody
    * @param {Object} argument
    */
-  export function processParagraph(deps: ProcessParagraphDeps, argument: ProcessParagraphInvocation): void {
-    const ffi = argument.ffi;
+  export function processParagraph(custody: CustodyApi, argument: ProcessParagraphInvocation): void {
     const paragraph = argument.paragraph;
     const state = argument.state;
     // Prepared metadata builders shared across orchestrators.
@@ -158,7 +158,7 @@ interface ProcessInlineShapingDecisionResult {
       const loweringResult = lowerMarkdown(
         paragraph,
         state.options,
-        loweringHelpers(ffi!)
+        loweringHelpers()
       );
       if (loweringResult && loweringResult.ok === true) {
         lowered = loweringResult.lowered;
@@ -188,7 +188,7 @@ interface ProcessInlineShapingDecisionResult {
     }
 
     const paragraphStyle = (paragraph as HTMLElement).style;
-    deps.custody.begin(
+    custody.begin(
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -263,7 +263,7 @@ interface ProcessInlineShapingDecisionResult {
       return;
     }
 
-    deps.custody.take(paragraph, hostFontSizeApplied);
+    custody.take(paragraph, hostFontSizeApplied);
     const hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
@@ -278,13 +278,13 @@ interface ProcessInlineShapingDecisionResult {
       lastMeasure: null,
     };
 
-    deps.custody.commit(paragraph, hostInlineSizeApplied);
+    custody.commit(paragraph, hostInlineSizeApplied);
 
     let layoutIssue = null;
     try {
       if (workerPlan != null) {
-        layoutIssue = deps.commitPreparedParagraph.commitWorkerPreparedParagraph(
-          { custody: deps.custody },
+        layoutIssue = commitWorkerPreparedParagraph(
+          custody,
           {
             paragraph: item,
             workerPlan: workerPlan,
@@ -295,7 +295,6 @@ interface ProcessInlineShapingDecisionResult {
         );
       } else {
         const preparation = prepareParagraphLayout(
-          ffi!,
           {
             paragraph: item,
             options: activeOptions,
@@ -308,10 +307,9 @@ interface ProcessInlineShapingDecisionResult {
         } else if (preparation.kind === 'unsupported') {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
-          const commitResult = deps.commitPreparedParagraph.commitPreparedParagraph(
-            { custody: deps.custody },
+          const commitResult = commitPreparedParagraph(
+            custody,
             {
-              ffi: ffi!,
               paragraph: item,
               preparation: preparation,
               options: activeOptions,
@@ -342,7 +340,7 @@ interface ProcessInlineShapingDecisionResult {
     if (layoutIssue == null) {
       state.onParagraphCommitted(item);
     } else {
-      deps.custody.restoreParagraph(paragraph);
+      custody.restoreParagraph(paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }

@@ -7,6 +7,7 @@ import {
   workerLayoutRequestJson,
 } from "./core/engine/worker-request.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
+import { firstDivergentInlineShapingProperty, unsupportedInlineShapingProperties } from "@tiqian/ffi";
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 
@@ -516,18 +517,12 @@ function scopeRoot(containsResult = true) {
   };
 }
 
-const ROOT_FFI = {
-  classifyFontRole: (text, start, end, locale) => "other",
-  unsupportedInlineShapingProperties: () => ["font-style"],
-  firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => null,
-};
-
 test("workerLayoutRequestForRoot returns null when closest resolves to a nested owner under the root", () => {
   const owner = blockChild("SECTION", "nested");
   const root = scopeRoot(true);
   const paragraphEl = rootParagraph({ owner });
   assert.equal(
-    workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
+    workerLayoutRequestForRoot(root, paragraphEl, canonicalOptions()),
     null,
   );
 });
@@ -537,7 +532,7 @@ test("workerLayoutRequestForRoot passes the root gate when owner is the root", (
     const root = scopeRoot();
     const paragraphEl = rootParagraph({ owner: root });
     assert.notEqual(
-      workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
+      workerLayoutRequestForRoot(root, paragraphEl, canonicalOptions()),
       null,
     );
   });
@@ -548,7 +543,7 @@ test("workerLayoutRequestForRoot passes the root gate when no owner is found", (
     const root = scopeRoot();
     const paragraphEl = rootParagraph();
     assert.notEqual(
-      workerLayoutRequestForRoot(ROOT_FFI, root, paragraphEl, canonicalOptions()),
+      workerLayoutRequestForRoot(root, paragraphEl, canonicalOptions()),
       null,
     );
   });
@@ -557,7 +552,7 @@ test("workerLayoutRequestForRoot passes the root gate when no owner is found", (
 test("workerLayoutRequestForRoot returns null when shouldTryParagraph is false", () => {
   const blank = rootParagraph({ text: "   ", childNodes: [] });
   assert.equal(
-    workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), blank, canonicalOptions()),
+    workerLayoutRequestForRoot(scopeRoot(), blank, canonicalOptions()),
     null,
   );
 });
@@ -566,7 +561,7 @@ test("workerLayoutRequestForRoot returns null when snapshot exact layout is disa
   const paragraphEl = rootParagraph();
   const options = canonicalOptions({ fontSize: 20 });
   assert.equal(
-    workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, options),
+    workerLayoutRequestForRoot(scopeRoot(), paragraphEl, options),
     null,
   );
 });
@@ -583,7 +578,7 @@ test("workerLayoutRequestForRoot returns null when the lowering bridge throws", 
       },
     });
     assert.equal(
-      workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, canonicalOptions()),
+      workerLayoutRequestForRoot(scopeRoot(), paragraphEl, canonicalOptions()),
       null,
     );
   });
@@ -595,7 +590,7 @@ test("workerLayoutRequestForRoot returns null when lowering fails and never read
     // The root overload discards the issue result and reports null.
     const paragraphEl = rootParagraph({ childNodes: [blockChild("DIV", "blocked")] });
     assert.equal(
-      workerLayoutRequestForRoot(ROOT_FFI, scopeRoot(), paragraphEl, canonicalOptions()),
+      workerLayoutRequestForRoot(scopeRoot(), paragraphEl, canonicalOptions()),
       null,
     );
   });
@@ -605,7 +600,6 @@ test("workerLayoutRequestForRoot lowers with the fixed zh-Hans locale", () => {
   withComputedStyle(() => {
     const paragraphEl = rootParagraph({ text: "hello world" });
     const result = workerLayoutRequestForRoot(
-      ROOT_FFI,
       scopeRoot(),
       paragraphEl,
       canonicalOptions(),
@@ -617,18 +611,21 @@ test("workerLayoutRequestForRoot lowers with the fixed zh-Hans locale", () => {
 
 test("workerLayoutRequestForRoot inlineShapingDecision wraps the ffi divergence result", () => {
   withComputedStyle(() => {
-    const ffi = {
-      classifyFontRole: (t, s, e, l) => "other",
-      unsupportedInlineShapingProperties: () => ["font-style"],
-      firstDivergentInlineShapingProperty: (elementValues, paragraphValues) => "fontStyle",
-    };
+    // The divergence decision feeds the real firstDivergentInlineShapingProperty
+    // over the element and paragraph shaping-value arrays, one value per
+    // unsupportedInlineShapingProperties() position. text-transform is the
+    // 15th property (index 14), so a divergent element value there fails the
+    // inline element, the paragraph lowers with ok !== true, and the root
+    // overload reports null.
+    const paragraphValues = Array(unsupportedInlineShapingProperties().length).fill("");
+    const elementValues = Array(unsupportedInlineShapingProperties().length).fill("");
+    elementValues[14] = "uppercase";
+    assert.equal(firstDivergentInlineShapingProperty(elementValues, paragraphValues), "text-transform");
     const paragraphEl = rootParagraph({
-      childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
+      childNodes: [inlineChild("EM", "x", { "text-transform": "uppercase" })],
     });
-    // The divergence decision fails the inline element, so the paragraph
-    // lowers with ok !== true and the root overload reports null.
     assert.equal(
-      workerLayoutRequestForRoot(ffi, scopeRoot(), paragraphEl, canonicalOptions()),
+      workerLayoutRequestForRoot(scopeRoot(), paragraphEl, canonicalOptions()),
       null,
     );
   });
@@ -640,7 +637,6 @@ test("workerLayoutRequestForRoot inlineShapingDecision returns null for a null d
       childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
     });
     const result = workerLayoutRequestForRoot(
-      ROOT_FFI,
       scopeRoot(),
       paragraphEl,
       canonicalOptions(),
@@ -653,7 +649,6 @@ test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker 
   withComputedStyle(() => {
     const paragraphEl = rootParagraph({ text: "hello world" });
     const result = workerLayoutRequestForRoot(
-      ROOT_FFI,
       scopeRoot(),
       paragraphEl,
       canonicalOptions(),
@@ -678,7 +673,6 @@ test("workerLayoutRequestForRoot feeds the withRootDefaults result into lowering
       computedValues: { "font-size": "21px" },
     });
     const result = workerLayoutRequestForRoot(
-      ROOT_FFI,
       root,
       paragraphEl,
       canonicalOptions(),

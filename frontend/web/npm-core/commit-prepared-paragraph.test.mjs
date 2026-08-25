@@ -3,11 +3,13 @@ import test from "node:test";
 
 import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "./core/engine/commit-prepared-paragraph.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
+import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
-// The commit functions run for real; only the custody dep, the host-installed
-// prepared-DOM renderer/validator globals and the ffi are fakes. The direct
-// distrust-retry path drives the real prepareParagraphLayout, so the ffi must
-// answer the browser-metrics envelope.
+// The commit functions run for real; only the custody dep and the
+// host-installed prepared-DOM renderer/validator globals are fakes. The direct
+// distrust-retry path drives the real prepareParagraphLayout, so the planted
+// fixture font backend must answer the exact-session prepare and the
+// browserFallback bridge must answer the browser-metrics re-prepare.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -160,44 +162,57 @@ function installFakeCustody(overrides = {}) {
   };
 }
 
-function makeFakeFfi(overrides = {}) {
-  const calls = { diagnostics: [], browserMetrics: [] };
+// A browserFallback bridge whose callbacks answer every shape/metrics request
+// with a valid, full-coverage cluster response on the real wire. The direct
+// distrust-retry re-prepares through these callbacks.
+function makeValidBridge() {
   return {
-    _calls: calls,
-    precomputeParagraphWithDiagnostics: function () {
-      calls.diagnostics.push(Array.from(arguments));
-      if (overrides.diagnosticsThrow) throw overrides.diagnosticsThrow;
-      return overrides.diagnosticsEnvelope;
+    shapeJson(req) {
+      const parsed = JSON.parse(req);
+      const text = parsed.text;
+      const start = parsed.range.start;
+      const end = parsed.range.end;
+      const size = parsed.style.fontSize;
+      const clusters = [];
+      const glyphs = [];
+      let x = 0;
+      for (let i = start; i < end; i += 1) {
+        const ch = text[i];
+        clusters.push({
+          range: { start: i, end: i + 1 },
+          text: ch,
+          displayText: ch,
+          fontKey: "cjk-primary",
+          advance: size,
+          baselineShift: 0,
+        });
+        glyphs.push({
+          id: 100 + i,
+          clusterRange: { start: i, end: i + 1 },
+          advance: size,
+          x,
+          y: 0,
+          bounds: { left: 0, top: -size * 0.88, right: size, bottom: size * 0.12 },
+        });
+        x += size;
+      }
+      return JSON.stringify({
+        clusters,
+        glyphRuns: [{ range: { start, end }, fontKey: "cjk-primary", glyphs, advance: x, openTypeFeatures: [] }],
+        decisions: [{ range: { start, end }, sourceText: text.substring(start, end), displayText: parsed.displayText, fontKey: "cjk-primary", glyphCount: end - start, advance: x, source: "Harness", reason: "harness" }],
+      });
     },
-    precomputeParagraphWithBrowserMetrics: function () {
-      calls.browserMetrics.push(Array.from(arguments));
-      return overrides.browserMetricsEnvelope;
+    metricsJson() {
+      return JSON.stringify({ ascent: 21.2, descent: 5.3, leading: 0, source: "RawTables", typoAscent: 16.7, typoDescent: 2.3 });
     },
   };
-}
-
-function browserEnvelope(planJson) {
-  return JSON.stringify({
-    plan: planJson,
-    diagnostics: { capabilityIssues: [], advanceSuspects: [] },
-  });
-}
-
-function browserEnvelopeWithIssue(name, reason) {
-  return JSON.stringify({
-    plan: "{}",
-    diagnostics: {
-      capabilityIssues: [{ name, reason }],
-      advanceSuspects: [],
-    },
-  });
 }
 
 test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps custody, returns null", () => {
   withEnv(() => {
     const source = makeElement({}, { width: 300 });
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const domObjElement = makeElement();
     const paragraph = makeParagraph({
@@ -219,7 +234,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
     let fallbackCalled = false;
-    const result = commitWorkerPreparedParagraph(deps, {
+    const result = commitWorkerPreparedParagraph(custody, {
       paragraph,
       workerPlan,
       onExactPreparedDomFallback: () => {
@@ -264,12 +279,12 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
 test("worker mismatch: validator issue triggers fallback callback, releases styles, strips attributes, returns unsupported", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     let fallbackIssue = null;
 
-    const result = commitWorkerPreparedParagraph(deps, {
+    const result = commitWorkerPreparedParagraph(custody, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       onExactPreparedDomFallback: (issue) => {
@@ -301,7 +316,7 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
 test("worker rich lowered: removes canonical-plain attribute for rich lowered", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const source = makeElement({ "data-tq-canonical-plain": "true" });
     const paragraph = makeParagraph({
@@ -311,7 +326,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
       },
     });
 
-    const result = commitWorkerPreparedParagraph(deps, {
+    const result = commitWorkerPreparedParagraph(custody, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       inlineObjectMetaJson: "[]",
@@ -327,7 +342,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
 test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps custody, returns success", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -337,7 +352,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       exactFontSessionUsed: false,
     };
 
-    const result = commitPreparedParagraph(deps, {
+    const result = commitPreparedParagraph(custody, {
       ffi: {},
       paragraph,
       preparation,
@@ -366,7 +381,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
 test("direct rich path with sourceSpans elements: renders with live-source replay options", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const spanElement = makeElement();
     const objElement = makeElement();
@@ -389,7 +404,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const inlineObjectMetaJson = JSON.stringify([{ start: 1, end: 2, marginRight: 5 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
-    const result = commitPreparedParagraph(deps, {
+    const result = commitPreparedParagraph(custody, {
       ffi: {},
       paragraph,
       preparation,
@@ -419,7 +434,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
 test("direct mismatch, exactFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -430,7 +445,7 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
     };
 
     let fallbackCalled = false;
-    const result = commitPreparedParagraph(deps, {
+    const result = commitPreparedParagraph(custody, {
       ffi: {},
       paragraph,
       preparation,
@@ -467,7 +482,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
   };
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -477,19 +492,15 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
       exactFontSessionUsed: true,
     };
 
-    const browserFallback = { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } };
+    const browserFallback = { bridge: makeValidBridge() };
     const originalOptions = {
       exactFontSession: { session: 1 },
       firstLineIndentIc: 2,
     };
 
-    const ffi = makeFakeFfi({
-      browserMetricsEnvelope: browserEnvelope('{"plan":"second"}'),
-    });
     let fallbackReported = null;
 
-    const result = commitPreparedParagraph(deps, {
-      ffi,
+    const result = commitPreparedParagraph(custody, {
       paragraph,
       preparation,
       options: originalOptions,
@@ -500,15 +511,15 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
     });
 
     assert.equal(fallbackReported, "ExactSessionMismatch");
-    // The retry re-prepared through the real browser-metrics lane, so the ffi
-    // saw one browser-metrics call (no exact-session call for the fallback).
-    assert.equal(ffi._calls.diagnostics.length, 0);
-    assert.equal(ffi._calls.browserMetrics.length, 1);
 
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 2);
     assert.equal(renderer.renders[0].plan, '{"plan":"first"}');
-    assert.equal(renderer.renders[1].plan, '{"plan":"second"}');
+    // The retry re-prepared through the real browser-metrics lane over the
+    // valid bridge, so the second render carries a real "hello" plan.
+    const secondPlan = JSON.parse(renderer.renders[1].plan);
+    assert.equal(secondPlan.layoutRevision, "tiqian-layout-v2");
+    assert.equal(secondPlan.lines[0].rangeEnd, 5);
 
     assert.deepEqual(result, { kind: "success", measure: effectiveLineMeasure(320, 19) });
   }, { validator });
@@ -517,7 +528,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 test("distrust retry returning unsupported: propagated as the final unsupported verdict", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -527,16 +538,30 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       exactFontSessionUsed: true,
     };
 
-    const ffi = makeFakeFfi({
-      browserMetricsEnvelope: browserEnvelopeWithIssue("BrowserFallbackUnsupported", "unsupported glyph"),
-    });
+    const bridge = makeValidBridge();
+    const originalShapeJson = bridge.shapeJson;
+    bridge.shapeJson = function (req) {
+      const parsed = JSON.parse(req);
+      const inner = JSON.parse(originalShapeJson(req));
+      inner.decisions = [{
+        range: { start: parsed.range.start, end: parsed.range.end },
+        sourceText: parsed.text.substring(parsed.range.start, parsed.range.end),
+        displayText: parsed.displayText,
+        fontKey: "cjk-primary",
+        glyphCount: parsed.range.end - parsed.range.start,
+        advance: 0,
+        source: "Harness",
+        reason: "unsupported glyph",
+        capabilityIssue: "BrowserFallbackUnsupported",
+      }];
+      return JSON.stringify(inner);
+    };
 
-    const result = commitPreparedParagraph(deps, {
-      ffi,
+    const result = commitPreparedParagraph(custody, {
       paragraph,
       preparation,
       options: { exactFontSession: {} },
-      browserFallback: { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } },
+      browserFallback: { bridge },
     });
 
     assert.deepEqual(result, {
@@ -551,7 +576,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
 test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
     const custody = installFakeCustody();
-    const deps = { custody };
+
 
     const paragraph = makeParagraph();
     const preparation = {
@@ -561,22 +586,13 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       exactFontSessionUsed: true,
     };
 
-    const ffi = makeFakeFfi({
-      browserMetricsEnvelope: browserEnvelope('{"plan":"second"}'),
-    });
-
-    const result = commitPreparedParagraph(deps, {
-      ffi,
+    const result = commitPreparedParagraph(custody, {
       paragraph,
       preparation,
       options: { exactFontSession: {} },
-      browserFallback: { bridge: { shapeJson: () => "{}", metricsJson: () => "{}" } },
+      browserFallback: { bridge: makeValidBridge() },
     });
 
-    // One exact-session prepare (the first commit uses the given preparation,
-    // so none) and one browser-metrics prepare for the distrust retry.
-    assert.equal(ffi._calls.diagnostics.length, 0);
-    assert.equal(ffi._calls.browserMetrics.length, 1);
     const renderer = globalThis.__TiqianPreparedDomRenderer;
     assert.equal(renderer.renders.length, 2);
 

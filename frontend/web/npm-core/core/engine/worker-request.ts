@@ -13,7 +13,11 @@
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { EnhanceOptions } from "./lifecycle.js";
 import { allowsSnapshotExactLayout, conformingExactFontSessionId, withRootDefaults } from "./lifecycle.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
+import {
+  classifyFontRole,
+  firstDivergentInlineShapingProperty,
+  unsupportedInlineShapingProperties,
+} from "@tiqian/ffi";
 import { shouldTryParagraph } from "./eligibility.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { lowerMarkdown } from "./markdown-lowering.js";
@@ -233,13 +237,12 @@ interface WorkerInlineShapingDecisionResult {
    * without reading result.issue. Only processParagraph reports lowering
    * issues, so the Worker path stays silent on failure.
    *
-   * @param {Record<string, unknown>} ffi
    * @param {Element} root
    * @param {Element} paragraph
    * @param {Record<string, unknown>} options
    * @returns {(string|null)}
    */
-  export function workerLayoutRequestForRoot(ffi: EngineFfiFacade, root: Element, paragraph: Element, options: EnhanceOptions): string | null {
+  export function workerLayoutRequestForRoot(root: Element, paragraph: Element, options: EnhanceOptions): string | null {
     // RootScopeGate: a paragraph belongs when it has no owner, owns the root,
     // or lives outside the root. A nested owner under the root is not in this
     // paragraph's scope, so it returns null before anything else runs.
@@ -262,15 +265,15 @@ interface WorkerInlineShapingDecisionResult {
         locale: 'zh-Hans',
       }, {
         // classifyRole is the ffi export verbatim.
-        classifyRole: ffi.classifyFontRole,
+        classifyRole: classifyFontRole,
         // The inlineShapingDecision wrapper reproduces the Kotlin closure in
         // MarkdownParagraphLowering.kt: a null divergence property returns null,
         // otherwise the inlineShapingDecisionResultJs shape is built.
         inlineShapingDecision: function (tag: string, elementValues: string[], paragraphValues: string[]): WorkerInlineShapingDecisionResult | null {
-          const property = ffi.firstDivergentInlineShapingProperty(elementValues, paragraphValues);
+          const property = firstDivergentInlineShapingProperty(elementValues, paragraphValues);
           return property == null ? null : { name: 'UnsupportedInlineShapingStyle', detail: tag + ':' + property };
         },
-        inlineShapingProperties: ffi.unsupportedInlineShapingProperties(),
+        inlineShapingProperties: unsupportedInlineShapingProperties(),
       });
       if (result && result.ok === true) lowered = result.lowered;
     } catch (error) { lowered = null; }

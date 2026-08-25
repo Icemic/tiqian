@@ -12,10 +12,13 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
+import {
+  precomputeParagraphWithBrowserMetrics,
+  precomputeParagraphWithDiagnostics,
+} from "@tiqian/ffi";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 
-interface WireArguments {
+export interface WireArguments {
   text: string;
   fontFamilies: string;
   fontSize: number;
@@ -145,7 +148,7 @@ interface PrepareParagraphLayoutInvocation {
   // Serialize the lowered paragraph onto the shared ffi wire. Twins of the
   // worker-request.js serializer functions (lines 96-153), copied locally so
   // both files stay embeddable and import-free.
-  function wireArguments(lowered: LoweredParagraph): WireArguments {
+  export function wireArguments(lowered: LoweredParagraph): WireArguments {
     const textSpans = lowered.spans.map(function (span) {
       return [
         String(span.start),
@@ -271,7 +274,16 @@ interface PrepareParagraphLayoutInvocation {
   // BrowserMetricsCallArguments: the browser-metric export is the diagnostics
   // list without the leading sessionId, plus the shape and metrics callbacks
   // inserted before the trailing decorations and emphasis dot gap.
-  function browserMetricsArguments(browserFallback: Record<string, unknown>, paragraphArguments: unknown[], wire: WireArguments, emphasisDotGapEm: number | null, renderEvidenceOverride: boolean): unknown[] {
+  export type BrowserMetricsArguments = [
+    text: string, maxWidthPx: number, fontFamilies: string, fontSizePx: number,
+    lineHeightPx: number, locale: string, fontWeight: number, italic: boolean,
+    firstLineIndentIc: number, lineLengthGridEnabled: boolean, sourceBoundaries: string,
+    textSpans: string, inlineBoxes: string, lineBreakSpans: string, inlineObjects: string | null,
+    zeroAdvanceEpsilonPx: number, shapeJson: (p0: string) => string,
+    metricsJson: (p0: string) => string, decorations?: string | null,
+    emphasisDotGapEm?: number | null, renderEvidenceOverride?: boolean | null,
+  ];
+  export function browserMetricsArguments(browserFallback: Record<string, unknown>, paragraphArguments: unknown[], wire: WireArguments, emphasisDotGapEm: number | null, renderEvidenceOverride: boolean): BrowserMetricsArguments {
     return paragraphArguments.concat([
       ZERO_ADVANCE_EPSILON,
       (browserFallback.bridge as BrowserBridgeDescriptor).shapeJson,
@@ -279,18 +291,51 @@ interface PrepareParagraphLayoutInvocation {
       wire.decorations,
       emphasisDotGapEm,
       renderEvidenceOverride,
-    ]);
+    ]) as BrowserMetricsArguments;
+  }
+
+  // The exact-session diagnostics export argument tuple, byte-locked so tests
+  // can assert the full positional list the wire sends to ffi. The direct ffi
+  // call spreads this tuple unchanged; no value is reordered or recomputed.
+  export function precomputeDiagnosticsArguments(
+    sessionId: string,
+    paragraphArguments: unknown[],
+    wire: WireArguments,
+    emphasisDotGapEm: number | null,
+    renderEvidenceOverride: boolean,
+  ): [string, string, number, string, number, number, string, number, boolean, number, boolean, string, string, string, string, string, number, string, number | null, boolean] {
+    return [
+      sessionId,
+      paragraphArguments[0] as string,
+      paragraphArguments[1] as number,
+      paragraphArguments[2] as string,
+      paragraphArguments[3] as number,
+      paragraphArguments[4] as number,
+      paragraphArguments[5] as string,
+      paragraphArguments[6] as number,
+      paragraphArguments[7] as boolean,
+      paragraphArguments[8] as number,
+      paragraphArguments[9] as boolean,
+      paragraphArguments[10] as string,
+      paragraphArguments[11] as string,
+      paragraphArguments[12] as string,
+      paragraphArguments[13] as string,
+      paragraphArguments[14] as string,
+      ZERO_ADVANCE_EPSILON,
+      wire.decorations,
+      emphasisDotGapEm,
+      renderEvidenceOverride,
+    ];
   }
 
   /**
    * Prepare a paragraph for layout. See the slice header for the verdict
    * shapes and the Kotlin order this follows.
    *
-   * @param {Object} ffi
    * @param {Object} argument
    * @returns {Object}
    */
-  export function prepareParagraphLayout(ffi: EngineFfiFacade, argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
+  export function prepareParagraphLayout(argument: PrepareParagraphLayoutInvocation): PrepareLayoutResult {
     const paragraph = argument.paragraph;
     const options = argument.options;
     const exactSession = argument.exactSession;
@@ -377,27 +422,8 @@ interface PrepareParagraphLayoutInvocation {
       try {
         // ExactSessionSemanticLayout: one font session serves the canonical
         // plain paragraph and the semantic DOM, so no engine pair exists.
-        rawEnvelope = ffi.precomputeParagraphWithDiagnostics(
-          exactSession.sessionId,
-          paragraphArguments[0] as string,
-          paragraphArguments[1] as number,
-          paragraphArguments[2] as string,
-          paragraphArguments[3] as number,
-          paragraphArguments[4] as number,
-          paragraphArguments[5] as string,
-          paragraphArguments[6] as number,
-          paragraphArguments[7] as boolean,
-          paragraphArguments[8] as number,
-          paragraphArguments[9] as boolean,
-          paragraphArguments[10] as string,
-          paragraphArguments[11] as string,
-          paragraphArguments[12] as string,
-          paragraphArguments[13] as string,
-          paragraphArguments[14] as string,
-          ZERO_ADVANCE_EPSILON,
-          wire.decorations,
-          emphasisDotGapEm,
-          renderEvidenceOverride,
+        rawEnvelope = precomputeParagraphWithDiagnostics(
+          ...precomputeDiagnosticsArguments(exactSession.sessionId, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       } catch (error) {
         if (!isExactSessionCapabilityFailure(error)) throw error;
@@ -406,9 +432,8 @@ interface PrepareParagraphLayoutInvocation {
         // ExactSessionBrowserFallback* wrappers are deliberately not ported
         // (Slice 4a note); the whole paragraph re-runs instead.
         exactFontSessionUsed = false;
-        rawEnvelope = ffi.precomputeParagraphWithBrowserMetrics.apply(
-          null,
-          browserMetricsArguments(browserFallback!, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+        rawEnvelope = precomputeParagraphWithBrowserMetrics(
+          ...browserMetricsArguments(browserFallback!, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       }
     } else {
@@ -416,9 +441,8 @@ interface PrepareParagraphLayoutInvocation {
         throw new Error('missing browserFallback descriptor for browser-metric layout');
       }
       exactFontSessionUsed = false;
-      rawEnvelope = ffi.precomputeParagraphWithBrowserMetrics.apply(
-        null,
-        browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+      rawEnvelope = precomputeParagraphWithBrowserMetrics(
+        ...browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
       );
     }
 

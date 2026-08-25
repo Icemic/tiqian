@@ -6,9 +6,8 @@
 // Stateful module: createRootState(deps) closes over the font-families and
 // browser-metrics-bridge factories and calls the eligibility
 // shouldTryParagraph predicate directly. The engine bootstrap constructs one
-// instance and binds the ffi facade through it; tests construct one with
-// fakes. The per-root state registries (WeakMap) and the bound ffi facade are
-// instance state, never module state.
+// instance. The per-root state registries (WeakMap) are instance state, never
+// module state.
 
 import type { BrowserMetricsBridgeInstance } from "./browser-metrics-bridge.js";
 import type { LoweredParagraph } from "./lowered-paragraph.js";
@@ -22,7 +21,6 @@ import {
   withoutExactFontSession,
   withRootDefaults,
 } from "./lifecycle.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
 import { createFontFamilies } from "./canvas-fonts.js";
 import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
 import { shouldTryParagraph } from "./eligibility.js";
@@ -78,7 +76,6 @@ type RootStateOnDisableExactPreparedDomFn = (detail: unknown) => void;
 // Live view handed to the embedded TS orchestrators: callbacks splice/push the
 // same arrays the host mutates.
 export type EngineState = {
-  ffi: EngineFfiFacade | null;
   options: EnhanceOptions;
   preparedDomEnabled: boolean;
   exactSession: ExactSessionDescriptor | null;
@@ -91,7 +88,6 @@ export type EngineState = {
 };
 
 export type ProcessParagraphArgument = {
-  ffi: EngineFfiFacade | null;
   paragraph: Element;
   state: EngineState;
 };
@@ -109,8 +105,6 @@ export type PrepareArgument = {
   widthOverride: number | null;
 };
 
-type RootStateBindFfiFn = (bound: EngineFfiFacade) => void;
-type RootStateCurrentFfiFn = () => EngineFfiFacade | null;
 type RootStateCreateFn = (root: Element, optionsBag: Record<string, unknown>) => RootState;
 type RootStateCreateFromCanonicalFn = (root: Element, canonicalOptions: EnhanceOptions) => RootState;
 type RootStateActiveTsOptionsFn = (state: RootState) => EnhanceOptions;
@@ -135,8 +129,6 @@ type RootStateStrandedSourceParagraphsFn = (root: Element, state: RootState) => 
 type RootStatePublishFn = (state: RootState, keepEmpty?: boolean) => void;
 
 export type RootStateApi = {
-  bindFfi: RootStateBindFfiFn;
-  currentFfi: RootStateCurrentFfiFn;
   createRootState: RootStateCreateFn;
   createRootStateFromCanonical: RootStateCreateFromCanonicalFn;
   activeTsOptions: RootStateActiveTsOptionsFn;
@@ -163,19 +155,6 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
   // without reconstructing its semantic DOM. Weak ownership retains the
   // source fragments only if a host later reconnects that exact element.
   const states = new WeakMap<Element, RootState>();
-
-  // The ffi facade the TS orchestrators consume. The Kotlin side owns it as
-  // the module-level tsFfiFacade val; here the engine entry binds it once
-  // at startup and tests bind a fake.
-  let ffi: EngineFfiFacade | null = null;
-
-  function bindFfi(bound: EngineFfiFacade): void {
-    ffi = bound;
-  }
-
-  function currentFfi(): EngineFfiFacade | null {
-    return ffi;
-  }
 
   // belongsToRootScope: a candidate belongs to this root when its nearest
   // scope-owning ancestor is absent, is the root itself, or lives outside the
@@ -321,7 +300,6 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
 
   function engineState(state: RootState): EngineState {
     return {
-      ffi: currentFfi(),
       options: state.options,
       preparedDomEnabled: state.preparedDomEnabled,
       exactSession: activeExactSessionDescriptor(state),
@@ -335,7 +313,7 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
   }
 
   function processParagraphArgument(state: RootState, paragraph: Element): ProcessParagraphArgument {
-    return { ffi: currentFfi(), paragraph: paragraph, state: engineState(state) };
+    return { paragraph: paragraph, state: engineState(state) };
   }
 
   function sessionArgument(state: RootState): SessionArgument {
@@ -394,8 +372,6 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
   }
 
   return {
-    bindFfi: bindFfi,
-    currentFfi: currentFfi,
     createRootState: createRootState,
     createRootStateFromCanonical: createRootStateFromCanonical,
     activeTsOptions: activeTsOptions,

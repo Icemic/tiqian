@@ -15,7 +15,6 @@ import {
 import { createCustody } from "@tiqian/prose-core/core/engine/custody.js";
 
 const custody = createCustody();
-const deps = { custody };
 
 // Move a mounted paragraph into the enhanced state: take the host children
 // into custody, publish the fragment, write one engine-owned rendered child
@@ -67,7 +66,7 @@ test("contentReconcileProbe_countsDeadDriftAndCustody", (t) => {
     </div>
   `);
   assert.equal(
-    probeContentDrift(deps,[]),
+    probeContentDrift(custody,[]),
     '{"unknown":0,"drifted":0,"dead":0,"custody":0}',
   );
 
@@ -76,7 +75,7 @@ test("contentReconcileProbe_countsDeadDriftAndCustody", (t) => {
   assert.ok(rendered);
   paragraph.removeChild(rendered);
 
-  const result = JSON.parse(probeContentDrift(deps,[paragraph]));
+  const result = JSON.parse(probeContentDrift(custody,[paragraph]));
   assert.deepEqual(result, {
     unknown: 0,
     drifted: 1,
@@ -89,7 +88,7 @@ test("contentReconcileProbe_countsDeadDriftAndCustody", (t) => {
     <div data-tiqian-root="true"><p>detached paragraph</p></div>
   `).querySelector("p");
   detached.remove();
-  const deadResult = JSON.parse(probeContentDrift(deps,[detached]));
+  const deadResult = JSON.parse(probeContentDrift(custody,[detached]));
   assert.deepEqual(deadResult, {
     unknown: 0,
     drifted: 0,
@@ -108,7 +107,7 @@ test("contentReconcileProbe_staysReadOnly", (t) => {
   enhanceParagraph(paragraph, t);
   const beforeNodes = Array.from(paragraph.childNodes);
 
-  probeContentDrift(deps,[paragraph]);
+  probeContentDrift(custody,[paragraph]);
 
   const afterNodes = Array.from(paragraph.childNodes);
   assert.equal(afterNodes.length, beforeNodes.length);
@@ -126,7 +125,7 @@ test("contentReconcileClassify_jsonVerdicts", (t) => {
     strandedCandidates: [],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const emptyVerdict = classifyReconcile(deps,emptySpec);
+  const emptyVerdict = classifyReconcile(custody,emptySpec);
   assert.equal(emptyVerdict.outcome, "idle");
   assert.deepEqual(emptyVerdict.drifted, []);
   assert.deepEqual(emptyVerdict.custody, []);
@@ -161,7 +160,7 @@ test("contentReconcileClassify_jsonVerdicts", (t) => {
     strandedCandidates: [pStranded, pSkipped],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const verdict = classifyReconcile(deps,spec);
+  const verdict = classifyReconcile(custody,spec);
   assert.equal(verdict.outcome, "work");
   assert.deepEqual(verdict.drifted, []);
   assert.deepEqual(verdict.custody, []);
@@ -187,7 +186,7 @@ test("contentReconcilePrepare_restoresShellAndStamps", (t) => {
   paragraph.removeChild(rendered);
   assert.equal(custody.renderedMatches(paragraph), false);
 
-  prepareTrackedParagraphForRelowering(deps,paragraph);
+  prepareTrackedParagraphForRelowering(custody,paragraph);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(custody.renderedMatches(paragraph), true);
 });
@@ -208,7 +207,7 @@ test("contentReconcileStrip_removesEngineMarkup", (t) => {
   const clonedParagraph = root.querySelector("p");
   assert.ok(clonedParagraph);
 
-  stripEngineMarkupFromStrandedParagraph(deps,clonedParagraph);
+  stripEngineMarkupFromStrandedParagraph(custody,clonedParagraph);
 
   assert.equal(clonedParagraph.querySelectorAll("[data-tq-hard-break]").length, 0);
   assert.ok(clonedParagraph.querySelector("br"), "bare br must exist");

@@ -253,15 +253,11 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
   });
 });
 
-test("4. engineState cross-section: bound ffi, live arrays, callback wiring", () => {
+test("4. engineState cross-section: live arrays, callback wiring", () => {
   withComputedStyle(() => {
     const fonts = makeCanvasFonts();
     const bridge = makeBridge();
     const { rs } = makeRootState({ fonts, bridge });
-
-    const ffi = { classifyFontRole: () => "Cjk" };
-    rs.bindFfi(ffi);
-    assert.equal(rs.currentFfi(), ffi);
 
     const root = new FakeElement();
     const state = rs.createRootState(root, {
@@ -269,7 +265,6 @@ test("4. engineState cross-section: bound ffi, live arrays, callback wiring", ()
     });
     const engine = rs.engineState(state);
 
-    assert.equal(engine.ffi, ffi);
     assert.equal(engine.options, state.options);
     assert.equal(engine.preparedDomEnabled, true);
     assert.deepEqual(engine.exactSession, { sessionId: "sess-1" });

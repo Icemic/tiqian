@@ -8,8 +8,10 @@ import {
   preparedSemanticReplayJson,
 } from "./core/engine/prepared-metadata.js";
 
-// The session factory takes fake custody/commit deps; the lifecycle helpers
-// and the metadata JSON builders run for real.
+// The session factory takes fake custody; the lifecycle helpers and the
+// metadata JSON builders run for real. The 'ready' path exercises the real
+// commitPreparedParagraph through the test-world prepared-DOM bridge, so the
+// renderer/validator globals are planted per test.
 
 function makeElement(initialAttributes = {}) {
   const attributes = new Map(Object.entries(initialAttributes));
@@ -60,11 +62,6 @@ function makeState(overrides = {}) {
   const paragraphs = overrides.paragraphs ?? [];
   const issues = overrides.issues ?? [];
   return {
-    ffi: overrides.ffi ?? {
-      classifyFontRole: () => "Cjk",
-      firstDivergentInlineShapingProperty: () => null,
-      unsupportedInlineShapingProperties: () => [],
-    },
     options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
     exactSession: overrides.exactSession ?? { sessionId: "session-1" },
@@ -77,10 +74,35 @@ function makeState(overrides = {}) {
   };
 }
 
-function makeSession(deps) {
+function makeSession(custody) {
   return {
-    create: (argument) => openRelayoutSession(deps, argument),
+    create: (argument) => openRelayoutSession(custody, argument),
   };
+}
+
+function withPreparedBridge(fn, overrides = {}) {
+  const names = ["__TiqianPreparedDomRenderer", "__TiqianPreparedDomValidator"];
+  const saved = names.map((name) => ({
+    name,
+    own: Object.prototype.hasOwnProperty.call(globalThis, name),
+    value: globalThis[name],
+  }));
+  try {
+    globalThis.__TiqianPreparedDomRenderer = overrides.renderer || {
+      render: function () {},
+      release: function () { return true; },
+      releaseRoot: function () { return true; },
+    };
+    globalThis.__TiqianPreparedDomValidator = overrides.validator || {
+      issue: function () { return null; },
+    };
+    return fn();
+  } finally {
+    for (const entry of saved) {
+      if (entry.own) globalThis[entry.name] = entry.value;
+      else delete globalThis[entry.name];
+    }
+  }
 }
 
 test("1. unchanged verdict: no custody call, no state change", () => {
@@ -95,10 +117,7 @@ test("1. unchanged verdict: no custody call, no state change", () => {
       restoreParagraphCalls.push(source);
     },
   };
-  const commitPreparedParagraph = {
-    commitPreparedParagraph: () => ({ kind: "success", measure: 250 }),
-  };
-  const session = makeSession({ custody, commitPreparedParagraph });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
@@ -127,7 +146,7 @@ test("2. unsupported verdict: captureLive + restoreParagraph called, finish() re
       restoreParagraphCalls.push(source);
     },
   };
-  const session = makeSession({ custody, commitPreparedParagraph: {} });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 120 });
   const state = makeState({ paragraphs: [p1] });
@@ -161,9 +180,10 @@ test("2. unsupported verdict: captureLive + restoreParagraph called, finish() re
   assert.equal(p1.source.getAttribute("data-tiqian-capability-detail"), "font size too large");
 });
 
-test("3. ready + commit success: lastMeasure set from the commit measure, item stays in state.paragraphs, no restoreParagraph", () => {
+test("3. ready + commit success: lastMeasure copies preparation.measure, custody.stampRendered called, item stays in state.paragraphs, no restoreParagraph", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
+  const stampRenderedCalls = [];
   const custody = {
     captureLive: (...args) => {
       captureLiveCalls.push(args);
@@ -172,34 +192,36 @@ test("3. ready + commit success: lastMeasure set from the commit measure, item s
     restoreParagraph: (source) => {
       restoreParagraphCalls.push(source);
     },
+    stampRendered: (source) => {
+      stampRenderedCalls.push(source);
+    },
   };
-  const commitPreparedParagraph = {
-    commitPreparedParagraph: () => ({
-      kind: "success",
-      measure: 250,
-    }),
-  };
-  const session = makeSession({ custody, commitPreparedParagraph });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
   const active = session.create({ paragraphs: [p1], state });
 
-  active.processItem(0, { kind: "ready", planJson: "{}" });
+  const preparation = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
+  withPreparedBridge(() => {
+    active.processItem(0, preparation);
+  });
 
   assert.equal(captureLiveCalls.length, 1);
   assert.equal(restoreParagraphCalls.length, 0);
-  assert.equal(p1.lastMeasure, 250);
+  assert.equal(p1.lastMeasure, preparation.measure);
+  assert.equal(stampRenderedCalls.length, 1);
+  assert.equal(stampRenderedCalls[0], p1.source);
 
   active.finish();
 
-  assert.equal(p1.lastMeasure, 250);
+  assert.equal(p1.lastMeasure, preparation.measure);
   assert.equal(state.paragraphs.length, 1);
   assert.equal(state.paragraphs[0], p1);
   assert.equal(state.issues.length, 0);
 });
 
-test("4. ready + commit unsupported: restoreParagraph called, finish() removes and reports", () => {
+test("4. ready + commit unsupported: real validator rejects, restoreParagraph called, finish() removes and reports", () => {
   const restoreParagraphCalls = [];
   const custody = {
     captureLive: () => ({ snap: true }),
@@ -207,20 +229,19 @@ test("4. ready + commit unsupported: restoreParagraph called, finish() removes a
       restoreParagraphCalls.push(source);
     },
   };
-  const commitPreparedParagraph = {
-    commitPreparedParagraph: () => ({
-      kind: "unsupported",
-      name: "PreparedDomRejection",
-      detail: "DOM mismatch",
-    }),
-  };
-  const session = makeSession({ custody, commitPreparedParagraph });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
   const active = session.create({ paragraphs: [p1], state });
 
-  active.processItem(0, { kind: "ready", planJson: "{}" });
+  const preparation = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
+  withPreparedBridge(() => {
+    globalThis.__TiqianPreparedDomValidator = {
+      issue: function () { return "DOM mismatch"; },
+    };
+    active.processItem(0, preparation);
+  });
 
   assert.equal(restoreParagraphCalls.length, 1);
   assert.equal(restoreParagraphCalls[0], p1.source);
@@ -229,33 +250,44 @@ test("4. ready + commit unsupported: restoreParagraph called, finish() removes a
 
   assert.equal(state.paragraphs.length, 0);
   assert.equal(state.issues.length, 1);
-  assert.equal(state.issues[0].name, "PreparedDomRejection");
+  assert.equal(state.issues[0].name, "PreparedDomRenderMismatch");
+  assert.equal(state.issues[0].detail, "DOM mismatch");
   assert.equal(state.issues[0].element, p1.source);
   assert.equal(state.issues[0].reportToConsole, true);
   // The lifecycle marker was written onto the source element.
-  assert.equal(p1.source.getAttribute("data-tiqian-capability-issue"), "PreparedDomRejection");
+  assert.equal(p1.source.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
 });
 
-test("5. ready path passes the exact metadata JSON strings and raw state.options and browserFallback to commitPreparedParagraph (assert argument fields)", () => {
-  const commitCalls = [];
+test("5. ready path passes the exact metadata JSON strings to the prepared-DOM renderer (assert captured render options)", () => {
+  const renderCalls = [];
   const custody = {
     captureLive: () => ({ snap: true }),
     restoreParagraph: () => {},
+    stampRendered: () => {},
   };
-  const commitPreparedParagraph = {
-    commitPreparedParagraph: (deps, arg) => {
-      commitCalls.push(arg);
-      return { kind: "success", measure: 310 };
-    },
-  };
-  const session = makeSession({ custody, commitPreparedParagraph });
+  const session = makeSession(custody);
 
   const lowered = {
     text: "test",
+    textStyle: {
+      fontFamilies: [],
+      fontSize: 19,
+      fontWeight: 400,
+      italic: false,
+      baselineShift: 0,
+      locale: "zh-Hans",
+    },
+    lineHeight: 28,
+    spans: [],
+    decorations: [],
+    inlineBoxes: [],
+    inlineObjects: [],
     domInlineObjects: [{ start: 0, end: 1, marginRight: 6 }],
     sourceSpans: [
       { start: 0, end: 2, cjkStrongBaseWeight: 700, depth: 0, element: { tagName: "STRONG" } },
     ],
+    sourceBoundaries: [],
+    lineBreakSpans: [],
   };
   const p1 = makeParagraph({ lowered });
   const rawOptions = { fontSize: 22, custom: "yes" };
@@ -270,29 +302,37 @@ test("5. ready path passes the exact metadata JSON strings and raw state.options
 
   const active = session.create({ paragraphs: [p1], state });
 
-  const preparation = { kind: "ready", planJson: '{"plan":true}' };
-  active.processItem(0, preparation);
+  const preparation = { kind: "ready", planJson: '{"plan":true}', measure: 310, width: 300 };
+  withPreparedBridge(() => {
+    globalThis.__TiqianPreparedDomRenderer = {
+      render: function (host, planJson, locale, options) {
+        renderCalls.push({ host, planJson, locale, options });
+      },
+      release: function () { return true; },
+      releaseRoot: function () { return true; },
+    };
+    active.processItem(0, preparation);
+  });
 
-  assert.equal(commitCalls.length, 1);
-  const callArg = commitCalls[0];
-  assert.equal(callArg.ffi, state.ffi);
-  assert.equal(callArg.paragraph, p1);
-  assert.equal(callArg.preparation, preparation);
-  assert.equal(callArg.options, rawOptions);
-  assert.equal(callArg.browserFallback, rawBrowserFallback);
-  assert.equal(callArg.onExactPreparedDomFallback, disableExact);
-  assert.equal(
-    callArg.semanticReplayJson,
-    preparedSemanticReplayJson(lowered)
-  );
-  assert.equal(
-    callArg.inlineObjectMetaJson,
-    preparedInlineObjectMetaJson(lowered)
-  );
-  assert.equal(
-    callArg.cjkStrongSemanticsJson,
-    preparedCjkStrongSemanticsJson(lowered)
-  );
+  assert.equal(renderCalls.length, 1);
+  const call = renderCalls[0];
+  assert.equal(call.host, p1.source);
+  assert.equal(call.planJson, preparation.planJson);
+  assert.equal(call.locale, lowered.textStyle.locale);
+  // The live-source replay options derive from the metadata JSON builders.
+  assert.equal(call.options.sourceText, lowered.text);
+  assert.equal(call.options.semanticReplay, "live-source");
+  assert.deepEqual(call.options.semantics, JSON.parse(preparedSemanticReplayJson(lowered)));
+  assert.equal(call.options.liveSemanticElements.length, 1);
+  assert.equal(call.options.liveSemanticElements[0], lowered.sourceSpans[0].element);
+  assert.deepEqual(call.options.cjkStrongSemantics, JSON.parse(preparedCjkStrongSemanticsJson(lowered)));
+  // inlineObjects carries the inline-object meta entries derived from the
+  // prepared-inline-object-metadata builder.
+  const inlineMeta = JSON.parse(preparedInlineObjectMetaJson(lowered));
+  assert.equal(call.options.inlineObjects.length, inlineMeta.length);
+  assert.equal(call.options.inlineObjects[0].start, inlineMeta[0].start);
+  assert.equal(call.options.inlineObjects[0].end, inlineMeta[0].end);
+  assert.equal(call.options.inlineObjects[0].marginRight, inlineMeta[0].marginRight);
 });
 
 test("6. rollback(): state lists restored to before, custody.rollback receives the captured snapshots in insertion order, lastMeasure patched from a result", () => {
@@ -300,6 +340,7 @@ test("6. rollback(): state lists restored to before, custody.rollback receives t
   const custody = {
     captureLive: (source, lastMeasure) => ({ source, lastMeasure, snapshot: true }),
     restoreParagraph: () => {},
+    stampRendered: () => {},
     rollback: (snapshots) => {
       rollbackSnapshots = snapshots;
       return [
@@ -308,10 +349,7 @@ test("6. rollback(): state lists restored to before, custody.rollback receives t
       ];
     },
   };
-  const commitPreparedParagraph = {
-    commitPreparedParagraph: () => ({ kind: "success", measure: 300 }),
-  };
-  const session = makeSession({ custody, commitPreparedParagraph });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const p2 = makeParagraph({ lastMeasure: 200 });
@@ -324,7 +362,9 @@ test("6. rollback(): state lists restored to before, custody.rollback receives t
   const active = session.create({ paragraphs: [p1, p2], state });
 
   active.processItem(0, { kind: "unsupported", name: "Unsupported" });
-  active.processItem(1, { kind: "ready", planJson: "{}" });
+  withPreparedBridge(() => {
+    active.processItem(1, { kind: "ready", planJson: "{}", measure: 250, width: 300 });
+  });
 
   // Mutate state lists to simulate mid-session modifications
   state.paragraphs.length = 0;
@@ -357,7 +397,7 @@ test("7. rollback() with a result whose source is not in the session paragraphs:
       { source: unknownElement, lastMeasure: 999 },
     ],
   };
-  const session = makeSession({ custody, commitPreparedParagraph: {} });
+  const session = makeSession(custody);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
@@ -374,7 +414,7 @@ test("7. rollback() with a result whose source is not in the session paragraphs:
 });
 
 test("8. stale starts false and is assignable", () => {
-  const session = makeSession({ custody: {}, commitPreparedParagraph: {} });
+  const session = makeSession({});
   const p1 = makeParagraph();
   const state = makeState({ paragraphs: [p1] });
   const active = session.create({ paragraphs: [p1], state });

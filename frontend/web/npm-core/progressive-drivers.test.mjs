@@ -173,7 +173,6 @@ function makeState(overrides = {}, root, optionsOverride) {
     paragraphs: overrides.paragraphs || [],
     issues: overrides.issues || [],
     preparedDomEnabled: true,
-    ffi: overrides.ffi || { mock: true },
     exactSession: overrides.exactSession || null,
     browserFallback: overrides.browserFallback || null,
     onIssue: overrides.onIssue || function () {},
@@ -198,10 +197,6 @@ function makeFakeRootState(overrides = {}) {
   };
   return {
     _calls: calls,
-    bindFfi: function () {},
-    currentFfi: function () {
-      return overrides.ffi || { mock: true };
-    },
     createRootState: function (root, optionsBag) {
       calls.createRootState.push({ root: root, optionsBag: optionsBag });
       return makeState(overrides, root);
@@ -226,7 +221,6 @@ function makeFakeRootState(overrides = {}) {
     processParagraphArgument: function (state, paragraph) {
       calls.processParagraphArgument.push({ state: state, paragraph: paragraph });
       return {
-        ffi: state.ffi || overrides.ffi || { mock: true },
         paragraph: paragraph,
         state: state,
       };
@@ -257,16 +251,6 @@ function makeFakeRootState(overrides = {}) {
       calls.strandedSourceParagraphs.push({ root: root, state: state });
       return overrides.stranded || [];
     },
-  };
-}
-
-function makeFakeFfi() {
-  return {
-    classifyFontRole: (text, start, end, locale) => "latin",
-    firstDivergentInlineShapingProperty: () => null,
-    unsupportedInlineShapingProperties: () => [],
-    precomputeParagraphWithDiagnostics: () => "{}",
-    precomputeParagraphWithBrowserMetrics: () => "{}",
   };
 }
 
@@ -345,43 +329,22 @@ function makeFakeCopyInstaller() {
 }
 
 function makeDrivers(overrides = {}) {
-  const ffi = overrides.ffi || makeFakeFfi();
   const custody = overrides.custody || makeFakeCustody();
-  const rootState = overrides.rootState || makeFakeRootState({ ...overrides, ffi: ffi });
+  const rootState = overrides.rootState || makeFakeRootState(overrides);
   const layoutJobPool = overrides.layoutJobPool || makeFakeLayoutJobPool(overrides);
   const copyInstaller = overrides.copyInstaller || makeFakeCopyInstaller();
-  const commitPreparedParagraphBundle = overrides.commitBundle || {
-    commitWorkerPreparedParagraph: function (deps, argument) {
-      return null;
-    },
-    commitPreparedParagraph: function (deps, argument) {
-      return { kind: "success", measure: 300 };
-    },
-  };
-  const progressiveRelayoutSessionDeps = {
-    custody: custody,
-    commitPreparedParagraph: commitPreparedParagraphBundle,
-  };
-  const processParagraphDeps = {
-    custody: custody,
-    commitPreparedParagraph: commitPreparedParagraphBundle,
-  };
-  const deps = {
-    rootState: rootState,
-    engine: null,
-    copyInstaller: copyInstaller,
-    layoutJobPool: layoutJobPool,
-    progressiveRelayoutSession: progressiveRelayoutSessionDeps,
-    processParagraph: processParagraphDeps,
-  };
   return {
-    deps: deps,
     rootState: rootState,
     layoutJobPool: layoutJobPool,
     copyInstaller: copyInstaller,
     custody: custody,
-    ffi: ffi,
   };
+}
+
+// Collaborator argument list for the driver entry functions in the unit-test
+// world: engine is always null so the bare layoutJobPool.cancelJob branch runs.
+function driverArgs(ctx) {
+  return [ctx.rootState, null, ctx.copyInstaller, ctx.layoutJobPool, ctx.custody];
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +355,7 @@ test("1a. cancelJob is called before createRootState", function () {
   withEnv(() => {
     const ctx = makeDrivers();
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, { fontSize: 20 });
+    enhanceProgressively(...driverArgs(ctx), root, { fontSize: 20 });
 
     assert.equal(ctx.layoutJobPool._calls.cancelJob.length, 1);
     assert.equal(ctx.layoutJobPool._calls.cancelJob[0], root);
@@ -419,7 +382,7 @@ test("1b. work order sorted by (distance, index) ascending", function () {
       candidates: [p1, p2, p3],
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
     const spec = ctx.layoutJobPool._calls.startJob[0];
@@ -440,7 +403,7 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
       candidates: [p1.source, p2.source],
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
     const spec = ctx.layoutJobPool._calls.startJob[0];
@@ -464,7 +427,7 @@ test("1d. processItem calls processParagraphArgument and processParagraph for no
       candidates: [p1.source, p2.source],
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.processItem);
@@ -488,7 +451,7 @@ test("1e. processItem sets stale when measure drifts and does not process", func
       candidates: [p1.source, p2.source],
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     const isStaleFn = spec.isStale;
@@ -513,7 +476,7 @@ test("1f. onItemsFinished aggregates stale across all items", function () {
       candidates: [p1.source, p2.source],
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
@@ -535,7 +498,7 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
       issues: reportedIssues,
     });
     const root = makeElement();
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     // Should not start a job
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 0);
@@ -566,7 +529,7 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
       layoutJobPool: makeFakeLayoutJobPool({ jobKind: () => "Enhance" }),
     });
     const root = makeElement();
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     // Should restart with the running state's canonical options. Kotlin's
     // two-arg overload restarts the interrupted enhance, so the kind stays
@@ -592,7 +555,7 @@ test("3. relayout branch 2: no state => cold-start Relayout with bag null", func
       candidates: [makeParagraph().source],
     });
     const root = makeElement();
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
     assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Relayout");
@@ -621,7 +584,7 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
       getStateValue: stateWithIssue,
       candidates: [makeParagraph().source],
     });
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     // cancelJob ran twice: branch 3 cancels explicitly, then the restart's
     // engine-less fallback (unit world) cancels again. Both are idempotent;
@@ -666,7 +629,7 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
     const spec = ctx.layoutJobPool._calls.startJob[0];
@@ -719,7 +682,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
       return origPrepareArg(st, paragraph, widthOverride);
     };
 
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     spec.processItem(0);
@@ -749,7 +712,7 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     const staleFn = spec.isStale;
@@ -785,7 +748,7 @@ test("5d. relayout main path: onFailure calls rollback", function () {
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFailure);
@@ -816,7 +779,7 @@ test("5e. relayout main path: onItemsFinished calls finish which ejects unsuppor
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
@@ -848,7 +811,7 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
       publishCalls.push({ state: state, keepEmpty: keepEmpty });
     };
 
-    enhanceProgressively(ctx.deps, root, {});
+    enhanceProgressively(...driverArgs(ctx), root, {});
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFinished);
@@ -898,7 +861,7 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
     });
     ctx.rootState.publishState = function () {};
 
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFinished);
@@ -940,7 +903,7 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
     });
     ctx.rootState.publishState = function () {};
 
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFailed);
@@ -991,7 +954,7 @@ test("6d. fail: detail truncated to 512 chars", function () {
     });
     ctx.rootState.publishState = function () {};
 
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     const longDetail = "X".repeat(1024);
@@ -1033,7 +996,7 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
     });
     ctx.rootState.publishState = function () {};
 
-    relayout(ctx.deps, root);
+    relayout(...driverArgs(ctx), root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     spec.onFailed({
@@ -1066,9 +1029,9 @@ test("7a. named functions are exposed on the module surface", function () {
   assert.equal(typeof rejectMissingSharedRuntimeStyles, "function");
 });
 
-test("7b. startLayoutJob has the 10-arg deps-first signature", function () {
+test("7b. startLayoutJob has the 11-arg rootState+layoutJobPool-first signature", function () {
   assert.equal(typeof startLayoutJob, "function");
-  assert.equal(startLayoutJob.length, 10);
+  assert.equal(startLayoutJob.length, 11);
 });
 
 test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
@@ -1078,7 +1041,7 @@ test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind
     });
     const root = makeElement();
     const canonicalOpts = { fontSize: 22 };
-    enhanceProgressivelyFromCanonical(ctx.deps, root, canonicalOpts);
+    enhanceProgressivelyFromCanonical(...driverArgs(ctx), root, canonicalOpts);
     // Should use createRootStateFromCanonical (not createRootState) because
     // fromCanonical is true.
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);

@@ -6,12 +6,10 @@
 // validator verdicts, manages custody engine write suspensions, and handles
 // exact-session distrust retries.
 //
-// Stateless module: commitWorkerPreparedParagraph(deps, argument) and
-// commitPreparedParagraph(deps, argument) are named functions that receive the
-// custody collaborator as an explicit first parameter. The engine bootstrap
-// wires the two functions into the CommitPreparedParagraphBundle consumed by
-// the process-paragraph and relayout-session modules; tests call
-// the functions with a fake custody.
+// Stateless module: commitWorkerPreparedParagraph(custody, argument) and
+// commitPreparedParagraph(custody, argument) are named functions that receive
+// the custody collaborator as an explicit first parameter. Consumers import
+// the functions directly; tests call the functions with a fake custody.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -22,7 +20,6 @@ import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
 import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
 import type { PreparedDomValidatorInterface } from "../sampler/snapshot/precomputed.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
 import type { CustodyApi } from "./custody.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
@@ -62,7 +59,6 @@ interface CommitWorkerPreparedParagraphArgument {
 }
 
 interface CommitPreparedParagraphArgument {
-  ffi: EngineFfiFacade;
   paragraph: CommitParagraphTarget;
   preparation: PrepareReadyResult;
   options: Record<string, unknown>;
@@ -73,23 +69,9 @@ interface CommitPreparedParagraphArgument {
   cjkStrongSemanticsJson: string;
 }
 
-// Both commit functions receive the custody collaborator set as an explicit
-// first parameter. Consumers group the two references into the bundle below;
-// the engine bootstrap builds the bundle once and shares it across the
-// process-paragraph and relayout-session deps.
-type CommitWorkerPreparedParagraphFn = (deps: CommitPreparedParagraphDeps, argument: CommitWorkerPreparedParagraphArgument) => CommitResult | null;
-type CommitPreparedParagraphFn = (deps: CommitPreparedParagraphDeps, argument: CommitPreparedParagraphArgument) => CommitResult;
-
-// Documented collaborator set: the two named commit functions consumed by the
-// process-paragraph and relayout-session modules.
-export interface CommitPreparedParagraphBundle {
-  commitWorkerPreparedParagraph: CommitWorkerPreparedParagraphFn;
-  commitPreparedParagraph: CommitPreparedParagraphFn;
-}
-
-export interface CommitPreparedParagraphDeps {
-  custody: CustodyApi;
-}
+// Both commit functions receive the custody collaborator as an explicit first
+// parameter. Consumers import the functions directly; the engine bootstrap
+// passes the single shared custody instance.
 
 interface CommitCustodyEngineWritesHost {
   __tqCustodyEngineWrites?: number;
@@ -231,11 +213,11 @@ function renderPrepared(
 /**
  * Commit a worker-prepared paragraph to the DOM.
  *
- * @param {Object} deps
+ * @param {Object} custody
  * @param {Object} argument
  * @returns {Object|null}
  */
-export function commitWorkerPreparedParagraph(deps: CommitPreparedParagraphDeps, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
+export function commitWorkerPreparedParagraph(custody: CustodyApi, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
   const paragraph = argument.paragraph;
   const source = paragraph.source;
   const lowered = paragraph.lowered;
@@ -298,18 +280,18 @@ export function commitWorkerPreparedParagraph(deps: CommitPreparedParagraphDeps,
     width,
     lowered.textStyle.fontSize
   );
-  deps.custody.stampRendered(source);
+  custody.stampRendered(source);
   return null;
 }
 
 /**
  * Commit a direct prepared paragraph layout result to the DOM.
  *
- * @param {Object} deps
+ * @param {Object} custody
  * @param {Object} argument
  * @returns {Object}
  */
-export function commitPreparedParagraph(deps: CommitPreparedParagraphDeps, argument: CommitPreparedParagraphArgument): CommitResult {
+export function commitPreparedParagraph(custody: CustodyApi, argument: CommitPreparedParagraphArgument): CommitResult {
   const paragraph = argument.paragraph;
   const preparation = argument.preparation;
   const source = paragraph.source;
@@ -350,7 +332,7 @@ export function commitPreparedParagraph(deps: CommitPreparedParagraphDeps, argum
 
   const preparedDomIssue = rendererIssue(source, preparation.width!);
   if (preparedDomIssue == null) {
-    deps.custody.stampRendered(source);
+    custody.stampRendered(source);
     return {
       kind: 'success',
       measure: preparation.measure,
@@ -379,7 +361,6 @@ export function commitPreparedParagraph(deps: CommitPreparedParagraphDeps, argum
     fallbackOptions.exactFontSession = null;
 
     const fallbackPreparation = prepareParagraphLayout(
-      argument.ffi,
       {
         paragraph: paragraph,
         options: fallbackOptions,
@@ -401,8 +382,7 @@ export function commitPreparedParagraph(deps: CommitPreparedParagraphDeps, argum
           element: fallbackPreparation.element,
         };
       case 'ready':
-        return commitPreparedParagraph(deps, {
-          ffi: argument.ffi,
+        return commitPreparedParagraph(custody, {
           paragraph: paragraph,
           preparation: fallbackPreparation,
           options: fallbackOptions,

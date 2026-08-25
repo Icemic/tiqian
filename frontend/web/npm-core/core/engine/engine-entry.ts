@@ -4,30 +4,29 @@
 // (WebEnhancerWorkerProtocol.kt), and moves the Kotlin
 // WebEnhancerContentReconcile.kt reconcile orchestration into TS.
 //
-// Stateful module: createEngineEntry(deps) receives the assembled mid-module
-// products from the composition root and wires them into the 11-method engine
-// facade and the 9-method worker facade. The engine bootstrap (ts-runtime)
-// constructs one instance; tests construct one with fakes. The prepared-DOM
-// renderer global (__TiqianPreparedDomRenderer) remains the renderer-owned
-// bridge injection point.
+// Stateful module: createEngineEntry(custody, copyInstaller, rootState,
+// layoutJobPool) receives the four stateful collaborators from the
+// composition root and wires them into the 11-method engine facade and the
+// 9-method worker facade. The engine bootstrap (ts-runtime) constructs one
+// instance; tests construct one with fakes. The prepared-DOM renderer global
+// (__TiqianPreparedDomRenderer) remains the renderer-owned bridge injection
+// point.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { GrantController } from "./coordinator/coordinator.js";
 import type { RootState, RootStateApi } from "./root-state.js";
 import type { EnhanceOptions } from "./lifecycle.js";
 import { clearIssue, optionsFromJs } from "./lifecycle.js";
-import type { ReconcileSpec, ContentReconcileDeps } from "./content-reconcile.js";
+import type { ReconcileSpec } from "./content-reconcile.js";
 import {
   classifyReconcile,
   prepareTrackedParagraphForRelowering,
   probeContentDrift,
   stripEngineMarkupFromStrandedParagraph,
 } from "./content-reconcile.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
 import type { CustodyApi } from "./custody.js";
 import type { CopyInstaller } from "../utils/copy.js";
 import type { LayoutJobPool } from "./layout-job-pool.js";
-import type { ProgressiveDriversDeps } from "./progressive-drivers.js";
 import {
   enhanceProgressively,
   enhanceProgressivelyFromCanonical,
@@ -35,36 +34,14 @@ import {
   relayout,
   startLayoutJob,
 } from "./progressive-drivers.js";
-import type { ProcessParagraphDeps } from "./process-paragraph.js";
 import { processParagraph } from "./process-paragraph.js";
+import { workerLayoutRequestForRoot } from "./worker-request.js";
 
 export type ActionRunFn = () => void;
 
 export interface ReconcileAction {
   element: HTMLElement;
   run: ActionRunFn;
-}
-
-// Worker layout request serializer signature (worker-request.js
-// workerLayoutRequestForRoot): serialize one live paragraph of a root into
-// the Worker request text, or null when ineligible.
-export type WorkerLayoutRequestForRootFn = (
-  ffi: EngineFfiFacade,
-  root: Element,
-  paragraph: Element,
-  options: EnhanceOptions,
-) => string | null;
-
-export interface EngineEntryDeps {
-  ffi: EngineFfiFacade;
-  custody: CustodyApi;
-  copyInstaller: CopyInstaller;
-  rootState: RootStateApi;
-  layoutJobPool: LayoutJobPool;
-  progressiveDriversDeps: ProgressiveDriversDeps;
-  processParagraphDeps: ProcessParagraphDeps;
-  reconcileDeps: ContentReconcileDeps;
-  workerLayoutRequestForRoot: WorkerLayoutRequestForRootFn;
 }
 
 export interface TiqianEngineInstance {
@@ -98,16 +75,21 @@ export interface EngineEntryHandle {
   workers: TiqianEngineWorkersInstance;
 }
 
-export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
-  const RS = deps.rootState;
-  const PJ = deps.layoutJobPool;
+export function createEngineEntry(
+  custody: CustodyApi,
+  copyInstaller: CopyInstaller,
+  rootState: RootStateApi,
+  layoutJobPool: LayoutJobPool,
+): EngineEntryHandle {
+  const RS = rootState;
+  const PJ = layoutJobPool;
 
   // ---------------------------------------------------------------------------
   // Internal helpers (from WebEnhancerSupport.kt @JsFun bodies)
   // ---------------------------------------------------------------------------
 
   function ensureCopyHandler(): void {
-    if (globalThis.document) deps.copyInstaller.install(globalThis.document);
+    if (globalThis.document) copyInstaller.install(globalThis.document);
   }
 
   function releasePreparedRootDomStyles(root: HTMLElement): boolean {
@@ -175,7 +157,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
   // processParagraphOf: process a single element through the layout pipeline.
   function processParagraphOf(element: HTMLElement, state: RootState): void {
     processParagraph(
-      deps.processParagraphDeps,
+      custody,
       RS.processParagraphArgument(state, element)
     );
   }
@@ -196,10 +178,10 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
     const candidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
-    if (rejectMissingSharedRuntimeStyles(deps.progressiveDriversDeps, state, candidates)) return 0;
+    if (rejectMissingSharedRuntimeStyles(rootState, state, candidates)) return 0;
     for (let i = 0; i < candidates.length; i += 1) {
       processParagraph(
-        deps.processParagraphDeps,
+        custody,
         RS.processParagraphArgument(state, candidates[i])
       );
     }
@@ -211,7 +193,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
   // The copy handler install and destroy run inside the drivers entry, so
   // relayout restarts that enter the drivers directly destroy too.
   engine.enhanceProgressively = function (root: HTMLElement, optionsBag?: unknown): void {
-    enhanceProgressively(deps.progressiveDriversDeps, root, optionsBag as Record<string, unknown> | null);
+    enhanceProgressively(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, custody, root, optionsBag as Record<string, unknown> | null);
   };
 
   // 3. enhanceAll(optionsBag) -> number
@@ -239,7 +221,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
     if (state != null) {
       let j: number;
       for (j = 0; j < state.paragraphs.length; j += 1) {
-        deps.custody.restoreParagraph(state.paragraphs[j].source);
+        custody.restoreParagraph(state.paragraphs[j].source);
       }
       for (j = 0; j < state.issues.length; j += 1) {
         clearIssue(state.issues[j]);
@@ -273,7 +255,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
 
   // 6. relayout(root) -- delegates to drivers.
   engine.relayout = function (root: HTMLElement): void {
-    relayout(deps.progressiveDriversDeps, root);
+    relayout(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, custody, root);
   };
 
   // 7. refresh(root, progressively)
@@ -282,7 +264,11 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
     if (!state) return;
     if (progressively) {
       enhanceProgressivelyFromCanonical(
-        deps.progressiveDriversDeps,
+        rootState,
+        engine as TiqianEngineInstance,
+        copyInstaller,
+        layoutJobPool,
+        custody,
         root,
         state.options
       );
@@ -300,7 +286,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
   engine.probeContentDrift = function (root: HTMLElement): string {
     const state = RS.getState(root);
     if (!state) return '{"unknown":1,"drifted":0,"dead":0,"custody":0}';
-    return probeContentDrift(deps.reconcileDeps, sourcesOf(state));
+    return probeContentDrift(custody, sourcesOf(state));
   };
 
   // 10. reconcileContent(root, tainted) -> string
@@ -316,7 +302,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
       strandedCandidates: RS.strandedSourceParagraphs(root, state),
       rootSelector: "tiqian-prose, [data-tiqian-root]",
     };
-    const verdict = classifyReconcile(deps.reconcileDeps, spec);
+    const verdict = classifyReconcile(custody, spec);
 
     // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
     // onto detached originals. Drop them so re-projected clones are adopted as
@@ -339,7 +325,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            prepareTrackedParagraphForRelowering(deps.reconcileDeps, element);
+            prepareTrackedParagraphForRelowering(custody, element);
             processParagraphOf(element, state!);
           },
         });
@@ -355,7 +341,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            deps.custody.restoreParagraph(element);
+            custody.restoreParagraph(element);
             processParagraphOf(element, state!);
           },
         });
@@ -371,7 +357,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            deps.custody.restoreParagraph(element);
+            custody.restoreParagraph(element);
             processParagraphOf(element, state!);
           },
         });
@@ -382,7 +368,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
         actions.push({
           element: element,
           run: function () {
-            stripEngineMarkupFromStrandedParagraph(deps.reconcileDeps, element);
+            stripEngineMarkupFromStrandedParagraph(custody, element);
             processParagraphOf(element, state!);
           },
         });
@@ -406,7 +392,8 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
     });
     const rootWidth = elementFragmentBorderBoxInlineSize(root);
     startLayoutJob(
-      deps.progressiveDriversDeps,
+      rootState,
+      layoutJobPool,
       state,
       "Relayout",
       actions.length,
@@ -422,8 +409,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
 
   // 11. workerLayoutRequest(root, paragraph, optionsBag) -> string|null
   engine.workerLayoutRequest = function workerLayoutRequest(root: HTMLElement, paragraph: HTMLElement, optionsBag?: unknown): string | null {
-    return deps.workerLayoutRequestForRoot(
-      RS.currentFfi() as EngineFfiFacade,
+    return workerLayoutRequestForRoot(
       root,
       paragraph,
       optionsFromJs(optionsBag as Record<string, unknown>)

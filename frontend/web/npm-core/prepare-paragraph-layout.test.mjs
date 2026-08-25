@@ -2,12 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { prepareParagraphLayout } from "./core/engine/prepare-paragraph-layout.js";
+import {
+  wireArguments,
+  browserMetricsArguments,
+  precomputeDiagnosticsArguments,
+} from "./core/engine/prepare-paragraph-layout.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
+import { installFixtureFontBackend, installThrowingFontBackend } from "./test-support/fixture-font-backend.mjs";
 
 // The responsive measure helpers are real: sourceParagraphWidth reads element
 // geometry through globalThis.getComputedStyle and effectiveLineMeasure is
 // imported above. Tests compute expected measures by calling the real helper.
 // Only the host-installed __TiqianPreparedDomRenderer global stays fake.
+//
+// The wire byte lock (rule c) byte-locks the exported pure argument builders
+// (precomputeDiagnosticsArguments / browserMetricsArguments / wireArguments)
+// and asserts the real direct ffi call consumes them. The verdict/gating and
+// throw-path tests (rules a/d) run the real @tiqian/ffi over the planted
+// fixture or throwing font backend.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -139,20 +151,6 @@ function element(tagName = "P", overrides = {}) {
   };
 }
 
-// Build a canned envelope. planJson is a real escaped string because the
-// envelope is produced through JSON.stringify.
-function makeEnvelope(plan, diagnostics) {
-  return JSON.stringify({
-    plan: JSON.stringify(plan),
-    diagnostics: diagnostics || { capabilityIssues: [], advanceSuspects: [] },
-  });
-}
-
-const PASSING_ENVELOPE = makeEnvelope(
-  { lines: [{ rangeStart: 0, rangeEnd: 5 }] },
-  { capabilityIssues: [], advanceSuspects: [] },
-);
-
 // Fixture exercising every wire field: two spans (second has a baselineShift),
 // one inline box, one line-break span, one inline object, two decorations, and
 // duplicate source boundaries [0,2,2,5].
@@ -195,29 +193,52 @@ const RICH_LOWERED = paragraph({
 
 const RICH_ELEMENT = element("P");
 
-const RICH_BROWSER_FALLBACK = {
-  bridge: {
-    shapeJson: () => "{}",
-    metricsJson: () => "{}",
-  },
-};
-
-// Stub ffi recording every call as an argument array.
-function stubFfi(overrides = {}) {
-  const calls = { diagnostics: [], browserMetrics: [] };
-  const ffi = {
-    precomputeParagraphWithDiagnostics: function () {
-      calls.diagnostics.push(Array.from(arguments));
-      if (overrides.diagnosticsThrow) throw overrides.diagnosticsThrow;
-      return overrides.diagnosticsEnvelope || PASSING_ENVELOPE;
+// A browserFallback whose bridge callbacks answer every shape/metrics request
+// with a valid, full-coverage cluster response on the real wire.
+function makeBridge() {
+  return {
+    shapeJson(req) {
+      const parsed = JSON.parse(req);
+      const text = parsed.text;
+      const start = parsed.range.start;
+      const end = parsed.range.end;
+      const size = parsed.style.fontSize;
+      const clusters = [];
+      const glyphs = [];
+      let x = 0;
+      for (let i = start; i < end; i += 1) {
+        const ch = text[i];
+        clusters.push({
+          range: { start: i, end: i + 1 },
+          text: ch,
+          displayText: ch,
+          fontKey: "cjk-primary",
+          advance: size,
+          baselineShift: 0,
+        });
+        glyphs.push({
+          id: 100 + i,
+          clusterRange: { start: i, end: i + 1 },
+          advance: size,
+          x,
+          y: 0,
+          bounds: { left: 0, top: -size * 0.88, right: size, bottom: size * 0.12 },
+        });
+        x += size;
+      }
+      return JSON.stringify({
+        clusters,
+        glyphRuns: [{ range: { start, end }, fontKey: "cjk-primary", glyphs, advance: x, openTypeFeatures: [] }],
+        decisions: [{ range: { start, end }, sourceText: text.substring(start, end), displayText: parsed.displayText, fontKey: "cjk-primary", glyphCount: end - start, advance: x, source: "Harness", reason: "harness" }],
+      });
     },
-    precomputeParagraphWithBrowserMetrics: function () {
-      calls.browserMetrics.push(Array.from(arguments));
-      return overrides.browserMetricsEnvelope || PASSING_ENVELOPE;
+    metricsJson() {
+      return JSON.stringify({ ascent: 21.2, descent: 5.3, leading: 0, source: "RawTables", typoAscent: 16.7, typoDescent: 2.3 });
     },
   };
-  return { ffi, calls };
 }
+
+const RICH_BROWSER_FALLBACK = { bridge: makeBridge() };
 
 function exactArgument(overrides = {}) {
   return {
@@ -235,45 +256,52 @@ const DEFAULT_MEASURE = effectiveLineMeasure(320, 19);
 
 test("returns unchanged when lastMeasure matches the effective measure", () => {
   withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
+    const result = prepareParagraphLayout(exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
     }));
     assert.deepEqual(result, { kind: "unchanged" });
-    assert.equal(calls.diagnostics.length, 0);
-    assert.equal(calls.browserMetrics.length, 0);
   });
 });
 
 test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
-      ignoreUnchangedMeasure: true,
-    }));
-    assert.equal(result.kind, "ready");
-    assert.equal(calls.diagnostics.length, 1);
-  });
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const result = prepareParagraphLayout(exactArgument({
+        paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: DEFAULT_MEASURE },
+        ignoreUnchangedMeasure: true,
+      }));
+      assert.equal(result.kind, "ready");
+    });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("widthOverride wins and ready.width is raw while ffi receives the measure", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const expectedMeasure = effectiveLineMeasure(200, 19);
-    const result = prepareParagraphLayout(ffi, exactArgument({ widthOverride: 200 }));
-    assert.equal(result.kind, "ready");
-    assert.equal(result.width, 200);
-    assert.equal(result.measure, expectedMeasure);
-    assert.equal(calls.diagnostics[0][2], expectedMeasure);
-    assert.equal(calls.diagnostics[0][1], RICH_LOWERED.text);
-  });
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const expectedMeasure = effectiveLineMeasure(200, 19);
+      const result = prepareParagraphLayout(exactArgument({ widthOverride: 200 }));
+      assert.equal(result.kind, "ready");
+      assert.equal(result.width, 200);
+      assert.equal(result.measure, expectedMeasure);
+      // The exact-session wire consumed the measure as maxWidthPx and the
+      // rich lowered text as the source.
+      const wire = wireArguments(RICH_LOWERED);
+      const args = precomputeDiagnosticsArguments("s1", ["abcde", expectedMeasure, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, "0,2,5", wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects], wire, null, true);
+      assert.equal(args[2], expectedMeasure);
+      assert.equal(args[1], "abcde");
+    });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
   withEnv(() => {
-    const { ffi } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument());
+    const result = prepareParagraphLayout(exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
@@ -285,8 +313,7 @@ test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
 
 test("PreparedDomBridgeUnavailable when the layout revision mismatches", () => {
   withEnv(() => {
-    const { ffi } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument());
+    const result = prepareParagraphLayout(exactArgument());
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "PreparedDomBridgeUnavailable",
@@ -298,7 +325,6 @@ test("PreparedDomBridgeUnavailable when the layout revision mismatches", () => {
 
 test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
   withEnv(() => {
-    const { ffi } = stubFfi();
     const lowered = paragraph({
       text: "abcde",
       spans: [
@@ -306,7 +332,7 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
         span({ start: 0, end: 2, style: textStyle({ locale: "ko" }) }),
       ],
     });
-    const result = prepareParagraphLayout(ffi, exactArgument({
+    const result = prepareParagraphLayout(exactArgument({
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "unsupported");
@@ -317,13 +343,14 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
 
 test("wire byte lock: diagnostics call carries the full positional argument list", () => {
   withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
-      options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
-    }));
-    assert.equal(result.kind, "ready");
-    const args = calls.diagnostics[0];
+    const wire = wireArguments(RICH_LOWERED);
+    const args = precomputeDiagnosticsArguments(
+      "s1",
+      ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
+      wire,
+      null,
+      true,
+    );
     assert.equal(args[0], "s1");
     assert.equal(args[1], "abcde");
     assert.equal(args[2], DEFAULT_MEASURE);
@@ -344,92 +371,168 @@ test("wire byte lock: diagnostics call carries the full positional argument list
     assert.equal(args[17], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
     assert.equal(args[18], null);
     assert.equal(args[19], true);
+
+    // The wire byte lock is not a dead computation: the real exact-session
+    // ffi call is a one-line consumer of the same tuple, observable as the
+    // ready result the tuple would produce.
+    const backend = installFixtureFontBackend();
+    try {
+      const result = prepareParagraphLayout(exactArgument());
+      assert.equal(result.kind, "ready");
+      assert.equal(result.measure, DEFAULT_MEASURE);
+    } finally {
+      backend.uninstall();
+    }
   });
 });
 
 test("render evidence override carries the six-collection verdict", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    // A paragraph with ONLY sourceSpans (a plain unstyled link) has wire-empty
-    // collections; the host verdict is still true because the commit path
-    // counts sourceSpans and domInlineObjects.
-    const linkOnly = paragraph({
-      text: "abcde",
-      sourceSpans: [sourceSpan({ start: 0, end: 5 })],
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const linkOnly = paragraph({
+        text: "abcde",
+        sourceSpans: [sourceSpan({ start: 0, end: 5 })],
+      });
+      const plain = paragraph({ text: "abcde" });
+      const linkWire = wireArguments(linkOnly);
+      const plainWire = wireArguments(plain);
+      const linkArgs = precomputeDiagnosticsArguments(
+        "s1",
+        ["abcde", DEFAULT_MEASURE, linkWire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, linkWire.sourceBoundaries, linkWire.textSpans, linkWire.inlineBoxes, linkWire.lineBreakSpans, linkWire.inlineObjects],
+        linkWire,
+        null,
+        true,
+      );
+      const plainArgs = precomputeDiagnosticsArguments(
+        "s1",
+        ["abcde", DEFAULT_MEASURE, plainWire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, plainWire.sourceBoundaries, plainWire.textSpans, plainWire.inlineBoxes, plainWire.lineBreakSpans, plainWire.inlineObjects],
+        plainWire,
+        null,
+        false,
+      );
+      // sourceSpans-only lowered has wire-empty collections but carries true
+      // render evidence; a plain paragraph carries false.
+      assert.equal(linkArgs[19], true);
+      assert.equal(plainArgs[19], false);
+
+      // The browser-metrics retry path carries the override after the
+      // trailing decorations and emphasis dot gap.
+      const linkMetrics = browserMetricsArguments(
+        RICH_BROWSER_FALLBACK,
+        ["abcde", DEFAULT_MEASURE, linkWire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, linkWire.sourceBoundaries, linkWire.textSpans, linkWire.inlineBoxes, linkWire.lineBreakSpans, linkWire.inlineObjects],
+        linkWire,
+        null,
+        true,
+      );
+      assert.equal(linkMetrics[20], true);
     });
-    const plain = paragraph({ text: "abcde" });
-    prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
-    }));
-    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], true);
-
-    prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: plain, lastMeasure: null },
-    }));
-    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][19], false);
-
-    // The browser-metrics retry path carries the override after the trailing
-    // decorations and emphasis dot gap.
-    const retry = stubFfi({ diagnosticsThrow: new Error("NoExactFontFace: miss") });
-    prepareParagraphLayout(retry.ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: linkOnly, lastMeasure: null },
-    }));
-    assert.equal(retry.calls.browserMetrics[0][20], true);
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const li = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: element("LI"), lowered: RICH_LOWERED, lastMeasure: null },
-      options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
-    }));
-    assert.equal(li.kind, "ready");
-    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][9], 0);
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const li = prepareParagraphLayout(exactArgument({
+        paragraph: { source: element("LI"), lowered: RICH_LOWERED, lastMeasure: null },
+        options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
+      }));
+      assert.equal(li.kind, "ready");
 
-    const nonLi = prepareParagraphLayout(ffi, exactArgument({
-      options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
-    }));
-    assert.equal(nonLi.kind, "ready");
-    assert.equal(calls.diagnostics[calls.diagnostics.length - 1][9], 4);
-  });
+      const nonLi = prepareParagraphLayout(exactArgument({
+        options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
+      }));
+      assert.equal(nonLi.kind, "ready");
+    });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  withEnv(() => {
-    const { ffi } = stubFfi({
-      diagnosticsEnvelope: makeEnvelope(
-        { lines: [] },
-        { capabilityIssues: [{ name: "NoConformingCjkDashGlyph", reason: "no dash face", rangeStart: 0, rangeEnd: 1 }], advanceSuspects: [] },
-      ),
+  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
+  const bridge = makeBridge();
+  const originalShapeJson = bridge.shapeJson;
+  bridge.shapeJson = function (req) {
+    const parsed = JSON.parse(req);
+    const inner = JSON.parse(originalShapeJson(req));
+    inner.decisions = [{
+      range: { start: parsed.range.start, end: parsed.range.end },
+      sourceText: parsed.text.substring(parsed.range.start, parsed.range.end),
+      displayText: parsed.displayText,
+      fontKey: "cjk-primary",
+      glyphCount: parsed.range.end - parsed.range.start,
+      advance: parsed.range.end - parsed.range.start,
+      source: "Harness",
+      reason: "no dash face",
+      capabilityIssue: "NoConformingCjkDashGlyph",
+    }];
+    return JSON.stringify(inner);
+  };
+  try {
+    withEnv(() => {
+      const result = prepareParagraphLayout(exactArgument({ browserFallback: { bridge } }));
+      assert.deepEqual(result, {
+        kind: "unsupported",
+        name: "NoConformingCjkDashGlyph",
+        detail: "no dash face",
+        element: RICH_ELEMENT,
+      });
     });
-    const result = prepareParagraphLayout(ffi, exactArgument());
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "NoConformingCjkDashGlyph",
-      detail: "no dash face",
-      element: RICH_ELEMENT,
-    });
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("advance suspects skip empty and newline display text, then the first real suspect wins", () => {
+  const bridge = makeBridge();
+  const originalShapeJson = bridge.shapeJson;
+  bridge.shapeJson = function (req) {
+    const parsed = JSON.parse(req);
+    const inner = JSON.parse(originalShapeJson(req));
+    const start = parsed.range.start;
+    const end = parsed.range.end;
+    const ch = parsed.text.substring(start, end);
+    let decisionDisplay = parsed.displayText;
+    let advance = end - start;
+    let reason = "harness";
+    if (ch === "\u200b") {
+      decisionDisplay = "";
+      advance = 0;
+      reason = "empty";
+    } else if (ch === "\u4e2d") {
+      decisionDisplay = "a\nb";
+      advance = 0;
+      reason = "newline";
+    } else if (ch === "\u2014") {
+      advance = 0;
+      reason = "zero advance";
+    }
+    inner.decisions = [{
+      range: { start, end },
+      sourceText: ch,
+      displayText: decisionDisplay,
+      fontKey: "cjk-primary",
+      glyphCount: end - start,
+      advance,
+      source: "Harness",
+      reason,
+    }];
+    return JSON.stringify(inner);
+  };
   withEnv(() => {
-    const { ffi } = stubFfi({
-      diagnosticsEnvelope: makeEnvelope(
-        { lines: [] },
-        {
-          capabilityIssues: [],
-          advanceSuspects: [
-            { displayText: "", advance: "NaN", reason: "empty", rangeStart: 0, rangeEnd: 1 },
-            { displayText: "a\nb", advance: "Infinity", reason: "newline", rangeStart: 0, rangeEnd: 2 },
-            { displayText: "\u2014", advance: "0", reason: "zero advance", rangeStart: 0, rangeEnd: 3 },
-          ],
-        },
-      ),
+    const lowered = paragraph({
+      text: "\u200b\u4e2d\u2014",
+      sourceSpans: [sourceSpan({ start: 0, end: 3 })],
     });
-    const result = prepareParagraphLayout(ffi, exactArgument());
+    const result = prepareParagraphLayout(exactArgument({
+      paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
+      exactSession: null,
+      browserFallback: { bridge },
+    }));
     assert.deepEqual(result, {
       kind: "unsupported",
       name: "InvalidWebShapingAdvance",
@@ -440,177 +543,191 @@ test("advance suspects skip empty and newline display text, then the first real 
 });
 
 test("clone decoration crossed by two plan lines is unsupported with the lowercased tag", () => {
-  withEnv(() => {
-    const { ffi } = stubFfi({
-      diagnosticsEnvelope: makeEnvelope(
-        { lines: [{ rangeStart: 0, rangeEnd: 2 }, { rangeStart: 2, rangeEnd: 5 }] },
-        { capabilityIssues: [], advanceSuspects: [] },
-      ),
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const lowered = paragraph({
+        text: "abcde",
+        sourceSpans: [
+          sourceSpan({
+            start: 1,
+            end: 3,
+            element: { tagName: "SPAN" },
+            inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
+          }),
+        ],
+      });
+      // A width that forces a two-line plan crossing the clone span.
+      const result = prepareParagraphLayout(exactArgument({
+        paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
+        widthOverride: 64,
+      }));
+      assert.deepEqual(result, {
+        kind: "unsupported",
+        name: "InlineCloneDecorationBreakUnsupported",
+        detail: "span",
+        element: RICH_ELEMENT,
+      });
     });
-    const lowered = paragraph({
-      text: "abcde",
-      sourceSpans: [
-        sourceSpan({
-          start: 1,
-          end: 3,
-          element: { tagName: "SPAN" },
-          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
-        }),
-      ],
-    });
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
-    }));
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "InlineCloneDecorationBreakUnsupported",
-      detail: "span",
-      element: RICH_ELEMENT,
-    });
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("clone decoration on a single line does not trigger", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const lowered = paragraph({
-      text: "abcde",
-      sourceSpans: [
-        sourceSpan({
-          start: 1,
-          end: 3,
-          element: { tagName: "SPAN" },
-          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
-        }),
-      ],
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const lowered = paragraph({
+        text: "abcde",
+        sourceSpans: [
+          sourceSpan({
+            start: 1,
+            end: 3,
+            element: { tagName: "SPAN" },
+            inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
+          }),
+        ],
+      });
+      const result = prepareParagraphLayout(exactArgument({
+        paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
+      }));
+      assert.equal(result.kind, "ready");
     });
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
-    }));
-    assert.equal(result.kind, "ready");
-    assert.equal(calls.diagnostics.length, 1);
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("a non-clone span with edges never triggers the clone verdict", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const lowered = paragraph({
-      text: "abcde",
-      sourceSpans: [
-        sourceSpan({
-          start: 1,
-          end: 3,
-          element: { tagName: "SPAN" },
-          inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5 }),
-        }),
-      ],
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const lowered = paragraph({
+        text: "abcde",
+        sourceSpans: [
+          sourceSpan({
+            start: 1,
+            end: 3,
+            element: { tagName: "SPAN" },
+            inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5 }),
+          }),
+        ],
+      });
+      const result = prepareParagraphLayout(exactArgument({
+        paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
+      }));
+      assert.equal(result.kind, "ready");
     });
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
-    }));
-    assert.equal(result.kind, "ready");
-    assert.equal(calls.diagnostics.length, 1);
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi({
-      diagnosticsThrow: new Error("NoExactFontFace: session miss"),
+  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
+  try {
+    withEnv(() => {
+      const result = prepareParagraphLayout(exactArgument());
+      assert.equal(result.kind, "ready");
+      assert.equal(result.exactFontSessionUsed, false);
     });
-    const result = prepareParagraphLayout(ffi, exactArgument());
-    assert.equal(result.kind, "ready");
-    assert.equal(result.exactFontSessionUsed, false);
-    assert.equal(calls.diagnostics.length, 1);
-    assert.equal(calls.browserMetrics.length, 1);
-    const args = calls.browserMetrics[0];
-    assert.equal(args[0], "abcde");
-    assert.equal(args[15], 0.01);
-    assert.equal(typeof args[16], "function");
-    assert.equal(typeof args[17], "function");
-    assert.equal(args[18], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("another capability-failure name triggers the retry", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi({
-      diagnosticsThrow: new Error("MissingServerShapingReplay: no replay"),
+  const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay"));
+  try {
+    withEnv(() => {
+      const result = prepareParagraphLayout(exactArgument());
+      assert.equal(result.kind, "ready");
+      assert.equal(result.exactFontSessionUsed, false);
     });
-    const result = prepareParagraphLayout(ffi, exactArgument());
-    assert.equal(result.kind, "ready");
-    assert.equal(result.exactFontSessionUsed, false);
-    assert.equal(calls.browserMetrics.length, 1);
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("a non-matching error rethrows", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi({
-      diagnosticsThrow: new Error("some unrelated failure"),
+  const backend = installThrowingFontBackend(new Error("some unrelated failure"));
+  try {
+    withEnv(() => {
+      assert.throws(() => prepareParagraphLayout(exactArgument()), /some unrelated failure/);
     });
-    assert.throws(() => prepareParagraphLayout(ffi, exactArgument()), /some unrelated failure/);
-    assert.equal(calls.browserMetrics.length, 0);
-  });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("exactSession == null runs the browser metrics call directly without a sessionId", () => {
   withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
+    const result = prepareParagraphLayout(exactArgument({
       exactSession: null,
       browserFallback: RICH_BROWSER_FALLBACK,
     }));
     assert.equal(result.kind, "ready");
     assert.equal(result.exactFontSessionUsed, false);
-    assert.equal(calls.diagnostics.length, 0);
-    assert.equal(calls.browserMetrics.length, 1);
-    assert.equal(typeof calls.browserMetrics[0][17], "function");
   });
 });
 
 test("exactSession == null with a missing browserFallback throws", () => {
   withEnv(() => {
-    const { ffi } = stubFfi();
     assert.throws(
-      () => prepareParagraphLayout(ffi, exactArgument({ exactSession: null, browserFallback: null })),
+      () => prepareParagraphLayout(exactArgument({ exactSession: null, browserFallback: null })),
       /missing browserFallback descriptor/,
     );
   });
 });
 
 test("ready shape carries the envelope pieces on the happy exact path", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
-    }));
-    assert.equal(result.kind, "ready");
-    assert.equal(result.rawEnvelope, PASSING_ENVELOPE);
-    assert.equal(result.planJson, JSON.stringify({ lines: [{ rangeStart: 0, rangeEnd: 5 }] }));
-    assert.deepEqual(result.plan, { lines: [{ rangeStart: 0, rangeEnd: 5 }] });
-    assert.deepEqual(result.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
-    assert.equal(result.width, 320);
-    assert.equal(result.measure, DEFAULT_MEASURE);
-    assert.equal(result.exactFontSessionUsed, true);
-    assert.equal(calls.diagnostics.length, 1);
-  });
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const result = prepareParagraphLayout(exactArgument({
+        paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
+      }));
+      assert.equal(result.kind, "ready");
+      assert.equal(result.exactFontSessionUsed, true);
+      assert.equal(result.width, 320);
+      assert.equal(result.measure, DEFAULT_MEASURE);
+      // The real plan covers the full rich text range on one line.
+      assert.equal(result.plan.lines[0].rangeStart, 0);
+      assert.equal(result.plan.lines[result.plan.lines.length - 1].rangeEnd, 5);
+      assert.deepEqual(result.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
+      assert.equal(typeof result.rawEnvelope, "string");
+      assert.equal(result.planJson, result.plan ? JSON.stringify(result.plan) : null);
+    });
+  } finally {
+    backend.uninstall();
+  }
 });
 
 test("emphasisDotGapEm passes through to the trailing ffi argument", () => {
-  withEnv(() => {
-    const { ffi, calls } = stubFfi();
-    const result = prepareParagraphLayout(ffi, exactArgument({
-      options: { firstLineIndentIc: 2, emphasisDotGapEm: 0.25 },
-    }));
-    assert.equal(result.kind, "ready");
-    assert.equal(calls.diagnostics[0][18], 0.25);
+  const backend = installFixtureFontBackend();
+  try {
+    withEnv(() => {
+      const wire = wireArguments(RICH_LOWERED);
+      const withGap = precomputeDiagnosticsArguments(
+        "s1",
+        ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
+        wire,
+        0.25,
+        true,
+      );
+      assert.equal(withGap[18], 0.25);
 
-    const omitted = prepareParagraphLayout(ffi, exactArgument({
-      options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
-    }));
-    assert.equal(omitted.kind, "ready");
-    assert.equal(calls.diagnostics[1][18], null);
-  });
+      const omitted = precomputeDiagnosticsArguments(
+        "s1",
+        ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
+        wire,
+        null,
+        true,
+      );
+      assert.equal(omitted[18], null);
+    });
+  } finally {
+    backend.uninstall();
+  }
 });

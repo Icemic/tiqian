@@ -4,22 +4,23 @@
 // tracking live custody snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Stateless module: openRelayoutSession(deps, argument) is a named
-// function that receives the custody and commit-prepared-paragraph
-// collaborators as an explicit first parameter and returns a fresh session
-// object for one run; the per-run Map and arrays live on that session, never
-// on module state. The engine bootstrap wires the deps object; tests pass
-// fakes. The stateless lifecycle helper is imported directly.
+// Stateless module: openRelayoutSession(custody, argument) is a named
+// function that receives the custody collaborator as an explicit first
+// parameter and returns a fresh session object for one run; the per-run Map
+// and arrays live on that session, never on module state. The engine
+// bootstrap passes the shared custody instance; tests pass a fake. The
+// stateless lifecycle and commit-prepared-paragraph helpers are imported
+// directly.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
-import type { CommitPreparedParagraphBundle, CommitResult } from "./commit-prepared-paragraph.js";
+import type { CommitResult } from "./commit-prepared-paragraph.js";
+import { commitPreparedParagraph } from "./commit-prepared-paragraph.js";
 import type {
   TrackedParagraph,
   SessionArgument,
   RootStateIssueRecord,
 } from "./root-state.js";
-import type { EngineFfiFacade } from "./ffi-face.js";
 import type { CustodyApi, CustodySnapshot } from "./custody.js";
 import type { CapabilityIssueRecord } from "./lifecycle.js";
 import { reportIssue } from "./lifecycle.js";
@@ -46,21 +47,16 @@ export type RelayoutSession = {
   stale: boolean;
 };
 
-export interface RelayoutSessionDeps {
-  custody: CustodyApi;
-  commitPreparedParagraph: CommitPreparedParagraphBundle;
-}
-
 /**
  * Open a relayout session for one run.
  *
- * @param {Object} deps
+ * @param {Object} custody
  * @param {Object} argument
  * @param {Array} argument.paragraphs
  * @param {Object} argument.state
  * @returns {Object}
  */
-export function openRelayoutSession(deps: RelayoutSessionDeps, argument: SessionArgument): RelayoutSession {
+export function openRelayoutSession(custody: CustodyApi, argument: SessionArgument): RelayoutSession {
     const paragraphs = argument.paragraphs.slice();
     const state = argument.state;
     const snapshots = new Map<TrackedParagraph, CustodySnapshot>();
@@ -77,7 +73,6 @@ export function openRelayoutSession(deps: RelayoutSessionDeps, argument: Session
       if (preparation.kind === 'unchanged') {
         return;
       }
-      const custody = deps.custody;
       if (preparation.kind === 'unsupported') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
         unsupported.push([paragraph, preparation]);
@@ -86,11 +81,9 @@ export function openRelayoutSession(deps: RelayoutSessionDeps, argument: Session
       }
       if (preparation.kind === 'ready') {
         snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
-        const commitPreparedParagraph = deps.commitPreparedParagraph.commitPreparedParagraph;
         const result: CommitResult = commitPreparedParagraph(
-          { custody: deps.custody },
+          custody,
           {
-            ffi: state.ffi as EngineFfiFacade,
             paragraph: paragraph,
             preparation: preparation,
             options: state.options,
@@ -163,7 +156,7 @@ export function openRelayoutSession(deps: RelayoutSessionDeps, argument: Session
         state.issues.push(stateIssuesBefore[is]);
       }
       const snapshotsArray = Array.from(snapshots.values());
-      const results = deps.custody.rollback(snapshotsArray);
+      const results = custody.rollback(snapshotsArray);
       const paragraphBySource = new Map<Element, TrackedParagraph>();
       for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);
