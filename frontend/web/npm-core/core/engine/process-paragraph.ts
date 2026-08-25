@@ -91,10 +91,10 @@ interface ProcessInlineShapingDecisionResult {
   const RUNTIME_RENDER_FONT_ATTRIBUTE = 'data-tq-runtime-render-font';
   const HOST_INLINE_SIZE_ATTRIBUTE = 'data-tq-host-inline-size';
   const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
-    'NoSnapshotFontFace',
+    'NoExactFontFace',
     'MissingGlyph',
     'MissingServerShapingReplay',
-    'NoSnapshotMetricFace',
+    'NoExactMetricFace',
     'NonUniformUnicodeRangeMetrics',
   ];
 

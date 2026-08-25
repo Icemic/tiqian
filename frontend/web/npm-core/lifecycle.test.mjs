@@ -349,16 +349,16 @@ test("reportIssue truncates the detail marker to 512 chars and clearIssue restor
   globalThis.console.warn = (message) => warns.push(message);
   try {
     const detail = "x".repeat(600);
-    const issue = { name: "NoSnapshotFontFace", detail, element, reportToConsole: true };
+    const issue = { name: "NoExactFontFace", detail, element, reportToConsole: true };
     reportIssue(issue);
     reportIssue(issue);
     assert.equal(issue.markerCaptured, true);
     assert.equal(issue.originalNameAttribute, "pre-name");
     assert.equal(issue.originalDetailAttribute, "pre-detail");
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "NoSnapshotFontFace");
+    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "NoExactFontFace");
     assert.equal(element.getAttribute("data-tiqian-capability-detail"), "x".repeat(512));
     assert.equal(warns.length, 2);
-    assert.equal(warns[0], "TiqianWeb skipped paragraph: NoSnapshotFontFace (" + detail + ")");
+    assert.equal(warns[0], "TiqianWeb skipped paragraph: NoExactFontFace (" + detail + ")");
 
     clearIssue(issue);
     assert.equal(issue.markerCaptured, false);

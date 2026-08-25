@@ -478,7 +478,7 @@ test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
   const bridge = makeBridge();
   const originalShapeJson = bridge.shapeJson;
   bridge.shapeJson = function (req) {
@@ -650,7 +650,7 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
