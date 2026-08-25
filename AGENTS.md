@@ -1,8 +1,8 @@
 # AGENTS.md
 
 提椠（Tiqian）是面向中文正文的 CJK 段落布局引擎。当前已经完成简体中文横排，
-并通过 Compose、Android 与 Web 前端持续在真实应用中验证。`ExplainableStubParagraphLayoutEngine`
-保留了历史名称，但运行路径已经接入真实 shaping、字体度量、标点几何、断行、行调整与绘制。
+并通过 Compose、Android 与 Web 前端持续在真实应用中验证。`TiqianParagraphLayoutEngine`
+运行真实 pipeline（shaping、字体度量、标点几何、断行、行调整与绘制）。
 
 ## 事实来源
 
