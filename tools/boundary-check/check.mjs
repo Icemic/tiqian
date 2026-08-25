@@ -127,31 +127,6 @@ function readLines(file) {
 // ---------------------------------------------------------------------------
 
 const EXEMPTIONS = [
-  // R1: the HarfBuzzSession backend family dies wholesale in 纠偏 1 (#102).
-  {
-    task: "#102",
-    rules: ["R1-globalThis", "R1-Tiqian-global", "R4-separator-literal"],
-    file: "engine/src/jsMain/kotlin/org/tiqian/shaping/HarfBuzzSessionBackend.kt",
-    reason: "@JsFun inline reads of globalThis.__TiqianFontBackend plus a private family-separator copy; whole family deleted by corrective wave 1.",
-  },
-  // Comment-only mentions of the JS lane global inside the compliant native
-  // vtable lane; deleted with the same wave. Line-level so new misuse in
-  // these files still fails.
-  {
-    task: "#102",
-    rules: ["R1-Tiqian-global"],
-    file: "engine/src/nativeMain/kotlin/org/tiqian/shaping/NativeFontBackendVtable.kt",
-    line: 11,
-    reason: "KDoc mention of the JS lane __TiqianFontBackend global; reference removed with the HarfBuzzSession family.",
-  },
-  {
-    task: "#102",
-    rules: ["R1-Tiqian-global"],
-    file: "engine/src/nativeMain/kotlin/org/tiqian/shaping/NativeFontBackendShaper.kt",
-    line: 38,
-    reason: "KDoc mention of the JS lane __TiqianFontBackend global; reference removed with the HarfBuzzSession family.",
-  },
-
   // R2: the wire codec sits in engine commonMain until 纠偏 2/#103 moves the
   // parsers back to ffi/js.
   {
@@ -161,41 +136,8 @@ const EXEMPTIONS = [
     reason: "Wire format codec wrongly placed in engine commonMain (A3 ruled wrong); moves to the ffi/js data conversion layer.",
   },
 
-  // R3a: session state behind the precompute session-id exports until
-  // 纠偏 4/#105 deletes buildPrecomputeBackends and those entries.
-  {
-    task: "#105",
-    rules: ["R3-session-state"],
-    file: "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/PrecomputeExports.kt",
-    reason: "fontSessionId parameters plus buildPrecomputeBackends wiring HarfBuzzSession shapers; session-id entries deleted by corrective wave 4.",
-  },
-  {
-    task: "#105",
-    rules: ["R3-session-state"],
-    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/PrecomputeExportsTest.kt",
-    reason: "Fixtures driving the session-id exports; tightened together with PrecomputeExports in corrective wave 4.",
-  },
-
   // R3b: export entries awaiting their corrective wave instead of an engine
   // counterpart sign-off.
-  {
-    task: "#105",
-    rules: ["R3-export-entry-review"],
-    symbol: "precomputePlainParagraph",
-    reason: "Session-id entry over the wire-face lane; deleted with the session-id surface in corrective wave 4.",
-  },
-  {
-    task: "#105",
-    rules: ["R3-export-entry-review"],
-    symbol: "precomputeParagraph",
-    reason: "Session-id entry over the wire-face lane; deleted with the session-id surface in corrective wave 4.",
-  },
-  {
-    task: "#105",
-    rules: ["R3-export-entry-review"],
-    symbol: "precomputeParagraphWithDiagnostics",
-    reason: "Session-id entry over the wire-face lane; deleted with the session-id surface in corrective wave 4.",
-  },
   {
     task: "#104",
     rules: ["R3-export-entry-review"],
@@ -323,6 +265,12 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
+    file: "frontend/web/npm-core/browser-font-replay.ts",
+    reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback lane in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
+  },
+  {
+    task: "#106",
+    rules: ["R4-separator-literal"],
     file: "frontend/web/npm-core/worker-request.test.mjs",
     reason: "Separator fixture strings of the request parser; parser moves into ffi/js and payloads become declared DTOs.",
   },
@@ -429,6 +377,10 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
     "debug-named dump entry returning the engine plan JSON for the parity oracle and golden only; production returns the packed contract (ADR 0053 disposal record, ADR 0050 amendment 2026-08-25)",
   ],
   ["tiqian_install_font_backend", "installed font-backend vtable per ADR 0050"],
+  [
+    "precomputeParagraphWithDiagnostics",
+    "org.tiqian.layout.ParagraphWireFace.planWithDiagnostics pipeline; host callbacks enter as JsCallback shaper/resolver data conversion (post 纠偏 4/#105 review, session-id surface deleted)",
+  ],
 ]);
 
 // ---------------------------------------------------------------------------
