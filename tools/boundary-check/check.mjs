@@ -14,7 +14,7 @@
 //   #103 = 纠偏 2  move the request parsers back to ffi/js; ParagraphWireFace
 //                  leaves engine commonMain.
 //   #104 = 纠偏 3  rename the ffi data conversion layer by function and merge
-//                  files (BrowserMetricsExports codec pieces).
+//                  files (BrowserMetricsExports codec pieces -> WireJson + JsCallbackAdapters).
 //   #105 = 纠偏 4  delete buildPrecomputeBackends and the session-id exports.
 //   #106 = 纠偏 5  declared DTOs across the boundary; untyped separator /
 //                  JSON-string payloads disappear.
@@ -136,23 +136,23 @@ const EXEMPTIONS = [
     task: "#104",
     rules: ["R3-export-entry-review"],
     symbol: "precomputeParagraphWithBrowserMetrics",
-    reason: "JSON-string callback envelope over the wire-face lane; codec pieces merge into the renamed ffi conversion layer (wave 3) and the envelope becomes declared DTOs (wave 5).",
+    reason: "JSON-string callback envelope over the wire codec lane; the envelope becomes declared DTOs in corrective wave 5 (#106).",
   },
 
   // R4: separator literals outside the declared codec modules. All die when
   // payloads cross the boundary as declared DTOs (纠偏 5/#106), except the
-  // wire-face test which dies with the codec move (#103).
+  // wire codec test which dies with the codec move (#103).
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/ParagraphWireFaceTest.kt",
+    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/ParagraphWireCodecTest.kt",
     reason: "Wire codec test fixtures; deleted with the string wire format in corrective wave 5 (#106)."
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/BrowserMetricsExportsTest.kt",
-    reason: "Separator fixture string of the untyped callback lane; replaced by declared DTOs in corrective wave 5.",
+    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/JsCallbackAdaptersTest.kt",
+    reason: "Separator fixture strings of the callback adapter lane; replaced by declared DTOs in corrective wave 5."
   },
   {
     task: "#106",
@@ -348,7 +348,7 @@ const REVIEWED_WIRE_FACE_NAMES = new Set([
 // the current wire codec, and the parity oracle whose frozen-text byte
 // comparison the ruling explicitly retains.
 const SEPARATOR_CODEC_MODULES = [
-  "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireFace.kt",
+  "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireCodec.kt",
   "frontend/web-precompute/scripts/plan-parity-oracle.mjs",
 ];
 
@@ -373,7 +373,7 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
   ["tiqian_install_font_backend", "installed font-backend vtable per ADR 0050"],
   [
     "precomputeParagraphWithDiagnostics",
-    "org.tiqian.layout.ParagraphWireFace.planWithDiagnostics pipeline; host callbacks enter as JsCallback shaper/resolver data conversion (post 纠偏 4/#105 review, session-id surface deleted)",
+    "org.tiqian.ffi.js.ParagraphWireCodec.planWithDiagnostics pipeline; host callbacks enter as JsCallback shaper/resolver data conversion (post 纠偏 4/#105 review, session-id surface deleted)",
   ],
 ]);
 
