@@ -7,11 +7,13 @@ import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.DoubleVar
 import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.ULongVar
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.pointed
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.set
 import kotlinx.cinterop.sizeOf
@@ -28,9 +30,10 @@ import kotlin.test.assertTrue
 
 /**
  * The fake backend writes the same packed buffers the Rust session produces,
- * so these tests pin the request byte layout and the plan JSON return without
- * linking Rust. staticCFunction callbacks cannot capture state; the fake reads
- * its inputs from the call arguments only.
+ * so these tests pin the request byte layout and the packed plan return
+ * without linking Rust. The JSON dump entry is covered by the Rust parity
+ * oracle. staticCFunction callbacks cannot capture state; the fake reads its
+ * inputs from the call arguments only.
  */
 class LayoutAbiTest {
     @BeforeTest
@@ -50,7 +53,9 @@ class LayoutAbiTest {
     @Test
     fun entryReturnsPlanAndReleasesBuffers() {
         val plan = callEntryWith(request(text = "正文一段"))
-        assertTrue(plan.startsWith("{\"schema\":1"), plan)
+        // Packed header: u32 magic 0x54515050 little endian, u32 revision 1.
+        assertEquals("PPQT", plan.copyOfRange(0, 4).decodeToString(), plan.toList().toString())
+        assertEquals(1, plan[4].toInt())
     }
 
     @Test
@@ -59,10 +64,12 @@ class LayoutAbiTest {
         val memory = nativeHeap.allocArray<ByteVar>(bytes.size)
         for (index in bytes.indices) memory[index] = bytes[index]
         val planSlot = nativeHeap.alloc<CPointerVar<ByteVar>>()
+        val planLenSlot = nativeHeap.alloc<ULongVar>()
         val errorSlot = nativeHeap.alloc<CPointerVar<ByteVar>>()
-        val status = tiqianLayoutParagraph(memory, bytes.size.toULong(), planSlot.ptr, errorSlot.ptr)
+        val status = tiqianLayoutParagraph(memory, bytes.size.toULong(), planSlot.ptr, planLenSlot.ptr, errorSlot.ptr)
         assertEquals(1, status)
         assertNull(planSlot.ptr.pointed.value)
+        assertEquals(0uL, planLenSlot.ptr.pointed.value)
         assertEquals("InvalidLayoutRequestMagic", errorSlot.ptr.pointed.value?.toKString())
         tiqianReleaseBuffer(errorSlot.ptr.pointed.value)
     }
@@ -83,15 +90,16 @@ class LayoutAbiTest {
         assertEquals(expected, failure.issueName)
     }
 
-    private fun callEntryWith(bytes: ByteArray): String {
+    private fun callEntryWith(bytes: ByteArray): ByteArray {
         val memory = nativeHeap.allocArray<ByteVar>(bytes.size)
         for (index in bytes.indices) memory[index] = bytes[index]
         val planSlot = nativeHeap.alloc<CPointerVar<ByteVar>>()
+        val planLenSlot = nativeHeap.alloc<ULongVar>()
         val errorSlot = nativeHeap.alloc<CPointerVar<ByteVar>>()
-        val status = tiqianLayoutParagraph(memory, bytes.size.toULong(), planSlot.ptr, errorSlot.ptr)
+        val status = tiqianLayoutParagraph(memory, bytes.size.toULong(), planSlot.ptr, planLenSlot.ptr, errorSlot.ptr)
         assertEquals(0, status, errorSlot.ptr.pointed.value?.toKString() ?: "")
         assertNull(errorSlot.ptr.pointed.value)
-        val plan = planSlot.ptr.pointed.value!!.toKString()
+        val plan = planSlot.ptr.pointed.value!!.readBytes(planLenSlot.ptr.pointed.value.toInt())
         tiqianReleaseBuffer(planSlot.ptr.pointed.value)
         return plan
     }
