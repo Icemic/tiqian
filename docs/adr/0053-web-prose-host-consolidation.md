@@ -170,6 +170,21 @@ ffi/js 后归位。
 - **不匹配解释结构化**：`SnapshotExactFontContractMismatch` 的 detail 区分两类：候选集为空（EmptyCandidateSet：页面与声明都拿不出可核对的 face）与字段不符（FieldMismatch：给出期望/实际面数与第一个不符字段）。逐字段核对顺序固定为 family → style → weight 区间 → unicode-range → src。`dataset.tiqianExactFontMiss` 保留命中名并携带该 detail；detail 字段形态进分解报告第 11 节的时序 golden。
 - **注册表生命周期**：多次调用按追加处理，同一 `(cssText, baseUrl)` 判重跳过并计数递增，注销递减，计数归零才移除记录（两个组件注册同一声明时，单方注销不撤销另一方仍在用的声明）；空串与全空白是 no-op。调用返回注销函数，移除该条声明并同样触发重验；SPA 路由切换与微前端卸载（ADR 0042 框架集成的场景）需要撤走声明。不设 replace 模式，追加加注销已覆盖。
 
+### `ServiceDirectoryRule`：全页单例集中一个目录
+
+G2 全局清除后仍成立的运行时单例集中存放在 core/services/ 一个目录，
+每个文件头注释写明两点：该对象为什么必须全页一份，为什么不能用参数
+传递。幸存者清单（S4 落地后核定）：
+
+- globalServices 容器（Symbol.for 键，跨 bundle 副本共享一份；
+  参数传递无法覆盖副本各自 import 的场景）。
+- [TBD S4 后核定：loaderState（engine 路径可变状态的唯一合法位置，
+  见 S4）；Symbol.for worker 协调对象（跨副本协议）；declared-faces
+  登记表（宿主声明通道的全页状态，见 `DeclaredFaceEvidence`）。]
+
+目录之外的散置全局单例视为违反模块边界。AGENTS.md 代码组织节同步
+收录本规则。
+
 ### `UnusedExportCleanup`：无消费者导出删除与 cp 机制删除
 
 删除 digest.js、font-contract.js 与全部 test-only 兼容导出。shared/ 目录的字节拷贝删除：web-precompute 依赖 @tiqian/prose 的正式导出获取 prepared-dom 与 snapshot-source，cp 脚本删除。schema 常量由同源生成，不再依赖人工同步。
@@ -1276,6 +1291,38 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   组装根显式注入（宿主构造 engine 时传入，双拷贝协商移入组装根）；遥测
   出口改为显式调试接口或并入 decision dump，后续批次裁定；其余全局与
   模块作用域可变绑定全部改为参数传递、实例闭包或组装根持有。
+
+  G2 执行进度（S 波，2026-08-25 起分波执行）：
+
+  - R1b..R4（状态清点与收编准备）完成，npm-core 416/416。
+  - S1（LayoutJobPool 改名）：progressiveJob 族改名 LayoutJobPool，
+    progressive-relayout-session.ts 改名 relayout-session.ts。
+  - S1b（deps 拆散）：EngineEntryDeps 与 ProgressiveDriversDeps 拆散，
+    ffi 槽删除（root-state.ts 直接 import ffi 五函数），commit bundle
+    退出 deps。提交 ab4f7a75。
+  - S2-a（CoordinationService 与 globalServices 容器）：coordinator
+    改名 CoordinationService，coordination/ 目录分簇，core/services/
+    global-services.ts 以 Symbol.for("@tiqian/prose.global-services.v1")
+    挂 globalThis，提供 installGlobalServicesForTesting 注入钩。
+    提交 3f53c1bc。
+  - S2-b（散置状态收编）：font-loader、declared-faces、browser-fonts、
+    canvas-shaping、browser-font-replay 七处模块级可变状态移入
+    CoordinationService 的 fonts 与 measurement 状态簇（coordination/
+    fonts.ts、coordination/measurement.ts）。提交 51efc35a。
+  - [TBD S3-a：EnhancedElementContext。createEnhanceContext 入口、
+    七项 per-root 状态移入 context、两套作废计数并一份。提交哈希。]
+  - [TBD S3-b：custody 族改名 RawDom。custody.ts 改名 raw-dom.ts，
+    两处 expando 删除，记录走 context 段落表。提交哈希。]
+  - [TBD S4：全局名删除。renderer/validator 桥走 loaderState、版本
+    挑选器删除、__TiqianLayoutWorker 并入 Symbol.for 协调对象、trace
+    双全局改 enhance 初始化选项、eslint declare-global 豁免废除。
+    提交哈希。]
+
+  S2-b 实施时的实现约束（后续模块改动适用）：globalServices 静态 import
+  闭包不得抵达 prepared-dom 与 browser-fonts。这两条链的模块体含安装
+  只读桥的顶层副作用；提前到测试 fixture 之前装载会破坏 fixture 预置。
+  协调服务对重链成员只允许 import type；实例构造放首次使用处
+  （browserFontLoader 懒构造先例，coordination/fonts.ts 注释）。
 - [x] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
   frontend/rust 相同：导出 tiqian Kotlin 模块的全部 API 供下游消费。实际产物
   移动了部分源代码，包内混入新实现的宿主逻辑，属于 web 侧的逻辑应留在 web
@@ -1322,6 +1369,39 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   之前好像是都集中在 Rust 侧处理了。
 - FFI 包还是脏的，里面还是有独立的 Kotlin 文件不知道被谁用过，非常奇怪。
   对于所有包，所有测试还是 js 文件不是 ts 文件，ffi 包里面也都是 js 文件。
+
+处置记录（依序执行，2026-08-24 起逐项落定）：
+
+- QA3（CI Rust 结构对不上）：已修，提交 af9d80d9。原因是 wire face
+  派生默认值（bd4e7197）只改了 JS oracle 侧字节；parity oracle 显式
+  renderEvidence=false 后 CI 恢复。
+- QA5（精度逻辑分散）：审计结论无系统性分散。Rust 持有字体级精度与
+  输出量化，Kotlin 持有排版规则容差，TS 只持有 Rust 驱动的重复实现
+  （golden 验证逐字节一致）与浏览器专用容差，FFI 透传。一处过渡态
+  分歧（grid-metrics.ts 的 Math.fround 对照 responsive-measure.ts 的
+  Double 除法）在 ADR 0054 SingleGridArithmetic 实施时收敛。一处真
+  缺陷（session.rs 安全整数上界 2^53 写成 992）已修，提交 aa93983c。
+- QA6（ffi 包清洁与测试 TS 化）：已完成，提交 2a0586b2。ffi 包测试
+  源改 .mts，emit 产物解除跟踪，runtime 产物哈希前后相同。
+- QA9（ffi 导出对齐 Rust）：已完成，提交 e6a11f9e（六个引擎能力
+  @JsExport 带类型）。Part B 裁定不补导出，理由两条：LayoutQueries
+  是自绘 UI 的查询面，web 是 DOM 渲染，光标、选区、复制由浏览器原生
+  处理，JS 侧零调用方；27 类诊断 web 端零消费者，其中两类 shaping
+  派生诊断已为 fail-closed 导出。
+- QA4（.b2-tmp/.agent-specs）：盘点完成（.agent-specs 154 文件
+  5.5M，spec 与报告为主；.b2-tmp 268 文件 9.9M，agent 日志与临时
+  产物）。处置：[TBD：gitignore 两条 + 保留项裁定]。
+- QA1（包名纠偏 @tiqian/core）：[TBD 提交哈希]。
+- QA2（目录重组 scripts/src 分离、npm-core 改名 core）：[TBD 提交
+  哈希]。
+- QA7（npm workspace 化）：机制预演在 .b2-tmp 复制品完成，[TBD
+  预演结论三风险各一条]；正式转换 [TBD 提交哈希]。
+- QA8（styles.css 副本消除）：前提核验（npm 与 core 双胞胎 md5 一致
+  54a5e3fc）。三条疑似重复裁定：element.ts 的 mutation 过滤知识是
+  行为不是样式重复，留在原处；styles.css 的 position:relative（层叠
+  基线）与 custody 恢复时的内联 !important（恢复正确性）是独立两层，
+  记录不改动；DemoWebBreakWordMask 是 demo 局部 counter-style，留在
+  demo。正式转换 [TBD 提交哈希]。
 
 ### KPI 汇总
 
