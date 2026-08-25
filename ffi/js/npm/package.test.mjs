@@ -40,6 +40,12 @@ test("the generated declarations name the whole export surface", async () => {
     (match) => match[1],
   );
   assert.deepEqual(exported, [
+    "bopomofoParse",
+    "numberSymbolCohesionUnbreakableRanges",
+    "fontMetricsResolve",
+    "fontFallbackResolve",
+    "liangHyphenate",
+    "unicodePunctuationLineBreakClassOf",
     "classifyFontRole",
     "unsupportedInlineShapingProperties",
     "firstDivergentInlineShapingProperty",
@@ -54,7 +60,10 @@ test("every engine module ships a source map with embedded sources", async () =>
   const entries = await readdir(new URL("./runtime/", import.meta.url));
   const modules = entries.filter((entry) => entry.endsWith(".mjs"));
 
-  assert.ok(modules.length >= 9, "the runtime keeps the full module set");
+  assert.ok(
+    modules.length >= 4,
+    "the runtime keeps the full module set (engine is a single published module)",
+  );
   for (const module of modules) {
     const map = `${module}.map`;
     assert.ok(entries.includes(map), `runtime/${module} has no source map`);
@@ -71,6 +80,12 @@ test("every engine module ships a source map with embedded sources", async () =>
 test("the engine entry loads from the package exports surface", async () => {
   const ffi = await import("@tiqian/ffi");
 
+  assert.equal(typeof ffi.bopomofoParse, "function");
+  assert.equal(typeof ffi.numberSymbolCohesionUnbreakableRanges, "function");
+  assert.equal(typeof ffi.fontMetricsResolve, "function");
+  assert.equal(typeof ffi.fontFallbackResolve, "function");
+  assert.equal(typeof ffi.liangHyphenate, "function");
+  assert.equal(typeof ffi.unicodePunctuationLineBreakClassOf, "function");
   assert.equal(typeof ffi.classifyFontRole, "function");
   assert.equal(typeof ffi.unsupportedInlineShapingProperties, "function");
   assert.equal(typeof ffi.firstDivergentInlineShapingProperty, "function");

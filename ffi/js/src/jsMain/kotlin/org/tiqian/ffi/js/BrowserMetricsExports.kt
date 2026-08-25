@@ -200,7 +200,7 @@ internal fun parseRawFontMetricsJson(json: String): RawFontMetrics {
     )
 }
 
-private fun StringBuilder.appendJsonStringArray(items: List<String>): StringBuilder {
+internal fun StringBuilder.appendJsonStringArray(items: List<String>): StringBuilder {
     append('[')
     for (i in items.indices) {
         if (i > 0) append(',')
@@ -209,10 +209,10 @@ private fun StringBuilder.appendJsonStringArray(items: List<String>): StringBuil
     return append(']')
 }
 
-private fun StringBuilder.appendJsonNumber(value: Float): StringBuilder =
+internal fun StringBuilder.appendJsonNumber(value: Float): StringBuilder =
     append(if (value == -0f) "0" else ecmaJsonNumber(value))
 
-private fun StringBuilder.appendJsonString(value: String): StringBuilder {
+internal fun StringBuilder.appendJsonString(value: String): StringBuilder {
     append('"')
     for (char in value) {
         when (char) {
