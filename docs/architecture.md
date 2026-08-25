@@ -204,7 +204,7 @@ TalkBack character-location 能力不属于当前静态正文路径。
 ### Web
 
 `frontend/web` 发布 ESM 包 `@tiqian/prose` 与 light-DOM `<tiqian-prose>`。服务器输出的
-HTML 先保持可读，TS runtime（`@tiqian/prose-core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
+HTML 先保持可读，TS runtime（`@tiqian/core` 宿主模块与 `@tiqian/ffi` 引擎）与字体就绪后按 viewport 距离逐段原子增强。原 `<p>`、链接、代码、强调、自定义
 inline 与 CSS 仍由宿主持有；引擎只写入断行和 spacing geometry。
 
 同仓库的 `frontend/web/integrations/sveltekit` 与 `frontend/web/integrations/astro` 分别发布

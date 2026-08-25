@@ -145,7 +145,7 @@ Kotlin 侧收敛为薄接线直至删除。已并入 main：A1 双侧类型生�
 语料、B 组断言与实现迁移（custody、eligibility、responsive、
 content-reconcile、progressive、copy、markdown-lowering、prepared 路由）、
 B10 引擎策略经 ABI 输出（run 降级判定与 dash 命名入 font 模块策略）、
-C 组调度合并、F4 双实现 CI 比对、F2 第一步 @tiqian/prose-core 拆分。
+C 组调度合并、F4 双实现 CI 比对、F2 第一步 @tiqian/core 拆分。
 jsMain 自 5669 行降至 2943 行；进度与 KPI 以 ADR 清单为准。
 
 最近完成的是 **Slice 35：Web 真实站点宿主接入**（2026-07-11）。`@tiqian/prose` 以
