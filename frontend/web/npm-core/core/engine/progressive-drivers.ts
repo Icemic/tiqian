@@ -6,7 +6,7 @@
 // Stateless module: enhanceProgressively, relayout,
 // rejectMissingSharedRuntimeStyles and startLayoutJob are named functions
 // that receive the root-state, engine, copy-installer, layout-job-pool and
-// detached-fragment backup collaborators as explicit parameters; the stateless
+// rawDom collaborators as explicit parameters; the stateless
 // prepare-paragraph-layout, lifecycle and responsive-measure helpers are
 // imported directly. The engine entry passes itself at every call; the
 // engine slot stays null in the standalone unit-test world.

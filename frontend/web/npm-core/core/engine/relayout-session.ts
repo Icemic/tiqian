@@ -1,10 +1,10 @@
 // relayoutSession (TsHost runtime port, Slice 5a). Ports the Kotlin
 // relayout session from WebEnhancer.kt (lines 407-477).
 // Manages incremental paragraph layout commits during a progressive pass,
-// tracking live detached-fragment backup snapshots for transactional rollback, updating
+// tracking live raw-DOM backup snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Stateless module: openRelayoutSession(detached-fragment backup, argument) is a named
+// Stateless module: openRelayoutSession(rawDom, argument) is a named
 // function that receives the raw-DOM collaborator as an explicit first
 // parameter and returns a fresh session object for one run; the per-run Map
 // and arrays live on that session, never on module state. The engine
@@ -50,7 +50,7 @@ export type RelayoutSession = {
 /**
  * Open a relayout session for one run.
  *
- * @param {Object} detached-fragment backup
+ * @param {Object} rawDom
  * @param {Object} argument
  * @param {Array} argument.paragraphs
  * @param {Object} argument.state
@@ -67,7 +67,7 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
 
     // ProcessItem: dispatches layout preparation for a single paragraph item.
     // Unchanged preparations are no-ops. Unsupported and ready preparations
-    // capture live detached-fragment backup snapshots before commit or restore.
+    // capture live raw-DOM backup snapshots before commit or restore.
     function processItem(index: number, preparation: PrepareLayoutResult): void {
       const paragraph = paragraphs[index];
       if (preparation.kind === 'unchanged') {
@@ -144,7 +144,7 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
     }
 
     // Rollback: reverts state.paragraphs and state.issues to their initial
-    // arrays, restores live DOM snapshots via detached-fragment backup.rollback in insertion
+    // arrays, restores live DOM snapshots via rawDom.rollback in insertion
     // order, and updates paragraph lastMeasure by source element identity.
     function rollback(): void {
       state.paragraphs.length = 0;

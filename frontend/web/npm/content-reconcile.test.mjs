@@ -1,6 +1,6 @@
 // Behavior tests for the content reconcile path. jsTest never covered this
 // area, so these are new assertions derived from the runtime implementation:
-// drift classification, detached-fragment backup restore, tainted engine edits, dead paragraph
+// drift classification, raw-DOM backup restore, tainted engine edits, dead paragraph
 // drops and stranded clone adoption all re-enter the layout pipeline through
 // the tiqian:reconcile-content / tiqian:probe-content-drift events.
 

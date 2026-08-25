@@ -1,9 +1,9 @@
 // HostContentReconcile: classification and DOM preparation for live-DOM
 // content changes on an enhanced root.
 //
-// Stateless module: probeContentDrift(detached-fragment backup, ...), classifyReconcile(
-// detached-fragment backup, ...), prepareTrackedParagraphForRelowering(detached-fragment backup, ...) and
-// stripEngineMarkupFromStrandedParagraph(detached-fragment backup, ...) are named functions
+// Stateless module: probeContentDrift(rawDom, ...), classifyReconcile(
+// rawDom, ...), prepareTrackedParagraphForRelowering(rawDom, ...) and
+// stripEngineMarkupFromStrandedParagraph(rawDom, ...) are named functions
 // that receive the raw-DOM collaborator as an explicit first parameter. The
 // engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
 //
@@ -64,8 +64,8 @@ export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]):
 
 // Per-paragraph classification, never per MutationRecord. DeadTrackedParagraphDrop
 // counts tracked sources the host detached; the RenderedContentInvariant
-// identity check flags drifted paragraphs; the detached-fragment backup identity check
-// flags detached-fragment backup drift. A tainted host survives only when connected,
+// identity check flags drifted paragraphs; the raw-DOM backup identity check
+// flags raw-DOM backup drift. A tainted host survives only when connected,
 // inside a root, tracked, and not already classified as drifted. A
 // stranded candidate is skipped when it already failed lowering with a
 // capability marker and was never rendered (StrandedCapabilityNoRetry).
@@ -132,7 +132,7 @@ export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): Recon
 // HostEditRelowering: the host replaced or edited the live children of a
 // rendered paragraph. Release prepared styles, restore the engine-owned
 // shell, stamp the rendered marker, and let the caller re-lower the
-// surviving live content as the new detached-fragment backup source.
+// surviving live content as the new raw-DOM backup source.
 export function prepareTrackedParagraphForRelowering(rawDom: RawDomApi, element: HTMLElement): void {
   releasePreparedStyles(element);
   rawDom.restoreShell(element);

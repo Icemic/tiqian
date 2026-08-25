@@ -338,10 +338,10 @@ export function responsiveSourceMeasure(paragraph: HTMLElement, configuredFontSi
 
 // SourceMeasureBeforeRawDomTransfer: flex/grid items and descendants of
 // shrink-to-fit ancestors can derive their used inline size from the
-// semantic children that Tiqian moves into source detached-fragment backup, so the
+// semantic children that Tiqian moves into the source raw-DOM backup, so the
 // before/after used size detects the real dependency instead of guessing
 // parent display modes. Ordinary blocks keep their host auto sizing; only a
-// detached-fragment backup-induced width change is stabilized.
+// raw-DOM backup-induced width change is stabilized.
 export function stabilizeContentSizedItemInlineSize(paragraph: HTMLElement, source: SourceInlineSizeCapture): string | null {
   const empty = captureSourceInlineSize(paragraph);
   const sourceUsedInlineSize = source.borderBoxSizing ? source.borderBoxWidth : source.contentBoxWidth;

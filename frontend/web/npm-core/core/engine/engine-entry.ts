@@ -4,7 +4,7 @@
 // (WebEnhancerWorkerProtocol.kt), and moves the Kotlin
 // WebEnhancerContentReconcile.kt reconcile orchestration into TS.
 //
-// Stateful module: createEngineEntry(detached-fragment backup, copyInstaller, rootState,
+// Stateful module: createEngineEntry(rawDom, copyInstaller, rootState,
 // layoutJobPool) receives the four stateful collaborators from the
 // composition root and wires them into the 11-method engine facade and the
 // 9-method worker facade. The engine bootstrap (ts-runtime) constructs one
@@ -332,9 +332,9 @@ export function createEngineEntry(
       })(verdict.drifted[vi] as HTMLElement);
     }
     for (vi = 0; vi < verdict.rawDom.length; vi += 1) {
-      // RawDomDriftRerendersFromRawDom: a host edit inside the detached-fragment backup
+      // RawDomDriftRerendersFromRawDom: a host edit inside the raw-DOM backup
       // fragment leaves the live paragraph matching the rendered invariant, so
-      // only the detached-fragment backup identity check sees it. Restore hands it back to the
+      // only the raw-DOM backup identity check sees it. Restore hands it back to the
       // live DOM and processParagraph re-lowers the edited content.
       (function (element: HTMLElement) {
         actions.push({
@@ -350,7 +350,7 @@ export function createEngineEntry(
     for (vi = 0; vi < verdict.tainted.length; vi += 1) {
       // TaintedEngineOutputRerendersFromRawDom: an in-place text edit inside
       // engine output does not change child identity. The edited node belongs
-      // to the renderer, so the semantic truth stays in detached-fragment backup and the
+      // to the renderer, so the semantic truth stays in the raw-DOM backup and the
       // paragraph re-renders from it.
       (function (element: HTMLElement) {
         actions.push({

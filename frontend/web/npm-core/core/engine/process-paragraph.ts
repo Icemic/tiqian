@@ -1,11 +1,11 @@
 // processParagraph (TsHost runtime port, Slice 4d-1). Ports the paragraph
 // processing orchestration from WebEnhancerParagraphPipeline.kt
 // (processParagraph, lines 89-227, and layoutParagraph, lines 229-264).
-// The module coordinates paragraph eligibility, style detached-fragment backup, markdown
+// The module coordinates paragraph eligibility, style capture, markdown
 // lowering, exact layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
-// Stateless module: processParagraph(detached-fragment backup, argument) is a named function
+// Stateless module: processParagraph(rawDom, argument) is a named function
 // that receives the raw-DOM collaborator as an explicit first parameter. The
 // engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
 // The stateless worker-request, prepare-paragraph-layout, lifecycle,
@@ -135,10 +135,10 @@ interface ProcessInlineShapingDecisionResult {
   }
 
   /**
-   * Process a single paragraph element through markdown lowering, detached-fragment backup
+   * Process a single paragraph element through markdown lowering, rawDom
    * takeover, layout preparation, and commit.
    *
-   * @param {Object} detached-fragment backup
+   * @param {Object} rawDom
    * @param {Object} argument
    */
   export function processParagraph(rawDom: RawDomApi, argument: ProcessParagraphInvocation): void {
