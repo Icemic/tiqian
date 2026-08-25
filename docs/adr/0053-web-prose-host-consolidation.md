@@ -1444,7 +1444,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   作废。
 - 命名裁定：调试用途的文件名字必须含调试；非调试且有跨界消费者的文件
   禁止发出无声明契约的载荷。`ExplainableStubParagraphLayoutEngine` 名字含
-  Stub、承载的是全部生产路径，是否改名待裁定。
+  Stub、承载的是全部生产路径，裁定改名 `TiqianParagraphLayoutEngine`；
+  名字出自 scaffold 提交 1a37d54a（Claude session 写入），出处与裁定标注在
+  ADR 0008 Amendment。
 
 处置记录（依序执行）：
 
@@ -1458,6 +1460,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - native 返回类型化：C ABI 返回从 plan JSON 裸字符串改为打包声明契约
   （与请求侧 `TQLR` 同模式），Rust 解码进既有 Plan 结构体；plan JSON 保留
   为引擎 dump，服务 oracle 与 golden 的字节比对。
+- 引擎改名：`ExplainableStubParagraphLayoutEngine` 改为
+  `TiqianParagraphLayoutEngine`，旧名不再并存；出处与署名标注在
+  ADR 0008 Amendment。
 - 终则定稿随纠偏收尾落回本 ADR；ADR 0050 同日附注记录 JS lane 侧判定。
 
 ### KPI 汇总
