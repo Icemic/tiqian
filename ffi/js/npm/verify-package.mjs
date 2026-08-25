@@ -64,6 +64,12 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
     "utf8",
   );
   for (const name of [
+    "bopomofoParse",
+    "numberSymbolCohesionUnbreakableRanges",
+    "fontMetricsResolve",
+    "fontFallbackResolve",
+    "liangHyphenate",
+    "unicodePunctuationLineBreakClassOf",
     "classifyFontRole",
     "unsupportedInlineShapingProperties",
     "firstDivergentInlineShapingProperty",

@@ -36,11 +36,16 @@
   },
   "scripts": {
     "build:runtime": "node ./build-runtime.mjs",
+    "pretest": "tsc -b",
     "test": "node --test *.test.mjs",
     "verify:package": "node ./verify-package.mjs",
     "verify:release": "npm run prepack && node ./verify-release.mjs",
     "release:prepare": "node ./prepare-release.mjs",
     "prepack": "npm run build:runtime && npm test && npm run verify:package"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "22.15.29"
   },
   "files": [
     "LICENSE",

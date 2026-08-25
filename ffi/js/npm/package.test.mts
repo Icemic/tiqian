@@ -2,14 +2,127 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
-const MAPS_WITHOUT_SOURCES = new Set([
-  // The DOM API compatibility shim compiles from sources the JS compiler does
-  // not carry; its map exists but has nothing to embed.
+interface PackageManifest {
+  name: string;
+  license: string;
+  engines: { node: string };
+  publishConfig: { access: string; tag: string };
+  files: string[];
+  exports: {
+    ".": {
+      types: string;
+      default: string;
+    };
+  };
+  dependencies?: undefined;
+  bin?: undefined;
+  scripts: {
+    prepack: string;
+  };
+}
+
+interface SourceMap {
+  sources: string[];
+  sourcesContent?: string[];
+}
+
+const MAPS_WITHOUT_SOURCES: ReadonlySet<string> = new Set([
   "kotlin_org_jetbrains_kotlin_kotlin_dom_api_compat.mjs.map",
 ]);
 
+interface FfiExports {
+  bopomofoParse: (reading: string) => string;
+  numberSymbolCohesionUnbreakableRanges: (text: string) => string;
+  fontMetricsResolve: (requestJson: string) => string;
+  fontFallbackResolve: (text: string, start: number, end: number, requestJson: string) => string;
+  liangHyphenate: (word: string, patternsJson: string, exceptionsJson: string, leftMin?: number, rightMin?: number) => string;
+  unicodePunctuationLineBreakClassOf: (codePoint: number) => string;
+  classifyFontRole: (text: string, start: number, end: number, locale: string) => string;
+  unsupportedInlineShapingProperties: () => string[];
+  firstDivergentInlineShapingProperty: (elementValues: string[], paragraphValues: string[]) => string | null;
+  precomputePlainParagraph: (
+    fontSessionId: string,
+    text: string,
+    maxWidthPx: number,
+    fontFamilies: string,
+    fontSizePx: number,
+    lineHeightPx: number,
+    locale: string,
+    fontWeight: number,
+    italic: boolean,
+    firstLineIndentIc: number,
+    lineLengthGridEnabled: boolean
+  ) => string;
+  precomputeParagraph: (
+    fontSessionId: string,
+    text: string,
+    maxWidthPx: number,
+    fontFamilies: string,
+    fontSizePx: number,
+    lineHeightPx: number,
+    locale: string,
+    fontWeight: number,
+    italic: boolean,
+    firstLineIndentIc: number,
+    lineLengthGridEnabled: boolean,
+    sourceBoundaries: string,
+    textSpans: string,
+    inlineBoxes: string,
+    lineBreakSpans: string,
+    inlineObjects: string | null,
+    renderEvidenceOverride?: boolean | null
+  ) => string;
+  precomputeParagraphWithDiagnostics: (
+    fontSessionId: string,
+    text: string,
+    maxWidthPx: number,
+    fontFamilies: string,
+    fontSizePx: number,
+    lineHeightPx: number,
+    locale: string,
+    fontWeight: number,
+    italic: boolean,
+    firstLineIndentIc: number,
+    lineLengthGridEnabled: boolean,
+    sourceBoundaries: string,
+    textSpans: string,
+    inlineBoxes: string,
+    lineBreakSpans: string,
+    inlineObjects: string | null,
+    zeroAdvanceEpsilonPx: number,
+    decorations?: string | null,
+    emphasisDotGapEm?: number | null,
+    renderEvidenceOverride?: boolean | null
+  ) => string;
+  precomputeParagraphWithBrowserMetrics: (
+    text: string,
+    maxWidthPx: number,
+    fontFamilies: string,
+    fontSizePx: number,
+    lineHeightPx: number,
+    locale: string,
+    fontWeight: number,
+    italic: boolean,
+    firstLineIndentIc: number,
+    lineLengthGridEnabled: boolean,
+    sourceBoundaries: string,
+    textSpans: string,
+    inlineBoxes: string,
+    lineBreakSpans: string,
+    inlineObjects: string | null,
+    zeroAdvanceEpsilonPx: number,
+    shapeJson: (p0: string) => string,
+    metricsJson: (p0: string) => string,
+    decorations?: string | null,
+    emphasisDotGapEm?: number | null,
+    renderEvidenceOverride?: boolean | null
+  ) => string;
+}
+
 test("the manifest ships the generated engine runtime and nothing else", async () => {
-  const manifest = JSON.parse(await readFile(new URL("./package.json", import.meta.url), "utf8"));
+  const manifest = JSON.parse(
+    await readFile(new URL("./package.json", import.meta.url), "utf8"),
+  ) as PackageManifest;
 
   assert.equal(manifest.name, "@tiqian/ffi");
   assert.equal(manifest.license, "MPL-2.0");
@@ -68,7 +181,9 @@ test("every engine module ships a source map with embedded sources", async () =>
     const map = `${module}.map`;
     assert.ok(entries.includes(map), `runtime/${module} has no source map`);
     if (MAPS_WITHOUT_SOURCES.has(map)) continue;
-    const parsed = JSON.parse(await readFile(new URL(`./runtime/${map}`, import.meta.url), "utf8"));
+    const parsed = JSON.parse(
+      await readFile(new URL(`./runtime/${map}`, import.meta.url), "utf8"),
+    ) as SourceMap;
     assert.ok(parsed.sources.length > 0, `runtime/${map} has no sources`);
     assert.ok(
       (parsed.sourcesContent ?? []).length >= parsed.sources.length,
@@ -78,7 +193,7 @@ test("every engine module ships a source map with embedded sources", async () =>
 });
 
 test("the engine entry loads from the package exports surface", async () => {
-  const ffi = await import("@tiqian/ffi");
+  const ffi = (await import("@tiqian/ffi")) as FfiExports;
 
   assert.equal(typeof ffi.bopomofoParse, "function");
   assert.equal(typeof ffi.numberSymbolCohesionUnbreakableRanges, "function");
@@ -97,23 +212,15 @@ test("the engine entry loads from the package exports surface", async () => {
 });
 
 test("classifyFontRole maps classifier roles to lowering role strings", async () => {
-  const ffi = await import("@tiqian/ffi");
+  const ffi = (await import("@tiqian/ffi")) as FfiExports;
 
-  // 1. Han-only range: "汉" (U+6C49) in 0x4E00..0x9FFF exercises the
-  //    firstCodePoint.isCjkCodePoint() branch -> FontRole.CjkText -> "cjk-text".
   assert.equal(ffi.classifyFontRole("汉字", 0, 2, "zh-Hans"), "cjk-text");
-
-  // 2. CJK punctuation range: "，" (U+FF0C) exercises the
-  //    firstCodePoint.isCjkPunctuationCodePoint() branch -> FontRole.CjkPunctuation -> "cjk-punctuation".
   assert.equal(ffi.classifyFontRole("，", 0, 1, "zh-Hans"), "cjk-punctuation");
-
-  // 3. ASCII range: "H" (U+0048) in 0x0020..0x007E exercises the
-  //    firstCodePoint.isTypedAsciiLatin() branch -> FontRole.LatinText -> "other".
   assert.equal(ffi.classifyFontRole("Hello", 0, 5, "en"), "other");
 });
 
 test("unsupportedInlineShapingProperties returns fresh ordered property array", async () => {
-  const ffi = await import("@tiqian/ffi");
+  const ffi = (await import("@tiqian/ffi")) as FfiExports;
 
   const properties1 = ffi.unsupportedInlineShapingProperties();
   const properties2 = ffi.unsupportedInlineShapingProperties();
@@ -127,9 +234,8 @@ test("unsupportedInlineShapingProperties returns fresh ordered property array", 
 });
 
 test("firstDivergentInlineShapingProperty detects divergence and clamps common prefix", async () => {
-  const ffi = await import("@tiqian/ffi");
+  const ffi = (await import("@tiqian/ffi")) as FfiExports;
 
-  // Identical arrays return null / null-ish.
   assert.equal(
     ffi.firstDivergentInlineShapingProperty(
       ["normal", "normal", "normal"],
@@ -138,7 +244,6 @@ test("firstDivergentInlineShapingProperty detects divergence and clamps common p
     null,
   );
 
-  // Divergence at index 2 (third entry) returns the index-2 property name "font-stretch".
   assert.equal(
     ffi.firstDivergentInlineShapingProperty(
       ["normal", "normal", "expanded"],
@@ -147,7 +252,6 @@ test("firstDivergentInlineShapingProperty detects divergence and clamps common p
     "font-stretch",
   );
 
-  // Divergence at index 3 (fourth entry) returns "font-kerning".
   assert.equal(
     ffi.firstDivergentInlineShapingProperty(
       ["normal", "normal", "normal", "none"],
@@ -156,7 +260,6 @@ test("firstDivergentInlineShapingProperty detects divergence and clamps common p
     "font-kerning",
   );
 
-  // Differing array lengths clamp comparison to the common prefix.
   assert.equal(
     ffi.firstDivergentInlineShapingProperty(
       ["normal", "normal"],

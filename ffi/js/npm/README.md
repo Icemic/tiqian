@@ -10,10 +10,19 @@ the worker engine and the browser runtime always come from one engine build.
 
 ## API
 
-- `precomputePlainParagraph(...)` — plain paragraph plan; the full signature
-  lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
-- `precomputeParagraph(...)` — paragraph plan with source semantics; the full
-  signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
+- `bopomofoParse(reading: string): string` — parse Bopomofo reading into symbols and tone.
+- `numberSymbolCohesionUnbreakableRanges(text: string): string` — return inclusive index pairs for unbreakable number/symbol sequences.
+- `fontMetricsResolve(requestJson: string): string` — resolve font metrics from JSON request.
+- `fontFallbackResolve(text: string, start: number, end: number, requestJson: string): string` — resolve font fallback decision from JSON request.
+- `liangHyphenate(word: string, patternsJson: string, exceptionsJson: string, leftMin?: number, rightMin?: number): string` — hyphenate a word using Liang patterns and exceptions.
+- `unicodePunctuationLineBreakClassOf(codePoint: number): string` — return Unicode line break class name for a code point.
+- `classifyFontRole(text: string, start: number, end: number, locale: string): string` — classify font role for a text range.
+- `unsupportedInlineShapingProperties(): Array<string>` — return ordered list of unsupported inline shaping CSS properties.
+- `firstDivergentInlineShapingProperty(elementValues: Array<string>, paragraphValues: Array<string>): string | null` — find first divergent property between element and paragraph value arrays.
+- `precomputePlainParagraph(...)` — plain paragraph plan; the full signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
+- `precomputeParagraph(...)` — paragraph plan with source semantics; the full signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
+- `precomputeParagraphWithDiagnostics(...)` — paragraph plan with diagnostics; the full signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
+- `precomputeParagraphWithBrowserMetrics(...)` — paragraph plan with browser shaping/metrics callbacks; the full signature lives in `runtime/Tiqian-tiqian-ffi-js.d.mts`.
 
 ## Build
 
