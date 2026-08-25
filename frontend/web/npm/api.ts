@@ -20,6 +20,7 @@ import type { TiqianEngineInstance } from "@tiqian/prose-core/core/engine/engine
 import type { CjkDashShapingOutcome } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
 import type { ExactFontSessionEntry } from "@tiqian/prose-core/core/engine/exact-font.js";
+import { createEnhanceContext, getContextForElement } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js";
@@ -73,62 +74,7 @@ interface TiqianCjkDashPrepareOptions extends TiqianWebOptions {
   exactFontSession?: unknown;
 }
 
-const rootGenerations = new WeakMap<HTMLElement, number>();
-const rootFontSessions = new WeakMap<HTMLElement, ExactFontSessionEntry>();
-const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
 copyInstaller().install(globalThis.document);
-
-function supersedeRootWork(root: HTMLElement): number {
-  const generation = (rootGenerations.get(root) ?? 0) + 1;
-  rootGenerations.set(root, generation);
-  return generation;
-}
-
-async function withTiqianWeb<T>(
-  root: HTMLElement,
-  options: TiqianWebOptions,
-  action: TiqianWebAction<T>,
-): Promise<HTMLElement | T> {
-  await restoreAdoptedSnapshot(root);
-  const generation = supersedeRootWork(root);
-  let fontSession: BrowserFontSessionHandle | null = null;
-  let cjkDashCapability: CjkDashShapingOutcome;
-  try {
-    // Finish installing the runtime and shared CSS before swapping the session
-    // retained by an already-enhanced root. This keeps a rejected preparation
-    // from stranding a closed session inside the Kotlin/JS root state. The
-    // prepared-DOM bridge rides along so plain hosts without an exact font
-    // session can still render (ADR 0053 B8.3c).
-    await Promise.all([loadTiqianRuntime(), ensureTiqianStyles(), ensurePreparedDomBridge()]);
-    cjkDashCapability = await prepareCjkDashShapingIfNeeded(root, options as TiqianCjkDashPrepareOptions);
-    fontSession = await prepareRootFontSession(root, generation, options);
-    // AsyncPreparationCancellation: navigation/destroy may happen while fonts
-    // are loading. A superseded request must never re-enhance detached DOM.
-    if (rootGenerations.get(root) !== generation) {
-      if (fontSession) releaseRootFontSession(root, fontSession);
-      return root;
-    }
-    return await withTiqianRuntime((api) => {
-      if (rootGenerations.get(root) !== generation) return root;
-      return action(api!, {
-        ...options,
-        cjkDashCapability,
-        ...(fontSession ? {
-          exactFontSession: {
-            status: "conforming",
-            sessionId: fontSession.id,
-            detail: "SnapshotExactFontBytes",
-          },
-        } : {}),
-      });
-    });
-  } catch (error) {
-    if (rootGenerations.get(root) === generation) {
-      releaseRootFontSession(root, fontSession);
-    }
-    throw error;
-  }
-}
 
 function exactFontMissDatasetValue(error: TiqianExactFontMissCandidate): string {
   if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
@@ -143,37 +89,75 @@ function exactFontMissDatasetValue(error: TiqianExactFontMissCandidate): string 
   return error?.code ?? "ExactFontSessionUnavailable";
 }
 
+function getOrCreateContext(root: HTMLElement) {
+  let context = getContextForElement(root);
+  if (!context) {
+    context = createEnhanceContext(root);
+  }
+  return context;
+}
+
+const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
+
+function releaseContextFontSession(
+  context: ReturnType<typeof createEnhanceContext>,
+  root: HTMLElement,
+  expectedHandle: BrowserFontSessionHandle | null | typeof ANY_FONT_SESSION = ANY_FONT_SESSION,
+): boolean {
+  const entry = context.exactFontSession.entry;
+  if (!entry || (expectedHandle !== ANY_FONT_SESSION && entry.handle !== expectedHandle)) return false;
+  context.exactFontSession.entry = null;
+  return releaseExactFontSession(entry, root);
+}
+
 async function prepareRootFontSession(
   root: HTMLElement,
   generation: number,
   options: TiqianWebOptions,
+  context: ReturnType<typeof createEnhanceContext>
 ): Promise<BrowserFontSessionHandle | null> {
   if (!root?.getAttribute?.("snapshot-ref")) {
-    if (rootGenerations.get(root) === generation) releaseRootFontSession(root);
+    if (context.generation === generation) {
+      const entry = context.exactFontSession.entry;
+      if (entry) {
+        releaseExactFontSession(entry, root);
+        context.exactFontSession.entry = null;
+      }
+    }
     return null;
   }
   if (hasSnapshotLayoutOverride(options)) {
-    if (rootGenerations.get(root) === generation) releaseRootFontSession(root);
+    if (context.generation === generation) {
+      const entry = context.exactFontSession.entry;
+      if (entry) {
+        releaseExactFontSession(entry, root);
+        context.exactFontSession.entry = null;
+      }
+    }
     root.dataset.tiqianExactFontMiss = "SnapshotLayoutOptionsOverride";
     return null;
   }
   const reference = root.getAttribute("snapshot-ref");
-  const existing = rootFontSessions.get(root);
+  const existing = context.exactFontSession.entry;
   try {
     const loader = await loadExactFontFallback();
     const handle = await loader.prepareBrowserFontSession(root);
-    if (rootGenerations.get(root) !== generation) {
+    if (context.generation !== generation) {
       loader.releaseBrowserFontSession(handle);
       return null;
     }
     const next = createExactFontSessionEntry(reference, handle, loader);
-    rootFontSessions.set(root, next);
+    context.exactFontSession.entry = next;
     if (existing && existing !== next) existing.release(existing.handle);
     delete root.dataset.tiqianExactFontMiss;
     return handle;
   } catch (error) {
-    if (rootGenerations.get(root) === generation && rootFontSessions.get(root) === existing) {
-      releaseRootFontSession(root);
+    if (context.generation === generation && context.exactFontSession.entry === existing) {
+      const entry = context.exactFontSession.entry;
+      if (entry) {
+        releaseExactFontSession(entry, root);
+        context.exactFontSession.entry = null;
+      }
     }
     root.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error as TiqianExactFontMissCandidate);
     console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
@@ -181,14 +165,54 @@ async function prepareRootFontSession(
   }
 }
 
-function releaseRootFontSession(
+async function withTiqianWeb<T>(
   root: HTMLElement,
-  expectedHandle: BrowserFontSessionHandle | null | typeof ANY_FONT_SESSION = ANY_FONT_SESSION,
-): boolean {
-  const entry = rootFontSessions.get(root);
-  if (!entry || (expectedHandle !== ANY_FONT_SESSION && entry.handle !== expectedHandle)) return false;
-  rootFontSessions.delete(root);
-  return releaseExactFontSession(entry, root);
+  options: TiqianWebOptions,
+  action: TiqianWebAction<T>,
+): Promise<HTMLElement | T> {
+  const context = getOrCreateContext(root);
+  await restoreAdoptedSnapshot(root);
+  const generation = context.beginEnhanceCycle();
+  let fontSession: BrowserFontSessionHandle | null = null;
+  let cjkDashCapability: CjkDashShapingOutcome;
+  try {
+    await Promise.all([loadTiqianRuntime(), ensureTiqianStyles(), ensurePreparedDomBridge()]);
+    cjkDashCapability = await prepareCjkDashShapingIfNeeded(root, options as TiqianCjkDashPrepareOptions);
+    fontSession = await prepareRootFontSession(root, generation, options, context);
+    if (context.generation !== generation) {
+      if (fontSession) {
+        const entry = context.exactFontSession.entry;
+        if (entry && entry.handle === fontSession) {
+          releaseExactFontSession(entry, root);
+          context.exactFontSession.entry = null;
+        }
+      }
+      return root;
+    }
+    return await withTiqianRuntime((api) => {
+      if (context.generation !== generation) return root;
+      return action(api!, {
+        ...options,
+        cjkDashCapability,
+        ...(fontSession ? {
+          exactFontSession: {
+            status: "conforming",
+            sessionId: fontSession.id,
+            detail: "SnapshotExactFontBytes",
+          },
+        } : {}),
+      });
+    });
+  } catch (error) {
+    if (context.generation === generation) {
+      const entry = context.exactFontSession.entry;
+      if (entry && (!fontSession || entry.handle === fontSession)) {
+        releaseExactFontSession(entry, root);
+        context.exactFontSession.entry = null;
+      }
+    }
+    throw error;
+  }
 }
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
@@ -200,22 +224,23 @@ export function enhanceProgressively(root: HTMLElement = document.body, options:
 }
 
 export function destroy(root: HTMLElement = document.body): Promise<void> {
-  const generation = supersedeRootWork(root);
+  const context = getOrCreateContext(root);
+  const generation = context.beginEnhanceCycle();
   return restoreAdoptedSnapshot(root).then((restored) => {
     if (restored && !currentTiqianRuntime()) {
-      releaseRootFontSession(root);
+      releaseContextFontSession(context, root);
       return;
     }
     return withTiqianRuntime((api) => {
-      if (rootGenerations.get(root) !== generation) return;
+      if (context.generation !== generation) return;
       try {
         return api!.destroy(root);
       } finally {
-        releaseRootFontSession(root);
+        releaseContextFontSession(context, root);
       }
     });
   }).catch((error) => {
-    if (rootGenerations.get(root) === generation) releaseRootFontSession(root);
+    if (context.generation === generation) releaseContextFontSession(context, root);
     throw error;
   });
 }
