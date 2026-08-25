@@ -131,17 +131,24 @@ jobs:
       # declarations a full type check would need are absent; emit the
       # packages and the suite without checks (the Native precompute CI runs
       # the full checks over the same sources).
+      # The matrix spans Windows runners, whose default pwsh shell has no
+      # rm -rf and cannot execute the extensionless .bin shims; run every
+      # step of this block under bash like the build steps below.
       - name: Install build dependencies
         working-directory: frontend/web/npm-core
+        shell: bash
         run: npm ci
       - name: Link prose-core dependency
         working-directory: frontend/web/npm
+        shell: bash
         run: npm run link:core
       - name: Emit the prose packages
         working-directory: frontend/web/npm
+        shell: bash
         run: ../npm-core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
+        shell: bash
         run: |
           npm install --no-audit --no-fund
           rm -rf node_modules/@tiqian
