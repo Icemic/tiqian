@@ -1,5 +1,5 @@
 //! CSS `@font-face` descriptor matching (ADR 0050: evidence duties of the CSS
-//! font contract, replicated from `frontend/web/npm/font-face-boundaries.js`).
+//! font contract, replicated from `frontend/web/core/core/sampler/font-face-boundaries.ts`).
 //!
 //! Font fallback policy stays in the Kotlin `font` module; these functions only
 //! decide which declared face owns a code point.

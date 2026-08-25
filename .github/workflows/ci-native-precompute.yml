@@ -200,9 +200,9 @@ jobs:
       - name: Regenerate the fixture and fail on drift
         run: |
           node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs
-          git diff --exit-code frontend/web/npm/prepared-dom-corpus.fixture.json
+          git diff --exit-code frontend/web/npm/tests/prepared-dom-corpus.fixture.json
       - name: Replay the fixture through the js corpus test
-        run: node --test frontend/web/npm/prepared-dom-corpus.test.mjs
+        run: node --test frontend/web/npm/tests/prepared-dom-corpus.test.mjs
 
   # ADR 0050 Verification: the native lane must reproduce the js oracle's plan
   # JSON byte for byte. The Gradle tasks build both sides of the comparison

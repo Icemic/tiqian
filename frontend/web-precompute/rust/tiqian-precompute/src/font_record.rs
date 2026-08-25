@@ -1,4 +1,4 @@
-//! `loadRecord` port of `frontend/web/npm/precompute-fonts.js`: decode the
+//! `loadRecord` port of `frontend/web-precompute/npm/src/fonts.ts`: decode the
 //! source, validate the face, and assemble the `FontRecord` evidence the
 //! session exposes (ADR 0050 parity oracle).
 //!
