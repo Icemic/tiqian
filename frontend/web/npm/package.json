@@ -49,15 +49,13 @@
     "README.md",
     "api.d.ts",
     "api.js",
-    "copy.js",
     "element.d.ts",
     "element.js",
     "prepared-dom.d.ts",
     "prepared-dom.js",
     "snapshot-client.d.ts",
     "snapshot-client.js",
-    "styles.css",
-    "styles.js"
+    "styles.css"
   ],
   "exports": {
     ".": {

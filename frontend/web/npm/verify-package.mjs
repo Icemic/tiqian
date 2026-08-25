@@ -19,7 +19,6 @@ const REQUIRED_FILES = [
   "snapshot-client.d.ts",
   "snapshot-client.js",
   "styles.css",
-  "styles.js",
 ];
 const FORBIDDEN_FILES = [
   "core/",
