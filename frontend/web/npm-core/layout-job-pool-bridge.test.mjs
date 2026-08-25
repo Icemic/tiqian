@@ -1,14 +1,14 @@
-// Unit tests for the progressive-job engine (npm/core/engine/progressive-job.js).
-// The module exports a createProgressiveJob() factory; each test drives one
+// Unit tests for the layout-job-pool engine (npm/core/engine/layout-job-pool.js).
+// The module exports a createLayoutJobPool() factory; each test drives one
 // instance.
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createProgressiveJob } from "./core/engine/progressive-job.js";
+import { createLayoutJobPool } from "./core/engine/layout-job-pool.js";
 
-test("progressiveJobBridge_installedByScriptImport", () => {
-  const engine = createProgressiveJob();
-  assert.ok(engine, "createProgressiveJob must return the job engine");
+test("layoutJobPoolBridge_installedByScriptImport", () => {
+  const engine = createLayoutJobPool();
+  assert.ok(engine, "createLayoutJobPool must return the job engine");
   for (const name of [
     "startJob",
     "cancelJob",
@@ -28,8 +28,8 @@ test("progressiveJobBridge_installedByScriptImport", () => {
   }
 });
 
-test("progressiveJobBridge_startJobRegistrationAndCancel", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-1" };
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
@@ -60,8 +60,8 @@ test("progressiveJobBridge_startJobRegistrationAndCancel", () => {
   engine.detach(root);
 });
 
-test("progressiveJobBridge_zeroItemCountFinishesImmediately", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_zeroItemCountFinishesImmediately", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-zero" };
   const events = [];
   let finishReport = null;
@@ -89,8 +89,8 @@ test("progressiveJobBridge_zeroItemCountFinishesImmediately", () => {
   assert.equal(finishReport.stale, false);
 });
 
-test("progressiveJobBridge_uncoordinatedJobRunsToCompletionSynchronously", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_uncoordinatedJobRunsToCompletionSynchronously", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-uncoordinated" };
   const processed = [];
   let progressCount = 0;
@@ -119,8 +119,8 @@ test("progressiveJobBridge_uncoordinatedJobRunsToCompletionSynchronously", () =>
   assert.equal(engine.hasJob(root), false);
 });
 
-test("progressiveJobBridge_coordinatedJobSlicesAndGenerationGuard", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-coord" };
   const processed = [];
   let finished = false;
@@ -168,8 +168,8 @@ test("progressiveJobBridge_coordinatedJobSlicesAndGenerationGuard", () => {
   engine.detach(root);
 });
 
-test("progressiveJobBridge_tierGatingAndPendingCounts", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-tier" };
   const processed = [];
   let finished = false;
@@ -230,8 +230,8 @@ test("progressiveJobBridge_tierGatingAndPendingCounts", () => {
   engine.detach(root);
 });
 
-test("progressiveJobBridge_staleMeasureGuardSkipsRemaining", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-stale" };
   const processed = [];
   let finished = false;
@@ -273,8 +273,8 @@ test("progressiveJobBridge_staleMeasureGuardSkipsRemaining", () => {
   engine.detach(root);
 });
 
-test("progressiveJobBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-error" };
   const events = [];
   let failurePayload = null;
@@ -311,8 +311,8 @@ test("progressiveJobBridge_processItemErrorTriggersOnFailureAndOnFailed", () => 
   engine.detach(root);
 });
 
-test("progressiveJobBridge_attachAndDetachStateTransitions", () => {
-  const engine = createProgressiveJob();
+test("layoutJobPoolBridge_attachAndDetachStateTransitions", () => {
+  const engine = createLayoutJobPool();
   const root = { id: "root-detach" };
   const processed = [];
   let finished = false;

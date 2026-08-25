@@ -10,7 +10,7 @@
 // commitPreparedParagraph(deps, argument) are named functions that receive the
 // custody collaborator as an explicit first parameter. The engine bootstrap
 // wires the two functions into the CommitPreparedParagraphBundle consumed by
-// the process-paragraph and progressive-relayout-session modules; tests call
+// the process-paragraph and relayout-session modules; tests call
 // the functions with a fake custody.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
@@ -76,12 +76,12 @@ interface CommitPreparedParagraphArgument {
 // Both commit functions receive the custody collaborator set as an explicit
 // first parameter. Consumers group the two references into the bundle below;
 // the engine bootstrap builds the bundle once and shares it across the
-// process-paragraph and progressive-relayout-session deps.
+// process-paragraph and relayout-session deps.
 type CommitWorkerPreparedParagraphFn = (deps: CommitPreparedParagraphDeps, argument: CommitWorkerPreparedParagraphArgument) => CommitResult | null;
 type CommitPreparedParagraphFn = (deps: CommitPreparedParagraphDeps, argument: CommitPreparedParagraphArgument) => CommitResult;
 
 // Documented collaborator set: the two named commit functions consumed by the
-// process-paragraph and progressive-relayout-session modules.
+// process-paragraph and relayout-session modules.
 export interface CommitPreparedParagraphBundle {
   commitWorkerPreparedParagraph: CommitWorkerPreparedParagraphFn;
   commitPreparedParagraph: CommitPreparedParagraphFn;

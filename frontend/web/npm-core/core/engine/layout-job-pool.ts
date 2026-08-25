@@ -1,8 +1,10 @@
-// Progressive layout and enhance job state machine.
+// Layout job pool: the per-root layout job registry for the progressive
+// layout and enhance passes.
 //
-// Stateful module: createProgressiveJob() owns the per-root job registry and
-// the attachment set. The engine bootstrap constructs one instance and hands
-// it to its consumers; tests construct one per file.
+// Stateful module: createLayoutJobPool() owns the per-root layout job
+// registry (item batches, viewport tiers, generations) and the attachment
+// set. The engine bootstrap constructs one instance and hands it to its
+// consumers; tests construct one per file.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -13,7 +15,7 @@ import type { GrantController, GrantStopPredicate } from "./coordinator/coordina
 // Finish event payload reported through onFinished when a job completes.
 // stale reports the stale-measure guard result; the old Kotlin job's
 // commitSkipped flag was dropped because no writer ever set it.
-export type ProgressiveJobFinishReport = {
+export type LayoutJobFinishReport = {
   kind: string;
   startedAt: number;
   maxSliceMs: number;
@@ -22,7 +24,7 @@ export type ProgressiveJobFinishReport = {
 
 // Failure event payload reported through onFailed when an item or the
 // finish path throws.
-export type ProgressiveJobFailureReport = {
+export type LayoutJobFailureReport = {
   kind: string;
   detail: string;
   startedAt: number;
@@ -36,25 +38,25 @@ interface CaughtError {
   message?: string;
 }
 
-type ProgressiveJobProcessItemFn = (index: number) => void;
-type ProgressiveJobVoidCallbackFn = () => void;
-type ProgressiveJobStaleCheckFn = () => boolean;
-type ProgressiveJobFinishHandlerFn = (report: ProgressiveJobFinishReport) => void;
-type ProgressiveJobFailureHandlerFn = (failure: ProgressiveJobFailureReport) => void;
+type LayoutJobProcessItemFn = (index: number) => void;
+type LayoutJobVoidCallbackFn = () => void;
+type LayoutJobStaleCheckFn = () => boolean;
+type LayoutJobFinishHandlerFn = (report: LayoutJobFinishReport) => void;
+type LayoutJobFailureHandlerFn = (failure: LayoutJobFailureReport) => void;
 
 // Spec handed to startJob. itemTierIndex maps item index to doc-order index;
 // paragraphsByDoc lists the source elements in doc order.
-export type ProgressiveJobSpec = {
+export type LayoutJobSpec = {
   root: Element;
   kind: string;
   itemCount: number;
-  processItem: ProgressiveJobProcessItemFn;
-  onItemsFinished?: ProgressiveJobVoidCallbackFn | null;
-  onFailure?: ProgressiveJobVoidCallbackFn | null;
-  isStale?: ProgressiveJobStaleCheckFn | null;
-  onProgress?: ProgressiveJobVoidCallbackFn | null;
-  onFinished: ProgressiveJobFinishHandlerFn;
-  onFailed: ProgressiveJobFailureHandlerFn;
+  processItem: LayoutJobProcessItemFn;
+  onItemsFinished?: LayoutJobVoidCallbackFn | null;
+  onFailure?: LayoutJobVoidCallbackFn | null;
+  isStale?: LayoutJobStaleCheckFn | null;
+  onProgress?: LayoutJobVoidCallbackFn | null;
+  onFinished: LayoutJobFinishHandlerFn;
+  onFailed: LayoutJobFailureHandlerFn;
   startedAt: number;
   itemTierIndex?: number[] | null;
   paragraphsByDoc?: HTMLElement[] | null;
@@ -63,17 +65,17 @@ export type ProgressiveJobSpec = {
 
 // Live job record keyed by root. The tier-tracking arrays are null until
 // installTierTracking runs for a spec with an itemTierIndex.
-type ProgressiveJob = {
+type LayoutJob = {
   root: Element;
   kind: string;
   itemCount: number;
-  processItem: ProgressiveJobProcessItemFn;
-  onItemsFinished: ProgressiveJobVoidCallbackFn | null;
-  onFailure: ProgressiveJobVoidCallbackFn | null;
-  isStale: ProgressiveJobStaleCheckFn | null;
-  onProgress: ProgressiveJobVoidCallbackFn | null;
-  onFinished: ProgressiveJobFinishHandlerFn;
-  onFailed: ProgressiveJobFailureHandlerFn;
+  processItem: LayoutJobProcessItemFn;
+  onItemsFinished: LayoutJobVoidCallbackFn | null;
+  onFailure: LayoutJobVoidCallbackFn | null;
+  isStale: LayoutJobStaleCheckFn | null;
+  onProgress: LayoutJobVoidCallbackFn | null;
+  onFinished: LayoutJobFinishHandlerFn;
+  onFailed: LayoutJobFailureHandlerFn;
   startedAt: number;
   itemTierIndex: number[] | null;
   paragraphsByDoc: HTMLElement[] | null;
@@ -87,37 +89,37 @@ type ProgressiveJob = {
   docToItem: number[] | null;
 };
 
-type ProgressiveJobStartFn = (spec: ProgressiveJobSpec) => void;
-type ProgressiveJobCancelFn = (root: Element) => void;
-type ProgressiveJobRunSliceFn = (controller: GrantController | null, minTier: number) => number;
-type ProgressiveJobHasFn = (root: Element) => boolean;
-type ProgressiveJobGenerationFn = (root: Element) => number;
-type ProgressiveJobKindFn = (root: Element) => string | null;
-type ProgressiveJobPendingInTierFn = (root: Element, tier: number) => number;
-type ProgressiveJobParagraphCountFn = (root: Element) => number;
-type ProgressiveJobParagraphAtFn = (root: Element, index: number) => HTMLElement | null;
-type ProgressiveJobSetTierFn = (root: Element, index: number, tier: number) => boolean;
-type ProgressiveJobAttachFn = (root: Element) => boolean;
-type ProgressiveJobDetachFn = (root: Element) => boolean;
-type ProgressiveJobIsAttachedFn = (root: Element) => boolean;
+type LayoutJobStartFn = (spec: LayoutJobSpec) => void;
+type LayoutJobCancelFn = (root: Element) => void;
+type LayoutJobRunSliceFn = (controller: GrantController | null, minTier: number) => number;
+type LayoutJobHasFn = (root: Element) => boolean;
+type LayoutJobGenerationFn = (root: Element) => number;
+type LayoutJobKindFn = (root: Element) => string | null;
+type LayoutJobPendingInTierFn = (root: Element, tier: number) => number;
+type LayoutJobParagraphCountFn = (root: Element) => number;
+type LayoutJobParagraphAtFn = (root: Element, index: number) => HTMLElement | null;
+type LayoutJobSetTierFn = (root: Element, index: number, tier: number) => boolean;
+type LayoutJobAttachFn = (root: Element) => boolean;
+type LayoutJobDetachFn = (root: Element) => boolean;
+type LayoutJobIsAttachedFn = (root: Element) => boolean;
 
-export type ProgressiveJobApi = {
-  startJob: ProgressiveJobStartFn;
-  cancelJob: ProgressiveJobCancelFn;
-  runSlice: ProgressiveJobRunSliceFn;
-  hasJob: ProgressiveJobHasFn;
-  jobGeneration: ProgressiveJobGenerationFn;
-  jobKind: ProgressiveJobKindFn;
-  pendingInTier: ProgressiveJobPendingInTierFn;
-  paragraphCount: ProgressiveJobParagraphCountFn;
-  paragraphAt: ProgressiveJobParagraphAtFn;
-  setParagraphTier: ProgressiveJobSetTierFn;
-  attach: ProgressiveJobAttachFn;
-  detach: ProgressiveJobDetachFn;
-  isAttached: ProgressiveJobIsAttachedFn;
+export type LayoutJobPool = {
+  startJob: LayoutJobStartFn;
+  cancelJob: LayoutJobCancelFn;
+  runSlice: LayoutJobRunSliceFn;
+  hasJob: LayoutJobHasFn;
+  jobGeneration: LayoutJobGenerationFn;
+  jobKind: LayoutJobKindFn;
+  pendingInTier: LayoutJobPendingInTierFn;
+  paragraphCount: LayoutJobParagraphCountFn;
+  paragraphAt: LayoutJobParagraphAtFn;
+  setParagraphTier: LayoutJobSetTierFn;
+  attach: LayoutJobAttachFn;
+  detach: LayoutJobDetachFn;
+  isAttached: LayoutJobIsAttachedFn;
 };
 
-export function createProgressiveJob(): ProgressiveJobApi {
+export function createLayoutJobPool(): LayoutJobPool {
   // ParagraphTierGating: three priority bands, tier 1 in viewport, 2 near,
   // 3 far. A gate of TIER_COUNT admits every tier; run-to-completion jobs
   // use it as their default gate.
@@ -128,11 +130,11 @@ export function createProgressiveJob(): ProgressiveJobApi {
   // every started job increments the counter and carries the value, so a
   // grant built for an older job is rejected once the root's job has been
   // replaced.
-  const jobs = new Map<Element, ProgressiveJob>();
+  const jobs = new Map<Element, LayoutJob>();
   const attachedRoots = new WeakSet<Element>();
   let jobGenerationCounter: number = 0;
 
-  function installTierTracking(job: ProgressiveJob): void {
+  function installTierTracking(job: LayoutJob): void {
     const itemTierIndex = job.itemTierIndex;
     if (!itemTierIndex) return;
     const count = itemTierIndex.length;
@@ -145,7 +147,7 @@ export function createProgressiveJob(): ProgressiveJobApi {
     }
   }
 
-  function markItemDone(job: ProgressiveJob, item: number): void {
+  function markItemDone(job: LayoutJob, item: number): void {
     const done = job.itemDone;
     if (!done) return;
     if (done[item]) return;
@@ -158,7 +160,7 @@ export function createProgressiveJob(): ProgressiveJobApi {
     if (pending[tier - 1] > 0) pending[tier - 1] -= 1;
   }
 
-  function skipRemainingItems(job: ProgressiveJob): void {
+  function skipRemainingItems(job: LayoutJob): void {
     const done = job.itemDone;
     if (!done) {
       job.nextIndex = job.itemCount;
@@ -170,7 +172,7 @@ export function createProgressiveJob(): ProgressiveJobApi {
     job.nextIndex = job.itemCount;
   }
 
-  function finishJob(job: ProgressiveJob): void {
+  function finishJob(job: LayoutJob): void {
     if (jobs.get(job.root) !== job) return;
     jobs.delete(job.root);
     job.onFinished({
@@ -184,7 +186,7 @@ export function createProgressiveJob(): ProgressiveJobApi {
     });
   }
 
-  function failJob(job: ProgressiveJob, error: CaughtError): void {
+  function failJob(job: LayoutJob, error: CaughtError): void {
     if (jobs.get(job.root) !== job) return;
     jobs.delete(job.root);
     job.onFailed({
@@ -195,7 +197,7 @@ export function createProgressiveJob(): ProgressiveJobApi {
     });
   }
 
-  function runSliceInternal(job: ProgressiveJob, controller: GrantController | null, gate: number): number {
+  function runSliceInternal(job: LayoutJob, controller: GrantController | null, gate: number): number {
     if (jobs.get(job.root) !== job) return 0;
     // The admission question bounds one grant: a coordinated slice receives
     // the coordinator's controller. A slice without a grant belongs to the
@@ -271,11 +273,11 @@ export function createProgressiveJob(): ProgressiveJobApi {
   }
 
   return {
-    startJob: function (spec: ProgressiveJobSpec): void {
+    startJob: function (spec: LayoutJobSpec): void {
       const root = spec.root;
       cancelJob(root);
       jobGenerationCounter += 1;
-      const job: ProgressiveJob = {
+      const job: LayoutJob = {
         root: root,
         kind: spec.kind,
         itemCount: spec.itemCount,

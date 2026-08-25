@@ -26,14 +26,14 @@ import {
 import type { EngineFfiFacade } from "./ffi-face.js";
 import type { CustodyApi } from "./custody.js";
 import type { CopyInstaller } from "../utils/copy.js";
-import type { ProgressiveJobApi } from "./progressive-job.js";
+import type { LayoutJobPool } from "./layout-job-pool.js";
 import type { ProgressiveDriversDeps } from "./progressive-drivers.js";
 import {
   enhanceProgressively,
   enhanceProgressivelyFromCanonical,
   rejectMissingSharedRuntimeStyles,
   relayout,
-  startProgressiveJob,
+  startLayoutJob,
 } from "./progressive-drivers.js";
 import type { ProcessParagraphDeps } from "./process-paragraph.js";
 import { processParagraph } from "./process-paragraph.js";
@@ -60,7 +60,7 @@ export interface EngineEntryDeps {
   custody: CustodyApi;
   copyInstaller: CopyInstaller;
   rootState: RootStateApi;
-  progressiveJob: ProgressiveJobApi;
+  layoutJobPool: LayoutJobPool;
   progressiveDriversDeps: ProgressiveDriversDeps;
   processParagraphDeps: ProcessParagraphDeps;
   reconcileDeps: ContentReconcileDeps;
@@ -100,7 +100,7 @@ export interface EngineEntryHandle {
 
 export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
   const RS = deps.rootState;
-  const PJ = deps.progressiveJob;
+  const PJ = deps.layoutJobPool;
 
   // ---------------------------------------------------------------------------
   // Internal helpers (from WebEnhancerSupport.kt @JsFun bodies)
@@ -405,7 +405,7 @@ export function createEngineEntry(deps: EngineEntryDeps): EngineEntryHandle {
       return distances[a] - distances[b] || a - b;
     });
     const rootWidth = elementFragmentBorderBoxInlineSize(root);
-    startProgressiveJob(
+    startLayoutJob(
       deps.progressiveDriversDeps,
       state,
       "Relayout",

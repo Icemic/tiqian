@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openProgressiveRelayoutSession } from "./core/engine/progressive-relayout-session.js";
+import { openRelayoutSession } from "./core/engine/relayout-session.js";
 import {
   preparedCjkStrongSemanticsJson,
   preparedInlineObjectMetaJson,
@@ -79,7 +79,7 @@ function makeState(overrides = {}) {
 
 function makeSession(deps) {
   return {
-    create: (argument) => openProgressiveRelayoutSession(deps, argument),
+    create: (argument) => openRelayoutSession(deps, argument),
   };
 }
 

@@ -8,7 +8,7 @@ const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPrepared
 
 // The engine entry runs the real process-paragraph, content-reconcile and
 // progressive-drivers functions against fake ledgers (custody, root-state,
-// progressive-job, copy-installer, ffi). The commit bundle inside the
+// layout-job-pool, copy-installer, ffi). The commit bundle inside the
 // process-paragraph deps is fake, so the direct commit verdict is controlled;
 // the prepare step and every other orchestration seam run for real.
 
@@ -337,7 +337,7 @@ function makeEngine(opts) {
     rootState: rs,
     engine: null,
     copyInstaller: copyInstaller,
-    progressiveJob: job,
+    layoutJobPool: job,
     progressiveRelayoutSession: {
       custody: custody,
       commitPreparedParagraph: commitBundle,
@@ -349,7 +349,7 @@ function makeEngine(opts) {
     custody: custody,
     copyInstaller: copyInstaller,
     rootState: rs,
-    progressiveJob: job,
+    layoutJobPool: job,
     progressiveDriversDeps: driversDeps,
     processParagraphDeps: processParagraphDeps,
     reconcileDeps: reconcileDeps,
@@ -492,7 +492,7 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
     assert.equal(job._calls.cancelJob[0], root);
     assert.equal(ctx.rs._calls.createRootState.length, 1);
     assert.equal(ctx.rs._calls.createRootState[0].bag.fontSize, 20);
-    // The real startProgressiveJob starts one Enhance job.
+    // The real startLayoutJob starts one Enhance job.
     assert.equal(job._calls.startJob.length, 1);
     assert.equal(job._calls.startJob[0].kind, "Enhance");
   });
@@ -689,7 +689,7 @@ test("13a. reconcileContent: no state returns idle JSON", function () {
   });
 });
 
-test("13b. reconcileContent: state + idle verdict => returns json, no startProgressiveJob", function () {
+test("13b. reconcileContent: state + idle verdict => returns json, no startLayoutJob", function () {
   const state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
   withEnv(() => {
     const ctx = makeEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
@@ -735,7 +735,7 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     assert.equal(state.paragraphs[2].source, taintedEl);
     // The real classifyReconcile produced the expected verdict.
     assert.equal(result, '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}');
-    // startProgressiveJob called with kind Relayout and 4 actions.
+    // startLayoutJob called with kind Relayout and 4 actions.
     assert.equal(ctx.job._calls.startJob.length, 1);
     const call = ctx.job._calls.startJob[0];
     assert.equal(call.kind, "Relayout");

@@ -4,11 +4,11 @@
 // a pure TS module.
 //
 // Stateless module: enhanceProgressively(deps, ...), relayout(deps, ...),
-// rejectMissingSharedRuntimeStyles(deps, ...) and startProgressiveJob(deps, ...)
+// rejectMissingSharedRuntimeStyles(deps, ...) and startLayoutJob(deps, ...)
 // are named functions that receive the root-state, engine, copy-installer,
-// progressive-job and collaborator deps as an explicit first parameter. The
+// layout-job-pool and collaborator deps as an explicit first parameter. The
 // engine bootstrap wires the deps object once, then the engine instance is
-// back-filled into its engine slot; the progressive-relayout-session and
+// back-filled into its engine slot; the relayout-session and
 // process-paragraph deps bundles ride inside. The stateless
 // prepare-paragraph-layout, lifecycle and responsive-measure helpers are
 // imported directly.
@@ -27,16 +27,16 @@ import type {
 } from "./root-state.js";
 import type { EngineFfiFacade } from "./ffi-face.js";
 import type {
-  ProgressiveJobApi,
-  ProgressiveJobSpec,
-  ProgressiveJobFinishReport,
-  ProgressiveJobFailureReport,
-} from "./progressive-job.js";
+  LayoutJobPool,
+  LayoutJobSpec,
+  LayoutJobFinishReport,
+  LayoutJobFailureReport,
+} from "./layout-job-pool.js";
 import type {
-  ProgressiveRelayoutSession,
-  ProgressiveRelayoutSessionDeps,
-} from "./progressive-relayout-session.js";
-import { openProgressiveRelayoutSession } from "./progressive-relayout-session.js";
+  RelayoutSession,
+  RelayoutSessionDeps,
+} from "./relayout-session.js";
+import { openRelayoutSession } from "./relayout-session.js";
 import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
 import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
 import { reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
@@ -51,8 +51,8 @@ export interface ProgressiveDriversDeps {
   rootState: RootStateApi;
   engine: TiqianEngineInstance | null;
   copyInstaller: CopyInstaller;
-  progressiveJob: ProgressiveJobApi;
-  progressiveRelayoutSession: ProgressiveRelayoutSessionDeps;
+  layoutJobPool: LayoutJobPool;
+  progressiveRelayoutSession: RelayoutSessionDeps;
   processParagraph: ProcessParagraphDeps;
 }
 
@@ -62,8 +62,8 @@ export interface ProgressiveDriversDeps {
 type PublishRootState = (state: RootState, keepEmpty?: boolean) => void;
 
 // Named shapes for the progressive job driver callbacks. Their home is this
-// file; progressive-job.ts consumes the structurally identical inline slots
-// of ProgressiveJobSpec.
+// file; layout-job-pool.ts consumes the structurally identical inline slots
+// of LayoutJobSpec.
 type ProgressiveDriverProcessItem = (index: number) => void;
 type ProgressiveDriverItemsFinished = () => void;
 type ProgressiveDriverFailure = () => void;
@@ -176,10 +176,9 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     return true;
   }
 
-  // startProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
-  // startProgressiveJob. Builds the spec and hands it to the progressive job
-  // module.
-  export function startProgressiveJob(
+  // startLayoutJob: mirrors WebEnhancerProgressiveJob.kt. Builds the spec
+  // and hands it to the layout job pool module.
+  export function startLayoutJob(
     deps: ProgressiveDriversDeps,
     state: RootState,
     kind: string,
@@ -192,7 +191,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     paragraphsByDoc: HTMLElement[] | null,
   ): void {
     state.root.removeAttribute("data-tiqian-relayout-error");
-    const spec: ProgressiveJobSpec = {
+    const spec: LayoutJobSpec = {
       root: state.root,
       kind: kind,
       itemCount: itemCount,
@@ -204,22 +203,21 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         deps.rootState.publishState(state, true);
       },
       onFinished: function (report) {
-        finishProgressiveJob(deps, state, report);
+        finishLayoutJob(deps, state, report);
       },
       onFailed: function (failure) {
-        failProgressiveJob(deps, state, failure);
+        failLayoutJob(deps, state, failure);
       },
       startedAt: Date.now(),
       itemTierIndex: itemTierIndex || null,
       paragraphsByDoc: paragraphsByDoc || null,
-      coordinated: deps.progressiveJob.isAttached(state.root),
+      coordinated: deps.layoutJobPool.isAttached(state.root),
     };
-    deps.progressiveJob.startJob(spec);
+    deps.layoutJobPool.startJob(spec);
   }
 
-  // finishProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
-  // finishProgressiveJob.
-  function finishProgressiveJob(deps: ProgressiveDriversDeps, state: RootState, report: ProgressiveJobFinishReport): void {
+  // finishLayoutJob: mirrors WebEnhancerProgressiveJob.kt.
+  function finishLayoutJob(deps: ProgressiveDriversDeps, state: RootState, report: LayoutJobFinishReport): void {
     (deps.rootState.publishState as PublishRootState)(state);
     dispatchProgressiveSummary(
       state,
@@ -232,10 +230,9 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     );
   }
 
-  // failProgressiveJob: mirrors WebEnhancerProgressiveJob.kt
-  // failProgressiveJob. Truncates detail, sets error attribute, dispatches
-  // error and summary events.
-  function failProgressiveJob(deps: ProgressiveDriversDeps, state: RootState, failure: ProgressiveJobFailureReport): void {
+  // failLayoutJob: mirrors WebEnhancerProgressiveJob.kt. Truncates detail,
+  // sets error attribute, dispatches error and summary events.
+  function failLayoutJob(deps: ProgressiveDriversDeps, state: RootState, failure: LayoutJobFailureReport): void {
     const detail: string = String(failure.detail).slice(0, CAPABILITY_DETAIL_LIMIT);
     state.root.setAttribute("data-tiqian-relayout-error", detail);
     deps.rootState.publishState(state, true);
@@ -345,7 +342,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (deps.engine) {
       deps.engine.destroy(root as HTMLElement);
     } else {
-      deps.progressiveJob.cancelJob(root);
+      deps.layoutJobPool.cancelJob(root);
     }
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
@@ -399,7 +396,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     RS.setState(root, state);
     deps.rootState.publishState(state, true);
 
-    startProgressiveJob(
+    startLayoutJob(
       deps,
       state,
       kind,
@@ -444,7 +441,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
 
   export function relayout(deps: ProgressiveDriversDeps, root: Element): void {
     const RS = deps.rootState;
-    const PJ = deps.progressiveJob;
+    const PJ = deps.layoutJobPool;
 
     // Branch 1: Enhance is running. Kotlin restarts the interrupted enhance
     // through the two-arg overload, so the kind stays Enhance and the finish
@@ -534,7 +531,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       widths[p] = sourceParagraphWidth(rendered[p].source);
     }
 
-    const commitSession = openProgressiveRelayoutSession(
+    const commitSession = openRelayoutSession(
       deps.progressiveRelayoutSession,
       RS.sessionArgument(state)
     );
@@ -549,7 +546,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       paragraphsByDoc[renderedCount + ps] = stranded[ps];
     }
 
-    startProgressiveJob(
+    startLayoutJob(
       deps,
       state,
       "Relayout",

@@ -3,7 +3,7 @@
 // ES module exporting the custody factory. The composition root
 // (loaders/ts-runtime.ts) constructs one instance per engine bootstrap and
 // passes it to process-paragraph, commit-prepared-paragraph,
-// content-reconcile, and progressive-relayout-session through their deps.
+// content-reconcile, and relayout-session through their deps.
 
 // The prepared DOM renderer owns release; its global type is declared in
 // prepare-paragraph-layout.ts.

@@ -24,7 +24,7 @@ import {
   testOptions,
 } from "./runtime-host.mjs";
 
-test("progressiveJob_mixedSnapshotProgressReportsObservableTotal", async (t) => {
+test("layoutJobPool_mixedSnapshotProgressReportsObservableTotal", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -56,7 +56,7 @@ test("progressiveJob_mixedSnapshotProgressReportsObservableTotal", async (t) => 
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
 });
 
-test("progressiveJob_longJobCommitsParagraphsAtomicallyAcrossFrames", async (t) => {
+test("layoutJobPool_longJobCommitsParagraphsAtomicallyAcrossFrames", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const markup = Array.from({ length: 18 }, (_, index) =>
@@ -104,7 +104,7 @@ test("progressiveJob_longJobCommitsParagraphsAtomicallyAcrossFrames", async (t) 
   assert.equal(stale, false);
 });
 
-test("progressiveJob_viewportParagraphsCommitFirst", async (t) => {
+test("layoutJobPool_viewportParagraphsCommitFirst", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const markup = Array.from({ length: 18 }, (_, index) =>
@@ -127,7 +127,7 @@ test("progressiveJob_viewportParagraphsCommitFirst", async (t) => {
   assert.equal(root.querySelectorAll("p[data-tq-rendered='true']").length, 18);
 });
 
-test("progressiveJob_handledScrollDoesNotDelayCommits", async (t) => {
+test("layoutJobPool_handledScrollDoesNotDelayCommits", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -146,7 +146,7 @@ test("progressiveJob_handledScrollDoesNotDelayCommits", async (t) => {
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 });
 
-test("progressiveJob_staleFinishPreservesCommittedParagraphs", async (t) => {
+test("layoutJobPool_staleFinishPreservesCommittedParagraphs", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const markup = Array.from({ length: 18 }, (_, index) =>
@@ -188,7 +188,7 @@ test("progressiveJob_staleFinishPreservesCommittedParagraphs", async (t) => {
   assert.equal(stale, false);
 });
 
-test("progressiveJob_relayoutDuringInitialWorkRestartsCleanly", async (t) => {
+test("layoutJobPool_relayoutDuringInitialWorkRestartsCleanly", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -217,7 +217,7 @@ test("progressiveJob_relayoutDuringInitialWorkRestartsCleanly", async (t) => {
   assert.equal(readyCount, 1);
 });
 
-test("progressiveJob_newerRelayoutSupersedesPendingWork", async (t) => {
+test("layoutJobPool_newerRelayoutSupersedesPendingWork", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "连续 resize 只应提交最新宽度的分帧重排结果。".repeat(4);
@@ -258,7 +258,7 @@ test("progressiveJob_newerRelayoutSupersedesPendingWork", async (t) => {
   assert.equal(relayoutReadyCount, 1);
 });
 
-test("progressiveJob_relayoutSwapsDomAtomicallyWithoutFrameDelay", async (t) => {
+test("layoutJobPool_relayoutSwapsDomAtomicallyWithoutFrameDelay", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(
@@ -295,7 +295,7 @@ test("progressiveJob_relayoutSwapsDomAtomicallyWithoutFrameDelay", async (t) => 
   assert.equal(relayoutReadyCount, 1);
 });
 
-test("progressiveJob_longRelayoutYieldsBetweenAtomicCommits", async (t) => {
+test("layoutJobPool_longRelayoutYieldsBetweenAtomicCommits", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const markup = Array.from({ length: 18 }, (_, index) =>
@@ -341,7 +341,7 @@ test("progressiveJob_longRelayoutYieldsBetweenAtomicCommits", async (t) => {
   assert.equal(relayoutReadyCount, 1);
 });
 
-test("progressiveJob_tierGatedParagraphKeepsJobOpen", async (t) => {
+test("layoutJobPool_tierGatedParagraphKeepsJobOpen", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "拖动经过窄区后回宽，被门槛挡住的段落不能被当作完成遗弃。".repeat(3);
@@ -397,7 +397,7 @@ test("progressiveJob_tierGatedParagraphKeepsJobOpen", async (t) => {
   assert.ok(paragraphs.every((p, i) => renderedLineSignature(p) === wideSignatures[i]));
 });
 
-test("progressiveJob_widthDependentCapabilityRetryRestartsFromNative", async (t) => {
+test("layoutJobPool_widthDependentCapabilityRetryRestartsFromNative", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`

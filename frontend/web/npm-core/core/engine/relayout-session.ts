@@ -1,10 +1,10 @@
-// progressiveRelayoutSession (TsHost runtime port, Slice 5a). Ports the
-// ProgressiveRelayoutSession class from WebEnhancer.kt (lines 407-477).
+// relayoutSession (TsHost runtime port, Slice 5a). Ports the Kotlin
+// relayout session from WebEnhancer.kt (lines 407-477).
 // Manages incremental paragraph layout commits during a progressive pass,
 // tracking live custody snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Stateless module: openProgressiveRelayoutSession(deps, argument) is a named
+// Stateless module: openRelayoutSession(deps, argument) is a named
 // function that receives the custody and commit-prepared-paragraph
 // collaborators as an explicit first parameter and returns a fresh session
 // object for one run; the per-run Map and arrays live on that session, never
@@ -29,30 +29,30 @@ import {
   preparedSemanticReplayJson,
 } from "./prepared-metadata.js";
 
-type ProgressiveRelayoutSessionProcessItemFn = (
+type RelayoutSessionProcessItemFn = (
   index: number,
   preparation: PrepareLayoutResult,
 ) => void;
-type ProgressiveRelayoutSessionFinishFn = () => void;
-type ProgressiveRelayoutSessionRollbackFn = () => void;
+type RelayoutSessionFinishFn = () => void;
+type RelayoutSessionRollbackFn = () => void;
 
 // Live session handed back to the driver: processItem dispatches one item,
 // finish finalizes committed measures, rollback restores the pre-session
 // state lists and the live DOM snapshots.
-export type ProgressiveRelayoutSession = {
-  processItem: ProgressiveRelayoutSessionProcessItemFn;
-  finish: ProgressiveRelayoutSessionFinishFn;
-  rollback: ProgressiveRelayoutSessionRollbackFn;
+export type RelayoutSession = {
+  processItem: RelayoutSessionProcessItemFn;
+  finish: RelayoutSessionFinishFn;
+  rollback: RelayoutSessionRollbackFn;
   stale: boolean;
 };
 
-export interface ProgressiveRelayoutSessionDeps {
+export interface RelayoutSessionDeps {
   custody: CustodyApi;
   commitPreparedParagraph: CommitPreparedParagraphBundle;
 }
 
 /**
- * Open a progressive relayout session for one run.
+ * Open a relayout session for one run.
  *
  * @param {Object} deps
  * @param {Object} argument
@@ -60,7 +60,7 @@ export interface ProgressiveRelayoutSessionDeps {
  * @param {Object} argument.state
  * @returns {Object}
  */
-export function openProgressiveRelayoutSession(deps: ProgressiveRelayoutSessionDeps, argument: SessionArgument): ProgressiveRelayoutSession {
+export function openRelayoutSession(deps: RelayoutSessionDeps, argument: SessionArgument): RelayoutSession {
     const paragraphs = argument.paragraphs.slice();
     const state = argument.state;
     const snapshots = new Map<TrackedParagraph, CustodySnapshot>();

@@ -6,12 +6,12 @@ import {
   enhanceProgressivelyFromCanonical,
   rejectMissingSharedRuntimeStyles,
   relayout,
-  startProgressiveJob,
+  startLayoutJob,
 } from "./core/engine/progressive-drivers.js";
 
-// The drivers functions take fake rootState/engine/progressiveJob/copyInstaller
-// deps; the progressive-relayout-session and process-paragraph deps bundles
-// carry a fake custody. The real openProgressiveRelayoutSession and the real
+// The drivers functions take fake rootState/engine/layoutJobPool/copyInstaller
+// deps; the relayout-session and process-paragraph deps bundles
+// carry a fake custody. The real openRelayoutSession and the real
 // processParagraph run against those fakes, so the relayout main path and the
 // enhance processItem path are observable through the fake custody ledger. The
 // direct prepare step, the lifecycle helpers and sourceParagraphWidth also run
@@ -312,7 +312,7 @@ function makeFakeCustody() {
   };
 }
 
-function makeFakeProgressiveJob(overrides = {}) {
+function makeFakeLayoutJobPool(overrides = {}) {
   const startJobCalls = [];
   const cancelJobCalls = [];
   return {
@@ -348,7 +348,7 @@ function makeDrivers(overrides = {}) {
   const ffi = overrides.ffi || makeFakeFfi();
   const custody = overrides.custody || makeFakeCustody();
   const rootState = overrides.rootState || makeFakeRootState({ ...overrides, ffi: ffi });
-  const progressiveJob = overrides.progressiveJob || makeFakeProgressiveJob(overrides);
+  const layoutJobPool = overrides.layoutJobPool || makeFakeLayoutJobPool(overrides);
   const copyInstaller = overrides.copyInstaller || makeFakeCopyInstaller();
   const commitPreparedParagraphBundle = overrides.commitBundle || {
     commitWorkerPreparedParagraph: function (deps, argument) {
@@ -370,14 +370,14 @@ function makeDrivers(overrides = {}) {
     rootState: rootState,
     engine: null,
     copyInstaller: copyInstaller,
-    progressiveJob: progressiveJob,
+    layoutJobPool: layoutJobPool,
     progressiveRelayoutSession: progressiveRelayoutSessionDeps,
     processParagraph: processParagraphDeps,
   };
   return {
     deps: deps,
     rootState: rootState,
-    progressiveJob: progressiveJob,
+    layoutJobPool: layoutJobPool,
     copyInstaller: copyInstaller,
     custody: custody,
     ffi: ffi,
@@ -394,12 +394,12 @@ test("1a. cancelJob is called before createRootState", function () {
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, { fontSize: 20 });
 
-    assert.equal(ctx.progressiveJob._calls.cancelJob.length, 1);
-    assert.equal(ctx.progressiveJob._calls.cancelJob[0], root);
+    assert.equal(ctx.layoutJobPool._calls.cancelJob.length, 1);
+    assert.equal(ctx.layoutJobPool._calls.cancelJob[0], root);
     assert.equal(ctx.rootState._calls.createRootState.length, 1);
     assert.equal(ctx.rootState._calls.createRootState[0].optionsBag.fontSize, 20);
     // cancelJob happens before createRootState
-    assert.ok(ctx.progressiveJob._calls.cancelJob.length > 0);
+    assert.ok(ctx.layoutJobPool._calls.cancelJob.length > 0);
   });
 });
 
@@ -421,8 +421,8 @@ test("1b. work order sorted by (distance, index) ascending", function () {
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, {});
 
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 3);
     // p2 (distance 0, index 1) first, then the distance-100 tie p1 (index 0)
@@ -442,8 +442,8 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, {});
 
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 2);
     // itemTierIndex should be [0, 1] for two elements at distance 0
@@ -466,7 +466,7 @@ test("1d. processItem calls processParagraphArgument and processParagraph for no
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, {});
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.processItem);
 
     // Call processItem for index 0: live measure matches captured => the real
@@ -490,7 +490,7 @@ test("1e. processItem sets stale when measure drifts and does not process", func
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, {});
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     const isStaleFn = spec.isStale;
     assert.ok(spec.processItem);
 
@@ -515,7 +515,7 @@ test("1f. onItemsFinished aggregates stale across all items", function () {
     const root = makeElement();
     enhanceProgressively(ctx.deps, root, {});
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
     // p2's live re-measure drifts from its captured measure, so the finish
     // pass reports the job stale.
@@ -538,7 +538,7 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
     enhanceProgressively(ctx.deps, root, {});
 
     // Should not start a job
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 0);
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 0);
     // The gate issue is pushed into state.issues (the reportedIssues array)
     // before the lifecycle marker is written.
     assert.ok(reportedIssues.length > 0);
@@ -563,7 +563,7 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
     const ctx = makeDrivers({
       getStateValue: runningState,
       candidates: [makeParagraph().source],
-      progressiveJob: makeFakeProgressiveJob({ jobKind: () => "Enhance" }),
+      layoutJobPool: makeFakeLayoutJobPool({ jobKind: () => "Enhance" }),
     });
     const root = makeElement();
     relayout(ctx.deps, root);
@@ -573,8 +573,8 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
     // Enhance and the finish event stays tiqian:ready. Canonical options
     // must go through createRootStateFromCanonical; feeding them to
     // createRootState would re-resolve them through optionsFromJs.
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Enhance");
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Enhance");
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, runningState.options);
     assert.equal(ctx.rootState._calls.createRootState.length, 0);
@@ -594,8 +594,8 @@ test("3. relayout branch 2: no state => cold-start Relayout with bag null", func
     const root = makeElement();
     relayout(ctx.deps, root);
 
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Relayout");
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Relayout");
     // createRootState was called with bag null
     assert.equal(ctx.rootState._calls.createRootState.length, 1);
     assert.equal(ctx.rootState._calls.createRootState[0].optionsBag, null);
@@ -626,10 +626,10 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
     // cancelJob ran twice: branch 3 cancels explicitly, then the restart's
     // engine-less fallback (unit world) cancels again. Both are idempotent;
     // hosted worlds see the same double through engine.destroy.
-    assert.equal(ctx.progressiveJob._calls.cancelJob.length, 2);
+    assert.equal(ctx.layoutJobPool._calls.cancelJob.length, 2);
     // Then restarts with enhance path using the state's canonical options
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Relayout");
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Relayout");
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, stateWithIssue.options);
   });
@@ -664,12 +664,12 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
       stranded: [strandedP.source],
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     relayout(ctx.deps, root);
 
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.equal(spec.kind, "Relayout");
     // count = rendered(1) + stranded(1) = 2
     assert.equal(spec.itemCount, 2);
@@ -709,7 +709,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
 
     const prepareArgCalls = [];
@@ -721,7 +721,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
 
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     spec.processItem(0);
 
     assert.equal(prepareArgCalls.length, 1);
@@ -747,11 +747,11 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     const staleFn = spec.isStale;
 
     // Initially root width matches (300) => not stale from width drift
@@ -783,11 +783,11 @@ test("5d. relayout main path: onFailure calls rollback", function () {
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFailure);
     spec.onFailure();
     // The real session rollback hands the captured snapshots to custody.
@@ -814,11 +814,11 @@ test("5e. relayout main path: onItemsFinished calls finish which ejects unsuppor
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
     // The rendered item prepares to PreparedDomBridgeUnavailable (no
     // renderer), so the real session marks it unsupported; finish ejects it
@@ -850,7 +850,7 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
 
     enhanceProgressively(ctx.deps, root, {});
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFinished);
     spec.onFinished({
       kind: "Enhance",
@@ -894,13 +894,13 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     ctx.rootState.publishState = function () {};
 
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFinished);
     spec.onFinished({
       kind: "Relayout",
@@ -936,13 +936,13 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     ctx.rootState.publishState = function () {};
 
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFailed);
     spec.onFailed({
       kind: "Relayout",
@@ -987,13 +987,13 @@ test("6d. fail: detail truncated to 512 chars", function () {
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     ctx.rootState.publishState = function () {};
 
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     const longDetail = "X".repeat(1024);
     spec.onFailed({
       kind: "Enhance",
@@ -1029,13 +1029,13 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
       getStateValue: state,
       candidates: [],
 
-      progressiveJob: makeFakeProgressiveJob(),
+      layoutJobPool: makeFakeLayoutJobPool(),
     });
     ctx.rootState.publishState = function () {};
 
     relayout(ctx.deps, root);
 
-    const spec = ctx.progressiveJob._calls.startJob[0];
+    const spec = ctx.layoutJobPool._calls.startJob[0];
     spec.onFailed({
       kind: "Enhance",
       detail: "test error",
@@ -1066,9 +1066,9 @@ test("7a. named functions are exposed on the module surface", function () {
   assert.equal(typeof rejectMissingSharedRuntimeStyles, "function");
 });
 
-test("7b. startProgressiveJob has the 10-arg deps-first signature", function () {
-  assert.equal(typeof startProgressiveJob, "function");
-  assert.equal(startProgressiveJob.length, 10);
+test("7b. startLayoutJob has the 10-arg deps-first signature", function () {
+  assert.equal(typeof startLayoutJob, "function");
+  assert.equal(startLayoutJob.length, 10);
 });
 
 test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
@@ -1085,7 +1085,7 @@ test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind
     assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, canonicalOpts);
     assert.equal(ctx.rootState._calls.createRootState.length, 0);
     // Should start a job with kind Enhance (not Relayout)
-    assert.equal(ctx.progressiveJob._calls.startJob.length, 1);
-    assert.equal(ctx.progressiveJob._calls.startJob[0].kind, "Enhance");
+    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
+    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Enhance");
   });
 });

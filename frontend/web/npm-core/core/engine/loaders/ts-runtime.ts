@@ -11,7 +11,7 @@
 import { createCustody } from "../custody.js";
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
-import { createProgressiveJob } from "../progressive-job.js";
+import { createLayoutJobPool } from "../layout-job-pool.js";
 import type { ContentReconcileDeps } from "../content-reconcile.js";
 import {
   workerLayoutRequestForRoot,
@@ -26,8 +26,8 @@ import type {
 } from "../commit-prepared-paragraph.js";
 import { processParagraph } from "../process-paragraph.js";
 import type { ProcessParagraphDeps } from "../process-paragraph.js";
-import { openProgressiveRelayoutSession } from "../progressive-relayout-session.js";
-import type { ProgressiveRelayoutSessionDeps } from "../progressive-relayout-session.js";
+import { openRelayoutSession } from "../relayout-session.js";
+import type { RelayoutSessionDeps } from "../relayout-session.js";
 import { createRootState } from "../root-state.js";
 import type { ProgressiveDriversDeps } from "../progressive-drivers.js";
 import {
@@ -83,7 +83,7 @@ export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
   // bindFfi seam; the facade must be the same instance the engine entry holds).
   const ffiFacade = buildFfiFacade();
   rootState.bindFfi(ffiFacade);
-  const progressiveJob = createProgressiveJob();
+  const layoutJobPool = createLayoutJobPool();
   const commitPreparedParagraphDeps: CommitPreparedParagraphDeps = { custody: custody };
   const commitPreparedParagraphBundle: CommitPreparedParagraphBundle = {
     commitWorkerPreparedParagraph: commitWorkerPreparedParagraph,
@@ -93,7 +93,7 @@ export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
     custody: custody,
     commitPreparedParagraph: commitPreparedParagraphBundle,
   };
-  const progressiveRelayoutSessionDeps: ProgressiveRelayoutSessionDeps = {
+  const progressiveRelayoutSessionDeps: RelayoutSessionDeps = {
     custody: custody,
     commitPreparedParagraph: commitPreparedParagraphBundle,
   };
@@ -107,7 +107,7 @@ export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
     rootState: rootState,
     engine: null,
     copyInstaller: copyInstaller,
-    progressiveJob: progressiveJob,
+    layoutJobPool: layoutJobPool,
     progressiveRelayoutSession: progressiveRelayoutSessionDeps,
     processParagraph: processParagraphDeps,
   };
@@ -117,7 +117,7 @@ export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
     custody: custody,
     copyInstaller: copyInstaller,
     rootState: rootState,
-    progressiveJob: progressiveJob,
+    layoutJobPool: layoutJobPool,
     progressiveDriversDeps: driversDeps,
     processParagraphDeps: processParagraphDeps,
     reconcileDeps: reconcileDeps,
