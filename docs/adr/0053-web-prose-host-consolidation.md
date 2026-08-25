@@ -1403,6 +1403,59 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   记录不改动；DemoWebBreakWordMask 是 demo 局部 counter-style，留在
   demo。正式转换 [TBD 提交哈希]。
 
+#### ffi 边界复审记录（2026-08-25，原文照录，依序处置）
+
+- 为了 js/ffi 的清洁强行污染上游内核导致架构问题变得不可审计。这是一件
+  无法被容忍的事情。
+- ffi 只负责把 Engine 的函数原封不动的暴露给外面，FFI 不自带业务逻辑，
+  FFI 可以做数据转换。
+- 我从来没有在任何一个需求里面说过这种话：Keeping the exported values
+  primitive avoids exposing the core model 这全是你自己迁移逻辑的时候为了
+  偷懒给自己编的借口。
+- 如果一个 Kt 文件本身就是用来做调试的，那就应该把名字老老实实写成调试，
+  如果他不是用来做调试的，Rust 侧 和 JS 侧有消费者就不应该一个类型不安全
+  的东西飞出去对面再解码。现在糊成一大坨根本就是错的，不管 Rust 还是 JS
+  全是错的。
+
+判定（哪些既有决定是错的）：
+
+- A3（`SingleEngineFace` 字节进出面，提交 da92871）判定为错误决定。它把
+  JS lane 的线格式解析、校验与 `LayoutInput` 组装从 ffi/js 移入 engine
+  commonMain（`ParagraphWireFace`），引擎从此持有单一 lane 的传输格式代码。
+  按 ffi 边界终则，这类代码属于 ffi/js 的数据转换层。plan 序列化器
+  （`toPreparedParagraphJson` 与 `toPlanWithDiagnosticsJson`）留在引擎：
+  两条构建 lane 靠同一份序列化器产出逐字节相同的 plan，它是引擎产物。
+- engine jsMain 的 `HarfBuzzSessionBackend.kt` 违规：21 处 `@JsFun` 内联读
+  `globalThis.__TiqianFontBackend`。native 对应面是安装式 vtable
+  （ADR 0050），js 面依赖环境全局。处置为整族删除，session 与 replay 的
+  查找留在 TS 侧。
+- 跨界载荷审计：无声明契约的穿越共四处。JS 请求（五个分隔符串，分隔符
+  常量在 TS 与 Kotlin 两侧各持一份私有拷贝）、JS 逐段 shaping（JSON 字符串
+  回调往返，每段四次文本转换）、JS 返回（转义 plan JSON 信封）、native
+  返回（plan JSON 裸 C 字符串，`plan.rs` 按字段名读取并忽略未知字段）。
+  native 请求与 shaping 的打包契约（`TQLR` 与 `tiqian_font_backend.h`）
+  有声明与版本号校验，合规。
+- `PrecomputeExports.kt` KDoc 中「Keeping the exported values primitive
+  avoids exposing the core model」一句出自执行层，任何需求里不存在此要求，
+  作废。
+- 命名裁定：调试用途的文件名字必须含调试；非调试且有跨界消费者的文件
+  禁止发出无声明契约的载荷。`ExplainableStubParagraphLayoutEngine` 名字含
+  Stub、承载的是全部生产路径，是否改名待裁定。
+
+处置记录（依序执行）：
+
+- 纠偏 1：删除 HarfBuzzSession 族与全部相关环境全局。
+- 纠偏 4：删除 `buildPrecomputeBackends` 与失去实现的 session-id 入口。
+- 纠偏 3：ffi 数据转换层按职能定名并合并文件。
+- 纠偏 2：六个请求解析器移回 ffi/js，按标准工程词汇命名。
+- 纠偏 5：请求、回调与返回信封改为声明 DTO 对象过界，运行时与构建驱动
+  拿类型化对象；冻结 JSON 文本只保留给字节比对处（parity oracle 与
+  golden 证据）。
+- plan 契约声明化：plan 冻结格式改为 Kotlin、Rust、TS 三侧单点声明，
+  native 返回侧的无契约穿越同时消除；native 请求与 shaping 的打包契约
+  不动。
+- 终则定稿随纠偏收尾落回本 ADR；ADR 0050 同日附注记录 JS lane 侧判定。
+
 ### KPI 汇总
 
 | 指标 | 基线 | 目标 |

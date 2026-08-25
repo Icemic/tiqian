@@ -626,3 +626,12 @@ profile 外目录的依赖，首次装载完成修补并加载成功；移除该
 缓存副本；附加不存在的库名时报出库名与已查目录的具名错误。在宿主
 `ldconfig -p` 已列出缺失库的机器上，诊断给出 profile lib 目录，修补后加载
 成功，再次装载命中缓存副本。
+
+## Amendment（2026-08-25）：JS lane 环境全局消费判定为缺陷
+
+本 ADR 的字体回调协议描述（Context 与 `PackedFfiCalls`）同时覆盖两条 lane。
+native lane 经 `tiqian_install_font_backend` 安装式 vtable 消费，契约有声明与
+版本号校验。JS lane 的引擎侧消费（engine jsMain 的 `HarfBuzzSessionBackend.kt`，
+21 处内联读 `globalThis.__TiqianFontBackend`）与返回侧的 plan JSON 裸 C 字符串
+（`plan.rs` 按字段名读取并忽略未知字段）于同日判定为缺陷，裁定原文、跨界载荷
+审计与处置记录见 ADR 0053 的 ffi 边界复审记录（2026-08-25）。历史正文不改写。
