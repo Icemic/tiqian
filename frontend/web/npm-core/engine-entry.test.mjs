@@ -151,6 +151,13 @@ function withEnv(fn, overrides = {}) {
   }
 }
 
+// The exact-session descriptor carries the shaping callbacks ffi takes as
+// call parameters; the fixture backend supplies a working pair.
+function fixtureExactSession() {
+  const backend = installFixtureFontBackend();
+  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
+}
+
 function makeStateWithCallbacks(overrides = {}) {
   const state = {
     root: overrides.root ?? null,
@@ -158,7 +165,7 @@ function makeStateWithCallbacks(overrides = {}) {
     paragraphs: overrides.paragraphs ?? [],
     issues: overrides.issues ?? [],
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    exactSession: overrides.exactSession ?? { sessionId: "session-1" },
+    exactSession: overrides.exactSession ?? fixtureExactSession(),
     browserFallback: overrides.browserFallback ?? null,
   };
   state.onIssue = overrides.onIssue ?? function (issue) { state.issues.push(issue); };

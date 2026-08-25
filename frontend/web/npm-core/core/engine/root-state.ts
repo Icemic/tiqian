@@ -25,10 +25,17 @@ import {
 import { createFontFamilies } from "./canvas-fonts.js";
 import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
 import { shouldTryParagraph } from "./eligibility.js";
+import { exactSessionCallbacks } from "../../browser-font-replay.js";
+import type { MetricsJsonFn, ShapeJsonFn } from "../../browser-font-replay.js";
 
-// Descriptor returned by activeExactSessionDescriptor: a conforming snapshot
-// session id, or null when the active options lower the session.
-export type ExactSessionDescriptor = { sessionId: string };
+// Descriptor returned by activeExactSessionDescriptor: the shaping callbacks
+// of a conforming snapshot session, or null when the active options lower the
+// session. ffi takes the callbacks as call parameters; no session id crosses
+// the boundary.
+export type ExactSessionDescriptor = {
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
+};
 
 // Browser fallback descriptor built once per root and embedded in every lane
 // argument. Type alias (not interface) so it stays assignable to the loose
@@ -286,7 +293,7 @@ export function createRootState(): RootStateApi {
   function activeExactSessionDescriptor(state: RootState): ExactSessionDescriptor | null {
     const sessionId = conformingExactFontSessionId(activeTsOptions(state));
     if (sessionId == null) return null;
-    return { sessionId: sessionId };
+    return exactSessionCallbacks(sessionId);
   }
 
   function disableExactPreparedDom(state: RootState, detail: unknown): void {

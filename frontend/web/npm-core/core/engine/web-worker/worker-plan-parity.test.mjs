@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { precomputePlainParagraph } from "@tiqian/ffi";
+import { precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
 import { createProbeBootstrapFontSession } from "./session-bootstrap.js";
 
 /**
@@ -14,7 +14,7 @@ import { createProbeBootstrapFontSession } from "./session-bootstrap.js";
 const PLAN_NUMBER_TOLERANCE = 1e-9;
 const PARAGRAPH_ARGUMENTS = ["中文中文", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
 
-function fakeCanvasMeasurement(text: string) {
+function fakeCanvasMeasurement(text) {
   if (text === "Hg") {
     return { width: 18, fontBoundingBoxAscent: 22, fontBoundingBoxDescent: 6 };
   }
@@ -31,7 +31,7 @@ function makeScriptedCanvasModelCallbacks() {
   const shapes = new Map();
   const metrics = new Map();
   return {
-    shapeJson: (requestJson: string): string => {
+    shapeJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       // Canvas-model shape: one glyph per cluster, id 0, x 0, no ink bounds.
       const handle = nextHandle++;
@@ -77,7 +77,7 @@ function makeScriptedCanvasModelCallbacks() {
         }],
       });
     },
-    metricsJson: (requestJson: string): string => {
+    metricsJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       // WebCanvasFontMetricsResolver in px: CJK boxes derive the 字身框 from
       // ideographicBaseline (-12), Latin roles leave typo values unset.
@@ -87,7 +87,7 @@ function makeScriptedCanvasModelCallbacks() {
       metrics.set(handle, cjkBox
         ? [30, 10, 0, Math.max(request.fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
         : [22, 6, 0, Number.NaN, Number.NaN]);
-      const m = metrics.get(handle)!;
+      const m = metrics.get(handle);
       return JSON.stringify({
         ascent: m[0],
         descent: m[1],
@@ -100,9 +100,9 @@ function makeScriptedCanvasModelCallbacks() {
   };
 }
 
-const toleranceHits: string[] = [];
+const toleranceHits = [];
 
-function comparePlans(left: any, right: any, path: string) {
+function comparePlans(left, right, path) {
   if (typeof left === "number" && typeof right === "number") {
     if (Object.is(left, right)) return;
     const delta = Math.abs(left - right);
@@ -128,28 +128,32 @@ function comparePlans(left: any, right: any, path: string) {
 }
 
 test("probe bootstrap plan matches the canvas model plan end to end", async () => {
-  const measureCalls: string[] = [];
+  const measureCalls = [];
   const probeSession = await createProbeBootstrapFontSession("parity-a", {
-    measureAdapter: (cssFont: string, text: string) => {
+    measureAdapter: (cssFont, text) => {
       measureCalls.push(`${cssFont} :: ${text}`);
       return fakeCanvasMeasurement(text);
     },
   });
 
-  let planA: any;
+  let planA;
   try {
     const { shapeJson, metricsJson } = probeSession;
-    planA = JSON.parse(precomputePlainParagraph(
-      "", // sessionId no longer used
+    const envelope = precomputeParagraphWithDiagnostics(
       ...PARAGRAPH_ARGUMENTS,
+      "", // sourceBoundaries
+      "", // textSpans
+      "", // inlineBoxes
+      "", // lineBreakSpans
       "", // inlineObjects
       0.0, // zeroAdvanceEpsilonPx
       shapeJson,
       metricsJson,
       "", // decorations
       null, // emphasisDotGapEm
-      false, // renderEvidenceOverride
-    ));
+      null, // renderEvidenceOverride: wire-derived verdict
+    );
+    planA = JSON.parse(JSON.parse(envelope).plan);
   } finally {
     probeSession.close();
   }
@@ -157,27 +161,31 @@ test("probe bootstrap plan matches the canvas model plan end to end", async () =
   // Use scripted canvas model callbacks
   const { shapeJson: scriptedShapeJson, metricsJson: scriptedMetricsJson } = makeScriptedCanvasModelCallbacks();
 
-  let planB: any;
+  let planB;
   try {
-    planB = JSON.parse(precomputePlainParagraph(
-      "",
+    const envelope = precomputeParagraphWithDiagnostics(
       ...PARAGRAPH_ARGUMENTS,
+      "",
+      "",
+      "",
+      "",
       "",
       0.0,
       scriptedShapeJson,
       scriptedMetricsJson,
       "",
       null,
-      false,
-    ));
+      null,
+    );
+    planB = JSON.parse(JSON.parse(envelope).plan);
   } finally {
     // no globals to restore
   }
 
   assert.ok(measureCalls.length > 0);
   assert.deepEqual(
-    planA.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
-    planB.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
+    planA.lines.map((line) => [line.rangeStart, line.rangeEnd]),
+    planB.lines.map((line) => [line.rangeStart, line.rangeEnd]),
   );
   comparePlans(planA, planB, "$");
   console.log(

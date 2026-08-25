@@ -12,7 +12,7 @@ import type {
   WorkerRequestEnvelope,
   WorkerResponseEnvelope,
 } from "./core/engine/web-worker/worker-channel.js";
-import { precomputeParagraph } from "@tiqian/ffi";
+import { precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
 
 type WorkerMessageEventListener = (event: MessageEvent<WorkerRequestEnvelope>) => void | Promise<void>;
 
@@ -61,8 +61,9 @@ function errorDetail(error: unknown): string {
     // old sender omits it, undefined reaches the nullable ffi parameter as
     // null, and the wire-derived verdict applies, so package version skew
     // keeps both directions working.
-    const plan = precomputeParagraph(
-      session.id,
+    // zeroAdvanceEpsilonPx only prefilters the diagnostics channel, which the
+    // worker discards; the plan bytes do not depend on the value.
+    const rawEnvelope = precomputeParagraphWithDiagnostics(
       request.text,
       request.maxWidthPx,
       request.fontFamilies,
@@ -78,8 +79,16 @@ function errorDetail(error: unknown): string {
       request.inlineBoxes,
       request.lineBreakSpans,
       request.inlineObjects,
+      0.0,
+      session.shapeJson,
+      session.metricsJson,
+      null,
+      null,
       request.renderEvidence,
     );
+    // The diagnostics export returns the plan-plus-diagnostics envelope; the
+    // worker channel keeps carrying the bare plan JSON.
+    const plan = JSON.parse(rawEnvelope).plan;
     (globalThis as LayoutWorkerMessageScope).postMessage({ id, ok: true, plan });
   } catch (error) {
     (globalThis as LayoutWorkerMessageScope).postMessage({ id, ok: false, error: errorDetail(error) });

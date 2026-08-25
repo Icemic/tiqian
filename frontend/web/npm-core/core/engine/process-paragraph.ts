@@ -1,4 +1,5 @@
 import { globalServices } from "../services/global-services.js";
+import type { MetricsJsonFn, ShapeJsonFn } from "../../browser-font-replay.js";
 // processParagraph (TsHost runtime port, Slice 4d-1). Ports the paragraph
 // processing orchestration from WebEnhancerParagraphPipeline.kt
 // (processParagraph, lines 89-227, and layoutParagraph, lines 229-264).
@@ -55,7 +56,8 @@ interface ProcessParagraphTarget {
 }
 
 interface ProcessExactSessionDescriptor {
-  sessionId: string;
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
 }
 
 type ProcessIssueHandler = (issue: Record<string, unknown>) => void;

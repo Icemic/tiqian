@@ -8,16 +8,15 @@
 // is the synchronous JSON request/response contract the real @tiqian/ffi runtime
 // uses.
 //
-// Install it around a test (with try/finally) so the real
-// precomputeParagraphWithDiagnostics / precomputeParagraphWithBrowserMetrics
-// exports can shape and measure in node. uninstall() restores the prior
-// globals.
+// Tests pass the returned callbacks as the exact-session descriptor or the
+// scripted canvas model; the ffi entries take them as call parameters, so
+// there is no global to install or restore.
 
 const MISSING_GLYPH_MARKER = "\u22ef"; // "⋯"
 
 function makeFixtureCallbacks() {
   return {
-    shapeJson: (requestJson: string): string => {
+    shapeJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       const displayText = request.displayText;
       const fontSize = request.style.fontSize;
@@ -74,7 +73,7 @@ function makeFixtureCallbacks() {
         }],
       });
     },
-    metricsJson: (requestJson: string): string => {
+    metricsJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       const fontSize = request.fontSize;
       return JSON.stringify({
@@ -93,7 +92,7 @@ function installFixtureFontBackend() {
   const callbacks = makeFixtureCallbacks();
   return {
     uninstall() {
-      // No globals to restore
+      // Retained for the try/finally shape of the callers; nothing to undo.
     },
     shapeJson: callbacks.shapeJson,
     metricsJson: callbacks.metricsJson,
@@ -103,7 +102,7 @@ function installFixtureFontBackend() {
 // A throwing backend variant: every shape request throws the given error.
 // This is how tests force the exact-session capability-failure retry and the
 // rethrow path through the real precompute exports.
-function installThrowingFontBackend(error: Error) {
+function installThrowingFontBackend(error) {
   return {
     uninstall() {
       // No globals to restore

@@ -48,7 +48,7 @@ const fixtureReplay = {
   ],
 };
 
-async function createTestSession(probe: any = null) {
+async function createTestSession(probe = null) {
   return createServerReplayFontSession([{}], {
     replay: fixtureReplay,
     faceMetadata: [{ weight: [400, 400], localNames: [] }],
@@ -59,7 +59,7 @@ async function createTestSession(probe: any = null) {
 test("shape miss with valid probe measures canvas, backfills session, and returns scaled shape handle", async () => {
   let measureCount = 0;
   const session = await createTestSession({
-    measure(font: string, text: string) {
+    measure(font, text) {
       measureCount++;
       assert.equal(font, "normal 400 32px Noto Sans SC, serif");
       assert.equal(text, "测");
@@ -81,7 +81,8 @@ test("shape miss with valid probe measures canvas, backfills session, and return
   assert.equal(shapeResponse.glyphRuns[0].glyphs[0].advance, 16);
   assert.equal(shapeResponse.glyphRuns[0].glyphs[0].x, 0);
   assert.equal(shapeResponse.glyphRuns[0].glyphs[0].y, 0);
-  assert.ok(Number.isNaN(shapeResponse.glyphRuns[0].glyphs[0].bounds?.left));
+  // Probe-derived glyphs carry no ink bounds; the wire marks them null.
+  assert.equal(shapeResponse.glyphRuns[0].glyphs[0].bounds, null);
   assert.equal(shapeResponse.glyphRuns[0].advance, 16);
   assert.ok(shapeResponse.decisions[0].resolvedFace?.startsWith(REPLAY_PROBE_FACE_PREFIX));
   assert.ok(shapeResponse.decisions[0].resolvedFace?.includes("Noto Sans SC, serif"));
@@ -93,7 +94,7 @@ test("shape miss with valid probe measures canvas, backfills session, and return
 test("subsequent shape requests for probed key hit the session table without calling measure again", async () => {
   let measureCount = 0;
   const session = await createTestSession({
-    measure(font: string, text: string) {
+    measure(font, text) {
       measureCount++;
       return { width: 16 };
     },
@@ -132,7 +133,7 @@ test("shape miss with probe failure throws MissingServerShapingReplay verbatim",
   });
   assert.throws(
     () => JSON.parse(session.shapeJson(shapeRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
+    (err) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
 
   const session2 = await createTestSession({
@@ -142,7 +143,7 @@ test("shape miss with probe failure throws MissingServerShapingReplay verbatim",
   });
   assert.throws(
     () => JSON.parse(session2.shapeJson(shapeRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
+    (err) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
   session.close();
   session2.close();
@@ -161,7 +162,7 @@ test("session without probe throws MissingServerShapingReplay on miss", async ()
   });
   assert.throws(
     () => JSON.parse(session.shapeJson(shapeRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
+    (err) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
   const metricKey = metricReplayKey("Noto Sans SC", 400, false, "BodyText", "");
   const metricsRequest = JSON.stringify({
@@ -176,7 +177,7 @@ test("session without probe throws MissingServerShapingReplay on miss", async ()
   });
   assert.throws(
     () => JSON.parse(session.metricsJson(metricsRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
+    (err) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
   );
   session.close();
 });
@@ -184,7 +185,7 @@ test("session without probe throws MissingServerShapingReplay on miss", async ()
 test("metric miss with latin role probe populates ascent/descent and keeps typo pair NaN", async () => {
   let probedText = "";
   const session = await createTestSession({
-    measure(font: string, text: string) {
+    measure(font, text) {
       probedText = text;
       return {
         width: 15,
@@ -216,7 +217,7 @@ test("metric miss with latin role probe populates ascent/descent and keeps typo 
 test("metric miss with CJK role probe calculates typo metrics from ideographic baseline and normalizes em", async () => {
   let probedText = "";
   const session = await createTestSession({
-    measure(font: string, text: string) {
+    measure(font, text) {
       probedText = text;
       return {
         width: 32,
@@ -288,7 +289,7 @@ test("metric miss with measure width <= epsilon throws MissingServerShapingRepla
   });
   assert.throws(
     () => JSON.parse(session.metricsJson(metricsRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${key}`,
+    (err) => err.message === `MissingServerShapingReplay:metrics:${key}`,
   );
   session.close();
 });
@@ -315,7 +316,7 @@ test("metric miss with missing ascent in measure throws MissingServerShapingRepl
   });
   assert.throws(
     () => JSON.parse(session.metricsJson(metricsRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${key}`,
+    (err) => err.message === `MissingServerShapingReplay:metrics:${key}`,
   );
   session.close();
 });
@@ -337,7 +338,7 @@ test("measure function throwing an error fails closed without leaking exception"
   });
   assert.throws(
     () => JSON.parse(session.shapeJson(shapeRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:shape:${shapeKey}`,
+    (err) => err.message === `MissingServerShapingReplay:shape:${shapeKey}`,
   );
   const metricKey = metricReplayKey("Noto Sans SC", 400, false, "CjkText", "");
   const metricsRequest = JSON.stringify({
@@ -352,7 +353,7 @@ test("measure function throwing an error fails closed without leaking exception"
   });
   assert.throws(
     () => JSON.parse(session.metricsJson(metricsRequest)),
-    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
+    (err) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
   );
   session.close();
 });
@@ -392,7 +393,7 @@ test("probe options validation rejects non-function measure with ServerShapingRe
       faceMetadata: [{ weight: [400, 400], localNames: [] }],
       probe: {},
     }),
-    (err: Error) => err.message === "ServerShapingReplayProbeInvalid",
+    (err) => err.message === "ServerShapingReplayProbeInvalid",
   );
 
   await assert.rejects(
@@ -401,7 +402,7 @@ test("probe options validation rejects non-function measure with ServerShapingRe
       faceMetadata: [{ weight: [400, 400], localNames: [] }],
       probe: { measure: "not a function" },
     }),
-    (err: Error) => err.message === "ServerShapingReplayProbeInvalid",
+    (err) => err.message === "ServerShapingReplayProbeInvalid",
   );
 });
 

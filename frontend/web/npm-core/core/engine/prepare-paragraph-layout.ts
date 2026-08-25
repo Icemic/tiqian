@@ -107,7 +107,8 @@ interface PrepareParagraphTarget {
 }
 
 interface PrepareExactSessionDescriptor {
-  sessionId: string;
+  shapeJson: BrowserBridgeShapeJsonFn;
+  metricsJson: BrowserBridgeMetricsJsonFn;
 }
 
 interface PrepareParagraphLayoutInvocation {
@@ -298,14 +299,13 @@ interface PrepareParagraphLayoutInvocation {
   // can assert the full positional list the wire sends to ffi. The direct ffi
   // call spreads this tuple unchanged; no value is reordered or recomputed.
   export function precomputeDiagnosticsArguments(
-    sessionId: string,
+    exactSession: PrepareExactSessionDescriptor,
     paragraphArguments: unknown[],
     wire: WireArguments,
     emphasisDotGapEm: number | null,
     renderEvidenceOverride: boolean,
-  ): [string, string, number, string, number, number, string, number, boolean, number, boolean, string, string, string, string, string, number, string, number | null, boolean] {
+  ): [string, number, string, number, number, string, number, boolean, number, boolean, string, string, string, string, string, number, BrowserBridgeShapeJsonFn, BrowserBridgeMetricsJsonFn, string, number | null, boolean] {
     return [
-      sessionId,
       paragraphArguments[0] as string,
       paragraphArguments[1] as number,
       paragraphArguments[2] as string,
@@ -322,6 +322,8 @@ interface PrepareParagraphLayoutInvocation {
       paragraphArguments[13] as string,
       paragraphArguments[14] as string,
       ZERO_ADVANCE_EPSILON,
+      exactSession.shapeJson,
+      exactSession.metricsJson,
       wire.decorations,
       emphasisDotGapEm,
       renderEvidenceOverride,
@@ -423,7 +425,7 @@ interface PrepareParagraphLayoutInvocation {
         // ExactSessionSemanticLayout: one font session serves the canonical
         // plain paragraph and the semantic DOM, so no engine pair exists.
         rawEnvelope = precomputeParagraphWithDiagnostics(
-          ...precomputeDiagnosticsArguments(exactSession.sessionId, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+          ...precomputeDiagnosticsArguments(exactSession, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
         );
       } catch (error) {
         if (!isExactSessionCapabilityFailure(error)) throw error;

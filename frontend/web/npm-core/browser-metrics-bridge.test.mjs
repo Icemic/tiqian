@@ -1,21 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { precomputeParagraphWithBrowserMetrics, precomputePlainParagraph } from "@tiqian/ffi";
+import { precomputeParagraphWithBrowserMetrics, precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
 
 import { createFontFamilies } from "./core/engine/canvas-fonts.js";
 import { clearMeasurementCache } from "./core/engine/canvas-shaping.js";
 import { createBrowserMetricsBridge } from "./core/engine/browser-metrics-bridge.js";
 
 const EXPECTED_FIRST_SHAPING_REQUEST =
-  '{"text":"\\u4e2d\\u6587\\u4e2d\\u6587","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"\\u4e2d","openTypeFeatures":[]}';
+  '{"text":"\u4e2d\u6587\u4e2d\u6587","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"\u4e2d","openTypeFeatures":[]}';
 
 const EXPECTED_FIRST_METRICS_REQUEST =
-  '{"fontKey":"cjk-primary","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Fixture CJK"],"fontWeight":400,"italic":false,"faceSelectionText":"\\u4e2d"}';
+  '{"fontKey":"cjk-primary","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Fixture CJK"],"fontWeight":400,"italic":false,"faceSelectionText":"\u4e2d"}';
 
 const PARAGRAPH_ARGUMENTS = ["\u4e2d\u6587\u4e2d\u6587", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
 
-function fakeCanvasMeasurement(text: string) {
+function fakeCanvasMeasurement(text) {
   if (text === "Hg") {
     return {
       width: 18,
@@ -39,19 +39,19 @@ function fakeCanvasMeasurement(text: string) {
   };
 }
 
-function makeFakeEnv(customMeasure: any) {
+function makeFakeEnv(customMeasure) {
   const measureFn = customMeasure || fakeCanvasMeasurement;
   function createCanvasContext() {
     return {
       canvas: { width: 0, height: 0 },
       font: "",
-      measureText(text: string) {
+      measureText(text) {
         return measureFn(text, this.font);
       },
       setTransform() {},
       clearRect() {},
       fillText() {},
-      getImageData(x: number, y: number, w: number, h: number) {
+      getImageData(x, y, w, h) {
         return { data: new Uint8ClampedArray(w * h * 4) };
       },
     };
@@ -69,7 +69,7 @@ function makeFakeEnv(customMeasure: any) {
       },
     };
   }
-  function attachProbe(element: any) {
+  function attachProbe(element) {
     if (element.parentNode == null) element.parentNode = {};
   }
   return { createCanvasContext, createProbeElement, attachProbe };
@@ -80,7 +80,7 @@ function makeScriptedCanvasModelCallbacks() {
   const shapes = new Map();
   const metrics = new Map();
   return {
-    shapeJson: (requestJson: string): string => {
+    shapeJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       const handle = nextHandle++;
       shapes.set(handle, {
@@ -125,7 +125,7 @@ function makeScriptedCanvasModelCallbacks() {
         }],
       });
     },
-    metricsJson: (requestJson: string): string => {
+    metricsJson: (requestJson) => {
       const request = JSON.parse(requestJson);
       const cjkBox = request.role === "CjkText" || request.role === "CjkPunctuation";
       const ideographicDescent = 12;
@@ -133,7 +133,7 @@ function makeScriptedCanvasModelCallbacks() {
       metrics.set(handle, cjkBox
         ? [30, 10, 0, Math.max(request.fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
         : [22, 6, 0, Number.NaN, Number.NaN]);
-      const m = metrics.get(handle)!;
+      const m = metrics.get(handle);
       return JSON.stringify({
         ascent: m[0],
         descent: m[1],
@@ -147,9 +147,9 @@ function makeScriptedCanvasModelCallbacks() {
 }
 
 const PLAN_NUMBER_TOLERANCE = 1e-9;
-const toleranceHits: string[] = [];
+const toleranceHits = [];
 
-function comparePlans(left: any, right: any, path: string) {
+function comparePlans(left, right, path) {
   if (typeof left === "number" && typeof right === "number") {
     if (Object.is(left, right)) return;
     const delta = Math.abs(left - right);
@@ -191,7 +191,7 @@ test("Shaping wire byte lock", () => {
     env,
   });
 
-  const capturedShapeRequests: string[] = [];
+  const capturedShapeRequests = [];
 
   precomputeParagraphWithBrowserMetrics(
     "中文中文",
@@ -234,7 +234,7 @@ test("Metrics wire byte lock", () => {
     env,
   });
 
-  const capturedMetricsRequests: string[] = [];
+  const capturedMetricsRequests = [];
 
   precomputeParagraphWithBrowserMetrics(
     "中文中文",
@@ -337,16 +337,30 @@ test("Parity against the scripted canvas-model backend", () => {
 
   const { shapeJson: scriptedShapeJson, metricsJson: scriptedMetricsJson } = makeScriptedCanvasModelCallbacks();
 
-  let planB: any;
+  let planB;
   try {
-    planB = JSON.parse(precomputePlainParagraph("canvas-model", ...PARAGRAPH_ARGUMENTS, "", 0.0, scriptedShapeJson, scriptedMetricsJson, "", null, false));
+    const rawScriptedEnvelope = precomputeParagraphWithDiagnostics(
+      ...PARAGRAPH_ARGUMENTS,
+      "",
+      "",
+      "",
+      "",
+      "",
+      0.0,
+      scriptedShapeJson,
+      scriptedMetricsJson,
+      "",
+      null,
+      null,
+    );
+    planB = JSON.parse(JSON.parse(rawScriptedEnvelope).plan);
   } finally {
     // no globals to restore
   }
 
   assert.deepEqual(
-    planA.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
-    planB.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
+    planA.lines.map((line) => [line.rangeStart, line.rangeEnd]),
+    planB.lines.map((line) => [line.rangeStart, line.rangeEnd]),
   );
   comparePlans(planA, planB, "$");
 });
@@ -387,7 +401,7 @@ test("Dash capability passthrough", () => {
 
   const envelope = JSON.parse(rawEnvelope);
   const issue = envelope.diagnostics.capabilityIssues.find(
-    (item: any) => item.name === "NoConformingCjkDashGlyph",
+    (item) => item.name === "NoConformingCjkDashGlyph",
   );
   assert.ok(issue, "Expected NoConformingCjkDashGlyph capability issue");
   assert.ok(

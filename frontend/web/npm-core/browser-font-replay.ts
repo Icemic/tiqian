@@ -56,14 +56,25 @@ export interface ReplayFontSessionFace {
   probe?: SnapshotProbe | undefined;
 }
 
+// Named wire callback types: the ffi entries take the shaping supply as call
+// parameters, and every descriptor that carries the pair references these
+// names instead of repeating an inline function type.
+export type ShapeJsonFn = (requestJson: string) => string;
+export type MetricsJsonFn = (requestJson: string) => string;
+
+export interface ExactSessionCallbacks {
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
+}
+
 export interface ServerReplayFontSession {
   id: string;
   backendRevision: string;
   harfbuzzVersion: string;
   faces: ReplayFontSessionFace[];
   close: SessionCloser;
-  shapeJson: (requestJson: string) => string;
-  metricsJson: (requestJson: string) => string;
+  shapeJson: ShapeJsonFn;
+  metricsJson: MetricsJsonFn;
 }
 
 interface ReplaySession {
@@ -144,7 +155,7 @@ function replayIndex<T extends { key: string }>(items: T[], kind: string): Map<s
   return index;
 }
 
-function createShapeJsonCallback(registry: ReplayRegistry, sessionId: string): (requestJson: string) => string {
+function createShapeJsonCallback(registry: ReplayRegistry, sessionId: string): ShapeJsonFn {
   return (requestJson: string): string => {
     const request = JSON.parse(requestJson);
     const session = registry.sessions.get(sessionId);
@@ -227,7 +238,7 @@ function createShapeJsonCallback(registry: ReplayRegistry, sessionId: string): (
   };
 }
 
-function createMetricsJsonCallback(registry: ReplayRegistry, sessionId: string): (requestJson: string) => string {
+function createMetricsJsonCallback(registry: ReplayRegistry, sessionId: string): MetricsJsonFn {
   return (requestJson: string): string => {
     const request = JSON.parse(requestJson);
     const session = registry.sessions.get(sessionId);
@@ -271,6 +282,20 @@ function createMetricsJsonCallback(registry: ReplayRegistry, sessionId: string):
       typoAscent: Number.isNaN(metrics[3]) ? null : metrics[3],
       typoDescent: Number.isNaN(metrics[4]) ? null : metrics[4],
     });
+  };
+}
+
+/**
+ * Callback pair for an already-registered session id. The main-thread exact
+ * layout path resolves its shaping supply through the coordination registry
+ * the session was created in, so a conforming sessionId is sufficient; the
+ * closures report an unknown id only if the session was released meanwhile.
+ */
+export function exactSessionCallbacks(sessionId: string): ExactSessionCallbacks {
+  const registry = replayRegistry();
+  return {
+    shapeJson: createShapeJsonCallback(registry, sessionId),
+    metricsJson: createMetricsJsonCallback(registry, sessionId),
   };
 }
 

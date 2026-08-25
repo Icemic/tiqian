@@ -250,15 +250,27 @@ function makeBridge() {
 
 const RICH_BROWSER_FALLBACK = { bridge: makeBridge() };
 
+// The exact-session descriptor carries the shaping callbacks ffi takes as
+// call parameters; the fixture backend supplies the same pair the old global
+// installation shaped through.
+function exactSessionCallbacksOf(backend) {
+  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
+}
+
+function fixtureExactSession() {
+  return exactSessionCallbacksOf(installFixtureFontBackend());
+}
+
 function exactArgument(overrides = {}) {
+  const { exactSession = fixtureExactSession(), ...rest } = overrides;
   return {
     paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
     options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
-    exactSession: { sessionId: "s1" },
+    exactSession,
     browserFallback: RICH_BROWSER_FALLBACK,
     widthOverride: null,
     ignoreUnchangedMeasure: false,
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -300,9 +312,9 @@ test("widthOverride wins and ready.width is raw while ffi receives the measure",
       // The exact-session wire consumed the measure as maxWidthPx and the
       // rich lowered text as the source.
       const wire = wireArguments(RICH_LOWERED);
-      const args = precomputeDiagnosticsArguments("s1", ["abcde", expectedMeasure, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, "0,2,5", wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects], wire, null, true);
-      assert.equal(args[2], expectedMeasure);
-      assert.equal(args[1], "abcde");
+      const args = precomputeDiagnosticsArguments(fixtureExactSession(), ["abcde", expectedMeasure, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, "0,2,5", wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects], wire, null, true);
+      assert.equal(args[1], expectedMeasure);
+      assert.equal(args[0], "abcde");
     });
   } finally {
     backend.uninstall();
@@ -354,33 +366,35 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
 test("wire byte lock: diagnostics call carries the full positional argument list", () => {
   withEnv(() => {
     const wire = wireArguments(RICH_LOWERED);
+    const session = fixtureExactSession();
     const args = precomputeDiagnosticsArguments(
-      "s1",
+      session,
       ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
       wire,
       null,
       true,
     );
-    assert.equal(args[0], "s1");
-    assert.equal(args[1], "abcde");
-    assert.equal(args[2], DEFAULT_MEASURE);
-    assert.equal(args[3], "Serif A\u001fSerif B");
-    assert.equal(args[4], 19);
-    assert.equal(args[5], 28);
-    assert.equal(args[6], "zh-Hans");
-    assert.equal(args[7], 400);
-    assert.equal(args[8], false);
-    assert.equal(args[9], 2);
-    assert.equal(args[10], true);
-    assert.equal(args[11], "0,2,5");
-    assert.equal(args[12], "0\u001d2\u001dA\u001fB\u001d12.5\u001d500\u001dtrue\u001d1.5\u001e2\u001d5\u001dC\u001d13.25\u001d600\u001dfalse\u001d0");
-    assert.equal(args[13], "0\u001d2\u001d1.5\u001d2.25\u001dNarrow");
-    assert.equal(args[14], "1\u001d3\u001dProgressiveTechnical");
-    assert.equal(args[15], "4\u001d5\u001d6.5\u001d5\u001d1.25");
-    assert.equal(args[16], 0.01);
-    assert.equal(args[17], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
-    assert.equal(args[18], null);
-    assert.equal(args[19], true);
+    assert.equal(args[0], "abcde");
+    assert.equal(args[1], DEFAULT_MEASURE);
+    assert.equal(args[2], "Serif A\u001fSerif B");
+    assert.equal(args[3], 19);
+    assert.equal(args[4], 28);
+    assert.equal(args[5], "zh-Hans");
+    assert.equal(args[6], 400);
+    assert.equal(args[7], false);
+    assert.equal(args[8], 2);
+    assert.equal(args[9], true);
+    assert.equal(args[10], "0,2,5");
+    assert.equal(args[11], "0\u001d2\u001dA\u001fB\u001d12.5\u001d500\u001dtrue\u001d1.5\u001e2\u001d5\u001dC\u001d13.25\u001d600\u001dfalse\u001d0");
+    assert.equal(args[12], "0\u001d2\u001d1.5\u001d2.25\u001dNarrow");
+    assert.equal(args[13], "1\u001d3\u001dProgressiveTechnical");
+    assert.equal(args[14], "4\u001d5\u001d6.5\u001d5\u001d1.25");
+    assert.equal(args[15], 0.01);
+    assert.equal(args[16], session.shapeJson);
+    assert.equal(args[17], session.metricsJson);
+    assert.equal(args[18], "0\u001d2\u001dEmphasis\u001e3\u001d5\u001dMourning");
+    assert.equal(args[19], null);
+    assert.equal(args[20], true);
 
     // The wire byte lock is not a dead computation: the real exact-session
     // ffi call is a one-line consumer of the same tuple, observable as the
@@ -405,17 +419,18 @@ test("render evidence override carries the six-collection verdict", () => {
         sourceSpans: [sourceSpan({ start: 0, end: 5 })],
       });
       const plain = paragraph({ text: "abcde" });
+      const session = fixtureExactSession();
       const linkWire = wireArguments(linkOnly);
       const plainWire = wireArguments(plain);
       const linkArgs = precomputeDiagnosticsArguments(
-        "s1",
+        session,
         ["abcde", DEFAULT_MEASURE, linkWire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, linkWire.sourceBoundaries, linkWire.textSpans, linkWire.inlineBoxes, linkWire.lineBreakSpans, linkWire.inlineObjects],
         linkWire,
         null,
         true,
       );
       const plainArgs = precomputeDiagnosticsArguments(
-        "s1",
+        session,
         ["abcde", DEFAULT_MEASURE, plainWire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, plainWire.sourceBoundaries, plainWire.textSpans, plainWire.inlineBoxes, plainWire.lineBreakSpans, plainWire.inlineObjects],
         plainWire,
         null,
@@ -423,8 +438,8 @@ test("render evidence override carries the six-collection verdict", () => {
       );
       // sourceSpans-only lowered has wire-empty collections but carries true
       // render evidence; a plain paragraph carries false.
-      assert.equal(linkArgs[19], true);
-      assert.equal(plainArgs[19], false);
+      assert.equal(linkArgs[20], true);
+      assert.equal(plainArgs[20], false);
 
       // The browser-metrics retry path carries the override after the
       // trailing decorations and emphasis dot gap.
@@ -484,7 +499,7 @@ test("capabilityIssues[0] produces an unsupported verdict with name and reason",
   };
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument({ browserFallback: { bridge } }));
+      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend), browserFallback: { bridge } }));
       assert.deepEqual(result, {
         kind: "unsupported",
         name: "NoConformingCjkDashGlyph",
@@ -638,7 +653,7 @@ test("a capability-failure throws retry through the browser metrics call", () =>
   const backend = installThrowingFontBackend(new Error("NoExactFontFace: session miss"));
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument());
+      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
       assert.equal(result.exactFontSessionUsed, false);
     });
@@ -651,7 +666,7 @@ test("another capability-failure name triggers the retry", () => {
   const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay"));
   try {
     withEnv(() => {
-      const result = prepareParagraphLayout(exactArgument());
+      const result = prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
       assert.equal(result.exactFontSessionUsed, false);
     });
@@ -664,7 +679,7 @@ test("a non-matching error rethrows", () => {
   const backend = installThrowingFontBackend(new Error("some unrelated failure"));
   try {
     withEnv(() => {
-      assert.throws(() => prepareParagraphLayout(exactArgument()), /some unrelated failure/);
+      assert.throws(() => prepareParagraphLayout(exactArgument({ exactSession: exactSessionCallbacksOf(backend) })), /some unrelated failure/);
     });
   } finally {
     backend.uninstall();
@@ -719,23 +734,24 @@ test("emphasisDotGapEm passes through to the trailing ffi argument", () => {
   try {
     withEnv(() => {
       const wire = wireArguments(RICH_LOWERED);
+      const session = fixtureExactSession();
       const withGap = precomputeDiagnosticsArguments(
-        "s1",
+        session,
         ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
         wire,
         0.25,
         true,
       );
-      assert.equal(withGap[18], 0.25);
+      assert.equal(withGap[19], 0.25);
 
       const omitted = precomputeDiagnosticsArguments(
-        "s1",
+        session,
         ["abcde", DEFAULT_MEASURE, wire.fontFamilies, 19, 28, "zh-Hans", 400, false, 2, true, wire.sourceBoundaries, wire.textSpans, wire.inlineBoxes, wire.lineBreakSpans, wire.inlineObjects],
         wire,
         null,
         true,
       );
-      assert.equal(omitted[18], null);
+      assert.equal(omitted[19], null);
     });
   } finally {
     backend.uninstall();

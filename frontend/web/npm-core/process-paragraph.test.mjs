@@ -239,6 +239,16 @@ function makeFakeDocument(baselineBottom) {
   };
 }
 
+// The exact-session descriptor carries the shaping callbacks ffi takes as
+// call parameters; the fixture backend supplies a working pair.
+function exactSessionCallbacksOf(backend) {
+  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
+}
+
+function fixtureExactSession() {
+  return exactSessionCallbacksOf(installFixtureFontBackend());
+}
+
 function makeState(overrides = {}) {
   const issues = [];
   const paragraphs = [];
@@ -246,7 +256,7 @@ function makeState(overrides = {}) {
   return {
     options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    exactSession: overrides.exactSession ?? { sessionId: "session-1" },
+    exactSession: overrides.exactSession ?? fixtureExactSession(),
     browserFallback: overrides.browserFallback ?? null,
     onIssue: (issue) => {
       issues.push(issue);
@@ -586,7 +596,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
       };
 
 
-      const state = makeState();
+      const state = makeState({ exactSession: exactSessionCallbacksOf(backend) });
 
       processParagraph(rawDom, { paragraph, state });
 

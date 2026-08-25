@@ -10,15 +10,15 @@ import { createServerReplayFontSession } from "../../../browser-font-replay.js";
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
 import { writeBinaryTable } from "../../../table-binary-writer.mjs";
 
-function recordingMeasureAdapter(calls: any[]) {
-  return (cssFont: string, text: string) => {
+function recordingMeasureAdapter(calls) {
+  return (cssFont, text) => {
     calls.push({ cssFont, text });
     return { width: 18, fontBoundingBoxAscent: 30, fontBoundingBoxDescent: 10 };
   };
 }
 
 test("empty tables with a probe create an unbaked session", async () => {
-  const calls: any[] = [];
+  const calls = [];
   const session = await createServerReplayFontSession([], {
     sessionPrefix: "tq-test-nobake",
     replay: { revision: FONT_REPLAY_REVISION, shapes: [], metrics: [] },
@@ -48,7 +48,7 @@ test("empty tables without a probe still fail closed", async () => {
 });
 
 test("probe bootstrap backfills a miss and serves the same key from the table", async () => {
-  const calls: any[] = [];
+  const calls = [];
   const session = await createProbeBootstrapFontSession("bootstrap-test", {
     measureAdapter: recordingMeasureAdapter(calls),
   });

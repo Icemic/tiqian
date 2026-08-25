@@ -164,9 +164,12 @@ test("3. preparedDom toggle: active options, exact session descriptor, attribute
     });
 
     // While prepared DOM is enabled the active options are state.options and
-    // the conforming session id is visible.
+    // the descriptor resolves the session id into the callback pair ffi takes
+    // as call parameters; an unregistered id only fails at call time.
     assert.equal(rs.activeTsOptions(state), state.options);
-    assert.deepEqual(rs.activeExactSessionDescriptor(state), { sessionId: "sess-1" });
+    const descriptor = rs.activeExactSessionDescriptor(state);
+    assert.equal(typeof descriptor.shapeJson, "function");
+    assert.equal(typeof descriptor.metricsJson, "function");
 
     const detail = "x".repeat(600);
     rs.disableExactPreparedDom(state, detail);
@@ -208,7 +211,8 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
 
     assert.equal(engine.options, state.options);
     assert.equal(engine.preparedDomEnabled, true);
-    assert.deepEqual(engine.exactSession, { sessionId: "sess-1" });
+    assert.equal(typeof engine.exactSession.shapeJson, "function");
+    assert.equal(typeof engine.exactSession.metricsJson, "function");
     assert.equal(engine.browserFallback, state.browserFallback);
     assert.equal(engine.paragraphs, state.paragraphs);
     assert.equal(engine.issues, state.issues);
