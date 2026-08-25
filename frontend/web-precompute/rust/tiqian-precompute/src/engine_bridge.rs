@@ -63,7 +63,25 @@ impl Drop for LendSlot {
 /// capture window as the font backend. Both stay borrowed for the duration
 /// of the call; nested engine calls on the same thread are not supported.
 /// Errors are the named validation issues of the request and the engine.
+/// The production path returns the packed plan decoded into [`crate::plan::Plan`].
 pub fn precompute_paragraph(
+    session: &FontSession,
+    evidence: &mut CaptureEvidence,
+    request: &ParagraphRequest,
+) -> Result<crate::plan::Plan, String> {
+    install_session_backend()?;
+    let packed = request
+        .to_layout_request()
+        .map_err(|error| error.0)?
+        .pack()
+        .map_err(|error| error.0)?;
+    let _slot = LendSlot::set(session, evidence);
+    let bytes = tiqian::engine::layout_paragraph(&packed).map_err(|error| error.0)?;
+    crate::plan::Plan::from_packed_bytes(&bytes).map_err(|error| error.0)
+}
+
+/// Diagnostic dump: same request, JSON bytes for parity oracle and golden.
+pub fn precompute_paragraph_json(
     session: &FontSession,
     evidence: &mut CaptureEvidence,
     request: &ParagraphRequest,
@@ -75,7 +93,7 @@ pub fn precompute_paragraph(
         .pack()
         .map_err(|error| error.0)?;
     let _slot = LendSlot::set(session, evidence);
-    tiqian::engine::layout_paragraph(&packed).map_err(|error| error.0)
+    tiqian::engine::layout_paragraph_json(&packed).map_err(|error| error.0)
 }
 
 fn install_session_backend() -> Result<(), String> {

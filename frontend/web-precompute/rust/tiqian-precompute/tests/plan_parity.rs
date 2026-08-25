@@ -254,22 +254,30 @@ fn native_plans_match_the_js_oracle_byte_for_byte() {
     install_fixture_backend();
     let mut native = Vec::<(String, Json)>::new();
     for (name, request) in corpus() {
-        // The dump must hold the exact engine bytes, so the test drives the
-        // ABI directly instead of reading `precompute_paragraph`'s `Plan`.
         let packed = request
             .to_layout_request()
             .unwrap_or_else(|error| panic!("{name}: request invalid: {error}"))
             .pack()
             .unwrap_or_else(|error| panic!("{name}: request pack failed: {error}"));
-        let plan_json = tiqian::engine::layout_paragraph(&packed)
+        // Production path (packed) must also decode and validate, but the dump
+        // for parity is the JSON entry.
+        let plan_bytes = tiqian::engine::layout_paragraph(&packed)
             .unwrap_or_else(|error| panic!("{name}: precompute failed: {error}"));
-        let plan = Plan::from_json_str(&plan_json)
+        let plan = Plan::from_packed_bytes(&plan_bytes)
+            .unwrap_or_else(|error| panic!("{name}: packed plan unreadable: {error}"));
+        let plan_json = tiqian::engine::layout_paragraph_json(&packed)
+            .unwrap_or_else(|error| panic!("{name}: dump failed: {error}"));
+        let json_roundtrip = Plan::from_json_str(&plan_json)
             .unwrap_or_else(|error| panic!("{name}: plan unreadable: {error}"));
         assert!(!plan.lines.is_empty(), "{name}: no lines");
         assert_eq!(
             plan.lines.last().unwrap().end_reason,
             PlanEndReason::ParagraphEnd,
             "{name}: last line must close the paragraph"
+        );
+        assert_eq!(
+            plan, json_roundtrip,
+            "{name}: packed vs json roundtrip diverged"
         );
         native.push((name.to_string(), Json::Str(plan_json)));
     }

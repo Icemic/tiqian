@@ -11,7 +11,7 @@ use crate::cache::{CacheAdapter, LayeredCacheStore, NoCache, WriteBudgetTier};
 use crate::emit::evidence_json;
 use crate::font_source::sha256_hex;
 use crate::js_compat::{js_int_to_number, trunc_sat_i32};
-use crate::json::{member, parse_json, Json};
+use crate::json::{member, Json};
 use crate::normalize::{
     font_contract_capture_width, normalize_inline_boxes, normalize_text_spans,
     normalize_typography, paragraph_capability_issue, semantic_capability_issue,
@@ -21,7 +21,7 @@ use crate::paragraph::{
     utf16_length, InlineBoxInput, LineBreakPolicyCode, LineBreakSpanInput, ParagraphRequest,
     TextSpanInput,
 };
-use crate::prepared_dom::{render_prepared_paragraph_artifact, PreparedRenderOptions};
+use crate::prepared_dom::PreparedRenderOptions;
 use crate::schema::{stable_stringify, LAYOUT_REVISION, RENDER_REVISION, SNAPSHOT_SCHEMA};
 use crate::session::{create_font_session, FontSession, SessionFaceSpec, SessionOptions};
 use crate::snapshot_source::{
@@ -296,7 +296,7 @@ impl Precomputer {
             &inline_boxes,
             max_width_px,
         );
-        let (plan_json, evidence) = match classify_paragraph(&key, captured)? {
+        let (plan, evidence) = match classify_paragraph(&key, captured)? {
             Ok(value) => value,
             Err(unsupported) => return Ok(unsupported),
         };
@@ -311,8 +311,8 @@ impl Precomputer {
         render_options.inline_boxes = Some(&inline_boxes_json);
         render_options.render_text_spans = Some(&render_text_spans_json);
         render_options.source_text = Some(&text);
-        let rendered = match render_prepared_paragraph_artifact(
-            &plan_json,
+        let rendered = match crate::prepared_dom::render_prepared_paragraph_artifact_from_plan(
+            &plan,
             &typography.locale,
             &mut render_options,
         ) {
@@ -361,10 +361,7 @@ impl Precomputer {
             ("typographySha256".to_string(), Json::str(typography_sha256)),
             ("maxWidthPx".to_string(), Json::Num(max_width_px)),
             ("fontEvidence".to_string(), evidence_json(&evidence)?),
-            (
-                "plan".to_string(),
-                parse_json(&plan_json).map_err(|_| named("InvalidPlanJson"))?,
-            ),
+            ("plan".to_string(), plan.to_json_value()),
             ("html".to_string(), Json::str(rendered.html)),
             (
                 "renderArtifactSha256".to_string(),
@@ -377,7 +374,7 @@ impl Precomputer {
 /// The capture and engine phase of `prepare`: open the capture window,
 /// gather the source boundary set, run the engine and read the evidence.
 /// Every error here reaches the `paragraphCapabilityIssue` classifier.
-type Captured = Result<(String, crate::session::FontEvidence), NamedError>;
+type Captured = Result<(crate::plan::Plan, crate::session::FontEvidence), NamedError>;
 
 fn capture(
     session: &FontSession,
@@ -485,12 +482,12 @@ fn capture(
         line_break_spans,
         inline_boxes: inline_boxes.to_vec(),
     };
-    let plan_json = engine_call(session, &mut evidence_window, &request)?;
+    let plan = engine_call(session, &mut evidence_window, &request)?;
     let evidence = evidence_window.snapshot();
     if evidence.faces.is_empty() {
         return Err(named("MissingShapingFontEvidence"));
     }
-    Ok((plan_json, evidence))
+    Ok((plan, evidence))
 }
 
 /// `runtime.precomputeParagraph`: the engine runs with the session and the
@@ -501,7 +498,7 @@ fn engine_call(
     session: &FontSession,
     evidence: &mut crate::session::CaptureEvidence,
     request: &ParagraphRequest,
-) -> Result<String, NamedError> {
+) -> Result<crate::plan::Plan, NamedError> {
     crate::engine_bridge::precompute_paragraph(session, evidence, request).map_err(NamedError)
 }
 
@@ -510,7 +507,7 @@ fn engine_call(
     _session: &FontSession,
     _evidence: &mut crate::session::CaptureEvidence,
     _request: &ParagraphRequest,
-) -> Result<String, NamedError> {
+) -> Result<crate::plan::Plan, NamedError> {
     Err(named("PrecomputeEngineNotLinked"))
 }
 

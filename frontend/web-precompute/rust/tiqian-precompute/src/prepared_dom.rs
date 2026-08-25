@@ -683,6 +683,14 @@ pub fn render_prepared_paragraph_artifact(
         }
         _ => NamedError("InvalidPreparedParagraphGeometry".to_string()),
     })?;
+    render_prepared_paragraph_artifact_from_plan(&plan, locale, options)
+}
+
+pub fn render_prepared_paragraph_artifact_from_plan(
+    plan: &Plan,
+    locale: &str,
+    options: &mut PreparedRenderOptions,
+) -> Result<PreparedParagraphRender, NamedError> {
     if !plan.height.is_finite() || plan.height < 0.0 {
         return Err(NamedError("InvalidPreparedParagraphGeometry".to_string()));
     }

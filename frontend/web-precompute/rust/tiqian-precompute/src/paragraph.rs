@@ -185,14 +185,14 @@ impl ParagraphRequest {
     }
 }
 
-/// Packs, calls the engine over the ABI and deserializes the plan JSON.
+/// Packs, calls the engine over the ABI and deserializes the packed plan.
 /// Exists only when the engine archive is linked (`TIQIAN_NATIVE_LIB_DIR` at
 /// build time); the font backend must already be installed.
 #[cfg(tiqian_engine_link)]
 pub fn precompute_paragraph(request: &ParagraphRequest) -> Result<Plan, NamedError> {
     let packed = request.to_layout_request()?.pack()?;
-    let plan_json = tiqian::engine::layout_paragraph(&packed)?;
-    Plan::from_json_str(&plan_json)
+    let bytes = tiqian::engine::layout_paragraph(&packed)?;
+    Plan::from_packed_bytes(&bytes)
 }
 
 fn named(name: &str) -> NamedError {

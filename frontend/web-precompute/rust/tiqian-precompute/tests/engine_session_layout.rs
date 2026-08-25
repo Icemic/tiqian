@@ -70,21 +70,20 @@ fn session_lends_the_engine_a_real_font_backend() {
 
     let request = request(&session.session_id);
     let mut evidence_window = CaptureEvidence::new();
-    let plan_json =
-        engine_bridge::precompute_paragraph(&mut session, &mut evidence_window, &request)
-            .expect("engine precompute succeeds");
+    let plan = engine_bridge::precompute_paragraph(&mut session, &mut evidence_window, &request)
+        .expect("engine precompute succeeds");
     let evidence = evidence_window.snapshot();
 
-    let plan = Plan::from_json_str(&plan_json).expect("plan json parses");
     assert!(!plan.lines.is_empty(), "no lines");
     assert_eq!(
         plan.lines.last().unwrap().end_reason,
         tiqian_precompute::plan::PlanEndReason::ParagraphEnd,
         "last line must close the paragraph"
     );
-    assert!(
-        plan_json.contains("\"layoutRevision\":\"tiqian-layout-v2\""),
-        "plan misses the layout revision: {plan_json}"
+    assert_eq!(
+        tiqian_precompute::plan::PLAN_LAYOUT_REVISION,
+        "tiqian-layout-v2",
+        "layout revision constant diverged"
     );
     assert!(
         !evidence.replay_shapes.is_empty(),

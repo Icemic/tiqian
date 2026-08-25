@@ -29,6 +29,7 @@ pub mod normalize;
 pub mod paragraph;
 pub mod parallel;
 pub mod plan;
+pub mod plan_packed;
 pub mod policy;
 pub mod precompute_html;
 pub mod precomputer;

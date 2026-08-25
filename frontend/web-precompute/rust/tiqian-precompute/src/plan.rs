@@ -187,6 +187,307 @@ pub struct PlanCell {
 }
 
 impl Plan {
+    /// Deserializes one packed plan buffer (tiqian_plan_abi.h). The writer is
+    /// the Kotlin engine's single packed emitter; this decoder fills the same
+    /// struct the JSON path fills so callers see one type.
+    pub fn from_packed_bytes(bytes: &[u8]) -> Result<Plan, NamedError> {
+        crate::plan_packed::decode(bytes)
+    }
+
+    /// Serializes this plan to the JSON value the Kotlin emitter would have
+    /// produced (`toPreparedParagraphJson`). Numbers stay f64; absent optionals
+    /// stay absent so the entry round-trips through `from_json_str`.
+    pub fn to_json_value(&self) -> Json {
+        let mut fields: Vec<(String, Json)> = Vec::new();
+        fields.push(("schema".to_string(), Json::Num(PLAN_SCHEMA as f64)));
+        fields.push((
+            "layoutRevision".to_string(),
+            Json::Str(PLAN_LAYOUT_REVISION.to_string()),
+        ));
+        fields.push(("width".to_string(), Json::Num(self.width)));
+        fields.push(("height".to_string(), Json::Num(self.height)));
+        let lines = self
+            .lines
+            .iter()
+            .map(|line| {
+                let cells = line
+                    .cells
+                    .iter()
+                    .map(|cell| {
+                        let mut cf: Vec<(String, Json)> = Vec::new();
+                        cf.push((
+                            "rangeStart".to_string(),
+                            Json::Num(f64::from(cell.range_start)),
+                        ));
+                        cf.push(("rangeEnd".to_string(), Json::Num(f64::from(cell.range_end))));
+                        cf.push(("source".to_string(), Json::Str(cell.source.clone())));
+                        cf.push(("display".to_string(), Json::Str(cell.display.clone())));
+                        cf.push(("drawX".to_string(), Json::Num(cell.draw_x)));
+                        cf.push(("naturalWidth".to_string(), Json::Num(cell.natural_width)));
+                        cf.push((
+                            "leadingLayoutAdvance".to_string(),
+                            Json::Num(cell.leading_layout_advance),
+                        ));
+                        if cell.shaping_boundary {
+                            cf.push(("shapingBoundary".to_string(), Json::Bool(true)));
+                        }
+                        if !cell.open_type_features.is_empty() {
+                            cf.push((
+                                "openTypeFeatures".to_string(),
+                                Json::Arr(
+                                    cell.open_type_features
+                                        .iter()
+                                        .map(|f| Json::Str(f.clone()))
+                                        .collect(),
+                                ),
+                            ));
+                        }
+                        if let Some(v) = &cell.render_font_family {
+                            cf.push(("renderFontFamily".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = &cell.dash_strategy {
+                            cf.push(("dashStrategy".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = &cell.shaping_language {
+                            cf.push(("shapingLanguage".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = &cell.resolved_face {
+                            cf.push(("resolvedFace".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = &cell.glyph_ids {
+                            cf.push(("glyphIds".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = &cell.shaping_evidence {
+                            cf.push(("shapingEvidence".to_string(), Json::Str(v.clone())));
+                        }
+                        if let Some(v) = cell.punctuation_ink_floor {
+                            cf.push(("punctuationInkFloor".to_string(), Json::Num(v)));
+                            if let Some(bw) = cell.punctuation_body_width {
+                                cf.push(("punctuationBodyWidth".to_string(), Json::Num(bw)));
+                            }
+                        }
+                        if cell.latin {
+                            cf.push(("latin".to_string(), Json::Bool(true)));
+                        }
+                        if let Some(v) = cell.advance {
+                            cf.push(("advance".to_string(), Json::Num(v)));
+                        }
+                        if let Some(v) = cell.inline_object {
+                            cf.push(("inlineObject".to_string(), Json::Num(v)));
+                        }
+                        if let Some(style) = &cell.style_delta {
+                            cf.push(("style".to_string(), style.clone()));
+                        }
+                        Json::Obj(cf)
+                    })
+                    .collect::<Vec<_>>();
+                let mut lf: Vec<(String, Json)> = Vec::new();
+                lf.push((
+                    "rangeStart".to_string(),
+                    Json::Num(f64::from(line.range_start)),
+                ));
+                lf.push(("rangeEnd".to_string(), Json::Num(f64::from(line.range_end))));
+                lf.push(("top".to_string(), Json::Num(line.top)));
+                lf.push(("bottom".to_string(), Json::Num(line.bottom)));
+                lf.push(("baseline".to_string(), Json::Num(line.baseline)));
+                lf.push(("indent".to_string(), Json::Num(line.indent)));
+                lf.push(("visualWidth".to_string(), Json::Num(line.visual_width)));
+                lf.push(("hyphenAdvance".to_string(), Json::Num(line.hyphen_advance)));
+                lf.push((
+                    "endReason".to_string(),
+                    Json::Str(
+                        match line.end_reason {
+                            PlanEndReason::AutoWrap => "AutoWrap",
+                            PlanEndReason::MandatoryBreak => "MandatoryBreak",
+                            PlanEndReason::ParagraphEnd => "ParagraphEnd",
+                        }
+                        .to_string(),
+                    ),
+                ));
+                lf.push(("cells".to_string(), Json::Arr(cells)));
+                Json::Obj(lf)
+            })
+            .collect();
+        fields.push(("lines".to_string(), Json::Arr(lines)));
+        if !self.emphasis_ranges.is_empty() {
+            fields.push((
+                "emphasisRanges".to_string(),
+                Json::Arr(
+                    self.emphasis_ranges
+                        .iter()
+                        .map(|(s, e)| Json::Arr(vec![Json::Num(*s), Json::Num(*e)]))
+                        .collect(),
+                ),
+            ));
+        }
+        if !self.inline_edges.is_empty() {
+            fields.push((
+                "inlineEdges".to_string(),
+                Json::Arr(
+                    self.inline_edges
+                        .iter()
+                        .map(|edge| {
+                            let mut ef: Vec<(String, Json)> = Vec::new();
+                            ef.push(("offset".to_string(), Json::Num(edge.offset)));
+                            if let Some(v) = edge.inline_start {
+                                ef.push(("inlineStart".to_string(), Json::Num(v)));
+                            }
+                            if let Some(v) = edge.inline_end {
+                                ef.push(("inlineEnd".to_string(), Json::Num(v)));
+                            }
+                            Json::Obj(ef)
+                        })
+                        .collect(),
+                ),
+            ));
+        }
+        if !self.ruby_decisions.is_empty() {
+            fields.push((
+                "rubyDecisions".to_string(),
+                Json::Arr(
+                    self.ruby_decisions
+                        .iter()
+                        .map(|r| {
+                            let mut rf: Vec<(String, Json)> = Vec::new();
+                            rf.push((
+                                "baseRangeStart".to_string(),
+                                Json::Num(f64::from(r.base_range_start)),
+                            ));
+                            rf.push((
+                                "baseRangeEnd".to_string(),
+                                Json::Num(f64::from(r.base_range_end)),
+                            ));
+                            rf.push(("text".to_string(), Json::Str(r.text.clone())));
+                            rf.push(("centerX".to_string(), Json::Num(r.center_x)));
+                            rf.push(("baselineY".to_string(), Json::Num(r.baseline_y)));
+                            rf.push(("fontSize".to_string(), Json::Num(r.font_size)));
+                            rf.push(("fontWeight".to_string(), Json::Num(r.font_weight)));
+                            if !r.font_families.is_empty() {
+                                rf.push((
+                                    "fontFamilies".to_string(),
+                                    Json::Arr(
+                                        r.font_families
+                                            .iter()
+                                            .map(|f| Json::Str(f.clone()))
+                                            .collect(),
+                                    ),
+                                ));
+                            }
+                            if let Some(v) = r.ascent {
+                                rf.push(("ascent".to_string(), Json::Num(v)));
+                            }
+                            Json::Obj(rf)
+                        })
+                        .collect(),
+                ),
+            ));
+        }
+        if !self.bopomofo_decisions.is_empty() {
+            fields.push((
+                "bopomofoDecisions".to_string(),
+                Json::Arr(
+                    self.bopomofo_decisions
+                        .iter()
+                        .map(|b| {
+                            let mut bf: Vec<(String, Json)> = Vec::new();
+                            bf.push((
+                                "baseRangeStart".to_string(),
+                                Json::Num(f64::from(b.base_range_start)),
+                            ));
+                            bf.push((
+                                "baseRangeEnd".to_string(),
+                                Json::Num(f64::from(b.base_range_end)),
+                            ));
+                            bf.push(("text".to_string(), Json::Str(b.text.clone())));
+                            bf.push(("fontWeight".to_string(), Json::Num(b.font_weight)));
+                            if !b.font_families.is_empty() {
+                                bf.push((
+                                    "fontFamilies".to_string(),
+                                    Json::Arr(
+                                        b.font_families
+                                            .iter()
+                                            .map(|f| Json::Str(f.clone()))
+                                            .collect(),
+                                    ),
+                                ));
+                            }
+                            bf.push((
+                                "placements".to_string(),
+                                Json::Arr(
+                                    b.placements
+                                        .iter()
+                                        .map(|p| {
+                                            let mut pf: Vec<(String, Json)> = Vec::new();
+                                            pf.push((
+                                                "text".to_string(),
+                                                Json::Str(p.text.clone()),
+                                            ));
+                                            pf.push((
+                                                "role".to_string(),
+                                                Json::Str(p.role.clone()),
+                                            ));
+                                            pf.push(("left".to_string(), Json::Num(p.left)));
+                                            pf.push(("top".to_string(), Json::Num(p.top)));
+                                            pf.push(("width".to_string(), Json::Num(p.width)));
+                                            pf.push(("height".to_string(), Json::Num(p.height)));
+                                            Json::Obj(pf)
+                                        })
+                                        .collect(),
+                                ),
+                            ));
+                            Json::Obj(bf)
+                        })
+                        .collect(),
+                ),
+            ));
+        }
+        if let Some(v) = self.font_size {
+            fields.push(("fontSize".to_string(), Json::Num(v)));
+        }
+        if let Some(v) = self.overlay_width {
+            fields.push(("overlayWidth".to_string(), Json::Num(v)));
+        }
+        if !self.decoration_segments.is_empty() {
+            fields.push((
+                "decorationSegments".to_string(),
+                Json::Arr(
+                    self.decoration_segments
+                        .iter()
+                        .map(|d| {
+                            let mut df: Vec<(String, Json)> = Vec::new();
+                            df.push(("kind".to_string(), Json::Str(d.kind.clone())));
+                            df.push(("left".to_string(), Json::Num(d.left)));
+                            df.push(("top".to_string(), Json::Num(d.top)));
+                            df.push(("right".to_string(), Json::Num(d.right)));
+                            Json::Obj(df)
+                        })
+                        .collect(),
+                ),
+            ));
+        }
+        if !self.emphasis_dots.is_empty() {
+            fields.push((
+                "emphasisDots".to_string(),
+                Json::Arr(
+                    self.emphasis_dots
+                        .iter()
+                        .map(|dot| {
+                            let mut df: Vec<(String, Json)> = Vec::new();
+                            if let Some(v) = dot.cluster_range_start {
+                                df.push(("clusterRangeStart".to_string(), Json::Num(v)));
+                            }
+                            df.push(("anchorX".to_string(), Json::Num(dot.anchor_x)));
+                            df.push(("anchorY".to_string(), Json::Num(dot.anchor_y)));
+                            df.push(("dotDiameter".to_string(), Json::Num(dot.dot_diameter)));
+                            Json::Obj(df)
+                        })
+                        .collect(),
+                ),
+            ));
+        }
+        Json::Obj(fields)
+    }
+
     /// Deserializes one plan document. Schema and layout revision must match
     /// this revision's constants; failures carry named issues so callers can
     /// surface them the way engine errors surface.

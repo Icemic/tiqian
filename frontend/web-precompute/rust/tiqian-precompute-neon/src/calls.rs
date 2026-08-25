@@ -330,7 +330,7 @@ pub fn precompute_paragraph(mut cx: FunctionContext) -> JsResult<JsString> {
             let mut evidence_window = CaptureEvidence::new();
             engine_bridge::precompute_paragraph(session, &mut evidence_window, &request)
         }) {
-            Ok(Ok(plan)) => Ok(cx.string(plan)),
+            Ok(Ok(plan)) => Ok(cx.string(plan.to_json_value().render())),
             Ok(Err(error)) => cx.throw_error(error),
             Err(error) => cx.throw_error(error),
         }

@@ -635,3 +635,11 @@ native lane 经 `tiqian_install_font_backend` 安装式 vtable 消费，契约�
 21 处内联读 `globalThis.__TiqianFontBackend`）与返回侧的 plan JSON 裸 C 字符串
 （`plan.rs` 按字段名读取并忽略未知字段）于同日判定为缺陷，裁定原文、跨界载荷
 审计与处置记录见 ADR 0053 的 ffi 边界复审记录（2026-08-25）。历史正文不改写。
+
+## Amendment（2026-08-25 corrective-2）：生产返回类型化，dump 保留
+
+生产跨界返回由 plan JSON 裸 C 字符串改为打包契约（`tiqian_plan_abi.h`，`PlanPackedWriter` 为
+唯一写者，小端/u32 版本独立/字符串区 u32 偏移/f64 按列分区，`tiqian_layout_paragraph`
+返回打包缓冲 + `tiqian_release_buffer` 配对释放）；`tiqian_layout_paragraph_json` 作为带调试命名
+的 dump 入口保留，仅供 parity oracle 与 golden，输出与既往基线逐字节相同。Rust 解码填入
+`plan.rs` 既有 `Plan` 结构体（字段不动），JSON 解析保留给 dump 路径。
