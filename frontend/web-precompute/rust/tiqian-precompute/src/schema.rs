@@ -12,7 +12,7 @@ pub const SNAPSHOT_SCHEMA: i64 = 1;
 pub const LAYOUT_REVISION: &str = "tiqian-layout-v2";
 
 /// `RENDER_REVISION` of the prepared DOM lowering.
-pub const RENDER_REVISION: &str = "prebroken-dom-v15";
+pub const RENDER_REVISION: &str = "prebroken-dom-v16";
 
 /// `FONT_SOURCE_POLICY` of the snapshot font evidence.
 pub const FONT_SOURCE_POLICY: &str = "host-compatible-stylesheet-v1";
@@ -64,7 +64,7 @@ mod tests {
     fn revision_constants_match_the_js_oracle() {
         assert_eq!(SNAPSHOT_SCHEMA, 1);
         assert_eq!(LAYOUT_REVISION, "tiqian-layout-v2");
-        assert_eq!(RENDER_REVISION, "prebroken-dom-v15");
+        assert_eq!(RENDER_REVISION, "prebroken-dom-v16");
         assert_eq!(FONT_SOURCE_POLICY, "host-compatible-stylesheet-v1");
         assert_eq!(FONT_BACKEND_REVISION, "tiqian-shared-harfbuzz-v5");
         assert_eq!(FONT_REPLAY_REVISION, "tiqian-server-shaping-replay-v1");

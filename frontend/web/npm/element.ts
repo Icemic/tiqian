@@ -85,8 +85,8 @@ const ELEMENT_NAME = "tiqian-prose";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
 const SKIPPED_ANCESTOR_SELECTOR =
   ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
-const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
-const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback";
+const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-snapshot-render-font";
+const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-snapshot-layout-fallback";
 const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
   "SnapshotWidthMismatch",
   "SnapshotWidthChangedDuringValidation",

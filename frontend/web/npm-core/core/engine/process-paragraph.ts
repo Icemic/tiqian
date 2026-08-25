@@ -87,7 +87,7 @@ interface ProcessInlineShapingDecisionResult {
   // Constants named after the Kotlin constants in WebEnhancerSupport.kt:
   // lines 470-475 and 483-489.
   const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-  const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+  const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-snapshot-prepared-dom';
   const RUNTIME_RENDER_FONT_ATTRIBUTE = 'data-tq-runtime-render-font';
   const HOST_INLINE_SIZE_ATTRIBUTE = 'data-tq-host-inline-size';
   const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [

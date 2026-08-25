@@ -384,7 +384,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     ]);
     // The worker commit set the exact-prepared-dom and canonical attributes
     // and cached the effective line measure.
-    assert.equal(paragraph.getAttribute("data-tq-exact-prepared-dom"), "true");
+    assert.equal(paragraph.getAttribute("data-tq-snapshot-prepared-dom"), "true");
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
 
     assert.equal(state.paragraphs.length, 1);

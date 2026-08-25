@@ -90,12 +90,12 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
   withComputedStyle(() => {
     const { rs } = makeRootState();
 
-    const root = new FakeElement({ attributes: { "data-tiqian-exact-layout-fallback": "stale" } });
+    const root = new FakeElement({ attributes: { "data-tiqian-snapshot-layout-fallback": "stale" } });
 
     // fontSize bag: the snapshot gate routes through withoutSnapshotFontSession.
     const state = rs.createRootState(root, { fontSize: 19 });
 
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
     assert.equal(state.root, root);
     assert.equal(state.options.fontSize, 19);
     assert.equal(state.options.snapshotFontSession, null);
@@ -175,9 +175,9 @@ test("3. preparedDom toggle: active options, snapshot session descriptor, attrib
     rs.disableSnapshotPreparedDom(state, detail);
     assert.equal(state.preparedDomEnabled, false);
     assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "x".repeat(512));
     assert.equal(
-      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-exact-layout-fallback").length,
+      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
       1
     );
 
@@ -191,9 +191,9 @@ test("3. preparedDom toggle: active options, snapshot session descriptor, attrib
     // Idempotent: a second call changes nothing and does not rewrite the attribute.
     rs.disableSnapshotPreparedDom(state, "second-detail");
     assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "x".repeat(512));
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "x".repeat(512));
     assert.equal(
-      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-exact-layout-fallback").length,
+      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
       1
     );
   });
@@ -229,7 +229,7 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
 
     engine.onDisableSnapshotPreparedDom("replay-mismatch");
     assert.equal(state.preparedDomEnabled, false);
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), "replay-mismatch");
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "replay-mismatch");
   });
 });
 

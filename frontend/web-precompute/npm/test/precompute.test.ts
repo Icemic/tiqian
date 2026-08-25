@@ -181,7 +181,7 @@ function fixturePrepared(input: { key: string; text: string }): PreparedBranch {
     status: "prepared",
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
-    renderRevision: "prebroken-dom-v15",
+    renderRevision: "prebroken-dom-v16",
     key: input.key,
     sourceText: input.text,
     sourceSha256: sha256(input.text),
@@ -284,7 +284,7 @@ test("snapshot bundle exposes compact SSR artifacts without inline geometry", { 
   assert.match(bundle.initialStyle, /\.tqv-0\{/u);
   assert.deepEqual(bundle.renderFontFamilies, ["Snapshot Sans"]);
   assert.deepEqual(bundle.fontPreloads, []);
-  assert.deepEqual(bundle.rootAttributes, { "data-tiqian-exact-render-font": "true" });
+  assert.deepEqual(bundle.rootAttributes, { "data-tiqian-snapshot-render-font": "true" });
   assert.match(bundle.template, /^<template /u);
   assert.equal(bundle.template, bundle.inertTemplate);
   assert.match(bundle.template, /:is\(p, li\)\[data-tq-snapshot-key\]/u);

@@ -183,7 +183,7 @@ export function stripEngineMarkupFromStrandedParagraph(rawDom: RawDomApi, paragr
   paragraph.removeAttribute("data-tq-rendered");
   paragraph.removeAttribute("data-tq-canonical-plain");
   paragraph.removeAttribute("data-tq-canonical-source");
-  paragraph.removeAttribute("data-tq-exact-prepared-dom");
+  paragraph.removeAttribute("data-tq-snapshot-prepared-dom");
   paragraph.removeAttribute("data-tq-runtime-render-font");
   paragraph.removeAttribute("data-tq-host-inline-size");
   paragraph.removeAttribute("data-tiqian-capability-issue");

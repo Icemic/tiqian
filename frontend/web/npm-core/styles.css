@@ -28,7 +28,7 @@ tiqian-prose [data-tq-rendered="true"] {
 
 /* Prepared DOM inherits the host's font-family unchanged. Tiqian only fixes
    shaping features that are part of the measured layout contract. */
-:is(tiqian-prose, [data-tiqian-root])[data-tiqian-exact-render-font="true"]:not([data-tiqian-exact-layout-fallback]) [data-tq-rendered="true"]:is([data-tq-canonical-plain="true"], [data-tq-exact-prepared-dom="true"]) {
+:is(tiqian-prose, [data-tiqian-root])[data-tiqian-snapshot-render-font="true"]:not([data-tiqian-snapshot-layout-fallback]) [data-tq-rendered="true"]:is([data-tq-canonical-plain="true"], [data-tq-snapshot-prepared-dom="true"]) {
   font-kerning: normal !important;
   font-optical-sizing: none !important;
 }
@@ -106,7 +106,7 @@ tiqian-prose [data-tq-rendered="true"] {
   font-kerning: normal !important;
 }
 
-:is(tiqian-prose, [data-tiqian-root])[data-tiqian-exact-render-font="true"]:not([data-tiqian-exact-layout-fallback]) [data-tq-rendered="true"][data-tq-canonical-source="true"] {
+:is(tiqian-prose, [data-tiqian-root])[data-tiqian-snapshot-render-font="true"]:not([data-tiqian-snapshot-layout-fallback]) [data-tq-rendered="true"][data-tq-canonical-source="true"] {
   /* MeasurePaintOpticalSizingParity: snapshot sessions pin optical sizing off
      because HarfBuzz advances carry no opsz axis; canvas-measured paragraphs
      must keep painting at `auto`, the only value measureText can express. */

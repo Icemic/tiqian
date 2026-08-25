@@ -150,7 +150,7 @@ export type RootStateApi = {
 };
 
 export function createRootState(): RootStateApi {
-  const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-exact-layout-fallback";
+  const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-snapshot-layout-fallback";
   const ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
   const CAPABILITY_DETAIL_LIMIT: number = 512;
 

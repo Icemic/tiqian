@@ -471,7 +471,7 @@ data-tq-snapshot-manifest>{}</script></template>",
         render_font_families: Json::Arr(families.to_vec()),
         font_preloads: Json::Arr(Vec::new()),
         root_attributes: Json::Obj(vec![(
-            "data-tiqian-exact-render-font".to_string(),
+            "data-tiqian-snapshot-render-font".to_string(),
             Json::str("true"),
         )]),
         entries: Json::Arr(
@@ -752,7 +752,7 @@ fn exact_render_font_style(id: &str) -> String {
         css_string(id)
     );
     let prepared = format!(
-        "{root}[data-tiqian-exact-render-font=true]:not([data-tiqian-exact-layout-fallback]) [data-tq-rendered=true]:is([data-tq-canonical-plain=true],[data-tq-exact-prepared-dom=true])"
+        "{root}[data-tiqian-snapshot-render-font=true]:not([data-tiqian-snapshot-layout-fallback]) [data-tq-rendered=true]:is([data-tq-canonical-plain=true],[data-tq-snapshot-prepared-dom=true])"
     );
     format!("{prepared}{{font-kerning:normal!important;font-optical-sizing:none!important}}")
 }

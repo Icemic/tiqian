@@ -238,7 +238,7 @@ export function createEngineEntry(
     }
     root.removeAttribute("data-tiqian-issue-count");
     root.removeAttribute("data-tiqian-relayout-error");
-    root.removeAttribute("data-tiqian-exact-layout-fallback");
+    root.removeAttribute("data-tiqian-snapshot-layout-fallback");
   };
 
   // 5. detach(root)

@@ -117,7 +117,7 @@ export type RawDomApi = {
 };
 
 const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
-const SNAPSHOT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-exact-prepared-dom";
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE: string = "data-tq-snapshot-prepared-dom";
 const RUNTIME_RENDER_FONT_ATTRIBUTE: string = "data-tq-runtime-render-font";
 const HOST_INLINE_SIZE_ATTRIBUTE: string = "data-tq-host-inline-size";
 

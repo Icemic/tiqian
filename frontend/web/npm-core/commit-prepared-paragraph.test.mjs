@@ -268,7 +268,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(fallbackCalled, false);
     assert.equal(paragraph.source.getAttribute("lang"), "zh-Hans");
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null); // not plain due to domInlineObjects
-    assert.equal(paragraph.source.getAttribute("data-tq-exact-prepared-dom"), "true");
+    assert.equal(paragraph.source.getAttribute("data-tq-snapshot-prepared-dom"), "true");
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.lastMeasure, effectiveLineMeasure(300, 19));
 
@@ -319,7 +319,7 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
     assert.equal(renderer.releases.length, 1);
     assert.equal(renderer.releases[0], paragraph.source);
 
-    assert.equal(paragraph.source.getAttribute("data-tq-exact-prepared-dom"), null);
+    assert.equal(paragraph.source.getAttribute("data-tq-snapshot-prepared-dom"), null);
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), null);
     assert.equal(paragraph.source.getAttribute("lang"), null);
@@ -478,7 +478,7 @@ test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed,
 
     assert.equal(fallbackCalled, "GeometryMismatch");
     assert.equal(
-      paragraph.source.setAttributes.some((a) => a.name === "data-tq-exact-prepared-dom"),
+      paragraph.source.setAttributes.some((a) => a.name === "data-tq-snapshot-prepared-dom"),
       false,
     );
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);

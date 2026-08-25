@@ -316,7 +316,7 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": "true"
         },
         {
@@ -346,12 +346,12 @@
         },
         {
           "phase": "s2-resize",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": "true"
         },
         {
           "phase": "s2-resize",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
         {
@@ -371,17 +371,17 @@
         },
         {
           "phase": "s2-resize",
-          "name": "data-tiqian-exact-layout-fallback",
+          "name": "data-tiqian-snapshot-layout-fallback",
           "value": null
         },
         {
           "phase": "s2-resize",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
         {
           "phase": "s3-midflight-disconnect",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
         {
@@ -391,7 +391,7 @@
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": "true"
         },
         {
@@ -1180,7 +1180,7 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": "true"
         },
         {
@@ -1190,17 +1190,17 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-exact-layout-fallback",
+          "name": "data-tiqian-snapshot-layout-fallback",
           "value": null
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
         {
           "phase": "s3-midflight-disconnect",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
         {
@@ -1210,7 +1210,7 @@
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": "true"
         },
         {
@@ -1220,12 +1220,12 @@
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-layout-fallback",
+          "name": "data-tiqian-snapshot-layout-fallback",
           "value": null
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-render-font",
+          "name": "data-tiqian-snapshot-render-font",
           "value": null
         }
       ]

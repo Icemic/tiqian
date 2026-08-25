@@ -481,7 +481,7 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
     const ctx = makeEngine({ rs: rs, rawDom: rawDom });
-    const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-exact-layout-fallback": "fb" });
+    const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-snapshot-layout-fallback": "fb" });
     ctx.engine.destroy(root);
     assert.deepEqual(rawDom._calls.restoreParagraph, [src1, src2]);
     // clearIssue restored the captured original attributes.
@@ -493,7 +493,7 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
     assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "5");
     assert.equal(root.getAttribute("data-tiqian-issue-count"), null);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
-    assert.equal(root.getAttribute("data-tiqian-exact-layout-fallback"), null);
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
   });
 });
 

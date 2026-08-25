@@ -246,7 +246,7 @@ function fixture({
     schema: 2,
     tables: { snapshot: snapshotTablesSha ?? sha256(tableBytes) },
     layoutRevision: "tiqian-layout-v2",
-    renderRevision: "prebroken-dom-v15",
+    renderRevision: "prebroken-dom-v16",
     fontSourcePolicy: "host-compatible-stylesheet-v1",
     ...(entrySource === undefined ? {} : { entrySource }),
     renderFontFamilies: ["Fixture CJK"],
@@ -795,7 +795,7 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
     assert.equal(root.getAttribute("data-tiqian-snapshot-count"), "1");
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
-    assert.equal(paragraph.getAttribute("data-tq-exact-prepared-dom"), "true");
+    assert.equal(paragraph.getAttribute("data-tq-snapshot-prepared-dom"), "true");
     assert.notStrictEqual(paragraph.firstChild, originalText);
 
     const preparedNode = paragraph.firstChild;
@@ -808,7 +808,7 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
-    assert.equal(paragraph.getAttribute("data-tq-exact-prepared-dom"), null);
+    assert.equal(paragraph.getAttribute("data-tq-snapshot-prepared-dom"), null);
     assert.equal(root.dataset.tiqianSnapshotFontPolicy, undefined);
     assert.equal(root.getAttribute("data-tiqian-snapshot-count"), null);
   } finally {
@@ -827,7 +827,7 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
     paragraph.setAttribute("data-tq-canonical-plain", "true");
     paragraph.setAttribute("data-tq-canonical-source", "true");
     root.setAttribute("data-tq-ssr-snapshot", "tq-page");
-    root.setAttribute("data-tiqian-exact-render-font", "true");
+    root.setAttribute("data-tiqian-snapshot-render-font", "true");
     attachServerSource(documentObject);
     const template = documentObject.elements.get("tq-page");
     const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
@@ -853,7 +853,7 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
     assert.equal(root.getAttribute("data-tq-ssr-snapshot"), null);
-    assert.equal(root.getAttribute("data-tiqian-exact-render-font"), null);
+    assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
     assert.deepEqual(await tryAdoptPrecomputedSnapshot(root), { adopted: true, count: 1 });
@@ -875,7 +875,7 @@ test("a direct SSR width miss restores native source before runtime fallback", a
     paragraph.setAttribute("data-tq-canonical-source", "true");
     paragraph.width = 240;
     root.setAttribute("data-tq-ssr-snapshot", "tq-page");
-    root.setAttribute("data-tiqian-exact-render-font", "true");
+    root.setAttribute("data-tiqian-snapshot-render-font", "true");
     attachServerSource(documentObject);
     const template = documentObject.elements.get("tq-page");
     const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
@@ -894,7 +894,7 @@ test("a direct SSR width miss restores native source before runtime fallback", a
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
     assert.equal(root.getAttribute("data-tq-ssr-snapshot"), null);
-    assert.equal(root.getAttribute("data-tiqian-exact-render-font"), null);
+    assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
     assert.deepEqual(await tryAdoptPrecomputedSnapshot(root), { adopted: true, count: 1 });

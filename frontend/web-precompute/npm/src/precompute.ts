@@ -493,7 +493,7 @@ export interface SnapshotBundle {
   readonly initialStyle: string;
   readonly renderFontFamilies: readonly string[];
   readonly fontPreloads: readonly string[];
-  readonly rootAttributes: Readonly<Partial<Record<"data-tiqian-exact-render-font", "true">>>;
+  readonly rootAttributes: Readonly<Partial<Record<"data-tiqian-snapshot-render-font", "true">>>;
   readonly entries: readonly {
     readonly key: string;
     readonly html: string;

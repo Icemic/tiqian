@@ -73,7 +73,7 @@ interface CommitPreparedParagraphArgument {
 // passes the single shared raw-DOM instance.
 
 const CANONICAL_SOURCE_ATTRIBUTE = 'data-tq-canonical-source';
-const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-exact-prepared-dom';
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = 'data-tq-snapshot-prepared-dom';
 
 // CanonicalPlainParagraph: inline twin of isCanonicalPlainParagraph in
 // lowered-paragraph.js (line 110). True when all six styled collections are

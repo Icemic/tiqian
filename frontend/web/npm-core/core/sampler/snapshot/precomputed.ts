@@ -403,8 +403,8 @@ const PROPORTIONAL_CURLY_QUOTE_FEATURE_SIGNATURE = "pwid,palt";
 const ENGINE_PUNCTUATION_FEATURE_SETTINGS = '"halt" 0, "chws" 0, "palt" 0';
 const PROPORTIONAL_CURLY_QUOTE_FEATURE_SETTINGS =
   '"halt" 0, "chws" 0, "palt" 1';
-export const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
-const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = "data-tq-exact-prepared-dom";
+export const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-snapshot-render-font";
+const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = "data-tq-snapshot-prepared-dom";
 const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
 const SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-exact-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
@@ -1402,7 +1402,7 @@ function computedTypographyIssue(
       actualFamilies.some((family, index) => family !== expectedFamilies[index])) {
     const root = paragraph.closest(ROOT_SELECTOR);
     const projection = root?.getAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE) ?? "missing";
-    const fallback = root?.hasAttribute("data-tiqian-exact-layout-fallback") ?? false;
+    const fallback = root?.hasAttribute("data-tiqian-snapshot-layout-fallback") ?? false;
     const rendered = paragraph.getAttribute("data-tq-rendered") ?? "missing";
     return `fontFamily:${actualFamilies.join("|")}!=${expectedFamilies.join("|")};projection=${projection};fallback=${fallback};rendered=${rendered}`;
   }

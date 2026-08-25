@@ -207,7 +207,7 @@ test("whole-document preparation runs in one native call", { skip: precomputeHtm
   );
   assert.deepEqual(snapshot.rootAttributes, {
     "snapshot-ref": "tq-article",
-    "data-tiqian-exact-render-font": "true",
+    "data-tiqian-snapshot-render-font": "true",
   });
   assert.ok(snapshot.bundle);
   // Schema 2: the manifest pins a snapshot table the host serves by sha.

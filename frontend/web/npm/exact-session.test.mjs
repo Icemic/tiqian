@@ -468,7 +468,7 @@ test("snapshotSession_standingPreparedDomValidationFailureFailsEveryParagraphClo
   // retry); the second fails on its only render.
   assert.equal(snapshotPreparedRenderCount(), 3);
   assert.equal(
-    root.getAttribute("data-tiqian-exact-layout-fallback"),
+    root.getAttribute("data-tiqian-snapshot-layout-fallback"),
     "fixture-line-drift",
   );
 });
@@ -504,7 +504,7 @@ test("snapshotSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePrep
   assert.equal(second.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(snapshotPreparedRenderCount(), 3);
   assert.equal(
-    root.getAttribute("data-tiqian-exact-layout-fallback"),
+    root.getAttribute("data-tiqian-snapshot-layout-fallback"),
     "fixture-line-drift",
   );
 });
