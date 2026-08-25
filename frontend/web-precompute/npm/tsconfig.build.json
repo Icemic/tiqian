@@ -1,4 +1,5 @@
 {
+  "references": [{ "path": "../../web/npm-core" }],
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,

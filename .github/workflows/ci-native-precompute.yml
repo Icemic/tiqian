@@ -244,6 +244,7 @@ jobs:
           ./gradlew
           :ffi:native:linkReleaseStaticLinuxX64
           :ffi:js:compileProductionExecutableKotlinJs
+          :ffi:js:assembleNpmPackage
       - name: Dump the js oracle
         run: node frontend/web-precompute/scripts/plan-parity-oracle.mjs
       - name: Compare the native lane against the oracle
@@ -259,9 +260,31 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      # The precompute suite consumes `@tiqian/prose/prepared-dom`, a subpath
+      # only the working-tree packages export (the registry alpha predates
+      # it), and its type check reads the packages' emitted declarations.
+      # Build prose-core with full checks (the assembled ffi package provides
+      # its declarations), emit the prose package without checks (same
+      # rationale as the corpus lane), then link both into the precompute
+      # suite's node_modules so imports resolve to this checkout.
+      - name: Install build dependencies
+        working-directory: frontend/web/npm-core
+        run: npm ci
+      - name: Build prose-core with full type checks
+        working-directory: frontend/web/npm-core
+        run: npx tsc -b
+      - name: Link prose-core dependency
+        working-directory: frontend/web/npm
+        run: npm run link:core
+      - name: Emit the prose package
+        working-directory: frontend/web/npm
+        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/@tiqian
+          npm run link:prose
       - name: Run the npm suite engine-linked
         working-directory: frontend/web-precompute/npm
         env:

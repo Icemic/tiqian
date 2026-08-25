@@ -1,4 +1,5 @@
 {
+  "references": [{ "path": "../../web/npm-core" }],
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",

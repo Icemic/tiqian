@@ -445,13 +445,36 @@ export async function createPrecomputer(options: CreatePrecomputerOptions): Prom
   return Object.freeze(precomputer);
 }
 
+type SharedPlanInput = Parameters<typeof sharedRenderPreparedParagraph>[0];
+
+/**
+ * Narrows the public `unknown` plan input to what the shared renderer accepts.
+ * The structural check stays coarse on purpose: the shared module owns plan
+ * validation, and this gate only rejects values no plan form can take.
+ */
+function isSharedPlanInput(value: unknown): value is SharedPlanInput {
+  return typeof value === "string" || (typeof value === "object" && value !== null);
+}
+
+/**
+ * Widens the local typography interface to the record shape the shared
+ * renderer accepts. Interfaces carry no implicit index signature, so the
+ * spread produces a structurally identical anonymous type that does.
+ */
+function toSharedTypography(typography: SnapshotTypography): Record<string, unknown> {
+  return { ...typography };
+}
+
 /**
  * Renders one prepared plan to prepared DOM. The implementation is the exact
  * browser-shared module `@tiqian/prose` ships, so server embedders and the
  * browser agree on every revision.
  */
 export function renderPreparedParagraph(plan: unknown, typography: SnapshotTypography): string {
-  return sharedRenderPreparedParagraph(plan, typography);
+  if (!isSharedPlanInput(plan)) {
+    throw new TypeError("renderPreparedParagraph expects a plan JSON string or object");
+  }
+  return sharedRenderPreparedParagraph(plan, toSharedTypography(typography));
 }
 
 /** The named plain-text gate of the snapshot lane. */

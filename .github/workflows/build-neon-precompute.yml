@@ -124,9 +124,28 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      # The smoke test resolves `@tiqian/prose` and `@tiqian/prose-core` from
+      # this checkout: the registry alpha predates the `./prepared-dom`
+      # subpath the precompute sources import, and the emitted declarations
+      # are not tracked. This lane has no Gradle step, so the ffi
+      # declarations a full type check would need are absent; emit the
+      # packages and the suite without checks (the Native precompute CI runs
+      # the full checks over the same sources).
+      - name: Install build dependencies
+        working-directory: frontend/web/npm-core
+        run: npm ci
+      - name: Link prose-core dependency
+        working-directory: frontend/web/npm
+        run: npm run link:core
+      - name: Emit the prose packages
+        working-directory: frontend/web/npm
+        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/@tiqian
+          npm run link:prose
       - name: Build addon and place platform binary
         working-directory: frontend/web-precompute/npm
         shell: bash
@@ -140,7 +159,9 @@ jobs:
       - name: Smoke test through the npm loader
         working-directory: frontend/web-precompute/npm
         shell: bash
-        run: npm test
+        run: |
+          npx tsc -p tsconfig.build.json --noCheck
+          node --test "test/**/*.test.ts"
       - name: Pack platform package
         working-directory: frontend/web-precompute/npm/platforms/${{ matrix.cfg.platform }}
         shell: bash
