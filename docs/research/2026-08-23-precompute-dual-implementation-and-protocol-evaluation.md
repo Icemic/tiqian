@@ -295,30 +295,83 @@ region order and validates every offset」。双边实现已在生产运行。
 该 codec 的语义负担构成：无 JSON 解析语义、无浮点格式化、无字符串转义、
 端序单一取值、fixture 可锁。
 
-## 7. 结论
+## 7. engine 排版核心跨端生成与语义对齐评估（Kotlin 基线 / TS / Rust / Swift / Dart）
 
-1. 双实现漂移的成因在于验证方式：语料比对只覆盖样本，编译器生成覆盖全部
-   路径。前者在每次行为变化时都要手工重写另一侧，后者只需要保证源本身的
-   语义正确。
-2. Haxe protocol 方案成本 1.5-2.5 人月（第 3.3 节），前提是协议为单一权威
-   且 boring 子集以 CI 规则强制。
-3. reflaxe.rust 的不稳定面（0.x 版本线、hxrt 包装形状、haxe.Json 语义不
-   匹配）都可以通过 seam 隔离在协议之外：语义桥留在 Rust 侧，plan JSON 解析
-   留在两侧平台壳，协议本体只使用基础语言 lowering 证据带内的特性。
+除 precompute 协议层之外，将 Haxe boring 子集与 Reflaxe 框架进一步扩展至 `engine` 排版核心（约 20,000 行代码）并向 Kotlin、TypeScript、Rust、Swift、Dart 输出时，以既有 Kotlin 实现为行为基准（Canonical Baseline），各项特性映射与跨平台语义对齐评估如下。
+
+### 7.1 语言特性与代码结构
+
+`engine` 模块包含算法与排版状态机逻辑，具备转译友好性：
+
+1. 零继承树：无 `open class` 与 `abstract class`，多态需求全部由 `sealed interface`（代数数据类型）与策略 `interface`（如 `TextShaper`、`FontMetricsResolver`、`LineBreaker`）承担。
+2. 树状单向数据流：数据流自 `LayoutInput` 向 `LayoutResult` 单向传递，无循环引用与反向指针，与 Rust 所有权移动模型及 Swift 值类型模型一致。
+3. 纯算法边界：无协程、无反射、无动态调用，核心逻辑由状态转移、动态规划与几何计算构成。
+
+### 7.2 零运行时宏展开策略
+
+为避免在各目标语言生成物中引入运行时依赖，高阶操作与类型样板采用编译期宏生成：
+
+1. 函数式集合操作：`map`、`filter`、`fold`、`firstOrNull` 由表达式宏在编译期展开为基础循环与预分配操作，不生成中间闭包句柄。
+2. 数据模型样板：数据类由构造宏自动派生构造函数、属性拷贝（`copy`）与字段判等逻辑。
+3. 单位抽象类型：`Ic`（字宽单位）使用 Haxe `abstract Ic(Float)`，编译期完成内联与运算符重载，运行时无装箱。
+
+### 7.3 以 Kotlin 为基准的语义对齐矩阵
+
+各目标语言在底层运算与作用域规则上存在细微差异，统一以 Kotlin 语义对齐：
+
+| 语义项目 | Kotlin 基准行为 | TypeScript 对齐策略 | Rust 对齐策略 | Swift 对齐策略 | Dart 对齐策略 |
+|---|---|---|---|---|---|
+| 数据结构 | `data class`（值判等与 `copy`） | `interface` + 工具函数 | `struct`（派生 `Clone`, `PartialEq`） | `struct`（值类型，自动合成 `Equatable`） | `final class`（生成 `operator ==` 与 `hashCode`） |
+| 代数数据类型 | `sealed interface` | Discriminated Union | `enum`（带数据） | `enum`（带关联值） | `sealed class`（Dart 3 模式匹配） |
+| 策略接口 | `interface` | `interface` | `trait` | `protocol` | `abstract interface class` |
+| 可空值 | `T?`、`?.`、`?:` | `T \| null`、`?.`、`??` | `Option<T>`、`map`、`unwrap_or` | `T?`、`?.`、`??` | `T?`、`?.`、`??` |
+| 字符串索引 | UTF-16 Code Unit 偏移与长度 | 原生 UTF-16 索引，行为一致 | 经 `TextSource` 提供 UTF-16 偏移视图 | 经 `String.utf16` 或轻量视图提供整数偏移 | 原生 UTF-16 索引，行为一致 |
+| 循环与闭包变量 | 独立作用域，避免共享可变捕获 | 展开为 `let` 块级作用域循环，不使用闭包捕获循环变量 | 展开为局部移动与不可变借用，避免逃逸闭包 | 展开为纯值局部累加循环 | 展开为局部累加循环 |
+| 整数除法与取模 | 截断向零取整，负数取模保持被除数符号 | 插入 `Math.trunc(a / b)` 与位运算保持向零截断 | 原生截断除法与 `%`，行为一致 | 原生截断除法与 `%`，行为一致 | 原生 `~/` 整数除法与 `%` |
+| 浮点转整数 | 饱和截断（`NaN` 转为 `0`） | `NaN \| 0`（转为 `0`） | 饱和转换（`saturating_cast`） | 显式注入 `isNaN` 检查，避免运行时抛错 | `val.isNaN ? 0 : val.toInt()` |
+| 集合遍历顺序 | `LinkedHashMap` 保持插入顺序 | `Map` 保持插入顺序 | 核心逻辑避免依赖无序哈希表；需顺序处使用有序列表 | 核心逻辑避免依赖无序字典；需顺序处使用有序列表 | 核心逻辑统一使用顺序列表 |
+| Unicode 分类 | `Char.category` 辅助分类 | 编译期宏生成紧凑二分查找表 | 编译期宏生成紧凑二分查找表 | 编译期宏生成紧凑二分查找表 | 编译期宏生成紧凑二分查找表 |
+
+### 7.4 行为一致性验证体系
+
+为确保转译生成物在所有目标平台表现一致，构建两层验证流程：
+
+1. 微语义边缘测试（Semantic Micro-Fixtures）：建立覆盖极限浮点值（`NaN`、`-0.0`）、边界整数除法与模运算、负数位移、Emoji 代理对提取以及循环累加的独立测试用例，五端编译运行并断言结果一致。
+2. 全排版决策黄金测试（Layout Dump Parity）：直接消费 Kotlin 原版输出的 `LayoutDumpGoldenTest` 结构化决策记录。五端分别执行相同的中文段落语料，将断行决策、标点挤压量、两端对齐分配与字形坐标序列化为 JSON 记录，同 Kotlin 基准进行逐项比对。
+
+## 8. 排版引擎标准化协议（Document Tree IR 与标准排版流程）
+
+除语言级转译之外，当前引擎前端接入层存在 API 分散与各端重复 lowering 的问题，通过标准中间树（IR）与统一会话模型进行统一。
+
+### 8.1 分散 Lowering 与配置现状
+
+当前排版接入流程存在两项痛点：
+
+1. 参数分散：配置分散在 `ClreqProfile`、`FontPolicy`、`AutoSpacePolicy`、`KinsokuRule`、`LineBreaker` 等独立类中，宿主接入时需手动组装多个策略实例。
+2. Lowering 逻辑各端独立维护：Compose（`AnnotatedString`）、Swift（`AttributedString`）与 Web（DOM 遍历）各自手写向扁平 `TiqianTextContent` 与 span 数组的转换。Web 端在外部手写 DOM 扁平化转换时，行内元素（如 `<code>`、`<a>`）与标点混排的边界处理容易同排版核心产生理解偏差。
+
+### 8.2 标准排版流程
+
+通过 Haxe 核心统筹建立标准中间表示与排版流程：
+
+1. 标准文档树（Document Tree IR）：定义标准富文本节点模型（Paragraph、TextSpan、InlineObject、Ruby、Link）。宿主仅负责将自身 UI 树节点单向投影至该 IR。树遍历与对象构造在内存中单趟完成，经测算典型段落耗时小于 0.2ms，不构成排版性能瓶颈。
+2. 统一会话与内核 Lowering：由统一的 `TiqianEngine` 会话持有配置；在 Haxe 核心内部集中完成字符边界划分、Shaping 批处理调度、标点计算、DP 断行与行盒几何分配，宿主前端不再拥有切分边界与断词逻辑。
+3. 连续二进制输出与绘制重放：排版结果以连续字节 Buffer（Packed Binary）或结构化 `LayoutResult` 形式输出。各平台前端仅根据返回的字形索引、坐标与行框线执行原生绘制重放，降低各宿主平台的实现复杂度。
+
+### 8.3 连续内存扁平化与双模诊断（Packed Buffer + JSON）
+
+1. 淘汰外部生成脚本：使用 Haxe 编译期宏将排版结构体直接映射为固定偏移的连续字节 Buffer，替代 `tools/schema/generate_*.py` 等外部 Python 文本拼接脚本，保证多端数据布局原子同步。
+2. 双模诊断支持：生产模式通过直接指针与 DataView 原地读取；调试模式由宏自动生成带字段偏移映射的 JSON 序列化与差分定位工具，支持快速二进制比对并精确输出具体字段的分叉原因。
+
+## 9. 结论
+
+1. 双实现漂移的成因在于验证方式：语料比对只覆盖样本，编译器生成覆盖全部路径。前者在每次行为变化时都要手工重写另一侧，后者只需要保证源本身的语义正确。
+2. Haxe protocol 方案成本 1.5-2.5 人月（第 3.3 节），前提是协议为单一权威且 boring 子集以 CI 规则强制。
+3. reflaxe.rust 的不稳定面（0.x 版本线、hxrt 包装形状、haxe.Json 语义不匹配）都可以通过 seam 隔离在协议之外：语义桥留在 Rust 侧，plan JSON 解析留在两侧平台壳，协议本体只使用基础语言 lowering 证据带内的特性。
 4. protocol 内不需要函数值：宿主回调改为数据出，内部闭包全部内联。
-5. JSON 需求经 ADR 0054（门槛通过后）收敛为构建期 seam；运行时为零 JSON。
-   协议边界按「构建期 lowering + 整数带条目编码」划分，0054 实施与否不改变
-   该划分。
-6. 带条目 codec 是共享协议优先实现的候选模块：整数内容、端序单一取值、
-   无语义桥依赖、浏览器侧只能以生成代码消费。
-7. reflaxe.rust 的 GPL-3.0 运行时面可以移除，需要验证层：`rust_no_hxrt`
-   （metal）省略 hxrt 依赖并在编译期拒绝 runtime 引用；外部验证把生成 crate
-   的 hxrt 依赖替换为空 crate 后编译，编译通过即零 hxrt 引用，判据由 Rust
-   编译器给出；hxrt 之外的拷贝 helper 模块（与 native-facade-manifest.json
-   交叉比对）与许可证头 grep 列入同一检查；reflaxe.rust 为 0.x，该检查作为
-   CI 门并在升级时全量重跑。
-8. 许可证路径选择：portable + hxrt 使发行物按 GPL-3.0 发布，与仓库的
-   MPL-2.0 冲突；metal + `rust_no_hxrt` 加验证门使产物不含 GPL 代码；MIT
-   的 reflaxe 框架自写 emitter 使产物全链不含 GPL 依赖，该 emitter 已在成本
-   构成（第 3.3 节）之内，许可证处理不增加成本。产物不含 GPL 代码后，编译器
-   本身的 GPL-3.0 按编译器输出立场处理（Haxe 官方 FAQ 记录同立场）。
+5. JSON 需求经 ADR 0054（门槛通过后）收敛为构建期 seam；运行时为零 JSON。协议边界按「构建期 lowering + 整数带条目编码」划分，0054 实施与否不改变该划分。
+6. 带条目 codec 是共享协议优先实现的候选模块：整数内容、端序单一取值、无语义桥依赖、浏览器侧只能以生成代码消费。
+7. reflaxe.rust 的 GPL-3.0 运行时面可以移除，需要验证层：`rust_no_hxrt`（metal）省略 hxrt 依赖并在编译期拒绝 runtime 引用；外部验证把生成 crate 的 hxrt 依赖替换为空 crate 后编译，编译通过即零 hxrt 引用，判据由 Rust 编译器给出；hxrt 之外的拷贝 helper 模块（与 native-facade-manifest.json 交叉比对）与许可证头 grep 列入同一检查；reflaxe.rust 为 0.x，该检查作为 CI 门并在升级时全量重跑。
+8. 许可证路径选择：portable + hxrt 使发行物按 GPL-3.0 发布，与仓库的 MPL-2.0 冲突；metal + `rust_no_hxrt` 加验证门使产物不含 GPL 代码；MIT 的 reflaxe 框架自写 emitter 使产物全链不含 GPL 依赖，该 emitter 已在成本构成（第 3.3 节）之内，许可证处理不增加成本。产物不含 GPL 代码后，编译器本身的 GPL-3.0 按编译器输出立场处理（Haxe 官方 FAQ 记录同立场）。
+9. `engine` 排版核心具备向 Kotlin、TypeScript、Rust、Swift、Dart 多端转译的代码特征（零继承树、树状数据流、纯算法）；以 Kotlin 语义为基准对齐除法、浮点、字符串与循环作用域后，通过 Reflaxe 宏展开消除运行时依赖，可由同一份 Haxe 源码输出各平台原生代码，并通过 `LayoutDumpGoldenTest` 决策树保证跨端一致性。
+10. 标准文档树 IR 与排版流水线将分散的配置与 Lowering 统一移入引擎内核，消解 Web 等前端在外部扁平化 DOM 导致的边界切分偏差；配合编译期 Packed Buffer 宏与双模诊断体系，可替代外部 Python 生成脚本并降低各端接入与调试复杂度。
