@@ -19,3 +19,7 @@ layout/src/jvmTest/resources/lit-zh-corpus.txt
 # Rust
 ffi/rust/target/
 frontend/web-precompute/rust/target/
+
+# Agent working artifacts (specs, reports, logs, baselines; kept on disk, never committed)
+.agent-specs/
+.b2-tmp/

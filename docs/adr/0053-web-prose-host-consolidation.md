@@ -1390,7 +1390,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   派生诊断已为 fail-closed 导出。
 - QA4（.b2-tmp/.agent-specs）：盘点完成（.agent-specs 154 文件
   5.5M，spec 与报告为主；.b2-tmp 268 文件 9.9M，agent 日志与临时
-  产物）。处置：[TBD：gitignore 两条 + 保留项裁定]。
+  产物）。处置已执行（2026-08-25）：两条目录进 `.gitignore`，磁盘文件保留
+  供 agent 参考与考古，不再进入提交队列。
 - QA1（包名纠偏 @tiqian/core）：[TBD 提交哈希]。
 - QA2（目录重组 scripts/src 分离、npm-core 改名 core）：[TBD 提交
   哈希]。
