@@ -3,13 +3,13 @@
 // WebEnhancerParagraphPipeline.kt (commitWorkerPreparedParagraph, lines 266-313,
 // and commitPreparedParagraph, lines 500-583). The module mounts the rendered
 // prepared DOM, sets canonical-source and canonical-plain attributes, checks
-// validator verdicts, manages custody engine write suspensions, and handles
+// validator verdicts, manages detached-fragment backup engine write suspensions, and handles
 // exact-session distrust retries.
 //
-// Stateless module: commitWorkerPreparedParagraph(custody, argument) and
-// commitPreparedParagraph(custody, argument) are named functions that receive
-// the custody collaborator as an explicit first parameter. Consumers import
-// the functions directly; tests call the functions with a fake custody.
+// Stateless module: commitWorkerPreparedParagraph(rawDom, argument) and
+// commitPreparedParagraph(rawDom, argument) are named functions that receive
+// the raw-DOM collaborator as an explicit first parameter. Consumers import
+// the functions directly; tests call the functions with a fake detached-fragment backup.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -20,7 +20,7 @@ import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
 import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
 import type { PreparedDomValidatorInterface } from "../sampler/snapshot/precomputed.js";
-import type { CustodyApi } from "./custody.js";
+import type { RawDomApi } from "./raw-dom.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
 
@@ -69,12 +69,12 @@ interface CommitPreparedParagraphArgument {
   cjkStrongSemanticsJson: string;
 }
 
-// Both commit functions receive the custody collaborator as an explicit first
+// Both commit functions receive the raw-DOM collaborator as an explicit first
 // parameter. Consumers import the functions directly; the engine bootstrap
-// passes the single shared custody instance.
+// passes the single shared raw-DOM instance.
 
-interface CommitCustodyEngineWritesHost {
-  __tqCustodyEngineWrites?: number;
+interface CommitRawDomEngineWritesHost {
+  __tqRawDomEngineWrites?: number;
 }
 
 type CommitEngineWriteSuspensionFn = () => unknown;
@@ -113,16 +113,16 @@ function releasePreparedDomStyles(host: Element): boolean {
   return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
 }
 
-// CustodyEngineWriteSuspension: the prepared DOM bridge writes engine output
+// RawDomEngineWriteSuspension: the prepared DOM bridge writes engine output
 // into the live paragraph with plain element and text arguments, which the
-// host custody forwarding overrides would otherwise redirect; the overrides
+// host detached-fragment backup forwarding overrides would otherwise redirect; the overrides
 // run native while the counter is positive.
-function engineWriteSuspension(host: Element & CommitCustodyEngineWritesHost, fn: CommitEngineWriteSuspensionFn): unknown {
-  host.__tqCustodyEngineWrites = (host.__tqCustodyEngineWrites || 0) + 1;
+function rawDomEngineWriteSuspension(host: Element & CommitRawDomEngineWritesHost, fn: CommitEngineWriteSuspensionFn): unknown {
+  host.__tqRawDomEngineWrites = (host.__tqRawDomEngineWrites || 0) + 1;
   try {
     return fn();
   } finally {
-    host.__tqCustodyEngineWrites -= 1;
+    host.__tqRawDomEngineWrites -= 1;
   }
 }
 
@@ -149,7 +149,7 @@ function renderWorkerPrepared(
       element: inlineObjects[index],
     };
   });
-  return engineWriteSuspension(host, function () {
+  return rawDomEngineWriteSuspension(host, function () {
     return globalThis.__TiqianPreparedDomRenderer!.render(
       host,
       record.plan,
@@ -183,7 +183,7 @@ function renderPrepared(
   const semantics = Array.from(semanticElements || []);
   const inlineObjects = Array.from(inlineObjectElements || []);
   const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
-  return engineWriteSuspension(host, function () {
+  return rawDomEngineWriteSuspension(host, function () {
     const meta = JSON.parse(inlineObjectMetaJson || '[]');
     const inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
       return {
@@ -213,11 +213,11 @@ function renderPrepared(
 /**
  * Commit a worker-prepared paragraph to the DOM.
  *
- * @param {Object} custody
+ * @param {Object} detached-fragment backup
  * @param {Object} argument
  * @returns {Object|null}
  */
-export function commitWorkerPreparedParagraph(custody: CustodyApi, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
+export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
   const paragraph = argument.paragraph;
   const source = paragraph.source;
   const lowered = paragraph.lowered;
@@ -280,18 +280,18 @@ export function commitWorkerPreparedParagraph(custody: CustodyApi, argument: Com
     width,
     lowered.textStyle.fontSize
   );
-  custody.stampRendered(source);
+  rawDom.stampRendered(source);
   return null;
 }
 
 /**
  * Commit a direct prepared paragraph layout result to the DOM.
  *
- * @param {Object} custody
+ * @param {Object} detached-fragment backup
  * @param {Object} argument
  * @returns {Object}
  */
-export function commitPreparedParagraph(custody: CustodyApi, argument: CommitPreparedParagraphArgument): CommitResult {
+export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPreparedParagraphArgument): CommitResult {
   const paragraph = argument.paragraph;
   const preparation = argument.preparation;
   const source = paragraph.source;
@@ -332,7 +332,7 @@ export function commitPreparedParagraph(custody: CustodyApi, argument: CommitPre
 
   const preparedDomIssue = rendererIssue(source, preparation.width!);
   if (preparedDomIssue == null) {
-    custody.stampRendered(source);
+    rawDom.stampRendered(source);
     return {
       kind: 'success',
       measure: preparation.measure,
@@ -382,7 +382,7 @@ export function commitPreparedParagraph(custody: CustodyApi, argument: CommitPre
           element: fallbackPreparation.element,
         };
       case 'ready':
-        return commitPreparedParagraph(custody, {
+        return commitPreparedParagraph(rawDom, {
           paragraph: paragraph,
           preparation: fallbackPreparation,
           options: fallbackOptions,

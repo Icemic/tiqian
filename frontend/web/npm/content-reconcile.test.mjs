@@ -1,6 +1,6 @@
 // Behavior tests for the content reconcile path. jsTest never covered this
 // area, so these are new assertions derived from the runtime implementation:
-// drift classification, custody restore, tainted engine edits, dead paragraph
+// drift classification, detached-fragment backup restore, tainted engine edits, dead paragraph
 // drops and stranded clone adoption all re-enter the layout pipeline through
 // the tiqian:reconcile-content / tiqian:probe-content-drift events.
 
@@ -35,7 +35,7 @@ test("contentReconcile_idleWhenNoHostChangeHappened", async (t) => {
   assert.deepEqual(reconcileContent(root), {
     outcome: "idle",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 0,
     dead: 0,
@@ -44,7 +44,7 @@ test("contentReconcile_idleWhenNoHostChangeHappened", async (t) => {
     unknown: 0,
     drifted: 0,
     dead: 0,
-    custody: 0,
+    rawDom: 0,
   });
 });
 
@@ -60,7 +60,7 @@ test("contentReconcile_probeClassifiesDriftWithoutMutating", async (t) => {
     unknown: 1,
     drifted: 0,
     dead: 0,
-    custody: 0,
+    rawDom: 0,
   });
 
   const root = mount(`
@@ -80,7 +80,7 @@ test("contentReconcile_probeClassifiesDriftWithoutMutating", async (t) => {
     unknown: 0,
     drifted: 1,
     dead: 0,
-    custody: 0,
+    rawDom: 0,
   });
   assert.deepEqual(
     Array.from(paragraph.childNodes),
@@ -88,22 +88,22 @@ test("contentReconcile_probeClassifiesDriftWithoutMutating", async (t) => {
     "probe must stay read-only",
   );
 
-  const custodyRoot = mount(`
+  const rawDomRoot = mount(`
     <div data-tiqian-root="true" style="width: 320px">
       <p style="font-size: 18px; line-height: 30px">宿主经转发写入托管。</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(custodyRoot, testOptions()), 1);
-  const custodyParagraph = custodyRoot.querySelector("p");
-  custodyParagraph.appendChild(
+  assert.equal(TiqianWeb.enhance(rawDomRoot, testOptions()), 1);
+  const rawDomParagraph = rawDomRoot.querySelector("p");
+  rawDomParagraph.appendChild(
     globalThis.document.createTextNode("托管内新增"),
   );
 
-  assert.deepEqual(probeContentDrift(custodyRoot), {
+  assert.deepEqual(probeContentDrift(rawDomRoot), {
     unknown: 0,
     drifted: 0,
     dead: 0,
-    custody: 1,
+    rawDom: 1,
   });
 });
 
@@ -128,7 +128,7 @@ test("contentReconcile_hostEditReLowersSurvivingLiveContent", async (t) => {
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 1,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 0,
     dead: 0,
@@ -142,7 +142,7 @@ test("contentReconcile_hostEditReLowersSurvivingLiveContent", async (t) => {
   assert.ok(copied.includes(source), `re-lowered copy keeps surviving content: ${copied}`);
 });
 
-test("contentReconcile_custodyEditRestoresAndRelowersFromCustody", async (t) => {
+test("contentReconcile_rawDomEditRestoresAndRelowersFromRawDom", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "托管里的语义真值要能回来。";
@@ -160,7 +160,7 @@ test("contentReconcile_custodyEditRestoresAndRelowersFromCustody", async (t) => 
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 0,
-    custody: 1,
+    rawDom: 1,
     tainted: 0,
     stranded: 0,
     dead: 0,
@@ -169,11 +169,11 @@ test("contentReconcile_custodyEditRestoresAndRelowersFromCustody", async (t) => 
 
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   const copied = copySelection(paragraph);
-  assert.ok(copied.includes(source), `custody restore keeps source truth: ${copied}`);
-  assert.ok(copied.includes("托管内新增"), `custody restore keeps host edit: ${copied}`);
+  assert.ok(copied.includes(source), `rawDom restore keeps source truth: ${copied}`);
+  assert.ok(copied.includes("托管内新增"), `rawDom restore keeps host edit: ${copied}`);
 });
 
-test("contentReconcile_taintedEngineEditRerendersFromCustody", async (t) => {
+test("contentReconcile_taintedEngineEditRerendersFromRawDom", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "原地改引擎输出会从托管重渲。";
@@ -200,7 +200,7 @@ test("contentReconcile_taintedEngineEditRerendersFromCustody", async (t) => {
   assert.deepEqual(reconcileContent(root, [paragraph]), {
     outcome: "work",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 1,
     stranded: 0,
     dead: 0,
@@ -230,7 +230,7 @@ test("contentReconcile_deadParagraphDroppedAndFreshCloneAdopted", async (t) => {
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 1,
     dead: 1,
@@ -264,7 +264,7 @@ test("contentReconcile_reprojectedCloneKeepsHardBreakThroughDescaffold", async (
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 1,
     dead: 1,
@@ -295,7 +295,7 @@ test("contentReconcile_strandedCapabilityIssueIsNotRetried", async (t) => {
   assert.deepEqual(reconcileContent(root), {
     outcome: "idle",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 0,
     dead: 0,
@@ -316,7 +316,7 @@ test("contentReconcile_strandedCapabilityIssueIsNotRetried", async (t) => {
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 0,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 1,
     dead: 0,
@@ -353,7 +353,7 @@ test("contentReconcile_widthSnapshotStaleGuardAbortsReconcileJob", async (t) => 
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
     drifted: 10,
-    custody: 0,
+    rawDom: 0,
     tainted: 0,
     stranded: 0,
     dead: 0,

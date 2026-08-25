@@ -467,7 +467,7 @@ test("stabilizeContentSizedItemInlineSize leaves a stable auto-sized item alone"
   }
 });
 
-test("stabilizeContentSizedItemInlineSize pins the host inline size when custody shrinks the item", () => {
+test("stabilizeContentSizedItemInlineSize pins the host inline size when rawDom shrinks the item", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();

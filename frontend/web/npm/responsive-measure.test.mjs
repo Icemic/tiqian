@@ -37,7 +37,7 @@ test("responsiveMeasure_preservesWidthDerivedThroughShrinkToFitAncestor", async 
       <figure style="display: inline-block; margin: 0; max-width: 100%">
         <div style="width: 500px"></div>
         <figcaption>
-          <p style="margin: 0">ContentSizedParagraphWithoutNativeBreakOpportunitiesMustKeepTheHostMeasureWhileItsSourceNodesAreInCustody</p>
+          <p style="margin: 0">ContentSizedParagraphWithoutNativeBreakOpportunitiesMustKeepTheHostMeasureWhileItsSourceNodesAreInRawDom</p>
         </figcaption>
       </figure>
     </div>

@@ -8,7 +8,7 @@ import { installFixtureFontBackend } from "./test-support/fixture-font-backend.m
 const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPreparedDomRenderer", "__TiqianFontBackend", "__TiqianPreparedDomValidator"];
 
 // The engine entry runs the real process-paragraph, content-reconcile and
-// progressive-drivers functions against fake ledgers (custody, root-state,
+// progressive-drivers functions against fake ledgers (detached-fragment backup, root-state,
 // layout-job-pool, copy-installer). The process-paragraph and commit helpers
 // are direct imports, so a ready commit path only proceeds through an
 // installed prepared-DOM bridge; without one the prepare step returns
@@ -245,13 +245,13 @@ function makeFakeJob() {
   };
 }
 
-function makeFakeCustody(overrides = {}) {
+function makeFakeRawDom(overrides = {}) {
   const calls = {
     restoreParagraph: [],
     restoreShell: [],
     stampRendered: [],
     renderedMatches: [],
-    custodyMatches: [],
+    rawDomMatches: [],
     begin: [],
     take: [],
     commit: [],
@@ -265,9 +265,9 @@ function makeFakeCustody(overrides = {}) {
       calls.renderedMatches.push(el);
       return overrides.renderedMatches ? overrides.renderedMatches(el) : true;
     },
-    custodyMatches: function (el) {
-      calls.custodyMatches.push(el);
-      return overrides.custodyMatches ? overrides.custodyMatches(el) : true;
+    rawDomMatches: function (el) {
+      calls.rawDomMatches.push(el);
+      return overrides.rawDomMatches ? overrides.rawDomMatches(el) : true;
     },
     begin: function (...args) { calls.begin.push(args); },
     take: function () {},
@@ -287,15 +287,15 @@ function makeEngine(opts) {
   opts = opts || {};
   const rs = opts.rs || makeFakeRootState(opts.rsOpts || {});
   const job = opts.job || makeFakeJob();
-  const custody = opts.custody || makeFakeCustody();
+  const rawDom = opts.rawDom || makeFakeRawDom();
   const copyInstaller = opts.copyInstaller || makeFakeCopyInstaller();
-  const entry = createEngineEntry(custody, copyInstaller, rs, job);
+  const entry = createEngineEntry(rawDom, copyInstaller, rs, job);
   return {
     engine: entry.engine,
     workers: entry.workers,
     rs: rs,
     job: job,
-    custody: custody,
+    rawDom: rawDom,
     copyInstaller: copyInstaller,
   };
 }
@@ -316,10 +316,10 @@ test("1. enhance: processes each candidate via the real processParagraph, return
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     // The real processParagraph ran once per candidate, observable on the
-    // custody ledger.
-    assert.equal(ctx.custody._calls.begin.length, 2);
-    assert.equal(ctx.custody._calls.begin[0][0], c1);
-    assert.equal(ctx.custody._calls.begin[1][0], c2);
+    // detached-fragment backup ledger.
+    assert.equal(ctx.rawDom._calls.begin.length, 2);
+    assert.equal(ctx.rawDom._calls.begin[0][0], c1);
+    assert.equal(ctx.rawDom._calls.begin[1][0], c2);
     assert.equal(rs._calls.publishState.length, 1);
     assert.equal(result, 2);
   });
@@ -335,7 +335,7 @@ test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no
     const ctx = makeEngine({ rs: rs });
     const result = ctx.engine.enhance(makeElement(), {});
     assert.equal(result, 0);
-    assert.equal(ctx.custody._calls.begin.length, 0);
+    assert.equal(ctx.rawDom._calls.begin.length, 0);
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });
 
@@ -458,13 +458,13 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
     paragraphs: [{ source: src1 }, { source: src2 }],
     issues: [issue1, issue2],
   };
-  const custody = makeFakeCustody();
+  const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, custody: custody });
+    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-exact-layout-fallback": "fb" });
     ctx.engine.destroy(root);
-    assert.deepEqual(custody._calls.restoreParagraph, [src1, src2]);
+    assert.deepEqual(rawDom._calls.restoreParagraph, [src1, src2]);
     // clearIssue restored the captured original attributes.
     assert.equal(issue1.markerCaptured, false);
     assert.equal(issue2.markerCaptured, false);
@@ -483,13 +483,13 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
 // ---------------------------------------------------------------------------
 
 test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", function () {
-  const custody = makeFakeCustody();
+  const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, custody: custody });
+    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
     ctx.engine.destroy(root);
-    assert.equal(custody._calls.restoreParagraph.length, 0);
+    assert.equal(rawDom._calls.restoreParagraph.length, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
   });
@@ -580,7 +580,7 @@ test("11. cancelLayoutWork: delegates to ProgressiveJob.cancelJob", function () 
 
 // ---------------------------------------------------------------------------
 // 12. probeContentDrift: no state => unknown JSON; with state => sources to
-//     the real probe, which reads the fake custody ledger
+//     the real probe, which reads the fake detached-fragment backup ledger
 // ---------------------------------------------------------------------------
 
 test("12. probeContentDrift: no state returns unknown JSON; with state passes sources to the real probe", function () {
@@ -588,22 +588,22 @@ test("12. probeContentDrift: no state returns unknown JSON; with state passes so
   withEnv(() => {
     const ctx = makeEngine({ rs: rsNoState });
     const result = ctx.engine.probeContentDrift(makeElement());
-    assert.equal(result, '{"unknown":1,"drifted":0,"dead":0,"custody":0}');
+    assert.equal(result, '{"unknown":1,"drifted":0,"dead":0,"rawDom":0}');
   });
 
   const src1 = makeElement();
   const src2 = makeElement();
   const state = { root: null, options: {}, paragraphs: [{ source: src1 }, { source: src2 }], issues: [] };
-  const custody = makeFakeCustody();
+  const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, custody: custody });
+    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
     const result2 = ctx.engine.probeContentDrift(makeElement());
-    // The real probe classified both matching sources through the custody
-    // ledger, so nothing drifted, died or fell out of custody.
-    assert.deepEqual(custody._calls.renderedMatches, [src1, src2]);
-    assert.deepEqual(custody._calls.custodyMatches, [src1, src2]);
-    assert.equal(result2, '{"unknown":0,"drifted":0,"dead":0,"custody":0}');
+    // The real probe classified both matching sources through the detached-fragment backup
+    // ledger, so nothing drifted, died or fell out of detached-fragment backup.
+    assert.deepEqual(rawDom._calls.renderedMatches, [src1, src2]);
+    assert.deepEqual(rawDom._calls.rawDomMatches, [src1, src2]);
+    assert.equal(result2, '{"unknown":0,"drifted":0,"dead":0,"rawDom":0}');
   });
 });
 
@@ -617,7 +617,7 @@ test("13a. reconcileContent: no state returns idle JSON", function () {
   withEnv(() => {
     const ctx = makeEngine({ rs: rs });
     const result = ctx.engine.reconcileContent(makeElement(), []);
-    assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
+    assert.equal(result, '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}');
   });
 });
 
@@ -626,15 +626,15 @@ test("13b. reconcileContent: state + idle verdict => returns json, no startLayou
   withEnv(() => {
     const ctx = makeEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
     const result = ctx.engine.reconcileContent(makeElement(), []);
-    assert.equal(result, '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}');
+    assert.equal(result, '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}');
     assert.equal(ctx.job._calls.startJob.length, 0);
   });
 });
 
-test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded + DeadTrackedParagraphDrop", function () {
+test("13c. reconcileContent: work verdict with drifted/rawDom/tainted/stranded + DeadTrackedParagraphDrop", function () {
   const deadEl = makeElement({}, { isConnected: false });
   const driftedEl = makeElement();
-  const custodyEl = makeElement();
+  const rawDomEl = makeElement();
   const taintedEl = makeElement({}, { closestTo: { tagName: "TIQIAN-PROSE" } });
   const strandedEl = makeElement();
   const root = makeElement();
@@ -644,27 +644,27 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     paragraphs: [
       { source: deadEl },
       { source: driftedEl },
-      { source: custodyEl },
+      { source: rawDomEl },
       { source: taintedEl },
     ],
   });
-  const custody = makeFakeCustody({
+  const rawDom = makeFakeRawDom({
     renderedMatches: (el) => el !== driftedEl,
-    custodyMatches: (el) => el !== custodyEl,
+    rawDomMatches: (el) => el !== rawDomEl,
   });
   withEnv(() => {
     const ctx = makeEngine({
       rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] }),
-      custody: custody,
+      rawDom: rawDom,
     });
     const result = ctx.engine.reconcileContent(root, [taintedEl]);
     // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs.
     assert.equal(state.paragraphs.length, 3);
     assert.equal(state.paragraphs[0].source, driftedEl);
-    assert.equal(state.paragraphs[1].source, custodyEl);
+    assert.equal(state.paragraphs[1].source, rawDomEl);
     assert.equal(state.paragraphs[2].source, taintedEl);
     // The real classifyReconcile produced the expected verdict.
-    assert.equal(result, '{"outcome":"work","drifted":1,"custody":1,"tainted":1,"stranded":1,"dead":1}');
+    assert.equal(result, '{"outcome":"work","drifted":1,"rawDom":1,"tainted":1,"stranded":1,"dead":1}');
     // startLayoutJob called with kind Relayout and 4 actions.
     assert.equal(ctx.job._calls.startJob.length, 1);
     const call = ctx.job._calls.startJob[0];
@@ -679,13 +679,13 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     // prepareTrackedParagraphForRelowering for drifted stamps it once before
     // re-lowering, and the re-processing commit stamps it again; every other
     // action stamps once on its successful commit, all in tier order.
-    assert.deepEqual(custody._calls.restoreShell, [driftedEl]);
+    assert.deepEqual(rawDom._calls.restoreShell, [driftedEl]);
     assert.deepEqual(
-      custody._calls.stampRendered,
-      [driftedEl, driftedEl, custodyEl, taintedEl, strandedEl],
+      rawDom._calls.stampRendered,
+      [driftedEl, driftedEl, rawDomEl, taintedEl, strandedEl],
     );
-    // restoreParagraph for custody and tainted.
-    assert.deepEqual(custody._calls.restoreParagraph, [custodyEl, taintedEl]);
+    // restoreParagraph for detached-fragment backup and tainted.
+    assert.deepEqual(rawDom._calls.restoreParagraph, [rawDomEl, taintedEl]);
     // stripEngineMarkupFromStrandedParagraph ran inside the stranded action
     // (removals recorded on the fixture), then the re-process stamped the
     // paragraph rendered again through the real pipeline.
@@ -693,7 +693,7 @@ test("13c. reconcileContent: work verdict with drifted/custody/tainted/stranded 
     assert.ok(strandedEl.removedAttributes.includes("data-tq-canonical-plain"));
     assert.equal(strandedEl.getAttribute("data-tq-rendered"), "true");
     // The real processParagraph ran once per action (4 total).
-    assert.equal(custody._calls.begin.length, 4);
+    assert.equal(rawDom._calls.begin.length, 4);
   });
 });
 
@@ -709,11 +709,11 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
     paragraphs: [{ source: el1 }, { source: el2 }],
     issues: [],
   };
-  const custody = makeFakeCustody({ renderedMatches: () => false });
+  const rawDom = makeFakeRawDom({ renderedMatches: () => false });
   withEnv(() => {
     const ctx = makeEngine({
       rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
-      custody: custody,
+      rawDom: rawDom,
     });
     ctx.engine.reconcileContent(root, []);
     assert.equal(ctx.job._calls.startJob.length, 1);

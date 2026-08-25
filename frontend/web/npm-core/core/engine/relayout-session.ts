@@ -1,14 +1,14 @@
 // relayoutSession (TsHost runtime port, Slice 5a). Ports the Kotlin
 // relayout session from WebEnhancer.kt (lines 407-477).
 // Manages incremental paragraph layout commits during a progressive pass,
-// tracking live custody snapshots for transactional rollback, updating
+// tracking live detached-fragment backup snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Stateless module: openRelayoutSession(custody, argument) is a named
-// function that receives the custody collaborator as an explicit first
+// Stateless module: openRelayoutSession(detached-fragment backup, argument) is a named
+// function that receives the raw-DOM collaborator as an explicit first
 // parameter and returns a fresh session object for one run; the per-run Map
 // and arrays live on that session, never on module state. The engine
-// bootstrap passes the shared custody instance; tests pass a fake. The
+// bootstrap passes the shared raw-DOM instance; tests pass a fake. The
 // stateless lifecycle and commit-prepared-paragraph helpers are imported
 // directly.
 
@@ -21,7 +21,7 @@ import type {
   SessionArgument,
   RootStateIssueRecord,
 } from "./root-state.js";
-import type { CustodyApi, CustodySnapshot } from "./custody.js";
+import type { RawDomApi, RawDomSnapshot } from "./raw-dom.js";
 import type { CapabilityIssueRecord } from "./lifecycle.js";
 import { reportIssue } from "./lifecycle.js";
 import {
@@ -50,16 +50,16 @@ export type RelayoutSession = {
 /**
  * Open a relayout session for one run.
  *
- * @param {Object} custody
+ * @param {Object} detached-fragment backup
  * @param {Object} argument
  * @param {Array} argument.paragraphs
  * @param {Object} argument.state
  * @returns {Object}
  */
-export function openRelayoutSession(custody: CustodyApi, argument: SessionArgument): RelayoutSession {
+export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument): RelayoutSession {
     const paragraphs = argument.paragraphs.slice();
     const state = argument.state;
-    const snapshots = new Map<TrackedParagraph, CustodySnapshot>();
+    const snapshots = new Map<TrackedParagraph, RawDomSnapshot>();
     const successful: Array<[TrackedParagraph, number]> = [];
     const unsupported: Array<[TrackedParagraph, RootStateIssueRecord]> = [];
     const stateParagraphsBefore = state.paragraphs.slice();
@@ -67,22 +67,22 @@ export function openRelayoutSession(custody: CustodyApi, argument: SessionArgume
 
     // ProcessItem: dispatches layout preparation for a single paragraph item.
     // Unchanged preparations are no-ops. Unsupported and ready preparations
-    // capture live custody snapshots before commit or restore.
+    // capture live detached-fragment backup snapshots before commit or restore.
     function processItem(index: number, preparation: PrepareLayoutResult): void {
       const paragraph = paragraphs[index];
       if (preparation.kind === 'unchanged') {
         return;
       }
       if (preparation.kind === 'unsupported') {
-        snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
+        snapshots.set(paragraph, rawDom.captureLive(paragraph.source, paragraph.lastMeasure));
         unsupported.push([paragraph, preparation]);
-        custody.restoreParagraph(paragraph.source);
+        rawDom.restoreParagraph(paragraph.source);
         return;
       }
       if (preparation.kind === 'ready') {
-        snapshots.set(paragraph, custody.captureLive(paragraph.source, paragraph.lastMeasure));
+        snapshots.set(paragraph, rawDom.captureLive(paragraph.source, paragraph.lastMeasure));
         const result: CommitResult = commitPreparedParagraph(
-          custody,
+          rawDom,
           {
             paragraph: paragraph,
             preparation: preparation,
@@ -99,7 +99,7 @@ export function openRelayoutSession(custody: CustodyApi, argument: SessionArgume
           successful.push([paragraph, result.measure]);
         } else {
           unsupported.push([paragraph, result]);
-          custody.restoreParagraph(paragraph.source);
+          rawDom.restoreParagraph(paragraph.source);
         }
       }
     }
@@ -144,7 +144,7 @@ export function openRelayoutSession(custody: CustodyApi, argument: SessionArgume
     }
 
     // Rollback: reverts state.paragraphs and state.issues to their initial
-    // arrays, restores live DOM snapshots via custody.rollback in insertion
+    // arrays, restores live DOM snapshots via detached-fragment backup.rollback in insertion
     // order, and updates paragraph lastMeasure by source element identity.
     function rollback(): void {
       state.paragraphs.length = 0;
@@ -156,7 +156,7 @@ export function openRelayoutSession(custody: CustodyApi, argument: SessionArgume
         state.issues.push(stateIssuesBefore[is]);
       }
       const snapshotsArray = Array.from(snapshots.values());
-      const results = custody.rollback(snapshotsArray);
+      const results = rawDom.rollback(snapshotsArray);
       const paragraphBySource = new Map<Element, TrackedParagraph>();
       for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);

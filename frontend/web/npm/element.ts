@@ -268,7 +268,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
   #connected = false;
-  #custodyReentry = false;
+  #rawDomReentry = false;
   #detachAttributeSnapshot: (string | null)[] | null = null;
   #layoutWorkIsRelayout = false;
   #lastCommittedParagraphMeasures = "";
@@ -365,8 +365,8 @@ class TiqianProseElement extends HTMLElementBase {
   connectedCallback() {
     coordinationService().register(this);
     this.#observeIntersection();
-    if (this.#canAdoptCustodyMoveReconnection()) {
-      this.#adoptCustodyMoveReconnection();
+    if (this.#canAdoptRawDomMoveReconnection()) {
+      this.#adoptRawDomMoveReconnection();
       return;
     }
     // ReconnectedSourceReclamation: detached roots keep their source backing in
@@ -612,20 +612,20 @@ class TiqianProseElement extends HTMLElementBase {
 
   disconnectedCallback() {
     this.#connected = false;
-    // CustodyMoveTeardownDeferral: React, Svelte and other reconcilers move a
+    // RawDomMoveTeardownDeferral: React, Svelte and other reconcilers move a
     // node by removing and re-inserting it inside one synchronous commit.
     // Settling the disconnection synchronously destroys a rendered article
-    // that never left host custody, so the settle runs one microtask later.
+    // that never left host detached-fragment backup, so the settle runs one microtask later.
     // A same-task reconnection then re-enters the live lifecycle through
-    // CustodyMoveAdoption. A real navigation settles exactly as before, still
+    // RawDomMoveAdoption. A real navigation settles exactly as before, still
     // before the next frame. The remount variant of
     // resize-destroy-transient.test.mjs holds this contract.
-    this.#custodyReentry = true;
+    this.#rawDomReentry = true;
     this.#detachAttributeSnapshot = TiqianProseElement.observedAttributes.map(
       (name) => this.getAttribute(name),
     );
     queueMicrotask(() => {
-      this.#custodyReentry = false;
+      this.#rawDomReentry = false;
       this.#detachAttributeSnapshot = null;
       if (!this.isConnected) this.#settleDisconnection();
     });
@@ -673,11 +673,11 @@ class TiqianProseElement extends HTMLElementBase {
     this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
   }
 
-  #canAdoptCustodyMoveReconnection() {
-    if (this.#connected || !this.#custodyReentry) return false;
+  #canAdoptRawDomMoveReconnection() {
+    if (this.#connected || !this.#rawDomReentry) return false;
     if (!this.#runtimeStateActive || this.disabled) return false;
     if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
-      // Snapshot custody keeps the restore and re-adopt path. Its backing is
+      // Snapshot detached-fragment backup keeps the restore and re-adopt path. Its backing is
       // cheap to rebuild and shares document-scoped styles with the runtime.
       return false;
     }
@@ -688,16 +688,16 @@ class TiqianProseElement extends HTMLElementBase {
     );
   }
 
-  // CustodyMoveAdoption: a reconnection inside the deferred settle window is
-  // a host custody move. The committed LayoutResult, the exact font session
+  // RawDomMoveAdoption: a reconnection inside the deferred settle window is
+  // a host detached-fragment backup move. The committed LayoutResult, the exact font session
   // and any in-flight job stayed valid through the move, so only the
   // observers and the geometry baseline need re-entry. A width change from
   // the move routes through the responsive commit lane and relayouts in
   // place; a changed font context routes through the typography check and
   // refreshes from source. Observed attribute edits during the gap reject
   // adoption and take the full restart path instead.
-  #adoptCustodyMoveReconnection() {
-    this.#custodyReentry = false;
+  #adoptRawDomMoveReconnection() {
+    this.#rawDomReentry = false;
     this.#detachAttributeSnapshot = null;
     this.#connected = true;
     this.#ensureViewportResizeListener();
@@ -2078,11 +2078,11 @@ class TiqianProseElement extends HTMLElementBase {
     this.#contentInvalidation.start();
   }
 
-  #syncCustodyObservation() {
-    this.#contentInvalidation?.syncCustody();
+  #syncRawDomObservation() {
+    this.#contentInvalidation?.syncRawDom();
   }
 
-  #custodyParagraphFor(node: Node) {
+  #rawDomParagraphFor(node: Node) {
     return this.#contentInvalidation?.paragraphFor(node) ?? null;
   }
 
@@ -2099,7 +2099,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#hasDispatched) return;
     const { taintedParagraphs, paragraphSignal, structureSignal } =
       classifyContentMutationRecords(records, {
-        custodyParagraphFor: (node) => this.#custodyParagraphFor(node),
+        rawDomParagraphFor: (node) => this.#rawDomParagraphFor(node),
         belongsToRootScope,
         root: this,
       });
@@ -2140,13 +2140,13 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #probeContentDrift() {
-    // Mid-job takeovers publish fresh custody fragments; adopt them before
-    // reading custody identity so a host edit made during enhancement is
+    // Mid-job takeovers publish fresh detached-fragment backup fragments; adopt them before
+    // reading detached-fragment backup identity so a host edit made during enhancement is
     // already under observation when the probe runs.
-    this.#syncCustodyObservation();
+    this.#syncRawDomObservation();
     const drift = engineFace.probeContentDrift(this);
     const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
-      (drift?.custody || 0);
+      (drift?.rawDom || 0);
     const tainted = this.#contentTainted.size;
     if (drifted === 0 && tainted === 0) {
       // Engine-owned output disproven; nothing host-authored is pending.

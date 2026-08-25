@@ -453,7 +453,7 @@ test("exactSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed
   const count = TiqianWeb.enhance(root, exactTestOptions());
 
   // PreparedDomRenderMismatch: the bridge disagrees even with browser-metric
-  // output, so both paragraphs fail closed and custody restores their source.
+  // output, so both paragraphs fail closed and detached-fragment backup restores their source.
   assert.equal(count, 0);
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
   assert.equal(root.getAttribute("data-tiqian-issue-count"), "2");

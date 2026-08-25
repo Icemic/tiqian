@@ -1,22 +1,22 @@
-// Unit tests for the custody engine module behind ts-runtime.
-// npm-core/core/engine/custody.js exports createCustody(); these tests drive
+// Unit tests for the raw-DOM backup engine module behind ts-runtime.
+// npm-core/core/engine/raw-dom.js exports deriveRawDom(); these tests drive
 // a factory-constructed instance directly.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cleanupMounted, mount } from "./runtime-host.mjs";
-import { createCustody } from "@tiqian/prose-core/core/engine/custody.js";
+import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
 
-const custody = createCustody();
+const rawDom = deriveRawDom();
 
-function custodyParagraph(t, markup) {
+function rawDomParagraph(t, markup) {
   const root = mount(markup);
   t.after(cleanupMounted);
   return root.querySelector("p");
 }
 
 function beginDefaults(paragraph) {
-  custody.begin(
+  rawDom.begin(
     paragraph,
     null,
     null,
@@ -34,115 +34,115 @@ function beginDefaults(paragraph) {
   );
 }
 
-test("custodyBridge_exportsFullApiSurface", () => {
+test("rawDomBridge_exportsFullApiSurface", () => {
   for (const name of [
     "begin",
     "take",
     "commit",
     "stampRendered",
     "renderedMatches",
-    "custodyMatches",
+    "rawDomMatches",
     "captureLive",
     "rollback",
     "restoreParagraph",
     "restoreShell",
     "ensureContainingBlock",
   ]) {
-    assert.equal(typeof custody[name], "function", "missing api method: " + name);
+    assert.equal(typeof rawDom[name], "function", "missing api method: " + name);
   }
 });
 
-test("custodyBridge_takeMovesSourceIntoCustodyAndCommitPublishes", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
+test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
   const child = paragraph.firstChild;
   assert.ok(child);
 
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
+  rawDom.take(paragraph, null);
 
   assert.equal(paragraph.firstChild, null);
-  assert.equal(custody.custodyMatches(paragraph), false);
-  assert.equal(paragraph.__tqCustodyFragment, undefined);
+  assert.equal(rawDom.rawDomMatches(paragraph), false);
+  assert.equal(paragraph.__tqRawDomFragment, undefined);
 
-  custody.commit(paragraph, null);
+  rawDom.commit(paragraph, null);
 
-  const fragment = paragraph.__tqCustodyFragment;
+  const fragment = paragraph.__tqRawDomFragment;
   assert.ok(fragment);
   assert.equal(fragment.firstChild, child);
-  assert.equal(custody.custodyMatches(paragraph), true);
-  assert.equal(paragraph.__tqCustodyForwarding, true);
+  assert.equal(rawDom.rawDomMatches(paragraph), true);
+  assert.equal(paragraph.__tqRawDomForwarding, true);
 });
 
-test("custodyBridge_hostCommitsRouteIntoCustody", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
+test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
-  custody.commit(paragraph, null);
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, null);
 
   const node = globalThis.document.createTextNode("宿主新增");
   paragraph.appendChild(node);
-  assert.equal(node.parentNode, paragraph.__tqCustodyFragment);
-  assert.equal(custody.custodyMatches(paragraph), false);
+  assert.equal(node.parentNode, paragraph.__tqRawDomFragment);
+  assert.equal(rawDom.rawDomMatches(paragraph), false);
 
   paragraph.removeChild(node);
   assert.equal(node.parentNode, null);
-  assert.equal(custody.custodyMatches(paragraph), true);
+  assert.equal(rawDom.rawDomMatches(paragraph), true);
 });
 
-test("custodyBridge_engineWritesBypassForwarding", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
+test("rawDomBridge_engineWritesBypassForwarding", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
-  custody.commit(paragraph, null);
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, null);
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   const node = globalThis.document.createTextNode("引擎输出");
   paragraph.appendChild(node);
   assert.equal(node.parentNode, paragraph);
-  paragraph.__tqCustodyEngineWrites = 0;
+  paragraph.__tqRawDomEngineWrites = 0;
 
   const hostNode = globalThis.document.createTextNode("宿主输出");
   paragraph.appendChild(hostNode);
-  assert.equal(hostNode.parentNode, paragraph.__tqCustodyFragment);
+  assert.equal(hostNode.parentNode, paragraph.__tqRawDomFragment);
 });
 
-test("custodyBridge_renderedDriftDetection", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
+test("rawDomBridge_renderedDriftDetection", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
-  custody.commit(paragraph, null);
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, null);
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   const rendered = globalThis.document.createElement("span");
   paragraph.appendChild(rendered);
-  paragraph.__tqCustodyEngineWrites = 0;
-  custody.stampRendered(paragraph);
-  assert.equal(custody.renderedMatches(paragraph), true);
+  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.stampRendered(paragraph);
+  assert.equal(rawDom.renderedMatches(paragraph), true);
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   paragraph.removeChild(rendered);
-  paragraph.__tqCustodyEngineWrites = 0;
-  assert.equal(custody.renderedMatches(paragraph), false);
+  paragraph.__tqRawDomEngineWrites = 0;
+  assert.equal(rawDom.renderedMatches(paragraph), false);
 
-  custody.stampRendered(paragraph);
-  assert.equal(custody.renderedMatches(paragraph), true);
+  rawDom.stampRendered(paragraph);
+  assert.equal(rawDom.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_captureLiveRollbackRoundTrip", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
+test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
-  custody.commit(paragraph, null);
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, null);
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   const rendered = globalThis.document.createElement("span");
   paragraph.appendChild(rendered);
   paragraph.setAttribute("data-tq-rendered", "true");
   paragraph.setAttribute("lang", "zh-Hans");
-  paragraph.__tqCustodyEngineWrites = 0;
-  custody.stampRendered(paragraph);
+  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.stampRendered(paragraph);
 
-  const snapshot = custody.captureLive(paragraph, 3.5);
+  const snapshot = rawDom.captureLive(paragraph, 3.5);
   assert.equal(paragraph.firstChild, null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.lastMeasure, 3.5);
@@ -150,53 +150,53 @@ test("custodyBridge_captureLiveRollbackRoundTrip", (t) => {
   assert.equal(snapshot.renderedAttribute, "true");
   assert.equal(snapshot.langAttribute, "zh-Hans");
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   const newer = globalThis.document.createElement("div");
   paragraph.appendChild(newer);
   paragraph.setAttribute("lang", "ja");
-  paragraph.__tqCustodyEngineWrites = 0;
+  paragraph.__tqRawDomEngineWrites = 0;
 
-  const results = custody.rollback([snapshot]);
+  const results = rawDom.rollback([snapshot]);
   assert.equal(results.length, 1);
   assert.equal(results[0].source, paragraph);
   assert.equal(results[0].lastMeasure, 3.5);
   assert.equal(paragraph.firstChild, rendered);
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
-  assert.equal(custody.renderedMatches(paragraph), true);
+  assert.equal(rawDom.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_rollbackReadoptsCustodyAfterRestore", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
+test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
   const originalChild = paragraph.firstChild;
   beginDefaults(paragraph);
-  custody.take(paragraph, null);
-  custody.commit(paragraph, null);
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, null);
 
-  paragraph.__tqCustodyEngineWrites = 1;
+  paragraph.__tqRawDomEngineWrites = 1;
   const rendered = globalThis.document.createElement("span");
   paragraph.appendChild(rendered);
-  paragraph.__tqCustodyEngineWrites = 0;
-  custody.stampRendered(paragraph);
+  paragraph.__tqRawDomEngineWrites = 0;
+  rawDom.stampRendered(paragraph);
 
-  const snapshot = custody.captureLive(paragraph, null);
+  const snapshot = rawDom.captureLive(paragraph, null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.originalContentHadChildren, true);
 
-  custody.restoreParagraph(paragraph);
+  rawDom.restoreParagraph(paragraph);
   assert.equal(paragraph.firstChild, originalChild);
-  assert.equal(paragraph.__tqCustodyFragment.firstChild, null);
+  assert.equal(paragraph.__tqRawDomFragment.firstChild, null);
 
-  const results = custody.rollback([snapshot]);
+  const results = rawDom.rollback([snapshot]);
   assert.equal(results.length, 1);
   assert.equal(paragraph.firstChild, rendered);
-  assert.equal(paragraph.__tqCustodyFragment.firstChild, originalChild);
-  assert.equal(custody.custodyMatches(paragraph), true);
-  assert.equal(custody.renderedMatches(paragraph), true);
+  assert.equal(paragraph.__tqRawDomFragment.firstChild, originalChild);
+  assert.equal(rawDom.rawDomMatches(paragraph), true);
+  assert.equal(rawDom.renderedMatches(paragraph), true);
 });
 
-test("custodyBridge_restoreParagraphRestoresShell", (t) => {
-  const paragraph = custodyParagraph(
+test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
+  const paragraph = rawDomParagraph(
     t,
     "<div data-tiqian-root='true'><p>还原要清掉引擎覆盖。</p></div>",
   );
@@ -204,7 +204,7 @@ test("custodyBridge_restoreParagraphRestoresShell", (t) => {
   // so initialize the host-owned declaration through the proxy itself.
   paragraph.style.setProperty("width", "10px");
   const originalChild = paragraph.firstChild;
-  custody.begin(
+  rawDom.begin(
     paragraph,
     null,
     null,
@@ -220,15 +220,15 @@ test("custodyBridge_restoreParagraphRestoresShell", (t) => {
     "",
     null,
   );
-  custody.take(paragraph, "18px");
+  rawDom.take(paragraph, "18px");
   paragraph.style.setProperty("font-size", "18px", "important");
-  custody.commit(paragraph, "123px");
+  rawDom.commit(paragraph, "123px");
   paragraph.setAttribute("data-tq-rendered", "true");
   paragraph.setAttribute("data-tq-runtime-render-font", "true");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  custody.restoreParagraph(paragraph);
+  rawDom.restoreParagraph(paragraph);
 
   assert.equal(paragraph.firstChild, originalChild);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -239,13 +239,13 @@ test("custodyBridge_restoreParagraphRestoresShell", (t) => {
   assert.equal(paragraph.getAttribute("style"), "width: 10px");
 });
 
-test("custodyBridge_restoreShellKeepsOriginalInlineSize", (t) => {
-  const paragraph = custodyParagraph(
+test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
+  const paragraph = rawDomParagraph(
     t,
     "<div data-tiqian-root='true'><p>原始 inline-size 要写回。</p></div>",
   );
   paragraph.style.setProperty("inline-size", "55px");
-  custody.begin(
+  rawDom.begin(
     paragraph,
     null,
     null,
@@ -261,19 +261,19 @@ test("custodyBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "",
     null,
   );
-  custody.take(paragraph, null);
-  custody.commit(paragraph, "123px");
+  rawDom.take(paragraph, null);
+  rawDom.commit(paragraph, "123px");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  custody.restoreShell(paragraph);
+  rawDom.restoreShell(paragraph);
 
   assert.equal(paragraph.style.getPropertyValue("inline-size"), "55px");
   assert.equal(paragraph.style.getPropertyPriority("inline-size"), "");
 });
 
-test("custodyBridge_ensureContainingBlockAppliesAndRestores", (t) => {
-  const paragraph = custodyParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
+test("rawDomBridge_ensureContainingBlockAppliesAndRestores", (t) => {
+  const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
   const realGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (element, pseudo) => {
     const style = realGetComputedStyle(element, pseudo);
@@ -289,14 +289,14 @@ test("custodyBridge_ensureContainingBlockAppliesAndRestores", (t) => {
   });
 
   beginDefaults(paragraph);
-  custody.ensureContainingBlock(paragraph);
+  rawDom.ensureContainingBlock(paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
   assert.equal(paragraph.style.getPropertyPriority("position"), "important");
 
-  custody.ensureContainingBlock(paragraph);
+  rawDom.ensureContainingBlock(paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
 
-  custody.restoreShell(paragraph);
+  rawDom.restoreShell(paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "");
   assert.equal(paragraph.getAttribute("style"), null);
   // restoreShell only touches attributes and inline style; the live children

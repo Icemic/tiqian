@@ -1,6 +1,6 @@
 // Fake host environment for driving Kotlin/JS runtime under Node.js test runner.
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
-// stable and synchronous execution for custody relayout and destruction tests.
+// stable and synchronous execution for detached-fragment backup relayout and destruction tests.
 
 import assert from "node:assert/strict";
 import {

@@ -93,7 +93,7 @@ export type CapabilityIssueRecord = {
 };
 
 // Inline size capture produced by captureSourceInlineSize and consumed by
-// stabilizeContentSizedItemInlineSize (SourceMeasureBeforeCustodyTransfer).
+// stabilizeContentSizedItemInlineSize (SourceMeasureBeforeRawDomTransfer).
 export type SourceInlineSizeCapture = {
   borderBoxWidth: number;
   contentBoxWidth: number;
@@ -336,12 +336,12 @@ export function responsiveSourceMeasure(paragraph: HTMLElement, configuredFontSi
   }
 }
 
-// SourceMeasureBeforeCustodyTransfer: flex/grid items and descendants of
+// SourceMeasureBeforeRawDomTransfer: flex/grid items and descendants of
 // shrink-to-fit ancestors can derive their used inline size from the
-// semantic children that Tiqian moves into source custody, so the
+// semantic children that Tiqian moves into source detached-fragment backup, so the
 // before/after used size detects the real dependency instead of guessing
 // parent display modes. Ordinary blocks keep their host auto sizing; only a
-// custody-induced width change is stabilized.
+// detached-fragment backup-induced width change is stabilized.
 export function stabilizeContentSizedItemInlineSize(paragraph: HTMLElement, source: SourceInlineSizeCapture): string | null {
   const empty = captureSourceInlineSize(paragraph);
   const sourceUsedInlineSize = source.borderBoxSizing ? source.borderBoxWidth : source.contentBoxWidth;

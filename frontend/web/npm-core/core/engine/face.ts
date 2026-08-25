@@ -10,13 +10,13 @@ export interface ContentDriftProbeResult {
   unknown: number;
   drifted: number;
   dead: number;
-  custody: number;
+  rawDom: number;
 }
 
 export interface ContentReconcileResult {
   outcome: string;
   drifted: number;
-  custody: number;
+  rawDom: number;
   tainted: number;
   stranded: number;
   dead: number;

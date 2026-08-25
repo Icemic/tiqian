@@ -1,13 +1,13 @@
 // processParagraph (TsHost runtime port, Slice 4d-1). Ports the paragraph
 // processing orchestration from WebEnhancerParagraphPipeline.kt
 // (processParagraph, lines 89-227, and layoutParagraph, lines 229-264).
-// The module coordinates paragraph eligibility, style custody, markdown
+// The module coordinates paragraph eligibility, style detached-fragment backup, markdown
 // lowering, exact layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
-// Stateless module: processParagraph(custody, argument) is a named function
-// that receives the custody collaborator as an explicit first parameter. The
-// engine bootstrap passes the shared custody instance; tests pass a fake.
+// Stateless module: processParagraph(detached-fragment backup, argument) is a named function
+// that receives the raw-DOM collaborator as an explicit first parameter. The
+// engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
 // The stateless worker-request, prepare-paragraph-layout, lifecycle,
 // eligibility, markdown-lowering, prepared-metadata and
 // commit-prepared-paragraph helpers are imported directly.
@@ -32,7 +32,7 @@ import {
   firstDivergentInlineShapingProperty,
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
-import type { CustodyApi } from "./custody.js";
+import type { RawDomApi } from "./raw-dom.js";
 import { shouldTryParagraph } from "./eligibility.js";
 import { lowerMarkdown } from "./markdown-lowering.js";
 import {
@@ -135,13 +135,13 @@ interface ProcessInlineShapingDecisionResult {
   }
 
   /**
-   * Process a single paragraph element through markdown lowering, custody
+   * Process a single paragraph element through markdown lowering, detached-fragment backup
    * takeover, layout preparation, and commit.
    *
-   * @param {Object} custody
+   * @param {Object} detached-fragment backup
    * @param {Object} argument
    */
-  export function processParagraph(custody: CustodyApi, argument: ProcessParagraphInvocation): void {
+  export function processParagraph(rawDom: RawDomApi, argument: ProcessParagraphInvocation): void {
     const paragraph = argument.paragraph;
     const state = argument.state;
     // Prepared metadata builders shared across orchestrators.
@@ -188,7 +188,7 @@ interface ProcessInlineShapingDecisionResult {
     }
 
     const paragraphStyle = (paragraph as HTMLElement).style;
-    custody.begin(
+    rawDom.begin(
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -263,7 +263,7 @@ interface ProcessInlineShapingDecisionResult {
       return;
     }
 
-    custody.take(paragraph, hostFontSizeApplied);
+    rawDom.take(paragraph, hostFontSizeApplied);
     const hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
@@ -278,13 +278,13 @@ interface ProcessInlineShapingDecisionResult {
       lastMeasure: null,
     };
 
-    custody.commit(paragraph, hostInlineSizeApplied);
+    rawDom.commit(paragraph, hostInlineSizeApplied);
 
     let layoutIssue = null;
     try {
       if (workerPlan != null) {
         layoutIssue = commitWorkerPreparedParagraph(
-          custody,
+          rawDom,
           {
             paragraph: item,
             workerPlan: workerPlan,
@@ -308,7 +308,7 @@ interface ProcessInlineShapingDecisionResult {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
           const commitResult = commitPreparedParagraph(
-            custody,
+            rawDom,
             {
               paragraph: item,
               preparation: preparation,
@@ -340,7 +340,7 @@ interface ProcessInlineShapingDecisionResult {
     if (layoutIssue == null) {
       state.onParagraphCommitted(item);
     } else {
-      custody.restoreParagraph(paragraph);
+      rawDom.restoreParagraph(paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }

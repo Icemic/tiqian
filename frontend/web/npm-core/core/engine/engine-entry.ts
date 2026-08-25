@@ -4,7 +4,7 @@
 // (WebEnhancerWorkerProtocol.kt), and moves the Kotlin
 // WebEnhancerContentReconcile.kt reconcile orchestration into TS.
 //
-// Stateful module: createEngineEntry(custody, copyInstaller, rootState,
+// Stateful module: createEngineEntry(detached-fragment backup, copyInstaller, rootState,
 // layoutJobPool) receives the four stateful collaborators from the
 // composition root and wires them into the 11-method engine facade and the
 // 9-method worker facade. The engine bootstrap (ts-runtime) constructs one
@@ -24,7 +24,7 @@ import {
   probeContentDrift,
   stripEngineMarkupFromStrandedParagraph,
 } from "./content-reconcile.js";
-import type { CustodyApi } from "./custody.js";
+import type { RawDomApi } from "./raw-dom.js";
 import type { CopyInstaller } from "../utils/copy.js";
 import type { LayoutJobPool } from "./layout-job-pool.js";
 import {
@@ -76,7 +76,7 @@ export interface EngineEntryHandle {
 }
 
 export function createEngineEntry(
-  custody: CustodyApi,
+  rawDom: RawDomApi,
   copyInstaller: CopyInstaller,
   rootState: RootStateApi,
   layoutJobPool: LayoutJobPool,
@@ -157,7 +157,7 @@ export function createEngineEntry(
   // processParagraphOf: process a single element through the layout pipeline.
   function processParagraphOf(element: HTMLElement, state: RootState): void {
     processParagraph(
-      custody,
+      rawDom,
       RS.processParagraphArgument(state, element)
     );
   }
@@ -181,7 +181,7 @@ export function createEngineEntry(
     if (rejectMissingSharedRuntimeStyles(rootState, state, candidates)) return 0;
     for (let i = 0; i < candidates.length; i += 1) {
       processParagraph(
-        custody,
+        rawDom,
         RS.processParagraphArgument(state, candidates[i])
       );
     }
@@ -193,7 +193,7 @@ export function createEngineEntry(
   // The copy handler install and destroy run inside the drivers entry, so
   // relayout restarts that enter the drivers directly destroy too.
   engine.enhanceProgressively = function (root: HTMLElement, optionsBag?: unknown): void {
-    enhanceProgressively(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, custody, root, optionsBag as Record<string, unknown> | null);
+    enhanceProgressively(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, rawDom, root, optionsBag as Record<string, unknown> | null);
   };
 
   // 3. enhanceAll(optionsBag) -> number
@@ -221,7 +221,7 @@ export function createEngineEntry(
     if (state != null) {
       let j: number;
       for (j = 0; j < state.paragraphs.length; j += 1) {
-        custody.restoreParagraph(state.paragraphs[j].source);
+        rawDom.restoreParagraph(state.paragraphs[j].source);
       }
       for (j = 0; j < state.issues.length; j += 1) {
         clearIssue(state.issues[j]);
@@ -255,7 +255,7 @@ export function createEngineEntry(
 
   // 6. relayout(root) -- delegates to drivers.
   engine.relayout = function (root: HTMLElement): void {
-    relayout(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, custody, root);
+    relayout(rootState, engine as TiqianEngineInstance, copyInstaller, layoutJobPool, rawDom, root);
   };
 
   // 7. refresh(root, progressively)
@@ -268,7 +268,7 @@ export function createEngineEntry(
         engine as TiqianEngineInstance,
         copyInstaller,
         layoutJobPool,
-        custody,
+        rawDom,
         root,
         state.options
       );
@@ -285,8 +285,8 @@ export function createEngineEntry(
   // 9. probeContentDrift(root) -> string
   engine.probeContentDrift = function (root: HTMLElement): string {
     const state = RS.getState(root);
-    if (!state) return '{"unknown":1,"drifted":0,"dead":0,"custody":0}';
-    return probeContentDrift(custody, sourcesOf(state));
+    if (!state) return '{"unknown":1,"drifted":0,"dead":0,"rawDom":0}';
+    return probeContentDrift(rawDom, sourcesOf(state));
   };
 
   // 10. reconcileContent(root, tainted) -> string
@@ -294,7 +294,7 @@ export function createEngineEntry(
   engine.reconcileContent = function reconcileContent(root: HTMLElement, tainted: HTMLElement[]): string {
     const state = RS.getState(root);
     if (!state) {
-      return '{"outcome":"idle","drifted":0,"custody":0,"tainted":0,"stranded":0,"dead":0}';
+      return '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}';
     }
     const spec: ReconcileSpec = {
       trackedSources: sourcesOf(state),
@@ -302,7 +302,7 @@ export function createEngineEntry(
       strandedCandidates: RS.strandedSourceParagraphs(root, state),
       rootSelector: "tiqian-prose, [data-tiqian-root]",
     };
-    const verdict = classifyReconcile(custody, spec);
+    const verdict = classifyReconcile(rawDom, spec);
 
     // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
     // onto detached originals. Drop them so re-projected clones are adopted as
@@ -325,39 +325,39 @@ export function createEngineEntry(
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            prepareTrackedParagraphForRelowering(custody, element);
+            prepareTrackedParagraphForRelowering(rawDom, element);
             processParagraphOf(element, state!);
           },
         });
       })(verdict.drifted[vi] as HTMLElement);
     }
-    for (vi = 0; vi < verdict.custody.length; vi += 1) {
-      // CustodyDriftRerendersFromCustody: a host edit inside the custody
+    for (vi = 0; vi < verdict.rawDom.length; vi += 1) {
+      // RawDomDriftRerendersFromRawDom: a host edit inside the detached-fragment backup
       // fragment leaves the live paragraph matching the rendered invariant, so
-      // only the custody identity check sees it. Restore hands it back to the
+      // only the detached-fragment backup identity check sees it. Restore hands it back to the
       // live DOM and processParagraph re-lowers the edited content.
       (function (element: HTMLElement) {
         actions.push({
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            custody.restoreParagraph(element);
+            rawDom.restoreParagraph(element);
             processParagraphOf(element, state!);
           },
         });
-      })(verdict.custody[vi] as HTMLElement);
+      })(verdict.rawDom[vi] as HTMLElement);
     }
     for (vi = 0; vi < verdict.tainted.length; vi += 1) {
-      // TaintedEngineOutputRerendersFromCustody: an in-place text edit inside
+      // TaintedEngineOutputRerendersFromRawDom: an in-place text edit inside
       // engine output does not change child identity. The edited node belongs
-      // to the renderer, so the semantic truth stays in custody and the
+      // to the renderer, so the semantic truth stays in detached-fragment backup and the
       // paragraph re-renders from it.
       (function (element: HTMLElement) {
         actions.push({
           element: element,
           run: function () {
             removeEntryFor(state!, element);
-            custody.restoreParagraph(element);
+            rawDom.restoreParagraph(element);
             processParagraphOf(element, state!);
           },
         });
@@ -368,7 +368,7 @@ export function createEngineEntry(
         actions.push({
           element: element,
           run: function () {
-            stripEngineMarkupFromStrandedParagraph(custody, element);
+            stripEngineMarkupFromStrandedParagraph(rawDom, element);
             processParagraphOf(element, state!);
           },
         });

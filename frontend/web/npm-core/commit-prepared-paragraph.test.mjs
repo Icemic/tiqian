@@ -5,7 +5,7 @@ import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "./core/e
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
-// The commit functions run for real; only the custody dep and the
+// The commit functions run for real; only the detached-fragment backup dep and the
 // host-installed prepared-DOM renderer/validator globals are fakes. The direct
 // distrust-retry path drives the real prepareParagraphLayout, so the planted
 // fixture font backend must answer the exact-session prepare and the
@@ -66,7 +66,7 @@ function withEnv(fn, overrides = {}) {
             plan,
             locale,
             options,
-            custodyCounterDuringRender: host.__tqCustodyEngineWrites,
+            rawDomCounterDuringRender: host.__tqRawDomEngineWrites,
           });
         },
         release: (host) => {
@@ -151,7 +151,7 @@ function makeParagraph(overrides = {}) {
   };
 }
 
-function installFakeCustody(overrides = {}) {
+function installFakeRawDom(overrides = {}) {
   const stamped = [];
   return {
     stampRendered: (el) => {
@@ -208,10 +208,10 @@ function makeValidBridge() {
   };
 }
 
-test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps custody, returns null", () => {
+test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps rawDom, returns null", () => {
   withEnv(() => {
     const source = makeElement({}, { width: 300 });
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const domObjElement = makeElement();
@@ -234,7 +234,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
     let fallbackCalled = false;
-    const result = commitWorkerPreparedParagraph(custody, {
+    const result = commitWorkerPreparedParagraph(rawDom, {
       paragraph,
       workerPlan,
       onExactPreparedDomFallback: () => {
@@ -258,8 +258,8 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(renderCall.host, paragraph.source);
     assert.equal(renderCall.plan, record.plan);
     assert.equal(renderCall.locale, "zh-Hans");
-    assert.equal(renderCall.custodyCounterDuringRender, 1);
-    assert.equal(paragraph.source.__tqCustodyEngineWrites, 0);
+    assert.equal(renderCall.rawDomCounterDuringRender, 1);
+    assert.equal(paragraph.source.__tqRawDomEngineWrites, 0);
 
     assert.deepEqual(renderCall.options, {
       sourceText: "hello world",
@@ -271,20 +271,20 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
       cjkStrongSemantics: [{ start: 0, end: 1 }],
     });
 
-    assert.equal(custody.stamped.length, 1);
-    assert.equal(custody.stamped[0], paragraph.source);
+    assert.equal(rawDom.stamped.length, 1);
+    assert.equal(rawDom.stamped[0], paragraph.source);
   }, { validator: () => null });
 });
 
 test("worker mismatch: validator issue triggers fallback callback, releases styles, strips attributes, returns unsupported", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
     let fallbackIssue = null;
 
-    const result = commitWorkerPreparedParagraph(custody, {
+    const result = commitWorkerPreparedParagraph(rawDom, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       onExactPreparedDomFallback: (issue) => {
@@ -315,7 +315,7 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
 
 test("worker rich lowered: removes canonical-plain attribute for rich lowered", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const source = makeElement({ "data-tq-canonical-plain": "true" });
@@ -326,7 +326,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
       },
     });
 
-    const result = commitWorkerPreparedParagraph(custody, {
+    const result = commitWorkerPreparedParagraph(rawDom, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       inlineObjectMetaJson: "[]",
@@ -339,9 +339,9 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
   }, { validator: () => null });
 });
 
-test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps custody, returns success", () => {
+test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps rawDom, returns success", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
@@ -352,7 +352,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       exactFontSessionUsed: false,
     };
 
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       ffi: {},
       paragraph,
       preparation,
@@ -373,14 +373,14 @@ test("direct happy path, no live sources: renders with undefined options, sets c
     assert.equal(renderer.renders.length, 1);
     assert.equal(renderer.renders[0].options, undefined);
 
-    assert.equal(custody.stamped.length, 1);
-    assert.equal(custody.stamped[0], paragraph.source);
+    assert.equal(rawDom.stamped.length, 1);
+    assert.equal(rawDom.stamped[0], paragraph.source);
   }, { validator: () => null });
 });
 
 test("direct rich path with sourceSpans elements: renders with live-source replay options", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const spanElement = makeElement();
@@ -404,7 +404,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const inlineObjectMetaJson = JSON.stringify([{ start: 1, end: 2, marginRight: 5 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       ffi: {},
       paragraph,
       preparation,
@@ -433,7 +433,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
 
 test("direct mismatch, exactFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
@@ -445,7 +445,7 @@ test("direct mismatch, exactFontSessionUsed: false: three attributes removed, ex
     };
 
     let fallbackCalled = false;
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       ffi: {},
       paragraph,
       preparation,
@@ -481,7 +481,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
     return validateCount === 1 ? "ExactSessionMismatch" : null;
   };
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
@@ -500,7 +500,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 
     let fallbackReported = null;
 
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       paragraph,
       preparation,
       options: originalOptions,
@@ -527,7 +527,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 
 test("distrust retry returning unsupported: propagated as the final unsupported verdict", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
@@ -557,7 +557,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       return JSON.stringify(inner);
     };
 
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       paragraph,
       preparation,
       options: { exactFontSession: {} },
@@ -575,7 +575,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
 
 test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
-    const custody = installFakeCustody();
+    const rawDom = installFakeRawDom();
 
 
     const paragraph = makeParagraph();
@@ -586,7 +586,7 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       exactFontSessionUsed: true,
     };
 
-    const result = commitPreparedParagraph(custody, {
+    const result = commitPreparedParagraph(rawDom, {
       paragraph,
       preparation,
       options: { exactFontSession: {} },

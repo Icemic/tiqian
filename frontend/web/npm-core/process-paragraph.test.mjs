@@ -9,7 +9,7 @@ import { installFixtureFontBackend, installThrowingFontBackend } from "./test-su
 // All module seams are gone: eligibility, markdown lowering, the lifecycle
 // helpers, the worker request serializer, the prepared-metadata builders and
 // the direct prepare step run for real. The direct prepare step drives the
-// real @tiqian/ffi over the planted fixture font backend; only the custody
+// real @tiqian/ffi over the planted fixture font backend; only the detached-fragment backup
 // graph is a fake dep, plus the host-installed __TiqianLayoutWorker /
 // __TiqianPreparedDomRenderer / __TiqianPreparedDomValidator environment
 // globals.
@@ -260,18 +260,18 @@ function makeState(overrides = {}) {
   };
 }
 
-test("1. Direct happy path: lowering ok, custody begin called with 14 args, prepare ready, commit success", () => {
+test("1. Direct happy path: lowering ok, rawDom begin called with 14 args, prepare ready, commit success", () => {
   withEnv(() => {
-    const custodyBeginArgs = [];
-    let custodyTakeCalled = false;
-    let custodyCommitCalled = false;
-    let custodyRestoreCalled = false;
+    const rawDomBeginArgs = [];
+    let rawDomTakeCalled = false;
+    let rawDomCommitCalled = false;
+    let rawDomRestoreCalled = false;
 
-    const custody = {
-      begin: (...args) => custodyBeginArgs.push(args),
-      take: () => { custodyTakeCalled = true; },
-      commit: () => { custodyCommitCalled = true; },
-      restoreParagraph: () => { custodyRestoreCalled = true; },
+    const rawDom = {
+      begin: (...args) => rawDomBeginArgs.push(args),
+      take: () => { rawDomTakeCalled = true; },
+      commit: () => { rawDomCommitCalled = true; },
+      restoreParagraph: () => { rawDomRestoreCalled = true; },
       stampRendered: () => {},
     };
 
@@ -290,19 +290,19 @@ test("1. Direct happy path: lowering ok, custody begin called with 14 args, prep
     );
     const state = makeState();
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyBeginArgs.length, 1);
-    const args = custodyBeginArgs[0];
+    assert.equal(rawDomBeginArgs.length, 1);
+    const args = rawDomBeginArgs[0];
     assert.equal(args.length, 14);
     assert.equal(args[0], paragraph);
     assert.equal(args[1], "false"); // renderedAttribute
     assert.equal(args[6], "color: blue;"); // styleAttribute
     assert.equal(args[13], "300px"); // hostInlineSizeAttribute
 
-    assert.equal(custodyTakeCalled, true);
-    assert.equal(custodyCommitCalled, true);
-    assert.equal(custodyRestoreCalled, false);
+    assert.equal(rawDomTakeCalled, true);
+    assert.equal(rawDomCommitCalled, true);
+    assert.equal(rawDomRestoreCalled, false);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
     assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
 
@@ -335,7 +335,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     });
     objSpan.parentNode = paragraph;
 
-    const custody = {
+    const rawDom = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -352,7 +352,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       },
     });
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
     // The real worker commit ran against the planted renderer with the plan
     // and the prepared-metadata JSONs derived from the lowered paragraph.
@@ -377,21 +377,21 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
   }, { layoutWorker, document: documentStub, validator: () => null });
 });
 
-test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (custody begin never called)", () => {
+test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (rawDom begin never called)", () => {
   const throwError = new Error("lowering syntax error");
   withEnv(() => {
-    let custodyBeginCalled = false;
+    let rawDomBeginCalled = false;
 
-    const custody = {
-      begin: () => { custodyBeginCalled = true; },
+    const rawDom = {
+      begin: () => { rawDomBeginCalled = true; },
     };
 
 
     const paragraph = makeElement();
     const state = makeState();
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyBeginCalled, false);
+    assert.equal(rawDomBeginCalled, false);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "DomLoweringFailure");
     assert.equal(state.issues[0].detail, "lowering syntax error");
@@ -404,10 +404,10 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (c
 
 test("4. Lowering ok false with an issue -> that issue reported", () => {
   withEnv(() => {
-    let custodyBeginCalled = false;
+    let rawDomBeginCalled = false;
 
-    const custody = {
-      begin: () => { custodyBeginCalled = true; },
+    const rawDom = {
+      begin: () => { rawDomBeginCalled = true; },
     };
 
 
@@ -416,9 +416,9 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
       childNodes: [blockChild("DIV", "blocked")],
     });
     const state = makeState();
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyBeginCalled, false);
+    assert.equal(rawDomBeginCalled, false);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "UnsupportedInlineFormattingContext");
     assert.equal(state.issues[0].detail, "div:block");
@@ -435,11 +435,11 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
     issue: () => "No worker available in this context",
   };
   withEnv(() => {
-    let custodyTakeCalled = false;
+    let rawDomTakeCalled = false;
 
-    const custody = {
+    const rawDom = {
       begin: () => {},
-      take: () => { custodyTakeCalled = true; },
+      take: () => { rawDomTakeCalled = true; },
       commit: () => {},
       restoreParagraph: () => {},
     };
@@ -452,10 +452,10 @@ test("6. Exact worker gate: requireExactLayoutWorker true, worker request built,
         exactFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
-    assert.equal(custodyTakeCalled, false);
+    assert.equal(rawDomTakeCalled, false);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "ExactLayoutWorkerPlanUnavailable");
     assert.equal(state.issues[0].detail, "No worker available in this context");
@@ -472,11 +472,11 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     issue: () => "MissingServerShapingReplay for CodeFont",
   };
   withEnv(() => {
-    let custodyTakeCalled = false;
+    let rawDomTakeCalled = false;
 
-    const custody = {
+    const rawDom = {
       begin: () => {},
-      take: () => { custodyTakeCalled = true; },
+      take: () => { rawDomTakeCalled = true; },
       commit: () => {},
       restoreParagraph: () => {},
       stampRendered: () => {},
@@ -494,9 +494,9 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
       },
     });
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyTakeCalled, true);
+    assert.equal(rawDomTakeCalled, true);
     // The rich fallback bypassed the worker gate and the direct path committed
     // through the planted renderer.
     const renderer = globalThis.__TiqianPreparedDomRenderer;
@@ -506,25 +506,25 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
   }, { layoutWorker, validator: () => null });
 });
 
-test("9. prepare unsupported -> issue reported, custody restored", () => {
+test("9. prepare unsupported -> issue reported, rawDom restored", () => {
   withEnv(() => {
-    let custodyRestored = false;
+    let rawDomRestored = false;
 
     const paragraph = makeElement();
-    const custody = {
+    const rawDom = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: (el) => {
-        if (el === paragraph) custodyRestored = true;
+        if (el === paragraph) rawDomRestored = true;
       },
     };
 
 
     const state = makeState();
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyRestored, true);
+    assert.equal(rawDomRestored, true);
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "PreparedDomBridgeUnavailable");
@@ -534,26 +534,26 @@ test("9. prepare unsupported -> issue reported, custody restored", () => {
   }, { renderer: false });
 });
 
-test("10. commit unsupported -> issue reported, custody restored", () => {
+test("10. commit unsupported -> issue reported, rawDom restored", () => {
   withEnv(() => {
-    let custodyRestored = false;
+    let rawDomRestored = false;
 
     const paragraph = makeElement();
-    const custody = {
+    const rawDom = {
       begin: () => {},
       take: () => {},
       commit: () => {},
       restoreParagraph: (el) => {
-        if (el === paragraph) custodyRestored = true;
+        if (el === paragraph) rawDomRestored = true;
       },
     };
 
 
     const state = makeState();
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
-    assert.equal(custodyRestored, true);
+    assert.equal(rawDomRestored, true);
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "PreparedDomRenderMismatch");
@@ -563,28 +563,28 @@ test("10. commit unsupported -> issue reported, custody restored", () => {
   }, { validator: () => "height mismatch" });
 });
 
-test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
+test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   const backend = installThrowingFontBackend(new Error("unexpected engine crash"));
   try {
     withEnv(() => {
-      let custodyRestored = false;
+      let rawDomRestored = false;
 
       const paragraph = makeElement();
-      const custody = {
+      const rawDom = {
         begin: () => {},
         take: () => {},
         commit: () => {},
         restoreParagraph: (el) => {
-          if (el === paragraph) custodyRestored = true;
+          if (el === paragraph) rawDomRestored = true;
         },
       };
 
 
       const state = makeState();
 
-      processParagraph(custody, { paragraph, state });
+      processParagraph(rawDom, { paragraph, state });
 
-      assert.equal(custodyRestored, true);
+      assert.equal(rawDomRestored, true);
       assert.equal(state.paragraphs.length, 0);
       assert.equal(state.issues.length, 1);
       assert.equal(state.issues[0].name, "WebEnhancementFailure");
@@ -599,7 +599,7 @@ test("11. Dispatch throw -> WebEnhancementFailure, custody restored", () => {
 
 test("12. preparedDomEnabled false -> active options come from withoutExactFontSession", () => {
   withEnv(() => {
-    const custody = {
+    const rawDom = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -615,7 +615,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
       preparedDomEnabled: false,
     });
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
     // The real pipeline reuses withoutExactFontSession when prepared DOM is
     // disabled: the exact font session is dropped into a fresh options object
@@ -633,7 +633,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
 
 test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
   withEnv(() => {
-    const custody = {
+    const rawDom = {
       begin: () => {},
       take: () => {},
       commit: () => {},
@@ -645,7 +645,7 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
     const paragraph = makeElement();
     const state = makeState();
 
-    processParagraph(custody, { paragraph, state });
+    processParagraph(rawDom, { paragraph, state });
 
     // No layout worker channel is installed, so the direct exact-session lane
     // ran the real prepare and commit.

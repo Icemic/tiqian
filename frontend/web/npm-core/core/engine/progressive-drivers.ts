@@ -6,7 +6,7 @@
 // Stateless module: enhanceProgressively, relayout,
 // rejectMissingSharedRuntimeStyles and startLayoutJob are named functions
 // that receive the root-state, engine, copy-installer, layout-job-pool and
-// custody collaborators as explicit parameters; the stateless
+// detached-fragment backup collaborators as explicit parameters; the stateless
 // prepare-paragraph-layout, lifecycle and responsive-measure helpers are
 // imported directly. The engine entry passes itself at every call; the
 // engine slot stays null in the standalone unit-test world.
@@ -37,7 +37,7 @@ import { reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
 import type { TiqianEngineInstance } from "./engine-entry.js";
 import { processParagraph } from "./process-paragraph.js";
 import type { CopyInstaller } from "../utils/copy.js";
-import type { CustodyApi } from "./custody.js";
+import type { RawDomApi } from "./raw-dom.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
 import { sourceParagraphWidth } from "./responsive-measure.js";
 
@@ -319,7 +319,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    custody: CustodyApi,
+    rawDom: RawDomApi,
     root: Element,
     optionsBag: Record<string, unknown> | null,
     kind: string,
@@ -405,7 +405,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
           stale = true;
         } else {
           processParagraph(
-            custody,
+            rawDom,
             RS.processParagraphArgument(state, candidates[index])
           );
         }
@@ -441,7 +441,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    custody: CustodyApi,
+    rawDom: RawDomApi,
     root: Element,
   ): void {
     const RS = rootState;
@@ -455,7 +455,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (PJ.jobKind(root) === "Enhance") {
       const running = RS.getState(root);
       if (running != null) {
-        enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, custody, root, running.options, "Enhance", true);
+        enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, running.options, "Enhance", true);
         return;
       }
     }
@@ -463,7 +463,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
     const state = RS.getState(root);
     if (state == null) {
-      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, custody, root, null, "Relayout");
+      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, null, "Relayout");
       return;
     }
 
@@ -484,7 +484,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       // the new width. Restore semantic source once, then let viewport-near
       // paragraphs take over atomically in bounded slices just like any other
       // source refresh. state.options is canonical.
-      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, custody, root, state.options, "Relayout", true);
+      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, state.options, "Relayout", true);
       return;
     }
 
@@ -536,7 +536,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     }
 
     const commitSession = openRelayoutSession(
-      custody,
+      rawDom,
       RS.sessionArgument(state)
     );
     const rootWidth: number = elementFragmentBorderBoxInlineSize(root);
@@ -563,7 +563,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         if (mixIndex >= renderedCount) {
           // Stranded paragraph: process through the enhance path.
           processParagraph(
-            custody,
+            rawDom,
             RS.processParagraphArgument(state as RootState, stranded[mixIndex - renderedCount])
           );
           return;
@@ -608,11 +608,11 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    custody: CustodyApi,
+    rawDom: RawDomApi,
     root: Element,
     optionsBag: Record<string, unknown> | null,
   ): void {
-    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, custody, root, optionsBag, "Enhance", false);
+    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, optionsBag, "Enhance", false);
   }
 
   export function enhanceProgressivelyFromCanonical(
@@ -620,9 +620,9 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    custody: CustodyApi,
+    rawDom: RawDomApi,
     root: Element,
     canonicalOptions: EnhanceOptions,
   ): void {
-    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, custody, root, canonicalOptions, "Enhance", true);
+    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, canonicalOptions, "Enhance", true);
   }

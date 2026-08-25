@@ -39,7 +39,7 @@ export type ExactSessionDescriptor = { sessionId: string };
 // Record<string, unknown> slots in the orchestrator globals.
 export type BrowserFallbackDescriptor = { bridge: BrowserMetricsBridgeInstance };
 
-// One tracked semantic paragraph in engine state: the custody source element,
+// One tracked semantic paragraph in engine state: the detached-fragment backup source element,
 // its lowered markdown tree, and the last applied measure.
 export type TrackedParagraph = {
   source: Element;

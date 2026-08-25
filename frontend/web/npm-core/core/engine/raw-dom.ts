@@ -1,6 +1,6 @@
-// Source custody for enhanced paragraphs.
+// Source raw-DOM backup for enhanced paragraphs.
 //
-// ES module exporting the custody factory. The composition root
+// ES module exporting the raw-DOM backup factory. The composition root
 // (loaders/ts-runtime.ts) constructs one instance per engine bootstrap and
 // passes it to process-paragraph, commit-prepared-paragraph,
 // content-reconcile, and relayout-session through their deps.
@@ -9,13 +9,13 @@
 // prepare-paragraph-layout.ts.
 import type {} from "./prepare-paragraph-layout.js";
 
-// Per-paragraph custody state, keyed weakly so a discarded paragraph can be
+// Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
 // collected together with its state. The original-attribute snapshots mirror
 // what begin captured before the engine overwrote host-owned markup.
-interface CustodyState {
+interface RawDomState {
   originalContent: DocumentFragment | null;
   renderedNodes: Node[];
-  custodyNodes: Node[];
+  rawDomNodes: Node[];
   originalRenderedAttribute: string | null;
   originalPreparedFlowAttribute: string | null;
   originalCanonicalSourceAttribute: string | null;
@@ -34,32 +34,32 @@ interface CustodyState {
   hostFontSizeApplied: string | null;
 }
 
-// A paragraph under custody: the host's semantic children live in the
+// A paragraph under raw-DOM backup: the host's semantic children live in the
 // published fragment, and the four mutation methods redirect host commits
 // into it unless the engine write counter is above zero. The counter field is
-// read as a number (not a boolean) so engineWriteSuspension in the prepared
+// read as a number (not a boolean) so rawDomEngineWriteSuspension in the prepared
 // DOM bridge can increment and decrement it around engine writes.
-type CustodyRemoveChildFn = (child: Node) => Node;
-type CustodyInsertBeforeFn = (node: Node, ref: Node | null) => Node;
-type CustodyReplaceChildFn = (next: Node, prev: Node) => Node;
-type CustodyAppendChildFn = (node: Node) => Node;
+type RawDomRemoveChildFn = (child: Node) => Node;
+type RawDomInsertBeforeFn = (node: Node, ref: Node | null) => Node;
+type RawDomReplaceChildFn = (next: Node, prev: Node) => Node;
+type RawDomAppendChildFn = (node: Node) => Node;
 
-type CustodyParagraphElement = Omit<
+type RawDomParagraphElement = Omit<
   Element,
   "removeChild" | "insertBefore" | "replaceChild" | "appendChild"
 > & {
-  __tqCustodyFragment: DocumentFragment;
-  __tqCustodyForwarding: boolean;
-  __tqCustodyEngineWrites: number;
-  removeChild: CustodyRemoveChildFn;
-  insertBefore: CustodyInsertBeforeFn;
-  replaceChild: CustodyReplaceChildFn;
-  appendChild: CustodyAppendChildFn;
+  __tqRawDomFragment: DocumentFragment;
+  __tqRawDomForwarding: boolean;
+  __tqRawDomEngineWrites: number;
+  removeChild: RawDomRemoveChildFn;
+  insertBefore: RawDomInsertBeforeFn;
+  replaceChild: RawDomReplaceChildFn;
+  appendChild: RawDomAppendChildFn;
 };
 
 // Live rendered-output snapshot taken by captureLive at a slice boundary and
 // replayed by rollback in reverse order.
-export type CustodySnapshot = {
+export type RawDomSnapshot = {
   source: Element;
   content: DocumentFragment;
   renderedAttribute: string | null;
@@ -77,12 +77,12 @@ export type CustodySnapshot = {
   originalContentHadChildren: boolean;
 };
 
-export type CustodyRollbackResult = {
+export type RawDomRollbackResult = {
   source: Element;
   lastMeasure: number | null;
 };
 
-type CustodyBeginFn = (
+type RawDomBeginFn = (
   source: Element,
   renderedAttribute: string | null,
   preparedFlowAttribute: string | null,
@@ -98,29 +98,29 @@ type CustodyBeginFn = (
   fontSizePriority: string,
   hostInlineSizeAttribute: string | null,
 ) => void;
-type CustodyTakeFn = (source: Element, hostFontSizeApplied: string | null) => void;
-type CustodyCommitFn = (source: Element, hostInlineSizeApplied: string | null) => void;
-type CustodyStampRenderedFn = (source: Element) => void;
-type CustodyRenderedMatchesFn = (source: Element) => boolean;
-type CustodyMatchesFn = (source: Element) => boolean;
-type CustodyCaptureLiveFn = (source: Element, lastMeasure: number | null) => CustodySnapshot;
-type CustodyRollbackFn = (snapshots: CustodySnapshot[]) => CustodyRollbackResult[];
-type CustodyRestoreParagraphFn = (source: Element) => void;
-type CustodyRestoreShellFn = (source: HTMLElement) => void;
-type CustodyEnsureContainingBlockFn = (source: HTMLElement) => void;
+type RawDomTakeFn = (source: Element, hostFontSizeApplied: string | null) => void;
+type RawDomCommitFn = (source: Element, hostInlineSizeApplied: string | null) => void;
+type RawDomStampRenderedFn = (source: Element) => void;
+type RawDomRenderedMatchesFn = (source: Element) => boolean;
+type RawDomMatchesFn = (source: Element) => boolean;
+type RawDomCaptureLiveFn = (source: Element, lastMeasure: number | null) => RawDomSnapshot;
+type RawDomRollbackFn = (snapshots: RawDomSnapshot[]) => RawDomRollbackResult[];
+type RawDomRestoreParagraphFn = (source: Element) => void;
+type RawDomRestoreShellFn = (source: HTMLElement) => void;
+type RawDomEnsureContainingBlockFn = (source: HTMLElement) => void;
 
-export type CustodyApi = {
-  begin: CustodyBeginFn;
-  take: CustodyTakeFn;
-  commit: CustodyCommitFn;
-  stampRendered: CustodyStampRenderedFn;
-  renderedMatches: CustodyRenderedMatchesFn;
-  custodyMatches: CustodyMatchesFn;
-  captureLive: CustodyCaptureLiveFn;
-  rollback: CustodyRollbackFn;
-  restoreParagraph: CustodyRestoreParagraphFn;
-  restoreShell: CustodyRestoreShellFn;
-  ensureContainingBlock: CustodyEnsureContainingBlockFn;
+export type RawDomApi = {
+  begin: RawDomBeginFn;
+  take: RawDomTakeFn;
+  commit: RawDomCommitFn;
+  stampRendered: RawDomStampRenderedFn;
+  renderedMatches: RawDomRenderedMatchesFn;
+  rawDomMatches: RawDomMatchesFn;
+  captureLive: RawDomCaptureLiveFn;
+  rollback: RawDomRollbackFn;
+  restoreParagraph: RawDomRestoreParagraphFn;
+  restoreShell: RawDomRestoreShellFn;
+  ensureContainingBlock: RawDomEnsureContainingBlockFn;
 };
 
 const CANONICAL_SOURCE_ATTRIBUTE: string = "data-tq-canonical-source";
@@ -146,82 +146,82 @@ function restoreAttribute(element: Element, name: string, value: string | null):
   }
 }
 
-function stampCustodyContent(state: CustodyState, source: Element): void {
-  state.custodyNodes = liveChildNodes(state.originalContent as DocumentFragment);
-  (source as CustodyParagraphElement).__tqCustodyFragment = state.originalContent as DocumentFragment;
-  installCustodyCommitForwarding(source as CustodyParagraphElement);
+function stampRawDomContent(state: RawDomState, source: Element): void {
+  state.rawDomNodes = liveChildNodes(state.originalContent as DocumentFragment);
+  (source as RawDomParagraphElement).__tqRawDomFragment = state.originalContent as DocumentFragment;
+  installRawDomCommitForwarding(source as RawDomParagraphElement);
 }
 
-function stampRenderedContent(state: CustodyState, source: Element): void {
+function stampRenderedContent(state: RawDomState, source: Element): void {
   state.renderedNodes = liveChildNodes(source);
 }
 
-// CustodyAnchoredCommitForwarding: host frameworks keep node references
+// RawDomAnchoredCommitForwarding: host frameworks keep node references
 // and commit edits through the paragraph's own mutation methods while the
-// semantic source lives in custody. Redirect those calls into the published
-// fragment unless the engine itself is writing (__tqCustodyEngineWrites
+// semantic source lives in raw-DOM backup. Redirect those calls into the published
+// fragment unless the engine itself is writing (__tqRawDomEngineWrites
 // above zero). The overrides read the published fragment at call time, so
 // a re-take with a fresh fragment needs no re-install. An empty fragment
-// means the paragraph is not under custody and every branch falls through
+// means the paragraph is not under raw-DOM backup and every branch falls through
 // to native.
-function installCustodyCommitForwarding(paragraph: CustodyParagraphElement): void {
-  if (paragraph.__tqCustodyForwarding) {
+function installRawDomCommitForwarding(paragraph: RawDomParagraphElement): void {
+  if (paragraph.__tqRawDomForwarding) {
     return;
   }
   const nativeRemoveChild = Node.prototype.removeChild;
   const nativeInsertBefore = Node.prototype.insertBefore;
   const nativeReplaceChild = Node.prototype.replaceChild;
   const nativeAppendChild = Node.prototype.appendChild;
-  const activeCustody = function (): DocumentFragment | null {
-    const fragment = paragraph.__tqCustodyFragment;
+  const activeRawDom = function (): DocumentFragment | null {
+    const fragment = paragraph.__tqRawDomFragment;
     return fragment && fragment.childNodes.length > 0 ? fragment : null;
   };
-  const heldInCustody = function (node: Node | null): boolean {
-    const fragment = paragraph.__tqCustodyFragment;
+  const heldInRawDom = function (node: Node | null): boolean {
+    const fragment = paragraph.__tqRawDomFragment;
     return !!fragment && !!node && node.parentNode === fragment;
   };
   const engineWriting = function (): boolean {
-    return paragraph.__tqCustodyEngineWrites > 0;
+    return paragraph.__tqRawDomEngineWrites > 0;
   };
   paragraph.removeChild = function (child: Node): Node {
     if (engineWriting()) return nativeRemoveChild.call(paragraph, child);
-    if (heldInCustody(child)) return paragraph.__tqCustodyFragment.removeChild(child);
+    if (heldInRawDom(child)) return paragraph.__tqRawDomFragment.removeChild(child);
     return nativeRemoveChild.call(paragraph, child);
   };
   paragraph.insertBefore = function (node: Node, ref: Node | null): Node {
     if (engineWriting()) return nativeInsertBefore.call(paragraph, node, ref);
-    if (heldInCustody(ref)) return paragraph.__tqCustodyFragment.insertBefore(node, ref);
+    if (heldInRawDom(ref)) return paragraph.__tqRawDomFragment.insertBefore(node, ref);
     if (!ref && node && node.nodeType !== 11) {
-      const fragment = activeCustody();
+      const fragment = activeRawDom();
       if (fragment) return fragment.appendChild(node);
     }
     return nativeInsertBefore.call(paragraph, node, ref);
   };
   paragraph.replaceChild = function (next: Node, prev: Node): Node {
     if (engineWriting()) return nativeReplaceChild.call(paragraph, next, prev);
-    if (heldInCustody(prev)) return paragraph.__tqCustodyFragment.replaceChild(next, prev);
+    if (heldInRawDom(prev)) return paragraph.__tqRawDomFragment.replaceChild(next, prev);
     return nativeReplaceChild.call(paragraph, next, prev);
   };
   paragraph.appendChild = function (node: Node): Node {
     if (engineWriting()) return nativeAppendChild.call(paragraph, node);
     if (node && node.nodeType !== 11) {
-      const fragment = activeCustody();
+      const fragment = activeRawDom();
       if (fragment) return fragment.appendChild(node);
     }
     return nativeAppendChild.call(paragraph, node);
   };
-  paragraph.__tqCustodyForwarding = true;
+  paragraph.__tqRawDomForwarding = true;
 }
 
-export function createCustody(): CustodyApi {
-  // Per-paragraph custody state, keyed weakly so a discarded paragraph can be
+export function deriveRawDom(): RawDomApi {
+  // Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
   // collected together with its state.
-  const states = new WeakMap<Element, CustodyState>();
+  const states = new WeakMap<Element, RawDomState>();
 
-  function stateOf(source: Element): CustodyState {
+  function stateOf(source: Element): RawDomState {
     const state = states.get(source);
     if (!state) {
-      throw new Error("custody state missing for paragraph");
+      throw new Error("rawDom state missing for paragraph");
     }
     return state;
   }
@@ -248,7 +248,7 @@ export function createCustody(): CustodyApi {
     states.set(source, {
       originalContent: null,
       renderedNodes: [],
-      custodyNodes: [],
+      rawDomNodes: [],
       originalRenderedAttribute: renderedAttribute,
       originalPreparedFlowAttribute: preparedFlowAttribute,
       originalCanonicalSourceAttribute: canonicalSourceAttribute,
@@ -268,7 +268,7 @@ export function createCustody(): CustodyApi {
     });
   }
 
-  // Moves the semantic source children into a detached custody fragment.
+  // Moves the semantic source children into a detached raw-DOM backup fragment.
   function take(source: Element, hostFontSizeApplied: string | null): void {
     const state = stateOf(source);
     state.hostFontSizeApplied = hostFontSizeApplied;
@@ -279,12 +279,12 @@ export function createCustody(): CustodyApi {
     state.originalContent = fragment;
   }
 
-  // Publishes the custody fragment on the paragraph and installs commit
+  // Publishes the raw-DOM backup fragment on the paragraph and installs commit
   // forwarding. Runs after the pipeline stabilized the source inline size.
   function commit(source: Element, hostInlineSizeApplied: string | null): void {
     const state = stateOf(source);
     state.hostInlineSizeApplied = hostInlineSizeApplied;
-    stampCustodyContent(state, source);
+    stampRawDomContent(state, source);
   }
 
   function stampRendered(source: Element): void {
@@ -304,9 +304,9 @@ export function createCustody(): CustodyApi {
     return index === recorded.length;
   }
 
-  function custodyMatches(source: Element): boolean {
+  function rawDomMatches(source: Element): boolean {
     const state = stateOf(source);
-    const recorded = state.custodyNodes;
+    const recorded = state.rawDomNodes;
     let child: ChildNode | null = (state.originalContent as DocumentFragment).firstChild;
     let index = 0;
     while (child) {
@@ -321,10 +321,10 @@ export function createCustody(): CustodyApi {
   // so a later rollback can replay it. Drains the live children into the
   // snapshot fragment. Reads snapshot attributes before draining, matching
   // the previous Kotlin ordering.
-  function captureLive(source: Element, lastMeasure: number | null): CustodySnapshot {
+  function captureLive(source: Element, lastMeasure: number | null): RawDomSnapshot {
     const state = stateOf(source);
     const content = globalThis.document.createDocumentFragment();
-    const snapshot: CustodySnapshot = {
+    const snapshot: RawDomSnapshot = {
       source: source,
       content: content,
       renderedAttribute: source.getAttribute("data-tq-rendered"),
@@ -351,20 +351,20 @@ export function createCustody(): CustodyApi {
   // Replays snapshots in reverse order. Each replayed paragraph gets its
   // snapshot content, attributes and flags back; the caller receives the
   // lastMeasure per source element.
-  function rollback(snapshots: CustodySnapshot[]): CustodyRollbackResult[] {
-    const results: CustodyRollbackResult[] = [];
+  function rollback(snapshots: RawDomSnapshot[]): RawDomRollbackResult[] {
+    const results: RawDomRollbackResult[] = [];
     for (let i = snapshots.length - 1; i >= 0; i--) {
       const snapshot = snapshots[i];
       const source = snapshot.source;
       const state = stateOf(source);
       if (snapshot.originalContentHadChildren && (state.originalContent as DocumentFragment).firstChild === null) {
         // restoreParagraph() handed the semantic source fragment back to the
-        // live DOM; move those exact nodes into source custody again before
+        // live DOM; move those exact nodes into source raw-DOM backup again before
         // replaying the previous rendered fragment.
         while (source.firstChild) {
           (state.originalContent as DocumentFragment).appendChild(source.firstChild as ChildNode);
         }
-        stampCustodyContent(state, source);
+        stampRawDomContent(state, source);
       } else {
         while (source.firstChild) {
           source.removeChild(source.firstChild as ChildNode);
@@ -400,15 +400,15 @@ export function createCustody(): CustodyApi {
       source.removeChild(source.firstChild as ChildNode);
     }
     source.appendChild(state.originalContent as DocumentFragment);
-    // The drain empties custody. Restamp so a paragraph that stays tracked
+    // The drain empties raw-DOM backup. Restamp so a paragraph that stays tracked
     // through the relayout-unsupported window does not read as host drift.
-    stampCustodyContent(state, source);
+    stampRawDomContent(state, source);
     restoreShell(source as HTMLElement);
     stampRenderedContent(state, source);
   }
 
   // Restores the paragraph element attributes and inline style entries the
-  // engine overwrote during takeover. Shared by the custody restore path and
+  // engine overwrote during takeover. Shared by the raw-DOM backup restore path and
   // the content-reconcile path that keeps host-mutated live children.
   function restoreShell(source: HTMLElement): void {
     const state = stateOf(source);
@@ -483,7 +483,7 @@ export function createCustody(): CustodyApi {
     commit: commit,
     stampRendered: stampRendered,
     renderedMatches: renderedMatches,
-    custodyMatches: custodyMatches,
+    rawDomMatches: rawDomMatches,
     captureLive: captureLive,
     rollback: rollback,
     restoreParagraph: restoreParagraph,

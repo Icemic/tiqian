@@ -1,4 +1,4 @@
-// Custody relayout and destruction tests ported from TiqianWebProgressiveRelayoutTest.kt.
+// Raw-DOM backup relayout and destruction tests ported from TiqianWebProgressiveRelayoutTest.kt.
 // Verifies DOM recovery, cancellation guarantees, and rollback semantics under node --test.
 
 import assert from "node:assert/strict";
@@ -22,7 +22,7 @@ import {
   testOptions,
 } from "./runtime-host.mjs";
 
-test("custody_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
+test("rawDom_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(
@@ -45,7 +45,7 @@ test("custody_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
   assert.equal(paragraph.getAttribute("style"), null);
 });
 
-test("custody_destroyCancelsPendingWorkBeforeTouchingContent", async (t) => {
+test("rawDom_destroyCancelsPendingWorkBeforeTouchingContent", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(
@@ -65,7 +65,7 @@ test("custody_destroyCancelsPendingWorkBeforeTouchingContent", async (t) => {
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
 });
 
-test("custody_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
+test("rawDom_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   TiqianWeb.install();
@@ -90,7 +90,7 @@ test("custody_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
 });
 
-test("custody_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => {
+test("rawDom_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(
@@ -116,7 +116,7 @@ test("custody_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) =>
   });
 });
 
-test("custody_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
+test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   installExactFontSessionFixture({ failShaping: false });
@@ -172,7 +172,7 @@ test("custody_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   assert.ok(paragraph.firstChild !== renderedChild);
 });
 
-test("custody_destroyCancelsInFlightRelayoutAndRollsBack", async (t) => {
+test("rawDom_destroyCancelsInFlightRelayoutAndRollsBack", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const markup = Array.from({ length: 10 }, () => "<p>取消 resize job 后必须保持原生正文。</p>").join("");

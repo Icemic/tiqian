@@ -11,9 +11,9 @@ import {
 
 // The drivers functions take fake rootState/engine/layoutJobPool/copyInstaller
 // deps; the relayout-session and process-paragraph deps bundles
-// carry a fake custody. The real openRelayoutSession and the real
+// carry a fake detached-fragment backup. The real openRelayoutSession and the real
 // processParagraph run against those fakes, so the relayout main path and the
-// enhance processItem path are observable through the fake custody ledger. The
+// enhance processItem path are observable through the fake detached-fragment backup ledger. The
 // direct prepare step, the lifecycle helpers and sourceParagraphWidth also run
 // for real, so the relayout main path needs measurable source elements and the
 // getComputedStyle global.
@@ -254,7 +254,7 @@ function makeFakeRootState(overrides = {}) {
   };
 }
 
-function makeFakeCustody() {
+function makeFakeRawDom() {
   const calls = {
     begin: [],
     take: [],
@@ -329,7 +329,7 @@ function makeFakeCopyInstaller() {
 }
 
 function makeDrivers(overrides = {}) {
-  const custody = overrides.custody || makeFakeCustody();
+  const rawDom = overrides.rawDom || makeFakeRawDom();
   const rootState = overrides.rootState || makeFakeRootState(overrides);
   const layoutJobPool = overrides.layoutJobPool || makeFakeLayoutJobPool(overrides);
   const copyInstaller = overrides.copyInstaller || makeFakeCopyInstaller();
@@ -337,14 +337,14 @@ function makeDrivers(overrides = {}) {
     rootState: rootState,
     layoutJobPool: layoutJobPool,
     copyInstaller: copyInstaller,
-    custody: custody,
+    rawDom: rawDom,
   };
 }
 
 // Collaborator argument list for the driver entry functions in the unit-test
 // world: engine is always null so the bare layoutJobPool.cancelJob branch runs.
 function driverArgs(ctx) {
-  return [ctx.rootState, null, ctx.copyInstaller, ctx.layoutJobPool, ctx.custody];
+  return [ctx.rootState, null, ctx.copyInstaller, ctx.layoutJobPool, ctx.rawDom];
 }
 
 // ---------------------------------------------------------------------------
@@ -433,12 +433,12 @@ test("1d. processItem calls processParagraphArgument and processParagraph for no
     assert.ok(spec.processItem);
 
     // Call processItem for index 0: live measure matches captured => the real
-    // processParagraph runs and reaches custody.begin.
+    // processParagraph runs and reaches detached-fragment backup.begin.
     spec.processItem(0);
     assert.equal(ctx.rootState._calls.processParagraphArgument.length, 1);
     assert.equal(ctx.rootState._calls.processParagraphArgument[0].paragraph, p1.source);
-    assert.equal(ctx.custody._calls.begin.length, 1);
-    assert.equal(ctx.custody._calls.begin[0][0], p1.source);
+    assert.equal(ctx.rawDom._calls.begin.length, 1);
+    assert.equal(ctx.rawDom._calls.begin[0][0], p1.source);
   });
 });
 
@@ -462,7 +462,7 @@ test("1e. processItem sets stale when measure drifts and does not process", func
     // paragraph is processed.
     p1.source._rect.width = 600;
     spec.processItem(0);
-    assert.equal(ctx.custody._calls.begin.length, 0);
+    assert.equal(ctx.rawDom._calls.begin.length, 0);
     assert.equal(isStaleFn(), true);
   });
 });
@@ -639,16 +639,16 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
 
     // Process rendered item (mixIndex 0): the real prepare runs (returns
     // PreparedDomBridgeUnavailable without a renderer), the real session
-    // captures a live custody snapshot for the unsupported verdict.
+    // captures a live detached-fragment backup snapshot for the unsupported verdict.
     spec.processItem(0);
-    assert.equal(ctx.custody._calls.captureLive.length, 1);
-    assert.equal(ctx.custody._calls.captureLive[0].source, renderedP.source);
+    assert.equal(ctx.rawDom._calls.captureLive.length, 1);
+    assert.equal(ctx.rawDom._calls.captureLive[0].source, renderedP.source);
 
     // Process stranded item (mixIndex 1): the real processParagraph runs and
-    // reaches custody.begin.
+    // reaches detached-fragment backup.begin.
     spec.processItem(1);
-    assert.equal(ctx.custody._calls.begin.length, 1);
-    assert.equal(ctx.custody._calls.begin[0][0], strandedP.source);
+    assert.equal(ctx.rawDom._calls.begin.length, 1);
+    assert.equal(ctx.rawDom._calls.begin[0][0], strandedP.source);
   });
 });
 
@@ -753,8 +753,8 @@ test("5d. relayout main path: onFailure calls rollback", function () {
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onFailure);
     spec.onFailure();
-    // The real session rollback hands the captured snapshots to custody.
-    assert.equal(ctx.custody._calls.rollback.length, 1);
+    // The real session rollback hands the captured snapshots to detached-fragment backup.
+    assert.equal(ctx.rawDom._calls.rollback.length, 1);
   });
 });
 

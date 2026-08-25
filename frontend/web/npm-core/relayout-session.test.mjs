@@ -8,7 +8,7 @@ import {
   preparedSemanticReplayJson,
 } from "./core/engine/prepared-metadata.js";
 
-// The session factory takes fake custody; the lifecycle helpers and the
+// The session factory takes fake detached-fragment backup; the lifecycle helpers and the
 // metadata JSON builders run for real. The 'ready' path exercises the real
 // commitPreparedParagraph through the test-world prepared-DOM bridge, so the
 // renderer/validator globals are planted per test.
@@ -74,9 +74,9 @@ function makeState(overrides = {}) {
   };
 }
 
-function makeSession(custody) {
+function makeSession(rawDom) {
   return {
-    create: (argument) => openRelayoutSession(custody, argument),
+    create: (argument) => openRelayoutSession(rawDom, argument),
   };
 }
 
@@ -105,10 +105,10 @@ function withPreparedBridge(fn, overrides = {}) {
   }
 }
 
-test("1. unchanged verdict: no custody call, no state change", () => {
+test("1. unchanged verdict: no rawDom call, no state change", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
-  const custody = {
+  const rawDom = {
     captureLive: (...args) => {
       captureLiveCalls.push(args);
       return { snap: true };
@@ -117,7 +117,7 @@ test("1. unchanged verdict: no custody call, no state change", () => {
       restoreParagraphCalls.push(source);
     },
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
@@ -137,7 +137,7 @@ test("1. unchanged verdict: no custody call, no state change", () => {
 test("2. unsupported verdict: captureLive + restoreParagraph called, finish() removes the paragraph from state.paragraphs, pushes the issue, reports it", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
-  const custody = {
+  const rawDom = {
     captureLive: (source, lastMeasure) => {
       captureLiveCalls.push({ source, lastMeasure });
       return { source, snapshot: true };
@@ -146,7 +146,7 @@ test("2. unsupported verdict: captureLive + restoreParagraph called, finish() re
       restoreParagraphCalls.push(source);
     },
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 120 });
   const state = makeState({ paragraphs: [p1] });
@@ -180,11 +180,11 @@ test("2. unsupported verdict: captureLive + restoreParagraph called, finish() re
   assert.equal(p1.source.getAttribute("data-tiqian-capability-detail"), "font size too large");
 });
 
-test("3. ready + commit success: lastMeasure copies preparation.measure, custody.stampRendered called, item stays in state.paragraphs, no restoreParagraph", () => {
+test("3. ready + commit success: lastMeasure copies preparation.measure, rawDom.stampRendered called, item stays in state.paragraphs, no restoreParagraph", () => {
   const captureLiveCalls = [];
   const restoreParagraphCalls = [];
   const stampRenderedCalls = [];
-  const custody = {
+  const rawDom = {
     captureLive: (...args) => {
       captureLiveCalls.push(args);
       return { snap: true };
@@ -196,7 +196,7 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, custody
       stampRenderedCalls.push(source);
     },
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
@@ -223,13 +223,13 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, custody
 
 test("4. ready + commit unsupported: real validator rejects, restoreParagraph called, finish() removes and reports", () => {
   const restoreParagraphCalls = [];
-  const custody = {
+  const rawDom = {
     captureLive: () => ({ snap: true }),
     restoreParagraph: (source) => {
       restoreParagraphCalls.push(source);
     },
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });
@@ -260,12 +260,12 @@ test("4. ready + commit unsupported: real validator rejects, restoreParagraph ca
 
 test("5. ready path passes the exact metadata JSON strings to the prepared-DOM renderer (assert captured render options)", () => {
   const renderCalls = [];
-  const custody = {
+  const rawDom = {
     captureLive: () => ({ snap: true }),
     restoreParagraph: () => {},
     stampRendered: () => {},
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const lowered = {
     text: "test",
@@ -335,9 +335,9 @@ test("5. ready path passes the exact metadata JSON strings to the prepared-DOM r
   assert.equal(call.options.inlineObjects[0].marginRight, inlineMeta[0].marginRight);
 });
 
-test("6. rollback(): state lists restored to before, custody.rollback receives the captured snapshots in insertion order, lastMeasure patched from a result", () => {
+test("6. rollback(): state lists restored to before, rawDom.rollback receives the captured snapshots in insertion order, lastMeasure patched from a result", () => {
   let rollbackSnapshots = null;
-  const custody = {
+  const rawDom = {
     captureLive: (source, lastMeasure) => ({ source, lastMeasure, snapshot: true }),
     restoreParagraph: () => {},
     stampRendered: () => {},
@@ -349,7 +349,7 @@ test("6. rollback(): state lists restored to before, custody.rollback receives t
       ];
     },
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const p2 = makeParagraph({ lastMeasure: 200 });
@@ -389,7 +389,7 @@ test("6. rollback(): state lists restored to before, custody.rollback receives t
 
 test("7. rollback() with a result whose source is not in the session paragraphs: skipped without throwing", () => {
   const unknownElement = makeElement();
-  const custody = {
+  const rawDom = {
     captureLive: (source, lastMeasure) => ({ source, lastMeasure, snapshot: true }),
     restoreParagraph: () => {},
     rollback: () => [
@@ -397,7 +397,7 @@ test("7. rollback() with a result whose source is not in the session paragraphs:
       { source: unknownElement, lastMeasure: 999 },
     ],
   };
-  const session = makeSession(custody);
+  const session = makeSession(rawDom);
 
   const p1 = makeParagraph({ lastMeasure: 100 });
   const state = makeState({ paragraphs: [p1] });

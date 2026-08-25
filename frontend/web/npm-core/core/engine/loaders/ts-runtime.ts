@@ -3,12 +3,12 @@
 // root: it builds the four stateful collaborators and hands the assembled
 // engine entry to the runtime loader. After bundle retirement this is the
 // sole installation entry point; calling engineEntry() again builds a fresh
-// graph with its own custody, job pool and root-state.
+// graph with its own detached-fragment backup, job pool and root-state.
 
 // Engine scripts - order matches build.gradle.kts bridge list for review.
 // The modules below no longer self-install on globalThis; the composition
 // root wires the products into the engine entry instead.
-import { createCustody } from "../custody.js";
+import { deriveRawDom } from "../raw-dom.js";
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
 import { createLayoutJobPool } from "../layout-job-pool.js";
@@ -27,11 +27,11 @@ export interface EngineEntryOptions {
   copyInstaller?: CopyInstaller;
 }
 
-// Construct the whole engine object graph: custody, copy installer,
+// Construct the whole engine object graph: detached-fragment backup, copy installer,
 // root-state, layout-job-pool, and the engine+worker facade. Every product is
 // built here; the engine entry only wires what it receives.
 export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
-  const custody = createCustody();
+  const rawDom = deriveRawDom();
   const copyInstaller = options && options.copyInstaller
     ? options.copyInstaller
     : createCopyInstaller();
@@ -40,5 +40,5 @@ export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
     createBrowserMetricsBridge: createBrowserMetricsBridge,
   });
   const layoutJobPool = createLayoutJobPool();
-  return createEngineEntry(custody, copyInstaller, rootState, layoutJobPool);
+  return createEngineEntry(rawDom, copyInstaller, rootState, layoutJobPool);
 }

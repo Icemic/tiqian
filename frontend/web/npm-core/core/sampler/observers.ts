@@ -12,7 +12,7 @@ type DeclaredFacesUnsubscribe = () => boolean;
 type FontEventCallback = (event: Event) => void;
 type MutationRecordsCallback = (records: MutationRecord[]) => void;
 type RootScopeMembershipCallback = (paragraph: Element, root: Element) => boolean;
-type CustodyParagraphCallback = (node: Node) => Element | null;
+type RawDomParagraphCallback = (node: Node) => Element | null;
 type PendingRecordsCallback = () => MutationRecord[];
 type RootSizeEntryCallback = (entry: RootSizeEntry) => void;
 type RootSizeTargetsCallback = (targets: Element[]) => void;
@@ -163,46 +163,46 @@ export interface ContentInvalidationHandlers {
   onRecords: MutationRecordsCallback;
 }
 
-export interface ParagraphWithCustodyFragment extends Element {
-  __tqCustodyFragment?: DocumentFragment;
+export interface ParagraphWithRawDomFragment extends Element {
+  __tqRawDomFragment?: DocumentFragment;
 }
 
 export interface ContentInvalidationSource {
   kind: "content";
   start: EmptyCallback;
   stop: EmptyCallback;
-  syncCustody: EmptyCallback;
-  paragraphFor: CustodyParagraphCallback;
+  syncRawDom: EmptyCallback;
+  paragraphFor: RawDomParagraphCallback;
   takePendingRecords: PendingRecordsCallback;
 }
 
 export function createContentInvalidationSource(root: Element, handlers: ContentInvalidationHandlers): ContentInvalidationSource {
   let observer: MutationObserver | null = null;
-  const custodyTargets = new Map<DocumentFragment, Element>();
+  const rawDomTargets = new Map<DocumentFragment, Element>();
 
-  // Attribution for a record under a custody fragment: walk up to the
+  // Attribution for a record under a detached-fragment backup fragment: walk up to the
   // enclosing detached fragment and map it back to its live paragraph. Live
   // nodes never reach a DocumentFragment ancestor, so the walk is safe there.
   function paragraphFor(node: Node) {
     let current: Node | null = node;
     while (current) {
       if (current.nodeType === 11) {
-        return custodyTargets.get(current as DocumentFragment) || null;
+        return rawDomTargets.get(current as DocumentFragment) || null;
       }
       current = current.parentNode;
     }
     return null;
   }
 
-  // CustodyFragmentObservation: takeover moves the host's semantic children
+  // RawDomFragmentObservation: takeover moves the host's semantic children
   // into a detached fragment the engine holds. Frameworks keep references to
   // those original nodes (React's text update writes .data on them), so host
-  // edits land inside custody where the live-DOM subtree never sees them.
+  // edits land inside detached-fragment backup where the live-DOM subtree never sees them.
   // Kotlin publishes the current fragment on each rendered paragraph; observe
   // every tracked fragment alongside the root. Re-lowering creates a fresh
   // fragment, so diff the desired set at every job boundary and re-target the
   // observer only when it changed.
-  function syncCustody() {
+  function syncRawDom() {
     const desired = new Map<DocumentFragment, Element>();
     const paragraphs = root.querySelectorAll(
       `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
@@ -210,13 +210,13 @@ export function createContentInvalidationSource(root: Element, handlers: Content
     for (let i = 0; i < paragraphs.length; i++) {
       const paragraph = paragraphs[i];
       if (!handlers.belongsToRootScope(paragraph, root)) continue;
-      const fragment = (paragraph as ParagraphWithCustodyFragment).__tqCustodyFragment;
+      const fragment = (paragraph as ParagraphWithRawDomFragment).__tqRawDomFragment;
       if (fragment) desired.set(fragment, paragraph);
     }
-    let unchanged = desired.size === custodyTargets.size;
+    let unchanged = desired.size === rawDomTargets.size;
     if (unchanged) {
       for (const [fragment, paragraph] of desired) {
-        if (custodyTargets.get(fragment) !== paragraph) {
+        if (rawDomTargets.get(fragment) !== paragraph) {
           unchanged = false;
           break;
         }
@@ -233,8 +233,8 @@ export function createContentInvalidationSource(root: Element, handlers: Content
     for (const fragment of desired.keys()) {
       observer!.observe(fragment, { childList: true, characterData: true, subtree: true });
     }
-    custodyTargets.clear();
-    for (const [fragment, paragraph] of desired) custodyTargets.set(fragment, paragraph);
+    rawDomTargets.clear();
+    for (const [fragment, paragraph] of desired) rawDomTargets.set(fragment, paragraph);
   }
 
   return {
@@ -244,14 +244,14 @@ export function createContentInvalidationSource(root: Element, handlers: Content
         observer = new MutationObserver((records) => handlers.onRecords(records));
         observer.observe(root, { childList: true, characterData: true, subtree: true });
       }
-      syncCustody();
+      syncRawDom();
     },
     stop() {
       observer?.disconnect();
       observer = null;
-      custodyTargets.clear();
+      rawDomTargets.clear();
     },
-    syncCustody,
+    syncRawDom,
     paragraphFor,
     takePendingRecords() {
       return observer?.takeRecords() ?? [];
@@ -260,7 +260,7 @@ export function createContentInvalidationSource(root: Element, handlers: Content
 }
 
 export interface ContentMutationClassificationContext {
-  custodyParagraphFor: CustodyParagraphCallback;
+  rawDomParagraphFor: RawDomParagraphCallback;
   belongsToRootScope: RootScopeMembershipCallback;
   root: Element;
 }
@@ -272,7 +272,7 @@ export interface ContentMutationClassification {
 }
 
 // Stateless per-record classification for the content invalidation source.
-// The element supplies the custody attribution, the root-scope membership
+// The element supplies the detached-fragment backup attribution, the root-scope membership
 // test and the root; everything here is a pure decision over the records.
 export function classifyContentMutationRecords(
   records: MutationRecord[],
@@ -290,15 +290,15 @@ export function classifyContentMutationRecords(
       ? record.target.parentElement
       : (record.target as Element);
     if (recordElement?.closest?.("[data-tq-prepared-value-styles]")) continue;
-    const custodyParagraph = context.custodyParagraphFor(record.target);
-    if (custodyParagraph) {
-      // CustodyCharacterDataIsHostCertain: the engine only moves whole
-      // nodes in and out of custody and never rewrites text inside it, so
+    const rawDomParagraph = context.rawDomParagraphFor(record.target);
+    if (rawDomParagraph) {
+      // RawDomCharacterDataIsHostCertain: the engine only moves whole
+      // nodes in and out of detached-fragment backup and never rewrites text inside it, so
       // a characterData record there is a framework editing the original
       // node it still holds. Taint directly. A childList record may be the
-      // engine's own re-take or rollback refill; the custody identity
+      // engine's own re-take or rollback refill; the detached-fragment backup identity
       // check in the probe tells them apart, so it only raises the flag.
-      if (record.type === "characterData") taintedParagraphs.push(custodyParagraph);
+      if (record.type === "characterData") taintedParagraphs.push(rawDomParagraph);
       paragraphSignal = true;
       continue;
     }

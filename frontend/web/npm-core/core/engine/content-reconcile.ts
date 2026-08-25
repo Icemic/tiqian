@@ -1,11 +1,11 @@
 // HostContentReconcile: classification and DOM preparation for live-DOM
 // content changes on an enhanced root.
 //
-// Stateless module: probeContentDrift(custody, ...), classifyReconcile(
-// custody, ...), prepareTrackedParagraphForRelowering(custody, ...) and
-// stripEngineMarkupFromStrandedParagraph(custody, ...) are named functions
-// that receive the custody collaborator as an explicit first parameter. The
-// engine bootstrap passes the shared custody instance; tests pass a fake.
+// Stateless module: probeContentDrift(detached-fragment backup, ...), classifyReconcile(
+// detached-fragment backup, ...), prepareTrackedParagraphForRelowering(detached-fragment backup, ...) and
+// stripEngineMarkupFromStrandedParagraph(detached-fragment backup, ...) are named functions
+// that receive the raw-DOM collaborator as an explicit first parameter. The
+// engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw
 // string, so the source must contain no dollar sign and no triple
@@ -16,7 +16,7 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
-import type { CustodyApi } from "./custody.js";
+import type { RawDomApi } from "./raw-dom.js";
 
 export interface ReconcileSpec {
   trackedSources: Element[];
@@ -28,7 +28,7 @@ export interface ReconcileSpec {
 export interface ReconcileResult {
   outcome: "idle" | "work";
   drifted: Element[];
-  custody: Element[];
+  rawDom: Element[];
   tainted: Element[];
   stranded: Element[];
   dead: number;
@@ -44,35 +44,35 @@ function releasePreparedStyles(element: Element): boolean {
 // Read-only drift probe for captured in-flight jobs: answers the same
 // per-paragraph classification question as classifyReconcile without
 // touching the DOM, so element.js cancels only on real drift.
-export function probeContentDrift(custody: CustodyApi, trackedSources: Element[]): string {
+export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]): string {
   let drifted = 0;
   let dead = 0;
-  let custodyCount = 0;
+  let rawDomCount = 0;
   for (let index = 0; index < trackedSources.length; index++) {
     const source = trackedSources[index];
     if (!source.isConnected) {
       dead += 1;
-    } else if (!custody.renderedMatches(source)) {
+    } else if (!rawDom.renderedMatches(source)) {
       drifted += 1;
-    } else if (!custody.custodyMatches(source)) {
-      custodyCount += 1;
+    } else if (!rawDom.rawDomMatches(source)) {
+      rawDomCount += 1;
     }
   }
   return '{"unknown":0,"drifted":' + drifted + ',"dead":' + dead +
-    ',"custody":' + custodyCount + '}';
+    ',"rawDom":' + rawDomCount + '}';
 }
 
 // Per-paragraph classification, never per MutationRecord. DeadTrackedParagraphDrop
 // counts tracked sources the host detached; the RenderedContentInvariant
-// identity check flags drifted paragraphs; the custody identity check
-// flags custody drift. A tainted host survives only when connected,
+// identity check flags drifted paragraphs; the detached-fragment backup identity check
+// flags detached-fragment backup drift. A tainted host survives only when connected,
 // inside a root, tracked, and not already classified as drifted. A
 // stranded candidate is skipped when it already failed lowering with a
 // capability marker and was never rendered (StrandedCapabilityNoRetry).
-export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): ReconcileResult {
+export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): ReconcileResult {
   const trackedSources = spec.trackedSources;
   const drifted: Element[] = [];
-  const custodyDrifted: Element[] = [];
+  const rawDomDrifted: Element[] = [];
   let dead = 0;
   const trackedSet = new Set<Element>();
   for (let trackIndex = 0; trackIndex < trackedSources.length; trackIndex++) {
@@ -80,10 +80,10 @@ export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): Rec
     trackedSet.add(trackedSource);
     if (!trackedSource.isConnected) {
       dead += 1;
-    } else if (!custody.renderedMatches(trackedSource)) {
+    } else if (!rawDom.renderedMatches(trackedSource)) {
       drifted.push(trackedSource);
-    } else if (!custody.custodyMatches(trackedSource)) {
-      custodyDrifted.push(trackedSource);
+    } else if (!rawDom.rawDomMatches(trackedSource)) {
+      rawDomDrifted.push(trackedSource);
     }
   }
   const driftedSources = new Set<Element>();
@@ -91,8 +91,8 @@ export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): Rec
   for (driftedIndex = 0; driftedIndex < drifted.length; driftedIndex++) {
     driftedSources.add(drifted[driftedIndex]);
   }
-  for (driftedIndex = 0; driftedIndex < custodyDrifted.length; driftedIndex++) {
-    driftedSources.add(custodyDrifted[driftedIndex]);
+  for (driftedIndex = 0; driftedIndex < rawDomDrifted.length; driftedIndex++) {
+    driftedSources.add(rawDomDrifted[driftedIndex]);
   }
   const tainted = spec.tainted || [];
   const taintedTracked: Element[] = [];
@@ -113,17 +113,17 @@ export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): Rec
       stranded.push(candidate);
     }
   }
-  const empty = drifted.length === 0 && custodyDrifted.length === 0 &&
+  const empty = drifted.length === 0 && rawDomDrifted.length === 0 &&
     taintedTracked.length === 0 && stranded.length === 0;
   return {
     outcome: empty ? "idle" : "work",
     drifted: drifted,
-    custody: custodyDrifted,
+    rawDom: rawDomDrifted,
     tainted: taintedTracked,
     stranded: stranded,
     dead: dead,
     json: '{"outcome":"' + (empty ? "idle" : "work") + '","drifted":' +
-      drifted.length + ',"custody":' + custodyDrifted.length +
+      drifted.length + ',"rawDom":' + rawDomDrifted.length +
       ',"tainted":' + taintedTracked.length + ',"stranded":' +
       stranded.length + ',"dead":' + dead + '}',
   };
@@ -132,11 +132,11 @@ export function classifyReconcile(custody: CustodyApi, spec: ReconcileSpec): Rec
 // HostEditRelowering: the host replaced or edited the live children of a
 // rendered paragraph. Release prepared styles, restore the engine-owned
 // shell, stamp the rendered marker, and let the caller re-lower the
-// surviving live content as the new custody source.
-export function prepareTrackedParagraphForRelowering(custody: CustodyApi, element: HTMLElement): void {
+// surviving live content as the new detached-fragment backup source.
+export function prepareTrackedParagraphForRelowering(rawDom: RawDomApi, element: HTMLElement): void {
   releasePreparedStyles(element);
-  custody.restoreShell(element);
-  custody.stampRendered(element);
+  rawDom.restoreShell(element);
+  rawDom.stampRendered(element);
 }
 
 // CloneDescaffoldEngineMarkup: innerHTML re-projection hands the runtime a
@@ -145,7 +145,7 @@ export function prepareTrackedParagraphForRelowering(custody: CustodyApi, elemen
 // takeover attributes. Remove exactly those engine-authored artifacts so
 // the clone lowers as ordinary host content. Host elements and host
 // inline styles survive untouched.
-export function stripEngineMarkupFromStrandedParagraph(custody: CustodyApi, paragraph: HTMLElement): void {
+export function stripEngineMarkupFromStrandedParagraph(rawDom: RawDomApi, paragraph: HTMLElement): void {
   releasePreparedStyles(paragraph);
   // The hidden data-tq-hard-break span is the only place a cloned hard
   // break keeps its source form. Restore a bare br before removing

@@ -730,7 +730,7 @@ function withCanonicalPreparedHostStyleProbe<T>(paragraph: Element, block: Probe
 // ConfiguredFontSizeSingleSource: an explicit engine font size must be live
 // while descendant computed styles are sampled. Otherwise inherited links
 // and code runs are lowered at the host size even though the base run is
-// measured at the override. The host is restored before custody transfer;
+// measured at the override. The host is restored before detached-fragment backup transfer;
 // the renderer then applies the same size for the enhanced paragraph.
 function withConfiguredFontSizeProbe<T>(paragraph: Element, fontSize: number | null | undefined, block: ProbeAction<T>): T {
   if (fontSize === null || fontSize === undefined) return block();
