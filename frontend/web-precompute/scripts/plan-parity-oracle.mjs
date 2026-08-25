@@ -7,6 +7,14 @@
 // against its own dump, so both lanes must serialize the corpus in the same
 // order with the same argument values.
 //
+// The evidence policy is the precompute lane's: plans stay evidence-free.
+// The native lane this oracle is compared against calls the engine without
+// an evidence flag (the packed layout request carries none), and the wire
+// face's shape-derived default belongs to the runtime path, not to this
+// build-time consumer. The explicit `false` below pins that policy; without
+// it the derived default would diverge from the native lane on every
+// span-carrying case.
+//
 // Node only: node scripts/plan-parity-oracle.mjs (from frontend/web-precompute).
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -195,6 +203,7 @@ for (const [name, request] of corpus()) {
     request.inlineBoxes.map(encodedInlineBox).join(RECORD_SEPARATOR),
     request.lineBreakSpans.map(encodedLineBreakSpan).join(RECORD_SEPARATOR),
     "",
+    false,
   );
 }
 
