@@ -2708,7 +2708,7 @@ export function installPreparedRendererFixture() {
       globalThis.__TiqianExactPreparedSemanticElements =
         Array.from(options.liveSemanticElements || []);
       globalThis.__TiqianExactPreparedInlineObjects = Array.from(options.inlineObjects || []);
-      if (globalThis.__TiqianFontBackend) {
+      if (globalThis.__TiqianExactFixtureActive) {
         for (const element of globalThis.__TiqianExactPreparedSemanticElements) {
           if (element && element.setAttribute) {
             element.setAttribute("data-tq-fixture-seen", "semantic");
@@ -3282,81 +3282,88 @@ export function installPreparedRendererFixture() {
   setPreparedDomValidatorForTest({ issue: () => null });
 }
 
+// Exact font session fixture (backend-global retirement): the exact options
+// declare a conforming session id, the engine resolves that id into the
+// shapeJson/metricsJson callback pair through the coordination replay
+// registry, and this fixture registers a session whose tables synthesize one
+// entry per request from the replay key itself. Synthesis keeps the old
+// fixture geometry: one glyph per code point at advance 1em, bounds
+// [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
+// [1, 0.25, 0, 0.88, 0.12]em, and the NoExactFontFace failure injections.
 export function installExactFontSessionFixture({
   failShaping = false,
   failFamily = null,
   failText = null,
   varyFaceByText = false,
 } = {}) {
-  const shapes = new Map();
-  const metrics = new Map();
-  let nextHandle = 1;
   installPreparedRendererFixture();
-  globalThis.__TiqianFontBackend = {
-    shape(_session, displayText, families, fontSize, _fontWeight, _italic, _locale, role) {
-      if (
-        failShaping ||
-        (failFamily && String(families).includes(failFamily)) ||
-        (failText && String(displayText).includes(failText))
-      ) {
+  globalThis.__TiqianExactFixtureActive = true;
+
+  function shapeFailure(displayText, serializedFamilies) {
+    return failShaping ||
+      (failFamily && String(serializedFamilies).includes(failFamily)) ||
+      (failText && String(displayText).includes(failText));
+  }
+
+  class FixtureShapeTable extends Map {
+    get(key) {
+      const [displayText, serializedFamilies] = JSON.parse(key);
+      if (shapeFailure(displayText, serializedFamilies)) {
         globalThis.__TiqianExactFontFallbackCount += 1;
         throw new Error("NoExactFontFace:test");
       }
       globalThis.__TiqianExactFontShapeCount += 1;
-      const handle = nextHandle++;
       const glyphs = [];
       let glyphIndex = 0;
       for (const _point of displayText) {
         glyphs.push({
           id: 100 + glyphIndex,
-          advance: fontSize,
-          x: glyphIndex * fontSize,
-          y: 0,
-          bounds: [0, -fontSize * 0.88, fontSize, fontSize * 0.12],
+          advanceEm: 1,
+          xEm: glyphIndex,
+          yEm: 0,
+          boundsEm: [0, -0.88, 1, 0.12],
         });
         glyphIndex++;
       }
+      const role = JSON.parse(key)[5];
       const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
         ? ["pwid", "palt"]
         : [];
-      shapes.set(handle, {
-        glyphs,
-        advance: glyphs.length * fontSize,
-        features,
-        faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
-      });
-      return handle;
-    },
-    shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-    shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-    shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-    shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-    shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-    shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-    shapeAdvance: (handle) => shapes.get(handle).advance,
-    shapeFaceId: (handle) => shapes.get(handle).faceId,
-    shapeFontInstanceId: () => "fixture:0:default",
-    shapeScript: () => "Hani",
-    shapeFeatureCount: (handle) => shapes.get(handle).features.length,
-    shapeFeature: (handle, index) => shapes.get(handle).features[index],
-    shapeUnsafeBreakCount: () => 0,
-    releaseShape: (handle) => shapes.delete(handle),
-    metrics(_session, families, fontSize) {
-      if (failShaping || (failFamily && String(families).includes(failFamily))) {
+      return {
+        key,
+        result: {
+          glyphs,
+          advanceEm: glyphs.length,
+          features,
+          faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
+          fontInstanceId: "fixture:0:default",
+          script: "Hani",
+          unsafeBreakCount: 0,
+        },
+      };
+    }
+  }
+
+  class FixtureMetricTable extends Map {
+    get(key) {
+      const [serializedFamilies] = JSON.parse(key);
+      if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
         globalThis.__TiqianExactFontFallbackCount += 1;
         throw new Error("NoExactFontFace:test");
       }
-      const handle = nextHandle++;
-      metrics.set(handle, [fontSize, fontSize * 0.25, 0, fontSize * 0.88, fontSize * 0.12]);
-      return handle;
-    },
-    metricValue: (handle, index) => metrics.get(handle)[index],
-    releaseMetrics: (handle) => metrics.delete(handle),
-  };
+      return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
+    }
+  }
+
+  globalServices().fonts.replayRegistry.sessions.set(
+    "fixture-exact-session",
+    { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
+  );
 }
 
 export function clearExactFontSessionFixture() {
-  delete globalThis.__TiqianFontBackend;
+  globalServices().fonts.replayRegistry.sessions.delete("fixture-exact-session");
+  delete globalThis.__TiqianExactFixtureActive;
   setPreparedDomRendererForTest(null);
   setPreparedDomValidatorForTest(null);
   delete globalServices().coordination.layoutWorker;
