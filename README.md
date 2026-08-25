@@ -97,6 +97,15 @@ CjkText(
 ./gradlew runComposeDemo
 ```
 
+在 Linux 的 XWayland 会话中，JVM 可能无法读取桌面环境的分数缩放。此时可以只为
+demo 覆盖 Compose density，例如 Plasma 的 150% 缩放使用：
+
+```shell
+./gradlew runComposeDemo -PtiqianDemoDensity=1.5
+```
+
+该属性同时缩放 demo 中的 `dp`、`sp`、Compose 控件与 `CjkText`；未设置时保留系统报告的 density。
+
 ## 文档
 
 - [`@tiqian/prose` 使用文档](frontend/web/npm/README.md) 说明 Web 安装、接入方式与构建期预排。
