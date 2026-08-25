@@ -108,6 +108,18 @@ tiqian-markdown 三个仓库：
 - 主入口文件（如 `TiqianMarkdown.kt`、`WebEnhancer.kt` 的入口 object）只做入口与接线，
   不堆放实现；实现放到按功能簇命名的文件里。
 
+命名规则（2026-08-25 G2 裁定）：
+
+- 名字写明管辖范围，不起模棱两可的名字。一个对象只用一个名字；给既有对象
+  换名时写明它替换的旧名，旧名不再并存。
+- 全页构造一次的对象定位为 globalManager，实例集中放进名为 globalServices 的
+  容器统一暴露，不分散放在各模块顶层。
+- 每个被增强元素一份的对象名为 EnhancedElementContext；由
+  createEnhanceContext($element) 构造并返回，由调用者持有；update() 刷新状态，
+  destroy() 销毁。
+- 用标准工程词汇，不自造名词；既有自造名随重构改为标准名（如 Custody 并入
+  EnhancedElementContext 后按职能命名内部记录与函数）。
+
 ## 工作区与提交
 
 工作区可能同时存在其他任务的改动。不要还原、格式化或提交无关文件；同一文件已有并行改动时，
