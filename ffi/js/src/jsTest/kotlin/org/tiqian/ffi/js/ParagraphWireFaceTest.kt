@@ -1,4 +1,4 @@
-package org.tiqian.layout
+package org.tiqian.ffi.js
 
 import org.tiqian.core.ShapingDecisionInfo
 import org.tiqian.font.StubFontMetricsResolver
@@ -288,10 +288,13 @@ class ParagraphWireFaceTest {
     fun planWithDiagnosticsThresholdFlagsSuspects() {
         val text = "你好世界"
         val allSuspects = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 1e9)
-        val suspectCount = allSuspects.split("\"advance\":\"16.0\"").size - 1
+        val parsedAll = kotlin.js.JSON.parse<dynamic>(allSuspects)
+        val suspectCount = (parsedAll.diagnostics.advanceSuspects as Array<dynamic>).size
         assertEquals(4, suspectCount)
         val noneSuspects = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.0)
-        assertContains(noneSuspects, "\"advanceSuspects\":[]")
+        val parsedNone = kotlin.js.JSON.parse<dynamic>(noneSuspects)
+        val noneCount = (parsedNone.diagnostics.advanceSuspects as Array<dynamic>).size
+        assertEquals(0, noneCount)
     }
 
     @Test

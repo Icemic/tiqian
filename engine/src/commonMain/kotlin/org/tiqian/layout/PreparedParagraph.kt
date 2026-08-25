@@ -182,9 +182,11 @@ fun LayoutResult.toPlanWithDiagnosticsJson(renderEvidence: Boolean, zeroAdvanceE
             if (!firstAdvanceSuspect) append(',')
             firstAdvanceSuspect = false
             append("{\"displayText\":").appendJsonString(decision.displayText)
-            // The advance is always a JSON string: toString renders "NaN"
-            // and "Infinity" so the non-finite cases survive the wire.
-            append(",\"advance\":\"").append(decision.advance.toString()).append('"')
+            // The advance is always a JSON string: ecmaJsonNumber normalizes finite
+            // values across platforms; toString renders "NaN" and "Infinity" so the
+            // non-finite cases survive the wire.
+            val advanceJson = if (decision.advance.isFinite()) ecmaJsonNumber(decision.advance) else decision.advance.toString()
+            append(",\"advance\":\"").append(advanceJson).append('"')
             append(",\"reason\":").appendJsonString(decision.reason)
             append(",\"rangeStart\":").append(decision.range.start)
             append(",\"rangeEnd\":").append(decision.range.end)

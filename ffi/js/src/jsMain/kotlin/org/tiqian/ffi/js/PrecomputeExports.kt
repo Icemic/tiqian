@@ -4,7 +4,6 @@ package org.tiqian.ffi.js
 
 import kotlin.js.JsExport
 import org.tiqian.font.FontMetricsResolver
-import org.tiqian.layout.ParagraphWireFace
 import org.tiqian.shaping.TextShaper
 
 /**

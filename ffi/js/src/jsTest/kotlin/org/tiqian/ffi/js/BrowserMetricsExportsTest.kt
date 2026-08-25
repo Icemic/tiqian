@@ -20,7 +20,6 @@ import org.tiqian.font.FontMetricsResolver
 import org.tiqian.font.FontRole
 import org.tiqian.font.RawFontMetrics
 import org.tiqian.font.StubFontMetricsResolver
-import org.tiqian.layout.ParagraphWireFace
 import org.tiqian.shaping.ExplainableStubTextShaper
 import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.ShapingResult
