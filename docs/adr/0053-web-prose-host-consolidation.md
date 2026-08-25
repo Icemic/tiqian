@@ -1234,6 +1234,48 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   数据的机制另行设计；构造函数的参数编排逐个复核；`var` 声明全部替换为
   let/const，不保留任何 var 写法（2026-08-24 复审补充：var 属必须清除的
   过时语法，G2 批内一并执行）。
+
+  执行标准（2026-08-24 复审定型，转换按四条验收）：
+
+  1. 模块只导出声明：类型、纯函数、工厂。纯函数模块直接导出函数；
+     有依赖或有状态的模块导出 `createXxx(deps)` 工厂。禁止 `export let`
+     单例、禁止 import 时实例化依赖、禁止任何 `*ForTest` 变更器进入
+     生产源码。
+  2. 组装根唯一：engine 工厂构建依赖图并向下游传递，依赖必须出现在
+     参数签名中；测试自行构造对象图（以假件代入依赖），不改动模块
+     绑定。
+  3. 实例状态归所有者：按 DOM 节点键控的状态（custody 状态表、
+     viewport-anchor 持有表、prepared 状态表、copy 安装表）移入工厂
+     闭包或 root state；模块作用域只允许常量与纯缓存。
+  4. 事件只用于宿主边界（字体加载、剪贴板、worker postMessage）与
+     向宿主发出通知；引擎与前端组件之间的内部通信改为直接调用与
+     返回值，组件不得消费自己派发的事件。
+
+  复审同时否决了执行中段采用过的可变导出绑定（`export let xxxApi` 加
+  `setXxxForTest`）：该写法以模块绑定代替全局对象，import 副作用与测试
+  变更器同样存在，判定为未完成转换。已采用该写法的模块随 G2 后续批次
+  改为工厂与注入；IIFE 外壳与重入守卫随模块转换删除；`EligibilityGlobal`
+  一类含 Global 的类型名一并清除。
+
+  2026-08-24 二次复审补充两条：
+
+  5. 模块先分类再定形：无实例状态的模块直接导出命名函数，不包装成
+     `createXxx()` 返回的 Api 对象；deps 参数只收有状态协作者与宿主资源，
+     纯函数模块的 import 不属于待注入依赖。eligibility、responsive-measure、
+     prepared-metadata、markdown-lowering 为无状态模块；custody、copy
+     安装器、任务池为有状态模块。
+  6. 转换期间不设任何过渡单例：不新建 `export const defaultXxx =
+     createXxx()` 一类 import 时实例化的模块；阶段之间生产源允许 tsc
+     报错，报错限于尚未转换的消费者文件，由组装根批次统一消除。
+
+  全局使用清点（2026-08-24，grep 实测）：生产面 `globalThis` 名字 17 个，
+  其中模块自装 10 个、engine 入口自装 2 个、跨包桥 2 个、worker 握手 1 个、
+  遥测出口 2 个；模块作用域可变绑定 18 处。必要性裁定：任务队列协调为
+  唯一必要项，目标形态仍是 engine 实例图内持有（一页多个 engine 互不
+  共享）；worker 版本握手属于宿主边界协议；renderer/validator 桥改为
+  组装根显式注入（宿主构造 engine 时传入，双拷贝协商移入组装根）；遥测
+  出口改为显式调试接口或并入 decision dump，后续批次裁定；其余全局与
+  模块作用域可变绑定全部改为参数传递、实例闭包或组装根持有。
 - [x] **G3 ffi 包边界**（`FlatFfiExportSurface`）：ffi/js 的要求与
   frontend/rust 相同：导出 tiqian Kotlin 模块的全部 API 供下游消费。实际产物
   移动了部分源代码，包内混入新实现的宿主逻辑，属于 web 侧的逻辑应留在 web
