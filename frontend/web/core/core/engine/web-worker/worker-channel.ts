@@ -190,7 +190,7 @@ const { plans, pending, initializedSessions } = coordinator;
 function ensureWorker(): Worker {
   if (coordinator.worker) return coordinator.worker;
   if (typeof Worker !== "function") throw new Error("LayoutWorkerUnavailable");
-  coordinator.worker = new Worker(new URL("../../../layout-worker.js", import.meta.url), {
+  coordinator.worker = new Worker(new URL("../layout-worker.js", import.meta.url), {
     type: "module",
   });
   coordinator.worker.addEventListener("message", (event: MessageEvent<WorkerResponseEnvelope>) => {
