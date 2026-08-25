@@ -26,7 +26,7 @@ import org.tiqian.layout.toPreparedParagraphJson
 import org.tiqian.shaping.TextShaper
 
 /**
- * Separator wire face of the layout engine (ADR 0053 SingleEngineFace).
+ * Separator wire codec of the layout engine (ADR 0053 SingleEngineFace).
  * Wire decoding, validation and [LayoutInput] assembly live with the engine
  * so every JS host consumes one entry; ffi layers only transport strings.
  * The encoding itself is the ADR 0050 js ABI: record, field and family
@@ -141,7 +141,7 @@ private fun parseInlineObjects(value: String, textLength: Int): List<InlineObjec
             InlineObjectSpan(TextRange(start, end), advance, ascent, descent)
         }
 
-class ParagraphWireFace(
+class ParagraphWireCodec(
     private val textShaper: TextShaper,
     private val fontMetricsResolver: FontMetricsResolver,
 ) {

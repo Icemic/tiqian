@@ -12,11 +12,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 
-class ParagraphWireFaceTest {
+class ParagraphWireCodecTest {
 
     private val shaper = ExplainableStubTextShaper()
     private val metrics = StubFontMetricsResolver()
-    private val face = ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics)
+    private val codec = ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics)
 
     private fun plan(
         text: String,
@@ -24,7 +24,7 @@ class ParagraphWireFaceTest {
         textSpans: String = "",
         renderEvidenceOverride: Boolean? = null,
     ): String =
-        ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics).plan(
+        ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics).plan(
             text = text,
             maxWidthPx = 400.0,
             fontFamilies = "\u001fNoto Sans CJK SC",
@@ -51,7 +51,7 @@ class ParagraphWireFaceTest {
         textSpans: String = "",
         renderEvidenceOverride: Boolean? = null,
     ): String =
-        ParagraphWireFace(textShaper = shaper, fontMetricsResolver = metrics).planWithDiagnostics(
+        ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics).planWithDiagnostics(
             text = text,
             maxWidthPx = 400.0,
             fontFamilies = "\u001fNoto Sans CJK SC",
@@ -75,7 +75,7 @@ class ParagraphWireFaceTest {
     @Test
     fun emptyTextThrowsEmptyParagraph() {
         val e = assertFailsWith<IllegalArgumentException> {
-            face.plan(text = "", maxWidthPx = 400.0, fontFamilies = "\u001fNoto Sans CJK SC",
+            codec.plan(text = "", maxWidthPx = 400.0, fontFamilies = "\u001fNoto Sans CJK SC",
                 fontSizePx = 16.0, lineHeightPx = 24.0, locale = "zh-Hans",
                 fontWeight = 400, italic = false, firstLineIndentIc = 2.0,
                 lineLengthGridEnabled = false, sourceBoundaries = "", textSpans = "",
@@ -87,7 +87,7 @@ class ParagraphWireFaceTest {
     @Test
     fun textSpansRangeOutOfBoundsThrowsInvalidTextSpanRange() {
         val e = assertFailsWith<IllegalArgumentException> {
-            face.plan(
+            codec.plan(
                 text = "你好",
                 maxWidthPx = 400.0,
                 fontFamilies = "\u001fNoto Sans CJK SC",
@@ -109,7 +109,7 @@ class ParagraphWireFaceTest {
 
     @Test
     fun normalChineseParagraphReturnsLayoutRevisionV2() {
-        val result = face.plan(
+        val result = codec.plan(
             text = "你好世界",
             maxWidthPx = 400.0,
             fontFamilies = "\u001fNoto Sans CJK SC",
@@ -132,7 +132,7 @@ class ParagraphWireFaceTest {
     @Test
     fun lineBreakSpansFieldCountNotThreeThrowsInvalidLineBreakSpanWire() {
         val e = assertFailsWith<IllegalArgumentException> {
-            face.plan(
+            codec.plan(
                 text = "你好",
                 maxWidthPx = 400.0,
                 fontFamilies = "\u001fNoto Sans CJK SC",
@@ -154,7 +154,7 @@ class ParagraphWireFaceTest {
 
     @Test
     fun inlineObjectsEnterLayoutInputAndPlanEvidence() {
-        val result = face.plan(
+        val result = codec.plan(
             text = "中文",
             maxWidthPx = 400.0,
             fontFamilies = "\u001fNoto Sans CJK SC",
@@ -176,7 +176,7 @@ class ParagraphWireFaceTest {
 
     @Test
     fun plainParagraphWithoutInlineObjectsStaysLegacyPlan() {
-        val result = face.plan(
+        val result = codec.plan(
             text = "你好世界",
             maxWidthPx = 400.0,
             fontFamilies = "\u001fNoto Sans CJK SC",
@@ -198,7 +198,7 @@ class ParagraphWireFaceTest {
     @Test
     fun inlineObjectsFieldCountNotFiveThrowsInvalidInlineObjectWire() {
         val e = assertFailsWith<IllegalArgumentException> {
-            face.plan(
+            codec.plan(
                 text = "中文",
                 maxWidthPx = 400.0,
                 fontFamilies = "\u001fNoto Sans CJK SC",
@@ -222,7 +222,7 @@ class ParagraphWireFaceTest {
     @Test
     fun inlineObjectsRangeOutOfBoundsThrowsInvalidInlineObjectRange() {
         val e = assertFailsWith<IllegalArgumentException> {
-            face.plan(
+            codec.plan(
                 text = "中文",
                 maxWidthPx = 400.0,
                 fontFamilies = "\u001fNoto Sans CJK SC",
@@ -461,7 +461,7 @@ private class DiagnosticWrappingTextShaper(
     }
 }
 
-/** Local mirror of the wire face's JSON string escaper for building expected envelopes. */
+/** Local mirror of the wire codec's JSON string escaper for building expected envelopes. */
 private fun String.escapedAsJsonString(): String = buildString {
     append('"')
     for (char in this@escapedAsJsonString) {

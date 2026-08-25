@@ -43,7 +43,7 @@ fun precomputeParagraphWithDiagnostics(
     emphasisDotGapEm: Double? = null,
     renderEvidenceOverride: Boolean? = null,
 ): String {
-    return ParagraphWireFace(
+    return ParagraphWireCodec(
         textShaper = JsCallbackTextShaper(shapeJson),
         fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
     ).planWithDiagnostics(
@@ -104,7 +104,7 @@ fun precomputeParagraphWithBrowserMetrics(
     emphasisDotGapEm: Double? = null,
     renderEvidenceOverride: Boolean? = null,
 ): String {
-    return ParagraphWireFace(
+    return ParagraphWireCodec(
         textShaper = JsCallbackTextShaper(shapeJson),
         fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
     ).planWithDiagnostics(
