@@ -142,6 +142,9 @@
     },
     "./runtime.js": {
       "default": "./core/engine/loaders/runtime-loader.js"
+    },
+    "./styles.css": {
+      "default": "./styles.css"
     }
   },
   "dependencies": {

@@ -7,7 +7,7 @@
   import { afterNavigate } from "$app/navigation";
   import type { Snippet } from "svelte";
 
-  import "@tiqian/prose/styles.css";
+  import "@tiqian/core/styles.css";
   import { registerSnapshotBundle } from "@tiqian/prose/snapshot-client";
 
   import type { PreparedTiqianProse } from "./server.js";

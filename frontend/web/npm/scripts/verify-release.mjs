@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const packageRoot = fileURLToPath(new URL("./", import.meta.url));
+const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const consumerRoot = await mkdtemp(resolve(tmpdir(), "tiqian-prose-release-"));
 let tarballPath = null;
 
@@ -79,16 +79,45 @@ try {
     resolve(consumerRoot, ffiFilename),
   ], { cwd: consumerRoot });
 
+  // Stylesheet single-source-of-truth: prose tarball must not carry styles.css,
+  // core tarball must. This replaces the previous byte-identity pin.
+  function listTarball(tarball) {
+    const listed = spawnSync("tar", ["-tzf", tarball], { encoding: "utf8", stdio: "pipe" });
+    if (listed.error) throw listed.error;
+    if (listed.status !== 0) {
+      const detail = [listed.stdout, listed.stderr].filter(Boolean).join("\n").trim();
+      throw new Error(`ReleaseTarballListFailed: tar -tzf ${tarball}\n${detail}`);
+    }
+    return String(listed.stdout ?? "");
+  }
+  const proseTarballList = listTarball(tarballPath);
+  if (proseTarballList.includes("styles.css")) {
+    throw new Error("ReleaseTarballVerificationFailed: @tiqian/prose tarball must not contain styles.css (stylesheet ships from @tiqian/core)");
+  }
+  const coreTarballList = listTarball(resolve(consumerRoot, coreFilename));
+  if (!coreTarballList.includes("styles.css")) {
+    throw new Error("ReleaseTarballVerificationFailed: @tiqian/core tarball must contain styles.css");
+  }
+
   await writeFile(
     resolve(consumerRoot, "verify.mjs"),
     `import assert from "node:assert/strict";
 import * as api from "@tiqian/prose";
 import { TiqianProseElement } from "@tiqian/prose/element";
+import { readFile, stat } from "node:fs/promises";
 
 assert.equal(typeof api.enhance, "function");
 assert.equal(typeof api.destroy, "function");
 assert.equal(typeof TiqianProseElement, "function");
-assert.match(import.meta.resolve("@tiqian/prose/styles.css"), /styles\\.css$/u);
+// Single source of truth: the stylesheet ships from @tiqian/core only;
+// prose neither ships nor exports it.
+const proseManifest = JSON.parse(await readFile(new URL("./node_modules/@tiqian/prose/package.json", import.meta.url), "utf8"));
+assert.equal(proseManifest.exports["./styles.css"], undefined);
+// The stylesheet resolves through core's exports map and exists on disk.
+const coreStylesResolution = import.meta.resolve("@tiqian/core/styles.css");
+assert.match(coreStylesResolution, /@tiqian\\/core\\/styles\\.css$/u);
+const coreStylesMeta = await stat(new URL(coreStylesResolution));
+assert.ok(coreStylesMeta.isFile() && coreStylesMeta.size > 0);
 `,
   );
   const result = spawnSync(process.execPath, ["verify.mjs"], {

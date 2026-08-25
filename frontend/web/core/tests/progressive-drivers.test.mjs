@@ -519,7 +519,7 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
     // before the lifecycle marker is written.
     assert.ok(reportedIssues.length > 0);
     assert.equal(reportedIssues[0].name, "MissingSharedRuntimeStyles");
-    assert.equal(reportedIssues[0].detail, "Load @tiqian/prose/styles.css before TiqianWeb.enhance");
+    assert.equal(reportedIssues[0].detail, "Load @tiqian/core/styles.css before TiqianWeb.enhance");
     assert.equal(p1.source.getAttribute("data-tiqian-capability-issue"), "MissingSharedRuntimeStyles");
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });

@@ -149,7 +149,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     for (let i = 0; i < candidates.length; i += 1) {
       const issue: CapabilityGateIssue = {
         name: "MissingSharedRuntimeStyles",
-        detail: "Load @tiqian/prose/styles.css before TiqianWeb.enhance",
+        detail: "Load @tiqian/core/styles.css before TiqianWeb.enhance",
         element: candidates[i],
         reportToConsole: true,
         markerCaptured: false,

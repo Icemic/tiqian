@@ -54,8 +54,7 @@
     "prepared-dom.d.ts",
     "prepared-dom.js",
     "snapshot-client.d.ts",
-    "snapshot-client.js",
-    "styles.css"
+    "snapshot-client.js"
   ],
   "exports": {
     ".": {
@@ -73,8 +72,7 @@
     "./prepared-dom": {
       "types": "./prepared-dom.d.ts",
       "default": "./prepared-dom.js"
-    },
-    "./styles.css": "./styles.css"
+    }
   },
   "dependencies": {
     "@tiqian/core": "0.1.0-alpha.5"

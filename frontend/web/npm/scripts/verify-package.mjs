@@ -18,7 +18,6 @@ const REQUIRED_FILES = [
   "prepared-dom.js",
   "snapshot-client.d.ts",
   "snapshot-client.js",
-  "styles.css",
 ];
 const FORBIDDEN_FILES = [
   "core/",
@@ -49,6 +48,18 @@ export async function verifyPackage(packageRoot = new URL("../", import.meta.url
     if (manifest.files.includes(forbidden)) {
       fail(`${forbidden} must not be included in @tiqian/prose files`);
     }
+  }
+
+  if (manifest.files.includes("styles.css")) {
+    fail("styles.css must not be included in @tiqian/prose files; stylesheet ships from @tiqian/core");
+  }
+  if (manifest.exports?.["./styles.css"] !== undefined) {
+    fail('exports["./styles.css"] must be deleted; the stylesheet resolves from @tiqian/core');
+  }
+  // The stylesheet is the single source of truth in @tiqian/core; verify it exists.
+  {
+    const coreStyles = await stat(new URL("../core/styles.css", packageRoot));
+    if (!coreStyles.isFile() || coreStyles.size === 0) fail("@tiqian/core/styles.css is missing or empty");
   }
 
   for (const required of REQUIRED_FILES) {

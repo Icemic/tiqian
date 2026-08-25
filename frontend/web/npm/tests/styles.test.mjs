@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const stylesheet = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+// Single source of truth: the stylesheet ships from @tiqian/core.
+const stylesheet = readFileSync(new URL("../../core/styles.css", import.meta.url), "utf8");
 
 test("static stylesheet exposes a runtime readiness marker", () => {
   assert.match(stylesheet, /:is\(tiqian-prose, \[data-tiqian-root\]\)/u);

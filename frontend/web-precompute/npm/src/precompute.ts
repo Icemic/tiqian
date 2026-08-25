@@ -14,7 +14,7 @@ import { createCacheBridge, type CacheBridge } from "./cache.js";
 import { renderPreparedParagraph as sharedRenderPreparedParagraph } from "@tiqian/prose/prepared-dom";
 
 const SHARED_RUNTIME_STYLE = readFileSync(
-  new URL(import.meta.resolve("@tiqian/prose/styles.css")),
+  new URL(import.meta.resolve("@tiqian/core/styles.css")),
   "utf8",
 );
 const URL_SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:/iu;

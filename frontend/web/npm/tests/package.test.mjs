@@ -39,7 +39,6 @@ test("published package ships the TS runtime modules and no repository-only bin"
     "./element",
     "./prepared-dom",
     "./snapshot-client",
-    "./styles.css",
   ]);
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.exports["./build-runtime"], undefined);
@@ -156,12 +155,19 @@ test("the custom element validates a snapshot before dynamically loading the bro
     new URL("../../core/core/engine/loaders/font-loader.js", import.meta.url),
     "utf8",
   );
-  const stylesSource = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-  // core/engine/loaders/styles.js resolves ../../../styles.css from inside
-  // @tiqian/core, so the stylesheet ships in both packages and the two
-  // copies must stay byte-identical.
+  // Single source of truth: the stylesheet ships from @tiqian/core only;
+  // @tiqian/prose neither ships nor exports it.
+  const proseManifestForStyles = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(proseManifestForStyles.exports["./styles.css"], undefined, "@tiqian/prose must not export ./styles.css");
+  assert.equal(proseManifestForStyles.files.includes("styles.css"), false, "styles.css must not be in @tiqian/prose files");
   const coreStylesSource = await readFile(new URL("../../core/styles.css", import.meta.url), "utf8");
-  assert.equal(coreStylesSource, stylesSource, "core styles.css copy must match @tiqian/prose");
+  assert.ok(coreStylesSource.length > 0);
+  assert.match(coreStylesSource, /--tq-styles-ready:\s*1/u);
+  const coreStylesResolution = import.meta.resolve("@tiqian/core/styles.css");
+  assert.equal(coreStylesResolution, new URL("../../core/styles.css", import.meta.url).href);
+  const coreResolvedSource = await readFile(new URL(coreStylesResolution), "utf8");
+  assert.equal(coreResolvedSource, coreStylesSource);
+  const stylesSource = coreStylesSource;
   const adoption = elementSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
   const connectedStart = elementSource.indexOf("  connectedCallback() {");
   const initialSnapshotSource = elementSource.slice(connectedStart, adoption);
