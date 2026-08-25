@@ -239,7 +239,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(browserFontsSource, /ExistingSessionLiveContractRevalidation/u);
   assert.match(browserFontsSource, /ServerReplayNeedsNoBrowserFontBytes/u);
   assert.doesNotMatch(browserFontsSource, /fetchImplementation|createRenderFontFace/u);
-  assert.match(browserFontsSource, /export const prepareBrowserRenderFonts/u);
+  assert.match(browserFontsSource, /export function prepareBrowserRenderFonts/u);
   assert.match(elementSource, /ExactFontSessionLiveRevalidation/u);
   assert.match(elementSource, /await existing\.revalidate\(this, existing\.handle\)/u);
   assert.match(

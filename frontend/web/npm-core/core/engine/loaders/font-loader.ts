@@ -16,6 +16,7 @@ import type {
 } from "../exact-font.js";
 // Ambient global declarations pulled in via import type from owner modules.
 import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
+import { globalServices } from "../../services/global-services.js";
 
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
@@ -211,10 +212,13 @@ export interface ExactFontFallbackLoader {
   releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
-let exactFontFallbackPromise: Promise<ExactFontFallbackLoader> | undefined;
-
+// The exact-font-fallback and prepared-dom-bridge memos live on the
+// service-owned FontCoordinationState (page-level once-per-document). They
+// are consulted lazily at use time so this module imports the service
+// accessor without creating an init-time cycle.
 export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
-  exactFontFallbackPromise ??= Promise.all([
+  const state = globalServices().fonts;
+  state.exactFontFallbackPromise ??= Promise.all([
     import("../../measurement/browser-fonts.js"),
     import("../../sampler/snapshot/prepared-dom.js"),
   ]).then(([fonts, preparedDom]): ExactFontFallbackLoader => {
@@ -228,7 +232,7 @@ export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
       releasePreparedRenderFontStyle: preparedDom.releasePreparedRenderFontStyle,
     };
   });
-  return exactFontFallbackPromise as Promise<ExactFontFallbackLoader>;
+  return state.exactFontFallbackPromise as Promise<ExactFontFallbackLoader>;
 }
 
 // PlainHostPreparedBridge: every paragraph lowers through the prepared DOM
@@ -238,15 +242,14 @@ export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
 // already-occupied slot belongs to a test fixture or an exact-session
 // install and is left untouched — loadExactFontFallback keeps its own
 // monotonic upgrade for a stale legacy occupant.
-let preparedBridgePromise: Promise<PreparedDomRendererApi | undefined> | undefined;
-
 export function ensurePreparedDomBridge(): Promise<PreparedDomRendererApi | undefined> {
-  preparedBridgePromise ??= globalThis.__TiqianPreparedDomRenderer
+  const state = globalServices().fonts;
+  state.preparedBridgePromise ??= globalThis.__TiqianPreparedDomRenderer
     ? Promise.resolve(globalThis.__TiqianPreparedDomRenderer)
     : import("../../sampler/snapshot/prepared-dom.js").then(
         () => globalThis.__TiqianPreparedDomRenderer,
       );
-  return preparedBridgePromise;
+  return state.preparedBridgePromise;
 }
 
 // CSS font-family parsing and the document font-loading filter moved here

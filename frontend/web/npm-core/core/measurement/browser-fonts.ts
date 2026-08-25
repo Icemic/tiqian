@@ -23,6 +23,7 @@ import {
 } from "../sampler/snapshot/precomputed.js";
 // Ambient global declarations pulled in via import type from owner modules.
 import type { TiqianLayoutWorkerInstance } from "../engine/web-worker/worker-channel.js";
+import { globalServices } from "../services/global-services.js";
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const HANDLE_STATE = Symbol("tiqian.browserFontSession");
@@ -916,9 +917,35 @@ function snapshotContextFromState(state: BrowserFontSessionState): string {
   return state.manifestText;
 }
 
-const defaultLoader: BrowserFontSessionLoader = createBrowserFontSessionLoader();
+// The page-wide default loader instance is owned by the service-owned
+// FontCoordinationState (one per document, see fonts.ts). These four exported
+// bindings keep their names and delegate to that loader. The state record
+// starts with browserFontLoader undefined and the loader is constructed here
+// on first use: building it inside the coordination-service module would
+// statically import this module's graph — which reaches precomputed.ts and
+// prepared-dom.ts, whose module body installs the read-only prepared
+// renderer bridge — ahead of test fixtures that pre-seed that slot.
+function defaultFontSessionLoader(): BrowserFontSessionLoader {
+  const fonts = globalServices().fonts;
+  fonts.browserFontLoader ??= createBrowserFontSessionLoader();
+  return fonts.browserFontLoader;
+}
 
-export const prepareBrowserFontSession = defaultLoader.prepare;
-export const revalidateBrowserFontSession = defaultLoader.revalidate;
-export const prepareBrowserRenderFonts = defaultLoader.prepareRenderFonts;
-export const releaseBrowserFontSession = defaultLoader.release;
+export function prepareBrowserFontSession(root: HTMLElement): Promise<BrowserFontSessionHandle> {
+  return defaultFontSessionLoader().prepare(root);
+}
+
+export function revalidateBrowserFontSession(
+  root: HTMLElement,
+  handle: BrowserFontSessionHandle,
+): Promise<BrowserFontSessionHandle> {
+  return defaultFontSessionLoader().revalidate(root, handle);
+}
+
+export function prepareBrowserRenderFonts(root: HTMLElement, handle: BrowserFontSessionHandle): Promise<boolean> {
+  return defaultFontSessionLoader().prepareRenderFonts(root, handle);
+}
+
+export function releaseBrowserFontSession(handle: BrowserFontSessionHandle): boolean {
+  return defaultFontSessionLoader().release(handle);
+}

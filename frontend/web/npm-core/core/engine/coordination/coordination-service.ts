@@ -7,6 +7,9 @@ import {
   releaseNativeScrollAnchoring,
 } from "./viewport-anchor.js";
 import type { ViewportAnchor } from "./viewport-anchor.js";
+import type { FontCoordinationState } from "./fonts.js";
+import { createReplayRegistry } from "./fonts.js";
+import type { MeasurementCoordinationState } from "./measurement.js";
 
 export type FrameTaskCallback = (now: number) => void;
 export type GrantStopPredicate = (processedCount: number) => boolean;
@@ -152,6 +155,23 @@ function sumPendingUpTo(slot: CoordinatorWorkerSlot, tier: number): number {
 
 export class CoordinationService {
   #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
+  // FontCoordinationState and MeasurementCoordinationState: page-wide
+  // font/measurement singletons the absorbed loader modules consult (see
+  // fonts.ts / measurement.ts for why each is page-level single).
+  readonly fonts: FontCoordinationState = {
+    exactFontFallbackPromise: undefined,
+    preparedBridgePromise: undefined,
+    declaredFacesEntries: new Map(),
+    declaredFacesChangeListeners: new Set(),
+    browserFontLoader: undefined,
+    replayRegistry: createReplayRegistry(),
+  };
+  readonly measurement: MeasurementCoordinationState = {
+    measurementCache: new Map(),
+    degenerateInkBoundsByFont: {},
+    canvasAdvanceParityByFont: {},
+    fontLoadInvalidationInstalled: false,
+  };
   // OffscreenDebounceGate: when an element is outside the viewport, its frame
   // tasks wait in this deferred lane. Each repeated request while the element
   // stays off-screen pushes the task's due time further out, so a fast drag

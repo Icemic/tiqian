@@ -22,6 +22,11 @@
 
 import type { FontRoleName, WebFontFamiliesInstance } from "./canvas-fonts.js";
 import type { CanvasContextLike } from "./canvas-metrics.js";
+import { globalServices } from "../services/global-services.js";
+import {
+  clearMeasurementState,
+  measurementCacheEntryCount,
+} from "./coordination/measurement.js";
 
 export interface TextMetricsLike {
   width: number;
@@ -209,14 +214,10 @@ const CANVAS_CANNOT_VERIFY_SAME_FACE_U22EF_COVERAGE =
 // BoundedSharedMeasurementCache: shared across every shaper instance so
 // cross-root resizes stay warm (ADR 0039), and bounded so a long-lived page
 // cannot retain every glyph run it has ever measured. A hit reinserts its
-// entry, so eviction drops the least recently used key.
+// entry, so eviction drops the least recently used key. The cache and the
+// per-font probe verdicts live on the service-owned
+// MeasurementCoordinationState (page-level single, see measurement.ts).
 const MEASUREMENT_CACHE_MAX_ENTRIES = 2048;
-const measurementCache = new Map<string, MeasuredTextLike>();
-// Probe verdicts live beside the shared measurement cache they qualify, and
-// both invalidate together on webfont arrival below.
-let degenerateInkBoundsByFont: Record<string, boolean> = {};
-let canvasAdvanceParityByFont: Record<string, boolean> = {};
-let fontLoadInvalidationInstalled = false;
 
 // MeasurementKey is structural equality over four strings; JSON round-trips
 // that exactly. The separator joins used elsewhere are unsafe here because
@@ -226,6 +227,7 @@ function measurementCacheKey(actualFont: string, display: string, featureSignatu
 }
 
 function measurementCacheGetOrPut(key: string, compute: ShapingComputeMeasurementFn): MeasuredTextLike {
+  const measurementCache = globalServices().measurement.measurementCache;
   if (measurementCache.has(key)) {
     const hit = measurementCache.get(key)!;
     measurementCache.delete(key);
@@ -252,8 +254,9 @@ function measurementCacheGetOrPut(key: string, compute: ShapingComputeMeasuremen
  * @returns {void}
  */
 export function installFontLoadInvalidation(fontSet?: ShapingFontSetLike | FontFaceSet | null): void {
-  if (fontLoadInvalidationInstalled) return;
-  fontLoadInvalidationInstalled = true;
+  const state = globalServices().measurement;
+  if (state.fontLoadInvalidationInstalled) return;
+  state.fontLoadInvalidationInstalled = true;
   if (!fontSet || typeof fontSet.addEventListener !== "function") return;
   fontSet.addEventListener("loadingdone", function () {
     clearMeasurementCache();
@@ -266,9 +269,7 @@ export function installFontLoadInvalidation(fontSet?: ShapingFontSetLike | FontF
  * @returns {void}
  */
 export function clearMeasurementCache(): void {
-  measurementCache.clear();
-  degenerateInkBoundsByFont = {};
-  canvasAdvanceParityByFont = {};
+  clearMeasurementState(globalServices().measurement);
 }
 
 /**
@@ -277,7 +278,7 @@ export function clearMeasurementCache(): void {
  * @returns {number}
  */
 export function measurementCacheSize(): number {
-  return measurementCache.size;
+  return measurementCacheEntryCount(globalServices().measurement);
 }
 
 // CjkDashCapabilityPolicy ports inline (see the font module): the CJK dash
@@ -482,6 +483,7 @@ export function createTextShaper(
    * @returns {boolean}
    */
   function canvasInkBoundsDegenerate(actualFont: string): boolean {
+    const degenerateInkBoundsByFont = globalServices().measurement.degenerateInkBoundsByFont;
     if (Object.prototype.hasOwnProperty.call(degenerateInkBoundsByFont, actualFont)) {
       return degenerateInkBoundsByFont[actualFont];
     }
@@ -596,6 +598,7 @@ export function createTextShaper(
     // the exemption keeps CjkPunctuation on the canvas path where the
     // raster ink measurement stays reachable.
     if (role === "CjkText" || role === "CjkPunctuation") return true;
+    const canvasAdvanceParityByFont = globalServices().measurement.canvasAdvanceParityByFont;
     if (Object.prototype.hasOwnProperty.call(canvasAdvanceParityByFont, actualFont)) {
       return canvasAdvanceParityByFont[actualFont];
     }

@@ -20,8 +20,7 @@ import {
 import type { ProbeMeasure } from "./replay-probe.js";
 import type { SnapshotManifestFace } from "./snapshot-manifest.js";
 import type { SnapshotProbe } from "./snapshot-table-binary.js";
-
-const REGISTRY_KEY = Symbol.for(`org.tiqian.web.font-replay.${FONT_REPLAY_REVISION}`);
+import { globalServices } from "./core/services/global-services.js";
 
 export interface ReplayProbe {
   measure: ProbeMeasure;
@@ -71,7 +70,7 @@ interface ReplaySession {
   probe: ReplayProbe | null;
 }
 
-interface ReplayRegistry {
+export interface ReplayRegistry {
   sessions: Map<string, ReplaySession>;
   shapeResults: Map<number, ScaledShapeResult>;
   metricResults: Map<number, number[]>;
@@ -132,14 +131,14 @@ declare global {
   var __TiqianFontBackendRevision: string;
 }
 
-const registry: ReplayRegistry =
-  (globalThis as Record<symbol, ReplayRegistry | undefined>)[REGISTRY_KEY] ??= {
-    sessions: new Map(),
-    shapeResults: new Map(),
-    metricResults: new Map(),
-    nextSessionId: 1,
-    nextResultId: 1,
-  };
+// The replay registry is owned by the service's FontCoordinationState (one
+// per document, page-level single by definition; see fonts.ts). It is read
+// lazily at use time so this module imports the service accessor without an
+// init-time cycle. The registry object itself survives across bundle copies
+// through the Symbol.for key the fonts cluster uses to seed it on globalThis.
+function replayRegistry(): ReplayRegistry {
+  return globalServices().fonts.replayRegistry;
+}
 
 function replayIndex<T extends { key: string }>(items: T[], kind: string): Map<string, T> {
   if (!Array.isArray(items)) throw new Error(`InvalidServerShapingReplay:${kind}`);
@@ -155,6 +154,7 @@ function replayIndex<T extends { key: string }>(items: T[], kind: string): Map<s
 }
 
 function installReplayBackend() {
+  const registry = replayRegistry();
   if (globalThis.__TiqianFontBackend) {
     if (globalThis.__TiqianFontBackendReplayRegistry === registry) return;
     throw new Error("FontBackendGlobalCollision");
@@ -269,6 +269,7 @@ export async function createServerReplayFontSession(
   faceSpecs: unknown[],
   options: ServerReplayFontSessionOptions = {},
 ): Promise<ServerReplayFontSession> {
+  const registry = replayRegistry();
   const replay = options.replay;
   if (!replay || replay.revision !== FONT_REPLAY_REVISION) {
     throw new Error("ServerShapingReplayRevisionMismatch");

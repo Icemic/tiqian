@@ -18,9 +18,16 @@
 // swaps the container for an explicit replacement and returns a restore
 // function. Hosts must not touch it.
 import { CoordinationService } from "../engine/coordination/coordination-service.js";
+import type { FontCoordinationState } from "../engine/coordination/fonts.js";
+import type { MeasurementCoordinationState } from "../engine/coordination/measurement.js";
 
 export interface GlobalServices {
   coordination: CoordinationService;
+  // Font/measurement coordination state: page-wide singletons owned by the
+  // coordination service (see the cluster modules for why each is
+  // page-level single).
+  fonts: FontCoordinationState;
+  measurement: MeasurementCoordinationState;
 }
 
 type GlobalServicesRegistry = Record<symbol, GlobalServices | undefined>;
@@ -29,10 +36,17 @@ export type GlobalServicesRestoreFn = () => void;
 
 const GLOBAL_SERVICES_KEY: unique symbol = Symbol.for("@tiqian/prose.global-services.v1");
 
-export function globalServices(): GlobalServices {
-  return (globalThis as GlobalServicesRegistry)[GLOBAL_SERVICES_KEY] ??= {
-    coordination: new CoordinationService(),
+function createGlobalServices(): GlobalServices {
+  const coordination = new CoordinationService();
+  return {
+    coordination,
+    fonts: coordination.fonts,
+    measurement: coordination.measurement,
   };
+}
+
+export function globalServices(): GlobalServices {
+  return (globalThis as GlobalServicesRegistry)[GLOBAL_SERVICES_KEY] ??= createGlobalServices();
 }
 
 export function installGlobalServicesForTesting(container: GlobalServices): GlobalServicesRestoreFn {
