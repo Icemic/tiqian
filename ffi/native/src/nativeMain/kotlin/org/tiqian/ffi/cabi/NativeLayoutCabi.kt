@@ -15,7 +15,7 @@ import kotlinx.cinterop.value
 import org.tiqian.shaping.NativeFontBackendFontMetricsResolver
 import org.tiqian.shaping.NativeFontBackendTextShaper
 import org.tiqian.shaping.tiqianInstallFontBackend as installFontBackend
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.layout.toPackedPlanBytes
 import org.tiqian.layout.toPreparedParagraphJson
@@ -85,7 +85,7 @@ fun tiqianLayoutParagraphJson(
 /** Runs the engine over one packed request and returns the Kotlin-produced plan JSON. */
 internal fun runLayoutRequest(bytes: ByteArray): String {
     val parsed = readLayoutRequest(bytes)
-    val result = TiqianParagraphLayoutEngine(
+    val result = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         fontMetricsResolver = NativeFontBackendFontMetricsResolver(parsed.fontSessionId),
         textShaper = NativeFontBackendTextShaper(parsed.fontSessionId),
@@ -95,7 +95,7 @@ internal fun runLayoutRequest(bytes: ByteArray): String {
 
 internal fun runLayoutRequestPacked(bytes: ByteArray): ByteArray {
     val parsed = readLayoutRequest(bytes)
-    val result = TiqianParagraphLayoutEngine(
+    val result = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         fontMetricsResolver = NativeFontBackendFontMetricsResolver(parsed.fontSessionId),
         textShaper = NativeFontBackendTextShaper(parsed.fontSessionId),

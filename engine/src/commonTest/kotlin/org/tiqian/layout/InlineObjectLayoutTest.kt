@@ -46,7 +46,7 @@ class InlineObjectLayoutTest {
     @Test
     fun inlineObjectUsesExistingInterlineSpaceWithoutMovingBaselines() {
         fun layout(inlineObjects: List<InlineObjectSpan>) =
-            TiqianParagraphLayoutEngine().layout(
+            ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
                     content = TiqianTextContent("甲乙"),
                     textStyle = TextStyle(fontSize = 16f),
@@ -91,7 +91,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectExpandsBaselineGapOnlyForActualCollision() {
-        fun layout(paragraphStyle: ParagraphStyle) = TiqianParagraphLayoutEngine().layout(
+        fun layout(paragraphStyle: ParagraphStyle) = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("甲乙"),
                 textStyle = TextStyle(fontSize = 16f),
@@ -125,7 +125,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectSkipsFontShapingAndExpandsItsOwnLineMetrics() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中${INLINE_OBJECT_REPLACEMENT_CHAR}文"),
                 textStyle = TextStyle(fontSize = 16f),
@@ -160,7 +160,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectIsOneIndivisibleBreakCluster() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中${INLINE_OBJECT_REPLACEMENT_CHAR}文"),
                 textStyle = TextStyle(fontSize = 16f),
@@ -179,7 +179,7 @@ class InlineObjectLayoutTest {
 
     @Test
     fun inlineObjectKeepsAlternateSourceTextWhileSkippingItsGlyphShaping() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中图片文"),
                 textStyle = TextStyle(fontSize = 16f),
@@ -552,7 +552,7 @@ class InlineObjectLayoutTest {
 
     private fun fixedBasicKinsokuEngine(
         lineBreaker: LineBreaker = GreedyLineBreaker(),
-    ) = TiqianParagraphLayoutEngine(
+    ) = ExplainableStubParagraphLayoutEngine(
         lineBreaker = lineBreaker,
         clreqProfileResolver = ClreqProfileResolver {
             ClreqProfile.MainlandHorizontal.copy(

@@ -88,7 +88,7 @@ class AttachedInlineVirtualAdjacencyTest {
         val text = "甲乙1丙"
         val referenceRange = TextRange(2, 3)
         for (lineBreaker in listOf(GreedyLineBreaker(), LookaheadLineBreaker(), ParagraphDpLineBreaker())) {
-            val result = TiqianParagraphLayoutEngine(lineBreaker = lineBreaker).layout(
+            val result = ExplainableStubParagraphLayoutEngine(lineBreaker = lineBreaker).layout(
                 LayoutInput(
                     paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
                     content = TiqianTextContent(
@@ -119,7 +119,7 @@ class AttachedInlineVirtualAdjacencyTest {
     }
 
     private fun layoutAttachedReference(text: String) =
-        TiqianParagraphLayoutEngine().layout(
+        ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
                 content = TiqianTextContent(

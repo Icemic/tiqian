@@ -7,7 +7,7 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaTextShaper
@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 class MissingGlyphTofuTest {
     @Test
     fun missingGlyphIsFullEmTofu() {
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = SkiaTextShaper(),
             fontMetricsResolver = SkiaFontMetricsResolver(),

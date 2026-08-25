@@ -35,8 +35,8 @@
   -> Compose / DOM / Android / Core Text renderer
 ```
 
-`TiqianParagraphLayoutEngine` 运行真实 pipeline（shaping、字体度量、标点几何、断行、行调整与绘制）。
-`ExplainableStubTextShaper` 只作为没有平台字体系统时的确定性测试 adapter 存在，不是默认布局模型。
+`ExplainableStubParagraphLayoutEngine` 保留了早期名称，但当前实现已经走完整真实 pipeline。
+stub 只作为没有平台字体系统时的确定性测试 adapter 存在，不是默认布局模型。
 
 ## 输入与输出
 

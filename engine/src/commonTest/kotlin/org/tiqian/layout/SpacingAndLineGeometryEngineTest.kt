@@ -41,7 +41,7 @@ class SpacingAndLineGeometryEngineTest {
         // " CJK " becomes one Latin cluster (5 chars * 16 = 80px nominal).
         // At maxWidth large enough, default AutoSpacePolicy.Replace shrinks
         // each boundary space from 二分空 0.5em (8) to gapEm 0.125em (2).
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文 CJK 段落"),
@@ -67,7 +67,7 @@ class SpacingAndLineGeometryEngineTest {
         // "Hello world" — space between two Latin words, no CJK boundary.
         // AutoSpace.Replace only applies at CJK boundaries; word-internal
         // spaces stay at their nominal 二分空 0.5em.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("Hello world"),
@@ -86,7 +86,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun autoSpaceDisabledKeepsTypedSpacesAtHalfEm() {
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     autoSpace = org.tiqian.clreq.AutoSpacePolicy.Disabled,
@@ -111,7 +111,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun usesFontDeclaredTypoBoxForCjkLineBox() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("提椠"),
@@ -141,7 +141,7 @@ class SpacingAndLineGeometryEngineTest {
         // greedy line 0 = [中 文 ' ' AB ' '] (16+16+2+32+2=68); the trailing
         // space cluster sits at the line END and collapses entirely:
         // line adjusted width 68 → 66.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文 AB 中文中文中文"),
@@ -166,7 +166,7 @@ class SpacingAndLineGeometryEngineTest {
         // justification → anchors at glyph centres; ， inside the span is
         // skipped per CLREQ; 。 is outside the span entirely.
         // maxWidth=128 wraps at 8 clusters/line.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("他强调：豆子新鲜最要紧，烘焙其次。"),
@@ -212,7 +212,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun emphasisDotGapIsExplicitAndIndependentOfLineHeight() {
-        fun layout(lineHeight: Float) = TiqianParagraphLayoutEngine().layout(
+        fun layout(lineHeight: Float) = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -246,7 +246,7 @@ class SpacingAndLineGeometryEngineTest {
         // cluster 4 (inside 王小明 3..5) — MourningSpanKeptUnbroken moves the
         // break to 3. Both names end up whole on single lines with one frame
         // segment each.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 // Pin the exact measure (72 ∤ 16); this test is about the
                 // mourning-span unbroken break, not the grid.
@@ -297,7 +297,7 @@ class SpacingAndLineGeometryEngineTest {
     fun mourningSpanWiderThanMeasureSplitsWithOpenEdges() {
         // A 5-character name span at maxWidth=64 cannot fit one line: the
         // split fallback produces open-ended segments.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("王小明大同先生"),
@@ -329,7 +329,7 @@ class SpacingAndLineGeometryEngineTest {
         // deterministic stub models U+0020 as 二分空.)
         // Pinned to PushOutOnly: this asserts the STRETCH tier behaviour, which
         // Auto would replace with 推入压缩 on this short line (ADR 0031).
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = {
                 ClreqProfile.MainlandHorizontal.let { p ->
                     p.copy(adjustment = p.adjustment.copy(lineAdjustment = LineAdjustmentStrategy.PushOutOnly))
@@ -362,7 +362,7 @@ class SpacingAndLineGeometryEngineTest {
         // CLREQ tier ③「剩余所有字符间距」includes 标点↔西文 (only 不可断标点 +
         // 连接号/分隔号 excluded). Line 0 = 中文中文话：The — the ：|The boundary
         // takes a tier-③ share like every other 字符间距.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文中文话：The quick brown fox jumps"),
@@ -384,7 +384,7 @@ class SpacingAndLineGeometryEngineTest {
     @Test
     fun blockIndentInsetsEveryLine() {
         // 段落缩排 (CLREQ §6.2.1.2): blockIndent insets ALL lines (引用/诗词块).
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中文中文中文中文中文中文"),
                 constraints = LayoutConstraints(maxWidth = 100f),
@@ -403,7 +403,7 @@ class SpacingAndLineGeometryEngineTest {
     fun hangingIndentFlushesFirstLineAndInsetsRest() {
         // 凸排 (CLREQ §6.2.1.1): blockIndent=2, firstLineIndent=-2 → 首行齐头、
         // 次行起缩 2 字（对话/列表/法条）。
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中文中文中文中文中文中文"),
                 constraints = LayoutConstraints(maxWidth = 100f),
@@ -429,7 +429,7 @@ class SpacingAndLineGeometryEngineTest {
         // the measure (≤160, NOT hard-broken) but overflows after the hanzi and
         // wraps whole — line 0 deficit = 160 - 64 = 96 over 3 hanzi boundaries =
         // 32 each, far past the old 4px cap.
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文中文Network中文"),
@@ -451,7 +451,7 @@ class SpacingAndLineGeometryEngineTest {
         // CLREQ distinguishes 字母 from 数字: cjkDigit gates CJK↔digit gaps
         // separately. cjkLatin=Insert, cjkDigit=Disabled → 中A gets a gap,
         // 中5 does not (mode keyed on the boundary-adjacent char).
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     autoSpace = org.tiqian.clreq.AutoSpacePolicy(
@@ -483,7 +483,7 @@ class SpacingAndLineGeometryEngineTest {
         // 8 hanzi (128px) at maxWidth=104 (6.5 字, fontSize 16). Grid floors
         // the measure to 6 字 = 96; greedy then breaks 6 + 2.
         fun layoutWith(grid: LineLengthGrid) =
-            TiqianParagraphLayoutEngine().layout(
+            ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
                     paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f), lineLengthGrid = grid),
                     content = TiqianTextContent("中文中文中文中文"),
@@ -513,7 +513,7 @@ class SpacingAndLineGeometryEngineTest {
 
     @Test
     fun lineLengthGridCanBeBypassedForExactWidths() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -536,7 +536,7 @@ class SpacingAndLineGeometryEngineTest {
         // the text's outer frame, hugging the face below the baseline
         // (+0.18em). 顾炎武|王夫之 are adjacent: each ADJACENT edge pulls
         // back 1/16em (=1px @16), outer edges stay.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("屈原写下离骚，顾炎武王夫之并称。"),
@@ -604,7 +604,7 @@ class SpacingAndLineGeometryEngineTest {
         // with the 1.5em body default (→24), so an auto/generous height already
         // clears it; only an explicit lineHeight tighter than the floor is clamped.
         fun layoutWith(lineHeight: Float?) =
-            TiqianParagraphLayoutEngine().layout(
+            ExplainableStubParagraphLayoutEngine().layout(
                 LayoutInput(
                     paragraphStyle = ParagraphStyle(
                         firstLineIndent = Ic(0f),
@@ -636,7 +636,7 @@ class SpacingAndLineGeometryEngineTest {
         assertEquals(false, generous.debug.lineSpacingDecision?.floorApplied)
 
         // No marks → CjkBodyLineHeightDefault 1.5em (24f); the decision records it.
-        val plain = TiqianParagraphLayoutEngine().layout(
+        val plain = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("豆子新鲜"),
@@ -655,7 +655,7 @@ class SpacingAndLineGeometryEngineTest {
         // exercise the inset mechanism at 2 字. Line 0 measure = 128 → 8 chars;
         // line 1 uses the full 160. LineBox carries the inset; width fields
         // exclude it; result width accounts for indent + visual.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(2f)),
                 content = TiqianTextContent("中文中文中文中文中文中文"),
@@ -677,7 +677,7 @@ class SpacingAndLineGeometryEngineTest {
         // MeasureAdaptiveFirstLineIndent (ADR 0021 amendment): default narrows
         // to 1 字 on short measures (< 14 字), 2 字 otherwise. CLREQ:「段首缩排
         // 以两个汉字的空间为标准」（宽行）；窄栏常缩一字.
-        fun indentOf(engine: TiqianParagraphLayoutEngine, width: Float, style: ParagraphStyle? = null) =
+        fun indentOf(engine: ExplainableStubParagraphLayoutEngine, width: Float, style: ParagraphStyle? = null) =
             engine.layout(
                 LayoutInput(
                     paragraphStyle = style ?: ParagraphStyle(),
@@ -687,13 +687,13 @@ class SpacingAndLineGeometryEngineTest {
             )
 
         // Long line (15 字 ≥ 14): default 2 字.
-        val long = indentOf(TiqianParagraphLayoutEngine(), 240f)
+        val long = indentOf(ExplainableStubParagraphLayoutEngine(), 240f)
         assertEquals(32f, long.lines.single().indent)
         assertEquals("MeasureAdaptiveFirstLineIndent", long.debug.firstLineIndentDecision!!.source)
         assertEquals(2f, long.debug.firstLineIndentDecision!!.resolvedEm)
 
         // Short line (10 字 < 14): default narrows to 1 字.
-        val short = indentOf(TiqianParagraphLayoutEngine(), 160f)
+        val short = indentOf(ExplainableStubParagraphLayoutEngine(), 160f)
         assertEquals(16f, short.lines.single().indent)
         assertEquals(1f, short.debug.firstLineIndentDecision!!.resolvedEm)
 
@@ -703,10 +703,10 @@ class SpacingAndLineGeometryEngineTest {
         // Explicit firstLineIndent overrides the adaptive default both ways.
         assertEquals(
             0f,
-            indentOf(TiqianParagraphLayoutEngine(), 240f, ParagraphStyle(firstLineIndent = Ic(0f)))
+            indentOf(ExplainableStubParagraphLayoutEngine(), 240f, ParagraphStyle(firstLineIndent = Ic(0f)))
                 .lines.single().indent,
         )
-        val pinned = indentOf(TiqianParagraphLayoutEngine(), 160f, ParagraphStyle(firstLineIndent = Ic(2f)))
+        val pinned = indentOf(ExplainableStubParagraphLayoutEngine(), 160f, ParagraphStyle(firstLineIndent = Ic(2f)))
         assertEquals(32f, pinned.lines.single().indent) // 2 字 even on the short line
         assertEquals("Explicit", pinned.debug.firstLineIndentDecision!!.source)
     }

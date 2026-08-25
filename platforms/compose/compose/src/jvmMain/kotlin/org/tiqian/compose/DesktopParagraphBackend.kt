@@ -3,7 +3,7 @@ package org.tiqian.compose
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import org.tiqian.clreq.ClreqProfile
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaTextShaper
@@ -19,7 +19,7 @@ actual fun createPlatformParagraphMeasurer(
     session: ParagraphMeasurementSession?,
 ): ParagraphMeasurer =
     ParagraphMeasurer(
-        TiqianParagraphLayoutEngine(
+        ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = BoundedComposeTextShaperCache(
                 delegate = SkiaTextShaper(),

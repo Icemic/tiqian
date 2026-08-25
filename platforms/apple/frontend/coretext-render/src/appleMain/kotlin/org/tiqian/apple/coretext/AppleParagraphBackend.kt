@@ -1,6 +1,6 @@
 package org.tiqian.apple.coretext
 
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.layout.ParagraphLayoutEngine
 import org.tiqian.shaping.coretext.CachingFontMetricsResolver
@@ -22,7 +22,7 @@ fun appleParagraphEngine(
     cjkFamily: String = "PingFang SC",
     latinFamily: String = "Helvetica Neue",
 ): ParagraphLayoutEngine =
-    TiqianParagraphLayoutEngine(
+    ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         // Bounded caches (Core Text peer of the Compose backend's caches): a reflow reuses
         // width-independent shaping instead of re-measuring every cluster through Core Text.

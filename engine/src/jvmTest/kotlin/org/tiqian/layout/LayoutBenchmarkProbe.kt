@@ -43,7 +43,7 @@ class LayoutBenchmarkProbe {
         println()
         println("=== Layout throughput baseline (${paragraph.length} chars, justify, 320px) ===")
         for ((label, shaper, breaker) in combos) {
-            val engine = TiqianParagraphLayoutEngine(
+            val engine = ExplainableStubParagraphLayoutEngine(
                 lineBreaker = breaker,
                 textShaper = shaper,
             )

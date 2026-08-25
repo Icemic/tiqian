@@ -24,7 +24,7 @@ class LineAdjustmentPushInTest {
 
     private fun layout(strategy: LineAdjustmentStrategy): LayoutResult {
         val base = ClreqProfile.MainlandHorizontal
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             clreqProfileResolver = {
                 base.copy(adjustment = base.adjustment.copy(lineAdjustment = strategy))

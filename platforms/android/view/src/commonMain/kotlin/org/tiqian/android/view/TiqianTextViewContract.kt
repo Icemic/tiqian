@@ -4,7 +4,7 @@ import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.ParagraphLayoutEngine
 
 data class TiqianTextViewState(
@@ -14,7 +14,7 @@ data class TiqianTextViewState(
 )
 
 class TiqianTextViewLayoutAdapter(
-    private val engine: ParagraphLayoutEngine = TiqianParagraphLayoutEngine(),
+    private val engine: ParagraphLayoutEngine = ExplainableStubParagraphLayoutEngine(),
 ) {
     fun layout(state: TiqianTextViewState): LayoutResult =
         engine.layout(

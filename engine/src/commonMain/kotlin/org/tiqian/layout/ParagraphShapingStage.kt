@@ -129,7 +129,7 @@ internal data class ParagraphShapingStageResult(
  * Western token break candidates, then returns source-faithful clusters and
  * glyph evidence for the later punctuation and line-layout stages.
  */
-internal fun TiqianParagraphLayoutEngine.shapeParagraph(
+internal fun ExplainableStubParagraphLayoutEngine.shapeParagraph(
     input: LayoutInput,
     text: String,
     fontSize: Float,

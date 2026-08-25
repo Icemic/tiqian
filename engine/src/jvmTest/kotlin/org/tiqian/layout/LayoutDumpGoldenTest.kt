@@ -50,7 +50,7 @@ class LayoutDumpGoldenTest {
                         org.tiqian.linebreak.NoHyphenator
                     }
                     val engine = if (fixture.pinBasicNoHang) {
-                        TiqianParagraphLayoutEngine(
+                        ExplainableStubParagraphLayoutEngine(
                             lineBreaker = breaker,
                             hyphenator = hyphenator,
                             clreqProfileResolver = {
@@ -62,7 +62,7 @@ class LayoutDumpGoldenTest {
                             },
                         )
                     } else {
-                        TiqianParagraphLayoutEngine(lineBreaker = breaker, hyphenator = hyphenator)
+                        ExplainableStubParagraphLayoutEngine(lineBreaker = breaker, hyphenator = hyphenator)
                     }
                     val result = engine.layout(
                         LayoutInput(

@@ -5,7 +5,7 @@ import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaTextShaper
@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 class RichFontSizeTest {
 
     private val measurer = ParagraphMeasurer(
-        TiqianParagraphLayoutEngine(
+        ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = SkiaTextShaper(),
             fontMetricsResolver = SkiaFontMetricsResolver(),

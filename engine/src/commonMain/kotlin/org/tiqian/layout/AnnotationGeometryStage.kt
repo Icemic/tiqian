@@ -121,7 +121,7 @@ internal data class AnnotationGeometryStageResult(
 )
 
 /** Resolves decorations and annotation geometry against the final visible lines. */
-internal fun TiqianParagraphLayoutEngine.resolveAnnotationGeometry(
+internal fun ExplainableStubParagraphLayoutEngine.resolveAnnotationGeometry(
     input: LayoutInput,
     fontSize: Float,
     inlineObjectByClusterIndex: Map<Int, InlineObjectSpan>,
@@ -572,7 +572,7 @@ private fun computeRubyDecisions(
  * and the 调号 (5×5 份 / 轻声) in the base's right-side 15-份 zone, mapping the
  * 30-份 grid onto the base 字身框 (typo box). `BopomofoParser` derives the tone.
  */
-private fun TiqianParagraphLayoutEngine.computeBopomofoDecisions(
+private fun ExplainableStubParagraphLayoutEngine.computeBopomofoDecisions(
     rubySpans: List<RubySpan>,
     lineRanges: List<IntRange>,
     lineBoxes: List<LineBox>,

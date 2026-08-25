@@ -12,7 +12,7 @@ import org.tiqian.font.FontMetricsResolver
 import org.tiqian.font.FontRole
 import org.tiqian.font.RawFontMetrics
 import org.tiqian.font.StubFontMetricsResolver
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.shaping.ExplainableStubTextShaper
 import org.tiqian.shaping.ShapingInput
 import org.tiqian.shaping.TextShaper
@@ -93,7 +93,7 @@ class ComposeBackendCacheTest {
         var metricsCalls = 0
         val shapingDelegate = ExplainableStubTextShaper()
         val metricsDelegate = StubFontMetricsResolver()
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = BoundedComposeTextShaperCache(
                 object : TextShaper {
                     override fun shape(input: ShapingInput) = shapingDelegate.shape(input).also {

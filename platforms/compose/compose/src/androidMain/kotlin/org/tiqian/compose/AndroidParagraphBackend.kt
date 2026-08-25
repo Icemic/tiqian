@@ -3,7 +3,7 @@ package org.tiqian.compose
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import org.tiqian.clreq.ClreqProfile
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.android.AndroidFontMetricsResolver
 import org.tiqian.shaping.android.createAndroidTextShaper
@@ -22,7 +22,7 @@ actual fun createPlatformParagraphMeasurer(
 ): ParagraphMeasurer {
     val platformShaper = createAndroidTextShaper()
     return ParagraphMeasurer(
-        TiqianParagraphLayoutEngine(
+        ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = BoundedComposeTextShaperCache(
                 delegate = platformShaper,

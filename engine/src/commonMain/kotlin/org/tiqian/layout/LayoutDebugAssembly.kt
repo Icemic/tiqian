@@ -153,7 +153,7 @@ internal class LayoutDebugStageInput(
 )
 
 /** Materializes the structured decision stream without owning layout policy. */
-internal fun TiqianParagraphLayoutEngine.buildLayoutDebugInfo(stage: LayoutDebugStageInput): LayoutDebugInfo = with(stage) {
+internal fun ExplainableStubParagraphLayoutEngine.buildLayoutDebugInfo(stage: LayoutDebugStageInput): LayoutDebugInfo = with(stage) {
 LayoutDebugInfo(
             fontDecisions = fontDecisions.map { decision ->
                 val clusterText = text.substring(decision.range.start, decision.range.end)

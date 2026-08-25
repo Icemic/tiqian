@@ -13,7 +13,7 @@ class OpeningBracketLineStartTest {
     @Test
     fun testOpeningBracketAtLineStartCompression() {
         val text = "这是第一行测试文字这是第一行测试\n（Shaping & Font Metrics）这是第二行文字\n（GPOS / GSUB 特性表查询）这是第三行文字"
-        val engine = TiqianParagraphLayoutEngine()
+        val engine = ExplainableStubParagraphLayoutEngine()
         val result = engine.layout(
             LayoutInput(
                 content = TiqianTextContent(text),

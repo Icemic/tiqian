@@ -20,7 +20,7 @@ import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
@@ -72,7 +72,7 @@ fun main(args: Array<String>) {
 private fun layoutReadmeSample(): LayoutResult {
     val rubyRange = SAMPLE_TEXT.rangeOf("盉")
     val emphasisRange = SAMPLE_TEXT.rangeOf("一并保留")
-    val engine = TiqianParagraphLayoutEngine(
+    val engine = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = SkiaTextShaper(),
         fontMetricsResolver = SkiaFontMetricsResolver(),

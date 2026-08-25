@@ -7,7 +7,7 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.TextRange
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  */
 class SkipInkTest {
 
-    private val engine = TiqianParagraphLayoutEngine(
+    private val engine = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = SkiaTextShaper(),
         fontMetricsResolver = SkiaFontMetricsResolver(),

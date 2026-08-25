@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import org.tiqian.core.LayoutConstraints
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -100,7 +100,7 @@ class CjkTextCompatibilityTest {
 
     @Test
     fun composeParagraphBaselineShiftLowersToMeasuredClusters() {
-        val result = ParagraphMeasurer(TiqianParagraphLayoutEngine()).measure(
+        val result = ParagraphMeasurer(ExplainableStubParagraphLayoutEngine()).measure(
             text = AnnotatedString("abc"),
             constraints = LayoutConstraints(maxWidth = 400f),
             density = Density(1f),

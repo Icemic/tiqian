@@ -334,7 +334,7 @@ class ParagraphDpReferenceExperiment {
             org.tiqian.linebreak.NoHyphenator
         }
         val engine = if (pinBasicNoHang) {
-            TiqianParagraphLayoutEngine(
+            ExplainableStubParagraphLayoutEngine(
                 lineBreaker = recorder,
                 hyphenator = hyphenator,
                 clreqProfileResolver = {
@@ -346,7 +346,7 @@ class ParagraphDpReferenceExperiment {
                 },
             )
         } else {
-            TiqianParagraphLayoutEngine(lineBreaker = recorder, hyphenator = hyphenator)
+            ExplainableStubParagraphLayoutEngine(lineBreaker = recorder, hyphenator = hyphenator)
         }
         engine.layout(
             LayoutInput(
@@ -521,7 +521,7 @@ class ParagraphDpReferenceExperiment {
         println("== ParagraphDp vs Lookahead: wall time (median) ==")
         for (case in cases) {
             // End-to-end engine.layout, fresh engine per breaker (shared caches warm inside).
-            fun engineFor(breaker: LineBreaker) = TiqianParagraphLayoutEngine(lineBreaker = breaker)
+            fun engineFor(breaker: LineBreaker) = ExplainableStubParagraphLayoutEngine(lineBreaker = breaker)
             val lookEngine = engineFor(LookaheadLineBreaker())
             val dpEngine = engineFor(ParagraphDpLineBreaker())
             val input = org.tiqian.core.LayoutInput(
@@ -535,7 +535,7 @@ class ParagraphDpReferenceExperiment {
 
             // Breaker-only on identical recorded inputs.
             val recorder = RecordingLineBreaker(LookaheadLineBreaker())
-            TiqianParagraphLayoutEngine(lineBreaker = recorder).layout(input)
+            ExplainableStubParagraphLayoutEngine(lineBreaker = recorder).layout(input)
             val inputs = recorder.recorded!!
             val lookBreaker = LookaheadLineBreaker()
             val dpBreaker = ParagraphDpLineBreaker()

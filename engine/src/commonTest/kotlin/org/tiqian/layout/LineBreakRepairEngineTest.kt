@@ -43,7 +43,7 @@ import kotlin.test.assertTrue
 internal fun fixedBasicEngine(
     adjustment: org.tiqian.clreq.AdjustmentStylePolicy = org.tiqian.clreq.AdjustmentStylePolicy(),
     autoSpace: org.tiqian.clreq.AutoSpacePolicy = org.tiqian.clreq.AutoSpacePolicy.Default,
-) = TiqianParagraphLayoutEngine(
+) = ExplainableStubParagraphLayoutEngine(
     clreqProfileResolver = ClreqProfileResolver {
         ClreqProfile.MainlandHorizontal.copy(
             kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(
@@ -61,7 +61,7 @@ class LineBreakRepairEngineTest {
     @Test
     fun greedyBreakerProducesMultipleLinesWhenWidthOverflows() {
         // 8 CJK clusters * 16f = 128f natural; maxWidth=64f -> 4 clusters per line -> 2 lines.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文排版引擎测试"),
@@ -96,7 +96,7 @@ class LineBreakRepairEngineTest {
     fun camelCaseTokenBreaksAtTheHumpWithoutAHyphen() {
         // camelCase product names break at the hump — no hyphen added (the
         // capital signals the break). "Power" + "Point".
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("PowerPoint"),
@@ -113,7 +113,7 @@ class LineBreakRepairEngineTest {
     @Test
     fun allCapsAbbreviationIsNeverBroken() {
         // CY/T §9.4: an all-caps abbreviation is not broken even when over-long.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("INTERNATIONALIZATION中"),
@@ -128,7 +128,7 @@ class LineBreakRepairEngineTest {
     fun hyphenatedCompoundBreaksAtExistingHyphenWithoutAddingOne() {
         // CY/T 154-2017 §9.3: "out-of-the-way" wraps AT an existing '-' — the
         // existing hyphen sits at the line end and NO new hyphen is added.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("out-of-the-way"),
@@ -150,7 +150,7 @@ class LineBreakRepairEngineTest {
         // LatinStructuralSolidusBreak: `TeX/LaTeX` exposes a clean separator
         // boundary even though the whole token can fit a fresh line. The slash
         // stays with the previous piece; it must not start the next line.
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -174,7 +174,7 @@ class LineBreakRepairEngineTest {
         // no syllable points (NoHyphenator default), so it hard-breaks at a
         // character boundary with a hanging hyphen, keeping 前二后三 — "En" head,
         // "ish" tail.
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中English"),
@@ -195,7 +195,7 @@ class LineBreakRepairEngineTest {
         // exposes clean breakpoints at URL separators and never invents a
         // display hyphen inside the source link.
         val url = "https://example.com/path/to/abc123def456ghi789"
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(url),
@@ -228,7 +228,7 @@ class LineBreakRepairEngineTest {
         )
 
         breakers.forEach { breaker ->
-            val result = TiqianParagraphLayoutEngine(
+            val result = ExplainableStubParagraphLayoutEngine(
                 lineBreaker = breaker,
                 hyphenator = syllables,
             ).layout(
@@ -268,7 +268,7 @@ class LineBreakRepairEngineTest {
     @Test
     fun progressiveTechnicalStructuralBreakFallsThroughToEmergencyBeforeTracking() {
         val text = "中文ab.cdEfghij"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = object : Hyphenator {
                 override fun hyphenate(word: String): List<Int> = listOf(2, 4, 6)
@@ -317,7 +317,7 @@ class LineBreakRepairEngineTest {
         )
 
         breakers.forEach { breaker ->
-            val result = TiqianParagraphLayoutEngine(
+            val result = ExplainableStubParagraphLayoutEngine(
                 lineBreaker = breaker,
                 hyphenator = NoHyphenator,
             ).layout(
@@ -343,7 +343,7 @@ class LineBreakRepairEngineTest {
     fun progressiveTechnicalCleanBreakMayNotStretchEarlierOpaqueToken() {
         val text = "deadbeef1234deadbeef1234 ab.cdEfghijklmnop"
         val terminalTechnicalRange = TextRange(25, text.length)
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = object : Hyphenator {
                 override fun hyphenate(word: String): List<Int> = listOf(2, 4, 6)
@@ -398,7 +398,7 @@ class LineBreakRepairEngineTest {
             LookaheadLineBreaker(),
             ParagraphDpLineBreaker(),
         ).forEach { breaker ->
-            val result = TiqianParagraphLayoutEngine(
+            val result = ExplainableStubParagraphLayoutEngine(
                 lineBreaker = breaker,
                 hyphenator = syllables,
             ).layout(
@@ -437,7 +437,7 @@ class LineBreakRepairEngineTest {
             "SR-6252[36] 那个 issue 里挖出的根因是底层走 NSJSONSerialization " +
             "再桥接回 Objective-C，swift_dynamicCast 吃掉大量时间。"
         val swiftRange = TextRange(104, 121)
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = NoHyphenator,
         ).layout(
@@ -496,7 +496,7 @@ class LineBreakRepairEngineTest {
     fun unbrokenProgressiveSpanUsesSourceSpaceThenKeepsBodyOpportunitiesAvailable() {
         val text = "甲乙ab cd丙丁戊己"
         val technical = LineBreakSpan(TextRange(2, 7), LineBreakPolicy.ProgressiveTechnical)
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -509,7 +509,7 @@ class LineBreakRepairEngineTest {
                 constraints = LayoutConstraints(maxWidth = 129f),
             ),
         )
-        val baseline = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val baseline = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -546,7 +546,7 @@ class LineBreakRepairEngineTest {
         // Mixed alpha/digit identifiers and hashes are not words either. If no
         // separator can rescue an over-wide piece, hard-break it cleanly without
         // a synthetic hyphen.
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("abc123def456ghi789"),
@@ -566,7 +566,7 @@ class LineBreakRepairEngineTest {
         // A short NASA-style abbreviation stays protected elsewhere; this
         // over-threshold token falls back to opaque no-hyphen cuts.
         val token = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo"
-        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(token),
@@ -582,7 +582,7 @@ class LineBreakRepairEngineTest {
     @Test
     fun opaqueLatinTokenAfterCjkPullsPrefixOntoLooseLine() {
         val prefix = "为什么历史是 "
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = NoHyphenator,
         ).layout(
@@ -607,7 +607,7 @@ class LineBreakRepairEngineTest {
     fun nonLexicalLetterRunAfterCjkPullsPrefixOntoLooseLineWithoutSyntheticHyphen() {
         val prefix = "为什么历史是 "
         val token = "s".repeat(40) + "herstory"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = NoHyphenator,
         ).layout(
@@ -635,7 +635,7 @@ class LineBreakRepairEngineTest {
         val tailHyphenator = object : Hyphenator {
             override fun hyphenate(word: String): List<Int> = listOf(word.length - "story".length)
         }
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = tailHyphenator,
         ).layout(
@@ -664,7 +664,7 @@ class LineBreakRepairEngineTest {
         val tailHyphenator = object : Hyphenator {
             override fun hyphenate(word: String): List<Int> = listOf(word.length - "story".length)
         }
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = tailHyphenator,
         ).layout(

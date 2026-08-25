@@ -18,7 +18,7 @@ import org.tiqian.core.ic
 import org.tiqian.core.positionedClusters
 import org.tiqian.font.CjkFontRoleClassifier
 import org.tiqian.font.FontRole
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import kotlin.math.max
 import kotlin.test.fail
@@ -26,7 +26,7 @@ import kotlin.test.fail
 @RunWith(AndroidJUnit4::class)
 class AndroidMixedTextOverlapReproTest {
     private val typefaces = SystemAndroidTypefaceResolver()
-    private val engine = TiqianParagraphLayoutEngine(
+    private val engine = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = createAndroidTextShaper(typefaceResolver = typefaces),
         fontMetricsResolver = AndroidFontMetricsResolver(typefaceResolver = typefaces),

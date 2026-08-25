@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  */
 class RubyLayoutTest {
 
-    private val engine = TiqianParagraphLayoutEngine()
+    private val engine = ExplainableStubParagraphLayoutEngine()
     private fun input(ruby: List<RubySpan>) = LayoutInput(
         content = TiqianTextContent("中文排版"),
         constraints = LayoutConstraints(maxWidth = 400f),
@@ -155,7 +155,7 @@ class RubyLayoutTest {
     @Test
     fun rubyVerticalGeometryUsesLatinMetricsNotReadingInk() {
         val delegate = ExplainableStubTextShaper()
-        val engineWithContradictoryInk = TiqianParagraphLayoutEngine(
+        val engineWithContradictoryInk = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult {
                     val result = delegate.shape(input)

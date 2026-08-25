@@ -60,7 +60,7 @@ class ParagraphScaleBenchmarkProbe {
         for (length in lengths) {
             val text = generateMixedText(length)
             val cache = LruWidthIndependentAnnotationCache(maxEntries = 128)
-            val engine = TiqianParagraphLayoutEngine(
+            val engine = ExplainableStubParagraphLayoutEngine(
                 lineBreaker = LookaheadLineBreaker(),
                 textShaper = AwtTextShaper(),
                 annotationCache = cache,

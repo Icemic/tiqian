@@ -20,7 +20,7 @@ class BilingualEmphasisTest {
     @Test
     fun emphasisDotsHanButNotWestern() {
         // 强调[中A中] — Emphasis over offsets 2..5 (中=2, A=3, 中=4).
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("强调中A中"),
                 constraints = LayoutConstraints(maxWidth = 400f),

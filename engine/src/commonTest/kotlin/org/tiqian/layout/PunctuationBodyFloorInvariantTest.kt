@@ -34,7 +34,7 @@ class PunctuationBodyFloorInvariantTest {
 
     @Test
     fun punctuationNeverResolvesBelowItsBodyWidth() {
-        val engine = TiqianParagraphLayoutEngine()
+        val engine = ExplainableStubParagraphLayoutEngine()
         for (text in fixtures) {
             for (maxWidth in widths) {
                 val result = engine.layout(

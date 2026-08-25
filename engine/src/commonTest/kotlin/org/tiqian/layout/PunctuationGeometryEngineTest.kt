@@ -74,7 +74,7 @@ class PunctuationGeometryEngineTest {
     @Test
     fun recordsInkCalibratedPunctuationGeometryInLayoutDebug() {
         val inkBounds = Rect(left = 9f, top = -2f, right = 11f, bottom = 2f)
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
                     ShapingResult(
@@ -140,7 +140,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun pushInKeepsFontCenteredPunctuationCompressionPaired() {
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult {
                     val clusters = input.displayText.mapIndexed { index, character ->
@@ -203,7 +203,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun recordsPunctuationAtomsInLayoutDebug() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("你好，世界。——"),
@@ -237,7 +237,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun lineStartLenticularBracketConsumesOpeningGlue() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("【引用结束】"),
@@ -265,7 +265,7 @@ class PunctuationGeometryEngineTest {
         // the em box, so 。's glue is split symmetrically: 4 leading + 4
         // trailing, anchor = Center. This is the regional behaviour the
         // hardcoded Mainland-style assumption used to miss.
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver { ClreqProfile.TaiwanHorizontal },
         )
 
@@ -298,7 +298,7 @@ class PunctuationGeometryEngineTest {
         // 」。 is a Closing+PauseOrStop pair — a standard CLREQ collapse.
         // (，。 was used here before, but consecutive PauseOrStop pairs are
         // now exempt from compression per ConsecutivePauseOrStopKeepsFullWidth.)
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("你好」。"),
@@ -360,7 +360,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun compressesAdjacentCjkSingleQuoteCommaSequence() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("’，‘"),
@@ -391,7 +391,7 @@ class PunctuationGeometryEngineTest {
 
     @Test
     fun compressesCjkClosingBeforeAsciiPointMarkWithoutReclassifyingAscii() {
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中」,next"),
@@ -416,7 +416,7 @@ class PunctuationGeometryEngineTest {
         // A shaper that reports halt=7 for 。 — the engine's punctuation
         // decision must carry the font-derived body and the FontHalt
         // geometry source, and the ledger must keep resolved >= body.
-        val engine = TiqianParagraphLayoutEngine(
+        val engine = ExplainableStubParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 val delegate = ExplainableStubTextShaper()
                 override fun shape(input: ShapingInput): ShapingResult {
@@ -455,7 +455,7 @@ class PunctuationGeometryEngineTest {
         // AdjustmentStylePolicy.lineEndPunctuation = AllowFullWidth (宽松风格):
         // the unconditional line-end half-width trim is skipped; the 字身
         // grid stays intact at line end.
-        val loose = TiqianParagraphLayoutEngine(
+        val loose = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     adjustment = org.tiqian.clreq.AdjustmentStylePolicy(
@@ -476,7 +476,7 @@ class PunctuationGeometryEngineTest {
         assertTrue(result.debug.lineEdgeTrimDecisions.none { it.reason == "LineEndHalfWidthPunctuation" })
 
         // Default strict style trims to half width.
-        val strict = TiqianParagraphLayoutEngine().layout(
+        val strict = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文中文。"),
@@ -528,7 +528,7 @@ class PunctuationGeometryEngineTest {
     fun sinoWesternGapKnobDisablesStretchAndShrink() {
         // allowSinoWesternGapAdjustment=false: the gap stays fixed — no
         // CjkLatinSpace stretch under justify.
-        val fixedGap = TiqianParagraphLayoutEngine(
+        val fixedGap = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     adjustment = org.tiqian.clreq.AdjustmentStylePolicy(
@@ -587,7 +587,7 @@ class PunctuationGeometryEngineTest {
 
         // Fixed = its full measured compression budget is consumed before breaking;
         // no remaining capacity can be borrowed by PushIn.
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     punctuationWidth = org.tiqian.clreq.PunctuationWidthPolicy(gbFixedSeparators = true),
@@ -612,7 +612,7 @@ class PunctuationGeometryEngineTest {
         // （（ 前侧、） 后侧）先于 tier 5 行内逗号被消耗。
         // 中（文）中，中文中。 @144：line0 = 前 9 cluster (144)，。 PushIn
         // overflow 16 = tier1 。(8) + tier4 （/）各 4 —— ， 保持全宽。
-        val result = TiqianParagraphLayoutEngine().layout(
+        val result = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中（文）中，中文中。"),
@@ -698,7 +698,7 @@ private fun advanceOfMidLinePunct(
     punct: String,
     width: org.tiqian.clreq.PunctuationWidthPolicy,
 ): Float {
-    val result = TiqianParagraphLayoutEngine(
+    val result = ExplainableStubParagraphLayoutEngine(
         clreqProfileResolver = ClreqProfileResolver {
             ClreqProfile.MainlandHorizontal.copy(punctuationWidth = width)
         },

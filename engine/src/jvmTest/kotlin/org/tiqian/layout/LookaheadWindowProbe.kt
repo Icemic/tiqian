@@ -39,7 +39,7 @@ class LookaheadWindowProbe {
                 "look-w3" to LookaheadLineBreaker(window = 3),
             )
             for ((label, breaker) in breakers) {
-                val result = TiqianParagraphLayoutEngine(
+                val result = ExplainableStubParagraphLayoutEngine(
                     lineBreaker = breaker,
                     textShaper = shaper,
                 ).layout(

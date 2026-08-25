@@ -30,7 +30,7 @@ class EmergencyGraphemeTrackingTest {
     @Test
     fun rejectedLetterDigitStructuralOffsetsRemainAvailableAsEmergencyCuts() {
         val text = "Machine2Machine"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -73,7 +73,7 @@ class EmergencyGraphemeTrackingTest {
                 )
             }
         }
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             textShaper = uniformAdvanceShaper,
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
@@ -99,7 +99,7 @@ class EmergencyGraphemeTrackingTest {
         val hash = "deadbeefcafebabefeedfaceabcdefabcdef"
         val text = "https://example.com/commit/$hash"
         val hashStart = text.indexOf(hash)
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -124,7 +124,7 @@ class EmergencyGraphemeTrackingTest {
     @Test
     fun standaloneTechnicalHashUsesTrackingToFillEveryAutoWrappedLine() {
         val text = "deadbeefcafebabefeedfaceabcdefabcdef"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -153,7 +153,7 @@ class EmergencyGraphemeTrackingTest {
     @Test
     fun repeatedPlainTokenGetsNarrowNonLexicalAuthorization() {
         val text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -176,7 +176,7 @@ class EmergencyGraphemeTrackingTest {
     @Test
     fun longAllCapsWesternWordDoesNotBecomeTrackingEligible() {
         val text = "SUPERCALIFRAGILISTICEXPIALIDOCIOUS"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -198,7 +198,7 @@ class EmergencyGraphemeTrackingTest {
     fun plainOpaqueHardBreakKeepsCombiningGraphemeIntact() {
         val text = "abc123e\u0301def456ghi"
         val combiningMarkOffset = text.indexOf('\u0301')
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -221,7 +221,7 @@ class EmergencyGraphemeTrackingTest {
     fun technicalTrackingDoesNotOpenEdgesTouchingInlineObjectsOrZeroWidthControls() {
         val objectText = "aaaaaaaaaaaa\uFFFCbbbbbbbbbbbb"
         val objectRange = TextRange(12, 13)
-        val objectResult = TiqianParagraphLayoutEngine().layout(
+        val objectResult = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = noIndent,
                 content = TiqianTextContent(
@@ -257,7 +257,7 @@ class EmergencyGraphemeTrackingTest {
 
         val zeroWidthText = "aaaaaaaaaaaa\u200Bbbbbbbbbbbbb"
         val zeroWidthRange = TextRange(12, 13)
-        val zeroWidthResult = TiqianParagraphLayoutEngine().layout(
+        val zeroWidthResult = ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = noIndent,
                 content = TiqianTextContent(
@@ -289,7 +289,7 @@ class EmergencyGraphemeTrackingTest {
         val identity = "abc123def456ghi789"
         val text = "https://example.com/path/to/$identity"
         val identityStart = text.indexOf(identity)
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(
@@ -313,7 +313,7 @@ class EmergencyGraphemeTrackingTest {
     @Test
     fun ordinaryWesternProseIsNeverInferredAsTrackingEligible() {
         val text = "ordinary Western paragraphs keep their natural word spacing"
-        val result = TiqianParagraphLayoutEngine(
+        val result = ExplainableStubParagraphLayoutEngine(
             hyphenator = EnglishHyphenation.enUs,
         ).layout(
             LayoutInput(

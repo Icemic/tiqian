@@ -23,7 +23,7 @@ interface ParagraphLayoutEngine {
     fun layout(input: LayoutInput): LayoutResult
 }
 
-class TiqianParagraphLayoutEngine(
+class ExplainableStubParagraphLayoutEngine(
     internal val fontRoleClassifier: FontRoleClassifier = CjkFontRoleClassifier(),
     internal val fallbackResolver: FallbackResolver = PreferCjkForAmbiguousPunctuationResolver(),
     internal val clreqProfileResolver: ClreqProfileResolver = BuiltInClreqProfileResolver,

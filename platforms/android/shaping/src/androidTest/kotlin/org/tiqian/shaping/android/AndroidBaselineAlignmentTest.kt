@@ -9,14 +9,14 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import kotlin.test.assertEquals
 
 @RunWith(AndroidJUnit4::class)
 class AndroidBaselineAlignmentTest {
     private val typefaces = SystemAndroidTypefaceResolver()
-    private val engine = TiqianParagraphLayoutEngine(
+    private val engine = ExplainableStubParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = createAndroidTextShaper(typefaceResolver = typefaces),
         fontMetricsResolver = AndroidFontMetricsResolver(typefaceResolver = typefaces),

@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.sp
 import org.tiqian.core.Ic
 import org.tiqian.core.LastLineAlignment
 import org.tiqian.core.LayoutConstraints
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
 class CjkTextPreLayoutInteropTest {
 
     private val measurer = ParagraphMeasurer(
-        TiqianParagraphLayoutEngine(
+        ExplainableStubParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ),
     )

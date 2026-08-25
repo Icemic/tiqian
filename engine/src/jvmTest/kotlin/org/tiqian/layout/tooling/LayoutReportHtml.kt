@@ -9,7 +9,7 @@ import org.tiqian.core.PunctuationDecisionInfo
 import org.tiqian.core.Rect
 import org.tiqian.core.SpacingDecisionInfo
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.GreedyLineBreaker
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.layout.ParagraphDpLineBreaker

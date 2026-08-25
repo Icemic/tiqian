@@ -22,7 +22,7 @@ import androidx.compose.ui.use
 import org.tiqian.core.ColorSpan
 import org.tiqian.core.LayoutResult
 import org.tiqian.core.TextStyle
-import org.tiqian.layout.TiqianParagraphLayoutEngine
+import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
 import org.tiqian.layout.ParagraphLayoutEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,7 +43,7 @@ class CjkTextRecompositionTest {
         var minLines by mutableStateOf(1)
         var measuredHeight = 0
         var layoutCalls = 0
-        val delegate = TiqianParagraphLayoutEngine()
+        val delegate = ExplainableStubParagraphLayoutEngine()
         val measurer = ParagraphMeasurer(
             object : ParagraphLayoutEngine {
                 override fun layout(input: org.tiqian.core.LayoutInput): LayoutResult {
@@ -79,7 +79,7 @@ class CjkTextRecompositionTest {
     fun widthChangeInvalidatesExactEngineResult() {
         var width by mutableStateOf(200.dp)
         var layoutCalls = 0
-        val delegate = TiqianParagraphLayoutEngine()
+        val delegate = ExplainableStubParagraphLayoutEngine()
         val measurer = ParagraphMeasurer(
             object : ParagraphLayoutEngine {
                 override fun layout(input: org.tiqian.core.LayoutInput): LayoutResult {

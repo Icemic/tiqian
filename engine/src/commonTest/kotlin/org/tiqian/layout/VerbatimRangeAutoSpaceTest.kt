@@ -17,7 +17,7 @@ import kotlin.test.assertEquals
 class VerbatimRangeAutoSpaceTest {
 
     private fun layout(text: String, suppressed: List<TextRange>) =
-        TiqianParagraphLayoutEngine().layout(
+        ExplainableStubParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(

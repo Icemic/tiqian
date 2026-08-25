@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 class PreparedParagraphRenderEvidenceTest {
 
     private fun layout(input: LayoutInput) =
-        TiqianParagraphLayoutEngine(lineBreaker = LookaheadLineBreaker()).layout(input)
+        ExplainableStubParagraphLayoutEngine(lineBreaker = LookaheadLineBreaker()).layout(input)
 
     @Test
     fun plainParagraphEvidenceIsAppendOnly() {
