@@ -59,7 +59,8 @@
 // as loud notes so the corrective waves delete their list segments without
 // blocking unrelated work.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -91,26 +92,27 @@ const SOURCE_EXTENSIONS = new Set([
 
 const KOTLIN_EXTENSIONS = new Set([".kt"]);
 
+// The gate reviews the tracked sources, which is what CI sees on a fresh
+// checkout. Enumerating with `git ls-files` keeps local runs identical even
+// when in-place emit artifacts (untracked .js next to their .ts sources) or
+// other build outputs sit on disk in a developer tree.
 function collectFiles(rootRelPath, extensions) {
-  const files = [];
-  const visit = (dir) => {
-    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!IGNORED_DIR_NAMES.has(entry.name)) visit(fullPath);
-      } else if (
-        entry.isFile() &&
-        extensions.has(path.extname(entry.name))
-      ) {
-        files.push(fullPath);
+  return execFileSync("git", ["ls-files", "--", rootRelPath], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean)
+    .filter((relPath) => {
+      const segments = relPath.split("/");
+      if (segments.some((segment) => IGNORED_DIR_NAMES.has(segment))) {
+        return false;
       }
-    }
-  };
-  visit(path.join(repoRoot, rootRelPath));
-  return files;
+      if (!extensions.has(path.extname(relPath))) return false;
+      return existsSync(path.join(repoRoot, relPath));
+    })
+    .map((relPath) => path.join(repoRoot, relPath))
+    .sort();
 }
 
 function readLines(file) {
