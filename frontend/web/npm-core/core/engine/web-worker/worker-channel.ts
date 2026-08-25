@@ -24,7 +24,7 @@ import type {
   PrepareSettledCallback,
   PrepareStepFn,
   ShouldYieldPredicate,
-} from "../coordinator/coordinator.js";
+} from "../coordination/coordination-service.js";
 import type { ProbeMeasure } from "../../../replay-probe.js";
 
 export interface WorkerInitEnvelope {

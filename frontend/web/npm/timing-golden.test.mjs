@@ -297,7 +297,7 @@ const GRANT_SCHEDULE = [
 
 async function runGrantRoundsJourney(clock) {
   const module = await import("./element.js?timing-golden=grants");
-  const Coordinator = module.TiqianLayoutCoordinator;
+  const Coordinator = module.CoordinationService;
   const coordinator = new Coordinator();
   const alpha = { name: "alpha" };
   const beta = { name: "beta" };

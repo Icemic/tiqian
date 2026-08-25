@@ -10,7 +10,7 @@ import {
 
 async function importCoordinator() {
   const module = await import(`./element.js?coordinator=${Math.random()}`);
-  return module.TiqianLayoutCoordinator;
+  return module.CoordinationService;
 }
 
 test("offscreen frame tasks wait out the debounce instead of running each frame", async () => {

@@ -248,7 +248,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /await coordinator\.runPrepare\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
+    /await coordinationService\(\)\.runPrepare\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
@@ -377,7 +377,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinator\.requestFrame/u,
+    /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinationService\(\)\.requestFrame/u,
   );
   assert.ok(invalidationRuntimeLoad >= 0);
   assert.ok(invalidationDispatch > invalidationRuntimeLoad);
@@ -550,7 +550,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
 test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
   const elementSource = await readFile(new URL("./element.js", import.meta.url), "utf8");
   const coordinatorSource = await readFile(
-    new URL("../npm-core/core/engine/coordinator/coordinator.js", import.meta.url),
+    new URL("../npm-core/core/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
   );
 
@@ -628,7 +628,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
 
 test("offscreen deferred lane keeps every pending callback per element", async () => {
   const coordinatorSource = await readFile(
-    new URL("../npm-core/core/engine/coordinator/coordinator.js", import.meta.url),
+    new URL("../npm-core/core/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
   );
 

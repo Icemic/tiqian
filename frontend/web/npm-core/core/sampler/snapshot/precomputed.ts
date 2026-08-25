@@ -40,7 +40,7 @@ import { lineLengthGridMeasure } from "../grid-metrics.js";
 import { declaredFaceSheets } from "./declared-faces.js";
 import type {
   ViewportAnchor,
-} from "../../engine/coordinator/viewport-anchor.js";
+} from "../../engine/coordination/viewport-anchor.js";
 import type {
   SnapshotFontReplayWire,
 } from "../../../snapshot-manifest.js";

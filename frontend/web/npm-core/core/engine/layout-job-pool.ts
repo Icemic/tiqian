@@ -10,7 +10,7 @@
 // so the source must contain no dollar sign and no triple double-quote
 // sequence. Use string concatenation, never template literals.
 
-import type { GrantController, GrantStopPredicate } from "./coordinator/coordinator.js";
+import type { GrantController, GrantStopPredicate } from "./coordination/coordination-service.js";
 
 // Finish event payload reported through onFinished when a job completes.
 // stale reports the stale-measure guard result; the old Kotlin job's

@@ -1,5 +1,6 @@
 // Frame budget, task pool, and grants for attached roots (ADR 0053 batch 1;
 // decomposition report section 7). Extracted verbatim from element.js.
+// Replaces the former TiqianLayoutCoordinator (one object, one name).
 import {
   captureViewportAnchor,
   compensateViewportAnchor,
@@ -149,7 +150,7 @@ function sumPendingUpTo(slot: CoordinatorWorkerSlot, tier: number): number {
   return total;
 }
 
-export class TiqianLayoutCoordinator {
+export class CoordinationService {
   #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
   // OffscreenDebounceGate: when an element is outside the viewport, its frame
   // tasks wait in this deferred lane. Each repeated request while the element

@@ -5,7 +5,7 @@ import {
   compensateViewportAnchor,
   holdNativeScrollAnchoring,
   releaseNativeScrollAnchoring,
-} from "./core/engine/coordinator/viewport-anchor.js";
+} from "./core/engine/coordination/viewport-anchor.js";
 
 function preserveGlobals(names) {
   return names.map((name) => ({

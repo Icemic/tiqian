@@ -29,8 +29,9 @@ import {
   captureViewportAnchor,
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
-} from "@tiqian/prose-core/core/engine/coordinator/viewport-anchor.js";
-import { TiqianLayoutCoordinator } from "@tiqian/prose-core/core/engine/coordinator/coordinator.js";
+} from "@tiqian/prose-core/core/engine/coordination/viewport-anchor.js";
+import { CoordinationService } from "@tiqian/prose-core/core/engine/coordination/coordination-service.js";
+import { globalServices } from "@tiqian/prose-core/core/services/global-services.js";
 import * as engineFace from "@tiqian/prose-core/core/engine/face.js";
 import {
   DEFAULT_PARAGRAPH_SELECTOR,
@@ -204,7 +205,9 @@ function snapshotCompletionSelector(root: HTMLElement): string {
     : "";
 }
 
-const coordinator = new TiqianLayoutCoordinator();
+function coordinationService(): CoordinationService {
+  return globalServices().coordination;
+}
 
 interface TiqianParagraphTierInfo {
   index: number;
@@ -360,7 +363,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   connectedCallback() {
-    coordinator.register(this);
+    coordinationService().register(this);
     this.#observeIntersection();
     if (this.#canAdoptCustodyMoveReconnection()) {
       this.#adoptCustodyMoveReconnection();
@@ -600,7 +603,7 @@ class TiqianProseElement extends HTMLElementBase {
           if (!this.isConnected || generation !== this.#generation) return;
           if (!(await this.#dispatchProgressiveEnhance(generation))) return;
         };
-        coordinator.requestFrame(() => {
+        coordinationService().requestFrame(() => {
           runInitialEnhance().catch(failInitialEnhance);
         }, this);
       })
@@ -629,8 +632,8 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #settleDisconnection() {
-    coordinator.unregister(this);
-    coordinator.cancelFrame(this.#boundResponsiveCommit);
+    coordinationService().unregister(this);
+    coordinationService().cancelFrame(this.#boundResponsiveCommit);
     releaseNativeScrollAnchoring(this);
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
@@ -960,7 +963,7 @@ class TiqianProseElement extends HTMLElementBase {
           () => this.isConnected && generation === this.#generation &&
             request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
         );
-        if (prepareJob) await coordinator.runPrepare(this, prepareJob);
+        if (prepareJob) await coordinationService().runPrepare(this, prepareJob);
       } catch (error) {
         // ExactWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
         // block scroll under JIT restrictions. Progressive enhancement will
@@ -1012,20 +1015,20 @@ class TiqianProseElement extends HTMLElementBase {
     if (typeof runtime?.workerAttach !== "function") return;
     runtime.workerAttach(this);
     this.#layoutWorkerAttached = true;
-    coordinator.registerWorker(this, runtime);
+    coordinationService().registerWorker(this, runtime);
   }
 
   #syncLayoutWorker() {
     const runtime = engineFace.workerRuntime();
     if (!this.#layoutWorkerAttached || typeof runtime?.workerHasJob !== "function") return;
-    coordinator.setWorkerActive(this, runtime.workerHasJob(this));
+    coordinationService().setWorkerActive(this, runtime.workerHasJob(this));
     this.#observeParagraphTiers(runtime);
-    coordinator.requestWorkerFrame(this);
+    coordinationService().requestWorkerFrame(this);
   }
 
   #deactivateLayoutWorker() {
     if (!this.#layoutWorkerAttached) return;
-    coordinator.setWorkerActive(this, false);
+    coordinationService().setWorkerActive(this, false);
   }
 
   #observeParagraphTiers(runtime: TiqianEngineWorkersInstance) {
@@ -1632,11 +1635,11 @@ class TiqianProseElement extends HTMLElementBase {
       widths,
       onRootEntry: ({ width, height }) => {
         this.#lastObservedWidth = width;
-        coordinator.update(this, { inlineSize: width, area: width * (height || width * 0.6) });
+        coordinationService().update(this, { inlineSize: width, area: width * (height || width * 0.6) });
         if (!this.#inViewport && this.#layoutWorkInFlight) {
           // A width change while the root stays off-screen keeps pushing the
           // worker's deferred wake-up, so only the final width is laid out.
-          coordinator.refreshWorkerDeferred(this);
+          coordinationService().refreshWorkerDeferred(this);
         }
       },
       onWidthsChanged: () => {
@@ -1732,7 +1735,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#responsiveCommitRequired = true;
       return;
     }
-    coordinator.requestFrame(this.#boundResponsiveCommit, this);
+    coordinationService().requestFrame(this.#boundResponsiveCommit, this);
   }
 
   // PrePaintResponsiveCommit: ResizeObserver delivers after layout and
@@ -1777,7 +1780,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#sizeObservation?.unobserve(this);
     try {
       commit();
-      coordinator.grantImmediate(this);
+      coordinationService().grantImmediate(this);
     } finally {
       this.#sizeObservation?.observe(this);
     }
@@ -2355,7 +2358,7 @@ class TiqianProseElement extends HTMLElementBase {
       onRootEntry: (fact) => {
         const wasInViewport = this.#inViewport;
         this.#inViewport = fact.isIntersecting;
-        coordinator.update(this, {
+        coordinationService().update(this, {
           inViewport: this.#inViewport,
           intersectionRatio: fact.intersectionRatio,
           visibleArea: fact.visibleArea,
@@ -2368,10 +2371,10 @@ class TiqianProseElement extends HTMLElementBase {
           // trailing window as off-screen frame tasks and replays once the
           // drag settles or the root returns. Already committed paragraphs
           // stay committed.
-          coordinator.refreshWorkerDeferred(this);
+          coordinationService().refreshWorkerDeferred(this);
         }
         if (!wasInViewport && this.#inViewport) {
-          coordinator.clearWorkerDeferred(this);
+          coordinationService().clearWorkerDeferred(this);
           if (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired) {
             this.#scheduleResponsiveGeometryCommit();
           }
@@ -2433,4 +2436,4 @@ if (
   registry.define(ELEMENT_NAME, TiqianProseElement);
 }
 
-export { TiqianProseElement, TiqianLayoutCoordinator };
+export { TiqianProseElement, CoordinationService };

@@ -13,7 +13,7 @@
 // point.
 
 // Ambient global declarations pulled in via import type from owner modules.
-import type { GrantController } from "./coordinator/coordinator.js";
+import type { GrantController } from "./coordination/coordination-service.js";
 import type { RootState, RootStateApi } from "./root-state.js";
 import type { EnhanceOptions } from "./lifecycle.js";
 import { clearIssue, optionsFromJs } from "./lifecycle.js";
@@ -419,11 +419,12 @@ export function createEngineEntry(
   // ---------------------------------------------------------------------------
   // Worker facade (9 worker-prefixed methods)
   //
-  // WorkerPolledScheduling: the coordinator (coordinator.js 438-479) and
-  // element.js (939-991) consume worker-prefixed names. F2a unpacking means
-  // Kotlin TiqianWebWorkers attach and friends have no producer-side mapping
-  // for these names; this module exposes them directly under the consumption
-  // name so the coordinator contract is satisfied.
+  // WorkerPolledScheduling: the coordination service (coordination-service.js
+  // 438-479) and element.js (939-991) consume worker-prefixed names. F2a
+  // unpacking means Kotlin TiqianWebWorkers attach and friends have no
+  // producer-side mapping for these names; this module exposes them directly
+  // under the consumption name so the coordination service contract is
+  // satisfied.
   // ---------------------------------------------------------------------------
 
   const workers: Partial<TiqianEngineWorkersInstance> = {};
