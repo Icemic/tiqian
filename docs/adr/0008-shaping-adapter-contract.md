@@ -52,4 +52,5 @@ Slice 6 开始前，`shaping/api` 只有极薄的 `TextShaper` 接口，layout �
 字体度量与断行，名字中的 Stub 与运行现状不符。2026-08-25 ffi 边界复审
 （ADR 0053）裁定：生产路径类名不得保留 Stub，改名
 `TiqianParagraphLayoutEngine`，旧名不再并存；`ExplainableStubTextShaper` 等
-只服务测试与确定性 fixture 的 stub 命名不在本裁定范围。
+只服务测试与确定性 fixture 的 stub 命名不在本裁定范围。改名由引擎侧主责者
+执行，ffi 边界纠偏队列只记录裁定，不携带该波。
