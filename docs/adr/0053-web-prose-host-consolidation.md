@@ -1416,15 +1416,18 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   如果他不是用来做调试的，Rust 侧 和 JS 侧有消费者就不应该一个类型不安全
   的东西飞出去对面再解码。现在糊成一大坨根本就是错的，不管 Rust 还是 JS
   全是错的。
+- 所以 plan JSON 就是用来诊断和 DEBUG 的东西。
 
 判定（哪些既有决定是错的）：
 
 - A3（`SingleEngineFace` 字节进出面，提交 da92871）判定为错误决定。它把
   JS lane 的线格式解析、校验与 `LayoutInput` 组装从 ffi/js 移入 engine
   commonMain（`ParagraphWireFace`），引擎从此持有单一 lane 的传输格式代码。
-  按 ffi 边界终则，这类代码属于 ffi/js 的数据转换层。plan 序列化器
-  （`toPreparedParagraphJson` 与 `toPlanWithDiagnosticsJson`）留在引擎：
-  两条构建 lane 靠同一份序列化器产出逐字节相同的 plan，它是引擎产物。
+  按 ffi 边界终则，这类代码属于 ffi/js 的数据转换层。plan JSON 文本定性为
+  诊断与校验格式：布局数据是生产数据，文本形态服务 dump、golden 与 parity
+  oracle 的字节比对；生产跨界（TS 运行时、node 构建驱动、native 返回）一律
+  类型化。`toPreparedParagraphJson` 与 `toPlanWithDiagnosticsJson` 留在引擎，
+  作为 `LayoutResult` 的可解释 dump 输出（实现约束 3）。
 - engine jsMain 的 `HarfBuzzSessionBackend.kt` 违规：21 处 `@JsFun` 内联读
   `globalThis.__TiqianFontBackend`。native 对应面是安装式 vtable
   （ADR 0050），js 面依赖环境全局。处置为整族删除，session 与 replay 的
@@ -1451,9 +1454,9 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - 纠偏 5：请求、回调与返回信封改为声明 DTO 对象过界，运行时与构建驱动
   拿类型化对象；冻结 JSON 文本只保留给字节比对处（parity oracle 与
   golden 证据）。
-- plan 契约声明化：plan 冻结格式改为 Kotlin、Rust、TS 三侧单点声明，
-  native 返回侧的无契约穿越同时消除；native 请求与 shaping 的打包契约
-  不动。
+- native 返回类型化：C ABI 返回从 plan JSON 裸字符串改为打包声明契约
+  （与请求侧 `TQLR` 同模式），Rust 解码进既有 Plan 结构体；plan JSON 保留
+  为引擎 dump，服务 oracle 与 golden 的字节比对。
 - 终则定稿随纠偏收尾落回本 ADR；ADR 0050 同日附注记录 JS lane 侧判定。
 
 ### KPI 汇总
