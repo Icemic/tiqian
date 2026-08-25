@@ -35,7 +35,7 @@ import org.tiqian.shaping.backend.tiqian_font_backend_vtable_t
  * Vtable consumer for native hosts (ADR 0050 PackedFfiCalls). The Rust font
  * session installs its callbacks through `tiqian_install_font_backend`; this
  * shaper maps one packed segment buffer onto the same `ShapingResult` the JS
- * lane builds from `__TiqianFontBackend`, so the engine sees identical
+ * lane builds from its shaping callbacks, so the engine sees identical
  * evidence on both sides of the snapshot boundary.
  */
 class NativeFontBackendTextShaper(
