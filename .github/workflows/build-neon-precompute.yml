@@ -203,15 +203,32 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      # Same working-tree resolution as the binaries job: the registry alpha
+      # predates the ./prepared-dom subpath, and the emitted declarations are
+      # not tracked. This lane has no Gradle step, so the ffi declarations a
+      # full type check would need are absent; build without checks and drop
+      # the typecheck script (the Native precompute CI runs the full checks
+      # over the same sources).
+      - name: Install build dependencies
+        working-directory: frontend/web/npm-core
+        run: npm ci
+      - name: Link prose-core dependency
+        working-directory: frontend/web/npm
+        run: npm run link:core
+      - name: Emit the prose packages
+        working-directory: frontend/web/npm
+        run: ../npm-core/node_modules/.bin/tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: npm install --no-audit --no-fund
-      - name: Lint, typecheck, and build the JS entry
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/@tiqian
+          npm run link:prose
+      - name: Lint and build the JS entry
         working-directory: frontend/web-precompute/npm
         run: |
           npm run lint
-          npm run build
-          npm run typecheck
+          npx tsc -p tsconfig.build.json --noCheck
       # The packed package vendors the browser-shared modules; a stale copy
       # would fork the render contract between server and browser.
       - name: Check vendored shared modules

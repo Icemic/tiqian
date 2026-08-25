@@ -292,3 +292,4 @@ jobs:
         run: |
           npm run debug:native
           npm test
+          npm run typecheck
