@@ -20,11 +20,11 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // The manifest swap script is plain ESM; it only touches these Node
-    // globals.
+    // Root-level dev scripts (snapshot-swap, link-prose) are plain ESM; they
+    // only touch these Node globals.
     files: ["*.mjs"],
     languageOptions: {
-      globals: { console: "readonly", process: "readonly" },
+      globals: { URL: "readonly", console: "readonly", process: "readonly" },
     },
   },
   {
