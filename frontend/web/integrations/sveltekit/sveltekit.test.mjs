@@ -39,7 +39,7 @@ try {
 } catch {
   addonBuildExists = false;
 }
-const proseCoreLinkExists = existsSync(new URL("../../npm/node_modules/@tiqian/prose-core", import.meta.url));
+const proseCoreLinkExists = existsSync(new URL("../../npm/node_modules/@tiqian/core", import.meta.url));
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {

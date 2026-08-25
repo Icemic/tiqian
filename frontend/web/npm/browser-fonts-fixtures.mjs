@@ -5,12 +5,12 @@
 
 import { createHash } from "node:crypto";
 
-import { createBrowserFontSessionLoader } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
+import { createBrowserFontSessionLoader } from "@tiqian/core/core/measurement/browser-fonts.js";
 import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,
-} from "@tiqian/prose-core/snapshot-schema.js";
-import { writeBinaryTable } from "@tiqian/prose-core/table-binary-writer.mjs";
+} from "@tiqian/core/snapshot-schema.js";
+import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
 
 export function digest(bytes) {
   return createHash("sha256").update(bytes).digest("hex");

@@ -15,8 +15,8 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.deepEqual(manifest.publishConfig, { access: "public", tag: "alpha" });
   assert.ok(manifest.files.includes("LICENSE"));
   assert.ok(manifest.files.includes("README.md"));
-  assert.equal(manifest.files.includes("runtime/"), false, "runtime/ moved to @tiqian/prose-core");
-  assert.equal(manifest.files.includes("core/"), false, "core/ moved to @tiqian/prose-core");
+  assert.equal(manifest.files.includes("runtime/"), false, "runtime/ moved to @tiqian/core");
+  assert.equal(manifest.files.includes("core/"), false, "core/ moved to @tiqian/core");
   assert.equal(
     manifest.files.includes("precompute-runtime/"),
     false,
@@ -43,7 +43,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
   ]);
   assert.equal(manifest.bin, undefined);
   assert.equal(manifest.exports["./build-runtime"], undefined);
-  assert.deepEqual(manifest.dependencies, { "@tiqian/prose-core": "0.1.0-alpha.5" });
+  assert.deepEqual(manifest.dependencies, { "@tiqian/core": "0.1.0-alpha.5" });
   for (const removed of ["precompute.js", "precompute-html.js", "precompute-fonts.js", "precompute-node-fonts.js"]) {
     assert.equal(manifest.files.includes(removed), false, `${removed} must not ship`);
   }
@@ -61,7 +61,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.equal(manifest.files.includes("prepare-release.mjs"), false);
 
   const coreManifest = JSON.parse(await readFile(new URL("../npm-core/package.json", import.meta.url), "utf8"));
-  assert.equal(coreManifest.name, "@tiqian/prose-core");
+  assert.equal(coreManifest.name, "@tiqian/core");
   assert.equal(coreManifest.version, manifest.version);
   assert.deepEqual(coreManifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
   assert.ok(coreManifest.files.includes("core/"));
@@ -138,7 +138,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   for (const shim of ["prepared-dom.js", "snapshot-client.js"]) {
     const shimSource = await readFile(new URL(`./${shim}`, import.meta.url), "utf8");
-    assert.match(shimSource, /export \* from "@tiqian\/prose-core\/core\/sampler\/snapshot\//u);
+    assert.match(shimSource, /export \* from "@tiqian\/core\/core\/sampler\/snapshot\//u);
   }
   for (const shim of ["precomputed.js", "snapshot-source.js"]) {
     const shimSource = await readFile(new URL(`../npm-core/${shim}`, import.meta.url), "utf8");
@@ -154,7 +154,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   const stylesSource = await readFile(new URL("./styles.css", import.meta.url), "utf8");
   // core/engine/loaders/styles.js resolves ../../../styles.css from inside
-  // @tiqian/prose-core, so the stylesheet ships in both packages and the two
+  // @tiqian/core, so the stylesheet ships in both packages and the two
   // copies must stay byte-identical.
   const coreStylesSource = await readFile(new URL("../npm-core/styles.css", import.meta.url), "utf8");
   assert.equal(coreStylesSource, stylesSource, "npm-core styles.css copy must match @tiqian/prose");
@@ -217,7 +217,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.match(fontLoaderSource, /loadPreparedDomRenderer\(\)/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
-  assert.match(elementSource, /import\("@tiqian\/prose-core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
+  assert.match(elementSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(elementSource, /from "\.\/font-shaping\.js"/u);

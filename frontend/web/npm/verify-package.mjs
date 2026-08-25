@@ -42,8 +42,8 @@ export async function verifyPackage(packageRoot = new URL("./", import.meta.url)
   }
   if (manifest.license !== "MPL-2.0") fail("manifest must declare MPL-2.0");
 
-  if (!manifest.dependencies?.["@tiqian/prose-core"]) {
-    fail("@tiqian/prose must declare dependency on @tiqian/prose-core");
+  if (!manifest.dependencies?.["@tiqian/core"]) {
+    fail("@tiqian/prose must declare dependency on @tiqian/core");
   }
 
   for (const forbidden of FORBIDDEN_FILES) {

@@ -1,4 +1,4 @@
-import { globalServices } from "@tiqian/prose-core/core/services/global-services.js";
+import { globalServices } from "@tiqian/core/core/services/global-services.js";
 // Timing-anchor goldens for the web prose host refactor (ADR 0053 batch 0,
 // decomposition report section 11). Every journey runs real module code under
 // the shared fake clock (test-clock.mjs) so dispatch order and record
@@ -32,7 +32,7 @@ import {
   ELEMENT_DRIVE_GLOBALS,
   FRAME_STEP_MS,
 } from "./timing-golden-host.mjs";
-import { setEngineOverride } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
+import { setEngineOverride } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -437,7 +437,7 @@ async function runWorkerMessagesJourney() {
     setEngineOverride({ workerLayoutRequest: () => requestJson() });
 
     const module = await import(
-      "@tiqian/prose-core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
+      "@tiqian/core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
     );
     const bridge = globalServices().coordination.layoutWorker;
     const prepare = async () => {

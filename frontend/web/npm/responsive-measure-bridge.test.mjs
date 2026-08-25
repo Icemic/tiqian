@@ -9,7 +9,7 @@ import {
   elementContentWidth,
   sourceParagraphWidth,
   isCurrentResponsiveMeasure,
-} from "@tiqian/prose-core/core/engine/responsive-measure.js";
+} from "@tiqian/core/core/engine/responsive-measure.js";
 
 function rect(width) {
   return { width };

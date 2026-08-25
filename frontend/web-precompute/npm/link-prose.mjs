@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Dev-only link for the @tiqian/prose and @tiqian/prose-core dependencies (ADR 0053 F1/F2).
-// Downstream imports resolve "@tiqian/prose" and "@tiqian/prose-core" entries;
+// Dev-only link for the @tiqian/prose and @tiqian/core dependencies (ADR 0053 F1/F2).
+// Downstream imports resolve "@tiqian/prose" and "@tiqian/core" entries;
 // published packages resolve them from the registry, while this script points
-// node_modules/@tiqian/prose and node_modules/@tiqian/prose-core at the
+// node_modules/@tiqian/prose and node_modules/@tiqian/core at the
 // working-tree packages in frontend/web/npm and frontend/web/npm-core so local
 // builds and tests exercise the live packages.
 
@@ -26,4 +26,4 @@ async function linkPackage(name, targetRelative, errorTag) {
 
 await mkdir(new URL("./node_modules/@tiqian/", import.meta.url), { recursive: true });
 await linkPackage("prose", "../../../../web/npm", "LinkProseTargetIsNotASymlink");
-await linkPackage("prose-core", "../../../../web/npm-core", "LinkProseCoreTargetIsNotASymlink");
+await linkPackage("core", "../../../../web/npm-core", "LinkProseCoreTargetIsNotASymlink");

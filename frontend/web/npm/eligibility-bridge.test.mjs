@@ -12,7 +12,7 @@ import {
   isNonTextInlineTag,
   isOpaqueInlineDisplay,
   isOpaqueInlineLevelDisplay,
-} from "@tiqian/prose-core/core/engine/eligibility.js";
+} from "@tiqian/core/core/engine/eligibility.js";
 
 test("eligibilityBridge_exportsFullApiSurface", () => {
   for (const predicate of [

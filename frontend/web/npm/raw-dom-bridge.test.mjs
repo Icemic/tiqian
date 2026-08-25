@@ -5,8 +5,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cleanupMounted, mount } from "./runtime-host.mjs";
-import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
-import { getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
+import { deriveRawDom } from "@tiqian/core/core/engine/raw-dom.js";
+import { getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 const rawDom = deriveRawDom();
 

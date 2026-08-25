@@ -181,7 +181,7 @@ jobs:
       # The runtime .js next to the .ts sources are untracked build products;
       # the packages must be built before the js oracle runs. Only npm-core
       # installs from the lock (typescript plus the @tiqian/ffi local link);
-      # prose resolves @tiqian/prose-core through the link:core symlink and
+      # prose resolves @tiqian/core through the link:core symlink and
       # borrows npm-core's tsc, so no @tiqian package comes from a registry.
       # The build runs with --noCheck: the @tiqian/ffi type declarations are
       # gradle products (ffi/js/npm/runtime) that a fresh checkout does not
@@ -191,7 +191,7 @@ jobs:
       - name: Install build dependencies
         working-directory: frontend/web/npm-core
         run: npm ci
-      - name: Link prose-core dependency
+      - name: Link core dependency
         working-directory: frontend/web/npm
         run: npm run link:core
       - name: Build the TypeScript packages
@@ -263,17 +263,17 @@ jobs:
       # The precompute suite consumes `@tiqian/prose/prepared-dom`, a subpath
       # only the working-tree packages export (the registry alpha predates
       # it), and its type check reads the packages' emitted declarations.
-      # Build prose-core with full checks (the assembled ffi package provides
+      # Build core with full checks (the assembled ffi package provides
       # its declarations), emit the prose package without checks (same
       # rationale as the corpus lane), then link both into the precompute
       # suite's node_modules so imports resolve to this checkout.
       - name: Install build dependencies
         working-directory: frontend/web/npm-core
         run: npm ci
-      - name: Build prose-core with full type checks
+      - name: Build core with full type checks
         working-directory: frontend/web/npm-core
         run: npx tsc -b
-      - name: Link prose-core dependency
+      - name: Link core dependency
         working-directory: frontend/web/npm
         run: npm run link:core
       - name: Emit the prose package

@@ -11,8 +11,8 @@ import {
   prepareTrackedParagraphForRelowering,
   probeContentDrift,
   stripEngineMarkupFromStrandedParagraph,
-} from "@tiqian/prose-core/core/engine/content-reconcile.js";
-import { deriveRawDom } from "@tiqian/prose-core/core/engine/raw-dom.js";
+} from "@tiqian/core/core/engine/content-reconcile.js";
+import { deriveRawDom } from "@tiqian/core/core/engine/raw-dom.js";
 
 const rawDom = deriveRawDom();
 

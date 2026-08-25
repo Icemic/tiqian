@@ -1,5 +1,5 @@
 {
-  "name": "@tiqian/prose-core",
+  "name": "@tiqian/core",
   "version": "0.1.0-alpha.5",
   "description": "Core paragraph layout engine, snapshot tables, and runtime bindings for Tiqian.",
   "keywords": [

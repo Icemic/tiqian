@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Package integrity check for @tiqian/prose-core. Verifies the manifest name,
+// Package integrity check for @tiqian/core. Verifies the manifest name,
 // license, dependency surface, and that every required published file exists
 // and is non-empty. The engine runtime installs through
 // core/engine/loaders/ts-runtime.js at import time; no bundled Kotlin/JS
@@ -8,7 +8,7 @@
 
 import { readFile, stat } from "node:fs/promises";
 
-const EXPECTED_NAME = "@tiqian/prose-core";
+const EXPECTED_NAME = "@tiqian/core";
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",

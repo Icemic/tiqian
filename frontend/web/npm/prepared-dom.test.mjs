@@ -9,7 +9,7 @@ import {
   releasePreparedValueStyleRoot,
   renderPreparedParagraphArtifact,
   renderPreparedParagraphInto,
-} from "@tiqian/prose-core/core/sampler/snapshot/prepared-dom.js";
+} from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
 function fixturePlan() {
   return {

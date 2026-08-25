@@ -2,8 +2,8 @@ name: Package topology CI
 
 # ADR 0053 (Web prose host consolidation), Verification 8: the three-package
 # topology has a CI check. Inter-package dependency direction must be
-# web-component -> core -> ffi (@tiqian/prose -> @tiqian/prose-core,
-# @tiqian/prose -> @tiqian/ffi, @tiqian/prose-core -> @tiqian/ffi); any other
+# web-component -> core -> ffi (@tiqian/prose -> @tiqian/core,
+# @tiqian/prose -> @tiqian/ffi, @tiqian/core -> @tiqian/ffi); any other
 # @tiqian/* dependency edge and any cross-package relative import fails CI.
 # The eslint/grep half of Verification 8 lives in ci-ts-discipline.yml.
 

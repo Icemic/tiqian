@@ -9,11 +9,11 @@
 //
 // Packages and the only allowed dependency edges:
 //   @tiqian/prose      (frontend/web/npm)       web-component layer
-//   @tiqian/prose-core (frontend/web/npm-core)  core layer
+//   @tiqian/core (frontend/web/npm-core)  core layer
 //   @tiqian/ffi        (ffi/js/npm)             ffi layer
-//   @tiqian/prose      -> @tiqian/prose-core
+//   @tiqian/prose      -> @tiqian/core
 //   @tiqian/prose      -> @tiqian/ffi
-//   @tiqian/prose-core -> @tiqian/ffi
+//   @tiqian/core -> @tiqian/ffi
 //
 // Check 1: every @tiqian/* entry in dependencies, devDependencies,
 // peerDependencies and optionalDependencies of the three package.json files
@@ -52,14 +52,14 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 const PACKAGES = [
   { name: "@tiqian/prose", dir: "frontend/web/npm" },
-  { name: "@tiqian/prose-core", dir: "frontend/web/npm-core" },
+  { name: "@tiqian/core", dir: "frontend/web/npm-core" },
   { name: "@tiqian/ffi", dir: "ffi/js/npm" },
 ];
 
 const ALLOWED_EDGES = new Set([
-  "@tiqian/prose -> @tiqian/prose-core",
+  "@tiqian/prose -> @tiqian/core",
   "@tiqian/prose -> @tiqian/ffi",
-  "@tiqian/prose-core -> @tiqian/ffi",
+  "@tiqian/core -> @tiqian/ffi",
 ]);
 
 const ALLOWED_DIRECTIONS =

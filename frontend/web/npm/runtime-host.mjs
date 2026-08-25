@@ -1,4 +1,4 @@
-import { globalServices } from "@tiqian/prose-core/core/services/global-services.js";
+import { globalServices } from "@tiqian/core/core/services/global-services.js";
 // Fake host environment for driving Kotlin/JS runtime under Node.js test runner.
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
 // stable and synchronous execution for raw-DOM backup relayout and destruction tests.
@@ -11,7 +11,7 @@ import {
   FakeText,
   fixtureComputedStyle,
 } from "./snapshot-dom-fixtures.mjs";
-import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomValidator } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomValidator } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 
 export class FakeDOMRect {
   constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -3611,7 +3611,7 @@ let runtimePromise;
 export function loadHostRuntime() {
   buildWorld();
   installPreparedRendererFixture();
-  runtimePromise ??= import("@tiqian/prose-core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
+  runtimePromise ??= import("@tiqian/core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
     await loader.loadTiqianRuntime();
     const engine = loader.engineApi();
     const workers = loader.workerApi();

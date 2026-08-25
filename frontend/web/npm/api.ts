@@ -3,27 +3,27 @@ import {
   currentTiqianRuntime,
   loadTiqianRuntime,
   withTiqianRuntime,
-} from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
-import { prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
-import { restoreAdoptedSnapshot } from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
-import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
+} from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import { prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
+import { restoreAdoptedSnapshot } from "@tiqian/core/core/sampler/snapshot/loaded-snapshots.js";
+import { ensureTiqianStyles } from "@tiqian/core/core/engine/loaders/styles.js";
 import {
   createSnapshotFontSessionEntry,
   hasSnapshotLayoutOverride,
   releaseSnapshotFontSession,
-} from "@tiqian/prose-core/core/engine/snapshot-font.js";
+} from "@tiqian/core/core/engine/snapshot-font.js";
 import {
   ensurePreparedDomBridge,
   loadSnapshotFontFallback,
-} from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
-import type { TiqianEngineInstance } from "@tiqian/prose-core/core/engine/engine-entry.js";
-import type { CjkDashShapingOutcome } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
-import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
-import type { SnapshotFontSessionEntry } from "@tiqian/prose-core/core/engine/snapshot-font.js";
-import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
+} from "@tiqian/core/core/engine/loaders/font-loader.js";
+import type { TiqianEngineInstance } from "@tiqian/core/core/engine/engine-entry.js";
+import type { CjkDashShapingOutcome } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
+import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
+import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
+import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 export { loadTiqianRuntime };
-export { declareTiqianFontFaces } from "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js";
+export { declareTiqianFontFaces } from "@tiqian/core/core/sampler/snapshot/declared-faces.js";
 
 export type TraceConfig = { maxEntries?: number; };
 

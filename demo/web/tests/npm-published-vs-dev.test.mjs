@@ -213,7 +213,7 @@ function compareScreenshots(a, b) {
 
 // Serves the demo page with an import map so main.js's bare specifier
 // "@tiqian/prose/element" resolves to the chosen package directory. The dev
-// side also maps "@tiqian/prose-core/" to the npm-core working tree, from
+// side also maps "@tiqian/core/" to the npm-core working tree, from
 // which the dev layout worker loads. The stylesheet link
 // "../../frontend/web/npm/styles.css" resolves from the page root to the same
 // directory, so published CSS pairs with published JS.
@@ -225,7 +225,7 @@ function startDemoServer(port, pkgDir) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js","@tiqian/prose-core/":"/frontend/web/npm-core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js","@tiqian/core/":"/frontend/web/npm-core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);

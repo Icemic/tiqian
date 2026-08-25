@@ -41,9 +41,9 @@ try {
   if (!filename) throw new Error("ReleaseConsumerPackFailed: npm pack returned no filename");
   tarballPath = resolve(consumerRoot, filename);
 
-  // The ffi and prose-core packages publish in lockstep (ADR 0053 A4/F2).
+  // The ffi and core packages publish in lockstep (ADR 0053 A4/F2).
   // Pack both from the working tree and install them so the consumer resolves
-  // @tiqian/prose-core and @tiqian/ffi the way the lockstep release provides them.
+  // @tiqian/core and @tiqian/ffi the way the lockstep release provides them.
   const packedFfi = JSON.parse(runNpm([
     "pack",
     "--ignore-scripts",

@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderPreparedParagraphArtifact } from "@tiqian/prose-core/core/sampler/snapshot/prepared-dom.js";
+import { renderPreparedParagraphArtifact } from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
 const fixture = JSON.parse(
   readFileSync(new URL("./prepared-dom-corpus.fixture.json", import.meta.url), "utf8"),

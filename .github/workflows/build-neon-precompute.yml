@@ -124,7 +124,7 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      # The smoke test resolves `@tiqian/prose` and `@tiqian/prose-core` from
+      # The smoke test resolves `@tiqian/prose` and `@tiqian/core` from
       # this checkout: the registry alpha predates the `./prepared-dom`
       # subpath the precompute sources import, and the emitted declarations
       # are not tracked. This lane has no Gradle step, so the ffi
@@ -138,7 +138,7 @@ jobs:
         working-directory: frontend/web/npm-core
         shell: bash
         run: npm ci
-      - name: Link prose-core dependency
+      - name: Link core dependency
         working-directory: frontend/web/npm
         shell: bash
         run: npm run link:core
@@ -212,7 +212,7 @@ jobs:
       - name: Install build dependencies
         working-directory: frontend/web/npm-core
         run: npm ci
-      - name: Link prose-core dependency
+      - name: Link core dependency
         working-directory: frontend/web/npm
         run: npm run link:core
       - name: Emit the prose packages

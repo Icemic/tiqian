@@ -22,15 +22,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 
-import { createServerReplayFontSession } from "@tiqian/prose-core/browser-font-replay.js";
-import { snapshotTablesFromBytes } from "@tiqian/prose-core/snapshot-tables.js";
-import { parseSnapshotManifest } from "@tiqian/prose-core/snapshot-manifest.js";
+import { createServerReplayFontSession } from "@tiqian/core/browser-font-replay.js";
+import { snapshotTablesFromBytes } from "@tiqian/core/snapshot-tables.js";
+import { parseSnapshotManifest } from "@tiqian/core/snapshot-manifest.js";
 import {
   mergeSerializedSourceBoundaries,
   workerSnapshotSubsetSourceBoundaries,
-} from "@tiqian/prose-core/font-face-boundaries.js";
+} from "@tiqian/core/font-face-boundaries.js";
 import { precomputeParagraph } from "@tiqian/ffi";
-import { LAYOUT_REQUEST_FIELDS } from "@tiqian/prose-core/core/engine/web-worker/assembly-record-fields.js";
+import { LAYOUT_REQUEST_FIELDS } from "@tiqian/core/core/engine/web-worker/assembly-record-fields.js";
 
 const BENCH_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = join(BENCH_DIR, "fixtures", "corpus");
