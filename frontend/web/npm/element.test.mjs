@@ -306,22 +306,22 @@ test("declared face change wakes revalidate and merge per root", async () => {
   }
 });
 
-test("element exact font contract mismatch writes structured detail to tiqianExactFontMiss dataset", async () => {
+test("element exact font contract mismatch writes structured detail to tiqianSnapshotFontMiss dataset", async () => {
   const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
   const clock = installFakeClock();
   try {
-    const record = await driveElementTimeline(clock, "element-exact-font-miss-shape", {
+    const record = await driveElementTimeline(clock, "element-snapshot-font-miss-shape", {
       fontFaceSrc: "url(\"/assets/mismatch-deadbeef.woff2\")",
     });
-    const missWrite = record.datasetWrites.find((w) => w.key === "tiqianExactFontMiss");
-    assert.ok(missWrite, "tiqianExactFontMiss dataset write was recorded");
+    const missWrite = record.datasetWrites.find((w) => w.key === "tiqianSnapshotFontMiss");
+    assert.ok(missWrite, "tiqianSnapshotFontMiss dataset write was recorded");
     assert.match(
       missWrite.value,
-      /^SnapshotExactFontContractMismatch\|FieldMismatch\|expectedFaces=\d+\|actualFaces=\d+\|firstField=\w+$/u,
+      /^SnapshotFontContractMismatch\|FieldMismatch\|expectedFaces=\d+\|actualFaces=\d+\|firstField=\w+$/u,
     );
     assert.equal(
       missWrite.value,
-      "SnapshotExactFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src",
+      "SnapshotFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src",
     );
   } finally {
     restoreGlobals(globals);

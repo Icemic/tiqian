@@ -9,11 +9,11 @@ import {
   detachViaChannel,
   dispatchRelayout,
   drainMicrotasks,
-  exactTestOptions,
-  failExactPreparedDomRender,
+  snapshotTestOptions,
+  failSnapshotPreparedDomRender,
   flushAllTestAnimationFrames,
   grantWorkerSlice,
-  installExactFontSessionFixture,
+  installSnapshotFontSessionFixture,
   loadHostRuntime,
   mount,
   pendingTestAnimationFrameCount,
@@ -119,12 +119,12 @@ test("rawDom_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => 
 test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(
     "<div data-tiqian-root='true' style='width: 220px'><p data-tq-snapshot-key='plain' style=\"font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px\">原节点必须在异常后原样回来。</p></div>",
   );
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, exactTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 1);
 
   const paragraph = root.querySelector("p");
   const renderedChild = paragraph.firstChild;
@@ -141,7 +141,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
     readyCount += 1;
   });
 
-  failExactPreparedDomRender("fixture-commit-failure");
+  failSnapshotPreparedDomRender("fixture-commit-failure");
   root.style.width = "180px";
   dispatchRelayout(root);
   await drainMicrotasks();
@@ -159,7 +159,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   assert.equal(readyCount, 1);
   assert.equal(pendingTestAnimationFrameCount(), 0);
 
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   root.style.width = "140px";
   dispatchRelayout(root);
   await drainMicrotasks();

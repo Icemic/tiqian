@@ -531,7 +531,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
 
   // ---- S1: connect + initial snapshot adoption ----
   // Warm the dynamic imports element.js performs (worker-channel.js and the
-  // browser-fonts module, both on the exact-session path) before the drive
+  // browser-fonts module, both on the snapshot-session path) before the drive
   // starts. Cold, their disk reads race the fake-clock pump under parallel
   // test load and shift observer creation order per run; warm, the cache hits
   // keep the S1 tail deterministic. The warm imports run inside the journey's

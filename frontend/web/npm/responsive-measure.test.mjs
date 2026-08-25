@@ -1,5 +1,5 @@
 // Responsive measure tests ported from TiqianWebEnhancerTest.kt,
-// TiqianWebExactSessionTest.kt, TiqianWebProgressiveRelayoutTest.kt and
+// TiqianWebSnapshotSessionTest.kt, TiqianWebProgressiveRelayoutTest.kt and
 // TiqianWebSourceFidelityTest.kt. Verifies how the runtime derives the line
 // measure: shrink-to-fit hosts, multi-column fragmentainers, list padding,
 // configured typography, the responsive grid quantization and the stale
@@ -15,7 +15,7 @@ import {
   cssPx,
   elementFragmentWidths,
   elementWidth,
-  exactWorkerRequestMaxWidth,
+  snapshotWorkerRequestMaxWidth,
   flushAllTestAnimationFrames,
   dispatchRelayout,
   grantWorkerSlice,
@@ -155,11 +155,11 @@ test("responsiveMeasure_workerRequestsUseResponsiveLineLengthGrid", async (t) =>
   const paragraph = root.querySelector("p");
   TiqianWeb.install();
 
-  const first = exactWorkerRequestMaxWidth(root, paragraph);
+  const first = snapshotWorkerRequestMaxWidth(root, paragraph);
   root.style.width = "225px";
-  const sameGrid = exactWorkerRequestMaxWidth(root, paragraph);
+  const sameGrid = snapshotWorkerRequestMaxWidth(root, paragraph);
   root.style.width = "234px";
-  const nextGrid = exactWorkerRequestMaxWidth(root, paragraph);
+  const nextGrid = snapshotWorkerRequestMaxWidth(root, paragraph);
 
   assert.equal(first, 216);
   assert.equal(sameGrid, first);

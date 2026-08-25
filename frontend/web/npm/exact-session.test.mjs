@@ -1,4 +1,4 @@
-// Exact font session tests ported from TiqianWebExactSessionTest.kt and the
+// Snapshot font session tests ported from TiqianWebSnapshotSessionTest.kt and the
 // canonical-fallback / dash-evidence cases in TiqianWebEnhancerTest.kt and
 // TiqianWebSourceFidelityTest.kt. Verifies the shared font backend, the
 // prepared DOM bridge, per-run browser fallback, worker plan replay and the
@@ -9,21 +9,21 @@ import test from "node:test";
 import {
   assertEnginePunctuationFeatureLock,
   cleanupMounted,
-  clearExactFontSessionFixture,
+  clearSnapshotFontSessionFixture,
   copySelection,
   cssPx,
   computedStyleValue,
   enginePunctuationFeatureStyle,
-  exactFontFallbackCount,
-  exactFontShapeCount,
-  exactPreparedPlan,
-  exactPreparedRenderCount,
-  exactTestOptions,
-  failExactPreparedDomValidation,
-  failNextExactPreparedDomValidation,
+  snapshotFontFallbackCount,
+  snapshotFontShapeCount,
+  snapshotPreparedPlan,
+  snapshotPreparedRenderCount,
+  snapshotTestOptions,
+  failSnapshotPreparedDomValidation,
+  failNextSnapshotPreparedDomValidation,
   flushAllTestAnimationFrames,
   dispatchRelayout,
-  installExactFontSessionFixture,
+  installSnapshotFontSessionFixture,
   installPreparedWorkerIssue,
   installPreparedWorkerLivePlan,
   installTestAnimationFrames,
@@ -48,7 +48,7 @@ function quoteRangeCount(text) {
   return count;
 }
 
-test("exactSession_canonicalPreparedParagraphFallsBackIntoRuntimeCleanly", async (t) => {
+test("snapshotSession_canonicalPreparedParagraphFallsBackIntoRuntimeCleanly", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "甲’乙\n丙";
@@ -65,7 +65,7 @@ test("exactSession_canonicalPreparedParagraphFallsBackIntoRuntimeCleanly", async
   assert.equal(copySelection(paragraph), source);
 });
 
-test("exactSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", async (t) => {
+test("snapshotSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -89,11 +89,11 @@ test("exactSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", async 
   assert.equal(copySelection(paragraph), "第一行正文第二行正文");
 });
 
-test("exactSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridge", async (t) => {
+test("snapshotSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridge", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       ${enginePunctuationFeatureStyle}
@@ -101,7 +101,7 @@ test("exactSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridge",
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
@@ -109,46 +109,46 @@ test("exactSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridge",
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
-  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
+  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
   assertEnginePunctuationFeatureLock(paragraph);
-  assert.ok(exactPreparedPlan().includes('"layoutRevision":"tiqian-layout-v2"'));
-  assert.ok(exactPreparedPlan().includes('"height":'));
+  assert.ok(snapshotPreparedPlan().includes('"layoutRevision":"tiqian-layout-v2"'));
+  assert.ok(snapshotPreparedPlan().includes('"height":'));
 });
 
-test("exactSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) => {
+test("snapshotSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="rich" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文<a href="/more">链接</a>正文。</p>
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
-  assert.ok(exactFontShapeCount() > 0);
+  assert.ok(snapshotFontShapeCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.ok(paragraph.querySelector("a[href='/more']"));
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
+  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
   assert.equal(copySelection(paragraph), "中文链接正文。");
 });
 
-test("exactSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => {
+test("snapshotSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false, varyFaceByText: true });
+  installSnapshotFontSessionFixture({ failShaping: false, varyFaceByText: true });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 700px">
       <p style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文</p>
     </div>
   `);
-  const options = { ...exactTestOptions(), paragraphSelector: "p" };
+  const options = { ...snapshotTestOptions(), paragraphSelector: "p" };
 
   assert.equal(TiqianWeb.enhance(root, options), 1);
 
@@ -163,33 +163,33 @@ test("exactSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => {
   assert.equal(copySelection(paragraph), "中文正文");
 });
 
-test("exactSession_unsupportedFontRunFallsBackPerRunNotPerParagraph", async (t) => {
+test("snapshotSession_unsupportedFontRunFallsBackPerRunNotPerParagraph", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false, failFamily: "Fixture Mono" });
+  installSnapshotFontSessionFixture({ failShaping: false, failFamily: "Fixture Mono" });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 260px">
       <p data-tq-snapshot-key="rich" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文<code style="font-family: 'Fixture Mono'">code42</code>正文。</p>
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, exactTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 1);
 
   const paragraph = root.querySelector("p");
-  assert.ok(exactFontShapeCount() > 0);
-  assert.ok(exactFontFallbackCount() > 0);
+  assert.ok(snapshotFontShapeCount() > 0);
+  assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.ok(paragraph.querySelector("code"));
   assert.equal(copySelection(paragraph), "中文code42正文。");
 });
 
-test("exactSession_workerReplayMissFallsBackOnlyForRichRun", async (t) => {
+test("snapshotSession_workerReplayMissFallsBackOnlyForRichRun", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false, failFamily: "Fixture Mono" });
+  installSnapshotFontSessionFixture({ failShaping: false, failFamily: "Fixture Mono" });
   installPreparedWorkerIssue("MissingServerShapingReplay:test");
   const root = mount(`
     <div data-tiqian-root="true" style="width: 260px">
@@ -198,23 +198,23 @@ test("exactSession_workerReplayMissFallsBackOnlyForRichRun", async (t) => {
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root, { ...exactTestOptions(), requireExactLayoutWorker: true }),
+    TiqianWeb.enhance(root, { ...snapshotTestOptions(), requireSnapshotLayoutWorker: true }),
     1,
   );
 
   const paragraph = root.querySelector("p");
-  assert.ok(exactFontFallbackCount() > 0);
+  assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.ok(paragraph.querySelector("code"));
   assert.equal(copySelection(paragraph), "中文code42正文。");
 });
 
-test("exactSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (t) => {
+test("snapshotSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   installPreparedWorkerLivePlan();
   const root = mount(`
     <div data-tiqian-root="true" style="width: 260px">
@@ -225,9 +225,9 @@ test("exactSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (t) 
   const enhanced = TiqianWeb.enhance(
     root,
     {
-      ...exactTestOptions(),
+      ...snapshotTestOptions(),
       paragraphSelector: "p:not([data-tq-snapshot-key])",
-      requireExactLayoutWorker: true,
+      requireSnapshotLayoutWorker: true,
     },
   );
   assert.equal(
@@ -243,23 +243,23 @@ test("exactSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (t) 
   assert.ok(
     paragraph.querySelector("spoiler[data-tq-source-semantic] > em[data-tq-source-semantic]"),
   );
-  assert.equal(exactFontShapeCount(), 0, "live semantics must not relayout on the main thread");
-  assert.equal(exactPreparedRenderCount(), 1);
+  assert.equal(snapshotFontShapeCount(), 0, "live semantics must not relayout on the main thread");
+  assert.equal(snapshotPreparedRenderCount(), 1);
   assert.equal(copySelection(paragraph), "正文秘密继续。");
 });
 
-test("exactSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async (t) => {
+test("snapshotSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false, failText: "坏" });
+  installSnapshotFontSessionFixture({ failShaping: false, failText: "坏" });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 260px">
       <p style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">坏——正文。</p>
     </div>
   `);
   const options = {
-    ...exactTestOptions(),
+    ...snapshotTestOptions(),
     paragraphSelector: "p:not([data-tq-snapshot-key])",
     cjkDashCapability: {
       status: "unavailable",
@@ -268,13 +268,13 @@ test("exactSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async (t)
   };
 
   // Since the Slice 4a/4d-2b decisions (ADR 0053) an unkeyed rich paragraph
-  // whose exact session fails one run retries the whole paragraph with
+  // whose snapshot session fails one run retries the whole paragraph with
   // browser metrics; the dash run then fails closed when the dash capability
   // is non-conforming, and the paragraph stays native.
   assert.equal(TiqianWeb.enhance(root, options), 0);
 
   const paragraph = root.querySelector("p");
-  assert.ok(exactFontFallbackCount() > 0);
+  assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(paragraph.querySelector(".tq-line"), null);
@@ -285,11 +285,11 @@ test("exactSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async (t)
   assert.equal(paragraph.innerHTML, "坏——正文。");
 });
 
-test("exactSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
+test("snapshotSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false, failText: "a" });
+  installSnapshotFontSessionFixture({ failShaping: false, failText: "a" });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 300px">
       <p data-tq-snapshot-key="exact" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文<a href="/more">链接</a>正文。</p>
@@ -297,23 +297,23 @@ test("exactSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, exactTestOptions()), 2);
+  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 2);
 
   const paragraphs = root.querySelectorAll("p");
-  const exactParagraph = paragraphs[0];
+  const snapshotParagraph = paragraphs[0];
   const fallbackParagraph = paragraphs[1];
-  const exactLine = exactParagraph.querySelector(".tq-line");
+  const snapshotLine = snapshotParagraph.querySelector(".tq-line");
   const fallbackLine = fallbackParagraph.querySelector(".tq-line");
-  assert.ok(exactFontFallbackCount() > 0);
+  assert.ok(snapshotFontFallbackCount() > 0);
   // The declared line height stays shared; since the Slice 4a whole-paragraph
   // browser retry (ADR 0053) the fallback paragraph's baseline metrics come
-  // from the browser lane, so they no longer claim the exact session's.
+  // from the browser lane, so they no longer claim the snapshot session's.
   assert.equal(
-    exactLine.style.getPropertyValue("--tq-line-height"),
+    snapshotLine.style.getPropertyValue("--tq-line-height"),
     fallbackLine.style.getPropertyValue("--tq-line-height"),
   );
   assert.notEqual(
-    exactLine.style.getPropertyValue("--tq-line-baseline-offset"),
+    snapshotLine.style.getPropertyValue("--tq-line-baseline-offset"),
     fallbackLine.style.getPropertyValue("--tq-line-baseline-offset"),
   );
   assert.ok(
@@ -321,27 +321,27 @@ test("exactSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
   );
 });
 
-test("exactSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (t) => {
+test("snapshotSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">that’s James’ ’90s</p>
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   assert.equal(count, 1);
   assert.ok(
-    exactPreparedPlan().includes('"openTypeFeatures":["pwid","palt"]'),
-    exactPreparedPlan(),
+    snapshotPreparedPlan().includes('"openTypeFeatures":["pwid","palt"]'),
+    snapshotPreparedPlan(),
   );
 });
 
-test("exactSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures", async (t) => {
+test("snapshotSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const source = "that’s；（如 ‘O’, ‘Q’）";
@@ -368,7 +368,7 @@ test("exactSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures", as
   assert.equal(copySelection(paragraph), source);
 });
 
-test("exactSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t) => {
+test("snapshotSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const cases = [
@@ -414,33 +414,33 @@ test("exactSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t) =
   assertCases();
 });
 
-test("exactSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
+test("snapshotSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: true });
+  installSnapshotFontSessionFixture({ failShaping: true });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="plain" style="font-size: 18px; line-height: 30px">中文正文。</p>
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
+  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
 });
 
-test("exactSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed", async (t) => {
+test("snapshotSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
-  failExactPreparedDomValidation("fixture-line-drift");
+  installSnapshotFontSessionFixture({ failShaping: false });
+  failSnapshotPreparedDomValidation("fixture-line-drift");
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
@@ -450,7 +450,7 @@ test("exactSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed
   const paragraph = root.querySelector("p");
   const second = root.querySelector("p[data-tq-snapshot-key='second']");
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   // PreparedDomRenderMismatch: the bridge disagrees even with browser-metric
   // output, so both paragraphs fail closed and the raw-DOM backup restores their source.
@@ -464,21 +464,21 @@ test("exactSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed
   assert.equal(second.getAttribute("data-tq-rendered"), null);
   assert.equal(second.querySelector(".tq-line"), null);
   assert.equal(second.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
-  // The first paragraph renders twice (exact session, then the browser-metric
+  // The first paragraph renders twice (snapshot session, then the browser-metric
   // retry); the second fails on its only render.
-  assert.equal(exactPreparedRenderCount(), 3);
+  assert.equal(snapshotPreparedRenderCount(), 3);
   assert.equal(
     root.getAttribute("data-tiqian-exact-layout-fallback"),
     "fixture-line-drift",
   );
 });
 
-test("exactSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePreparedBridge", async (t) => {
+test("snapshotSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePreparedBridge", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
-  failNextExactPreparedDomValidation("fixture-line-drift");
+  installSnapshotFontSessionFixture({ failShaping: false });
+  failNextSnapshotPreparedDomValidation("fixture-line-drift");
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
@@ -488,10 +488,10 @@ test("exactSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePrepare
   const paragraph = root.querySelector("p");
   const second = root.querySelector("p[data-tq-snapshot-key='second']");
 
-  const count = TiqianWeb.enhance(root, exactTestOptions());
+  const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
-  // ExactSessionMetricDistrust: the first replay failed geometry validation
-  // against exact-session metrics, so the paragraph re-lays out with browser
+  // SnapshotSessionMetricDistrust: the first replay failed geometry validation
+  // against snapshot-session metrics, so the paragraph re-lays out with browser
   // metrics and replays through the prepared bridge; that render validates.
   assert.equal(count, 2);
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
@@ -502,34 +502,34 @@ test("exactSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePrepare
   assert.equal(second.getAttribute("data-tq-rendered"), "true");
   assert.ok(second.querySelector(".tq-line"));
   assert.equal(second.getAttribute("data-tiqian-capability-issue"), null);
-  assert.equal(exactPreparedRenderCount(), 3);
+  assert.equal(snapshotPreparedRenderCount(), 3);
   assert.equal(
     root.getAttribute("data-tiqian-exact-layout-fallback"),
     "fixture-line-drift",
   );
 });
 
-test("exactSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t) => {
+test("snapshotSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t) => {
   t.after(cleanupMounted);
-  t.after(() => clearExactFontSessionFixture());
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
-  installExactFontSessionFixture({ failShaping: false });
+  installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
       <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, { ...exactTestOptions(), fontSize: 24 });
+  const count = TiqianWeb.enhance(root, { ...snapshotTestOptions(), fontSize: 24 });
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
-  assert.ok(paragraph.querySelector("[data-tq-exact-rendered]"));
+  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
   assert.ok(paragraph.querySelector(".tq-line"));
 });
 
-test("exactSession_dashParagraphNativeWithoutVerifiableFontSource", async (t) => {
+test("snapshotSession_dashParagraphNativeWithoutVerifiableFontSource", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -551,7 +551,7 @@ test("exactSession_dashParagraphNativeWithoutVerifiableFontSource", async (t) =>
   assert.equal(copySelection(paragraph), "中文——中文。");
 });
 
-test("exactSession_conformingDashEvidenceWithoutExactSessionReportsMissingCapability", async (t) => {
+test("snapshotSession_conformingDashEvidenceWithoutSnapshotSessionReportsMissingCapability", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(
@@ -570,7 +570,7 @@ test("exactSession_conformingDashEvidenceWithoutExactSessionReportsMissingCapabi
   const paragraph = root.querySelector("p");
   assert.equal(
     paragraph.getAttribute("data-tiqian-capability-issue"),
-    "ConformingCjkDashRequiresExactFontSession",
+    "ConformingCjkDashRequiresSnapshotFontSession",
   );
   assert.ok(
     (paragraph.getAttribute("data-tiqian-capability-detail") || "").includes(

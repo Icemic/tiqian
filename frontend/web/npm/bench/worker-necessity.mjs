@@ -27,7 +27,7 @@ import { snapshotTablesFromBytes } from "@tiqian/prose-core/snapshot-tables.js";
 import { parseSnapshotManifest } from "@tiqian/prose-core/snapshot-manifest.js";
 import {
   mergeSerializedSourceBoundaries,
-  workerExactSubsetSourceBoundaries,
+  workerSnapshotSubsetSourceBoundaries,
 } from "@tiqian/prose-core/font-face-boundaries.js";
 import { precomputeParagraph } from "@tiqian/ffi";
 import { LAYOUT_REQUEST_FIELDS } from "@tiqian/prose-core/core/engine/web-worker/assembly-record-fields.js";
@@ -138,7 +138,7 @@ async function replaySession() {
 function callParagraph(session, request) {
   const sourceBoundaries = mergeSerializedSourceBoundaries(
     request.sourceBoundaries,
-    workerExactSubsetSourceBoundaries(session.faces, request),
+    workerSnapshotSubsetSourceBoundaries(session.faces, request),
   );
   return precomputeParagraph(
     session.id,

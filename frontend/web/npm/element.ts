@@ -8,7 +8,7 @@ import {
   createInitialFontRetryController,
   ensurePreparedDomBridge,
   fontLoadingAffectsTypography,
-  loadExactFontFallback,
+  loadSnapshotFontFallback,
 } from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
 import { needsCjkDashShaping, prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
 import { lineLengthGridMeasure } from "@tiqian/prose-core/core/sampler/grid-metrics.js";
@@ -21,9 +21,9 @@ import {
   tryAdoptRequestedSnapshot,
 } from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
 import {
-  createExactFontSessionEntry,
-  releaseExactFontSession,
-} from "@tiqian/prose-core/core/engine/exact-font.js";
+  createSnapshotFontSessionEntry,
+  releaseSnapshotFontSession,
+} from "@tiqian/prose-core/core/engine/snapshot-font.js";
 import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
 import { prefetchSnapshotTables } from "@tiqian/prose-core/snapshot-tables.js";
 import {
@@ -64,7 +64,7 @@ import {
 } from "@tiqian/prose-core/core/sampler/observers.js";
 import type { TiqianEngineWorkersInstance } from "@tiqian/prose-core/core/engine/engine-entry.js";
 import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
-import type { ExactFontSessionEntry } from "@tiqian/prose-core/core/engine/exact-font.js";
+import type { SnapshotFontSessionEntry } from "@tiqian/prose-core/core/engine/snapshot-font.js";
 import type {
   FontLoadingEventLike,
   GetComputedStyleFn,
@@ -85,8 +85,8 @@ const ELEMENT_NAME = "tiqian-prose";
 const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
 const SKIPPED_ANCESTOR_SELECTOR =
   ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
-const EXACT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
-const EXACT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback";
+const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-exact-render-font";
+const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-exact-layout-fallback";
 const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
   "SnapshotWidthMismatch",
   "SnapshotWidthChangedDuringValidation",
@@ -102,13 +102,13 @@ copyInstaller().install(globalThis.document);
 // no-op in non-browser entry points.
 prefetchSnapshotTables();
 
-interface TiqianElementExactFontMissCandidate {
+interface TiqianElementSnapshotFontMissCandidate {
   code?: string;
   detail?: string;
 }
 
-function exactFontMissDatasetValue(error: TiqianElementExactFontMissCandidate): string {
-  if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
+function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandidate): string {
+  if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
     const pipeIndex = error.detail.indexOf("|");
     if (pipeIndex !== -1) {
       const detailSuffix = error.detail.slice(pipeIndex + 1);
@@ -117,7 +117,7 @@ function exactFontMissDatasetValue(error: TiqianElementExactFontMissCandidate): 
       }
     }
   }
-  return error?.code ?? "ExactFontSessionUnavailable";
+  return error?.code ?? "SnapshotFontSessionUnavailable";
 }
 
 function nextFrame(): Promise<number> {
@@ -233,7 +233,7 @@ type TiqianBeforeDispatchFn = () => void;
 interface TiqianEnhanceDispatchOptions {
   beforeDispatch?: TiqianBeforeDispatchFn | null;
   paragraphSelector?: string | null;
-  revalidateExactFont?: boolean;
+  revalidateSnapshotFont?: boolean;
 }
 
 interface TiqianLayoutWorkOptions {
@@ -246,7 +246,7 @@ interface TiqianSnapshotInvalidateOptions {
 }
 
 interface TiqianSourceRefreshOptions {
-  revalidateExactFont?: boolean;
+  revalidateSnapshotFont?: boolean;
 }
 
 type TiqianSnapshotAdoptionOutcome =
@@ -298,8 +298,8 @@ class TiqianProseElement extends HTMLElementBase {
   #layoutOperation = 0;
   #layoutWorkRevision = 0;
   #enhanceRequest = 0;
-  #exactFontRejectedAttempt = "";
-  #exactFontSession: ExactFontSessionEntry | null = null;
+  #snapshotFontRejectedAttempt = "";
+  #snapshotFontSession: SnapshotFontSessionEntry | null = null;
   #lastObservedWidth = 0;
   #lastWidth = 0;
   #lastParagraphMeasures = "";
@@ -385,7 +385,7 @@ class TiqianProseElement extends HTMLElementBase {
     // opt-out contract. Keep semantic SSR children live and avoid stylesheet,
     // font, snapshot, runtime and observer work until the host removes it.
     if (this.disabled) return;
-    this.#exactFontRejectedAttempt = "";
+    this.#snapshotFontRejectedAttempt = "";
     const generation = this.#context.beginEnhanceCycle();
     this.#clearInitialFontRetry();
     this.#acceptLayoutCompletion = false;
@@ -471,19 +471,19 @@ class TiqianProseElement extends HTMLElementBase {
           this.dataset.tiqianLoadMs = (Date.now() - loadStartedAt).toFixed(1);
         }
       }
-      // ExactPreparedDomFallbackSingleFlight: once browser replay proves that
-      // the exact HarfBuzz result cannot be represented at this effective
+      // SnapshotPreparedDomFallbackSingleFlight: once browser replay proves that
+      // the snapshot HarfBuzz result cannot be represented at this effective
       // measure, retain the readable browser-metric rendering without letting
-      // font loading events start the same failed exact session indefinitely.
+      // font loading events start the same failed snapshot session indefinitely.
       // A route reconnect or a different line-length grid gets a fresh attempt.
-      if (this.hasAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE)) {
-        this.#exactFontRejectedAttempt = this.#exactFontAttemptSignature();
-        // ResponsiveExactFontSessionReuse: the server replay tables and host
+      if (this.hasAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE)) {
+        this.#snapshotFontRejectedAttempt = this.#snapshotFontAttemptSignature();
+        // ResponsiveSnapshotFontSessionReuse: the server replay tables and host
         // font proof are still valid; only this line measure failed DOM replay.
         // Retain the session so a later grid can revalidate without rebuilding
         // the replay corpus. Disconnect and snapshot adoption remain the owners
         // of final release.
-        this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+        this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
       }
       if (stale) this.#responsiveCommitRequired = true;
       if (stale) this.#responsiveRelayoutRequired = true;
@@ -507,8 +507,8 @@ class TiqianProseElement extends HTMLElementBase {
       this.#layoutWorkInFlight = false;
       this.#layoutWorkViewportTypographyEntries = [];
       this.#clearResponsiveRetarget();
-      this.#releaseExactFontSession();
-      if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+      this.#releaseSnapshotFontSession();
+      if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
       this.#removeReadyListener();
       this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
       console.warn("Tiqian Web runtime failed to load", error);
@@ -582,7 +582,7 @@ class TiqianProseElement extends HTMLElementBase {
               });
               return;
             }
-            if (!this.#runtimeStateActive) this.#releaseExactFontSession();
+            if (!this.#runtimeStateActive) this.#releaseSnapshotFontSession();
             this.#hasDispatched = true;
             this.#acceptLayoutCompletion = true;
             this.#acceptValidatedSnapshotGeometry();
@@ -670,8 +670,8 @@ class TiqianProseElement extends HTMLElementBase {
       engineFace.workerRuntime()?.workerDetach?.(this);
       this.#layoutWorkerAttached = false;
     }
-    this.#releaseExactFontSession();
-    this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+    this.#releaseSnapshotFontSession();
+    this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
   }
 
   #canAdoptRawDomMoveReconnection() {
@@ -690,7 +690,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   // RawDomMoveAdoption: a reconnection inside the deferred settle window is
-  // a host raw-DOM backup move. The committed LayoutResult, the exact font session
+  // a host raw-DOM backup move. The committed LayoutResult, the snapshot font session
   // and any in-flight job stayed valid through the move, so only the
   // observers and the geometry baseline need re-entry. A width change from
   // the move routes through the responsive commit lane and relayouts in
@@ -725,7 +725,7 @@ class TiqianProseElement extends HTMLElementBase {
       // was parsed, the platform reports its existing observed attributes
       // before connectedCallback. `isConnected` is already true at that point,
       // but this is not a client navigation and must not discard the server's
-      // exact-font marker.
+      // snapshot-font marker.
       if (this.#connected) this.#restartConnectedLifecycle();
       return;
     }
@@ -805,8 +805,8 @@ class TiqianProseElement extends HTMLElementBase {
     restoreLoadedSnapshot(this);
     if (this.#runtimeStateActive) engineFace.destroy(this);
     this.#runtimeStateActive = false;
-    this.#releaseExactFontSession();
-    this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+    this.#releaseSnapshotFontSession();
+    this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
     releaseNativeScrollAnchoring(this);
     if (this.isConnected) this.connectedCallback();
   }
@@ -826,16 +826,16 @@ class TiqianProseElement extends HTMLElementBase {
     {
       beforeDispatch = null,
       paragraphSelector = null,
-      revalidateExactFont = true,
+      revalidateSnapshotFont = true,
     }: TiqianEnhanceDispatchOptions = {},
   ): Promise<boolean> {
     const request = ++this.#enhanceRequest;
     // PlainHostPreparedBridge: the runtime lowers every paragraph through
-    // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without an exact
+    // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without a snapshot
     // font session needs that bridge installed before layout starts. The
-    // exact-session path installs it through loadExactFontFallback; this
+    // snapshot-session path installs it through loadSnapshotFontFallback; this
     // await covers the remaining hosts and leaves an already-installed
-    // renderer (an exact session or a test fixture) untouched.
+    // renderer (a snapshot session or a test fixture) untouched.
     await ensurePreparedDomBridge();
     this.#beginLayoutWork();
     const baseOptions = {
@@ -843,64 +843,64 @@ class TiqianProseElement extends HTMLElementBase {
       ...(paragraphSelector ? { paragraphSelector } : {}),
     };
     const needsDash = needsCjkDashShaping(this);
-    let exactFontSession: BrowserFontSessionHandle | null = null;
-    const exactFontSessionAlreadyPrepared = !revalidateExactFont &&
-      this.#exactFontSession?.reference === this.getAttribute("snapshot-ref");
+    let snapshotFontSession: BrowserFontSessionHandle | null = null;
+    const snapshotFontSessionAlreadyPrepared = !revalidateSnapshotFont &&
+      this.#snapshotFontSession?.reference === this.getAttribute("snapshot-ref");
     try {
-      exactFontSession = await this.#prepareExactFontSession(
+      snapshotFontSession = await this.#prepareSnapshotFontSession(
         generation,
         request,
-        revalidateExactFont,
+        revalidateSnapshotFont,
       );
-      delete this.dataset.tiqianExactFontMiss;
+      delete this.dataset.tiqianSnapshotFontMiss;
     } catch (error) {
       if (
         this.isConnected && generation === this.#context.generation &&
         request === this.#enhanceRequest
-      ) this.#releaseExactFontSession();
-      this.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error as TiqianElementExactFontMissCandidate);
-      console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
+      ) this.#releaseSnapshotFontSession();
+      this.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate);
+      console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     }
     if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
-      if (!this.isConnected || generation !== this.#context.generation) this.#releaseExactFontSession();
+      if (!this.isConnected || generation !== this.#context.generation) this.#releaseSnapshotFontSession();
       return false;
     }
     // PreparedSnapshotTransition: callers leaving a precomputed snapshot keep
-    // that rendered DOM live while the runtime and exact-font session load. The
+    // that rendered DOM live while the runtime and snapshot-font session load. The
     // semantic source is restored immediately before dispatch. Viewport-near
     // paragraphs are prepared in bounded frames and replaced atomically; source
     // paragraphs not reached yet remain responsive through the same exact root
     // font and host line-height contract.
     beforeDispatch?.();
-    // LatestExactLayoutDiagnostics: source DOM is live at this point, so stale
+    // LatestSnapshotLayoutDiagnostics: source DOM is live at this point, so stale
     // replay diagnostics can be cleared without briefly re-enabling exact CSS
     // on geometry from the previous measure. The current run will set them
     // again if its own prepared DOM cannot be represented.
     delete this.dataset.tiqianExactLayoutIssue;
-    this.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
-    if (exactFontSession) {
+    this.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
+    if (snapshotFontSession) {
       try {
-        this.#exactFontSession!.installRenderFont(
+        this.#snapshotFontSession!.installRenderFont(
           this,
-          exactFontSession.renderFontFamilies as string[],
+          snapshotFontSession.renderFontFamilies as string[],
         );
-        this.setAttribute(EXACT_RENDER_FONT_ATTRIBUTE, "true");
+        this.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true");
         // HostRenderFontReadyBeforeCommit: server replay already owns the
         // layout metrics, but CSS must finish loading the proven host faces before the
         // first paragraph is committed. This avoids a second font-driven pass
         // and prevents progressive frames from painting a fallback face.
-        // WidthOnlyExactFontSessionReuse: replay tables and loaded host faces do not change
+        // WidthOnlySnapshotFontSessionReuse: replay tables and loaded host faces do not change
         // when only the content-box measure changes. Typography/font observers
         // still take the validating path; a responsive retarget can start the
         // latest-width paragraph queue without repeating font probes first.
-        if (!exactFontSessionAlreadyPrepared) {
-          await this.#exactFontSession!.prepareRenderFont(this, exactFontSession);
+        if (!snapshotFontSessionAlreadyPrepared) {
+          await this.#snapshotFontSession!.prepareRenderFont(this, snapshotFontSession);
         }
         if (
           !this.isConnected || generation !== this.#context.generation ||
           request !== this.#enhanceRequest
         ) {
-          this.#releaseExactFontSession();
+          this.#releaseSnapshotFontSession();
           return false;
         }
       } catch (error) {
@@ -908,17 +908,17 @@ class TiqianProseElement extends HTMLElementBase {
           !this.isConnected || generation !== this.#context.generation ||
           request !== this.#enhanceRequest
         ) {
-          this.#releaseExactFontSession();
+          this.#releaseSnapshotFontSession();
           return false;
         }
-        this.#releaseExactFontSession();
-        exactFontSession = null;
-        this.dataset.tiqianExactFontMiss = "ExactRenderFontStyleUnavailable";
-        console.warn("Tiqian Web exact render font style unavailable; using browser metrics", error);
+        this.#releaseSnapshotFontSession();
+        snapshotFontSession = null;
+        this.dataset.tiqianSnapshotFontMiss = "SnapshotRenderFontStyleUnavailable";
+        console.warn("Tiqian Web snapshot render font style unavailable; using browser metrics", error);
       }
     }
-    if (!exactFontSession) {
-      this.removeAttribute(EXACT_RENDER_FONT_ATTRIBUTE);
+    if (!snapshotFontSession) {
+      this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
     }
     // BrowserDashCapabilityBeforeDispatch: the browser no longer starts an
     // asynchronous HarfBuzz probe. Resolve the immediate capability result
@@ -928,11 +928,11 @@ class TiqianProseElement extends HTMLElementBase {
     const cjkDashCapability = needsDash
       ? await prepareCjkDashShapingIfNeeded(this, {
           ...baseOptions,
-          ...(exactFontSession ? { exactFontSession } : {}),
+          ...(snapshotFontSession ? { snapshotFontSession } : {}),
         })
       : { status: "not-needed" };
     if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
-      this.#releaseExactFontSession();
+      this.#releaseSnapshotFontSession();
       return false;
     }
     // Capture the input signature for cancellation. Kotlin reads the live width
@@ -945,28 +945,28 @@ class TiqianProseElement extends HTMLElementBase {
     const preparedOptions = {
       ...baseOptions,
       cjkDashCapability,
-      ...(exactFontSession ? {
-        requireExactLayoutWorker: true,
-        exactFontSession: {
+      ...(snapshotFontSession ? {
+        requireSnapshotLayoutWorker: true,
+        snapshotFontSession: {
           status: "conforming",
-          sessionId: exactFontSession.id,
-          detail: "SnapshotExactFontBytes",
+          sessionId: snapshotFontSession.id,
+          detail: "SnapshotFontBytes",
         },
       } : {}),
     };
-    if (exactFontSession) {
+    if (snapshotFontSession) {
       try {
         const { createPrepareJob } = await import("@tiqian/prose-core/core/engine/web-worker/worker-channel.js");
         const prepareJob = await createPrepareJob(
           this,
-          exactFontSession,
+          snapshotFontSession,
           preparedOptions,
           () => this.isConnected && generation === this.#context.generation &&
             request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
         );
         if (prepareJob) await coordinationService().runPrepare(this, prepareJob);
       } catch (error) {
-        // ExactWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
+        // SnapshotWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
         // block scroll under JIT restrictions. Progressive enhancement will
         // retain source DOM for requests without a Worker plan.
         console.warn("Tiqian Web layout Worker unavailable; retaining native paragraphs", error);
@@ -976,7 +976,7 @@ class TiqianProseElement extends HTMLElementBase {
         request !== this.#enhanceRequest || layoutOperation !== this.#layoutOperation
       ) {
         if (!this.isConnected || generation !== this.#context.generation) {
-          this.#releaseExactFontSession();
+          this.#releaseSnapshotFontSession();
         }
         return false;
       }
@@ -1096,7 +1096,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#paragraphTierIndex.clear();
   }
 
-  async #prepareExactFontSession(
+  async #prepareSnapshotFontSession(
     generation: number,
     request: number,
     revalidateExisting = true,
@@ -1104,22 +1104,22 @@ class TiqianProseElement extends HTMLElementBase {
     const reference = this.getAttribute("snapshot-ref");
     if (!reference) {
       if (generation === this.#context.generation && request === this.#enhanceRequest) {
-        this.#releaseExactFontSession();
+        this.#releaseSnapshotFontSession();
       }
       return null;
     }
-    if (this.#exactFontRejectedAttempt === this.#exactFontAttemptSignature(reference)) {
+    if (this.#snapshotFontRejectedAttempt === this.#snapshotFontAttemptSignature(reference)) {
       return null;
     }
-    // ExactFontValidationRenderProjection: the SSR marker owns first paint,
+    // SnapshotFontValidationRenderProjection: the SSR marker owns first paint,
     // while this session owns runtime validation. Reassert the projection here
-    // so a host hydrator cannot make exact-font validation depend on attribute
+    // so a host hydrator cannot make snapshot-font validation depend on attribute
     // reconciliation timing. The caller removes it on every failed session.
-    this.setAttribute(EXACT_RENDER_FONT_ATTRIBUTE, "true");
-    const loader = await loadExactFontFallback();
-    const existing = this.#exactFontSession;
+    this.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true");
+    const loader = await loadSnapshotFontFallback();
+    const existing = this.#snapshotFontSession;
     if (existing?.reference === reference) {
-      // ExactFontSessionLiveRevalidation: reuse immutable server replay tables
+      // SnapshotFontSessionLiveRevalidation: reuse immutable server replay tables
       // only after the browser adapter revalidates every live snapshot input. A
       // caller that already proved this is a width-only retarget may reuse the
       // same live contract without repeating width-independent font probes.
@@ -1138,21 +1138,21 @@ class TiqianProseElement extends HTMLElementBase {
       loader.releaseBrowserFontSession(handle);
       return null;
     }
-    const previous = this.#exactFontSession;
-    const next = createExactFontSessionEntry(reference, handle, loader);
-    this.#exactFontSession = next;
+    const previous = this.#snapshotFontSession;
+    const next = createSnapshotFontSessionEntry(reference, handle, loader);
+    this.#snapshotFontSession = next;
     if (previous && previous !== next) previous.release(previous.handle);
     return handle;
   }
 
-  #releaseExactFontSession() {
-    const entry = this.#exactFontSession;
+  #releaseSnapshotFontSession() {
+    const entry = this.#snapshotFontSession;
     if (!entry) return false;
-    this.#exactFontSession = null;
-    return releaseExactFontSession(entry, this);
+    this.#snapshotFontSession = null;
+    return releaseSnapshotFontSession(entry, this);
   }
 
-  #exactFontAttemptSignature(reference: string | null = this.getAttribute("snapshot-ref")) {
+  #snapshotFontAttemptSignature(reference: string | null = this.getAttribute("snapshot-ref")) {
     if (!reference) return "";
     const paragraph = this.querySelector("p[data-tq-snapshot-key], p, li");
     if (!paragraph) return `${reference}\u0000missing`;
@@ -1453,7 +1453,7 @@ class TiqianProseElement extends HTMLElementBase {
         });
         return;
       }
-      this.#releaseExactFontSession();
+      this.#releaseSnapshotFontSession();
       this.#hasDispatched = true;
       this.#acceptLayoutCompletion = true;
       this.#acceptValidatedSnapshotGeometry();
@@ -1523,7 +1523,7 @@ class TiqianProseElement extends HTMLElementBase {
       return;
     }
     // Source, typography, font-contract and unknown validation failures make
-    // the old lowered source or exact-font session untrustworthy. Re-lower and
+    // the old lowered source or snapshot-font session untrustworthy. Re-lower and
     // rebuild the font session; a cheap width-only relayout is valid only for
     // the two explicit geometry miss reasons above.
     const generation = this.#context.generation;
@@ -1567,7 +1567,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#dispatchRelayout();
   }
 
-  #refreshRuntimeFromSource({ revalidateExactFont = true }: TiqianSourceRefreshOptions = {}) {
+  #refreshRuntimeFromSource({ revalidateSnapshotFont = true }: TiqianSourceRefreshOptions = {}) {
     // A source refresh replaces the rendered paragraphs, so the seeded grid
     // metrics are for nodes about to leave the tree; drop them and let the
     // observer re-seed the rebuilt paragraphs.
@@ -1581,7 +1581,7 @@ class TiqianProseElement extends HTMLElementBase {
       engineFace.destroy(this);
       this.#runtimeStateActive = false;
     }
-    this.#dispatchProgressiveEnhance(generation, { revalidateExactFont }).catch((error) => {
+    this.#dispatchProgressiveEnhance(generation, { revalidateSnapshotFont }).catch((error) => {
       if (!this.isConnected || generation !== this.#context.generation) return;
       this.#finishLayoutWorkAndObserve();
       this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
@@ -1688,7 +1688,7 @@ class TiqianProseElement extends HTMLElementBase {
     // ResponsiveNativeRetargetSingleFlight: once rendered/runtime work has
     // been rolled back to semantic source, further resize signals only move
     // the same next-frame target. Do not synchronously rescan the entire
-    // article or start another exact-font preparation for every OS resize event.
+    // article or start another snapshot-font preparation for every OS resize event.
     if (this.#responsiveRelayoutRequired && !this.#runtimeStateActive) {
       this.#responsiveCommitRequired = true;
       this.#scheduleResponsiveGeometryCommit();
@@ -1938,14 +1938,14 @@ class TiqianProseElement extends HTMLElementBase {
     }
     if (typographyChanged) {
       this.#lastTypography = signature;
-      this.#refreshRuntimeFromSource({ revalidateExactFont: true });
+      this.#refreshRuntimeFromSource({ revalidateSnapshotFont: true });
       return;
     }
     if (this.#runtimeStateActive) {
       this.#dispatchRelayout(paragraphMeasures);
       return;
     }
-    this.#refreshRuntimeFromSource({ revalidateExactFont: false });
+    this.#refreshRuntimeFromSource({ revalidateSnapshotFont: false });
   }
 
   #removeViewportResizeListener() {
@@ -2400,11 +2400,11 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #paragraphMeasureSignature(): string {
-    return paragraphMeasureSignature(this, Boolean(this.#exactFontSession));
+    return paragraphMeasureSignature(this, Boolean(this.#snapshotFontSession));
   }
 
-  #paragraphMeasureEntry(paragraph: Element, exactFontLayout: boolean): string {
-    return paragraphMeasureEntry(paragraph, exactFontLayout);
+  #paragraphMeasureEntry(paragraph: Element, snapshotFontLayout: boolean): string {
+    return paragraphMeasureEntry(paragraph, snapshotFontLayout);
   }
 
   #paragraphMeasureSignatureFromObserved(): string {
@@ -2412,7 +2412,7 @@ class TiqianProseElement extends HTMLElementBase {
       this,
       this.#gridMetricsState,
       this.#sizeObservation?.widths ?? null,
-      Boolean(this.#exactFontSession),
+      Boolean(this.#snapshotFontSession),
       () => this.#paragraphMeasureSignature(),
     );
   }

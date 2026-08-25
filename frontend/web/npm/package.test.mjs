@@ -230,26 +230,26 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(layoutWorkerSource, /precompute-fonts\.js|harfbuzzjs|woff2-encoder/u);
   assert.match(layoutWorkerSource, /from "@tiqian\/ffi"/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-runtime/u);
-  assert.match(layoutWorkerSource, /workerExactSubsetSourceBoundaries\(session\.faces, request\)/u);
+  assert.match(layoutWorkerSource, /workerSnapshotSubsetSourceBoundaries\(session\.faces, request\)/u);
   assert.doesNotMatch(browserFontsSource, /harfbuzzjs|woff2-encoder/u);
   assert.doesNotMatch(elementSource, /tiqian:retry-cjk-dash/u);
   assert.match(elementSource, /BrowserDashCapabilityBeforeDispatch/u);
-  assert.doesNotMatch(elementSource, /#exactFontSession\?\.reference === reference/u);
+  assert.doesNotMatch(elementSource, /#snapshotFontSession\?\.reference === reference/u);
   assert.doesNotMatch(apiSource, /existing\?\.reference === reference/u);
-  assert.match(browserFontsSource, /await requirePreparedOrExactContract\(root\)/u);
+  assert.match(browserFontsSource, /await requirePreparedOrSnapshotContract\(root\)/u);
   assert.match(
     browserFontsSource,
-    /if \(prepared\?\.matches\)\s*return prepared;[\s\S]*?return requireExactContract\(root\)/u,
+    /if \(prepared\?\.matches\)\s*return prepared;[\s\S]*?return requireSnapshotContract\(root\)/u,
   );
   assert.match(browserFontsSource, /ExistingSessionLiveContractRevalidation/u);
   assert.match(browserFontsSource, /ServerReplayNeedsNoBrowserFontBytes/u);
   assert.doesNotMatch(browserFontsSource, /fetchImplementation|createRenderFontFace/u);
   assert.match(browserFontsSource, /export function prepareBrowserRenderFonts/u);
-  assert.match(elementSource, /ExactFontSessionLiveRevalidation/u);
+  assert.match(elementSource, /SnapshotFontSessionLiveRevalidation/u);
   assert.match(elementSource, /await existing\.revalidate\(this, existing\.handle\)/u);
   assert.match(
     elementSource,
-    /HostRenderFontReadyBeforeCommit[\s\S]*?await this\.#exactFontSession\.prepareRenderFont\(this, exactFontSession\)/u,
+    /HostRenderFontReadyBeforeCommit[\s\S]*?await this\.#snapshotFontSession\.prepareRenderFont\(this, snapshotFontSession\)/u,
   );
   assert.match(
     elementSource,
@@ -282,15 +282,15 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ExactFontValidationRenderProjection[\s\S]*?this\.setAttribute\(EXACT_RENDER_FONT_ATTRIBUTE, "true"\)/u,
+    /SnapshotFontValidationRenderProjection[\s\S]*?this\.setAttribute\(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true"\)/u,
   );
   assert.match(
     elementSource,
-    /ExactPreparedDomFallbackSingleFlight[\s\S]*?#exactFontRejectedAttempt = this\.#exactFontAttemptSignature\(\)/u,
+    /SnapshotPreparedDomFallbackSingleFlight[\s\S]*?#snapshotFontRejectedAttempt = this\.#snapshotFontAttemptSignature\(\)/u,
   );
   assert.match(
     elementSource,
-    /#exactFontRejectedAttempt === this\.#exactFontAttemptSignature\(reference\)/u,
+    /#snapshotFontRejectedAttempt === this\.#snapshotFontAttemptSignature\(reference\)/u,
   );
   assert.match(elementSource, /#restartConnectedLifecycle\(\)/u);
   assert.match(elementSource, /function snapshotCompletionSelector\(root\)/u);
@@ -415,15 +415,15 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveNativeBacking[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateExactFont \}\)/u,
+    /ResponsiveNativeBacking[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
   );
   assert.match(
     elementSource,
-    /const exactFontSessionAlreadyPrepared = !revalidateExactFont[\s\S]*?this\.#exactFontSession\?\.reference/u,
+    /const snapshotFontSessionAlreadyPrepared = !revalidateSnapshotFont[\s\S]*?this\.#snapshotFontSession\?\.reference/u,
   );
   assert.match(
     elementSource,
-    /WidthOnlyExactFontSessionReuse[\s\S]*?if \(!exactFontSessionAlreadyPrepared\)/u,
+    /WidthOnlySnapshotFontSessionReuse[\s\S]*?if \(!snapshotFontSessionAlreadyPrepared\)/u,
   );
   assert.match(
     elementSource,

@@ -2665,7 +2665,7 @@ export function testGrantController(root, generation, deadlineMs, quota) {
   };
 }
 
-export function failExactPreparedDomRender(detail) {
+export function failSnapshotPreparedDomRender(detail) {
   setPreparedDomValidatorForTest({ issue: () => null });
   setPreparedDomRendererForTest({
     schema: 1,
@@ -2687,34 +2687,34 @@ export function failExactPreparedDomRender(detail) {
 // tests render through the prepared bridge (ADR 0053 B8.3c); the exact
 // session fixture layers its font backend on top of the same renderer.
 export function installPreparedRendererFixture() {
-  globalThis.__TiqianExactPreparedPlan = "";
-  globalThis.__TiqianExactPreparedPlans = [];
-  globalThis.__TiqianExactPreparedSemantics = [];
-  globalThis.__TiqianExactPreparedCjkStrong = [];
-  globalThis.__TiqianExactPreparedSemanticElements = [];
-  globalThis.__TiqianExactPreparedInlineObjects = [];
-  globalThis.__TiqianExactPreparedRenderCount = 0;
-  globalThis.__TiqianExactFontShapeCount = 0;
-  globalThis.__TiqianExactFontFallbackCount = 0;
+  globalThis.__TiqianSnapshotPreparedPlan = "";
+  globalThis.__TiqianSnapshotPreparedPlans = [];
+  globalThis.__TiqianSnapshotPreparedSemantics = [];
+  globalThis.__TiqianSnapshotPreparedCjkStrong = [];
+  globalThis.__TiqianSnapshotPreparedSemanticElements = [];
+  globalThis.__TiqianSnapshotPreparedInlineObjects = [];
+  globalThis.__TiqianSnapshotPreparedRenderCount = 0;
+  globalThis.__TiqianSnapshotFontShapeCount = 0;
+  globalThis.__TiqianSnapshotFontFallbackCount = 0;
   setPreparedDomRendererForTest({
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     render(host, planJson, locale, options = {}) {
-      globalThis.__TiqianExactPreparedRenderCount += 1;
-      globalThis.__TiqianExactPreparedPlan = planJson;
-      globalThis.__TiqianExactPreparedPlans.push(planJson);
-      globalThis.__TiqianExactPreparedSemantics = Array.from(options.semantics || []);
-      globalThis.__TiqianExactPreparedCjkStrong = Array.from(options.cjkStrongSemantics || []);
-      globalThis.__TiqianExactPreparedSemanticElements =
+      globalThis.__TiqianSnapshotPreparedRenderCount += 1;
+      globalThis.__TiqianSnapshotPreparedPlan = planJson;
+      globalThis.__TiqianSnapshotPreparedPlans.push(planJson);
+      globalThis.__TiqianSnapshotPreparedSemantics = Array.from(options.semantics || []);
+      globalThis.__TiqianSnapshotPreparedCjkStrong = Array.from(options.cjkStrongSemantics || []);
+      globalThis.__TiqianSnapshotPreparedSemanticElements =
         Array.from(options.liveSemanticElements || []);
-      globalThis.__TiqianExactPreparedInlineObjects = Array.from(options.inlineObjects || []);
-      if (globalThis.__TiqianExactFixtureActive) {
-        for (const element of globalThis.__TiqianExactPreparedSemanticElements) {
+      globalThis.__TiqianSnapshotPreparedInlineObjects = Array.from(options.inlineObjects || []);
+      if (globalThis.__TiqianSnapshotFixtureActive) {
+        for (const element of globalThis.__TiqianSnapshotPreparedSemanticElements) {
           if (element && element.setAttribute) {
             element.setAttribute("data-tq-fixture-seen", "semantic");
           }
         }
-        for (const entry of globalThis.__TiqianExactPreparedInlineObjects) {
+        for (const entry of globalThis.__TiqianSnapshotPreparedInlineObjects) {
           if (entry && entry.element && entry.element.setAttribute) {
             entry.element.setAttribute("data-tq-fixture-seen", "inline-object");
           }
@@ -2757,7 +2757,7 @@ export function installPreparedRendererFixture() {
       }
       host.replaceChildren();
       const marker = globalThis.document.createElement("span");
-      marker.setAttribute("data-tq-exact-rendered", String(locale));
+      marker.setAttribute("data-tq-snapshot-rendered", String(locale));
       host.appendChild(marker);
       // Pending plain text flushes only when a different container or an
       // element is appended, so semantic clones attach in source order.
@@ -3282,22 +3282,22 @@ export function installPreparedRendererFixture() {
   setPreparedDomValidatorForTest({ issue: () => null });
 }
 
-// Exact font session fixture (backend-global retirement): the exact options
+// Snapshot font session fixture (backend-global retirement): the exact options
 // declare a conforming session id, the engine resolves that id into the
 // shapeJson/metricsJson callback pair through the coordination replay
 // registry, and this fixture registers a session whose tables synthesize one
 // entry per request from the replay key itself. Synthesis keeps the old
 // fixture geometry: one glyph per code point at advance 1em, bounds
 // [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
-// [1, 0.25, 0, 0.88, 0.12]em, and the NoExactFontFace failure injections.
-export function installExactFontSessionFixture({
+// [1, 0.25, 0, 0.88, 0.12]em, and the NoSnapshotFontFace failure injections.
+export function installSnapshotFontSessionFixture({
   failShaping = false,
   failFamily = null,
   failText = null,
   varyFaceByText = false,
 } = {}) {
   installPreparedRendererFixture();
-  globalThis.__TiqianExactFixtureActive = true;
+  globalThis.__TiqianSnapshotFixtureActive = true;
 
   function shapeFailure(displayText, serializedFamilies) {
     return failShaping ||
@@ -3309,10 +3309,10 @@ export function installExactFontSessionFixture({
     get(key) {
       const [displayText, serializedFamilies] = JSON.parse(key);
       if (shapeFailure(displayText, serializedFamilies)) {
-        globalThis.__TiqianExactFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
+        globalThis.__TiqianSnapshotFontFallbackCount += 1;
+        throw new Error("NoSnapshotFontFace:test");
       }
-      globalThis.__TiqianExactFontShapeCount += 1;
+      globalThis.__TiqianSnapshotFontShapeCount += 1;
       const glyphs = [];
       let glyphIndex = 0;
       for (const _point of displayText) {
@@ -3348,52 +3348,52 @@ export function installExactFontSessionFixture({
     get(key) {
       const [serializedFamilies] = JSON.parse(key);
       if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
-        globalThis.__TiqianExactFontFallbackCount += 1;
-        throw new Error("NoExactFontFace:test");
+        globalThis.__TiqianSnapshotFontFallbackCount += 1;
+        throw new Error("NoSnapshotFontFace:test");
       }
       return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
     }
   }
 
   globalServices().fonts.replayRegistry.sessions.set(
-    "fixture-exact-session",
+    "fixture-snapshot-session",
     { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
   );
 }
 
-export function clearExactFontSessionFixture() {
-  globalServices().fonts.replayRegistry.sessions.delete("fixture-exact-session");
-  delete globalThis.__TiqianExactFixtureActive;
+export function clearSnapshotFontSessionFixture() {
+  globalServices().fonts.replayRegistry.sessions.delete("fixture-snapshot-session");
+  delete globalThis.__TiqianSnapshotFixtureActive;
   setPreparedDomRendererForTest(null);
   setPreparedDomValidatorForTest(null);
   delete globalServices().coordination.layoutWorker;
-  delete globalThis.__TiqianExactPreparedPlan;
-  delete globalThis.__TiqianExactPreparedRenderCount;
-  delete globalThis.__TiqianExactFontShapeCount;
-  delete globalThis.__TiqianExactFontFallbackCount;
+  delete globalThis.__TiqianSnapshotPreparedPlan;
+  delete globalThis.__TiqianSnapshotPreparedRenderCount;
+  delete globalThis.__TiqianSnapshotFontShapeCount;
+  delete globalThis.__TiqianSnapshotFontFallbackCount;
 }
 
-export function exactFontShapeCount() {
-  return globalThis.__TiqianExactFontShapeCount || 0;
+export function snapshotFontShapeCount() {
+  return globalThis.__TiqianSnapshotFontShapeCount || 0;
 }
 
-export function exactFontFallbackCount() {
-  return globalThis.__TiqianExactFontFallbackCount || 0;
+export function snapshotFontFallbackCount() {
+  return globalThis.__TiqianSnapshotFontFallbackCount || 0;
 }
 
-export function exactPreparedPlan() {
-  return globalThis.__TiqianExactPreparedPlan || "";
+export function snapshotPreparedPlan() {
+  return globalThis.__TiqianSnapshotPreparedPlan || "";
 }
 
-export function exactPreparedRenderCount() {
-  return globalThis.__TiqianExactPreparedRenderCount || 0;
+export function snapshotPreparedRenderCount() {
+  return globalThis.__TiqianSnapshotPreparedRenderCount || 0;
 }
 
-export function failExactPreparedDomValidation(detail) {
+export function failSnapshotPreparedDomValidation(detail) {
   setPreparedDomValidatorForTest({ issue: () => detail });
 }
 
-export function failNextExactPreparedDomValidation(detail) {
+export function failNextSnapshotPreparedDomValidation(detail) {
   const previous = preparedDomValidator();
   let spent = false;
   setPreparedDomValidatorForTest({
@@ -3580,9 +3580,9 @@ export function elementFragmentWidths(element) {
   return Array.from(element.getClientRects()).filter((rect) => rect.width > 0).map((rect) => rect.width);
 }
 
-export function exactWorkerRequestMaxWidth(root, paragraph) {
+export function snapshotWorkerRequestMaxWidth(root, paragraph) {
   const serialized = engineInstance.workerLayoutRequest(root, paragraph, {
-    exactFontSession: {
+    snapshotFontSession: {
       status: "conforming",
       sessionId: "fixture-grid-session",
       detail: "test",
@@ -3591,12 +3591,12 @@ export function exactWorkerRequestMaxWidth(root, paragraph) {
   return JSON.parse(serialized).maxWidthPx;
 }
 
-export function exactTestOptions() {
+export function snapshotTestOptions() {
   return {
     paragraphSelector: "p[data-tq-snapshot-key]",
-    exactFontSession: {
+    snapshotFontSession: {
       status: "conforming",
-      sessionId: "fixture-exact-session",
+      sessionId: "fixture-snapshot-session",
       detail: "test",
     },
   };
@@ -3831,7 +3831,7 @@ export async function cleanupMounted() {
     root.parentNode?.removeChild?.(root);
   }
   mounted.length = 0;
-  clearExactFontSessionFixture();
+  clearSnapshotFontSessionFixture();
   restoreTestAnimationFrames();
   cleanupWorld();
 }

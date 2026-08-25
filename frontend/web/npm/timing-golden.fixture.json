@@ -172,7 +172,7 @@
         {
           "phase": "s2-resize",
           "op": "set",
-          "key": "tiqianExactFontMiss",
+          "key": "tiqianSnapshotFontMiss",
           "value": "FontSessionCreationFailed"
         },
         {
@@ -455,250 +455,6 @@
         {
           "phase": "s4-reconnect",
           "method": "destroy"
-        }
-      ]
-    },
-    "exact-font-contract-mismatch": {
-      "datasetWrites": [
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianCapabilityIssue"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianEnhanceMs"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianLoadMs"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianMaxSliceMs"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianRelayoutMs"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianRelayoutMaxSliceMs"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianFontWait"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianSnapshotLiveIssue"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianSnapshotCount"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianSnapshotMiss"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianSnapshotMiss"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "set",
-          "key": "tiqianSnapshotMiss",
-          "value": "FontFaceContractMismatch"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianSnapshot"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "set",
-          "key": "tiqianSnapshotMiss",
-          "value": "FontFaceContractMismatch"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "set",
-          "key": "tiqianExactFontMiss",
-          "value": "SnapshotExactFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "delete",
-          "key": "tiqianExactLayoutIssue"
-        },
-        {
-          "phase": "s1-adopt",
-          "op": "set",
-          "key": "tiqianEnhanceOptions",
-          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
-        },
-        {
-          "phase": "s3-midflight-disconnect",
-          "op": "delete",
-          "key": "tiqianFontWait"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianCapabilityIssue"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianEnhanceMs"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianLoadMs"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianMaxSliceMs"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianRelayoutMs"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianRelayoutMaxSliceMs"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianFontWait"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianSnapshotLiveIssue"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianSnapshotCount"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianSnapshotMiss"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianSnapshotMiss"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "set",
-          "key": "tiqianSnapshotMiss",
-          "value": "FontFaceContractMismatch"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianSnapshot"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "set",
-          "key": "tiqianSnapshotMiss",
-          "value": "FontFaceContractMismatch"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "set",
-          "key": "tiqianExactFontMiss",
-          "value": "SnapshotExactFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "delete",
-          "key": "tiqianExactLayoutIssue"
-        },
-        {
-          "phase": "s4-reconnect",
-          "op": "set",
-          "key": "tiqianEnhanceOptions",
-          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
-        }
-      ],
-      "attributeWrites": [
-        {
-          "phase": "s1-adopt",
-          "name": "data-tiqian-snapshot-typography-issue",
-          "value": null
-        },
-        {
-          "phase": "s1-adopt",
-          "name": "data-tiqian-exact-render-font",
-          "value": "true"
-        },
-        {
-          "phase": "s1-adopt",
-          "name": "data-tiqian-snapshot-typography-issue",
-          "value": null
-        },
-        {
-          "phase": "s1-adopt",
-          "name": "data-tiqian-exact-layout-fallback",
-          "value": null
-        },
-        {
-          "phase": "s1-adopt",
-          "name": "data-tiqian-exact-render-font",
-          "value": null
-        },
-        {
-          "phase": "s3-midflight-disconnect",
-          "name": "data-tiqian-exact-render-font",
-          "value": null
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-snapshot-typography-issue",
-          "value": null
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-render-font",
-          "value": "true"
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-snapshot-typography-issue",
-          "value": null
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-layout-fallback",
-          "value": null
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-exact-render-font",
-          "value": null
         }
       ]
     },
@@ -1230,6 +986,250 @@
         ]
       }
     },
+    "snapshot-font-contract-mismatch": {
+      "datasetWrites": [
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianSnapshotFontMiss",
+          "value": "SnapshotFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianCapabilityIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianEnhanceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianLoadMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianRelayoutMaxSliceMs"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianFontWait"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotLiveIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotCount"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshotMiss"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianSnapshot"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotMiss",
+          "value": "FontFaceContractMismatch"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianSnapshotFontMiss",
+          "value": "SnapshotFontContractMismatch|FieldMismatch|expectedFaces=1|actualFaces=1|firstField=src"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "delete",
+          "key": "tiqianExactLayoutIssue"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceOptions",
+          "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        }
+      ],
+      "attributeWrites": [
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-exact-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-exact-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-exact-render-font",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-typography-issue",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-exact-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-exact-render-font",
+          "value": null
+        }
+      ]
+    },
     "token-transitions": {
       "transitions": [
         {
@@ -1248,7 +1248,7 @@
             "relayout-event-suppressed",
             "paragraph-restored",
             "enhance-progressively-engine-called",
-            "exact-font-miss-recorded"
+            "snapshot-font-miss-recorded"
           ]
         },
         {

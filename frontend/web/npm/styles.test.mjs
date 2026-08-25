@@ -40,7 +40,7 @@ test("prepared DOM inherits the host font family contract", () => {
   assert.match(stylesheet, /:not\(\[data-tiqian-exact-layout-fallback\]\)/u);
   assert.match(stylesheet, /\[data-tq-canonical-plain="true"\]/u);
   assert.match(stylesheet, /\[data-tq-exact-prepared-dom="true"\]/u);
-  assert.match(stylesheet, /ExactPreparedShapingCss/u);
+  assert.match(stylesheet, /SnapshotPreparedShapingCss/u);
   assert.match(stylesheet, /font-kerning:\s*normal\s*!important/u);
   assert.match(stylesheet, /font-optical-sizing:\s*none\s*!important/u);
 });

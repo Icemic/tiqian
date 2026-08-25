@@ -8,18 +8,18 @@ import { prepareCjkDashShapingIfNeeded } from "@tiqian/prose-core/core/engine/lo
 import { restoreAdoptedSnapshot } from "@tiqian/prose-core/core/sampler/snapshot/loaded-snapshots.js";
 import { ensureTiqianStyles } from "@tiqian/prose-core/core/engine/loaders/styles.js";
 import {
-  createExactFontSessionEntry,
+  createSnapshotFontSessionEntry,
   hasSnapshotLayoutOverride,
-  releaseExactFontSession,
-} from "@tiqian/prose-core/core/engine/exact-font.js";
+  releaseSnapshotFontSession,
+} from "@tiqian/prose-core/core/engine/snapshot-font.js";
 import {
   ensurePreparedDomBridge,
-  loadExactFontFallback,
+  loadSnapshotFontFallback,
 } from "@tiqian/prose-core/core/engine/loaders/font-loader.js";
 import type { TiqianEngineInstance } from "@tiqian/prose-core/core/engine/engine-entry.js";
 import type { CjkDashShapingOutcome } from "@tiqian/prose-core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/prose-core/core/measurement/browser-fonts.js";
-import type { ExactFontSessionEntry } from "@tiqian/prose-core/core/engine/exact-font.js";
+import type { SnapshotFontSessionEntry } from "@tiqian/prose-core/core/engine/snapshot-font.js";
 import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/prose-core/core/engine/context/enhance-context.js";
 
 export { loadTiqianRuntime };
@@ -42,15 +42,15 @@ export type TiqianWebOptions = {
   paragraphSelector?: string;
 };
 
-interface TiqianWebExactFontSessionWire {
+interface TiqianWebSnapshotFontSessionWire {
   status: "conforming";
   sessionId: string;
-  detail: "SnapshotExactFontBytes";
+  detail: "SnapshotFontBytes";
 }
 
 type TiqianPreparedWebOptions = TiqianWebOptions & {
   cjkDashCapability: CjkDashShapingOutcome;
-  exactFontSession?: TiqianWebExactFontSessionWire;
+  snapshotFontSession?: TiqianWebSnapshotFontSessionWire;
 };
 
 type TiqianWebAction<T> = (api: TiqianEngineInstance, prepared: TiqianPreparedWebOptions) => T;
@@ -68,19 +68,19 @@ declare global {
   }
 }
 
-interface TiqianExactFontMissCandidate {
+interface TiqianSnapshotFontMissCandidate {
   code?: string;
   detail?: string;
 }
 
 interface TiqianCjkDashPrepareOptions extends TiqianWebOptions {
-  exactFontSession?: unknown;
+  snapshotFontSession?: unknown;
 }
 
 copyInstaller().install(globalThis.document);
 
-function exactFontMissDatasetValue(error: TiqianExactFontMissCandidate): string {
-  if (error?.code === "SnapshotExactFontContractMismatch" && typeof error?.detail === "string") {
+function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): string {
+  if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
     const pipeIndex = error.detail.indexOf("|");
     if (pipeIndex !== -1) {
       const detailSuffix = error.detail.slice(pipeIndex + 1);
@@ -89,7 +89,7 @@ function exactFontMissDatasetValue(error: TiqianExactFontMissCandidate): string 
       }
     }
   }
-  return error?.code ?? "ExactFontSessionUnavailable";
+  return error?.code ?? "SnapshotFontSessionUnavailable";
 }
 
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
@@ -99,10 +99,10 @@ function releaseContextFontSession(
   root: HTMLElement,
   expectedHandle: BrowserFontSessionHandle | null | typeof ANY_FONT_SESSION = ANY_FONT_SESSION,
 ): boolean {
-  const entry = context.exactFontSession.entry;
+  const entry = context.snapshotFontSession.entry;
   if (!entry || (expectedHandle !== ANY_FONT_SESSION && entry.handle !== expectedHandle)) return false;
-  context.exactFontSession.entry = null;
-  return releaseExactFontSession(entry, root);
+  context.snapshotFontSession.entry = null;
+  return releaseSnapshotFontSession(entry, root);
 }
 
 async function prepareRootFontSession(
@@ -113,49 +113,49 @@ async function prepareRootFontSession(
 ): Promise<BrowserFontSessionHandle | null> {
   if (!root?.getAttribute?.("snapshot-ref")) {
     if (context.generation === generation) {
-      const entry = context.exactFontSession.entry;
+      const entry = context.snapshotFontSession.entry;
       if (entry) {
-        releaseExactFontSession(entry, root);
-        context.exactFontSession.entry = null;
+        releaseSnapshotFontSession(entry, root);
+        context.snapshotFontSession.entry = null;
       }
     }
     return null;
   }
   if (hasSnapshotLayoutOverride(options)) {
     if (context.generation === generation) {
-      const entry = context.exactFontSession.entry;
+      const entry = context.snapshotFontSession.entry;
       if (entry) {
-        releaseExactFontSession(entry, root);
-        context.exactFontSession.entry = null;
+        releaseSnapshotFontSession(entry, root);
+        context.snapshotFontSession.entry = null;
       }
     }
-    root.dataset.tiqianExactFontMiss = "SnapshotLayoutOptionsOverride";
+    root.dataset.tiqianSnapshotFontMiss = "SnapshotLayoutOptionsOverride";
     return null;
   }
   const reference = root.getAttribute("snapshot-ref");
-  const existing = context.exactFontSession.entry;
+  const existing = context.snapshotFontSession.entry;
   try {
-    const loader = await loadExactFontFallback();
+    const loader = await loadSnapshotFontFallback();
     const handle = await loader.prepareBrowserFontSession(root);
     if (context.generation !== generation) {
       loader.releaseBrowserFontSession(handle);
       return null;
     }
-    const next = createExactFontSessionEntry(reference, handle, loader);
-    context.exactFontSession.entry = next;
+    const next = createSnapshotFontSessionEntry(reference, handle, loader);
+    context.snapshotFontSession.entry = next;
     if (existing && existing !== next) existing.release(existing.handle);
-    delete root.dataset.tiqianExactFontMiss;
+    delete root.dataset.tiqianSnapshotFontMiss;
     return handle;
   } catch (error) {
-    if (context.generation === generation && context.exactFontSession.entry === existing) {
-      const entry = context.exactFontSession.entry;
+    if (context.generation === generation && context.snapshotFontSession.entry === existing) {
+      const entry = context.snapshotFontSession.entry;
       if (entry) {
-        releaseExactFontSession(entry, root);
-        context.exactFontSession.entry = null;
+        releaseSnapshotFontSession(entry, root);
+        context.snapshotFontSession.entry = null;
       }
     }
-    root.dataset.tiqianExactFontMiss = exactFontMissDatasetValue(error as TiqianExactFontMissCandidate);
-    console.warn("Tiqian Web exact snapshot font session unavailable; using browser metrics", error);
+    root.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianSnapshotFontMissCandidate);
+    console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     return null;
   }
 }
@@ -176,10 +176,10 @@ async function withTiqianWeb<T>(
     fontSession = await prepareRootFontSession(root, generation, options, context);
     if (context.generation !== generation) {
       if (fontSession) {
-        const entry = context.exactFontSession.entry;
+        const entry = context.snapshotFontSession.entry;
         if (entry && entry.handle === fontSession) {
-          releaseExactFontSession(entry, root);
-          context.exactFontSession.entry = null;
+          releaseSnapshotFontSession(entry, root);
+          context.snapshotFontSession.entry = null;
         }
       }
       return root;
@@ -190,20 +190,20 @@ async function withTiqianWeb<T>(
         ...options,
         cjkDashCapability,
         ...(fontSession ? {
-          exactFontSession: {
+          snapshotFontSession: {
             status: "conforming",
             sessionId: fontSession.id,
-            detail: "SnapshotExactFontBytes",
+            detail: "SnapshotFontBytes",
           },
         } : {}),
       });
     });
   } catch (error) {
     if (context.generation === generation) {
-      const entry = context.exactFontSession.entry;
+      const entry = context.snapshotFontSession.entry;
       if (entry && (!fontSession || entry.handle === fontSession)) {
-        releaseExactFontSession(entry, root);
-        context.exactFontSession.entry = null;
+        releaseSnapshotFontSession(entry, root);
+        context.snapshotFontSession.entry = null;
       }
     }
     throw error;
