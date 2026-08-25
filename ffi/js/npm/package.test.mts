@@ -40,40 +40,7 @@ interface FfiExports {
   classifyFontRole: (text: string, start: number, end: number, locale: string) => string;
   unsupportedInlineShapingProperties: () => string[];
   firstDivergentInlineShapingProperty: (elementValues: string[], paragraphValues: string[]) => string | null;
-  precomputePlainParagraph: (
-    fontSessionId: string,
-    text: string,
-    maxWidthPx: number,
-    fontFamilies: string,
-    fontSizePx: number,
-    lineHeightPx: number,
-    locale: string,
-    fontWeight: number,
-    italic: boolean,
-    firstLineIndentIc: number,
-    lineLengthGridEnabled: boolean
-  ) => string;
-  precomputeParagraph: (
-    fontSessionId: string,
-    text: string,
-    maxWidthPx: number,
-    fontFamilies: string,
-    fontSizePx: number,
-    lineHeightPx: number,
-    locale: string,
-    fontWeight: number,
-    italic: boolean,
-    firstLineIndentIc: number,
-    lineLengthGridEnabled: boolean,
-    sourceBoundaries: string,
-    textSpans: string,
-    inlineBoxes: string,
-    lineBreakSpans: string,
-    inlineObjects: string | null,
-    renderEvidenceOverride?: boolean | null
-  ) => string;
   precomputeParagraphWithDiagnostics: (
-    fontSessionId: string,
     text: string,
     maxWidthPx: number,
     fontFamilies: string,
@@ -90,6 +57,8 @@ interface FfiExports {
     lineBreakSpans: string,
     inlineObjects: string | null,
     zeroAdvanceEpsilonPx: number,
+    shapeJson: (p0: string) => string,
+    metricsJson: (p0: string) => string,
     decorations?: string | null,
     emphasisDotGapEm?: number | null,
     renderEvidenceOverride?: boolean | null
@@ -162,8 +131,6 @@ test("the generated declarations name the whole export surface", async () => {
     "classifyFontRole",
     "unsupportedInlineShapingProperties",
     "firstDivergentInlineShapingProperty",
-    "precomputePlainParagraph",
-    "precomputeParagraph",
     "precomputeParagraphWithDiagnostics",
     "precomputeParagraphWithBrowserMetrics",
   ]);
@@ -204,8 +171,6 @@ test("the engine entry loads from the package exports surface", async () => {
   assert.equal(typeof ffi.classifyFontRole, "function");
   assert.equal(typeof ffi.unsupportedInlineShapingProperties, "function");
   assert.equal(typeof ffi.firstDivergentInlineShapingProperty, "function");
-  assert.equal(typeof ffi.precomputePlainParagraph, "function");
-  assert.equal(typeof ffi.precomputeParagraph, "function");
   assert.equal(typeof ffi.precomputeParagraphWithDiagnostics, "function");
   assert.equal(typeof ffi.precomputeParagraphWithBrowserMetrics, "function");
   assert.match(import.meta.resolve("@tiqian/ffi"), /Tiqian-tiqian-ffi-js\.mjs$/u);
