@@ -328,7 +328,7 @@ fn ordered_face_specs(specs: &[SessionFaceSpec]) -> Result<Vec<(usize, u32)>, Se
     for (input_order, entry) in specs.iter().enumerate() {
         let source_order = entry.source_order.unwrap_or(input_order_number);
         let is_safe_integer =
-            source_order.fract() == 0.0 && source_order.abs() <= 9_007_199_254_740_992.0;
+            source_order.fract() == 0.0 && source_order.abs() <= 9_007_199_254_740_991.0;
         if !is_safe_integer || source_order < 0.0 {
             return Err(SessionError::InvalidFontFaceSourceOrder {
                 input_order,
