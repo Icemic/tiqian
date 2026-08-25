@@ -14,8 +14,6 @@ import type {
   PreparedRenderFontStyleInstaller,
   PreparedRenderFontStyleReleaser,
 } from "../exact-font.js";
-// Ambient global declarations pulled in via import type from owner modules.
-import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
 import { globalServices } from "../../services/global-services.js";
 
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
@@ -212,6 +210,8 @@ export interface ExactFontFallbackLoader {
   releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
+import { loadPreparedDomRenderer, preparedDomRendererModule } from "./runtime-loader.js";
+
 // The exact-font-fallback and prepared-dom-bridge memos live on the
 // service-owned FontCoordinationState (page-level once-per-document). They
 // are consulted lazily at use time so this module imports the service
@@ -220,9 +220,8 @@ export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
   const state = globalServices().fonts;
   state.exactFontFallbackPromise ??= Promise.all([
     import("../../measurement/browser-fonts.js"),
-    import("../../sampler/snapshot/prepared-dom.js"),
+    loadPreparedDomRenderer(),
   ]).then(([fonts, preparedDom]): ExactFontFallbackLoader => {
-    preparedDom.installPreparedDomRendererBridge();
     return {
       prepareBrowserFontSession: fonts.prepareBrowserFontSession,
       revalidateBrowserFontSession: fonts.revalidateBrowserFontSession,
@@ -242,13 +241,11 @@ export function loadExactFontFallback(): Promise<ExactFontFallbackLoader> {
 // already-occupied slot belongs to a test fixture or an exact-session
 // install and is left untouched — loadExactFontFallback keeps its own
 // monotonic upgrade for a stale legacy occupant.
-export function ensurePreparedDomBridge(): Promise<PreparedDomRendererApi | undefined> {
+export function ensurePreparedDomBridge(): Promise<typeof import("../../sampler/snapshot/prepared-dom.js") | undefined> {
   const state = globalServices().fonts;
-  state.preparedBridgePromise ??= globalThis.__TiqianPreparedDomRenderer
-    ? Promise.resolve(globalThis.__TiqianPreparedDomRenderer)
-    : import("../../sampler/snapshot/prepared-dom.js").then(
-        () => globalThis.__TiqianPreparedDomRenderer,
-      );
+  state.preparedBridgePromise ??= preparedDomRendererModule()
+    ? Promise.resolve(preparedDomRendererModule()!)
+    : loadPreparedDomRenderer();
   return state.preparedBridgePromise;
 }
 

@@ -1,3 +1,4 @@
+import { globalServices } from "../services/global-services.js";
 // processParagraph (TsHost runtime port, Slice 4d-1). Ports the paragraph
 // processing orchestration from WebEnhancerParagraphPipeline.kt
 // (processParagraph, lines 89-227, and layoutParagraph, lines 229-264).
@@ -224,7 +225,7 @@ interface ProcessInlineShapingDecisionResult {
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the
     // same tolerance the former Kotlin shims applied.
-    const layoutWorker = globalThis.__TiqianLayoutWorker;
+    const layoutWorker = globalServices().coordination.layoutWorker;
     const workerPlan = workerRequest != null && sessionKey != null && layoutWorker != null
       ? layoutWorker.take(paragraph, sessionKey, workerRequest)
       : null;

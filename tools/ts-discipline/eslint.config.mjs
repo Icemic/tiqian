@@ -19,9 +19,7 @@
 //      function types must be named (e.g. `type Handler = (x: number) => string`).
 //      Rules 5-6 follow the G1 code standard (.agent-specs/g1-code-standard.md).
 //   7. Zero `var`: executable `var` is forbidden (const, or let when reassigned).
-//      Two exemptions: ambient `var` inside `declare global` blocks (the
-//      type-level spelling of a globalThis property, it dies with its global)
-//      and the TypeScript printer's synthesized `var _a` hoist in emit products
+//      One exemption: the TypeScript printer's synthesized `var _a` hoist in emit products
 //      (G2 module boundary).
 //   8. prefer-const on TypeScript sources: a let that is never reassigned is a
 //      const (G2 module boundary).
@@ -154,9 +152,9 @@ export default [
         },
         {
           selector:
-            "VariableDeclaration[kind=\"var\"]:not(TSModuleBlock VariableDeclaration):not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"]))",
+            "VariableDeclaration[kind=\"var\"]:not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"])):not(TSModuleBlock VariableDeclaration)",
           message:
-            "var is forbidden; use const, or let when reassigned. Two exemptions: ambient var inside declare global (the type-level spelling of a globalThis property, dies with its global) and the TypeScript printer's synthesized `var _a` hoist in emit products (G2 module boundary).",
+            "var is forbidden; use const, or let when reassigned. Exemptions: the TypeScript printer's synthesized `var _a` hoist in emit products, and ambient type-only declarations inside `declare global` blocks (erased at compile time) (G2 module boundary).",
         },
       ],
     },

@@ -22,7 +22,7 @@ import {
   validatePrecomputedExactFontReplayLiveContract,
 } from "../sampler/snapshot/precomputed.js";
 // Ambient global declarations pulled in via import type from owner modules.
-import type { TiqianLayoutWorkerInstance } from "../engine/web-worker/worker-channel.js";
+import type { TiqianLayoutWorkerInstance } from "../engine/coordination/coordination-service.js";
 import { globalServices } from "../services/global-services.js";
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
@@ -732,7 +732,7 @@ export function createBrowserFontSessionLoader(options: BrowserFontSessionLoader
       if (state.versions.get(state.cacheKey) === state) {
         state.versions.delete(state.cacheKey);
       }
-      globalThis.__TiqianLayoutWorker?.release?.(state.session?.id);
+      globalServices().coordination.layoutWorker?.release?.(state.session?.id);
       state.session?.close();
     }
   }

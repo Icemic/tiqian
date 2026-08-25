@@ -1,3 +1,4 @@
+import { globalServices } from "../../services/global-services.js";
 // Main-thread worker channel (ADR 0053 batch 5; decomposition report
 // section 9). Moved verbatim from the package root; layout-worker.js
 // stays at the root, so the Worker URL gains three parent levels.
@@ -142,32 +143,6 @@ export interface SemanticReplayFailure {
 
 export type SemanticReplayResult = SemanticReplaySuccess | SemanticReplayFailure;
 
-export type LayoutWorkerTakeFn = (
-  element: Element | null | undefined,
-  sessionKey: string,
-  requestText: string,
-) => string | null;
-
-export type LayoutWorkerIssueFn = (
-  element: Element | null | undefined,
-  sessionKey: string,
-  requestText: string,
-) => string | null;
-
-export type LayoutWorkerReleaseFn = (sessionKey?: string) => boolean;
-
-export interface TiqianLayoutWorkerInstance {
-  readonly version: number;
-  readonly semanticReplayRevision: number;
-  take: LayoutWorkerTakeFn;
-  issue: LayoutWorkerIssueFn;
-  release: LayoutWorkerReleaseFn;
-}
-
-declare global {
-  var __TiqianLayoutWorker: TiqianLayoutWorkerInstance | undefined;
-}
-
 export interface PrepareJobOptions {
   paragraphSelector?: string;
   [key: string]: unknown;
@@ -308,9 +283,9 @@ function semanticReplay(request: WorkerLayoutRequestBody): SemanticReplayResult 
 }
 
 function installBridge(): void {
-  const installedVersion = Number((globalThis.__TiqianLayoutWorker as TiqianLayoutWorkerInstance | undefined)?.version);
+  const installedVersion = Number(globalServices().coordination.layoutWorker?.version);
   const installedSemanticReplayRevision = Number(
-    (globalThis.__TiqianLayoutWorker as TiqianLayoutWorkerInstance | undefined)?.semanticReplayRevision ?? 0,
+    globalServices().coordination.layoutWorker?.semanticReplayRevision ?? 0,
   );
   // MonotonicBridgeFeatureUpgrade: legacy v1 chunks return early for any v1
   // bridge. Keep that outer version so an old chunk cannot downgrade this
@@ -318,9 +293,7 @@ function installBridge(): void {
   if (installedVersion > BRIDGE_VERSION ||
       (installedVersion === BRIDGE_VERSION &&
        installedSemanticReplayRevision >= SEMANTIC_REPLAY_REVISION)) return;
-  Object.defineProperty(globalThis, "__TiqianLayoutWorker", {
-    configurable: true,
-    value: Object.freeze({
+  globalServices().coordination.layoutWorker = Object.freeze({
       version: BRIDGE_VERSION,
       semanticReplayRevision: SEMANTIC_REPLAY_REVISION,
       take(_element: Element | null | undefined, sessionKey: string, requestText: string): string | null {
@@ -350,17 +323,15 @@ function installBridge(): void {
         if (record.issue) return record.issue;
         return semanticReplay(request).issue ?? null;
       },
-      release(sessionKey: string): boolean {
+      release(sessionKey?: string): boolean {
         for (const key of plans.keys()) {
-          if (key.startsWith(`${sessionKey}\u0000`)) plans.delete(key);
+          if (sessionKey !== undefined && key.startsWith(`${sessionKey}\u0000`)) plans.delete(key);
         }
-        if (!initializedSessions.delete(sessionKey) || !coordinator.worker) return false;
+        if (sessionKey === undefined || !initializedSessions.delete(sessionKey) || !coordinator.worker) return false;
         void send({ type: "release", sessionKey }).catch(() => {});
         return true;
       },
-    }),
-    writable: false,
-  });
+    });
 }
 
 installBridge();

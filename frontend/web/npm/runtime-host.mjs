@@ -1,3 +1,4 @@
+import { globalServices } from "@tiqian/prose-core/core/services/global-services.js";
 // Fake host environment for driving Kotlin/JS runtime under Node.js test runner.
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
 // stable and synchronous execution for raw-DOM backup relayout and destruction tests.
@@ -10,6 +11,7 @@ import {
   FakeText,
   fixtureComputedStyle,
 } from "./snapshot-dom-fixtures.mjs";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomValidator } from "@tiqian/prose-core/core/engine/loaders/runtime-loader.js";
 
 export class FakeDOMRect {
   constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -2664,8 +2666,8 @@ export function testGrantController(root, generation, deadlineMs, quota) {
 }
 
 export function failExactPreparedDomRender(detail) {
-  globalThis.__TiqianPreparedDomValidator = { issue: () => null };
-  globalThis.__TiqianPreparedDomRenderer = {
+  setPreparedDomValidatorForTest({ issue: () => null });
+  setPreparedDomRendererForTest({
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     render() {
@@ -2677,7 +2679,7 @@ export function failExactPreparedDomRender(detail) {
     releaseRoot() {
       return true;
     },
-  };
+  });
 }
 
 // Shared prepared-DOM renderer fixture: the full ported pipeline without
@@ -2694,7 +2696,7 @@ export function installPreparedRendererFixture() {
   globalThis.__TiqianExactPreparedRenderCount = 0;
   globalThis.__TiqianExactFontShapeCount = 0;
   globalThis.__TiqianExactFontFallbackCount = 0;
-  globalThis.__TiqianPreparedDomRenderer = {
+  setPreparedDomRendererForTest({
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     render(host, planJson, locale, options = {}) {
@@ -3276,8 +3278,8 @@ export function installPreparedRendererFixture() {
     releaseRoot() {
       return true;
     },
-  };
-  globalThis.__TiqianPreparedDomValidator = { issue: () => null };
+  });
+  setPreparedDomValidatorForTest({ issue: () => null });
 }
 
 export function installExactFontSessionFixture({
@@ -3355,9 +3357,9 @@ export function installExactFontSessionFixture({
 
 export function clearExactFontSessionFixture() {
   delete globalThis.__TiqianFontBackend;
-  delete globalThis.__TiqianPreparedDomRenderer;
-  delete globalThis.__TiqianPreparedDomValidator;
-  delete globalThis.__TiqianLayoutWorker;
+  setPreparedDomRendererForTest(null);
+  setPreparedDomValidatorForTest(null);
+  delete globalServices().coordination.layoutWorker;
   delete globalThis.__TiqianExactPreparedPlan;
   delete globalThis.__TiqianExactPreparedRenderCount;
   delete globalThis.__TiqianExactFontShapeCount;
@@ -3381,13 +3383,13 @@ export function exactPreparedRenderCount() {
 }
 
 export function failExactPreparedDomValidation(detail) {
-  globalThis.__TiqianPreparedDomValidator = { issue: () => detail };
+  setPreparedDomValidatorForTest({ issue: () => detail });
 }
 
 export function failNextExactPreparedDomValidation(detail) {
-  const previous = globalThis.__TiqianPreparedDomValidator;
+  const previous = preparedDomValidator();
   let spent = false;
-  globalThis.__TiqianPreparedDomValidator = {
+  setPreparedDomValidatorForTest({
     issue(host, width) {
       if (!spent) {
         spent = true;
@@ -3397,15 +3399,15 @@ export function failNextExactPreparedDomValidation(detail) {
         ? previous.issue(host, width)
         : null;
     },
-  };
+  });
 }
 
 export function installPreparedWorkerIssue(detail) {
-  globalThis.__TiqianLayoutWorker = { take: () => null, issue: () => detail };
+  globalServices().coordination.layoutWorker = { take: () => null, issue: () => detail };
 }
 
 export function installPreparedWorkerLivePlan() {
-  globalThis.__TiqianLayoutWorker = {
+  globalServices().coordination.layoutWorker = {
     take(_element, _sessionKey, requestText) {
       const request = JSON.parse(requestText);
       const semantics = Array.from(request.semantics || [], function (semantic, sourceIndex) {

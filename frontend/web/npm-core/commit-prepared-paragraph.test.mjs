@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "./core/engine/commit-prepared-paragraph.js";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "./core/engine/loaders/runtime-loader.js";
 import { effectiveLineMeasure } from "./core/engine/responsive-measure.js";
 import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
@@ -49,8 +50,6 @@ function computedStyle(values = {}) {
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals([
     "getComputedStyle",
-    "__TiqianPreparedDomRenderer",
-    "__TiqianPreparedDomValidator",
   ]);
   try {
     globalThis.getComputedStyle = (target, pseudo) =>
@@ -60,7 +59,7 @@ function withEnv(fn, overrides = {}) {
     if (overrides.renderer !== false) {
       const renders = [];
       const releases = [];
-      globalThis.__TiqianPreparedDomRenderer = {
+      setPreparedDomRendererForTest({
         render: (host, plan, locale, options) => {
           renders.push({
             host,
@@ -79,15 +78,17 @@ function withEnv(fn, overrides = {}) {
         layoutRevision: "tiqian-layout-v2",
         renders,
         releases,
-      };
+      });
     }
     if (overrides.validator !== undefined) {
-      globalThis.__TiqianPreparedDomValidator = {
+      setPreparedDomValidatorForTest({
         issue: overrides.validator,
-      };
+      });
     }
     return fn();
   } finally {
+    setPreparedDomRendererForTest(null);
+    setPreparedDomValidatorForTest(null);
     restoreGlobals(saved);
   }
 }
@@ -267,7 +268,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.lastMeasure, effectiveLineMeasure(300, 19));
 
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     const renderCall = renderer.renders[0];
     assert.equal(renderCall.host, paragraph.source);
@@ -310,7 +311,7 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
     });
 
     assert.equal(fallbackIssue, "LineHeightMismatch");
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.releases.length, 1);
     assert.equal(renderer.releases[0], paragraph.source);
 
@@ -384,7 +385,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.source.getAttribute("lang"), "zh-Hans");
 
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(renderer.renders[0].options, undefined);
 
@@ -433,7 +434,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     assert.deepEqual(result, { kind: "success", measure: 339 });
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
 
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.deepEqual(renderer.renders[0].options, {
       sourceText: "hello world",
@@ -527,7 +528,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 
     assert.equal(fallbackReported, "ExactSessionMismatch");
 
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 2);
     assert.equal(renderer.renders[0].plan, '{"plan":"first"}');
     // The retry re-prepared through the real browser-metrics lane over the
@@ -608,7 +609,7 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       browserFallback: { bridge: makeValidBridge() },
     });
 
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 2);
 
     assert.deepEqual(result, {

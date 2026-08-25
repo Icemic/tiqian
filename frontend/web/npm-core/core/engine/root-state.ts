@@ -1,3 +1,4 @@
+import { globalServices } from "../services/global-services.js";
 // RootState maintenance for the enhance pipeline (TsHost runtime port,
 // Slice 5). Ports the Kotlin RootState data class and its state methods from
 // WebEnhancer.kt (lines 206-272, 454-489) together with the engine-state and
@@ -232,6 +233,7 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
       ? canonical
       : withoutExactFontSession(canonical);
     const resolved = withRootDefaults(exactEligible, root);
+    if (resolved.trace) globalServices().coordination.traceConfig = resolved.trace;
     return newRootState(root, resolved);
   }
 
@@ -240,6 +242,7 @@ export function createRootState(deps: RootStateDeps): RootStateApi {
     // from optionsFromJs output shape, so the snapshot gate is skipped.
     root.removeAttribute(EXACT_PREPARED_FALLBACK_ATTRIBUTE);
     const resolved = withRootDefaults(canonicalOptions, root);
+    if (resolved.trace) globalServices().coordination.traceConfig = resolved.trace;
     return newRootState(root, resolved);
   }
 

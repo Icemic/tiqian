@@ -18,8 +18,7 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
-import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
-import type { PreparedDomValidatorInterface } from "../sampler/snapshot/precomputed.js";
+import { preparedDomRendererModule, preparedDomValidator } from "./loaders/runtime-loader.js";
 import type { RawDomApi } from "./raw-dom.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
@@ -93,7 +92,7 @@ function isCanonicalPlain(lowered: LoweredParagraph): boolean {
 // in WebEnhancerSupport.kt. The validator global exists only in test worlds;
 // an absent validator reports null and never throws.
 function rendererIssue(host: Element, width: number): string | null {
-  const validator = globalThis.__TiqianPreparedDomValidator;
+  const validator = preparedDomValidator();
   return (validator && typeof validator.issue === 'function')
     ? validator.issue(host, width)
     : null;
@@ -103,7 +102,7 @@ function rendererIssue(host: Element, width: number): string | null {
 // releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
 // installed renderer. Callers ignore the return value.
 function releasePreparedDomStyles(host: Element): boolean {
-  const renderer = globalThis.__TiqianPreparedDomRenderer;
+  const renderer = preparedDomRendererModule();
   return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
 }
 
@@ -132,7 +131,7 @@ function renderWorkerPrepared(
     };
   });
   return rawDom.suspendEngineWrites(host, function () {
-    return globalThis.__TiqianPreparedDomRenderer!.render(
+    return preparedDomRendererModule()!.render(
       host,
       record.plan,
       locale,
@@ -184,7 +183,7 @@ function renderPrepared(
       inlineObjects: inlineObjectsMetaPaired,
       cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
     } : undefined;
-    return globalThis.__TiqianPreparedDomRenderer!.render(
+    return preparedDomRendererModule()!.render(
       host,
       planJson,
       locale,

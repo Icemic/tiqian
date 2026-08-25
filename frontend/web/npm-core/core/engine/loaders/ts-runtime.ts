@@ -21,6 +21,8 @@ import type { EngineEntryHandle } from "../engine-entry.js";
 import { createFontFamilies } from "../canvas-fonts.js";
 import { createBrowserMetricsBridge } from "../browser-metrics-bridge.js";
 
+import { preparedDomRendererModule } from "./runtime-loader.js";
+
 // EngineEntryOptions: the concrete composition root accepts an optional
 // externally-owned copy installer so the page-level copy handler is shared
 // with the element layer's own module-scope install.
@@ -32,7 +34,10 @@ export interface EngineEntryOptions {
 // root-state, layout-job-pool, and the engine+worker facade. Every product is
 // built here; the engine entry only wires what it receives.
 export function engineEntry(options?: EngineEntryOptions): EngineEntryHandle {
-  const rawDom = deriveRawDom({ getEnhanceContext: getOrCreateEnhanceContext });
+  const rawDom = deriveRawDom({ 
+    getEnhanceContext: getOrCreateEnhanceContext,
+    getPreparedDomRendererModule: preparedDomRendererModule,
+  });
   const copyInstaller = options && options.copyInstaller
     ? options.copyInstaller
     : createCopyInstaller();

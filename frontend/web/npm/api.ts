@@ -25,7 +25,10 @@ import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/prose-c
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/prose-core/core/sampler/snapshot/declared-faces.js";
 
+export type TraceConfig = { maxEntries?: number; };
+
 export type TiqianWebOptions = {
+  trace?: TraceConfig;
   cjkFontFamily?: string;
   latinFontFamily?: string;
   monospaceFontFamily?: string;

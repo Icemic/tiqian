@@ -1,3 +1,4 @@
+import { globalServices } from "./core/services/global-services.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -120,7 +121,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
   const handle = await state.loader.prepare(state.root);
   const originalWorker = globalThis.Worker;
   const originalInnerHeight = globalThis.innerHeight;
-  const originalBridge = globalThis.__TiqianLayoutWorker;
+  const originalBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const originalCoordinator = globalThis[coordinatorKey];
   const element = {
@@ -162,14 +163,14 @@ test("layout Worker plans survive duplicate module instances and reach the engin
 
   try {
     delete globalThis[coordinatorKey];
-    delete globalThis.__TiqianLayoutWorker;
+    delete globalServices().coordination.layoutWorker;
     const legacyBridge = Object.freeze({
       version: 1,
       take: () => "legacy",
       issue: () => "legacy",
       release: () => false,
     });
-    globalThis.__TiqianLayoutWorker = legacyBridge;
+    globalServices().coordination.layoutWorker = legacyBridge;
     globalThis.Worker = FixtureWorker;
     globalThis.innerHeight = 800;
     // C1: the worker channel reads the engine call face, so the fixture
@@ -187,15 +188,15 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     const firstModule = await import(
       `./core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
     );
-    assert.notEqual(globalThis.__TiqianLayoutWorker, legacyBridge);
-    assert.equal(globalThis.__TiqianLayoutWorker.version, 1);
-    assert.equal(globalThis.__TiqianLayoutWorker.semanticReplayRevision, 1);
+    assert.notEqual(globalServices().coordination.layoutWorker, legacyBridge);
+    assert.equal(globalServices().coordination.layoutWorker.version, 1);
+    assert.equal(globalServices().coordination.layoutWorker.semanticReplayRevision, 1);
     assert.equal(await drivePrepareJob(firstModule, state.root, handle, {
       paragraphSelector: completionSelector,
     }), 1);
     const firstRequest = engineStub.workerLayoutRequest();
     assert.equal(
-      JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, firstRequest)).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, firstRequest)).plan.fixture,
       "first",
     );
     const semanticOnlyChange = JSON.stringify({
@@ -204,7 +205,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       renderInlineBoxes: [{ start: 0, end: 5, inlineStart: 1, inlineEnd: 2 }],
     });
     const semanticRecord = JSON.parse(
-      globalThis.__TiqianLayoutWorker.take(element, handle.id, semanticOnlyChange),
+      globalServices().coordination.layoutWorker.take(element, handle.id, semanticOnlyChange),
     );
     assert.equal(semanticRecord.plan.fixture, "first");
     assert.deepEqual(semanticRecord.semantics, [{
@@ -221,7 +222,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       maxWidthPx: 319,
     });
     assert.equal(
-      globalThis.__TiqianLayoutWorker.take(element, handle.id, changedMeasure),
+      globalServices().coordination.layoutWorker.take(element, handle.id, changedMeasure),
       null,
     );
 
@@ -234,19 +235,19 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     }), 1);
     const secondRequest = engineStub.workerLayoutRequest();
     assert.equal(
-      JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, secondRequest)).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, secondRequest)).plan.fixture,
       "second",
     );
-    assert.equal(globalThis.__TiqianLayoutWorker.issue(element, handle.id, secondRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker.issue(element, handle.id, secondRequest), null);
 
     requestText = "failure";
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
       paragraphSelector: completionSelector,
     }), 0);
     const failedRequest = engineStub.workerLayoutRequest();
-    assert.equal(globalThis.__TiqianLayoutWorker.take(element, handle.id, failedRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker.take(element, handle.id, failedRequest), null);
     assert.equal(
-      globalThis.__TiqianLayoutWorker.issue(element, handle.id, failedRequest),
+      globalServices().coordination.layoutWorker.issue(element, handle.id, failedRequest),
       "fixture replay miss",
     );
 
@@ -266,7 +267,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     }), 1);
     const unsupportedSemanticRequest = engineStub.workerLayoutRequest();
     const unsupportedSemanticRecord = JSON.parse(
-      globalThis.__TiqianLayoutWorker.take(element, handle.id, unsupportedSemanticRequest),
+      globalServices().coordination.layoutWorker.take(element, handle.id, unsupportedSemanticRequest),
     );
     assert.equal(unsupportedSemanticRecord.plan.fixture, "live semantic");
     assert.equal(unsupportedSemanticRecord.semanticReplay, "live-source");
@@ -277,7 +278,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       sourceIndex: 0,
     }]);
     assert.equal(
-      globalThis.__TiqianLayoutWorker.issue(element, handle.id, unsupportedSemanticRequest),
+      globalServices().coordination.layoutWorker.issue(element, handle.id, unsupportedSemanticRequest),
       null,
     );
 
@@ -301,7 +302,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     });
     assert.deepEqual(
       JSON.parse(
-        globalThis.__TiqianLayoutWorker.take(element, handle.id, nestedLiveSemanticRequest),
+        globalServices().coordination.layoutWorker.take(element, handle.id, nestedLiveSemanticRequest),
       ).semantics,
       [{ start: 0, end: 4, tagName: "spoiler", sourceIndex: 1 },
         { start: 0, end: 4, tagName: "em", sourceIndex: 0 }],
@@ -317,7 +318,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       }],
     });
     const sameLayoutSafeSemanticRecord = JSON.parse(
-      globalThis.__TiqianLayoutWorker.take(element, handle.id, sameLayoutSafeSemanticRequest),
+      globalServices().coordination.layoutWorker.take(element, handle.id, sameLayoutSafeSemanticRequest),
     );
     assert.equal(sameLayoutSafeSemanticRecord.plan.fixture, "live semantic");
     assert.equal(sameLayoutSafeSemanticRecord.semanticReplay, "snapshot-safe");
@@ -333,7 +334,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     });
     assert.equal(
       JSON.parse(
-        globalThis.__TiqianLayoutWorker.take(
+        globalServices().coordination.layoutWorker.take(
           element,
           handle.id,
           sameLayoutStyledSemanticRequest,
@@ -353,7 +354,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     });
     assert.equal(
       JSON.parse(
-        globalThis.__TiqianLayoutWorker.take(element, handle.id, sameLayoutLiveHrefRequest),
+        globalServices().coordination.layoutWorker.take(element, handle.id, sameLayoutLiveHrefRequest),
       ).semanticReplay,
       "live-source",
     );
@@ -363,11 +364,11 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       semantics: [{ start: 0, end: 99, tagName: "spoiler", attributes: [] }],
     });
     assert.equal(
-      globalThis.__TiqianLayoutWorker.take(element, handle.id, invalidSemanticRequest),
+      globalServices().coordination.layoutWorker.take(element, handle.id, invalidSemanticRequest),
       null,
     );
     assert.equal(
-      globalThis.__TiqianLayoutWorker.issue(element, handle.id, invalidSemanticRequest),
+      globalServices().coordination.layoutWorker.issue(element, handle.id, invalidSemanticRequest),
       "InvalidSnapshotSemanticRange",
     );
 
@@ -387,7 +388,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     const afterInvalidRequest = engineStub.workerLayoutRequest(state.root, element);
     assert.equal(
       JSON.parse(
-        globalThis.__TiqianLayoutWorker.take(element, handle.id, afterInvalidRequest),
+        globalServices().coordination.layoutWorker.take(element, handle.id, afterInvalidRequest),
       ).plan.fixture,
       "after invalid candidate",
     );
@@ -403,14 +404,14 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, {}), 1);
     const defaultRequest = engineStub.workerLayoutRequest();
     assert.equal(
-      JSON.parse(globalThis.__TiqianLayoutWorker.take(element, handle.id, defaultRequest)).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, defaultRequest)).plan.fixture,
       "default-runtime-set",
     );
 
     assert.equal(state.loader.release(handle), true);
-    assert.equal(globalThis.__TiqianLayoutWorker.take(element, handle.id, firstRequest), null);
-    assert.equal(globalThis.__TiqianLayoutWorker.take(element, handle.id, secondRequest), null);
-    assert.equal(globalThis.__TiqianLayoutWorker.issue(element, handle.id, failedRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker.take(element, handle.id, firstRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker.take(element, handle.id, secondRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker.issue(element, handle.id, failedRequest), null);
     assert.deepEqual(selectors, [
       completionSelector,
       completionSelector,
@@ -423,8 +424,8 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     globalThis[coordinatorKey]?.worker?.terminate?.();
     if (originalCoordinator === undefined) delete globalThis[coordinatorKey];
     else globalThis[coordinatorKey] = originalCoordinator;
-    if (originalBridge === undefined) delete globalThis.__TiqianLayoutWorker;
-    else globalThis.__TiqianLayoutWorker = originalBridge;
+    if (originalBridge === undefined) delete globalServices().coordination.layoutWorker;
+    else globalServices().coordination.layoutWorker = originalBridge;
     if (originalWorker === undefined) delete globalThis.Worker;
     else globalThis.Worker = originalWorker;
     if (originalInnerHeight === undefined) delete globalThis.innerHeight;

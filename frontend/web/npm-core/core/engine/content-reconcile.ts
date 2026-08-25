@@ -15,7 +15,7 @@
 // and apply instead.
 
 // Ambient global declarations pulled in via import type from owner modules.
-import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
+import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 import type { RawDomApi } from "./raw-dom.js";
 
 export interface ReconcileSpec {
@@ -36,7 +36,7 @@ export interface ReconcileResult {
 }
 
 function releasePreparedStyles(element: Element): boolean {
-  const renderer = globalThis.__TiqianPreparedDomRenderer;
+  const renderer = preparedDomRendererModule();
   if (renderer && renderer.release && renderer.release(element) === true) return true;
   return false;
 }

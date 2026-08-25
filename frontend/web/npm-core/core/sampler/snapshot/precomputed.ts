@@ -1,3 +1,9 @@
+type SchedulerPostTaskCallback = () => void;
+type SchedulerPostTaskOptions = { priority: string };
+type SchedulerPostTask = (cb: SchedulerPostTaskCallback, opts: SchedulerPostTaskOptions) => Promise<void>;
+type SchedulerYield = () => Promise<void>;
+type SchedulerApi = { yield?: SchedulerYield, postTask?: SchedulerPostTask };
+type GlobalWithScheduler = typeof globalThis & { scheduler?: SchedulerApi };
 // Precomputed snapshot adoption and prepared-DOM rendering (ADR 0053
 // batch 6). Moved verbatim from the package root; root paths remain as
 // compatibility re-export shims.
@@ -289,10 +295,6 @@ interface ExactFontReplayProof {
   renderSource: string;
 }
 
-declare global {
-  var __TiqianPreparedDomValidator: PreparedDomValidatorInterface | undefined;
-  var scheduler: SchedulerLike | undefined;
-}
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const WIDTH_TOLERANCE_PX = 0.5;
@@ -348,8 +350,9 @@ async function yieldValidationIfNeeded(sliceStartedAt: number): Promise<number> 
   if (performance.now() - sliceStartedAt < VALIDATION_SLICE_BUDGET_MS) {
     return sliceStartedAt;
   }
-  if (typeof globalThis.scheduler?.yield === "function") {
-    await globalThis.scheduler.yield();
+  const sched = (globalThis as GlobalWithScheduler).scheduler;
+  if (sched && typeof sched.yield === "function") {
+    await sched.yield();
   } else {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -369,16 +372,20 @@ async function yieldDirectSsrValidationIfNeeded(sliceStartedAt: number): Promise
     globalThis.document?.visibilityState !== "hidden"
   ) {
     await new Promise((resolve) => globalThis.requestAnimationFrame(() => {
-      if (typeof globalThis.scheduler?.postTask === "function") {
-        void globalThis.scheduler.postTask(resolve, { priority: "background" });
+      const sched2 = (globalThis as GlobalWithScheduler).scheduler;
+      if (sched2 && typeof sched2.postTask === "function") {
+        void sched2.postTask(() => resolve(undefined), { priority: "background" });
       } else {
         setTimeout(resolve, 0);
       }
     }));
-  } else if (typeof globalThis.scheduler?.postTask === "function") {
-    await globalThis.scheduler.postTask(() => {}, { priority: "background" });
   } else {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const sched3 = (globalThis as GlobalWithScheduler).scheduler;
+    if (sched3 && typeof sched3.postTask === "function") {
+      await sched3.postTask(() => {}, { priority: "background" });
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   }
   return performance.now();
 }
@@ -1369,7 +1376,7 @@ export function renderedPreparedParagraphIssue(
   return null;
 }
 
-globalThis.__TiqianPreparedDomValidator = Object.freeze({
+export const preparedDomValidator: PreparedDomValidatorInterface = Object.freeze({
   revision: RENDER_REVISION,
   issue(paragraph: Element, expectedContentWidth: number): string | null {
     const issue = renderedPreparedParagraphIssue(paragraph, expectedContentWidth);
@@ -1379,7 +1386,7 @@ globalThis.__TiqianPreparedDomValidator = Object.freeze({
     }
     return issue;
   },
-});
+} as PreparedDomValidatorInterface);
 
 function computedTypographyIssue(
   paragraph: HTMLElement,

@@ -11,6 +11,28 @@ import type { FontCoordinationState } from "./fonts.js";
 import { createReplayRegistry } from "./fonts.js";
 import type { MeasurementCoordinationState } from "./measurement.js";
 
+export type LayoutWorkerTakeFn = (
+  element: Element | null | undefined,
+  sessionKey: string,
+  requestText: string,
+) => string | null;
+
+export type LayoutWorkerIssueFn = (
+  element: Element | null | undefined,
+  sessionKey: string,
+  requestText: string,
+) => string | null;
+
+export type LayoutWorkerReleaseFn = (sessionKey?: string) => boolean;
+
+export interface TiqianLayoutWorkerInstance {
+  readonly version: number;
+  readonly semanticReplayRevision: number;
+  take: LayoutWorkerTakeFn;
+  issue: LayoutWorkerIssueFn;
+  release: LayoutWorkerReleaseFn;
+}
+
 export type FrameTaskCallback = (now: number) => void;
 export type GrantStopPredicate = (processedCount: number) => boolean;
 export type WorkerHasJobFn = (element: HTMLElement) => boolean;
@@ -97,15 +119,6 @@ export interface MainSliceAdmission {
   spent: SpentReporter;
 }
 
-export interface TraceConfig {
-  maxEntries?: number;
-}
-
-declare global {
-  var __tqTrace: TraceConfig | undefined;
-  var __tqFrameTrace: FrameTraceRow[] | undefined;
-}
-
 // OffscreenDebounceGate window: an off-screen element's frame task waits this
 // long after its last request before it runs. 200ms covers a full fast-drag
 // sweep, and a paused off-screen element still gets its final layout soon
@@ -154,6 +167,9 @@ function sumPendingUpTo(slot: CoordinatorWorkerSlot, tier: number): number {
 }
 
 export class CoordinationService {
+  layoutWorker?: TiqianLayoutWorkerInstance;
+  traceConfig?: import("../lifecycle.js").TraceConfig;
+  frameTrace?: FrameTraceRow[];
   #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
   // FontCoordinationState and MeasurementCoordinationState: page-wide
   // font/measurement singletons the absorbed loader modules consult (see
@@ -401,9 +417,9 @@ export class CoordinationService {
   // opt-in the cost is one property read per frame.
   // The last column is the pre-paint lane's ledger in the shared admission window.
   #traceFrame(now: number, executedCount: number, workerGrants: number): void {
-    const trace = globalThis.__tqTrace;
+    const trace = this.traceConfig;
     if (!trace) return;
-    const ring = globalThis.__tqFrameTrace ?? (globalThis.__tqFrameTrace = []);
+    const ring = this.frameTrace ?? (this.frameTrace = []);
     let activeSlots = 0;
     let totalPending = 0;
     for (let i = 0; i < this.#workerSlots.length; i++) {

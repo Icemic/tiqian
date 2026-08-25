@@ -11,7 +11,7 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import type { PreparedDomRendererApi } from "../sampler/snapshot/prepared-dom.js";
+import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 import {
   precomputeParagraphWithBrowserMetrics,
   precomputeParagraphWithDiagnostics,
@@ -252,7 +252,7 @@ interface PrepareParagraphLayoutInvocation {
   // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
   // shape, schema, and matching layout revision.
   function isPreparedDomBridgeAvailable(): boolean {
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     return !!(renderer &&
       typeof renderer.render === 'function' &&
       typeof renderer.release === 'function' &&

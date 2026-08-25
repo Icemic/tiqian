@@ -1,3 +1,4 @@
+import { globalServices } from "@tiqian/prose-core/core/services/global-services.js";
 // Timing-anchor goldens for the web prose host refactor (ADR 0053 batch 0,
 // decomposition report section 11). Every journey runs real module code under
 // the shared fake clock (test-clock.mjs) so dispatch order and record
@@ -316,7 +317,7 @@ async function runGrantRoundsJourney(clock) {
 
   // FrameTraceDiagnostics: opt in before the first frame so the ring records
   // one row per frame from the start.
-  globalThis.__tqTrace = { maxEntries: FRAME_TRACE_LIMIT };
+  coordinator.traceConfig = { maxEntries: FRAME_TRACE_LIMIT };
 
   // Segment 1: tier-ordered grants across the two roots.
   coordinator.requestWorkerFrame(alpha);
@@ -332,7 +333,7 @@ async function runGrantRoundsJourney(clock) {
 
   return {
     grants,
-    frameTrace: globalThis.__tqFrameTrace ?? [],
+    frameTrace: coordinator.frameTrace ?? [],
     finalPending: {
       alpha: pending.get(alpha),
       beta: pending.get(beta),
@@ -342,19 +343,11 @@ async function runGrantRoundsJourney(clock) {
 
 async function recordGrantRounds() {
   const globals = preserveGlobals(CLOCK_GLOBALS);
-  const savedTrace = globalThis.__tqTrace;
-  const savedRing = globalThis.__tqFrameTrace;
-  delete globalThis.__tqTrace;
-  delete globalThis.__tqFrameTrace;
   const clock = installFakeClock();
   try {
     return await runGrantRoundsJourney(clock);
   } finally {
     restoreGlobals(globals);
-    if (savedTrace === undefined) delete globalThis.__tqTrace;
-    else globalThis.__tqTrace = savedTrace;
-    if (savedRing === undefined) delete globalThis.__tqFrameTrace;
-    else globalThis.__tqFrameTrace = savedRing;
   }
 }
 
@@ -413,7 +406,7 @@ async function runWorkerMessagesJourney() {
   const ops = [];
   const savedWorker = globalThis.Worker;
   const savedInnerHeight = globalThis.innerHeight;
-  const savedBridge = globalThis.__TiqianLayoutWorker;
+  const savedBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const savedCoordinator = globalThis[coordinatorKey];
   let requestText = "first";
@@ -436,7 +429,7 @@ async function runWorkerMessagesJourney() {
 
   try {
     delete globalThis[coordinatorKey];
-    delete globalThis.__TiqianLayoutWorker;
+    delete globalServices().coordination.layoutWorker;
     globalThis.Worker = recordingWorker(messages);
     globalThis.innerHeight = 800;
     // C1: the worker channel reads the engine call face, so the fixture
@@ -446,7 +439,7 @@ async function runWorkerMessagesJourney() {
     const module = await import(
       "@tiqian/prose-core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
     );
-    const bridge = globalThis.__TiqianLayoutWorker;
+    const bridge = globalServices().coordination.layoutWorker;
     const prepare = async () => {
       const job = await module.createPrepareJob(
         state.root,
@@ -509,8 +502,8 @@ async function runWorkerMessagesJourney() {
     if (savedInnerHeight === undefined) delete globalThis.innerHeight;
     else globalThis.innerHeight = savedInnerHeight;
     setEngineOverride(null);
-    if (savedBridge === undefined) delete globalThis.__TiqianLayoutWorker;
-    else globalThis.__TiqianLayoutWorker = savedBridge;
+    if (savedBridge === undefined) delete globalServices().coordination.layoutWorker;
+    else globalServices().coordination.layoutWorker = savedBridge;
     if (savedCoordinator === undefined) delete globalThis[coordinatorKey];
     else globalThis[coordinatorKey] = savedCoordinator;
     state.loader.release(handle);

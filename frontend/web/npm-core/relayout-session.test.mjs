@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "./core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { openRelayoutSession } from "./core/engine/relayout-session.js";
@@ -81,21 +82,21 @@ function makeSession(rawDom) {
 }
 
 function withPreparedBridge(fn, overrides = {}) {
-  const names = ["__TiqianPreparedDomRenderer", "__TiqianPreparedDomValidator"];
+  const names = ["__TiqianPreparedDomRenderer"];
   const saved = names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
     value: globalThis[name],
   }));
   try {
-    globalThis.__TiqianPreparedDomRenderer = overrides.renderer || {
+    setPreparedDomRendererForTest(overrides.renderer || {
       render: function () {},
       release: function () { return true; },
       releaseRoot: function () { return true; },
-    };
-    globalThis.__TiqianPreparedDomValidator = overrides.validator || {
+    });
+    setPreparedDomValidatorForTest(overrides.validator || {
       issue: function () { return null; },
-    };
+    });
     return fn();
   } finally {
     for (const entry of saved) {
@@ -237,9 +238,9 @@ test("4. ready + commit unsupported: real validator rejects, restoreParagraph ca
 
   const preparation = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
   withPreparedBridge(() => {
-    globalThis.__TiqianPreparedDomValidator = {
+    setPreparedDomValidatorForTest({
       issue: function () { return "DOM mismatch"; },
-    };
+    });
     active.processItem(0, preparation);
   });
 
@@ -304,13 +305,13 @@ test("5. ready path passes the exact metadata JSON strings to the prepared-DOM r
 
   const preparation = { kind: "ready", planJson: '{"plan":true}', measure: 310, width: 300 };
   withPreparedBridge(() => {
-    globalThis.__TiqianPreparedDomRenderer = {
+    setPreparedDomRendererForTest({
       render: function (host, planJson, locale, options) {
         renderCalls.push({ host, planJson, locale, options });
       },
       release: function () { return true; },
       releaseRoot: function () { return true; },
-    };
+    });
     active.processItem(0, preparation);
   });
 

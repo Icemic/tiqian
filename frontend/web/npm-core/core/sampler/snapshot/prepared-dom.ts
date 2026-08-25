@@ -119,32 +119,8 @@ export interface PreparedDomRendererApi {
   releaseRoot: typeof releasePreparedValueStyleRoot;
 }
 
-declare global {
-  var __TiqianPreparedDomRenderer: PreparedDomRendererApi | undefined;
-}
-
 export {};
 
-/** Revision pair returned by preparedDomBridgeRevision. */
-interface BridgeRevisionInfo {
-  version: number;
-  semanticReplayRevision: number;
-}
-
-/** Coordinator wrapping an active bridge with monotonic upgrade. */
-interface PreparedDomBridgeCoordinator {
-  readonly coordinatorVersion: number;
-  install(candidate: PreparedDomRendererApi): PreparedDomBridgeCoordinator;
-  readonly version: number;
-  readonly semanticReplayRevision: number;
-  readonly schema: number;
-  readonly layoutRevision: string;
-  readonly renderRevision: string;
-  lower: typeof renderPreparedParagraphArtifact;
-  render: typeof renderPreparedParagraphInto;
-  release: typeof releasePreparedParagraphStyles;
-  releaseRoot: typeof releasePreparedValueStyleRoot;
-}
 
 /** Spacing classification for a prepared run. */
 interface PreparedSpacingResult {
@@ -349,74 +325,10 @@ const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const VALUE_STYLE_SCOPE_ATTRIBUTE = "data-tq-value-style-scope";
 const VALUE_STYLE_ELEMENT_ATTRIBUTE = "data-tq-prepared-value-styles";
 const LIVE_SEMANTIC_INDEX_ATTRIBUTE = "data-tq-live-semantic-index";
-const PREPARED_DOM_COORDINATOR_VERSION = 1;
-const PREPARED_DOM_BRIDGE_VERSION = 1;
-const SEMANTIC_REPLAY_REVISION = 1;
 const SNAPSHOT_STYLE_OWNER = Object.freeze({});
 const preparedStyleStates = new WeakMap<Element, PreparedStyleState>();
 const preparedStyleRootsByHost = new WeakMap<Element, Element>();
 let nextPreparedStyleScope = 1;
-
-export const PREPARED_DOM_BRIDGE_NAME = "__TiqianPreparedDomRenderer";
-
-function preparedDomBridgeRevision(bridge: BridgeCandidateShape | null | undefined): BridgeRevisionInfo {
-  const version = Number(bridge?.version ?? 0);
-  const semanticReplayRevision = Number(bridge?.semanticReplayRevision ?? 0);
-  return {
-    version: Number.isSafeInteger(version) && version >= 0 ? version : 0,
-    semanticReplayRevision: Number.isSafeInteger(semanticReplayRevision) &&
-      semanticReplayRevision >= 0
-      ? semanticReplayRevision
-      : 0,
-  };
-}
-
-function isNewerPreparedDomBridge(candidate: PreparedDomRendererApi | PreparedDomBridgeCoordinator | null | undefined, installed: PreparedDomRendererApi | PreparedDomBridgeCoordinator | null | undefined) {
-  const candidateRevision = preparedDomBridgeRevision(candidate);
-  const installedRevision = preparedDomBridgeRevision(installed);
-  return candidateRevision.version > installedRevision.version ||
-    (candidateRevision.version === installedRevision.version &&
-      candidateRevision.semanticReplayRevision > installedRevision.semanticReplayRevision);
-}
-
-function createPreparedDomBridgeCoordinator(initialBridge: PreparedDomRendererApi) {
-  let activeBridge = initialBridge;
-  const coordinator: PreparedDomBridgeCoordinator = Object.freeze({
-    coordinatorVersion: PREPARED_DOM_COORDINATOR_VERSION,
-    install(candidate: PreparedDomRendererApi) {
-      if (isNewerPreparedDomBridge(candidate, activeBridge)) activeBridge = candidate;
-      return coordinator;
-    },
-    get version() {
-      return activeBridge.version;
-    },
-    get semanticReplayRevision() {
-      return activeBridge.semanticReplayRevision;
-    },
-    get schema() {
-      return activeBridge.schema;
-    },
-    get layoutRevision() {
-      return activeBridge.layoutRevision;
-    },
-    get renderRevision() {
-      return activeBridge.renderRevision;
-    },
-    lower(...args: Parameters<PreparedDomRendererApi['lower']>) {
-      return activeBridge.lower(...args);
-    },
-    render(...args: Parameters<PreparedDomRendererApi['render']>) {
-      return activeBridge.render(...args);
-    },
-    release(...args: Parameters<PreparedDomRendererApi['release']>) {
-      return activeBridge.release(...args);
-    },
-    releaseRoot(...args: Parameters<PreparedDomRendererApi['releaseRoot']>) {
-      return activeBridge.releaseRoot(...args);
-    },
-  });
-  return coordinator;
-}
 
 function preparedPlan(value: string | PreparedLayoutPlan): PreparedLayoutPlan {
   return typeof value === "string" ? JSON.parse(value) : value;
@@ -1330,39 +1242,8 @@ export function renderPreparedParagraphInto(
   });
 }
 
-export function installPreparedDomRendererBridge(target: Record<string, unknown> = globalThis as Record<string, unknown>) {
-  const candidate: PreparedDomRendererApi = Object.freeze({
-    version: PREPARED_DOM_BRIDGE_VERSION,
-    semanticReplayRevision: SEMANTIC_REPLAY_REVISION,
-    schema: SNAPSHOT_SCHEMA,
-    layoutRevision: LAYOUT_REVISION,
-    renderRevision: RENDER_REVISION,
-    lower: renderPreparedParagraphArtifact,
-    render: renderPreparedParagraphInto,
-    release: releasePreparedParagraphStyles,
-    releaseRoot: releasePreparedValueStyleRoot,
-  }) as PreparedDomRendererApi;
-  const installed: PreparedDomBridgeCoordinator | undefined = target[PREPARED_DOM_BRIDGE_NAME] as PreparedDomBridgeCoordinator | undefined;
-  if (Number(installed?.coordinatorVersion) >= PREPARED_DOM_COORDINATOR_VERSION &&
-      typeof installed?.install === "function") {
-    return installed.install(candidate);
-  }
-  const descriptor = Object.getOwnPropertyDescriptor(target, PREPARED_DOM_BRIDGE_NAME);
-  if (descriptor && !descriptor.configurable) {
-    throw new Error("IncompatibleLockedPreparedDomRendererBridge");
-  }
-  // MonotonicPreparedDomBridgeCoordinator: the global slot is immutable so a
-  // cached legacy chunk cannot replace a live-source-capable renderer. Future
-  // coordinator-aware chunks still upgrade the delegated implementation by
-  // monotonically increasing the bridge or semantic-replay revision.
-  const coordinator = createPreparedDomBridgeCoordinator(candidate);
-  Object.defineProperty(target, PREPARED_DOM_BRIDGE_NAME, {
-    configurable: false,
-    enumerable: false,
-    value: coordinator,
-    writable: false,
-  });
-  return coordinator;
-}
 
-installPreparedDomRendererBridge();
+export const version = 1;
+export const semanticReplayRevision = 1;
+export { SNAPSHOT_SCHEMA as schema, LAYOUT_REVISION as layoutRevision, RENDER_REVISION as renderRevision };
+export { renderPreparedParagraphArtifact as lower, renderPreparedParagraphInto as render, releasePreparedParagraphStyles as release, releasePreparedValueStyleRoot as releaseRoot };

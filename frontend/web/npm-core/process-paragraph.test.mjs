@@ -1,4 +1,6 @@
+import { globalServices } from "./core/services/global-services.js";
 import assert from "node:assert/strict";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "./core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { processParagraph } from "./core/engine/process-paragraph.js";
@@ -72,7 +74,6 @@ function computedStyle(values = {}) {
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals([
     "getComputedStyle",
-    "__TiqianPreparedDomRenderer",
     "__TiqianLayoutWorker",
     "document",
     "__TiqianFontBackend",
@@ -82,7 +83,7 @@ function withEnv(fn, overrides = {}) {
     if (overrides.renderer !== false) {
       const renders = [];
       const releases = [];
-      globalThis.__TiqianPreparedDomRenderer = {
+      setPreparedDomRendererForTest({
         render: (host, plan, locale, options) => {
           renders.push({ host, plan, locale, options });
         },
@@ -95,13 +96,13 @@ function withEnv(fn, overrides = {}) {
         layoutRevision: "tiqian-layout-v2",
         renders,
         releases,
-      };
+      });
     }
     if (overrides.validator !== undefined) {
-      globalThis.__TiqianPreparedDomValidator = { issue: overrides.validator };
+      setPreparedDomValidatorForTest({ issue: overrides.validator });
     }
     if (overrides.layoutWorker !== undefined) {
-      globalThis.__TiqianLayoutWorker = overrides.layoutWorker;
+      globalServices().coordination.layoutWorker = overrides.layoutWorker;
     }
     if (overrides.document !== undefined) {
       globalThis.document = overrides.document;
@@ -119,6 +120,8 @@ function withEnv(fn, overrides = {}) {
     return fn();
   } finally {
     if (backend) backend.uninstall();
+    setPreparedDomRendererForTest(null);
+    setPreparedDomValidatorForTest(null);
     restoreGlobals(saved);
   }
 }
@@ -356,7 +359,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
 
     // The real worker commit ran against the planted renderer with the plan
     // and the prepared-metadata JSONs derived from the lowered paragraph.
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(renderer.renders[0].plan, "{}");
     assert.equal(renderer.renders[0].locale, "zh-Hans");
@@ -499,7 +502,7 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     assert.equal(rawDomTakeCalled, true);
     // The rich fallback bypassed the worker gate and the direct path committed
     // through the planted renderer.
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
@@ -625,7 +628,7 @@ test("12. preparedDomEnabled false -> active options come from withoutExactFontS
     assert.equal(active.fontSize, 20);
     assert.equal(active.exactFontSession, null);
     // The direct lane proceeded and committed through the planted renderer.
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
   }, { validator: () => null });
@@ -649,7 +652,7 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
 
     // No layout worker channel is installed, so the direct exact-session lane
     // ran the real prepare and commit.
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);

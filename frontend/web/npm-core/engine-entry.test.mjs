@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "./core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { createEngineEntry } from "./core/engine/engine-entry.js";
 import { optionsFromJs } from "./core/engine/lifecycle.js";
 import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
-const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianPreparedDomRenderer", "__TiqianFontBackend", "__TiqianPreparedDomValidator"];
+const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianFontBackend"];
 
 // The engine entry runs the real process-paragraph, content-reconcile and
 // progressive-drivers functions against fake ledgers (detached-fragment backup, root-state,
@@ -126,20 +127,22 @@ function withEnv(fn, overrides = {}) {
       },
     };
     if (overrides.preparedDom !== false) {
-      globalThis.__TiqianPreparedDomRenderer = {
+      setPreparedDomRendererForTest({
         render: function () {},
         release: function () { return true; },
         releaseRoot: function () { return true; },
         schema: 1,
         layoutRevision: "tiqian-layout-v2",
-      };
+      });
     }
     if (overrides.validator !== undefined) {
-      globalThis.__TiqianPreparedDomValidator = { issue: overrides.validator };
+      setPreparedDomValidatorForTest({ issue: overrides.validator });
     }
     return fn();
   } finally {
     if (backend) backend.uninstall();
+    setPreparedDomRendererForTest(null);
+    setPreparedDomValidatorForTest(null);
     restoreEnv(saved);
   }
 }

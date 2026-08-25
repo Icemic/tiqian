@@ -152,8 +152,10 @@ function stampRenderedContent(state: RawDomState, source: Element): void {
 
 type GetEnhanceContextFn = (element: Element) => import("./context/enhance-context.js").EnhancedElementContext;
 
+export type GetPreparedDomRendererModuleFn = () => typeof import("../sampler/snapshot/prepared-dom.js") | null;
 export interface RawDomDeps {
   getEnhanceContext: GetEnhanceContextFn;
+  getPreparedDomRendererModule?: GetPreparedDomRendererModuleFn;
 }
 
 export function deriveRawDom(deps: RawDomDeps): RawDomApi {
@@ -401,7 +403,7 @@ export function deriveRawDom(deps: RawDomDeps): RawDomApi {
   // the engine overwrote. Used by destroy and by unsupported relayouts.
   function restoreParagraph(source: Element): void {
     const state = stateOf(source);
-    const renderer = globalThis.__TiqianPreparedDomRenderer;
+    const renderer = deps.getPreparedDomRendererModule?.();
     if (renderer) {
       renderer.release(source);
     }

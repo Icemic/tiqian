@@ -46,6 +46,11 @@ export type ResolvedEnhanceFontFamilies = {
   latinSerif: string;
 };
 
+
+export interface TraceConfig {
+  maxEntries?: number;
+}
+
 export type EnhanceExactFontSessionOption = {
   status: string;
   sessionId: string | null;
@@ -63,6 +68,7 @@ export type EnhanceOptions = {
   cjkDashCapability: CjkDashCapability | null;
   exactFontSession: EnhanceExactFontSessionOption | null;
   requireExactLayoutWorker: boolean;
+  trace?: TraceConfig;
 };
 
 export type ResolvedEnhanceOptions = {
@@ -76,6 +82,7 @@ export type ResolvedEnhanceOptions = {
   cjkDashCapability: CjkDashCapability | null;
   exactFontSession: EnhanceExactFontSessionOption | null;
   requireExactLayoutWorker: boolean;
+  trace?: TraceConfig;
 };
 
 // Capability issue record reported through reportIssue/clearIssue and stored

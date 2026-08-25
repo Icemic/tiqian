@@ -8,11 +8,7 @@
 // layoutJobPool) receives the four stateful collaborators from the
 // composition root and wires them into the 11-method engine facade and the
 // 9-method worker facade. The engine bootstrap (ts-runtime) constructs one
-// instance; tests construct one with fakes. The prepared-DOM renderer global
-// (__TiqianPreparedDomRenderer) remains the renderer-owned bridge injection
-// point.
-
-// Ambient global declarations pulled in via import type from owner modules.
+import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 import type { GrantController } from "./coordination/coordination-service.js";
 import type { RootState, RootStateApi } from "./root-state.js";
 import type { EnhanceOptions } from "./lifecycle.js";
@@ -93,7 +89,7 @@ export function createEngineEntry(
   }
 
   function releasePreparedRootDomStyles(root: HTMLElement): boolean {
-    const r = globalThis.__TiqianPreparedDomRenderer;
+    const r = preparedDomRendererModule();
     return !!(r && r.releaseRoot && r.releaseRoot(root) === true);
   }
 

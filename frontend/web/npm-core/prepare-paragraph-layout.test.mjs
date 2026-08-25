@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "./core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { prepareParagraphLayout } from "./core/engine/prepare-paragraph-layout.js";
@@ -56,16 +57,16 @@ function computedStyle(values = {}) {
 }
 
 function withEnv(fn, overrides = {}) {
-  const saved = saveGlobals(["getComputedStyle", "__TiqianPreparedDomRenderer"]);
+  const saved = saveGlobals(["getComputedStyle"]);
   try {
     if (overrides.renderer !== false) {
-      globalThis.__TiqianPreparedDomRenderer = {
+      setPreparedDomRendererForTest({
         render: () => {},
         release: () => {},
         releaseRoot: () => {},
         schema: 1,
         layoutRevision: overrides.layoutRevision ?? "tiqian-layout-v2",
-      };
+      });
     }
     globalThis.getComputedStyle = (target, pseudo) =>
       target && target._computedValues
@@ -73,6 +74,8 @@ function withEnv(fn, overrides = {}) {
         : computedStyle();
     return fn();
   } finally {
+    setPreparedDomRendererForTest(null);
+    setPreparedDomValidatorForTest(null);
     restoreGlobals(saved);
   }
 }
