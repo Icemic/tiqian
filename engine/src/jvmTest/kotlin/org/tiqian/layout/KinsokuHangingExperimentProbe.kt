@@ -57,7 +57,7 @@ class KinsokuHangingExperimentProbe {
     )
 
     private fun engine(level: KinsokuLevel, hang: HangingPunctuationStyle) =
-        ExplainableStubParagraphLayoutEngine(
+        TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = ExplainableStubTextShaper(),
             clreqProfileResolver = { _ ->

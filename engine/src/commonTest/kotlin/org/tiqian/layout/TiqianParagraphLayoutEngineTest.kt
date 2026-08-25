@@ -35,10 +35,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-class ExplainableStubParagraphLayoutEngineTest {
+class TiqianParagraphLayoutEngineTest {
     @Test
     fun returnsDebuggableSingleLineResult() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("提椠"),
@@ -53,7 +53,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun recordsInjectedLineBreakerStrategyInDebugDecisions() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -68,7 +68,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun mandatoryLineBreakClustersAreZeroWidthAndNotShaped() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -91,7 +91,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun consecutiveMandatoryLineBreaksCreateOneEmptyLineBox() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("第一行\n\n第二行"),
@@ -118,7 +118,7 @@ class ExplainableStubParagraphLayoutEngineTest {
         val text = "很久以前，曾经有一个名叫小红帽的孩子，生活在大森林的边上，" +
             "大森林里充满了濒临灭绝的猫头鹰和珍稀植物，如果有人愿意花时间研究它们，" +
             "就会发现癌症的治疗方法。\n小红帽和一位称为母亲的养育者一起生活"
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -148,7 +148,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun crlfIsOneMandatoryBreakCluster() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -167,7 +167,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun consecutiveAndTrailingMandatoryBreaksPreserveBlankLines() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -188,7 +188,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun mandatoryBreakLineIsNotJustified() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -206,7 +206,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun rejectsShaperClustersThatDoNotCoverFontDecisionRange() {
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
                     ShapingResult(clusters = emptyList(), glyphRuns = emptyList())
@@ -227,7 +227,7 @@ class ExplainableStubParagraphLayoutEngineTest {
     @Test
     fun preservesShaperGlyphBoundsInLayoutGlyphRuns() {
         val shapedBounds = Rect(left = 1f, top = -10f, right = 12f, bottom = 2f)
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 override fun shape(input: ShapingInput): ShapingResult =
                     ShapingResult(
@@ -275,7 +275,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun recordsFallbackDecisionsPerCluster() {
-        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("提椠……English——世界。"),
@@ -319,7 +319,7 @@ class ExplainableStubParagraphLayoutEngineTest {
 
     @Test
     fun combiningMarksStayInTheirBaseShapingRuns() {
-        val result = ExplainableStubParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
+        val result = TiqianParagraphLayoutEngine(hyphenator = NoHyphenator).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("༎ຶ Ỏ̷"),

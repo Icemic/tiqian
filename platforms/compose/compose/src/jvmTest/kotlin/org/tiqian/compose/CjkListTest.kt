@@ -4,7 +4,7 @@ import org.tiqian.clreq.ClreqProfile
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextStyle
 import org.tiqian.core.ic
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaTextShaper
@@ -15,7 +15,7 @@ import kotlin.test.assertEquals
 class CjkListTest {
 
     private val measurer = ParagraphMeasurer(
-        ExplainableStubParagraphLayoutEngine(
+        TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = SkiaTextShaper(),
             fontMetricsResolver = SkiaFontMetricsResolver(),

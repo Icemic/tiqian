@@ -37,7 +37,7 @@ class WidthIndependentAnnotationCacheTest {
     fun relayoutWithDifferentWidthHitsCacheAndSkipsShaper() {
         val shaper = CountingTextShaper()
         val cache = LruWidthIndependentAnnotationCache(maxEntries = 64)
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             textShaper = shaper,
             annotationCache = cache,
         )
@@ -81,10 +81,10 @@ class WidthIndependentAnnotationCacheTest {
             "在《中文排版需求》（CLREQ）中，要求正文「两端对齐」；当遇到『标点符号』与西文（如 OpenType / CSS Grid）混排时，应正确执行挤压与推入推出——即使在 120Hz 高频拖拽下也是如此！",
             "第一行缩进两个字身框。标点符号如……省略号、破折号——不应出现在行首，逗号、句号。也不得出现在行首。这就是避头尾（Kinsoku）规则的严格要求。",
         )
-        val cachedEngine = ExplainableStubParagraphLayoutEngine(
+        val cachedEngine = TiqianParagraphLayoutEngine(
             annotationCache = LruWidthIndependentAnnotationCache(),
         )
-        val uncachedEngine = ExplainableStubParagraphLayoutEngine(
+        val uncachedEngine = TiqianParagraphLayoutEngine(
             annotationCache = object : WidthIndependentAnnotationCache {
                 override fun get(key: WidthIndependentAnnotationKey): Any? = null
                 override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {}
@@ -123,10 +123,10 @@ class WidthIndependentAnnotationCacheTest {
     @Test
     fun reflowFuzzingRandomSequenceProducesExactOutput() {
         val fixture = "提椠段落排版：严格遵循简体中文 CLREQ 规范。包含“双引号”、‘单引号’、以及（括号）与【括号】；汉字与 English words 混排时自动添加 0.25em 间距，最后一行保持左对齐。"
-        val cachedEngine = ExplainableStubParagraphLayoutEngine(
+        val cachedEngine = TiqianParagraphLayoutEngine(
             annotationCache = LruWidthIndependentAnnotationCache(),
         )
-        val uncachedEngine = ExplainableStubParagraphLayoutEngine(
+        val uncachedEngine = TiqianParagraphLayoutEngine(
             annotationCache = object : WidthIndependentAnnotationCache {
                 override fun get(key: WidthIndependentAnnotationKey): Any? = null
                 override fun put(key: WidthIndependentAnnotationKey, annotation: Any) {}
@@ -160,7 +160,7 @@ class WidthIndependentAnnotationCacheTest {
     @Test
     fun cacheKeyDistinguishesTypographyDecorationsAndSpans() {
         val cache = LruWidthIndependentAnnotationCache()
-        val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
+        val engine = TiqianParagraphLayoutEngine(annotationCache = cache)
 
         val baseInput = LayoutInput(
             content = TiqianTextContent("中西混合排版与测试文本。"),
@@ -210,7 +210,7 @@ class WidthIndependentAnnotationCacheTest {
     @Test
     fun lruCacheEvictsOldestEntriesWhenCapacityExceeded() {
         val cache = LruWidthIndependentAnnotationCache(maxEntries = 2)
-        val engine = ExplainableStubParagraphLayoutEngine(annotationCache = cache)
+        val engine = TiqianParagraphLayoutEngine(annotationCache = cache)
 
         val input1 = LayoutInput(content = TiqianTextContent("段落一文本内容"), constraints = LayoutConstraints(maxWidth = 300f))
         val input2 = LayoutInput(content = TiqianTextContent("段落二文本内容"), constraints = LayoutConstraints(maxWidth = 300f))

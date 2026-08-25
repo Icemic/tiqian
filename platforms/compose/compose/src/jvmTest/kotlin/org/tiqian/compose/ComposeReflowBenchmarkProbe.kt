@@ -6,7 +6,7 @@ import org.tiqian.core.LayoutInput
 import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.font.FontMetricsResolver
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.TextShaper
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
@@ -56,10 +56,10 @@ class ComposeReflowBenchmarkProbe {
         println()
     }
 
-    private fun engine(cached: Boolean): ExplainableStubParagraphLayoutEngine {
+    private fun engine(cached: Boolean): TiqianParagraphLayoutEngine {
         val rawShaper: TextShaper = SkiaTextShaper()
         val rawMetrics: FontMetricsResolver = SkiaFontMetricsResolver()
-        return ExplainableStubParagraphLayoutEngine(
+        return TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = if (cached) BoundedComposeTextShaperCache(rawShaper) else rawShaper,
             fontMetricsResolver = if (cached) BoundedComposeFontMetricsCache(rawMetrics) else rawMetrics,

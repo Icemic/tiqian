@@ -9,7 +9,7 @@ import org.tiqian.core.ParagraphStyle
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
 @RunWith(AndroidJUnit4::class)
 class AndroidMissingGlyphTofuTest {
     private val typefaces = SystemAndroidTypefaceResolver()
-    private val engine = ExplainableStubParagraphLayoutEngine(
+    private val engine = TiqianParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = createAndroidTextShaper(typefaceResolver = typefaces),
         fontMetricsResolver = AndroidFontMetricsResolver(typefaceResolver = typefaces),

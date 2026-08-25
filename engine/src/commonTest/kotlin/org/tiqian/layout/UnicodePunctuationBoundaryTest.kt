@@ -230,7 +230,7 @@ class UnicodePunctuationBoundaryTest {
         maxWidth: Float,
         breaker: LineBreaker,
         level: KinsokuLevel = KinsokuLevel.Basic,
-    ) = ExplainableStubParagraphLayoutEngine(
+    ) = TiqianParagraphLayoutEngine(
         lineBreaker = breaker,
         hyphenator = NoHyphenator,
         clreqProfileResolver = ClreqProfileResolver {

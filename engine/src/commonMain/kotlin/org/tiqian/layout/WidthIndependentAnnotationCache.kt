@@ -216,7 +216,7 @@ internal fun <T> List<Cluster>.firstContainedItem(
     }
 }
 
-internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotation(
+internal fun TiqianParagraphLayoutEngine.prepareWidthIndependentAnnotation(
     input: LayoutInput,
     rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,
 ): WidthIndependentParagraphAnnotation {
@@ -400,7 +400,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
     )
 }
 
-internal fun ExplainableStubParagraphLayoutEngine.buildParagraphLayoutPrep(
+internal fun TiqianParagraphLayoutEngine.buildParagraphLayoutPrep(
     input: LayoutInput,
     annotation: WidthIndependentParagraphAnnotation,
     rejectedTechnicalTiersBySpan: Map<TextRange, Set<ProgressiveBreakTier>>,

@@ -309,7 +309,7 @@ class ParagraphWireFace(
             inlineBoxes = parseInlineBoxes(inlineBoxes, text.length),
             inlineObjects = parsedInlineObjects,
         )
-        return ExplainableStubParagraphLayoutEngine(
+        return TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             fontMetricsResolver = fontMetricsResolver,
             textShaper = textShaper,

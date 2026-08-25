@@ -116,7 +116,7 @@ import org.tiqian.clreq.ResolvedKinsoku
 
 /**
  * Paragraph-scope shared state produced by cluster preparation in
- * [ExplainableStubParagraphLayoutEngine.layoutWithRejectedTechnicalTiers] and
+ * [TiqianParagraphLayoutEngine.layoutWithRejectedTechnicalTiers] and
  * consumed unchanged by [planParagraphLines] and [finishParagraphLayout].
  */
 internal class ParagraphLayoutPrep(
@@ -217,9 +217,9 @@ internal class LineBreakPlanningStageResult(
 /**
  * Font-metric, line-spacing, indent, kinsoku and break-constraint resolution
  * ending in the initial [LineSolution]. Pure move of the corresponding
- * pipeline segment out of [ExplainableStubParagraphLayoutEngine].
+ * pipeline segment out of [TiqianParagraphLayoutEngine].
  */
-internal fun ExplainableStubParagraphLayoutEngine.planParagraphLines(
+internal fun TiqianParagraphLayoutEngine.planParagraphLines(
     prep: ParagraphLayoutPrep,
 ): LineBreakPlanningStageResult = with(prep) {
         // `FontMetricFaceSelectionTextJoin`: font decisions and shaped clusters

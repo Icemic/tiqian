@@ -92,7 +92,7 @@ class KinsokuAndCohesionRepairEngineTest {
         // 。 can be pushed into previous line by shrinking its trailing glue.
         // PushIn shrinks 4f (overflow), then edge trim takes remaining 4f.
         // 。 trailing=8, PushIn uses 4, edge trim uses 4 → 。 advance=8.
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 // Pin the exact measure (60 ∤ 16); this test is about PushIn +
                 // edge-trim geometry, not the grid.
@@ -147,7 +147,7 @@ class KinsokuAndCohesionRepairEngineTest {
 
     @Test
     fun kinsokuLeavesGreedyBreakAloneWhenNoForbiddenPunctAtLineStart() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文中文哈哈"),
@@ -194,7 +194,7 @@ class KinsokuAndCohesionRepairEngineTest {
         // The headline LatinWordSegmentation capability: a Latin sentence
         // longer than the measure breaks BETWEEN words (previously a Latin
         // run was one unbreakable cluster and simply overflowed).
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("The quick brown fox"),
@@ -221,7 +221,7 @@ class KinsokuAndCohesionRepairEngineTest {
         // greedy break falls between 50 and %; NumberSymbolCohesion moves the
         // whole 50% group to the next line instead of orphaning % at line start.
         val text = "销量增长了50%呢"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(text),
                 constraints = LayoutConstraints(maxWidth = 120f),
@@ -239,7 +239,7 @@ class KinsokuAndCohesionRepairEngineTest {
     @Test
     fun bibliographicNumericLocatorExposesStructuralBreaks() {
         val text = "中文中文中文44(10):21-38."
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(text),
                 constraints = LayoutConstraints(maxWidth = 224f),
@@ -270,7 +270,7 @@ class KinsokuAndCohesionRepairEngineTest {
     @Test
     fun ordinaryNumericFormsDoNotBecomeBibliographicLocators() {
         for (token in listOf("3.14", "1,000", "12:34", "2023-08-11")) {
-            val result = ExplainableStubParagraphLayoutEngine().layout(
+            val result = TiqianParagraphLayoutEngine().layout(
                 LayoutInput(
                     content = TiqianTextContent("中文$token"),
                     constraints = LayoutConstraints(maxWidth = 320f),
@@ -292,7 +292,7 @@ class KinsokuAndCohesionRepairEngineTest {
         // 不处理 (CLREQ): no line-start prohibition — 。 may begin a line, so
         // no repair fires even when greedy puts it there.
         fun engineAt(level: org.tiqian.clreq.KinsokuLevel) =
-            ExplainableStubParagraphLayoutEngine(
+            TiqianParagraphLayoutEngine(
                 clreqProfileResolver = ClreqProfileResolver {
                     ClreqProfile.MainlandHorizontal.copy(kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(level))
                 },
@@ -317,7 +317,7 @@ class KinsokuAndCohesionRepairEngineTest {
     fun kinsokuLevelStrictForbidsDashAtLineStart() {
         // 严格处理 追加破折号不得居行首；基本处理允许.
         fun layoutAt(level: org.tiqian.clreq.KinsokuLevel) =
-            ExplainableStubParagraphLayoutEngine(
+            TiqianParagraphLayoutEngine(
                 clreqProfileResolver = ClreqProfileResolver {
                     ClreqProfile.MainlandHorizontal.copy(kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(level))
                 },
@@ -369,7 +369,7 @@ class KinsokuAndCohesionRepairEngineTest {
         // the measure. 中文中文，中文。 @maxWidth 64: the first 逗号 hangs at
         // line 0 end — content (中文中文 = 64) fills the measure exactly,
         // visualWidth overflows by the hung mark's half-width.
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(
@@ -399,7 +399,7 @@ class KinsokuAndCohesionRepairEngineTest {
         assertEquals("Hang", result.debug.lineDecisions[0].repair)
 
         // Fixed Disabled → no hang; the 逗号 wraps via CarryPrevious.
-        val plain = ExplainableStubParagraphLayoutEngine(
+        val plain = TiqianParagraphLayoutEngine(
             clreqProfileResolver = ClreqProfileResolver {
                 ClreqProfile.MainlandHorizontal.copy(
                     kinsokuMode = org.tiqian.clreq.KinsokuMode.Fixed(

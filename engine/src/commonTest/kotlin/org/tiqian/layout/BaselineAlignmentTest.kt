@@ -15,7 +15,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun latinInsideCjkUsesSharedRomanBaseline() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("中A文"),
                 constraints = LayoutConstraints(maxWidth = 400f),
@@ -29,7 +29,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun explicitBaselineShiftAppliesToRomanClusters() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(
                     text = "中A文",
@@ -46,7 +46,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun cjkPunctuationProvidesIdeographicReferenceWithoutHanBody() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent("MacBook。"),
                 constraints = LayoutConstraints(maxWidth = 400f),
@@ -64,7 +64,7 @@ class BaselineAlignmentTest {
 
     @Test
     fun cjkMixedSizesAlignByIdeographicBoxBottom() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 content = TiqianTextContent(
                     text = "中小大",

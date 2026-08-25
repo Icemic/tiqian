@@ -32,7 +32,7 @@ class FontInstanceMetricsRequestTest {
             fontWeight = 400,
             italic = false,
         )
-        ExplainableStubParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
+        TiqianParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
             LayoutInput(
                 content = TiqianTextContent(
                     text = "中A",
@@ -69,7 +69,7 @@ class FontInstanceMetricsRequestTest {
             }
         }
 
-        ExplainableStubParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
+        TiqianParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
             LayoutInput(
                 content = TiqianTextContent("——"),
                 textStyle = TextStyle(fontFamilies = listOf("Fixture Sans"), fontSize = 18f),
@@ -91,7 +91,7 @@ class FontInstanceMetricsRequestTest {
             }
         }
 
-        ExplainableStubParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
+        TiqianParagraphLayoutEngine(fontMetricsResolver = resolver).layout(
             LayoutInput(
                 content = TiqianTextContent("中"),
                 textStyle = TextStyle(

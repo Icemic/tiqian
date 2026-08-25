@@ -366,7 +366,7 @@ class AsciiPointMarkKinsokuTest {
         spans: List<TextSpan> = emptyList(),
         lineLengthGrid: LineLengthGrid = LineLengthGrid(),
     ): LayoutResult =
-        ExplainableStubParagraphLayoutEngine(
+        TiqianParagraphLayoutEngine(
             lineBreaker = breaker,
             hyphenator = NoHyphenator,
             clreqProfileResolver = ClreqProfileResolver {

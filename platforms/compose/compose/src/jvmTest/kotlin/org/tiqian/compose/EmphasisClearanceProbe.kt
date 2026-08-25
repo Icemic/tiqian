@@ -6,7 +6,7 @@ import org.tiqian.core.LayoutConstraints
 import org.tiqian.core.LayoutInput
 import org.tiqian.core.TextRange
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaSystemTypefaces
@@ -24,7 +24,7 @@ class EmphasisClearanceProbe {
     @Test
     fun reportEmphasisToNextLineClearance() {
         val fontSize = 16f
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = SkiaTextShaper(),
             fontMetricsResolver = SkiaFontMetricsResolver(),

@@ -56,7 +56,7 @@ class ZeroWidthBreakControlLayoutTest {
     }
 
     private fun layout(text: String, maxWidth: Float, breaker: LineBreaker) =
-        ExplainableStubParagraphLayoutEngine(
+        TiqianParagraphLayoutEngine(
             lineBreaker = breaker,
             hyphenator = NoHyphenator,
         ).layout(

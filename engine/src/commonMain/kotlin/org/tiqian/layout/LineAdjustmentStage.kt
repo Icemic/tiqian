@@ -116,9 +116,9 @@ import org.tiqian.shaping.UNVERIFIED_DISPLAY_SUBSTITUTION_COVERAGE_ISSUE
  * Post-break finishing: PushIn consumption, line-edge trims, justification,
  * technical-tier rejection replay, final geometry, glyph runs, line boxes,
  * annotations and debug assembly. Pure move of the corresponding pipeline
- * segment out of [ExplainableStubParagraphLayoutEngine].
+ * segment out of [TiqianParagraphLayoutEngine].
  */
-internal fun ExplainableStubParagraphLayoutEngine.finishParagraphLayout(
+internal fun TiqianParagraphLayoutEngine.finishParagraphLayout(
     prep: ParagraphLayoutPrep,
     plan: LineBreakPlanningStageResult,
 ): LayoutResult = with(prep) {

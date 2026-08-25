@@ -17,7 +17,7 @@ import org.tiqian.core.positionedClusters
 class InlineBoxLayoutTest {
     @Test
     fun inlineEdgesReserveAdvanceAndMoveTheGlyphOrigin() {
-        val engine = ExplainableStubParagraphLayoutEngine()
+        val engine = TiqianParagraphLayoutEngine()
         val paragraphStyle = ParagraphStyle(
             firstLineIndent = Ic(0f),
             lineLengthGrid = LineLengthGrid(enabled = false),
@@ -58,7 +58,7 @@ class InlineBoxLayoutTest {
 
     @Test
     fun everyNarrowInlineBoxGetsOuterAutospaceWithoutRoleSpecificCode() {
-        val engine = ExplainableStubParagraphLayoutEngine()
+        val engine = TiqianParagraphLayoutEngine()
         val paragraphStyle = ParagraphStyle(
             firstLineIndent = Ic(0f),
             lineLengthGrid = LineLengthGrid(enabled = false),

@@ -22,7 +22,7 @@ import org.tiqian.core.TiqianTextContent
 import org.tiqian.font.FontCandidate
 import org.tiqian.font.FontDecision
 import org.tiqian.font.FontRole
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.linebreak.EnglishHyphenation
 import org.tiqian.shaping.ShapingInput
@@ -488,7 +488,7 @@ class AndroidNativeFontBackendTest {
 
     @Test
     fun nativeBackendLaysOutMixedLongBodyWithinBoundedTime() {
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = AndroidNativeTextShaper(context),
             fontMetricsResolver = AndroidNativeFontMetricsResolver(context),
@@ -578,11 +578,11 @@ class AndroidNativeFontBackendTest {
                 textStyle = style,
                 constraints = LayoutConstraints(maxWidth = 224f),
             )
-            val nativeEngine = ExplainableStubParagraphLayoutEngine(
+            val nativeEngine = TiqianParagraphLayoutEngine(
                 textShaper = native,
                 fontMetricsResolver = AndroidNativeFontMetricsResolver(context),
             )
-            val platformEngine = ExplainableStubParagraphLayoutEngine(
+            val platformEngine = TiqianParagraphLayoutEngine(
                 textShaper = platform,
                 // Hold metrics constant so this is a shaping/layout geometry comparison.
                 fontMetricsResolver = AndroidNativeFontMetricsResolver(context),

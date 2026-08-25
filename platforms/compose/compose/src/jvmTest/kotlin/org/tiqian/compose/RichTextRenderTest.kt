@@ -30,7 +30,7 @@ import org.tiqian.core.getCursorRect
 import org.tiqian.core.positionedClusters
 import org.tiqian.core.positionedRichTextSegments
 import org.tiqian.core.resolvedBackgroundCornerRadii
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import java.io.File
 import kotlin.math.roundToInt
 import kotlin.test.Test
@@ -515,7 +515,7 @@ class RichTextRenderTest {
             }
             append(".")
         }
-        val result = ParagraphMeasurer(ExplainableStubParagraphLayoutEngine()).measure(
+        val result = ParagraphMeasurer(TiqianParagraphLayoutEngine()).measure(
             text = text,
             constraints = org.tiqian.core.LayoutConstraints(maxWidth = 400f),
             density = Density(1f),
@@ -544,7 +544,7 @@ class RichTextRenderTest {
             }
             append("丙")
         }
-        val result = ParagraphMeasurer(ExplainableStubParagraphLayoutEngine()).measure(
+        val result = ParagraphMeasurer(TiqianParagraphLayoutEngine()).measure(
             text = text,
             constraints = org.tiqian.core.LayoutConstraints(maxWidth = 400f),
             density = Density(1f),

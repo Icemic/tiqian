@@ -22,7 +22,7 @@ class HyphenationLayoutTest {
         hyphenator: Hyphenator,
         content: String = text,
         maxWidth: Float = 160f,
-    ) = ExplainableStubParagraphLayoutEngine(hyphenator = hyphenator).layout(
+    ) = TiqianParagraphLayoutEngine(hyphenator = hyphenator).layout(
         LayoutInput(
             paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
             content = TiqianTextContent(content),
@@ -37,7 +37,7 @@ class HyphenationLayoutTest {
         // The default engine (no explicit hyphenator) uses the platform
         // hyphenator — en-US on JVM — so a fitting word hyphenates without
         // opting in: "coffee" → cof-fee with a hanging hyphen.
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文中 coffee"),
@@ -53,7 +53,7 @@ class HyphenationLayoutTest {
     fun reservedHyphenSqueezesPunctuationGlueToPullItIn() {
         // A reserved hyphen that would overflow first squeezes the comma's
         // trailing glue (标点挤压) before hanging the residual.
-        val result = ExplainableStubParagraphLayoutEngine(hyphenator = EnglishHyphenation.enUs).layout(
+        val result = TiqianParagraphLayoutEngine(hyphenator = EnglishHyphenation.enUs).layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(
                     firstLineIndent = Ic(0f),
@@ -75,7 +75,7 @@ class HyphenationLayoutTest {
         // so it does NOT hyphenate; "coffee" wraps whole and the CJK stretches.
         // Pinned to PushOutOnly so the line takes the STRETCH path under test;
         // Auto would 推入压缩 instead, a separate decision (ADR 0031).
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             clreqProfileResolver = {
                 ClreqProfile.MainlandHorizontal.let { p ->
                     p.copy(adjustment = p.adjustment.copy(lineAdjustment = LineAdjustmentStrategy.PushOutOnly))

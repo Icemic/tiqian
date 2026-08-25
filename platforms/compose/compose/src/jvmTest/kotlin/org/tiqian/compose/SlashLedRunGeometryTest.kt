@@ -9,7 +9,7 @@ import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.ic
 import org.tiqian.core.positionedClusters
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.shaping.skia.SkiaFontMetricsResolver
 import org.tiqian.shaping.skia.SkiaTextShaper
@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  * instrumented test; this is the shared JVM coverage.
  */
 class SlashLedRunGeometryTest {
-    private val engine = ExplainableStubParagraphLayoutEngine(
+    private val engine = TiqianParagraphLayoutEngine(
         lineBreaker = LookaheadLineBreaker(),
         textShaper = SkiaTextShaper(),
         fontMetricsResolver = SkiaFontMetricsResolver(),

@@ -9,7 +9,7 @@ import org.tiqian.core.PunctuationDecisionInfo
 import org.tiqian.core.Rect
 import org.tiqian.core.SpacingDecisionInfo
 import org.tiqian.core.TiqianTextContent
-import org.tiqian.layout.ExplainableStubParagraphLayoutEngine
+import org.tiqian.layout.TiqianParagraphLayoutEngine
 import org.tiqian.layout.GreedyLineBreaker
 import org.tiqian.layout.LookaheadLineBreaker
 import org.tiqian.layout.ParagraphDpLineBreaker
@@ -47,12 +47,12 @@ fun main() {
         } else {
             org.tiqian.linebreak.NoHyphenator
         }
-        val greedyEngine = ExplainableStubParagraphLayoutEngine(
+        val greedyEngine = TiqianParagraphLayoutEngine(
             lineBreaker = GreedyLineBreaker(),
             textShaper = textShaper,
             hyphenator = hyphenator,
         )
-        val lookaheadEngine = ExplainableStubParagraphLayoutEngine(
+        val lookaheadEngine = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             textShaper = textShaper,
             hyphenator = hyphenator,
@@ -94,7 +94,7 @@ fun main() {
                 ),
             )
             fun layout(breaker: org.tiqian.layout.LineBreaker) =
-                ExplainableStubParagraphLayoutEngine(
+                TiqianParagraphLayoutEngine(
                     lineBreaker = breaker,
                     textShaper = textShaper,
                     hyphenator = org.tiqian.linebreak.NoHyphenator,

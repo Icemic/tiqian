@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 /** 注音 (ADR 0033): right-side ㄅㄆㄇ symbols + parsed tone, with annotated-base reservation. */
 class BopomofoLayoutTest {
 
-    private val engine = ExplainableStubParagraphLayoutEngine()
+    private val engine = TiqianParagraphLayoutEngine()
 
     private fun layout(
         bopomofo: List<RubySpan>,

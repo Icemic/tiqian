@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * is exercised separately by `LineAdjustmentPushInTest`.
  */
 class JustifierEngineTest {
-    private val engine = ExplainableStubParagraphLayoutEngine(
+    private val engine = TiqianParagraphLayoutEngine(
         clreqProfileResolver = {
             ClreqProfile.MainlandHorizontal.let { p ->
                 p.copy(adjustment = p.adjustment.copy(lineAdjustment = LineAdjustmentStrategy.PushOutOnly))
@@ -207,7 +207,7 @@ class JustifierEngineTest {
 
     @Test
     fun latinGlyphPositionsSurviveAutospaceAndJustification() {
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             textShaper = PositionedPairShaper(),
             hyphenator = NoHyphenator,
             clreqProfileResolver = {

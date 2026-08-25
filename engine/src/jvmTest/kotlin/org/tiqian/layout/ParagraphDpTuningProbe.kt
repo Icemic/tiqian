@@ -169,7 +169,7 @@ class ParagraphDpTuningProbe {
     ): Recorder {
         val recorder = Recorder(breaker)
         val engine = if (pinBasicNoHang) {
-            ExplainableStubParagraphLayoutEngine(
+            TiqianParagraphLayoutEngine(
                 lineBreaker = recorder,
                 textShaper = AwtTextShaper(),
                 hyphenator = if (useHyphenation) {
@@ -184,7 +184,7 @@ class ParagraphDpTuningProbe {
                 },
             )
         } else {
-            ExplainableStubParagraphLayoutEngine(
+            TiqianParagraphLayoutEngine(
                 lineBreaker = recorder,
                 textShaper = AwtTextShaper(),
                 hyphenator = if (useHyphenation) {

@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
 class QuoteClassificationEngineTest {
     @Test
     fun keepsLatinTechnicalPunctuationInLatinRun() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("well-known/path"),
@@ -60,7 +60,7 @@ class QuoteClassificationEngineTest {
         // forms (（）「」 etc), so they are always Latin by typed intent.
         // (English) joins the surrounding Latin run and renders in latin font;
         // the CJK text on either side is unaffected.
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文(English)中文"),
@@ -81,7 +81,7 @@ class QuoteClassificationEngineTest {
         // Even with CJK on both sides AND inside, ASCII brackets stay Latin —
         // the author chose ASCII; if they wanted fullwidth they would type
         // U+FF08/FF09 (which is already CjkPunctuation by code point).
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("中文(中文)"),
@@ -98,7 +98,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun asciiClosingBracketWithCjkInteriorIsForbiddenAtLineStart() {
         val text = "如今已占据超七成份额(国产品牌)，互联网大厂排队抢购？"
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -123,7 +123,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun asciiOpeningBracketWithCjkInteriorIsForbiddenAtLineEnd() {
         val text = "如今已占据超七成份额(国产品牌)，互联网大厂排队抢购？"
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
         ).layout(
             LayoutInput(
@@ -147,7 +147,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsTextStartLatinQuotePairInLatinRun() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("“Hello” world"),
@@ -172,7 +172,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun mixedQuoteContextsReachTheFontAndPunctuationPipeline() {
         val text = "中“文”中；that’s；（如 ‘O’, ‘Q’）；他说：“She said ‘hello’.”"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(text),
@@ -211,7 +211,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun quoteRolesSurviveStyleAndSourceBoundaries() {
         val text = "中‘that’s’中"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(
@@ -241,7 +241,7 @@ class QuoteClassificationEngineTest {
         )
 
         for (text in texts) {
-            val result = ExplainableStubParagraphLayoutEngine().layout(
+            val result = TiqianParagraphLayoutEngine().layout(
                 LayoutInput(
                     paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                     content = TiqianTextContent(text),
@@ -279,7 +279,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun mi10sAdjacentLatinTranscriptionsKeepTheFinalQuotePairInCjkContext() {
         val text = "所以这个和 “骑ji” “说shui”“斜xiá”不一样，港台是从众的，大陆读音大多数源自韵书。"
-        val result = ExplainableStubParagraphLayoutEngine(
+        val result = TiqianParagraphLayoutEngine(
             lineBreaker = LookaheadLineBreaker(),
             hyphenator = NoHyphenator,
         ).layout(
@@ -304,7 +304,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun skipsNeutralDashBeforeLatinQuotePairInLayout() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("English — “hello”"),
@@ -321,7 +321,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun keepsSlashLedLatinTechnicalRunOutOfCjkPunctuationGeometry() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("恐跨/TERFism。如果"),
@@ -339,7 +339,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun recordsRoleOverridesForResolvedQuotePairs() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("“Hello” world"),
@@ -361,7 +361,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun mixedChineseQuestionAtParagraphStartKeepsCjkQuoteGeometry() {
         val text = "“Json是谁？”"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic.Zero),
                 content = TiqianTextContent(text),
@@ -386,7 +386,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun keepsNumberedCjkQuotePairOnCjkFace() {
         val text = "1.\u201C\u4F60\u77E5\u9053\u674E\u767D\u662F\u600E\u4E48\u6B7B\u7684\u5417\uFF1F\u201D"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(text),
@@ -409,7 +409,7 @@ class QuoteClassificationEngineTest {
         // MiSans-like metrics: curly quotes are proportional (0.375em) even
         // after `fwid`. Layout keeps the source glyph box intact while placing
         // that box on the correct side of a synthesized 1em punctuation cell.
-        val engine = ExplainableStubParagraphLayoutEngine(
+        val engine = TiqianParagraphLayoutEngine(
             textShaper = object : TextShaper {
                 private val delegate = ExplainableStubTextShaper()
 
@@ -488,7 +488,7 @@ class QuoteClassificationEngineTest {
 
     @Test
     fun leavesLatinContextCurlyQuotesOutsideCjkPunctuationGeometry() {
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent("“Hello” world"),
@@ -503,7 +503,7 @@ class QuoteClassificationEngineTest {
     @Test
     fun keepsContractionApostropheLatinInsideCjkSingleQuotes() {
         val text = "中‘that’s’中"
-        val result = ExplainableStubParagraphLayoutEngine().layout(
+        val result = TiqianParagraphLayoutEngine().layout(
             LayoutInput(
                 paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
                 content = TiqianTextContent(text),
