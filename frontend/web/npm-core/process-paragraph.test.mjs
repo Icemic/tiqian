@@ -72,12 +72,11 @@ function computedStyle(values = {}) {
 // fixture font backend is installed by default so the real prepare step can
 // shape; a test that must not reach ffi passes fontBackend: false.
 function withEnv(fn, overrides = {}) {
-  const saved = saveGlobals([
-    "getComputedStyle",
-    "__TiqianLayoutWorker",
-    "document",
-    "__TiqianFontBackend",
-  ]);
+const saved = saveGlobals([
+      "getComputedStyle",
+      "__TiqianLayoutWorker",
+      "document",
+    ]);
   const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
     if (overrides.renderer !== false) {

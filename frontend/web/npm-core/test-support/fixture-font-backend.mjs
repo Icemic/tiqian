@@ -4,9 +4,9 @@
 // frontend/web-precompute/scripts/plan-parity-oracle.mjs (lines 37-82), which
 // mirrors the fixture backend of PrecomputeExportsTest.kt: one glyph per code
 // point, advance and x scaled by the font size, glyph id 0 marks a missing
-// glyph, metrics [1.04, 0.28, 0, 0.88, 0.12] x fontSize. The handle protocol
-// is the synchronous Node font session contract the real @tiqian/ffi runtime
-// reads from globalThis.__TiqianFontBackend.
+// glyph, metrics [1.04, 0.28, 0, 0.88, 0.12] x fontSize. The callback protocol
+// is the synchronous JSON request/response contract the real @tiqian/ffi runtime
+// uses.
 //
 // Install it around a test (with try/finally) so the real
 // precomputeParagraphWithDiagnostics / precomputeParagraphWithBrowserMetrics
@@ -15,18 +15,12 @@
 
 const MISSING_GLYPH_MARKER = "\u22ef"; // "⋯"
 
-function installFixtureFontBackend() {
-  const previous = {
-    __TiqianFontBackend: globalThis.__TiqianFontBackend,
-    __TiqianFontBackendReplayRegistry: globalThis.__TiqianFontBackendReplayRegistry,
-    __TiqianFontBackendRevision: globalThis.__TiqianFontBackendRevision,
-  };
-  let nextHandle = 1;
-  const shapes = new Map();
-  const metrics = new Map();
-  globalThis.__TiqianFontBackend = {
-    shape(_session, displayText, _families, fontSize) {
-      const handle = nextHandle++;
+function makeFixtureCallbacks() {
+  return {
+    shapeJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
+      const displayText = request.displayText;
+      const fontSize = request.style.fontSize;
       const missing = String(displayText).includes(MISSING_GLYPH_MARKER);
       const glyphs = [];
       let index = 0;
@@ -40,65 +34,82 @@ function installFixtureFontBackend() {
         });
         index += 1;
       }
-      shapes.set(handle, { glyphs, advance: glyphs.length * fontSize });
-      return handle;
+      return JSON.stringify({
+        clusters: [{
+          range: request.range,
+          text: request.text.substring(request.range.start, request.range.end),
+          displayText,
+          fontKey: request.fontDecision.candidateKey,
+          advance: glyphs.length * fontSize,
+        }],
+        glyphRuns: [{
+          range: request.range,
+          fontKey: request.fontDecision.candidateKey,
+          glyphs: glyphs.map((g) => ({
+            id: g.id,
+            clusterRange: request.range,
+            advance: g.advance,
+            x: g.x,
+            y: g.y,
+            bounds: { left: g.bounds[0], top: g.bounds[1], right: g.bounds[2], bottom: g.bounds[3] },
+          })),
+          advance: glyphs.length * fontSize,
+          openTypeFeatures: [],
+        }],
+        decisions: [{
+          range: request.range,
+          sourceText: request.text.substring(request.range.start, request.range.end),
+          displayText,
+          fontKey: request.fontDecision.candidateKey,
+          glyphCount: glyphs.length,
+          advance: glyphs.length * fontSize,
+          source: "HarfBuzz",
+          reason: "test",
+          glyphsWithoutInkBounds: 0,
+          missingGlyphs: missing ? glyphs.length : 0,
+          resolvedFace: "Fixture CJK",
+          script: "Hani",
+          language: request.style.locale,
+          featureEvidence: null,
+        }],
+      });
     },
-    shapeGlyphCount: (handle) => shapes.get(handle).glyphs.length,
-    shapeGlyphId: (handle, index) => shapes.get(handle).glyphs[index].id,
-    shapeGlyphAdvance: (handle, index) => shapes.get(handle).glyphs[index].advance,
-    shapeGlyphX: (handle, index) => shapes.get(handle).glyphs[index].x,
-    shapeGlyphY: (handle, index) => shapes.get(handle).glyphs[index].y,
-    shapeGlyphBound: (handle, index, edge) => shapes.get(handle).glyphs[index].bounds[edge],
-    shapeAdvance: (handle) => shapes.get(handle).advance,
-    shapeFaceId: () => "Fixture CJK",
-    shapeFontInstanceId: () => "fixture-sha:0:wght=400",
-    shapeScript: () => "Hani",
-    shapeFeatureCount: () => 0,
-    shapeFeature: () => "",
-    shapeUnsafeBreakCount: () => 0,
-    releaseShape: (handle) => shapes.delete(handle),
-    metrics(_session, _families, fontSize) {
-      const handle = nextHandle++;
-      metrics.set(handle, [fontSize * 1.04, fontSize * 0.28, 0, fontSize * 0.88, fontSize * 0.12]);
-      return handle;
+    metricsJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
+      const fontSize = request.fontSize;
+      return JSON.stringify({
+        ascent: fontSize * 1.04,
+        descent: fontSize * 0.28,
+        leading: 0,
+        source: "RawTables",
+        typoAscent: fontSize * 0.88,
+        typoDescent: fontSize * 0.12,
+      });
     },
-    metricValue: (handle, index) => metrics.get(handle)[index],
-    releaseMetrics: (handle) => metrics.delete(handle),
   };
+}
+
+function installFixtureFontBackend() {
+  const callbacks = makeFixtureCallbacks();
   return {
     uninstall() {
-      for (const name of Object.keys(previous)) {
-        if (previous[name] !== undefined) globalThis[name] = previous[name];
-        else delete globalThis[name];
-      }
+      // No globals to restore
     },
+    shapeJson: callbacks.shapeJson,
+    metricsJson: callbacks.metricsJson,
   };
 }
 
 // A throwing backend variant: every shape request throws the given error.
 // This is how tests force the exact-session capability-failure retry and the
 // rethrow path through the real precompute exports.
-function installThrowingFontBackend(error) {
-  const previous = {
-    __TiqianFontBackend: globalThis.__TiqianFontBackend,
-    __TiqianFontBackendReplayRegistry: globalThis.__TiqianFontBackendReplayRegistry,
-    __TiqianFontBackendRevision: globalThis.__TiqianFontBackendRevision,
-  };
-  globalThis.__TiqianFontBackend = {
-    shape() {
-      throw error;
-    },
-    metrics() {
-      throw error;
-    },
-  };
+function installThrowingFontBackend(error: Error) {
   return {
     uninstall() {
-      for (const name of Object.keys(previous)) {
-        if (previous[name] !== undefined) globalThis[name] = previous[name];
-        else delete globalThis[name];
-      }
+      // No globals to restore
     },
+    shapeJson: () => { throw error; },
+    metricsJson: () => { throw error; },
   };
 }
 

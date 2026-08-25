@@ -62,6 +62,8 @@ export interface ServerReplayFontSession {
   harfbuzzVersion: string;
   faces: ReplayFontSessionFace[];
   close: SessionCloser;
+  shapeJson: (requestJson: string) => string;
+  metricsJson: (requestJson: string) => string;
 }
 
 interface ReplaySession {
@@ -125,17 +127,6 @@ export interface ServerReplayFontBackend {
   releaseMetrics: ReplayHandleRelease;
 }
 
-declare global {
-  var __TiqianFontBackend: ServerReplayFontBackend;
-  var __TiqianFontBackendReplayRegistry: ReplayRegistry;
-  var __TiqianFontBackendRevision: string;
-}
-
-// The replay registry is owned by the service's FontCoordinationState (one
-// per document, page-level single by definition; see fonts.ts). It is read
-// lazily at use time so this module imports the service accessor without an
-// init-time cycle. The registry object itself survives across bundle copies
-// through the Symbol.for key the fonts cluster uses to seed it on globalThis.
 function replayRegistry(): ReplayRegistry {
   return globalServices().fonts.replayRegistry;
 }
@@ -153,115 +144,133 @@ function replayIndex<T extends { key: string }>(items: T[], kind: string): Map<s
   return index;
 }
 
-function installReplayBackend() {
-  const registry = replayRegistry();
-  if (globalThis.__TiqianFontBackend) {
-    if (globalThis.__TiqianFontBackendReplayRegistry === registry) return;
-    throw new Error("FontBackendGlobalCollision");
-  }
-  globalThis.__TiqianFontBackendRevision = FONT_BACKEND_REVISION;
-  globalThis.__TiqianFontBackendReplayRegistry = registry;
-  globalThis.__TiqianFontBackend = {
-    shape(
-      sessionId: string,
-      displayText: string,
-      serializedFamilies: string,
-      fontSize: number,
-      fontWeight: number,
-      italic: boolean,
-      locale: string,
-      role: string,
-      sourceText: string = displayText,
-    ): number {
-      const session = registry.sessions.get(sessionId);
-      if (!session) throw new Error(`UnknownFontSession:${sessionId}`);
-      const key = shapeReplayKey(
+function createShapeJsonCallback(registry: ReplayRegistry, sessionId: string): (requestJson: string) => string {
+  return (requestJson: string): string => {
+    const request = JSON.parse(requestJson);
+    const session = registry.sessions.get(sessionId);
+    if (!session) throw new Error(`UnknownFontSession:${sessionId}`);
+
+    const displayText = request.displayText;
+    const serializedFamilies = request.style.fontFamilies.join("\u001f");
+    const fontSize = request.style.fontSize;
+    const fontWeight = request.style.fontWeight;
+    const italic = request.style.italic;
+    const locale = request.style.locale;
+    const role = request.fontDecision.role;
+    const sourceText = request.sourceText ?? displayText;
+
+    const key = shapeReplayKey(
+      displayText,
+      serializedFamilies,
+      fontWeight,
+      italic,
+      locale,
+      role,
+      sourceText,
+    );
+    let item = session.shapes.get(key);
+    if (!item && session.probe) {
+      const probedResult = probeShapeReplayResult(
+        { displayText, serializedFamilies, fontSize, fontWeight, italic },
+        session.probe.measure,
+      );
+      if (probedResult) {
+        item = { key, result: probedResult };
+        session.shapes.set(key, item);
+      }
+    }
+    if (!item) throw new Error(`MissingServerShapingReplay:shape:${key}`);
+    const handle = registry.nextResultId++;
+    registry.shapeResults.set(handle, scaleShapeReplayItem(item, fontSize));
+
+    // Build response JSON matching the shaping result format
+    const glyphs = registry.shapeResults.get(handle)!;
+    return JSON.stringify({
+      clusters: [{
+        range: request.range,
+        text: request.text.substring(request.range.start, request.range.end),
         displayText,
-        serializedFamilies,
-        fontWeight,
-        italic,
-        locale,
-        role,
-        sourceText,
+        fontKey: request.fontDecision.candidateKey,
+        advance: glyphs.advance,
+      }],
+      glyphRuns: [{
+        range: request.range,
+        fontKey: request.fontDecision.candidateKey,
+        glyphs: glyphs.glyphs.map((g, i) => ({
+          id: g.id,
+          clusterRange: request.range,
+          advance: g.advance,
+          x: g.x,
+          y: g.y,
+          bounds: g.bounds ? { left: g.bounds[0], top: g.bounds[1], right: g.bounds[2], bottom: g.bounds[3] } : null,
+        })),
+        advance: glyphs.advance,
+        openTypeFeatures: glyphs.features,
+      }],
+      decisions: [{
+        range: request.range,
+        sourceText: request.text.substring(request.range.start, request.range.end),
+        displayText,
+        fontKey: request.fontDecision.candidateKey,
+        glyphCount: glyphs.glyphs.length,
+        advance: glyphs.advance,
+        source: "HarfBuzz",
+        reason: `SharedHarfBuzzSession:face=${glyphs.faceId}; instance=${glyphs.fontInstanceId}; current-segment-context; features=${glyphs.features.join(",").replace(/^$/, "default")}; unsafeToBreakGlyphs=${glyphs.unsafeBreakCount}`,
+        glyphsWithoutInkBounds: glyphs.glyphs.filter(g => g.bounds === null).length,
+        missingGlyphs: glyphs.glyphs.filter(g => g.id === 0).length,
+        resolvedFace: glyphs.faceId,
+        script: glyphs.script,
+        language: request.style.locale,
+        featureEvidence: glyphs.features.length > 0 ? glyphs.features.join(",") : null,
+      }],
+    });
+  };
+}
+
+function createMetricsJsonCallback(registry: ReplayRegistry, sessionId: string): (requestJson: string) => string {
+  return (requestJson: string): string => {
+    const request = JSON.parse(requestJson);
+    const session = registry.sessions.get(sessionId);
+    if (!session) throw new Error(`UnknownFontSession:${sessionId}`);
+
+    const serializedFamilies = request.fontFamilies.join("\u001f");
+    const fontSize = request.fontSize;
+    const fontWeight = request.fontWeight;
+    const italic = request.italic;
+    const role = request.role;
+    const faceSelectionText = request.faceSelectionText;
+
+    const key = metricReplayKey(
+      serializedFamilies,
+      fontWeight,
+      italic,
+      role,
+      faceSelectionText,
+    );
+    let item = session.metrics.get(key);
+    if (!item && session.probe) {
+      const valuesEm = probeMetricReplayValues(
+        { serializedFamilies, fontSize, fontWeight, italic, role },
+        session.probe.measure,
       );
-      let item = session.shapes.get(key);
-      if (!item && session.probe) {
-        const probedResult = probeShapeReplayResult(
-          { displayText, serializedFamilies, fontSize, fontWeight, italic },
-          session.probe.measure,
-        );
-        if (probedResult) {
-          item = { key, result: probedResult };
-          session.shapes.set(key, item);
-        }
+      if (valuesEm) {
+        item = { key, valuesEm };
+        session.metrics.set(key, item);
       }
-      if (!item) throw new Error(`MissingServerShapingReplay:shape:${key}`);
-      const handle = registry.nextResultId++;
-      registry.shapeResults.set(handle, scaleShapeReplayItem(item, fontSize));
-      return handle;
-    },
-    shapeGlyphCount: (handle: number): number =>
-      registry.shapeResults.get(handle)?.glyphs.length ?? 0,
-    shapeGlyphId: (handle: number, index: number): number =>
-      registry.shapeResults.get(handle)?.glyphs[index]?.id ?? 0,
-    shapeGlyphAdvance: (handle: number, index: number): number =>
-      registry.shapeResults.get(handle)?.glyphs[index]?.advance ?? 0,
-    shapeGlyphX: (handle: number, index: number): number =>
-      registry.shapeResults.get(handle)?.glyphs[index]?.x ?? 0,
-    shapeGlyphY: (handle: number, index: number): number =>
-      registry.shapeResults.get(handle)?.glyphs[index]?.y ?? 0,
-    shapeGlyphBound(handle: number, index: number, edge: number): number {
-      return registry.shapeResults.get(handle)?.glyphs[index]?.bounds?.[edge] ?? Number.NaN;
-    },
-    shapeAdvance: (handle: number): number => registry.shapeResults.get(handle)?.advance ?? 0,
-    shapeFaceId: (handle: number): string => registry.shapeResults.get(handle)?.faceId ?? "",
-    shapeFontInstanceId: (handle: number): string =>
-      registry.shapeResults.get(handle)?.fontInstanceId ?? "",
-    shapeScript: (handle: number): string => registry.shapeResults.get(handle)?.script ?? "",
-    shapeFeatureCount: (handle: number): number =>
-      registry.shapeResults.get(handle)?.features.length ?? 0,
-    shapeFeature: (handle: number, index: number): string =>
-      registry.shapeResults.get(handle)?.features[index] ?? "",
-    shapeUnsafeBreakCount: (handle: number): number =>
-      registry.shapeResults.get(handle)?.unsafeBreakCount ?? 0,
-    releaseShape: (handle: number) => registry.shapeResults.delete(handle),
-    metrics(
-      sessionId: string,
-      serializedFamilies: string,
-      fontSize: number,
-      fontWeight: number,
-      italic: boolean,
-      role: string,
-      faceSelectionText: string,
-    ): number {
-      const session = registry.sessions.get(sessionId);
-      if (!session) throw new Error(`UnknownFontSession:${sessionId}`);
-      const key = metricReplayKey(
-        serializedFamilies,
-        fontWeight,
-        italic,
-        role,
-        faceSelectionText,
-      );
-      let item = session.metrics.get(key);
-      if (!item && session.probe) {
-        const valuesEm = probeMetricReplayValues(
-          { serializedFamilies, fontSize, fontWeight, italic, role },
-          session.probe.measure,
-        );
-        if (valuesEm) {
-          item = { key, valuesEm };
-          session.metrics.set(key, item);
-        }
-      }
-      if (!item) throw new Error(`MissingServerShapingReplay:metrics:${key}`);
-      const handle = registry.nextResultId++;
-      registry.metricResults.set(handle, scaleMetricReplayItem(item, fontSize));
-      return handle;
-    },
-    metricValue: (handle: number, index: number): number =>
-      registry.metricResults.get(handle)?.[index] ?? Number.NaN,
-    releaseMetrics: (handle: number) => registry.metricResults.delete(handle),
+    }
+    if (!item) throw new Error(`MissingServerShapingReplay:metrics:${key}`);
+    const handle = registry.nextResultId++;
+    registry.metricResults.set(handle, scaleMetricReplayItem(item, fontSize));
+
+    const metrics = registry.metricResults.get(handle)!;
+    return JSON.stringify({
+      ascent: metrics[0],
+      descent: metrics[1],
+      leading: metrics[2],
+      source: "RawTables",
+      typoAscent: Number.isNaN(metrics[3]) ? null : metrics[3],
+      typoDescent: Number.isNaN(metrics[4]) ? null : metrics[4],
+    });
   };
 }
 
@@ -291,11 +300,12 @@ export async function createServerReplayFontSession(
       faceSpecs.length !== faceMetadata.length) {
     throw new Error("ServerShapingReplayFaceMismatch");
   }
-  installReplayBackend();
   const prefix = String(options.sessionPrefix ?? "tq-browser-replay").trim() || "tq-browser-replay";
   const sessionId = `${prefix}-${registry.nextSessionId++}`;
   registry.sessions.set(sessionId, { shapes, metrics, probe });
   let closed = false;
+  const shapeJson = createShapeJsonCallback(registry, sessionId);
+  const metricsJson = createMetricsJsonCallback(registry, sessionId);
   return Object.freeze({
     id: sessionId,
     backendRevision: FONT_BACKEND_REVISION,
@@ -311,5 +321,7 @@ export async function createServerReplayFontSession(
       closed = true;
       registry.sessions.delete(sessionId);
     },
+    shapeJson,
+    metricsJson,
   });
 }

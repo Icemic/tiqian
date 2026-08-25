@@ -10,15 +10,15 @@ import { createServerReplayFontSession } from "../../../browser-font-replay.js";
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
 import { writeBinaryTable } from "../../../table-binary-writer.mjs";
 
-function recordingMeasureAdapter(calls) {
-  return (cssFont, text) => {
+function recordingMeasureAdapter(calls: any[]) {
+  return (cssFont: string, text: string) => {
     calls.push({ cssFont, text });
     return { width: 18, fontBoundingBoxAscent: 30, fontBoundingBoxDescent: 10 };
   };
 }
 
 test("empty tables with a probe create an unbaked session", async () => {
-  const calls = [];
+  const calls: any[] = [];
   const session = await createServerReplayFontSession([], {
     sessionPrefix: "tq-test-nobake",
     replay: { revision: FONT_REPLAY_REVISION, shapes: [], metrics: [] },
@@ -29,6 +29,9 @@ test("empty tables with a probe create an unbaked session", async () => {
   try {
     assert.equal(session.faces.length, 0);
     assert.match(session.id, /^tq-test-nobake-/);
+    // Verify callbacks exist
+    assert.ok(typeof session.shapeJson === "function");
+    assert.ok(typeof session.metricsJson === "function");
   } finally {
     session.close();
   }
@@ -45,22 +48,27 @@ test("empty tables without a probe still fail closed", async () => {
 });
 
 test("probe bootstrap backfills a miss and serves the same key from the table", async () => {
-  const calls = [];
+  const calls: any[] = [];
   const session = await createProbeBootstrapFontSession("bootstrap-test", {
     measureAdapter: recordingMeasureAdapter(calls),
   });
   assert.match(session.id, /^tq-worker-nobake-bootstrap-test-/);
   try {
-    const shapeKey = [
-      session.id, "中", "Fixture CJK", 18, 400, false, "zh-Hans", "CjkText", "中",
-    ];
-    const firstHandle = globalThis.__TiqianFontBackend.shape(...shapeKey);
-    assert.equal(globalThis.__TiqianFontBackend.shapeAdvance(firstHandle), 18);
-    globalThis.__TiqianFontBackend.releaseShape(firstHandle);
+    const shapeRequest = JSON.stringify({
+      text: "中",
+      range: { start: 0, end: 1 },
+      style: { fontFamilies: ["Fixture CJK"], fontSize: 18, fontWeight: 400, italic: false, locale: "zh-Hans" },
+      fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+      displayText: "中",
+      openTypeFeatures: [],
+    });
+    const shapeResponse = JSON.parse(session.shapeJson(shapeRequest));
+    assert.equal(shapeResponse.glyphRuns[0].advance, 18);
     assert.equal(calls.length, 1);
 
-    const secondHandle = globalThis.__TiqianFontBackend.shape(...shapeKey);
-    globalThis.__TiqianFontBackend.releaseShape(secondHandle);
+    // Second call should hit cache
+    const shapeResponse2 = JSON.parse(session.shapeJson(shapeRequest));
+    assert.equal(shapeResponse2.glyphRuns[0].advance, 18);
     assert.equal(calls.length, 1);
   } finally {
     session.close();
@@ -150,6 +158,8 @@ test("manifest sessions keep the baked contract path", async () => {
     assert.equal(session.faces.length, 1);
     assert.equal(session.faces[0].family, "Fixture CJK");
     assert.match(session.id, /^tq-worker-manifest-test-/);
+    assert.ok(typeof session.shapeJson === "function");
+    assert.ok(typeof session.metricsJson === "function");
   } finally {
     session.close();
   }

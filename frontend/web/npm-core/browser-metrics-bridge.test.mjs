@@ -8,14 +8,14 @@ import { clearMeasurementCache } from "./core/engine/canvas-shaping.js";
 import { createBrowserMetricsBridge } from "./core/engine/browser-metrics-bridge.js";
 
 const EXPECTED_FIRST_SHAPING_REQUEST =
-  '{"text":"\u4e2d\u6587\u4e2d\u6587","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"\u4e2d","openTypeFeatures":[]}';
+  '{"text":"\\u4e2d\\u6587\\u4e2d\\u6587","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"\\u4e2d","openTypeFeatures":[]}';
 
 const EXPECTED_FIRST_METRICS_REQUEST =
-  '{"fontKey":"cjk-primary","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Fixture CJK"],"fontWeight":400,"italic":false,"faceSelectionText":"\u4e2d"}';
+  '{"fontKey":"cjk-primary","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Fixture CJK"],"fontWeight":400,"italic":false,"faceSelectionText":"\\u4e2d"}';
 
 const PARAGRAPH_ARGUMENTS = ["\u4e2d\u6587\u4e2d\u6587", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
 
-function fakeCanvasMeasurement(text) {
+function fakeCanvasMeasurement(text: string) {
   if (text === "Hg") {
     return {
       width: 18,
@@ -39,19 +39,19 @@ function fakeCanvasMeasurement(text) {
   };
 }
 
-function makeFakeEnv(customMeasure) {
+function makeFakeEnv(customMeasure: any) {
   const measureFn = customMeasure || fakeCanvasMeasurement;
   function createCanvasContext() {
     return {
       canvas: { width: 0, height: 0 },
       font: "",
-      measureText(text) {
+      measureText(text: string) {
         return measureFn(text, this.font);
       },
       setTransform() {},
       clearRect() {},
       fillText() {},
-      getImageData(x, y, w, h) {
+      getImageData(x: number, y: number, w: number, h: number) {
         return { data: new Uint8ClampedArray(w * h * 4) };
       },
     };
@@ -69,18 +69,19 @@ function makeFakeEnv(customMeasure) {
       },
     };
   }
-  function attachProbe(element) {
+  function attachProbe(element: any) {
     if (element.parentNode == null) element.parentNode = {};
   }
   return { createCanvasContext, createProbeElement, attachProbe };
 }
 
-function installScriptedCanvasModelBackend() {
+function makeScriptedCanvasModelCallbacks() {
   let nextHandle = 1;
   const shapes = new Map();
   const metrics = new Map();
-  globalThis.__TiqianFontBackend = {
-    shape(_sessionId, _displayText) {
+  return {
+    shapeJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
       const handle = nextHandle++;
       shapes.set(handle, {
         faceId: "",
@@ -91,46 +92,64 @@ function installScriptedCanvasModelBackend() {
         advance: 18,
         glyphs: [{ id: 0, advance: 18, x: 0, y: 0, bounds: Number.NaN }],
       });
-      return handle;
+      return JSON.stringify({
+        clusters: [{
+          range: request.range,
+          text: request.text.substring(request.range.start, request.range.end),
+          displayText: request.displayText,
+          fontKey: request.fontDecision.candidateKey,
+          advance: 18,
+        }],
+        glyphRuns: [{
+          range: request.range,
+          fontKey: request.fontDecision.candidateKey,
+          glyphs: [{ id: 0, clusterRange: request.range, advance: 18, x: 0, y: 0, bounds: null }],
+          advance: 18,
+          openTypeFeatures: [],
+        }],
+        decisions: [{
+          range: request.range,
+          sourceText: request.text.substring(request.range.start, request.range.end),
+          displayText: request.displayText,
+          fontKey: request.fontDecision.candidateKey,
+          glyphCount: 1,
+          advance: 18,
+          source: "HarfBuzz",
+          reason: "test",
+          glyphsWithoutInkBounds: 1,
+          missingGlyphs: 1,
+          resolvedFace: "",
+          script: "",
+          language: request.style.locale,
+          featureEvidence: null,
+        }],
+      });
     },
-    shapeGlyphCount: (handle) => shapes.get(handle)?.glyphs.length ?? 0,
-    shapeGlyphId: (handle, index) => shapes.get(handle)?.glyphs[index]?.id ?? 0,
-    shapeGlyphAdvance: (handle, index) => shapes.get(handle)?.glyphs[index]?.advance ?? 0,
-    shapeGlyphX: (handle, index) => shapes.get(handle)?.glyphs[index]?.x ?? 0,
-    shapeGlyphY: (handle, index) => shapes.get(handle)?.glyphs[index]?.y ?? 0,
-    shapeGlyphBound: (handle) => shapes.get(handle)?.glyphs[0]?.bounds ?? Number.NaN,
-    shapeAdvance: (handle) => shapes.get(handle)?.advance ?? 0,
-    shapeFaceId: (handle) => shapes.get(handle)?.faceId ?? "",
-    shapeFontInstanceId: (handle) => shapes.get(handle)?.fontInstanceId ?? "",
-    shapeScript: (handle) => shapes.get(handle)?.script ?? "",
-    shapeFeatureCount: (handle) => shapes.get(handle)?.features.length ?? 0,
-    shapeFeature: () => "",
-    shapeUnsafeBreakCount: (handle) => shapes.get(handle)?.unsafeBreakCount ?? 0,
-    releaseShape: (handle) => shapes.delete(handle),
-    metrics(_sessionId, _families, fontSize, _fontWeight, _italic, role, _faceSelectionText) {
-      const cjkBox = role === "CjkText" || role === "CjkPunctuation";
+    metricsJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
+      const cjkBox = request.role === "CjkText" || request.role === "CjkPunctuation";
       const ideographicDescent = 12;
       const handle = nextHandle++;
       metrics.set(handle, cjkBox
-        ? [30, 10, 0, Math.max(fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
+        ? [30, 10, 0, Math.max(request.fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
         : [22, 6, 0, Number.NaN, Number.NaN]);
-      return handle;
+      const m = metrics.get(handle)!;
+      return JSON.stringify({
+        ascent: m[0],
+        descent: m[1],
+        leading: m[2],
+        source: "RawTables",
+        typoAscent: Number.isNaN(m[3]) ? null : m[3],
+        typoDescent: Number.isNaN(m[4]) ? null : m[4],
+      });
     },
-    metricValue: (handle, index) => metrics.get(handle)?.[index] ?? Number.NaN,
-    releaseMetrics: (handle) => metrics.delete(handle),
   };
 }
 
-function restoreGlobals() {
-  delete globalThis.__TiqianFontBackend;
-  delete globalThis.__TiqianFontBackendReplayRegistry;
-  delete globalThis.__TiqianFontBackendRevision;
-}
-
 const PLAN_NUMBER_TOLERANCE = 1e-9;
-const toleranceHits = [];
+const toleranceHits: string[] = [];
 
-function comparePlans(left, right, path) {
+function comparePlans(left: any, right: any, path: string) {
   if (typeof left === "number" && typeof right === "number") {
     if (Object.is(left, right)) return;
     const delta = Math.abs(left - right);
@@ -172,7 +191,7 @@ test("Shaping wire byte lock", () => {
     env,
   });
 
-  const capturedShapeRequests = [];
+  const capturedShapeRequests: string[] = [];
 
   precomputeParagraphWithBrowserMetrics(
     "中文中文",
@@ -215,7 +234,7 @@ test("Metrics wire byte lock", () => {
     env,
   });
 
-  const capturedMetricsRequests = [];
+  const capturedMetricsRequests: string[] = [];
 
   precomputeParagraphWithBrowserMetrics(
     "中文中文",
@@ -316,19 +335,18 @@ test("Parity against the scripted canvas-model backend", () => {
   const envelope = JSON.parse(rawEnvelope);
   const planA = JSON.parse(envelope.plan);
 
-  restoreGlobals();
-  installScriptedCanvasModelBackend();
+  const { shapeJson: scriptedShapeJson, metricsJson: scriptedMetricsJson } = makeScriptedCanvasModelCallbacks();
 
-  let planB;
+  let planB: any;
   try {
-    planB = JSON.parse(precomputePlainParagraph("canvas-model", ...PARAGRAPH_ARGUMENTS));
+    planB = JSON.parse(precomputePlainParagraph("canvas-model", ...PARAGRAPH_ARGUMENTS, "", 0.0, scriptedShapeJson, scriptedMetricsJson, "", null, false));
   } finally {
-    restoreGlobals();
+    // no globals to restore
   }
 
   assert.deepEqual(
-    planA.lines.map((line) => [line.rangeStart, line.rangeEnd]),
-    planB.lines.map((line) => [line.rangeStart, line.rangeEnd]),
+    planA.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
+    planB.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
   );
   comparePlans(planA, planB, "$");
 });
@@ -369,7 +387,7 @@ test("Dash capability passthrough", () => {
 
   const envelope = JSON.parse(rawEnvelope);
   const issue = envelope.diagnostics.capabilityIssues.find(
-    (item) => item.name === "NoConformingCjkDashGlyph",
+    (item: any) => item.name === "NoConformingCjkDashGlyph",
   );
   assert.ok(issue, "Expected NoConformingCjkDashGlyph capability issue");
   assert.ok(

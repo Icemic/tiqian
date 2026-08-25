@@ -13,12 +13,9 @@
 // registries keep their public call surface; they consult this service-owned
 // record instead of module-level mutable state.
 //
-// The replay registry is keyed on globalThis via Symbol.for so that client
-// routers, dev HMR and duplicated package chunks share one registry, mirroring
-// the worker-channel coordinator precedent. Because the globalServices
-// container is itself Symbol.for-keyed, the service-owned record is shared
-// across bundle copies too; the globalThis slot is the ffi backend PROTOCOL
-// and stays byte-identical.
+// The replay registry is created and owned by the FontCoordinationState
+// service instance; it is shared across bundle copies through the
+// globalServices container (Symbol.for key).
 import { FONT_REPLAY_REVISION } from "../../../snapshot-schema.js";
 import type { ExactFontFallbackLoader } from "../loaders/font-loader.js";
 import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
@@ -29,8 +26,6 @@ import type {
   DeclaredFaceEntry,
   DeclaredFaceVoidCallbackFn,
 } from "../../sampler/snapshot/declared-faces.js";
-
-const REPLAY_REGISTRY_KEY: unique symbol = Symbol.for(`org.tiqian.web.font-replay.${FONT_REPLAY_REVISION}`);
 
 export interface FontCoordinationState {
   exactFontFallbackPromise: Promise<ExactFontFallbackLoader> | undefined;
@@ -46,11 +41,11 @@ export interface FontCoordinationState {
   replayRegistry: ReplayRegistry;
 }
 
-// The replay registry survives across bundle copies through its Symbol.for
-// key on globalThis. The service creates it once on first construction; later
-// copies (and test-injected fresh services) reuse the same page-global slot.
+// The replay registry is created once by the service on first construction;
+// later copies (and test-injected fresh services) reuse the same page-global
+// slot through the globalServices container.
 export function createReplayRegistry(): ReplayRegistry {
-  return (globalThis as Record<symbol, ReplayRegistry | undefined>)[REPLAY_REGISTRY_KEY] ??= {
+  return {
     sessions: new Map(),
     shapeResults: new Map(),
     metricResults: new Map(),

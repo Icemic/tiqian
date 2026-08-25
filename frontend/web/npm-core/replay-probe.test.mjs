@@ -48,7 +48,7 @@ const fixtureReplay = {
   ],
 };
 
-async function createTestSession(probe = null) {
+async function createTestSession(probe: any = null) {
   return createServerReplayFontSession([{}], {
     replay: fixtureReplay,
     faceMetadata: [{ weight: [400, 400], localNames: [] }],
@@ -59,58 +59,59 @@ async function createTestSession(probe = null) {
 test("shape miss with valid probe measures canvas, backfills session, and returns scaled shape handle", async () => {
   let measureCount = 0;
   const session = await createTestSession({
-    measure(font, text) {
+    measure(font: string, text: string) {
       measureCount++;
       assert.equal(font, "normal 400 32px Noto Sans SC, serif");
       assert.equal(text, "测");
       return { width: 16 };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
-  const handle = backend.shape(
-    session.id,
-    "测",
-    ["Noto Sans SC", "serif"].join("\u001f"),
-    32,
-    400,
-    false,
-    "zh-Hans",
-    "CjkText",
-    "测",
-  );
+  const shapeRequest = JSON.stringify({
+    text: "测",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC", "serif"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "测",
+    openTypeFeatures: [],
+  });
+  const shapeResponse = JSON.parse(session.shapeJson(shapeRequest));
   assert.equal(measureCount, 1);
-  assert.equal(backend.shapeGlyphCount(handle), 1);
-  assert.equal(backend.shapeGlyphId(handle, 0), 0);
-  assert.equal(backend.shapeGlyphAdvance(handle, 0), 16);
-  assert.equal(backend.shapeGlyphX(handle, 0), 0);
-  assert.equal(backend.shapeGlyphY(handle, 0), 0);
-  assert.ok(Number.isNaN(backend.shapeGlyphBound(handle, 0, 0)));
-  assert.equal(backend.shapeAdvance(handle), 16);
-  assert.ok(backend.shapeFaceId(handle).startsWith(REPLAY_PROBE_FACE_PREFIX));
-  assert.ok(backend.shapeFaceId(handle).includes("Noto Sans SC, serif"));
-  assert.equal(backend.shapeFeatureCount(handle), 0);
-  assert.equal(backend.shapeUnsafeBreakCount(handle), 0);
-  backend.releaseShape(handle);
+  assert.equal(shapeResponse.glyphRuns[0].glyphs.length, 1);
+  assert.equal(shapeResponse.glyphRuns[0].glyphs[0].id, 0);
+  assert.equal(shapeResponse.glyphRuns[0].glyphs[0].advance, 16);
+  assert.equal(shapeResponse.glyphRuns[0].glyphs[0].x, 0);
+  assert.equal(shapeResponse.glyphRuns[0].glyphs[0].y, 0);
+  assert.ok(Number.isNaN(shapeResponse.glyphRuns[0].glyphs[0].bounds?.left));
+  assert.equal(shapeResponse.glyphRuns[0].advance, 16);
+  assert.ok(shapeResponse.decisions[0].resolvedFace?.startsWith(REPLAY_PROBE_FACE_PREFIX));
+  assert.ok(shapeResponse.decisions[0].resolvedFace?.includes("Noto Sans SC, serif"));
+  assert.equal(shapeResponse.glyphRuns[0].openTypeFeatures.length, 0);
+  assert.equal(shapeResponse.decisions[0].glyphsWithoutInkBounds, 1);
   session.close();
 });
 
 test("subsequent shape requests for probed key hit the session table without calling measure again", async () => {
   let measureCount = 0;
   const session = await createTestSession({
-    measure(font, text) {
+    measure(font: string, text: string) {
       measureCount++;
       return { width: 16 };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
   const families = ["Noto Sans SC", "serif"].join("\u001f");
-  const handle1 = backend.shape(session.id, "复", families, 32, 400, false, "zh-Hans", "CjkText", "复");
+  const shapeRequest = JSON.stringify({
+    text: "复",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC", "serif"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "复",
+    openTypeFeatures: [],
+  });
+  const shapeResponse1 = JSON.parse(session.shapeJson(shapeRequest));
   assert.equal(measureCount, 1);
-  const handle2 = backend.shape(session.id, "复", families, 32, 400, false, "zh-Hans", "CjkText", "复");
+  const shapeResponse2 = JSON.parse(session.shapeJson(shapeRequest));
   assert.equal(measureCount, 1);
-  assert.equal(backend.shapeAdvance(handle1), backend.shapeAdvance(handle2));
-  backend.releaseShape(handle1);
-  backend.releaseShape(handle2);
+  assert.equal(shapeResponse1.glyphRuns[0].advance, shapeResponse2.glyphRuns[0].advance);
   session.close();
 });
 
@@ -120,11 +121,18 @@ test("shape miss with probe failure throws MissingServerShapingReplay verbatim",
       return null;
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
   const key = shapeReplayKey("缺", "Noto Sans SC", 400, false, "zh-Hans", "CjkText", "缺");
+  const shapeRequest = JSON.stringify({
+    text: "缺",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "缺",
+    openTypeFeatures: [],
+  });
   assert.throws(
-    () => backend.shape(session.id, "缺", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "缺"),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:shape:${key}`,
+    () => JSON.parse(session.shapeJson(shapeRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
 
   const session2 = await createTestSession({
@@ -133,8 +141,8 @@ test("shape miss with probe failure throws MissingServerShapingReplay verbatim",
     },
   });
   assert.throws(
-    () => backend.shape(session2.id, "缺", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "缺"),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:shape:${key}`,
+    () => JSON.parse(session2.shapeJson(shapeRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
   session.close();
   session2.close();
@@ -142,16 +150,33 @@ test("shape miss with probe failure throws MissingServerShapingReplay verbatim",
 
 test("session without probe throws MissingServerShapingReplay on miss", async () => {
   const session = await createTestSession(null);
-  const backend = globalThis.__TiqianFontBackend;
   const key = shapeReplayKey("无", "Noto Sans SC", 400, false, "zh-Hans", "CjkText", "无");
+  const shapeRequest = JSON.stringify({
+    text: "无",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "无",
+    openTypeFeatures: [],
+  });
   assert.throws(
-    () => backend.shape(session.id, "无", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "无"),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:shape:${key}`,
+    () => JSON.parse(session.shapeJson(shapeRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:shape:${key}`,
   );
   const metricKey = metricReplayKey("Noto Sans SC", 400, false, "BodyText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 32,
+    role: "BodyText",
+    locale: "zh-Hans",
+    fontFamilies: ["Noto Sans SC"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
   assert.throws(
-    () => backend.metrics(session.id, "Noto Sans SC", 32, 400, false, "BodyText", ""),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
+    () => JSON.parse(session.metricsJson(metricsRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
   );
   session.close();
 });
@@ -159,7 +184,7 @@ test("session without probe throws MissingServerShapingReplay on miss", async ()
 test("metric miss with latin role probe populates ascent/descent and keeps typo pair NaN", async () => {
   let probedText = "";
   const session = await createTestSession({
-    measure(font, text) {
+    measure(font: string, text: string) {
       probedText = text;
       return {
         width: 15,
@@ -168,22 +193,30 @@ test("metric miss with latin role probe populates ascent/descent and keeps typo 
       };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
-  const handle = backend.metrics(session.id, "Roboto", 16, 400, false, "BodyText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 16,
+    role: "BodyText",
+    locale: "zh-Hans",
+    fontFamilies: ["Roboto"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
+  const metricsResponse = JSON.parse(session.metricsJson(metricsRequest));
   assert.equal(probedText, LATIN_METRIC_PROBE_TEXT);
-  assert.equal(backend.metricValue(handle, 0), 24);
-  assert.equal(backend.metricValue(handle, 1), 8);
-  assert.equal(backend.metricValue(handle, 2), 0);
-  assert.ok(Number.isNaN(backend.metricValue(handle, 3)));
-  assert.ok(Number.isNaN(backend.metricValue(handle, 4)));
-  backend.releaseMetrics(handle);
+  assert.equal(metricsResponse.ascent, 24);
+  assert.equal(metricsResponse.descent, 8);
+  assert.equal(metricsResponse.leading, 0);
+  assert.ok(metricsResponse.typoAscent === null);
+  assert.ok(metricsResponse.typoDescent === null);
   session.close();
 });
 
 test("metric miss with CJK role probe calculates typo metrics from ideographic baseline and normalizes em", async () => {
   let probedText = "";
   const session = await createTestSession({
-    measure(font, text) {
+    measure(font: string, text: string) {
       probedText = text;
       return {
         width: 32,
@@ -193,17 +226,26 @@ test("metric miss with CJK role probe calculates typo metrics from ideographic b
       };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
-  const handle = backend.metrics(session.id, "Noto Sans SC", 32, 400, false, "CjkText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 32,
+    role: "CjkText",
+    locale: "zh-Hans",
+    fontFamilies: ["Noto Sans SC"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
+  const metricsResponse = JSON.parse(session.metricsJson(metricsRequest));
   assert.equal(probedText, CJK_METRIC_PROBE_TEXT);
-  assert.equal(backend.metricValue(handle, 0), 30);
-  assert.equal(backend.metricValue(handle, 1), 10);
-  assert.equal(backend.metricValue(handle, 2), 0);
-  assert.equal(backend.metricValue(handle, 3), 20);
-  assert.equal(backend.metricValue(handle, 4), 12);
+  assert.equal(metricsResponse.ascent, 30);
+  assert.equal(metricsResponse.descent, 10);
+  assert.equal(metricsResponse.leading, 0);
+  assert.equal(metricsResponse.typoAscent, 20);
+  assert.equal(metricsResponse.typoDescent, 12);
 
   const valuesEm = probeMetricReplayValues(
-    { serializedFamilies: "Noto Sans SC", fontSize: 32, fontWeight: 400, italic: false, role: "CjkText" },
+    { serializedFamilies: "Noto Sans SC\u001fserif", fontSize: 32, fontWeight: 400, italic: false, role: "CjkText" },
     () => ({
       width: 32,
       actualBoundingBoxAscent: 30,
@@ -220,7 +262,6 @@ test("metric miss with CJK role probe calculates typo metrics from ideographic b
   ]);
   assert.deepEqual(valuesEm, [0.9375, 0.3125, 0, 0.625, 0.375]);
 
-  backend.releaseMetrics(handle);
   session.close();
 });
 
@@ -234,11 +275,20 @@ test("metric miss with measure width <= epsilon throws MissingServerShapingRepla
       };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
   const key = metricReplayKey("Noto Sans SC", 400, false, "CjkText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 32,
+    role: "CjkText",
+    locale: "zh-Hans",
+    fontFamilies: ["Noto Sans SC"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
   assert.throws(
-    () => backend.metrics(session.id, "Noto Sans SC", 32, 400, false, "CjkText", ""),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:metrics:${key}`,
+    () => JSON.parse(session.metricsJson(metricsRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${key}`,
   );
   session.close();
 });
@@ -252,11 +302,20 @@ test("metric miss with missing ascent in measure throws MissingServerShapingRepl
       };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
   const key = metricReplayKey("Noto Sans SC", 400, false, "CjkText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 32,
+    role: "CjkText",
+    locale: "zh-Hans",
+    fontFamilies: ["Noto Sans SC"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
   assert.throws(
-    () => backend.metrics(session.id, "Noto Sans SC", 32, 400, false, "CjkText", ""),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:metrics:${key}`,
+    () => JSON.parse(session.metricsJson(metricsRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${key}`,
   );
   session.close();
 });
@@ -267,16 +326,33 @@ test("measure function throwing an error fails closed without leaking exception"
       throw new Error("CanvasContextCrash");
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
   const shapeKey = shapeReplayKey("崩", "Noto Sans SC", 400, false, "zh-Hans", "CjkText", "崩");
+  const shapeRequest = JSON.stringify({
+    text: "崩",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "崩",
+    openTypeFeatures: [],
+  });
   assert.throws(
-    () => backend.shape(session.id, "崩", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "崩"),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:shape:${shapeKey}`,
+    () => JSON.parse(session.shapeJson(shapeRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:shape:${shapeKey}`,
   );
   const metricKey = metricReplayKey("Noto Sans SC", 400, false, "CjkText", "");
+  const metricsRequest = JSON.stringify({
+    fontKey: "cjk-primary",
+    fontSize: 32,
+    role: "CjkText",
+    locale: "zh-Hans",
+    fontFamilies: ["Noto Sans SC"],
+    fontWeight: 400,
+    italic: false,
+    faceSelectionText: "",
+  });
   assert.throws(
-    () => backend.metrics(session.id, "Noto Sans SC", 32, 400, false, "CjkText", ""),
-    (err) => err instanceof Error && err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
+    () => JSON.parse(session.metricsJson(metricsRequest)),
+    (err: Error) => err.message === `MissingServerShapingReplay:metrics:${metricKey}`,
   );
   session.close();
 });
@@ -289,18 +365,23 @@ test("zero-width display text probing succeeds, records 0 advance, and hits cach
       return { width: 0 };
     },
   });
-  const backend = globalThis.__TiqianFontBackend;
-  const handle1 = backend.shape(session.id, "\u200B", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "\u200B");
+  const shapeRequest = JSON.stringify({
+    text: "\u200B",
+    range: { start: 0, end: 1 },
+    style: { fontFamilies: ["Noto Sans SC"], fontSize: 32, fontWeight: 400, italic: false, locale: "zh-Hans" },
+    fontDecision: { role: "CjkText", candidateKey: "cjk-primary" },
+    displayText: "\u200B",
+    openTypeFeatures: [],
+  });
+  const shapeResponse1 = JSON.parse(session.shapeJson(shapeRequest));
   assert.equal(measureCount, 1);
-  assert.equal(backend.shapeAdvance(handle1), 0);
-  assert.equal(backend.shapeGlyphAdvance(handle1, 0), 0);
+  assert.equal(shapeResponse1.glyphRuns[0].advance, 0);
+  assert.equal(shapeResponse1.glyphRuns[0].glyphs[0].advance, 0);
 
-  const handle2 = backend.shape(session.id, "\u200B", "Noto Sans SC", 32, 400, false, "zh-Hans", "CjkText", "\u200B");
+  const shapeResponse2 = JSON.parse(session.shapeJson(shapeRequest));
   assert.equal(measureCount, 1);
-  assert.equal(backend.shapeAdvance(handle2), 0);
+  assert.equal(shapeResponse2.glyphRuns[0].advance, 0);
 
-  backend.releaseShape(handle1);
-  backend.releaseShape(handle2);
   session.close();
 });
 
@@ -311,7 +392,7 @@ test("probe options validation rejects non-function measure with ServerShapingRe
       faceMetadata: [{ weight: [400, 400], localNames: [] }],
       probe: {},
     }),
-    (err) => err instanceof Error && err.message === "ServerShapingReplayProbeInvalid",
+    (err: Error) => err.message === "ServerShapingReplayProbeInvalid",
   );
 
   await assert.rejects(
@@ -320,7 +401,7 @@ test("probe options validation rejects non-function measure with ServerShapingRe
       faceMetadata: [{ weight: [400, 400], localNames: [] }],
       probe: { measure: "not a function" },
     }),
-    (err) => err instanceof Error && err.message === "ServerShapingReplayProbeInvalid",
+    (err: Error) => err.message === "ServerShapingReplayProbeInvalid",
   );
 });
 

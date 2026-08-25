@@ -14,7 +14,7 @@ import { createProbeBootstrapFontSession } from "./session-bootstrap.js";
 const PLAN_NUMBER_TOLERANCE = 1e-9;
 const PARAGRAPH_ARGUMENTS = ["中文中文", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
 
-function fakeCanvasMeasurement(text) {
+function fakeCanvasMeasurement(text: string) {
   if (text === "Hg") {
     return { width: 18, fontBoundingBoxAscent: 22, fontBoundingBoxDescent: 6 };
   }
@@ -26,12 +26,13 @@ function fakeCanvasMeasurement(text) {
   };
 }
 
-function installScriptedCanvasModelBackend() {
+function makeScriptedCanvasModelCallbacks() {
   let nextHandle = 1;
   const shapes = new Map();
   const metrics = new Map();
-  globalThis.__TiqianFontBackend = {
-    shape(_sessionId, _displayText) {
+  return {
+    shapeJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
       // Canvas-model shape: one glyph per cluster, id 0, x 0, no ink bounds.
       const handle = nextHandle++;
       shapes.set(handle, {
@@ -43,47 +44,65 @@ function installScriptedCanvasModelBackend() {
         advance: 18,
         glyphs: [{ id: 0, advance: 18, x: 0, y: 0, bounds: Number.NaN }],
       });
-      return handle;
+      return JSON.stringify({
+        clusters: [{
+          range: request.range,
+          text: request.text.substring(request.range.start, request.range.end),
+          displayText: request.displayText,
+          fontKey: request.fontDecision.candidateKey,
+          advance: 18,
+        }],
+        glyphRuns: [{
+          range: request.range,
+          fontKey: request.fontDecision.candidateKey,
+          glyphs: [{ id: 0, clusterRange: request.range, advance: 18, x: 0, y: 0, bounds: null }],
+          advance: 18,
+          openTypeFeatures: [],
+        }],
+        decisions: [{
+          range: request.range,
+          sourceText: request.text.substring(request.range.start, request.range.end),
+          displayText: request.displayText,
+          fontKey: request.fontDecision.candidateKey,
+          glyphCount: 1,
+          advance: 18,
+          source: "HarfBuzz",
+          reason: "test",
+          glyphsWithoutInkBounds: 1,
+          missingGlyphs: 1,
+          resolvedFace: "",
+          script: "",
+          language: request.style.locale,
+          featureEvidence: null,
+        }],
+      });
     },
-    shapeGlyphCount: (handle) => shapes.get(handle)?.glyphs.length ?? 0,
-    shapeGlyphId: (handle, index) => shapes.get(handle)?.glyphs[index]?.id ?? 0,
-    shapeGlyphAdvance: (handle, index) => shapes.get(handle)?.glyphs[index]?.advance ?? 0,
-    shapeGlyphX: (handle, index) => shapes.get(handle)?.glyphs[index]?.x ?? 0,
-    shapeGlyphY: (handle, index) => shapes.get(handle)?.glyphs[index]?.y ?? 0,
-    shapeGlyphBound: (handle) => shapes.get(handle)?.glyphs[0]?.bounds ?? Number.NaN,
-    shapeAdvance: (handle) => shapes.get(handle)?.advance ?? 0,
-    shapeFaceId: (handle) => shapes.get(handle)?.faceId ?? "",
-    shapeFontInstanceId: (handle) => shapes.get(handle)?.fontInstanceId ?? "",
-    shapeScript: (handle) => shapes.get(handle)?.script ?? "",
-    shapeFeatureCount: (handle) => shapes.get(handle)?.features.length ?? 0,
-    shapeFeature: () => "",
-    shapeUnsafeBreakCount: (handle) => shapes.get(handle)?.unsafeBreakCount ?? 0,
-    releaseShape: (handle) => shapes.delete(handle),
-    metrics(_sessionId, _families, fontSize, _fontWeight, _italic, role, _faceSelectionText) {
+    metricsJson: (requestJson: string): string => {
+      const request = JSON.parse(requestJson);
       // WebCanvasFontMetricsResolver in px: CJK boxes derive the 字身框 from
       // ideographicBaseline (-12), Latin roles leave typo values unset.
-      const cjkBox = role === "CjkText" || role === "CjkPunctuation";
+      const cjkBox = request.role === "CjkText" || request.role === "CjkPunctuation";
       const ideographicDescent = 12;
       const handle = nextHandle++;
       metrics.set(handle, cjkBox
-        ? [30, 10, 0, Math.max(fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
+        ? [30, 10, 0, Math.max(request.fontSize - ideographicDescent, 0), Math.max(ideographicDescent, 0)]
         : [22, 6, 0, Number.NaN, Number.NaN]);
-      return handle;
+      const m = metrics.get(handle)!;
+      return JSON.stringify({
+        ascent: m[0],
+        descent: m[1],
+        leading: m[2],
+        source: "RawTables",
+        typoAscent: Number.isNaN(m[3]) ? null : m[3],
+        typoDescent: Number.isNaN(m[4]) ? null : m[4],
+      });
     },
-    metricValue: (handle, index) => metrics.get(handle)?.[index] ?? Number.NaN,
-    releaseMetrics: (handle) => metrics.delete(handle),
   };
 }
 
-function restoreGlobals() {
-  delete globalThis.__TiqianFontBackend;
-  delete globalThis.__TiqianFontBackendReplayRegistry;
-  delete globalThis.__TiqianFontBackendRevision;
-}
+const toleranceHits: string[] = [];
 
-const toleranceHits = [];
-
-function comparePlans(left, right, path) {
+function comparePlans(left: any, right: any, path: string) {
   if (typeof left === "number" && typeof right === "number") {
     if (Object.is(left, right)) return;
     const delta = Math.abs(left - right);
@@ -109,37 +128,56 @@ function comparePlans(left, right, path) {
 }
 
 test("probe bootstrap plan matches the canvas model plan end to end", async () => {
-  const measureCalls = [];
+  const measureCalls: string[] = [];
   const probeSession = await createProbeBootstrapFontSession("parity-a", {
-    measureAdapter: (cssFont, text) => {
+    measureAdapter: (cssFont: string, text: string) => {
       measureCalls.push(`${cssFont} :: ${text}`);
       return fakeCanvasMeasurement(text);
     },
   });
 
-  let planA;
+  let planA: any;
   try {
-    planA = JSON.parse(precomputePlainParagraph(probeSession.id, ...PARAGRAPH_ARGUMENTS));
+    const { shapeJson, metricsJson } = probeSession;
+    planA = JSON.parse(precomputePlainParagraph(
+      "", // sessionId no longer used
+      ...PARAGRAPH_ARGUMENTS,
+      "", // inlineObjects
+      0.0, // zeroAdvanceEpsilonPx
+      shapeJson,
+      metricsJson,
+      "", // decorations
+      null, // emphasisDotGapEm
+      false, // renderEvidenceOverride
+    ));
   } finally {
     probeSession.close();
   }
 
-  // Drop the replay backend before installing the scripted canvas model so
-  // FontBackendGlobalCollision cannot fire.
-  restoreGlobals();
-  installScriptedCanvasModelBackend();
+  // Use scripted canvas model callbacks
+  const { shapeJson: scriptedShapeJson, metricsJson: scriptedMetricsJson } = makeScriptedCanvasModelCallbacks();
 
-  let planB;
+  let planB: any;
   try {
-    planB = JSON.parse(precomputePlainParagraph("canvas-model", ...PARAGRAPH_ARGUMENTS));
+    planB = JSON.parse(precomputePlainParagraph(
+      "",
+      ...PARAGRAPH_ARGUMENTS,
+      "",
+      0.0,
+      scriptedShapeJson,
+      scriptedMetricsJson,
+      "",
+      null,
+      false,
+    ));
   } finally {
-    restoreGlobals();
+    // no globals to restore
   }
 
   assert.ok(measureCalls.length > 0);
   assert.deepEqual(
-    planA.lines.map((line) => [line.rangeStart, line.rangeEnd]),
-    planB.lines.map((line) => [line.rangeStart, line.rangeEnd]),
+    planA.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
+    planB.lines.map((line: any) => [line.rangeStart, line.rangeEnd]),
   );
   comparePlans(planA, planB, "$");
   console.log(

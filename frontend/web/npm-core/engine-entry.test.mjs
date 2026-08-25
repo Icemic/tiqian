@@ -6,7 +6,7 @@ import { createEngineEntry } from "./core/engine/engine-entry.js";
 import { optionsFromJs } from "./core/engine/lifecycle.js";
 import { installFixtureFontBackend } from "./test-support/fixture-font-backend.mjs";
 
-const ENV_GLOBALS = ["window", "document", "getComputedStyle", "__TiqianFontBackend"];
+const ENV_GLOBALS = ["window", "document", "getComputedStyle"];
 
 // The engine entry runs the real process-paragraph, content-reconcile and
 // progressive-drivers functions against fake ledgers (detached-fragment backup, root-state,
