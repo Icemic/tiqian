@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  workerLayoutRequest,
+  buildWorkerLayoutRequest,
   workerLayoutRequestForRoot,
-  workerLayoutRequestJson,
+  workerLayoutRequest,
 } from "../core/engine/worker-request.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { firstDivergentInlineShapingProperty, unsupportedInlineShapingProperties } from "@tiqian/ffi";
@@ -213,117 +213,161 @@ const RICH_LOWERED = paragraph({
   ],
 });
 
-const RICH_EXPECTED =
-  "{" +
-  '"text":"a\\"b\\u0001c",' +
-  '"maxWidthPx":678.9,' +
-  '"fontFamilies":"Serif A\\u001fSerif B",' +
-  '"fontSizePx":19,' +
-  '"lineHeightPx":28,' +
-  '"locale":"zh-Hans",' +
-  '"fontWeight":400,' +
-  '"italic":false,' +
-  '"firstLineIndentIc":2,' +
-  '"sourceBoundaries":"2,4,8",' +
-  '"textSpans":"0\\u001d4\\u001dA\\u001fB\\u001d12.5\\u001d500\\u001dtrue\\u001d1.5\\u001e4\\u001d8\\u001dC\\u001d13.25\\u001d600\\u001dfalse\\u001d0",' +
-  '"inlineBoxes":"8\\u001d10\\u001d1.5\\u001d2.25\\u001dNarrow",' +
-  '"lineBreakSpans":"2\\u001d6\\u001dProgressiveTechnical",' +
-  '"inlineObjects":"10\\u001d11\\u001d6.5\\u001d5\\u001d1.25",' +
-  '"renderEvidence":true,' +
-  '"semantics":[{"start":0,"end":2,"tagName":"em","attributes":[["class","x"]],"sourceIndex":0,"order":1},' +
-  '{"start":2,"end":4,"tagName":"span","attributes":[["data-x","y"],["title","t"]],"sourceIndex":1,"order":2}],' +
-  '"renderInlineBoxes":[{"start":8,"end":10,"inlineStartPx":1.5,"inlineEndPx":2.25,"outerSpacing":"Narrow"}],' +
-  '"sourceTag":"p"}';
+const RICH_EXPECTED = {
+  text: 'a"b\u0001c',
+  maxWidthPx: 678.9,
+  fontFamilies: ["Serif A", "Serif B"],
+  fontSizePx: 19,
+  lineHeightPx: 28,
+  locale: "zh-Hans",
+  fontWeight: 400,
+  italic: false,
+  firstLineIndentIc: 2,
+  lineLengthGridEnabled: true,
+  sourceBoundaries: [2, 4, 8],
+  textSpans: [
+    {
+      start: 0,
+      end: 4,
+      fontFamilies: ["A", "B"],
+      fontSize: 12.5,
+      fontWeight: 500,
+      italic: true,
+      baselineShift: 1.5,
+    },
+    {
+      start: 4,
+      end: 8,
+      fontFamilies: ["C"],
+      fontSize: 13.25,
+      fontWeight: 600,
+      italic: false,
+      baselineShift: 0,
+    },
+  ],
+  inlineBoxes: [
+    { start: 8, end: 10, inlineStart: 1.5, inlineEnd: 2.25, outerSpacing: "Narrow" },
+  ],
+  lineBreakSpans: [
+    { start: 2, end: 6, policy: "ProgressiveTechnical" },
+  ],
+  inlineObjects: [
+    { start: 10, end: 11, advance: 6.5, ascent: 5, descent: 1.25 },
+  ],
+  renderEvidence: true,
+  semantics: [
+    { start: 0, end: 2, tagName: "em", attributes: [["class", "x"]], sourceIndex: 0, order: 1 },
+    { start: 2, end: 4, tagName: "span", attributes: [["data-x", "y"], ["title", "t"]], sourceIndex: 1, order: 2 },
+  ],
+  renderInlineBoxes: [
+    { start: 8, end: 10, inlineStartPx: 1.5, inlineEndPx: 2.25, outerSpacing: "Narrow" },
+  ],
+  sourceTag: "p",
+};
 
-test("workerLayoutRequestJson emits the whole wire request for a rich fixture", () => {
-  const actual = workerLayoutRequestJson(
+test("buildWorkerLayoutRequest emits the whole wire request DTO for a rich fixture", () => {
+  const actual = buildWorkerLayoutRequest(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
     2,
   );
-  assert.equal(actual, RICH_EXPECTED);
+  assert.deepEqual(actual, RICH_EXPECTED);
 });
 
-test("workerLayoutRequestJson emits the four separator joins as exact substrings", () => {
-  const actual = workerLayoutRequestJson(
+test("buildWorkerLayoutRequest DTO shape has correct textSpans array with typed objects", () => {
+  const actual = buildWorkerLayoutRequest(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
     2,
   );
-  assert.ok(actual.includes(
-    "0\\u001d4\\u001dA\\u001fB\\u001d12.5\\u001d500\\u001dtrue\\u001d1.5\\u001e4\\u001d8\\u001dC\\u001d13.25\\u001d600\\u001dfalse\\u001d0",
-  ));
-  assert.ok(actual.includes("8\\u001d10\\u001d1.5\\u001d2.25\\u001dNarrow"));
-  assert.ok(actual.includes("2\\u001d6\\u001dProgressiveTechnical"));
-  assert.ok(actual.includes("10\\u001d11\\u001d6.5\\u001d5\\u001d1.25"));
+  assert.ok(Array.isArray(actual.textSpans));
+  assert.equal(actual.textSpans.length, 2);
+  for (const span of actual.textSpans) {
+    assert.ok(typeof span.start === "number");
+    assert.ok(typeof span.end === "number");
+    assert.ok(Array.isArray(span.fontFamilies));
+    assert.ok(typeof span.fontSize === "number");
+    assert.ok(typeof span.fontWeight === "number");
+    assert.ok(typeof span.italic === "boolean");
+    assert.ok(typeof span.baselineShift === "number");
+  }
+  // Verify member order preserved
+  assert.deepEqual(actual.textSpans[0].fontFamilies, ["A", "B"]);
+  assert.deepEqual(actual.textSpans[1].fontFamilies, ["C"]);
 });
 
-test("workerLayoutRequestJson emits semantics attributes verbatim and lowercases the source tag", () => {
-  const actual = workerLayoutRequestJson(
+test("buildWorkerLayoutRequest DTO shape has correct inlineBoxes with Narrow outerSpacing", () => {
+  const actual = buildWorkerLayoutRequest(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
     2,
   );
-  assert.ok(actual.includes('"attributes":[["class","x"]]'));
-  assert.ok(actual.includes('"attributes":[["data-x","y"],["title","t"]]'));
-  assert.ok(actual.includes('"tagName":"em"'));
-  assert.ok(actual.includes('"sourceTag":"p"'));
+  assert.ok(Array.isArray(actual.inlineBoxes));
+  assert.equal(actual.inlineBoxes.length, 1);
+  assert.equal(actual.inlineBoxes[0].outerSpacing, "Narrow");
 });
 
-test("workerLayoutRequestJson output round-trips through JSON.parse into the structured shape", () => {
-  const actual = workerLayoutRequestJson(
+test("buildWorkerLayoutRequest DTO shape has correct lineBreakSpans with ProgressiveTechnical policy", () => {
+  const actual = buildWorkerLayoutRequest(
     RICH_PARAGRAPH_ELEMENT,
     RICH_LOWERED,
     678.9,
     2,
   );
-  assert.deepEqual(JSON.parse(actual), {
-    text: 'a"b\u0001c',
-    maxWidthPx: 678.9,
-    fontFamilies: "Serif A\u001fSerif B",
-    fontSizePx: 19,
-    lineHeightPx: 28,
-    locale: "zh-Hans",
-    fontWeight: 400,
-    italic: false,
-    firstLineIndentIc: 2,
-    sourceBoundaries: "2,4,8",
-    textSpans:
-      "0\u001d4\u001dA\u001fB\u001d12.5\u001d500\u001dtrue\u001d1.5\u001e4\u001d8\u001dC\u001d13.25\u001d600\u001dfalse\u001d0",
-    inlineBoxes: "8\u001d10\u001d1.5\u001d2.25\u001dNarrow",
-    lineBreakSpans: "2\u001d6\u001dProgressiveTechnical",
-    inlineObjects: "10\u001d11\u001d6.5\u001d5\u001d1.25",
-    renderEvidence: true,
-    semantics: [
-      { start: 0, end: 2, tagName: "em", attributes: [["class", "x"]], sourceIndex: 0, order: 1 },
-      { start: 2, end: 4, tagName: "span", attributes: [["data-x", "y"], ["title", "t"]], sourceIndex: 1, order: 2 },
-    ],
-    renderInlineBoxes: [
-      { start: 8, end: 10, inlineStartPx: 1.5, inlineEndPx: 2.25, outerSpacing: "Narrow" },
-    ],
-    sourceTag: "p",
-  });
+  assert.ok(Array.isArray(actual.lineBreakSpans));
+  assert.equal(actual.lineBreakSpans.length, 1);
+  assert.equal(actual.lineBreakSpans[0].policy, "ProgressiveTechnical");
 });
 
-test("workerLayoutRequestJson carries true render evidence for a sourceSpans-only lowered", () => {
+test("buildWorkerLayoutRequest DTO shape has correct inlineObjects", () => {
+  const actual = buildWorkerLayoutRequest(
+    RICH_PARAGRAPH_ELEMENT,
+    RICH_LOWERED,
+    678.9,
+    2,
+  );
+  assert.ok(Array.isArray(actual.inlineObjects));
+  assert.equal(actual.inlineObjects.length, 1);
+  assert.equal(actual.inlineObjects[0].advance, 6.5);
+  assert.equal(actual.inlineObjects[0].ascent, 5);
+  assert.equal(actual.inlineObjects[0].descent, 1.25);
+});
+
+test("buildWorkerLayoutRequest DTO carries semantics with verbatim attributes and lowercased tagName", () => {
+  const actual = buildWorkerLayoutRequest(
+    RICH_PARAGRAPH_ELEMENT,
+    RICH_LOWERED,
+    678.9,
+    2,
+  );
+  assert.ok(Array.isArray(actual.semantics));
+  assert.equal(actual.semantics.length, 2);
+  assert.deepEqual(actual.semantics[0].attributes, [["class", "x"]]);
+  assert.deepEqual(actual.semantics[1].attributes, [["data-x", "y"], ["title", "t"]]);
+  assert.equal(actual.semantics[0].tagName, "em");
+  assert.equal(actual.semantics[1].tagName, "span");
+  assert.equal(actual.sourceTag, "p");
+});
+
+test("buildWorkerLayoutRequest DTO carries true render evidence for a sourceSpans-only lowered", () => {
   const lowered = paragraph({
     sourceSpans: [sourceSpan()],
   });
-  const actual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, lowered, 678.9, 2);
-  assert.equal(JSON.parse(actual).renderEvidence, true);
+  const actual = buildWorkerLayoutRequest(RICH_PARAGRAPH_ELEMENT, lowered, 678.9, 2);
+  assert.equal(actual.renderEvidence, true);
 });
 
-test("workerLayoutRequestJson render evidence: spans-only yields true, plain yields false", () => {
+test("buildWorkerLayoutRequest DTO render evidence: spans-only yields true, plain yields false", () => {
   const styled = paragraph({ spans: [span()] });
-  const styledActual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, styled, 678.9, 2);
-  assert.equal(JSON.parse(styledActual).renderEvidence, true);
+  const styledActual = buildWorkerLayoutRequest(RICH_PARAGRAPH_ELEMENT, styled, 678.9, 2);
+  assert.equal(styledActual.renderEvidence, true);
 
   const plain = paragraph();
-  const plainActual = workerLayoutRequestJson(RICH_PARAGRAPH_ELEMENT, plain, 678.9, 2);
-  assert.equal(JSON.parse(plainActual).renderEvidence, false);
+  const plainActual = buildWorkerLayoutRequest(RICH_PARAGRAPH_ELEMENT, plain, 678.9, 2);
+  assert.equal(plainActual.renderEvidence, false);
 });
 
 test("workerLayoutRequest returns null without a conforming snapshot font session", () => {
@@ -406,14 +450,14 @@ test("workerLayoutRequest emits 0 first-line indent for LI and the option value 
       paragraph(),
       canonicalOptions({ firstLineIndentIc: 2 }),
     );
-    assert.equal(JSON.parse(li).firstLineIndentIc, 0);
+    assert.equal(li.firstLineIndentIc, 0);
 
     const nonLi = workerLayoutRequest(
       element("P"),
       paragraph(),
       canonicalOptions({ firstLineIndentIc: 2 }),
     );
-    assert.equal(JSON.parse(nonLi).firstLineIndentIc, 2);
+    assert.equal(nonLi.firstLineIndentIc, 2);
   });
 });
 
@@ -425,10 +469,9 @@ test("workerLayoutRequest emits the effective line measure as maxWidthPx", () =>
       paragraph(),
       canonicalOptions(),
     );
-    const parsed = JSON.parse(result);
-    assert.equal(parsed.maxWidthPx, expected);
+    assert.equal(result.maxWidthPx, expected);
     // The measure is the fontSize-grid quantized cell, not the raw width.
-    assert.notEqual(parsed.maxWidthPx, 320);
+    assert.notEqual(result.maxWidthPx, 320);
   });
 });
 
@@ -605,7 +648,7 @@ test("workerLayoutRequestForRoot lowers with the fixed zh-Hans locale", () => {
       canonicalOptions(),
     );
     assert.notEqual(result, null);
-    assert.equal(JSON.parse(result).locale, "zh-Hans");
+    assert.equal(result.locale, "zh-Hans");
   });
 });
 
@@ -645,7 +688,7 @@ test("workerLayoutRequestForRoot inlineShapingDecision returns null for a null d
   });
 });
 
-test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker request", () => {
+test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker request DTO", () => {
   withComputedStyle(() => {
     const paragraphEl = rootParagraph({ text: "hello world" });
     const result = workerLayoutRequestForRoot(
@@ -654,10 +697,9 @@ test("workerLayoutRequestForRoot serializes the lowered paragraph into a Worker 
       canonicalOptions(),
     );
     assert.notEqual(result, null);
-    const parsed = JSON.parse(result);
-    assert.equal(parsed.text, "hello world");
-    assert.equal(parsed.firstLineIndentIc, 0);
-    assert.equal(parsed.sourceTag, "p");
+    assert.equal(result.text, "hello world");
+    assert.equal(result.firstLineIndentIc, 0);
+    assert.equal(result.sourceTag, "p");
   });
 });
 
@@ -678,8 +720,7 @@ test("workerLayoutRequestForRoot feeds the withRootDefaults result into lowering
       canonicalOptions(),
     );
     assert.notEqual(result, null);
-    const parsed = JSON.parse(result);
-    assert.equal(parsed.fontSizePx, 21);
-    assert.equal(parsed.firstLineIndentIc, 0);
+    assert.equal(result.fontSizePx, 21);
+    assert.equal(result.firstLineIndentIc, 0);
   });
 });
