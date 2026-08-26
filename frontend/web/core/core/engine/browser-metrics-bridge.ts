@@ -1,6 +1,6 @@
 // Browser metrics bridge adapter (TsHost runtime port, Slice 4a part 4).
 // Adapts the canvas font metrics resolver and canvas text shaper to the
-// JSON-string ABI expected by precomputeParagraphWithBrowserMetrics.
+// typed BrowserMetricsCallbacks DTO expected by precomputeParagraphWithBrowserMetrics.
 //
 // ES module: exports createBrowserMetricsBridge as a named binding. The
 // shaper and resolver factories come from the named exports of
@@ -52,18 +52,29 @@ export interface BrowserMetricsBridgeOptions {
   env: CanvasShapingEnv;
 }
 
-export interface BrowserMetricsBridgeInstance {
+/**
+ * Typed callback DTO matching the Kotlin BrowserMetricsCallbacks interface.
+ * Carries shapeJson and metricsJson as direct function properties, replacing
+ * the previous individual parameter approach and the adapter classes.
+ *
+ * Corrective wave 5 (#106): the JSON stringify/parse round-trip at this seam
+ * is deleted — callbacks are constructed directly as typed properties.
+ */
+export interface BrowserMetricsCallbacks {
   shapeJson: BridgeJsonWireFn;
   metricsJson: BridgeJsonWireFn;
 }
 
+export interface BrowserMetricsBridgeInstance extends BrowserMetricsCallbacks {}
+
 /**
- * Create a browser metrics bridge instance.
+ * Create a browser metrics bridge instance that implements the
+ * BrowserMetricsCallbacks DTO.
  *
  * @param {{ fonts: Object, cjkDashCapability: Object|null, env: { createCanvasContext: Function, createProbeElement: Function, attachProbe: Function } }} options
- * @returns {{ shapeJson: (requestJson: string) => string, metricsJson: (requestJson: string) => string }}
+ * @returns BrowserMetricsCallbacks
  */
-export function createBrowserMetricsBridge(options?: BrowserMetricsBridgeOptions): BrowserMetricsBridgeInstance {
+export function createBrowserMetricsBridge(options?: BrowserMetricsBridgeOptions): BrowserMetricsCallbacks {
   const opts = options || {} as Partial<BrowserMetricsBridgeOptions>;
   const fonts = opts.fonts!;
   const cjkDashCapability = opts.cjkDashCapability != null ? opts.cjkDashCapability : null;

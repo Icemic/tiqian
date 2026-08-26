@@ -359,8 +359,7 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
         rawEnvelope = precomputeParagraphWithBrowserMetrics(
           wire,
           ZERO_ADVANCE_EPSILON,
-          (browserFallback!.bridge as BrowserBridgeDescriptor).shapeJson,
-          (browserFallback!.bridge as BrowserBridgeDescriptor).metricsJson,
+          browserFallback!.bridge as BrowserBridgeDescriptor,
         );
       }
     } else {
@@ -371,8 +370,7 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
       rawEnvelope = precomputeParagraphWithBrowserMetrics(
         wire,
         ZERO_ADVANCE_EPSILON,
-        (browserFallback.bridge as BrowserBridgeDescriptor).shapeJson,
-        (browserFallback.bridge as BrowserBridgeDescriptor).metricsJson,
+        browserFallback.bridge as BrowserBridgeDescriptor,
       );
     }
 
