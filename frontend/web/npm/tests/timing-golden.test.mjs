@@ -229,7 +229,7 @@ async function recordElementJourney(journeyKey) {
 // grant. The DeadlineGate terms are sampled at the quota boundary: the gate
 // formula (quota reached OR Date-domain deadline passed) is part of the
 // frozen contract even though the fake clock never trips the deadline inside
-// a single frame. Every voucher also carries the lane that issued it ("grant" for polled grants).
+// a single frame. Every voucher also carries the admission class that issued it ("grant" for polled grants).
 function recordingRuntime(pendingByRoot, grants) {
   return {
     hasJob: (root) => pendingByRoot.has(root),
@@ -257,7 +257,7 @@ function recordingRuntime(pendingByRoot, grants) {
       );
       grants.push({
         root: controller.root.name,
-        lane: controller.lane,
+        lane: controller.admissionClass,
         tier: minTier,
         generation: controller.generation,
         deadline: controller.deadline,
@@ -418,7 +418,7 @@ function journeyComputedStyle(values = {}) {
 // prepares (the coordinator singleton survives module re-evaluation),
 // plan-cache hits and misses through the bridge, the failed-request issue
 // string, and release evicting the session-prefixed plans. R10: the prepare
-// lane builds requests through the pure workerLayoutRequestForRoot, so each
+// path builds requests through the pure workerLayoutRequestForRoot, so each
 // candidate is a lowerable paragraph double (text-only children lower into
 // a plain paragraph) and the take/issue ops reuse that candidate's
 // serialized build; request text and geometry derive from the candidate.

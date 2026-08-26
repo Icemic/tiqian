@@ -1,4 +1,5 @@
-// Pure TS installer for the Tiqian engine (Slice 7 Lane A).
+// Pure TS installer for the Tiqian engine (ADR 0053 Slice 7 installation
+// path).
 // This module replaces the bundle init block. It is the concrete composition
 // root: it builds the four stateful engine graph products (raw-DOM, copy
 // installer, root-state, layout-job-pool) that the named engine functions

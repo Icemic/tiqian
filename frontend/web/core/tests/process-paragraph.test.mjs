@@ -640,14 +640,14 @@ test("12. preparedDomEnabled false -> active options come from withoutSnapshotFo
     assert.notEqual(active, rawOptions);
     assert.equal(active.fontSize, 20);
     assert.equal(active.snapshotFontSession, null);
-    // The direct lane proceeded and committed through the planted renderer.
+    // The direct path proceeded and committed through the planted renderer.
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);
     assert.equal(state.paragraphs.length, 1);
   }, { validator: () => null });
 });
 
-test("13. absent layout worker channel reads as no reusable plan and the direct lane proceeds", () => {
+test("13. absent layout worker channel reads as no reusable plan and the direct path proceeds", () => {
   withEnv(() => {
     const rawDom = { suspendEngineWrites: (s, a) => a(),
       begin: () => {},
@@ -663,7 +663,7 @@ test("13. absent layout worker channel reads as no reusable plan and the direct 
 
     processParagraph(rawDom, { paragraph, state });
 
-    // No layout worker channel is installed, so the direct snapshot-session lane
+    // No layout worker channel is installed, so the direct snapshot-session path
     // ran the real prepare and commit.
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 1);

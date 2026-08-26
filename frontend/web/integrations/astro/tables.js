@@ -13,7 +13,7 @@ import { createSnapshotTableFileTransport } from "@tiqian/precompute/transport";
 /**
  * Validates the integration's `tables` option into transport inputs: an
  * absolute directory plus the URL shape. Returns null when the host
- * configured none, so the preparer lane stays on inline manifests.
+ * configured none, so the preparer step stays on inline manifests.
  */
 export function normalizeTiqianAstroTablesOptions(options) {
   if (options == null) return null;

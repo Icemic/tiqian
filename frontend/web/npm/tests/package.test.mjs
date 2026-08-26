@@ -197,7 +197,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const readoptionSource = elementSource.slice(readoptionStart, readoptionEnd);
   const mixedCompletionStart = elementSource.indexOf("MixedSnapshotRuntimeCompletion");
   const mixedCompletionEnd = elementSource.indexOf(
-    "          if (!this.#runtimeStateActive)",
+    "            if (!this.#stateMachine.runtimeActive)",
     mixedCompletionStart,
   );
   const mixedCompletionSource = elementSource.slice(mixedCompletionStart, mixedCompletionEnd);
@@ -283,7 +283,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /const layoutOperation = this\.#beginLayoutWork\(\{ usesCapturedMeasure: true \}\)[\s\S]*?request === this\.#enhanceRequest && layoutOperation === this\.#layoutOperation/u,
+    /const layoutOperation = this\.#beginLayoutWork\(\{ usesCapturedMeasure: true \}\)[\s\S]*?request === this\.#stateMachine\.transaction\.enhanceRequest && layoutOperation === this\.#stateMachine\.transaction\.layoutOperation/u,
   );
   assert.match(
     elementSource,
@@ -334,11 +334,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /runtimeCoversSnapshotParagraphs|preserveSnapshotRenderFont/u);
   assert.match(
     elementSource,
-    /restoreImmediatelyBeforeDispatch[\s\S]*?#snapshotAdopted = false/u,
+    /restoreImmediatelyBeforeDispatch[\s\S]*?this\.#stateMachine\.snapshotAdopted = false/u,
   );
   assert.match(
     readoptionSource,
-    /const runtimeSnapshotBackingRestored = this\.#runtimeStateActive/u,
+    /const runtimeSnapshotBackingRestored = this\.#stateMachine\.runtimeActive/u,
   );
   assert.match(readoptionSource, /RuntimeSnapshotBackingRestore/u);
   assert.ok(
@@ -380,7 +380,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(viewportListenerSource, /ViewportResizeValidatesCapturedLayoutInputs/u);
   assert.match(
     viewportListenerSource,
-    /#layoutWorkInFlight && this\.#layoutWorkUsesCapturedMeasure[\s\S]*?#responsiveCommitRequired = true[\s\S]*?#scheduleResponsiveRetarget\(\)/u,
+    /this\.#stateMachine\.workInFlight && this\.#stateMachine\.work\.usesCapturedMeasure[\s\S]*?invalidate\(InvalidationReason\.ResponsiveCommit\)[\s\S]*?#scheduleResponsiveRetarget\(\)/u,
   );
   assert.doesNotMatch(
     viewportListenerSource,
@@ -388,11 +388,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?cancelRootLayoutWork\(this\)[\s\S]*?#responsiveRelayoutRequired = true/u,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?cancelRootLayoutWork\(this\)[\s\S]*?invalidate\(InvalidationReason\.ResponsiveRelayout\)/u,
   );
   assert.match(
     elementSource,
-    /ProgressiveOutputTypographyBaseline[\s\S]*?#layoutWorkTypographySignature = typographySignature\(this\)/u,
+    /ProgressiveOutputTypographyBaseline[\s\S]*?this\.#stateMachine\.work\.typographySignature = typographySignature\(this\)/u,
   );
   assert.match(
     signaturesSource,
@@ -404,7 +404,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?#runtimeStateActive = false/u,
+    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?this\.#stateMachine\.runtimeActive = false/u,
   );
   assert.match(
     elementSource,
@@ -428,11 +428,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /MixedSnapshotCompletionResume[\s\S]*?completionSelector && !this\.#runtimeStateActive[\s\S]*?paragraphSelector: completionSelector/u,
+    /MixedSnapshotCompletionResume[\s\S]*?completionSelector && !this\.#stateMachine\.runtimeActive[\s\S]*?paragraphSelector: completionSelector/u,
   );
   assert.match(
     elementSource,
-    /if \(!this\.#runtimeStateActive\) \{[\s\S]*?ReadoptionMissMustReclaimSource[\s\S]*?#dispatchProgressiveEnhance\(generation\)/u,
+    /if \(!this\.#stateMachine\.runtimeActive\) \{[\s\S]*?ReadoptionMissMustReclaimSource[\s\S]*?#dispatchProgressiveEnhance\(generation\)/u,
   );
   assert.match(elementSource, /PreparedSnapshotTransition/u);
   assert.match(
@@ -453,11 +453,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveNativeRetargetSingleFlight[\s\S]*?#responsiveRelayoutRequired && !this\.#runtimeStateActive/u,
+    /ResponsiveNativeRetargetSingleFlight[\s\S]*?isInvalidated\(InvalidationReason\.ResponsiveRelayout\) && !this\.#stateMachine\.runtimeActive/u,
   );
   assert.match(elementSource, /this\.addEventListener\("tiqian:relayout-ready"/u);
   assert.match(elementSource, /loadedSnapshotMaximumMeasureMatches\(this\)/u);
-  assert.match(elementSource, /this\.#geometryRevision !== this\.#layoutWorkRevision/u);
+  assert.match(elementSource, /transaction\.geometryRevision !== transaction\.layoutWorkRevision/u);
   assert.match(elementSource, /#paragraphMeasureSignature\(\)/u);
   assert.match(elementSource, /ObserverBaselineAfterUncapturedLayout/u);
   assert.match(
@@ -474,7 +474,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /querySelector\("\[data-tq-host-inline-size\]"\)/u,
   );
   assert.match(elementSource, /usesCapturedMeasure: true/u);
-  assert.match(elementSource, /currentMeasures !== this\.#layoutWorkMeasureSignature/u);
+  assert.match(elementSource, /currentMeasures !== work\.measureSignature/u);
   assert.match(elementSource, /RenderOutputTypographyIsNotAnInputChange/u);
   assert.match(
     elementSource,
@@ -487,16 +487,16 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /this\.#responsiveRelayoutRequired = !this\.#layoutWorkUsesCapturedMeasure/u,
+    /work\.usesCapturedMeasure\)\s*stateMachine\.clearInvalidation\(InvalidationReason\.ResponsiveRelayout\);[\s\S]*?stateMachine\.invalidate\(InvalidationReason\.ResponsiveRelayout\);/u,
   );
   assert.match(elementSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
-  assert.match(elementSource, /if \(stale\)\s*this\.#responsiveCommitRequired = true/u);
+  assert.match(elementSource, /if \(stale\)\s*this\.#stateMachine\.invalidate\(InvalidationReason\.ResponsiveCommit\)/u);
   assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
   assert.match(elementSource, /cancelRootLayoutWork\(this\)/u);
   assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
-  assert.match(elementSource, /responsiveGeometrySignature\(this\) !== this\.#layoutWorkGeometrySignature/u);
-  assert.match(elementSource, /#runtimeStateActive = false/u);
-  assert.match(elementSource, /operation === this\.#layoutOperation/u);
+  assert.match(elementSource, /responsiveGeometrySignature\(this\) !== work\.geometrySignature/u);
+  assert.match(elementSource, /this\.#stateMachine\.runtimeActive = false/u);
+  assert.match(elementSource, /operation === this\.#stateMachine\.transaction\.layoutOperation/u);
   assert.doesNotMatch(elementSource, /#snapshotBackedByRuntime/u);
   assert.match(elementSource, /let initialReadyReported = false/u);
   assert.match(
@@ -518,15 +518,15 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /LatestObservedAttributeGeneration[\s\S]*?if \(!this\.#hasDispatched\) \{[\s\S]*?this\.#restartConnectedLifecycle\(\)/u,
+    /LatestObservedAttributeGeneration[\s\S]*?if \(!this\.#stateMachine\.dispatched\) \{[\s\S]*?this\.#restartConnectedLifecycle\(\)/u,
   );
   assert.match(
     elementSource,
-    /attributeChangedCallback\([\s\S]*?#snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
+    /attributeChangedCallback\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
   );
   assert.match(
     elementSource,
-    /#scheduleTypographyCheck\([\s\S]*?#snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
+    /#scheduleTypographyCheck\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
   );
   assert.match(
     elementSource,
@@ -638,7 +638,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
     /new CustomEvent\("tiqian:relayout-ready", \{[\s\S]*?bubbles: true,[\s\S]*?composed: true,/u,
   );
 
-  // 6. SliceCommitAnchorCompensation: both grant lanes bracket their slice
+  // 6. SliceCommitAnchorCompensation: both grant rounds bracket their slice
   // drains with a same-task viewport anchor capture/compensate pair, and the
   // element excludes itself from native scroll anchoring while a worker is
   // attached.
@@ -661,14 +661,14 @@ test("layout coordinator implements visual prominence scoring, proportional back
   assert.match(elementSource, /releaseNativeScrollAnchoring\(this\);/u);
 });
 
-test("offscreen deferred lane keeps every pending callback per element", async () => {
+test("offscreen deferred queue keeps every pending callback per element", async () => {
   const coordinatorSource = await readFile(
     new URL("../../core/core/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
   );
 
   // OffscreenRequestQueue: an element can queue distinct callbacks while off
-  // screen (initial enhance plus responsive commits). The deferred lane must
+  // screen (initial enhance plus responsive commits). The deferred queue must
   // bucket tasks per element; a single task per element lets the newest
   // request silently drop the older ones, which stalled initial enhancement
   // for every root below the fold when a resize re-queued a commit.

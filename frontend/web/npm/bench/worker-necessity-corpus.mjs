@@ -65,7 +65,7 @@ const SITE_TYPOGRAPHY = Object.freeze({
 const SITE_MAX_WIDTH_PX = 720;
 const FONT_FAMILY_SEPARATOR = "\u001f";
 
-// The snapshot producer lane currently freezes firstLineIndentIc to 0
+// The snapshot producer currently freezes firstLineIndentIc to 0
 // (normalize.rs rejects any other value as UnsupportedSnapshotFirstLineIndent);
 // the request objects below still carry the site's 2ic indent.
 const PRODUCER_FIRST_LINE_INDENT_IC = 0;
@@ -271,7 +271,7 @@ async function main() {
   report(`font used: ${font.fileName} (family ${font.family})`);
 
   // The producer's frozen typography mirrors the site except for the first-line
-  // indent, which the snapshot lane pins to 0 (see PRODUCER_FIRST_LINE_INDENT_IC),
+  // indent, which the snapshot producer pins to 0 (see PRODUCER_FIRST_LINE_INDENT_IC),
   // and the family list, which names the locally available face.
   const producerTypography = {
     ...SITE_TYPOGRAPHY,
@@ -295,7 +295,7 @@ async function main() {
   }
   report(`prepared paragraphs: ${prepared.issues.length === 0 ? "all ok" : JSON.stringify(prepared.issues)}`);
 
-  // Paragraphs the snapshot lane could not prepare (emoji, kaomoji and other
+  // Paragraphs the snapshot producer could not prepare (emoji, kaomoji and other
   // glyphs the selected face cannot shape) stay native on the real site and
   // never reach the layout Worker; the corpus mirrors that by dropping them.
   const snapshotIssues = prepared.issues.filter((issue) => issue.stage === "snapshot");
@@ -357,10 +357,10 @@ async function main() {
     tablesBytes: tablesBytesLength,
     requestsBytes,
     anomalyNotes: [
-      "UnsupportedSnapshotFirstLineIndent: the snapshot producer lane freezes " +
+      "UnsupportedSnapshotFirstLineIndent: the snapshot producer freezes " +
         "firstLineIndentIc to 0; the request objects below carry the site's 2ic value.",
       ...(snapshotIssues.length > 0
-        ? [`Snapshot lane dropped ${snapshotIssues.length} emoji/kaomoji paragraphs: ` +
+        ? [`Snapshot producer dropped ${snapshotIssues.length} emoji/kaomoji paragraphs: ` +
            `${snapshotIssues.map((issue) => `${issue.key}=${issue.issue}`).join(", ")}`]
         : []),
     ],

@@ -307,7 +307,7 @@ test("snapshotSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
   assert.ok(snapshotFontFallbackCount() > 0);
   // The declared line height stays shared; since the Slice 4a whole-paragraph
   // browser retry (ADR 0053) the fallback paragraph's baseline metrics come
-  // from the browser lane, so they no longer claim the snapshot session's.
+  // from the browser side, so they no longer claim the snapshot session's.
   assert.equal(
     snapshotLine.style.getPropertyValue("--tq-line-height"),
     fallbackLine.style.getPropertyValue("--tq-line-height"),

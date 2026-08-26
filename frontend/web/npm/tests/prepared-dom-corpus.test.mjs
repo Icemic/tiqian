@@ -1,6 +1,6 @@
 // Prepared DOM lowering golden corpus (ADR 0050 Verification).
 //
-// The committed corpus is shared with the Rust lane
+// The committed corpus is shared with the Rust side
 // `frontend/web-precompute/rust/tiqian-precompute/tests/prepared_dom_corpus.rs`;
 // both sides assert the same bytes, so this module cannot drift from the Rust
 // port. Regenerate the fixture with

@@ -686,7 +686,7 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
     pumpUntil, pumpQuiescent, widthObserver, paragraphState,
   } = drive;
 
-  // ---- S2: width shrink to 340, RO delivery, commit lane ----
+  // ---- S2: width shrink to 340, RO delivery, commit pass ----
   setPhase("s2-resize");
   element.width = 340;
   paragraph.width = 340;

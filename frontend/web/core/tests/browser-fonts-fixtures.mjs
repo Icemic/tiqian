@@ -19,7 +19,7 @@ export function digest(bytes) {
 /**
  * Snapshot tables of the manifests the fixtures build. Each manifest pins its
  * own table; the global fetch stub serves the bytes by URL so the transport
- * walks the same lane a host page uses.
+ * walks the same path a host page uses.
  */
 let tableCounter = 0;
 let currentTable = null;

@@ -21,7 +21,7 @@
 //
 // Rules:
 //   R1  engine/ (all source sets, *.kt): no `globalThis`, no `__Tiqian*`
-//       identifiers. Ruling: the js lane reads `globalThis.__TiqianFontBackend`
+//       identifiers. Ruling: the js target reads `globalThis.__TiqianFontBackend`
 //       inline through @JsFun while the native side uses an installed vtable;
 //       the environment-global family is slated for deletion.
 //   R2  engine/src/commonMain (*.kt): no file name or top-level declaration
@@ -30,8 +30,8 @@
 //       engine; it belongs to the ffi/js data conversion layer.
 //   R3a ffi/ (*.kt): no font-session state. Tokens banned everywhere in ffi/:
 //       HarfBuzzSession, buildPrecomputeBackends. Token `fontSessionId` is
-//       banned only in the JS lane (ffi/js/src/jsMain, jsTest): there it
-//       resolves through the environment global; the native lane passes a
+//       banned only in the JS target (ffi/js/src/jsMain, jsTest): there it
+//       resolves through the environment global; the native target passes a
 //       session id through the declared, version-checked TQLR contract, which
 //       the same ruling marks compliant, so native sources stay out of scope
 //       for that token.
@@ -224,7 +224,7 @@ const EXEMPTIONS = [
     task: "#106",
     rules: ["R4-separator-literal"],
     file: "frontend/web/core/core/measurement/browser-font-replay.ts",
-    reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback lane in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
+    reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback transport in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
   },
 
   {
@@ -342,7 +342,7 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
 
 const RULE_CITATIONS = {
   "R1-globalThis":
-    "ADR 0053 ffi boundary review record (2026-08-25): the js lane must not depend on environment globals; corrective wave 1 (#102) deletes the family.",
+    "ADR 0053 ffi boundary review record (2026-08-25): the js target must not depend on environment globals; corrective wave 1 (#102) deletes the family.",
   "R1-Tiqian-global":
     "ADR 0053 ffi boundary review record (2026-08-25): __Tiqian* globals are the environment-global family slated for deletion (#102).",
   "R2-filename":

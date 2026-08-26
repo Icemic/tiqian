@@ -45,7 +45,7 @@
   "tablesBytes": 40214,
   "requestsBytes": 26966,
   "anomalyNotes": [
-    "UnsupportedSnapshotFirstLineIndent: the snapshot producer lane freezes firstLineIndentIc to 0; the request objects below carry the site's 2ic value.",
-    "Snapshot lane dropped 5 emoji/kaomoji paragraphs: p-8=UnsupportedEmojiFallback, p-12=UnsupportedSnapshotScript, p-15=UnsupportedSnapshotScript, p-24=UnsupportedSnapshotScript, p-53=NoSnapshotFontFace"
+    "UnsupportedSnapshotFirstLineIndent: the snapshot producer freezes firstLineIndentIc to 0; the request objects below carry the site's 2ic value.",
+    "Snapshot producer dropped 5 emoji/kaomoji paragraphs: p-8=UnsupportedEmojiFallback, p-12=UnsupportedSnapshotScript, p-15=UnsupportedSnapshotScript, p-24=UnsupportedSnapshotScript, p-53=NoSnapshotFontFace"
   ]
 }

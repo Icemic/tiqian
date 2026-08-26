@@ -71,4 +71,4 @@ export default defineConfig({
 `directory` is required (`urlPrefix` defaults to `tiqian-tables`, `extension`
 to `.tiqtbl`). Hosts running their own shaping pipeline configure `tables`
 alone, without `typography`; the shipping and dev-serving hooks work the
-same for both lanes.
+same for both steps.

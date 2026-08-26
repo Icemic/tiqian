@@ -31,7 +31,7 @@ import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.m
 /**
  * Snapshot tables of the fixtures. Each fixture registers its own bytes under
  * a unique URL; the fetch stub serves them so the transport loads through
- * the lane a host page uses.
+ * the path a host page uses.
  */
 let tableCounter = 0;
 const tableBytesByUrl = new Map();

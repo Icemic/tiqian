@@ -1,7 +1,7 @@
 // Shared test harness: a manual rAF + timer clock plus global save/restore.
 // The fake timeline drives both performance.now and Date.now because the
 // coordinator mixes the two clocks by design (ClockTierDiscipline): budget
-// deadlines read performance.now, coarse lanes such as debounce due times and
+// deadlines read performance.now, coarse counters such as debounce due times and
 // duration statistics read Date.now. Tests that record timing goldens depend
 // on both readings moving together under advance().
 
@@ -38,7 +38,7 @@ export function installFakeClock() {
   const RealDate = Date;
 
   globalThis.performance = { now: () => now };
-  // Coarse lanes (debounce due times, duration stats) read Date.now, so the
+  // Coarse counters (debounce due times, duration stats) read Date.now, so the
   // fake timeline drives them too.
   globalThis.Date = class FakeDate extends RealDate {
     static now() {

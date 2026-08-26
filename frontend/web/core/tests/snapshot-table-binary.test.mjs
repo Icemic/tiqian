@@ -9,7 +9,7 @@ import { expandSnapshotManifest } from "../core/sampler/snapshot/snapshot-manife
 /**
  * One table held in both file forms. The strings list follows the binary
  * encoder's intern order (replay strings, metric strings, then probe scan
- * order) so integer references mean the same row in both lanes.
+ * order) so integer references mean the same row in both readers.
  */
 const TABLE = {
   replayStrings: ["源", "Noto Serif CJK", "zh-Hans", "body",
@@ -126,7 +126,7 @@ test("damaged binary bytes fail closed", () => {
   assert.throws(() => decodeSnapshotTableBinary(overstuffed), /SnapshotTablesInvalid/u);
 });
 
-test("the binary lane loads through the transport", async () => {
+test("the binary reader loads through the transport", async () => {
   const bytes = writeBinaryTable(TABLE);
   const key = "https://tables.test/snapshot-deadbeef.tiqtbl";
   const previousFetch = globalThis.fetch;

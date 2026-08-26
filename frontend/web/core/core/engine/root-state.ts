@@ -39,7 +39,7 @@ export type SnapshotSessionDescriptor = {
   metricsJson: MetricsJsonFn;
 };
 
-// Browser fallback descriptor built once per root and embedded in every lane
+// Browser fallback descriptor built once per root and embedded in every layout path
 // argument. Type alias (not interface) so it stays assignable to the loose
 // Record<string, unknown> slots in the orchestrator globals.
 export type BrowserFallbackDescriptor = { bridge: BrowserMetricsBridgeInstance };
@@ -208,7 +208,7 @@ export function createRootState(): RootStateApi {
     };
   }
 
-  // The {bridge} descriptor every TS layout lane consumes. The inner bridge
+  // The {bridge} descriptor every TS layout path consumes. The inner bridge
   // adapts the canvas shaper and metrics resolver to the two JSON callbacks
   // of precomputeParagraphWithBrowserMetrics. Built once per root.
   function buildBrowserFallbackDescriptor(resolved: ResolvedEnhanceOptions): BrowserFallbackDescriptor {
@@ -298,7 +298,7 @@ export function createRootState(): RootStateApi {
 
   // Kotlin resolves the descriptor off activeOptions().conformingSnapshotFont
   // SessionId(), so once prepared DOM is disabled the session is always null;
-  // the TS options lane reads the same active options here.
+  // the TS options path reads the same active options here.
   function activeSnapshotSessionDescriptor(state: RootState): SnapshotSessionDescriptor | null {
     const sessionId = conformingSnapshotFontSessionId(activeTsOptions(state));
     if (sessionId == null) return null;

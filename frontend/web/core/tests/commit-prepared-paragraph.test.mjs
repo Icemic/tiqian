@@ -535,7 +535,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
     const renderer = preparedDomRendererModule();
     assert.equal(renderer.renders.length, 2);
     assert.equal(renderer.renders[0].plan, '{"plan":"first"}');
-    // The retry re-prepared through the real browser-metrics lane over the
+    // The retry re-prepared through the real browser-metrics path over the
     // valid bridge, so the second render carries a real "hello" plan.
     const secondPlan = JSON.parse(renderer.renders[1].plan);
     assert.equal(secondPlan.layoutRevision, "tiqian-layout-v2");

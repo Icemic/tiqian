@@ -129,7 +129,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
   const originalComputedStyle = globalThis.getComputedStyle;
   const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
   let requestText = "first";
-  // R10: the prepare lane builds requests through the pure
+  // R10: the prepare path builds requests through the pure
   // workerLayoutRequestForRoot, so the candidate is a lowerable paragraph
   // double whose text follows requestText, and the take/issue calls reuse
   // that candidate's serialized build.

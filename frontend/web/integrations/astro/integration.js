@@ -44,7 +44,7 @@ export function tiqian(options = {}) {
   if (!precomputeEnabled && (options.fontStylesheets != null || options.faces != null || options.snapshot != null)) {
     throw new Error("TiqianAstroPrecomputeTypographyRequired");
   }
-  // The tables lane is independent of the preparer lane: a host with its own
+  // The tables step is independent of the preparer step: a host with its own
   // shaping pipeline configures only table delivery.
   const tablesOptions = normalizeTiqianAstroTablesOptions(options.tables);
   const tables = tiqianAstroTables(tablesOptions);

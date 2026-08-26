@@ -5,7 +5,7 @@
 // RootSessionKey: every registration structure is keyed by a monotonic root
 // session id allocated by register(); the service never keys bookkeeping by
 // a component instance. The one element value a worker slot keeps is a
-// functional value — the grant lanes need it for viewport anchoring and as
+// functional value — the grant rounds need it for viewport anchoring and as
 // the root argument of the slot's layout job pool (ruling 3 keeps the
 // element in the registerWorker signature).
 import {
@@ -86,7 +86,7 @@ export interface CoordinatorUpdateOptions {
 }
 
 export interface GrantController {
-  lane: "grant" | "prepaint" | string;
+  admissionClass: "grant" | "prepaint" | string;
   root: HTMLElement;
   generation: number;
   deadline: number;
@@ -122,7 +122,7 @@ export interface PrepareMember {
 }
 
 export interface MainSliceAdmission {
-  lane: string;
+  admissionClass: string;
   deadline: number;
   spent: SpentReporter;
 }
@@ -208,7 +208,7 @@ export class CoordinationService {
     fontLoadInvalidationInstalled: false,
   };
   // OffscreenDebounceGate: when an element is outside the viewport, its frame
-  // tasks wait in this deferred lane. Each repeated request while the element
+  // tasks wait in this deferred queue. Each repeated request while the element
   // stays off-screen pushes the task's due time further out, so a fast drag
   // keeps postponing layout work for elements the user cannot see. One
   // shared timer moves due tasks back into the normal frame loop, where the
@@ -384,7 +384,7 @@ export class CoordinationService {
     // a long frame, so a budget window started from it can already be
     // expired. Worker grants pass the remaining milliseconds as a duration,
     // so the runtime measures them on its own Date.now timeline and the two
-    // clocks never mix. Coarse lanes such as debounce due times and duration
+    // clocks never mix. Coarse counters such as debounce due times and duration
     // statistics run on Date.now; millisecond resolution is enough there.
     const startTime = performance.now();
     let executedCount = 0;
@@ -432,7 +432,7 @@ export class CoordinationService {
   // sets globalThis.__tqTrace (with { maxEntries }) before the first enhance
   // gets one compact row per frame in globalThis.__tqFrameTrace; without the
   // opt-in the cost is one property read per frame.
-  // The last column is the pre-paint lane's ledger in the shared admission window.
+  // The last column is the pre-paint admission's ledger in the shared admission window.
   #traceFrame(now: number, executedCount: number, workerGrants: number): void {
     const trace = this.traceConfig;
     if (!trace) return;
@@ -455,12 +455,12 @@ export class CoordinationService {
     if (ring.length > maxEntries) ring.splice(0, ring.length - maxEntries);
   }
 
-  // MainSliceAdmissionWindow: the pre-paint lane is a main-thread lane that
-  // runs outside the frame loop. It draws from a rolling allowance per
+  // MainSliceAdmissionWindow: the pre-paint admission class runs on the
+  // main thread outside the frame loop. It draws from a rolling allowance per
   // rendering update; the ceiling follows the same numbers the frame loop
-  // uses (frame budget, half the measured frame interval). The lane reports
-  // what it spent through the returned voucher.
-  #admitMainSlice(lane: string): MainSliceAdmission | null {
+  // uses (frame budget, half the measured frame interval). The admission
+  // reports what it spent through the returned voucher.
+  #admitMainSlice(admissionClass: string): MainSliceAdmission | null {
     const now = performance.now();
     if (now - this.#immediateWindowStart > IMMEDIATE_GRANT_WINDOW_MS) {
       this.#immediateWindowStart = now;
@@ -470,7 +470,7 @@ export class CoordinationService {
     const allowance = ceiling - this.#immediateSpentMs;
     if (allowance <= 0) return null;
     return {
-      lane,
+      admissionClass,
       deadline: Date.now() + allowance,
       spent: (consumedMs: number) => { this.#immediateSpentMs += consumedMs; },
     };
@@ -577,8 +577,8 @@ export class CoordinationService {
   // painted frame in which stale lines overflow the narrowed container. The
   // grant copies the polled-grant contract (job generation, per-root quota,
   // deadline in the Date.now domain) and draws from a shared per-update
-  // allowance; once it is spent, later callers fall back to the scheduled
-  // lane. Remaining tiers stay with the polled frame loop.
+  // allowance; once it is spent, later callers wait for the polled frame
+  // loop. Remaining tiers stay with it.
   grantImmediate(session: RootSessionId): boolean {
     const slot = this.#findWorkerSlot(session);
     if (!slot || typeof slot.pool?.runSlice !== "function") return false;
@@ -598,7 +598,7 @@ export class CoordinationService {
       // commits atomically before this frame paints.
       while (Date.now() < admission.deadline) {
         const sliceProcessed = slot.pool.runSlice({
-          lane: "prepaint",
+          admissionClass: "prepaint",
           root: element,
           generation,
           deadline: admission.deadline,
@@ -809,7 +809,7 @@ export class CoordinationService {
           viewportAnchor = captureViewportAnchor(slot.element);
         }
         const processed = slot.pool.runSlice({
-          lane: "grant",
+          admissionClass: "grant",
           root: slot.element,
           generation: slot.generation,
           deadline: grantDeadline,

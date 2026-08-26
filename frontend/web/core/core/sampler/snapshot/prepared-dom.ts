@@ -363,7 +363,7 @@ function snapshotValueStyleClass(index: number) {
 // though the coordinated registry still holds declarations from earlier
 // widths. The snapshot namespace (tqv-) stays index based because frozen
 // snapshot tables persist those indexes across builds. Two independent
-// FNV-1a lanes make the name a pure function of the declaration string with
+// FNV-1a hashes make the name a pure function of the declaration string with
 // collision odds far below any realistic declaration count, so no probe or
 // registry state participates in naming.
 function runtimeValueStyleKey(declaration: string) {

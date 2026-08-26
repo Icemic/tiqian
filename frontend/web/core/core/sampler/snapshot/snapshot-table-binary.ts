@@ -274,7 +274,7 @@ function readRevisionsOf(bytes: Uint8Array, layout: SnapshotTableLayout): Snapsh
 }
 
 /**
- * The binary table view: the same accessor surface the parsed-text lane
+ * The binary table view: the same accessor surface the parsed-text reader
  * wraps, reading rows from the bytes on demand and caching each decoded row.
  */
 export function decodeSnapshotTableBinary(bytes: Uint8Array): SnapshotTableBinaryView {

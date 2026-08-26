@@ -1,6 +1,7 @@
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
 import { createProseHostStateMachine } from "@tiqian/core/core/engine/prose-host-state-machine.js";
+import { InvalidationReason } from "@tiqian/core/core/engine/prose-host-state.js";
 import {
   copyInstaller,
   loadTiqianRuntime,
@@ -80,7 +81,6 @@ import type {
   InitialFontRetryController,
 } from "@tiqian/core/core/engine/loaders/font-loader.js";
 import type { SnapshotAdoptAnchors } from "@tiqian/core/core/sampler/snapshot/precomputed.js";
-import type { TypographyViewportEntry } from "@tiqian/core/core/sampler/signatures.js";
 import type {
   ContentInvalidationSource,
   RootSizeObservationSource,
@@ -204,41 +204,21 @@ class TiqianProseElement extends HTMLElementBase {
     "snapshot-ref",
   ];
 
-  #forceTypographyRefresh = false;
-  #acceptLayoutCompletion = false;
   #boundResponsiveCommit: TiqianBoundResponsiveCommitFn = () => {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
   #coordinationSession: RootSessionId = 0;
   #stateMachine = createProseHostStateMachine();
   #detachAttributeSnapshot: (string | null)[] | null = null;
-  #layoutWorkIsRelayout = false;
   #lastCommittedParagraphMeasures = "";
   #contentInvalidation: ContentInvalidationSource | null = null;
   #contentProbeFrame = 0;
-  #contentReconcileRequired = false;
   #contentTainted = new Set<Element>();
-  #deferredTypographyCheck = false;
   #typographyInvalidation: TypographyInvalidationSource | null = null;
-  #geometryRevision = 0;
   #context = createEnhanceContext(this);
-  #hasDispatched = false;
-  #inViewport = true;
   #initialFontRetry: InitialFontRetryController | null = null;
   #visibilityObservation: RootVisibilityObservationSource | null = null;
-  #layoutWorkInFlight = false;
-  #layoutWorkerAttached = false;
-  #layoutWorkSignaturesCaptured = false;
-  #layoutWorkGeometrySignature = "";
-  #layoutWorkMaximumMeasure = false;
-  #layoutWorkMeasureSignature = "";
-  #layoutWorkTypographySignature = "";
-  #layoutWorkViewportTypographyEntries: TypographyViewportEntry[] = [];
   #layoutWorkTypographyInvalidation: TypographyInvalidationSource | null = null;
-  #layoutWorkUsesCapturedMeasure = false;
-  #layoutOperation = 0;
-  #layoutWorkRevision = 0;
-  #enhanceRequest = 0;
   #snapshotFontRejectedAttempt = "";
   #snapshotFontSession: SnapshotFontSessionEntry | null = null;
   #lastObservedWidth = 0;
@@ -254,11 +234,7 @@ class TiqianProseElement extends HTMLElementBase {
   #sizeObservation: RootSizeObservationSource | null = null;
   #gridMetricsState = createParagraphGridMetricsState();
   #pendingCommittedMeasures = "";
-  #responsiveCommitRequired = false;
   #responsiveRetargetFrame = 0;
-  #responsiveRelayoutRequired = false;
-  #runtimeStateActive = false;
-  #snapshotAdopted = false;
   #snapshotEnhancedCount = 0;
   #typographyFrame = 0;
   #viewportResizeInvalidation: ViewportResizeInvalidationSource | null = null;
@@ -317,8 +293,8 @@ class TiqianProseElement extends HTMLElementBase {
     // that needs to pay the restoration cost before starting a new lifecycle.
     if (!this.#stateMachine.connected) {
       if (isLoadedSnapshotAdopted(this)) restoreLoadedSnapshot(this);
-      if (this.#runtimeStateActive) destroyRuntimeRoot(this);
-      this.#runtimeStateActive = false;
+      if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this);
+      this.#stateMachine.runtimeActive = false;
     }
     this.#stateMachine.connect(this.disabled);
     this.#clearLifecycleDiagnostics();
@@ -329,9 +305,9 @@ class TiqianProseElement extends HTMLElementBase {
     this.#snapshotFontRejectedAttempt = "";
     const generation = this.#context.update();
     this.#clearInitialFontRetry();
-    this.#acceptLayoutCompletion = false;
-    this.#hasDispatched = false;
-    this.#snapshotAdopted = isLoadedSnapshotAdopted(this);
+    this.#stateMachine.completionGateOpen = false;
+    this.#stateMachine.dispatched = false;
+    this.#stateMachine.snapshotAdopted = isLoadedSnapshotAdopted(this);
     this.#snapshotEnhancedCount = 0;
     const loadStartedAt = Date.now();
     let initialReadyReported = false;
@@ -355,11 +331,11 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopTypographyObservation();
     this.#readyListener = (event) => {
       if (
-        generation !== this.#context.generation || !this.#hasDispatched ||
-        !this.#acceptLayoutCompletion
+        generation !== this.#context.generation || !this.#stateMachine.dispatched ||
+        !this.#stateMachine.completionGateOpen
       ) return;
       const detail = (event as CustomEvent<TiqianReadyEventDetail>).detail ?? {};
-      if (this.#snapshotAdopted && this.#snapshotEnhancedCount > 0) {
+      if (this.#stateMachine.snapshotAdopted && this.#snapshotEnhancedCount > 0) {
         const snapshotCount = this.#snapshotEnhancedCount;
         const runtimeEnhancedCount = detail.snapshot
           ? 0
@@ -392,7 +368,7 @@ class TiqianProseElement extends HTMLElementBase {
         // runtime reports content reconciles through this same event kind,
         // so only jobs this element dispatched as width relayouts may move
         // the ledger.
-        if (this.#layoutWorkIsRelayout) {
+        if (this.#stateMachine.work.kind === "Relayout") {
           if (!stale) {
             this.#lastCommittedParagraphMeasures = this.#pendingCommittedMeasures;
           } else {
@@ -426,8 +402,8 @@ class TiqianProseElement extends HTMLElementBase {
         // of final release.
         this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
       }
-      if (stale) this.#responsiveCommitRequired = true;
-      if (stale) this.#responsiveRelayoutRequired = true;
+      if (stale) this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
+      if (stale) this.#stateMachine.invalidate(InvalidationReason.ResponsiveRelayout);
       this.#finishLayoutWorkAndObserve();
     };
     this.addEventListener("tiqian:ready", this.#readyListener);
@@ -444,9 +420,7 @@ class TiqianProseElement extends HTMLElementBase {
     // left attached, and consumers awaiting tiqian:ready hanging forever.
     const failInitialEnhance = (error: unknown) => {
       if (generation !== this.#context.generation) return;
-      this.#acceptLayoutCompletion = false;
-      this.#layoutWorkInFlight = false;
-      this.#layoutWorkViewportTypographyEntries = [];
+      this.#stateMachine.failLayoutWork();
       this.#clearResponsiveRetarget();
       this.#releaseSnapshotFontSession();
       if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
@@ -487,7 +461,7 @@ class TiqianProseElement extends HTMLElementBase {
                 this,
                 this.ownerDocument,
                 () => this.isConnected && generation === this.#context.generation &&
-                  operation === this.#layoutOperation,
+                  operation === this.#stateMachine.transaction.layoutOperation,
                 this.#snapshotAdoptionAnchors(),
               );
             }
@@ -500,14 +474,14 @@ class TiqianProseElement extends HTMLElementBase {
           releaseNativeScrollAnchoring(this);
           if (
             !this.isConnected || generation !== this.#context.generation ||
-            operation !== this.#layoutOperation
+            operation !== this.#stateMachine.transaction.layoutOperation
           ) {
             if (snapshot.adopted) restoreLoadedSnapshot(this);
             return;
           }
           if (snapshot.adopted) {
             delete this.dataset.tiqianSnapshotMiss;
-            this.#snapshotAdopted = true;
+            this.#stateMachine.snapshotAdopted = true;
             this.#snapshotEnhancedCount = snapshot.count;
             // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
             // paragraphs. Runtime-only prose remains semantic source and is
@@ -525,9 +499,9 @@ class TiqianProseElement extends HTMLElementBase {
               });
               return;
             }
-            if (!this.#runtimeStateActive) this.#releaseSnapshotFontSession();
-            this.#hasDispatched = true;
-            this.#acceptLayoutCompletion = true;
+            if (!this.#stateMachine.runtimeActive) this.#releaseSnapshotFontSession();
+            this.#stateMachine.dispatched = true;
+            this.#stateMachine.completionGateOpen = true;
             this.#acceptValidatedSnapshotGeometry();
             this.dispatchEvent(new CustomEvent("tiqian:ready", {
               bubbles: true,
@@ -582,14 +556,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
     this.#context.destroy();
-    this.#enhanceRequest += 1;
-    this.#layoutOperation += 1;
-    this.#acceptLayoutCompletion = false;
-    this.#hasDispatched = false;
-    this.#layoutWorkInFlight = false;
-    this.#layoutWorkViewportTypographyEntries = [];
-    this.#responsiveCommitRequired = false;
-    this.#responsiveRelayoutRequired = false;
+    this.#stateMachine.settleDisconnection();
     this.#clearResponsiveRetarget();
     this.#clearInitialFontRetry();
     delete this.dataset.tiqianFontWait;
@@ -603,15 +570,15 @@ class TiqianProseElement extends HTMLElementBase {
     // blocks their scroll handoff and can visibly change the outgoing page.
     // Keep the backing in weak state for a possible reconnection, but cancel all
     // work and release document-scoped styles without touching detached DOM.
-    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+    if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       detachLoadedSnapshot(this);
     }
-    if (this.#runtimeStateActive) detachRuntimeRoot(this);
-    if (this.#layoutWorkerAttached) {
+    if (this.#stateMachine.runtimeActive) detachRuntimeRoot(this);
+    if (this.#stateMachine.workerAttached) {
       // tiqian:detach already cancelled the job, so the pool's detach has no
       // in-flight work to finish on this disconnected root.
       tiqianRuntimeGraph()?.layoutJobPool.detach(this);
-      this.#layoutWorkerAttached = false;
+      this.#stateMachine.workerAttached = false;
     }
     this.#releaseSnapshotFontSession();
     this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
@@ -619,8 +586,8 @@ class TiqianProseElement extends HTMLElementBase {
 
   #canAdoptRawDomMoveReconnection() {
     if (this.#stateMachine.connected || !this.#stateMachine.deferredTeardown) return false;
-    if (!this.#runtimeStateActive || this.disabled) return false;
-    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+    if (!this.#stateMachine.runtimeActive || this.disabled) return false;
+    if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       // Snapshot-based raw-DOM backup keeps the restore and re-adopt path. Its backing is
       // cheap to rebuild and shares document-scoped styles with the runtime.
       return false;
@@ -636,7 +603,7 @@ class TiqianProseElement extends HTMLElementBase {
   // a host raw-DOM backup move. The committed LayoutResult, the snapshot font session
   // and any in-flight job stayed valid through the move, so only the
   // observers and the geometry baseline need re-entry. A width change from
-  // the move routes through the responsive commit lane and relayouts in
+  // the move routes through the responsive commit path and relayouts in
   // place; a changed font context routes through the typography check and
   // refreshes from source. Observed attribute edits during the gap reject
   // adoption and take the full restart path instead.
@@ -679,11 +646,11 @@ class TiqianProseElement extends HTMLElementBase {
     // LatestObservedAttributeGeneration: strong emphasis controls snapshot
     // eligibility, while all public options belong to the same connection
     // generation. An initial async gate must never commit captured old values.
-    if (!this.#hasDispatched) {
+    if (!this.#stateMachine.dispatched) {
       this.#restartConnectedLifecycle();
       return;
     }
-    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+    if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       this.#invalidateSnapshotAndEnhance();
       return;
     }
@@ -736,10 +703,10 @@ class TiqianProseElement extends HTMLElementBase {
     // Reconnect starts a fresh context: disconnect destroyed the previous
     // one and dropped it from the registry, so the constructor re-registers.
     this.#context = createEnhanceContext(this);
-    this.#enhanceRequest += 1;
-    this.#hasDispatched = false;
-    this.#acceptLayoutCompletion = false;
-    this.#snapshotAdopted = false;
+    this.#stateMachine.bumpEnhanceRequest();
+    this.#stateMachine.dispatched = false;
+    this.#stateMachine.completionGateOpen = false;
+    this.#stateMachine.snapshotAdopted = false;
     this.#snapshotEnhancedCount = 0;
     this.#removeReadyListener();
     this.#clearInitialFontRetry();
@@ -748,8 +715,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopWidthObservation();
     this.#stopContentObservation();
     restoreLoadedSnapshot(this);
-    if (this.#runtimeStateActive) destroyRuntimeRoot(this);
-    this.#runtimeStateActive = false;
+    if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this);
+    this.#stateMachine.runtimeActive = false;
     this.#releaseSnapshotFontSession();
     this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
     releaseNativeScrollAnchoring(this);
@@ -774,7 +741,7 @@ class TiqianProseElement extends HTMLElementBase {
       revalidateSnapshotFont = true,
     }: TiqianEnhanceDispatchOptions = {},
   ): Promise<boolean> {
-    const request = ++this.#enhanceRequest;
+    const request = this.#stateMachine.claimEnhanceRequest();
     // PlainHostPreparedBridge: the runtime lowers every paragraph through
     // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without a snapshot
     // font session needs that bridge installed before layout starts. The
@@ -801,12 +768,12 @@ class TiqianProseElement extends HTMLElementBase {
     } catch (error) {
       if (
         this.isConnected && generation === this.#context.generation &&
-        request === this.#enhanceRequest
+        request === this.#stateMachine.transaction.enhanceRequest
       ) this.#releaseSnapshotFontSession();
       this.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate);
       console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     }
-    if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
+    if (!this.isConnected || generation !== this.#context.generation || request !== this.#stateMachine.transaction.enhanceRequest) {
       if (!this.isConnected || generation !== this.#context.generation) this.#releaseSnapshotFontSession();
       return false;
     }
@@ -843,7 +810,7 @@ class TiqianProseElement extends HTMLElementBase {
         }
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          request !== this.#enhanceRequest
+          request !== this.#stateMachine.transaction.enhanceRequest
         ) {
           this.#releaseSnapshotFontSession();
           return false;
@@ -851,7 +818,7 @@ class TiqianProseElement extends HTMLElementBase {
       } catch (error) {
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          request !== this.#enhanceRequest
+          request !== this.#stateMachine.transaction.enhanceRequest
         ) {
           this.#releaseSnapshotFontSession();
           return false;
@@ -876,7 +843,7 @@ class TiqianProseElement extends HTMLElementBase {
           ...(snapshotFontSession ? { snapshotFontSession } : {}),
         })
       : { status: "not-needed" };
-    if (!this.isConnected || generation !== this.#context.generation || request !== this.#enhanceRequest) {
+    if (!this.isConnected || generation !== this.#context.generation || request !== this.#stateMachine.transaction.enhanceRequest) {
       this.#releaseSnapshotFontSession();
       return false;
     }
@@ -884,9 +851,9 @@ class TiqianProseElement extends HTMLElementBase {
     // again for each paragraph, while this coordinator cancels the remaining
     // job on the next frame if the effective line measure changes.
     const layoutOperation = this.#beginLayoutWork({ usesCapturedMeasure: true });
-    this.#hasDispatched = true;
-    this.#runtimeStateActive = true;
-    this.#acceptLayoutCompletion = true;
+    this.#stateMachine.dispatched = true;
+    this.#stateMachine.runtimeActive = true;
+    this.#stateMachine.completionGateOpen = true;
     const preparedOptions = {
       ...baseOptions,
       cjkDashCapability,
@@ -907,7 +874,7 @@ class TiqianProseElement extends HTMLElementBase {
           snapshotFontSession,
           preparedOptions,
           () => this.isConnected && generation === this.#context.generation &&
-            request === this.#enhanceRequest && layoutOperation === this.#layoutOperation,
+            request === this.#stateMachine.transaction.enhanceRequest && layoutOperation === this.#stateMachine.transaction.layoutOperation,
         );
         if (prepareJob) await coordinationService().runPrepare(this.#coordinationSession, prepareJob);
       } catch (error) {
@@ -918,7 +885,7 @@ class TiqianProseElement extends HTMLElementBase {
       }
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        request !== this.#enhanceRequest || layoutOperation !== this.#layoutOperation
+        request !== this.#stateMachine.transaction.enhanceRequest || layoutOperation !== this.#stateMachine.transaction.layoutOperation
       ) {
         if (!this.isConnected || generation !== this.#context.generation) {
           this.#releaseSnapshotFontSession();
@@ -929,7 +896,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#ensureLayoutWorker();
     // RunToCompletionAnchorBracket: without an attached coordinator the whole
     // progressive job runs synchronously inside this call, outside every
-    // grant lane's capture/compensate bracket. Bracket it here with one
+    // grant round's capture/compensate bracket. Bracket it here with one
     // same-task pair and the native-anchoring hold, so the correction sees
     // only the pass's layout displacement and the browser's own anchoring
     // cannot re-anchor under a running entrance animation. A coordinated job
@@ -963,20 +930,20 @@ class TiqianProseElement extends HTMLElementBase {
     const pool = tiqianRuntimeGraph()?.layoutJobPool;
     if (!pool) return;
     pool.attach(this);
-    this.#layoutWorkerAttached = true;
+    this.#stateMachine.workerAttached = true;
     coordinationService().registerWorker(this.#coordinationSession, this, pool);
   }
 
   #syncLayoutWorker() {
     const pool = tiqianRuntimeGraph()?.layoutJobPool;
-    if (!this.#layoutWorkerAttached || !pool) return;
+    if (!this.#stateMachine.workerAttached || !pool) return;
     coordinationService().setWorkerActive(this.#coordinationSession, pool.hasJob(this));
     this.#observeParagraphTiers(pool);
     coordinationService().requestWorkerFrame(this.#coordinationSession);
   }
 
   #deactivateLayoutWorker() {
-    if (!this.#layoutWorkerAttached) return;
+    if (!this.#stateMachine.workerAttached) return;
     coordinationService().setWorkerActive(this.#coordinationSession, false);
   }
 
@@ -1053,7 +1020,7 @@ class TiqianProseElement extends HTMLElementBase {
   ): Promise<BrowserFontSessionHandle | null> {
     const reference = this.getAttribute("snapshot-ref");
     if (!reference) {
-      if (generation === this.#context.generation && request === this.#enhanceRequest) {
+      if (generation === this.#context.generation && request === this.#stateMachine.transaction.enhanceRequest) {
         this.#releaseSnapshotFontSession();
       }
       return null;
@@ -1076,14 +1043,14 @@ class TiqianProseElement extends HTMLElementBase {
       if (revalidateExisting) await existing.revalidate(this, existing.handle);
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        request !== this.#enhanceRequest || this.getAttribute("snapshot-ref") !== reference
+        request !== this.#stateMachine.transaction.enhanceRequest || this.getAttribute("snapshot-ref") !== reference
       ) return null;
       return existing.handle;
     }
     const handle = await loader.prepareBrowserFontSession(this);
     if (
       !this.isConnected || generation !== this.#context.generation ||
-      request !== this.#enhanceRequest || this.getAttribute("snapshot-ref") !== reference
+      request !== this.#stateMachine.transaction.enhanceRequest || this.getAttribute("snapshot-ref") !== reference
     ) {
       loader.releaseBrowserFontSession(handle);
       return null;
@@ -1108,37 +1075,31 @@ class TiqianProseElement extends HTMLElementBase {
 
   #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure }: TiqianLayoutWorkOptions = {}): number {
     this.#clearResponsiveRetarget();
-    const operation = ++this.#layoutOperation;
-    this.#layoutWorkInFlight = true;
-    this.#layoutWorkIsRelayout = false;
-    this.#pendingCommittedMeasures = "";
-    this.#layoutWorkRevision = this.#geometryRevision;
-    this.#layoutWorkSignaturesCaptured = captureSignatures;
-    this.#layoutWorkGeometrySignature = captureSignatures
-      ? responsiveGeometrySignature(this)
-      : "";
-    this.#layoutWorkMeasureSignature = captureSignatures
-      ? this.#paragraphMeasureSignature()
-      : "";
-    this.#layoutWorkViewportTypographyEntries = captureSignatures
+    const viewportTypographyEntries = captureSignatures
       ? captureLayoutWorkViewportTypographyEntries(this)
       : [];
-    this.#layoutWorkTypographySignature = "";
+    let typographySignature = "";
     if (captureSignatures) {
-      const entries = this.#layoutWorkViewportTypographyEntries;
-      let signature = "";
-      for (let i = 1; i < entries.length; i++) {
-        if (i > 1) signature += "\u001e";
-        signature += entries[i].signature;
+      for (let i = 1; i < viewportTypographyEntries.length; i++) {
+        if (i > 1) typographySignature += "\u001e";
+        typographySignature += viewportTypographyEntries[i].signature;
       }
-      this.#layoutWorkTypographySignature = signature;
     }
-    this.#layoutWorkMaximumMeasure = captureSignatures && this.hasAttribute("snapshot-ref") &&
-      loadedSnapshotMaximumMeasureMatches(this);
-    this.#layoutWorkUsesCapturedMeasure = usesCapturedMeasure;
-    this.#responsiveCommitRequired = false;
-    this.#responsiveRelayoutRequired = false;
-    this.#acceptLayoutCompletion = false;
+    const operation = this.#stateMachine.beginLayoutWork({
+      usesCapturedMeasure,
+      signaturesCaptured: captureSignatures,
+      geometrySignature: captureSignatures
+        ? responsiveGeometrySignature(this)
+        : "",
+      measureSignature: captureSignatures
+        ? this.#paragraphMeasureSignature()
+        : "",
+      typographySignature,
+      maximumMeasure: captureSignatures && this.hasAttribute("snapshot-ref") &&
+        loadedSnapshotMaximumMeasureMatches(this),
+      viewportTypographyEntries,
+    });
+    this.#pendingCommittedMeasures = "";
     this.#stopTypographyObservation();
     this.#observeContent();
     if (usesCapturedMeasure) this.#observeLayoutWorkInputs();
@@ -1146,12 +1107,15 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #finishLayoutWorkAndObserve(expectedOperation: number | null = null): boolean {
-    if (expectedOperation != null && expectedOperation !== this.#layoutOperation) return false;
-    const signaturesCaptured = this.#layoutWorkSignaturesCaptured;
-    const rawGeometryChangedDuringWork = this.#layoutWorkInFlight &&
-      (this.#geometryRevision !== this.#layoutWorkRevision || this.#responsiveCommitRequired ||
+    const stateMachine = this.#stateMachine;
+    const transaction = stateMachine.transaction;
+    const work = stateMachine.work;
+    if (expectedOperation != null && expectedOperation !== transaction.layoutOperation) return false;
+    const signaturesCaptured = work.signaturesCaptured;
+    const rawGeometryChangedDuringWork = stateMachine.workInFlight &&
+      (transaction.geometryRevision !== transaction.layoutWorkRevision || stateMachine.isInvalidated(InvalidationReason.ResponsiveCommit) ||
         (signaturesCaptured &&
-          responsiveGeometrySignature(this) !== this.#layoutWorkGeometrySignature));
+          responsiveGeometrySignature(this) !== work.geometrySignature));
     // ObserverBaselineAfterUncapturedLayout: progressive enhancement mutates
     // the paragraph DOM while ResizeObserver is paused. Seed its committed
     // width, grid and typography baselines from that final DOM exactly once;
@@ -1176,15 +1140,15 @@ class TiqianProseElement extends HTMLElementBase {
     // dirtied. A finish reads the signatures only when it compares them
     // against a captured signature or stores them on the unchanged path.
     const signaturesConsumedByFinish = !rawGeometryChangedDuringWork ||
-      (this.#layoutWorkUsesCapturedMeasure &&
-        this.#layoutWorkMeasureSignature !== "");
+      (work.usesCapturedMeasure &&
+        work.measureSignature !== "");
     const currentParagraphWidths = signaturesConsumedByFinish &&
-        !this.#layoutWorkUsesCapturedMeasure
+        !work.usesCapturedMeasure
       ? paragraphWidthSignature(this)
       : this.#lastParagraphWidths;
     let currentMeasures: string;
     if (signaturesConsumedByFinish) {
-      currentMeasures = this.#layoutWorkUsesCapturedMeasure && !rawGeometryChangedDuringWork
+      currentMeasures = work.usesCapturedMeasure && !rawGeometryChangedDuringWork
         ? this.#lastParagraphMeasures
         : this.#paragraphMeasureSignature();
     } else {
@@ -1198,8 +1162,8 @@ class TiqianProseElement extends HTMLElementBase {
     // exact maximum-snapshot boundary, that result is already valid for the
     // final geometry and a second job would reproduce identical DOM.
     const effectiveLayoutChangedDuringWork = signaturesConsumedByFinish
-      ? (currentMeasures !== this.#layoutWorkMeasureSignature ||
-        currentMaximumMeasure !== this.#layoutWorkMaximumMeasure)
+      ? (currentMeasures !== work.measureSignature ||
+        currentMaximumMeasure !== work.maximumMeasure)
       : true;
     // RenderOutputTypographyIsNotAnInputChange: the renderer intentionally
     // changes paragraph line-height and positioning after it commits measured
@@ -1208,9 +1172,9 @@ class TiqianProseElement extends HTMLElementBase {
     // font, style and viewport changes are observed while work is in flight and
     // cancel the captured job before ready; completion only needs to reconcile
     // geometry revisions that survived those observers.
-    const layoutInputsChangedDuringWork = this.#responsiveCommitRequired || (
+    const layoutInputsChangedDuringWork = stateMachine.isInvalidated(InvalidationReason.ResponsiveCommit) || (
       rawGeometryChangedDuringWork &&
-      (!this.#layoutWorkUsesCapturedMeasure || effectiveLayoutChangedDuringWork)
+      (!work.usesCapturedMeasure || effectiveLayoutChangedDuringWork)
     );
     // FinishedTypographyBaselineRefresh also covers the changed-inputs branch:
     // a follow-up commit runs on the next frame and compares a live signature
@@ -1219,42 +1183,41 @@ class TiqianProseElement extends HTMLElementBase {
     // pre-job value (empty before the first completed job) and the follow-up
     // commit misreads renderer output as a host typography change.
     this.#lastTypography = currentTypography;
-    this.#acceptLayoutCompletion = false;
-    this.#layoutWorkInFlight = false;
-    this.#layoutWorkSignaturesCaptured = false;
-    this.#layoutWorkViewportTypographyEntries = [];
+    stateMachine.completionGateOpen = false;
+    stateMachine.finishLayoutWork();
     this.#clearResponsiveRetarget();
     this.#stopLayoutWorkInputObservation();
     if (layoutInputsChangedDuringWork) {
       // A non-atomic progressive job may have observed intermediate widths, so
       // it must force one latest-width pass. Captured-measure relayout can let
       // the normal final measure comparison decide on the next frame.
-      this.#responsiveCommitRequired = true;
-      this.#responsiveRelayoutRequired = !this.#layoutWorkUsesCapturedMeasure;
+      stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
+      if (work.usesCapturedMeasure) stateMachine.clearInvalidation(InvalidationReason.ResponsiveRelayout);
+      else stateMachine.invalidate(InvalidationReason.ResponsiveRelayout);
       this.#ensureViewportResizeListener();
       this.#scheduleResponsiveGeometryCommit();
       return true;
     }
-    if (this.#contentReconcileRequired && !this.#contentProbeFrame) {
+    if (stateMachine.isInvalidated(InvalidationReason.ContentDrift) && !this.#contentProbeFrame) {
       // ContentOnlyFinishCommit: an uncaptured job may have raced a host
       // edit. Resolve the flag with the read-only probe, never with the
-      // commit lane: the records are usually this job's own output, and a
-      // commit scheduled on them alone enters the offscreen deferred lane,
+      // commit path: the records are usually this job's own output, and a
+      // commit scheduled on them alone enters the offscreen deferred queue,
       // where it later fires a width commit inside the drag debounce window.
       // The probe clears an engine-owned flag without scheduling anything and
       // schedules the commit itself only on proven drift. The finish still
       // falls through to store its baselines, exactly like a finish without
       // the flag.
       this.#ensureViewportResizeListener();
-      const operation = this.#layoutOperation;
+      const operation = transaction.layoutOperation;
       this.#contentProbeFrame = requestAnimationFrame(() => {
         this.#contentProbeFrame = 0;
-        if (!this.isConnected || operation !== this.#layoutOperation) return;
+        if (!this.isConnected || operation !== this.#stateMachine.transaction.layoutOperation) return;
         this.#probeContentDrift();
       });
     }
-    this.#responsiveCommitRequired = false;
-    this.#responsiveRelayoutRequired = false;
+    stateMachine.clearInvalidation(InvalidationReason.ResponsiveCommit);
+    stateMachine.clearInvalidation(InvalidationReason.ResponsiveRelayout);
     this.#lastWidth = fragmentedBorderBoxInlineSize(this);
     this.#lastParagraphMeasures = currentMeasures;
     this.#lastParagraphWidths = currentParagraphWidths;
@@ -1265,19 +1228,19 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
-    if (!this.#snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
+    if (!this.#stateMachine.snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
     const generation = this.#context.generation;
-    this.#hasDispatched = false;
-    let activeRequest = ++this.#enhanceRequest;
+    this.#stateMachine.dispatched = false;
+    let activeRequest = this.#stateMachine.claimEnhanceRequest();
     this.#beginLayoutWork();
     const restoreImmediatelyBeforeDispatch = () => {
       if (!restoreLoadedSnapshot(this)) throw new Error("Adopted snapshot could not be restored");
-      this.#snapshotAdopted = false;
+      this.#stateMachine.snapshotAdopted = false;
       this.#snapshotEnhancedCount = 0;
       delete this.dataset.tiqianSnapshotCount;
-      if (this.#runtimeStateActive) {
+      if (this.#stateMachine.runtimeActive) {
         destroyRuntimeRoot(this);
-        this.#runtimeStateActive = false;
+        this.#stateMachine.runtimeActive = false;
       }
     };
     if (restoreBeforeLoad) restoreImmediatelyBeforeDispatch();
@@ -1285,14 +1248,14 @@ class TiqianProseElement extends HTMLElementBase {
       .then(() => {
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          activeRequest !== this.#enhanceRequest
+          activeRequest !== this.#stateMachine.transaction.enhanceRequest
         ) return false;
         const enhancement = this.#dispatchProgressiveEnhance(generation, restoreBeforeLoad
           ? undefined
           : { beforeDispatch: restoreImmediatelyBeforeDispatch });
         // Async functions run synchronously through their first await, so this
         // captures the request generation claimed by #dispatchProgressiveEnhance.
-        activeRequest = this.#enhanceRequest;
+        activeRequest = this.#stateMachine.transaction.enhanceRequest;
         return enhancement;
       })
       .catch((error) => {
@@ -1303,7 +1266,7 @@ class TiqianProseElement extends HTMLElementBase {
   #recoverSnapshotEnhanceFailure(generation: number, request: number, error: unknown) {
     if (
       !this.isConnected || generation !== this.#context.generation ||
-      request !== this.#enhanceRequest
+      request !== this.#stateMachine.transaction.enhanceRequest
     ) return;
     // Runtime/module failure must not strand the element in an unobserved
     // transition. Normally the adopted snapshot is still live because restore
@@ -1311,9 +1274,9 @@ class TiqianProseElement extends HTMLElementBase {
     // responsive observers. If an exceptional synchronous restore already ran,
     // the readable runtime/SSR backing remains the fallback instead.
     const snapshotStillLive = isLoadedSnapshotAdopted(this);
-    this.#snapshotAdopted = snapshotStillLive;
-    this.#hasDispatched = snapshotStillLive || this.#runtimeStateActive;
-    this.#acceptLayoutCompletion = false;
+    this.#stateMachine.snapshotAdopted = snapshotStillLive;
+    this.#stateMachine.dispatched = snapshotStillLive || this.#stateMachine.runtimeActive;
+    this.#stateMachine.completionGateOpen = false;
     this.#finishLayoutWorkAndObserve();
     this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
     console.warn("Tiqian Web runtime failed to load after snapshot invalidation", error);
@@ -1326,9 +1289,7 @@ class TiqianProseElement extends HTMLElementBase {
     // flight are therefore already represented by the adopted result. Reset
     // only the consumed bookkeeping here; a later browser event still arrives
     // after observation resumes and invalidates the snapshot normally.
-    this.#layoutWorkRevision = this.#geometryRevision;
-    this.#responsiveCommitRequired = false;
-    this.#responsiveRelayoutRequired = false;
+    this.#stateMachine.consumeObservedGeometry();
   }
 
   #tryReadoptSnapshotAtMaximumMeasure() {
@@ -1336,7 +1297,7 @@ class TiqianProseElement extends HTMLElementBase {
     const generation = this.#context.generation;
     const startedAt = Date.now();
     const operation = this.#beginLayoutWork();
-    const runtimeSnapshotBackingRestored = this.#runtimeStateActive;
+    const runtimeSnapshotBackingRestored = this.#stateMachine.runtimeActive;
     if (runtimeSnapshotBackingRestored) {
       // RuntimeSnapshotBackingRestore: the first runtime enhancement retains
       // the exact server-rendered nodes as its teardown backing. Snapshot
@@ -1345,15 +1306,15 @@ class TiqianProseElement extends HTMLElementBase {
       // DOM event dispatch is synchronous, so restoration and the validation
       // start stay in one task and cannot expose unvalidated SSR as a settled
       // state. A miss below immediately starts a fresh runtime enhancement.
-      this.#hasDispatched = false;
+      this.#stateMachine.dispatched = false;
       destroyRuntimeRoot(this);
-      this.#runtimeStateActive = false;
+      this.#stateMachine.runtimeActive = false;
     }
     tryAdoptRequestedSnapshot(
       this,
       this.ownerDocument,
       () => this.isConnected && generation === this.#context.generation &&
-        operation === this.#layoutOperation,
+        operation === this.#stateMachine.transaction.layoutOperation,
       this.#snapshotAdoptionAnchors(),
     ).then(async (snapshot) => {
       // The adoption commits are over; hand the scroller back to the
@@ -1361,7 +1322,7 @@ class TiqianProseElement extends HTMLElementBase {
       releaseNativeScrollAnchoring(this);
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        operation !== this.#layoutOperation
+        operation !== this.#stateMachine.transaction.layoutOperation
       ) {
         if (snapshot.adopted) restoreLoadedSnapshot(this);
         return;
@@ -1380,14 +1341,14 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       delete this.dataset.tiqianSnapshotMiss;
-      this.#snapshotAdopted = true;
+      this.#stateMachine.snapshotAdopted = true;
       this.#snapshotEnhancedCount = snapshot.count;
       const completionSelector = snapshotCompletionSelector(this);
       if (completionSelector) {
         await loadTiqianRuntime();
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          operation !== this.#layoutOperation
+          operation !== this.#stateMachine.transaction.layoutOperation
         ) {
           return;
         }
@@ -1398,8 +1359,8 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       this.#releaseSnapshotFontSession();
-      this.#hasDispatched = true;
-      this.#acceptLayoutCompletion = true;
+      this.#stateMachine.dispatched = true;
+      this.#stateMachine.completionGateOpen = true;
       this.#acceptValidatedSnapshotGeometry();
       this.dispatchEvent(new CustomEvent("tiqian:relayout-ready", {
         bubbles: true,
@@ -1416,7 +1377,7 @@ class TiqianProseElement extends HTMLElementBase {
     }).catch((error) => {
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        operation !== this.#layoutOperation
+        operation !== this.#stateMachine.transaction.layoutOperation
       ) return;
       this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
       console.warn("Tiqian Web responsive snapshot validation failed", error);
@@ -1433,7 +1394,7 @@ class TiqianProseElement extends HTMLElementBase {
     reason: string,
     runtimeSnapshotBackingRestored = false,
   ) {
-    if (operation !== this.#layoutOperation) return;
+    if (operation !== this.#stateMachine.transaction.layoutOperation) return;
     if (runtimeSnapshotBackingRestored) {
       // Validation failed after the synchronous SSR backing restore. Rebuild
       // runtime state from that source for every miss category; a width-only
@@ -1451,7 +1412,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#relayoutRuntimeAfterSnapshotMiss(operation);
       return;
     }
-    if (!this.#runtimeStateActive) {
+    if (!this.#stateMachine.runtimeActive) {
       // ReadoptionMissMustReclaimSource: a rapid resize can cancel the active
       // runtime job before a maximum-measure snapshot validation begins. If
       // that validation then misses, the DOM is readable native backing but no
@@ -1480,18 +1441,18 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #dispatchRelayout(observedMeasures: string | null = null) {
-    if (!this.#runtimeStateActive) {
+    if (!this.#stateMachine.runtimeActive) {
       this.#finishLayoutWorkAndObserve();
       return;
     }
     this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
-    this.#layoutWorkIsRelayout = true;
+    this.#stateMachine.markWorkAsRelayout();
     // Callers on the commit paths pass the signature they just computed;
     // recomputing here is reserved for dispatches that never went through a
     // commit pass (snapshot-miss recovery).
     this.#pendingCommittedMeasures = observedMeasures ?? this.#paragraphMeasureSignatureFromObserved();
-    this.#hasDispatched = true;
-    this.#acceptLayoutCompletion = true;
+    this.#stateMachine.dispatched = true;
+    this.#stateMachine.completionGateOpen = true;
     this.#ensureLayoutWorker();
     // RunToCompletionAnchorBracket: relayout dispatches take the same bracket
     // as enhance dispatches; an uncoordinated relayout runs its whole job
@@ -1508,7 +1469,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #relayoutRuntimeAfterSnapshotMiss(operation: number) {
-    if (operation !== this.#layoutOperation) return;
+    if (operation !== this.#stateMachine.transaction.layoutOperation) return;
     this.#dispatchRelayout();
   }
 
@@ -1518,13 +1479,13 @@ class TiqianProseElement extends HTMLElementBase {
     // observer re-seed the rebuilt paragraphs.
     this.#gridMetricsState.metrics = null;
     const generation = this.#context.generation;
-    if (this.#runtimeStateActive) {
+    if (this.#stateMachine.runtimeActive) {
       // ResponsiveNativeBacking: pre-broken Tiqian lines cannot reflow while a
       // new width or typography is being prepared. Restore the complete
       // semantic source first so every remaining paragraph responds through the
       // host cascade while viewport-near paragraphs are enhanced atomically.
       destroyRuntimeRoot(this);
-      this.#runtimeStateActive = false;
+      this.#stateMachine.runtimeActive = false;
     }
     this.#dispatchProgressiveEnhance(generation, { revalidateSnapshotFont }).catch((error) => {
       if (!this.isConnected || generation !== this.#context.generation) return;
@@ -1580,7 +1541,7 @@ class TiqianProseElement extends HTMLElementBase {
       onRootEntry: ({ width, height }) => {
         this.#lastObservedWidth = width;
         coordinationService().update(this.#coordinationSession, { inlineSize: width, area: width * (height || width * 0.6) });
-        if (!this.#inViewport && this.#layoutWorkInFlight) {
+        if (!this.#stateMachine.inViewport && this.#stateMachine.workInFlight) {
           // A width change while the root stays off-screen keeps pushing the
           // worker's deferred wake-up, so only the final width is laid out.
           coordinationService().refreshWorkerDeferred(this.#coordinationSession);
@@ -1607,16 +1568,16 @@ class TiqianProseElement extends HTMLElementBase {
           // typography comparison into the next pre-paint frame. A real change
           // still cancels the captured job there, while an equivalent grid keeps
           // both its committed paragraphs and remaining work.
-          if (this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
-            this.#geometryRevision += 1;
-            this.#responsiveCommitRequired = true;
+          if (this.#stateMachine.workInFlight && this.#stateMachine.work.usesCapturedMeasure) {
+            this.#stateMachine.bumpGeometryRevision();
+            this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
             this.#scheduleResponsiveRetarget();
             return;
           }
           // Uncaptured snapshot/font preparation revalidates live geometry before
           // it commits or begins captured work. It is not bound to the pre-resize
           // measure, so a raw viewport signal alone must not invalidate it.
-          if (this.#layoutWorkInFlight) {
+          if (this.#stateMachine.workInFlight) {
             return;
           }
           this.#handleResponsiveGeometryChange();
@@ -1627,23 +1588,23 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #handleResponsiveGeometryChange() {
-    this.#geometryRevision += 1;
+    this.#stateMachine.bumpGeometryRevision();
     // ResponsiveNativeRetargetSingleFlight: once rendered/runtime work has
     // been rolled back to semantic source, further resize signals only move
     // the same next-frame target. Do not synchronously rescan the entire
     // article or start another snapshot-font preparation for every OS resize event.
-    if (this.#responsiveRelayoutRequired && !this.#runtimeStateActive) {
-      this.#responsiveCommitRequired = true;
+    if (this.#stateMachine.isInvalidated(InvalidationReason.ResponsiveRelayout) && !this.#stateMachine.runtimeActive) {
+      this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       this.#scheduleResponsiveGeometryCommit();
       return;
     }
-    const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
-    const committedMeasureChanged = this.#hasDispatched && (
+    const snapshotAdopted = this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this);
+    const committedMeasureChanged = this.#stateMachine.dispatched && (
       this.#paragraphMeasureSignature() !== this.#lastParagraphMeasures ||
       (snapshotAdopted && !loadedSnapshotMaximumMeasureMatches(this))
     );
     if (committedMeasureChanged) {
-      if (this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure) {
+      if (this.#stateMachine.workInFlight && this.#stateMachine.work.usesCapturedMeasure) {
         this.#cancelCapturedLayoutForLatestGeometry();
         return;
       }
@@ -1656,18 +1617,18 @@ class TiqianProseElement extends HTMLElementBase {
         this.#invalidateSnapshotAndEnhance({ restoreBeforeLoad: true });
         return;
       }
-      if (this.#runtimeStateActive) {
+      if (this.#stateMachine.runtimeActive) {
         // ResponsiveRuntimeDirectInPlaceRelayout: when typography is stable,
         // width changes do not tear down the rendered DOM to native text.
         // Direct single-frame in-place relayout computes the new line breaks
         // using WidthIndependentAnnotationCache and swaps DOM atomically.
-        this.#responsiveCommitRequired = true;
+        this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
         this.#scheduleResponsiveGeometryCommit();
         return;
       }
     }
-    if (this.#layoutWorkInFlight) {
-      this.#responsiveCommitRequired = true;
+    if (this.#stateMachine.workInFlight) {
+      this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       this.#scheduleResponsiveRetarget();
       return;
     }
@@ -1675,8 +1636,8 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #scheduleResponsiveGeometryCommit() {
-    if (this.#layoutWorkInFlight) {
-      this.#responsiveCommitRequired = true;
+    if (this.#stateMachine.workInFlight) {
+      this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       return;
     }
     coordinationService().requestFrame(this.#boundResponsiveCommit, this.#coordinationSession);
@@ -1684,29 +1645,29 @@ class TiqianProseElement extends HTMLElementBase {
 
   // PrePaintResponsiveCommit: ResizeObserver delivers after layout and
   // before paint, so a width-only commit that completes synchronously here
-  // paints with the new width in the same frame; the scheduled lane paints
+  // paints with the new width in the same frame; the scheduled commit paints
   // one frame of old lines first. Only the steady width-only case
-  // qualifies — every other case keeps the scheduled lane's ordering
+  // qualifies — every other case keeps the scheduled commit's ordering
   // guarantees. Verified by demo/web/tests/resize-prepaint-commit.test.mjs.
   #commitResponsiveGeometryPrePaint() {
-    if (!this.isConnected || !this.#inViewport) return false;
-    if (!this.#runtimeStateActive || !this.#hasDispatched) return false;
+    if (!this.isConnected || !this.#stateMachine.inViewport) return false;
+    if (!this.#stateMachine.runtimeActive || !this.#stateMachine.dispatched) return false;
     if (this.#contentProbeFrame) return false;
-    if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) return false;
+    if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) return false;
     if (document.fonts?.status === "loading") return false;
-    if (this.#layoutWorkInFlight) {
+    if (this.#stateMachine.workInFlight) {
       // PreemptiveCrossingRelayout: without preemption only a drag's first
-      // crossing reaches the pre-paint lane; later ones wait out the
+      // crossing reaches the pre-paint admission; later ones wait out the
       // scheduled cadence behind the in-flight job. A width-only relayout
       // is safe to replace — the runtime cancels it and rebuilds at the
       // latest width (WidthSnapshotPerRelayoutJob). Preempt only on a real
       // cell crossing; enhance and reconcile jobs are never replaced here.
-      if (!this.#layoutWorkIsRelayout) return false;
+      if (this.#stateMachine.work.kind !== "Relayout") return false;
       // ContentBeforeGeometry still rules: a pending reconcile keeps the
-      // scheduled lane, whose commit re-lowers drifted content before any
+      // scheduled commit, whose pass re-lowers drifted content before any
       // width pass; a geometry-only preempt would relay stale text for the
       // rest of the drag.
-      if (this.#contentReconcileRequired) return false;
+      if (this.#stateMachine.isInvalidated(InvalidationReason.ContentDrift)) return false;
       const measures = this.#paragraphMeasureSignatureFromObserved();
       if (measures === this.#lastParagraphMeasures) return false;
       this.#lastWidth = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
@@ -1716,7 +1677,7 @@ class TiqianProseElement extends HTMLElementBase {
     return this.#withRootObservationPaused(() => this.#commitResponsiveGeometryChange());
   }
 
-  // One pause/resume protocol for both pre-paint lanes: the root is
+  // One pause/resume protocol for both pre-paint admission paths: the root is
   // unobserved around the synchronous commit so its own height change
   // cannot queue a same-depth observation for the browser's ResizeObserver
   // loop guard to report, then re-observed with the original box option.
@@ -1733,54 +1694,55 @@ class TiqianProseElement extends HTMLElementBase {
 
   #commitResponsiveGeometryChange() {
     if (!this.isConnected) return;
-    if (this.#layoutWorkInFlight) {
-      this.#responsiveCommitRequired = true;
+    if (this.#stateMachine.workInFlight) {
+      this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       return;
     }
-    if (!this.#inViewport && this.#lastObservedWidth != null) {
+    if (!this.#stateMachine.inViewport && this.#lastObservedWidth != null) {
       // OffscreenTrailingWidthCheck: ResizeObserver delivers on animation
       // frames, so while the frame loop pauses mid-drag the observer goes
       // quiet and the off-screen debounce can expire although the width is
       // still moving. Read the live width before releasing the commit; a
-      // moving width re-enters the trailing lane.
+      // moving width re-enters the trailing commit.
       const liveWidth = fragmentedBorderBoxInlineSize(this);
       if (Math.abs(liveWidth - this.#lastObservedWidth) >= 0.5) {
         this.#lastObservedWidth = liveWidth;
-        this.#responsiveCommitRequired = true;
+        this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
         this.#scheduleResponsiveGeometryCommit();
         return;
       }
     }
     // Before the first snapshot/runtime commit there is no layout to update.
     // The initial job will read the latest live width once its font gate opens.
-    const forceLatestWidth = this.#responsiveRelayoutRequired || this.#responsiveCommitRequired;
-    this.#responsiveCommitRequired = false;
-    this.#responsiveRelayoutRequired = false;
-    if (!this.#hasDispatched) return;
-    if (this.#contentReconcileRequired && !this.#contentProbeFrame) {
-      // ContentBeforeGeometry: one commit lane serves ResizeObserver and
+    const forceLatestWidth = this.#stateMachine.isInvalidated(InvalidationReason.ResponsiveRelayout) ||
+      this.#stateMachine.isInvalidated(InvalidationReason.ResponsiveCommit);
+    this.#stateMachine.clearInvalidation(InvalidationReason.ResponsiveCommit);
+    this.#stateMachine.clearInvalidation(InvalidationReason.ResponsiveRelayout);
+    if (!this.#stateMachine.dispatched) return;
+    if (this.#stateMachine.isInvalidated(InvalidationReason.ContentDrift) && !this.#contentProbeFrame) {
+      // ContentBeforeGeometry: one commit path serves ResizeObserver and
       // MutationObserver alike. Content goes first because re-lowering reads
       // the live width, so a concurrent width change is absorbed by the same
       // job; the reverse order would relayout stale text first. An idle
       // reconcile falls through so a width-only change still commits.
-      this.#contentReconcileRequired = false;
+      this.#stateMachine.clearInvalidation(InvalidationReason.ContentDrift);
       const tainted = Array.from(this.#contentTainted);
       this.#contentTainted.clear();
-      if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+      if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) {
         this.#invalidateSnapshotAndEnhance({ restoreBeforeLoad: true });
         return;
       }
       if (this.#dispatchContentReconcile(tainted)) {
         // ReconcileCommitPreservesWidthIntent: a work verdict returns before
-        // the width lane runs, and the reconcile job re-lowers only drifted,
+        // the width pass runs, and the reconcile job re-lowers only drifted,
         // tainted and stranded paragraphs. A width change already pending at
-        // this commit would die with the flags beginLayoutWork cleared; the
-        // finish would then store the live width against stale paragraphs and
-        // the change would never re-enter layout. Re-arm the commit so the
-        // finish schedules one latest-width pass.
+        // this commit would die with the responsive bits beginLayoutWork
+        // clears; the finish would then store the live width against stale
+        // paragraphs and the change would never re-enter layout. Re-arm the
+        // commit so the finish schedules one latest-width pass.
         const pendingWidth = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
         if (forceLatestWidth || Math.abs(pendingWidth - this.#lastWidth) >= 0.5) {
-          this.#responsiveCommitRequired = true;
+          this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
         }
         return;
       }
@@ -1798,7 +1760,7 @@ class TiqianProseElement extends HTMLElementBase {
     const paragraphMeasures = this.#paragraphMeasureSignatureFromObserved();
     const hostInlineSizeRefresh = widthsChanged && hasHostInlineSizeParagraph(this);
     const measuresChanged = paragraphMeasures !== this.#lastParagraphMeasures;
-    const signature = (widthsChanged && !this.#forceTypographyRefresh)
+    const signature = (widthsChanged && !this.#stateMachine.isInvalidated(InvalidationReason.TypographyRefreshForced))
       ? this.#lastTypography
       : typographySignature(this);
     const typographyChanged = signature !== this.#lastTypography;
@@ -1810,7 +1772,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#lastParagraphMeasures = paragraphMeasures;
     this.#lastParagraphWidths = paragraphWidths;
 
-    const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
+    const snapshotAdopted = this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this);
     const atMaximumMeasure = this.hasAttribute("snapshot-ref") &&
       loadedSnapshotMaximumMeasureMatches(this);
     if (snapshotAdopted) {
@@ -1820,7 +1782,7 @@ class TiqianProseElement extends HTMLElementBase {
         // valid. Restart that partial job instead of treating the still-valid
         // snapshot as proof that every paragraph is settled.
         const completionSelector = snapshotCompletionSelector(this);
-        if (completionSelector && !this.#runtimeStateActive) {
+        if (completionSelector && !this.#stateMachine.runtimeActive) {
           const generation = this.#context.generation;
           this.#dispatchProgressiveEnhance(generation, {
             paragraphSelector: completionSelector,
@@ -1842,7 +1804,7 @@ class TiqianProseElement extends HTMLElementBase {
       }
       return;
     }
-    if (!this.#runtimeStateActive && atMaximumMeasure && !typographyChanged) {
+    if (!this.#stateMachine.runtimeActive && atMaximumMeasure && !typographyChanged) {
       this.#tryReadoptSnapshotAtMaximumMeasure();
       return;
     }
@@ -1883,7 +1845,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#refreshRuntimeFromSource({ revalidateSnapshotFont: true });
       return;
     }
-    if (this.#runtimeStateActive) {
+    if (this.#stateMachine.runtimeActive) {
       this.#dispatchRelayout(paragraphMeasures);
       return;
     }
@@ -1909,16 +1871,18 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #scheduleResponsiveRetarget() {
-    if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
+    const stateMachine = this.#stateMachine;
+    if (!stateMachine.workInFlight || !stateMachine.work.usesCapturedMeasure) return;
     this.#clearResponsiveRetarget();
-    const operation = this.#layoutOperation;
+    const operation = stateMachine.transaction.layoutOperation;
     this.#responsiveRetargetFrame = requestAnimationFrame(() => {
       this.#responsiveRetargetFrame = 0;
+      const work = stateMachine.work;
       if (
-        !this.isConnected || !this.#layoutWorkInFlight ||
-        !this.#layoutWorkUsesCapturedMeasure || operation !== this.#layoutOperation
+        !this.isConnected || !stateMachine.workInFlight ||
+        !work.usesCapturedMeasure || operation !== stateMachine.transaction.layoutOperation
       ) return;
-      if (layoutWorkViewportTypographyChanged(this, this.#layoutWorkViewportTypographyEntries)) {
+      if (layoutWorkViewportTypographyChanged(this, work.viewportTypographyEntries)) {
         this.#cancelCapturedLayoutForTypographyChange();
         return;
       }
@@ -1926,8 +1890,8 @@ class TiqianProseElement extends HTMLElementBase {
         loadedSnapshotMaximumMeasureMatches(this);
       // SameGridRetargetWithoutRestart: a responsive relayout dispatch uses
       // captureSignatures:false and reads its measure live inside the layout
-      // job, so #layoutWorkMeasureSignature is empty here. Comparing against
-      // that empty signature cancelled the in-flight job on every width
+      // job, so the work record's measure signature is empty here. Comparing
+      // against that empty signature cancelled the in-flight job on every width
       // event. This guard compares against the measure of the last completed
       // job instead. While the width stays inside the same N×fontSize grid
       // cell, the committed DOM is already correct and unchanged paragraphs
@@ -1935,10 +1899,10 @@ class TiqianProseElement extends HTMLElementBase {
       // the width crosses into a new cell, or when no completed measure
       // exists yet, the guard cancels the job and restarts it at the latest
       // width.
-      const measureBaseline = this.#layoutWorkMeasureSignature || this.#lastParagraphMeasures;
+      const measureBaseline = work.measureSignature || this.#lastParagraphMeasures;
       if (
         this.#paragraphMeasureSignature() === measureBaseline &&
-        maximumMeasure === this.#layoutWorkMaximumMeasure
+        maximumMeasure === work.maximumMeasure
       ) return;
       this.#cancelCapturedLayoutForLatestGeometry();
     });
@@ -1960,14 +1924,14 @@ class TiqianProseElement extends HTMLElementBase {
         onDeclaredFacesChanged: () => this.#scheduleTypographyCheck(true),
         onFontEvent: async (event) => {
           const generation = this.#context.generation;
-          const snapshotAdopted = this.#snapshotAdopted || isLoadedSnapshotAdopted(this);
+          const snapshotAdopted = this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this);
           let snapshotLiveIssue = null;
           if (snapshotAdopted) {
             try {
               snapshotLiveIssue = await loadedAdoptedSnapshotLiveIssue(
                 this,
                 () => this.isConnected && generation === this.#context.generation &&
-                  (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)),
+                  (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)),
               );
             } catch {
               snapshotLiveIssue = "SnapshotLiveValidationFailed";
@@ -1989,8 +1953,8 @@ class TiqianProseElement extends HTMLElementBase {
             event as FontLoadingEventLike,
             typographyElements(this),
           );
-          const force = this.#forceTypographyRefresh || relevantFaceLoaded;
-          if (this.#deferredTypographyCheck || force) this.#scheduleTypographyCheck(force);
+          const force = this.#stateMachine.isInvalidated(InvalidationReason.TypographyRefreshForced) || relevantFaceLoaded;
+          if (this.#stateMachine.isInvalidated(InvalidationReason.DeferredTypographyCheck) || force) this.#scheduleTypographyCheck(force);
         },
       });
     }
@@ -2001,8 +1965,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#typographyInvalidation?.stop();
     if (this.#typographyFrame) cancelAnimationFrame(this.#typographyFrame);
     this.#typographyFrame = 0;
-    this.#forceTypographyRefresh = false;
-    this.#deferredTypographyCheck = false;
+    this.#stateMachine.clearInvalidation(InvalidationReason.TypographyRefreshForced);
+    this.#stateMachine.clearInvalidation(InvalidationReason.DeferredTypographyCheck);
   }
 
   // HostContentSignal: childList and characterData mutations on the live DOM
@@ -2038,11 +2002,11 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#contentProbeFrame) cancelAnimationFrame(this.#contentProbeFrame);
     this.#contentProbeFrame = 0;
     this.#contentTainted.clear();
-    this.#contentReconcileRequired = false;
+    this.#stateMachine.clearInvalidation(InvalidationReason.ContentDrift);
   }
 
   #handleContentMutationRecords(records: MutationRecord[]) {
-    if (!this.#hasDispatched) return;
+    if (!this.#stateMachine.dispatched) return;
     const { taintedParagraphs, paragraphSignal, structureSignal } =
       classifyContentMutationRecords(records, {
         rawDomParagraphFor: (node) => this.#contentInvalidation?.paragraphFor(node) ?? null,
@@ -2051,8 +2015,8 @@ class TiqianProseElement extends HTMLElementBase {
       });
     for (const paragraph of taintedParagraphs) this.#contentTainted.add(paragraph);
     if (!paragraphSignal && !structureSignal) return;
-    this.#contentReconcileRequired = true;
-    if (structureSignal && (!this.#layoutWorkInFlight || this.#runtimeStateActive)) {
+    this.#stateMachine.invalidate(InvalidationReason.ContentDrift);
+    if (structureSignal && (!this.#stateMachine.workInFlight || this.#stateMachine.runtimeActive)) {
       // StructureChangesCommitDirectly: a childList record outside every
       // paragraph cannot be engine render output in the steady state, so no
       // probe is needed and waiting for one would only delay candidate
@@ -2062,16 +2026,16 @@ class TiqianProseElement extends HTMLElementBase {
       this.#scheduleResponsiveGeometryCommit();
       return;
     }
-    if (this.#layoutWorkInFlight) {
+    if (this.#stateMachine.workInFlight) {
       // MutationObserverDeliveryIsAsync: records land in a microtask after the
       // engine's synchronous commit batch, so a captured job may already be
       // rendering stale content. Probe drift read-only at the next frame; an
       // engine-owned batch is disproven there without cancelling anything.
       if (!this.#contentProbeFrame) {
-        const operation = this.#layoutOperation;
+        const operation = this.#stateMachine.transaction.layoutOperation;
         this.#contentProbeFrame = requestAnimationFrame(() => {
           this.#contentProbeFrame = 0;
-          if (!this.isConnected || operation !== this.#layoutOperation) return;
+          if (!this.isConnected || operation !== this.#stateMachine.transaction.layoutOperation) return;
           this.#probeContentDrift();
         });
       }
@@ -2079,7 +2043,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     // EngineRecordsProvenIdleStayFree: a finished job's own records arrive in
     // this microtask. Scheduling a commit on them alone would fire the width
-    // lane early and break the drag debounce, so prove host intent with the
+    // commit early and break the drag debounce, so prove host intent with the
     // read-only probe first. Only real drift, taint or dead tracking schedules
     // work; the probe clears the flag otherwise.
     this.#probeContentDrift();
@@ -2097,26 +2061,26 @@ class TiqianProseElement extends HTMLElementBase {
     const tainted = this.#contentTainted.size;
     if (drifted === 0 && tainted === 0) {
       // Engine-owned output disproven; nothing host-authored is pending.
-      this.#contentReconcileRequired = false;
+      this.#stateMachine.clearInvalidation(InvalidationReason.ContentDrift);
       return;
     }
-    if (!this.#layoutWorkInFlight) {
+    if (!this.#stateMachine.workInFlight) {
       this.#scheduleResponsiveGeometryCommit();
       return;
     }
     // MidFlightHostEditCancelsCapturedJob: only a captured job is bound to a
     // pre-edit snapshot. Uncaptured work lowers live content per slice and
     // the finish funnel picks the edit up.
-    if (this.#layoutWorkUsesCapturedMeasure) {
+    if (this.#stateMachine.work.usesCapturedMeasure) {
       this.#cancelCapturedLayoutForLatestGeometry();
     }
   }
 
   #dispatchContentReconcile(paragraphs: Element[]): boolean {
-    if (!this.#runtimeStateActive) return false;
+    if (!this.#stateMachine.runtimeActive) return false;
     this.#beginLayoutWork({ usesCapturedMeasure: true, captureSignatures: false });
-    this.#hasDispatched = true;
-    this.#acceptLayoutCompletion = true;
+    this.#stateMachine.dispatched = true;
+    this.#stateMachine.completionGateOpen = true;
     this.#ensureLayoutWorker();
     const graph = tiqianRuntimeGraph();
     const outcome = graph ? reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, this, paragraphs) : null;
@@ -2142,7 +2106,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#layoutWorkTypographyInvalidation) {
       this.#layoutWorkTypographyInvalidation = createLayoutWorkTypographyInvalidationSource(this, {
         onMutation: (records) => {
-          if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
+          if (!this.#stateMachine.workInFlight || !this.#stateMachine.work.usesCapturedMeasure) return;
           // RendererOwnedProgressiveStyleMutation: paragraph takeover itself adds
           // the containing block and, for flex items, the captured inline size.
           // Those writes are output mechanics rather than a host typography
@@ -2166,15 +2130,15 @@ class TiqianProseElement extends HTMLElementBase {
             // current mixed native/rendered state, not against the all-native DOM
             // from before the first commit. A batch containing any host mutation
             // still falls through to the invalidation check below.
-            this.#layoutWorkTypographySignature = typographySignature(this);
+            this.#stateMachine.work.typographySignature = typographySignature(this);
             return;
           }
-          if (typographySignature(this) === this.#layoutWorkTypographySignature) return;
+          if (typographySignature(this) === this.#stateMachine.work.typographySignature) return;
           this.#cancelCapturedLayoutForTypographyChange();
         },
         onFontEvent: (event) => {
           if (
-            this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure &&
+            this.#stateMachine.workInFlight && this.#stateMachine.work.usesCapturedMeasure &&
             fontLoadingAffectsTypography(event as FontLoadingEventLike, typographyElements(this))
           ) this.#cancelCapturedLayoutForTypographyChange();
         },
@@ -2188,15 +2152,12 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #cancelCapturedLayoutForTypographyChange() {
-    if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
+    if (!this.#stateMachine.workInFlight || !this.#stateMachine.work.usesCapturedMeasure) return;
     this.#clearResponsiveRetarget();
-    ++this.#layoutOperation;
-    this.#acceptLayoutCompletion = false;
-    this.#layoutWorkInFlight = false;
-    this.#layoutWorkViewportTypographyEntries = [];
+    this.#stateMachine.abortLayoutWork();
     this.#advanceTypographyBaselineAfterCancellation();
-    this.#responsiveCommitRequired = true;
-    this.#responsiveRelayoutRequired = true;
+    this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
+    this.#stateMachine.invalidate(InvalidationReason.ResponsiveRelayout);
     // CommittedMeasureLedger: a cancelled captured job may have committed
     // part of its paragraphs; no single signature describes the mix, so the
     // forced follow-up must not be skippable against a stale ledger value.
@@ -2209,18 +2170,15 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #cancelCapturedLayoutForLatestGeometry() {
-    if (!this.#layoutWorkInFlight || !this.#layoutWorkUsesCapturedMeasure) return;
+    if (!this.#stateMachine.workInFlight || !this.#stateMachine.work.usesCapturedMeasure) return;
     this.#clearResponsiveRetarget();
-    ++this.#layoutOperation;
-    this.#acceptLayoutCompletion = false;
-    this.#layoutWorkInFlight = false;
-    this.#layoutWorkViewportTypographyEntries = [];
+    this.#stateMachine.abortLayoutWork();
     this.#stopLayoutWorkInputObservation();
     cancelRootLayoutWork(this);
     this.#deactivateLayoutWorker();
     this.#advanceTypographyBaselineAfterCancellation();
-    this.#responsiveCommitRequired = true;
-    this.#responsiveRelayoutRequired = true;
+    this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
+    this.#stateMachine.invalidate(InvalidationReason.ResponsiveRelayout);
     this.#lastCommittedParagraphMeasures = "";
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
@@ -2245,16 +2203,16 @@ class TiqianProseElement extends HTMLElementBase {
     // no frame can display geometry captured for the superseded measure. The
     // next responsive commit starts viewport-priority enhancement from this
     // responsive semantic backing.
-    if (this.#runtimeStateActive) {
+    if (this.#stateMachine.runtimeActive) {
       destroyRuntimeRoot(this);
-      this.#runtimeStateActive = false;
+      this.#stateMachine.runtimeActive = false;
     } else {
       cancelRootLayoutWork(this);
     }
   }
 
   #scheduleTypographyCheck(force = false) {
-    this.#forceTypographyRefresh ||= force;
+    if (force) this.#stateMachine.invalidate(InvalidationReason.TypographyRefreshForced);
     if (this.#typographyFrame) return;
     this.#typographyFrame = requestAnimationFrame(() => {
       this.#typographyFrame = 0;
@@ -2262,17 +2220,17 @@ class TiqianProseElement extends HTMLElementBase {
       // A loading font would immediately invalidate another measurement. Its
       // loadingdone event will schedule the authoritative check.
       if (document.fonts?.status === "loading") {
-        this.#deferredTypographyCheck = true;
+        this.#stateMachine.invalidate(InvalidationReason.DeferredTypographyCheck);
         return;
       }
-      this.#deferredTypographyCheck = false;
+      this.#stateMachine.clearInvalidation(InvalidationReason.DeferredTypographyCheck);
       const signature = typographySignature(this);
       const changed = signature !== this.#lastTypography;
-      const shouldRefresh = changed || this.#forceTypographyRefresh;
-      this.#forceTypographyRefresh = false;
+      const shouldRefresh = changed || this.#stateMachine.isInvalidated(InvalidationReason.TypographyRefreshForced);
+      this.#stateMachine.clearInvalidation(InvalidationReason.TypographyRefreshForced);
       if (!shouldRefresh) return;
       this.#lastTypography = signature;
-      if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
+      if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this)) {
         this.#invalidateSnapshotAndEnhance();
         return;
       }
@@ -2284,16 +2242,16 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#visibilityObservation || typeof IntersectionObserver === "undefined") return;
     this.#visibilityObservation = createRootVisibilityObservation(this, {
       onRootEntry: (fact) => {
-        const wasInViewport = this.#inViewport;
-        this.#inViewport = fact.isIntersecting;
+        const wasInViewport = this.#stateMachine.inViewport;
+        this.#stateMachine.inViewport = fact.isIntersecting;
         coordinationService().update(this.#coordinationSession, {
-          inViewport: this.#inViewport,
+          inViewport: this.#stateMachine.inViewport,
           intersectionRatio: fact.intersectionRatio,
           visibleArea: fact.visibleArea,
           inlineSize: fact.inlineSize,
           area: fact.area,
         });
-        if (wasInViewport && !this.#inViewport) {
+        if (wasInViewport && !this.#stateMachine.inViewport) {
           // OffscreenWorkerDebounce: an off-screen root stops receiving
           // grants immediately; its pending layout work waits out the same
           // trailing window as off-screen frame tasks and replays once the
@@ -2301,9 +2259,12 @@ class TiqianProseElement extends HTMLElementBase {
           // stay committed.
           coordinationService().refreshWorkerDeferred(this.#coordinationSession);
         }
-        if (!wasInViewport && this.#inViewport) {
+        if (!wasInViewport && this.#stateMachine.inViewport) {
           coordinationService().clearWorkerDeferred(this.#coordinationSession);
-          if (this.#responsiveCommitRequired || this.#responsiveRelayoutRequired) {
+          if (
+            this.#stateMachine.isInvalidated(InvalidationReason.ResponsiveCommit) ||
+            this.#stateMachine.isInvalidated(InvalidationReason.ResponsiveRelayout)
+          ) {
             this.#scheduleResponsiveGeometryCommit();
           }
         }

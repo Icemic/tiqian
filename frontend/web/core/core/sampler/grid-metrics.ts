@@ -54,7 +54,7 @@ export function seedParagraphGridMetrics(state: ParagraphGridMetricsState, parag
 // on the per-width-event hot paths (the ResponsiveFinishSkipsDoomedSignatureReads
 // budget). Unseeded or zero-width paragraphs fall back to the read-based entry;
 // observed widths may trail live layout by one delivery, so a crossing commits
-// at most one frame later than the pre-paint lane.
+// at most one frame later than the pre-paint admission.
 export function paragraphMeasureSignatureFromObserved(
   root: Element,
   state: ParagraphGridMetricsState,
@@ -67,7 +67,7 @@ export function paragraphMeasureSignatureFromObserved(
   // the same resize that crosses it. One root read per call catches the
   // inherited case and drops the seeds so this pass reads live values; a
   // paragraph whose font responds independently of the root still goes
-  // through the typography lane.
+  // through the typography observation.
   const rootFontSize = getComputedStyle(root).fontSize;
   if (rootFontSize !== state.rootFontSize) {
     state.rootFontSize = rootFontSize;
