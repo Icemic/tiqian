@@ -346,7 +346,8 @@ impl SnapshotTables {
                 italic,
                 Some(&string_at(3)?),
                 Some(&string_at(4)?),
-            );
+            )
+            .render();
             self.metric_keys.insert(key, index);
         }
         Ok(())

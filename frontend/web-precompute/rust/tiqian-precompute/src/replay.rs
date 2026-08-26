@@ -51,7 +51,37 @@ pub fn normalized_replay_number(value: f64, font_size: f64) -> Option<f64> {
     Some(if normalized == 0.0 { 0.0 } else { normalized })
 }
 
-/// `shapeReplayKey`: JSON.stringify of the shape inputs.
+/// Typed struct for shape replay keys (corrective wave 5, #106).
+/// Holds the raw inputs; `.render()` produces the byte-identical JSON
+/// string form for cache key compatibility.
+pub struct ShapeReplayKey {
+    display_text: String,
+    serialized_families: String,
+    font_weight: f64,
+    italic: bool,
+    locale: String,
+    role: String,
+    source_text: String,
+}
+
+impl ShapeReplayKey {
+    /// Render the key as a JSON.stringify([...]) string, byte-identical
+    /// to the previous `shape_replay_key` return value.
+    pub fn render(&self) -> String {
+        Json::Arr(vec![
+            Json::str(&self.display_text),
+            Json::str(&self.serialized_families),
+            Json::Num(self.font_weight),
+            Json::Bool(self.italic),
+            Json::str(&self.locale),
+            Json::str(&self.role),
+            Json::str(&self.source_text),
+        ])
+        .render()
+    }
+}
+
+/// `shapeReplayKey`: structured form of the shape replay inputs.
 pub fn shape_replay_key(
     display_text: &str,
     font_families: &[String],
@@ -60,37 +90,59 @@ pub fn shape_replay_key(
     locale: &str,
     role: Option<&str>,
     source_text: &str,
-) -> String {
-    let serialized_families = font_families.join("\u{001f}");
-    Json::Arr(vec![
-        Json::str(display_text),
-        Json::str(serialized_families),
-        Json::Num(font_weight),
-        Json::Bool(italic),
-        Json::str(locale),
-        Json::str(role.unwrap_or("null")),
-        Json::str(source_text),
-    ])
-    .render()
+) -> ShapeReplayKey {
+    ShapeReplayKey {
+        display_text: display_text.to_string(),
+        serialized_families: font_families.join("\u{001f}"),
+        font_weight,
+        italic,
+        locale: locale.to_string(),
+        role: role.unwrap_or("null").to_string(),
+        source_text: source_text.to_string(),
+    }
 }
 
-/// `metricReplayKey`: JSON.stringify of the metric inputs.
+/// Typed struct for metric replay keys (corrective wave 5, #106).
+/// Holds the raw inputs; `.render()` produces the byte-identical JSON
+/// string form for cache key compatibility.
+pub struct MetricReplayKey {
+    serialized_families: String,
+    font_weight: f64,
+    italic: bool,
+    role: String,
+    face_selection_text: String,
+}
+
+impl MetricReplayKey {
+    /// Render the key as a JSON.stringify([...]) string, byte-identical
+    /// to the previous `metric_replay_key` return value.
+    pub fn render(&self) -> String {
+        Json::Arr(vec![
+            Json::str(&self.serialized_families),
+            Json::Num(self.font_weight),
+            Json::Bool(self.italic),
+            Json::str(&self.role),
+            Json::str(&self.face_selection_text),
+        ])
+        .render()
+    }
+}
+
+/// `metricReplayKey`: structured form of the metric replay inputs.
 pub fn metric_replay_key(
     font_families: &[String],
     font_weight: f64,
     italic: bool,
     role: Option<&str>,
     face_selection_text: Option<&str>,
-) -> String {
-    let serialized_families = font_families.join("\u{001f}");
-    Json::Arr(vec![
-        Json::str(serialized_families),
-        Json::Num(font_weight),
-        Json::Bool(italic),
-        Json::str(role.unwrap_or("null")),
-        Json::str(face_selection_text.unwrap_or("null")),
-    ])
-    .render()
+) -> MetricReplayKey {
+    MetricReplayKey {
+        serialized_families: font_families.join("\u{001f}"),
+        font_weight,
+        italic,
+        role: role.unwrap_or("null").to_string(),
+        face_selection_text: face_selection_text.unwrap_or("null").to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -159,12 +211,13 @@ mod tests {
                 "zh-cn",
                 Some("CjkText"),
                 "你好"
-            ),
+            )
+            .render(),
             "[\"你好\",\"A\\u001fB\",400,false,\"zh-cn\",\"CjkText\",\"你好\"]"
         );
         // String(null) is "null"; JSON.stringify writes it as a string.
         assert_eq!(
-            shape_replay_key("x", &["A".to_string()], 700.5, true, "en", None, "y"),
+            shape_replay_key("x", &["A".to_string()], 700.5, true, "en", None, "y").render(),
             "[\"x\",\"A\",700.5,true,\"en\",\"null\",\"y\"]"
         );
         assert_eq!(
@@ -174,11 +227,12 @@ mod tests {
                 false,
                 None,
                 Some("B")
-            ),
+            )
+            .render(),
             "[\"A\\u001fB\",400,false,\"null\",\"B\"]"
         );
         assert_eq!(
-            metric_replay_key(&["A".to_string()], 400.0, false, None, None),
+            metric_replay_key(&["A".to_string()], 400.0, false, None, None).render(),
             "[\"A\",400,false,\"null\",\"null\"]"
         );
     }
