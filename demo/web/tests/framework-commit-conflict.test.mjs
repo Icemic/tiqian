@@ -425,7 +425,7 @@ function startFixtureServer(svelteComponents) {
 <head>
 <meta charset="utf-8" />
 <title>framework commit conflict fixture</title>
-<link rel="stylesheet" href="/npm/styles.css" data-tiqian-stylesheet="true" />
+<link rel="stylesheet" href="/core/styles.css" data-tiqian-stylesheet="true" />
 <style>
   body { font-family: "Noto Sans CJK SC", "PingFang SC", sans-serif; margin: 24px; }
   tiqian-prose { display: block; margin: 16px 0; }
