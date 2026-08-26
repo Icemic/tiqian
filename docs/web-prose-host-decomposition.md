@@ -294,7 +294,7 @@ frontend/web/npm/            @tiqian/prose 拆为 core 与 web-component 两个 
       loaders/        runtime-loader（现 runtime.js）、font-loader（字体就绪判定与重试）、styles（现 styles.js）
       web-worker/     worker-channel（现 worker-layout.js 主线程侧）、
                       worker-entry（现 layout-worker.js）、browser-font-replay.js
-      face.js         引擎唯一调用面；内部保留事件派发直至直连切片
+      face.js         引擎唯一入口模块；内部保留事件派发直至直连切片
       exact-font.js   字体验证会话（element.js 与 api.js 两套状态机合并）
     sampler/          DOM 读侧：observers.js（失效源接口与四实例）、
                       snapshot/（precomputed.js、prepared-dom.js、snapshot-source.js、
@@ -460,15 +460,15 @@ worker-layout.js:237 经 `api.workerLayoutRequest(root, element, options)` 进�
 | tiqian:cancel-layout-work | 3094、3108、3141 | `face.cancelLayoutWork(root)` |
 | tiqian:destroy | 1066、1534、2031、2101、2259、3138 | `face.destroy(root)` |
 | tiqian:detach | 1362 | `face.detach(root)` |
-| tiqian:enhance、enhance-all、worker-layout-request | Kotlin 桥方法内（见上） | 归 face 与 worker-channel 内部 |
+| tiqian:enhance、enhance-all、worker-layout-request | Kotlin 桥方法内（见上） | 归引擎入口模块与 worker-channel 内部 |
 | tiqian:refresh | 无派发点（监听在 WebEnhancer.kt:95） | 保留现状 |
 
-实现分两阶段。阶段一（批次 5）：face.js 收拢 element.js 的全部派发点。桥上已有方法
+实现分两阶段。阶段一（批次 5）：引擎入口模块收拢 element.js 的全部派发点。桥上已有方法
 （enhance、enhanceProgressively、destroy、enhanceAll、workerLayoutRequest）可直接改调
 方法面；relayout、reconcile-content、probe-content-drift、cancel-layout-work、detach 不在
-桥的五方法内，阶段一在 face 内部保留 dispatchEvent 实现，元素与 worker-layout 仍只见
+桥的五方法内，阶段一在引擎入口模块内部保留 dispatchEvent 实现，元素与 worker-layout 仍只见
 方法。`detail.result` 的同步回传习语共三处（element.js:2944、2978 与桥内
-workerLayoutRequest），阶段一在 face 内改为返回值并完成 JSON 解析与失败处理。阶段二
+workerLayoutRequest），阶段一在引擎入口模块内改为返回值并完成 JSON 解析与失败处理。阶段二
 （ADR 0053 切片）：桥方法补齐缺口并改为直接调用 Kotlin 入口，document 监听注册移除。
 方法面自身 re-dispatch 事件总线（第 4 节），所以监听移除必须与 Kotlin 直连放在同一批次实施，
 不能由 JS 侧单方面完成。
