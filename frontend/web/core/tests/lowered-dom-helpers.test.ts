@@ -584,6 +584,6 @@ test("snapshotFontAttemptSignature encodes reference, font size and grid measure
 });
 
 test("document-dependent entries degrade without any document", async () => {
-  assert.equal(await ensureTiqianStyles(), null);
+  assert.equal(await ensureTiqianStyles(null), null);
   assert.deepEqual(createTiqianClipboardPayload(null, null), { text: "", html: "" });
 });

@@ -2,11 +2,13 @@ import { globalServices } from "../../services/global-services.js";
 
 const getStylesheetState = () => globalServices().stylesheetLoader!;
 
-export function ensureTiqianStyles(root: Element | null = null): Promise<HTMLLinkElement | null> {
-  // TargetDocumentExplicit: the stylesheet lives in one specific document.
-  // Resolve it from the root first; the rootless API path keeps a guarded
-  // ambient fallback so SSR-style callers without any document get null.
-  const targetDocument: Document | undefined = root?.ownerDocument ?? globalThis.document;
+export function ensureTiqianStyles(
+  targetDocument: Document | null | undefined,
+  root: Element | null = null,
+): Promise<HTMLLinkElement | null> {
+  // TargetDocumentExplicit: the stylesheet lives in one specific document
+  // resolved by the caller at the call boundary; callers without a document
+  // (rootless API or SSR-style paths) pass null and receive null.
   if (!targetDocument) return Promise.resolve(null);
   const state = getStylesheetState();
   // StaticStylesheetFastPath: bundlers can include the public CSS entry in the

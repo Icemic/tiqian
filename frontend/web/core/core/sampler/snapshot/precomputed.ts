@@ -2529,6 +2529,7 @@ export function detachPrecomputedSnapshot(root: HTMLElement): boolean {
 
 export async function tryAdoptPrecomputedSnapshot(
   root: HTMLElement,
+  targetDocument: Document | null | undefined,
   isCurrent: IsCurrent = () => true,
   anchors: SnapshotAdoptAnchors | null = null,
 ): Promise<SnapshotAdoptOutcome> {
@@ -2537,7 +2538,10 @@ export async function tryAdoptPrecomputedSnapshot(
   delete root.dataset.tiqianSnapshotMiss;
   const reference = root.getAttribute("snapshot-ref");
   if (!reference) return { adopted: false, reason: "not-requested" };
-  const documentObject = root.ownerDocument || document;
+  // TargetDocumentExplicit: the caller resolves the snapshot's document at
+  // the call boundary; without one the referenced template cannot exist.
+  if (!targetDocument) return miss(root, "SnapshotTemplateMissing");
+  const documentObject = targetDocument;
   const template = documentObject.getElementById(reference) as HTMLTemplateElement | null;
   if (!template?.content) return miss(root, "SnapshotTemplateMissing");
 

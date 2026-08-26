@@ -171,7 +171,11 @@ async function withTiqianWeb<T>(
   let fontSession: BrowserFontSessionHandle | null = null;
   let cjkDashCapability: CjkDashShapingOutcome;
   try {
-    await Promise.all([loadTiqianRuntime(), ensureTiqianStyles(), ensurePreparedDomBridge()]);
+    await Promise.all([
+      loadTiqianRuntime(),
+      ensureTiqianStyles(root.ownerDocument ?? globalThis.document, root),
+      ensurePreparedDomBridge(),
+    ]);
     cjkDashCapability = await prepareCjkDashShapingIfNeeded(root, options as TiqianCjkDashPrepareOptions);
     fontSession = await prepareRootFontSession(root, generation, options, context);
     if (context.generation !== generation) {

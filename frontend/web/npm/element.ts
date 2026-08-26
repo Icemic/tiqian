@@ -440,10 +440,11 @@ class TiqianProseElement extends HTMLElementBase {
     // the faces used by the prose and wait one painted frame. Waiting for global
     // DOMContentLoaded or document.fonts.ready would stall prose on unrelated
     // scripts, icon fonts, code fonts, or widgets.
-    ensureTiqianStyles(this)
+    ensureTiqianStyles(this.ownerDocument, this)
       .then(nextFrame)
       .then(() => awaitInitialTypographyFonts(this, {
         generation,
+        fonts: this.ownerDocument?.fonts ?? null,
         isCurrent: () => this.isConnected && generation === this.#context.generation,
         bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
           !strongEmphasisRuntimeRequired,
@@ -464,6 +465,7 @@ class TiqianProseElement extends HTMLElementBase {
             if (!strongEmphasisRuntimeRequired) {
               snapshot = await tryAdoptRequestedSnapshot(
                 this,
+                this.ownerDocument,
                 () => this.isConnected && generation === this.#context.generation &&
                   operation === this.#layoutOperation,
                 this.#snapshotAdoptionAnchors(),
@@ -687,6 +689,7 @@ class TiqianProseElement extends HTMLElementBase {
 
   #deferInitialEnhancementUntilFontsSettle(generation: number, completion: Promise<unknown>) {
     this.#initialFontRetry ??= createInitialFontRetryController(this, {
+      fonts: this.ownerDocument?.fonts ?? null,
       isGenerationCurrent: (candidate) => candidate === this.#context.generation,
       typographyElements: () => typographyElements(this),
       restartConnectedLifecycle: () => this.#restartConnectedLifecycle(),
@@ -1325,6 +1328,7 @@ class TiqianProseElement extends HTMLElementBase {
     }
     tryAdoptRequestedSnapshot(
       this,
+      this.ownerDocument,
       () => this.isConnected && generation === this.#context.generation &&
         operation === this.#layoutOperation,
       this.#snapshotAdoptionAnchors(),

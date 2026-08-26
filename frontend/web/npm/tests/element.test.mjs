@@ -209,6 +209,7 @@ test("disabled is reversible and cancels stale initial font work", async () => {
 
     const module = await import(`../element.js?font-lifecycle=${Date.now()}`);
     const element = new module.TiqianProseElement();
+    element.ownerDocument = documentObject;
     element.disabled = true;
     element.connectedCallback();
     await new Promise((resolve) => setImmediate(resolve));

@@ -41,11 +41,12 @@ export async function restoreAdoptedSnapshot(root: HTMLElement): Promise<boolean
 
 export async function tryAdoptRequestedSnapshot(
   root: HTMLElement,
+  targetDocument: Document | null | undefined,
   isCurrent: SnapshotIsCurrent = () => true,
   anchors: SnapshotAdoptAnchors | null = null,
 ): Promise<SnapshotAdoptOutcome> {
   if (!root?.getAttribute?.("snapshot-ref")) {
     return { adopted: false, reason: "not-requested" };
   }
-  return precomputed.tryAdoptPrecomputedSnapshot(root, isCurrent, anchors);
+  return precomputed.tryAdoptPrecomputedSnapshot(root, targetDocument, isCurrent, anchors);
 }

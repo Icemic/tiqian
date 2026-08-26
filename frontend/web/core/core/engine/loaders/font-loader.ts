@@ -105,6 +105,7 @@ export type DeferFontSettlement = (generation: number, completion: Promise<unkno
 
 export interface InitialTypographyFontContext {
   generation: number;
+  fonts: FontFaceSet | null | undefined;
   isCurrent: ContextPredicate;
   bypassesFontWait: ContextPredicate;
   typographyElements: TypographyElementsProvider;
@@ -118,7 +119,7 @@ export async function awaitInitialTypographyFonts(root: HTMLElement, context: In
   // layout read and did no additional validation work.
   if (context.bypassesFontWait()) return true;
   const fontWait = await waitForTypographyFonts(
-    document.fonts,
+    context.fonts,
     context.typographyElements(),
     globalThis.getComputedStyle,
     { timeoutMs: DEFAULT_TYPOGRAPHY_FONT_WAIT_MS },
@@ -138,6 +139,7 @@ export type GenerationPredicate = (generation: number) => boolean;
 export type LifecycleRestarter = () => void;
 
 export interface FontRetryControllerContext {
+  fonts: FontFaceSet | null | undefined;
   isGenerationCurrent: GenerationPredicate;
   restartConnectedLifecycle: LifecycleRestarter;
   typographyElements: TypographyElementsProvider;
@@ -160,8 +162,8 @@ export function createInitialFontRetryController(root: HTMLElement, context: Fon
     observer?.disconnect();
     observer = null;
     if (listener) {
-      document.fonts?.removeEventListener?.("loadingdone", listener);
-      document.fonts?.removeEventListener?.("loadingerror", listener);
+      context.fonts?.removeEventListener?.("loadingdone", listener);
+      context.fonts?.removeEventListener?.("loadingerror", listener);
       listener = null;
     }
   }
@@ -179,8 +181,8 @@ export function createInitialFontRetryController(root: HTMLElement, context: Fon
     listener = (event) => {
       if (fontLoadingAffectsTypography(event as FontLoadingEventLike, context.typographyElements())) restart();
     };
-    document.fonts?.addEventListener?.("loadingdone", listener);
-    document.fonts?.addEventListener?.("loadingerror", listener);
+    context.fonts?.addEventListener?.("loadingdone", listener);
+    context.fonts?.addEventListener?.("loadingerror", listener);
 
     if (typeof MutationObserver === "function") {
       observer = new MutationObserver(restart);

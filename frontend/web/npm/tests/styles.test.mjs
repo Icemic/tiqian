@@ -128,9 +128,9 @@ test("reinstalls a stylesheet removed by a client router", async () => {
   try {
     const { ensureTiqianStyles } = await import(`@tiqian/core/core/engine/loaders/styles.js?test=${Date.now()}`);
 
-    const firstLoad = ensureTiqianStyles();
+    const firstLoad = ensureTiqianStyles(globalThis.document);
     assert.equal(links.length, 1);
-    assert.strictEqual(ensureTiqianStyles(), firstLoad);
+    assert.strictEqual(ensureTiqianStyles(globalThis.document), firstLoad);
     links[0].sheet = {};
     links[0].emit("load");
     assert.strictEqual(await firstLoad, links[0]);
@@ -138,14 +138,14 @@ test("reinstalls a stylesheet removed by a client router", async () => {
     links[0].isConnected = false;
     currentLink = null;
 
-    const secondLoad = ensureTiqianStyles();
+    const secondLoad = ensureTiqianStyles(globalThis.document);
     assert.equal(links.length, 2);
     assert.notStrictEqual(links[1], links[0]);
     links[1].sheet = {};
     links[1].emit("load");
     assert.strictEqual(await secondLoad, links[1]);
 
-    assert.strictEqual(await ensureTiqianStyles(), links[1]);
+    assert.strictEqual(await ensureTiqianStyles(globalThis.document), links[1]);
     assert.equal(links.length, 2);
   } finally {
     globalThis.document = originalDocument;
@@ -169,7 +169,7 @@ test("does not inject a duplicate link when the public CSS entry is already acti
   });
   try {
     const { ensureTiqianStyles } = await import(`@tiqian/core/core/engine/loaders/styles.js?static=${Date.now()}`);
-    assert.equal(await ensureTiqianStyles({}), null);
+    assert.equal(await ensureTiqianStyles(globalThis.document, {}), null);
     assert.equal(queried, false);
   } finally {
     globalThis.document = originalDocument;
