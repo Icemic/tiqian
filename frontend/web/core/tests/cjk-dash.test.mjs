@@ -13,7 +13,7 @@ test("plain roots do not load optional snapshot or dash modules", async () => {
 
   assert.equal(needsCjkDashShaping(root), false);
   assert.equal(isLoadedSnapshotAdopted(root), false);
-  assert.deepEqual(await prepareCjkDashShapingIfNeeded(root), { status: "not-needed" });
+  assert.deepEqual(await prepareCjkDashShapingIfNeeded(root), { status: "not-needed", detail: null });
   assert.equal(globalThis.__TiqianWebFontShaping, undefined);
 });
 

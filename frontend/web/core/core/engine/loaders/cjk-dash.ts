@@ -23,15 +23,25 @@ export function needsCjkDashShaping(root: TextBearingRoot | null | undefined): b
 /** Outcome envelope of the dash shaping gate; detail names the reason. */
 export interface CjkDashShapingOutcome {
   status: string;
-  detail?: string;
+  detail: string | null;
 }
 
-export function prepareCjkDashShapingIfNeeded(root: TextBearingRoot | null | undefined, options: CjkDashPrepareOptions = {}): Promise<CjkDashShapingOutcome> {
-  if (!needsCjkDashShaping(root)) return Promise.resolve({ status: "not-needed" });
-  return Promise.resolve({
+/**
+ * Synchronously compute the CJK dash shaping outcome against the current
+ * root textContent and options. This is the pure evidence function that both
+ * the coordinated initial capture and the reconcile refresh must call so they
+ * agree on the same evidence basis.
+ */
+export function computeCjkDashOutcome(root: TextBearingRoot | null | undefined, options: CjkDashPrepareOptions = {}): CjkDashShapingOutcome {
+  if (!needsCjkDashShaping(root)) return { status: "not-needed", detail: null };
+  return {
     status: "unavailable",
     detail: options?.snapshotFontSession
       ? "ServerShapingReplayRequired"
       : "BrowserHarfBuzzDisabled",
-  });
+  };
+}
+
+export function prepareCjkDashShapingIfNeeded(root: TextBearingRoot | null | undefined, options: CjkDashPrepareOptions = {}): Promise<CjkDashShapingOutcome> {
+  return Promise.resolve(computeCjkDashOutcome(root, options));
 }

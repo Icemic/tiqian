@@ -32,6 +32,8 @@ import {
 } from "./progressive-drivers.js";
 import { processParagraph } from "./process-paragraph.js";
 import { workerLayoutRequestForRoot } from "./worker-request.js";
+import { computeCjkDashOutcome, needsCjkDashShaping } from "./loaders/cjk-dash.js";
+import type { CjkDashShapingOutcome } from "./loaders/cjk-dash.js";
 
 export type ActionRunFn = () => void;
 
@@ -310,6 +312,34 @@ export function createEngineEntry(
     }
 
     if (verdict.outcome === "idle") return verdict.json;
+
+    // Refresh CJK dash capability evidence if any affected paragraph needs it.
+    // The coordinated channel captures cjkDashCapability once at initial enhance
+    // (element.ts) and bakes it into the root state's browserFallback. When the
+    // DOM gains dash content after initial enhance, we must recompute against
+    // the current root.textContent so the coordinated channel agrees with the
+    // one-shot channel (which recomputes on every call via api.ts:175).
+    const affectedParagraphs = verdict.drifted.concat(verdict.tainted, verdict.stranded);
+    let needsDashRefresh = false;
+    for (let pi = 0; pi < affectedParagraphs.length; pi += 1) {
+      if (needsCjkDashShaping(affectedParagraphs[pi])) {
+        needsDashRefresh = true;
+        break;
+      }
+    }
+    if (needsDashRefresh) {
+      // Use the same evidence basis as the initial coordinated capture:
+      // base options plus the attached snapshot font session from the state.
+      // The root state retains the resolved options which include the
+      // snapshotFontSession if one was attached at enhance time.
+      const freshOutcome = computeCjkDashOutcome(root, {
+        snapshotFontSession: state.options.snapshotFontSession,
+      });
+      if (state.cjkDashCapability.status !== freshOutcome.status ||
+          state.cjkDashCapability.detail !== freshOutcome.detail) {
+        RS.updateCjkDashCapability(state, freshOutcome);
+      }
+    }
 
     // Build action list: each entry is {element, run} closure (Kotlin
     // ReconcileAction equivalent).
