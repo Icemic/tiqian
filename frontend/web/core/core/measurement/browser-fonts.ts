@@ -104,7 +104,7 @@ function weightValue(value: unknown): [number, number] {
     !Array.isArray(value) || value.length !== 2 ||
     !value.every((item) => typeof item === "number" && Number.isFinite(item))
   ) fail("SnapshotFontEvidenceInvalid", "weight");
-  const weight = [...value] as [number, number];
+  const weight: [number, number] = [value[0], value[1]];
   if (weight[0] <= 0 || weight[1] < weight[0]) {
     fail("SnapshotFontEvidenceInvalid", "weight");
   }
@@ -118,11 +118,15 @@ function sourceOrderValue(value: unknown): number {
   return value as number;
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.trim() !== "");
+}
+
 function stringSet(value: unknown, field: string, code: string = "SnapshotFontEvidenceInvalid"): string[] {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || item.trim() === "")) {
+  if (!isStringArray(value)) {
     fail(code, field);
   }
-  return Array.from(new Set(value as string[])).sort();
+  return Array.from(new Set(value)).sort();
 }
 
 export interface RawProbeLike {
@@ -324,13 +328,12 @@ function collectManifestFaces(manifest: RawManifestLike | null | undefined): Col
   if (manifest.fontContractEntries != null && !Array.isArray(manifest.fontContractEntries)) {
     fail("SnapshotManifestInvalid", "fontContractEntries");
   }
-  if (!Array.isArray(manifest.renderFontFamilies) || manifest.renderFontFamilies.length === 0 ||
-      manifest.renderFontFamilies.some((family) => typeof family !== "string" || !family.trim()) ||
-      new Set(manifest.renderFontFamilies.map((family) => (family as string).trim().toLowerCase())).size !==
-        manifest.renderFontFamilies.length) {
+  const families = manifest.renderFontFamilies;
+  if (!isStringArray(families) || families.length === 0 ||
+      new Set(families.map((family) => family.trim().toLowerCase())).size !== families.length) {
     fail("SnapshotManifestInvalid", "renderFontFamilies");
   }
-  const renderFontFamilies = [...(manifest.renderFontFamilies as string[])];
+  const renderFontFamilies = [...families];
   const paragraphSelector = stringValue(
     manifest.paragraphSelector,
     "SnapshotManifestInvalid",

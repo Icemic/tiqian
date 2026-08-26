@@ -59,7 +59,7 @@ export type LayoutJobSpec = {
   onFailed: LayoutJobFailureHandlerFn;
   startedAt: number;
   itemTierIndex?: number[] | null;
-  paragraphsByDoc?: HTMLElement[] | null;
+  paragraphsByDoc?: Element[] | null;
   coordinated: boolean;
 };
 
@@ -78,7 +78,7 @@ type LayoutJob = {
   onFailed: LayoutJobFailureHandlerFn;
   startedAt: number;
   itemTierIndex: number[] | null;
-  paragraphsByDoc: HTMLElement[] | null;
+  paragraphsByDoc: Element[] | null;
   coordinated: boolean;
   generation: number;
   nextIndex: number;
@@ -97,7 +97,7 @@ type LayoutJobGenerationFn = (root: Element) => number;
 type LayoutJobKindFn = (root: Element) => string | null;
 type LayoutJobPendingInTierFn = (root: Element, tier: number) => number;
 type LayoutJobParagraphCountFn = (root: Element) => number;
-type LayoutJobParagraphAtFn = (root: Element, index: number) => HTMLElement | null;
+type LayoutJobParagraphAtFn = (root: Element, index: number) => Element | null;
 type LayoutJobSetTierFn = (root: Element, index: number, tier: number) => boolean;
 type LayoutJobAttachFn = (root: Element) => boolean;
 type LayoutJobDetachFn = (root: Element) => boolean;
@@ -354,7 +354,7 @@ export function createLayoutJobPool(): LayoutJobPool {
       const job = jobs.get(root);
       return job && job.paragraphsByDoc ? job.paragraphsByDoc.length : 0;
     },
-    paragraphAt: function (root: Element, index: number): HTMLElement | null {
+    paragraphAt: function (root: Element, index: number): Element | null {
       const job = jobs.get(root);
       if (!job || !job.paragraphsByDoc) return null;
       return index >= 0 && index < job.paragraphsByDoc.length

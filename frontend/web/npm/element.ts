@@ -2194,7 +2194,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    const outcome = engineFace.reconcileContent(this, paragraphs as HTMLElement[]);
+    const outcome = engineFace.reconcileContent(this, paragraphs);
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready

@@ -60,6 +60,6 @@ export function probeContentDrift(root: HTMLElement): ContentDriftProbeResult | 
   return parseEngineJson<ContentDriftProbeResult>(engineApi()?.probeContentDrift(root));
 }
 
-export function reconcileContent(root: HTMLElement, paragraphs?: HTMLElement[]): ContentReconcileResult | null {
-  return parseEngineJson<ContentReconcileResult>(engineApi()?.reconcileContent(root, paragraphs as HTMLElement[]));
+export function reconcileContent(root: HTMLElement, paragraphs?: Element[]): ContentReconcileResult | null {
+  return parseEngineJson<ContentReconcileResult>(engineApi()?.reconcileContent(root, paragraphs ?? []));
 }

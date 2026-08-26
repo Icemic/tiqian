@@ -1295,7 +1295,7 @@ export function lowerMarkdown(paragraph: Element, options: LoweringOptions, help
   const classifyRole = (helpers && typeof helpers.classifyRole === "function")
     ? helpers.classifyRole
     : function (): string { return "other"; };
-  const inlineShapingProperties = Array.isArray(helpers && helpers.inlineShapingProperties)
+  const inlineShapingProperties: string[] = Array.isArray(helpers?.inlineShapingProperties)
     ? helpers.inlineShapingProperties
     : [];
   const inlineShapingDecision = (helpers && typeof helpers.inlineShapingDecision === "function")
@@ -1303,7 +1303,7 @@ export function lowerMarkdown(paragraph: Element, options: LoweringOptions, help
     : null;
   const safeHelpers: NormalizedInlineShapingHelpers = {
     classifyRole: classifyRole,
-    inlineShapingProperties: inlineShapingProperties as string[],
+    inlineShapingProperties: inlineShapingProperties,
     inlineShapingDecision: inlineShapingDecision as NormalizedInlineShapingHelpers["inlineShapingDecision"],
   };
   const issue: LoweringIssue = { name: null, detail: null };

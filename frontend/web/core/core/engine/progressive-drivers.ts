@@ -174,7 +174,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     onFailure: ProgressiveDriverFailure | null,
     stale: ProgressiveDriverStaleCheck | null,
     itemTierIndex: number[] | null,
-    paragraphsByDoc: HTMLElement[] | null,
+    paragraphsByDoc: Element[] | null,
   ): void {
     state.root.removeAttribute("data-tiqian-relayout-error");
     const spec: LayoutJobSpec = {
@@ -428,7 +428,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       null,
       function () { return stale; },
       itemTierIndex,
-      sourceCandidates as HTMLElement[]
+      sourceCandidates
     );
   }
 
@@ -591,7 +591,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         return commitSession.stale || Math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5;
       },
       workOrder,
-      paragraphsByDoc as HTMLElement[]
+      paragraphsByDoc
     );
   }
 

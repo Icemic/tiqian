@@ -52,7 +52,7 @@ export interface TiqianEngineInstance {
   refresh(root: HTMLElement, progressively?: boolean): void;
   cancelLayoutWork(root: HTMLElement): void;
   probeContentDrift(root: HTMLElement): string;
-  reconcileContent(root: HTMLElement, tainted: HTMLElement[]): string;
+  reconcileContent(root: HTMLElement, tainted: Element[]): string;
   workerLayoutRequest(root: HTMLElement, paragraph: HTMLElement, optionsBag?: unknown): string | null;
 }
 
@@ -64,7 +64,7 @@ export interface TiqianEngineWorkersInstance {
   workerRunSlice(controller: GrantController, minTier: number): number;
   workerPendingInTier(root: HTMLElement, tier: number): number;
   workerParagraphCount(root: HTMLElement): number;
-  workerParagraphAt(root: HTMLElement, index: number): HTMLElement | null;
+  workerParagraphAt(root: HTMLElement, index: number): Element | null;
   workerSetParagraphTier(root: HTMLElement, index: number, tier: number): boolean;
 }
 
@@ -289,7 +289,7 @@ export function createEngineEntry(
 
   // 10. reconcileContent(root, tainted) -> string
   // Aligns WebEnhancerContentReconcile.kt 22-95.
-  engine.reconcileContent = function reconcileContent(root: HTMLElement, tainted: HTMLElement[]): string {
+  engine.reconcileContent = function reconcileContent(root: HTMLElement, tainted: Element[]): string {
     const state = RS.getState(root);
     if (!state) {
       return '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}';
@@ -480,7 +480,7 @@ export function createEngineEntry(
     return PJ.paragraphCount(root);
   };
 
-  workers.workerParagraphAt = function (root: HTMLElement, index: number): HTMLElement | null {
+  workers.workerParagraphAt = function (root: HTMLElement, index: number): Element | null {
     return PJ.paragraphAt(root, index);
   };
 
