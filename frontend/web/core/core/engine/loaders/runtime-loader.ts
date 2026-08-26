@@ -1,5 +1,4 @@
 import * as preparedDom from "../../sampler/snapshot/prepared-dom.js";
-import * as precomputed from "../../sampler/snapshot/precomputed.js";
 import type { PreparedDomValidatorInterface } from "../../sampler/snapshot/precomputed.js";
 import * as tsRuntime from "./ts-runtime.js";
 // Runtime loader for the Tiqian engine (Slice 7 Lane A). After bundle
@@ -108,7 +107,11 @@ function createLoaderState(): EngineLoadState {
     getCopyInstaller: getCopyInstaller,
     loadRenderer,
     rendererModule: () => rendererOverride !== undefined ? rendererOverride : preparedDom,
-    validator: () => validatorOverride !== undefined ? validatorOverride : precomputed.preparedDomValidator,
+    // The snapshot-parity validator is a test-world oracle: it reads live
+    // geometry per node (gBCR/getComputedStyle per line) and releases valid
+    // commits on transient mismatches, so production runs without it and
+    // test worlds install it through setValidatorForTest.
+    validator: () => validatorOverride !== undefined ? validatorOverride : null,
     setRendererForTest: (renderer) => { rendererOverride = renderer; },
     setValidatorForTest: (validator) => { validatorOverride = validator; }
   };
