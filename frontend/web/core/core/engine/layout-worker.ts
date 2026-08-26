@@ -11,7 +11,7 @@ import type {
   WorkerResponseEnvelope,
 } from "./web-worker/worker-channel.js";
 import { precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
-import type { PrepareParagraphRequest } from "@tiqian/ffi";
+import type { DecorationWire, PrepareParagraphRequest } from "@tiqian/ffi";
 import type { WorkerLayoutRequestBody } from "./web-worker/worker-channel.js";
 
 type WorkerMessageEventListener = (event: MessageEvent<WorkerRequestEnvelope>) => void | Promise<void>;
@@ -50,7 +50,6 @@ function errorDetail(error: unknown): string {
       return;
     }
     if (type !== "layout") return;
-    if (type !== "layout") return;
     const session = sessions.get(sessionKey);
     if (!session) throw new Error("LayoutWorkerFontSessionMissing");
     const request: WorkerLayoutRequestBody = message.request;
@@ -67,6 +66,9 @@ function errorDetail(error: unknown): string {
     // keeps both directions working.
     // zeroAdvanceEpsilonPx only prefilters the diagnostics channel, which the
     // worker discards; the plan bytes do not depend on the value.
+    // The worker channel sends no decorations; a typed empty array keeps the
+    // literal comparable to the DTO so the boundary needs a single assertion.
+    const decorations: Array<DecorationWire> = [];
     const requestDto: PrepareParagraphRequest = {
       text: request.text,
       maxWidthPx: request.maxWidthPx,
@@ -83,10 +85,10 @@ function errorDetail(error: unknown): string {
       inlineBoxes: request.inlineBoxes,
       lineBreakSpans: request.lineBreakSpans,
       inlineObjects: request.inlineObjects,
-      decorations: [], // Worker doesn't send decorations
+      decorations: decorations,
       emphasisDotGapEm: null,
       renderEvidenceOverride: request.renderEvidence,
-    } as unknown as PrepareParagraphRequest;
+    } as PrepareParagraphRequest;
     const rawEnvelope = precomputeParagraphWithDiagnostics(
       requestDto,
       0.0,
