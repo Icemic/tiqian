@@ -220,7 +220,7 @@ protocol 的数组访问模式（逐行 cells/runs/spans，构建一次、顺序
 
 三处用途：
 
-A. wire 解析（seam 侧）：`plan.rs` `Plan::from_json_str`（协议入口参数）、
+A. wire 解析（协议边界侧）：`plan.rs` `Plan::from_json_str`（协议入口参数）、
 `precomputer.rs` `PrepareInput::from_json`、`snapshot_manifest.rs`、
 `font_contract.rs`、`source_boundaries.rs`、`submission.rs`、`canonical.rs`。
 
@@ -229,7 +229,7 @@ render_text_spans、inline_boxes）与 artifact 输出。`haxe.Json.parse` 返�
 Dynamic，Dynamic 需要 hxrt 运行时载体与反射支持，该 API 在 boring 子集内
 不可用。替代方案二选一：protocol 自带递归 Json 枚举（Rust 侧生成普通 enum，
 零 runtime 依赖；JS 侧需自写解析器对齐 `\uXXXX` 转义、重复键、非有限数
-语义，`canonical.ts` 头部注释记录该类差异）；或 Json 也留在 seam，protocol
+语义，`canonical.ts` 头部注释记录该类差异）；或 Json 也留在协议边界，protocol
 的输入输出改用 typed 结构体。
 
 C. 发射（输出与 `JSON.stringify` 逐字节一致）：`json.rs` 转义、
@@ -248,7 +248,7 @@ C. 发射（输出与 `JSON.stringify` 逐字节一致）：`json.rs` 转义、
   的消费面退到构建期。
 - :169-170 引用 0052 第四批实测：布局解码 0.12ms，JSON.parse 3.1ms。
 
-构建期与 seam 侧保留：
+构建期与协议边界侧保留：
 
 - plan JSON 构建期仍要解析：表写入器（54-8）与烘焙 HTML 两个消费者。
 - manifest JSON：schema 升版本、`maxWidthPx` 改格数整数字段，传输形态保持
@@ -367,9 +367,9 @@ region order and validates every offset」。双边实现已在生产运行。
 
 1. 双实现漂移的成因在于验证方式：语料比对只覆盖样本，编译器生成覆盖全部路径。前者在每次行为变化时都要手工重写另一侧，后者只需要保证源本身的语义正确。
 2. Haxe protocol 方案成本 1.5-2.5 人月（第 3.3 节），前提是协议为单一权威且 boring 子集以 CI 规则强制。
-3. reflaxe.rust 的不稳定面（0.x 版本线、hxrt 包装形状、haxe.Json 语义不匹配）都可以通过 seam 隔离在协议之外：语义桥留在 Rust 侧，plan JSON 解析留在两侧平台壳，协议本体只使用基础语言 lowering 证据带内的特性。
+3. reflaxe.rust 的不稳定面（0.x 版本线、hxrt 包装形状、haxe.Json 语义不匹配）都可以通过协议边界隔离在协议之外：语义桥留在 Rust 侧，plan JSON 解析留在两侧平台壳，协议本体只使用基础语言 lowering 证据带内的特性。
 4. protocol 内不需要函数值：宿主回调改为数据出，内部闭包全部内联。
-5. JSON 需求经 ADR 0054（门槛通过后）收敛为构建期 seam；运行时为零 JSON。协议边界按「构建期 lowering + 整数带条目编码」划分，0054 实施与否不改变该划分。
+5. JSON 需求经 ADR 0054（门槛通过后）收敛为构建期边界；运行时为零 JSON。协议边界按「构建期 lowering + 整数带条目编码」划分，0054 实施与否不改变该划分。
 6. 带条目 codec 是共享协议优先实现的候选模块：整数内容、端序单一取值、无语义桥依赖、浏览器侧只能以生成代码消费。
 7. reflaxe.rust 的 GPL-3.0 运行时面可以移除，需要验证层：`rust_no_hxrt`（metal）省略 hxrt 依赖并在编译期拒绝 runtime 引用；外部验证把生成 crate 的 hxrt 依赖替换为空 crate 后编译，编译通过即零 hxrt 引用，判据由 Rust 编译器给出；hxrt 之外的拷贝 helper 模块（与 native-facade-manifest.json 交叉比对）与许可证头 grep 列入同一检查；reflaxe.rust 为 0.x，该检查作为 CI 门并在升级时全量重跑。
 8. 许可证路径选择：portable + hxrt 使发行物按 GPL-3.0 发布，与仓库的 MPL-2.0 冲突；metal + `rust_no_hxrt` 加验证门使产物不含 GPL 代码；MIT 的 reflaxe 框架自写 emitter 使产物全链不含 GPL 依赖，该 emitter 已在成本构成（第 3.3 节）之内，许可证处理不增加成本。产物不含 GPL 代码后，编译器本身的 GPL-3.0 按编译器输出立场处理（Haxe 官方 FAQ 记录同立场）。

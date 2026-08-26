@@ -14,7 +14,7 @@
 其 Kotlin renderer 包为 `org.tiqian.apple.coretext`，与 `org.tiqian.shaping.coretext` 分开。
 
 - **`CoreTextLayoutRenderer`**:用 `CTFontDrawGlyphs` 画 `LayoutResult`——按字形 id 重放,pen 按 `Cluster.advance` 步进,`clusters` 与 `glyphRuns` 平行对应(逐 cluster index 取对应 run),镜像 `SkiaLayoutRenderer`。坐标:`LayoutResult` 为左上原点 / y 向下,`CGContext` 为左下 / y 向上,故 `layoutY → canvasHeight - layoutY`,用默认 text matrix 让字形正立(无需翻转上下文)。
-- **`AppleParagraphBackend`**:把引擎接到 `CoreTextShaper` + `CoreTextFontMetricsResolver` + `LookaheadLineBreaker`,其余 seam(clreq profile / justifier / hyphenator / role classifier / fallback)用引擎默认,对标 `DesktopParagraphBackend` 的最小构造。
+- **`AppleParagraphBackend`**:把引擎接到 `CoreTextShaper` + `CoreTextFontMetricsResolver` + `LookaheadLineBreaker`,其余接入点(clreq profile / justifier / hyphenator / role classifier / fallback)用引擎默认,对标 `DesktopParagraphBackend` 的最小构造。
 - **`frontend/apple` umbrella**：生产 Swift facade、XCFramework 打包、Swift Package 与原生 view
   共同属于 Apple frontend，而非 demo。内部 renderer 收在 `frontend/apple/coretext-render`；原生
   `AttributedString` authoring 把组合的 font/color/ruby/decoration 属性独立 lowering 到同一 source
@@ -24,15 +24,15 @@
 - **最低系统版本**：原生 Swift `AttributedString` 是 authoring 接口，因此 Swift Package 的自然
   下限为 iOS 15。iOS 12 需要另一套 `NSAttributedString`/纯文本 authoring 与 pre-iOS 13 selection
   交互，不作为同一 API 的条件分支伪装支持。
-- **原生 view seam**：`CJKTextView` 在 macOS 直接暴露 `NSScrollView + NSView`，在 iOS 直接暴露
+- **原生 view 接入层**：`CJKTextView` 在 macOS 直接暴露 `NSScrollView + NSView`，在 iOS 直接暴露
   `UIScrollView + UIView`；SwiftUI `CJKText` 只包装该原生 view。两端只负责 viewport 生命周期、滚动、动态系统颜色、坐标归一化和
   accessibility source text；宽度变化复用同一 `DocBuilder`，不引入 TextKit 或第二份排版结果。
-- **原生 selection seam**：`frontend/apple` 将 document 全局 UTF-16 source offset 映射到每个
+- **原生 selection 接入点**：`frontend/apple` 将 document 全局 UTF-16 source offset 映射到每个
   placed block 的核心 hit-test / caret / selection box。iOS 以只读 `UITextInput` 接入
   `UITextInteraction(.nonEditable)`，macOS 使用 responder action、`NSPasteboard` 与鼠标事件；平台层
   只持有选区状态，矩形始终来自 `LayoutResult`。语义选词复用简体中文 `NLTokenizer`，无法得到词时
   回落核心的 interaction-unit 选择；tokenizer 不产生第二份字符几何。
-- **原生 link seam**：Swift `AttributedString.link` lowering 为带目标的精确 source range。下划线与
+- **原生 link 接入点**：Swift `AttributedString.link` lowering 为带目标的精确 source range。下划线与
   命中矩形只消费 `LayoutResult` 的 glyph/source 几何；SwiftUI 通过环境 `OpenURLAction` 导航，
   AppKit/UIKit 暴露 `onOpenURL` 并在未接管时调用平台 URL opener。点击和拖选分离，拖动不导航。
 - **正文与注文 locale 分离**：原生 `.languageIdentifier` 描述基文 run；`RubyReading` 另带注文

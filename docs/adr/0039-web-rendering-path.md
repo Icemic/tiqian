@@ -128,7 +128,7 @@ replay miss 或不可序列化的 inline contract 保留原生 DOM 并报告 `Ex
 视觉中线相差不超过具名容差；成对 U+2014 还要求各自约 `1ic` 且接缝无正空隙。默认 shaping 与
 显式 `locl=0` 对拍：确有替换才记 `LocalizedVariant`，否则记
 `DefaultCjkConforming`。最终策略写成 `TwoEmDash` 或 `PairedEmDash`，连同 exact face、glyph ids、
-script/language、advance、ink center、seam 与 feature evidence 进入 shaping decision。
+script/language、advance、ink center、接入层与 feature evidence 进入 shaping decision。
 
 浏览器 exact session 同步消费服务器回放表；没有 manifest、回放 key 缺失、source contract 不可
 验证或所有候选不合格时返回 `NoConformingCjkDashGlyph`，该段保留原生 DOM，不能退回 Canvas 后
