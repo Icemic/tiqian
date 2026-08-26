@@ -475,8 +475,12 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
         const mixed = byName("mixed");
         let negativeSpacing = 0;
         let positiveSpacing = 0;
-        for (const el of document.querySelectorAll("tiqian-prose [style*='letter-spacing']")) {
-          const value = parseFloat(el.style.letterSpacing);
+        // Spacing declarations reach the DOM either as inline styles or as
+        // scoped value-style classes (tqvr-*) backed by a shared style
+        // element; resolved styles cover both carriers.
+        for (const el of document.querySelectorAll("tiqian-prose span")) {
+          const value = parseFloat(getComputedStyle(el).letterSpacing);
+          if (!Number.isFinite(value) || value === 0) continue;
           if (value < 0) negativeSpacing += 1; else positiveSpacing += 1;
         }
         return {
