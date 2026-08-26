@@ -302,32 +302,32 @@ async function runGrantRoundsJourney(clock) {
   const coordinator = new Coordinator();
   const alpha = { name: "alpha" };
   const beta = { name: "beta" };
-  coordinator.register(alpha);
-  coordinator.register(beta);
+  const alphaSession = coordinator.register();
+  const betaSession = coordinator.register();
   const pending = new Map([
     [alpha, [1, 0, 0]],
     [beta, [0, 2, 0]],
   ]);
   const grants = [];
   const runtime = recordingRuntime(pending, grants);
-  coordinator.registerWorker(alpha, runtime);
-  coordinator.registerWorker(beta, runtime);
-  coordinator.setWorkerActive(alpha, true);
-  coordinator.setWorkerActive(beta, true);
+  coordinator.registerWorker(alphaSession, alpha, runtime);
+  coordinator.registerWorker(betaSession, beta, runtime);
+  coordinator.setWorkerActive(alphaSession, true);
+  coordinator.setWorkerActive(betaSession, true);
 
   // FrameTraceDiagnostics: opt in before the first frame so the ring records
   // one row per frame from the start.
   coordinator.traceConfig = { maxEntries: FRAME_TRACE_LIMIT };
 
   // Segment 1: tier-ordered grants across the two roots.
-  coordinator.requestWorkerFrame(alpha);
-  coordinator.requestWorkerFrame(beta);
+  coordinator.requestWorkerFrame(alphaSession);
+  coordinator.requestWorkerFrame(betaSession);
   clock.advance(FRAME_STEP_MS);
 
   // Segment 2: adaptive quota schedule on alpha.
   for (const [alphaPending, stepMs] of GRANT_SCHEDULE) {
     pending.get(alpha)[0] = alphaPending;
-    coordinator.requestWorkerFrame(alpha);
+    coordinator.requestWorkerFrame(alphaSession);
     clock.advance(stepMs);
   }
 

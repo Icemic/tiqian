@@ -1,6 +1,13 @@
 // Frame budget, task pool, and grants for attached roots (ADR 0053 batch 1;
 // decomposition report section 7). Extracted verbatim from element.js.
 // Replaces the former TiqianLayoutCoordinator (one object, one name).
+//
+// RootSessionKey: every registration structure is keyed by a monotonic root
+// session id allocated by register(); the service never keys bookkeeping by
+// a component instance. The one element value a worker slot keeps is a
+// functional value — the grant lanes need it for viewport anchoring and as
+// the root argument of the slot's layout job pool (ruling 3 keeps the
+// element in the registerWorker signature).
 import {
   captureViewportAnchor,
   compensateViewportAnchor,
@@ -40,6 +47,7 @@ export interface TiqianLayoutWorkerInstance {
   release: LayoutWorkerReleaseFn;
 }
 
+export type RootSessionId = number;
 export type FrameTaskCallback = (now: number) => void;
 export type GrantStopPredicate = (processedCount: number) => boolean;
 export type WorkerHasJobFn = (element: HTMLElement) => boolean;
@@ -55,7 +63,7 @@ export type FrameTraceRow = [number, number, number, number, number, number, num
 
 export interface CoordinatorTask {
   callback: FrameTaskCallback;
-  element: HTMLElement | null;
+  session: RootSessionId | null;
   deferCount: number;
 }
 
@@ -97,6 +105,7 @@ export interface CoordinatorWorkerRuntime {
 }
 
 export interface CoordinatorWorkerSlot {
+  session: RootSessionId;
   element: HTMLElement;
   runtime: CoordinatorWorkerRuntime;
   active: boolean;
@@ -187,7 +196,8 @@ export class CoordinationService {
     pending: new Map(),
     initializedSessions: new Set(),
   };
-  #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
+  #entries: Map<RootSessionId, CoordinatorEntry> = new Map();
+  #nextRootSessionId: RootSessionId = 1;
   // FontCoordinationState and MeasurementCoordinationState: page-wide
   // font/measurement singletons the absorbed loader modules consult (see
   // fonts.ts / measurement.ts for why each is page-level single).
@@ -213,26 +223,31 @@ export class CoordinationService {
   // anti-starvation aging rules still apply. When an element returns to the
   // viewport, its pending task is promoted immediately, so visible content
   // never waits out the debounce.
-  #deferred: Map<HTMLElement, DeferredTaskBucket> = new Map();
+  #deferred: Map<RootSessionId, DeferredTaskBucket> = new Map();
   #deferredTimer: ReturnType<typeof setTimeout> | number = 0;
   #workerSlots: CoordinatorWorkerSlot[] = [];
-  #prepareMembers: Map<HTMLElement, PrepareMember> = new Map();
+  #prepareMembers: Map<RootSessionId, PrepareMember> = new Map();
   #workerWakeTimer: ReturnType<typeof setTimeout> | number = 0;
   #frameCounter: number = 0;
 
-  register(element: HTMLElement): void {
-    this.#entries.set(element, { inViewport: true });
+  register(): RootSessionId {
+    const session = this.#nextRootSessionId;
+    this.#nextRootSessionId += 1;
+    this.#entries.set(session, { inViewport: true });
+    return session;
   }
 
-  unregister(element: HTMLElement): void {
-    this.#dropDeferred(element);
-    this.#removeWorkerSlot(element);
-    this.#cancelPrepare(element);
-    this.#entries.delete(element);
+  unregister(session: RootSessionId): void {
+    if (!session) return;
+    this.#dropDeferred(session);
+    this.#removeWorkerSlot(session);
+    this.#cancelPrepare(session);
+    this.#entries.delete(session);
   }
 
-  update(element: HTMLElement, { inViewport, area, inlineSize, visibleArea, intersectionRatio }: CoordinatorUpdateOptions): void {
-    let entry = this.#entries.get(element);
+  update(session: RootSessionId, { inViewport, area, inlineSize, visibleArea, intersectionRatio }: CoordinatorUpdateOptions): void {
+    if (!session) return;
+    let entry = this.#entries.get(session);
     if (!entry) {
       entry = {
         inViewport: inViewport ?? true,
@@ -241,7 +256,7 @@ export class CoordinationService {
         visibleArea: visibleArea ?? 0,
         intersectionRatio: intersectionRatio ?? 1.0,
       };
-      this.#entries.set(element, entry);
+      this.#entries.set(session, entry);
     }
     const wasInViewport = entry.inViewport;
     if (inViewport !== undefined) entry.inViewport = inViewport;
@@ -250,29 +265,22 @@ export class CoordinationService {
     if (visibleArea !== undefined) entry.visibleArea = visibleArea;
     if (intersectionRatio !== undefined) entry.intersectionRatio = intersectionRatio;
     if (inViewport === true && !wasInViewport) {
-      this.#promoteDeferred(element);
+      this.#promoteDeferred(session);
     }
   }
 
-  remove(element: HTMLElement): void {
-    this.#dropDeferred(element);
-    this.#removeWorkerSlot(element);
-    this.#cancelPrepare(element);
-    this.#entries.delete(element);
-  }
-
-  #dropDeferred(element: HTMLElement): void {
-    if (!this.#deferred.delete(element)) return;
+  #dropDeferred(session: RootSessionId): void {
+    if (!this.#deferred.delete(session)) return;
     if (this.#deferred.size === 0 && this.#deferredTimer) {
       clearTimeout(this.#deferredTimer);
       this.#deferredTimer = 0;
     }
   }
 
-  #promoteDeferred(element: HTMLElement): void {
-    const bucket = this.#deferred.get(element);
+  #promoteDeferred(session: RootSessionId): void {
+    const bucket = this.#deferred.get(session);
     if (!bucket) return;
-    this.#deferred.delete(element);
+    this.#deferred.delete(session);
     if (this.#deferred.size === 0 && this.#deferredTimer) {
       clearTimeout(this.#deferredTimer);
       this.#deferredTimer = 0;
@@ -291,10 +299,10 @@ export class CoordinationService {
     let nextDueAt = Infinity;
     const deferredBuckets = Array.from(this.#deferred.entries());
     for (let i = 0; i < deferredBuckets.length; i++) {
-      const element = deferredBuckets[i][0];
+      const session = deferredBuckets[i][0];
       const bucket = deferredBuckets[i][1];
       if (bucket.dueAt <= now) {
-        this.#deferred.delete(element);
+        this.#deferred.delete(session);
         for (const task of bucket.tasks.values()) {
           this.#callbacks.set(task.callback, task);
         }
@@ -354,8 +362,8 @@ export class CoordinationService {
     // 2. Add deferCount aging boost so tasks that have waited multiple frames bubble up.
     if (allTasks.length > 1) {
       allTasks.sort((a, b) => {
-        const entryA = a.element ? this.#entries.get(a.element) : null;
-        const entryB = b.element ? this.#entries.get(b.element) : null;
+        const entryA = a.session !== null ? this.#entries.get(a.session) : undefined;
+        const entryB = b.session !== null ? this.#entries.get(b.session) : undefined;
 
         const inViewA = entryA?.inViewport ? 1 : 0;
         const inViewB = entryB?.inViewport ? 1 : 0;
@@ -502,23 +510,23 @@ export class CoordinationService {
     }
   }
 
-  requestFrame(callback: FrameTaskCallback, element: HTMLElement | null = null): void {
+  requestFrame(callback: FrameTaskCallback, session: RootSessionId | null = null): void {
     const existing = this.#callbacks.get(callback);
     const task: CoordinatorTask = {
       callback,
-      element,
+      session,
       deferCount: existing ? existing.deferCount : 0,
     };
-    const entry = element && this.#entries.get(element);
-    if (entry && !entry.inViewport) {
+    const entry = session !== null ? this.#entries.get(session) : undefined;
+    if (session !== null && entry && !entry.inViewport) {
       // OffscreenRequestQueue: one element can have several distinct
       // callbacks pending while off screen (initial enhance plus responsive
       // commits). Keep every callback per element; a single slot would let
       // the newest request silently drop the older ones.
-      let bucket = this.#deferred.get(element);
+      let bucket = this.#deferred.get(session);
       if (!bucket) {
         bucket = { dueAt: 0, tasks: new Map() };
-        this.#deferred.set(element, bucket);
+        this.#deferred.set(session, bucket);
       }
       const pending = bucket.tasks.get(callback);
       task.deferCount = Math.max(task.deferCount, pending ? pending.deferCount : 0);
@@ -538,10 +546,10 @@ export class CoordinationService {
     this.#callbacks.delete(callback);
     const deferredBuckets = Array.from(this.#deferred.entries());
     for (let i = 0; i < deferredBuckets.length; i++) {
-      const element = deferredBuckets[i][0];
+      const session = deferredBuckets[i][0];
       const bucket = deferredBuckets[i][1];
       bucket.tasks.delete(callback);
-      if (bucket.tasks.size === 0) this.#dropDeferred(element);
+      if (bucket.tasks.size === 0) this.#dropDeferred(session);
     }
     if (this.#callbacks.size === 0 && this.#rafId) {
       cancelAnimationFrame(this.#rafId);
@@ -549,14 +557,16 @@ export class CoordinationService {
     }
   }
 
-  registerWorker(element: HTMLElement, runtime: CoordinatorWorkerRuntime): void {
+  registerWorker(session: RootSessionId, element: HTMLElement, runtime: CoordinatorWorkerRuntime): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) {
+      if (this.#workerSlots[i].session === session) {
+        this.#workerSlots[i].element = element;
         this.#workerSlots[i].runtime = runtime;
         return;
       }
     }
     this.#workerSlots.push({
+      session,
       element,
       runtime,
       active: false,
@@ -577,15 +587,10 @@ export class CoordinationService {
   // deadline in the Date.now domain) and draws from a shared per-update
   // allowance; once it is spent, later callers fall back to the scheduled
   // lane. Remaining tiers stay with the polled frame loop.
-  grantImmediate(element: HTMLElement): boolean {
-    let slot: CoordinatorWorkerSlot | null = null;
-    for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) {
-        slot = this.#workerSlots[i];
-        break;
-      }
-    }
+  grantImmediate(session: RootSessionId): boolean {
+    const slot = this.#findWorkerSlot(session);
     if (!slot || typeof slot.runtime?.workerRunSlice !== "function") return false;
+    const element = slot.element;
     if (!slot.runtime.workerHasJob(element)) return false;
     const admission = this.#admitMainSlice("prepaint");
     if (!admission) return false;
@@ -635,18 +640,18 @@ export class CoordinationService {
   // loop after tasks and grants, under the same startTime deadline, one
   // candidate guaranteed per frame. Worker replies re-arm the loop through
   // the job's onSettled; the returned promise resolves with the stored-plan
-  // count once the job settles. A second registration for the same element
-  // resolves the previous promise and replaces the member.
-  runPrepare(element: HTMLElement, job: PrepareJob): Promise<number> {
-    const existing = this.#prepareMembers.get(element);
+  // count once the job settles. A second registration for the same root
+  // session resolves the previous promise and replaces the member.
+  runPrepare(session: RootSessionId, job: PrepareJob): Promise<number> {
+    const existing = this.#prepareMembers.get(session);
     if (existing) existing.resolve!(0);
     let resolve: PrepareResolveFn | null = null;
     const promise = new Promise<number>((r) => { resolve = r; });
-    this.#prepareMembers.set(element, { job, resolve });
+    this.#prepareMembers.set(session, { job, resolve });
     job.onSettled = (settledJob: PrepareJob): void => {
       if (settledJob.done) {
-        const member = this.#prepareMembers.get(element);
-        if (member && member.job === settledJob) this.#prepareMembers.delete(element);
+        const member = this.#prepareMembers.get(session);
+        if (member && member.job === settledJob) this.#prepareMembers.delete(session);
         settledJob.settled.then(resolve!);
       } else if (!this.#rafId) {
         this.#rafId = requestAnimationFrame(this.#runFrameLoop);
@@ -656,10 +661,10 @@ export class CoordinationService {
     return promise;
   }
 
-  #removeWorkerSlot(element: HTMLElement): void {
+  #removeWorkerSlot(session: RootSessionId): void {
     const slots = this.#workerSlots;
     for (let i = 0; i < slots.length; i++) {
-      if (slots[i].element !== element) continue;
+      if (slots[i].session !== session) continue;
       slots[i] = slots[slots.length - 1];
       slots.pop();
       break;
@@ -670,15 +675,15 @@ export class CoordinationService {
     }
   }
 
-  #cancelPrepare(element: HTMLElement): void {
-    const member = this.#prepareMembers.get(element);
+  #cancelPrepare(session: RootSessionId): void {
+    const member = this.#prepareMembers.get(session);
     if (!member) return;
-    this.#prepareMembers.delete(element);
+    this.#prepareMembers.delete(session);
     member.resolve!(0);
   }
 
-  setWorkerActive(element: HTMLElement, active: boolean): void {
-    const slot = this.#findWorkerSlot(element);
+  setWorkerActive(session: RootSessionId, active: boolean): void {
+    const slot = this.#findWorkerSlot(session);
     if (!slot) return;
     slot.active = active;
     if (active && !this.#rafId) {
@@ -690,13 +695,13 @@ export class CoordinationService {
   // granted nothing until this trailing window expires. Width changes while
   // the root stays off-screen keep pushing the due time out, so a fast drag
   // lays out only the final width.
-  refreshWorkerDeferred(element: HTMLElement): void {
-    const slot = this.#findWorkerSlot(element);
+  refreshWorkerDeferred(session: RootSessionId): void {
+    const slot = this.#findWorkerSlot(session);
     if (slot) slot.deferredUntil = Date.now() + OFFSCREEN_DEBOUNCE_MS;
   }
 
-  clearWorkerDeferred(element: HTMLElement): void {
-    const slot = this.#findWorkerSlot(element);
+  clearWorkerDeferred(session: RootSessionId): void {
+    const slot = this.#findWorkerSlot(session);
     if (!slot) return;
     slot.deferredUntil = 0;
     if (!this.#rafId) {
@@ -704,22 +709,22 @@ export class CoordinationService {
     }
   }
 
-  requestWorkerFrame(element: HTMLElement): void {
+  requestWorkerFrame(_session: RootSessionId): void {
     if (!this.#rafId) {
       this.#rafId = requestAnimationFrame(this.#runFrameLoop);
     }
   }
 
-  #findWorkerSlot(element: HTMLElement): CoordinatorWorkerSlot | null {
+  #findWorkerSlot(session: RootSessionId): CoordinatorWorkerSlot | null {
     for (let i = 0; i < this.#workerSlots.length; i++) {
-      if (this.#workerSlots[i].element === element) return this.#workerSlots[i];
+      if (this.#workerSlots[i].session === session) return this.#workerSlots[i];
     }
     return null;
   }
 
   #compareWorkerSlots = (a: CoordinatorWorkerSlot, b: CoordinatorWorkerSlot): number => {
-    const entryA = this.#entries.get(a.element);
-    const entryB = this.#entries.get(b.element);
+    const entryA = this.#entries.get(a.session);
+    const entryB = this.#entries.get(b.session);
     const inViewA = entryA?.inViewport ? 1 : 0;
     const inViewB = entryB?.inViewport ? 1 : 0;
     const visibleScoreA = entryA
@@ -775,7 +780,7 @@ export class CoordinationService {
     }
     slots.sort(this.#compareWorkerSlots);
     let visibleCount = 0;
-    while (visibleCount < slots.length && this.#entries.get(slots[visibleCount].element)?.inViewport) {
+    while (visibleCount < slots.length && this.#entries.get(slots[visibleCount].session)?.inViewport) {
       visibleCount += 1;
     }
     let grants = 0;
@@ -859,15 +864,15 @@ export class CoordinationService {
 
   #pollPrepare(startTime: number): void {
     if (this.#prepareMembers.size === 0) return;
-    for (const [element, member] of this.#prepareMembers) {
+    for (const [session, member] of this.#prepareMembers) {
       const job = member.job;
       if (job.done) continue;
       job.step(() => performance.now() - startTime >= this.#budgetMs);
       // A step can settle the job itself (cancellation settles without a
-      // reply); retire the member here so the element's await resumes and
+      // reply); retire the member here so the root's await resumes and
       // the retained frame loop has one less reason to stay armed.
       if (job.done) {
-        this.#prepareMembers.delete(element);
+        this.#prepareMembers.delete(session);
         job.settled.then(member.resolve);
       }
     }
@@ -894,7 +899,7 @@ export class CoordinationService {
         slot.deferCount = 0;
         continue;
       }
-      if (this.#entries.get(slot.element)?.inViewport) {
+      if (this.#entries.get(slot.session)?.inViewport) {
         keepFrames = true;
       } else if (!slot.deferredUntil) {
         // First frame this off-screen root has pending work: the debounce

@@ -19,21 +19,20 @@ test("offscreen frame tasks wait out the debounce instead of running each frame"
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
-    coordinator.register(element);
-    coordinator.update(element, { inViewport: false });
+    const session = coordinator.register();
+    coordinator.update(session, { inViewport: false });
 
     let runs = 0;
     const callback = () => {
       runs += 1;
     };
-    coordinator.requestFrame(callback, element);
+    coordinator.requestFrame(callback, session);
 
     // Several frames inside the debounce window: nothing runs, and repeated
     // requests keep pushing the due time later (trailing debounce).
     for (let frame = 0; frame < 6; frame += 1) {
       clock.advance(16);
-      coordinator.requestFrame(callback, element);
+      coordinator.requestFrame(callback, session);
     }
     assert.equal(runs, 0);
 
@@ -51,20 +50,19 @@ test("returning to the viewport promotes a deferred task without waiting for the
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
-    coordinator.register(element);
-    coordinator.update(element, { inViewport: false });
+    const session = coordinator.register();
+    coordinator.update(session, { inViewport: false });
 
     let runs = 0;
     coordinator.requestFrame(() => {
       runs += 1;
-    }, element);
+    }, session);
     clock.advance(16);
     assert.equal(runs, 0);
 
     // Back on screen: the pending task runs on the next frame, long before
     // the 200ms timer would have fired.
-    coordinator.update(element, { inViewport: true });
+    coordinator.update(session, { inViewport: true });
     clock.advance(16);
     assert.equal(runs, 1);
   } finally {
@@ -78,25 +76,23 @@ test("cancelFrame and unregister drop deferred tasks and the shared timer", asyn
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
-    const gone = {};
-    coordinator.register(element);
-    coordinator.register(gone);
-    coordinator.update(element, { inViewport: false });
+    const session = coordinator.register();
+    const gone = coordinator.register();
+    coordinator.update(session, { inViewport: false });
     coordinator.update(gone, { inViewport: false });
 
     let ran = 0;
     const callback = () => {
       ran += 1;
     };
-    coordinator.requestFrame(callback, element);
+    coordinator.requestFrame(callback, session);
     coordinator.requestFrame(callback, gone);
     coordinator.cancelFrame(callback);
     clock.advance(400);
     assert.equal(ran, 0);
 
-    coordinator.requestFrame(callback, element);
-    coordinator.unregister(element);
+    coordinator.requestFrame(callback, session);
+    coordinator.unregister(session);
     clock.advance(400);
     assert.equal(ran, 0);
   } finally {
@@ -110,13 +106,12 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
-    coordinator.register(element);
+    const session = coordinator.register();
 
     let runs = 0;
     coordinator.requestFrame(() => {
       runs += 1;
-    }, element);
+    }, session);
     clock.advance(16);
     assert.equal(runs, 1);
   } finally {
@@ -159,8 +154,8 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
     const coordinator = new Coordinator();
     const rootA = { name: "a" };
     const rootB = { name: "b" };
-    coordinator.register(rootA);
-    coordinator.register(rootB);
+    const sessionA = coordinator.register();
+    const sessionB = coordinator.register();
     const pending = new Map([
       [rootA, [1, 0, 0]],
       [rootB, [0, 1, 0]],
@@ -168,9 +163,9 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
     const grants = [];
     const controllers = [];
     const runtime = fakeWorkerRuntime(pending, grants, controllers);
-    coordinator.registerWorker(rootA, runtime);
-    coordinator.registerWorker(rootB, runtime);
-    coordinator.setWorkerActive(rootA, true);
+    coordinator.registerWorker(sessionA, rootA, runtime);
+    coordinator.registerWorker(sessionB, rootB, runtime);
+    coordinator.setWorkerActive(sessionA, true);
 
     clock.advance(16);
     // TierOrderedGrants: every visible root's tier 1 drains before the first
@@ -203,12 +198,12 @@ test("offscreen workers wait out the debounce before receiving grants", async ()
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
     const root = { name: "offscreen" };
-    coordinator.register(root);
-    coordinator.update(root, { inViewport: false });
+    const session = coordinator.register();
+    coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [2, 0, 0]]]);
     const grants = [];
-    coordinator.registerWorker(root, fakeWorkerRuntime(pending, grants));
-    coordinator.setWorkerActive(root, true);
+    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, grants));
+    coordinator.setWorkerActive(session, true);
 
     // Frames inside the debounce window: no grant at all.
     clock.advance(16);
@@ -232,18 +227,18 @@ test("returning to the viewport clears the worker debounce immediately", async (
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
     const root = { name: "returning" };
-    coordinator.register(root);
-    coordinator.update(root, { inViewport: false });
+    const session = coordinator.register();
+    coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [1, 0, 0]]]);
     const grants = [];
-    coordinator.registerWorker(root, fakeWorkerRuntime(pending, grants));
-    coordinator.setWorkerActive(root, true);
+    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, grants));
+    coordinator.setWorkerActive(session, true);
     clock.advance(32);
     assert.equal(grants.length, 0);
 
     // Back on screen: the next frame grants without waiting out the window.
-    coordinator.update(root, { inViewport: true });
-    coordinator.clearWorkerDeferred(root);
+    coordinator.update(session, { inViewport: true });
+    coordinator.clearWorkerDeferred(session);
     clock.advance(16);
     assert.deepEqual(grants, [["returning", 1]]);
   } finally {
@@ -263,11 +258,11 @@ test("grant quota grows on healthy frames and halves on slow ones", async () => 
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
     const root = { name: "adaptive" };
-    coordinator.register(root);
+    const session = coordinator.register();
     const pending = new Map([[root, [0, 0, 0]]]);
     const controllers = [];
-    coordinator.registerWorker(root, fakeWorkerRuntime(pending, [], controllers));
-    coordinator.setWorkerActive(root, true);
+    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, [], controllers));
+    coordinator.setWorkerActive(session, true);
 
     const feed = (n) => { pending.get(root)[0] = n; };
     const frameQuota = () => {
@@ -277,7 +272,7 @@ test("grant quota grows on healthy frames and halves on slow ones", async () => 
     };
     const runFrame = (quota, stepMs) => {
       feed(quota);
-      coordinator.requestWorkerFrame(root);
+      coordinator.requestWorkerFrame(session);
       clock.advance(stepMs);
       return frameQuota();
     };
@@ -327,17 +322,17 @@ test("a slow frame halves only roots that committed in the previous frame", asyn
     const coordinator = new Coordinator();
     const rootA = { name: "heavy" };
     const rootB = { name: "quiet" };
-    coordinator.register(rootA);
-    coordinator.register(rootB);
+    const sessionA = coordinator.register();
+    const sessionB = coordinator.register();
     const pending = new Map([
       [rootA, [0, 0, 0]],
       [rootB, [0, 0, 0]],
     ]);
     const controllers = [];
-    coordinator.registerWorker(rootA, fakeWorkerRuntime(pending, [], controllers));
-    coordinator.registerWorker(rootB, fakeWorkerRuntime(pending, [], controllers));
-    coordinator.setWorkerActive(rootA, true);
-    coordinator.setWorkerActive(rootB, true);
+    coordinator.registerWorker(sessionA, rootA, fakeWorkerRuntime(pending, [], controllers));
+    coordinator.registerWorker(sessionB, rootB, fakeWorkerRuntime(pending, [], controllers));
+    coordinator.setWorkerActive(sessionA, true);
+    coordinator.setWorkerActive(sessionB, true);
 
     const feed = (element, n) => { pending.get(element)[0] = n; };
     const frameQuotas = () => {
@@ -348,7 +343,7 @@ test("a slow frame halves only roots that committed in the previous frame", asyn
     const runFrame = (a, b, stepMs) => {
       feed(rootA, a);
       feed(rootB, b);
-      coordinator.requestWorkerFrame(rootA);
+      coordinator.requestWorkerFrame(sessionA);
       clock.advance(stepMs);
     };
 
@@ -389,7 +384,7 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
+    const session = coordinator.register();
 
     function createFakeJob(totalCandidates = 3) {
       let index = 0;
@@ -425,17 +420,17 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
     }
 
     const job = createFakeJob(3);
-    const promise = coordinator.runPrepare(element, job);
+    const promise = coordinator.runPrepare(session, job);
 
     // Advancing the clock through 3 frames steps each candidate and settles the job.
     clock.advance(48);
     assert.equal(await promise, 3);
 
-    // A second registration for the same element resolves the previous promise with 0.
+    // A second registration for the same root session resolves the previous promise with 0.
     const firstJob = createFakeJob(3);
     const secondJob = createFakeJob(3);
-    const firstPromise = coordinator.runPrepare(element, firstJob);
-    const secondPromise = coordinator.runPrepare(element, secondJob);
+    const firstPromise = coordinator.runPrepare(session, firstJob);
+    const secondPromise = coordinator.runPrepare(session, secondJob);
     assert.equal(await firstPromise, 0);
 
     // Advancing through the second job settles it cleanly.
@@ -462,7 +457,7 @@ test("a prepare job cancelled by its staleness guard settles and retires its mem
   try {
     const Coordinator = await importCoordinator();
     const coordinator = new Coordinator();
-    const element = {};
+    const session = coordinator.register();
 
     // Phase one: a healthy job settles through the frame loop.
     let remaining = 2;
@@ -482,7 +477,7 @@ test("a prepare job cancelled by its staleness guard settles and retires its mem
         return 1;
       },
     };
-    const healthyPromise = coordinator.runPrepare(element, healthy);
+    const healthyPromise = coordinator.runPrepare(session, healthy);
     clock.advance(16);
     assert.equal(await healthyPromise, 2);
     assert.ok(rafRequests > 0);
@@ -502,7 +497,7 @@ test("a prepare job cancelled by its staleness guard settles and retires its mem
         return 0;
       },
     };
-    const cancelledPromise = coordinator.runPrepare(element, cancelled);
+    const cancelledPromise = coordinator.runPrepare(session, cancelled);
     clock.advance(16);
     assert.equal(await cancelledPromise, 0);
 
