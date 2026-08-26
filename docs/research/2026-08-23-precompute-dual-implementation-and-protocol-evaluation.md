@@ -363,7 +363,43 @@ region order and validates every offset」。双边实现已在生产运行。
 1. 淘汰外部生成脚本：使用 Haxe 编译期宏将排版结构体直接映射为固定偏移的连续字节 Buffer，替代 `tools/schema/generate_*.py` 等外部 Python 文本拼接脚本，保证多端数据布局原子同步。
 2. 双模诊断支持：生产模式通过直接指针与 DataView 原地读取；调试模式由宏自动生成带字段偏移映射的 JSON 序列化与差分定位工具，支持快速二进制比对并精确输出具体字段的分叉原因。
 
-## 9. 结论
+## 9. 渐进迁移路线与切入点（避免双核中间态 FFI 割裂）
+
+在向 Haxe 迁移过程中，若在引擎内部直接引入跨语言 FFI 胶水连接重构模块与既有 Kotlin 模块，会导致中间状态维护成本与排错复杂度上升。通过源码生成与分层迁移消除该过渡负担。
+
+### 9.1 中间态过渡策略：Reflaxe Kotlin 回写机制
+
+迁移期间不建立跨语言 FFI 运行时桥接，采用源码生成与原地替换策略：
+
+1. **统一由 Haxe 生成 Kotlin 源码**：重构完成的 Haxe 模块通过 Reflaxe.Kotlin 输出为标准 Kotlin 代码，直接替换 `engine` 对应包中的手写源码，参与既有 Gradle 多平台编译。
+2. **零胶水开销与零破坏性**：Compose、Android 与既存 `ffi/js`、`ffi/native` 保持对 `engine` 的直接依赖，调用路径与数据结构完全不变，无需为过渡状态维护临时的 C-ABI 或 JS 导出胶水。
+3. **金丝雀行为校验**：直接运行既有 `LayoutDumpGoldenTest` 与模块单元测试，对排版决策记录进行逐项断言，确保生成的 Kotlin 代码同原实现无行为差异。
+4. **多端同步独立冒烟**：同源 Haxe 代码经 Reflaxe.Rust 与 TS Emitter 生成对应语言源码，在独立的微测试中验证控制流与基础运算的一致性。
+
+### 9.2 优先切入候选模块
+
+选择切入模块遵循三项原则：单向无环依赖中的叶子模块、纯算法与状态转移逻辑（符合 boring 子集）、具备独立 Oracle 测试覆盖。
+
+#### 候选一：`org.tiqian.linebreak`（断行分析与连字符断词）
+
+- **模块职责**：包含西文连字符断词算法（`EnglishHyphenation`）与 Unicode 标点换行机会判定（`LineBreakRules`）。
+- **入选原因**：仅依赖 `core` 中的字符范围（`TextRange`），输入为源码字符串与配置，输出为断点索引数组与枚举。逻辑完全由查表与循环转移构成，无复杂闭包与动态内存共享。
+- **验证方式**：复用 `EnglishHyphenationTest` 与 `DecideHyphenBreakTest`；针对万词混排语料，比对 Haxe 生成的 Kotlin、Rust、TypeScript 三端输出的断点索引列表，断言数组内容一致。
+
+#### 候选二：`org.tiqian.clreq`（中文排版标点分类与挤压/悬挂规则）
+
+- **模块职责**：包含标点符号类别划分（`ClreqPunctuation`）、禁则等级（`KinsokuLevel`）、标点挤压几何范围计算（`PunctuationGlue`）、注音解析（`Bopomofo`）与数字符号聚合（`NumberSymbolCohesion`）。
+- **入选原因**：输入为相邻字符码点和排版配置文件（`ClreqProfile`），输出为确定宽度范围 `[min, target, max]` 与状态枚举，计算规则明确且与平台渲染完全解耦。
+- **验证方式**：复用 `KinsokuLevelTest`、`PunctuationGluePlacementTest` 与 `NumberSymbolCohesionTest`；对 Unicode CJK 标点集合做全量笛卡尔积测试，断言多端计算结果一致。
+
+### 9.3 四阶段演进流程
+
+1. **阶段一（叶子模块迁移）**：编写 `linebreak` 与 `clreq` 的 Haxe 源码，生成 Kotlin 替换原有包并验证 `engine` 测试全部通过；同时生成 Rust/TS 执行独立微测试。
+2. **阶段二（数据层统合）**：将 `core`（Units、LayoutModel、Unicode 数据表）迁入 Haxe，使用编译期宏生成二分查找表与紧凑结构。
+3. **阶段三（调度层收拢）**：将 `layout`（ParagraphDpLineBreaker、Justifier、LineRepair）迁入 Haxe，完成整个 `engine` 单一事实源收敛，继续由生成的 Kotlin 支撑既有项目编译。
+4. **阶段四（多端原生消费与 FFI 移除）**：Web 前端直接引入生成的 TypeScript 模块并移除 `ffi/js`；Rust Precompute 直接引入生成的 Rust crate 并移除 `ffi/native` 中的 C-ABI 胶水代码；Compose 与 Android 保持直接消费生成的 Kotlin 模块。
+
+## 10. 结论
 
 1. 双实现漂移的成因在于验证方式：语料比对只覆盖样本，编译器生成覆盖全部路径。前者在每次行为变化时都要手工重写另一侧，后者只需要保证源本身的语义正确。
 2. Haxe protocol 方案成本 1.5-2.5 人月（第 3.3 节），前提是协议为单一权威且 boring 子集以 CI 规则强制。
@@ -375,3 +411,4 @@ region order and validates every offset」。双边实现已在生产运行。
 8. 许可证路径选择：portable + hxrt 使发行物按 GPL-3.0 发布，与仓库的 MPL-2.0 冲突；metal + `rust_no_hxrt` 加验证门使产物不含 GPL 代码；MIT 的 reflaxe 框架自写 emitter 使产物全链不含 GPL 依赖，该 emitter 已在成本构成（第 3.3 节）之内，许可证处理不增加成本。产物不含 GPL 代码后，编译器本身的 GPL-3.0 按编译器输出立场处理（Haxe 官方 FAQ 记录同立场）。
 9. `engine` 排版核心具备向 Kotlin、TypeScript、Rust、Swift、Dart 多端转译的代码特征（零继承树、树状数据流、纯算法）；以 Kotlin 语义为基准对齐除法、浮点、字符串与循环作用域后，通过 Reflaxe 宏展开消除运行时依赖，可由同一份 Haxe 源码输出各平台原生代码，并通过 `LayoutDumpGoldenTest` 决策树保证跨端一致性。
 10. 标准文档树 IR 与排版流水线将分散的配置与 Lowering 统一移入引擎内核，消解 Web 等前端在外部扁平化 DOM 导致的边界切分偏差；配合编译期 Packed Buffer 宏与双模诊断体系，可替代外部 Python 生成脚本并降低各端接入与调试复杂度。
+11. 渐进迁移采用 Reflaxe.Kotlin 回写与叶子先行策略（以 `linebreak` 与 `clreq` 为试点），消除中间状态跨语言 FFI 胶水维护成本，保障全流程 Golden 测试持续有效。
