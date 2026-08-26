@@ -98,8 +98,7 @@ interface FfiExports {
   precomputeParagraphWithBrowserMetrics: (
     request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: number,
-    shapeJson: (p0: string) => string,
-    metricsJson: (p0: string) => string,
+    callbacks: { shapeJson: (p0: string) => string; metricsJson: (p0: string) => string },
   ) => string;
 }
 

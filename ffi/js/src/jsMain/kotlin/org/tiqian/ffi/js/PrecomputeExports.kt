@@ -3,8 +3,6 @@
 package org.tiqian.ffi.js
 
 import kotlin.js.JsExport
-import org.tiqian.font.FontMetricsResolver
-import org.tiqian.shaping.TextShaper
 
 /**
  * Plan-plus-diagnostics envelope for the TsHost web-host prepare step. The
@@ -37,24 +35,23 @@ fun precomputeParagraphWithDiagnostics(
  * Plan-plus-diagnostics envelope using host-provided browser measurement callbacks.
  *
  * The layout engine runs in Kotlin while text shaping and font metric resolution
- * are delegated to JavaScript callbacks ([shapeJson] and [metricsJson]). No native
+ * are delegated to JavaScript callbacks via [BrowserMetricsCallbacks]. No native
  * font session is created. The callbacks run on the same synchronous call stack,
  * and every shape() request re-sends the segment text.
  *
- * Corrective wave 5 (#106): entry signatures now take declared DTO interfaces
- * instead of flat separator-joined strings.
+ * Corrective wave 5 (#106): the typed [BrowserMetricsCallbacks] DTO replaces
+ * the previous adapter classes and individual function parameters.
  */
 @JsExport
 fun precomputeParagraphWithBrowserMetrics(
     request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: Double,
-    shapeJson: (String) -> String,
-    metricsJson: (String) -> String,
+    callbacks: BrowserMetricsCallbacks,
 ): String {
     val internalRequest = toInternalPrepareRequest(request)
     return ParagraphWireCodec(
-        textShaper = JsCallbackTextShaper(shapeJson),
-        fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
+        textShaper = JsCallbackTextShaper { requestJson -> callbacks.shapeJson(requestJson) },
+        fontMetricsResolver = JsCallbackFontMetricsResolver { requestJson -> callbacks.metricsJson(requestJson) },
     ).planWithDiagnostics(internalRequest, zeroAdvanceEpsilonPx)
 }
 

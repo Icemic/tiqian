@@ -244,11 +244,13 @@ test("Shaping wire byte lock", () => {
   precomputeParagraphWithBrowserMetrics(
     request,
     0.01,
-    (req) => {
-      capturedShapeRequests.push(req);
-      return bridge.shapeJson(req);
+    {
+      shapeJson: (req) => {
+        capturedShapeRequests.push(req);
+        return bridge.shapeJson(req);
+      },
+      metricsJson: (req) => bridge.metricsJson(req),
     },
-    (req) => bridge.metricsJson(req),
   );
 
   assert.ok(capturedShapeRequests.length > 0);
@@ -274,10 +276,12 @@ test("Metrics wire byte lock", () => {
   precomputeParagraphWithBrowserMetrics(
     request,
     0.01,
-    (req) => bridge.shapeJson(req),
-    (req) => {
-      capturedMetricsRequests.push(req);
-      return bridge.metricsJson(req);
+    {
+      shapeJson: (req) => bridge.shapeJson(req),
+      metricsJson: (req) => {
+        capturedMetricsRequests.push(req);
+        return bridge.metricsJson(req);
+      },
     },
   );
 
@@ -302,8 +306,7 @@ test("End-to-end plan", () => {
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
     request,
     0.01,
-    bridge.shapeJson,
-    bridge.metricsJson,
+    bridge,
   );
 
   const envelope = JSON.parse(rawEnvelope);
@@ -333,8 +336,7 @@ test("Parity against the scripted canvas-model backend", () => {
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
     request,
     0.01,
-    bridge.shapeJson,
-    bridge.metricsJson,
+    bridge,
   );
   const envelope = JSON.parse(rawEnvelope);
   const planA = JSON.parse(envelope.plan);
@@ -379,8 +381,7 @@ test("Dash capability passthrough", () => {
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
     request,
     0.01,
-    bridge.shapeJson,
-    bridge.metricsJson,
+    bridge,
   );
 
   const envelope = JSON.parse(rawEnvelope);

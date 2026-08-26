@@ -132,12 +132,6 @@ const EXEMPTIONS = [
 
   // R3b: export entries awaiting their corrective wave instead of an engine
   // counterpart sign-off.
-  {
-    task: "#104",
-    rules: ["R3-export-entry-review"],
-    symbol: "precomputeParagraphWithBrowserMetrics",
-    reason: "JSON-string callback envelope over the wire codec lane; the envelope becomes declared DTOs in corrective wave 5 (#106).",
-  },
 
 // R4: separator literals outside the declared codec modules. All die when
 // payloads cross the boundary as declared DTOs (纠偏 5/#106), except the
@@ -335,6 +329,10 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
   [
     "precomputeParagraphWithDiagnostics",
     "org.tiqian.ffi.js.ParagraphWireCodec.planWithDiagnostics pipeline; host callbacks enter as JsCallback shaper/resolver data conversion (post 纠偏 4/#105 review, session-id surface deleted)",
+  ],
+  [
+    "precomputeParagraphWithBrowserMetrics",
+    "org.tiqian.ffi.js.ParagraphWireCodec.planWithDiagnostics pipeline via BrowserMetricsCallbacks DTO; host callbacks enter as JsCallback shaper/resolver data conversion (corrective wave 5/#106)",
   ],
 ]);
 

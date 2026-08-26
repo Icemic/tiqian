@@ -294,7 +294,8 @@ impl CaptureEvidence {
             input.italic,
             input.role,
             input.face_selection_text,
-        );
+        )
+        .render();
         if self.replay_metric_keys.contains(&key) {
             return;
         }
@@ -527,7 +528,8 @@ impl FontSession {
             input.locale,
             input.role,
             input.source_text.unwrap_or(input.display_text),
-        );
+        )
+        .render();
         let replay_entry = build_shape_replay(input, &result, record);
         let key = usage_key(record, input, &result);
         let usage = FaceUsage {
