@@ -10,13 +10,14 @@ import * as tsRuntime from "./ts-runtime.js";
 // engine bootstrap - one load memo, the installed engine/worker handles, the
 // timing-golden override seam, and the copy installer shared between the
 // element layer and the engine graph (one-listener-per-document invariant).
-// All of it lives in the closure-scoped loader state; a repeated
-// loadTiqianRuntime call returns the memoized first engine, it does not
-// build a second graph.
+// S5-bc: the closure-scoped loader state dissolved into
+// globalServices().runtimeLoader; a repeated loadTiqianRuntime call returns
+// the memoized first engine, it does not build a second graph.
 
 import type { TiqianEngineInstance, TiqianEngineWorkersInstance } from "../engine-entry.js";
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
+import { globalServices } from "../../services/global-services.js";
 
 export type RuntimeAction<T> = (engine: TiqianEngineInstance | null) => T;
 
@@ -117,13 +118,20 @@ function createLoaderState(): EngineLoadState {
   };
 }
 
-const loaderState: EngineLoadState = createLoaderState();
+// S5-bc: the loader state is registered in globalServices().runtimeLoader
+// instead of living as a module-scope singleton. The accessor function
+// replaces the former module-level const.
+globalServices().runtimeLoader = createLoaderState();
+
+function runtimeLoader(): EngineLoadState {
+  return globalServices().runtimeLoader as EngineLoadState;
+}
 
 // Hosts that run the element layer against their own engine implementation
 // (the timing-golden drive substitutes a recording stub) install it here.
 // The override wins over every resolved runtime export.
 export function setEngineOverride(engine: TiqianEngineInstance | null | undefined): void {
-  loaderState.setOverride(engine);
+  runtimeLoader().setOverride(engine);
 }
 
 // Direct engine call face (ADR 0053 C1): the engine entry built by the
@@ -131,13 +139,13 @@ export function setEngineOverride(engine: TiqianEngineInstance | null | undefine
 // calls. Both accessors answer null until the runtime install resolves, so
 // callers treat a null answer as "engine not ready" and stop there.
 export function engineApi(): TiqianEngineInstance | null {
-  return loaderState.engineApi();
+  return runtimeLoader().engineApi();
 }
 
 // Polled worker facade (WorkerPolledScheduling): the worker-prefixed methods
 // installed on the engine entry by ts-runtime.
 export function workerApi(): TiqianEngineWorkersInstance | null {
-  return loaderState.workerApi();
+  return runtimeLoader().workerApi();
 }
 
 // Shared copy installer (one-listener-per-document invariant): the element
@@ -145,15 +153,15 @@ export function workerApi(): TiqianEngineWorkersInstance | null {
 // again at enhance time; both must share the same per-document WeakSet, so the
 // loader owns one instance and hands it to the composition root.
 export function copyInstaller(): CopyInstaller {
-  return loaderState.getCopyInstaller();
+  return runtimeLoader().getCopyInstaller();
 }
 
 export function loadTiqianRuntime(): Promise<unknown> {
-  return loaderState.load();
+  return runtimeLoader().load();
 }
 
 export function currentTiqianRuntime(): Promise<unknown> | undefined {
-  return loaderState.current();
+  return runtimeLoader().current();
 }
 
 export async function withTiqianRuntime<T>(action: RuntimeAction<T>): Promise<T> {
@@ -161,20 +169,20 @@ export async function withTiqianRuntime<T>(action: RuntimeAction<T>): Promise<T>
   return action(engineApi());
 }
 export type PreparedDomRendererModuleGetter = () => typeof preparedDom | null;
-export const getPreparedDomRendererModule: PreparedDomRendererModuleGetter = () => loaderState.rendererModule();
+export const getPreparedDomRendererModule: PreparedDomRendererModuleGetter = () => runtimeLoader().rendererModule();
 
 export function loadPreparedDomRenderer(): Promise<typeof preparedDom> {
-  return loaderState.loadRenderer();
+  return runtimeLoader().loadRenderer();
 }
 export function preparedDomRendererModule(): typeof preparedDom | null {
-  return loaderState.rendererModule();
+  return runtimeLoader().rendererModule();
 }
 export function preparedDomValidator(): PreparedDomValidatorInterface | null {
-  return loaderState.validator();
+  return runtimeLoader().validator();
 }
 export function setPreparedDomRendererForTest(renderer: typeof preparedDom | null | undefined): void {
-  loaderState.setRendererForTest(renderer);
+  runtimeLoader().setRendererForTest(renderer);
 }
 export function setPreparedDomValidatorForTest(validator: PreparedDomValidatorInterface | null | undefined): void {
-  loaderState.setValidatorForTest(validator);
+  runtimeLoader().setValidatorForTest(validator);
 }

@@ -7,12 +7,13 @@
 // The container must be one per document rather than one per module copy
 // because client routers, dev HMR and duplicated package chunks can evaluate
 // this module more than once in the same document. The Symbol.for key shares
-// one container across those copies, mirroring the worker-channel coordinator
-// precedent (core/engine/web-worker/worker-channel.ts). Members are resolved
-// through the globalServices() accessor rather than passed as parameters
-// because hosts reach the services from async callbacks that never see an
-// assembly scope: ResizeObserver, IntersectionObserver and requestAnimationFrame
-// entry points all invoke the library without a construction context.
+// one container across those copies; the former worker-channel coordinator
+// precedent (S5-bc: consolidated into coordination.channel) established
+// this pattern. Members are resolved through the globalServices() accessor
+// rather than passed as parameters because hosts reach the services from
+// async callbacks that never see an assembly scope: ResizeObserver,
+// IntersectionObserver and requestAnimationFrame entry points all invoke
+// the library without a construction context.
 //
 // Library-internal, test-only injection: installGlobalServicesForTesting
 // swaps the container for an explicit replacement and returns a restore
@@ -32,6 +33,15 @@ export interface PreparedStylesState {
   scopeCounters: WeakMap<Document, PreparedScopeCounter>;
 }
 
+/**
+ * Opaque loader state container (S5-bc). The runtime-loader module owns
+ * the concrete type; this interface exposes only the accessor surface that
+ * the container needs to hold.
+ */
+export interface RuntimeLoaderSlot {
+  [key: string]: unknown;
+}
+
 export interface GlobalServices {
   coordination: CoordinationService;
   // Font/measurement coordination state: page-wide singletons owned by the
@@ -45,6 +55,11 @@ export interface GlobalServices {
   // copies, hence they live in the page-global container rather than in
   // prepared-dom.ts module state.
   preparedStyles: PreparedStylesState;
+  // Runtime loader slot: per-document engine bootstrap state dissolved from
+  // runtime-loader.ts module scope (S5-bc). The loader functions populate
+  // this slot at import time; consumers read it through the runtime-loader
+  // accessor functions.
+  runtimeLoader?: RuntimeLoaderSlot;
 }
 
 type GlobalServicesRegistry = Record<symbol, GlobalServices | undefined>;
@@ -63,6 +78,7 @@ function createGlobalServices(): GlobalServices {
       rootsByHost: new WeakMap<Element, Element>(),
       scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
     },
+    runtimeLoader: undefined,
   };
 }
 

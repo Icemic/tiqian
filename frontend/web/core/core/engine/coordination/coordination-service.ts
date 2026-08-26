@@ -11,6 +11,12 @@ import type { FontCoordinationState } from "./fonts.js";
 import { createReplayRegistry } from "./fonts.js";
 import type { MeasurementCoordinationState } from "./measurement.js";
 import type { TraceConfig } from "../lifecycle.js";
+import type {
+  PageWorkerCoordinator,
+  PlanRecord,
+  PendingRequest,
+  WorkerResponseEnvelope,
+} from "../web-worker/worker-channel.js";
 
 export type LayoutWorkerTakeFn = (
   element: Element | null | undefined,
@@ -171,6 +177,16 @@ export class CoordinationService {
   layoutWorker?: TiqianLayoutWorkerInstance;
   traceConfig?: TraceConfig;
   frameTrace?: FrameTraceRow[];
+  // PageWorkerCoordinator: the Kotlin-era page bridge registry consolidated
+  // from worker-channel.ts module scope (S5-bc). The Symbol.for sharing
+  // pattern is preserved through globalServices, which itself uses Symbol.for.
+  channel: PageWorkerCoordinator = {
+    plans: new Map(),
+    worker: null,
+    nextRequestId: 1,
+    pending: new Map(),
+    initializedSessions: new Set(),
+  };
   #entries: Map<HTMLElement, CoordinatorEntry> = new Map();
   // FontCoordinationState and MeasurementCoordinationState: page-wide
   // font/measurement singletons the absorbed loader modules consult (see
