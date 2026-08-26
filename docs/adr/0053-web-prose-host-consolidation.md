@@ -1463,6 +1463,14 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
 - 引擎改名：`ExplainableStubParagraphLayoutEngine` 改为
   `TiqianParagraphLayoutEngine`，旧名不再并存；出处与署名标注在
   ADR 0008 Amendment。
+- npm workspace 化：根 `package.json` 声明七个工作区成员，成员间依赖按
+  精确版本解析到工作树符号链接，全部 link 脚本与成员级 lock 删除。npm
+  不支持 `workspace:` 协议；声明版本与成员版本不一致时安装回退
+  registry，成员升版必须在同一改动里同步全部依赖方声明。
+- 共享样式表单源：`styles.css` 只由 `@tiqian/core` 发布并导出，prose
+  停止随包携带与导出；全部下游改为解析 `@tiqian/core/styles.css`。Node 22
+  要求 exports target 以 `./` 开头，跨包转发子路径不可实现，只能由下游
+  直接解析上游。
 - 终则定稿随纠偏收尾落回本 ADR；ADR 0050 同日附注记录 JS lane 侧判定。
 
 ### KPI 汇总
