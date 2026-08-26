@@ -54,11 +54,9 @@ class JsCallbackAdaptersTest {
             fontMetricsResolver = stubResolver,
         ).planWithDiagnostics(directRequest, zeroAdvanceEpsilonPx)
 
-        val bridgeShaper = JsCallbackTextShaper { requestJson ->
-            echoShape(requestJson, stubShaper)
-        }
-        val bridgeResolver = JsCallbackFontMetricsResolver { requestJson ->
-            echoMetrics(requestJson, stubResolver)
+        val callbacks = object : BrowserMetricsCallbacks {
+            override fun shapeJson(requestJson: String): String = echoShape(requestJson, stubShaper)
+            override fun metricsJson(requestJson: String): String = echoMetrics(requestJson, stubResolver)
         }
 
         val bridgeRequest = prepareRequest { builder ->
@@ -74,8 +72,8 @@ class JsCallbackAdaptersTest {
             builder.lineLengthGridEnabled = lineLengthGridEnabled
         }
         val bridgePlan = ParagraphWireCodec(
-            textShaper = bridgeShaper,
-            fontMetricsResolver = bridgeResolver,
+            textShaper = JsCallbackTextShaper(callbacks::shapeJson),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(callbacks::metricsJson),
         ).planWithDiagnostics(bridgeRequest, zeroAdvanceEpsilonPx)
 
         assertEquals(directPlan, bridgePlan)
@@ -163,9 +161,13 @@ class JsCallbackAdaptersTest {
             builder.firstLineIndentIc = 0.0
             builder.lineLengthGridEnabled = true
         }
+        val callbacks = object : BrowserMetricsCallbacks {
+            override fun shapeJson(requestJson: String): String = cannedShapeJson(requestJson)
+            override fun metricsJson(requestJson: String): String = cannedMetricsJson(requestJson)
+        }
         val codec = ParagraphWireCodec(
-            textShaper = JsCallbackTextShaper(cannedShapeJson),
-            fontMetricsResolver = JsCallbackFontMetricsResolver(cannedMetricsJson),
+            textShaper = JsCallbackTextShaper(callbacks::shapeJson),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(callbacks::metricsJson),
         )
         val envelopeJson = codec.planWithDiagnostics(request, 0.01)
 
@@ -189,11 +191,9 @@ class JsCallbackAdaptersTest {
         val stubShaper = ExplainableStubTextShaper()
         val stubResolver = StubFontMetricsResolver()
 
-        val bridgeShaper: (String) -> String = { requestJson ->
-            echoShape(requestJson, stubShaper)
-        }
-        val bridgeResolver: (String) -> String = { requestJson ->
-            echoMetrics(requestJson, stubResolver)
+        val callbacks = object : BrowserMetricsCallbacks {
+            override fun shapeJson(requestJson: String): String = echoShape(requestJson, stubShaper)
+            override fun metricsJson(requestJson: String): String = echoMetrics(requestJson, stubResolver)
         }
 
         val request = prepareRequest { builder ->
@@ -212,8 +212,8 @@ class JsCallbackAdaptersTest {
         }
 
         val codec = ParagraphWireCodec(
-            textShaper = JsCallbackTextShaper(bridgeShaper),
-            fontMetricsResolver = JsCallbackFontMetricsResolver(bridgeResolver),
+            textShaper = JsCallbackTextShaper(callbacks::shapeJson),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(callbacks::metricsJson),
         )
         val envelopeJson = codec.planWithDiagnostics(request, 0.001)
 
@@ -228,11 +228,9 @@ class JsCallbackAdaptersTest {
         val stubShaper = ExplainableStubTextShaper()
         val stubResolver = StubFontMetricsResolver()
 
-        val bridgeShaper: (String) -> String = { requestJson ->
-            echoShape(requestJson, stubShaper)
-        }
-        val bridgeResolver: (String) -> String = { requestJson ->
-            echoMetrics(requestJson, stubResolver)
+        val callbacks = object : BrowserMetricsCallbacks {
+            override fun shapeJson(requestJson: String): String = echoShape(requestJson, stubShaper)
+            override fun metricsJson(requestJson: String): String = echoMetrics(requestJson, stubResolver)
         }
 
         val request = prepareRequest { builder ->
@@ -250,8 +248,8 @@ class JsCallbackAdaptersTest {
         }
 
         val codec = ParagraphWireCodec(
-            textShaper = JsCallbackTextShaper(bridgeShaper),
-            fontMetricsResolver = JsCallbackFontMetricsResolver(bridgeResolver),
+            textShaper = JsCallbackTextShaper(callbacks::shapeJson),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(callbacks::metricsJson),
         )
         val envelopeJson = codec.planWithDiagnostics(request, 0.001)
 
