@@ -15,7 +15,7 @@ internal object NativeFontBackendRegistry {
     // Must equal TIQIAN_FONT_BACKEND_PROTOCOL_REVISION in
     // tiqian_font_backend.h; the install check reports a mismatch as a named
     // error instead of trusting the number.
-    internal const val PROTOCOL_REVISION: UInt = 1u
+    internal const val PROTOCOL_REVISION: UInt = 2u
 
     private var installedRevision: UInt = 0u
     private var installed: CPointer<tiqian_font_backend_vtable_t>? = null

@@ -21,7 +21,6 @@ use crate::source_boundaries::{
 
 pub const BACKEND_REVISION: &str = "tiqian-shared-harfbuzz-v5";
 pub const FONT_REPLAY_REVISION: &str = "tiqian-server-shaping-replay-v1";
-const FAMILY_SEPARATOR: char = '\u{001f}';
 
 /// Engine identity of the Rust stack; the JS session reports the wasm
 /// HarfBuzz version here. The field is an exempt engine-identity output.
@@ -193,7 +192,7 @@ pub struct FontEvidence {
 /// The shape call inputs, mirroring the global backend's `shape(...)`.
 pub struct ShapeInput<'a> {
     pub display_text: &'a str,
-    pub serialized_families: &'a str,
+    pub font_families: &'a [String],
     pub font_size: f64,
     pub font_weight: f64,
     pub italic: bool,
@@ -204,7 +203,7 @@ pub struct ShapeInput<'a> {
 
 /// The metrics call inputs, mirroring `metrics(...)`.
 pub struct MetricsInput<'a> {
-    pub serialized_families: &'a str,
+    pub font_families: &'a [String],
     pub font_size: f64,
     pub font_weight: f64,
     pub italic: bool,
@@ -290,7 +289,7 @@ impl CaptureEvidence {
 
     fn capture_metric_replay(&mut self, input: &MetricsInput, result: &[f64; 5]) {
         let key = metric_replay_key(
-            input.serialized_families,
+            input.font_families,
             input.font_weight,
             input.italic,
             input.role,
@@ -478,13 +477,13 @@ impl FontSession {
         evidence: &mut CaptureEvidence,
         input: &ShapeInput,
     ) -> Result<ShapeRecordResult, String> {
-        let families = split_families(input.serialized_families);
+        let families = input.font_families;
         let display_chars: Vec<char> = input.display_text.chars().collect();
         let source_text = input.source_text.unwrap_or(input.display_text);
         let source_chars: Vec<char> = source_text.chars().collect();
         let (record, display_covered) = select_shape_face(
             &self.records,
-            &families,
+            families,
             input.font_weight,
             input.italic,
             &display_chars,
@@ -522,7 +521,7 @@ impl FontSession {
         // then usage.
         let replay_key = shape_replay_key(
             input.display_text,
-            input.serialized_families,
+            input.font_families,
             input.font_weight,
             input.italic,
             input.locale,
@@ -598,10 +597,10 @@ impl FontSession {
         evidence: &mut CaptureEvidence,
         input: &MetricsInput,
     ) -> Result<[f64; 5], String> {
-        let families = split_families(input.serialized_families);
+        let families = input.font_families;
         let selection = select_metrics_face(
             &self.records,
-            &families,
+            families,
             input.font_size,
             input.font_weight,
             input.italic,
@@ -630,14 +629,6 @@ impl FontSession {
     pub fn capture_evidence(&self) -> FontEvidence {
         crate::parallel::recover(self.evidence.lock()).snapshot()
     }
-}
-
-fn split_families(serialized: &str) -> Vec<String> {
-    serialized
-        .split(FAMILY_SEPARATOR)
-        .filter(|family| !family.is_empty())
-        .map(|family| family.to_string())
-        .collect()
 }
 
 /// The `captureShapeReplay` entry: em geometry canonicalized to 12 decimals.

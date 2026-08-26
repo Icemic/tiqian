@@ -93,7 +93,7 @@ export interface NativeAddon {
   shape(
     sessionId: string,
     displayText: string,
-    families: string,
+    families: string[],
     fontSize: number,
     fontWeight: number,
     italic: boolean,
@@ -103,7 +103,7 @@ export interface NativeAddon {
   ): string;
   metrics(
     sessionId: string,
-    families: string,
+    families: string[],
     fontSize: number,
     fontWeight: number,
     italic: boolean,

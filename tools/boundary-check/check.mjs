@@ -232,17 +232,24 @@ const EXEMPTIONS = [
     file: "frontend/web/core/core/measurement/browser-font-replay.ts",
     reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback lane in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
   },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "engine/src/nativeMain/kotlin/org/tiqian/shaping/NativeFontBackendShaper.kt",
-    reason: "Private family-separator copy packing feature lists across the vtable call; replaced by declared DTOs in corrective wave 5.",
-  },
+
   {
     task: "#106",
     rules: ["R4-separator-literal"],
     file: "ffi/rust/tiqian/src/shape_buffer.rs",
     reason: "Feature list joined with a separator for the shaping callback payload; replaced by declared DTOs in corrective wave 5.",
+  },
+  {
+    task: "#106",
+    rules: ["R4-separator-literal"],
+    file: "engine/src/nativeMain/kotlin/org/tiqian/shaping/NativeFontBackendShaper.kt",
+    reason: "Feature string split in the shape buffer reader; part of the declared shape buffer protocol (header-defined format), not the family separator seam.",
+  },
+  {
+    task: "#106",
+    rules: ["R4-separator-literal"],
+    file: "frontend/web-precompute/rust/tiqian-precompute/src/snapshot_tables.rs",
+    reason: "Metric replay key restoration splits serialized families from snapshot table rows; part of the snapshot table codec.",
   },
   {
     task: "#106",
@@ -256,12 +263,7 @@ const EXEMPTIONS = [
     file: "frontend/web-precompute/rust/tiqian-precompute/src/normalize.rs",
     reason: "Private record/field/family separator copies of the wire format; replaced by declared DTOs in corrective wave 5.",
   },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/rust/tiqian-precompute/src/session.rs",
-    reason: "Private family-separator copy of the wire format; replaced by declared DTOs in corrective wave 5.",
-  },
+
   {
     task: "#106",
     rules: ["R4-separator-literal"],
@@ -280,23 +282,18 @@ const EXEMPTIONS = [
     file: "platforms/compose/compose/src/commonMain/kotlin/org/tiqian/compose/CjkAnnotatedText.kt",
     reason: "Private ruby font separator copy of the wire format inside a renderer; replaced by declared DTOs in corrective wave 5.",
   },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "frontend/web-precompute/npm/src/fonts.ts",
-    reason: "Family separator split over the untyped precompute payload; replaced by declared DTOs.",
-  },
+
   {
     task: "#106",
     rules: ["R4-separator-literal"],
     file: "frontend/web-precompute/rust/tiqian-precompute/src/json.rs",
-    reason: "Separator handling around the bare plan JSON return; native return becomes a packed declared contract.",
+    reason: "Separator escape literal in JSON serializer tests (string round-trip coverage); the serializer itself is a declared module.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
     file: "frontend/web-precompute/rust/tiqian-precompute/src/replay.rs",
-    reason: "Separator handling around the bare plan JSON return; native return becomes a packed declared contract.",
+    reason: "Replay key format joins families with U+001F for backward-compatible cache keys; must stay to avoid re-keying existing caches.",
   },
 ];
 

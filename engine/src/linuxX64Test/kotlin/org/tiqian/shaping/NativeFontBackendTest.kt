@@ -142,7 +142,7 @@ class NativeFontBackendTest {
         assertNull(metrics.typoDescent)
     }
 
-    private fun installFakeBackend(): Int = tiqianInstallFontBackend(fakeVtable(revision = 1u))
+    private fun installFakeBackend(): Int = tiqianInstallFontBackend(fakeVtable(revision = 2u))
 
     private fun fakeVtable(revision: UInt): CPointer<tiqian_font_backend_vtable_t> {
         val layout = nativeHeap.alloc<tiqian_font_backend_vtable_t>()
@@ -182,7 +182,8 @@ class NativeFontBackendTest {
 private fun fakeShape(
     sessionId: CPointer<ByteVar>?,
     displayText: CPointer<ByteVar>?,
-    serializedFamilies: CPointer<ByteVar>?,
+    families: CPointer<CPointerVar<ByteVar>>?,
+    familyCount: UInt,
     fontSize: Double,
     fontWeight: Int,
     italic: Int,
@@ -208,7 +209,8 @@ private fun fakeShape(
 
 private fun fakeMetrics(
     sessionId: CPointer<ByteVar>?,
-    serializedFamilies: CPointer<ByteVar>?,
+    families: CPointer<CPointerVar<ByteVar>>?,
+    familyCount: UInt,
     fontSize: Double,
     fontWeight: Int,
     italic: Int,
@@ -271,7 +273,7 @@ private fun fakeShapeBuffer(): ByteArray {
         }
     }
     u32(0, if (fakeMode == 2) 0x00515053 else 0x54515053)
-    u32(4, 1)
+    u32(4, 2)
     u32(8, glyphs.size)
     u32(12, 2)
     u32(16, 1)

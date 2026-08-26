@@ -54,13 +54,14 @@ pub fn normalized_replay_number(value: f64, font_size: f64) -> Option<f64> {
 /// `shapeReplayKey`: JSON.stringify of the shape inputs.
 pub fn shape_replay_key(
     display_text: &str,
-    serialized_families: &str,
+    font_families: &[String],
     font_weight: f64,
     italic: bool,
     locale: &str,
     role: Option<&str>,
     source_text: &str,
 ) -> String {
+    let serialized_families = font_families.join("\u{001f}");
     Json::Arr(vec![
         Json::str(display_text),
         Json::str(serialized_families),
@@ -75,12 +76,13 @@ pub fn shape_replay_key(
 
 /// `metricReplayKey`: JSON.stringify of the metric inputs.
 pub fn metric_replay_key(
-    serialized_families: &str,
+    font_families: &[String],
     font_weight: f64,
     italic: bool,
     role: Option<&str>,
     face_selection_text: Option<&str>,
 ) -> String {
+    let serialized_families = font_families.join("\u{001f}");
     Json::Arr(vec![
         Json::str(serialized_families),
         Json::Num(font_weight),
@@ -151,7 +153,7 @@ mod tests {
         assert_eq!(
             shape_replay_key(
                 "你好",
-                "A\u{001f}B",
+                &["A".to_string(), "B".to_string()],
                 400.0,
                 false,
                 "zh-cn",
@@ -162,15 +164,21 @@ mod tests {
         );
         // String(null) is "null"; JSON.stringify writes it as a string.
         assert_eq!(
-            shape_replay_key("x", "A", 700.5, true, "en", None, "y"),
+            shape_replay_key("x", &["A".to_string()], 700.5, true, "en", None, "y"),
             "[\"x\",\"A\",700.5,true,\"en\",\"null\",\"y\"]"
         );
         assert_eq!(
-            metric_replay_key("A\u{001f}B", 400.0, false, None, Some("B")),
+            metric_replay_key(
+                &["A".to_string(), "B".to_string()],
+                400.0,
+                false,
+                None,
+                Some("B")
+            ),
             "[\"A\\u001fB\",400,false,\"null\",\"B\"]"
         );
         assert_eq!(
-            metric_replay_key("A", 400.0, false, None, None),
+            metric_replay_key(&["A".to_string()], 400.0, false, None, None),
             "[\"A\",400,false,\"null\",\"null\"]"
         );
     }

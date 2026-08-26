@@ -171,7 +171,8 @@ fn set_error(error_out: *mut *mut c_char, message: &str) {
 unsafe extern "C" fn session_shape(
     _session_id: *const c_char,
     display_text: *const c_char,
-    serialized_families: *const c_char,
+    families: *const *const c_char,
+    family_count: u32,
     font_size: f64,
     font_weight: i32,
     italic: i32,
@@ -186,11 +187,21 @@ unsafe extern "C" fn session_shape(
         set_error(error_out, "FontBackendMissingDisplayText");
         return -1;
     };
+    let Ok(count) = usize::try_from(family_count) else {
+        set_error(error_out, "FontBackendFamilyCountOverflow");
+        return -1;
+    };
+    let family_slice = unsafe { std::slice::from_raw_parts(families, count) };
+    let mut font_families: Vec<String> = Vec::with_capacity(count);
+    for &family_ptr in family_slice {
+        let family_str = unsafe { c_str(family_ptr) }.unwrap_or("");
+        font_families.push(family_str.to_string());
+    }
     // The `c_str` reads below decode engine arguments per the ABI comment on
     // `c_str`; obligations: docs/rust-unsafe-inventory.md.
     let input = ShapeInput {
         display_text,
-        serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
+        font_families: &font_families,
         font_size,
         font_weight: f64::from(font_weight),
         italic: italic != 0,
@@ -259,7 +270,8 @@ unsafe extern "C" fn session_shape(
 // Vtable callback; see the comment above `session_shape`.
 unsafe extern "C" fn session_metrics(
     _session_id: *const c_char,
-    serialized_families: *const c_char,
+    families: *const *const c_char,
+    family_count: u32,
     font_size: f64,
     font_weight: i32,
     italic: i32,
@@ -271,10 +283,20 @@ unsafe extern "C" fn session_metrics(
     if out_metrics.is_null() {
         return -1;
     }
+    let Ok(count) = usize::try_from(family_count) else {
+        set_error(error_out, "FontBackendFamilyCountOverflow");
+        return -1;
+    };
+    let family_slice = unsafe { std::slice::from_raw_parts(families, count) };
+    let mut font_families: Vec<String> = Vec::with_capacity(count);
+    for &family_ptr in family_slice {
+        let family_str = unsafe { c_str(family_ptr) }.unwrap_or("");
+        font_families.push(family_str.to_string());
+    }
     // The `c_str` reads below decode engine arguments per the ABI comment on
     // `c_str`; obligations: docs/rust-unsafe-inventory.md.
     let input = MetricsInput {
-        serialized_families: unsafe { c_str(serialized_families) }.unwrap_or(""),
+        font_families: &font_families,
         font_size,
         font_weight: f64::from(font_weight),
         italic: italic != 0,
