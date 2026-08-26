@@ -410,122 +410,137 @@ class TiqianProseElement extends HTMLElementBase {
     this.addEventListener("tiqian:relayout-ready", this.#readyListener);
     this.#ensureViewportResizeListener();
 
-    // DeferredEnhanceErrorContract: one failure handler serves the load chain
+    // DeferredEnhanceErrorContract: one failure handler serves the gate
     // below and the frame task it queues. The coordinator's frame loop guards
     // its callbacks with a synchronous try/catch, which cannot observe an
-    // async task's rejection, and the chain's own .catch resolved the moment
+    // async task's rejection, and the gate's own catch resolved the moment
     // the task was queued — so without routing the task's rejection here, a
     // runtime import or enhance failure inside the frame task became an
     // unhandled rejection: no RuntimeLoadFailed marker, the ready listener
     // left attached, and consumers awaiting tiqian:ready hanging forever.
-    const failInitialEnhance = (error: unknown) => {
-      if (generation !== this.#context.generation) return;
-      this.#stateMachine.failLayoutWork();
-      this.#clearResponsiveRetarget();
-      this.#releaseSnapshotFontSession();
-      if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
-      this.#removeReadyListener();
-      this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
-      console.warn("Tiqian Web runtime failed to load", error);
-    };
-    // HostCascadeReadyGate: connectedCallback may run before an app's
-    // module-loaded styles have reached the cascade. Once Tiqian's own stylesheet
-    // is ready, one frame lets the parser and host cascade settle; then load only
-    // the faces used by the prose and wait one painted frame. Waiting for global
-    // DOMContentLoaded or document.fonts.ready would stall prose on unrelated
-    // scripts, icon fonts, code fonts, or widgets.
-    ensureTiqianStyles(this.ownerDocument, this)
-      .then(nextFrame)
-      .then(() => awaitInitialTypographyFonts(this, {
-        generation,
-        fonts: this.ownerDocument?.fonts ?? null,
-        isCurrent: () => this.isConnected && generation === this.#context.generation,
-        bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
-          !strongEmphasisRuntimeRequired,
-        typographyElements: () => typographyElements(this),
-        deferUntilFontsSettle: (gateGeneration, completion) =>
-          this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
-      }))
-      .then((fontGateOpen) => fontGateOpen ? nextFrame().then(() => true) : false)
-      .then(async (fontGateOpen) => {
-        if (!fontGateOpen) return;
-        if (!this.isConnected || generation !== this.#context.generation) return;
-        const runInitialEnhance = async () => {
-          if (!this.isConnected || generation !== this.#context.generation) return;
-          const enhanceStartedAt = Date.now();
-          const operation = this.#beginLayoutWork({ captureSignatures: false });
-          let snapshot: TiqianSnapshotAdoptionOutcome = { adopted: false };
-          try {
-            if (!strongEmphasisRuntimeRequired) {
-              snapshot = await tryAdoptRequestedSnapshot(
-                this,
-                this.ownerDocument,
-                () => this.isConnected && generation === this.#context.generation &&
-                  operation === this.#stateMachine.transaction.layoutOperation,
-                this.#snapshotAdoptionAnchors(),
-              );
-            }
-          } catch (error) {
-            this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
-            console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
-          }
-          // The adoption commits are over; hand the scroller back to the
-          // browser's own anchoring until the next commit path holds it.
-          releaseNativeScrollAnchoring(this);
-          if (
-            !this.isConnected || generation !== this.#context.generation ||
-            operation !== this.#stateMachine.transaction.layoutOperation
-          ) {
-            if (snapshot.adopted) restoreLoadedSnapshot(this);
-            return;
-          }
-          if (snapshot.adopted) {
-            delete this.dataset.tiqianSnapshotMiss;
-            this.#stateMachine.snapshotAdopted = true;
-            this.#snapshotEnhancedCount = snapshot.count;
-            // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
-            // paragraphs. Runtime-only prose remains semantic source and is
-            // enhanced through the same Kotlin pipeline without discarding valid
-            // server geometry for its keyed siblings.
-            const completionSelector = snapshotCompletionSelector(this);
-            if (completionSelector) {
-              await (runtimePromise ?? loadTiqianRuntime());
-              if (!this.isConnected || generation !== this.#context.generation) {
-                return;
-              }
-              this.#acceptValidatedSnapshotGeometry();
-              await this.#dispatchProgressiveEnhance(generation, {
-                paragraphSelector: completionSelector,
-              });
-              return;
-            }
-            if (!this.#stateMachine.runtimeActive) this.#releaseSnapshotFontSession();
-            this.#stateMachine.dispatched = true;
-            this.#stateMachine.completionGateOpen = true;
-            this.#acceptValidatedSnapshotGeometry();
-            this.dispatchEvent(new CustomEvent("tiqian:ready", {
-              bubbles: true,
-              composed: true,
-              detail: {
-                enhancedCount: snapshot.count,
-                issueCount: 0,
-                durationMs: Date.now() - enhanceStartedAt,
-                maxSliceMs: 0,
-                snapshot: true,
-              },
-            }));
-            return;
-          }
-          this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
-          await (runtimePromise ?? loadTiqianRuntime());
-          if (!this.isConnected || generation !== this.#context.generation) return;
-          if (!(await this.#dispatchProgressiveEnhance(generation))) return;
-        };
-        coordinationService().requestFrame(() => {
-          runInitialEnhance().catch(failInitialEnhance);
-        }, this.#coordinationSession);
-      })
-      .catch(failInitialEnhance);
+    this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, runtimePromise)
+      .catch((error) => this.#failInitialEnhance(generation, error));
+  }
+
+  // HostCascadeReadyGate: connectedCallback may run before an app's
+  // module-loaded styles have reached the cascade. Once Tiqian's own stylesheet
+  // is ready, one frame lets the parser and host cascade settle; then load only
+  // the faces used by the prose and wait one painted frame. Waiting for global
+  // DOMContentLoaded or document.fonts.ready would stall prose on unrelated
+  // scripts, icon fonts, code fonts, or widgets. The two frame waits stay
+  // separate awaits: the first lets the CSSOM settle after the stylesheet
+  // lands, the second lets the loaded faces rasterize before the first commit.
+  async #runHostCascadeGate(
+    generation: number,
+    strongEmphasisRuntimeRequired: boolean,
+    runtimePromise: Promise<unknown> | null,
+  ): Promise<void> {
+    await ensureTiqianStyles(this.ownerDocument, this);
+    await nextFrame();
+    const fontGateOpen = await awaitInitialTypographyFonts(this, {
+      generation,
+      fonts: this.ownerDocument?.fonts ?? null,
+      isCurrent: () => this.isConnected && generation === this.#context.generation,
+      bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
+        !strongEmphasisRuntimeRequired,
+      typographyElements: () => typographyElements(this),
+      deferUntilFontsSettle: (gateGeneration, completion) =>
+        this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
+    });
+    if (!fontGateOpen) return;
+    await nextFrame();
+    if (!this.isConnected || generation !== this.#context.generation) return;
+    coordinationService().requestFrame(() => {
+      this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise)
+        .catch((error) => this.#failInitialEnhance(generation, error));
+    }, this.#coordinationSession);
+  }
+
+  #failInitialEnhance(generation: number, error: unknown): void {
+    if (generation !== this.#context.generation) return;
+    this.#stateMachine.failLayoutWork();
+    this.#clearResponsiveRetarget();
+    this.#releaseSnapshotFontSession();
+    if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
+    this.#removeReadyListener();
+    this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
+    console.warn("Tiqian Web runtime failed to load", error);
+  }
+
+  async #runInitialEnhance(
+    generation: number,
+    strongEmphasisRuntimeRequired: boolean,
+    runtimePromise: Promise<unknown> | null,
+  ): Promise<void> {
+    if (!this.isConnected || generation !== this.#context.generation) return;
+    const enhanceStartedAt = Date.now();
+    const operation = this.#beginLayoutWork({ captureSignatures: false });
+    let snapshot: TiqianSnapshotAdoptionOutcome = { adopted: false };
+    try {
+      if (!strongEmphasisRuntimeRequired) {
+        snapshot = await tryAdoptRequestedSnapshot(
+          this,
+          this.ownerDocument,
+          () => this.isConnected && generation === this.#context.generation &&
+            operation === this.#stateMachine.transaction.layoutOperation,
+          this.#snapshotAdoptionAnchors(),
+        );
+      }
+    } catch (error) {
+      this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
+      console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
+    }
+    // The adoption commits are over; hand the scroller back to the
+    // browser's own anchoring until the next commit path holds it.
+    releaseNativeScrollAnchoring(this);
+    if (
+      !this.isConnected || generation !== this.#context.generation ||
+      operation !== this.#stateMachine.transaction.layoutOperation
+    ) {
+      if (snapshot.adopted) restoreLoadedSnapshot(this);
+      return;
+    }
+    if (snapshot.adopted) {
+      delete this.dataset.tiqianSnapshotMiss;
+      this.#stateMachine.snapshotAdopted = true;
+      this.#snapshotEnhancedCount = snapshot.count;
+      // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
+      // paragraphs. Runtime-only prose remains semantic source and is
+      // enhanced through the same Kotlin pipeline without discarding valid
+      // server geometry for its keyed siblings.
+      const completionSelector = snapshotCompletionSelector(this);
+      if (completionSelector) {
+        await (runtimePromise ?? loadTiqianRuntime());
+        if (!this.isConnected || generation !== this.#context.generation) {
+          return;
+        }
+        this.#acceptValidatedSnapshotGeometry();
+        await this.#dispatchProgressiveEnhance(generation, {
+          paragraphSelector: completionSelector,
+        });
+        return;
+      }
+      if (!this.#stateMachine.runtimeActive) this.#releaseSnapshotFontSession();
+      this.#stateMachine.dispatched = true;
+      this.#stateMachine.completionGateOpen = true;
+      this.#acceptValidatedSnapshotGeometry();
+      this.dispatchEvent(new CustomEvent("tiqian:ready", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          enhancedCount: snapshot.count,
+          issueCount: 0,
+          durationMs: Date.now() - enhanceStartedAt,
+          maxSliceMs: 0,
+          snapshot: true,
+        },
+      }));
+      return;
+    }
+    this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
+    await (runtimePromise ?? loadTiqianRuntime());
+    if (!this.isConnected || generation !== this.#context.generation) return;
+    if (!(await this.#dispatchProgressiveEnhance(generation))) return;
   }
 
   disconnectedCallback() {
@@ -1227,7 +1242,7 @@ class TiqianProseElement extends HTMLElementBase {
     return true;
   }
 
-  #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
+  async #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
     if (!this.#stateMachine.snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
     const generation = this.#context.generation;
     this.#stateMachine.dispatched = false;
@@ -1244,23 +1259,22 @@ class TiqianProseElement extends HTMLElementBase {
       }
     };
     if (restoreBeforeLoad) restoreImmediatelyBeforeDispatch();
-    loadTiqianRuntime()
-      .then(() => {
-        if (
-          !this.isConnected || generation !== this.#context.generation ||
-          activeRequest !== this.#stateMachine.transaction.enhanceRequest
-        ) return false;
-        const enhancement = this.#dispatchProgressiveEnhance(generation, restoreBeforeLoad
-          ? undefined
-          : { beforeDispatch: restoreImmediatelyBeforeDispatch });
-        // Async functions run synchronously through their first await, so this
-        // captures the request generation claimed by #dispatchProgressiveEnhance.
-        activeRequest = this.#stateMachine.transaction.enhanceRequest;
-        return enhancement;
-      })
-      .catch((error) => {
-        this.#recoverSnapshotEnhanceFailure(generation, activeRequest, error);
-      });
+    try {
+      await loadTiqianRuntime();
+      if (
+        !this.isConnected || generation !== this.#context.generation ||
+        activeRequest !== this.#stateMachine.transaction.enhanceRequest
+      ) return;
+      const enhancement = this.#dispatchProgressiveEnhance(generation, restoreBeforeLoad
+        ? undefined
+        : { beforeDispatch: restoreImmediatelyBeforeDispatch });
+      // Async functions run synchronously through their first await, so this
+      // captures the request generation claimed by #dispatchProgressiveEnhance.
+      activeRequest = this.#stateMachine.transaction.enhanceRequest;
+      await enhancement;
+    } catch (error) {
+      this.#recoverSnapshotEnhanceFailure(generation, activeRequest, error);
+    }
   }
 
   #recoverSnapshotEnhanceFailure(generation: number, request: number, error: unknown) {
@@ -1292,7 +1306,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stateMachine.consumeObservedGeometry();
   }
 
-  #tryReadoptSnapshotAtMaximumMeasure() {
+  async #tryReadoptSnapshotAtMaximumMeasure() {
     if (!this.hasAttribute("snapshot-ref")) return;
     const generation = this.#context.generation;
     const startedAt = Date.now();
@@ -1310,13 +1324,14 @@ class TiqianProseElement extends HTMLElementBase {
       destroyRuntimeRoot(this);
       this.#stateMachine.runtimeActive = false;
     }
-    tryAdoptRequestedSnapshot(
-      this,
-      this.ownerDocument,
-      () => this.isConnected && generation === this.#context.generation &&
-        operation === this.#stateMachine.transaction.layoutOperation,
-      this.#snapshotAdoptionAnchors(),
-    ).then(async (snapshot) => {
+    try {
+      const snapshot = await tryAdoptRequestedSnapshot(
+        this,
+        this.ownerDocument,
+        () => this.isConnected && generation === this.#context.generation &&
+          operation === this.#stateMachine.transaction.layoutOperation,
+        this.#snapshotAdoptionAnchors(),
+      );
       // The adoption commits are over; hand the scroller back to the
       // browser's own anchoring until the next commit path holds it.
       releaseNativeScrollAnchoring(this);
@@ -1374,7 +1389,7 @@ class TiqianProseElement extends HTMLElementBase {
           snapshot: true,
         },
       }));
-    }).catch((error) => {
+    } catch (error) {
       if (
         !this.isConnected || generation !== this.#context.generation ||
         operation !== this.#stateMachine.transaction.layoutOperation
@@ -1386,7 +1401,7 @@ class TiqianProseElement extends HTMLElementBase {
         "SnapshotValidationFailed",
         runtimeSnapshotBackingRestored,
       );
-    });
+    }
   }
 
   #recoverRuntimeAfterSnapshotMiss(

@@ -227,32 +227,32 @@ export function enhanceProgressively(root: HTMLElement = document.body, options:
     enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, prepared));
 }
 
-export function destroy(root: HTMLElement = document.body): Promise<void> {
+export async function destroy(root: HTMLElement = document.body): Promise<void> {
   const context = getContextForElement(root);
-  if (!context) return Promise.resolve();
+  if (!context) return;
   const generation = context.update();
-  return restoreAdoptedSnapshot(root).then((restored) => {
+  try {
+    const restored = await restoreAdoptedSnapshot(root);
     if (restored && !currentTiqianRuntime()) {
       releaseContextFontSession(context, root);
       context.destroy();
       return;
     }
-    return loadTiqianRuntime().then((graph) => {
-      if (context.generation !== generation) return;
-      try {
-        destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
-      } finally {
-        releaseContextFontSession(context, root);
-        context.destroy();
-      }
-    });
-  }).catch((error) => {
+    const graph = await loadTiqianRuntime();
+    if (context.generation !== generation) return;
+    try {
+      destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+    } finally {
+      releaseContextFontSession(context, root);
+      context.destroy();
+    }
+  } catch (error) {
     if (context.generation === generation) {
       releaseContextFontSession(context, root);
       context.destroy();
     }
     throw error;
-  });
+  }
 }
 
 export function enhanceAll(options: TiqianWebOptions = {}): Promise<Array<HTMLElement | number>> {

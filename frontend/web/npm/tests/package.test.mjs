@@ -184,15 +184,15 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const connectedStart = elementSource.indexOf("  connectedCallback() {");
   const initialSnapshotSource = elementSource.slice(connectedStart, adoption);
   const runtimeLoad = elementSource.indexOf("await (runtimePromise ?? loadTiqianRuntime());", adoption);
-  const invalidationStart = elementSource.indexOf("  #invalidateSnapshotAndEnhance(");
+  const invalidationStart = elementSource.indexOf("  async #invalidateSnapshotAndEnhance(");
   const invalidationEnd = elementSource.indexOf(
-    "  #tryReadoptSnapshotAtMaximumMeasure()",
+    "  async #tryReadoptSnapshotAtMaximumMeasure(",
     invalidationStart,
   );
   const invalidationSource = elementSource.slice(invalidationStart, invalidationEnd);
   const invalidationRuntimeLoad = invalidationSource.indexOf("loadTiqianRuntime()");
   const invalidationDispatch = invalidationSource.indexOf("this.#dispatchProgressiveEnhance(");
-  const readoptionStart = elementSource.indexOf("  #tryReadoptSnapshotAtMaximumMeasure() {");
+  const readoptionStart = elementSource.indexOf("  async #tryReadoptSnapshotAtMaximumMeasure() {");
   const readoptionEnd = elementSource.indexOf("  #recoverRuntimeAfterSnapshotMiss(", readoptionStart);
   const readoptionSource = elementSource.slice(readoptionStart, readoptionEnd);
   const mixedCompletionStart = elementSource.indexOf("MixedSnapshotRuntimeCompletion");
@@ -505,7 +505,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(elementSource, /addEventListener\("DOMContentLoaded"/u);
   assert.doesNotMatch(elementSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
-  assert.match(elementSource, /\.then\(nextFrame\)[\s\S]*?awaitInitialTypographyFonts/u);
+  assert.match(elementSource, /await nextFrame\(\);[\s\S]*?awaitInitialTypographyFonts/u);
   assert.match(fontLoaderSource, /waitForTypographyFonts/u);
   assert.match(fontLoaderSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
   assert.match(
