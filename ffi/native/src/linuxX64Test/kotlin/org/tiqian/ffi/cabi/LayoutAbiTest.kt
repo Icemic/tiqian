@@ -105,10 +105,13 @@ class LayoutAbiTest {
     }
 }
 
+// Must equal FONT_BACKEND_PROTOCOL_REVISION in tiqian's font_backend.rs.
+private const val FONT_BACKEND_PROTOCOL_REVISION: UInt = 2u
+
 private fun fakeVtable(): CPointer<tiqian_font_backend_vtable_t> {
     val layout = nativeHeap.alloc<tiqian_font_backend_vtable_t>()
     layout.size = sizeOf<tiqian_font_backend_vtable_t>().toUInt()
-    layout.protocol_revision = 1u
+    layout.protocol_revision = FONT_BACKEND_PROTOCOL_REVISION
     layout.shape = staticCFunction(::fakeShape)
     layout.metrics = staticCFunction(::fakeMetrics)
     layout.release_string = staticCFunction(::fakeReleaseString)
@@ -119,7 +122,8 @@ private fun fakeVtable(): CPointer<tiqian_font_backend_vtable_t> {
 private fun fakeShape(
     sessionId: CPointer<ByteVar>?,
     displayText: CPointer<ByteVar>?,
-    serializedFamilies: CPointer<ByteVar>?,
+    families: CPointer<CPointerVar<ByteVar>>?,
+    familyCount: UInt,
     fontSize: Double,
     fontWeight: Int,
     italic: Int,
@@ -142,7 +146,8 @@ private fun fakeShape(
 
 private fun fakeMetrics(
     sessionId: CPointer<ByteVar>?,
-    serializedFamilies: CPointer<ByteVar>?,
+    families: CPointer<CPointerVar<ByteVar>>?,
+    familyCount: UInt,
     fontSize: Double,
     fontWeight: Int,
     italic: Int,
@@ -185,7 +190,8 @@ private fun fakeShapeBuffer(units: Int, fontSize: Double): ByteArray {
         }
     }
     u32(0, 0x54515053)
-    u32(4, 1)
+    // The header carries the backend protocol revision; see write_shape_buffer.
+    u32(4, FONT_BACKEND_PROTOCOL_REVISION.toInt())
     u32(8, units)
     u32(12, 0) // featureCount
     u32(16, 0) // unsafeBreakCount

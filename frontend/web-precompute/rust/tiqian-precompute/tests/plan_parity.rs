@@ -70,7 +70,8 @@ fn install_fixture_backend() {
 unsafe extern "C" fn fixture_shape(
     _session_id: *const c_char,
     display_text: *const c_char,
-    _serialized_families: *const c_char,
+    _families: *const *const c_char,
+    _family_count: u32,
     font_size: f64,
     _font_weight: i32,
     _italic: i32,
@@ -128,7 +129,8 @@ unsafe extern "C" fn fixture_shape(
 /// size, the fixture numbers of the js backend.
 unsafe extern "C" fn fixture_metrics(
     _session_id: *const c_char,
-    _serialized_families: *const c_char,
+    _families: *const *const c_char,
+    _family_count: u32,
     font_size: f64,
     _font_weight: i32,
     _italic: i32,
