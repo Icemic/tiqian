@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { openRelayoutSession } from "../core/engine/relayout-session.js";
@@ -94,13 +94,13 @@ function withPreparedBridge(fn, overrides = {}) {
       release: function () { return true; },
       releaseRoot: function () { return true; },
     });
-    setPreparedDomValidatorForTest(overrides.validator || {
+    setCommitValidatorForTest(overrides.validator || {
       issue: function () { return null; },
     });
     return fn();
   } finally {
     setPreparedDomRendererForTest(undefined);
-    setPreparedDomValidatorForTest(undefined);
+    setCommitValidatorForTest(undefined);
     for (const entry of saved) {
       if (entry.own) globalThis[entry.name] = entry.value;
       else delete globalThis[entry.name];
@@ -240,7 +240,7 @@ test("4. ready + commit unsupported: real validator rejects, restoreParagraph ca
 
   const preparation = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
   withPreparedBridge(() => {
-    setPreparedDomValidatorForTest({
+    setCommitValidatorForTest({
       issue: function () { return "DOM mismatch"; },
     });
     active.processItem(0, preparation);

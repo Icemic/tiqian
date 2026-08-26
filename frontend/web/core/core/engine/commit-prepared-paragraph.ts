@@ -18,7 +18,7 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
-import { preparedDomRendererModule, preparedDomValidator } from "./loaders/runtime-loader.js";
+import { preparedDomRendererModule, commitValidator } from "./loaders/runtime-loader.js";
 import type { RawDomApi } from "./raw-dom.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
@@ -92,7 +92,7 @@ function isCanonicalPlain(lowered: LoweredParagraph): boolean {
 // in WebEnhancerSupport.kt. The validator global exists only in test worlds;
 // an absent validator reports null and never throws.
 function rendererIssue(host: Element, width: number): string | null {
-  const validator = preparedDomValidator();
+  const validator = commitValidator();
   return (validator && typeof validator.issue === 'function')
     ? validator.issue(host, width)
     : null;

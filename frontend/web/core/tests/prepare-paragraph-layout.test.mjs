@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { prepareParagraphLayout } from "../core/engine/prepare-paragraph-layout.js";
@@ -65,9 +65,9 @@ function withEnv(fn, overrides = {}) {
       setPreparedDomRendererForTest(null);
     }
     if (overrides.validator !== undefined) {
-      setPreparedDomValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTest({ issue: overrides.validator });
     } else {
-      setPreparedDomValidatorForTest(null);
+      setCommitValidatorForTest(null);
     }
     globalThis.getComputedStyle = (target, pseudo) =>
       target && target._computedValues
@@ -76,7 +76,7 @@ function withEnv(fn, overrides = {}) {
     return fn();
   } finally {
     setPreparedDomRendererForTest(undefined);
-    setPreparedDomValidatorForTest(undefined);
+    setCommitValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }
