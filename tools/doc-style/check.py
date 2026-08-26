@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # fix (收窄 was such a failed replacement for 瘦身 and is banned as well).
 WORDS = [
     # gate and doorway metaphors
-    "门面", "扇门", "门控", "缓存门", "字体门",
+    "门面", "扇门", "门控", "门禁", "缓存门", "字体门",
     # gate / threshold 直译（CI gate、graduation gate）
     "门槛", "毕业门", "硬门", "CI 门",
     # bookkeeping and finance metaphors
@@ -81,7 +81,8 @@ WORDS = [
     "当日",
     "真正", "恰", "诱人", "灾难", "今天", "当天",
     # machine-translated or literal-translation feel
-    "烘出", "烘入", "烘死", "农场", "裸" "回落",
+    "烘出", "烘入", "烘死", "农场", "裸", "回落",
+    "电池",
     "缝", "姿态",
     # meta phrasing about the document itself: state facts instead
     "本记录", "终版", "不进仓库", "够支撑", "记录在案",
@@ -114,9 +115,9 @@ PATTERNS = [
 # Known accepted uses. A line matching this regex is skipped entirely, so
 # keep entries narrow: a line holding both an accepted use and a real
 # violation would be missed, and the skip is per line, not per match.
+# YOU ARE NOT ALLOWED TO EXPAND THIS LIST WITHOUT CLEAR PERMISSION.
 ALLOW = re.compile(
     r"回退路径"  # contains the substring 退路 but is a standard term
-    r"|`lane`"  # the grant voucher's literal field name in backticks
 )
 
 
