@@ -66,9 +66,9 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
       <p style="font-size: 18px; line-height: 30px">enhanced drift probe</p>
     </div>
   `);
-  assert.equal(
+  assert.deepEqual(
     probeContentDrift(rawDom,[]),
-    '{"unknown":0,"drifted":0,"dead":0,"rawDom":0}',
+    { unknown: 0, drifted: 0, dead: 0, rawDom: 0 },
   );
 
   const paragraph = root.querySelector("p");
@@ -76,8 +76,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
   assert.ok(rendered);
   paragraph.removeChild(rendered);
 
-  const result = JSON.parse(probeContentDrift(rawDom,[paragraph]));
-  assert.deepEqual(result, {
+  assert.deepEqual(probeContentDrift(rawDom,[paragraph]), {
     unknown: 0,
     drifted: 1,
     dead: 0,
@@ -89,8 +88,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
     <div data-tiqian-root="true"><p>detached paragraph</p></div>
   `).querySelector("p");
   detached.remove();
-  const deadResult = JSON.parse(probeContentDrift(rawDom,[detached]));
-  assert.deepEqual(deadResult, {
+  assert.deepEqual(probeContentDrift(rawDom,[detached]), {
     unknown: 0,
     drifted: 0,
     dead: 1,
@@ -117,7 +115,7 @@ test("contentReconcileProbe_staysReadOnly", (t) => {
   }
 });
 
-test("contentReconcileClassify_jsonVerdicts", (t) => {
+test("contentReconcileClassify_verdicts", (t) => {
   t.after(cleanupMounted);
 
   const emptySpec = {
@@ -133,18 +131,6 @@ test("contentReconcileClassify_jsonVerdicts", (t) => {
   assert.deepEqual(emptyVerdict.tainted, []);
   assert.deepEqual(emptyVerdict.stranded, []);
   assert.equal(emptyVerdict.dead, 0);
-  assert.equal(
-    emptyVerdict.json,
-    '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}',
-  );
-  assert.deepEqual(JSON.parse(emptyVerdict.json), {
-    outcome: "idle",
-    drifted: 0,
-    rawDom: 0,
-    tainted: 0,
-    stranded: 0,
-    dead: 0,
-  });
 
   const root = mount(`
     <div data-tiqian-root="true">
@@ -168,10 +154,6 @@ test("contentReconcileClassify_jsonVerdicts", (t) => {
   assert.deepEqual(verdict.tainted, []);
   assert.deepEqual(verdict.stranded, [pStranded]);
   assert.equal(verdict.dead, 0);
-  assert.equal(
-    verdict.json,
-    '{"outcome":"work","drifted":0,"rawDom":0,"tainted":0,"stranded":1,"dead":0}',
-  );
 });
 
 test("contentReconcilePrepare_restoresShellAndStamps", (t) => {

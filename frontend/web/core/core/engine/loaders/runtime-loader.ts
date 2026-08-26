@@ -1,57 +1,41 @@
 import * as preparedDom from "../../sampler/snapshot/prepared-dom.js";
 import type { PreparedDomValidatorInterface } from "../../sampler/snapshot/precomputed.js";
 import * as tsRuntime from "./ts-runtime.js";
+import type { TiqianRuntimeGraph } from "./ts-runtime.js";
 // Runtime loader for the Tiqian engine. The engine graph is built by
 // ts-runtime.js through the concrete composition root; this module owns the
-// page-wide bootstrap state and the accessor surface its consumers read.
+// page-wide load memo and the accessor surface its consumers read.
 //
-// Consumer map (audited 2026-08-26):
-// - loadTiqianRuntime/currentTiqianRuntime: element.ts (enhance waits on the
-//   load), npm/api.ts (withTiqianRuntime drive, restore-path check).
-// - engineApi/workerApi: face.ts (every engine call, ADR 0053 C1 direct
-//   call face) and worker-channel.ts; workerApi additionally feeds the
-//   workerRuntime facade for element.js.
-// - setEngineOverride: test infrastructure only; the timing-golden drive
-//   substitutes a recording stub engine through it.
+// Consumer map (audited 2026-08-26, R10 dissolution):
+// - loadTiqianRuntime: element.ts (enhance waits on the load), npm/api.ts
+//   (every public entry awaits the graph before driving the named engine
+//   functions).
+// - tiqianRuntimeGraph: element.ts fire-and-forget paths (destroy, detach,
+//   relayout, reconcile, cancel) that run from observer callbacks after the
+//   load resolved and read the graph synchronously.
+// - currentTiqianRuntime: npm/api.ts restore-path check.
 // - copyInstaller: one per-page instance, memoized here. The element layer
-//   installs it at module scope (element.ts, api.ts), the engine graph
-//   installs it again at enhance time (engine-entry, progressive-drivers);
-//   both must share the same per-document WeakSet.
+//   installs it at module scope (element.ts, api.ts), the named engine
+//   functions install it again at enhance time; both must share the same
+//   per-document WeakSet.
 // - prepared-dom record: the renderer module reference consumed by the
 //   prepared pipeline (raw-dom, prepare-paragraph-layout,
-//   commit-prepared-paragraph, content-reconcile, engine-entry,
-//   font-loader) with its test override, plus the commit validator oracle.
+//   commit-prepared-paragraph, content-reconcile, lifecycle, font-loader)
+//   with its test override, plus the commit validator oracle.
 //
-// S5-bc: both records are registered in globalServices instead of living as
-// module-scope singletons, so module copies in one document share them. A
-// repeated loadTiqianRuntime call returns the memoized first engine, it does
-// not build a second graph.
+// R10 ruling 4: loadTiqianRuntime memoizes the plain runtime graph
+// {rawDom, copyInstaller, rootState, layoutJobPool}; there is no engine
+// facade object and no engineApi/workerApi/setEngineOverride surface. The
+// load memo lives in this module's closure; the memo survives module
+// re-evaluation within one document through the Symbol.for registry (client
+// routers, dev HMR and duplicated package chunks can evaluate this module
+// more than once), mirroring the global-services container rationale. The
+// prepared-dom state stays registered in globalServices because it is
+// consumed from modules that never import the loader for its load memo.
 
-import type { TiqianEngineInstance, TiqianEngineWorkersInstance } from "../engine-entry.js";
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
 import { globalServices } from "../../services/global-services.js";
-
-export type RuntimeAction<T> = (engine: TiqianEngineInstance | null) => T;
-
-// EngineLoadState: the record behind the loader accessors. The load memo and
-// the installed engine/workers are per-bootstrap function-scope state;
-// engineApi/workerApi read it, loadTiqianRuntime fills it.
-type EngineLoadFn = () => Promise<unknown>;
-type EngineCurrentFn = () => Promise<unknown> | undefined;
-type EngineApiFn = () => TiqianEngineInstance | null;
-type WorkerApiFn = () => TiqianEngineWorkersInstance | null;
-type SetOverrideFn = (engine: TiqianEngineInstance | null | undefined) => void;
-type GetCopyInstallerFn = () => CopyInstaller;
-
-export type EngineLoadState = {
-  load: EngineLoadFn;
-  current: EngineCurrentFn;
-  engineApi: EngineApiFn;
-  workerApi: WorkerApiFn;
-  setOverride: SetOverrideFn;
-  getCopyInstaller: GetCopyInstallerFn;
-};
 
 export type RendererModuleFn = () => typeof preparedDom | null;
 export type CommitValidatorFn = () => PreparedDomValidatorInterface | null;
@@ -71,55 +55,27 @@ export type PreparedDomState = {
   setCommitValidatorForTest: SetCommitValidatorForTestFn;
 };
 
-function createLoaderState(): EngineLoadState {
-  let runtimePromise: Promise<unknown> | undefined;
-  let engineInstance: TiqianEngineInstance | null = null;
-  let workerInstance: TiqianEngineWorkersInstance | null = null;
-  let engineOverride: TiqianEngineInstance | null = null;
-  let copyInstallerInstance: CopyInstaller | null = null;
+// RuntimeLoadMemo: the per-document load state shared across module copies
+// through the Symbol.for registry. graphOverride is the library-internal
+// test seam installed by installTiqianRuntimeGraphForTesting.
+interface RuntimeLoadMemo {
+  load: Promise<TiqianRuntimeGraph> | undefined;
+  graph: TiqianRuntimeGraph | null;
+  graphOverride: TiqianRuntimeGraph | null | undefined;
+  copyInstaller: CopyInstaller | null;
+}
 
-  // Builds the engine graph once and installs the resulting engine/workers
-  // into this loader state.
-  function buildRuntime(): Promise<unknown> {
-    const entry = tsRuntime.engineEntry({ copyInstaller: getCopyInstaller() });
-    engineInstance = entry.engine;
-    workerInstance = entry.workers;
-    return Promise.resolve(entry);
-  }
+const RUNTIME_LOAD_MEMO_KEY: unique symbol = Symbol.for("@tiqian/prose.runtime-load-memo.v1");
 
-  function load(): Promise<unknown> {
-    runtimePromise ??= buildRuntime();
-    return runtimePromise;
-  }
+type RuntimeLoadMemoRegistry = Record<symbol, RuntimeLoadMemo | undefined>;
 
-  function current(): Promise<unknown> | undefined {
-    return runtimePromise;
-  }
-
-  function engineApi(): TiqianEngineInstance | null {
-    return engineOverride ?? engineInstance;
-  }
-
-  function workerApi(): TiqianEngineWorkersInstance | null {
-    return workerInstance;
-  }
-
-  function setOverride(engine: TiqianEngineInstance | null | undefined): void {
-    engineOverride = engine ?? null;
-  }
-
-  function getCopyInstaller(): CopyInstaller {
-    copyInstallerInstance ??= createCopyInstaller();
-    return copyInstallerInstance;
-  }
-
-  return {
-    load: load,
-    current: current,
-    engineApi: engineApi,
-    workerApi: workerApi,
-    setOverride: setOverride,
-    getCopyInstaller: getCopyInstaller,
+function loadMemo(): RuntimeLoadMemo {
+  const registry = globalThis as RuntimeLoadMemoRegistry;
+  return registry[RUNTIME_LOAD_MEMO_KEY] ??= {
+    load: undefined,
+    graph: null,
+    graphOverride: undefined,
+    copyInstaller: null,
   };
 }
 
@@ -135,19 +91,10 @@ function createPreparedDomState(): PreparedDomState {
   };
 }
 
-// S5-bc: the records are registered in globalServices instead of living as
-// module-scope singletons. The accessor functions replace the former
-// module-level consts; module copies in one document reach the same records.
-globalServices().runtimeLoader = createLoaderState();
+// The prepared-dom record is registered in globalServices (S5-bc): module
+// copies in one document reach the same record, and consumers that never
+// load the runtime still resolve the renderer through it.
 globalServices().preparedDom = createPreparedDomState();
-
-function runtimeLoader(): EngineLoadState {
-  const state = globalServices().runtimeLoader;
-  if (!state) {
-    throw new Error("runtime loader state not registered (runtime-loader.js must be imported first)");
-  }
-  return state;
-}
 
 function preparedDomState(): PreparedDomState {
   const state = globalServices().preparedDom;
@@ -157,46 +104,62 @@ function preparedDomState(): PreparedDomState {
   return state;
 }
 
-// Hosts that run the element layer against their own engine implementation
-// (the timing-golden drive substitutes a recording stub) install it here.
-// The override wins over every resolved runtime export.
-export function setEngineOverride(engine: TiqianEngineInstance | null | undefined): void {
-  runtimeLoader().setOverride(engine);
-}
-
-// Direct engine call face (ADR 0053 C1): the engine entry built by the
-// composition root replaces the document-level event channel for host-to-engine
-// calls. Both accessors answer null until the runtime install resolves, so
-// callers treat a null answer as "engine not ready" and stop there.
-export function engineApi(): TiqianEngineInstance | null {
-  return runtimeLoader().engineApi();
-}
-
-// Polled worker facade (WorkerPolledScheduling): the worker-prefixed methods
-// installed on the engine entry by ts-runtime.
-export function workerApi(): TiqianEngineWorkersInstance | null {
-  return runtimeLoader().workerApi();
-}
-
 // Shared copy installer (one-listener-per-document invariant): the element
-// layer installs the handler at module scope and the engine graph installs it
-// again at enhance time; both must share the same per-document WeakSet, so the
-// loader owns one instance and hands it to the composition root.
+// layer installs the handler at module scope and the named engine functions
+// install it again at enhance time; both must share the same per-document
+// WeakSet, so the loader owns one instance and hands it to the composition
+// root.
 export function copyInstaller(): CopyInstaller {
-  return runtimeLoader().getCopyInstaller();
+  const memo = loadMemo();
+  memo.copyInstaller ??= createCopyInstaller();
+  return memo.copyInstaller;
 }
 
-export function loadTiqianRuntime(): Promise<unknown> {
-  return runtimeLoader().load();
+// Loads the runtime graph once per document and memoizes it. A repeated call
+// returns the memoized first graph; it does not build a second one. An
+// installed test graph wins over a fresh build.
+export function loadTiqianRuntime(): Promise<TiqianRuntimeGraph> {
+  const memo = loadMemo();
+  memo.load ??= Promise.resolve(memo.graphOverride ?? buildRuntimeGraph());
+  return memo.load;
 }
 
-export function currentTiqianRuntime(): Promise<unknown> | undefined {
-  return runtimeLoader().current();
+function buildRuntimeGraph(): TiqianRuntimeGraph {
+  const memo = loadMemo();
+  const graph = tsRuntime.buildTiqianRuntimeGraph({ copyInstaller: copyInstaller() });
+  memo.graph = graph;
+  return graph;
 }
 
-export async function withTiqianRuntime<T>(action: RuntimeAction<T>): Promise<T> {
-  await loadTiqianRuntime();
-  return action(engineApi());
+export function currentTiqianRuntime(): Promise<TiqianRuntimeGraph> | undefined {
+  return loadMemo().load;
+}
+
+// Synchronous graph accessor for fire-and-forget element paths that run from
+// observer callbacks after the load resolved. Answers null before the first
+// load (or override install); callers treat a null answer as "runtime not
+// ready" and stop there.
+export function tiqianRuntimeGraph(): TiqianRuntimeGraph | null {
+  const memo = loadMemo();
+  return memo.graphOverride ?? memo.graph;
+}
+
+export type RuntimeGraphRestoreFn = () => void;
+
+// Library-internal, test-only injection: installs a substitute runtime graph
+// (the timing-golden drive records through graph products) and returns a
+// restore function. An installed graph also answers loadTiqianRuntime until
+// restored. Hosts must not touch it.
+export function installTiqianRuntimeGraphForTesting(graph: TiqianRuntimeGraph | null): RuntimeGraphRestoreFn {
+  const memo = loadMemo();
+  const previousOverride = memo.graphOverride;
+  const previousLoad = memo.load;
+  memo.graphOverride = graph;
+  if (graph) memo.load ??= Promise.resolve(graph);
+  return () => {
+    memo.graphOverride = previousOverride;
+    memo.load = previousLoad;
+  };
 }
 
 // Nullable slot read: the test override when installed (explicit null

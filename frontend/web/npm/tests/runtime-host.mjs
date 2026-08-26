@@ -12,6 +12,15 @@ import {
   fixtureComputedStyle,
 } from "./snapshot-dom-fixtures.mjs";
 import { setPreparedDomRendererForTest, setCommitValidatorForTest, commitValidator } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import {
+  enhance,
+  enhanceProgressively,
+  enhanceProgressivelyFromCanonical,
+  relayout,
+} from "@tiqian/core/core/engine/progressive-drivers.js";
+import { destroyRoot, detachRoot, optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
+import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/core/engine/content-reconcile.js";
+import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
 
 export class FakeDOMRect {
   constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -2633,24 +2642,24 @@ export function eventDetailInt(event, name) {
 }
 
 // ADR 0053 C1: the internal document event channel is retired; these host
-// helpers keep their export names but call the TiqianEngine facade directly.
-let engineInstance = null;
-
+// helpers keep their export names but drive the dissolved engine surface
+// (named functions over the plain runtime graph) directly.
+let runtimeGraph = null;
 
 export function dispatchRelayout(root) {
-  engineInstance.relayout(root);
+  relayout(runtimeGraph.rootState, runtimeGraph.copyInstaller, runtimeGraph.layoutJobPool, runtimeGraph.rawDom, root);
 }
 
 export function probeContentDrift(root) {
-  return JSON.parse(engineInstance.probeContentDrift(root));
+  return probeRootContentDrift(runtimeGraph.rawDom, runtimeGraph.rootState, root);
 }
 
 export function reconcileContent(root, paragraphs = []) {
-  return JSON.parse(engineInstance.reconcileContent(root, paragraphs));
+  return reconcileRoot(runtimeGraph.rawDom, runtimeGraph.rootState, runtimeGraph.layoutJobPool, root, paragraphs);
 }
 
 export function detachViaChannel(root) {
-  engineInstance.detach(root);
+  detachRoot(runtimeGraph.layoutJobPool, root);
 }
 
 export function testGrantController(root, generation, deadlineMs, quota) {
@@ -3581,14 +3590,15 @@ export function elementFragmentWidths(element) {
 }
 
 export function snapshotWorkerRequestMaxWidth(root, paragraph) {
-  const serialized = engineInstance.workerLayoutRequest(root, paragraph, {
+  const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs({
     snapshotFontSession: {
       status: "conforming",
       sessionId: "fixture-grid-session",
       detail: "test",
     },
-  });
-  return JSON.parse(serialized).maxWidthPx;
+  }));
+  if (!request) throw new Error("worker layout request unavailable for snapshot fixture");
+  return request.maxWidthPx;
 }
 
 export function snapshotTestOptions() {
@@ -3604,19 +3614,18 @@ export function snapshotTestOptions() {
 
 let runtimePromise;
 
-// Build the test-host TiqianWeb object from the TiqianEngine JsExport facade
-// (ADR 0053 C1). After ts-runtime install the engine and workers live on
-// globalThis; the polled worker facade is bound beside it. enhance/enhanceAll
-// keep their counting wrappers so tests can assert per-root paragraph counts.
+// Build the test-host TiqianWeb object from the dissolved engine surface
+// (R10): named functions over the plain runtime graph replace the former
+// TiqianEngine facade. enhance/enhanceAll keep their counting wrappers so
+// tests can assert per-root paragraph counts; the worker-prefixed bridge
+// names bind directly to the graph's LayoutJobPool.
 export function loadHostRuntime() {
   buildWorld();
   installPreparedRendererFixture();
   runtimePromise ??= import("@tiqian/core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
-    await loader.loadTiqianRuntime();
-    const engine = loader.engineApi();
-    const workers = loader.workerApi();
-    if (!engine) throw new Error("engine unavailable after loadTiqianRuntime");
-    engineInstance = engine;
+    const graph = await loader.loadTiqianRuntime();
+    runtimeGraph = graph;
+    const pool = graph.layoutJobPool;
 
     const bridge = {
       // TiqianWeb.install() in the Kotlin runtime attached the clipboard
@@ -3630,71 +3639,65 @@ export function loadHostRuntime() {
         if (globalThis.document) loader.copyInstaller().install(globalThis.document);
       },
       enhance(root, options) {
-        engine.enhance(root, options);
+        enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
         const count = root.getAttribute("data-tiqian-enhanced-count");
         return count != null ? Number(count) : 0;
       },
       enhanceProgressively(root, options) {
-        return engine.enhanceProgressively(root, options);
+        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
       },
       enhanceAll(options) {
-        engine.enhanceAll(options);
         let count = 0;
         for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
+          enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
           const c = root.getAttribute("data-tiqian-enhanced-count");
           if (c != null) count += Number(c);
         }
         return count;
       },
       destroy(root) {
-        engine.destroy(root);
+        destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
       },
       detach(root) {
-        engine.detach(root);
+        detachRoot(graph.layoutJobPool, root);
       },
       relayout(root) {
-        engine.relayout(root);
+        relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root);
       },
       refresh(root, progressively = true) {
-        engine.refresh(root, progressively);
+        const state = graph.rootState.getState(root);
+        if (state) {
+          if (progressively) {
+            enhanceProgressivelyFromCanonical(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, state.options);
+          } else {
+            enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, state.options, true);
+          }
+        }
         return root || globalThis.document.body;
       },
       cancelLayoutWork(root) {
-        engine.cancelLayoutWork(root);
+        pool.cancelJob(root);
       },
       probeContentDrift(root) {
-        return engine.probeContentDrift(root);
+        return probeRootContentDrift(graph.rawDom, graph.rootState, root);
       },
       reconcileContent(root, paragraphs) {
-        return engine.reconcileContent(root, paragraphs);
+        return reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, paragraphs);
       },
       workerLayoutRequest(root, paragraph, options) {
-        return engine.workerLayoutRequest(root, paragraph, options);
+        const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs(options ?? {}));
+        return request ? JSON.stringify(request) : null;
       },
+      workerAttach: (root) => pool.attach(root),
+      workerDetach: (root) => pool.detach(root),
+      workerHasJob: (root) => pool.hasJob(root),
+      workerJobGeneration: (root) => pool.jobGeneration(root),
+      workerRunSlice: (controller, minTier) => pool.runSlice(controller, minTier),
+      workerPendingInTier: (root, tier) => pool.pendingInTier(root, tier),
+      workerParagraphCount: (root) => pool.paragraphCount(root),
+      workerParagraphAt: (root, index) => pool.paragraphAt(root, index),
+      workerSetParagraphTier: (root, index, tier) => pool.setParagraphTier(root, index, tier),
     };
-    if (workers) {
-      // The TypeScript engine workers expose the polled names directly;
-      // the unprefixed fallback keeps the bridge usable with older bundles.
-      const workerAttach = workers.workerAttach || (workers.attach && workers.attach.bind(workers));
-      const workerDetach = workers.workerDetach || (workers.detach && workers.detach.bind(workers));
-      const workerHasJob = workers.workerHasJob || (workers.hasJob && workers.hasJob.bind(workers));
-      const workerJobGeneration = workers.workerJobGeneration || (workers.jobGeneration && workers.jobGeneration.bind(workers));
-      const workerRunSlice = workers.workerRunSlice || (workers.runSlice && workers.runSlice.bind(workers));
-      const workerPendingInTier = workers.workerPendingInTier || (workers.pendingInTier && workers.pendingInTier.bind(workers));
-      const workerParagraphCount = workers.workerParagraphCount || (workers.paragraphCount && workers.paragraphCount.bind(workers));
-      const workerParagraphAt = workers.workerParagraphAt || (workers.paragraphAt && workers.paragraphAt.bind(workers));
-      const workerSetParagraphTier = workers.workerSetParagraphTier || (workers.setParagraphTier && workers.setParagraphTier.bind(workers));
-
-      if (workerAttach) bridge.workerAttach = workerAttach;
-      if (workerDetach) bridge.workerDetach = workerDetach;
-      if (workerHasJob) bridge.workerHasJob = workerHasJob;
-      if (workerJobGeneration) bridge.workerJobGeneration = workerJobGeneration;
-      if (workerRunSlice) bridge.workerRunSlice = workerRunSlice;
-      if (workerPendingInTier) bridge.workerPendingInTier = workerPendingInTier;
-      if (workerParagraphCount) bridge.workerParagraphCount = workerParagraphCount;
-      if (workerParagraphAt) bridge.workerParagraphAt = workerParagraphAt;
-      if (workerSetParagraphTier) bridge.workerSetParagraphTier = workerSetParagraphTier;
-    }
     globalThis.TiqianWeb = bridge;
     return bridge;
   });

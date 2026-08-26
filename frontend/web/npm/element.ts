@@ -3,6 +3,7 @@ import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enh
 import {
   copyInstaller,
   loadTiqianRuntime,
+  tiqianRuntimeGraph,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import {
   awaitInitialTypographyFonts,
@@ -39,7 +40,10 @@ import {
 } from "@tiqian/core/core/engine/coordination/viewport-anchor.js";
 import { CoordinationService, type RootSessionId } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 import { globalServices } from "@tiqian/core/core/services/global-services.js";
-import * as engineFace from "@tiqian/core/core/engine/face.js";
+import { enhanceProgressively, relayout } from "@tiqian/core/core/engine/progressive-drivers.js";
+import { destroyRoot, detachRoot } from "@tiqian/core/core/engine/lifecycle.js";
+import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/core/engine/content-reconcile.js";
+import type { LayoutJobPool } from "@tiqian/core/core/engine/layout-job-pool.js";
 import {
   fragmentedBorderBoxInlineSize,
   typographySignature,
@@ -68,7 +72,6 @@ import {
   rootScopedParagraphs,
 } from "@tiqian/core/core/sampler/observers.js";
 import { snapshotCompletionSelector } from "@tiqian/core/core/sampler/snapshot/snapshot-completion.js";
-import type { TiqianEngineWorkersInstance } from "@tiqian/core/core/engine/engine-entry.js";
 import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
 import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
 import type {
@@ -128,6 +131,23 @@ function nextFrame(): Promise<number> {
 
 function coordinationService(): CoordinationService {
   return globalServices().coordination;
+}
+
+// Root teardown through the plain runtime graph (R10 dissolved the engine
+// facade): a null graph means the runtime never loaded, so there is no
+// runtime state to tear down.
+function destroyRuntimeRoot(root: HTMLElement): void {
+  const graph = tiqianRuntimeGraph();
+  if (graph) destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+}
+
+function detachRuntimeRoot(root: HTMLElement): void {
+  const graph = tiqianRuntimeGraph();
+  if (graph) detachRoot(graph.layoutJobPool, root);
+}
+
+function cancelRootLayoutWork(root: HTMLElement): void {
+  tiqianRuntimeGraph()?.layoutJobPool.cancelJob(root);
 }
 
 interface TiqianParagraphTierInfo {
@@ -297,7 +317,7 @@ class TiqianProseElement extends HTMLElementBase {
     // that needs to pay the restoration cost before starting a new lifecycle.
     if (!this.#connected) {
       if (isLoadedSnapshotAdopted(this)) restoreLoadedSnapshot(this);
-      if (this.#runtimeStateActive) engineFace.destroy(this);
+      if (this.#runtimeStateActive) destroyRuntimeRoot(this);
       this.#runtimeStateActive = false;
     }
     this.#connected = true;
@@ -587,11 +607,11 @@ class TiqianProseElement extends HTMLElementBase {
     if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       detachLoadedSnapshot(this);
     }
-    if (this.#runtimeStateActive) engineFace.detach(this);
+    if (this.#runtimeStateActive) detachRuntimeRoot(this);
     if (this.#layoutWorkerAttached) {
-      // tiqian:detach already cancelled the job, so workerDetach has no
+      // tiqian:detach already cancelled the job, so the pool's detach has no
       // in-flight work to finish on this disconnected root.
-      engineFace.workerRuntime()?.workerDetach?.(this);
+      tiqianRuntimeGraph()?.layoutJobPool.detach(this);
       this.#layoutWorkerAttached = false;
     }
     this.#releaseSnapshotFontSession();
@@ -730,7 +750,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stopWidthObservation();
     this.#stopContentObservation();
     restoreLoadedSnapshot(this);
-    if (this.#runtimeStateActive) engineFace.destroy(this);
+    if (this.#runtimeStateActive) destroyRuntimeRoot(this);
     this.#runtimeStateActive = false;
     this.#releaseSnapshotFontSession();
     this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
@@ -925,7 +945,10 @@ class TiqianProseElement extends HTMLElementBase {
     this.dataset.tiqianEnhanceOptions = JSON.stringify(preparedOptions);
     const runAnchor = captureViewportAnchor(this);
     try {
-      engineFace.enhanceProgressively(this, preparedOptions);
+      const graph = tiqianRuntimeGraph();
+      if (graph) {
+        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, this, preparedOptions);
+      }
     } finally {
       compensateViewportAnchor(this, runAnchor);
       releaseNativeScrollAnchoring(this);
@@ -939,18 +962,18 @@ class TiqianProseElement extends HTMLElementBase {
     // coordinated from the start and every slice comes from a grant. The
     // dispatch task runs inside the coordinator frame, so the first polled
     // grant lands in the same frame under the shared budget.
-    const runtime = engineFace.workerRuntime();
-    if (typeof runtime?.workerAttach !== "function") return;
-    runtime.workerAttach(this);
+    const pool = tiqianRuntimeGraph()?.layoutJobPool;
+    if (!pool) return;
+    pool.attach(this);
     this.#layoutWorkerAttached = true;
-    coordinationService().registerWorker(this.#coordinationSession, this, runtime);
+    coordinationService().registerWorker(this.#coordinationSession, this, pool);
   }
 
   #syncLayoutWorker() {
-    const runtime = engineFace.workerRuntime();
-    if (!this.#layoutWorkerAttached || typeof runtime?.workerHasJob !== "function") return;
-    coordinationService().setWorkerActive(this.#coordinationSession, runtime.workerHasJob(this));
-    this.#observeParagraphTiers(runtime);
+    const pool = tiqianRuntimeGraph()?.layoutJobPool;
+    if (!this.#layoutWorkerAttached || !pool) return;
+    coordinationService().setWorkerActive(this.#coordinationSession, pool.hasJob(this));
+    this.#observeParagraphTiers(pool);
     coordinationService().requestWorkerFrame(this.#coordinationSession);
   }
 
@@ -959,15 +982,17 @@ class TiqianProseElement extends HTMLElementBase {
     coordinationService().setWorkerActive(this.#coordinationSession, false);
   }
 
-  #observeParagraphTiers(runtime: TiqianEngineWorkersInstance) {
-    const count = runtime.workerParagraphCount(this);
+  #observeParagraphTiers(pool: LayoutJobPool) {
+    const count = pool.paragraphCount(this);
     if (count === 0) {
       this.#stopParagraphTierObservation();
       return;
     }
     if (!this.#paragraphObserver && typeof IntersectionObserver === "undefined") return;
     this.#paragraphObserver ??= new IntersectionObserver((entries) => {
-      const live = engineFace.workerRuntime();
+      // The runtime graph can be rebuilt between dispatch and intersection;
+      // read the pool live so tier flips always reach the current job.
+      const live = tiqianRuntimeGraph()?.layoutJobPool;
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const info = this.#paragraphTierIndex.get(entry.target);
@@ -977,8 +1002,8 @@ class TiqianProseElement extends HTMLElementBase {
         info.tier = tier;
         // Tier flips go straight to the running job's pending counters, so
         // the next polled frame reorders the queue without rescanning.
-        if (typeof live?.workerSetParagraphTier === "function" && live.workerHasJob(this)) {
-          live.workerSetParagraphTier(this, info.index, tier);
+        if (live && live.hasJob(this)) {
+          live.setParagraphTier(this, info.index, tier);
         }
       }
     }, { rootMargin: "100% 0px" });
@@ -987,7 +1012,7 @@ class TiqianProseElement extends HTMLElementBase {
     // and the observer set stops churning.
     const live = new Set<Element>();
     for (let index = 0; index < count; index++) {
-      const paragraph = runtime.workerParagraphAt(this, index);
+      const paragraph = pool.paragraphAt(this, index);
       if (!paragraph) continue;
       live.add(paragraph);
       const info = this.#paragraphTierIndex.get(paragraph);
@@ -1253,7 +1278,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#snapshotEnhancedCount = 0;
       delete this.dataset.tiqianSnapshotCount;
       if (this.#runtimeStateActive) {
-        engineFace.destroy(this);
+        destroyRuntimeRoot(this);
         this.#runtimeStateActive = false;
       }
     };
@@ -1323,7 +1348,7 @@ class TiqianProseElement extends HTMLElementBase {
       // start stay in one task and cannot expose unvalidated SSR as a settled
       // state. A miss below immediately starts a fresh runtime enhancement.
       this.#hasDispatched = false;
-      engineFace.destroy(this);
+      destroyRuntimeRoot(this);
       this.#runtimeStateActive = false;
     }
     tryAdoptRequestedSnapshot(
@@ -1475,7 +1500,8 @@ class TiqianProseElement extends HTMLElementBase {
     // synchronously inside this call.
     const relayoutAnchor = captureViewportAnchor(this);
     try {
-      engineFace.relayout(this);
+      const graph = tiqianRuntimeGraph();
+      if (graph) relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, this);
     } finally {
       compensateViewportAnchor(this, relayoutAnchor);
       releaseNativeScrollAnchoring(this);
@@ -1499,7 +1525,7 @@ class TiqianProseElement extends HTMLElementBase {
       // new width or typography is being prepared. Restore the complete
       // semantic source first so every remaining paragraph responds through the
       // host cascade while viewport-near paragraphs are enhanced atomically.
-      engineFace.destroy(this);
+      destroyRuntimeRoot(this);
       this.#runtimeStateActive = false;
     }
     this.#dispatchProgressiveEnhance(generation, { revalidateSnapshotFont }).catch((error) => {
@@ -2066,7 +2092,8 @@ class TiqianProseElement extends HTMLElementBase {
     // reading raw-DOM backup identity so a host edit made during enhancement is
     // already under observation when the probe runs.
     this.#contentInvalidation?.syncRawDom();
-    const drift = engineFace.probeContentDrift(this);
+    const graph = tiqianRuntimeGraph();
+    const drift = graph ? probeRootContentDrift(graph.rawDom, graph.rootState, this) : null;
     const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
       (drift?.rawDom || 0);
     const tainted = this.#contentTainted.size;
@@ -2093,7 +2120,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#hasDispatched = true;
     this.#acceptLayoutCompletion = true;
     this.#ensureLayoutWorker();
-    const outcome = engineFace.reconcileContent(this, paragraphs);
+    const graph = tiqianRuntimeGraph();
+    const outcome = graph ? reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, this, paragraphs) : null;
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready
@@ -2176,7 +2204,7 @@ class TiqianProseElement extends HTMLElementBase {
     // forced follow-up must not be skippable against a stale ledger value.
     this.#lastCommittedParagraphMeasures = "";
     this.#stopLayoutWorkInputObservation();
-    engineFace.cancelLayoutWork(this);
+    cancelRootLayoutWork(this);
     this.#deactivateLayoutWorker();
     this.#ensureViewportResizeListener();
     this.#scheduleResponsiveGeometryCommit();
@@ -2190,7 +2218,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkInFlight = false;
     this.#layoutWorkViewportTypographyEntries = [];
     this.#stopLayoutWorkInputObservation();
-    engineFace.cancelLayoutWork(this);
+    cancelRootLayoutWork(this);
     this.#deactivateLayoutWorker();
     this.#advanceTypographyBaselineAfterCancellation();
     this.#responsiveCommitRequired = true;
@@ -2220,10 +2248,10 @@ class TiqianProseElement extends HTMLElementBase {
     // next responsive commit starts viewport-priority enhancement from this
     // responsive semantic backing.
     if (this.#runtimeStateActive) {
-      engineFace.destroy(this);
+      destroyRuntimeRoot(this);
       this.#runtimeStateActive = false;
     } else {
-      engineFace.cancelLayoutWork(this);
+      cancelRootLayoutWork(this);
     }
   }
 

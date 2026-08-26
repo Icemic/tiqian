@@ -32,7 +32,8 @@ import {
   ELEMENT_DRIVE_GLOBALS,
   FRAME_STEP_MS,
 } from "./timing-golden-host.mjs";
-import { setEngineOverride } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
+import { optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -231,10 +232,10 @@ async function recordElementJourney(journeyKey) {
 // a single frame. Every voucher also carries the lane that issued it ("grant" for polled grants).
 function recordingRuntime(pendingByRoot, grants) {
   return {
-    workerHasJob: (root) => pendingByRoot.has(root),
-    workerJobGeneration: (root) => (pendingByRoot.has(root) ? 1 : 0),
-    workerPendingInTier: (root, tier) => pendingByRoot.get(root)[tier - 1],
-    workerRunSlice: (controller, minTier) => {
+    hasJob: (root) => pendingByRoot.has(root),
+    jobGeneration: (root) => (pendingByRoot.has(root) ? 1 : 0),
+    pendingInTier: (root, tier) => pendingByRoot.get(root)[tier - 1],
+    runSlice: (controller, minTier) => {
       const tiers = pendingByRoot.get(controller.root);
       const pendingBefore = [...tiers];
       let processed = 0;
@@ -387,20 +388,87 @@ function recordingWorker(messages) {
   };
 }
 
-// One root with one candidate paragraph drives the full protocol: init then
-// layout on the first prepare, layout-only on later prepares (the coordinator
-// singleton survives module re-evaluation), plan-cache hits and misses through
-// the bridge, the failed-request issue string, and release evicting the
-// session-prefixed plans.
+// Computed-style double for the worker-messages journey: zero padding and
+// borders so the pure request builder measures the candidate's rect width,
+// and empty getPropertyValue answers for the lowerer's style reads.
+function journeyComputedStyle(values = {}) {
+  const style = {
+    paddingLeft: "0px",
+    paddingRight: "0px",
+    borderLeftWidth: "0px",
+    borderRightWidth: "0px",
+    position: "static",
+    transform: "none",
+    marginLeft: "0px",
+    marginRight: "0px",
+    marginTop: "0px",
+    marginBottom: "0px",
+  };
+  style.getPropertyValue = (name) => {
+    const key = String(name).toLowerCase();
+    return Object.prototype.hasOwnProperty.call(values, key)
+      ? String(values[key])
+      : "";
+  };
+  return style;
+}
+
+// One root with three lowerable candidate paragraphs drives the full
+// protocol: init then layout on the first prepare, layout-only on later
+// prepares (the coordinator singleton survives module re-evaluation),
+// plan-cache hits and misses through the bridge, the failed-request issue
+// string, and release evicting the session-prefixed plans. R10: the prepare
+// lane builds requests through the pure workerLayoutRequestForRoot, so each
+// candidate is a lowerable paragraph double (text-only children lower into
+// a plain paragraph) and the take/issue ops reuse that candidate's
+// serialized build; request text and geometry derive from the candidate.
 async function runWorkerMessagesJourney() {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
   const handle = await state.loader.prepare(state.root);
-  const element = {
-    closest: () => state.root,
-    getBoundingClientRect: () => ({ top: 0, bottom: 24 }),
+
+  const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
+  const lowerableParagraph = (text) => ({
+    tagName: "P",
+    textContent: text,
+    childNodes: [{ nodeType: 3, textContent: text }],
+    getAttribute: () => null,
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    style: {
+      setProperty: () => {},
+      removeProperty: () => {},
+      getPropertyValue: () => "",
+      getPropertyPriority: () => "",
+    },
+    closest: (selector) => (selector === ROOT_SELECTOR ? state.root : null),
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getBoundingClientRect: () => ({ width: 323, top: 0, bottom: 24 }),
+    getClientRects: () => [],
+    parentElement: null,
+  });
+  const candidates = {
+    first: lowerableParagraph("first"),
+    second: lowerableParagraph("second"),
+    failure: lowerableParagraph("failure"),
   };
-  state.root.querySelectorAll = () => [element];
+  let activeElement = candidates.first;
+  state.root.querySelectorAll = () => [activeElement];
+
+  const prepareOptions = {
+    paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])",
+    snapshotFontSession: {
+      status: "conforming",
+      sessionId: handle.id,
+      detail: "test",
+    },
+  };
+  const canonicalOptions = optionsFromJs(prepareOptions);
+  const requestJson = () => {
+    const built = workerLayoutRequestForRoot(state.root, activeElement, canonicalOptions);
+    return JSON.stringify({ ...built, semantics: [], renderInlineBoxes: [] });
+  };
 
   const messages = [];
   const ops = [];
@@ -409,13 +477,7 @@ async function runWorkerMessagesJourney() {
   const savedBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const savedCoordinator = globalThis[coordinatorKey];
-  let requestText = "first";
-  const requestJson = () => JSON.stringify({
-    text: requestText,
-    maxWidthPx: 320,
-    semantics: [],
-    renderInlineBoxes: [],
-  });
+  const savedComputedStyle = globalThis.getComputedStyle;
   const compactTake = (resultText) => {
     if (resultText === null) return null;
     const record = JSON.parse(resultText);
@@ -432,9 +494,8 @@ async function runWorkerMessagesJourney() {
     delete globalServices().coordination.layoutWorker;
     globalThis.Worker = recordingWorker(messages);
     globalThis.innerHeight = 800;
-    // C1: the worker channel reads the engine call face, so the fixture
-    // request source is an engine override rather than a bridge global.
-    setEngineOverride({ workerLayoutRequest: () => requestJson() });
+    globalThis.getComputedStyle = (target) =>
+      journeyComputedStyle(target && target._computedValues);
 
     const module = await import(
       "@tiqian/core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
@@ -444,7 +505,7 @@ async function runWorkerMessagesJourney() {
       const job = await module.createPrepareJob(
         state.root,
         handle,
-        { paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])" },
+        prepareOptions,
         () => true,
       );
       let prepared = 0;
@@ -455,14 +516,14 @@ async function runWorkerMessagesJourney() {
         }
         prepared = await job.settled;
       }
-      ops.push({ op: "prepare", text: requestText, prepared });
+      ops.push({ op: "prepare", text: activeElement.textContent, prepared });
       return prepared;
     };
     ops.push({ op: "bridge", version: bridge.version, semanticReplayRevision: bridge.semanticReplayRevision });
 
     // First prepare initializes the session, then sends one layout message.
     await prepare();
-    ops.push({ op: "take", text: "first", out: compactTake(bridge.take(element, handle.id, requestJson())) });
+    ops.push({ op: "take", text: "first", out: compactTake(bridge.take(activeElement, handle.id, requestJson())) });
 
     // Semantic-only changes replay the cached plan with the new semantics.
     const semanticChange = JSON.stringify({
@@ -470,29 +531,30 @@ async function runWorkerMessagesJourney() {
       semantics: [{ start: 0, end: 5, tagName: "a", attributes: [["href", "/latest"]] }],
       renderInlineBoxes: [{ start: 0, end: 5, inlineStart: 1, inlineEnd: 2 }],
     });
-    ops.push({ op: "take-semantic", out: compactTake(bridge.take(element, handle.id, semanticChange)) });
+    ops.push({ op: "take-semantic", out: compactTake(bridge.take(activeElement, handle.id, semanticChange)) });
 
     // A measure change is a different plan key: miss.
-    const changedMeasure = JSON.stringify({ ...JSON.parse(requestJson()), maxWidthPx: 319 });
-    ops.push({ op: "take-miss", out: compactTake(bridge.take(element, handle.id, changedMeasure)) });
+    const builtMeasure = JSON.parse(requestJson()).maxWidthPx;
+    const changedMeasure = JSON.stringify({ ...JSON.parse(requestJson()), maxWidthPx: builtMeasure - 1 });
+    ops.push({ op: "take-miss", out: compactTake(bridge.take(activeElement, handle.id, changedMeasure)) });
 
     // A second prepare for a new text sends a layout message without a new init.
-    requestText = "second";
+    activeElement = candidates.second;
     await prepare();
-    ops.push({ op: "issue-clean", out: bridge.issue(element, handle.id, requestJson()) });
+    ops.push({ op: "issue-clean", out: bridge.issue(activeElement, handle.id, requestJson()) });
 
     // A failed layout request reports nothing prepared; the issue string
     // survives in the plan cache for the runtime bridge to read.
-    requestText = "failure";
+    activeElement = candidates.failure;
     await prepare();
-    ops.push({ op: "take-failed", out: compactTake(bridge.take(element, handle.id, requestJson())) });
-    ops.push({ op: "issue-failed", out: bridge.issue(element, handle.id, requestJson()) });
+    ops.push({ op: "take-failed", out: compactTake(bridge.take(activeElement, handle.id, requestJson())) });
+    ops.push({ op: "issue-failed", out: bridge.issue(activeElement, handle.id, requestJson()) });
 
     // Release evicts the session-prefixed plans and releases the worker
     // session; the previously cached plan no longer replays.
     ops.push({ op: "release", out: bridge.release(handle.id) });
-    requestText = "first";
-    ops.push({ op: "take-after-release", out: compactTake(bridge.take(element, handle.id, requestJson())) });
+    activeElement = candidates.first;
+    ops.push({ op: "take-after-release", out: compactTake(bridge.take(activeElement, handle.id, requestJson())) });
     ops.push({ op: "release-again", out: bridge.release(handle.id) });
 
     return { messages, ops };
@@ -501,7 +563,8 @@ async function runWorkerMessagesJourney() {
     else globalThis.Worker = savedWorker;
     if (savedInnerHeight === undefined) delete globalThis.innerHeight;
     else globalThis.innerHeight = savedInnerHeight;
-    setEngineOverride(null);
+    if (savedComputedStyle === undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle = savedComputedStyle;
     if (savedBridge === undefined) delete globalServices().coordination.layoutWorker;
     else globalServices().coordination.layoutWorker = savedBridge;
     if (savedCoordinator === undefined) delete globalThis[coordinatorKey];

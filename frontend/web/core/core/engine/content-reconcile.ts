@@ -1,11 +1,15 @@
-// HostContentReconcile: classification and DOM preparation for live-DOM
-// content changes on an enhanced root.
+// HostContentReconcile: classification, DOM preparation, and the root-level
+// reconcile orchestration for live-DOM content changes on an enhanced root.
 //
 // Stateless module: probeContentDrift(rawDom, ...), classifyReconcile(
 // rawDom, ...), prepareTrackedParagraphForRelowering(rawDom, ...) and
 // stripEngineMarkupFromStrandedParagraph(rawDom, ...) are named functions
 // that receive the raw-DOM collaborator as an explicit first parameter. The
-// engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
+// root-level entry points probeRootContentDrift and reconcileRoot receive the
+// raw-DOM, root-state and layout-job-pool collaborators explicitly; they
+// dissolve the former engine-instance facade methods probeContentDrift and
+// reconcileContent (R10) and answer plain result objects instead of JSON
+// strings.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw
 // string, so the source must contain no dollar sign and no triple
@@ -17,6 +21,11 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 import type { RawDomApi } from "./raw-dom.js";
+import type { RootState, RootStateApi } from "./root-state.js";
+import type { LayoutJobPool } from "./layout-job-pool.js";
+import { processParagraph } from "./process-paragraph.js";
+import { startLayoutJob } from "./progressive-drivers.js";
+import { computeCjkDashOutcome, needsCjkDashShaping } from "./loaders/cjk-dash.js";
 
 export interface ReconcileSpec {
   trackedSources: Element[];
@@ -32,7 +41,35 @@ export interface ReconcileResult {
   tainted: Element[];
   stranded: Element[];
   dead: number;
-  json: string;
+}
+
+// Read-only drift probe answer (dissolved engine facade shape): unknown
+// counts roots without runtime state, the remaining fields count tracked
+// sources per classification.
+export interface ContentDriftProbeResult {
+  unknown: number;
+  drifted: number;
+  dead: number;
+  rawDom: number;
+}
+
+// Reconcile verdict answer (dissolved engine facade shape): outcome plus one
+// count per classification bucket.
+export interface ContentReconcileResult {
+  outcome: string;
+  drifted: number;
+  rawDom: number;
+  tainted: number;
+  stranded: number;
+  dead: number;
+}
+
+// One reconcile work item: the affected paragraph and the closure that
+// re-lowers it (Kotlin ReconcileAction equivalent).
+type ReconcileActionRun = () => void;
+export interface ReconcileAction {
+  element: HTMLElement;
+  run: ReconcileActionRun;
 }
 
 function releasePreparedStyles(element: Element): boolean {
@@ -44,7 +81,7 @@ function releasePreparedStyles(element: Element): boolean {
 // Read-only drift probe for captured in-flight jobs: answers the same
 // per-paragraph classification question as classifyReconcile without
 // touching the DOM, so element.js cancels only on real drift.
-export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]): string {
+export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]): ContentDriftProbeResult {
   let drifted = 0;
   let dead = 0;
   let rawDomCount = 0;
@@ -58,8 +95,7 @@ export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]):
       rawDomCount += 1;
     }
   }
-  return '{"unknown":0,"drifted":' + drifted + ',"dead":' + dead +
-    ',"rawDom":' + rawDomCount + '}';
+  return { unknown: 0, drifted: drifted, dead: dead, rawDom: rawDomCount };
 }
 
 // Per-paragraph classification, never per MutationRecord. DeadTrackedParagraphDrop
@@ -122,10 +158,6 @@ export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): Recon
     tainted: taintedTracked,
     stranded: stranded,
     dead: dead,
-    json: '{"outcome":"' + (empty ? "idle" : "work") + '","drifted":' +
-      drifted.length + ',"rawDom":' + rawDomDrifted.length +
-      ',"tainted":' + taintedTracked.length + ',"stranded":' +
-      stranded.length + ',"dead":' + dead + '}',
   };
 }
 
@@ -205,4 +237,217 @@ export function stripEngineMarkupFromStrandedParagraph(rawDom: RawDomApi, paragr
   if (styleAttribute === null || styleAttribute.trim() === "") {
     paragraph.removeAttribute("style");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Root-level entry points (dissolved engine facade, R10)
+// ---------------------------------------------------------------------------
+
+// sourcesOf: maps state.paragraphs entries to their source elements
+// (Kotlin sourcesToArray() equivalent, see WebEnhancerTsHost.kt:315).
+function sourcesOf(state: RootState): HTMLElement[] {
+  const result: HTMLElement[] = [];
+  for (let i = 0; i < state.paragraphs.length; i += 1) {
+    result.push(state.paragraphs[i].source as HTMLElement);
+  }
+  return result;
+}
+
+// removeEntryFor: in-place splice to remove the paragraph entry whose source
+// === element from state.paragraphs (Kotlin removeAllMatching equivalent).
+function removeEntryFor(state: RootState, element: HTMLElement): void {
+  for (let i = state.paragraphs.length - 1; i >= 0; i -= 1) {
+    if (state.paragraphs[i].source === element) {
+      state.paragraphs.splice(i, 1);
+      return;
+    }
+  }
+}
+
+// CssFragmentedBlockInlineMeasure: plain getBoundingClientRect().width -- for
+// a block fragmented by CSS columns this is the union of every fragment, not
+// a per-fragment measure. Every caller uses it only for coarse >=0.5px drift
+// detection, where the union error is dwarfed by the tolerance (see the ADR
+// 0039 fractional fragment-aware amendment). A caller that needs the widest
+// live fragment must use elementContentWidth from the responsive-measure.js
+// module instead.
+function elementFragmentBorderBoxInlineSize(element: Element | null): number {
+  if (!element) return 0;
+  return element.getBoundingClientRect ? element.getBoundingClientRect().width : 0;
+}
+
+// paragraphViewportDistance: returns 0 when the element is visible in the
+// viewport, or a positive pixel distance otherwise (negative of bottom for
+// above-viewport, top minus viewportHeight for below-viewport).
+function paragraphViewportDistance(element: Element | null): number {
+  if (!element || !element.getBoundingClientRect) return 0;
+  const rect = element.getBoundingClientRect();
+  const viewportHeight: number = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (rect.bottom >= 0 && rect.top <= viewportHeight) return 0;
+  return rect.bottom < 0 ? -rect.bottom : rect.top - viewportHeight;
+}
+
+// Root-level drift probe: a root without runtime state answers the unknown
+// bucket (the former facade's '{"unknown":1,...}' answer), otherwise the
+// tracked sources classify through the read-only probe.
+export function probeRootContentDrift(rawDom: RawDomApi, rootState: RootStateApi, root: Element): ContentDriftProbeResult {
+  const state = rootState.getState(root);
+  if (!state) return { unknown: 1, drifted: 0, dead: 0, rawDom: 0 };
+  return probeContentDrift(rawDom, sourcesOf(state));
+}
+
+// Root-level reconcile orchestration (aligns WebEnhancerContentReconcile.kt
+// 22-95). Answers null when the root carries no runtime state; otherwise
+// classifies, refreshes the CJK dash capability evidence when needed, and
+// schedules one layout job for every affected paragraph.
+export function reconcileRoot(
+  rawDom: RawDomApi,
+  rootState: RootStateApi,
+  layoutJobPool: LayoutJobPool,
+  root: HTMLElement,
+  tainted: Element[],
+): ContentReconcileResult | null {
+  const state = rootState.getState(root);
+  if (!state) return null;
+  const spec: ReconcileSpec = {
+    trackedSources: sourcesOf(state),
+    tainted: tainted,
+    strandedCandidates: rootState.strandedSourceParagraphs(root, state),
+    rootSelector: "tiqian-prose, [data-tiqian-root]",
+  };
+  const verdict = classifyReconcile(rawDom, spec);
+  const result: ContentReconcileResult = {
+    outcome: verdict.outcome,
+    drifted: verdict.drifted.length,
+    rawDom: verdict.rawDom.length,
+    tainted: verdict.tainted.length,
+    stranded: verdict.stranded.length,
+    dead: verdict.dead,
+  };
+
+  // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
+  // onto detached originals. Drop them so re-projected clones are adopted as
+  // fresh candidates.
+  for (let d = state.paragraphs.length - 1; d >= 0; d -= 1) {
+    if (!state.paragraphs[d].source.isConnected) {
+      state.paragraphs.splice(d, 1);
+    }
+  }
+
+  if (verdict.outcome === "idle") return result;
+
+  // Refresh CJK dash capability evidence if any affected paragraph needs it.
+  // The coordinated channel captures cjkDashCapability once at initial enhance
+  // (element.ts) and bakes it into the root state's browserFallback. When the
+  // DOM gains dash content after initial enhance, we must recompute against
+  // the current root.textContent so the coordinated channel agrees with the
+  // one-shot channel (which recomputes on every call via api.ts).
+  const affectedParagraphs = verdict.drifted.concat(verdict.tainted, verdict.stranded);
+  let needsDashRefresh = false;
+  for (let pi = 0; pi < affectedParagraphs.length; pi += 1) {
+    if (needsCjkDashShaping(affectedParagraphs[pi])) {
+      needsDashRefresh = true;
+      break;
+    }
+  }
+  if (needsDashRefresh) {
+    const freshOutcome = computeCjkDashOutcome(root, {
+      snapshotFontSession: state.options.snapshotFontSession,
+    });
+    if (state.cjkDashCapability.status !== freshOutcome.status ||
+        state.cjkDashCapability.detail !== freshOutcome.detail) {
+      rootState.updateCjkDashCapability(state, freshOutcome);
+    }
+  }
+
+  // Build action list: each entry is {element, run} closure (Kotlin
+  // ReconcileAction equivalent).
+  const actions: ReconcileAction[] = [];
+  let vi: number;
+  for (vi = 0; vi < verdict.drifted.length; vi += 1) {
+    (function (element: HTMLElement) {
+      actions.push({
+        element: element,
+        run: function () {
+          removeEntryFor(state, element);
+          prepareTrackedParagraphForRelowering(rawDom, element);
+          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+        },
+      });
+    })(verdict.drifted[vi] as HTMLElement);
+  }
+  for (vi = 0; vi < verdict.rawDom.length; vi += 1) {
+    // RawDomDriftRerendersFromRawDom: a host edit inside the raw-DOM backup
+    // fragment leaves the live paragraph matching the rendered invariant, so
+    // only the raw-DOM backup identity check sees it. Restore hands it back to the
+    // live DOM and processParagraph re-lowers the edited content.
+    (function (element: HTMLElement) {
+      actions.push({
+        element: element,
+        run: function () {
+          removeEntryFor(state, element);
+          rawDom.restoreParagraph(element);
+          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+        },
+      });
+    })(verdict.rawDom[vi] as HTMLElement);
+  }
+  for (vi = 0; vi < verdict.tainted.length; vi += 1) {
+    // TaintedEngineOutputRerendersFromRawDom: an in-place text edit inside
+    // engine output does not change child identity. The edited node belongs
+    // to the renderer, so the semantic truth stays in the raw-DOM backup and the
+    // paragraph re-renders from it.
+    (function (element: HTMLElement) {
+      actions.push({
+        element: element,
+        run: function () {
+          removeEntryFor(state, element);
+          rawDom.restoreParagraph(element);
+          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+        },
+      });
+    })(verdict.tainted[vi] as HTMLElement);
+  }
+  for (vi = 0; vi < verdict.stranded.length; vi += 1) {
+    (function (element: HTMLElement) {
+      actions.push({
+        element: element,
+        run: function () {
+          stripEngineMarkupFromStrandedParagraph(rawDom, element);
+          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+        },
+      });
+    })(verdict.stranded[vi] as HTMLElement);
+  }
+
+  // WidthSnapshotPerReconcileJob: mirrors WidthSnapshotPerRelayoutJob -- a
+  // mid-job width move reports stale and element.js schedules one
+  // latest-width follow-up.
+  const distances: number[] = new Array(actions.length);
+  let ai: number;
+  for (ai = 0; ai < actions.length; ai += 1) {
+    distances[ai] = paragraphViewportDistance(actions[ai].element);
+  }
+  const itemTierIndex: number[] = new Array(actions.length);
+  for (ai = 0; ai < actions.length; ai += 1) {
+    itemTierIndex[ai] = ai;
+  }
+  itemTierIndex.sort(function (a: number, b: number): number {
+    return distances[a] - distances[b] || a - b;
+  });
+  const rootWidth = elementFragmentBorderBoxInlineSize(root);
+  startLayoutJob(
+    rootState,
+    layoutJobPool,
+    state,
+    "Relayout",
+    actions.length,
+    function (index: number) { actions[itemTierIndex[index]].run(); },
+    null,
+    null,
+    function (): boolean { return Math.abs(elementFragmentBorderBoxInlineSize(root) - rootWidth) >= 0.5; },
+    itemTierIndex,
+    actions.map(function (a: ReconcileAction): HTMLElement { return a.element; })
+  );
+  return result;
 }

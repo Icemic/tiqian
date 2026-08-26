@@ -14,7 +14,8 @@ import {
   harness,
   manifestWithFaces,
 } from "./browser-fonts-fixtures.mjs";
-import { setEngineOverride } from "../core/engine/loaders/runtime-loader.js";
+import { optionsFromJs } from "../core/engine/lifecycle.js";
+import { workerLayoutRequestForRoot } from "../core/engine/worker-request.js";
 
 // PrepareJob driver for channel tests: steps the job without a budget and
 // awaits the stored-plan count.
@@ -116,7 +117,7 @@ test("browser font sessions expose only replay identity to the layout Worker", a
   assert.throws(() => browserFontSessionWorkerContract(handle), assertCode("BrowserFontSessionHandleInvalid"));
 });
 
-test("layout Worker plans survive duplicate module instances and reach the engine call face", async () => {
+test("layout Worker plans survive duplicate module instances and reach the layout Worker bridge", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
   const handle = await state.loader.prepare(state.root);
@@ -125,13 +126,40 @@ test("layout Worker plans survive duplicate module instances and reach the engin
   const originalBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
   const originalCoordinator = globalThis[coordinatorKey];
+  const originalComputedStyle = globalThis.getComputedStyle;
+  const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
+  let requestText = "first";
+  // R10: the prepare lane builds requests through the pure
+  // workerLayoutRequestForRoot, so the candidate is a lowerable paragraph
+  // double whose text follows requestText, and the take/issue calls reuse
+  // that candidate's serialized build.
   const element = {
-    closest: () => state.root,
-    getBoundingClientRect: () => ({ top: 0, bottom: 24 }),
+    tagName: "P",
+    get textContent() { return requestText; },
+    get childNodes() { return [{ nodeType: 3, textContent: requestText }]; },
+    getAttribute: () => null,
+    setAttribute: () => {},
+    removeAttribute: () => {},
+    style: {
+      setProperty: () => {},
+      removeProperty: () => {},
+      getPropertyValue: () => "",
+      getPropertyPriority: () => "",
+    },
+    closest: (selector) => (selector === ROOT_SELECTOR ? state.root : null),
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getBoundingClientRect: () => ({ width: 323, top: 0, bottom: 24 }),
+    getClientRects: () => [],
+    parentElement: null,
   };
+  // No childNodes: lowering fails, so the candidate stays native without
+  // blocking the following paragraphs (ParagraphAtomicNativeRollback).
   const invalidElement = {
-    closest: () => state.root,
-    getBoundingClientRect: () => ({ top: 0, bottom: 24 }),
+    tagName: "P",
+    textContent: requestText,
+    closest: (selector) => (selector === ROOT_SELECTOR ? state.root : null),
+    getBoundingClientRect: () => ({ width: 323, top: 0, bottom: 24 }),
   };
   let queriedElements = [element];
   const selectors = [];
@@ -139,8 +167,18 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     selectors.push(selector);
     return queriedElements;
   };
-  let requestText = "first";
   const completionSelector = ":is(p, li):not([data-tq-snapshot-key])";
+  // SnapshotLayoutGate: the snapshot eligibility gate requires the option
+  // fontSize/lineHeight/families to stay unset; lowering defaults them.
+  const sessionOptions = {
+    snapshotFontSession: { status: "conforming", sessionId: handle.id, detail: "test" },
+  };
+  const preparedOptions = { paragraphSelector: completionSelector, ...sessionOptions };
+  const canonicalOptions = optionsFromJs(preparedOptions);
+  const requestJson = () => {
+    const built = workerLayoutRequestForRoot(state.root, element, canonicalOptions);
+    return JSON.stringify({ ...built, semantics: [], renderInlineBoxes: [] });
+  };
 
   class FixtureWorker {
     listeners = new Map();
@@ -174,17 +212,21 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     globalServices().coordination.layoutWorker = legacyBridge;
     globalThis.Worker = FixtureWorker;
     globalThis.innerHeight = 800;
-    // C1: the worker channel reads the engine call face, so the fixture
-    // request source is an engine override rather than a bridge global.
-    const engineStub = {
-      workerLayoutRequest: () => JSON.stringify({
-        text: requestText,
-        maxWidthPx: 320,
-        semantics: [],
-        renderInlineBoxes: [],
-      }),
-    };
-    setEngineOverride(engineStub);
+    // Zero padding/borders so the pure request builder measures the
+    // candidate's rect width.
+    globalThis.getComputedStyle = () => ({
+      paddingLeft: "0px",
+      paddingRight: "0px",
+      borderLeftWidth: "0px",
+      borderRightWidth: "0px",
+      position: "static",
+      transform: "none",
+      marginLeft: "0px",
+      marginRight: "0px",
+      marginTop: "0px",
+      marginBottom: "0px",
+      getPropertyValue: () => "",
+    });
 
     const firstModule = await import(
       `../core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
@@ -192,10 +234,8 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     assert.notEqual(globalServices().coordination.layoutWorker, legacyBridge);
     assert.equal(globalServices().coordination.layoutWorker.version, 1);
     assert.equal(globalServices().coordination.layoutWorker.semanticReplayRevision, 1);
-    assert.equal(await drivePrepareJob(firstModule, state.root, handle, {
-      paragraphSelector: completionSelector,
-    }), 1);
-    const firstRequest = engineStub.workerLayoutRequest();
+    assert.equal(await drivePrepareJob(firstModule, state.root, handle, preparedOptions), 1);
+    const firstRequest = requestJson();
     assert.equal(
       JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, firstRequest)).plan.fixture,
       "first",
@@ -220,7 +260,7 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     ]);
     const changedMeasure = JSON.stringify({
       ...JSON.parse(firstRequest),
-      maxWidthPx: 319,
+      maxWidthPx: JSON.parse(firstRequest).maxWidthPx - 1,
     });
     assert.equal(
       globalServices().coordination.layoutWorker.take(element, handle.id, changedMeasure),
@@ -231,10 +271,8 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     const secondModule = await import(
       `../core/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
     );
-    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
-      paragraphSelector: completionSelector,
-    }), 1);
-    const secondRequest = engineStub.workerLayoutRequest();
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
+    const secondRequest = requestJson();
     assert.equal(
       JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, secondRequest)).plan.fixture,
       "second",
@@ -242,19 +280,18 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     assert.equal(globalServices().coordination.layoutWorker.issue(element, handle.id, secondRequest), null);
 
     requestText = "failure";
-    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
-      paragraphSelector: completionSelector,
-    }), 0);
-    const failedRequest = engineStub.workerLayoutRequest();
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 0);
+    const failedRequest = requestJson();
     assert.equal(globalServices().coordination.layoutWorker.take(element, handle.id, failedRequest), null);
     assert.equal(
       globalServices().coordination.layoutWorker.issue(element, handle.id, failedRequest),
       "fixture replay miss",
     );
 
-    engineStub.workerLayoutRequest = () => JSON.stringify({
-      text: "live semantic",
-      maxWidthPx: 320,
+    requestText = "live semantic";
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
+    const unsupportedSemanticRequest = JSON.stringify({
+      ...JSON.parse(requestJson()),
       semantics: [{
         start: 0,
         end: 4,
@@ -263,10 +300,6 @@ test("layout Worker plans survive duplicate module instances and reach the engin
       }],
       renderInlineBoxes: [],
     });
-    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
-      paragraphSelector: completionSelector,
-    }), 1);
-    const unsupportedSemanticRequest = engineStub.workerLayoutRequest();
     const unsupportedSemanticRecord = JSON.parse(
       globalServices().coordination.layoutWorker.take(element, handle.id, unsupportedSemanticRequest),
     );
@@ -374,19 +407,9 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     );
 
     queriedElements = [invalidElement, element];
-    engineStub.workerLayoutRequest = (_root, candidate) => {
-      if (candidate === invalidElement) return "{";
-      return JSON.stringify({
-        text: "after invalid candidate",
-        maxWidthPx: 320,
-        semantics: [],
-        renderInlineBoxes: [],
-      });
-    };
-    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {
-      paragraphSelector: completionSelector,
-    }), 1);
-    const afterInvalidRequest = engineStub.workerLayoutRequest(state.root, element);
+    requestText = "after invalid candidate";
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
+    const afterInvalidRequest = requestJson();
     assert.equal(
       JSON.parse(
         globalServices().coordination.layoutWorker.take(element, handle.id, afterInvalidRequest),
@@ -396,14 +419,8 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     queriedElements = [element];
 
     requestText = "default-runtime-set";
-    engineStub.workerLayoutRequest = () => JSON.stringify({
-      text: requestText,
-      maxWidthPx: 320,
-      semantics: [],
-      renderInlineBoxes: [],
-    });
-    assert.equal(await drivePrepareJob(secondModule, state.root, handle, {}), 1);
-    const defaultRequest = engineStub.workerLayoutRequest();
+    assert.equal(await drivePrepareJob(secondModule, state.root, handle, { ...sessionOptions }), 1);
+    const defaultRequest = requestJson();
     assert.equal(
       JSON.parse(globalServices().coordination.layoutWorker.take(element, handle.id, defaultRequest)).plan.fixture,
       "default-runtime-set",
@@ -431,7 +448,8 @@ test("layout Worker plans survive duplicate module instances and reach the engin
     else globalThis.Worker = originalWorker;
     if (originalInnerHeight === undefined) delete globalThis.innerHeight;
     else globalThis.innerHeight = originalInnerHeight;
-    setEngineOverride(null);
+    if (originalComputedStyle === undefined) delete globalThis.getComputedStyle;
+    else globalThis.getComputedStyle = originalComputedStyle;
     state.loader.release(handle);
   }
 });

@@ -355,9 +355,9 @@ function makeDrivers(overrides = {}) {
 }
 
 // Collaborator argument list for the driver entry functions in the unit-test
-// world: engine is always null so the bare layoutJobPool.cancelJob branch runs.
+// world: the four runtime-graph products, in the public signature order.
 function driverArgs(ctx) {
-  return [ctx.rootState, null, ctx.copyInstaller, ctx.layoutJobPool, ctx.rawDom];
+  return [ctx.rootState, ctx.copyInstaller, ctx.layoutJobPool, ctx.rawDom];
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,7 +1033,7 @@ test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-err
 });
 
 // ---------------------------------------------------------------------------
-// 7. New public surface exports (engine-entry.js consumers)
+// 7. Public surface exports of the named driver functions
 // ---------------------------------------------------------------------------
 
 test("7a. named functions are exposed on the module surface", function () {

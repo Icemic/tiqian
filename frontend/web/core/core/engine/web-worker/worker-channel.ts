@@ -7,8 +7,8 @@ import type {
   BrowserFontSessionHandle,
   BrowserFontSessionWorkerContract,
 } from "../../measurement/browser-fonts.js";
-import { engineApi } from "../loaders/runtime-loader.js";
-import type { TiqianEngineInstance } from "../engine-entry.js";
+import { workerLayoutRequestForRoot } from "../worker-request.js";
+import { optionsFromJs } from "../lifecycle.js";
 import {
   normalizeLiveSemantics,
   normalizeSnapshotSemantics,
@@ -342,8 +342,7 @@ export async function createPrepareJob(
   isCurrent: IsCurrentPredicate,
 ): Promise<PrepareJob | null> {
   if (!root || !snapshotFontSession || !isCurrent()) return null;
-  const api: TiqianEngineInstance | null = engineApi();
-  if (typeof api?.workerLayoutRequest !== "function") return null;
+  const canonicalOptions = optionsFromJs(options ?? {});
   const contract = browserFontSessionWorkerContract(snapshotFontSession);
   // WorkerCandidateSetMatchesCommitSet: mixed snapshot/runtime roots dispatch
   // Kotlin with an explicit completion-only paragraph selector. A full
@@ -391,8 +390,11 @@ export async function createPrepareJob(
         if (dispatched > 0 && shouldYield()) return dispatched;
         let request: WorkerLayoutRequestBody | null = null;
         try {
-          const serialized = api.workerLayoutRequest(root, candidates[index].element, options);
-          if (serialized) request = JSON.parse(serialized) as WorkerLayoutRequestBody;
+          // Serialization happens at the send boundary (R10): the pure builder
+          // answers a DTO, the wire body crosses through JSON exactly like
+          // process-paragraph's take/issue boundary.
+          const built = workerLayoutRequestForRoot(root, candidates[index].element, canonicalOptions);
+          if (built) request = parsedLayoutRequest(JSON.stringify(built));
         } catch {
           // ParagraphAtomicNativeRollback: an invalid candidate remains native
           // without preventing later independent paragraphs from being prepared.

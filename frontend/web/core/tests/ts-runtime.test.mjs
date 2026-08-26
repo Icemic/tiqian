@@ -3,21 +3,20 @@ import test from "node:test";
 
 import {
   currentTiqianRuntime,
-  engineApi,
+  installTiqianRuntimeGraphForTesting,
   loadTiqianRuntime,
-  setEngineOverride,
-  workerApi,
+  tiqianRuntimeGraph,
 } from "../core/engine/loaders/runtime-loader.js";
-import { engineEntry } from "../core/engine/loaders/ts-runtime.js";
+import { buildTiqianRuntimeGraph } from "../core/engine/loaders/ts-runtime.js";
 
-// The runtime loader owns the single memoized engine graph. Before the load
-// promise resolves the accessors answer null; after it resolves they stay
-// stable for the process. The composition root's engineEntry() itself builds a
-// fresh graph per call, so direct calls are distinct from the loader's engine.
+// The runtime loader owns the single memoized runtime graph. Before the load
+// promise resolves the synchronous accessor answers null; after it resolves
+// the graph stays stable for the process. The composition root's
+// buildTiqianRuntimeGraph() itself builds a fresh graph per call, so direct
+// builds are distinct from the loader's graph.
 
-test("engineApi and workerApi answer null before the runtime is loaded", () => {
-  assert.equal(engineApi(), null);
-  assert.equal(workerApi(), null);
+test("tiqianRuntimeGraph answers null before the runtime is loaded", () => {
+  assert.equal(tiqianRuntimeGraph(), null);
 });
 
 test("currentTiqianRuntime is undefined before load and returns the memoized promise once started", async () => {
@@ -38,33 +37,36 @@ test("loadTiqianRuntime memoizes: repeated calls return the same promise", async
   assert.equal(after, first);
 });
 
-test("engineApi and workerApi become non-null and stable after load", async () => {
-  await loadTiqianRuntime();
-  const engine = engineApi();
-  const workers = workerApi();
-  assert.ok(engine, "engineApi() must be non-null after load");
-  assert.ok(workers, "workerApi() must be non-null after load");
-  assert.equal(engineApi(), engine);
-  assert.equal(workerApi(), workers);
+test("tiqianRuntimeGraph becomes the loaded graph and stays stable after load", async () => {
+  const graph = await loadTiqianRuntime();
+  assert.ok(graph, "loadTiqianRuntime must resolve a graph");
+  assert.equal(tiqianRuntimeGraph(), graph);
+  assert.equal(tiqianRuntimeGraph(), graph);
 });
 
-test("setEngineOverride substitutes the engineApi face and restoring returns the loaded engine", () => {
-  const original = engineApi();
-  assert.ok(original, "loader engine must be installed by the prior load tests");
-  const fakeEngine = { x: 1 };
-  setEngineOverride(fakeEngine);
-  assert.equal(engineApi(), fakeEngine);
-  setEngineOverride(null);
-  assert.equal(engineApi(), original);
+test("the loaded graph exposes the four plain products", async () => {
+  const graph = await loadTiqianRuntime();
+  assert.ok(graph.rawDom, "rawDom product");
+  assert.ok(graph.copyInstaller, "copyInstaller product");
+  assert.ok(graph.rootState, "rootState product");
+  assert.ok(graph.layoutJobPool, "layoutJobPool product");
 });
 
-test("engineEntry builds a fresh graph per call, distinct from the loader engine", () => {
-  const loaded = engineApi();
-  assert.ok(loaded, "loader engine must be installed by the prior load tests");
-  const first = engineEntry();
-  const second = engineEntry();
+test("installTiqianRuntimeGraphForTesting substitutes the graph and restore returns the loaded one", async () => {
+  const loaded = await loadTiqianRuntime();
+  const fakeGraph = { rawDom: {}, copyInstaller: {}, rootState: {}, layoutJobPool: {} };
+  const restore = installTiqianRuntimeGraphForTesting(fakeGraph);
+  assert.equal(tiqianRuntimeGraph(), fakeGraph);
+  restore();
+  assert.equal(tiqianRuntimeGraph(), loaded);
+});
+
+test("buildTiqianRuntimeGraph builds a fresh graph per call, distinct from the loader graph", async () => {
+  const loaded = await loadTiqianRuntime();
+  const first = buildTiqianRuntimeGraph();
+  const second = buildTiqianRuntimeGraph();
   assert.notEqual(first, second);
-  assert.notEqual(first.engine, second.engine);
-  assert.notEqual(first.workers, second.workers);
-  assert.notEqual(first.engine, loaded);
+  assert.notEqual(first.rootState, second.rootState);
+  assert.notEqual(first.layoutJobPool, second.layoutJobPool);
+  assert.notEqual(first.rootState, loaded.rootState);
 });

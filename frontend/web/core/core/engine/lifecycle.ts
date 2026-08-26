@@ -1,6 +1,6 @@
 // Stateless lifecycle helpers for the enhance pipeline: options parsing,
-// capability issue markers, and host sizing capture/stabilization (TsHost
-// runtime port, Slice 2a).
+// capability issue markers, root teardown, and host sizing
+// capture/stabilization (TsHost runtime port, Slice 2a).
 //
 // Stateless module: every function is exported directly and reads only its
 // arguments plus host globals (getComputedStyle) inside its body. The
@@ -9,6 +9,10 @@
 
 import type { CjkDashCapability } from "./canvas-shaping.js";
 import { elementContentWidth, effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
+import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
+import type { RootStateApi } from "./root-state.js";
+import type { RawDomApi } from "./raw-dom.js";
+import type { LayoutJobPool } from "./layout-job-pool.js";
 
 // Constants copied from the Kotlin sources: DEFAULT_EMPHASIS_DOT_GAP_EM in
 // core TextModel.kt, DEFAULT_FONT_SIZE and the default families in
@@ -308,6 +312,65 @@ export function restoreAttribute(element: Element, name: string, value?: string 
   } else {
     element.setAttribute(name, value);
   }
+}
+
+// Prepared-dom release used by root teardown and detach: the renderer module
+// reference resolves through the runtime loader so test overrides apply.
+function releasePreparedRootDomStyles(root: HTMLElement): boolean {
+  const renderer = preparedDomRendererModule();
+  return !!(renderer && renderer.releaseRoot && renderer.releaseRoot(root) === true);
+}
+
+// observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
+// integer and > 0, else 0.
+function observableSnapshotCount(root: HTMLElement): number {
+  const raw = root.getAttribute("data-tiqian-snapshot-count");
+  const value = Number(raw);
+  if (Number.isSafeInteger(value) && value > 0) return value;
+  return 0;
+}
+
+// Root teardown (dissolves the former engine-instance facade destroy method,
+// R10; aligns WebEnhancer.kt 167-194): cancels the root's job, deletes the
+// runtime state, restores every committed paragraph, clears capability
+// markers, and rewrites the observable enhancement attributes.
+export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPool, rawDom: RawDomApi, root: HTMLElement): void {
+  layoutJobPool.cancelJob(root);
+  const state = rootState.getState(root);
+  rootState.deleteState(root);
+  if (state != null) {
+    let j: number;
+    for (j = 0; j < state.paragraphs.length; j += 1) {
+      rawDom.restoreParagraph(state.paragraphs[j].source);
+    }
+    for (j = 0; j < state.issues.length; j += 1) {
+      clearIssue(state.issues[j]);
+    }
+    // SnapshotCompactValueCSS: a precomputed snapshot may be live without a
+    // runtime state while list-only enhancement starts. Its compact value
+    // CSS belongs to the snapshot owner and must survive that no-op destroy.
+    releasePreparedRootDomStyles(root);
+  }
+  const snapshotCount = observableSnapshotCount(root);
+  if (snapshotCount > 0) {
+    root.setAttribute("data-tiqian-enhanced", "true");
+    root.setAttribute("data-tiqian-enhanced-count", String(snapshotCount));
+  } else {
+    root.removeAttribute("data-tiqian-enhanced");
+    root.removeAttribute("data-tiqian-enhanced-count");
+  }
+  root.removeAttribute("data-tiqian-issue-count");
+  root.removeAttribute("data-tiqian-relayout-error");
+  root.removeAttribute("data-tiqian-snapshot-layout-fallback");
+}
+
+// Detach (dissolves the former engine-instance facade detach method, R10).
+// DetachedRootWeakOwnership: cancel the job and release document-scoped
+// styles; weak table state stays for reconnection on the same node. The
+// suspend verb stays distinct from destroy teardown.
+export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement): void {
+  layoutJobPool.cancelJob(root);
+  releasePreparedRootDomStyles(root);
 }
 
 export function captureSourceInlineSize(paragraph: Element): SourceInlineSizeCapture {

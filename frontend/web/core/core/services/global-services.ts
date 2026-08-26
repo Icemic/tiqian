@@ -21,7 +21,7 @@
 import { CoordinationService } from "../engine/coordination/coordination-service.js";
 import type { FontCoordinationState } from "../engine/coordination/fonts.js";
 import type { MeasurementCoordinationState } from "../engine/coordination/measurement.js";
-import type { EngineLoadState, PreparedDomState } from "../engine/loaders/runtime-loader.js";
+import type { PreparedDomState } from "../engine/loaders/runtime-loader.js";
 
 /** Per-document scope counter for prepared-style CSS scoping. */
 export interface PreparedScopeCounter {
@@ -78,16 +78,11 @@ export interface GlobalServices {
   // copies, hence they live in the page-global container rather than in
   // prepared-dom.ts module state.
   preparedStyles: PreparedStylesState;
-  // Runtime loader slot: per-document engine bootstrap state (load memo,
-  // installed engine/workers, override seam, copy installer) dissolved from
-  // runtime-loader.ts module scope (S5-bc). runtime-loader.ts registers the
-  // record at import time; consumers read it through the runtime-loader
-  // accessor functions.
-  runtimeLoader?: EngineLoadState;
   // Prepared pipeline state: the renderer module reference with its test
   // override and the commit validator oracle slot. Registered by
-  // runtime-loader.ts at import time; same container-survival reason as the
-  // loader slot.
+  // runtime-loader.ts at import time; the record stays in this container
+  // because prepared-pipeline consumers resolve the renderer without
+  // loading the runtime.
   preparedDom?: PreparedDomState;
   // Snapshot-table deduplication caches (S5-tail): page-wide maps that
   // cache loaded and resolved binary tables by URL reference.
@@ -120,7 +115,6 @@ function createGlobalServices(): GlobalServices {
       rootsByHost: new WeakMap<Element, Element>(),
       scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
     },
-    runtimeLoader: undefined,
     preparedDom: undefined,
     snapshotTables: {
       loadedTables: new Map(),

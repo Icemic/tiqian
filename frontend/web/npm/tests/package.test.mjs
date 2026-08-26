@@ -279,7 +279,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /await coordinationService\(\)\.runPrepare\([\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
+    /await coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
@@ -342,7 +342,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(readoptionSource, /RuntimeSnapshotBackingRestore/u);
   assert.ok(
-    readoptionSource.indexOf("engineFace.destroy(this)") <
+    readoptionSource.indexOf("destroyRuntimeRoot(this)") <
       readoptionSource.indexOf("tryAdoptRequestedSnapshot("),
   );
   assert.match(
@@ -388,7 +388,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?engineFace\.cancelLayoutWork\(this\)[\s\S]*?#responsiveRelayoutRequired = true/u,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?cancelRootLayoutWork\(this\)[\s\S]*?#responsiveRelayoutRequired = true/u,
   );
   assert.match(
     elementSource,
@@ -404,7 +404,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ResponsiveRetargetNativeRollback[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#runtimeStateActive = false/u,
+    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?#runtimeStateActive = false/u,
   );
   assert.match(
     elementSource,
@@ -437,11 +437,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /PreparedSnapshotTransition/u);
   assert.match(
     elementSource,
-    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?engineFace\.enhanceProgressively\(this, preparedOptions\)/u,
+    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
-    /ResponsiveNativeBacking[\s\S]*?engineFace\.destroy\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
+    /ResponsiveNativeBacking[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
   );
   assert.match(
     elementSource,
@@ -492,7 +492,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
   assert.match(elementSource, /if \(stale\)\s*this\.#responsiveCommitRequired = true/u);
   assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
-  assert.match(elementSource, /engineFace\.cancelLayoutWork\(this\)/u);
+  assert.match(elementSource, /cancelRootLayoutWork\(this\)/u);
   assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
   assert.match(elementSource, /responsiveGeometrySignature\(this\) !== this\.#layoutWorkGeometrySignature/u);
   assert.match(elementSource, /#runtimeStateActive = false/u);
@@ -648,7 +648,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
   );
   assert.match(
     coordinatorSource,
-    /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = slot\.runtime\.workerRunSlice\(/u,
+    /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = slot\.pool\.runSlice\(/u,
   );
   assert.match(
     coordinatorSource,

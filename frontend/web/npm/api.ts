@@ -2,7 +2,6 @@ import {
   copyInstaller,
   currentTiqianRuntime,
   loadTiqianRuntime,
-  withTiqianRuntime,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import { prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import { restoreAdoptedSnapshot } from "@tiqian/core/core/sampler/snapshot/loaded-snapshots.js";
@@ -16,7 +15,12 @@ import {
   ensurePreparedDomBridge,
   loadSnapshotFontFallback,
 } from "@tiqian/core/core/engine/loaders/font-loader.js";
-import type { TiqianEngineInstance } from "@tiqian/core/core/engine/engine-entry.js";
+import {
+  enhance as enhanceRoot,
+  enhanceProgressively as enhanceProgressivelyRoot,
+} from "@tiqian/core/core/engine/progressive-drivers.js";
+import { destroyRoot } from "@tiqian/core/core/engine/lifecycle.js";
+import type { TiqianRuntimeGraph } from "@tiqian/core/core/engine/loaders/ts-runtime.js";
 import type { CjkDashShapingOutcome } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
 import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
@@ -53,7 +57,7 @@ type TiqianPreparedWebOptions = TiqianWebOptions & {
   snapshotFontSession?: TiqianWebSnapshotFontSessionWire;
 };
 
-type TiqianWebAction<T> = (api: TiqianEngineInstance, prepared: TiqianPreparedWebOptions) => T;
+type TiqianWebAction<T> = (graph: TiqianRuntimeGraph, prepared: TiqianPreparedWebOptions) => T;
 
 export interface TiqianWebGlobalApi {
   enhance(root?: HTMLElement, options?: TiqianWebOptions): Promise<HTMLElement>;
@@ -188,19 +192,18 @@ async function withTiqianWeb<T>(
       }
       return root;
     }
-    return await withTiqianRuntime((api) => {
-      if (context.generation !== generation) return root;
-      return action(api!, {
-        ...options,
-        cjkDashCapability,
-        ...(fontSession ? {
-          snapshotFontSession: {
-            status: "conforming",
-            sessionId: fontSession.id,
-            detail: "SnapshotFontBytes",
-          },
-        } : {}),
-      });
+    const graph = await loadTiqianRuntime();
+    if (context.generation !== generation) return root;
+    return action(graph, {
+      ...options,
+      cjkDashCapability,
+      ...(fontSession ? {
+        snapshotFontSession: {
+          status: "conforming",
+          sessionId: fontSession.id,
+          detail: "SnapshotFontBytes",
+        },
+      } : {}),
     });
   } catch (error) {
     if (context.generation === generation) {
@@ -215,11 +218,13 @@ async function withTiqianWeb<T>(
 }
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
-  return withTiqianWeb(root, options, (api, prepared) => api.enhance(root, prepared));
+  return withTiqianWeb(root, options, (graph, prepared) =>
+    enhanceRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, prepared));
 }
 
 export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
-  return withTiqianWeb(root, options, (api, prepared) => api.enhanceProgressively(root, prepared));
+  return withTiqianWeb(root, options, (graph, prepared) =>
+    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, prepared));
 }
 
 export function destroy(root: HTMLElement = document.body): Promise<void> {
@@ -232,10 +237,10 @@ export function destroy(root: HTMLElement = document.body): Promise<void> {
       context.destroy();
       return;
     }
-    return withTiqianRuntime((api) => {
+    return loadTiqianRuntime().then((graph) => {
       if (context.generation !== generation) return;
       try {
-        return api!.destroy(root);
+        destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
       } finally {
         releaseContextFontSession(context, root);
         context.destroy();

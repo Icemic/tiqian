@@ -119,17 +119,17 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
   }
 });
 
-// A fake Kotlin facade: pending counts per tier, runSlice drains up to the
+// A fake LayoutJobPool: pending counts per tier, runSlice drains up to the
 // grant's quota from the lowest non-empty tier at or below minTier, mirroring
-// the real job's done-scan and its obedience to the quota stop term.
+// the real pool's done-scan and its obedience to the quota stop term.
 // runSlice receives one grant controller per call; the fake reads the
-// recipient root off it, like the real facade does.
+// recipient root off it, like the real pool does.
 function fakeWorkerRuntime(pendingByElement, grants, controllers) {
   return {
-    workerHasJob: (element) => pendingByElement.has(element),
-    workerJobGeneration: (element) => (pendingByElement.has(element) ? 1 : 0),
-    workerPendingInTier: (element, tier) => pendingByElement.get(element)[tier - 1],
-    workerRunSlice: (controller, minTier) => {
+    hasJob: (element) => pendingByElement.has(element),
+    jobGeneration: (element) => (pendingByElement.has(element) ? 1 : 0),
+    pendingInTier: (element, tier) => pendingByElement.get(element)[tier - 1],
+    runSlice: (controller, minTier) => {
       const element = controller.root;
       const tiers = pendingByElement.get(element);
       grants.push([element.name, minTier]);

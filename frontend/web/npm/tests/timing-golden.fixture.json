@@ -380,8 +380,63 @@
           "value": null
         },
         {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
           "value": null
         },
         {
@@ -1199,8 +1254,63 @@
           "value": null
         },
         {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
           "value": null
         },
         {
@@ -1226,6 +1336,36 @@
         {
           "phase": "s4-reconnect",
           "name": "data-tiqian-snapshot-render-font",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-snapshot-layout-fallback",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-relayout-error",
           "value": null
         }
       ]

@@ -3,13 +3,13 @@
 // reporting layer from WebEnhancer.kt and WebEnhancerProgressiveJob.kt into
 // a pure TS module.
 //
-// Stateless module: enhanceProgressively, relayout,
+// Stateless module: enhance, enhanceProgressively, relayout,
 // rejectMissingSharedRuntimeStyles and startLayoutJob are named functions
-// that receive the root-state, engine, copy-installer, layout-job-pool and
-// rawDom collaborators as explicit parameters; the stateless
-// prepare-paragraph-layout, lifecycle and responsive-measure helpers are
-// imported directly. The engine entry passes itself at every call; the
-// engine slot stays null in the standalone unit-test world.
+// that receive the root-state, copy-installer, layout-job-pool and rawDom
+// collaborators as explicit parameters; the stateless prepare-paragraph-layout,
+// lifecycle and responsive-measure helpers are imported directly. Root
+// teardown inside the drivers runs through lifecycle's destroyRoot with the
+// same explicit collaborators (R10 dissolved the engine-instance facade).
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -33,8 +33,7 @@ import type { RelayoutSession } from "./relayout-session.js";
 import { openRelayoutSession } from "./relayout-session.js";
 import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
 import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
-import { reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
-import type { TiqianEngineInstance } from "./engine-entry.js";
+import { destroyRoot, reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
 import { processParagraph } from "./process-paragraph.js";
 import type { CopyInstaller } from "../utils/copy.js";
 import type { RawDomApi } from "./raw-dom.js";
@@ -316,7 +315,6 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
   // createRootStateFromCanonical instead of re-resolving the bag.
   function enhanceProgressivelyCore(
     rootState: RootStateApi,
-    engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDom: RawDomApi,
@@ -329,21 +327,15 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
 
     // Kotlin's private enhanceProgressively installs the copy handler and
     // destroys the root before rebuilding state, and the relayout restarts
-    // (branches 1 and 3) enter this function directly. Hosted worlds carry
-    // __TiqianEngine, whose destroy cancels the job, restores every committed
-    // paragraph, and clears the root attributes; the standalone unit-test
-    // world drives this module without an engine entry and keeps the bare
-    // job cancel.
+    // (branches 1 and 3) enter this function directly. The teardown cancels
+    // the job, restores every committed paragraph, and clears the root
+    // attributes through lifecycle's destroyRoot.
     // TargetDocumentExplicit: install the copy listener on the document that
     // owns the enhanced root; the ambient fallback covers fake-DOM test
     // worlds whose roots carry no ownerDocument.
     const targetDocument = root.ownerDocument ?? globalThis.document;
     if (targetDocument) copyInstaller.install(targetDocument);
-    if (engine) {
-      engine.destroy(root as HTMLElement);
-    } else {
-      layoutJobPool.cancelJob(root);
-    }
+    destroyRoot(rootState, layoutJobPool, rawDom, root as HTMLElement);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
@@ -442,7 +434,6 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
 
   export function relayout(
     rootState: RootStateApi,
-    engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDom: RawDomApi,
@@ -459,7 +450,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (PJ.jobKind(root) === "Enhance") {
       const running = RS.getState(root);
       if (running != null) {
-        enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, running.options, "Enhance", true);
+        enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, running.options, "Enhance", true);
         return;
       }
     }
@@ -467,7 +458,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
     const state = RS.getState(root);
     if (state == null) {
-      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, null, "Relayout");
+      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, null, "Relayout");
       return;
     }
 
@@ -488,7 +479,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       // the new width. Restore semantic source once, then let viewport-near
       // paragraphs take over atomically in bounded slices just like any other
       // source refresh. state.options is canonical.
-      enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, state.options, "Relayout", true);
+      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, state.options, "Relayout", true);
       return;
     }
 
@@ -603,30 +594,62 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
   // public surface
   // ---------------------------------------------------------------------------
 
+  // enhance: synchronous one-shot enhance (dissolves the former engine
+  // facade enhance method, R10). The internal third param fromCanonical
+  // controls the root-state creation path; public entries pass false.
+  export function enhance(
+    rootState: RootStateApi,
+    copyInstaller: CopyInstaller,
+    layoutJobPool: LayoutJobPool,
+    rawDom: RawDomApi,
+    root: Element,
+    optionsBag: Record<string, unknown> | null,
+    fromCanonical?: boolean,
+  ): number {
+    const RS = rootState;
+    // TargetDocumentExplicit: install the copy listener on the document that
+    // actually owns the enhanced root; the ambient fallback covers fake-DOM
+    // test worlds whose roots carry no ownerDocument.
+    const targetDocument = root.ownerDocument ?? globalThis.document;
+    if (targetDocument) copyInstaller.install(targetDocument);
+    destroyRoot(rootState, layoutJobPool, rawDom, root as HTMLElement);
+    const state = fromCanonical
+      ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
+      : RS.createRootState(root, optionsBag as Record<string, unknown>);
+    const candidates = RS.paragraphCandidates(root, state.options.paragraphSelector);
+    if (rejectMissingSharedRuntimeStyles(rootState, state, candidates)) return 0;
+    for (let i = 0; i < candidates.length; i += 1) {
+      processParagraph(
+        rawDom,
+        RS.processParagraphArgument(state, candidates[i])
+      );
+    }
+    RS.publishState(state, false);
+    return state.paragraphs.length;
+  }
+
   // enhanceProgressively: raw host options bag (or null for a cold-start
   // relayout). The canonical entry enhanceProgressivelyFromCanonical accepts
   // already-resolved options and routes them through the canonical state
   // builder.
   export function enhanceProgressively(
     rootState: RootStateApi,
-    engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDom: RawDomApi,
     root: Element,
     optionsBag: Record<string, unknown> | null,
   ): void {
-    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, optionsBag, "Enhance", false);
+    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, optionsBag, "Enhance", false);
   }
 
   export function enhanceProgressivelyFromCanonical(
     rootState: RootStateApi,
-    engine: TiqianEngineInstance | null,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDom: RawDomApi,
     root: Element,
     canonicalOptions: EnhanceOptions,
   ): void {
-    enhanceProgressivelyCore(rootState, engine, copyInstaller, layoutJobPool, rawDom, root, canonicalOptions, "Enhance", true);
+    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, canonicalOptions, "Enhance", true);
   }

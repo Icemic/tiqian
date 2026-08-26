@@ -18,6 +18,7 @@ import type { FontCoordinationState } from "./fonts.js";
 import { createReplayRegistry } from "./fonts.js";
 import type { MeasurementCoordinationState } from "./measurement.js";
 import type { TraceConfig } from "../lifecycle.js";
+import type { LayoutJobPool } from "../layout-job-pool.js";
 import type {
   PageWorkerCoordinator,
   PlanRecord,
@@ -50,10 +51,6 @@ export interface TiqianLayoutWorkerInstance {
 export type RootSessionId = number;
 export type FrameTaskCallback = (now: number) => void;
 export type GrantStopPredicate = (processedCount: number) => boolean;
-export type WorkerHasJobFn = (element: HTMLElement) => boolean;
-export type WorkerJobGenerationFn = (element: HTMLElement) => number;
-export type WorkerPendingInTierFn = (element: HTMLElement, tier: number) => number;
-export type WorkerRunSliceFn = (controller: GrantController, minTier: number) => number;
 export type ShouldYieldPredicate = () => boolean;
 export type PrepareSettledCallback = (job: PrepareJob) => void;
 export type PrepareStepFn = (shouldYield: ShouldYieldPredicate) => number;
@@ -97,17 +94,12 @@ export interface GrantController {
   shouldStop: GrantStopPredicate;
 }
 
-export interface CoordinatorWorkerRuntime {
-  workerHasJob: WorkerHasJobFn;
-  workerJobGeneration: WorkerJobGenerationFn;
-  workerPendingInTier: WorkerPendingInTierFn;
-  workerRunSlice: WorkerRunSliceFn;
-}
-
 export interface CoordinatorWorkerSlot {
   session: RootSessionId;
   element: HTMLElement;
-  runtime: CoordinatorWorkerRuntime;
+  // R10 ruling 3: the slot holds the root's layout job pool directly; the
+  // former worker-prefixed alias layer (CoordinatorWorkerRuntime) is gone.
+  pool: LayoutJobPool;
   active: boolean;
   pendingByTier: [number, number, number] | number[];
   generation: number;
@@ -557,18 +549,18 @@ export class CoordinationService {
     }
   }
 
-  registerWorker(session: RootSessionId, element: HTMLElement, runtime: CoordinatorWorkerRuntime): void {
+  registerWorker(session: RootSessionId, element: HTMLElement, pool: LayoutJobPool): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].session === session) {
         this.#workerSlots[i].element = element;
-        this.#workerSlots[i].runtime = runtime;
+        this.#workerSlots[i].pool = pool;
         return;
       }
     }
     this.#workerSlots.push({
       session,
       element,
-      runtime,
+      pool,
       active: false,
       pendingByTier: [0, 0, 0],
       generation: 0,
@@ -589,13 +581,13 @@ export class CoordinationService {
   // lane. Remaining tiers stay with the polled frame loop.
   grantImmediate(session: RootSessionId): boolean {
     const slot = this.#findWorkerSlot(session);
-    if (!slot || typeof slot.runtime?.workerRunSlice !== "function") return false;
+    if (!slot || typeof slot.pool?.runSlice !== "function") return false;
     const element = slot.element;
-    if (!slot.runtime.workerHasJob(element)) return false;
+    if (!slot.pool.hasJob(element)) return false;
     const admission = this.#admitMainSlice("prepaint");
     if (!admission) return false;
     const sliceStart = performance.now();
-    const generation = slot.runtime.workerJobGeneration(element);
+    const generation = slot.pool.jobGeneration(element);
     const quota = slot.quota;
     let processed = 0;
     const viewportAnchor = captureViewportAnchor(element);
@@ -605,7 +597,7 @@ export class CoordinationService {
       // root whose visible paragraph count exceeds the adaptive quota still
       // commits atomically before this frame paints.
       while (Date.now() < admission.deadline) {
-        const sliceProcessed = slot.runtime.workerRunSlice({
+        const sliceProcessed = slot.pool.runSlice({
           lane: "prepaint",
           root: element,
           generation,
@@ -617,7 +609,7 @@ export class CoordinationService {
         }, 1);
         processed += sliceProcessed;
         if (sliceProcessed === 0) break;
-        if (slot.runtime.workerPendingInTier(element, 1) === 0) break;
+        if (slot.pool.pendingInTier(element, 1) === 0) break;
       }
     } finally {
       admission.spent(performance.now() - sliceStart);
@@ -627,11 +619,11 @@ export class CoordinationService {
       slot.deferCount = 0;
       slot.lastGrantFrame = this.#frameCounter;
     }
-    slot.active = slot.runtime.workerHasJob(element);
+    slot.active = slot.pool.hasJob(element);
     if (!slot.active) releaseNativeScrollAnchoring(element);
-    slot.pendingByTier[0] = slot.runtime.workerPendingInTier(element, 1);
-    slot.pendingByTier[1] = slot.runtime.workerPendingInTier(element, 2);
-    slot.pendingByTier[2] = slot.runtime.workerPendingInTier(element, 3);
+    slot.pendingByTier[0] = slot.pool.pendingInTier(element, 1);
+    slot.pendingByTier[1] = slot.pool.pendingInTier(element, 2);
+    slot.pendingByTier[2] = slot.pool.pendingInTier(element, 3);
     return processed > 0;
   }
 
@@ -761,12 +753,12 @@ export class CoordinationService {
     // counters per attached root. Grants re-read only the tier they drained.
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
-      if (slot.runtime.workerHasJob(slot.element)) {
+      if (slot.pool.hasJob(slot.element)) {
         slot.active = true;
-        slot.generation = slot.runtime.workerJobGeneration(slot.element);
-        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
+        slot.generation = slot.pool.jobGeneration(slot.element);
+        slot.pendingByTier[0] = slot.pool.pendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = slot.pool.pendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = slot.pool.pendingInTier(slot.element, 3);
       } else {
         slot.active = false;
         slot.generation = 0;
@@ -816,7 +808,7 @@ export class CoordinationService {
           anchorCaptured = true;
           viewportAnchor = captureViewportAnchor(slot.element);
         }
-        const processed = slot.runtime.workerRunSlice({
+        const processed = slot.pool.runSlice({
           lane: "grant",
           root: slot.element,
           generation: slot.generation,
@@ -835,9 +827,9 @@ export class CoordinationService {
         }
         // A tier-N grant may drain leftover lower-tier items, so every grant
         // refreshes all three counters.
-        slot.pendingByTier[0] = slot.runtime.workerPendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.runtime.workerPendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.runtime.workerPendingInTier(slot.element, 3);
+        slot.pendingByTier[0] = slot.pool.pendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = slot.pool.pendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = slot.pool.pendingInTier(slot.element, 3);
         if (processed === 0) return finish(true);
       }
       return finish(true);

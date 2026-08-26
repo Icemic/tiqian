@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
-import { createEngineEntry } from "../core/engine/engine-entry.js";
-import { optionsFromJs } from "../core/engine/lifecycle.js";
+import { setPreparedDomRendererForTest, setCommitValidatorForTest } from "../core/engine/loaders/runtime-loader.js";
+import { enhance, enhanceProgressively } from "../core/engine/progressive-drivers.js";
+import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
+import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-reconcile.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
 
 const ENV_GLOBALS = ["window", "document", "getComputedStyle"];
 
-// The engine entry runs the real process-paragraph, content-reconcile and
-// progressive-drivers functions against fake ledgers (detached-fragment backup, root-state,
-// layout-job-pool, copy-installer). The process-paragraph and commit helpers
-// are direct imports, so a ready commit path only proceeds through an
-// installed prepared-DOM bridge; without one the prepare step returns
-// PreparedDomBridgeUnavailable first.
+// The named engine functions (progressive-drivers, lifecycle destroy/detach,
+// content-reconcile) run here against fake ledgers (detached-fragment backup,
+// root-state, layout-job-pool, copy-installer). The process-paragraph and
+// commit helpers are direct imports, so a ready commit path only proceeds
+// through an installed prepared-DOM bridge; without one the prepare step
+// returns PreparedDomBridgeUnavailable first.
 
 function makeElement(initialAttributes, options = {}) {
   const attrs = new Map(Object.entries(initialAttributes || {}));
@@ -302,20 +303,19 @@ function makeFakeCopyInstaller() {
   };
 }
 
-function makeEngine(opts) {
+// Assembles the four runtime-graph products the named engine functions take
+// as explicit dependencies; each slot defaults to a recording fake.
+function makeGraph(opts) {
   opts = opts || {};
-  const rs = opts.rs || makeFakeRootState(opts.rsOpts || {});
-  const job = opts.job || makeFakeJob();
+  const rootState = opts.rs || makeFakeRootState(opts.rsOpts || {});
+  const layoutJobPool = opts.job || makeFakeJob();
   const rawDom = opts.rawDom || makeFakeRawDom();
   const copyInstaller = opts.copyInstaller || makeFakeCopyInstaller();
-  const entry = createEngineEntry(rawDom, copyInstaller, rs, job);
   return {
-    engine: entry.engine,
-    workers: entry.workers,
-    rs: rs,
-    job: job,
-    rawDom: rawDom,
+    rootState: rootState,
     copyInstaller: copyInstaller,
+    layoutJobPool: layoutJobPool,
+    rawDom: rawDom,
   };
 }
 
@@ -329,16 +329,16 @@ test("1. enhance: processes each candidate via the real processParagraph, return
   const fakeState = makeStateWithCallbacks({ root: null });
   const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2] });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs });
+    const graph = makeGraph({ rs: rs });
     const root = makeElement();
-    const result = ctx.engine.enhance(root, { fontSize: 20 });
+    const result = enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     // The real processParagraph ran once per candidate, observable on the
     // detached-fragment backup ledger.
-    assert.equal(ctx.rawDom._calls.begin.length, 2);
-    assert.equal(ctx.rawDom._calls.begin[0][0], c1);
-    assert.equal(ctx.rawDom._calls.begin[1][0], c2);
+    assert.equal(graph.rawDom._calls.begin.length, 2);
+    assert.equal(graph.rawDom._calls.begin[0][0], c1);
+    assert.equal(graph.rawDom._calls.begin[1][0], c2);
     assert.equal(rs._calls.publishState.length, 1);
     assert.equal(result, 2);
   });
@@ -351,18 +351,18 @@ test("1. enhance: processes each candidate via the real processParagraph, return
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
   const rs = makeFakeRootState({ candidates: [makeElement()] });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs });
-    const result = ctx.engine.enhance(makeElement(), {});
+    const graph = makeGraph({ rs: rs });
+    const result = enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.equal(result, 0);
-    assert.equal(ctx.rawDom._calls.begin.length, 0);
+    assert.equal(graph.rawDom._calls.begin.length, 0);
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
 });
 
 // ---------------------------------------------------------------------------
-// 3. enhance destroy-first: destroy runs before createRootState
+// 3. enhance destroy-first: destroyRoot runs before createRootState
 // ---------------------------------------------------------------------------
 
-test("3. enhance: destroy runs before createRootState (call order)", function () {
+test("3. enhance: destroyRoot runs before createRootState (call order)", function () {
   const callOrder = [];
   const fakeJob = makeFakeJob();
   const origCancel = fakeJob.cancelJob;
@@ -380,52 +380,21 @@ test("3. enhance: destroy runs before createRootState (call order)", function ()
     return origCreate(root, bag);
   };
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, job: fakeJob });
-    ctx.engine.enhance(makeElement(), {});
+    const graph = makeGraph({ rs: rs, job: fakeJob });
+    enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.deepEqual(callOrder, ["destroy", "createRootState"]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 4. enhanceAll: scans tiqian-prose and [data-tiqian-root], sums counts
+// 4. enhanceProgressively: copy handler, destroy, rebuild, one Enhance job
 // ---------------------------------------------------------------------------
 
-test("4. enhanceAll: scans tiqian-prose and [data-tiqian-root] roots, sums counts", function () {
-  const el1 = makeElement({ "data-tiqian-root": "" });
-  const el2 = makeElement();
-  el2.tagName = "TIQIAN-PROSE";
-  const fakeRoots = [el1, el2];
-  fakeRoots.item = function (i) { return fakeRoots[i]; };
-  fakeRoots.length = 2;
-  const doc = { querySelectorAll: function () { return fakeRoots; } };
-
-  let callCount = 0;
-  const rs = makeFakeRootState({
-    candidates: [],
-    state: makeStateWithCallbacks({ root: null }),
-  });
-  const origCreate = rs.createRootState;
-  rs.createRootState = function (root, bag) {
-    callCount += 1;
-    return origCreate(root, bag);
-  };
-  withEnv(() => {
-    const ctx = makeEngine({ rs: rs, document: doc });
-    const result = ctx.engine.enhanceAll({});
-    assert.equal(callCount, 2);
-    assert.equal(result, 0);
-  }, { document: doc });
-});
-
-// ---------------------------------------------------------------------------
-// 5. enhanceProgressively delegates to the drivers entry
-// ---------------------------------------------------------------------------
-
-test("5. enhanceProgressively delegates to the drivers entry, which owns the copy handler and destroy", function () {
+test("4. enhanceProgressively installs the copy handler, destroys, rebuilds state and starts one Enhance job", function () {
   const job = makeFakeJob();
   const copyInstaller = makeFakeCopyInstaller();
   withEnv(() => {
-    const ctx = makeEngine({
+    const graph = makeGraph({
       job: job,
       copyInstaller: copyInstaller,
       rsOpts: {
@@ -435,14 +404,14 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
     });
     const root = makeElement();
     const bag = { fontSize: 20 };
-    ctx.engine.enhanceProgressively(root, bag);
-    // The real drivers entry installs the copy handler and cancels the job
-    // before rebuilding state.
+    enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, bag);
+    // The drivers core installs the copy handler and cancels the job before
+    // rebuilding state.
     assert.equal(copyInstaller._calls.install.length, 1);
     assert.equal(job._calls.cancelJob.length, 1);
     assert.equal(job._calls.cancelJob[0], root);
-    assert.equal(ctx.rs._calls.createRootState.length, 1);
-    assert.equal(ctx.rs._calls.createRootState[0].bag.fontSize, 20);
+    assert.equal(graph.rootState._calls.createRootState.length, 1);
+    assert.equal(graph.rootState._calls.createRootState[0].bag.fontSize, 20);
     // The real startLayoutJob starts one Enhance job.
     assert.equal(job._calls.startJob.length, 1);
     assert.equal(job._calls.startJob[0].kind, "Enhance");
@@ -450,11 +419,11 @@ test("5. enhanceProgressively delegates to the drivers entry, which owns the cop
 });
 
 // ---------------------------------------------------------------------------
-// 6. destroy: full steps -- restoreParagraph, clearIssue, releaseRoot,
+// 5. destroyRoot: full steps -- restoreParagraph, clearIssue, releaseRoot,
 //    snapshot-count branches, attribute cleanup
 // ---------------------------------------------------------------------------
 
-test("6. destroy: restores paragraphs, clears issues, releases styles, sets/removes snapshot attrs, cleans 3 attrs", function () {
+test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/removes snapshot attrs, cleans 3 attrs", function () {
   const src1 = makeElement();
   const src2 = makeElement();
   const issue1 = {
@@ -480,9 +449,9 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
+    const graph = makeGraph({ rs: rs, rawDom: rawDom });
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-snapshot-layout-fallback": "fb" });
-    ctx.engine.destroy(root);
+    destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
     assert.deepEqual(rawDom._calls.restoreParagraph, [src1, src2]);
     // clearIssue restored the captured original attributes.
     assert.equal(issue1.markerCaptured, false);
@@ -498,16 +467,16 @@ test("6. destroy: restores paragraphs, clears issues, releases styles, sets/remo
 });
 
 // ---------------------------------------------------------------------------
-// 7. destroy no state: still cancelJob + attribute cleanup, no throw
+// 6. destroyRoot no state: still cancelJob + attribute cleanup, no throw
 // ---------------------------------------------------------------------------
 
-test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", function () {
+test("6. destroyRoot: no state => still cancelJob + attribute cleanup, no throw", function () {
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
+    const graph = makeGraph({ rs: rs, rawDom: rawDom });
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
-    ctx.engine.destroy(root);
+    destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
     assert.equal(rawDom._calls.restoreParagraph.length, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
@@ -515,99 +484,33 @@ test("7. destroy: no state => still cancelJob + attribute cleanup, no throw", fu
 });
 
 // ---------------------------------------------------------------------------
-// 8. detach: minimal surface -- cancelJob + releaseRoot, no state touch
+// 7. detachRoot: minimal surface -- cancelJob + releaseRoot, no state touch
 // ---------------------------------------------------------------------------
 
-test("8. detach: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
+test("7. detachRoot: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
   const rs = makeFakeRootState();
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs });
+    const graph = makeGraph({ rs: rs });
     const root = makeElement();
-    ctx.engine.detach(root);
+    detachRoot(graph.layoutJobPool, root);
     assert.equal(rs._calls.getState.length, 0);
     assert.equal(rs._calls.deleteState.length, 0);
-    assert.equal(ctx.job._calls.cancelJob.length, 1);
-    assert.equal(ctx.job._calls.cancelJob[0], root);
+    assert.equal(graph.layoutJobPool._calls.cancelJob.length, 1);
+    assert.equal(graph.layoutJobPool._calls.cancelJob[0], root);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 9. refresh progressive: no state => no-op; with state => destroy + canonical
+// 8. probeRootContentDrift: no state => unknown result; with state => sources
+//    to the real probe, which reads the fake detached-fragment backup ledger
 // ---------------------------------------------------------------------------
 
-test("9. refresh: no state is no-op; with state progressively => enhanceProgressivelyFromCanonical with state.options", function () {
+test("8. probeRootContentDrift: no state returns the unknown result; with state passes sources to the real probe", function () {
   const rsNoState = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rsNoState });
-    ctx.engine.refresh(makeElement(), true);
-    assert.equal(rsNoState._calls.deleteState.length, 0);
-  });
-
-  const state = makeStateWithCallbacks({ root: null, options: { fontSize: 22 } });
-  const fakeJob = makeFakeJob();
-  const rs = makeFakeRootState({ getStateValue: state });
-  withEnv(() => {
-    const ctx = makeEngine({ rs: rs, job: fakeJob });
-    ctx.engine.refresh(makeElement(), true);
-    // The real drivers canonical entry re-enters through
-    // createRootStateFromCanonical with state.options and starts an Enhance job.
-    assert.equal(rs._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(rs._calls.createRootStateFromCanonical[0].options, state.options);
-    assert.equal(fakeJob._calls.startJob.length, 1);
-    assert.equal(fakeJob._calls.startJob[0].kind, "Enhance");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 10. refresh synchronous: calls enhance(root, state.options, true) -- canonical
-//     re-entry path; optionsFromJs not called
-// ---------------------------------------------------------------------------
-
-test("10. refresh synchronous: enhance canonical re-entry (fromCanonical=true), optionsFromJs not called", function () {
-  const state = makeStateWithCallbacks({ root: null, options: { fontSize: 19 } });
-  const rs = makeFakeRootState({
-    getStateValue: state,
-    canonicalState: makeStateWithCallbacks({ root: null, options: state.options }),
-    candidates: [],
-  });
-  withEnv(() => {
-    const ctx = makeEngine({ rs: rs });
-    // optionsFromJs is only exercised through engine.workerLayoutRequest; a
-    // synchronous refresh re-enters enhance with the canonical options, so no
-    // options bag is decoded.
-    ctx.engine.refresh(makeElement(), false);
-    assert.equal(rs._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(rs._calls.createRootStateFromCanonical[0].options, state.options);
-    assert.equal(rs._calls.createRootState.length, 0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 11. cancelLayoutWork: delegates to PJ.cancelJob
-// ---------------------------------------------------------------------------
-
-test("11. cancelLayoutWork: delegates to ProgressiveJob.cancelJob", function () {
-  const fakeJob = makeFakeJob();
-  withEnv(() => {
-    const ctx = makeEngine({ job: fakeJob });
-    const root = makeElement();
-    ctx.engine.cancelLayoutWork(root);
-    assert.equal(fakeJob._calls.cancelJob.length, 1);
-    assert.equal(fakeJob._calls.cancelJob[0], root);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 12. probeContentDrift: no state => unknown JSON; with state => sources to
-//     the real probe, which reads the fake detached-fragment backup ledger
-// ---------------------------------------------------------------------------
-
-test("12. probeContentDrift: no state returns unknown JSON; with state passes sources to the real probe", function () {
-  const rsNoState = makeFakeRootState({ getStateValue: null });
-  withEnv(() => {
-    const ctx = makeEngine({ rs: rsNoState });
-    const result = ctx.engine.probeContentDrift(makeElement());
-    assert.equal(result, '{"unknown":1,"drifted":0,"dead":0,"rawDom":0}');
+    const graph = makeGraph({ rs: rsNoState });
+    const result = probeRootContentDrift(graph.rawDom, graph.rootState, makeElement());
+    assert.deepEqual(result, { unknown: 1, drifted: 0, dead: 0, rawDom: 0 });
   });
 
   const src1 = makeElement();
@@ -616,41 +519,42 @@ test("12. probeContentDrift: no state returns unknown JSON; with state passes so
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs, rawDom: rawDom });
-    const result2 = ctx.engine.probeContentDrift(makeElement());
-    // The real probe classified both matching sources through the detached-fragment backup
-    // ledger, so nothing drifted, died or fell out of detached-fragment backup.
+    const graph = makeGraph({ rs: rs, rawDom: rawDom });
+    const result2 = probeRootContentDrift(graph.rawDom, graph.rootState, makeElement());
+    // The real probe classified both matching sources through the
+    // detached-fragment backup ledger, so nothing drifted, died or fell out
+    // of detached-fragment backup.
     assert.deepEqual(rawDom._calls.renderedMatches, [src1, src2]);
     assert.deepEqual(rawDom._calls.rawDomMatches, [src1, src2]);
-    assert.equal(result2, '{"unknown":0,"drifted":0,"dead":0,"rawDom":0}');
+    assert.deepEqual(result2, { unknown: 0, drifted: 0, dead: 0, rawDom: 0 });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 13. reconcileContent: no state => idle JSON; with state + idle => returns
-//     json, no job; with work verdict => actions per category + job
+// 9. reconcileRoot: no state => null; with state + idle => result, no job;
+//    with work verdict => actions per category + job
 // ---------------------------------------------------------------------------
 
-test("13a. reconcileContent: no state returns idle JSON", function () {
+test("9a. reconcileRoot: no state returns null", function () {
   const rs = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const ctx = makeEngine({ rs: rs });
-    const result = ctx.engine.reconcileContent(makeElement(), []);
-    assert.equal(result, '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}');
+    const graph = makeGraph({ rs: rs });
+    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, makeElement(), []);
+    assert.equal(result, null);
   });
 });
 
-test("13b. reconcileContent: state + idle verdict => returns json, no startLayoutJob", function () {
+test("9b. reconcileRoot: state + idle verdict => returns the result, no startLayoutJob", function () {
   const state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
   withEnv(() => {
-    const ctx = makeEngine({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
-    const result = ctx.engine.reconcileContent(makeElement(), []);
-    assert.equal(result, '{"outcome":"idle","drifted":0,"rawDom":0,"tainted":0,"stranded":0,"dead":0}');
-    assert.equal(ctx.job._calls.startJob.length, 0);
+    const graph = makeGraph({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
+    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, makeElement(), []);
+    assert.deepEqual(result, { outcome: "idle", drifted: 0, rawDom: 0, tainted: 0, stranded: 0, dead: 0 });
+    assert.equal(graph.layoutJobPool._calls.startJob.length, 0);
   });
 });
 
-test("13c. reconcileContent: work verdict with drifted/rawDom/tainted/stranded + DeadTrackedParagraphDrop", function () {
+test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + DeadTrackedParagraphDrop", function () {
   const deadEl = makeElement({}, { isConnected: false });
   const driftedEl = makeElement();
   const rawDomEl = makeElement();
@@ -672,21 +576,21 @@ test("13c. reconcileContent: work verdict with drifted/rawDom/tainted/stranded +
     rawDomMatches: (el) => el !== rawDomEl,
   });
   withEnv(() => {
-    const ctx = makeEngine({
+    const graph = makeGraph({
       rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] }),
       rawDom: rawDom,
     });
-    const result = ctx.engine.reconcileContent(root, [taintedEl]);
+    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, [taintedEl]);
     // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs.
     assert.equal(state.paragraphs.length, 3);
     assert.equal(state.paragraphs[0].source, driftedEl);
     assert.equal(state.paragraphs[1].source, rawDomEl);
     assert.equal(state.paragraphs[2].source, taintedEl);
     // The real classifyReconcile produced the expected verdict.
-    assert.equal(result, '{"outcome":"work","drifted":1,"rawDom":1,"tainted":1,"stranded":1,"dead":1}');
+    assert.deepEqual(result, { outcome: "work", drifted: 1, rawDom: 1, tainted: 1, stranded: 1, dead: 1 });
     // startLayoutJob called with kind Relayout and 4 actions.
-    assert.equal(ctx.job._calls.startJob.length, 1);
-    const call = ctx.job._calls.startJob[0];
+    assert.equal(graph.layoutJobPool._calls.startJob.length, 1);
+    const call = graph.layoutJobPool._calls.startJob[0];
     assert.equal(call.kind, "Relayout");
     assert.equal(call.itemCount, 4);
     // Execute processItem callbacks to verify action effects.
@@ -716,7 +620,7 @@ test("13c. reconcileContent: work verdict with drifted/rawDom/tainted/stranded +
   });
 });
 
-test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale closure detects width drift >= 0.5", function () {
+test("9d. reconcileRoot: itemTierIndex sorted by (distance, index), stale closure detects width drift >= 0.5", function () {
   const el1 = makeElement();
   el1._rect = { top: -200, bottom: -100, width: 300 };
   const el2 = makeElement();
@@ -730,13 +634,13 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
   };
   const rawDom = makeFakeRawDom({ renderedMatches: () => false });
   withEnv(() => {
-    const ctx = makeEngine({
+    const graph = makeGraph({
       rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
       rawDom: rawDom,
     });
-    ctx.engine.reconcileContent(root, []);
-    assert.equal(ctx.job._calls.startJob.length, 1);
-    const call = ctx.job._calls.startJob[0];
+    reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, []);
+    assert.equal(graph.layoutJobPool._calls.startJob.length, 1);
+    const call = graph.layoutJobPool._calls.startJob[0];
     // el2 visible (distance 0) first, then el1 above viewport (distance 100).
     assert.deepEqual(call.itemTierIndex, [1, 0]);
     // stale closure: root width matches initially.
@@ -744,52 +648,5 @@ test("13d. reconcileContent: itemTierIndex sorted by (distance, index), stale cl
     // After root width drift of 1.0.
     root._rect.width = 301;
     assert.equal(call.isStale(), true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 14. workerLayoutRequest: forwards to workerLayoutRequestForRoot with
-//     optionsFromJs pre-processing
-// ---------------------------------------------------------------------------
-
-test("14. workerLayoutRequest: forwards to workerLayoutRequestForRoot, options pre-processed by optionsFromJs", function () {
-  withEnv(() => {
-    const ctx = makeEngine();
-    const root = makeElement();
-    const para = makeElement();
-    // Without a conforming snapshot font session in the bag, optionsFromJs yields
-    // a null session and workerLayoutRequestForRoot returns null.
-    assert.equal(ctx.engine.workerLayoutRequest(root, para, {}), null);
-    // With a conforming session in the bag, the request builds: the bag's
-    // snapshotFontSession reached the real workerLayoutRequestForRoot through
-    // optionsFromJs, which is the pre-processing this method owns.
-    const bag = { snapshotFontSession: { status: "conforming", sessionId: "s1" } };
-    const result = ctx.engine.workerLayoutRequest(root, para, bag);
-    assert.notEqual(result, null);
-    const parsed = JSON.parse(result);
-    const expected = optionsFromJs(bag);
-    assert.equal(parsed.firstLineIndentIc, expected.firstLineIndentIc);
-    assert.equal(parsed.sourceTag, "p");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 15. workers panel: 9 methods forward to ProgressiveJob
-// ---------------------------------------------------------------------------
-
-test("15. workers: 9 methods forward to ProgressiveJob", function () {
-  const fakeJob = makeFakeJob();
-  withEnv(() => {
-    const ctx = makeEngine({ job: fakeJob });
-    const root = makeElement();
-    assert.equal(ctx.workers.workerAttach(root), "attached-" + root);
-    assert.equal(ctx.workers.workerDetach(root), "detached-" + root);
-    assert.equal(ctx.workers.workerHasJob(root), "hasJob-" + root);
-    assert.equal(ctx.workers.workerJobGeneration(root), 42);
-    assert.equal(ctx.workers.workerRunSlice({}, 0), "ran");
-    assert.equal(ctx.workers.workerPendingInTier(root, 1), 7);
-    assert.equal(ctx.workers.workerParagraphCount(root), 3);
-    assert.equal(ctx.workers.workerParagraphAt(root, 0), "p-0");
-    assert.equal(ctx.workers.workerSetParagraphTier(root, 0, 2), "set");
   });
 });

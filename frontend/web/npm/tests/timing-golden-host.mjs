@@ -28,33 +28,140 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
-import { setEngineOverride } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import {
+  installTiqianRuntimeGraphForTesting,
+  setPreparedDomRendererForTest,
+} from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import * as preparedDom from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
 // ADR 0053 C1 removed the internal document-level event channel, so the
-// timing drive observes the engine call face directly. The stub records each
-// call in phase order and answers like an engine with no work, matching the
-// drive's previous world where the fake document dropped every listener. It
-// is installed only for the duration of driveElementTimeline; sibling
-// journeys in the same process (worker messages) keep the real engine.
+// timing drive observes the engine surface through a recording runtime graph
+// (R10 dissolved the engine facade the former stub impersonated). The graph
+// products record each call in phase order, projected back to the legacy
+// facade method names the fixture freezes, and answer like an engine with no
+// work: root states are created empty, the job pool accepts jobs and never
+// runs them. Projection disambiguates the composed teardowns by their graph
+// op sequence: install+deleteState+createRootState is the driver-internal
+// destroy of enhanceProgressively (bag) or relayout (null bag / canonical),
+// a bare deleteState is a standalone destroy, and cancelJob resolves to a
+// detach when the prepared-dom release follows it, otherwise to
+// cancelLayoutWork at the next unrelated op or phase boundary. The graph is
+// installed only for the duration of one drive; sibling journeys in the same
+// process (worker messages) keep the real engine.
 let activeEngineRecord = null;
 let activeEnginePhase = "";
-const engineCall = (method, answer) => () => {
-  if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
-  return answer;
-};
-const driveEngineStub = {
-  enhance: engineCall("enhance", 0),
-  enhanceProgressively: engineCall("enhanceProgressively"),
-  enhanceAll: engineCall("enhanceAll", 0),
-  destroy: engineCall("destroy"),
-  detach: engineCall("detach"),
-  relayout: engineCall("relayout"),
-  refresh: engineCall("refresh"),
-  cancelLayoutWork: engineCall("cancelLayoutWork"),
-  probeContentDrift: engineCall("probeContentDrift", "null"),
-  reconcileContent: engineCall("reconcileContent", "null"),
-  workerLayoutRequest: engineCall("workerLayoutRequest", null),
-};
+
+function recordingRuntimeGraph() {
+  const states = new WeakMap();
+  let installArmed = false;
+  let cancelPending = false;
+
+  const log = (method) => {
+    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
+  };
+  const flushCancelAsWork = () => {
+    if (!cancelPending) return;
+    cancelPending = false;
+    installArmed = false;
+    log("cancelLayoutWork");
+  };
+  const blankState = (root, options) => {
+    const state = { root, options, paragraphs: [], issues: [] };
+    states.set(root, state);
+    return state;
+  };
+
+  return {
+    rawDom: {
+      restoreParagraph() {},
+      clearIssue() {},
+    },
+    copyInstaller: {
+      install() { flushCancelAsWork(); installArmed = true; },
+    },
+    rootState: {
+      getState(root) { return states.get(root) ?? null; },
+      setState(root, state) { states.set(root, state); },
+      deleteState(root) {
+        states.delete(root);
+        cancelPending = false;
+        if (!installArmed) log("destroy");
+      },
+      createRootState(root, bag) {
+        if (installArmed) {
+          installArmed = false;
+          log(bag == null ? "relayout" : "enhanceProgressively");
+        }
+        const selector = (bag && bag.paragraphSelector) || "p, li";
+        return blankState(root, { paragraphSelector: selector, fontSize: 16 });
+      },
+      createRootStateFromCanonical(root, canonicalOptions) {
+        if (installArmed) {
+          installArmed = false;
+          log("relayout");
+        }
+        return blankState(root, canonicalOptions);
+      },
+      paragraphCandidates() { return []; },
+      strandedSourceParagraphs() { return []; },
+      sessionArgument(state) { return { paragraphs: state.paragraphs, state: {} }; },
+      prepareArgument(state, paragraph, widthOverride) {
+        return { paragraph, widthOverride, state: {} };
+      },
+      publishState() {},
+      processParagraphArgument(state, paragraph) { return { state, paragraph }; },
+      updateCjkDashCapability() {},
+    },
+    layoutJobPool: {
+      attach() { return true; },
+      detach() { return true; },
+      isAttached() { return false; },
+      hasJob() { return false; },
+      jobGeneration() { return 0; },
+      jobKind() { return null; },
+      runSlice() { return 0; },
+      pendingInTier() { return 0; },
+      paragraphCount() { return 0; },
+      paragraphAt() { return null; },
+      setParagraphTier() { return false; },
+      startJob() {},
+      cancelJob() { flushCancelAsWork(); cancelPending = true; },
+    },
+    flushProjection: flushCancelAsWork,
+    resolveRelease() {
+      if (!cancelPending) return;
+      cancelPending = false;
+      installArmed = false;
+      log("detach");
+    },
+  };
+}
+
+function installRecordingEngine(record, initialPhase) {
+  const graph = recordingRuntimeGraph();
+  const restoreGraph = installTiqianRuntimeGraphForTesting(graph);
+  setPreparedDomRendererForTest({
+    ...preparedDom,
+    releaseRoot(root) {
+      graph.resolveRelease();
+      return preparedDom.releaseRoot(root);
+    },
+  });
+  activeEngineRecord = record.engineCalls;
+  activeEnginePhase = initialPhase;
+  return {
+    // Resolve a buffered cancelJob as cancelLayoutWork before the phase
+    // changes, so a standalone cancel never leaks into the next phase's
+    // projection.
+    flushPending: graph.flushProjection,
+    teardown() {
+      graph.flushProjection();
+      activeEngineRecord = null;
+      setPreparedDomRendererForTest(undefined);
+      restoreGraph();
+    },
+  };
+}
 
 export const FRAME_STEP_MS = 16;
 
@@ -145,6 +252,11 @@ function buildWorld() {
   };
   documentObject.body = documentObject.createElement("body");
   documentObject.head = documentObject.createElement("head");
+  // The real drivers read the viewport height off window.innerHeight or the
+  // document element while sorting work by viewport distance; the drive world
+  // must answer both so a live relayout/enhance does not crash.
+  documentObject.documentElement = documentObject.createElement("html");
+  documentObject.documentElement.clientHeight = 800;
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
@@ -349,9 +461,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
     paragraphStates: {},
   };
   let currentPhase = "s1-adopt";
-  setEngineOverride(driveEngineStub);
-  activeEngineRecord = record.engineCalls;
-  activeEnginePhase = currentPhase;
+  const engineTeardown = installRecordingEngine(record, currentPhase);
 
   class FakeHostElement extends FakeElement {
     constructor() { super("tiqian-prose"); }
@@ -372,7 +482,12 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   };
   globalThis.CustomEvent = FakeCustomEvent;
   globalThis.ResizeObserver = FakeResizeObserver;
-  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  globalThis.window = {
+    addEventListener() {},
+    removeEventListener() {},
+    innerHeight: 800,
+    getComputedStyle: (element, pseudo) => globalThis.getComputedStyle(element, pseudo),
+  };
   delete globalThis.TiqianWeb;
   delete globalThis.IntersectionObserver;
 
@@ -545,6 +660,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   record.paragraphStates.s1 = paragraphState();
 
   const setPhase = (phase) => {
+    engineTeardown.flushPending?.();
     currentPhase = phase;
     activeEnginePhase = phase;
   };
@@ -559,6 +675,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
     pumpQuiescent,
     widthObserver,
     paragraphState,
+    engineTeardown,
   };
 }
 
@@ -625,8 +742,7 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
   }));
 
   record.fetchCalls = drive.world.fetchCalls;
-  activeEngineRecord = null;
-  setEngineOverride(null);
+  drive.engineTeardown.teardown();
 
   return record;
 }
@@ -732,8 +848,7 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
   await new Promise((resolve) => setImmediate(resolve));
 
   record.fetchCalls = drive.world.fetchCalls;
-  activeEngineRecord = null;
-  setEngineOverride(null);
+  drive.engineTeardown.teardown();
 
   return record;
 }
