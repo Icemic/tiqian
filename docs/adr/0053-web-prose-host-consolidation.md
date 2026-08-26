@@ -181,6 +181,12 @@ G2 全局清除后仍成立的运行时单例集中存放在 core/services/ 一�
 - [TBD S4 后核定：loaderState（engine 路径可变状态的唯一合法位置，
   见 S4）；Symbol.for worker 协调对象（跨副本协议）；declared-faces
   登记表（宿主声明通道的全页状态，见 `DeclaredFaceEvidence`）。]
+- preparedStyle 文档级查找表：S3-a Part 2 将 prepared-dom.ts 的模块级
+  preparedStyleRootsByHost 与 preparedScopeCounters 迁入
+  globalServices.preparedStyles（rootsByHost: WeakMap<Element, Element>，
+  scopeCounters: WeakMap<Document, PreparedScopeCounter>）；per-root 状态
+  PreparedStyleState 迁入 EnhancedElementContext.preparedStyle。S4 时代曾记为
+  待办的扫描已于此波完成。
 
 目录之外的散置全局单例视为违反模块边界。AGENTS.md 代码组织节同步
 收录本规则。
@@ -1309,10 +1315,8 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
     canvas-shaping、browser-font-replay 七处模块级可变状态移入
     CoordinationService 的 fonts 与 measurement 状态簇（coordination/
     fonts.ts、coordination/measurement.ts）。提交 51efc35a。
-  - [TBD S3-a：EnhancedElementContext。createEnhanceContext 入口、
-    七项 per-root 状态移入 context、两套作废计数并一份。提交哈希。]
-  - [TBD S3-b：custody 族改名 RawDom。custody.ts 改名 raw-dom.ts，
-    两处 expando 删除，记录走 context 段落表。提交哈希。]
+  - S3-a（EnhancedElementContext 生命周期补全）：createEnhanceContext 成为根路径统一构造入口，调用方持有返回的 context；新增 update() 与 destroy() 分别接管既有的代际递增与销毁清理路径；preparedStyle 状态随 context 生命周期管理。提交 4c217470、d1b6e982。
+  - S3-b（custody 族改名 RawDom）：custody.ts 已更名为 raw-dom.ts，expando 删除，段落记录统一走 context.rawDomParagraphs。提交 3a195866。
   - [TBD S4：全局名删除。renderer/validator 桥走 loaderState、版本
     挑选器删除、__TiqianLayoutWorker 并入 Symbol.for 协调对象、trace
     双全局改 enhance 初始化选项、eslint declare-global 豁免废除。
