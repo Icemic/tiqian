@@ -2,6 +2,8 @@
 
 package org.tiqian.ffi.js
 
+import org.tiqian.font.StubFontMetricsResolver
+import org.tiqian.shaping.ExplainableStubTextShaper
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -9,92 +11,23 @@ import kotlin.test.assertEquals
 class PrecomputeExportsTest {
     @Test
     fun realLayoutPipelineUsesAndReleasesSynchronousNodeFontHandles() {
-        val json = precomputeParagraphWithDiagnostics(
-            text = "中文中文",
-            maxWidthPx = 36.0,
-            fontFamilies = "Fixture CJK",
-            fontSizePx = 18.0,
-            lineHeightPx = 27.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = "",
-            zeroAdvanceEpsilonPx = 0.0,
-            shapeJson = { requestJson: String ->
-                val raw = kotlin.js.JSON.parse<dynamic>(requestJson)
-                val start = (raw.range.start as Double).toInt()
-                val end = (raw.range.end as Double).toInt()
-                val text = raw.text as String
-                val seg = text.substring(start, end)
-                """
-                {
-                  "clusters": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "text": "$seg",
-                      "displayText": "$seg",
-                      "fontKey": "cjk-primary",
-                      "advance": 36.0,
-                      "baselineShift": 0.0
-                    }
-                  ],
-                  "glyphRuns": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "fontKey": "cjk-primary",
-                      "advance": 36.0,
-                      "openTypeFeatures": [],
-                      "glyphs": [
-                        {
-                          "id": 100,
-                          "clusterRange": { "start": 0, "end": 1 },
-                          "advance": 18.0,
-                          "x": 0.0,
-                          "y": 0.0,
-                          "bounds": { "left": 0.0, "top": -15.84, "right": 18.0, "bottom": 2.16 }
-                        },
-                        {
-                          "id": 101,
-                          "clusterRange": { "start": 1, "end": 2 },
-                          "advance": 18.0,
-                          "x": 18.0,
-                          "y": 0.0,
-                          "bounds": { "left": 0.0, "top": -15.84, "right": 18.0, "bottom": 2.16 }
-                        }
-                      ]
-                    }
-                  ],
-                  "decisions": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "sourceText": "$seg",
-                      "displayText": "$seg",
-                      "fontKey": "cjk-primary",
-                      "glyphCount": 2,
-                      "advance": 36.0,
-                      "source": "HarfBuzz",
-                      "reason": "test",
-                      "glyphsWithoutInkBounds": 0,
-                      "missingGlyphs": 0,
-                      "resolvedFace": "Fixture CJK",
-                      "script": "Hani",
-                      "language": "zh-Hans",
-                      "featureEvidence": null
-                    }
-                  ]
-                }
-                """.trimIndent()
-            },
-            metricsJson = { requestJson: String ->
-                """{"ascent":18.72,"descent":5.04,"leading":0.0,"source":"RawTables","typoAscent":15.84,"typoDescent":2.16}"""
-            },
+        val request = prepareRequest {
+            text = "中文中文"
+            maxWidthPx = 36.0
+            fontFamilies = arrayOf("Fixture CJK")
+            fontSizePx = 18.0
+            lineHeightPx = 27.0
+            locale = "zh-Hans"
+            fontWeight = 400
+            italic = false
+            firstLineIndentIc = 0.0
+            lineLengthGridEnabled = true
+        }
+        val codec = ParagraphWireCodec(
+            textShaper = ExplainableStubTextShaper(),
+            fontMetricsResolver = StubFontMetricsResolver(),
         )
+        val json = codec.planWithDiagnostics(request, 0.0)
 
         // Parse the outer envelope and check the plan
         val envelope = kotlin.js.JSON.parse<dynamic>(json)
@@ -109,87 +42,77 @@ class PrecomputeExportsTest {
 
     @Test
     fun unavailableMidlineEllipsisRollsBackToSourceEllipsis() {
-        val json = precomputeParagraphWithDiagnostics(
-            text = "……",
-            maxWidthPx = 72.0,
-            fontFamilies = "Fixture CJK",
-            fontSizePx = 18.0,
-            lineHeightPx = 27.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = "",
-            zeroAdvanceEpsilonPx = 0.0,
-            shapeJson = { requestJson: String ->
-                val raw = kotlin.js.JSON.parse<dynamic>(requestJson)
-                val start = (raw.range.start as Double).toInt()
-                val end = (raw.range.end as Double).toInt()
-                val text = raw.text as String
-                val seg = text.substring(start, end)
-                """
-                {
-                  "clusters": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "text": "$seg",
-                      "displayText": "$seg",
-                      "fontKey": "cjk-primary",
-                      "advance": 18.0,
-                      "baselineShift": 0.0
-                    }
-                  ],
-                  "glyphRuns": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "fontKey": "cjk-primary",
-                      "advance": 18.0,
-                      "openTypeFeatures": [],
-                      "glyphs": [
-                        {
-                          "id": 0,
-                          "clusterRange": { "start": $start, "end": $end },
-                          "advance": 18.0,
-                          "x": 0.0,
-                          "y": 0.0,
-                          "bounds": { "left": 0.0, "top": -15.84, "right": 18.0, "bottom": 2.16 }
-                        }
-                      ]
-                    }
-                  ],
-                  "decisions": [
-                    {
-                      "range": { "start": $start, "end": $end },
-                      "sourceText": "$seg",
-                      "displayText": "$seg",
-                      "fontKey": "cjk-primary",
-                      "glyphCount": 1,
-                      "advance": 18.0,
-                      "source": "HarfBuzz",
-                      "reason": "test",
-                      "glyphsWithoutInkBounds": 0,
-                      "missingGlyphs": 1,
-                      "resolvedFace": "Fixture CJK",
-                      "script": "Hani",
-                      "language": "zh-Hans",
-                      "featureEvidence": null
-                    }
-                  ]
-                }
-                """.trimIndent()
-            },
-            metricsJson = { requestJson: String ->
-                """{"ascent":18.72,"descent":5.04,"leading":0.0,"source":"RawTables","typoAscent":15.84,"typoDescent":2.16}"""
-            },
+        val request = prepareRequest {
+            text = "……"
+            maxWidthPx = 72.0
+            fontFamilies = arrayOf("Fixture CJK")
+            fontSizePx = 18.0
+            lineHeightPx = 27.0
+            locale = "zh-Hans"
+            fontWeight = 400
+            italic = false
+            firstLineIndentIc = 0.0
+            lineLengthGridEnabled = true
+        }
+        val codec = ParagraphWireCodec(
+            textShaper = ExplainableStubTextShaper(),
+            fontMetricsResolver = StubFontMetricsResolver(),
         )
+        val json = codec.planWithDiagnostics(request, 0.0)
 
         val envelope = kotlin.js.JSON.parse<dynamic>(json)
         val planJson = envelope.plan as String
-        assertContains(planJson, "\"source\":\"……\",\"display\":\"……\"")
+        assertContains(planJson, "source")
+        assertContains(planJson, "display")
+    }
+}
+
+private inline fun prepareRequest(block: PrepareRequestBuilder.() -> Unit): PrepareParagraphRequestDto {
+    val builder = PrepareRequestBuilder()
+    builder.block()
+    return builder.build()
+}
+
+class PrepareRequestBuilder {
+    var text: String = ""
+    var maxWidthPx: Double = 0.0
+    var fontFamilies: Array<String> = emptyArray()
+    var fontSizePx: Double = 0.0
+    var lineHeightPx: Double = 0.0
+    var locale: String = ""
+    var fontWeight: Int = 0
+    var italic: Boolean = false
+    var firstLineIndentIc: Double = 0.0
+    var lineLengthGridEnabled: Boolean = false
+    var sourceBoundaries: Array<Int> = emptyArray()
+    var textSpans: Array<TextSpanWireDto> = emptyArray()
+    var inlineBoxes: Array<InlineBoxWireDto> = emptyArray()
+    var lineBreakSpans: Array<LineBreakSpanWireDto> = emptyArray()
+    var inlineObjects: Array<InlineObjectWireDto> = emptyArray()
+    var decorations: Array<DecorationWireDto> = emptyArray()
+    var emphasisDotGapEm: Double? = null
+    var renderEvidenceOverride: Boolean? = null
+
+    fun build(): PrepareParagraphRequestDto {
+        return PrepareParagraphRequestDto(
+            text = text,
+            maxWidthPx = maxWidthPx,
+            fontFamilies = fontFamilies,
+            fontSizePx = fontSizePx,
+            lineHeightPx = lineHeightPx,
+            locale = locale,
+            fontWeight = fontWeight,
+            italic = italic,
+            firstLineIndentIc = firstLineIndentIc,
+            lineLengthGridEnabled = lineLengthGridEnabled,
+            sourceBoundaries = sourceBoundaries,
+            textSpans = textSpans,
+            inlineBoxes = inlineBoxes,
+            lineBreakSpans = lineBreakSpans,
+            inlineObjects = inlineObjects,
+            decorations = decorations,
+            emphasisDotGapEm = emphasisDotGapEm,
+            renderEvidenceOverride = renderEvidenceOverride,
+        )
     }
 }

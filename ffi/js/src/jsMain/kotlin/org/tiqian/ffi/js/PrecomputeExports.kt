@@ -15,58 +15,22 @@ import org.tiqian.shaping.TextShaper
  * The exact-session path now receives shaping and metrics via callbacks
  * ([shapeJson], [metricsJson]) instead of a session id. This inverts control
  * so the engine has no dependency on environment globals. ADR 0053.
+ *
+ * Corrective wave 5 (#106): entry signatures now take declared DTO interfaces
+ * instead of flat separator-joined strings.
  */
 @JsExport
 fun precomputeParagraphWithDiagnostics(
-    text: String,
-    maxWidthPx: Double,
-    fontFamilies: String,
-    fontSizePx: Double,
-    lineHeightPx: Double,
-    locale: String,
-    fontWeight: Int,
-    italic: Boolean,
-    firstLineIndentIc: Double,
-    lineLengthGridEnabled: Boolean,
-    sourceBoundaries: String,
-    textSpans: String,
-    inlineBoxes: String,
-    lineBreakSpans: String,
-    // Nullable so pre-inline-object / pre-decoration / pre-render-evidence-override
-    // JS callers that omit trailing arguments (undefined) keep working across
-    // package version skew.
-    inlineObjects: String?,
+    request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: Double,
     shapeJson: (String) -> String,
     metricsJson: (String) -> String,
-    decorations: String? = null,
-    emphasisDotGapEm: Double? = null,
-    renderEvidenceOverride: Boolean? = null,
 ): String {
+    val internalRequest = toInternalPrepareRequest(request)
     return ParagraphWireCodec(
         textShaper = JsCallbackTextShaper(shapeJson),
         fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
-    ).planWithDiagnostics(
-        text = text,
-        maxWidthPx = maxWidthPx,
-        fontFamilies = fontFamilies,
-        fontSizePx = fontSizePx,
-        lineHeightPx = lineHeightPx,
-        locale = locale,
-        fontWeight = fontWeight,
-        italic = italic,
-        firstLineIndentIc = firstLineIndentIc,
-        lineLengthGridEnabled = lineLengthGridEnabled,
-        sourceBoundaries = sourceBoundaries,
-        textSpans = textSpans,
-        inlineBoxes = inlineBoxes,
-        lineBreakSpans = lineBreakSpans,
-        inlineObjects = inlineObjects ?: "",
-        zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
-        decorations = decorations ?: "",
-        emphasisDotGapEm = emphasisDotGapEm,
-        renderEvidenceOverride = renderEvidenceOverride,
-    )
+    ).planWithDiagnostics(internalRequest, zeroAdvanceEpsilonPx)
 }
 
 /**
@@ -76,58 +40,83 @@ fun precomputeParagraphWithDiagnostics(
  * are delegated to JavaScript callbacks ([shapeJson] and [metricsJson]). No native
  * font session is created. The callbacks run on the same synchronous call stack,
  * and every shape() request re-sends the segment text.
+ *
+ * Corrective wave 5 (#106): entry signatures now take declared DTO interfaces
+ * instead of flat separator-joined strings.
  */
 @JsExport
 fun precomputeParagraphWithBrowserMetrics(
-    text: String,
-    maxWidthPx: Double,
-    fontFamilies: String,
-    fontSizePx: Double,
-    lineHeightPx: Double,
-    locale: String,
-    fontWeight: Int,
-    italic: Boolean,
-    firstLineIndentIc: Double,
-    lineLengthGridEnabled: Boolean,
-    sourceBoundaries: String,
-    textSpans: String,
-    inlineBoxes: String,
-    lineBreakSpans: String,
-    // Nullable so pre-inline-object / pre-decoration / pre-render-evidence-override
-    // JS callers that omit trailing arguments (undefined) keep working across
-    // package version skew.
-    inlineObjects: String?,
+    request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: Double,
     shapeJson: (String) -> String,
     metricsJson: (String) -> String,
-    decorations: String? = null,
-    emphasisDotGapEm: Double? = null,
-    renderEvidenceOverride: Boolean? = null,
 ): String {
+    val internalRequest = toInternalPrepareRequest(request)
     return ParagraphWireCodec(
         textShaper = JsCallbackTextShaper(shapeJson),
         fontMetricsResolver = JsCallbackFontMetricsResolver(metricsJson),
-    ).planWithDiagnostics(
-        text = text,
-        maxWidthPx = maxWidthPx,
-        fontFamilies = fontFamilies,
-        fontSizePx = fontSizePx,
-        lineHeightPx = lineHeightPx,
-        locale = locale,
-        fontWeight = fontWeight,
-        italic = italic,
-        firstLineIndentIc = firstLineIndentIc,
-        lineLengthGridEnabled = lineLengthGridEnabled,
-        sourceBoundaries = sourceBoundaries,
-        textSpans = textSpans,
-        inlineBoxes = inlineBoxes,
-        lineBreakSpans = lineBreakSpans,
-        inlineObjects = inlineObjects ?: "",
-        zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
-        decorations = decorations ?: "",
-        emphasisDotGapEm = emphasisDotGapEm,
-        renderEvidenceOverride = renderEvidenceOverride,
+    ).planWithDiagnostics(internalRequest, zeroAdvanceEpsilonPx)
+}
+
+private fun toInternalPrepareRequest(request: PrepareParagraphRequest): PrepareParagraphRequestDto {
+    return PrepareParagraphRequestDto(
+        text = request.text,
+        maxWidthPx = request.maxWidthPx,
+        fontFamilies = request.fontFamilies,
+        fontSizePx = request.fontSizePx,
+        lineHeightPx = request.lineHeightPx,
+        locale = request.locale,
+        fontWeight = request.fontWeight,
+        italic = request.italic,
+        firstLineIndentIc = request.firstLineIndentIc,
+        lineLengthGridEnabled = request.lineLengthGridEnabled,
+        sourceBoundaries = request.sourceBoundaries,
+        textSpans = request.textSpans.map { toInternalTextSpan(it) }.toTypedArray(),
+        inlineBoxes = request.inlineBoxes.map { toInternalInlineBox(it) }.toTypedArray(),
+        lineBreakSpans = request.lineBreakSpans.map { toInternalLineBreakSpan(it) }.toTypedArray(),
+        inlineObjects = request.inlineObjects.map { toInternalInlineObject(it) }.toTypedArray(),
+        decorations = request.decorations.map { toInternalDecoration(it) }.toTypedArray(),
+        emphasisDotGapEm = request.emphasisDotGapEm,
+        renderEvidenceOverride = request.renderEvidenceOverride,
     )
 }
+
+private fun toInternalTextSpan(span: TextSpanWire): TextSpanWireDto = TextSpanWireDto(
+    start = span.start,
+    end = span.end,
+    fontFamilies = span.fontFamilies,
+    fontSize = span.fontSize,
+    fontWeight = span.fontWeight,
+    italic = span.italic,
+    baselineShift = span.baselineShift,
+)
+
+private fun toInternalInlineBox(box: InlineBoxWire): InlineBoxWireDto = InlineBoxWireDto(
+    start = box.start,
+    end = box.end,
+    inlineStart = box.inlineStart,
+    inlineEnd = box.inlineEnd,
+    outerSpacing = box.outerSpacing,
+)
+
+private fun toInternalLineBreakSpan(span: LineBreakSpanWire): LineBreakSpanWireDto = LineBreakSpanWireDto(
+    start = span.start,
+    end = span.end,
+    policy = span.policy,
+)
+
+private fun toInternalInlineObject(obj: InlineObjectWire): InlineObjectWireDto = InlineObjectWireDto(
+    start = obj.start,
+    end = obj.end,
+    advance = obj.advance,
+    ascent = obj.ascent,
+    descent = obj.descent,
+)
+
+private fun toInternalDecoration(deco: DecorationWire): DecorationWireDto = DecorationWireDto(
+    start = deco.start,
+    end = deco.end,
+    kind = deco.kind,
+)
 
 fun main() = Unit

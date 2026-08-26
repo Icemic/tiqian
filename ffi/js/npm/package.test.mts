@@ -30,6 +30,55 @@ const MAPS_WITHOUT_SOURCES: ReadonlySet<string> = new Set([
   "kotlin_org_jetbrains_kotlin_kotlin_dom_api_compat.mjs.map",
 ]);
 
+interface PrepareParagraphRequest {
+  text: string;
+  maxWidthPx: number;
+  fontFamilies: string[];
+  fontSizePx: number;
+  lineHeightPx: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  firstLineIndentIc: number;
+  lineLengthGridEnabled: boolean;
+  sourceBoundaries: number[];
+  textSpans: Array<{
+    start: number;
+    end: number;
+    fontFamilies: string[];
+    fontSize: number;
+    fontWeight: number;
+    italic: boolean;
+    baselineShift: number;
+  }>;
+  inlineBoxes: Array<{
+    start: number;
+    end: number;
+    inlineStart: number;
+    inlineEnd: number;
+    outerSpacing: string;
+  }>;
+  lineBreakSpans: Array<{
+    start: number;
+    end: number;
+    policy: string;
+  }>;
+  inlineObjects: Array<{
+    start: number;
+    end: number;
+    advance: number;
+    ascent: number;
+    descent: number;
+  }>;
+  decorations: Array<{
+    start: number;
+    end: number;
+    kind: string;
+  }>;
+  emphasisDotGapEm: number | null;
+  renderEvidenceOverride: boolean | null;
+}
+
 interface FfiExports {
   bopomofoParse: (reading: string) => string;
   numberSymbolCohesionUnbreakableRanges: (text: string) => string;
@@ -41,50 +90,16 @@ interface FfiExports {
   unsupportedInlineShapingProperties: () => string[];
   firstDivergentInlineShapingProperty: (elementValues: string[], paragraphValues: string[]) => string | null;
   precomputeParagraphWithDiagnostics: (
-    text: string,
-    maxWidthPx: number,
-    fontFamilies: string,
-    fontSizePx: number,
-    lineHeightPx: number,
-    locale: string,
-    fontWeight: number,
-    italic: boolean,
-    firstLineIndentIc: number,
-    lineLengthGridEnabled: boolean,
-    sourceBoundaries: string,
-    textSpans: string,
-    inlineBoxes: string,
-    lineBreakSpans: string,
-    inlineObjects: string | null,
+    request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: number,
     shapeJson: (p0: string) => string,
     metricsJson: (p0: string) => string,
-    decorations?: string | null,
-    emphasisDotGapEm?: number | null,
-    renderEvidenceOverride?: boolean | null
   ) => string;
   precomputeParagraphWithBrowserMetrics: (
-    text: string,
-    maxWidthPx: number,
-    fontFamilies: string,
-    fontSizePx: number,
-    lineHeightPx: number,
-    locale: string,
-    fontWeight: number,
-    italic: boolean,
-    firstLineIndentIc: number,
-    lineLengthGridEnabled: boolean,
-    sourceBoundaries: string,
-    textSpans: string,
-    inlineBoxes: string,
-    lineBreakSpans: string,
-    inlineObjects: string | null,
+    request: PrepareParagraphRequest,
     zeroAdvanceEpsilonPx: number,
     shapeJson: (p0: string) => string,
     metricsJson: (p0: string) => string,
-    decorations?: string | null,
-    emphasisDotGapEm?: number | null,
-    renderEvidenceOverride?: boolean | null
   ) => string;
 }
 
@@ -160,7 +175,7 @@ test("every engine module ships a source map with embedded sources", async () =>
 });
 
 test("the engine entry loads from the package exports surface", async () => {
-  const ffi = (await import("@tiqian/ffi")) as FfiExports;
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
 
   assert.equal(typeof ffi.bopomofoParse, "function");
   assert.equal(typeof ffi.numberSymbolCohesionUnbreakableRanges, "function");
@@ -177,7 +192,7 @@ test("the engine entry loads from the package exports surface", async () => {
 });
 
 test("classifyFontRole maps classifier roles to lowering role strings", async () => {
-  const ffi = (await import("@tiqian/ffi")) as FfiExports;
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
 
   assert.equal(ffi.classifyFontRole("汉字", 0, 2, "zh-Hans"), "cjk-text");
   assert.equal(ffi.classifyFontRole("，", 0, 1, "zh-Hans"), "cjk-punctuation");
@@ -185,7 +200,7 @@ test("classifyFontRole maps classifier roles to lowering role strings", async ()
 });
 
 test("unsupportedInlineShapingProperties returns fresh ordered property array", async () => {
-  const ffi = (await import("@tiqian/ffi")) as FfiExports;
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
 
   const properties1 = ffi.unsupportedInlineShapingProperties();
   const properties2 = ffi.unsupportedInlineShapingProperties();
@@ -199,7 +214,7 @@ test("unsupportedInlineShapingProperties returns fresh ordered property array", 
 });
 
 test("firstDivergentInlineShapingProperty detects divergence and clamps common prefix", async () => {
-  const ffi = (await import("@tiqian/ffi")) as FfiExports;
+  const ffi = (await import("@tiqian/ffi")) as unknown as FfiExports;
 
   assert.equal(
     ffi.firstDivergentInlineShapingProperty(
