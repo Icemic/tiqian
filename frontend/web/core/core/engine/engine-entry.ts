@@ -328,10 +328,6 @@ export function createEngineEntry(
       }
     }
     if (needsDashRefresh) {
-      // Use the same evidence basis as the initial coordinated capture:
-      // base options plus the attached snapshot font session from the state.
-      // The root state retains the resolved options which include the
-      // snapshotFontSession if one was attached at enhance time.
       const freshOutcome = computeCjkDashOutcome(root, {
         snapshotFontSession: state.options.snapshotFontSession,
       });
