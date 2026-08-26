@@ -304,7 +304,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(apiDeclarations, /strongAsEmphasisMarks\?: boolean/u);
   assert.match(
     elementSource,
-    /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#connected\)\s*this\.#restartConnectedLifecycle\(\)/u,
+    /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#stateMachine\.connected\)\s*this\.#restartConnectedLifecycle\(\)/u,
   );
   assert.match(
     elementSource,

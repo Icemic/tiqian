@@ -1,5 +1,6 @@
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { createProseHostStateMachine } from "@tiqian/core/core/engine/prose-host-state-machine.js";
 import {
   copyInstaller,
   loadTiqianRuntime,
@@ -208,9 +209,8 @@ class TiqianProseElement extends HTMLElementBase {
   #boundResponsiveCommit: TiqianBoundResponsiveCommitFn = () => {
     if (this.isConnected) this.#commitResponsiveGeometryChange();
   };
-  #connected = false;
   #coordinationSession: RootSessionId = 0;
-  #rawDomReentry = false;
+  #stateMachine = createProseHostStateMachine();
   #detachAttributeSnapshot: (string | null)[] | null = null;
   #layoutWorkIsRelayout = false;
   #lastCommittedParagraphMeasures = "";
@@ -315,12 +315,12 @@ class TiqianProseElement extends HTMLElementBase {
     // weak runtime/snapshot state so navigation can discard them without
     // rebuilding an invisible old article. A real reconnection is the one case
     // that needs to pay the restoration cost before starting a new lifecycle.
-    if (!this.#connected) {
+    if (!this.#stateMachine.connected) {
       if (isLoadedSnapshotAdopted(this)) restoreLoadedSnapshot(this);
       if (this.#runtimeStateActive) destroyRuntimeRoot(this);
       this.#runtimeStateActive = false;
     }
-    this.#connected = true;
+    this.#stateMachine.connect(this.disabled);
     this.#clearLifecycleDiagnostics();
     // ReversibleDisabledEnhancement: the Boolean attribute is the complete
     // opt-out contract. Keep semantic SSR children live and avoid stylesheet,
@@ -555,7 +555,6 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   disconnectedCallback() {
-    this.#connected = false;
     // RawDomMoveTeardownDeferral: React, Svelte and other reconcilers move a
     // node by removing and re-inserting it inside one synchronous commit.
     // Settling the disconnection synchronously destroys a rendered article
@@ -564,12 +563,12 @@ class TiqianProseElement extends HTMLElementBase {
     // RawDomMoveAdoption. A real navigation settles exactly as before, still
     // before the next frame. The remount variant of
     // resize-destroy-transient.test.mjs holds this contract.
-    this.#rawDomReentry = true;
+    this.#stateMachine.enterDeferredTeardown();
     this.#detachAttributeSnapshot = TiqianProseElement.observedAttributes.map(
       (name) => this.getAttribute(name),
     );
     queueMicrotask(() => {
-      this.#rawDomReentry = false;
+      this.#stateMachine.closeDeferredTeardownWindow();
       this.#detachAttributeSnapshot = null;
       if (!this.isConnected) this.#settleDisconnection();
     });
@@ -619,7 +618,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #canAdoptRawDomMoveReconnection() {
-    if (this.#connected || !this.#rawDomReentry) return false;
+    if (this.#stateMachine.connected || !this.#stateMachine.deferredTeardown) return false;
     if (!this.#runtimeStateActive || this.disabled) return false;
     if (this.#snapshotAdopted || isLoadedSnapshotAdopted(this)) {
       // Snapshot-based raw-DOM backup keeps the restore and re-adopt path. Its backing is
@@ -642,9 +641,8 @@ class TiqianProseElement extends HTMLElementBase {
   // refreshes from source. Observed attribute edits during the gap reject
   // adoption and take the full restart path instead.
   #adoptRawDomMoveReconnection() {
-    this.#rawDomReentry = false;
     this.#detachAttributeSnapshot = null;
-    this.#connected = true;
+    this.#stateMachine.adoptRawDomMoveReconnection();
     this.#ensureViewportResizeListener();
     this.#observeWidth();
     this.#observeTypography();
@@ -661,7 +659,7 @@ class TiqianProseElement extends HTMLElementBase {
       // source restoration and cancellation path as a connected lifecycle
       // restart; connectedCallback then stops before any new work. Removing it
       // re-enters the complete snapshot/runtime lifecycle from semantic source.
-      if (this.#connected) this.#restartConnectedLifecycle();
+      if (this.#stateMachine.connected) this.#restartConnectedLifecycle();
       return;
     }
     if (name === "snapshot-ref") {
@@ -670,7 +668,7 @@ class TiqianProseElement extends HTMLElementBase {
       // before connectedCallback. `isConnected` is already true at that point,
       // but this is not a client navigation and must not discard the server's
       // snapshot-font marker.
-      if (this.#connected) this.#restartConnectedLifecycle();
+      if (this.#stateMachine.connected) this.#restartConnectedLifecycle();
       return;
     }
     if (
