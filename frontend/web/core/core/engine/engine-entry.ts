@@ -405,11 +405,12 @@ export function createEngineEntry(
 
   // 11. workerLayoutRequest(root, paragraph, optionsBag) -> string|null
   engine.workerLayoutRequest = function workerLayoutRequest(root: HTMLElement, paragraph: HTMLElement, optionsBag?: unknown): string | null {
-    return workerLayoutRequestForRoot(
+    const request = workerLayoutRequestForRoot(
       root,
       paragraph,
       optionsFromJs(optionsBag as Record<string, unknown>)
     );
+    return request ? JSON.stringify(request) : null;
   };
 
   // ---------------------------------------------------------------------------

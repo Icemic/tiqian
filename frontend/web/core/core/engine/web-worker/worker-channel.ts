@@ -72,6 +72,8 @@ export type WorkerResponseEnvelope =
   | WorkerSuccessEnvelope
   | WorkerErrorEnvelope;
 
+import type { WorkerLayoutRequest, TextSpanWire, InlineBoxWire, LineBreakSpanWire, InlineObjectWire, SemanticSpanWire, RenderInlineBoxWire } from "@tiqian/ffi";
+
 export interface WorkerLayoutSemanticSpan {
   start?: unknown;
   end?: unknown;
@@ -82,25 +84,12 @@ export interface WorkerLayoutSemanticSpan {
   [key: string]: unknown;
 }
 
-export interface WorkerLayoutRequestBody {
-  text: string;
-  maxWidthPx: number;
-  fontFamilies: string;
-  fontSizePx: number;
-  lineHeightPx: number;
-  locale: string;
-  fontWeight: number;
-  italic: boolean;
-  firstLineIndentIc: number;
-  sourceBoundaries: string;
-  textSpans: string;
-  inlineBoxes: string;
-  lineBreakSpans: string;
-  inlineObjects: string;
-  renderEvidence?: boolean;
-  semantics?: WorkerLayoutSemanticSpan[];
-  renderInlineBoxes?: unknown[];
-  sourceTag?: string;
+export interface WorkerLayoutRequestBody extends WorkerLayoutRequest {
+  // Additional fields specific to the worker channel
+  renderEvidence: boolean;
+  semantics: SemanticSpanWire[];
+  renderInlineBoxes: RenderInlineBoxWire[];
+  sourceTag: string;
   [key: string]: unknown;
 }
 

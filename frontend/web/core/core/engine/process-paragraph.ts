@@ -218,11 +218,12 @@ interface ProcessInlineShapingDecisionResult {
       ? state.options
       : withoutSnapshotFontSession(state.options);
 
-    const workerRequest = workerLayoutRequest(
+    const workerRequestDto = workerLayoutRequest(
       paragraph,
       lowered,
       activeOptions
     );
+    const workerRequest = workerRequestDto ? JSON.stringify(workerRequestDto) : null;
     const sessionKey = conformingSnapshotFontSessionId(activeOptions);
     // The layout Worker channel is installed by the host page bundle and by
     // test worlds per test; an absent channel reads as no reusable plan, the

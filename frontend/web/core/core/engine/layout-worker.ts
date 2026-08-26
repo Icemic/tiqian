@@ -1,5 +1,4 @@
 import {
-  mergeSerializedSourceBoundaries,
   workerSnapshotSubsetSourceBoundaries,
 } from "../sampler/font-face-boundaries.js";
 import {
@@ -8,11 +7,12 @@ import {
 } from "./web-worker/session-bootstrap.js";
 import type { ServerReplayFontSession } from "../measurement/browser-font-replay.js";
 import type {
-  WorkerLayoutRequestBody,
   WorkerRequestEnvelope,
   WorkerResponseEnvelope,
 } from "./web-worker/worker-channel.js";
 import { precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
+import type { PrepareParagraphRequest } from "@tiqian/ffi";
+import type { WorkerLayoutRequestBody } from "./web-worker/worker-channel.js";
 
 type WorkerMessageEventListener = (event: MessageEvent<WorkerRequestEnvelope>) => void | Promise<void>;
 
@@ -50,41 +50,48 @@ function errorDetail(error: unknown): string {
       return;
     }
     if (type !== "layout") return;
+    if (type !== "layout") return;
     const session = sessions.get(sessionKey);
     if (!session) throw new Error("LayoutWorkerFontSessionMissing");
     const request: WorkerLayoutRequestBody = message.request;
-    const sourceBoundaries = mergeSerializedSourceBoundaries(
-      request.sourceBoundaries,
-      workerSnapshotSubsetSourceBoundaries(session.faces, request),
-    );
+    const additionalBoundaries = workerSnapshotSubsetSourceBoundaries(session.faces, request);
+    const sourceBoundaries = [
+      ...new Set([
+        ...request.sourceBoundaries,
+        ...additionalBoundaries,
+      ]),
+    ];
     // WorkerRenderEvidencePassthrough: the field passes through verbatim; an
     // old sender omits it, undefined reaches the nullable ffi parameter as
     // null, and the wire-derived verdict applies, so package version skew
     // keeps both directions working.
     // zeroAdvanceEpsilonPx only prefilters the diagnostics channel, which the
     // worker discards; the plan bytes do not depend on the value.
+    const requestDto: PrepareParagraphRequest = {
+      text: request.text,
+      maxWidthPx: request.maxWidthPx,
+      fontFamilies: request.fontFamilies,
+      fontSizePx: request.fontSizePx,
+      lineHeightPx: request.lineHeightPx,
+      locale: request.locale,
+      fontWeight: request.fontWeight,
+      italic: request.italic,
+      firstLineIndentIc: request.firstLineIndentIc,
+      lineLengthGridEnabled: true,
+      sourceBoundaries: sourceBoundaries,
+      textSpans: request.textSpans,
+      inlineBoxes: request.inlineBoxes,
+      lineBreakSpans: request.lineBreakSpans,
+      inlineObjects: request.inlineObjects,
+      decorations: [], // Worker doesn't send decorations
+      emphasisDotGapEm: null,
+      renderEvidenceOverride: request.renderEvidence,
+    } as unknown as PrepareParagraphRequest;
     const rawEnvelope = precomputeParagraphWithDiagnostics(
-      request.text,
-      request.maxWidthPx,
-      request.fontFamilies,
-      request.fontSizePx,
-      request.lineHeightPx,
-      request.locale,
-      request.fontWeight,
-      request.italic,
-      request.firstLineIndentIc,
-      true,
-      sourceBoundaries,
-      request.textSpans,
-      request.inlineBoxes,
-      request.lineBreakSpans,
-      request.inlineObjects,
+      requestDto,
       0.0,
       session.shapeJson,
       session.metricsJson,
-      null,
-      null,
-      request.renderEvidence,
     );
     // The diagnostics export returns the plan-plus-diagnostics envelope; the
     // worker channel keeps carrying the bare plan JSON.
