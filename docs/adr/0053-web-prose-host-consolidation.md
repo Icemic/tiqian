@@ -178,9 +178,9 @@ G2 全局清除后仍成立的运行时单例集中存放在 core/services/ 一�
 
 - globalServices 容器（Symbol.for 键，跨 bundle 副本共享一份；
   参数传递无法覆盖副本各自 import 的场景）。
-- [TBD S4 后核定：loaderState（engine 路径可变状态的唯一合法位置，
-  见 S4）；Symbol.for worker 协调对象（跨副本协议）；declared-faces
-  登记表（宿主声明通道的全页状态，见 `DeclaredFaceEvidence`）。]
+- S5-bc 核定：loaderState 已溶入 globalServices().runtimeLoader；
+  Symbol.for worker 协调对象已溶入 globalServices().coordination.channel；
+  declared-faces 登记表待后续批次处理。
 - preparedStyle 文档级查找表：S3-a Part 2 将 prepared-dom.ts 的模块级
   preparedStyleRootsByHost 与 preparedScopeCounters 迁入
   globalServices.preparedStyles（rootsByHost: WeakMap<Element, Element>，
@@ -1317,10 +1317,12 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
     fonts.ts、coordination/measurement.ts）。提交 51efc35a。
   - S3-a（EnhancedElementContext 生命周期补全）：createEnhanceContext 成为根路径统一构造入口，调用方持有返回的 context；新增 update() 与 destroy() 分别接管既有的代际递增与销毁清理路径；preparedStyle 状态随 context 生命周期管理。提交 4c217470、d1b6e982。
   - S3-b（custody 族改名 RawDom）：custody.ts 已更名为 raw-dom.ts，expando 删除，段落记录统一走 context.rawDomParagraphs。提交 3a195866。
-  - [TBD S4：全局名删除。renderer/validator 桥走 loaderState、版本
-    挑选器删除、__TiqianLayoutWorker 并入 Symbol.for 协调对象、trace
-    双全局改 enhance 初始化选项、eslint declare-global 豁免废除。
-    提交哈希。]
+  - S4（全局名删除）：
+    - renderer/validator 桥走 loaderState：runtime-loader.ts 模块级 loaderState 溶入 globalServices().runtimeLoader；worker-channel.ts 模块级 coordinator 溶入 globalServices().coordination.channel。S5-bc 批次完成。
+    - 版本挑选器删除：源码中无版本挑选器痕迹，该条目或为规划中的候选，已在主线上消失。
+    - __TiqianLayoutWorker 并入 Symbol.for 协调对象：未完成。测试 fixture 仍以 globalThis 属性形式引用，Kotlin 生成的 JS 通过 defineProperty 安装。待后续批次执行。
+    - trace 双全局改 enhance 初始化选项：核心 TS 迁移完成（TraceConfig 作为 EnhanceOptions 字段，CoordinationService 实例属性替代 globalThis.__tqTrace/__tqFrameTrace）；注释与 demo 测试中仍有遗留引用，待清理。
+    - eslint declare-global 豁免废除：eslint.config.mjs 中 TSModuleBlock 豁免选择器仍存在，待移除。
 
   S2-b 实施时的实现约束（后续模块改动适用）：globalServices 静态 import
   闭包不得抵达 prepared-dom 与 browser-fonts。这两条链的模块体含安装

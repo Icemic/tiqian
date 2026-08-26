@@ -114,8 +114,6 @@ export interface PageWorkerCoordinator {
   initializedSessions: Set<string>;
 }
 
-type CoordinatorRegistry = Record<symbol, PageWorkerCoordinator | undefined>;
-
 export type SemanticReplayMode = "snapshot-safe" | "live-source";
 
 export interface SemanticReplaySuccess {
@@ -162,57 +160,56 @@ const LIVE_SOURCE_SEMANTIC_CODES: Set<string> = new Set([
   "UnsupportedSnapshotSemanticTag",
   "UnsafeSnapshotSemanticHref",
 ]);
-const COORDINATOR_KEY: unique symbol = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
 // PageWorkerCoordinator: client routers, dev HMR and duplicated package chunks
 // may evaluate this module more than once in the same document. Kotlin reaches
 // the worker through one page-global bridge, so every module instance must use
 // the same plans, pending requests and session ownership as that bridge.
-const coordinator: PageWorkerCoordinator = (globalThis as CoordinatorRegistry)[COORDINATOR_KEY] ??= {
-  plans: new Map(),
-  worker: null,
-  nextRequestId: 1,
-  pending: new Map(),
-  initializedSessions: new Set(),
-};
-const { plans, pending, initializedSessions } = coordinator;
+// S5-bc: the coordinator singleton moved into globalServices().coordination.channel;
+// this accessor replaces the former Symbol.for module-scope singleton.
+function coord(): PageWorkerCoordinator {
+  return globalServices().coordination.channel;
+}
 
 function ensureWorker(): Worker {
-  if (coordinator.worker) return coordinator.worker;
+  const c = coord();
+  if (c.worker) return c.worker;
   if (typeof Worker !== "function") throw new Error("LayoutWorkerUnavailable");
-  coordinator.worker = new Worker(new URL("../layout-worker.js", import.meta.url), {
+  c.worker = new Worker(new URL("../layout-worker.js", import.meta.url), {
     type: "module",
   });
-  coordinator.worker.addEventListener("message", (event: MessageEvent<WorkerResponseEnvelope>) => {
+  c.worker.addEventListener("message", (event: MessageEvent<WorkerResponseEnvelope>) => {
     const message = event.data;
-    const request = pending.get(message?.id!);
+    const request = c.pending.get(message?.id!);
     if (!request) return;
-    pending.delete(message.id!);
+    c.pending.delete(message.id!);
     if (message.ok) request.resolve(message);
     else request.reject(new Error(message.error || "LayoutWorkerFailed"));
   });
-  coordinator.worker.addEventListener("error", (event: ErrorEvent) => {
+  c.worker.addEventListener("error", (event: ErrorEvent) => {
     const error = event.error ?? new Error(event.message || "LayoutWorkerFailed");
-    for (const request of pending.values()) request.reject(error);
-    pending.clear();
-    initializedSessions.clear();
-    coordinator.worker?.terminate();
-    coordinator.worker = null;
+    for (const request of c.pending.values()) request.reject(error);
+    c.pending.clear();
+    c.initializedSessions.clear();
+    c.worker?.terminate();
+    c.worker = null;
   });
-  return coordinator.worker;
+  return c.worker;
 }
 
 function send(message: WorkerRequestEnvelope): Promise<WorkerResponseEnvelope> {
   const target = ensureWorker();
-  const id = coordinator.nextRequestId++;
-  const result = new Promise<WorkerResponseEnvelope>((resolve, reject) => pending.set(id, { resolve, reject }));
+  const c = coord();
+  const id = c.nextRequestId++;
+  const result = new Promise<WorkerResponseEnvelope>((resolve, reject) => c.pending.set(id, { resolve, reject }));
   target.postMessage({ ...message, id });
   return result;
 }
 
 async function ensureSession(contract: BrowserFontSessionWorkerContract): Promise<void> {
-  if (initializedSessions.has(contract.sessionKey)) return;
+  const c = coord();
+  if (c.initializedSessions.has(contract.sessionKey)) return;
   await send({ type: "init", ...contract });
-  initializedSessions.add(contract.sessionKey);
+  c.initializedSessions.add(contract.sessionKey);
 }
 
 
@@ -288,7 +285,8 @@ function installBridge(): void {
       take(_element: Element | null | undefined, sessionKey: string, requestText: string): string | null {
         const request = parsedLayoutRequest(requestText);
         if (!request) return null;
-        const record = plans.get(preparedPlanKey(sessionKey, request));
+        const c = coord();
+        const record = c.plans.get(preparedPlanKey(sessionKey, request));
         if (!record || record.issue) return null;
         const replay = semanticReplay(request);
         if (replay.issue) return null;
@@ -307,16 +305,18 @@ function installBridge(): void {
       issue(_element: Element | null | undefined, sessionKey: string, requestText: string): string | null {
         const request = parsedLayoutRequest(requestText);
         if (!request) return null;
-        const record = plans.get(preparedPlanKey(sessionKey, request));
+        const c = coord();
+        const record = c.plans.get(preparedPlanKey(sessionKey, request));
         if (!record) return null;
         if (record.issue) return record.issue;
         return semanticReplay(request).issue ?? null;
       },
       release(sessionKey?: string): boolean {
-        for (const key of plans.keys()) {
-          if (sessionKey !== undefined && key.startsWith(`${sessionKey}\u0000`)) plans.delete(key);
+        const c = coord();
+        for (const key of c.plans.keys()) {
+          if (sessionKey !== undefined && key.startsWith(`${sessionKey}\u0000`)) c.plans.delete(key);
         }
-        if (sessionKey === undefined || !initializedSessions.delete(sessionKey) || !coordinator.worker) return false;
+        if (sessionKey === undefined || !c.initializedSessions.delete(sessionKey) || !c.worker) return false;
         void send({ type: "release", sessionKey }).catch(() => {});
         return true;
       },
@@ -403,7 +403,7 @@ export async function createPrepareJob(
         dispatched += 1;
         send({ type: "layout", sessionKey: contract.sessionKey, request })
           .then((result: WorkerResponseEnvelope) => {
-            plans.set(preparedPlanKey(contract.sessionKey, request), { plan: (result as WorkerSuccessEnvelope).plan });
+            coord().plans.set(preparedPlanKey(contract.sessionKey, request), { plan: (result as WorkerSuccessEnvelope).plan });
             stored += 1;
           })
           .catch((error: unknown) => {
@@ -412,7 +412,7 @@ export async function createPrepareJob(
             // especially under Edge's enhanced-security JIT restrictions. Publish a
             // per-request capability issue for the main-thread coordinator instead;
             // it will retain the paragraph's untouched source DOM.
-            plans.set(preparedPlanKey(contract.sessionKey, request), {
+            coord().plans.set(preparedPlanKey(contract.sessionKey, request), {
               issue: String(error instanceof Error ? error.message : error).slice(0, 1_000),
             });
           })

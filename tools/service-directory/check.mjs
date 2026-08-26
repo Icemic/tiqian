@@ -74,16 +74,6 @@ const EXEMPTIONS = new Map([
     names: ["graphemeSegmenter"],
     reason: "pure-memo: one stateless Intl.Segmenter instance, no lifecycle",
   }],
-  ["frontend/web/core/core/engine/web-worker/worker-channel.ts", {
-    names: ["coordinator"],
-    reason: "pending",
-    task: "#97 s5-bc: Kotlin-era page bridge registry -> globalServices",
-  }],
-  ["frontend/web/core/core/engine/loaders/runtime-loader.ts", {
-    names: ["loaderState"],
-    reason: "pending",
-    task: "#97 s5-bc: dissolve into globalServices with install-time test seams",
-  }],
 ]);
 
 const DETECTORS = [
