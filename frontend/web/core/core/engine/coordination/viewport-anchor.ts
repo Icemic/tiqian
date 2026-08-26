@@ -24,6 +24,8 @@ export interface NativeScrollAnchoringHold {
   saved: SavedOverflowAnchor | null;
 }
 
+import { globalServices } from "../../services/global-services.js";
+
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const PARAGRAPH_SELECTOR = "p, li";
 const GESTURE_GRACE_MS = 350;
@@ -67,29 +69,29 @@ function readRect(element: HTMLElement | null | undefined): ViewportAnchorRect |
 // finger lifts, only scroll events. A scroll arriving shortly after a real
 // gesture extends the grace; an isolated scroll (including our own
 // correction) does not.
-let gestureTrackerInstalled: boolean = false;
-let lastGestureAt: number = Number.NEGATIVE_INFINITY;
+const getViewportState = () => globalServices().viewportAnchor!;
 
 function installGestureTracker(root: HTMLElement): void {
-  if (gestureTrackerInstalled) return;
+  const state = getViewportState();
+  if (state.gestureTrackerInstalled) return;
   const view = root.ownerDocument?.defaultView ?? globalThis.window;
   if (typeof view?.addEventListener !== "function") return;
-  gestureTrackerInstalled = true;
+  state.gestureTrackerInstalled = true;
   const passiveCapture: AddEventListenerOptions = { capture: true, passive: true };
   const markGesture = (): void => {
-    lastGestureAt = clockNow();
+    state.lastGestureAt = clockNow();
   };
   for (const type of ["pointerdown", "touchstart", "touchmove", "wheel", "keydown"]) {
     view.addEventListener(type, markGesture, passiveCapture);
   }
   view.addEventListener("scroll", () => {
     const now = clockNow();
-    if (now - lastGestureAt < MOMENTUM_CONTINUATION_MS) lastGestureAt = now;
+    if (now - state.lastGestureAt < MOMENTUM_CONTINUATION_MS) state.lastGestureAt = now;
   }, passiveCapture);
 }
 
 function gestureIsActive(): boolean {
-  return clockNow() - lastGestureAt < GESTURE_GRACE_MS;
+  return clockNow() - getViewportState().lastGestureAt < GESTURE_GRACE_MS;
 }
 
 function belongsToRoot(node: HTMLElement, root: HTMLElement): boolean {
@@ -225,8 +227,10 @@ export function compensateViewportAnchor(root: HTMLElement, anchor: ViewportAnch
   return applyScrollDelta(root, delta);
 }
 
-const heldOwnerByRoot: WeakMap<HTMLElement, HTMLElement> = new WeakMap();
-const ownerHolds: WeakMap<HTMLElement, NativeScrollAnchoringHold> = new WeakMap();
+const heldOwnerByRoot = (): WeakMap<HTMLElement, HTMLElement> =>
+  getViewportState().heldOwnerByRoot as WeakMap<HTMLElement, HTMLElement>;
+const ownerHolds = (): WeakMap<HTMLElement, NativeScrollAnchoringHold> =>
+  getViewportState().ownerHolds as WeakMap<HTMLElement, NativeScrollAnchoringHold>;
 
 /**
  * NativeAnchoringHandover: two anchoring systems must never share one
@@ -240,12 +244,12 @@ const ownerHolds: WeakMap<HTMLElement, NativeScrollAnchoringHold> = new WeakMap(
  * native anchoring at all other times.
  */
 export function holdNativeScrollAnchoring(root: HTMLElement): void {
-  if (heldOwnerByRoot.has(root)) return;
+  if (heldOwnerByRoot().has(root)) return;
   const owner = scrollOwner(root).element ?? root.ownerDocument?.documentElement;
   const style = owner?.style;
   if (typeof style?.setProperty !== "function") return;
-  heldOwnerByRoot.set(root, owner as HTMLElement);
-  const hold: NativeScrollAnchoringHold = ownerHolds.get(owner as HTMLElement) ?? { count: 0, saved: null };
+  heldOwnerByRoot().set(root, owner as HTMLElement);
+  const hold: NativeScrollAnchoringHold = ownerHolds().get(owner as HTMLElement) ?? { count: 0, saved: null };
   if (hold.count === 0) {
     hold.saved = {
       value: style.getPropertyValue?.("overflow-anchor") ?? "",
@@ -254,18 +258,18 @@ export function holdNativeScrollAnchoring(root: HTMLElement): void {
     style.setProperty("overflow-anchor", "none");
   }
   hold.count += 1;
-  ownerHolds.set(owner as HTMLElement, hold);
+  ownerHolds().set(owner as HTMLElement, hold);
 }
 
 export function releaseNativeScrollAnchoring(root: HTMLElement): void {
-  const owner = heldOwnerByRoot.get(root);
+  const owner = heldOwnerByRoot().get(root);
   if (!owner) return;
-  heldOwnerByRoot.delete(root);
-  const hold = ownerHolds.get(owner);
+  heldOwnerByRoot().delete(root);
+  const hold = ownerHolds().get(owner);
   if (!hold) return;
   hold.count -= 1;
   if (hold.count > 0) return;
-  ownerHolds.delete(owner);
+  ownerHolds().delete(owner);
   const style = owner.style;
   if (typeof style?.setProperty !== "function" || !hold.saved) return;
   if (hold.saved.value) {
