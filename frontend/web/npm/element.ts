@@ -1,4 +1,4 @@
-import { getContextForElement, createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
 import {
   copyInstaller,
@@ -12,7 +12,12 @@ import {
   loadSnapshotFontFallback,
 } from "@tiqian/core/core/engine/loaders/font-loader.js";
 import { needsCjkDashShaping, prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
-import { lineLengthGridMeasure } from "@tiqian/core/core/sampler/grid-metrics.js";
+import { hasStrongEmphasis } from "@tiqian/core/core/engine/eligibility.js";
+import {
+  rendererOwnedProgressiveStyleMutation,
+  renderedRawDomParagraphs,
+} from "@tiqian/core/core/engine/raw-dom.js";
+import { hasHostInlineSizeParagraph } from "@tiqian/core/core/engine/responsive-measure.js";
 import {
   detachLoadedSnapshot,
   isLoadedSnapshotAdopted,
@@ -36,7 +41,6 @@ import { CoordinationService } from "@tiqian/core/core/engine/coordination/coord
 import { globalServices } from "@tiqian/core/core/services/global-services.js";
 import * as engineFace from "@tiqian/core/core/engine/face.js";
 import {
-  DEFAULT_PARAGRAPH_SELECTOR,
   fragmentedBorderBoxInlineSize,
   typographySignature,
   typographyElements,
@@ -45,6 +49,7 @@ import {
   paragraphWidthSignature,
   responsiveGeometrySignature,
   paragraphMeasureSignature,
+  snapshotFontAttemptSignature,
 } from "@tiqian/core/core/sampler/signatures.js";
 import {
   createParagraphGridMetricsState,
@@ -52,6 +57,7 @@ import {
   paragraphMeasureSignatureFromObserved,
 } from "@tiqian/core/core/sampler/grid-metrics.js";
 import {
+  belongsToRootScope,
   classifyContentMutationRecords,
   createTypographyInvalidationSource,
   createLayoutWorkTypographyInvalidationSource,
@@ -59,13 +65,14 @@ import {
   createContentInvalidationSource,
   createRootSizeObservation,
   createRootVisibilityObservation,
+  rootScopedParagraphs,
 } from "@tiqian/core/core/sampler/observers.js";
+import { snapshotCompletionSelector } from "@tiqian/core/core/sampler/snapshot/snapshot-completion.js";
 import type { TiqianEngineWorkersInstance } from "@tiqian/core/core/engine/engine-entry.js";
 import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
 import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
 import type {
   FontLoadingEventLike,
-  GetComputedStyleFn,
   InitialFontRetryController,
 } from "@tiqian/core/core/engine/loaders/font-loader.js";
 import type { SnapshotAdoptAnchors } from "@tiqian/core/core/sampler/snapshot/precomputed.js";
@@ -80,9 +87,6 @@ import type {
 import type { TiqianWebOptions } from "./api.js";
 
 const ELEMENT_NAME = "tiqian-prose";
-const ROOT_SELECTOR = `${ELEMENT_NAME}, [data-tiqian-root]`;
-const SKIPPED_ANCESTOR_SELECTOR =
-  ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
 const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-snapshot-render-font";
 const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-snapshot-layout-fallback";
 const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
@@ -120,88 +124,6 @@ function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandid
 
 function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
-}
-
-function belongsToRootScope(element: Element, root: Element): boolean {
-  return element.closest(ROOT_SELECTOR) === root;
-}
-
-function isPureBlockImageParagraph(element: Element): boolean {
-  if (element.tagName !== "P" || (element.textContent ?? "").trim() !== "") return false;
-  const children = Array.from(element.querySelectorAll(":scope > *"));
-  if (children.length === 0) return false;
-  const view = element.ownerDocument?.defaultView;
-  const getStyle: GetComputedStyleFn = view?.getComputedStyle ?? globalThis.getComputedStyle;
-  if (typeof getStyle !== "function") return false;
-  return children.every((child) =>
-    child.tagName === "IMG" && getStyle.call(view, child).display.trim().toLowerCase() === "block"
-  );
-}
-
-function rendererOwnedProgressiveStyleMutation(record: MutationRecord, root: HTMLElement): boolean {
-  if (record.attributeName !== "style") return false;
-  const target = record.target;
-  if (
-    !(target instanceof HTMLElement) || !target.matches("p[data-tq-rendered=true], li[data-tq-rendered=true]") ||
-    !belongsToRootScope(target, root)
-  ) return false;
-
-  const previous = document.createElement(target.tagName);
-  if (record.oldValue != null) previous.setAttribute("style", record.oldValue);
-  const projected = document.createElement(target.tagName);
-  const current = target.getAttribute("style");
-  if (current != null) projected.setAttribute("style", current);
-  let rendererPropertyFound = false;
-  if (
-    projected.style.getPropertyValue("position") === "relative" &&
-    projected.style.getPropertyPriority("position") === "important"
-  ) {
-    rendererPropertyFound = true;
-    const value = previous.style.getPropertyValue("position");
-    if (value) {
-      projected.style.setProperty("position", value, previous.style.getPropertyPriority("position"));
-    } else {
-      projected.style.removeProperty("position");
-    }
-  }
-  if (
-    target.getAttribute("data-tq-host-inline-size") === "true" &&
-    projected.style.getPropertyPriority("inline-size") === "important"
-  ) {
-    rendererPropertyFound = true;
-    const value = previous.style.getPropertyValue("inline-size");
-    if (value) {
-      projected.style.setProperty(
-        "inline-size",
-        value,
-        previous.style.getPropertyPriority("inline-size"),
-      );
-    } else {
-      projected.style.removeProperty("inline-size");
-    }
-  }
-  return rendererPropertyFound && projected.style.cssText === previous.style.cssText;
-}
-
-function isRuntimeCompletionCandidate(element: Element, root: Element): boolean {
-  if (!belongsToRootScope(element, root)) return false;
-  if (element.closest(SKIPPED_ANCESTOR_SELECTOR)) return false;
-  // PureBlockImageParagraphExclusion must match the Kotlin runtime candidate
-  // set so an image-only root does not load layout code merely to do no work.
-  if (isPureBlockImageParagraph(element)) return false;
-  if (
-    element.tagName === "LI" &&
-    element.querySelector(":scope > p, :scope > ul, :scope > ol, :scope > blockquote, :scope > pre, :scope > table")
-  ) return false;
-  return true;
-}
-
-function snapshotCompletionSelector(root: HTMLElement): string {
-  const selector = ":is(p, li):not([data-tq-snapshot-key])";
-  return Array.from(root.querySelectorAll(selector))
-    .some((paragraph) => isRuntimeCompletionCandidate(paragraph, root))
-    ? selector
-    : "";
 }
 
 function coordinationService(): CoordinationService {
@@ -397,7 +319,7 @@ class TiqianProseElement extends HTMLElementBase {
     // marks. Keep the default bold path eligible for snapshots; an explicit
     // mapping request with actual <strong> content must enter the runtime.
     const strongEmphasisRuntimeRequired =
-      this.strongAsEmphasisMarks && this.querySelector("strong") !== null;
+      this.strongAsEmphasisMarks && hasStrongEmphasis(this);
     // SnapshotFirstInputBeforeRuntimeCompile: even a mixed root can prove and
     // display its keyed snapshot without Kotlin. Under Edge JITless, eagerly
     // importing the full runtime for one unkeyed paragraph delays the first
@@ -1153,14 +1075,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #snapshotFontAttemptSignature(reference: string | null = this.getAttribute("snapshot-ref")) {
-    if (!reference) return "";
-    const paragraph = this.querySelector("p[data-tq-snapshot-key], p, li");
-    if (!paragraph) return `${reference}\u0000missing`;
-    const style = getComputedStyle(paragraph);
-    const fontSize = Number.parseFloat(style.fontSize);
-    const width = fragmentedBorderBoxInlineSize(paragraph);
-    const measure = lineLengthGridMeasure(width, fontSize);
-    return `${reference}\u0000${Math.fround(fontSize)}\u0000${measure ?? `invalid:${width.toFixed(3)}`}`;
+    return snapshotFontAttemptSignature(this, reference);
   }
 
   #beginLayoutWork({ usesCapturedMeasure = false, captureSignatures = usesCapturedMeasure }: TiqianLayoutWorkOptions = {}): number {
@@ -1601,10 +1516,9 @@ class TiqianProseElement extends HTMLElementBase {
       // AdoptedWidthObservation: content reconcile adopts paragraphs after
       // the observer already exists. Seed and observe targets it has not
       // seen, so an adopted paragraph responds to later width changes.
-      const paragraphs = this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+      const paragraphs = rootScopedParagraphs(this);
       for (let i = 0; i < paragraphs.length; i++) {
         const paragraph = paragraphs[i];
-        if (!belongsToRootScope(paragraph, this)) continue;
         // Metrics seeding is decoupled from the width map: a source refresh
         // drops the seeds while surviving paragraph nodes stay in the width
         // map, and the width gate alone would then strand them on the
@@ -1623,8 +1537,7 @@ class TiqianProseElement extends HTMLElementBase {
     const widths = new WeakMap<Element, number>();
     const targets = [
       this,
-      ...Array.from(this.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR))
-        .filter((paragraph) => belongsToRootScope(paragraph, this)),
+      ...rootScopedParagraphs(this),
     ];
     for (let i = 0; i < targets.length; i++) {
       const target = targets[i];
@@ -1853,8 +1766,7 @@ class TiqianProseElement extends HTMLElementBase {
     // time (the width read above already forced it), so the per-paragraph
     // reads here do not thrash.
     const paragraphMeasures = this.#paragraphMeasureSignatureFromObserved();
-    const hostInlineSizeRefresh = widthsChanged &&
-      this.querySelector("[data-tq-host-inline-size]") !== null;
+    const hostInlineSizeRefresh = widthsChanged && hasHostInlineSizeParagraph(this);
     const measuresChanged = paragraphMeasures !== this.#lastParagraphMeasures;
     const signature = (widthsChanged && !this.#forceTypographyRefresh)
       ? this.#lastTypography
@@ -2076,15 +1988,7 @@ class TiqianProseElement extends HTMLElementBase {
   // its paragraph's context — the state home that replaced the retired
   // __tqRawDomFragment DOM property.
   #renderedRawDomParagraphs(): Iterable<[Element, RawDomParagraphRecord]> {
-    const pairs: [Element, RawDomParagraphRecord][] = [];
-    const paragraphs = this.querySelectorAll(
-      `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
-    );
-    for (const paragraph of paragraphs) {
-      const record = getContextForElement(paragraph)?.rawDomParagraphs.get(paragraph);
-      if (record) pairs.push([paragraph, record]);
-    }
-    return pairs;
+    return renderedRawDomParagraphs(this);
   }
 
   #observeContent() {
