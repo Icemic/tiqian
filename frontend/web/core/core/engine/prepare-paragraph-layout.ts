@@ -8,6 +8,10 @@
 //
 // Stateless module: prepareParagraphLayout() is exported directly and reads
 // the installed prepared-DOM renderer from globalThis inside the body.
+//
+// Corrective wave 5 (#106): the wire format is now declared DTO objects instead
+// of separator-joined strings. The ffi boundary exports WorkerLayoutRequest
+// and PrepareParagraphRequest interfaces generated from Kotlin @JsExport types.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
@@ -16,23 +20,8 @@ import {
   precomputeParagraphWithBrowserMetrics,
   precomputeParagraphWithDiagnostics,
 } from "@tiqian/ffi";
+import type { PrepareParagraphRequest, TextSpanWire, InlineBoxWire, LineBreakSpanWire, InlineObjectWire, DecorationWire } from "@tiqian/ffi";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
-
-export interface WireArguments {
-  text: string;
-  fontFamilies: string;
-  fontSize: number;
-  lineHeight: number;
-  locale: string;
-  fontWeight: number;
-  italic: boolean;
-  sourceBoundaries: string;
-  textSpans: string;
-  inlineBoxes: string;
-  lineBreakSpans: string;
-  inlineObjects: string;
-  decorations: string;
-}
 
 interface LayoutPlanLine {
   rangeStart: number;
@@ -120,111 +109,109 @@ interface PrepareParagraphLayoutInvocation {
   ignoreUnchangedMeasure?: boolean;
 }
 
-// Wire separators named after the Kotlin constants in WebEnhancerSupport.kt:
-  // records join by U+001E, fields by U+001D, families by U+001F. Twin of the
-  // worker-request.js serializers, which use the same values.
-  const PREPARE_RECORD_SEPARATOR = '\u001e';
-  const PREPARE_FIELD_SEPARATOR = '\u001d';
-  const PREPARE_FAMILY_SEPARATOR = '\u001f';
-  // WebEnhancerSupport.kt INLINE_EDGE_EPSILON: a clone box whose edges stay
-  // below this epsilon remains eligible for prepared-DOM preparation.
-  const INLINE_EDGE_EPSILON = 0.01;
-  // WebEnhancerSupport.kt ZERO_ADVANCE_EPSILON: the host threshold passed to
-  // the ffi diagnostics export, which pre-filters advance suspects.
-  const ZERO_ADVANCE_EPSILON = 0.01;
-  // PreparedParagraph.kt PREPARED_PARAGRAPH_LAYOUT_REVISION: the plan wire
-  // revision the installed prepared-DOM renderer must report.
-  const PREPARED_LAYOUT_REVISION = 'tiqian-layout-v2';
-  // WebEnhancerSupport.kt SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES: substrings
-  // that mark an snapshot-session layout failure as a font capability issue,
-  // after which the whole paragraph retries through the browser bridge.
-  const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
-    'NoSnapshotFontFace',
-    'MissingGlyph',
-    'MissingServerShapingReplay',
-    'NoSnapshotMetricFace',
-    'NonUniformUnicodeRangeMetrics',
-  ];
+// WebEnhancerSupport.kt INLINE_EDGE_EPSILON: a clone box whose edges stay
+// below this epsilon remains eligible for prepared-DOM preparation.
+const INLINE_EDGE_EPSILON = 0.01;
+// WebEnhancerSupport.kt ZERO_ADVANCE_EPSILON: the host threshold passed to
+// the ffi diagnostics export, which pre-filters advance suspects.
+const ZERO_ADVANCE_EPSILON = 0.01;
+// PreparedParagraph.kt PREPARED_PARAGRAPH_LAYOUT_REVISION: the plan wire
+// revision the installed prepared-DOM renderer must report.
+const PREPARED_LAYOUT_REVISION = 'tiqian-layout-v2';
+// WebEnhancerSupport.kt SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES: substrings
+// that mark an snapshot-session layout failure as a font capability issue,
+// after which the whole paragraph retries through the browser bridge.
+const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
+  'NoSnapshotFontFace',
+  'MissingGlyph',
+  'MissingServerShapingReplay',
+  'NoSnapshotMetricFace',
+  'NonUniformUnicodeRangeMetrics',
+];
 
-  // Serialize the lowered paragraph onto the shared ffi wire. Twins of the
-  // worker-request.js serializer functions (lines 96-153), copied locally so
-  // both files stay embeddable and import-free.
-  export function wireArguments(lowered: LoweredParagraph): WireArguments {
-    const textSpans = lowered.spans.map(function (span) {
-      return [
-        String(span.start),
-        String(span.end),
-        span.style.fontFamilies.join(PREPARE_FAMILY_SEPARATOR),
-        String(span.style.fontSize),
-        String(span.style.fontWeight),
-        String(span.style.italic),
-        String(span.style.baselineShift),
-      ].join(PREPARE_FIELD_SEPARATOR);
-    }).join(PREPARE_RECORD_SEPARATOR);
-
-    // InlineBoxOuterSpacing default chain: the wire never carries outer
-    // spacing, so every inlineBoxes join field emits the string Narrow.
-    const inlineBoxes = lowered.inlineBoxes.map(function (box) {
-      return [
-        String(box.start),
-        String(box.end),
-        String(box.inlineStart),
-        String(box.inlineEnd),
-        'Narrow',
-      ].join(PREPARE_FIELD_SEPARATOR);
-    }).join(PREPARE_RECORD_SEPARATOR);
-
-    // LineBreakPolicy decode maps every wire policy string to the same
-    // member, so the join always emits ProgressiveTechnical.
-    const lineBreakSpans = lowered.lineBreakSpans.map(function (span) {
-      return [
-        String(span.start),
-        String(span.end),
-        'ProgressiveTechnical',
-      ].join(PREPARE_FIELD_SEPARATOR);
-    }).join(PREPARE_RECORD_SEPARATOR);
-
-    const inlineObjects = lowered.inlineObjects.map(function (span) {
-      return [
-        String(span.start),
-        String(span.end),
-        String(span.advance),
-        String(span.ascent),
-        String(span.descent),
-      ].join(PREPARE_FIELD_SEPARATOR);
-    }).join(PREPARE_RECORD_SEPARATOR);
-
-    // Decorations (mirrors the Kotlin parseDecorations landed in 33c5106):
-    // each entry carries start, end, and the member-name kind string.
-    const decorations = lowered.decorations.map(function (decoration) {
-      return [
-        String(decoration.start),
-        String(decoration.end),
-        decoration.kind,
-      ].join(PREPARE_FIELD_SEPARATOR);
-    }).join(PREPARE_RECORD_SEPARATOR);
-
-    // SourceBoundary wire: dedupe into a Set, sort ascending, join by comma.
-    const sourceBoundaries = Array.from(new Set(lowered.sourceBoundaries))
-      .sort(function (a, b) { return a - b; })
-      .join(',');
-
+// Serialize the lowered paragraph onto the shared ffi wire as a DTO.
+// Twins of the worker-request.js serializer functions, copied locally so
+// both files stay embeddable and import-free.
+export function wireArguments(lowered: LoweredParagraph): PrepareParagraphRequest {
+  const textSpans: TextSpanWire[] = lowered.spans.map(function (span) {
     return {
-      text: lowered.text,
-      fontFamilies: lowered.textStyle.fontFamilies.join(PREPARE_FAMILY_SEPARATOR),
-      fontSize: lowered.textStyle.fontSize,
-      lineHeight: lowered.lineHeight,
-      locale: lowered.textStyle.locale,
-      fontWeight: lowered.textStyle.fontWeight,
-      italic: lowered.textStyle.italic,
-      sourceBoundaries: sourceBoundaries,
-      textSpans: textSpans,
-      inlineBoxes: inlineBoxes,
-      lineBreakSpans: lineBreakSpans,
-      inlineObjects: inlineObjects,
-      decorations: decorations,
-    };
-  }
+      start: span.start,
+      end: span.end,
+      fontFamilies: span.style.fontFamilies,
+      fontSize: span.style.fontSize,
+      fontWeight: span.style.fontWeight,
+      italic: span.style.italic,
+      baselineShift: span.style.baselineShift,
+    } as TextSpanWire;
+  });
+
+  // InlineBoxOuterSpacing default chain: the wire never carries outer
+  // spacing, so every inlineBoxes join field emits the string Narrow.
+  const inlineBoxes: InlineBoxWire[] = lowered.inlineBoxes.map(function (box) {
+    return {
+      start: box.start,
+      end: box.end,
+      inlineStart: box.inlineStart,
+      inlineEnd: box.inlineEnd,
+      outerSpacing: 'Narrow',
+    } as InlineBoxWire;
+  });
+
+  // LineBreakPolicy decode maps every wire policy string to the same
+  // member, so the join always emits ProgressiveTechnical.
+  const lineBreakSpans: LineBreakSpanWire[] = lowered.lineBreakSpans.map(function (span) {
+    return {
+      start: span.start,
+      end: span.end,
+      policy: 'ProgressiveTechnical',
+    } as LineBreakSpanWire;
+  });
+
+  const inlineObjects: InlineObjectWire[] = lowered.inlineObjects.map(function (span) {
+    return {
+      start: span.start,
+      end: span.end,
+      advance: span.advance,
+      ascent: span.ascent,
+      descent: span.descent,
+    } as InlineObjectWire;
+  });
+
+  // Decorations (mirrors the Kotlin parseDecorations landed in 33c5106):
+  // each entry carries start, end, and the member-name kind string.
+  const decorations: DecorationWire[] = lowered.decorations.map(function (decoration) {
+    return {
+      start: decoration.start,
+      end: decoration.end,
+      kind: decoration.kind,
+    } as DecorationWire;
+  });
+
+  // SourceBoundary wire: dedupe into a Set, sort ascending, join by comma.
+  const sourceBoundaries: number[] = Array.from(new Set(lowered.sourceBoundaries))
+    .sort(function (a, b) { return a - b; });
+
+  return {
+    text: lowered.text,
+    maxWidthPx: 0, // Will be set by caller
+    fontFamilies: lowered.textStyle.fontFamilies,
+    fontSizePx: lowered.textStyle.fontSize,
+    lineHeightPx: lowered.lineHeight,
+    locale: lowered.textStyle.locale,
+    fontWeight: lowered.textStyle.fontWeight,
+    italic: lowered.textStyle.italic,
+    firstLineIndentIc: 0, // Will be set by caller
+    lineLengthGridEnabled: true,
+    sourceBoundaries: sourceBoundaries,
+    textSpans: textSpans,
+    inlineBoxes: inlineBoxes,
+    lineBreakSpans: lineBreakSpans,
+    inlineObjects: inlineObjects,
+    decorations: decorations,
+    emphasisDotGapEm: null, // Will be set by caller
+    renderEvidenceOverride: null, // Will be set by caller
+  } as PrepareParagraphRequest;
+}
 
   // RuntimeSnapshotPreparedDomScope: inline the lowered-paragraph.js predicate
   // isRuntimeSnapshotPreparedDomEligible, which requires every span to share the
@@ -270,64 +257,6 @@ interface PrepareParagraphLayoutInvocation {
       }
     }
     return false;
-  }
-
-  // BrowserMetricsCallArguments: the browser-metric export is the diagnostics
-  // list without the leading sessionId, plus the shape and metrics callbacks
-  // inserted before the trailing decorations and emphasis dot gap.
-  export type BrowserMetricsArguments = [
-    text: string, maxWidthPx: number, fontFamilies: string, fontSizePx: number,
-    lineHeightPx: number, locale: string, fontWeight: number, italic: boolean,
-    firstLineIndentIc: number, lineLengthGridEnabled: boolean, sourceBoundaries: string,
-    textSpans: string, inlineBoxes: string, lineBreakSpans: string, inlineObjects: string | null,
-    zeroAdvanceEpsilonPx: number, shapeJson: (p0: string) => string,
-    metricsJson: (p0: string) => string, decorations?: string | null,
-    emphasisDotGapEm?: number | null, renderEvidenceOverride?: boolean | null,
-  ];
-  export function browserMetricsArguments(browserFallback: Record<string, unknown>, paragraphArguments: unknown[], wire: WireArguments, emphasisDotGapEm: number | null, renderEvidenceOverride: boolean): BrowserMetricsArguments {
-    return paragraphArguments.concat([
-      ZERO_ADVANCE_EPSILON,
-      (browserFallback.bridge as BrowserBridgeDescriptor).shapeJson,
-      (browserFallback.bridge as BrowserBridgeDescriptor).metricsJson,
-      wire.decorations,
-      emphasisDotGapEm,
-      renderEvidenceOverride,
-    ]) as BrowserMetricsArguments;
-  }
-
-  // The snapshot-session diagnostics export argument tuple, byte-locked so tests
-  // can assert the full positional list the wire sends to ffi. The direct ffi
-  // call spreads this tuple unchanged; no value is reordered or recomputed.
-  export function precomputeDiagnosticsArguments(
-    snapshotSession: PrepareSnapshotSessionDescriptor,
-    paragraphArguments: unknown[],
-    wire: WireArguments,
-    emphasisDotGapEm: number | null,
-    renderEvidenceOverride: boolean,
-  ): [string, number, string, number, number, string, number, boolean, number, boolean, string, string, string, string, string, number, BrowserBridgeShapeJsonFn, BrowserBridgeMetricsJsonFn, string, number | null, boolean] {
-    return [
-      paragraphArguments[0] as string,
-      paragraphArguments[1] as number,
-      paragraphArguments[2] as string,
-      paragraphArguments[3] as number,
-      paragraphArguments[4] as number,
-      paragraphArguments[5] as string,
-      paragraphArguments[6] as number,
-      paragraphArguments[7] as boolean,
-      paragraphArguments[8] as number,
-      paragraphArguments[9] as boolean,
-      paragraphArguments[10] as string,
-      paragraphArguments[11] as string,
-      paragraphArguments[12] as string,
-      paragraphArguments[13] as string,
-      paragraphArguments[14] as string,
-      ZERO_ADVANCE_EPSILON,
-      snapshotSession.shapeJson,
-      snapshotSession.metricsJson,
-      wire.decorations,
-      emphasisDotGapEm,
-      renderEvidenceOverride,
-    ];
   }
 
   /**
@@ -385,7 +314,7 @@ interface PrepareParagraphLayoutInvocation {
       };
     }
 
-    const wire = wireArguments(lowered);
+    let wire = wireArguments(lowered);
     const firstLineIndentIc = element.tagName.toUpperCase() === 'LI'
       ? 0
       : (options.firstLineIndentIc as number);
@@ -397,25 +326,15 @@ interface PrepareParagraphLayoutInvocation {
       : (options.emphasisDotGapEm as number);
     const renderEvidenceOverride = hasRenderEvidence(lowered);
 
-    // EngineLineMeasureMatchesResponsiveGrid: feed the quantized measure, not
-    // the raw width, as maxWidthPx to every layout path.
-    const paragraphArguments = [
-      wire.text,
-      measure,
-      wire.fontFamilies,
-      wire.fontSize,
-      wire.lineHeight,
-      wire.locale,
-      wire.fontWeight,
-      wire.italic,
-      firstLineIndentIc,
-      lineLengthGridEnabled,
-      wire.sourceBoundaries,
-      wire.textSpans,
-      wire.inlineBoxes,
-      wire.lineBreakSpans,
-      wire.inlineObjects,
-    ];
+    // Update the DTO with the computed values
+    wire = {
+      ...wire,
+      maxWidthPx: measure,
+      firstLineIndentIc: firstLineIndentIc,
+      lineLengthGridEnabled: lineLengthGridEnabled,
+      emphasisDotGapEm: emphasisDotGapEm,
+      renderEvidenceOverride: renderEvidenceOverride,
+    };
 
     let snapshotFontSessionUsed = browserFallback != null;
 
@@ -425,7 +344,10 @@ interface PrepareParagraphLayoutInvocation {
         // SnapshotSessionSemanticLayout: one font session serves the canonical
         // plain paragraph and the semantic DOM, so no engine pair exists.
         rawEnvelope = precomputeParagraphWithDiagnostics(
-          ...precomputeDiagnosticsArguments(snapshotSession, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+          wire,
+          ZERO_ADVANCE_EPSILON,
+          snapshotSession.shapeJson,
+          snapshotSession.metricsJson,
         );
       } catch (error) {
         if (!isSnapshotSessionCapabilityFailure(error)) throw error;
@@ -435,7 +357,10 @@ interface PrepareParagraphLayoutInvocation {
         // (Slice 4a note); the whole paragraph re-runs instead.
         snapshotFontSessionUsed = false;
         rawEnvelope = precomputeParagraphWithBrowserMetrics(
-          ...browserMetricsArguments(browserFallback!, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+          wire,
+          ZERO_ADVANCE_EPSILON,
+          (browserFallback!.bridge as BrowserBridgeDescriptor).shapeJson,
+          (browserFallback!.bridge as BrowserBridgeDescriptor).metricsJson,
         );
       }
     } else {
@@ -444,7 +369,10 @@ interface PrepareParagraphLayoutInvocation {
       }
       snapshotFontSessionUsed = false;
       rawEnvelope = precomputeParagraphWithBrowserMetrics(
-        ...browserMetricsArguments(browserFallback, paragraphArguments, wire, emphasisDotGapEm, renderEvidenceOverride),
+        wire,
+        ZERO_ADVANCE_EPSILON,
+        (browserFallback.bridge as BrowserBridgeDescriptor).shapeJson,
+        (browserFallback.bridge as BrowserBridgeDescriptor).metricsJson,
       );
     }
 

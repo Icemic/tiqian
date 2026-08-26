@@ -13,8 +13,6 @@ const EXPECTED_FIRST_SHAPING_REQUEST =
 const EXPECTED_FIRST_METRICS_REQUEST =
   '{"fontKey":"cjk-primary","fontSize":18,"role":"CjkText","locale":"zh-Hans","fontFamilies":["Fixture CJK"],"fontWeight":400,"italic":false,"faceSelectionText":"\u4e2d"}';
 
-const PARAGRAPH_ARGUMENTS = ["\u4e2d\u6587\u4e2d\u6587", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
-
 function fakeCanvasMeasurement(text) {
   if (text === "Hg") {
     return {
@@ -174,6 +172,55 @@ function comparePlans(left, right, path) {
   assert.strictEqual(left, right, path);
 }
 
+// Helper to build a PrepareParagraphRequest DTO for the test paragraph
+function buildTestRequest(overrides = {}) {
+  return {
+    text: "\u4e2d\u6587\u4e2d\u6587",
+    maxWidthPx: 36,
+    fontFamilies: ["Fixture CJK"],
+    fontSizePx: 18,
+    lineHeightPx: 27,
+    locale: "zh-Hans",
+    fontWeight: 400,
+    italic: false,
+    firstLineIndentIc: 0,
+    lineLengthGridEnabled: true,
+    sourceBoundaries: [],
+    textSpans: [],
+    inlineBoxes: [],
+    lineBreakSpans: [],
+    inlineObjects: [],
+    decorations: [],
+    emphasisDotGapEm: null,
+    renderEvidenceOverride: null,
+    ...overrides,
+  };
+}
+
+function buildDashRequest(overrides = {}) {
+  return {
+    text: "\u2014\u2014",
+    maxWidthPx: 36,
+    fontFamilies: ["Fixture CJK"],
+    fontSizePx: 18,
+    lineHeightPx: 27,
+    locale: "zh-Hans",
+    fontWeight: 400,
+    italic: false,
+    firstLineIndentIc: 0,
+    lineLengthGridEnabled: true,
+    sourceBoundaries: [],
+    textSpans: [],
+    inlineBoxes: [],
+    lineBreakSpans: [],
+    inlineObjects: [],
+    decorations: [],
+    emphasisDotGapEm: null,
+    renderEvidenceOverride: null,
+    ...overrides,
+  };
+}
+
 test("API surface exposes createBrowserMetricsBridge", () => {
   assert.strictEqual(typeof createBrowserMetricsBridge, "function");
 });
@@ -193,22 +240,9 @@ test("Shaping wire byte lock", () => {
 
   const capturedShapeRequests = [];
 
+  const request = buildTestRequest();
   precomputeParagraphWithBrowserMetrics(
-    "中文中文",
-    36,
-    "Fixture CJK",
-    18,
-    27,
-    "zh-Hans",
-    400,
-    false,
-    0,
-    true,
-    "",
-    "",
-    "",
-    "",
-    "",
+    request,
     0.01,
     (req) => {
       capturedShapeRequests.push(req);
@@ -236,22 +270,9 @@ test("Metrics wire byte lock", () => {
 
   const capturedMetricsRequests = [];
 
+  const request = buildTestRequest();
   precomputeParagraphWithBrowserMetrics(
-    "中文中文",
-    36,
-    "Fixture CJK",
-    18,
-    27,
-    "zh-Hans",
-    400,
-    false,
-    0,
-    true,
-    "",
-    "",
-    "",
-    "",
-    "",
+    request,
     0.01,
     (req) => bridge.shapeJson(req),
     (req) => {
@@ -277,22 +298,9 @@ test("End-to-end plan", () => {
     env,
   });
 
+  const request = buildTestRequest();
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
-    "中文中文",
-    36,
-    "Fixture CJK",
-    18,
-    27,
-    "zh-Hans",
-    400,
-    false,
-    0,
-    true,
-    "",
-    "",
-    "",
-    "",
-    "",
+    request,
     0.01,
     bridge.shapeJson,
     bridge.metricsJson,
@@ -321,13 +329,9 @@ test("Parity against the scripted canvas-model backend", () => {
     env,
   });
 
+  const request = buildTestRequest();
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
-    ...PARAGRAPH_ARGUMENTS,
-    "",
-    "",
-    "",
-    "",
-    "",
+    request,
     0.01,
     bridge.shapeJson,
     bridge.metricsJson,
@@ -339,19 +343,12 @@ test("Parity against the scripted canvas-model backend", () => {
 
   let planB;
   try {
+    const requestDiag = buildTestRequest();
     const rawScriptedEnvelope = precomputeParagraphWithDiagnostics(
-      ...PARAGRAPH_ARGUMENTS,
-      "",
-      "",
-      "",
-      "",
-      "",
+      requestDiag,
       0.0,
       scriptedShapeJson,
       scriptedMetricsJson,
-      "",
-      null,
-      null,
     );
     planB = JSON.parse(JSON.parse(rawScriptedEnvelope).plan);
   } finally {
@@ -378,22 +375,9 @@ test("Dash capability passthrough", () => {
     env,
   });
 
+  const request = buildDashRequest();
   const rawEnvelope = precomputeParagraphWithBrowserMetrics(
-    "\u2014\u2014",
-    36,
-    "Fixture CJK",
-    18,
-    27,
-    "zh-Hans",
-    400,
-    false,
-    0,
-    true,
-    "",
-    "",
-    "",
-    "",
-    "",
+    request,
     0.01,
     bridge.shapeJson,
     bridge.metricsJson,

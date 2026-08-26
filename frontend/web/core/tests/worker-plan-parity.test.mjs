@@ -12,7 +12,6 @@ import { createProbeBootstrapFontSession } from "../core/engine/web-worker/sessi
  */
 
 const PLAN_NUMBER_TOLERANCE = 1e-9;
-const PARAGRAPH_ARGUMENTS = ["中文中文", 36, "Fixture CJK", 18, 27, "zh-Hans", 400, false, 0, true];
 
 function fakeCanvasMeasurement(text) {
   if (text === "Hg") {
@@ -100,6 +99,29 @@ function makeScriptedCanvasModelCallbacks() {
   };
 }
 
+function buildTestRequest() {
+  return {
+    text: "中文中文",
+    maxWidthPx: 36,
+    fontFamilies: ["Fixture CJK"],
+    fontSizePx: 18,
+    lineHeightPx: 27,
+    locale: "zh-Hans",
+    fontWeight: 400,
+    italic: false,
+    firstLineIndentIc: 0,
+    lineLengthGridEnabled: true,
+    sourceBoundaries: [],
+    textSpans: [],
+    inlineBoxes: [],
+    lineBreakSpans: [],
+    inlineObjects: [],
+    decorations: [],
+    emphasisDotGapEm: null,
+    renderEvidenceOverride: null,
+  };
+}
+
 const toleranceHits = [];
 
 function comparePlans(left, right, path) {
@@ -139,19 +161,12 @@ test("probe bootstrap plan matches the canvas model plan end to end", async () =
   let planA;
   try {
     const { shapeJson, metricsJson } = probeSession;
+    const request = buildTestRequest();
     const envelope = precomputeParagraphWithDiagnostics(
-      ...PARAGRAPH_ARGUMENTS,
-      "", // sourceBoundaries
-      "", // textSpans
-      "", // inlineBoxes
-      "", // lineBreakSpans
-      "", // inlineObjects
-      0.0, // zeroAdvanceEpsilonPx
+      request,
+      0.0,
       shapeJson,
       metricsJson,
-      "", // decorations
-      null, // emphasisDotGapEm
-      null, // renderEvidenceOverride: wire-derived verdict
     );
     planA = JSON.parse(JSON.parse(envelope).plan);
   } finally {
@@ -163,19 +178,12 @@ test("probe bootstrap plan matches the canvas model plan end to end", async () =
 
   let planB;
   try {
+    const request = buildTestRequest();
     const envelope = precomputeParagraphWithDiagnostics(
-      ...PARAGRAPH_ARGUMENTS,
-      "",
-      "",
-      "",
-      "",
-      "",
+      request,
       0.0,
       scriptedShapeJson,
       scriptedMetricsJson,
-      "",
-      null,
-      null,
     );
     planB = JSON.parse(JSON.parse(envelope).plan);
   } finally {
