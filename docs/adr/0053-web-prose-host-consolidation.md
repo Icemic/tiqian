@@ -1498,7 +1498,42 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   停止随包携带与导出；全部下游改为解析 `@tiqian/core/styles.css`。Node 22
   要求 exports target 以 `./` 开头，跨包转发子路径不可实现，只能由下游
   直接解析上游。
-- 终则定稿随纠偏收尾落回本 ADR；ADR 0050 同日附注记录 JS lane 侧判定。
+- 终则定稿已随纠偏 5 三波收尾落回本 ADR（见下节）；ADR 0050 附注记录
+  JS lane 侧判定（2026-08-25）与 vtable 字体族类型化（2026-08-26）。
+
+#### ffi 边界终则（2026-08-26 定稿）
+
+复审处置全部执行完毕，边界规则定稿如下，后续跨界改动以此为准：
+
+1. **跨界载荷声明化。** JS 请求（`WorkerLayoutRequest` /
+   `PrepareParagraphRequest`）、浏览器度量回调（`BrowserMetricsCallbacks`）、
+   字体族列表（C ABI `const char* const*` 加计数）、native 请求与返回
+   （`TQLR` 与 `tiqian_plan_abi.h` 打包契约）一律以声明 DTO 或打包契约
+   跨界传递。生产跨界路径禁止分隔符拼接字符串与未声明 JSON 文本。
+2. **冻结 JSON 只服务字节比对。** plan JSON 与 snapshot 文本形态保留给
+   golden、parity oracle 与引擎 dump（`toPlanWithDiagnosticsJson`）；
+   生产路径不产生也不解析整段文本载荷。
+3. **Kotlin/JS 导出面承载规则。** 数据 DTO 用 @JsExport 接口承载，集合用
+   Array 字段，边界断言只允许 `as` 到带 brand 标记的接口；函数型回调
+   @JsExport 不支持函数属性，用非导出接口加 @JsName 固定属性名承载。
+4. **协议版本三处同步。** 字体后端契约版本号在 C 头文件、Rust
+   `font_backend.rs` 与 Kotlin `NativeFontBackendVtable` 三处同值（当前 2），
+   不兼容变更同步递增；返回侧打包契约按同规则独立编号。
+5. **缓存键字节恒等。** replay key 的字符串形态（字体族以 U+001F 连接）
+   是兼容承诺，结构体化改造不得改变 render 输出；键格式确需变更时先
+   停下记录，不得静默换键。
+6. **归属不变。** 线格式解析与组装属 ffi/js 数据转换层；引擎持有排版
+   规则与 dump；平台层与宿主不得持有布局真值的第二份副本（实现约束 3、5）。
+
+执行机构：`tools/boundary-check/check.mjs` 机械门逐条比对豁免清单，豁免
+必须写明理由，数量只减不增（2026-08-26 终态：85 命中、25 豁免、15 复核
+导出）。
+
+纠偏 5 提交证据：请求 DTO（ef399347、b4f90ec3、19f5f261、af4f310f、
+5423a174）；字体族 DTO 跨 C ABI（08a7ebb8 至 f12eba9f，合并 83d99d02）；
+回调 DTO 与 replay key 结构体（b5397a85 至 0c135ee3，合并 f4aaa982）。
+字节不变式验证：replay key render 输出与既往基线逐字节相同（Rust 单测与
+集成测试）；golden 全程零 diff。
 
 ### KPI 汇总
 

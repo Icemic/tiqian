@@ -643,3 +643,13 @@ native lane 经 `tiqian_install_font_backend` 安装式 vtable 消费，契约�
 返回打包缓冲 + `tiqian_release_buffer` 配对释放）；`tiqian_layout_paragraph_json` 作为带调试命名
 的 dump 入口保留，仅供 parity oracle 与 golden，输出与既往基线逐字节相同。Rust 解码填入
 `plan.rs` 既有 `Plan` 结构体（字段不动），JSON 解析保留给 dump 路径。
+
+## Amendment（2026-08-26 corrective-5）：字体族列表类型化跨 vtable 传递
+
+`session_shape` 与 `session_metrics` 的字体族参数从连接字符串改为
+`const char* const* families` 加 `uint32_t family_count`（Kotlin 侧
+`withFamilyArray()` 在 memScoped 内构造指针数组），`TIQIAN_FONT_BACKEND_
+PROTOCOL_REVISION` 由 1 递增到 2，C 头文件、`font_backend.rs` 与
+`NativeFontBackendVtable` 三处同值。replay key 内部仍以 U+001F 连接字体族，
+键的字符串形态不变，既有缓存不失效。裁定原文与终则见 ADR 0053 ffi 边界
+复审记录。
