@@ -27,10 +27,6 @@ const bundleUrl = new URL(
   import.meta.url,
 );
 
-const FAMILY_SEPARATOR = "\u001f";
-const RECORD_SEPARATOR = "\u001e";
-const FIELD_SEPARATOR = "\u001d";
-
 // The fixture backend of PrecomputeExportsTest.kt: one glyph per code point,
 // advance and x scaled by the font size, glyph id 0 marks a missing glyph.
 // The callback protocol is the synchronous JSON request/response contract.
@@ -108,27 +104,6 @@ function makeFixtureCallbacks() {
       });
     },
   };
-}
-
-function encodedTextSpan(span) {
-  return [
-    span.start,
-    span.end,
-    span.families.join(FAMILY_SEPARATOR),
-    span.fontSizePx,
-    span.fontWeight,
-    span.italic,
-    span.baselineShiftPx,
-  ].join(FIELD_SEPARATOR);
-}
-
-function encodedInlineBox(box) {
-  return [box.start, box.end, box.inlineStartPx, box.inlineEndPx, box.outerSpacing]
-    .join(FIELD_SEPARATOR);
-}
-
-function encodedLineBreakSpan(span) {
-  return [span.start, span.end, span.policy].join(FIELD_SEPARATOR);
 }
 
 // Same base values and same case list as the Rust corpus; the byte comparison
@@ -210,30 +185,57 @@ function corpus() {
 const callbacks = makeFixtureCallbacks();
 const runtime = await import(bundleUrl.href);
 
+// Wire form: the PrepareParagraphRequest DTO (ADR 0053 corrective wave 5).
+// Field names follow TextSpanWireDto/InlineBoxWireDto; the corpus keeps its
+// own fixture names and maps here so both sides stay readable.
+function toWireRequest(request) {
+  return {
+    text: request.text,
+    maxWidthPx: request.maxWidthPx,
+    fontFamilies: request.fontFamilies,
+    fontSizePx: request.fontSizePx,
+    lineHeightPx: request.lineHeightPx,
+    locale: request.locale,
+    fontWeight: request.fontWeight,
+    italic: request.italic,
+    firstLineIndentIc: request.firstLineIndentIc,
+    lineLengthGridEnabled: request.lineLengthGridEnabled,
+    sourceBoundaries: request.sourceBoundaries,
+    textSpans: request.textSpans.map(function(span) {
+      return {
+        start: span.start,
+        end: span.end,
+        fontFamilies: span.families,
+        fontSize: span.fontSizePx,
+        fontWeight: span.fontWeight,
+        italic: span.italic,
+        baselineShift: span.baselineShiftPx,
+      };
+    }),
+    inlineBoxes: request.inlineBoxes.map(function(box) {
+      return {
+        start: box.start,
+        end: box.end,
+        inlineStart: box.inlineStartPx,
+        inlineEnd: box.inlineEndPx,
+        outerSpacing: box.outerSpacing,
+      };
+    }),
+    lineBreakSpans: request.lineBreakSpans,
+    inlineObjects: [],
+    decorations: [],
+    emphasisDotGapEm: null,
+    renderEvidenceOverride: false,
+  };
+}
+
 const dump = {};
 for (const [name, request] of corpus()) {
   const envelope = JSON.parse(runtime.precomputeParagraphWithDiagnostics(
-    request.text,
-    request.maxWidthPx,
-    request.fontFamilies.join(FAMILY_SEPARATOR),
-    request.fontSizePx,
-    request.lineHeightPx,
-    request.locale,
-    request.fontWeight,
-    request.italic,
-    request.firstLineIndentIc,
-    request.lineLengthGridEnabled,
-    request.sourceBoundaries.join(","),
-    request.textSpans.map(encodedTextSpan).join(RECORD_SEPARATOR),
-    request.inlineBoxes.map(encodedInlineBox).join(RECORD_SEPARATOR),
-    request.lineBreakSpans.map(encodedLineBreakSpan).join(RECORD_SEPARATOR),
-    "",
+    toWireRequest(request),
     0.0,
     callbacks.shapeJson,
     callbacks.metricsJson,
-    "",
-    null,
-    false,
   ));
   dump[name] = envelope.plan;
 }
