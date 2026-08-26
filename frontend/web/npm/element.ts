@@ -25,7 +25,7 @@ import {
   releaseSnapshotFontSession,
 } from "@tiqian/core/core/engine/snapshot-font.js";
 import { ensureTiqianStyles } from "@tiqian/core/core/engine/loaders/styles.js";
-import { prefetchSnapshotTables } from "@tiqian/core/snapshot-tables.js";
+import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
 import {
   captureViewportAnchor,
   compensateViewportAnchor,
