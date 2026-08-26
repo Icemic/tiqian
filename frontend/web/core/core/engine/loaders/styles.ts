@@ -1,7 +1,9 @@
-let stylesheetPromise: Promise<HTMLLinkElement> | undefined;
-let stylesheetElement: HTMLLinkElement | undefined;
+import { globalServices } from "../../services/global-services.js";
+
+const getStylesheetState = () => globalServices().stylesheetLoader!;
 
 export function ensureTiqianStyles(root: Element | null = null): Promise<HTMLLinkElement | null> {
+  const state = getStylesheetState();
   // StaticStylesheetFastPath: bundlers can include the public CSS entry in the
   // server-rendered head. In that case its readiness marker is already in the
   // cascade and injecting a duplicate runtime <link> would only delay takeover.
@@ -11,11 +13,11 @@ export function ensureTiqianStyles(root: Element | null = null): Promise<HTMLLin
   ) return Promise.resolve(null);
   const existing = document.querySelector<HTMLLinkElement>("link[data-tiqian-stylesheet]");
   if (existing?.sheet) {
-    stylesheetElement = existing;
+    state.stylesheetElement = existing;
     return Promise.resolve(existing);
   }
-  if (existing && existing === stylesheetElement && stylesheetPromise) {
-    return stylesheetPromise;
+  if (existing && existing === state.stylesheetElement && state.stylesheetPromise) {
+    return state.stylesheetPromise as Promise<HTMLLinkElement | null>;
   }
 
   const link = existing ?? document.createElement("link");
@@ -26,8 +28,8 @@ export function ensureTiqianStyles(root: Element | null = null): Promise<HTMLLin
     link.href = new URL("../../../styles.css", import.meta.url).href;
     link.dataset.tiqianStylesheet = "true";
   }
-  stylesheetElement = link;
-  stylesheetPromise = new Promise<HTMLLinkElement>((resolve, reject) => {
+  state.stylesheetElement = link;
+  state.stylesheetPromise = new Promise<HTMLLinkElement>((resolve, reject) => {
     link.addEventListener("load", () => resolve(link), { once: true });
     link.addEventListener(
       "error",
@@ -36,11 +38,11 @@ export function ensureTiqianStyles(root: Element | null = null): Promise<HTMLLin
     );
     if (!existing) document.head.append(link);
   }).catch((error: unknown) => {
-    if (stylesheetElement === link) {
-      stylesheetElement = undefined;
-      stylesheetPromise = undefined;
+    if (getStylesheetState().stylesheetElement === link) {
+      getStylesheetState().stylesheetElement = undefined;
+      getStylesheetState().stylesheetPromise = undefined;
     }
     throw error;
   });
-  return stylesheetPromise;
+  return state.stylesheetPromise as Promise<HTMLLinkElement | null>;
 }
