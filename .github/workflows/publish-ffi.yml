@@ -79,7 +79,10 @@ jobs:
 
       - name: Install workspace dependencies
         working-directory: .
-        run: npm ci
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
 
       - name: Build and verify the release tarball
         env:

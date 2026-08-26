@@ -189,7 +189,10 @@ jobs:
       # test in both packages) and the release lanes.
       - name: Install workspace dependencies
         working-directory: .
-        run: npm ci
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
       - name: Build the TypeScript packages
         working-directory: frontend/web/npm
         run: npx tsc -b --noCheck
@@ -261,7 +264,10 @@ jobs:
           package-manager-cache: false
       - name: Install workspace dependencies
         working-directory: .
-        run: npm ci
+        # npm install, not npm ci: the platform binary optional deps of the
+        # precompute member are not on the registry, so no lockfile can carry
+        # resolved entries for them and npm ci (npm >= 11) rejects the gap.
+        run: npm install --no-audit --no-fund
       - name: Build core with full type checks
         working-directory: frontend/web/core
         run: npx tsc -b

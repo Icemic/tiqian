@@ -40,11 +40,16 @@
 
 ./gradlew :ffi:js:jsNodeTest
 ./gradlew :ffi:js:assembleNpmPackage
-npm ci
+npm install --no-audit --no-fund
 (cd frontend/web/core && npm test)
 (cd frontend/web/npm && npm test)
 (cd ffi/js/npm && npm test)
 ```
+
+根 `npm install` 装 workspace 全体成员；precompute 的平台二进制
+optional dependencies 不在 registry 上，lock 无法携带它们的 resolved
+条目，`npm ci` 在 npm 11 及以上拒绝这种 lock，所以统一用
+`npm install`。
 
 Layout report 位于
 `engine/build/reports/tiqian-layout-report/index.html`。
