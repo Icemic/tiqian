@@ -50,6 +50,7 @@ import type {
 import type {
   SnapshotFontReplayWire,
 } from "./snapshot-manifest.js";
+import { globalServices } from "../../services/global-services.js";
 
 // SnapshotTransportManifest / SnapshotTransportEntry are the transport wire
 // shape read directly at the JSON.parse boundary (inventory A/B tables). The
@@ -322,7 +323,8 @@ const INLINE_POSITION_TOLERANCE_PX = PROBE_ABSOLUTE_TOLERANCE_PX +
   BROWSER_SUBPIXEL_QUANTIZATION_PX + GEOMETRY_COMPARISON_EPSILON_PX;
 const LINE_VERTICAL_TOLERANCE_PX = 0.75;
 const PREPARED_VERTICAL_TOLERANCE_PX = 0.02;
-const snapshotFontReplayProofs: WeakMap<HTMLElement, SnapshotFontReplayProof> = new WeakMap();
+const snapshotFontReplayProofs = (): WeakMap<HTMLElement, SnapshotFontReplayProof> =>
+  globalServices().snapshotAdoption!.snapshotFontReplayProofs as WeakMap<HTMLElement, SnapshotFontReplayProof>;
 const FONT_FACE_LIVE_SIGNATURE_PROPERTIES = Object.freeze([
   "font-family",
   "font-style",
@@ -408,8 +410,10 @@ const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = "data-tq-snapshot-prepared-dom";
 const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
 const SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
-const states: WeakMap<HTMLElement, SnapshotAdoptionState> = new WeakMap();
-const directServerArtifacts: WeakMap<HTMLElement, Map<string, Element>> = new WeakMap();
+const states = (): WeakMap<HTMLElement, SnapshotAdoptionState> =>
+  globalServices().snapshotAdoption!.states as WeakMap<HTMLElement, SnapshotAdoptionState>;
+const directServerArtifacts = (): WeakMap<HTMLElement, Map<string, Element>> =>
+  globalServices().snapshotAdoption!.directServerArtifacts as WeakMap<HTMLElement, Map<string, Element>>;
 
 function parseFontFamilies(value: unknown): string[] {
   const families = [];
@@ -1841,7 +1845,7 @@ function templateEntry(template: HTMLTemplateElement, key: string, root: HTMLEle
   for (const entry of template.content?.querySelectorAll?.("[data-tq-entry]") ?? []) {
     if (entry.getAttribute("data-tq-entry") === key) return entry;
   }
-  return directServerArtifacts.get(root as HTMLElement)?.get(key) ?? null;
+  return directServerArtifacts().get(root as HTMLElement)?.get(key) ?? null;
 }
 
 async function captureServerRenderedSnapshotArtifacts(
@@ -1858,7 +1862,7 @@ async function captureServerRenderedSnapshotArtifacts(
     sliceStartedAt = await yieldDirectSsrValidationIfNeeded(sliceStartedAt);
     if (!isCurrent()) return false;
   }
-  if (artifacts.size > 0) directServerArtifacts.set(root, artifacts);
+  if (artifacts.size > 0) directServerArtifacts().set(root, artifacts);
   return true;
 }
 
@@ -2287,7 +2291,7 @@ export async function validatePrecomputedSnapshotFontReplayContract(
   if (currentCss.unverifiable || currentCss.signature !== initialCss.signature) {
     return { matches: false, reason: "FontFaceContractChangedDuringValidation" };
   }
-  snapshotFontReplayProofs.set(root, {
+  snapshotFontReplayProofs().set(root, {
     reference,
     template,
     manifestText,
@@ -2311,7 +2315,7 @@ export function validatePrecomputedSnapshotFontReplayLiveContract(
   isCurrent: IsCurrent = () => true,
 ): FontContractValidationResult {
   if (!isCurrent()) return { matches: false, reason: "superseded" };
-  const proof = snapshotFontReplayProofs.get(root);
+  const proof = snapshotFontReplayProofs().get(root);
   if (!proof) return { matches: false, reason: "SnapshotFontReplayProofMissing" };
   const reference = root?.getAttribute?.("snapshot-ref");
   const documentObject = root.ownerDocument || document;
@@ -2337,7 +2341,7 @@ export function validatePrecomputedSnapshotFontReplayLiveContract(
 }
 
 export function isPrecomputedSnapshotAdopted(root: HTMLElement): boolean {
-  return states.has(root);
+  return states().has(root);
 }
 
 /**
@@ -2352,7 +2356,7 @@ export async function adoptedPrecomputedSnapshotLiveIssue(
   isCurrent: IsCurrent = () => true,
 ): Promise<string | null> {
   if (!isCurrent()) return "superseded";
-  const state = states.get(root);
+  const state = states().get(root);
   const manifest = state?.manifest;
   if (!manifest) return "SnapshotStateMissing";
   if ([...manifest.entries, ...(manifest.fontContractEntries ?? [])].some((entry) =>
@@ -2449,9 +2453,9 @@ export function precomputedSnapshotMaximumMeasureMatches(root: HTMLElement): boo
 }
 
 export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
-  const state = states.get(root);
+  const state = states().get(root);
   if (!state) return false;
-  states.delete(root);
+  states().delete(root);
   for (const item of state.paragraphs) {
     while (item.paragraph.firstChild) item.paragraph.removeChild(item.paragraph.firstChild);
     item.paragraph.appendChild(item.originalContent);
@@ -2505,7 +2509,7 @@ export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
  * the detached tree becomes unreachable, the backing is collected with it.
  */
 export function detachPrecomputedSnapshot(root: HTMLElement): boolean {
-  const state = states.get(root);
+  const state = states().get(root);
   if (!state) return false;
   if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root);
   return true;
@@ -2679,11 +2683,11 @@ export async function tryAdoptPrecomputedSnapshot(
     // touching live DOM, then commit and prove one paragraph at a time. Each
     // geometry read now flushes only that paragraph's pending layout instead
     // of forcing a single full-article reflow after every entry was replaced.
-    states.set(root, adoptionState);
+    states().set(root, adoptionState);
     sliceStartedAt = performance.now();
     for (const { paragraph, snapshot, sourceSnapshot, entry } of prepared) {
-      if (!isCurrent() || states.get(root) !== adoptionState) {
-        if (states.get(root) === adoptionState) restorePrecomputedSnapshot(root);
+      if (!isCurrent() || states().get(root) !== adoptionState) {
+        if (states().get(root) === adoptionState) restorePrecomputedSnapshot(root);
         return { adopted: false, reason: "superseded" };
       }
       // SnapshotAdoptionAnchorCompensation: each cooperative commit slice
@@ -2747,12 +2751,12 @@ export async function tryAdoptPrecomputedSnapshot(
       );
     }
   } catch (error) {
-    const currentState = states.get(root);
+    const currentState = states().get(root);
     if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root);
     return miss(root, `SnapshotAdoptionFailed:${error instanceof Error ? error.message : String(error)}`);
   }
   if (!isCurrent()) {
-    const currentState = states.get(root);
+    const currentState = states().get(root);
     if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root);
     return { adopted: false, reason: "superseded" };
   }

@@ -41,38 +41,17 @@ const SANCTIONED_PREFIXES = [
 
 // file (repo-relative) -> { names: string[], reason: string, task?: string }
 const EXEMPTIONS = new Map([
-  ["frontend/web/core/core/sampler/snapshot/snapshot-tables.ts", {
-    names: ["loadedTables", "resolvedTables"],
-    reason: "pending",
-    task: "#97 S5: snapshot table registries -> container decision",
-  }],
   ["frontend/web/core/core/sampler/snapshot/snapshot-manifest.ts", {
     names: ["replayMetricsByView"],
-    reason: "pure-memo: derivation cache keyed by the immutable table view",
+    reason: "pure-memo: WeakMap keyed by immutable table view; input-deterministic, no teardown, derivation cache",
   }],
   ["frontend/web/core/core/sampler/snapshot/precomputed.ts", {
-    names: ["snapshotFontReplayProofs", "states", "directServerArtifacts", "unicodeRangeCache"],
-    reason: "pending",
-    task: "#97 S5: adoption registries -> context/container; unicodeRangeCache pure-memo stays",
-  }],
-  ["frontend/web/core/core/engine/loaders/styles.ts", {
-    names: ["stylesheetPromise", "stylesheetElement"],
-    reason: "pending",
-    task: "#97 S5: per-document style handles -> container",
-  }],
-  ["frontend/web/core/core/engine/coordination/viewport-anchor.ts", {
-    names: ["gestureTrackerInstalled", "lastGestureAt", "heldOwnerByRoot", "ownerHolds"],
-    reason: "pending",
-    task: "#97 S5: viewport anchor state -> container/context decision",
-  }],
-  ["frontend/web/core/core/engine/context/enhance-context.ts", {
-    names: ["elementContexts"],
-    reason: "pending",
-    task: "s5-ctx lane: caller-held contexts shrink this to the paragraph-slot registry",
+    names: ["unicodeRangeCache"],
+    reason: "pure-memo: bounded Map cache of parsed CSS unicode-range descriptors; input-deterministic, no lifecycle",
   }],
   ["frontend/web/core/core/engine/markdown-lowering.ts", {
     names: ["graphemeSegmenter"],
-    reason: "pure-memo: one stateless Intl.Segmenter instance, no lifecycle",
+    reason: "pure-memo: one stateless Intl.Segmenter instance; input-deterministic, no teardown",
   }],
 ]);
 

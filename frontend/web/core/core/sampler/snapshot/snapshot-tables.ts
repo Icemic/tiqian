@@ -7,6 +7,7 @@
 
 import { decodeSnapshotTableBinary, isSnapshotTableBinary } from "./snapshot-table-binary.js";
 import type { SnapshotTableBinaryView } from "./snapshot-table-binary.js";
+import { globalServices } from "../../services/global-services.js";
 
 const TABLES_ATTRIBUTE = "tq-tables";
 
@@ -17,9 +18,11 @@ export interface LoadedSnapshotTable {
 }
 
 /** Reference key to loaded table; successes stay for the page lifetime. */
-const loadedTables = new Map<string, Promise<LoadedSnapshotTable>>();
+const loadedTables = (): Map<string, Promise<LoadedSnapshotTable>> =>
+  globalServices().snapshotTables!.loadedTables as Map<string, Promise<LoadedSnapshotTable>>;
 /** Reference key to the resolved, verified table, readable synchronously. */
-const resolvedTables = new Map<string, LoadedSnapshotTable>();
+const resolvedTables = (): Map<string, LoadedSnapshotTable> =>
+  globalServices().snapshotTables!.resolvedTables as Map<string, LoadedSnapshotTable>;
 
 /**
  * Builds the accessor surface of one table file. The binary form is the only
@@ -47,7 +50,8 @@ async function loadTableBytes(key: string): Promise<Uint8Array<ArrayBuffer>> {
 }
 
 function tablePromiseFor(key: string): Promise<LoadedSnapshotTable> {
-  let promise = loadedTables.get(key);
+  const tables = loadedTables();
+  let promise = tables.get(key);
   if (promise) return promise;
   // Failed loads stay uncached so a later root can retry after a transient
   // network failure; the map only memoizes verified tables.
@@ -58,11 +62,11 @@ function tablePromiseFor(key: string): Promise<LoadedSnapshotTable> {
       view: snapshotTablesFromBytes(bytes),
       sha256: await digestBytes(bytes),
     };
-    resolvedTables.set(key, table);
+    resolvedTables().set(key, table);
     return table;
   })();
-  promise.catch(() => loadedTables.delete(key));
-  loadedTables.set(key, promise);
+  promise.catch(() => tables.delete(key));
+  tables.set(key, promise);
   return promise;
 }
 
@@ -104,8 +108,9 @@ export function loadedSnapshotTablesForRoot(
   root: Element | null,
   expectedSha256: string | null = null,
 ): LoadedSnapshotTable | null {
+  const resolved = resolvedTables();
   for (const key of tableReferences(root)) {
-    const table = resolvedTables.get(key);
+    const table = resolved.get(key);
     if (table == null) continue;
     if (expectedSha256 == null || table.sha256 === expectedSha256) return table;
   }
