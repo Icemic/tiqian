@@ -31,11 +31,15 @@ import org.tiqian.shaping.TextShaper
  * so every JS host consumes one entry; ffi layers only transport strings.
  * The encoding itself is the ADR 0050 js ABI: record, field and family
  * separators, flat primitive parameters in, one plan JSON string out.
+ *
+ * This file now also provides DTO-based entry points (corrective wave 5/#106).
+ * The legacy string-based entry points are retained temporarily for tests;
+ * they are deleted when the last test migrates to DTO fixtures.
  */
 
-private const val RECORD_SEPARATOR = '\u001e'
-private const val FIELD_SEPARATOR = '\u001d'
-private const val FAMILY_SEPARATOR = '\u001f'
+private const val RECORD_SEPARATOR = "\u001e"
+private const val FIELD_SEPARATOR = "\u001d"
+private const val FAMILY_SEPARATOR = "\u001f"
 
 private fun parseBoundaries(value: String, textLength: Int): Set<Int> =
     value.split(',')
@@ -311,6 +315,146 @@ class ParagraphWireCodec(
             constraints = LayoutConstraints(maxWidth = maxWidthPx.toFloat()),
             decorations = parsedDecorations,
             inlineBoxes = parseInlineBoxes(inlineBoxes, text.length),
+            inlineObjects = parsedInlineObjects,
+        )
+        return ExplainableStubParagraphLayoutEngine(
+            lineBreaker = LookaheadLineBreaker(),
+            fontMetricsResolver = fontMetricsResolver,
+            textShaper = textShaper,
+        ).layout(input)
+    }
+
+    // DTO-based entry points (corrective wave 5/#106)
+    // These replace the legacy string-based wire format.
+
+    fun plan(request: WorkerLayoutRequestDto): String {
+        val result = layout(request)
+        return result.toPreparedParagraphJson(
+            renderEvidence = request.renderEvidence,
+        )
+    }
+
+    fun planWithDiagnostics(
+        request: PrepareParagraphRequestDto,
+        zeroAdvanceEpsilonPx: Double,
+    ): String {
+        val result = layout(request)
+        return result.toPlanWithDiagnosticsJson(
+            renderEvidence = request.renderEvidenceOverride ?: (request.textSpans.isNotEmpty() ||
+                request.inlineBoxes.isNotEmpty() ||
+                request.decorations.isNotEmpty() ||
+                result.input.inlineObjects.isNotEmpty()),
+            zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx.toFloat(),
+        )
+    }
+
+    private fun layout(request: WorkerLayoutRequestDto): LayoutResult {
+        return layout(
+            text = request.text,
+            maxWidthPx = request.maxWidthPx,
+            fontFamilies = request.fontFamilies.joinToString(FAMILY_SEPARATOR),
+            fontSizePx = request.fontSizePx,
+            lineHeightPx = request.lineHeightPx,
+            locale = request.locale,
+            fontWeight = request.fontWeight,
+            italic = request.italic,
+            firstLineIndentIc = request.firstLineIndentIc,
+            lineLengthGridEnabled = request.lineLengthGridEnabled,
+            sourceBoundaries = request.sourceBoundaries.joinToString(","),
+            textSpans = request.textSpans.joinToString(RECORD_SEPARATOR) { span ->
+                "${span.start}${FIELD_SEPARATOR}${span.end}${FIELD_SEPARATOR}" +
+                "${span.fontFamilies.joinToString(FAMILY_SEPARATOR)}${FIELD_SEPARATOR}" +
+                "${span.fontSize}${FIELD_SEPARATOR}${span.fontWeight}${FIELD_SEPARATOR}" +
+                "${span.italic}${FIELD_SEPARATOR}${span.baselineShift}"
+            },
+            inlineBoxes = request.inlineBoxes.joinToString(RECORD_SEPARATOR) { box ->
+                "${box.start}${FIELD_SEPARATOR}${box.end}${FIELD_SEPARATOR}" +
+                "${box.inlineStart}${FIELD_SEPARATOR}${box.inlineEnd}${FIELD_SEPARATOR}" +
+                "${box.outerSpacing}"
+            },
+            lineBreakSpans = request.lineBreakSpans.joinToString(RECORD_SEPARATOR) { span ->
+                "${span.start}${FIELD_SEPARATOR}${span.end}${FIELD_SEPARATOR}${span.policy}"
+            },
+            inlineObjects = request.inlineObjects.joinToString(RECORD_SEPARATOR) { obj ->
+                "${obj.start}${FIELD_SEPARATOR}${obj.end}${FIELD_SEPARATOR}" +
+                "${obj.advance}${FIELD_SEPARATOR}${obj.ascent}${FIELD_SEPARATOR}${obj.descent}"
+            },
+        )
+    }
+
+    private fun layout(request: PrepareParagraphRequestDto): LayoutResult {
+        require(request.text.isNotBlank()) { "EmptyParagraph" }
+        require(request.maxWidthPx.isFinite() && request.maxWidthPx > 0.0) { "InvalidMaximumMeasure" }
+        require(request.fontSizePx.isFinite() && request.fontSizePx > 0.0) { "InvalidFontSize" }
+        require(request.lineHeightPx.isFinite() && request.lineHeightPx > 0.0) { "InvalidLineHeight" }
+        require(request.firstLineIndentIc.isFinite()) { "InvalidFirstLineIndent" }
+        require(request.fontWeight in 1..1000) { "InvalidFontWeight" }
+
+        val gapEm = request.emphasisDotGapEm ?: DEFAULT_EMPHASIS_DOT_GAP_EM.toDouble()
+        require(gapEm.isFinite() && gapEm >= 0.0) { "InvalidEmphasisDotGapEm" }
+
+        val families = request.fontFamilies.filter(String::isNotBlank)
+        require(families.isNotEmpty()) { "MissingExplicitFontFamilies" }
+
+        val textStyle = TextStyle(
+            fontFamilies = families,
+            fontSize = request.fontSizePx.toFloat(),
+            locale = request.locale,
+            fontWeight = request.fontWeight,
+            italic = request.italic,
+        )
+        val parsedInlineObjects = request.inlineObjects.map { obj ->
+            InlineObjectSpan(
+                TextRange(obj.start, obj.end),
+                obj.advance.toFloat(),
+                obj.ascent.toFloat(),
+                obj.descent.toFloat(),
+            )
+        }
+        val parsedDecorations = request.decorations.map { deco ->
+            DecorationSpan(
+                range = TextRange(deco.start, deco.end),
+                kind = DecorationKind.valueOf(deco.kind),
+            )
+        }
+        val input = LayoutInput(
+            content = TiqianTextContent(
+                text = request.text,
+                spans = request.textSpans.map { span ->
+                    TextSpan(
+                        range = TextRange(span.start, span.end),
+                        style = TextStyle(
+                            fontFamilies = span.fontFamilies.filter(String::isNotBlank).toList(),
+                            fontSize = span.fontSize.toFloat(),
+                            locale = request.locale,
+                            fontWeight = span.fontWeight,
+                            italic = span.italic,
+                            baselineShift = span.baselineShift.toFloat(),
+                        ),
+                    )
+                },
+                sourceBoundaries = request.sourceBoundaries.toSet(),
+                lineBreakSpans = request.lineBreakSpans.map { span ->
+                    LineBreakSpan(TextRange(span.start, span.end), LineBreakPolicy.valueOf(span.policy))
+                },
+            ),
+            textStyle = textStyle,
+            paragraphStyle = ParagraphStyle(
+                lineHeight = request.lineHeightPx.toFloat(),
+                firstLineIndent = Ic(request.firstLineIndentIc.toFloat()),
+                lineLengthGrid = LineLengthGrid(enabled = request.lineLengthGridEnabled),
+                emphasisDotGapEm = gapEm.toFloat(),
+            ),
+            constraints = LayoutConstraints(maxWidth = request.maxWidthPx.toFloat()),
+            decorations = parsedDecorations,
+            inlineBoxes = request.inlineBoxes.map { box ->
+                InlineBoxSpan(
+                    TextRange(box.start, box.end),
+                    box.inlineStart.toFloat(),
+                    box.inlineEnd.toFloat(),
+                    InlineBoxOuterSpacing.valueOf(box.outerSpacing),
+                )
+            },
             inlineObjects = parsedInlineObjects,
         )
         return ExplainableStubParagraphLayoutEngine(

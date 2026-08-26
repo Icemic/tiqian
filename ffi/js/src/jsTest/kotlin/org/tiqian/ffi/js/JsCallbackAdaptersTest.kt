@@ -37,27 +37,22 @@ class JsCallbackAdaptersTest {
         val lineLengthGridEnabled = true
         val zeroAdvanceEpsilonPx = 0.001
 
+        val directRequest = prepareRequest { builder ->
+            builder.text = text
+            builder.maxWidthPx = maxWidthPx
+            builder.fontFamilies = arrayOf(fontFamilies)
+            builder.fontSizePx = fontSizePx
+            builder.lineHeightPx = lineHeightPx
+            builder.locale = locale
+            builder.fontWeight = fontWeight
+            builder.italic = italic
+            builder.firstLineIndentIc = firstLineIndentIc
+            builder.lineLengthGridEnabled = lineLengthGridEnabled
+        }
         val directPlan = ParagraphWireCodec(
             textShaper = stubShaper,
             fontMetricsResolver = stubResolver,
-        ).planWithDiagnostics(
-            text = text,
-            maxWidthPx = maxWidthPx,
-            fontFamilies = fontFamilies,
-            fontSizePx = fontSizePx,
-            lineHeightPx = lineHeightPx,
-            locale = locale,
-            fontWeight = fontWeight,
-            italic = italic,
-            firstLineIndentIc = firstLineIndentIc,
-            lineLengthGridEnabled = lineLengthGridEnabled,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = "",
-            zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
-        )
+        ).planWithDiagnostics(directRequest, zeroAdvanceEpsilonPx)
 
         val bridgeShaper = JsCallbackTextShaper { requestJson ->
             echoShape(requestJson, stubShaper)
@@ -66,33 +61,28 @@ class JsCallbackAdaptersTest {
             echoMetrics(requestJson, stubResolver)
         }
 
+        val bridgeRequest = prepareRequest { builder ->
+            builder.text = text
+            builder.maxWidthPx = maxWidthPx
+            builder.fontFamilies = arrayOf(fontFamilies)
+            builder.fontSizePx = fontSizePx
+            builder.lineHeightPx = lineHeightPx
+            builder.locale = locale
+            builder.fontWeight = fontWeight
+            builder.italic = italic
+            builder.firstLineIndentIc = firstLineIndentIc
+            builder.lineLengthGridEnabled = lineLengthGridEnabled
+        }
         val bridgePlan = ParagraphWireCodec(
             textShaper = bridgeShaper,
             fontMetricsResolver = bridgeResolver,
-        ).planWithDiagnostics(
-            text = text,
-            maxWidthPx = maxWidthPx,
-            fontFamilies = fontFamilies,
-            fontSizePx = fontSizePx,
-            lineHeightPx = lineHeightPx,
-            locale = locale,
-            fontWeight = fontWeight,
-            italic = italic,
-            firstLineIndentIc = firstLineIndentIc,
-            lineLengthGridEnabled = lineLengthGridEnabled,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = "",
-            zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
-        )
+        ).planWithDiagnostics(bridgeRequest, zeroAdvanceEpsilonPx)
 
         assertEquals(directPlan, bridgePlan)
     }
 
     @Test
-    fun endToEndExportWithBrowserMetricsAndDiagnostics() {
+    fun endToEndWithDiagnostics() {
         val cannedShapeJson: (String) -> String = { requestJson ->
             val raw = kotlin.js.JSON.parse<dynamic>(requestJson)
             val start = (raw.range.start as Double).toInt()
@@ -161,26 +151,23 @@ class JsCallbackAdaptersTest {
             """.trimIndent()
         }
 
-        val envelopeJson = precomputeParagraphWithBrowserMetrics(
-            text = "中",
-            maxWidthPx = 100.0,
-            fontFamilies = "FixtureFont",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = null,
-            zeroAdvanceEpsilonPx = 0.01,
-            shapeJson = cannedShapeJson,
-            metricsJson = cannedMetricsJson,
+        val request = prepareRequest { builder ->
+            builder.text = "中"
+            builder.maxWidthPx = 100.0
+            builder.fontFamilies = arrayOf("FixtureFont")
+            builder.fontSizePx = 16.0
+            builder.lineHeightPx = 24.0
+            builder.locale = "zh-Hans"
+            builder.fontWeight = 400
+            builder.italic = false
+            builder.firstLineIndentIc = 0.0
+            builder.lineLengthGridEnabled = true
+        }
+        val codec = ParagraphWireCodec(
+            textShaper = JsCallbackTextShaper(cannedShapeJson),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(cannedMetricsJson),
         )
+        val envelopeJson = codec.planWithDiagnostics(request, 0.01)
 
         assertContains(envelopeJson, "\"plan\":")
         assertContains(envelopeJson, "\\\"layoutRevision\\\":\\\"tiqian-layout-v2\\\"")
@@ -209,28 +196,26 @@ class JsCallbackAdaptersTest {
             echoMetrics(requestJson, stubResolver)
         }
 
-        val envelopeJson = precomputeParagraphWithBrowserMetrics(
-            text = "中文测试",
-            maxWidthPx = 200.0,
-            fontFamilies = "Noto Sans CJK",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = null,
-            zeroAdvanceEpsilonPx = 0.001,
-            shapeJson = bridgeShaper,
-            metricsJson = bridgeResolver,
-            decorations = "0\u001d2\u001dEmphasis",
-            emphasisDotGapEm = 0.2,
+        val request = prepareRequest { builder ->
+            builder.text = "中文测试"
+            builder.maxWidthPx = 200.0
+            builder.fontFamilies = arrayOf("Noto Sans CJK")
+            builder.fontSizePx = 16.0
+            builder.lineHeightPx = 24.0
+            builder.locale = "zh-Hans"
+            builder.fontWeight = 400
+            builder.italic = false
+            builder.firstLineIndentIc = 0.0
+            builder.lineLengthGridEnabled = true
+            builder.decorations = arrayOf(decoration(0, 2, "Emphasis"))
+            builder.emphasisDotGapEm = 0.2
+        }
+
+        val codec = ParagraphWireCodec(
+            textShaper = JsCallbackTextShaper(bridgeShaper),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(bridgeResolver),
         )
+        val envelopeJson = codec.planWithDiagnostics(request, 0.001)
 
         assertContains(envelopeJson, "\"plan\":")
         val parsedEnvelope = kotlin.js.JSON.parse<dynamic>(envelopeJson)
@@ -239,7 +224,7 @@ class JsCallbackAdaptersTest {
     }
 
     @Test
-    fun renderEvidenceOverrideReachesBrowserMetricsLayoutCall() {
+    fun renderEvidenceOverrideReachesLayoutCall() {
         val stubShaper = ExplainableStubTextShaper()
         val stubResolver = StubFontMetricsResolver()
 
@@ -250,27 +235,25 @@ class JsCallbackAdaptersTest {
             echoMetrics(requestJson, stubResolver)
         }
 
-        val envelopeJson = precomputeParagraphWithBrowserMetrics(
-            text = "中文测试",
-            maxWidthPx = 200.0,
-            fontFamilies = "Noto Sans CJK",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 0.0,
-            lineLengthGridEnabled = true,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = null,
-            zeroAdvanceEpsilonPx = 0.001,
-            shapeJson = bridgeShaper,
-            metricsJson = bridgeResolver,
-            renderEvidenceOverride = true,
+        val request = prepareRequest { builder ->
+            builder.text = "中文测试"
+            builder.maxWidthPx = 200.0
+            builder.fontFamilies = arrayOf("Noto Sans CJK")
+            builder.fontSizePx = 16.0
+            builder.lineHeightPx = 24.0
+            builder.locale = "zh-Hans"
+            builder.fontWeight = 400
+            builder.italic = false
+            builder.firstLineIndentIc = 0.0
+            builder.lineLengthGridEnabled = true
+            builder.renderEvidenceOverride = true
+        }
+
+        val codec = ParagraphWireCodec(
+            textShaper = JsCallbackTextShaper(bridgeShaper),
+            fontMetricsResolver = JsCallbackFontMetricsResolver(bridgeResolver),
         )
+        val envelopeJson = codec.planWithDiagnostics(request, 0.001)
 
         val parsedEnvelope = kotlin.js.JSON.parse<dynamic>(envelopeJson)
         val planJson = parsedEnvelope.plan as String
@@ -416,5 +399,86 @@ class JsCallbackAdaptersTest {
         if (metrics.typoDescent != null) b.append(",\"typoDescent\":").append(metrics.typoDescent)
         b.append("}")
         return b.toString()
+    }
+
+    private fun prepareRequest(block: (PrepareRequestBuilder) -> Unit): PrepareParagraphRequestDto {
+        val builder = PrepareRequestBuilder()
+        block(builder)
+        return builder.build()
+    }
+
+    private fun toExportRequest(dto: PrepareParagraphRequestDto): PrepareParagraphRequest {
+        val obj = js("{}")
+        obj.text = dto.text
+        obj.maxWidthPx = dto.maxWidthPx
+        obj.fontFamilies = dto.fontFamilies
+        obj.fontSizePx = dto.fontSizePx
+        obj.lineHeightPx = dto.lineHeightPx
+        obj.locale = dto.locale
+        obj.fontWeight = dto.fontWeight
+        obj.italic = dto.italic
+        obj.firstLineIndentIc = dto.firstLineIndentIc
+        obj.lineLengthGridEnabled = dto.lineLengthGridEnabled
+        obj.sourceBoundaries = dto.sourceBoundaries
+        obj.textSpans = dto.textSpans
+        obj.inlineBoxes = dto.inlineBoxes
+        obj.lineBreakSpans = dto.lineBreakSpans
+        obj.inlineObjects = dto.inlineObjects
+        obj.decorations = dto.decorations
+        obj.emphasisDotGapEm = dto.emphasisDotGapEm
+        obj.renderEvidenceOverride = dto.renderEvidenceOverride
+        return obj as PrepareParagraphRequest
+    }
+
+    class PrepareRequestBuilder {
+        var text: String = ""
+        var maxWidthPx: Double = 0.0
+        var fontFamilies: Array<String> = emptyArray()
+        var fontSizePx: Double = 0.0
+        var lineHeightPx: Double = 0.0
+        var locale: String = ""
+        var fontWeight: Int = 0
+        var italic: Boolean = false
+        var firstLineIndentIc: Double = 0.0
+        var lineLengthGridEnabled: Boolean = false
+        var sourceBoundaries: Array<Int> = emptyArray()
+        var textSpans: Array<TextSpanWireDto> = emptyArray()
+        var inlineBoxes: Array<InlineBoxWireDto> = emptyArray()
+        var lineBreakSpans: Array<LineBreakSpanWireDto> = emptyArray()
+        var inlineObjects: Array<InlineObjectWireDto> = emptyArray()
+        var decorations: Array<DecorationWireDto> = emptyArray()
+        var emphasisDotGapEm: Double? = null
+        var renderEvidenceOverride: Boolean? = null
+
+        fun build(): PrepareParagraphRequestDto {
+            return PrepareParagraphRequestDto(
+                text = text,
+                maxWidthPx = maxWidthPx,
+                fontFamilies = fontFamilies,
+                fontSizePx = fontSizePx,
+                lineHeightPx = lineHeightPx,
+                locale = locale,
+                fontWeight = fontWeight,
+                italic = italic,
+                firstLineIndentIc = firstLineIndentIc,
+                lineLengthGridEnabled = lineLengthGridEnabled,
+                sourceBoundaries = sourceBoundaries,
+                textSpans = textSpans,
+                inlineBoxes = inlineBoxes,
+                lineBreakSpans = lineBreakSpans,
+                inlineObjects = inlineObjects,
+                decorations = decorations,
+                emphasisDotGapEm = emphasisDotGapEm,
+                renderEvidenceOverride = renderEvidenceOverride,
+            )
+        }
+    }
+
+    private fun decoration(
+        start: Int,
+        end: Int,
+        kind: String,
+    ): DecorationWireDto {
+        return DecorationWireDto(start = start, end = end, kind = kind)
     }
 }

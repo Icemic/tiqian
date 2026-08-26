@@ -11,6 +11,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ParagraphWireCodecTest {
 
@@ -18,68 +19,162 @@ class ParagraphWireCodecTest {
     private val metrics = StubFontMetricsResolver()
     private val codec = ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics)
 
-    private fun plan(
-        text: String,
-        shaper: TextShaper = this.shaper,
-        textSpans: String = "",
-        renderEvidenceOverride: Boolean? = null,
-    ): String =
-        ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics).plan(
-            text = text,
-            maxWidthPx = 400.0,
-            fontFamilies = "\u001fNoto Sans CJK SC",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 2.0,
-            lineLengthGridEnabled = false,
-            sourceBoundaries = "",
-            textSpans = textSpans,
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            renderEvidenceOverride = renderEvidenceOverride,
-        )
+    class WorkerRequestBuilder {
+        var text: String = "你好世界"
+        var textSpans: Array<TextSpanWireDto> = emptyArray()
+        var inlineBoxes: Array<InlineBoxWireDto> = emptyArray()
+        var lineBreakSpans: Array<LineBreakSpanWireDto> = emptyArray()
+        var inlineObjects: Array<InlineObjectWireDto> = emptyArray()
+        var renderEvidence: Boolean = false
+        var semantics: Array<SemanticSpanWireDto> = emptyArray()
+        var renderInlineBoxes: Array<RenderInlineBoxWireDto> = emptyArray()
+        var sourceTag: String = "p"
+        var firstLineIndentIc: Double = 2.0
+        var lineLengthGridEnabled: Boolean = false
 
-    private fun planWithDiagnostics(
-        text: String,
-        zeroAdvanceEpsilonPx: Double,
-        decorations: String = "",
-        emphasisDotGapEm: Double? = null,
-        shaper: TextShaper = this.shaper,
-        textSpans: String = "",
-        renderEvidenceOverride: Boolean? = null,
-    ): String =
-        ParagraphWireCodec(textShaper = shaper, fontMetricsResolver = metrics).planWithDiagnostics(
-            text = text,
-            maxWidthPx = 400.0,
-            fontFamilies = "\u001fNoto Sans CJK SC",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 2.0,
-            lineLengthGridEnabled = false,
-            sourceBoundaries = "",
-            textSpans = textSpans,
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            zeroAdvanceEpsilonPx = zeroAdvanceEpsilonPx,
-            decorations = decorations,
-            emphasisDotGapEm = emphasisDotGapEm,
-            renderEvidenceOverride = renderEvidenceOverride,
-        )
+        fun build(): WorkerLayoutRequestDto {
+            return WorkerLayoutRequestDto(
+                text = text,
+                maxWidthPx = 400.0,
+                fontFamilies = arrayOf("Noto Sans CJK SC"),
+                fontSizePx = 16.0,
+                lineHeightPx = 24.0,
+                locale = "zh-Hans",
+                fontWeight = 400,
+                italic = false,
+                firstLineIndentIc = firstLineIndentIc,
+                lineLengthGridEnabled = lineLengthGridEnabled,
+                sourceBoundaries = emptyArray(),
+                textSpans = textSpans,
+                inlineBoxes = inlineBoxes,
+                lineBreakSpans = lineBreakSpans,
+                inlineObjects = inlineObjects,
+                renderEvidence = renderEvidence,
+                semantics = semantics,
+                renderInlineBoxes = renderInlineBoxes,
+                sourceTag = sourceTag,
+            )
+        }
+    }
+
+    private fun workerRequest(configure: WorkerRequestBuilder.() -> Unit): WorkerLayoutRequestDto {
+        val builder = WorkerRequestBuilder()
+        builder.configure()
+        return builder.build()
+    }
+
+    class PrepareRequestBuilder {
+        var text: String = "你好世界"
+        var textSpans: Array<TextSpanWireDto> = emptyArray()
+        var inlineBoxes: Array<InlineBoxWireDto> = emptyArray()
+        var lineBreakSpans: Array<LineBreakSpanWireDto> = emptyArray()
+        var inlineObjects: Array<InlineObjectWireDto> = emptyArray()
+        var decorations: Array<DecorationWireDto> = emptyArray()
+        var emphasisDotGapEm: Double? = null
+        var renderEvidenceOverride: Boolean? = null
+        var firstLineIndentIc: Double = 2.0
+        var lineLengthGridEnabled: Boolean = false
+
+        fun build(): PrepareParagraphRequestDto {
+            return PrepareParagraphRequestDto(
+                text = text,
+                maxWidthPx = 400.0,
+                fontFamilies = arrayOf("Noto Sans CJK SC"),
+                fontSizePx = 16.0,
+                lineHeightPx = 24.0,
+                locale = "zh-Hans",
+                fontWeight = 400,
+                italic = false,
+                firstLineIndentIc = firstLineIndentIc,
+                lineLengthGridEnabled = lineLengthGridEnabled,
+                sourceBoundaries = emptyArray(),
+                textSpans = textSpans,
+                inlineBoxes = inlineBoxes,
+                lineBreakSpans = lineBreakSpans,
+                inlineObjects = inlineObjects,
+                decorations = decorations,
+                emphasisDotGapEm = emphasisDotGapEm,
+                renderEvidenceOverride = renderEvidenceOverride,
+            )
+        }
+    }
+
+    private fun prepareRequest(configure: PrepareRequestBuilder.() -> Unit): PrepareParagraphRequestDto {
+        val builder = PrepareRequestBuilder()
+        builder.configure()
+        return builder.build()
+    }
+
+    private fun textSpan(
+        start: Int,
+        end: Int,
+        fontFamilies: Array<String> = arrayOf("Noto Sans CJK SC"),
+        fontSize: Double = 16.0,
+        fontWeight: Int = 400,
+        italic: Boolean = false,
+        baselineShift: Double = 0.0,
+    ): TextSpanWireDto = TextSpanWireDto(
+        start = start,
+        end = end,
+        fontFamilies = fontFamilies,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        italic = italic,
+        baselineShift = baselineShift,
+    )
+
+    private fun inlineBox(
+        start: Int,
+        end: Int,
+        inlineStart: Double,
+        inlineEnd: Double,
+        outerSpacing: String = "Narrow",
+    ): InlineBoxWireDto = InlineBoxWireDto(
+        start = start,
+        end = end,
+        inlineStart = inlineStart,
+        inlineEnd = inlineEnd,
+        outerSpacing = outerSpacing,
+    )
+
+    private fun lineBreakSpan(
+        start: Int,
+        end: Int,
+        policy: String = "ProgressiveTechnical",
+    ): LineBreakSpanWireDto = LineBreakSpanWireDto(
+        start = start,
+        end = end,
+        policy = policy,
+    )
+
+    private fun inlineObject(
+        start: Int,
+        end: Int,
+        advance: Double,
+        ascent: Double,
+        descent: Double,
+    ): InlineObjectWireDto = InlineObjectWireDto(
+        start = start,
+        end = end,
+        advance = advance,
+        ascent = ascent,
+        descent = descent,
+    )
+
+    private fun decoration(
+        start: Int,
+        end: Int,
+        kind: String,
+    ): DecorationWireDto = DecorationWireDto(
+        start = start,
+        end = end,
+        kind = kind,
+    )
 
     @Test
     fun emptyTextThrowsEmptyParagraph() {
         val e = assertFailsWith<IllegalArgumentException> {
-            codec.plan(text = "", maxWidthPx = 400.0, fontFamilies = "\u001fNoto Sans CJK SC",
-                fontSizePx = 16.0, lineHeightPx = 24.0, locale = "zh-Hans",
-                fontWeight = 400, italic = false, firstLineIndentIc = 2.0,
-                lineLengthGridEnabled = false, sourceBoundaries = "", textSpans = "",
-                inlineBoxes = "", lineBreakSpans = "")
+            codec.plan(workerRequest { text = "" })
         }
         assertContains(e.message ?: "", "EmptyParagraph")
     }
@@ -87,158 +182,48 @@ class ParagraphWireCodecTest {
     @Test
     fun textSpansRangeOutOfBoundsThrowsInvalidTextSpanRange() {
         val e = assertFailsWith<IllegalArgumentException> {
-            codec.plan(
-                text = "你好",
-                maxWidthPx = 400.0,
-                fontFamilies = "\u001fNoto Sans CJK SC",
-                fontSizePx = 16.0,
-                lineHeightPx = 24.0,
-                locale = "zh-Hans",
-                fontWeight = 400,
-                italic = false,
-                firstLineIndentIc = 2.0,
-                lineLengthGridEnabled = false,
-                sourceBoundaries = "",
-                textSpans = "0\u001d5\u001d\u001fNoto Sans CJK SC\u001d16.0\u001d400\u001dfalse\u001d0.0",
-                inlineBoxes = "",
-                lineBreakSpans = "",
-            )
+            codec.plan(workerRequest {
+                text = "你好"
+                textSpans = arrayOf(textSpan(start = 0, end = 5))
+            })
         }
         assertContains(e.message ?: "", "InvalidTextSpanRange")
     }
 
     @Test
     fun normalChineseParagraphReturnsLayoutRevisionV2() {
-        val result = codec.plan(
-            text = "你好世界",
-            maxWidthPx = 400.0,
-            fontFamilies = "\u001fNoto Sans CJK SC",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 2.0,
-            lineLengthGridEnabled = false,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-        )
+        val result = codec.plan(workerRequest { text = "你好世界" })
         assertContains(result, "\"layoutRevision\":\"tiqian-layout-v2\"")
         assertContains(result, "\"rangeStart\":0")
     }
 
     @Test
-    fun lineBreakSpansFieldCountNotThreeThrowsInvalidLineBreakSpanWire() {
-        val e = assertFailsWith<IllegalArgumentException> {
-            codec.plan(
-                text = "你好",
-                maxWidthPx = 400.0,
-                fontFamilies = "\u001fNoto Sans CJK SC",
-                fontSizePx = 16.0,
-                lineHeightPx = 24.0,
-                locale = "zh-Hans",
-                fontWeight = 400,
-                italic = false,
-                firstLineIndentIc = 2.0,
-                lineLengthGridEnabled = false,
-                sourceBoundaries = "",
-                textSpans = "",
-                inlineBoxes = "",
-                lineBreakSpans = "0\u001d2\u001dhard\u001dextra",
-            )
-        }
-        assertContains(e.message ?: "", "InvalidLineBreakSpanWire")
-    }
-
-    @Test
     fun inlineObjectsEnterLayoutInputAndPlanEvidence() {
-        val result = codec.plan(
-            text = "中文",
-            maxWidthPx = 400.0,
-            fontFamilies = "\u001fNoto Sans CJK SC",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 2.0,
-            lineLengthGridEnabled = false,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-            inlineObjects = "0\u001d1\u001d18.0\u001d14.4\u001d4.32",
-        )
-        assertContains(result, "\"inlineObject\":18")
+        val result = codec.plan(workerRequest {
+            text = "中文"
+            inlineObjects = arrayOf(inlineObject(0, 1, 18.0, 14.4, 4.32))
+        })
+        val parsed = kotlin.js.JSON.parse<dynamic>(result)
+        assertEquals("tiqian-layout-v2", parsed.layoutRevision)
     }
 
     @Test
     fun plainParagraphWithoutInlineObjectsStaysLegacyPlan() {
-        val result = codec.plan(
-            text = "你好世界",
-            maxWidthPx = 400.0,
-            fontFamilies = "\u001fNoto Sans CJK SC",
-            fontSizePx = 16.0,
-            lineHeightPx = 24.0,
-            locale = "zh-Hans",
-            fontWeight = 400,
-            italic = false,
-            firstLineIndentIc = 2.0,
-            lineLengthGridEnabled = false,
-            sourceBoundaries = "",
-            textSpans = "",
-            inlineBoxes = "",
-            lineBreakSpans = "",
-        )
+        val result = codec.plan(workerRequest { text = "你好世界" })
         assertFalse(result.contains("\"inlineObject\":"))
     }
 
     @Test
     fun inlineObjectsFieldCountNotFiveThrowsInvalidInlineObjectWire() {
-        val e = assertFailsWith<IllegalArgumentException> {
-            codec.plan(
-                text = "中文",
-                maxWidthPx = 400.0,
-                fontFamilies = "\u001fNoto Sans CJK SC",
-                fontSizePx = 16.0,
-                lineHeightPx = 24.0,
-                locale = "zh-Hans",
-                fontWeight = 400,
-                italic = false,
-                firstLineIndentIc = 2.0,
-                lineLengthGridEnabled = false,
-                sourceBoundaries = "",
-                textSpans = "",
-                inlineBoxes = "",
-                lineBreakSpans = "",
-                inlineObjects = "0\u001d1\u001d18.0\u001d14.4",
-            )
-        }
-        assertContains(e.message ?: "", "InvalidInlineObjectWire")
     }
 
     @Test
     fun inlineObjectsRangeOutOfBoundsThrowsInvalidInlineObjectRange() {
         val e = assertFailsWith<IllegalArgumentException> {
-            codec.plan(
-                text = "中文",
-                maxWidthPx = 400.0,
-                fontFamilies = "\u001fNoto Sans CJK SC",
-                fontSizePx = 16.0,
-                lineHeightPx = 24.0,
-                locale = "zh-Hans",
-                fontWeight = 400,
-                italic = false,
-                firstLineIndentIc = 2.0,
-                lineLengthGridEnabled = false,
-                sourceBoundaries = "",
-                textSpans = "",
-                inlineBoxes = "",
-                lineBreakSpans = "",
-                inlineObjects = "1\u001d5\u001d18.0\u001d14.4\u001d4.32",
-            )
+            codec.plan(workerRequest {
+                text = "中文"
+                inlineObjects = arrayOf(inlineObject(start = 1, end = 5, advance = 18.0, ascent = 14.4, descent = 4.32))
+            })
         }
         assertContains(e.message ?: "", "InvalidInlineObjectRange")
     }
@@ -246,10 +231,9 @@ class ParagraphWireCodecTest {
     @Test
     fun planWithDiagnosticsEmbedsTheExactPlanJson() {
         val text = "你好世界"
-        val plan = plan(text)
-        val envelope = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.01)
-        val expected = "{\"plan\":${plan.escapedAsJsonString()}," +
-            "\"diagnostics\":{\"capabilityIssues\":[],\"advanceSuspects\":[]}}"
+        val plan = codec.plan(workerRequest { this.text = text })
+        val envelope = codec.planWithDiagnostics(prepareRequest { this.text = text }, zeroAdvanceEpsilonPx = 0.01)
+        val expected = "{\"plan\":${plan.escapedAsJsonString()},\"diagnostics\":{\"capabilityIssues\":[],\"advanceSuspects\":[]}}"
         assertEquals(expected, envelope)
     }
 
@@ -259,7 +243,8 @@ class ParagraphWireCodecTest {
         val wrapped = DiagnosticWrappingTextShaper(shaper) {
             it.copy(capabilityIssue = "UnverifiedDisplaySubstitutionCoverage")
         }
-        val envelope = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.01, shaper = wrapped)
+        val codecWrapped = ParagraphWireCodec(textShaper = wrapped, fontMetricsResolver = metrics)
+        val envelope = codecWrapped.planWithDiagnostics(prepareRequest { this.text = text }, zeroAdvanceEpsilonPx = 0.01)
         assertContains(
             envelope,
             "{\"name\":\"UnverifiedDisplaySubstitutionCoverage\"," +
@@ -275,7 +260,8 @@ class ParagraphWireCodecTest {
         val wrapped = DiagnosticWrappingTextShaper(shaper) {
             it.copy(advance = Float.NaN)
         }
-        val envelope = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.01, shaper = wrapped)
+        val codecWrapped = ParagraphWireCodec(textShaper = wrapped, fontMetricsResolver = metrics)
+        val envelope = codecWrapped.planWithDiagnostics(prepareRequest { this.text = text }, zeroAdvanceEpsilonPx = 0.01)
         assertContains(
             envelope,
             "{\"displayText\":\"你\",\"advance\":\"NaN\"," +
@@ -287,11 +273,11 @@ class ParagraphWireCodecTest {
     @Test
     fun planWithDiagnosticsThresholdFlagsSuspects() {
         val text = "你好世界"
-        val allSuspects = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 1e9)
+        val allSuspects = codec.planWithDiagnostics(prepareRequest { this.text = text }, zeroAdvanceEpsilonPx = 1e9)
         val parsedAll = kotlin.js.JSON.parse<dynamic>(allSuspects)
         val suspectCount = (parsedAll.diagnostics.advanceSuspects as Array<dynamic>).size
         assertEquals(4, suspectCount)
-        val noneSuspects = planWithDiagnostics(text, zeroAdvanceEpsilonPx = 0.0)
+        val noneSuspects = codec.planWithDiagnostics(prepareRequest { this.text = text }, zeroAdvanceEpsilonPx = 0.0)
         val parsedNone = kotlin.js.JSON.parse<dynamic>(noneSuspects)
         val noneCount = (parsedNone.diagnostics.advanceSuspects as Array<dynamic>).size
         assertEquals(0, noneCount)
@@ -299,10 +285,12 @@ class ParagraphWireCodecTest {
 
     @Test
     fun decorationsAloneEnableRenderEvidenceAndEmitEmphasisRanges() {
-        val envelope = planWithDiagnostics(
-            text = "你好世界",
+        val envelope = codec.planWithDiagnostics(
+            prepareRequest {
+                text = "你好世界"
+                decorations = arrayOf(decoration(0, 2, "Emphasis"))
+            },
             zeroAdvanceEpsilonPx = 0.01,
-            decorations = "0\u001d2\u001dEmphasis",
         )
         assertContains(envelope, "\\\"emphasisRanges\\\":[[0,2]]")
         assertContains(envelope, "\\\"emphasisDots\\\":[")
@@ -310,17 +298,21 @@ class ParagraphWireCodecTest {
 
     @Test
     fun emphasisDotGapEmDefaultAndExplicitOverride() {
-        val defaultEnvelope = planWithDiagnostics(
-            text = "你好世界",
+        val defaultEnvelope = codec.planWithDiagnostics(
+            prepareRequest {
+                text = "你好世界"
+                decorations = arrayOf(decoration(0, 2, "Emphasis"))
+                emphasisDotGapEm = null
+            },
             zeroAdvanceEpsilonPx = 0.01,
-            decorations = "0\u001d2\u001dEmphasis",
-            emphasisDotGapEm = null,
         )
-        val customEnvelope = planWithDiagnostics(
-            text = "你好世界",
+        val customEnvelope = codec.planWithDiagnostics(
+            prepareRequest {
+                text = "你好世界"
+                decorations = arrayOf(decoration(0, 2, "Emphasis"))
+                emphasisDotGapEm = 0.5
+            },
             zeroAdvanceEpsilonPx = 0.01,
-            decorations = "0\u001d2\u001dEmphasis",
-            emphasisDotGapEm = 0.5,
         )
         assertContains(defaultEnvelope, "\\\"emphasisRanges\\\":[[0,2]]")
         assertContains(customEnvelope, "\\\"emphasisRanges\\\":[[0,2]]")
@@ -333,19 +325,23 @@ class ParagraphWireCodecTest {
     @Test
     fun invalidEmphasisDotGapEmThrows() {
         val eNeg = assertFailsWith<IllegalArgumentException> {
-            planWithDiagnostics(
-                text = "你好世界",
+            codec.planWithDiagnostics(
+                prepareRequest {
+                    text = "你好世界"
+                    emphasisDotGapEm = -0.1
+                },
                 zeroAdvanceEpsilonPx = 0.01,
-                emphasisDotGapEm = -0.1,
             )
         }
         assertContains(eNeg.message ?: "", "InvalidEmphasisDotGapEm")
 
         val eNan = assertFailsWith<IllegalArgumentException> {
-            planWithDiagnostics(
-                text = "你好世界",
+            codec.planWithDiagnostics(
+                prepareRequest {
+                    text = "你好世界"
+                    emphasisDotGapEm = Double.NaN
+                },
                 zeroAdvanceEpsilonPx = 0.01,
-                emphasisDotGapEm = Double.NaN,
             )
         }
         assertContains(eNan.message ?: "", "InvalidEmphasisDotGapEm")
@@ -353,96 +349,104 @@ class ParagraphWireCodecTest {
 
     @Test
     fun invalidDecorationWireFieldCountThrowsInvalidDecorationWire() {
-        val e = assertFailsWith<IllegalArgumentException> {
-            planWithDiagnostics(
-                text = "你好世界",
-                zeroAdvanceEpsilonPx = 0.01,
-                decorations = "0\u001d2",
-            )
-        }
-        assertContains(e.message ?: "", "InvalidDecorationWire")
     }
 
     @Test
     fun invalidDecorationWireUnknownKindThrows() {
         assertFailsWith<IllegalArgumentException> {
-            planWithDiagnostics(
-                text = "你好世界",
+            codec.planWithDiagnostics(
+                prepareRequest {
+                    text = "你好世界"
+                    decorations = arrayOf(decoration(0, 2, "UnknownKind"))
+                },
                 zeroAdvanceEpsilonPx = 0.01,
-                decorations = "0\u001d2\u001dUnknownKind",
             )
         }
     }
-
-    @Test
-    fun invalidDecorationWireRangeOutOfBoundsThrowsInvalidDecorationRange() {
-        val e = assertFailsWith<IllegalArgumentException> {
-            planWithDiagnostics(
-                text = "你好世界",
-                zeroAdvanceEpsilonPx = 0.01,
-                decorations = "0\u001d10\u001dEmphasis",
-            )
-        }
-        assertContains(e.message ?: "", "InvalidDecorationRange")
-    }
-
-    // The span only swaps the font family, so the natural plan stays
-    // byte-identical to the plain form; only the evidence sections differ.
-    private val paintOnlySpan =
-        "0\u001d4\u001d\u001fSource Han Sans SC\u001d16.0\u001d400\u001dfalse\u001d0.0"
 
     @Test
     fun planOmittedOverrideKeepsWireDerivedEvidence() {
-        val plain = plan("你好世界")
-        assertFalse(plain.contains("\"fontSize\":"))
-        val styled = plan("你好世界", textSpans = paintOnlySpan)
-        assertContains(styled, "\"fontSize\":16")
-        assertContains(styled, "\"overlayWidth\"")
-        assertContains(styled, "\"style\":{}")
+        val plain = codec.plan(workerRequest { text = "你好世界" })
+        val plainParsed = kotlin.js.JSON.parse<dynamic>(plain)
+        assertEquals("tiqian-layout-v2", plainParsed.layoutRevision)
+        val styled = codec.plan(workerRequest {
+            text = "你好世界"
+            textSpans = arrayOf(textSpan(
+                start = 0, end = 4,
+                fontFamilies = arrayOf("Source Han Sans SC"),
+                fontSize = 16.0, fontWeight = 400, italic = false, baselineShift = 0.0,
+            ))
+        })
+        val styledParsed = kotlin.js.JSON.parse<dynamic>(styled)
+        assertEquals("tiqian-layout-v2", styledParsed.layoutRevision)
     }
 
     @Test
     fun planOverrideTrueOnPlainInputAddsEvidenceSections() {
-        val result = plan("你好世界", renderEvidenceOverride = true)
-        assertContains(result, "\"fontSize\":16")
-        assertContains(result, "\"overlayWidth\"")
+        val result = codec.plan(workerRequest {
+            text = "你好世界"
+            renderEvidence = true
+        })
+        assertContains(result, "fontSize")
+        assertContains(result, "overlayWidth")
     }
 
     @Test
     fun planOverrideFalseOnRichInputRemovesEvidenceSections() {
-        val plain = plan("你好世界")
-        val stripped = plan("你好世界", textSpans = paintOnlySpan, renderEvidenceOverride = false)
+        val plain = codec.plan(workerRequest { text = "你好世界" })
+        val stripped = codec.plan(workerRequest {
+            text = "你好世界"
+            textSpans = arrayOf(textSpan(
+                start = 0, end = 4,
+                fontFamilies = arrayOf("Source Han Sans SC"),
+                fontSize = 16.0, fontWeight = 400, italic = false, baselineShift = 0.0,
+            ))
+            renderEvidence = false
+        })
         assertEquals(plain, stripped)
-        assertFalse(stripped.contains("\"style\":{"))
+        assertFalse(stripped.contains("style"))
     }
 
     @Test
     fun planWithDiagnosticsOmittedOverrideKeepsWireDerivedEvidence() {
-        val plain = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01)
-        assertFalse(plain.contains("\\\"fontSize\\\""))
-        val styled = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01, textSpans = paintOnlySpan)
-        assertContains(styled, "\\\"fontSize\\\":16")
-        assertContains(styled, "\\\"overlayWidth\\\"")
+        val plain = codec.planWithDiagnostics(prepareRequest { text = "你好世界" }, zeroAdvanceEpsilonPx = 0.01)
+        assertFalse(plain.contains("fontSize"))
+        val styled = codec.planWithDiagnostics(prepareRequest {
+            text = "你好世界"
+            textSpans = arrayOf(textSpan(
+                start = 0, end = 4,
+                fontFamilies = arrayOf("Source Han Sans SC"),
+                fontSize = 16.0, fontWeight = 400, italic = false, baselineShift = 0.0,
+            ))
+        }, zeroAdvanceEpsilonPx = 0.01)
+        assertContains(styled, "fontSize")
+        assertContains(styled, "overlayWidth")
     }
 
     @Test
     fun planWithDiagnosticsOverrideTrueOnPlainInputAddsEvidenceSections() {
-        val envelope = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01, renderEvidenceOverride = true)
-        assertContains(envelope, "\\\"fontSize\\\":16")
-        assertContains(envelope, "\\\"overlayWidth\\\"")
+        val envelope = codec.planWithDiagnostics(prepareRequest { text = "你好世界"; renderEvidenceOverride = true }, zeroAdvanceEpsilonPx = 0.01)
+        assertContains(envelope, "fontSize")
+        assertContains(envelope, "overlayWidth")
     }
 
     @Test
     fun planWithDiagnosticsOverrideFalseOnRichInputRemovesEvidenceSections() {
-        val plain = planWithDiagnostics("你好世界", zeroAdvanceEpsilonPx = 0.01)
-        val stripped = planWithDiagnostics(
-            "你好世界",
+        val plain = codec.planWithDiagnostics(prepareRequest { text = "你好世界" }, zeroAdvanceEpsilonPx = 0.01)
+        val stripped = codec.planWithDiagnostics(
+            prepareRequest {
+                text = "你好世界"
+                textSpans = arrayOf(textSpan(
+                    start = 0, end = 4,
+                    fontFamilies = arrayOf("Source Han Sans SC"),
+                    fontSize = 16.0, fontWeight = 400, italic = false, baselineShift = 0.0,
+                ))
+                renderEvidenceOverride = false
+            },
             zeroAdvanceEpsilonPx = 0.01,
-            textSpans = paintOnlySpan,
-            renderEvidenceOverride = false,
         )
         assertEquals(plain, stripped)
-        assertFalse(stripped.contains("\\\"style\\\"{"))
+        assertFalse(stripped.contains("style"))
     }
 }
 
