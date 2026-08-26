@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 // under test is the event sequence, not the converged end state: no
 // tiqian:destroy may be dispatched for the root between the width change and
 // the next settle, and no sampled animation frame may show the root
-// unenhanced with zero lines. The remount variants hold the custody-move
+// unenhanced with zero lines. The remount variants hold the reconnect
 // contract: a same-task disconnect + reconnect adopts the live layout instead
 // of restarting from semantic source, whether or not the width changed, and a
 // host edit applied while detached still reconciles to the new source.
@@ -494,16 +494,16 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     const report = await collectReport(cdp);
     const { destroys, detaches, bareFrames, detail } = summarizeFailures(report);
 
-    // CustodyMoveAdoption: a same-task disconnect + reconnect is a host
-    // custody move, the sequence React and Svelte issue when a re-render
+    // Reconnect adoption: a same-task disconnect + reconnect is a host move,
+    // the sequence React and Svelte issue when a re-render
     // relocates the root. The committed LayoutResult stayed valid through the
     // move, so neither teardown lane may fire and the width change must route
     // through the in-place relayout lane. Before the fix this window measured
     // 28 bare frames (~660ms) with ~350px of overflow on the bare paragraph;
     // base b6498412 destroyed too but re-settled within ~2 frames.
-    assert.equal(destroys.length, 0, `tiqian:destroy fired across the custody move:\n${detail}`);
-    assert.equal(detaches.length, 0, `tiqian:detach fired across the custody move:\n${detail}`);
-    assert.equal(bareFrames.length, 0, `bare-source frames across the custody move:\n${detail}`);
+    assert.equal(destroys.length, 0, `tiqian:destroy fired across the reconnect move:\n${detail}`);
+    assert.equal(detaches.length, 0, `tiqian:detach fired across the reconnect move:\n${detail}`);
+    assert.equal(bareFrames.length, 0, `bare-source frames across the reconnect move:\n${detail}`);
     const relayouts = report.events.filter((e) => e.mine && e.type === "tiqian:relayout-ready");
     assert.ok(relayouts.length > 0, `the 900->360 width change never entered relayout:\n${detail}`);
     const last = report.frames[report.frames.length - 1];
@@ -531,7 +531,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     const report = await collectReport(cdp);
     const { destroys, detaches, bareFrames, detail } = summarizeFailures(report);
 
-    // The pure custody move is the strongest form of the contract: same
+    // The pure reconnect move is the strongest form of the contract: same
     // content, same typography, same width. Nothing may tear down and the
     // committed line count must survive the move untouched.
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the pure move:\n${detail}`);
@@ -569,7 +569,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     // armed through the move, so the edit reaches the reconcile lane and the
     // new source is re-lowered surgically, without a root teardown.
     assert.equal(destroys.length, 0, `tiqian:destroy fired instead of reconcile:\n${detail}`);
-    assert.equal(detaches.length, 0, `tiqian:detach fired across the custody move:\n${detail}`);
+    assert.equal(detaches.length, 0, `tiqian:detach fired across the reconnect move:\n${detail}`);
     const last = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);

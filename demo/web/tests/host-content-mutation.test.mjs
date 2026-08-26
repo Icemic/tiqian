@@ -424,7 +424,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     `);
 
     // HostMutationTriggersReconcile: the content observer turns the edit into
-    // one reconcile job per root. The edited live text becomes the new custody
+    // one reconcile job per root. The edited live text becomes the new raw-dom
     // source, so the paragraph re-renders with the framework's text instead of
     // keeping a stale marker over a raw text node.
     assert.ok(mutations.settle.ok, `Edited paragraphs must re-render: ${JSON.stringify(mutations.idle)}`);
@@ -446,7 +446,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     }
 
     // ------------------------------------------------------------------
-    // Phase B: a later width relayout re-renders from the NEW custody source,
+    // Phase B: a later width relayout re-renders from the NEW raw-dom source,
     // preserving the host edit in every zone.
     // ------------------------------------------------------------------
     await client.evaluate(`
@@ -474,7 +474,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })()
     `);
 
-    // HostEditBecomesCustodySource: after reconcile, the edit is the semantic
+    // HostEditBecomesRawDomSource: after reconcile, the edit is the semantic
     // source, so the width relayout re-breaks the edited text at the new
     // measure instead of reverting to pre-edit content.
     assert.ok(preserved.ok, `Width relayout must preserve host edits: ${JSON.stringify(preserved.after)}`);
@@ -699,7 +699,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     `);
     // ContentBeforeGeometry: the commit lane checks content first, so the
     // reconciled text can never be replaced by a width relayout of the old
-    // custody text in the same frame.
+    // raw-dom text in the same frame.
     assert.ok(sameFrame.done, `Content must win the same-frame race: ${JSON.stringify(sameFrame)}`);
     assert.ok(sameFrame.after.head.startsWith("同帧变更段"), "The edited text must survive the same-frame width change");
     assert.ok(sameFrame.after.lines > 0, "The same-frame paragraph must be rendered");
@@ -707,7 +707,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
 
     // ------------------------------------------------------------------
     // Phase G: an in-place characterData edit inside engine output re-renders
-    // from custody; the edit on renderer-owned text does not survive.
+    // from the raw-dom source; the edit on renderer-owned text does not survive.
     // ------------------------------------------------------------------
     const inPlace = await client.evaluate(`
       (async () => {
@@ -733,13 +733,13 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         };
       })()
     `);
-    // TaintedEngineOutputRerendersFromCustody: a characterData record changes
+    // TaintedEngineOutputRerendersFromRawDom: a characterData record changes
     // no child list, so the taint set carries it to reconcile. The edited
-    // node is renderer-owned; the semantic source in custody wins and the
+    // node is renderer-owned; the semantic source in the raw-dom fragment wins and the
     // paragraph re-renders with the original text.
-    assert.ok(inPlace.reacted, `An in-place text edit must trigger a custody re-render: ${JSON.stringify(inPlace)}`);
-    assert.ok(inPlace.after.lines > 0, "The custody re-render must produce lines");
-    assert.strictEqual(inPlace.after.head, inPlace.before.head, "Custody text must win over the engine-output edit");
+    assert.ok(inPlace.reacted, `An in-place text edit must trigger a raw-dom re-render: ${JSON.stringify(inPlace)}`);
+    assert.ok(inPlace.after.lines > 0, "The raw-dom re-render must produce lines");
+    assert.strictEqual(inPlace.after.head, inPlace.before.head, "Raw-dom text must win over the engine-output edit");
     assert.ok(inPlace.newEvents >= 1, "The characterData edit must emit a job event");
 
     // ------------------------------------------------------------------
@@ -804,7 +804,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // MidFlightHostEditCancelsCapturedJob: the drift probe sees the identity
     // mismatch at the next frame, cancels the captured job, and reconcile
     // re-renders the edited text at the live width. The old behavior kept the
-    // pre-edit custody and silently reverted the framework's write.
+    // pre-edit raw-dom text and silently reverted the framework's write.
     assert.ok(midFlight.done, `A mid-flight edit must win over the captured job: ${JSON.stringify(midFlight)}`);
     assert.ok(midFlight.after.head.startsWith("飞行中改写段"), "The mid-flight edit must survive at the new width");
     assert.ok(midFlight.allRendered, "The page must settle fully rendered after the mid-flight edit");
@@ -814,24 +814,24 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     );
 
     // ------------------------------------------------------------------
-    // Phase K: framework-held custody references. React keeps the original
+    // Phase K: framework-held raw-dom references. React keeps the original
     // Text node and writes .data on it after takeover; Vue and Svelte remove
-    // through child.parentNode. Both edits land inside the detached custody
+    // through child.parentNode. Both edits land inside the detached raw-dom
     // fragment, where the live-DOM subtree observer never fires.
     // ------------------------------------------------------------------
-    const custodyText = await client.evaluate(`
+    const rawDomText = await client.evaluate(`
       (async () => {
         const root = __roots()[__roots().length - 1];
         const p = root.querySelectorAll("p")[0];
         const fragment = __tiqianRawDomFragment(p);
         if (!(fragment instanceof DocumentFragment)) {
-          return { ok: false, why: "custody fragment not published", state: __state(p) };
+          return { ok: false, why: "raw-dom fragment not published", state: __state(p) };
         }
         const walker = document.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
         const textNode = walker.nextNode();
-        if (!textNode) return { ok: false, why: "custody has no text node", state: __state(p) };
+        if (!textNode) return { ok: false, why: "the raw-dom fragment has no text node", state: __state(p) };
         const countBefore = __eventCount(root);
-        textNode.data = "持引用改写段。" + "框架拿着原始文本节点的引用，在接管之后直接改写 data，引擎必须从 custody 重新排。" .repeat(2);
+        textNode.data = "持引用改写段。" + "框架拿着原始文本节点的引用，在接管之后直接改写 data，引擎必须从 raw-dom 重新排。" .repeat(2);
         const first = await __waitFor(
           () => __isRendered(p) && __state(p).head.startsWith("持引用改写段"),
           20000,
@@ -858,32 +858,32 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         };
       })()
     `);
-    // CustodyCharacterDataIsHostCertain: the engine only moves whole nodes in
-    // and out of custody, so a .data record there is host-authored. Both the
+    // RawDomCharacterDataIsHostCertain: the engine only moves whole nodes in
+    // and out of the raw-dom fragment, so a .data record there is host-authored. Both the
     // first write and the write through the surviving reference must re-render
-    // the paragraph from the edited custody text.
-    assert.ok(custodyText.ok, `Custody must be published for framework references: ${JSON.stringify(custodyText)}`);
-    assert.ok(custodyText.first, `A custody .data write must re-render: ${JSON.stringify(custodyText)}`);
+    // the paragraph from the edited raw-dom text.
+    assert.ok(rawDomText.ok, `The raw-dom fragment must be published for framework references: ${JSON.stringify(rawDomText)}`);
+    assert.ok(rawDomText.first, `A raw-dom .data write must re-render: ${JSON.stringify(rawDomText)}`);
     assert.ok(
-      custodyText.referenceSurvived,
-      `The framework-held node must survive the reconcile round trip into the new custody: ${JSON.stringify(custodyText)}`,
+      rawDomText.referenceSurvived,
+      `The framework-held node must survive the reconcile round trip into the new raw-dom fragment: ${JSON.stringify(rawDomText)}`,
     );
-    assert.ok(custodyText.second, `A second write through the same held reference must re-render: ${JSON.stringify(custodyText.after)}`);
-    assert.ok(custodyText.after.head.startsWith("二次改写段"), "The custody edit must become the rendered text");
-    assert.ok(custodyText.after.lines > 0, "The custody re-render must produce lines");
-    assert.ok(custodyText.newEvents >= 2, `Two custody writes must emit jobs (got ${custodyText.newEvents})`);
+    assert.ok(rawDomText.second, `A second write through the same held reference must re-render: ${JSON.stringify(rawDomText.after)}`);
+    assert.ok(rawDomText.after.head.startsWith("二次改写段"), "The raw-dom edit must become the rendered text");
+    assert.ok(rawDomText.after.lines > 0, "The raw-dom re-render must produce lines");
+    assert.ok(rawDomText.newEvents >= 2, `Two raw-dom writes must emit jobs (got ${rawDomText.newEvents})`);
     assert.strictEqual(
-      custodyText.idleEvents,
+      rawDomText.idleEvents,
       0,
-      `The custody lane must not loop on its own output: ${custodyText.idleEvents} events while idle`,
+      `The raw-dom reconcile path must not loop on its own output: ${rawDomText.idleEvents} events while idle`,
     );
 
-    const custodyRemove = await client.evaluate(`
+    const rawDomRemove = await client.evaluate(`
       (async () => {
         const root = __roots()[__roots().length - 1];
         const p = root.querySelectorAll("p")[1] ?? root.querySelectorAll("p")[0];
         // Build a multi-node paragraph through the live DOM first; after its
-        // reconcile the custody fragment holds text, em, text.
+        // reconcile the raw-dom fragment holds text, em, text.
         p.innerHTML = "多节点收纳段。" + "<em>强调片段。</em>" + "尾部文本。" + "填充正文长度以折出多行，保证重排可观测。" .repeat(2);
         const prepared = await __waitFor(
           () => __isRendered(p) && __state(p).head.startsWith("多节点收纳段"),
@@ -891,10 +891,10 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         );
         const fragment = __tiqianRawDomFragment(p);
         const em = fragment && fragment.querySelector("em");
-        if (!em) return { ok: false, why: "no em in custody", prepared, state: __state(p) };
+        if (!em) return { ok: false, why: "no em in the raw-dom fragment", prepared, state: __state(p) };
         const countBefore = __eventCount(root);
         // Vue/Svelte removal shape: the node's live parent is looked up at
-        // removal time, which resolves to the custody fragment.
+        // removal time, which resolves to the raw-dom fragment.
         const removed = em.parentNode.removeChild(em);
         const done = await __waitFor(
           () => __isRendered(p) && !p.textContent.includes("强调片段"),
@@ -911,19 +911,19 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         };
       })()
     `);
-    // CustodyChildListProvesIdentity: a custody childList record may be the
+    // RawDomChildListProvesIdentity: a raw-dom childList record may be the
     // engine's own re-take, so the probe decides by node identity. A removal
-    // through a held reference breaks the custody invariant and the paragraph
-    // re-renders from the shortened custody content.
-    assert.ok(custodyRemove.ok, `Multi-node custody must be reachable: ${JSON.stringify(custodyRemove)}`);
-    assert.ok(custodyRemove.prepared, "The multi-node paragraph must render before the custody removal");
-    assert.ok(custodyRemove.removedIsHeld, "The removal must resolve against the custody fragment");
-    assert.ok(custodyRemove.done, `A custody removal must re-render without the removed node: ${JSON.stringify(custodyRemove.after)}`);
+    // through a held reference breaks the raw-dom invariant and the paragraph
+    // re-renders from the shortened raw-dom content.
+    assert.ok(rawDomRemove.ok, `The multi-node raw-dom fragment must be reachable: ${JSON.stringify(rawDomRemove)}`);
+    assert.ok(rawDomRemove.prepared, "The multi-node paragraph must render before the raw-dom removal");
+    assert.ok(rawDomRemove.removedIsHeld, "The removal must resolve against the raw-dom fragment");
+    assert.ok(rawDomRemove.done, `A raw-dom removal must re-render without the removed node: ${JSON.stringify(rawDomRemove.after)}`);
     assert.ok(
-      !custodyRemove.after.head.includes("强调"),
-      `The rendered text must drop the removed custody node: ${JSON.stringify(custodyRemove.after)}`,
+      !rawDomRemove.after.head.includes("强调"),
+      `The rendered text must drop the removed raw-dom node: ${JSON.stringify(rawDomRemove.after)}`,
     );
-    assert.ok(custodyRemove.newEvents >= 1, "The custody removal must emit a job event");
+    assert.ok(rawDomRemove.newEvents >= 1, "The raw-dom removal must emit a job event");
   } finally {
     client?.close();
     for (const proc of [browserProc, parcelProc]) {

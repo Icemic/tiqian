@@ -1,9 +1,9 @@
 // FrameworkCommitConflict: React and Svelte keep references to the DOM nodes
 // they render and commit mutations through them. Tiqian takeover moves a
-// paragraph's semantic children into a detached custody fragment, so a
+// paragraph's semantic children into a detached raw-dom fragment, so a
 // framework commit that re-parents, anchors, or removes those children would
 // either throw NotFoundError against the live paragraph or edit inside
-// custody where no live observer fires. This suite drives REAL framework
+// the raw-dom fragment where no live observer fires. This suite drives REAL framework
 // runtimes (react-dom 19 via its CJS build, Svelte 5 via locally compiled
 // components; both are devDependencies served straight from node_modules)
 // through mount, text update, anchored insert, remove, reorder, conditional
@@ -225,7 +225,7 @@ const PAGE_DRIVER = `
     }
     return false;
   };
-  // Wait until every paragraph's custody text matches the expected plain
+  // Wait until every paragraph's raw-dom text matches the expected plain
   // strings and the live output carries the same characters.
   globalThis.__waitContent = async (root, expectations, timeoutMs = 30000) => {
     const deadline = Date.now() + timeoutMs;
@@ -238,8 +238,8 @@ const PAGE_DRIVER = `
       const contentOk = expectations.every((expected, index) => {
         const para = paras[index];
         if (!para) return false;
-        const custody = __tiqianRawDomFragment(para);
-        return custody && norm(custody.textContent) === norm(expected) &&
+        const rawDom = __tiqianRawDomFragment(para);
+        return rawDom && norm(rawDom.textContent) === norm(expected) &&
           norm(para.textContent) === norm(expected);
       });
       if (allRendered && contentOk) return { ok: true, snapshot };
@@ -252,7 +252,7 @@ const PAGE_DRIVER = `
     return {
       rendered: p.getAttribute("data-tq-rendered"),
       lines: p.querySelectorAll("[data-tq-line-index]").length,
-      custody: fragment ? norm(fragment.textContent) : null,
+      rawDom: fragment ? norm(fragment.textContent) : null,
       live: norm(p.textContent),
     };
   });
@@ -539,7 +539,7 @@ function startFixtureServer(svelteComponents) {
   return new Promise((resolve) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
 }
 
-test("FrameworkCommitConflict: framework commits survive and re-render through tiqian custody", async () => {
+test("FrameworkCommitConflict: framework commits survive and re-render through the tiqian raw-dom", async () => {
   const svelteMain = await compileSvelteComponent();
   assert.match(svelteMain, /svelte\/internal\/client/, "compiled fixture must use the svelte client runtime");
 
@@ -606,7 +606,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       return errors;
     };
 
-    // -------- React: mount and text updates (custody characterData path)
+    // -------- React: mount and text updates (raw-dom characterData path)
     {
       const result = await run(`
         const { React } = await __loadReact();
@@ -616,7 +616,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         if (!await __waitRendered(app.root)) throw new Error("initial mount never rendered");
         const first = await __waitContent(app.root, ["初稿正文第一段。强调附注。"]);
         // Same-fiber text rewrite: React commitTextUpdate writes .data on the
-        // text node now held in custody.
+        // text node now held in the raw-dom fragment.
         app.api.set({ text: "改写之后的正文文本，长度不同。", em: "强调附注。" });
         await app.flush();
         const second = await __waitContent(app.root, ["改写之后的正文文本，长度不同。强调附注。"]);
@@ -632,7 +632,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       await run("await __clearStage()");
     }
 
-    // -------- React: anchored insert and remove (custody removeChild path)
+    // -------- React: anchored insert and remove (raw-dom removeChild path)
     {
       const result = await run(`
         const { React } = await __loadReact();
@@ -644,13 +644,13 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         );
         const app = await __mountReact("r-anchor", render, { head: "开头文本在此。", strong: null });
         if (!await __waitRendered(app.root)) throw new Error("initial mount never rendered");
-        // Insert <strong> BEFORE the custody-held <em>: React commits this as
-        // insertBefore(paragraph, strongNode, emNode) with a custody anchor.
+        // Insert <strong> BEFORE the raw-dom-held <em>: React commits this as
+        // insertBefore(paragraph, strongNode, emNode) with a raw-dom anchor.
         app.api.set({ head: "开头文本在此。", strong: "新插入的强调片段。" });
         await app.flush();
         const inserted = await __waitContent(app.root, ["开头文本在此。新插入的强调片段。尾部强调。"]);
         // Remove the <strong> again: React commits removeChild(paragraph,
-        // strongNode) with the node held in custody.
+        // strongNode) with the node held in the raw-dom fragment.
         app.api.set({ head: "开头文本在此。", strong: null });
         await app.flush();
         const removed = await __waitContent(app.root, ["开头文本在此。尾部强调。"]);
@@ -712,7 +712,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         if (!eachInitial.ok) {
           throw new Error("initial content mismatch: " + JSON.stringify({ snap: __snapshot(app.root), errors: __pageErrors.slice() }));
         }
-        // Reverse order: React moves nodes with insertBefore against custody
+        // Reverse order: React moves nodes with insertBefore against raw-dom
         // anchors and removes the displaced ones.
         app.api.set({ items: [
           { id: 3, t: "三项条目。" }, { id: 1, t: "首项条目。" }, { id: 2, t: "次项条目。" },
@@ -822,7 +822,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       await run("await __clearStage()");
     }
 
-    // -------- React: full unmount while paragraphs are under custody
+    // -------- React: full unmount while paragraphs are held in the raw-dom fragment
     {
       const result = await run(`
         const { React } = await __loadReact();
@@ -1013,7 +1013,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
           "初稿文本用于观察排版变化。强调片段在此。段落尾部文本。",
           "首项条目内容。次项条目内容。三项条目内容。",
         ]);
-        // set_data rewrites .data on the text node held in custody.
+        // set_data rewrites .data on the text node held in the raw-dom fragment.
         api.text = "改写后的文本内容，长度变化。";
         const second = await __waitContent(root, [
           "改写后的文本内容，长度变化。强调片段在此。段落尾部文本。",
@@ -1027,7 +1027,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       await run("await __clearStage()");
     }
 
-    // -------- Svelte: if-block off and on around custody-held siblings
+    // -------- Svelte: if-block off and on around raw-dom-held siblings
     {
       const result = await run(`
         const { default: Fixture } = await import("/svelte-component/main.js");
@@ -1044,10 +1044,10 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
           "列表保持。",
         ]);
         // Toggling off detaches the <em> through parentNode, which resolves to
-        // the custody fragment.
+        // the raw-dom fragment.
         api.show = false;
         const off = await __waitContent(root, ["主体文本保持不变。段落尾部文本。", "列表保持。"]);
-        // Toggling back on re-inserts before the custody-held tail text node.
+        // Toggling back on re-inserts before the raw-dom-held tail text node.
         api.show = true;
         const on = await __waitContent(root, ["主体文本保持不变。待移除强调。段落尾部文本。", "列表保持。"]);
         return { initial: initial.ok, off: off.ok, on: on.ok, snapshot: __snapshot(root) };
@@ -1073,7 +1073,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
           "首项条目内容。次项条目内容。三项条目内容。",
         ]);
         // Keyed reorder: svelte moves spans with insert/remove against
-        // custody-held anchors.
+        // raw-dom-held anchors.
         api.items = [
           { id: 3, t: "三项条目内容。" },
           { id: 1, t: "首项条目内容。" },
@@ -1132,7 +1132,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       await run("await __clearStage()");
     }
 
-    // -------- Svelte: unmount under custody
+    // -------- Svelte: unmount with paragraphs held in the raw-dom fragment
     {
       const result = await run(`
         const { default: Fixture } = await import("/svelte-component/main.js");
@@ -1244,36 +1244,36 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         root.appendChild(p);
         if (!await __waitRendered(root)) throw new Error("direct paragraph never rendered");
         const fragment = __tiqianRawDomFragment(p);
-        if (!(fragment instanceof DocumentFragment)) throw new Error("custody fragment missing");
+        if (!(fragment instanceof DocumentFragment)) throw new Error("raw-dom fragment missing");
         const kidCount = fragment.childNodes.length;
-        // removeChild through the paragraph detaches the custody-held <em>.
+        // removeChild through the paragraph detaches the raw-dom-held <em>.
         const removed = p.removeChild(em);
         if (removed !== em) throw new Error("removeChild must return the same node");
-        if (em.parentNode !== null) throw new Error("removeChild must detach the node from custody");
+        if (em.parentNode !== null) throw new Error("removeChild must detach the node from the raw-dom fragment");
         if (fragment.childNodes.length !== kidCount - 1) throw new Error("removeChild changed the wrong child count");
-        // insertBefore with a custody anchor lands inside custody.
+        // insertBefore with a raw-dom anchor lands inside the raw-dom fragment.
         const strong = document.createElement("strong");
         strong.textContent = "插入强调。";
         const tail = fragment.lastChild;
         p.insertBefore(strong, tail);
         if (strong.parentNode !== fragment || strong.nextSibling !== tail) {
-          throw new Error("insertBefore did not land in custody at the anchor");
+          throw new Error("insertBefore did not land in the raw-dom fragment at the anchor");
         }
-        // replaceChild with a custody-held old child swaps inside custody.
+        // replaceChild with a raw-dom-held old child swaps inside the raw-dom fragment.
         const strong2 = document.createElement("strong");
         strong2.textContent = "替换重点。";
         p.replaceChild(strong2, strong);
         if (strong.parentNode !== null || strong2.parentNode !== fragment) {
-          throw new Error("replaceChild did not swap inside custody");
+          throw new Error("replaceChild did not swap inside the raw-dom fragment");
         }
-        // appendChild while custody is active appends into custody, not the
+        // appendChild while the raw-dom fragment is active appends into it, not the
         // live engine output.
         const strong3 = document.createElement("strong");
         strong3.textContent = "尾注强调。";
         p.appendChild(strong3);
-        if (strong3.parentNode !== fragment) throw new Error("appendChild did not land in custody");
+        if (strong3.parentNode !== fragment) throw new Error("appendChild did not land in the raw-dom fragment");
         // The NotFoundError contract survives for nodes outside the paragraph
-        // and its custody.
+        // and its raw-dom fragment.
         const foreign = document.createTextNode("外来节点");
         let threw = false;
         try { p.removeChild(foreign); } catch (err) { threw = err.name === "NotFoundError"; }
@@ -1282,7 +1282,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         return { settled: settled.ok, snapshot: __snapshot(root) };
       `);
       assert.ok(result.settled,
-        `Direct custody-forwarded ops must re-render: ${JSON.stringify(result)}`);
+        `Direct ops forwarded into the raw-dom fragment must re-render: ${JSON.stringify(result)}`);
       await errorsOf("direct-ops");
       await run("await __clearStage()");
     }

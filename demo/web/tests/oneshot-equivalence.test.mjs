@@ -375,7 +375,7 @@ test("OneShotEquivalence: coordinated output equals a fresh one-shot enhance at 
       `);
 
       // CoordinatedStateMatchesOneShotOracle: the incremental pipeline
-      // (coordinator grants, viewport tiers, custody cache, width relayout)
+      // (coordinator grants, viewport tiers, raw-dom records, width relayout)
       // and a fresh one-shot enhance over the same roots with the same
       // resolved options must produce the same paragraph DOM: line geometry,
       // justification spacing, evidence attributes, substitutions,
