@@ -345,7 +345,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(observersSource, /Math\.abs\(width - previous\) >= 0\.5/u);
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
-  assert.match(elementSource, /#paragraphWidthSignature\(\)/u);
+  assert.match(elementSource, /paragraphWidthSignature\(this\)/u);
   const signaturesSource = await readFile(
     new URL("../../core/core/sampler/signatures.js", import.meta.url),
     "utf8",
@@ -376,7 +376,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     elementSource,
-    /ProgressiveOutputTypographyBaseline[\s\S]*?#layoutWorkTypographySignature = this\.#typographySignature\(\)/u,
+    /ProgressiveOutputTypographyBaseline[\s\S]*?#layoutWorkTypographySignature = typographySignature\(this\)/u,
   );
   assert.match(
     signaturesSource,
@@ -446,7 +446,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /ObserverBaselineAfterUncapturedLayout/u);
   assert.match(
     elementSource,
-    /const currentParagraphWidths =[\s\S]*?this\.#paragraphWidthSignature\(\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
+    /const currentParagraphWidths =[\s\S]*?paragraphWidthSignature\(this\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
   );
   assert.match(elementSource, /!widthsChanged && !measuresChanged/u);
   assert.match(
@@ -474,7 +474,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
   assert.match(elementSource, /engineFace\.cancelLayoutWork\(this\)/u);
   assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
-  assert.match(elementSource, /#responsiveGeometrySignature\(\) !== this\.#layoutWorkGeometrySignature/u);
+  assert.match(elementSource, /responsiveGeometrySignature\(this\) !== this\.#layoutWorkGeometrySignature/u);
   assert.match(elementSource, /#runtimeStateActive = false/u);
   assert.match(elementSource, /operation === this\.#layoutOperation/u);
   assert.doesNotMatch(elementSource, /#snapshotBackedByRuntime/u);

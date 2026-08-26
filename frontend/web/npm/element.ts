@@ -38,16 +38,13 @@ import * as engineFace from "@tiqian/core/core/engine/face.js";
 import {
   DEFAULT_PARAGRAPH_SELECTOR,
   fragmentedBorderBoxInlineSize,
-  TYPOGRAPHY_PROPERTIES,
   typographySignature,
-  elementTypographySignature,
   typographyElements,
   captureLayoutWorkViewportTypographyEntries,
   layoutWorkViewportTypographyChanged,
   paragraphWidthSignature,
   responsiveGeometrySignature,
   paragraphMeasureSignature,
-  paragraphMeasureEntry,
 } from "@tiqian/core/core/sampler/signatures.js";
 import {
   createParagraphGridMetricsState,
@@ -527,7 +524,7 @@ class TiqianProseElement extends HTMLElementBase {
         isCurrent: () => this.isConnected && generation === this.#context.generation,
         bypassesFontWait: () => this.hasAttribute("snapshot-ref") &&
           !strongEmphasisRuntimeRequired,
-        typographyElements: () => this.#typographyElements(),
+        typographyElements: () => typographyElements(this),
         deferUntilFontsSettle: (gateGeneration, completion) =>
           this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
       }))
@@ -767,7 +764,7 @@ class TiqianProseElement extends HTMLElementBase {
   #deferInitialEnhancementUntilFontsSettle(generation: number, completion: Promise<unknown>) {
     this.#initialFontRetry ??= createInitialFontRetryController(this, {
       isGenerationCurrent: (candidate) => candidate === this.#context.generation,
-      typographyElements: () => this.#typographyElements(),
+      typographyElements: () => typographyElements(this),
       restartConnectedLifecycle: () => this.#restartConnectedLifecycle(),
     });
     this.#initialFontRetry.deferUntilFontsSettle(generation, completion);
@@ -1175,13 +1172,13 @@ class TiqianProseElement extends HTMLElementBase {
     this.#layoutWorkRevision = this.#geometryRevision;
     this.#layoutWorkSignaturesCaptured = captureSignatures;
     this.#layoutWorkGeometrySignature = captureSignatures
-      ? this.#responsiveGeometrySignature()
+      ? responsiveGeometrySignature(this)
       : "";
     this.#layoutWorkMeasureSignature = captureSignatures
       ? this.#paragraphMeasureSignature()
       : "";
     this.#layoutWorkViewportTypographyEntries = captureSignatures
-      ? this.#captureLayoutWorkViewportTypographyEntries()
+      ? captureLayoutWorkViewportTypographyEntries(this)
       : [];
     this.#layoutWorkTypographySignature = "";
     if (captureSignatures) {
@@ -1211,7 +1208,7 @@ class TiqianProseElement extends HTMLElementBase {
     const rawGeometryChangedDuringWork = this.#layoutWorkInFlight &&
       (this.#geometryRevision !== this.#layoutWorkRevision || this.#responsiveCommitRequired ||
         (signaturesCaptured &&
-          this.#responsiveGeometrySignature() !== this.#layoutWorkGeometrySignature));
+          responsiveGeometrySignature(this) !== this.#layoutWorkGeometrySignature));
     // ObserverBaselineAfterUncapturedLayout: progressive enhancement mutates
     // the paragraph DOM while ResizeObserver is paused. Seed its committed
     // width, grid and typography baselines from that final DOM exactly once;
@@ -1226,7 +1223,7 @@ class TiqianProseElement extends HTMLElementBase {
     // would misread renderer output as a host typography change. Refreshing
     // here triggers no comparison of its own; the next one just starts from
     // the true current state.
-    const currentTypography = this.#typographySignature();
+    const currentTypography = typographySignature(this);
     // ResponsiveFinishSkipsDoomedSignatureReads: a finish that returns through
     // the responsive-commit branch stores no paragraph baseline. Width
     // movement puts every relayout finish onto that branch, and relayout
@@ -1240,7 +1237,7 @@ class TiqianProseElement extends HTMLElementBase {
         this.#layoutWorkMeasureSignature !== "");
     const currentParagraphWidths = signaturesConsumedByFinish &&
         !this.#layoutWorkUsesCapturedMeasure
-      ? this.#paragraphWidthSignature()
+      ? paragraphWidthSignature(this)
       : this.#lastParagraphWidths;
     let currentMeasures: string;
     if (signaturesConsumedByFinish) {
@@ -1612,7 +1609,7 @@ class TiqianProseElement extends HTMLElementBase {
         // drops the seeds while surviving paragraph nodes stay in the width
         // map, and the width gate alone would then strand them on the
         // read-based fallback for every commit.
-        if (!this.#gridMetricsState.metrics?.has(paragraph)) this.#seedParagraphGridMetrics(paragraph);
+        if (!this.#gridMetricsState.metrics?.has(paragraph)) seedParagraphGridMetrics(this.#gridMetricsState, paragraph);
         if (this.#sizeObservation.widths.has(paragraph)) continue;
         this.#sizeObservation.widths.set(paragraph, fragmentedBorderBoxInlineSize(paragraph));
         this.#sizeObservation.observe(paragraph);
@@ -1632,7 +1629,7 @@ class TiqianProseElement extends HTMLElementBase {
     for (let i = 0; i < targets.length; i++) {
       const target = targets[i];
       widths.set(target, fragmentedBorderBoxInlineSize(target));
-      if (target !== this) this.#seedParagraphGridMetrics(target);
+      if (target !== this) seedParagraphGridMetrics(this.#gridMetricsState, target);
     }
     this.#sizeObservation = createRootSizeObservation({
       root: this,
@@ -1848,7 +1845,7 @@ class TiqianProseElement extends HTMLElementBase {
     const width = this.#lastObservedWidth || fragmentedBorderBoxInlineSize(this);
     this.#lastObservedWidth = width;
     const widthsChanged = Math.abs(width - this.#lastWidth) >= 0.5;
-    const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : this.#paragraphWidthSignature();
+    const paragraphWidths = widthsChanged ? this.#lastParagraphWidths : paragraphWidthSignature(this);
     // LineLengthGridResponsiveInvalidation: the quantized measure signature
     // is computed on every commit, width changes included, so the same-named
     // gate below can skip in-cell width motion instead of dispatching a job
@@ -1861,7 +1858,7 @@ class TiqianProseElement extends HTMLElementBase {
     const measuresChanged = paragraphMeasures !== this.#lastParagraphMeasures;
     const signature = (widthsChanged && !this.#forceTypographyRefresh)
       ? this.#lastTypography
-      : this.#typographySignature();
+      : typographySignature(this);
     const typographyChanged = signature !== this.#lastTypography;
     if (!forceLatestWidth && !widthsChanged && !measuresChanged && !typographyChanged) {
       this.#observeWidth();
@@ -1979,7 +1976,7 @@ class TiqianProseElement extends HTMLElementBase {
         !this.isConnected || !this.#layoutWorkInFlight ||
         !this.#layoutWorkUsesCapturedMeasure || operation !== this.#layoutOperation
       ) return;
-      if (this.#layoutWorkViewportTypographyChanged()) {
+      if (layoutWorkViewportTypographyChanged(this, this.#layoutWorkViewportTypographyEntries)) {
         this.#cancelCapturedLayoutForTypographyChange();
         return;
       }
@@ -2048,7 +2045,7 @@ class TiqianProseElement extends HTMLElementBase {
           if (snapshotLiveIssue) this.dataset.tiqianSnapshotLiveIssue = snapshotLiveIssue;
           const relevantFaceLoaded = fontLoadingAffectsTypography(
             event as FontLoadingEventLike,
-            this.#typographyElements(),
+            typographyElements(this),
           );
           const force = this.#forceTypographyRefresh || relevantFaceLoaded;
           if (this.#deferredTypographyCheck || force) this.#scheduleTypographyCheck(force);
@@ -2101,14 +2098,6 @@ class TiqianProseElement extends HTMLElementBase {
     this.#contentInvalidation.start();
   }
 
-  #syncRawDomObservation() {
-    this.#contentInvalidation?.syncRawDom();
-  }
-
-  #rawDomParagraphFor(node: Node) {
-    return this.#contentInvalidation?.paragraphFor(node) ?? null;
-  }
-
   #stopContentObservation() {
     this.#contentInvalidation?.stop();
     this.#contentInvalidation = null;
@@ -2122,7 +2111,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (!this.#hasDispatched) return;
     const { taintedParagraphs, paragraphSignal, structureSignal } =
       classifyContentMutationRecords(records, {
-        rawDomParagraphFor: (node) => this.#rawDomParagraphFor(node),
+        rawDomParagraphFor: (node) => this.#contentInvalidation?.paragraphFor(node) ?? null,
         belongsToRootScope,
         root: this,
       });
@@ -2166,7 +2155,7 @@ class TiqianProseElement extends HTMLElementBase {
     // Mid-job takeovers publish fresh raw-DOM backup fragments; adopt them before
     // reading raw-DOM backup identity so a host edit made during enhancement is
     // already under observation when the probe runs.
-    this.#syncRawDomObservation();
+    this.#contentInvalidation?.syncRawDom();
     const drift = engineFace.probeContentDrift(this);
     const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
       (drift?.rawDom || 0);
@@ -2206,7 +2195,7 @@ class TiqianProseElement extends HTMLElementBase {
       // returns never stored a paragraph baseline, so the commit fall-through
       // would compare a stale signature and dispatch a phantom relayout.
       this.#lastParagraphMeasures = this.#paragraphMeasureSignature();
-      this.#lastParagraphWidths = this.#paragraphWidthSignature();
+      this.#lastParagraphWidths = paragraphWidthSignature(this);
       return false;
     }
     this.#syncLayoutWorker();
@@ -2241,16 +2230,16 @@ class TiqianProseElement extends HTMLElementBase {
             // current mixed native/rendered state, not against the all-native DOM
             // from before the first commit. A batch containing any host mutation
             // still falls through to the invalidation check below.
-            this.#layoutWorkTypographySignature = this.#typographySignature();
+            this.#layoutWorkTypographySignature = typographySignature(this);
             return;
           }
-          if (this.#typographySignature() === this.#layoutWorkTypographySignature) return;
+          if (typographySignature(this) === this.#layoutWorkTypographySignature) return;
           this.#cancelCapturedLayoutForTypographyChange();
         },
         onFontEvent: (event) => {
           if (
             this.#layoutWorkInFlight && this.#layoutWorkUsesCapturedMeasure &&
-            fontLoadingAffectsTypography(event as FontLoadingEventLike, this.#typographyElements())
+            fontLoadingAffectsTypography(event as FontLoadingEventLike, typographyElements(this))
           ) this.#cancelCapturedLayoutForTypographyChange();
         },
       });
@@ -2311,7 +2300,7 @@ class TiqianProseElement extends HTMLElementBase {
   // baseline to the current mixed state here; a later real host change still
   // differs from it.
   #advanceTypographyBaselineAfterCancellation() {
-    this.#lastTypography = this.#typographySignature();
+    this.#lastTypography = typographySignature(this);
   }
 
   #restoreRuntimeSourceForRetarget() {
@@ -2341,7 +2330,7 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       this.#deferredTypographyCheck = false;
-      const signature = this.#typographySignature();
+      const signature = typographySignature(this);
       const changed = signature !== this.#lastTypography;
       const shouldRefresh = changed || this.#forceTypographyRefresh;
       this.#forceTypographyRefresh = false;
@@ -2353,26 +2342,6 @@ class TiqianProseElement extends HTMLElementBase {
       }
       this.#refreshRuntimeFromSource();
     });
-  }
-
-  #typographySignature(includeGenerated = true): string {
-    return typographySignature(this, includeGenerated);
-  }
-
-  #elementTypographySignature(element: Element, includeGenerated = true, properties = TYPOGRAPHY_PROPERTIES): string {
-    return elementTypographySignature(element, includeGenerated, properties);
-  }
-
-  #captureLayoutWorkViewportTypographyEntries(): TypographyViewportEntry[] {
-    return captureLayoutWorkViewportTypographyEntries(this);
-  }
-
-  #layoutWorkViewportTypographyChanged(): boolean {
-    return layoutWorkViewportTypographyChanged(this, this.#layoutWorkViewportTypographyEntries);
-  }
-
-  #typographyElements(): Element[] {
-    return typographyElements(this);
   }
 
   #observeIntersection() {
@@ -2412,20 +2381,8 @@ class TiqianProseElement extends HTMLElementBase {
     this.#visibilityObservation = null;
   }
 
-  #paragraphWidthSignature(): string {
-    return paragraphWidthSignature(this);
-  }
-
-  #responsiveGeometrySignature(): string {
-    return responsiveGeometrySignature(this);
-  }
-
   #paragraphMeasureSignature(): string {
     return paragraphMeasureSignature(this, Boolean(this.#snapshotFontSession));
-  }
-
-  #paragraphMeasureEntry(paragraph: Element, snapshotFontLayout: boolean): string {
-    return paragraphMeasureEntry(paragraph, snapshotFontLayout);
   }
 
   #paragraphMeasureSignatureFromObserved(): string {
@@ -2438,9 +2395,6 @@ class TiqianProseElement extends HTMLElementBase {
     );
   }
 
-  #seedParagraphGridMetrics(paragraph: Element) {
-    seedParagraphGridMetrics(this.#gridMetricsState, paragraph);
-  }
 }
 
 declare global {
