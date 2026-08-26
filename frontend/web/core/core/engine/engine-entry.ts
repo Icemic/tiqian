@@ -86,8 +86,12 @@ export function createEngineEntry(
   // Internal helpers (from WebEnhancerSupport.kt @JsFun bodies)
   // ---------------------------------------------------------------------------
 
-  function ensureCopyHandler(): void {
-    if (globalThis.document) copyInstaller.install(globalThis.document);
+  function ensureCopyHandler(root: Element): void {
+    // TargetDocumentExplicit: install the copy listener on the document that
+    // actually owns the enhanced root; the ambient fallback covers fake-DOM
+    // test worlds whose roots carry no ownerDocument.
+    const targetDocument = root.ownerDocument ?? globalThis.document;
+    if (targetDocument) copyInstaller.install(targetDocument);
   }
 
   function releasePreparedRootDomStyles(root: HTMLElement): boolean {
@@ -170,7 +174,7 @@ export function createEngineEntry(
   // Synchronous one-shot enhance. Internal third param fromCanonical controls
   // the root-state creation path; public entry passes false.
   engine.enhance = function enhance(root: HTMLElement, optionsBag?: unknown, fromCanonical?: boolean): number {
-    ensureCopyHandler();
+    ensureCopyHandler(root);
     engine.destroy!(root);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)

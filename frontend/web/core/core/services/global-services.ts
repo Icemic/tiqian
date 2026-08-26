@@ -58,10 +58,11 @@ export interface ViewportAnchorState {
   ownerHolds: WeakMap<HTMLElement, unknown>;
 }
 
-/** Stylesheet loader handles (S5-tail). One stylesheet per page. */
+/** Stylesheet loader handles (S5-tail). One stylesheet per document, keyed
+ * by document so multi-document hosts never share a link or load promise. */
 export interface StylesheetLoaderState {
-  stylesheetPromise: Promise<unknown> | undefined;
-  stylesheetElement: unknown;
+  stylesheetPromises: WeakMap<Document, Promise<unknown>>;
+  stylesheetElements: WeakMap<Document, unknown>;
 }
 
 export interface GlobalServices {
@@ -98,8 +99,8 @@ export interface GlobalServices {
   // Viewport gesture and scroll-anchoring state (S5-tail): document-wide
   // singletons for gesture tracking and native scroll anchoring holds.
   viewportAnchor?: ViewportAnchorState;
-  // Stylesheet loader handles (S5-tail): one stylesheet promise and link
-  // element per page.
+  // Stylesheet loader handles (S5-tail): one stylesheet link element and load
+  // promise per document.
   stylesheetLoader?: StylesheetLoaderState;
 }
 
@@ -137,8 +138,8 @@ function createGlobalServices(): GlobalServices {
       ownerHolds: new WeakMap(),
     },
     stylesheetLoader: {
-      stylesheetPromise: undefined,
-      stylesheetElement: undefined,
+      stylesheetPromises: new WeakMap(),
+      stylesheetElements: new WeakMap(),
     },
   };
 }
