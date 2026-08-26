@@ -90,6 +90,11 @@ export interface GlobalServices {
   // this slot at import time; consumers read it through the runtime-loader
   // accessor functions.
   runtimeLoader?: RuntimeLoaderSlot;
+  // Prepared-dom state slot: the renderer module accessors and the snapshot
+  // validator seam, split out of the engine loader record so engine
+  // bootstrap state stays engine-only. Populated at runtime-loader import
+  // time; consumers read it through the runtime-loader accessor functions.
+  preparedDom?: RuntimeLoaderSlot;
   // Snapshot-table deduplication caches (S5-tail): page-wide maps that
   // cache loaded and resolved binary tables by URL reference.
   snapshotTables?: SnapshotTablesState;
@@ -122,6 +127,7 @@ function createGlobalServices(): GlobalServices {
       scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
     },
     runtimeLoader: undefined,
+    preparedDom: undefined,
     snapshotTables: {
       loadedTables: new Map(),
       resolvedTables: new Map(),
