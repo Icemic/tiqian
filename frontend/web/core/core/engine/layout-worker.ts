@@ -11,7 +11,8 @@ import type {
   WorkerResponseEnvelope,
 } from "./web-worker/worker-channel.js";
 import { precomputeParagraphWithDiagnostics } from "@tiqian/ffi";
-import type { DecorationWire, PrepareParagraphRequest } from "@tiqian/ffi";
+import type { DecorationWire } from "@tiqian/ffi";
+import { prepareParagraphRequestWire } from "./wire-construction.js";
 import type { WorkerLayoutRequestBody } from "./web-worker/worker-channel.js";
 
 type WorkerMessageEventListener = (event: MessageEvent<WorkerRequestEnvelope>) => void | Promise<void>;
@@ -67,9 +68,10 @@ function errorDetail(error: unknown): string {
     // zeroAdvanceEpsilonPx only prefilters the diagnostics channel, which the
     // worker discards; the plan bytes do not depend on the value.
     // The worker channel sends no decorations; a typed empty array keeps the
-    // literal comparable to the DTO so the boundary needs a single assertion.
+    // field at the wire element type. The brand crossing lives in
+    // wire-construction.js.
     const decorations: Array<DecorationWire> = [];
-    const requestDto: PrepareParagraphRequest = {
+    const requestDto = prepareParagraphRequestWire({
       text: request.text,
       maxWidthPx: request.maxWidthPx,
       fontFamilies: request.fontFamilies,
@@ -88,7 +90,7 @@ function errorDetail(error: unknown): string {
       decorations: decorations,
       emphasisDotGapEm: null,
       renderEvidenceOverride: request.renderEvidence,
-    } as PrepareParagraphRequest;
+    });
     const rawEnvelope = precomputeParagraphWithDiagnostics(
       requestDto,
       0.0,

@@ -303,7 +303,8 @@ function fontFaceCoversWeight(faceWeight: unknown, requestedWeight: unknown): bo
   if (requested == null || faceWeight == null || String(faceWeight).trim() === "") return true;
   const bounds = String(faceWeight).trim().split(/\s+/u).map(numericFontWeight);
   if (bounds.some((value) => value == null)) return true;
-  return requested >= Math.min(...(bounds as number[])) && requested <= Math.max(...(bounds as number[]));
+  const weights = bounds.filter((value): value is number => value != null);
+  return requested >= Math.min(...weights) && requested <= Math.max(...weights);
 }
 
 function fontFaceCoversStyle(faceStyle: unknown, requestedStyle: unknown): boolean {

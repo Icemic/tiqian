@@ -42,7 +42,7 @@ export interface LiveSemanticSpan extends SnapshotSemanticRange {
 
 export interface SnapshotSourceArtifact {
   text: string;
-  semantics: SnapshotSemanticSpan[];
+  readonly semantics: readonly SnapshotSemanticSpan[];
 }
 
 interface SnapshotSemanticSpanInput {
@@ -102,42 +102,45 @@ type SemanticRangeLower<L extends Record<string, unknown>> = (
   sourceIndex: number,
 ) => L;
 
+type SemanticRangeOrdering<L extends Record<string, unknown>> = {
+  range: SnapshotSemanticRange & L;
+  order: number;
+};
+
 type SnapshotMetricContractPredicate = (span: SnapshotSemanticMetricContractSpan) => boolean;
 
 function normalizeSemanticRanges<L extends Record<string, unknown>>(
   textValue: unknown,
-  value: SnapshotSemanticSpanInput[],
+  value: readonly SnapshotSemanticSpanInput[],
   lowerSpan: SemanticRangeLower<L>,
-): readonly SnapshotSemanticRange[] {
+): readonly (SnapshotSemanticRange & L)[] {
   const text = String(textValue);
   if (!Array.isArray(value)) throw semanticError("InvalidSnapshotSemantics");
-  const semantics = value.map((span, sourceIndex) => {
+  const semantics = value.map((span, sourceIndex): SemanticRangeOrdering<L> => {
     const start = Number(span?.start);
     const end = Number(span?.end);
     assertUtf16Boundary(text, start);
     assertUtf16Boundary(text, end);
     if (end <= start) throw semanticError("InvalidSnapshotSemanticRange");
     return {
-      start,
-      end,
-      ...lowerSpan(span, sourceIndex),
-      _sortOrder: Number.isSafeInteger(span?.order) ? Number(span.order) : sourceIndex,
+      range: { start, end, ...lowerSpan(span, sourceIndex) },
+      order: Number.isSafeInteger(span?.order) ? Number(span.order) : sourceIndex,
     };
   }).sort((left, right) =>
-    left.start - right.start || right.end - left.end || left._sortOrder - right._sortOrder);
+    left.range.start - right.range.start || right.range.end - left.range.end || left.order - right.order);
 
   const stack: SnapshotSemanticRange[] = [];
-  for (const span of semantics) {
-    while (stack.length > 0 && span.start >= stack.at(-1)!.end) stack.pop();
+  for (const { range } of semantics) {
+    while (stack.length > 0 && range.start >= stack.at(-1)!.end) stack.pop();
     const parent = stack.at(-1);
-    if (parent && span.end > parent.end) throw semanticError("CrossingSnapshotSemanticRanges");
-    stack.push(span);
+    if (parent && range.end > parent.end) throw semanticError("CrossingSnapshotSemanticRanges");
+    stack.push(range);
   }
-  return Object.freeze(semantics.map(({ _sortOrder, ...span }) => Object.freeze(span)));
+  return Object.freeze(semantics.map((item): SnapshotSemanticRange & L => Object.freeze(item.range)));
 }
 
 /** Canonical controlled inline semantics shared by precompute and adoption. */
-export function normalizeSnapshotSemantics(textValue: unknown, value: SnapshotSemanticSpanInput[] = []): SnapshotSemanticSpan[] {
+export function normalizeSnapshotSemantics(textValue: unknown, value: readonly SnapshotSemanticSpanInput[] = []): readonly SnapshotSemanticSpan[] {
   return normalizeSemanticRanges<{ tagName: string; attributes: SnapshotSemanticAttributes }>(
     textValue,
     value,
@@ -151,7 +154,7 @@ export function normalizeSnapshotSemantics(textValue: unknown, value: SnapshotSe
         attributes: Object.freeze(normalizedAttributes(span?.attributes)),
       };
     },
-  ) as SnapshotSemanticSpan[];
+  );
 }
 
 /**
@@ -159,7 +162,7 @@ export function normalizeSnapshotSemantics(textValue: unknown, value: SnapshotSe
  * absent: the browser renderer shallow-clones the already-trusted source node
  * instead of serializing host behavior through snapshot HTML.
  */
-export function normalizeLiveSemantics(textValue: unknown, value: SnapshotSemanticSpanInput[] = []): LiveSemanticSpan[] {
+export function normalizeLiveSemantics(textValue: unknown, value: readonly SnapshotSemanticSpanInput[] = []): readonly LiveSemanticSpan[] {
   return normalizeSemanticRanges<{ tagName: string; sourceIndex: number }>(
     textValue,
     value,
@@ -173,16 +176,16 @@ export function normalizeLiveSemantics(textValue: unknown, value: SnapshotSemant
           : sourceIndex,
       };
     },
-  ) as LiveSemanticSpan[];
+  );
 }
 
-export function snapshotSourceArtifact(textValue: unknown, semanticsValue: SnapshotSemanticSpanInput[] = []): SnapshotSourceArtifact {
+export function snapshotSourceArtifact(textValue: unknown, semanticsValue: readonly SnapshotSemanticSpanInput[] = []): SnapshotSourceArtifact {
   const text = String(textValue);
   const semantics = normalizeSnapshotSemantics(text, semanticsValue);
   return Object.freeze({ text, semantics });
 }
 
-export function snapshotSourceArtifactString(textValue: unknown, semanticsValue: SnapshotSemanticSpanInput[] = []): string {
+export function snapshotSourceArtifactString(textValue: unknown, semanticsValue: readonly SnapshotSemanticSpanInput[] = []): string {
   return stableStringify(snapshotSourceArtifact(textValue, semanticsValue));
 }
 

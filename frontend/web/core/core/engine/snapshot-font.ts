@@ -12,7 +12,7 @@ import type {
   BrowserRenderFontPreparer,
 } from "../measurement/browser-fonts.js";
 
-export type PreparedRenderFontStyleInstaller = (root: Element, renderFontFamilies: string[]) => boolean;
+export type PreparedRenderFontStyleInstaller = (root: Element, renderFontFamilies: readonly string[]) => boolean;
 export type PreparedRenderFontStyleReleaser = (root: Element) => boolean;
 
 // Loader operations carry the browser font session implementation; their

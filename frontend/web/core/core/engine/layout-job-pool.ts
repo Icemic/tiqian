@@ -154,7 +154,10 @@ export function createLayoutJobPool(): LayoutJobPool {
     done[item] = true;
     const pending = job.tierPending;
     if (!pending) return;
-    let tier = (job.paragraphTiers as number[])[(job.itemTierIndex as number[])[item]];
+    const tiers = job.paragraphTiers;
+    const itemTierIndex = job.itemTierIndex;
+    if (!tiers || !itemTierIndex) return;
+    let tier = tiers[itemTierIndex[item]];
     if (tier < 1) tier = 1;
     if (tier > TIER_COUNT) tier = TIER_COUNT;
     if (pending[tier - 1] > 0) pending[tier - 1] -= 1;

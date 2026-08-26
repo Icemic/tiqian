@@ -803,20 +803,25 @@ function cssFamilyToken(family: unknown): string {
   return `"${String(family).replaceAll("\\", "\\\\").replaceAll("\"", "\\\"")}"`;
 }
 
+function isElementNode(node: Node): node is Element {
+  return node.nodeType === 1;
+}
+
 function canonicalRenderedPlainSource(parent: Node): string {
   let result = "";
-  const children = Array.from(parent.childNodes ?? []) as Element[];
+  const children = Array.from(parent.childNodes);
   for (let index = 0; index < children.length; index += 1) {
     const node = children[index];
     if (node.nodeType === 3) {
       result += node.textContent ?? "";
       continue;
     }
-    if (node.nodeType !== 1 || node.hasAttribute("data-tq-copy-ignore")) continue;
+    if (!isElementNode(node) || node.hasAttribute("data-tq-copy-ignore")) continue;
     if (node.hasAttribute("data-tq-src")) {
       const next = children[index + 1];
       const pairedMandatoryBreak = node.hasAttribute("data-tq-hard-break") &&
-        next?.tagName === "BR" && next.getAttribute("data-tq-engine-break") === "MandatoryBreak";
+        next !== undefined && isElementNode(next) && next.tagName === "BR" &&
+        next.getAttribute("data-tq-engine-break") === "MandatoryBreak";
       if (!pairedMandatoryBreak) result += node.getAttribute("data-tq-src") ?? "";
       continue;
     }
@@ -1188,10 +1193,10 @@ function renderedBoundaryAdvanceIssue(paragraph: Element): number | string | nul
 }
 
 function renderedLineAdvanceIssue(paragraph: Element, contentWidth: number): string | null {
-  const children: Element[] = [];
+  const children: Node[] = [];
   const appendFlowNodes = (parent: Node): void => {
-    for (const node of Array.from(parent.childNodes ?? []) as Element[]) {
-      if (node.nodeType === 1 && node.hasAttribute("data-tq-source-semantic")) {
+    for (const node of Array.from(parent.childNodes ?? [])) {
+      if (isElementNode(node) && node.hasAttribute("data-tq-source-semantic")) {
         appendFlowNodes(node);
       } else {
         children.push(node);
@@ -1223,7 +1228,7 @@ function renderedLineAdvanceIssue(paragraph: Element, contentWidth: number): str
     let contributorIndex = 0;
     for (let index = markerIndex + 1; index < sentinelIndex; index += 1) {
       const node = children[index];
-      if (node.nodeType !== 1) {
+      if (!isElementNode(node)) {
         // `NecessaryGeometrySpanOnly`: ordinary prose stays in native Text
         // nodes. The sentinel still cross-checks the complete line advance;
         // only nodes carrying an independent geometry contract need their own
@@ -1390,7 +1395,7 @@ export const preparedDomValidator: PreparedDomValidatorInterface = Object.freeze
     }
     return issue;
   },
-} as PreparedDomValidatorInterface);
+});
 
 function computedTypographyIssue(
   paragraph: HTMLElement,
@@ -1504,7 +1509,7 @@ function computedTypographyMatches(
 
 function canonicalUnicodeRanges(ranges: UnicodeRange[] | null): UnicodeRange[] | null {
   if (ranges == null) return null;
-  return ranges.map(([start, end]) => [start, end] as UnicodeRange).sort((left, right) =>
+  return ranges.map(([start, end]): UnicodeRange => [start, end]).sort((left, right) =>
     left[0] - right[0] || left[1] - right[1]);
 }
 
@@ -1560,7 +1565,8 @@ export function cssFaceContract(
   // of requiring every shadowed shard to have the selected shard's range/URL.
   const candidates = Array.from(new Set(coveragePoints.map((codePoint) =>
     weightedCandidates.findLast((face) =>
-      unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))))).filter(Boolean) as CollectedFontFace[];
+      unicodeRangesContainCodePoint(face.unicodeRanges, codePoint))))).filter(
+        (face): face is CollectedFontFace => face != null);
   const defaultDescriptor = (value: unknown, defaults: Set<string>): boolean =>
     defaults.has(String(value ?? "").trim().toLowerCase());
   const snapshotFirstPaintDisplay = (value: unknown): boolean =>
@@ -1921,12 +1927,12 @@ function restoreServerRenderedSnapshotSource(root: HTMLElement): boolean {
 function canonicalSnapshotNode(node: Node): CanonicalNode {
   if (node.nodeType === 3) return ["#", String(node.textContent ?? "")];
   if (node.nodeType !== 1) throw new Error("UnsupportedSnapshotArtifactNode");
-  const attributes = Array.from((node as Element).attributes ?? [], (attribute) => (
+  const attributes = Array.from((node as Element).attributes ?? [], (attribute): [string, string] => (
     Array.isArray(attribute)
       ? [String(attribute[0]), String(attribute[1])]
       : [String(attribute.name), String(attribute.value)]
   ))
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0) as [string, string][];
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
   return [
     String((node as Element).tagName).toLowerCase(),
     attributes,
@@ -1945,8 +1951,14 @@ async function snapshotArtifactMatches(snapshot: Element, expectedSha256: unknow
 }
 
 function rootParagraphs(root: HTMLElement, selector: string): HTMLElement[] {
-  return Array.from(root.querySelectorAll(selector)).filter((paragraph) =>
-    paragraph.closest(ROOT_SELECTOR) === root) as HTMLElement[];
+  // The paragraph query runs inside the host HTML document, so every
+  // element result carries the HTMLElement surface; the Node test
+  // environment supplies that surface through its element shim, so an
+  // instanceof check cannot be the runtime filter here.
+  return Array.from(root.querySelectorAll(selector)).filter(
+    (node): node is HTMLElement =>
+      isElementNode(node) && node.closest(ROOT_SELECTOR) === root,
+  );
 }
 
 function miss(root: HTMLElement, reason: string): SnapshotAdoptOutcome {

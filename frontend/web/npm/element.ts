@@ -885,7 +885,7 @@ class TiqianProseElement extends HTMLElementBase {
       try {
         this.#snapshotFontSession!.installRenderFont(
           this,
-          snapshotFontSession.renderFontFamilies as string[],
+          snapshotFontSession.renderFontFamilies,
         );
         this.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true");
         // HostRenderFontReadyBeforeCommit: server replay already owns the

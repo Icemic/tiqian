@@ -20,7 +20,15 @@ import {
   precomputeParagraphWithBrowserMetrics,
   precomputeParagraphWithDiagnostics,
 } from "@tiqian/ffi";
-import type { PrepareParagraphRequest, TextSpanWire, InlineBoxWire, LineBreakSpanWire, InlineObjectWire, DecorationWire } from "@tiqian/ffi";
+import type { PrepareParagraphRequest } from "@tiqian/ffi";
+import {
+  decorationWires,
+  inlineBoxWires,
+  inlineObjectWires,
+  lineBreakSpanWires,
+  prepareParagraphRequestWire,
+  textSpanWires,
+} from "./wire-construction.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 
 interface LayoutPlanLine {
@@ -133,7 +141,7 @@ const SNAPSHOT_FONT_SESSION_CAPABILITY_FAILURES = [
 // Twins of the worker-request.js serializer functions, copied locally so
 // both files stay embeddable and import-free.
 export function wireArguments(lowered: LoweredParagraph): PrepareParagraphRequest {
-  const textSpans: TextSpanWire[] = lowered.spans.map(function (span) {
+  const textSpans = textSpanWires(lowered.spans.map(function (span) {
     return {
       start: span.start,
       end: span.end,
@@ -142,56 +150,56 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
       fontWeight: span.style.fontWeight,
       italic: span.style.italic,
       baselineShift: span.style.baselineShift,
-    } as TextSpanWire;
-  });
+    };
+  }));
 
   // InlineBoxOuterSpacing default chain: the wire never carries outer
   // spacing, so every inlineBoxes join field emits the string Narrow.
-  const inlineBoxes: InlineBoxWire[] = lowered.inlineBoxes.map(function (box) {
+  const inlineBoxes = inlineBoxWires(lowered.inlineBoxes.map(function (box) {
     return {
       start: box.start,
       end: box.end,
       inlineStart: box.inlineStart,
       inlineEnd: box.inlineEnd,
       outerSpacing: 'Narrow',
-    } as InlineBoxWire;
-  });
+    };
+  }));
 
   // LineBreakPolicy decode maps every wire policy string to the same
   // member, so the join always emits ProgressiveTechnical.
-  const lineBreakSpans: LineBreakSpanWire[] = lowered.lineBreakSpans.map(function (span) {
+  const lineBreakSpans = lineBreakSpanWires(lowered.lineBreakSpans.map(function (span) {
     return {
       start: span.start,
       end: span.end,
       policy: 'ProgressiveTechnical',
-    } as LineBreakSpanWire;
-  });
+    };
+  }));
 
-  const inlineObjects: InlineObjectWire[] = lowered.inlineObjects.map(function (span) {
+  const inlineObjects = inlineObjectWires(lowered.inlineObjects.map(function (span) {
     return {
       start: span.start,
       end: span.end,
       advance: span.advance,
       ascent: span.ascent,
       descent: span.descent,
-    } as InlineObjectWire;
-  });
+    };
+  }));
 
   // Decorations (mirrors the Kotlin parseDecorations landed in 33c5106):
   // each entry carries start, end, and the member-name kind string.
-  const decorations: DecorationWire[] = lowered.decorations.map(function (decoration) {
+  const decorations = decorationWires(lowered.decorations.map(function (decoration) {
     return {
       start: decoration.start,
       end: decoration.end,
       kind: decoration.kind,
-    } as DecorationWire;
-  });
+    };
+  }));
 
   // SourceBoundary wire: dedupe into a Set, sort ascending, join by comma.
   const sourceBoundaries: number[] = Array.from(new Set(lowered.sourceBoundaries))
     .sort(function (a, b) { return a - b; });
 
-  return {
+  return prepareParagraphRequestWire({
     text: lowered.text,
     maxWidthPx: 0, // Will be set by caller
     fontFamilies: lowered.textStyle.fontFamilies,
@@ -210,7 +218,7 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
     decorations: decorations,
     emphasisDotGapEm: null, // Will be set by caller
     renderEvidenceOverride: null, // Will be set by caller
-  } as PrepareParagraphRequest;
+  });
 }
 
   // RuntimeSnapshotPreparedDomScope: inline the lowered-paragraph.js predicate

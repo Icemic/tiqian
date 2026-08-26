@@ -22,7 +22,16 @@ import {
   firstDivergentInlineShapingProperty,
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
-import type { WorkerLayoutRequest, TextSpanWire, InlineBoxWire, LineBreakSpanWire, InlineObjectWire, SemanticSpanWire, RenderInlineBoxWire } from "@tiqian/ffi";
+import type { WorkerLayoutRequest } from "@tiqian/ffi";
+import {
+  inlineBoxWires,
+  inlineObjectWires,
+  lineBreakSpanWires,
+  renderInlineBoxWires,
+  semanticSpanWires,
+  textSpanWires,
+  workerLayoutRequestWire,
+} from "./wire-construction.js";
 import { shouldTryParagraph } from "./eligibility.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { lowerMarkdown } from "./markdown-lowering.js";
@@ -118,7 +127,7 @@ function hasRenderEvidence(lowered: LoweredParagraph): boolean {
  * @returns {WorkerLayoutRequest}
  */
 export function buildWorkerLayoutRequest(paragraph: Element, lowered: LoweredParagraph, width: number, firstLineIndentIc: number): WorkerLayoutRequest {
-  const textSpans: TextSpanWire[] = lowered.spans.map(function (span) {
+  const textSpans = textSpanWires(lowered.spans.map(function (span) {
     return {
       start: span.start,
       end: span.end,
@@ -127,48 +136,48 @@ export function buildWorkerLayoutRequest(paragraph: Element, lowered: LoweredPar
       fontWeight: span.style.fontWeight,
       italic: span.style.italic,
       baselineShift: span.style.baselineShift,
-    } as TextSpanWire;
-  });
+    };
+  }));
 
   // InlineBoxOuterSpacing default chain: the wire never carries outer
   // spacing. The Kotlin decode (MarkdownParagraphLowering.kt
   // decodeInlineBoxes) constructs InlineBoxSpan with the constructor default
   // InlineBoxOuterSpacing.Narrow (core TextModel.kt), so every inlineBoxes
   // join field and renderInlineBoxes entry emits the string Narrow.
-  const inlineBoxes: InlineBoxWire[] = lowered.inlineBoxes.map(function (box) {
+  const inlineBoxes = inlineBoxWires(lowered.inlineBoxes.map(function (box) {
     return {
       start: box.start,
       end: box.end,
       inlineStart: box.inlineStart,
       inlineEnd: box.inlineEnd,
       outerSpacing: 'Narrow',
-    } as InlineBoxWire;
-  });
+    };
+  }));
 
   // LineBreakPolicy decode: the Kotlin decode maps every wire policy string
   // to the same member, so the join always emits ProgressiveTechnical
   // regardless of the source span's policy value.
-  const lineBreakSpans: LineBreakSpanWire[] = lowered.lineBreakSpans.map(function (span) {
+  const lineBreakSpans = lineBreakSpanWires(lowered.lineBreakSpans.map(function (span) {
     return {
       start: span.start,
       end: span.end,
       policy: 'ProgressiveTechnical',
-    } as LineBreakSpanWire;
-  });
+    };
+  }));
 
   // WorkerInlineObjectWire: the same measured geometry the runtime lowering
   // feeds its engine (advance, ascent, descent) so the Worker lays the
   // replacement character out identically; the live element stays on the
   // main thread and enters at commit time.
-  const inlineObjects: InlineObjectWire[] = lowered.inlineObjects.map(function (span) {
+  const inlineObjects = inlineObjectWires(lowered.inlineObjects.map(function (span) {
     return {
       start: span.start,
       end: span.end,
       advance: span.advance,
       ascent: span.ascent,
       descent: span.descent,
-    } as InlineObjectWire;
-  });
+    };
+  }));
 
   // SourceBoundary wire: the Kotlin decode builds a deduped Set, then the
   // builder emits it sorted ascending joined by ",". Array.from(new Set(...))
@@ -179,7 +188,7 @@ export function buildWorkerLayoutRequest(paragraph: Element, lowered: LoweredPar
   // WorkerSemanticHierarchyOrder: sourceSpans are collected after their
   // children, so the list index identifies the live element but cannot also
   // describe outer-to-inner replay order.
-  const semantics: SemanticSpanWire[] = lowered.sourceSpans.map(function (sourceSpan, i) {
+  const semantics = semanticSpanWires(lowered.sourceSpans.map(function (sourceSpan, i) {
     return {
       start: sourceSpan.start,
       end: sourceSpan.end,
@@ -189,20 +198,20 @@ export function buildWorkerLayoutRequest(paragraph: Element, lowered: LoweredPar
       }),
       sourceIndex: i,
       order: sourceSpan.depth,
-    } as SemanticSpanWire;
-  });
+    };
+  }));
 
-  const renderInlineBoxes: RenderInlineBoxWire[] = lowered.inlineBoxes.map(function (inlineBox) {
+  const renderInlineBoxes = renderInlineBoxWires(lowered.inlineBoxes.map(function (inlineBox) {
     return {
       start: inlineBox.start,
       end: inlineBox.end,
       inlineStartPx: inlineBox.inlineStart,
       inlineEndPx: inlineBox.inlineEnd,
       outerSpacing: 'Narrow',
-    } as RenderInlineBoxWire;
-  });
+    };
+  }));
 
-  return {
+  return workerLayoutRequestWire({
     text: lowered.text,
     maxWidthPx: width,
     fontFamilies: lowered.textStyle.fontFamilies,
@@ -222,7 +231,7 @@ export function buildWorkerLayoutRequest(paragraph: Element, lowered: LoweredPar
     semantics: semantics,
     renderInlineBoxes: renderInlineBoxes,
     sourceTag: paragraph.tagName.toLowerCase(),
-  } as WorkerLayoutRequest;
+  });
 }
 
 /**

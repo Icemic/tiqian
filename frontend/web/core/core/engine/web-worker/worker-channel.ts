@@ -118,7 +118,7 @@ export type SemanticReplayMode = "snapshot-safe" | "live-source";
 
 export interface SemanticReplaySuccess {
   mode: SemanticReplayMode;
-  semantics: SnapshotSemanticSpan[] | LiveSemanticSpan[];
+  semantics: readonly SnapshotSemanticSpan[] | readonly LiveSemanticSpan[];
   issue?: undefined;
 }
 

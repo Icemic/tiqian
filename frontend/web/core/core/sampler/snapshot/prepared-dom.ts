@@ -494,7 +494,7 @@ export function installPreparedValueStyles(root: Element, declarations: string[]
  * Kept as an internal compatibility hook. Host-compatible replay inherits the
  * existing font-family, so installing a package-owned family style is a no-op.
  */
-export function installPreparedRenderFontStyle(root: Element, renderFontFamilies: string[]) {
+export function installPreparedRenderFontStyle(root: Element, renderFontFamilies: readonly string[]) {
   if (!Array.isArray(renderFontFamilies) || renderFontFamilies.length === 0 ||
       renderFontFamilies.some((family) => typeof family !== "string" || !family.trim())) {
     throw new Error("InvalidPreparedRenderFontFamilies");
@@ -715,12 +715,14 @@ export function renderPreparedParagraphArtifact(
     throw new Error(`UnsupportedPreparedSemanticReplay:${semanticReplay}`);
   }
   const liveSemanticElements = Array.from(options.liveSemanticElements ?? []);
-  const semantics = semanticReplay === "live-source"
+  const liveSemantics = semanticReplay === "live-source"
     ? normalizeLiveSemantics(options.sourceText ?? sourceText, options.semantics ?? [])
-    : normalizeSnapshotSemantics(options.sourceText ?? sourceText, options.semantics ?? []);
-  if (semanticReplay === "live-source") {
+    : null;
+  const semantics = liveSemantics ??
+    normalizeSnapshotSemantics(options.sourceText ?? sourceText, options.semantics ?? []);
+  if (liveSemantics) {
     const seenSourceIndices = new Set<number>();
-    for (const semantic of semantics as LiveSemanticSpan[]) {
+    for (const semantic of liveSemantics) {
       const sourceElement = liveSemanticElements[semantic.sourceIndex];
       if (!sourceElement || typeof sourceElement.cloneNode !== "function" ||
           String(sourceElement.tagName ?? "").toLowerCase() !== semantic.tagName) {

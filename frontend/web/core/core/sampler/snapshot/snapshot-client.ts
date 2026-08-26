@@ -7,7 +7,7 @@ export interface ClientSnapshotBundle {
   id?: unknown;
   clientTemplate?: unknown;
   initialStyle?: unknown;
-  fontPreloads?: Iterable<unknown>;
+  fontPreloads?: readonly string[];
 }
 
 interface SnapshotBundleNormalized {
@@ -27,7 +27,7 @@ function requireBundle(bundle: ClientSnapshotBundle): SnapshotBundleNormalized {
     throw new Error("SnapshotClientTemplateMissing");
   }
   if (typeof bundle.initialStyle !== "string") throw new Error("SnapshotInitialStyleInvalid");
-  const fontPreloads = Array.from(bundle.fontPreloads ?? []) as string[];
+  const fontPreloads = Array.from(bundle.fontPreloads ?? []);
   if (fontPreloads.some((url) => typeof url !== "string" || url.trim() === "")) {
     throw new Error("SnapshotFontPreloadsInvalid");
   }

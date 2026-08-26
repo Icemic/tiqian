@@ -74,11 +74,10 @@ export interface BrowserMetricsBridgeInstance extends BrowserMetricsCallbacks {}
  * @param {{ fonts: Object, cjkDashCapability: Object|null, env: { createCanvasContext: Function, createProbeElement: Function, attachProbe: Function } }} options
  * @returns BrowserMetricsCallbacks
  */
-export function createBrowserMetricsBridge(options?: BrowserMetricsBridgeOptions): BrowserMetricsCallbacks {
-  const opts = options || {} as Partial<BrowserMetricsBridgeOptions>;
-  const fonts = opts.fonts!;
-  const cjkDashCapability = opts.cjkDashCapability != null ? opts.cjkDashCapability : null;
-  const env = opts.env || {} as CanvasShapingEnv;
+export function createBrowserMetricsBridge(options: BrowserMetricsBridgeOptions): BrowserMetricsCallbacks {
+  const fonts = options.fonts;
+  const cjkDashCapability = options.cjkDashCapability != null ? options.cjkDashCapability : null;
+  const env = options.env;
 
   const shaper = createTextShaper(fonts, cjkDashCapability, env);
   const resolver = createMetricsResolver(fonts, env.createCanvasContext);

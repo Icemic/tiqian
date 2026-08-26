@@ -264,13 +264,21 @@ export function expandSnapshotManifest(
   const fontContractEntries = Array.isArray(manifest.fontContractEntries)
     ? expandEntries(manifest.fontContractEntries)
     : undefined;
+  // Split off the wire-typed fields so only the expanded versions reach the
+  // result; the remaining wire fields share the target shapes.
+  const {
+    entries: wireEntries,
+    fontContractEntries: wireFontContractEntries,
+    fontReplay: wireFontReplay,
+    ...sharedManifestFields
+  } = manifest;
   return {
-    ...manifest,
+    ...sharedManifestFields,
     ...(fontReplay ? { fontReplay } : {}),
     valueStyles: view.valueStyles(),
     entries,
     ...(fontContractEntries ? { fontContractEntries } : {}),
-  } as ExpandedSnapshotManifest;
+  };
 }
 
 export function parseSnapshotManifest(
