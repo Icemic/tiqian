@@ -24,6 +24,7 @@
 import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 import type { PreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
 import { releasePreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
+import { getElementContexts } from "../../services/element-contexts.js";
 
 export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
@@ -46,11 +47,9 @@ interface EnhancedElementContext {
   destroy(): void;
 }
 
-const elementContexts = new WeakMap<Element, EnhancedElementContext>();
-
 /** Returns the live context for the given element, or undefined. */
 function getContextForElement(element: Element): EnhancedElementContext | undefined {
-  return elementContexts.get(element);
+  return getElementContexts().get(element);
 }
 
 function createEnhanceContext(element: Element): EnhancedElementContext {
@@ -86,16 +85,16 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
         releasePreparedStyleState(preparedStyle);
         preparedStyle = null;
       }
-      elementContexts.delete(element);
+      getElementContexts().delete(element);
     },
   };
 
-  elementContexts.set(element, context);
+  getElementContexts().set(element, context);
   return context;
 }
 
 function getOrCreateEnhanceContext(element: Element): EnhancedElementContext {
-  let context = elementContexts.get(element);
+  let context = getElementContexts().get(element);
   if (!context) {
     context = createEnhanceContext(element);
   }

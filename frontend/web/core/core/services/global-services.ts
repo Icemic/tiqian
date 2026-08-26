@@ -42,6 +42,36 @@ export interface RuntimeLoaderSlot {
   [key: string]: unknown;
 }
 
+/** Snapshot-table deduplication caches (S5-tail). One global map per page
+ * deduplicates loads per URL reference so every root shares one table. */
+export interface SnapshotTablesState {
+  loadedTables: Map<string, Promise<unknown>>;
+  resolvedTables: Map<string, unknown>;
+}
+
+/** Snapshot adoption per-element caches (S5-tail). WeakMaps keyed by
+ * paragraph elements; no lifecycle, pure page-wide caches. */
+export interface SnapshotAdoptionState {
+  snapshotFontReplayProofs: WeakMap<HTMLElement, unknown>;
+  states: WeakMap<HTMLElement, unknown>;
+  directServerArtifacts: WeakMap<HTMLElement, unknown>;
+}
+
+/** Viewport gesture and scroll-anchoring state (S5-tail). Document-wide
+ * singletons shared across all roots. */
+export interface ViewportAnchorState {
+  gestureTrackerInstalled: boolean;
+  lastGestureAt: number;
+  heldOwnerByRoot: WeakMap<HTMLElement, HTMLElement>;
+  ownerHolds: WeakMap<HTMLElement, unknown>;
+}
+
+/** Stylesheet loader handles (S5-tail). One stylesheet per page. */
+export interface StylesheetLoaderState {
+  stylesheetPromise: Promise<unknown> | undefined;
+  stylesheetElement: unknown;
+}
+
 export interface GlobalServices {
   coordination: CoordinationService;
   // Font/measurement coordination state: page-wide singletons owned by the
@@ -60,6 +90,19 @@ export interface GlobalServices {
   // this slot at import time; consumers read it through the runtime-loader
   // accessor functions.
   runtimeLoader?: RuntimeLoaderSlot;
+  // Snapshot-table deduplication caches (S5-tail): page-wide maps that
+  // cache loaded and resolved binary tables by URL reference.
+  snapshotTables?: SnapshotTablesState;
+  // Snapshot adoption per-element caches (S5-tail): WeakMaps keyed by
+  // paragraph elements for font-replay proofs, adoption state, and
+  // direct server artifacts.
+  snapshotAdoption?: SnapshotAdoptionState;
+  // Viewport gesture and scroll-anchoring state (S5-tail): document-wide
+  // singletons for gesture tracking and native scroll anchoring holds.
+  viewportAnchor?: ViewportAnchorState;
+  // Stylesheet loader handles (S5-tail): one stylesheet promise and link
+  // element per page.
+  stylesheetLoader?: StylesheetLoaderState;
 }
 
 type GlobalServicesRegistry = Record<symbol, GlobalServices | undefined>;
@@ -79,6 +122,25 @@ function createGlobalServices(): GlobalServices {
       scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
     },
     runtimeLoader: undefined,
+    snapshotTables: {
+      loadedTables: new Map(),
+      resolvedTables: new Map(),
+    },
+    snapshotAdoption: {
+      snapshotFontReplayProofs: new WeakMap(),
+      states: new WeakMap(),
+      directServerArtifacts: new WeakMap(),
+    },
+    viewportAnchor: {
+      gestureTrackerInstalled: false,
+      lastGestureAt: Number.NEGATIVE_INFINITY,
+      heldOwnerByRoot: new WeakMap(),
+      ownerHolds: new WeakMap(),
+    },
+    stylesheetLoader: {
+      stylesheetPromise: undefined,
+      stylesheetElement: undefined,
+    },
   };
 }
 
