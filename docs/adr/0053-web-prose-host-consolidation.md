@@ -174,7 +174,7 @@ ffi/js 后归位。
 
 G2 全局清除后仍成立的运行时单例集中存放在 core/services/ 一个目录，
 每个文件头注释写明两点：该对象为什么必须全页一份，为什么不能用参数
-传递。幸存者清单（S4 落地后核定）：
+传递。幸存者清单（S5-tail 核定）：
 
 - globalServices 容器（Symbol.for 键，跨 bundle 副本共享一份；
   参数传递无法覆盖副本各自 import 的场景）。
@@ -187,6 +187,21 @@ G2 全局清除后仍成立的运行时单例集中存放在 core/services/ 一�
   scopeCounters: WeakMap<Document, PreparedScopeCounter>）；per-root 状态
   PreparedStyleState 迁入 EnhancedElementContext.preparedStyle。S4 时代曾记为
   待办的扫描已于此波完成。
+- S5-tail 核定：snapshotTables（loadedTables / resolvedTables 迁入
+  globalServices.snapshotTables，页面级 URL 去重缓存）；
+  snapshotAdoption（snapshotFontReplayProofs / states / directServerArtifacts
+  迁入 globalServices.snapshotAdoption，按段落元素索引的页面级缓存）；
+  viewportAnchor（gestureTrackerInstalled / lastGestureAt /
+  heldOwnerByRoot / ownerHolds 迁入 globalServices.viewportAnchor，
+  文档级手势与滚动锚定状态）；
+  stylesheetLoader（stylesheetPromise / stylesheetElement 迁入
+  globalServices.stylesheetLoader，页面级样式表加载句柄）；
+  elementContexts（WeakMap<Element, EnhancedElementContext> 迁入
+  core/services/element-contexts.ts，页面级元素上下文注册表）。
+- 永久豁免（pure-memo，不迁入 services）：replayMetricsByView
+  （snapshot-manifest.ts，按不可变表视图索引的派生缓存）；
+  unicodeRangeCache（precomputed.ts，有界字符串→范围列表缓存）；
+  graphemeSegmenter（markdown-lowering.ts，无状态 Intl.Segmenter 实例）。
 
 目录之外的散置全局单例视为违反模块边界。AGENTS.md 代码组织节同步
 收录本规则。
