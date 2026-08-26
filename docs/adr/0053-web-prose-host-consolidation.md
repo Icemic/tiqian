@@ -1322,7 +1322,7 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
     - 版本挑选器删除：源码中无版本挑选器痕迹，该条目或为规划中的候选，已在主线上消失。
     - __TiqianLayoutWorker 并入 Symbol.for 协调对象：未完成。测试 fixture 仍以 globalThis 属性形式引用，Kotlin 生成的 JS 通过 defineProperty 安装。待后续批次执行。
     - trace 双全局改 enhance 初始化选项：核心 TS 迁移完成（TraceConfig 作为 EnhanceOptions 字段，CoordinationService 实例属性替代 globalThis.__tqTrace/__tqFrameTrace）；注释与 demo 测试中仍有遗留引用，待清理。
-    - eslint declare-global 豁免废除：eslint.config.mjs 中 TSModuleBlock 豁免选择器仍存在，待移除。
+    - eslint declare-global 豁免废除：已执行（两处 `declare global` 块只含 interface 声明，豁免选择器无消费者）；`ci(ts-discipline): drop the unused declare-global var exemption` 移除选择器后两包 eslint 保持零错误。
 
   S2-b 实施时的实现约束（后续模块改动适用）：globalServices 静态 import
   闭包不得抵达 prepared-dom 与 browser-fonts。这两条链的模块体含安装
