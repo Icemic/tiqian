@@ -1,25 +1,24 @@
-// EnhancedElementContext — the per-root assembly home for layout lifecycle
-// state. One context per enhanced element, constructed by
-// createEnhanceContext(element) and held by the caller (the public api.ts
-// entries and the custom element).
+// EnhancedElementContext — the per-root general typography context. One
+// context per enhanced element; every member is general layout lifecycle
+// state that dies with the root. Web-specific observation state
+// (ResizeObserver/IntersectionObserver instances, frame handles, viewport
+// flags) lives on the web host element, not here.
 //
-// Why per-element: every field below is scoped to one enhanced root and dies
-// with it. A module-level WeakMap per field would work mechanically, but a
-// single context object makes the ownership explicit and gives later waves
-// (paragraph table, prepared-style registries, element lifecycle forwarding)
-// one place to land without new module globals.
+// Construction surface (ADR 0053 batch R3, plan A): the context is a plain
+// value object. constructEnhanceContext(element) is the open construction
+// entry — hosts and tests build a context explicitly and inject it into the
+// engine paths. createEnhanceContext(element) remains the compatibility
+// factory: it constructs through the same surface and additionally registers
+// the context in the per-document element registry consumed by
+// getOrCreateEnhanceContext / getContextForElement (both lookup signatures
+// stay unchanged).
 //
-// Scope of this wave (S3-a first half): the invalidation generation (one
-// counting mechanism replacing api.ts's rootGenerations WeakMap) and the
-// snapshot font session entry (replacing api.ts's rootFontSessions WeakMap).
-// beginEnhanceCycle() supersedes in-flight work started under an earlier
-// generation; readers compare context.generation against the value they
-// captured before their first await.
-//
-// S3-a completion: update() and destroy() wire the existing re-entry and
-// teardown points. update() bumps the generation to supersede in-flight work.
-// destroy() clears rawDomParagraphs, drops the context from the registry, and
-// releases the prepared-style state through the context's release function.
+// Lifecycle verbs follow the 2026-08-25 naming ruling: update() is the single
+// refresh verb (it bumps the generation to supersede in-flight work started
+// under an earlier generation; readers compare context.generation against the
+// value they captured before their first await) and destroy() clears the
+// paragraph records, releases the prepared-style state, and drops the context
+// from the registry.
 
 import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 import type { PreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
@@ -42,7 +41,6 @@ interface EnhancedElementContext {
   readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
   preparedStyle: PreparedStyleState | null;
-  beginEnhanceCycle(): number;
   update(): number;
   destroy(): void;
 }
@@ -52,13 +50,16 @@ function getContextForElement(element: Element): EnhancedElementContext | undefi
   return getElementContexts().get(element);
 }
 
-function createEnhanceContext(element: Element): EnhancedElementContext {
+// Open construction surface (plan A): builds the plain context value without
+// touching the element registry, so hosts and tests can construct a context
+// explicitly before injecting it into the engine paths.
+function constructEnhanceContext(element: Element): EnhancedElementContext {
   let generation = 0;
   const snapshotFontSession: SnapshotFontSessionState = { entry: null };
   const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
   let preparedStyle: PreparedStyleState | null = null;
 
-  const context: EnhancedElementContext = {
+  return {
     element,
     get generation() {
       return generation;
@@ -70,10 +71,6 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
     },
     set preparedStyle(value: PreparedStyleState | null) {
       preparedStyle = value;
-    },
-    beginEnhanceCycle() {
-      generation += 1;
-      return generation;
     },
     update() {
       generation += 1;
@@ -88,7 +85,12 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
       getElementContexts().delete(element);
     },
   };
+}
 
+// Compatibility factory: constructs through the open surface and registers
+// the result in the per-document element registry.
+function createEnhanceContext(element: Element): EnhancedElementContext {
+  const context = constructEnhanceContext(element);
   getElementContexts().set(element, context);
   return context;
 }
@@ -101,5 +103,5 @@ function getOrCreateEnhanceContext(element: Element): EnhancedElementContext {
   return context;
 }
 
-export { createEnhanceContext, getContextForElement, getOrCreateEnhanceContext };
+export { constructEnhanceContext, createEnhanceContext, getContextForElement, getOrCreateEnhanceContext };
 export type { EnhancedElementContext, SnapshotFontSessionState };
