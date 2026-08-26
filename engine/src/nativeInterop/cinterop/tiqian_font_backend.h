@@ -20,7 +20,7 @@ extern "C" {
  */
 
 /* Versions the packed buffer layout and the vtable shape, not the engine. */
-#define TIQIAN_FONT_BACKEND_PROTOCOL_REVISION 1u
+#define TIQIAN_FONT_BACKEND_PROTOCOL_REVISION 2u
 
 /* Shape buffer starts with "TQPS" in native endianness (all targets LE). */
 #define TIQIAN_SHAPE_BUFFER_MAGIC 0x54515053u
@@ -54,6 +54,12 @@ extern "C" {
  */
 
 /*
+ * Font families array layout:
+ *   u32 familyCount
+ *   familyCount times: u32 length, UTF-8 bytes (not NUL terminated)
+ */
+
+/*
  * Returns the number of bytes the packed result needs. When that fits the
  * given capacity the buffer holds a complete result. When it does not the
  * callback writes nothing and the caller retries with a larger buffer. On
@@ -63,7 +69,8 @@ extern "C" {
 typedef int64_t (*tiqian_shape_fn)(
     const char* session_id,
     const char* display_text,
-    const char* serialized_families,
+    const char* const* families,
+    uint32_t family_count,
     double font_size,
     int32_t font_weight,
     int32_t italic,
@@ -81,7 +88,8 @@ typedef int64_t (*tiqian_shape_fn)(
  */
 typedef int64_t (*tiqian_metrics_fn)(
     const char* session_id,
-    const char* serialized_families,
+    const char* const* families,
+    uint32_t family_count,
     double font_size,
     int32_t font_weight,
     int32_t italic,

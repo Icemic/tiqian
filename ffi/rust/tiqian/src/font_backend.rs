@@ -15,7 +15,7 @@
 use std::os::raw::c_char;
 
 /// Versions the packed buffer layout and the vtable shape, not the engine.
-pub const FONT_BACKEND_PROTOCOL_REVISION: u32 = 1;
+pub const FONT_BACKEND_PROTOCOL_REVISION: u32 = 2;
 
 /// First four bytes of a shape buffer: "TQPS" in little endian.
 pub const SHAPE_BUFFER_MAGIC: u32 = 0x5451_5053;
@@ -54,7 +54,8 @@ impl InstallOutcome {
 pub type ShapeFn = unsafe extern "C" fn(
     session_id: *const c_char,
     display_text: *const c_char,
-    serialized_families: *const c_char,
+    families: *const *const c_char,
+    family_count: u32,
     font_size: f64,
     font_weight: i32,
     italic: i32,
@@ -70,7 +71,8 @@ pub type ShapeFn = unsafe extern "C" fn(
 /// ascent, typo descent; NaN marks a missing optional metric).
 pub type MetricsFn = unsafe extern "C" fn(
     session_id: *const c_char,
-    serialized_families: *const c_char,
+    families: *const *const c_char,
+    family_count: u32,
     font_size: f64,
     font_weight: i32,
     italic: i32,
