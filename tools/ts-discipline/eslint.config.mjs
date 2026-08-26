@@ -153,9 +153,9 @@ export default [
         },
         {
           selector:
-            "VariableDeclaration[kind=\"var\"]:not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"])):not(TSModuleBlock VariableDeclaration)",
+            "VariableDeclaration[kind=\"var\"]:not(VariableDeclaration:has(VariableDeclarator[id.name=\"_a\"]))",
           message:
-            "var is forbidden; use const, or let when reassigned. Exemptions: the TypeScript printer's synthesized `var _a` hoist in emit products, and ambient type-only declarations inside `declare global` blocks (erased at compile time) (G2 module boundary).",
+            "var is forbidden; use const, or let when reassigned. Exemption: the TypeScript printer's synthesized `var _a` hoist in emit products (G2 module boundary).",
         },
         {
           selector: "TSImportType",
