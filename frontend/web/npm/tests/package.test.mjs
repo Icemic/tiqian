@@ -135,6 +135,18 @@ test("the custom element validates a snapshot before dynamically loading the bro
     new URL("../../core/core/sampler/snapshot/loaded-snapshots.js", import.meta.url),
     "utf8",
   );
+  const eligibilitySource = await readFile(
+    new URL("../../core/core/engine/eligibility.js", import.meta.url),
+    "utf8",
+  );
+  const snapshotCompletionSource = await readFile(
+    new URL("../../core/core/sampler/snapshot/snapshot-completion.js", import.meta.url),
+    "utf8",
+  );
+  const responsiveMeasureSource = await readFile(
+    new URL("../../core/core/engine/responsive-measure.js", import.meta.url),
+    "utf8",
+  );
   for (const shim of ["prepared-dom.js", "snapshot-client.js"]) {
     const shimSource = await readFile(new URL(`../${shim}`, import.meta.url), "utf8");
     assert.match(shimSource, /export \* from "@tiqian\/core\/core\/sampler\/snapshot\//u);
@@ -206,7 +218,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.ok(runtimeLoad > adoption);
   assert.match(
     elementSource,
-    /OptInStrongSnapshotExclusion[\s\S]*?this\.strongAsEmphasisMarks && this\.querySelector\("strong"\) !== null/u,
+    /OptInStrongSnapshotExclusion[\s\S]*?this\.strongAsEmphasisMarks && hasStrongEmphasis\(this\)/u,
+  );
+  assert.match(
+    eligibilitySource,
+    /function hasStrongEmphasis\(root\) \{[\s\S]*?querySelector\("strong"\)/u,
   );
   assert.match(
     elementSource,
@@ -303,8 +319,8 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /#snapshotFontRejectedAttempt === this\.#snapshotFontAttemptSignature\(reference\)/u,
   );
   assert.match(elementSource, /#restartConnectedLifecycle\(\)/u);
-  assert.match(elementSource, /function snapshotCompletionSelector\(root\)/u);
-  assert.match(elementSource, /:is\(p, li\):not\(\[data-tq-snapshot-key\]\)/u);
+  assert.match(snapshotCompletionSource, /function snapshotCompletionSelector\(root\) \{/u);
+  assert.match(snapshotCompletionSource, /:is\(p, li\):not\(\[data-tq-snapshot-key\]\)/u);
   assert.match(elementSource, /!strongEmphasisRuntimeRequired\) \{/u);
   assert.match(
     elementSource,
@@ -451,7 +467,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /!widthsChanged && !measuresChanged/u);
   assert.match(
     elementSource,
-    /hostInlineSizeRefresh = widthsChanged[\s\S]*?\[data-tq-host-inline-size\][\s\S]*?!hostInlineSizeRefresh/u,
+    /hostInlineSizeRefresh = widthsChanged && hasHostInlineSizeParagraph\(this\)[\s\S]*?!hostInlineSizeRefresh/u,
+  );
+  assert.match(
+    responsiveMeasureSource,
+    /querySelector\("\[data-tq-host-inline-size\]"\)/u,
   );
   assert.match(elementSource, /usesCapturedMeasure: true/u);
   assert.match(elementSource, /currentMeasures !== this\.#layoutWorkMeasureSignature/u);

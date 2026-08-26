@@ -334,7 +334,11 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // paragraph, and clears the root attributes; the standalone unit-test
     // world drives this module without an engine entry and keeps the bare
     // job cancel.
-    if (globalThis.document) copyInstaller.install(globalThis.document);
+    // TargetDocumentExplicit: install the copy listener on the document that
+    // owns the enhanced root; the ambient fallback covers fake-DOM test
+    // worlds whose roots carry no ownerDocument.
+    const targetDocument = root.ownerDocument ?? globalThis.document;
+    if (targetDocument) copyInstaller.install(targetDocument);
     if (engine) {
       engine.destroy(root as HTMLElement);
     } else {

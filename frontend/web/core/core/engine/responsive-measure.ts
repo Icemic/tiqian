@@ -58,3 +58,9 @@ export function isCurrentResponsiveMeasure(preparedWidth: number, currentWidth: 
   return effectiveLineMeasure(preparedWidth, fontSize) ===
     effectiveLineMeasure(currentWidth, fontSize);
 }
+
+// HostInlineSizeStateProbe: a responsive pass must refresh captured inline
+// sizes whenever any rendered paragraph carries the host-inline-size marker.
+export function hasHostInlineSizeParagraph(root: Element): boolean {
+  return root.querySelector("[data-tq-host-inline-size]") !== null;
+}

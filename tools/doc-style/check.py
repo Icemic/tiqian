@@ -117,6 +117,9 @@ PATTERNS = [
 ALLOW = re.compile(
     r"回退路径"  # contains the substring 退路 but is a standard term
     r"|`lane`"  # the grant voucher's literal field name in backticks
+    r"|下沉"  # fixed term of the wc-arch-correction task specs
+    r"|全绿"  # fixed battery term (全绿零跳过)
+    r"|台账"  # fixed task-book term (模型适用性台账)
 )
 
 

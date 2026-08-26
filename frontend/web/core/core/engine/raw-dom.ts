@@ -1,6 +1,7 @@
-import { getOrCreateEnhanceContext } from "./context/enhance-context.js";
+import { getContextForElement, getOrCreateEnhanceContext } from "./context/enhance-context.js";
 import type { RawDomParagraphRecord } from "./context/enhance-context.js";
 import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
+import { DEFAULT_PARAGRAPH_SELECTOR } from "../sampler/signatures.js";
 
 // Per-paragraph raw-DOM backup state, keyed weakly so a discarded paragraph can be
 // collected together with its state. The original-attribute snapshots mirror
@@ -497,4 +498,78 @@ export function deriveRawDom(): RawDomApi {
     ensureContainingBlock: ensureContainingBlock,
     suspendEngineWrites: suspendEngineWrites,
   };
+}
+
+const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
+const RENDERED_PARAGRAPH_SELECTOR = "p[data-tq-rendered=true], li[data-tq-rendered=true]";
+const RENDERED_RAW_DOM_SELECTOR = `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`;
+
+// Rendered paragraphs carrying a raw-DOM backup record, in the enumeration
+// order of the original syncRawDom DOM query: rendered paragraphs come from
+// the document-order query and each record is read from its paragraph's own
+// enhance context — the state home that replaced the retired
+// __tqRawDomFragment DOM property.
+export function renderedRawDomParagraphs(root: Element): [Element, RawDomParagraphRecord][] {
+  const pairs: [Element, RawDomParagraphRecord][] = [];
+  const paragraphs = root.querySelectorAll(RENDERED_RAW_DOM_SELECTOR);
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    const paragraph = paragraphs[i];
+    const record = getContextForElement(paragraph)?.rawDomParagraphs.get(paragraph);
+    if (record) pairs.push([paragraph, record]);
+  }
+  return pairs;
+}
+
+// RendererOwnedProgressiveStyleMutation: paragraph takeover itself adds the
+// containing block and, for flex items, the captured inline size. Those
+// writes are output mechanics rather than a host typography change. This
+// decision reverses only those exact deltas against MutationRecord.oldValue;
+// it answers true only when the projected style equals the pre-mutation
+// style after the renderer-owned properties are unwound. Any concurrent host
+// style or class change fails the comparison.
+export function rendererOwnedProgressiveStyleMutation(record: MutationRecord, root: Element): boolean {
+  if (record.attributeName !== "style") return false;
+  const targetNode = record.target;
+  if (!targetNode || targetNode.nodeType !== 1) return false;
+  const target = targetNode as Element;
+  if (!target.matches(RENDERED_PARAGRAPH_SELECTOR)) return false;
+  if (target.closest(ROOT_SELECTOR) !== root) return false;
+  const targetDocument = target.ownerDocument;
+  if (!targetDocument) return false;
+
+  const previous = targetDocument.createElement(target.tagName);
+  if (record.oldValue != null) previous.setAttribute("style", record.oldValue);
+  const projected = targetDocument.createElement(target.tagName);
+  const current = target.getAttribute("style");
+  if (current != null) projected.setAttribute("style", current);
+  let rendererPropertyFound = false;
+  if (
+    projected.style.getPropertyValue("position") === "relative" &&
+    projected.style.getPropertyPriority("position") === "important"
+  ) {
+    rendererPropertyFound = true;
+    const value = previous.style.getPropertyValue("position");
+    if (value) {
+      projected.style.setProperty("position", value, previous.style.getPropertyPriority("position"));
+    } else {
+      projected.style.removeProperty("position");
+    }
+  }
+  if (
+    target.getAttribute(HOST_INLINE_SIZE_ATTRIBUTE) === "true" &&
+    projected.style.getPropertyPriority("inline-size") === "important"
+  ) {
+    rendererPropertyFound = true;
+    const value = previous.style.getPropertyValue("inline-size");
+    if (value) {
+      projected.style.setProperty(
+        "inline-size",
+        value,
+        previous.style.getPropertyPriority("inline-size"),
+      );
+    } else {
+      projected.style.removeProperty("inline-size");
+    }
+  }
+  return rendererPropertyFound && projected.style.cssText === previous.style.cssText;
 }

@@ -4,7 +4,7 @@
 // display lookup tables are module-scope constants; the functions read host
 // APIs inside their bodies only.
 
-const skippedAncestorSelector =
+export const skippedAncestorSelector =
   ".not-prose, pre, table, .katex, .katex-display, .expressive-code, .tq-paragraph, [data-tiqian-skip]";
 
 const nonTextInlineTags = new Set([
@@ -56,6 +56,16 @@ export function isOpaqueInlineLevelDisplay(display: string): boolean {
   return opaqueInlineLevelDisplays.has(display.trim().toLowerCase());
 }
 
+// Computed display resolution prefers the element's owning document view so a
+// root inside an iframe reads through its own window; the page global stays
+// the fallback. A host without a usable view answers an empty display.
+function computedDisplay(element: Element): string {
+  const view = element.ownerDocument?.defaultView;
+  const getStyle = view?.getComputedStyle ?? globalThis.getComputedStyle;
+  if (typeof getStyle !== "function") return "";
+  return (getStyle.call(view, element).getPropertyValue("display") || "").trim().toLowerCase();
+}
+
 export function isPureBlockImageParagraph(paragraph: Element | null): boolean {
   // A null textContent answers not-blank, matching the Kotlin original's
   // `textContent?.isBlank() != true` early return.
@@ -70,11 +80,7 @@ export function isPureBlockImageParagraph(paragraph: Element | null): boolean {
   const children = paragraph.querySelectorAll(":scope > *");
   if (children.length === 0) return false;
   for (let index = 0; index < children.length; index++) {
-    const child = children[index];
-    if (
-      child.tagName.toUpperCase() !== "IMG" ||
-      (globalThis.getComputedStyle(child).getPropertyValue("display") || "").trim().toLowerCase() !== "block"
-    ) {
+    if (children[index].tagName.toUpperCase() !== "IMG" || computedDisplay(children[index]) !== "block") {
       return false;
     }
   }
@@ -87,12 +93,18 @@ export function hasOpaqueInlineCandidate(paragraph: Element | null): boolean {
   for (let index = 0; index < descendants.length; index++) {
     const element = descendants[index];
     const tag = element.tagName.toUpperCase();
-    const display = (globalThis.getComputedStyle(element).getPropertyValue("display") || "").trim().toLowerCase();
-    if (isNonTextInlineTag(tag) || tag.indexOf("-") !== -1 || isOpaqueInlineDisplay(display)) {
+    if (isNonTextInlineTag(tag) || tag.indexOf("-") !== -1 || isOpaqueInlineDisplay(computedDisplay(element))) {
       return true;
     }
   }
   return false;
+}
+
+// OptInStrongSnapshotExclusion probe: v1 snapshots contain only plain
+// paragraphs, so a root carrying semantic <strong> content cannot adopt one
+// when the host asks for emphasis-mark mapping.
+export function hasStrongEmphasis(root: Element): boolean {
+  return root.querySelector("strong") !== null;
 }
 
 export function shouldTryParagraph(paragraph: Element | null): boolean {

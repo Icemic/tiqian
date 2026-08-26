@@ -246,3 +246,17 @@ export function paragraphMeasureEntry(paragraph: Element, snapshotFontLayout: bo
     ? `invalid:${width.toFixed(3)}:${style.fontSize}`
     : `${Math.fround(fontSize)}:${measure}`;
 }
+
+// SnapshotFontAttemptSignature: the snapshot reference joined with the base
+// font grid measure of the first candidate paragraph. An empty reference has
+// no signature; a root without candidates records a missing marker.
+export function snapshotFontAttemptSignature(root: Element, reference: string | null): string {
+  if (!reference) return "";
+  const paragraph = root.querySelector("p[data-tq-snapshot-key], p, li");
+  if (!paragraph) return `${reference}\u0000missing`;
+  const style = getComputedStyle(paragraph);
+  const fontSize = Number.parseFloat(style.fontSize);
+  const width = fragmentedBorderBoxInlineSize(paragraph);
+  const measure = lineLengthGridMeasure(width, fontSize);
+  return `${reference}\u0000${Math.fround(fontSize)}\u0000${measure ?? `invalid:${width.toFixed(3)}`}`;
+}

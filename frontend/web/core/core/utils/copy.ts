@@ -106,7 +106,7 @@ function stripEngineStyles(element: HTMLElement, rendered: boolean, sourceSemant
  * source substitutions and hard breaks, then serialize block-aware plain text
  * plus host-owned semantic HTML. Visual soft wraps never enter either payload.
  */
-export function createTiqianClipboardPayload(fragment: DocumentFragment | null, documentObject: Document = globalThis.document): ClipboardPayload {
+export function createTiqianClipboardPayload(fragment: DocumentFragment | null, documentObject: Document | null): ClipboardPayload {
   if (!fragment || !fragment.querySelectorAll || !documentObject || !documentObject.createElement) {
     return { text: "", html: "" };
   }
@@ -160,7 +160,7 @@ export function createTiqianClipboardPayload(fragment: DocumentFragment | null, 
 }
 
 export interface CopyInstaller {
-  install(documentObject?: Document): void;
+  install(documentObject: Document): void;
 }
 
 export function createCopyInstaller(): CopyInstaller {
@@ -169,7 +169,7 @@ export function createCopyInstaller(): CopyInstaller {
   // fresh document still gets the handler.
   const installedDocuments = new WeakSet<Document>();
 
-  function install(documentObject: Document = globalThis.document): void {
+  function install(documentObject: Document): void {
     if (!documentObject || installedDocuments.has(documentObject) ||
         typeof documentObject.addEventListener !== "function")
       return;

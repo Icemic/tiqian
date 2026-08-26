@@ -20,6 +20,26 @@ type RootSizeTargetsCallback = (targets: Element[]) => void;
 type RootSizeTargetCallback = (target: Element) => void;
 type RootVisibilityEntryCallback = (entry: RootVisibilityEntry) => void;
 
+const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
+
+// Root-scope membership: the closest enhanced root of an element decides its
+// owner, so a paragraph nested in another tiqian root belongs to that root.
+export function belongsToRootScope(element: Element, root: Element): boolean {
+  return element.closest(ROOT_SELECTOR) === root;
+}
+
+// Root-scoped paragraph collection for observation seeding and retargeting:
+// the default paragraph candidates that belong to this root.
+export function rootScopedParagraphs(root: Element): Element[] {
+  const paragraphs = root.querySelectorAll(DEFAULT_PARAGRAPH_SELECTOR);
+  const scoped: Element[] = [];
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    const paragraph = paragraphs[i];
+    if (belongsToRootScope(paragraph, root)) scoped.push(paragraph);
+  }
+  return scoped;
+}
+
 export interface TypographyInvalidationHandlers {
   onMutation: EmptyCallback;
   onFontEvent: FontEventCallback;
