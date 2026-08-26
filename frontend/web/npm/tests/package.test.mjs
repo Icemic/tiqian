@@ -221,11 +221,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /from "\.\.\/\.\.\/measurement\/browser-fonts\.js"/u);
   // The prepared-dom renderer import moved to runtime-loader (S4); font-loader
-  // reaches it through loadPreparedDomRenderer and no longer installs the
-  // deleted prepared-dom bridge itself.
+  // reaches it through the synchronous renderer accessor and no longer
+  // installs the deleted prepared-dom bridge itself.
   assert.match(runtimeSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
-  assert.match(fontLoaderSource, /loadPreparedDomRenderer\(\)/u);
+  assert.match(fontLoaderSource, /preparedDomRenderer\(\)/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
   assert.match(elementSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);

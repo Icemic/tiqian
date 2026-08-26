@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { createEngineEntry } from "../core/engine/engine-entry.js";
@@ -138,15 +138,15 @@ function withEnv(fn, overrides = {}) {
       setPreparedDomRendererForTest(null);
     }
     if (overrides.validator !== undefined) {
-      setPreparedDomValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTest({ issue: overrides.validator });
     } else {
-      setPreparedDomValidatorForTest(null);
+      setCommitValidatorForTest(null);
     }
     return fn();
   } finally {
     if (backend) backend.uninstall();
     setPreparedDomRendererForTest(undefined);
-    setPreparedDomValidatorForTest(undefined);
+    setCommitValidatorForTest(undefined);
     restoreEnv(saved);
   }
 }

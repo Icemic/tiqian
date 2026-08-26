@@ -21,6 +21,7 @@
 import { CoordinationService } from "../engine/coordination/coordination-service.js";
 import type { FontCoordinationState } from "../engine/coordination/fonts.js";
 import type { MeasurementCoordinationState } from "../engine/coordination/measurement.js";
+import type { EngineLoadState, PreparedDomState } from "../engine/loaders/runtime-loader.js";
 
 /** Per-document scope counter for prepared-style CSS scoping. */
 export interface PreparedScopeCounter {
@@ -31,15 +32,6 @@ export interface PreparedScopeCounter {
 export interface PreparedStylesState {
   rootsByHost: WeakMap<Element, Element>;
   scopeCounters: WeakMap<Document, PreparedScopeCounter>;
-}
-
-/**
- * Opaque loader state container (S5-bc). The runtime-loader module owns
- * the concrete type; this interface exposes only the accessor surface that
- * the container needs to hold.
- */
-export interface RuntimeLoaderSlot {
-  [key: string]: unknown;
 }
 
 /** Snapshot-table deduplication caches (S5-tail). One global map per page
@@ -85,11 +77,17 @@ export interface GlobalServices {
   // copies, hence they live in the page-global container rather than in
   // prepared-dom.ts module state.
   preparedStyles: PreparedStylesState;
-  // Runtime loader slot: per-document engine bootstrap state dissolved from
-  // runtime-loader.ts module scope (S5-bc). The loader functions populate
-  // this slot at import time; consumers read it through the runtime-loader
+  // Runtime loader slot: per-document engine bootstrap state (load memo,
+  // installed engine/workers, override seam, copy installer) dissolved from
+  // runtime-loader.ts module scope (S5-bc). runtime-loader.ts registers the
+  // record at import time; consumers read it through the runtime-loader
   // accessor functions.
-  runtimeLoader?: RuntimeLoaderSlot;
+  runtimeLoader?: EngineLoadState;
+  // Prepared pipeline state: the renderer module reference with its test
+  // override and the commit validator oracle slot. Registered by
+  // runtime-loader.ts at import time; same container-survival reason as the
+  // loader slot.
+  preparedDom?: PreparedDomState;
   // Snapshot-table deduplication caches (S5-tail): page-wide maps that
   // cache loaded and resolved binary tables by URL reference.
   snapshotTables?: SnapshotTablesState;
@@ -122,6 +120,7 @@ function createGlobalServices(): GlobalServices {
       scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
     },
     runtimeLoader: undefined,
+    preparedDom: undefined,
     snapshotTables: {
       loadedTables: new Map(),
       resolvedTables: new Map(),

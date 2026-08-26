@@ -1,6 +1,6 @@
 import { globalServices } from "../core/services/global-services.js";
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setPreparedDomValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { processParagraph } from "../core/engine/process-paragraph.js";
@@ -100,9 +100,9 @@ const saved = saveGlobals([
       setPreparedDomRendererForTest(null);
     }
     if (overrides.validator !== undefined) {
-      setPreparedDomValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTest({ issue: overrides.validator });
     } else {
-      setPreparedDomValidatorForTest(null);
+      setCommitValidatorForTest(null);
     }
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
@@ -124,7 +124,7 @@ const saved = saveGlobals([
   } finally {
     if (backend) backend.uninstall();
     setPreparedDomRendererForTest(undefined);
-    setPreparedDomValidatorForTest(undefined);
+    setCommitValidatorForTest(undefined);
     restoreGlobals(saved);
   }
 }
