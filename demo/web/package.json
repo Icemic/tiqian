@@ -9,6 +9,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
+    "@tiqian/core": "0.1.0-alpha.5",
     "@tiqian/prose": "0.1.0-alpha.5"
   },
   "devDependencies": {

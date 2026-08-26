@@ -149,12 +149,23 @@ async function compileSvelteMultiComponent() {
 // and per-scenario state snapshots. Served at /page-driver.mjs.
 const PAGE_DRIVER = `
   import "@tiqian/prose/element";
+  import { getContextForElement } from "@tiqian/core/core/engine/context/enhance-context.js";
 
   const stage = document.getElementById("stage");
   globalThis.__pageErrors = [];
   window.addEventListener("error", (event) => {
     __pageErrors.push(String(event.error && event.error.stack || event.message));
   });
+
+  // Host-side test probe: ADR 0053 rules that the product carries no DOM
+  // property for the raw-DOM fragment, so tests dig through this seam instead;
+  // the library face is unchanged. The engine keys both the per-element
+  // context and the rawDomParagraphs entry by the paragraph element itself.
+  globalThis.__tiqianRawDomFragment = (paragraph) => {
+    const context = getContextForElement(paragraph);
+    const record = context?.rawDomParagraphs.get(paragraph);
+    return record?.fragment ?? null;
+  };
 
   // ---- react-dom 19 through a minimal CommonJS loader ----
   const CJS_FILES = {
@@ -227,7 +238,7 @@ const PAGE_DRIVER = `
       const contentOk = expectations.every((expected, index) => {
         const para = paras[index];
         if (!para) return false;
-        const custody = para.__tqCustodyFragment;
+        const custody = __tiqianRawDomFragment(para);
         return custody && norm(custody.textContent) === norm(expected) &&
           norm(para.textContent) === norm(expected);
       });
@@ -236,12 +247,15 @@ const PAGE_DRIVER = `
     }
     return { ok: false, snapshot: __snapshot(root) };
   };
-  globalThis.__snapshot = (root) => __paras(root).map((p) => ({
-    rendered: p.getAttribute("data-tq-rendered"),
-    lines: p.querySelectorAll("[data-tq-line-index]").length,
-    custody: p.__tqCustodyFragment ? norm(p.__tqCustodyFragment.textContent) : null,
-    live: norm(p.textContent),
-  }));
+  globalThis.__snapshot = (root) => __paras(root).map((p) => {
+    const fragment = __tiqianRawDomFragment(p);
+    return {
+      rendered: p.getAttribute("data-tq-rendered"),
+      lines: p.querySelectorAll("[data-tq-line-index]").length,
+      custody: fragment ? norm(fragment.textContent) : null,
+      live: norm(p.textContent),
+    };
+  });
   globalThis.__quiet = async (ms) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   };
@@ -1229,7 +1243,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
         p.append(em, "尾部文本。");
         root.appendChild(p);
         if (!await __waitRendered(root)) throw new Error("direct paragraph never rendered");
-        const fragment = p.__tqCustodyFragment;
+        const fragment = __tiqianRawDomFragment(p);
         if (!(fragment instanceof DocumentFragment)) throw new Error("custody fragment missing");
         const kidCount = fragment.childNodes.length;
         // removeChild through the paragraph detaches the custody-held <em>.

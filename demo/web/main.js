@@ -1,5 +1,6 @@
 import '@tiqian/prose/element';
 import { enhance } from '@tiqian/prose';
+import { getContextForElement } from '@tiqian/core/core/engine/context/enhance-context.js';
 
 // One-shot replay entry for the demo/web tests: parcel bundles module
 // instances so the page cannot re-import them by URL, and the retired document
@@ -7,6 +8,16 @@ import { enhance } from '@tiqian/prose';
 // root options through this public surface. The returned promise resolves when
 // the one-shot runtime work (including runtime loading) has finished.
 globalThis.__tiqianOneShot = (root, options) => enhance(root, options);
+
+// Host-side test probe: ADR 0053 rules that the product carries no DOM
+// property for the raw-DOM fragment, so tests dig through this seam instead;
+// the library face is unchanged. The engine keys both the per-element context
+// and the rawDomParagraphs entry by the paragraph element itself.
+globalThis.__tiqianRawDomFragment = (paragraph) => {
+  const context = getContextForElement(paragraph);
+  const record = context?.rawDomParagraphs.get(paragraph);
+  return record?.fragment ?? null;
+};
 
 // Fixed Benchmark HUD Controls
 const slider = document.getElementById('width-slider');

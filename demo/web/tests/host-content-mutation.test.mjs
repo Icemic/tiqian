@@ -823,7 +823,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       (async () => {
         const root = __roots()[__roots().length - 1];
         const p = root.querySelectorAll("p")[0];
-        const fragment = p.__tqCustodyFragment;
+        const fragment = __tiqianRawDomFragment(p);
         if (!(fragment instanceof DocumentFragment)) {
           return { ok: false, why: "custody fragment not published", state: __state(p) };
         }
@@ -838,7 +838,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         );
         // The reconcile round trip restores the very same nodes and re-captures
         // them into a fresh fragment, so the framework-held reference survives.
-        const secondFragment = p.__tqCustodyFragment;
+        const secondFragment = __tiqianRawDomFragment(p);
         const referenceSurvived = secondFragment !== fragment && textNode.parentNode === secondFragment;
         textNode.data = "二次改写段。" + "同一份持有引用在第一轮重排之后再次被框架改写，引擎必须再次进入管线而不是吃掉这次写入。" .repeat(2);
         const second = await __waitFor(
@@ -889,7 +889,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
           () => __isRendered(p) && __state(p).head.startsWith("多节点收纳段"),
           20000,
         );
-        const fragment = p.__tqCustodyFragment;
+        const fragment = __tiqianRawDomFragment(p);
         const em = fragment && fragment.querySelector("em");
         if (!em) return { ok: false, why: "no em in custody", prepared, state: __state(p) };
         const countBefore = __eventCount(root);
