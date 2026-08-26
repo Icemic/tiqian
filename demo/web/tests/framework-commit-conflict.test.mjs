@@ -25,8 +25,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
 
@@ -35,7 +36,29 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const npmDir = join(repoRoot, "frontend/web/npm");
 const npmCoreDir = join(repoRoot, "frontend/web/core");
 const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
-const nodeModules = join(webDemoDir, "node_modules");
+// The npm workspace installs shared packages (react, scheduler, react-dom,
+// svelte, clsx) into the repo-root node_modules rather than demo/web's own,
+// so fixture lookups walk up from demo/web to the repo root and take the
+// first existing node_modules/<file> candidate; only a miss at every level
+// falls through to sendFile's 404.
+const nodeModuleDirs = (() => {
+  const start = resolve(webDemoDir);
+  const stop = resolve(repoRoot);
+  const dirs = [];
+  for (let dir = start; ; dir = dirname(dir)) {
+    dirs.push(dir);
+    if (dir === stop || dirname(dir) === dir) break;
+  }
+  return dirs;
+})();
+
+function nodeModulesFile(...segments) {
+  for (const dir of nodeModuleDirs) {
+    const candidate = join(dir, "node_modules", ...segments);
+    if (existsSync(candidate)) return candidate;
+  }
+  return join(nodeModuleDirs[0], "node_modules", ...segments);
+}
 
 const demoPort = 8995;
 const cdpPort = 9985;
@@ -449,29 +472,29 @@ function startFixtureServer(svelteComponents) {
         return;
       }
       if (path === "/cjs/react") {
-        await sendFile(join(nodeModules, "react/cjs/react.production.js"), "text/javascript");
+        await sendFile(nodeModulesFile("react/cjs/react.production.js"), "text/javascript");
         return;
       }
       if (path === "/cjs/scheduler") {
-        await sendFile(join(nodeModules, "scheduler/cjs/scheduler.production.js"), "text/javascript");
+        await sendFile(nodeModulesFile("scheduler/cjs/scheduler.production.js"), "text/javascript");
         return;
       }
       if (path === "/cjs/react-dom") {
-        await sendFile(join(nodeModules, "react-dom/cjs/react-dom.production.js"), "text/javascript");
+        await sendFile(nodeModulesFile("react-dom/cjs/react-dom.production.js"), "text/javascript");
         return;
       }
       if (path === "/cjs/react-dom-client") {
-        await sendFile(join(nodeModules, "react-dom/cjs/react-dom-client.production.js"), "text/javascript");
+        await sendFile(nodeModulesFile("react-dom/cjs/react-dom-client.production.js"), "text/javascript");
         return;
       }
       if (path.startsWith("/svelte/")) {
         const rest = path.slice("/svelte/".length);
-        await sendFile(join(nodeModules, "svelte", rest), "text/javascript");
+        await sendFile(nodeModulesFile("svelte", rest), "text/javascript");
         return;
       }
       if (path.startsWith("/clsx/")) {
         const rest = path.slice("/clsx/".length);
-        await sendFile(join(nodeModules, "clsx", rest), "text/javascript");
+        await sendFile(nodeModulesFile("clsx", rest), "text/javascript");
         return;
       }
       if (path.startsWith("/npm-ffi/")) {
