@@ -1396,17 +1396,23 @@ jsBrowserTest、jsNodeTest 全部通过；golden 零 diff。统一 KPI：对照�
   5.5M，spec 与报告为主；.b2-tmp 268 文件 9.9M，agent 日志与临时
   产物）。处置已执行（2026-08-25）：两条目录进 `.gitignore`，磁盘文件保留
   供 agent 参考与考古，不再进入提交队列。
-- QA1（包名纠偏 @tiqian/core）：[TBD 提交哈希]。
-- QA2（目录重组 scripts/src 分离、npm-core 改名 core）：[TBD 提交
-  哈希]。
-- QA7（npm workspace 化）：机制预演在 .b2-tmp 复制品完成，[TBD
-  预演结论三风险各一条]；正式转换 [TBD 提交哈希]。
+- QA1（包名纠偏 @tiqian/core）：提交 b995fff1（改名）、c792d719
+  （删除 copy 与 styles 重导出垫片）。
+- QA2（目录重组 scripts/src 分离、npm-core 改名 core）：提交 4ca49e71。
+- QA7（npm workspace 化）：机制预演在 .b2-tmp 复制品完成
+  （.agent-specs/qa7-dryrun-report.md），三风险结论各一条：提升冲突
+  成立于 typescript，@tiqian/precompute 因 ^6 范围在成员内嵌套
+  6.0.3、根提升 5.9.3，eslint 单版本提升无冲突；成员锁与根锁冲突
+  未复现，删除全部成员 package-lock.json 后只生成根锁；file: 依赖
+  静默回落 registry 在 file: 边改为与成员版本字段一致的精确版本后
+  未复现，@tiqian/* 全部解析到本地成员、零 registry 命中。正式转换
+  提交 4818b3f3，随后 2377a65a 把 CI 安装命令改为 npm install。
 - QA8（styles.css 副本消除）：前提核验（npm 与 core 双胞胎 md5 一致
   54a5e3fc）。三条疑似重复裁定：element.ts 的 mutation 过滤知识是
   行为不是样式重复，留在原处；styles.css 的 position:relative（层叠
   基线）与 custody 恢复时的内联 !important（恢复正确性）是独立两层，
   记录不改动；DemoWebBreakWordMask 是 demo 局部 counter-style，留在
-  demo。正式转换 [TBD 提交哈希]。
+  demo。正式转换提交 6f427a50。
 
 #### ffi 边界复审记录（2026-08-25，原文照录，依序处置）
 
