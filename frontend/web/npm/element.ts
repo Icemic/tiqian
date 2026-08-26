@@ -1,4 +1,5 @@
-import { getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { getContextForElement, getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
 import {
   copyInstaller,
   loadTiqianRuntime,
@@ -2069,12 +2070,30 @@ class TiqianProseElement extends HTMLElementBase {
   // work on purpose: engine commits also produce records, and the drift
   // probe disproves those by identity instead of disconnecting and losing
   // host edits that land mid-flight.
+  // Raw-dom records live on each paragraph's own enhance context (raw-dom
+  // keys them by paragraph element), not on this root's context. This is the
+  // pre-context enumeration order: rendered paragraphs come from the DOM
+  // query (the original syncRawDom selector) and each record is read from
+  // its paragraph's context — the state home that replaced the retired
+  // __tqRawDomFragment DOM property.
+  #renderedRawDomParagraphs(): Iterable<[Element, RawDomParagraphRecord]> {
+    const pairs: [Element, RawDomParagraphRecord][] = [];
+    const paragraphs = this.querySelectorAll(
+      `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`,
+    );
+    for (const paragraph of paragraphs) {
+      const record = getContextForElement(paragraph)?.rawDomParagraphs.get(paragraph);
+      if (record) pairs.push([paragraph, record]);
+    }
+    return pairs;
+  }
+
   #observeContent() {
     if (!this.#contentInvalidation) {
       this.#contentInvalidation = createContentInvalidationSource(this, {
         onRecords: (records) => this.#handleContentMutationRecords(records),
         belongsToRootScope,
-        getRawDomParagraphs: () => this.#context.rawDomParagraphs,
+        getRawDomParagraphs: () => this.#renderedRawDomParagraphs(),
       });
     }
     this.#contentInvalidation.start();
