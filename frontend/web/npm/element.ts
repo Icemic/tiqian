@@ -1,4 +1,4 @@
-import { getContextForElement, getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { getContextForElement, createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
 import {
   copyInstaller,
@@ -281,7 +281,7 @@ class TiqianProseElement extends HTMLElementBase {
   #deferredTypographyCheck = false;
   #typographyInvalidation: TypographyInvalidationSource | null = null;
   #geometryRevision = 0;
-  #context = getOrCreateEnhanceContext(this);
+  #context = createEnhanceContext(this);
   #hasDispatched = false;
   #inViewport = true;
   #initialFontRetry: InitialFontRetryController | null = null;
@@ -387,7 +387,7 @@ class TiqianProseElement extends HTMLElementBase {
     // font, snapshot, runtime and observer work until the host removes it.
     if (this.disabled) return;
     this.#snapshotFontRejectedAttempt = "";
-    const generation = this.#context.beginEnhanceCycle();
+    const generation = this.#context.update();
     this.#clearInitialFontRetry();
     this.#acceptLayoutCompletion = false;
     this.#hasDispatched = false;
@@ -639,7 +639,7 @@ class TiqianProseElement extends HTMLElementBase {
     releaseNativeScrollAnchoring(this);
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
-    this.#context.beginEnhanceCycle();
+    this.#context.destroy();
     this.#enhanceRequest += 1;
     this.#layoutOperation += 1;
     this.#acceptLayoutCompletion = false;
@@ -791,7 +791,9 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #restartConnectedLifecycle() {
-    this.#context.beginEnhanceCycle();
+    // Reconnect starts a fresh context: disconnect destroyed the previous
+    // one and dropped it from the registry, so the constructor re-registers.
+    this.#context = createEnhanceContext(this);
     this.#enhanceRequest += 1;
     this.#hasDispatched = false;
     this.#acceptLayoutCompletion = false;

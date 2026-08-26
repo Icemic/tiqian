@@ -1,7 +1,7 @@
 // EnhancedElementContext — the per-root assembly home for layout lifecycle
 // state. One context per enhanced element, constructed by
 // createEnhanceContext(element) and held by the caller (the public api.ts
-// entries today; the custom element joins in the S3-b wave).
+// entries and the custom element).
 //
 // Why per-element: every field below is scoped to one enhanced root and dies
 // with it. A module-level WeakMap per field would work mechanically, but a
@@ -15,6 +15,10 @@
 // beginEnhanceCycle() supersedes in-flight work started under an earlier
 // generation; readers compare context.generation against the value they
 // captured before their first await.
+//
+// S3-a completion: update() and destroy() wire the existing re-entry and
+// teardown points. update() bumps the generation to supersede in-flight work.
+// destroy() clears rawDomParagraphs and drops the context from the registry.
 
 import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 
@@ -34,6 +38,8 @@ interface EnhancedElementContext {
   readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
   beginEnhanceCycle(): number;
+  update(): number;
+  destroy(): void;
 }
 
 const elementContexts = new WeakMap<Element, EnhancedElementContext>();
@@ -58,6 +64,14 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
     beginEnhanceCycle() {
       generation += 1;
       return generation;
+    },
+    update() {
+      generation += 1;
+      return generation;
+    },
+    destroy() {
+      rawDomParagraphs.clear();
+      elementContexts.delete(element);
     },
   };
 

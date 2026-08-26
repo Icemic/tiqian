@@ -20,7 +20,7 @@ import type { TiqianEngineInstance } from "@tiqian/core/core/engine/engine-entry
 import type { CjkDashShapingOutcome } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
 import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
-import { createEnhanceContext, getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { getOrCreateEnhanceContext, getContextForElement } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/core/core/sampler/snapshot/declared-faces.js";
@@ -95,7 +95,7 @@ function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): s
 const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
 
 function releaseContextFontSession(
-  context: ReturnType<typeof createEnhanceContext>,
+  context: ReturnType<typeof getOrCreateEnhanceContext>,
   root: HTMLElement,
   expectedHandle: BrowserFontSessionHandle | null | typeof ANY_FONT_SESSION = ANY_FONT_SESSION,
 ): boolean {
@@ -109,7 +109,7 @@ async function prepareRootFontSession(
   root: HTMLElement,
   generation: number,
   options: TiqianWebOptions,
-  context: ReturnType<typeof createEnhanceContext>
+  context: ReturnType<typeof getOrCreateEnhanceContext>
 ): Promise<BrowserFontSessionHandle | null> {
   if (!root?.getAttribute?.("snapshot-ref")) {
     if (context.generation === generation) {
@@ -167,7 +167,7 @@ async function withTiqianWeb<T>(
 ): Promise<HTMLElement | T> {
   const context = getOrCreateEnhanceContext(root);
   await restoreAdoptedSnapshot(root);
-  const generation = context.beginEnhanceCycle();
+  const generation = context.update();
   let fontSession: BrowserFontSessionHandle | null = null;
   let cjkDashCapability: CjkDashShapingOutcome;
   try {
@@ -219,11 +219,13 @@ export function enhanceProgressively(root: HTMLElement = document.body, options:
 }
 
 export function destroy(root: HTMLElement = document.body): Promise<void> {
-  const context = getOrCreateEnhanceContext(root);
-  const generation = context.beginEnhanceCycle();
+  const context = getContextForElement(root);
+  if (!context) return Promise.resolve();
+  const generation = context.update();
   return restoreAdoptedSnapshot(root).then((restored) => {
     if (restored && !currentTiqianRuntime()) {
       releaseContextFontSession(context, root);
+      context.destroy();
       return;
     }
     return withTiqianRuntime((api) => {
@@ -232,10 +234,14 @@ export function destroy(root: HTMLElement = document.body): Promise<void> {
         return api!.destroy(root);
       } finally {
         releaseContextFontSession(context, root);
+        context.destroy();
       }
     });
   }).catch((error) => {
-    if (context.generation === generation) releaseContextFontSession(context, root);
+    if (context.generation === generation) {
+      releaseContextFontSession(context, root);
+      context.destroy();
+    }
     throw error;
   });
 }
