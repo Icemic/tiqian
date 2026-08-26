@@ -43,6 +43,10 @@ import {
   inlineObjectPlaceholder,
   rubyAnnotationSpan,
 } from "./prepared-dom-evidence.js";
+import { globalServices } from "../../services/global-services.js";
+import { getContextForElement, createEnhanceContext } from "../../engine/context/enhance-context.js";
+import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
+import type { PreparedScopeCounter } from "../../services/global-services.js";
 
 // --- Internal types ---
 
@@ -95,7 +99,7 @@ interface SnapshotSemanticOption {
 type EmphasisDotColorFn = (offset: number) => string | null;
 
 /** Prepared style scope state held per root element. */
-interface PreparedStyleState {
+export interface PreparedStyleState {
   root: Element;
   scope: string;
   styleElement: HTMLStyleElement;
@@ -326,20 +330,14 @@ const VALUE_STYLE_SCOPE_ATTRIBUTE = "data-tq-value-style-scope";
 const VALUE_STYLE_ELEMENT_ATTRIBUTE = "data-tq-prepared-value-styles";
 const LIVE_SEMANTIC_INDEX_ATTRIBUTE = "data-tq-live-semantic-index";
 const SNAPSHOT_STYLE_OWNER = Object.freeze({});
-const preparedStyleStates = new WeakMap<Element, PreparedStyleState>();
-const preparedStyleRootsByHost = new WeakMap<Element, Element>();
-type ScopeCounterKey = Node | Record<string, unknown>;
-interface PreparedScopeCounter {
-  next: number;
-}
-const preparedScopeCounters = new WeakMap<ScopeCounterKey, PreparedScopeCounter>();
 
-function nextPreparedScopeForDocument(documentObject: ScopeCounterKey | null | undefined): number {
+function nextPreparedScopeForDocument(documentObject: Document | null | undefined): number {
   if (!documentObject) return 1;
-  let counter = preparedScopeCounters.get(documentObject);
+  const services = globalServices();
+  let counter = services.preparedStyles.scopeCounters.get(documentObject);
   if (!counter) {
     counter = { next: 1 };
-    preparedScopeCounters.set(documentObject, counter);
+    services.preparedStyles.scopeCounters.set(documentObject, counter);
   }
   const current = counter.next;
   counter.next += 1;
@@ -407,12 +405,15 @@ function createPreparedStyleState(root: Element) {
     owners: new Map(),
     dirty: false,
   };
-  preparedStyleStates.set(root, state);
+  const context = getContextForElement(root) ?? createEnhanceContext(root);
+  context.preparedStyle = state;
   return state;
 }
 
 function preparedStyleState(root: Element) {
-  return preparedStyleStates.get(root) ?? createPreparedStyleState(root);
+  const context = getContextForElement(root);
+  if (context?.preparedStyle) return context.preparedStyle;
+  return createPreparedStyleState(root);
 }
 
 function registerPreparedValueStyle(state: PreparedStyleState, declaration: string) {
@@ -450,9 +451,11 @@ function syncPreparedValueStyles(state: PreparedStyleState) {
 }
 
 function removePreparedStyleState(state: PreparedStyleState) {
-  preparedStyleStates.delete(state.root);
+  const context = getContextForElement(state.root);
+  if (context) context.preparedStyle = null;
+  const services = globalServices();
   for (const owner of state.owners.keys()) {
-    if (owner !== SNAPSHOT_STYLE_OWNER) preparedStyleRootsByHost.delete(owner as Element);
+    if (owner !== SNAPSHOT_STYLE_OWNER) services.preparedStyles.rootsByHost.delete(owner as Element);
   }
   state.styleElement.remove?.();
   if (state.styleElement.parentNode) state.styleElement.parentNode.removeChild(state.styleElement);
@@ -504,10 +507,12 @@ export function releasePreparedRenderFontStyle(root: Element) {
 }
 
 export function releasePreparedParagraphStyles(host: Element) {
-  const root = preparedStyleRootsByHost.get(host);
+  const services = globalServices();
+  const root = services.preparedStyles.rootsByHost.get(host);
   if (!root) return false;
-  preparedStyleRootsByHost.delete(host);
-  const state = preparedStyleStates.get(root);
+  services.preparedStyles.rootsByHost.delete(host);
+  const context = getContextForElement(root);
+  const state = context?.preparedStyle;
   if (!state) return false;
   state.owners.delete(host);
   if (state.owners.size === 0) removePreparedStyleState(state);
@@ -515,10 +520,15 @@ export function releasePreparedParagraphStyles(host: Element) {
 }
 
 export function releasePreparedValueStyleRoot(root: Element) {
-  const state = preparedStyleStates.get(root);
+  const context = getContextForElement(root);
+  const state = context?.preparedStyle;
   if (!state) return false;
   removePreparedStyleState(state);
   return true;
+}
+
+export function releasePreparedStyleState(state: PreparedStyleState): void {
+  removePreparedStyleState(state);
 }
 
 function preparedSpacing(display: string, naturalWidth: number, trailingGap: number) {
@@ -1227,7 +1237,7 @@ export function renderPreparedParagraphInto(
   if (state) {
     state.owners.set(host, usedStyles);
     state.dirty = true;
-    preparedStyleRootsByHost.set(host, root);
+    globalServices().preparedStyles.rootsByHost.set(host, root);
     syncPreparedValueStyles(state);
   }
   host.innerHTML = lowered.html;

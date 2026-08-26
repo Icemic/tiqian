@@ -21,6 +21,17 @@ import { CoordinationService } from "../engine/coordination/coordination-service
 import type { FontCoordinationState } from "../engine/coordination/fonts.js";
 import type { MeasurementCoordinationState } from "../engine/coordination/measurement.js";
 
+/** Per-document scope counter for prepared-style CSS scoping. */
+export interface PreparedScopeCounter {
+  next: number;
+}
+
+/** Per-document prepared-style lookups (S3-a Part 2). */
+export interface PreparedStylesState {
+  rootsByHost: WeakMap<Element, Element>;
+  scopeCounters: WeakMap<Document, PreparedScopeCounter>;
+}
+
 export interface GlobalServices {
   coordination: CoordinationService;
   // Font/measurement coordination state: page-wide singletons owned by the
@@ -28,6 +39,12 @@ export interface GlobalServices {
   // page-level single).
   fonts: FontCoordinationState;
   measurement: MeasurementCoordinationState;
+  // The rootsByHost map tracks which root owns a given host paragraph
+  // element; the scopeCounters map assigns monotonically increasing scope
+  // IDs per document. Both are document-scoped and must survive across module
+  // copies, hence they live in the page-global container rather than in
+  // prepared-dom.ts module state.
+  preparedStyles: PreparedStylesState;
 }
 
 type GlobalServicesRegistry = Record<symbol, GlobalServices | undefined>;
@@ -42,6 +59,10 @@ function createGlobalServices(): GlobalServices {
     coordination,
     fonts: coordination.fonts,
     measurement: coordination.measurement,
+    preparedStyles: {
+      rootsByHost: new WeakMap<Element, Element>(),
+      scopeCounters: new WeakMap<Document, PreparedScopeCounter>(),
+    },
   };
 }
 

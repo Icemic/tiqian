@@ -18,9 +18,12 @@
 //
 // S3-a completion: update() and destroy() wire the existing re-entry and
 // teardown points. update() bumps the generation to supersede in-flight work.
-// destroy() clears rawDomParagraphs and drops the context from the registry.
+// destroy() clears rawDomParagraphs, drops the context from the registry, and
+// releases the prepared-style state through the context's release function.
 
 import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
+import type { PreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
+import { releasePreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
 
 export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
@@ -37,6 +40,7 @@ interface EnhancedElementContext {
   readonly generation: number;
   readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
+  preparedStyle: PreparedStyleState | null;
   beginEnhanceCycle(): number;
   update(): number;
   destroy(): void;
@@ -53,6 +57,7 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
   let generation = 0;
   const snapshotFontSession: SnapshotFontSessionState = { entry: null };
   const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
+  let preparedStyle: PreparedStyleState | null = null;
 
   const context: EnhancedElementContext = {
     element,
@@ -61,6 +66,12 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
     },
     snapshotFontSession,
     rawDomParagraphs,
+    get preparedStyle() {
+      return preparedStyle;
+    },
+    set preparedStyle(value: PreparedStyleState | null) {
+      preparedStyle = value;
+    },
     beginEnhanceCycle() {
       generation += 1;
       return generation;
@@ -71,6 +82,10 @@ function createEnhanceContext(element: Element): EnhancedElementContext {
     },
     destroy() {
       rawDomParagraphs.clear();
+      if (preparedStyle) {
+        releasePreparedStyleState(preparedStyle);
+        preparedStyle = null;
+      }
       elementContexts.delete(element);
     },
   };

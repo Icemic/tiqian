@@ -50,11 +50,6 @@ const EXEMPTIONS = new Map([
     names: ["replayMetricsByView"],
     reason: "pure-memo: derivation cache keyed by the immutable table view",
   }],
-  ["frontend/web/core/core/sampler/snapshot/prepared-dom.ts", {
-    names: ["preparedStyleStates", "preparedStyleRootsByHost", "preparedScopeCounters"],
-    reason: "pending",
-    task: "s5-ctx lane (adjudicated sweep: per-root -> context, per-document -> globalServices)",
-  }],
   ["frontend/web/core/core/sampler/snapshot/precomputed.ts", {
     names: ["snapshotFontReplayProofs", "states", "directServerArtifacts", "unicodeRangeCache"],
     reason: "pending",
