@@ -27,6 +27,8 @@ import { createBrowserMetricsBridge } from "./browser-metrics-bridge.js";
 import { shouldTryParagraph } from "./eligibility.js";
 import { snapshotSessionCallbacks } from "../measurement/browser-font-replay.js";
 import type { MetricsJsonFn, ShapeJsonFn } from "../measurement/browser-font-replay.js";
+import { computeCjkDashOutcome } from "./loaders/cjk-dash.js";
+import type { CjkDashShapingOutcome } from "./loaders/cjk-dash.js";
 
 // Descriptor returned by activeSnapshotSessionDescriptor: the shaping callbacks
 // of a conforming snapshot session, or null when the active options lower the
@@ -70,6 +72,7 @@ export type RootState = {
   issues: RootStateIssueRecord[];
   preparedDomEnabled: boolean;
   preparedDomFallback: string | null;
+  cjkDashCapability: CjkDashShapingOutcome;
 };
 
 type RootStateOnIssueFn = (issue: RootStateIssueRecord) => void;
@@ -130,6 +133,7 @@ type RootStateDeleteFn = (root: Element) => void;
 type RootStateParagraphCandidatesFn = (root: Element, selector: string) => Element[];
 type RootStateStrandedSourceParagraphsFn = (root: Element, state: RootState) => Element[];
 type RootStatePublishFn = (state: RootState, keepEmpty?: boolean) => void;
+type RootStateUpdateCjkDashCapabilityFn = (state: RootState, outcome: CjkDashShapingOutcome) => void;
 
 export type RootStateApi = {
   createRootState: RootStateCreateFn;
@@ -147,6 +151,7 @@ export type RootStateApi = {
   paragraphCandidates: RootStateParagraphCandidatesFn;
   strandedSourceParagraphs: RootStateStrandedSourceParagraphsFn;
   publishState: RootStatePublishFn;
+  updateCjkDashCapability: RootStateUpdateCjkDashCapabilityFn;
 };
 
 export function createRootState(): RootStateApi {
@@ -259,6 +264,9 @@ export function createRootState(): RootStateApi {
   // through the prepared bridge with browser metrics, and the
   // per-paragraph validator still guards every render.
   function newRootState(root: Element, resolved: ResolvedEnhanceOptions): RootState {
+    const cjkDashCapability = computeCjkDashOutcome(root, {
+      snapshotFontSession: resolved.snapshotFontSession,
+    });
     return {
       root: root,
       options: resolved,
@@ -267,6 +275,7 @@ export function createRootState(): RootStateApi {
       issues: [],
       preparedDomEnabled: true,
       preparedDomFallback: null,
+      cjkDashCapability: cjkDashCapability,
     };
   }
 
@@ -376,6 +385,20 @@ export function createRootState(): RootStateApi {
     }
   }
 
+  function updateCjkDashCapability(state: RootState, outcome: CjkDashShapingOutcome): void {
+    if (state.cjkDashCapability.status === outcome.status &&
+        state.cjkDashCapability.detail === outcome.detail) {
+      return;
+    }
+    state.cjkDashCapability = outcome;
+    const updatedResolved = {
+      ...state.options,
+      cjkDashCapability: outcome,
+    };
+    state.browserFallback = buildBrowserFallbackDescriptor(updatedResolved);
+    state.options = updatedResolved;
+  }
+
   return {
     createRootState: createRootState,
     createRootStateFromCanonical: createRootStateFromCanonical,
@@ -392,5 +415,6 @@ export function createRootState(): RootStateApi {
     paragraphCandidates: paragraphCandidates,
     strandedSourceParagraphs: strandedSourceParagraphs,
     publishState: publishState,
+    updateCjkDashCapability: updateCjkDashCapability,
   };
 }
