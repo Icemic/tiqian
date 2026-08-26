@@ -33,8 +33,6 @@
     "tag": "alpha"
   },
   "scripts": {
-    "link:core": "node ./scripts/link-core.mjs",
-    "link:ffi": "node ./scripts/link-ffi.mjs",
     "build": "tsc -b",
     "pretest": "npm run build",
     "test": "node --test tests/*.test.mjs",

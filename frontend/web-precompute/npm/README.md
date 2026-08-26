@@ -171,6 +171,12 @@ const store = await createSqliteCacheStore(".cache/tiqian/cache.db", {
 
 ## Local development
 
+This package is a member of the repository-root npm workspace. `npm install`
+from this directory installs the whole workspace at the root; `@tiqian/*`
+dependencies resolve to workspace symlinks when the declared version matches
+the member's version, and silently fall back to the registry on mismatch, so
+a member version bump must update its dependents in the same change.
+
 From this directory:
 
 ```sh

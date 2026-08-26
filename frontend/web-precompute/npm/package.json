@@ -68,7 +68,6 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
-    "link:prose": "node ./link-prose.mjs",
     "pretest": "npm run build",
     "test": "node --test \"test/**/*.test.ts\"",
     "debug:native": "cargo build --manifest-path ../rust/tiqian-precompute-neon/Cargo.toml --message-format=json-render-diagnostics > cargo.log && neon dist --name tiqian-precompute-neon --platform $(neon current-platform) < cargo.log",

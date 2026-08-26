@@ -23,3 +23,7 @@ frontend/web-precompute/rust/target/
 # Agent working artifacts (specs, reports, logs, baselines; kept on disk, never committed)
 .agent-specs/
 .b2-tmp/
+
+# npm workspace root install output
+/node_modules/
+/.parcel-cache/

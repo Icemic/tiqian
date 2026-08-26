@@ -40,7 +40,9 @@
 
 ./gradlew :ffi:js:jsNodeTest
 ./gradlew :ffi:js:assembleNpmPackage
-(cd frontend/web/npm && npm run link:ffi && npm test)
+npm ci
+(cd frontend/web/core && npm test)
+(cd frontend/web/npm && npm test)
 (cd ffi/js/npm && npm test)
 ```
 

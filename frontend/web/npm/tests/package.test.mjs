@@ -4,11 +4,11 @@ import test from "node:test";
 
 test("published package ships the TS runtime modules and no repository-only bin", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
+  const rootLock = JSON.parse(await readFile(new URL("../../../../package-lock.json", import.meta.url), "utf8"));
+  const lock = rootLock.packages["frontend/web/npm"];
 
   assert.equal(manifest.name, "@tiqian/prose");
   assert.equal(lock.version, manifest.version);
-  assert.equal(lock.packages[""].version, manifest.version);
   assert.equal(manifest.license, "MPL-2.0");
   assert.equal(manifest.types, "./api.d.ts");
   assert.equal(manifest.engines.node, ">=22");

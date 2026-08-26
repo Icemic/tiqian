@@ -1,0 +1,13 @@
+{
+  "name": "tiqian",
+  "private": true,
+  "workspaces": [
+    "ffi/js/npm",
+    "frontend/web/core",
+    "frontend/web/npm",
+    "frontend/web-precompute/npm",
+    "frontend/web/integrations/astro",
+    "frontend/web/integrations/sveltekit",
+    "demo/web"
+  ]
+}

@@ -77,13 +77,14 @@ jobs:
         shell: bash
         run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
-      - name: Install package dependencies
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm ci
 
       - name: Build and verify the release tarball
         env:
           TIQIAN_RELEASE_ARTIFACT_DIR: ${{ runner.temp }}/tiqian-prose-release
-        run: npm run verify:release
+        run: npm run verify:release --workspace @tiqian/prose
 
       - name: Publish the verified tarball to alpha
         shell: bash

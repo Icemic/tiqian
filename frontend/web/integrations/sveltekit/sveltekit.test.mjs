@@ -39,7 +39,9 @@ try {
 } catch {
   addonBuildExists = false;
 }
-const proseCoreLinkExists = existsSync(new URL("../../npm/node_modules/@tiqian/core", import.meta.url));
+// The workspace install hoists @tiqian/* as root node_modules symlinks; the
+// fixture build below resolves every dependency through that single root.
+const proseWorkspaceLinkExists = existsSync(new URL("../../../../node_modules/@tiqian/prose", import.meta.url));
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
@@ -317,13 +319,13 @@ test("concurrent requests cannot exchange assets that reuse an explicit id", { s
   await tiqian.close();
 });
 
-test("component builds in a real SvelteKit application", { skip: proseCoreLinkExists ? false : "no @tiqian/prose working-tree link" }, async () => {
+test("component builds in a real SvelteKit application", { skip: proseWorkspaceLinkExists ? false : "no @tiqian/prose workspace link" }, async () => {
   const root = await mkdtemp(path.join(process.cwd(), ".sveltekit-fixture-"));
   try {
     const routes = path.join(root, "src", "routes");
     await mkdir(routes, { recursive: true });
     await symlink(
-      fileURLToPath(new URL("./node_modules", import.meta.url)),
+      fileURLToPath(new URL("../../../../node_modules", import.meta.url)),
       path.join(root, "node_modules"),
       "dir",
     );
@@ -348,7 +350,7 @@ test("component builds in a real SvelteKit application", { skip: proseCoreLinkEx
     `);
     await run(
       process.execPath,
-      [fileURLToPath(new URL("./node_modules/vite/bin/vite.js", import.meta.url)), "build"],
+      [fileURLToPath(new URL("../../../../node_modules/vite/bin/vite.js", import.meta.url)), "build"],
       { cwd: root },
     );
     const serverManifest = await readFile(

@@ -170,6 +170,8 @@ jobs:
   # prepared-dom implementations to the same bytes. The rust lane runs inside
   # the rust job above; this job regenerates the fixture from the js oracle and
   # fails on drift, then replays the same fixture through the js test.
+  # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+  # prose and precompute resolve them without link scripts.
   prepared-dom-corpus:
     name: Shared prepared-dom corpus
     runs-on: ubuntu-latest
@@ -178,25 +180,19 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
-      # The runtime .js next to the .ts sources are untracked build products;
-      # the packages must be built before the js oracle runs. Only core
-      # installs from the lock (typescript plus the @tiqian/ffi local link);
-      # prose resolves @tiqian/core through the link:core symlink and
-      # borrows core's tsc, so no @tiqian package comes from a registry.
-      # The build runs with --noCheck: the @tiqian/ffi type declarations are
-      # gradle products (ffi/js/npm/runtime) that a fresh checkout does not
-      # have, and this lane verifies corpus bytes, not types. Full type
-      # checking requires the ffi runtime build and stays with the local
-      # package suites (npm test in both packages) and the release lanes.
-      - name: Install build dependencies
-        working-directory: frontend/web/core
+      # Workspace install hoists @tiqian/* packages as symlinks; prose and
+      # precompute resolve them without link scripts. The build runs with
+      # --noCheck: the @tiqian/ffi type declarations are gradle products
+      # (ffi/js/npm/runtime) that a fresh checkout does not have, and this
+      # lane verifies corpus bytes, not types. Full type checking requires
+      # the ffi runtime build and stays with the local package suites (npm
+      # test in both packages) and the release lanes.
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm ci
-      - name: Link core dependency
-        working-directory: frontend/web/npm
-        run: npm run link:core
       - name: Build the TypeScript packages
         working-directory: frontend/web/npm
-        run: ../core/node_modules/.bin/tsc -b --noCheck
+        run: npx tsc -b --noCheck
       - name: Regenerate the fixture and fail on drift
         run: |
           node frontend/web-precompute/scripts/build-prepared-dom-corpus.mjs
@@ -255,36 +251,23 @@ jobs:
       # The npm loader over an engine-linked addon; the font-dependent lanes
       # self-skip on runners without fonts, so this exercises the wiring and
       # the pure entries, while the parity tests above exercise the engine.
+      # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+      # the redirect order (core full checks -> prose --noCheck -> precompute)
+      # preserves the ffi declarations prerequisite from commit 81d2330c.
       - name: Set up Node.js 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           package-manager-cache: false
-      # The precompute suite consumes `@tiqian/prose/prepared-dom`, a subpath
-      # only the working-tree packages export (the registry alpha predates
-      # it), and its type check reads the packages' emitted declarations.
-      # Build core with full checks (the assembled ffi package provides
-      # its declarations), emit the prose package without checks (same
-      # rationale as the corpus lane), then link both into the precompute
-      # suite's node_modules so imports resolve to this checkout.
-      - name: Install build dependencies
-        working-directory: frontend/web/core
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm ci
       - name: Build core with full type checks
         working-directory: frontend/web/core
         run: npx tsc -b
-      - name: Link core dependency
-        working-directory: frontend/web/npm
-        run: npm run link:core
       - name: Emit the prose package
         working-directory: frontend/web/npm
-        run: ../core/node_modules/.bin/tsc -b --noCheck
-      - name: Install npm dependencies
-        working-directory: frontend/web-precompute/npm
-        run: |
-          npm install --no-audit --no-fund
-          rm -rf node_modules/@tiqian
-          npm run link:prose
+        run: npx tsc -b --noCheck
       - name: Run the npm suite engine-linked
         working-directory: frontend/web-precompute/npm
         env:

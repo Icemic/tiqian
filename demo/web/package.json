@@ -9,11 +9,7 @@
     "test": "node --test --test-concurrency=1 tests/*.test.mjs"
   },
   "dependencies": {
-    "@tiqian/prose": "file:../../frontend/web/npm"
-  },
-  "overrides": {
-    "@tiqian/core": "file:../../frontend/web/core",
-    "@tiqian/ffi": "file:../../../ffi/js/npm"
+    "@tiqian/prose": "0.1.0-alpha.5"
   },
   "devDependencies": {
     "parcel": "^2.16.4",

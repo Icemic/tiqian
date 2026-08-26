@@ -131,28 +131,21 @@ jobs:
       # declarations a full type check would need are absent; emit the
       # packages and the suite without checks (the Native precompute CI runs
       # the full checks over the same sources).
-      # The matrix spans Windows runners, whose default pwsh shell has no
+      # Workspace install (root npm ci) hoists @tiqian/* packages as symlinks;
+      # the matrix spans Windows runners, whose default pwsh shell has no
       # rm -rf and cannot execute the extensionless .bin shims; run every
       # step of this block under bash like the build steps below.
-      - name: Install build dependencies
-        working-directory: frontend/web/core
-        shell: bash
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm ci
-      - name: Link core dependency
-        working-directory: frontend/web/npm
-        shell: bash
-        run: npm run link:core
       - name: Emit the prose packages
         working-directory: frontend/web/npm
         shell: bash
-        run: ../core/node_modules/.bin/tsc -b --noCheck
+        run: npx tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
         shell: bash
-        run: |
-          npm install --no-audit --no-fund
-          rm -rf node_modules/@tiqian
-          npm run link:prose
+        run: npm install --no-audit --no-fund
       - name: Build addon and place platform binary
         working-directory: frontend/web-precompute/npm
         shell: bash
@@ -209,21 +202,15 @@ jobs:
       # full type check would need are absent; build without checks and drop
       # the typecheck script (the Native precompute CI runs the full checks
       # over the same sources).
-      - name: Install build dependencies
-        working-directory: frontend/web/core
+      - name: Install workspace dependencies
+        working-directory: .
         run: npm ci
-      - name: Link core dependency
-        working-directory: frontend/web/npm
-        run: npm run link:core
       - name: Emit the prose packages
         working-directory: frontend/web/npm
-        run: ../core/node_modules/.bin/tsc -b --noCheck
+        run: npx tsc -b --noCheck
       - name: Install npm dependencies
         working-directory: frontend/web-precompute/npm
-        run: |
-          npm install --no-audit --no-fund
-          rm -rf node_modules/@tiqian
-          npm run link:prose
+        run: npm install --no-audit --no-fund
       - name: Lint and build the JS entry
         working-directory: frontend/web-precompute/npm
         run: |

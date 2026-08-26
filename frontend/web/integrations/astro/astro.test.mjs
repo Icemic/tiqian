@@ -185,7 +185,7 @@ test("runtime-only component builds in a real static Astro site", { skip: addonB
     const pages = path.join(root, "src", "pages");
     await mkdir(pages, { recursive: true });
     await symlink(
-      fileURLToPath(new URL("./node_modules", import.meta.url)),
+      fileURLToPath(new URL("../../../../node_modules", import.meta.url)),
       path.join(root, "node_modules"),
       "dir",
     );
