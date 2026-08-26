@@ -139,21 +139,9 @@ const EXEMPTIONS = [
     reason: "JSON-string callback envelope over the wire codec lane; the envelope becomes declared DTOs in corrective wave 5 (#106).",
   },
 
-  // R4: separator literals outside the declared codec modules. All die when
-  // payloads cross the boundary as declared DTOs (纠偏 5/#106), except the
-  // wire codec test which dies with the codec move (#103).
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/ParagraphWireCodecTest.kt",
-    reason: "Wire codec test fixtures; deleted with the string wire format in corrective wave 5 (#106)."
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "ffi/js/src/jsTest/kotlin/org/tiqian/ffi/js/JsCallbackAdaptersTest.kt",
-    reason: "Separator fixture strings of the callback adapter lane; replaced by declared DTOs in corrective wave 5."
-  },
+// R4: separator literals outside the declared codec modules. All die when
+// payloads cross the boundary as declared DTOs (纠偏 5/#106), except the
+// wire codec test which dies with the codec move (#103).
   {
     task: "#106",
     rules: ["R4-separator-literal"],
@@ -183,18 +171,6 @@ const EXEMPTIONS = [
     rules: ["R4-separator-literal"],
     file: "frontend/web/core/core/engine/canvas-metrics.ts",
     reason: "Record/field/family splits of the untyped payload strings; replaced by declared DTOs.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "frontend/web/core/core/engine/prepare-paragraph-layout.ts",
-    reason: "Separator spans of the untyped layout request; replaced by declared DTOs.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "frontend/web/core/core/engine/worker-request.ts",
-    reason: "Request parser holding private separator copies shared by convention with the Kotlin side; parser moves into ffi/js and payloads become declared DTOs.",
   },
   {
     task: "#106",
@@ -235,12 +211,6 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/prepare-paragraph-layout.test.mjs",
-    reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
     file: "frontend/web/core/tests/replay-entry-codec.test.mjs",
     reason: "Separator fixture strings of the replay entry codec pending the typed-DTO wave.",
   },
@@ -261,12 +231,6 @@ const EXEMPTIONS = [
     rules: ["R4-separator-literal"],
     file: "frontend/web/core/core/measurement/browser-font-replay.ts",
     reason: "Family separator joins building replay registry keys over the untyped callback payload (introduced with the callback lane in 纠偏 1); replaced by declared DTOs in corrective wave 5.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/worker-request.test.mjs",
-    reason: "Separator fixture strings of the request parser; parser moves into ffi/js and payloads become declared DTOs.",
   },
   {
     task: "#106",
