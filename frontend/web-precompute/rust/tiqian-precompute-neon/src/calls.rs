@@ -184,11 +184,11 @@ pub fn session_faces(mut cx: FunctionContext) -> JsResult<JsString> {
 
 /// `shape(sessionId, displayText, families, fontSize, fontWeight, italic,
 /// locale, role, sourceText)` in the global backend protocol; `families` is
-/// pre-joined with U+001F by the JS wrapper.
+/// an array of strings.
 pub fn shape(mut cx: FunctionContext) -> JsResult<JsString> {
     let session_id = cx.argument::<JsString>(0)?.value(&mut cx);
     let display_text = cx.argument::<JsString>(1)?.value(&mut cx);
-    let families = cx.argument::<JsString>(2)?.value(&mut cx);
+    let families = cx.argument::<JsArray>(2)?;
     let font_size = cx.argument::<JsNumber>(3)?.value(&mut cx);
     let font_weight = cx.argument::<JsNumber>(4)?.value(&mut cx);
     let italic = cx.argument::<JsBoolean>(5)?.value(&mut cx);
@@ -196,9 +196,10 @@ pub fn shape(mut cx: FunctionContext) -> JsResult<JsString> {
     let role = optional_string(&mut cx, 7)?;
     let source_text = optional_string(&mut cx, 8)?;
 
+    let family_list = read_string_elements(&mut cx, &families)?;
     let input = ShapeInput {
         display_text: &display_text,
-        serialized_families: &families,
+        font_families: &family_list,
         font_size,
         font_weight,
         italic,
@@ -218,15 +219,16 @@ pub fn shape(mut cx: FunctionContext) -> JsResult<JsString> {
 
 pub fn metrics(mut cx: FunctionContext) -> JsResult<JsString> {
     let session_id = cx.argument::<JsString>(0)?.value(&mut cx);
-    let families = cx.argument::<JsString>(1)?.value(&mut cx);
+    let families = cx.argument::<JsArray>(1)?;
     let font_size = cx.argument::<JsNumber>(2)?.value(&mut cx);
     let font_weight = cx.argument::<JsNumber>(3)?.value(&mut cx);
     let italic = cx.argument::<JsBoolean>(4)?.value(&mut cx);
     let role = optional_string(&mut cx, 5)?;
     let face_selection_text = optional_string(&mut cx, 6)?;
 
+    let family_list = read_string_elements(&mut cx, &families)?;
     let input = MetricsInput {
-        serialized_families: &families,
+        font_families: &family_list,
         font_size,
         font_weight,
         italic,

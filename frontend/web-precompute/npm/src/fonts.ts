@@ -295,7 +295,7 @@ export async function createFontSession(
         addon.shape(
           id,
           displayText,
-          families.join("\u001f"),
+          families,
           fontSize,
           fontWeight,
           italic,
@@ -316,7 +316,7 @@ export async function createFontSession(
       return parse<number[]>(
         addon.metrics(
           id,
-          families.join("\u001f"),
+          families,
           fontSize,
           fontWeight,
           italic,
