@@ -25,6 +25,9 @@
 //      const (G2 module boundary).
 //   9. Zero inline `typeof import(...)` / `import(...)` in type annotations (`TSImportType`):
 //      types must use top-level `import type` declarations.
+//  10. Zero object-literal type assertions (`{} as T`, `<T>{...}`) and zero
+//      type assertions on derived collections (`f(...) as T[]`): declare the
+//      shape at the source or narrow with a type predicate (wc-s1, P/S/C 10).
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,6 +115,14 @@ export default [
     },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/consistent-type-assertions": [
+        "error",
+        {
+          assertionStyle: "as",
+          objectLiteralTypeAssertions: "never",
+          arrayLiteralTypeAssertions: "never",
+        },
+      ],
       "@typescript-eslint/no-restricted-types": [
         "error",
         {
@@ -161,6 +172,11 @@ export default [
           selector: "TSImportType",
           message:
             "Inline `typeof import(...)` or `import(...)` type annotations are forbidden; use named top-level `import type` declarations instead.",
+        },
+        {
+          selector: 'TSAsExpression[expression.type="CallExpression"][typeAnnotation.type="TSArrayType"]',
+          message:
+            "Type assertion on a derived collection: declare the element type at the source or narrow with a type predicate instead of casting the call result (wc-s1, P/S/C 10).",
         },
       ],
     },
