@@ -334,8 +334,14 @@ impl SnapshotTables {
                 return Err(named("SnapshotTableRestoreInvalid"));
             };
             let italic = matches!(&values[2], Json::Num(value) if *value == 1.0);
+            let families_str = string_at(0)?;
+            let families: Vec<String> = families_str
+                .split('\u{001f}')
+                .filter(|f| !f.is_empty())
+                .map(|f| f.to_string())
+                .collect();
             let key = metric_replay_key(
-                &string_at(0)?,
+                &families,
                 *weight,
                 italic,
                 Some(&string_at(3)?),
