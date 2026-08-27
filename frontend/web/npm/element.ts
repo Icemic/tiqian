@@ -7,6 +7,13 @@
 // mount/unmount); (c) completion state leaves the session as tiqian:ready /
 // tiqian:relayout-ready DOM CustomEvents dispatched on the root. Every
 // other behavior lives in the core session and the services it uses.
+//
+// Registration (wc-s5 scope item 2): the three historical import-time side
+// effects — clipboard interception, snapshot-table prefetch, and the custom
+// element definition — are consolidated into the named, idempotent,
+// parameterized registerTiqianProse(). The /auto entry is the canonical
+// zero-config import; importing this module keeps its historical zero-config
+// behavior by calling registerTiqianProse() once with the defaults.
 import {
   createProseHostSession,
   OBSERVED_ATTRIBUTES,
@@ -23,12 +30,6 @@ const HTMLElementBase: DomElementCtor =
   typeof globalThis.HTMLElement === "function"
     ? globalThis.HTMLElement
     : class TiqianSsrElement {} as DomElementCtor;
-
-copyInstaller().install(globalThis.document);
-// Snapshot-table loads start at module evaluation, ahead of the first root
-// hydrating (ADR 0052 `TableTransport`); the scan is document-guarded and a
-// no-op in non-browser entry points.
-prefetchSnapshotTables();
 
 class TiqianProseElement extends HTMLElementBase {
   static observedAttributes: string[] = [...OBSERVED_ATTRIBUTES];
@@ -114,14 +115,49 @@ declare global {
   }
 }
 
-const registry = globalThis.customElements;
-if (
-  typeof globalThis.HTMLElement === "function" &&
-  typeof registry?.get === "function" &&
-  typeof registry?.define === "function" &&
-  !registry.get(ELEMENT_NAME)
-) {
-  registry.define(ELEMENT_NAME, TiqianProseElement);
+/** Options for the explicit registration entry (wc-s5 scope item 2). */
+export interface RegisterTiqianProseOptions {
+  /** Custom element tag to define; defaults to "tiqian-prose". */
+  readonly tagName?: string;
+  /** Install the source-faithful copy interceptor on the document; default true. */
+  readonly interceptCopy?: boolean;
+  /** Start prefetching declared snapshot tables at registration; default true. */
+  readonly prefetchTables?: boolean;
+  /** Target document (iframe / popup / sandbox); defaults to the global document. */
+  readonly targetDocument?: Document;
 }
+
+/**
+ * Idempotent, SSR-safe registration of the prose runtime. Consolidates the
+ * three historical import-time side effects (clipboard interception,
+ * snapshot-table prefetch, custom element definition) behind one named call.
+ */
+export function registerTiqianProse(options: RegisterTiqianProseOptions = {}): void {
+  const tagName = options.tagName ?? ELEMENT_NAME;
+  const interceptCopy = options.interceptCopy ?? true;
+  const prefetchTables = options.prefetchTables ?? true;
+  const targetDocument = options.targetDocument ??
+    (typeof globalThis.document !== "undefined" ? globalThis.document : undefined);
+
+  if (interceptCopy && targetDocument) copyInstaller().install(targetDocument);
+  // The scan is document-guarded internally and a no-op without a document.
+  if (prefetchTables) prefetchSnapshotTables();
+
+  const registry = targetDocument?.defaultView?.customElements ?? globalThis.customElements;
+  if (
+    typeof globalThis.HTMLElement === "function" &&
+    typeof registry?.get === "function" &&
+    typeof registry?.define === "function" &&
+    !registry.get(tagName)
+  ) {
+    registry.define(tagName, TiqianProseElement);
+  }
+}
+
+// The /element entry preserves its historical zero-config contract: importing
+// it registers <tiqian-prose> with the default options. Explicit,
+// parameterized registration calls registerTiqianProse() directly; the /auto
+// entry is the canonical zero-config import.
+registerTiqianProse();
 
 export { TiqianProseElement, CoordinationService };

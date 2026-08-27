@@ -1,4 +1,4 @@
-import '@tiqian/prose/element';
+import '@tiqian/prose/auto';
 import { enhance } from '@tiqian/prose';
 import { getContextForElement } from '@tiqian/core/core/engine/context/enhance-context.js';
 

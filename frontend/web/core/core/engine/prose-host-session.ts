@@ -114,6 +114,14 @@ export interface ProseHostOptions {
   readonly snapshotRef?: string | null;
 }
 
+/** Resolved host options held by the session's applied-options ledger. */
+interface AppliedProseHostOptions {
+  disabled: boolean;
+  emphasisDotGapEm: number | null;
+  strongAsEmphasisMarks: boolean;
+  snapshotRef: string | null;
+}
+
 // Completion event names (ruling R6). Every state-machine transition that
 // carries an observer resolves into one of these two: the ready funnel
 // classifies each tiqian:ready / tiqian:relayout-ready completion by its
@@ -131,6 +139,9 @@ export interface ProseHostDiagnostics {
 }
 
 export type ProseHostEventCallback = (diagnostics: ProseHostDiagnostics) => void;
+
+/** Unsubscribe handle returned by the event subscription surface. */
+export type ProseHostEventUnsubscribe = () => void;
 
 // Enhance options bag built from the reflected host options; the progressive
 // drivers consume it as a plain record.
@@ -2561,12 +2572,7 @@ class ProseHostSession {
 
   #eventListeners: Map<ProseHostEvent, ProseHostEventCallback[]> = new Map();
   #lastDiagnostics: ProseHostDiagnostics = {};
-  #appliedOptions: {
-    disabled: boolean;
-    emphasisDotGapEm: number | null;
-    strongAsEmphasisMarks: boolean;
-    snapshotRef: string | null;
-  } = { disabled: false, emphasisDotGapEm: null, strongAsEmphasisMarks: false, snapshotRef: null };
+  #appliedOptions: AppliedProseHostOptions = { disabled: false, emphasisDotGapEm: null, strongAsEmphasisMarks: false, snapshotRef: null };
 
   #syncAppliedOptions(): void {
     const root = this.#root;
@@ -2579,7 +2585,7 @@ class ProseHostSession {
     };
   }
 
-  on(event: ProseHostEvent, callback: ProseHostEventCallback): () => void {
+  on(event: ProseHostEvent, callback: ProseHostEventCallback): ProseHostEventUnsubscribe {
     let list = this.#eventListeners.get(event);
     if (!list) {
       list = [];
@@ -2593,11 +2599,11 @@ class ProseHostSession {
     };
   }
 
-  onReady(callback: ProseHostEventCallback): () => void {
+  onReady(callback: ProseHostEventCallback): ProseHostEventUnsubscribe {
     return this.on("ready", callback);
   }
 
-  onRelayoutReady(callback: ProseHostEventCallback): () => void {
+  onRelayoutReady(callback: ProseHostEventCallback): ProseHostEventUnsubscribe {
     return this.on("relayout-ready", callback);
   }
 

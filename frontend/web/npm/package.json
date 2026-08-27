@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsc -b",
     "pretest": "npm run build",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs tests/*.test.js",
     "verify:package": "node ./scripts/verify-package.mjs",
     "preverify:package": "npm run build",
     "verify:release": "npm run prepack && node ./scripts/verify-release.mjs",
@@ -47,6 +47,8 @@
     "README.md",
     "api.d.ts",
     "api.js",
+    "auto.d.ts",
+    "auto.js",
     "element.d.ts",
     "element.js",
     "prepared-dom.d.ts",
@@ -58,6 +60,10 @@
     ".": {
       "types": "./api.d.ts",
       "default": "./api.js"
+    },
+    "./auto": {
+      "types": "./auto.d.ts",
+      "default": "./auto.js"
     },
     "./element": {
       "types": "./element.d.ts",
@@ -77,6 +83,7 @@
   },
   "sideEffects": [
     "./api.js",
+    "./auto.js",
     "./element.js",
     "./prepared-dom.js",
     "./styles.css"

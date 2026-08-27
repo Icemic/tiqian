@@ -28,6 +28,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.equal(manifest.files.includes("lazy-capabilities.js"), false, "lazy-capabilities.js must not ship");
   assert.equal(manifest.files.includes("layout-worker.js"), false);
   assert.ok(manifest.files.includes("prepared-dom.js"));
+  assert.ok(manifest.files.includes("auto.js"), "the zero-config auto entry ships");
   assert.equal(manifest.files.includes("snapshot-manifest.js"), false);
   assert.equal(manifest.files.includes("snapshot-source.js"), false);
   assert.ok(manifest.files.includes("snapshot-client.js"));
@@ -36,6 +37,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
   // client snapshot adoption module and web-component integration remain.
   assert.deepEqual(Object.keys(manifest.exports).sort(), [
     ".",
+    "./auto",
     "./element",
     "./prepared-dom",
     "./snapshot-client",
@@ -47,6 +49,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
     assert.equal(manifest.files.includes(removed), false, `${removed} must not ship`);
   }
   assert.ok(manifest.sideEffects.includes("./prepared-dom.js"));
+  assert.ok(manifest.sideEffects.includes("./auto.js"), "the auto entry registers on import");
   assert.equal(
     manifest.scripts.prepack,
     "npm test && npm run verify:package",

@@ -12,6 +12,8 @@ const REQUIRED_FILES = [
   "README.md",
   "api.d.ts",
   "api.js",
+  "auto.d.ts",
+  "auto.js",
   "element.d.ts",
   "element.js",
   "prepared-dom.d.ts",
