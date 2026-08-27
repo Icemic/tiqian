@@ -20,15 +20,20 @@ test("layout job pool uses WeakMap for jobs, allowing element GC after removal",
   const pool = createLayoutJobPool();
   const element = new FakeElement();
 
-  // Start a job for the element
-  const started = pool.startJob({
+  // Start a coordinated job for the element. startJob returns void; a
+  // coordinated job waits for coordinator grants, so it stays registered
+  // until cancelled.
+  pool.startJob({
     root: element,
     kind: "Enhance",
     itemCount: 1,
-    generation: 1,
+    processItem: () => {},
+    onFinished: () => {},
+    onFailed: () => {},
+    startedAt: 0,
     itemTierIndex: [0],
+    coordinated: true,
   });
-  assert.ok(started, "job started successfully");
   assert.equal(pool.hasJob(element), true, "pool reports having a job for the element");
 
   // Cancel the job (simulating element removal)
@@ -65,15 +70,23 @@ test("multiple elements in the pool are independent", () => {
     root: element1,
     kind: "Enhance",
     itemCount: 1,
-    generation: 1,
+    processItem: () => {},
+    onFinished: () => {},
+    onFailed: () => {},
+    startedAt: 0,
     itemTierIndex: [0],
+    coordinated: true,
   });
   pool.startJob({
     root: element2,
     kind: "Enhance",
     itemCount: 1,
-    generation: 1,
+    processItem: () => {},
+    onFinished: () => {},
+    onFailed: () => {},
+    startedAt: 0,
     itemTierIndex: [0],
+    coordinated: true,
   });
 
   assert.equal(pool.hasJob(element1), true);
