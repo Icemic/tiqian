@@ -34,7 +34,14 @@ import {
   firstDivergentInlineShapingProperty,
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
-import type { RawDomApi } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import {
+  rawDomBegin,
+  rawDomTake,
+  rawDomCommit,
+  rawDomStampRendered,
+  rawDomRestoreParagraph,
+} from "./raw-dom.js";
 import { shouldTryParagraph } from "./eligibility.js";
 import { lowerMarkdown } from "./markdown-lowering.js";
 import {
@@ -141,10 +148,10 @@ interface ProcessInlineShapingDecisionResult {
    * Process a single paragraph element through markdown lowering, rawDom
    * takeover, layout preparation, and commit.
    *
-   * @param {Object} rawDom
+   * @param {Object} rawDomContext
    * @param {Object} argument
    */
-  export function processParagraph(rawDom: RawDomApi, argument: ProcessParagraphInvocation): void {
+  export function processParagraph(rawDomContext: EnhancedElementContext, argument: ProcessParagraphInvocation): void {
     const paragraph = argument.paragraph;
     const state = argument.state;
     // Prepared metadata builders shared across orchestrators.
@@ -191,7 +198,8 @@ interface ProcessInlineShapingDecisionResult {
     }
 
     const paragraphStyle = (paragraph as HTMLElement).style;
-    rawDom.begin(
+    rawDomBegin(
+      rawDomContext,
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -267,7 +275,7 @@ interface ProcessInlineShapingDecisionResult {
       return;
     }
 
-    rawDom.take(paragraph, hostFontSizeApplied);
+    rawDomTake(rawDomContext, paragraph, hostFontSizeApplied);
     const hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
@@ -282,13 +290,13 @@ interface ProcessInlineShapingDecisionResult {
       lastMeasure: null,
     };
 
-    rawDom.commit(paragraph, hostInlineSizeApplied);
+    rawDomCommit(rawDomContext, paragraph, hostInlineSizeApplied);
 
     let layoutIssue = null;
     try {
       if (workerPlan != null) {
         layoutIssue = commitWorkerPreparedParagraph(
-          rawDom,
+          rawDomContext,
           {
             paragraph: item,
             workerPlan: workerPlan,
@@ -312,7 +320,7 @@ interface ProcessInlineShapingDecisionResult {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
           const commitResult = commitPreparedParagraph(
-            rawDom,
+            rawDomContext,
             {
               paragraph: item,
               preparation: preparation,
@@ -344,7 +352,7 @@ interface ProcessInlineShapingDecisionResult {
     if (layoutIssue == null) {
       state.onParagraphCommitted(item);
     } else {
-      rawDom.restoreParagraph(paragraph);
+      rawDomRestoreParagraph(rawDomContext, paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }

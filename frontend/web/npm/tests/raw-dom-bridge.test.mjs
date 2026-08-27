@@ -1,14 +1,25 @@
 // Unit tests for the raw-DOM backup engine module behind ts-runtime.
-// core/core/engine/raw-dom.js exports deriveRawDom(); these tests drive
-// a factory-constructed instance directly.
+// core/core/engine/raw-dom.js exports named functions; these tests drive
+// them directly with an enhance context.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cleanupMounted, mount } from "./runtime-host.mjs";
-import { deriveRawDom } from "@tiqian/core/core/engine/raw-dom.js";
+import {
+  rawDomBegin,
+  rawDomTake,
+  rawDomCommit,
+  rawDomStampRendered,
+  rawDomRenderedMatches,
+  rawDomMatches,
+  rawDomCaptureLive,
+  rawDomRollback,
+  rawDomRestoreParagraph,
+  rawDomRestoreShell,
+  rawDomEnsureContainingBlock,
+  rawDomSuspendEngineWrites,
+} from "@tiqian/core/core/engine/raw-dom.js";
 import { getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
-
-const rawDom = deriveRawDom();
 
 function rawDomParagraph(t, markup) {
   const root = mount(markup);
@@ -16,8 +27,9 @@ function rawDomParagraph(t, markup) {
   return root.querySelector("p");
 }
 
-function beginDefaults(paragraph) {
-  rawDom.begin(
+function beginDefaults(context, paragraph) {
+  rawDomBegin(
+    context,
     paragraph,
     null,
     null,
@@ -35,68 +47,74 @@ function beginDefaults(paragraph) {
   );
 }
 
+import * as rawDomModule from "@tiqian/core/core/engine/raw-dom.js";
+
 test("rawDomBridge_exportsFullApiSurface", () => {
   for (const name of [
-    "begin",
-    "take",
-    "commit",
-    "stampRendered",
-    "renderedMatches",
+    "rawDomBegin",
+    "rawDomTake",
+    "rawDomCommit",
+    "rawDomStampRendered",
+    "rawDomRenderedMatches",
     "rawDomMatches",
-    "captureLive",
-    "rollback",
-    "restoreParagraph",
-    "restoreShell",
-    "ensureContainingBlock",
+    "rawDomCaptureLive",
+    "rawDomRollback",
+    "rawDomRestoreParagraph",
+    "rawDomRestoreShell",
+    "rawDomEnsureContainingBlock",
+    "rawDomSuspendEngineWrites",
   ]) {
-    assert.equal(typeof rawDom[name], "function", "missing api method: " + name);
+    assert.equal(typeof rawDomModule[name], "function", "missing export: " + name);
   }
 });
 
 test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
+  const context = getOrCreateEnhanceContext(paragraph);
   const child = paragraph.firstChild;
   assert.ok(child);
 
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
 
   assert.equal(paragraph.firstChild, null);
-  assert.equal(rawDom.rawDomMatches(paragraph), false);
-  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment, undefined);
+  assert.equal(rawDomMatches(context, paragraph), false);
+  assert.equal(context.rawDomParagraphs.get(paragraph)?.fragment, undefined);
 
-  rawDom.commit(paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
-  const fragment = getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment;
+  const fragment = context.rawDomParagraphs.get(paragraph)?.fragment;
   assert.ok(fragment);
   assert.equal(fragment.firstChild, child);
-  assert.equal(rawDom.rawDomMatches(paragraph), true);
-  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.forwarding, true);
+  assert.equal(rawDomMatches(context, paragraph), true);
+  assert.equal(context.rawDomParagraphs.get(paragraph)?.forwarding, true);
 });
 
 test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  const context = getOrCreateEnhanceContext(paragraph);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
   const node = globalThis.document.createTextNode("宿主新增");
   paragraph.appendChild(node);
-  assert.equal(node.parentNode, getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment);
-  assert.equal(rawDom.rawDomMatches(paragraph), false);
+  assert.equal(node.parentNode, context.rawDomParagraphs.get(paragraph)?.fragment);
+  assert.equal(rawDomMatches(context, paragraph), false);
 
   paragraph.removeChild(node);
   assert.equal(node.parentNode, null);
-  assert.equal(rawDom.rawDomMatches(paragraph), true);
+  assert.equal(rawDomMatches(context, paragraph), true);
 });
 
 test("rawDomBridge_engineWritesBypassForwarding", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  const context = getOrCreateEnhanceContext(paragraph);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     const node = globalThis.document.createTextNode("引擎输出");
     paragraph.appendChild(node);
     assert.equal(node.parentNode, paragraph);
@@ -104,48 +122,50 @@ test("rawDomBridge_engineWritesBypassForwarding", (t) => {
 
   const hostNode = globalThis.document.createTextNode("宿主输出");
   paragraph.appendChild(hostNode);
-  assert.equal(hostNode.parentNode, getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment);
+  assert.equal(hostNode.parentNode, context.rawDomParagraphs.get(paragraph)?.fragment);
 });
 
 test("rawDomBridge_renderedDriftDetection", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  const context = getOrCreateEnhanceContext(paragraph);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
   let rendered;
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     rendered = globalThis.document.createElement("span");
     paragraph.appendChild(rendered);
   });
-  rawDom.stampRendered(paragraph);
-  assert.equal(rawDom.renderedMatches(paragraph), true);
+  rawDomStampRendered(context, paragraph);
+  assert.equal(rawDomRenderedMatches(context, paragraph), true);
 
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     paragraph.removeChild(rendered);
   });
-  assert.equal(rawDom.renderedMatches(paragraph), false);
+  assert.equal(rawDomRenderedMatches(context, paragraph), false);
 
-  rawDom.stampRendered(paragraph);
-  assert.equal(rawDom.renderedMatches(paragraph), true);
+  rawDomStampRendered(context, paragraph);
+  assert.equal(rawDomRenderedMatches(context, paragraph), true);
 });
 
 test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  const context = getOrCreateEnhanceContext(paragraph);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
   let rendered;
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     rendered = globalThis.document.createElement("span");
     paragraph.appendChild(rendered);
     paragraph.setAttribute("data-tq-rendered", "true");
     paragraph.setAttribute("lang", "zh-Hans");
   });
-  rawDom.stampRendered(paragraph);
+  rawDomStampRendered(context, paragraph);
 
-  const snapshot = rawDom.captureLive(paragraph, 3.5);
+  const snapshot = rawDomCaptureLive(context, paragraph, 3.5);
   assert.equal(paragraph.firstChild, null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.lastMeasure, 3.5);
@@ -153,50 +173,51 @@ test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   assert.equal(snapshot.renderedAttribute, "true");
   assert.equal(snapshot.langAttribute, "zh-Hans");
 
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     const newer = globalThis.document.createElement("div");
     paragraph.appendChild(newer);
     paragraph.setAttribute("lang", "ja");
   });
 
-  const results = rawDom.rollback([snapshot]);
+  const results = rawDomRollback(context, [snapshot]);
   assert.equal(results.length, 1);
   assert.equal(results[0].source, paragraph);
   assert.equal(results[0].lastMeasure, 3.5);
   assert.equal(paragraph.firstChild, rendered);
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
-  assert.equal(rawDom.renderedMatches(paragraph), true);
+  assert.equal(rawDomRenderedMatches(context, paragraph), true);
 });
 
 test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
+  const context = getOrCreateEnhanceContext(paragraph);
   const originalChild = paragraph.firstChild;
-  beginDefaults(paragraph);
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  beginDefaults(context, paragraph);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
 
   let rendered;
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     rendered = globalThis.document.createElement("span");
     paragraph.appendChild(rendered);
   });
-  rawDom.stampRendered(paragraph);
+  rawDomStampRendered(context, paragraph);
 
-  const snapshot = rawDom.captureLive(paragraph, null);
+  const snapshot = rawDomCaptureLive(context, paragraph, null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.originalContentHadChildren, true);
 
-  rawDom.restoreParagraph(paragraph);
+  rawDomRestoreParagraph(context, paragraph);
   assert.equal(paragraph.firstChild, originalChild);
-  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment.firstChild, null);
+  assert.equal(context.rawDomParagraphs.get(paragraph)?.fragment.firstChild, null);
 
-  const results = rawDom.rollback([snapshot]);
+  const results = rawDomRollback(context, [snapshot]);
   assert.equal(results.length, 1);
   assert.equal(paragraph.firstChild, rendered);
-  assert.equal(getOrCreateEnhanceContext(paragraph).rawDomParagraphs.get(paragraph)?.fragment.firstChild, originalChild);
-  assert.equal(rawDom.rawDomMatches(paragraph), true);
-  assert.equal(rawDom.renderedMatches(paragraph), true);
+  assert.equal(context.rawDomParagraphs.get(paragraph)?.fragment.firstChild, originalChild);
+  assert.equal(rawDomMatches(context, paragraph), true);
+  assert.equal(rawDomRenderedMatches(context, paragraph), true);
 });
 
 test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
@@ -208,8 +229,11 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
   // so initialize the host-owned declaration through the proxy itself.
   paragraph.style.setProperty("width", "10px");
   const originalChild = paragraph.firstChild;
-  rawDom.begin(
+  const context = getOrCreateEnhanceContext(paragraph);
+  rawDomBegin(
+    context,
     paragraph,
+    null,
     null,
     null,
     null,
@@ -224,15 +248,15 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
     "",
     null,
   );
-  rawDom.take(paragraph, "18px");
+  rawDomTake(context, paragraph, "18px");
   paragraph.style.setProperty("font-size", "18px", "important");
-  rawDom.commit(paragraph, "123px");
+  rawDomCommit(context, paragraph, "123px");
   paragraph.setAttribute("data-tq-rendered", "true");
   paragraph.setAttribute("data-tq-runtime-render-font", "true");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  rawDom.restoreParagraph(paragraph);
+  rawDomRestoreParagraph(context, paragraph);
 
   assert.equal(paragraph.firstChild, originalChild);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -249,8 +273,11 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "<div data-tiqian-root='true'><p>原始 inline-size 要写回。</p></div>",
   );
   paragraph.style.setProperty("inline-size", "55px");
-  rawDom.begin(
+  const context = getOrCreateEnhanceContext(paragraph);
+  rawDomBegin(
+    context,
     paragraph,
+    null,
     null,
     null,
     null,
@@ -265,12 +292,12 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "",
     null,
   );
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, "123px");
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, "123px");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  rawDom.restoreShell(paragraph);
+  rawDomRestoreShell(context, paragraph);
 
   assert.equal(paragraph.style.getPropertyValue("inline-size"), "55px");
   assert.equal(paragraph.style.getPropertyPriority("inline-size"), "");
@@ -278,6 +305,7 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
 
 test("rawDomBridge_ensureContainingBlockAppliesAndRestores", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
+  const context = getOrCreateEnhanceContext(paragraph);
   const realGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (element, pseudo) => {
     const style = realGetComputedStyle(element, pseudo);
@@ -292,15 +320,15 @@ test("rawDomBridge_ensureContainingBlockAppliesAndRestores", (t) => {
     globalThis.getComputedStyle = realGetComputedStyle;
   });
 
-  beginDefaults(paragraph);
-  rawDom.ensureContainingBlock(paragraph);
+  beginDefaults(context, paragraph);
+  rawDomEnsureContainingBlock(context, paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
   assert.equal(paragraph.style.getPropertyPriority("position"), "important");
 
-  rawDom.ensureContainingBlock(paragraph);
+  rawDomEnsureContainingBlock(context, paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
 
-  rawDom.restoreShell(paragraph);
+  rawDomRestoreShell(context, paragraph);
   assert.equal(paragraph.style.getPropertyValue("position"), "");
   assert.equal(paragraph.getAttribute("style"), null);
   // restoreShell only touches attributes and inline style; the live children

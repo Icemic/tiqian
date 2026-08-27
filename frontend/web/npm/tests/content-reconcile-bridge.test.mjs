@@ -1,6 +1,6 @@
 // Unit tests for the content-reconcile engine module behind ts-runtime.
 // core/core/engine/content-reconcile.js exports the four named functions;
-// these tests call them with a real deriveRawDom() instance and drive the
+// these tests call them with raw-dom named exports and drive the
 // raw-DOM backup graph directly, so no full runtime boot is required.
 
 import assert from "node:assert/strict";
@@ -12,16 +12,24 @@ import {
   probeContentDrift,
   stripEngineMarkupFromStrandedParagraph,
 } from "@tiqian/core/core/engine/content-reconcile.js";
-import { deriveRawDom } from "@tiqian/core/core/engine/raw-dom.js";
-
-const rawDom = deriveRawDom();
+import {
+  rawDomBegin,
+  rawDomTake,
+  rawDomCommit,
+  rawDomStampRendered,
+  rawDomRenderedMatches,
+  rawDomSuspendEngineWrites,
+} from "@tiqian/core/core/engine/raw-dom.js";
+import { getOrCreateEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 // Move a mounted paragraph into the enhanced state: take the host children
 // into the raw-DOM backup, publish the fragment, write one engine-owned rendered child
 // (through the engine-write suspension), and stamp the rendered output.
 function enhanceParagraph(paragraph, t) {
   t.after(cleanupMounted);
-  rawDom.begin(
+  const context = getOrCreateEnhanceContext(paragraph);
+  rawDomBegin(
+    context,
     paragraph,
     null,
     null,
@@ -37,15 +45,15 @@ function enhanceParagraph(paragraph, t) {
     "",
     null,
   );
-  rawDom.take(paragraph, null);
-  rawDom.commit(paragraph, null);
+  rawDomTake(context, paragraph, null);
+  rawDomCommit(context, paragraph, null);
   let rendered;
-  rawDom.suspendEngineWrites(paragraph, () => {
+  rawDomSuspendEngineWrites(context, paragraph, () => {
     rendered = globalThis.document.createElement("span");
     rendered.textContent = "rendered";
     paragraph.appendChild(rendered);
   });
-  rawDom.stampRendered(paragraph);
+  rawDomStampRendered(context, paragraph);
   return rendered;
 }
 
@@ -66,8 +74,9 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
       <p style="font-size: 18px; line-height: 30px">enhanced drift probe</p>
     </div>
   `);
+  const context = getOrCreateEnhanceContext(root.querySelector("p") || globalThis.document.createElement("p"));
   assert.deepEqual(
-    probeContentDrift(rawDom,[]),
+    probeContentDrift(context, []),
     { unknown: 0, drifted: 0, dead: 0, rawDom: 0 },
   );
 
@@ -76,7 +85,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
   assert.ok(rendered);
   paragraph.removeChild(rendered);
 
-  assert.deepEqual(probeContentDrift(rawDom,[paragraph]), {
+  assert.deepEqual(probeContentDrift(context, [paragraph]), {
     unknown: 0,
     drifted: 1,
     dead: 0,
@@ -88,7 +97,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
     <div data-tiqian-root="true"><p>detached paragraph</p></div>
   `).querySelector("p");
   detached.remove();
-  assert.deepEqual(probeContentDrift(rawDom,[detached]), {
+  assert.deepEqual(probeContentDrift(context, [detached]), {
     unknown: 0,
     drifted: 0,
     dead: 1,
@@ -106,7 +115,8 @@ test("contentReconcileProbe_staysReadOnly", (t) => {
   enhanceParagraph(paragraph, t);
   const beforeNodes = Array.from(paragraph.childNodes);
 
-  probeContentDrift(rawDom,[paragraph]);
+  const context = getOrCreateEnhanceContext(paragraph);
+  probeContentDrift(context, [paragraph]);
 
   const afterNodes = Array.from(paragraph.childNodes);
   assert.equal(afterNodes.length, beforeNodes.length);
@@ -124,7 +134,8 @@ test("contentReconcileClassify_verdicts", (t) => {
     strandedCandidates: [],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const emptyVerdict = classifyReconcile(rawDom,emptySpec);
+  const context = getOrCreateEnhanceContext(globalThis.document.createElement("p"));
+  const emptyVerdict = classifyReconcile(context, emptySpec);
   assert.equal(emptyVerdict.outcome, "idle");
   assert.deepEqual(emptyVerdict.drifted, []);
   assert.deepEqual(emptyVerdict.rawDom, []);
@@ -147,7 +158,7 @@ test("contentReconcileClassify_verdicts", (t) => {
     strandedCandidates: [pStranded, pSkipped],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const verdict = classifyReconcile(rawDom,spec);
+  const verdict = classifyReconcile(context, spec);
   assert.equal(verdict.outcome, "work");
   assert.deepEqual(verdict.drifted, []);
   assert.deepEqual(verdict.rawDom, []);
@@ -167,11 +178,12 @@ test("contentReconcilePrepare_restoresShellAndStamps", (t) => {
 
   assert.ok(paragraph.firstChild);
   paragraph.removeChild(rendered);
-  assert.equal(rawDom.renderedMatches(paragraph), false);
+  const context = getOrCreateEnhanceContext(paragraph);
+  assert.equal(rawDomRenderedMatches(context, paragraph), false);
 
-  prepareTrackedParagraphForRelowering(rawDom,paragraph);
+  prepareTrackedParagraphForRelowering(context, paragraph);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
-  assert.equal(rawDom.renderedMatches(paragraph), true);
+  assert.equal(rawDomRenderedMatches(context, paragraph), true);
 });
 
 test("contentReconcileStrip_removesEngineMarkup", (t) => {
@@ -190,7 +202,8 @@ test("contentReconcileStrip_removesEngineMarkup", (t) => {
   const clonedParagraph = root.querySelector("p");
   assert.ok(clonedParagraph);
 
-  stripEngineMarkupFromStrandedParagraph(rawDom,clonedParagraph);
+  const context = getOrCreateEnhanceContext(clonedParagraph);
+  stripEngineMarkupFromStrandedParagraph(context, clonedParagraph);
 
   assert.equal(clonedParagraph.querySelectorAll("[data-tq-hard-break]").length, 0);
   assert.ok(clonedParagraph.querySelector("br"), "bare br must exist");

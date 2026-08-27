@@ -11,7 +11,8 @@ import type { CjkDashCapability } from "./canvas-shaping.js";
 import { elementContentWidth, effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
 import type { RootStateApi } from "./root-state.js";
-import type { RawDomApi } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import { rawDomRestoreParagraph } from "./raw-dom.js";
 import type { LayoutJobPool } from "./layout-job-pool.js";
 
 // Constants copied from the Kotlin sources: DEFAULT_EMPHASIS_DOT_GAP_EM in
@@ -334,14 +335,14 @@ function observableSnapshotCount(root: HTMLElement): number {
 // R10; aligns WebEnhancer.kt 167-194): cancels the root's job, deletes the
 // runtime state, restores every committed paragraph, clears capability
 // markers, and rewrites the observable enhancement attributes.
-export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPool, rawDom: RawDomApi, root: HTMLElement): void {
+export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPool, rawDomContext: EnhancedElementContext, root: HTMLElement): void {
   layoutJobPool.cancelJob(root);
   const state = rootState.getState(root);
   rootState.deleteState(root);
   if (state != null) {
     let j: number;
     for (j = 0; j < state.paragraphs.length; j += 1) {
-      rawDom.restoreParagraph(state.paragraphs[j].source);
+      rawDomRestoreParagraph(rawDomContext, state.paragraphs[j].source);
     }
     for (j = 0; j < state.issues.length; j += 1) {
       clearIssue(state.issues[j]);

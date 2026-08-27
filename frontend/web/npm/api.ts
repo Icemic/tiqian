@@ -57,7 +57,7 @@ type TiqianPreparedWebOptions = TiqianWebOptions & {
   snapshotFontSession?: TiqianWebSnapshotFontSessionWire;
 };
 
-type TiqianWebAction<T> = (graph: TiqianRuntimeGraph, prepared: TiqianPreparedWebOptions) => T;
+type TiqianWebAction<T> = (graph: TiqianRuntimeGraph, prepared: TiqianPreparedWebOptions, context: ReturnType<typeof getOrCreateEnhanceContext>) => T;
 
 export interface TiqianWebGlobalApi {
   enhance(root?: HTMLElement, options?: TiqianWebOptions): Promise<HTMLElement>;
@@ -204,7 +204,7 @@ async function withTiqianWeb<T>(
           detail: "SnapshotFontBytes",
         },
       } : {}),
-    });
+    }, context);
   } catch (error) {
     if (context.generation === generation) {
       const entry = context.snapshotFontSession.entry;
@@ -218,13 +218,13 @@ async function withTiqianWeb<T>(
 }
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
-  return withTiqianWeb(root, options, (graph, prepared) =>
-    enhanceRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, prepared));
+  return withTiqianWeb(root, options, (graph, prepared, context) =>
+    enhanceRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, context, root, prepared));
 }
 
 export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
-  return withTiqianWeb(root, options, (graph, prepared) =>
-    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, prepared));
+  return withTiqianWeb(root, options, (graph, prepared, context) =>
+    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, context, root, prepared));
 }
 
 export async function destroy(root: HTMLElement = document.body): Promise<void> {
@@ -241,7 +241,7 @@ export async function destroy(root: HTMLElement = document.body): Promise<void> 
     const graph = await loadTiqianRuntime();
     if (context.generation !== generation) return;
     try {
-      destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+      destroyRoot(graph.rootState, graph.layoutJobPool, context, root);
     } finally {
       releaseContextFontSession(context, root);
       context.destroy();

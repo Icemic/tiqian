@@ -36,7 +36,21 @@ import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
 import { destroyRoot, reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
 import { processParagraph } from "./process-paragraph.js";
 import type { CopyInstaller } from "../utils/copy.js";
-import type { RawDomApi } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import {
+  rawDomBegin,
+  rawDomTake,
+  rawDomCommit,
+  rawDomStampRendered,
+  rawDomRenderedMatches,
+  rawDomMatches,
+  rawDomCaptureLive,
+  rawDomRollback,
+  rawDomRestoreParagraph,
+  rawDomRestoreShell,
+  rawDomEnsureContainingBlock,
+  rawDomSuspendEngineWrites,
+} from "./raw-dom.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
 import { sourceParagraphWidth } from "./responsive-measure.js";
 
@@ -317,7 +331,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     rootState: RootStateApi,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    rawDom: RawDomApi,
+    rawDomContext: EnhancedElementContext,
     root: Element,
     optionsBag: Record<string, unknown> | null,
     kind: string,
@@ -335,7 +349,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // worlds whose roots carry no ownerDocument.
     const targetDocument = root.ownerDocument ?? globalThis.document;
     if (targetDocument) copyInstaller.install(targetDocument);
-    destroyRoot(rootState, layoutJobPool, rawDom, root as HTMLElement);
+    destroyRoot(rootState, layoutJobPool, rawDomContext, root as HTMLElement);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
@@ -401,7 +415,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
           stale = true;
         } else {
           processParagraph(
-            rawDom,
+            rawDomContext,
             RS.processParagraphArgument(state, candidates[index])
           );
         }
@@ -436,7 +450,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     rootState: RootStateApi,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    rawDom: RawDomApi,
+    rawDomContext: EnhancedElementContext,
     root: Element,
   ): void {
     const RS = rootState;
@@ -450,7 +464,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (PJ.jobKind(root) === "Enhance") {
       const running = RS.getState(root);
       if (running != null) {
-        enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, running.options, "Enhance", true);
+        enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, running.options, "Enhance", true);
         return;
       }
     }
@@ -458,7 +472,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
     const state = RS.getState(root);
     if (state == null) {
-      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, null, "Relayout");
+      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, null, "Relayout");
       return;
     }
 
@@ -479,7 +493,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       // the new width. Restore semantic source once, then let viewport-near
       // paragraphs take over atomically in bounded slices just like any other
       // source refresh. state.options is canonical.
-      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, state.options, "Relayout", true);
+      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, state.options, "Relayout", true);
       return;
     }
 
@@ -531,7 +545,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     }
 
     const commitSession = openRelayoutSession(
-      rawDom,
+      rawDomContext,
       RS.sessionArgument(state)
     );
     const rootWidth: number = elementFragmentBorderBoxInlineSize(root);
@@ -558,7 +572,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         if (mixIndex >= renderedCount) {
           // Stranded paragraph: process through the enhance path.
           processParagraph(
-            rawDom,
+            rawDomContext,
             RS.processParagraphArgument(state as RootState, stranded[mixIndex - renderedCount])
           );
           return;
@@ -601,7 +615,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     rootState: RootStateApi,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    rawDom: RawDomApi,
+    rawDomContext: EnhancedElementContext,
     root: Element,
     optionsBag: Record<string, unknown> | null,
     fromCanonical?: boolean,
@@ -612,7 +626,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // test worlds whose roots carry no ownerDocument.
     const targetDocument = root.ownerDocument ?? globalThis.document;
     if (targetDocument) copyInstaller.install(targetDocument);
-    destroyRoot(rootState, layoutJobPool, rawDom, root as HTMLElement);
+    destroyRoot(rootState, layoutJobPool, rawDomContext, root as HTMLElement);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
       : RS.createRootState(root, optionsBag as Record<string, unknown>);
@@ -620,7 +634,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (rejectMissingSharedRuntimeStyles(rootState, state, candidates)) return 0;
     for (let i = 0; i < candidates.length; i += 1) {
       processParagraph(
-        rawDom,
+        rawDomContext,
         RS.processParagraphArgument(state, candidates[i])
       );
     }
@@ -636,20 +650,20 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     rootState: RootStateApi,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    rawDom: RawDomApi,
+    rawDomContext: EnhancedElementContext,
     root: Element,
     optionsBag: Record<string, unknown> | null,
   ): void {
-    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, optionsBag, "Enhance", false);
+    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, optionsBag, "Enhance", false);
   }
 
   export function enhanceProgressivelyFromCanonical(
     rootState: RootStateApi,
     copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
-    rawDom: RawDomApi,
+    rawDomContext: EnhancedElementContext,
     root: Element,
     canonicalOptions: EnhanceOptions,
   ): void {
-    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDom, root, canonicalOptions, "Enhance", true);
+    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, canonicalOptions, "Enhance", true);
   }

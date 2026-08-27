@@ -20,7 +20,14 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
-import type { RawDomApi } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import {
+  rawDomRenderedMatches,
+  rawDomMatches,
+  rawDomRestoreParagraph,
+  rawDomRestoreShell,
+  rawDomStampRendered,
+} from "./raw-dom.js";
 import type { RootState, RootStateApi } from "./root-state.js";
 import type { LayoutJobPool } from "./layout-job-pool.js";
 import { processParagraph } from "./process-paragraph.js";
@@ -81,7 +88,7 @@ function releasePreparedStyles(element: Element): boolean {
 // Read-only drift probe for captured in-flight jobs: answers the same
 // per-paragraph classification question as classifyReconcile without
 // touching the DOM, so element.js cancels only on real drift.
-export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]): ContentDriftProbeResult {
+export function probeContentDrift(rawDomContext: EnhancedElementContext, trackedSources: Element[]): ContentDriftProbeResult {
   let drifted = 0;
   let dead = 0;
   let rawDomCount = 0;
@@ -89,9 +96,9 @@ export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]):
     const source = trackedSources[index];
     if (!source.isConnected) {
       dead += 1;
-    } else if (!rawDom.renderedMatches(source)) {
+    } else if (!rawDomRenderedMatches(rawDomContext, source)) {
       drifted += 1;
-    } else if (!rawDom.rawDomMatches(source)) {
+    } else if (!rawDomMatches(rawDomContext, source)) {
       rawDomCount += 1;
     }
   }
@@ -105,7 +112,7 @@ export function probeContentDrift(rawDom: RawDomApi, trackedSources: Element[]):
 // inside a root, tracked, and not already classified as drifted. A
 // stranded candidate is skipped when it already failed lowering with a
 // capability marker and was never rendered (StrandedCapabilityNoRetry).
-export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): ReconcileResult {
+export function classifyReconcile(rawDomContext: EnhancedElementContext, spec: ReconcileSpec): ReconcileResult {
   const trackedSources = spec.trackedSources;
   const drifted: Element[] = [];
   const rawDomDrifted: Element[] = [];
@@ -116,9 +123,9 @@ export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): Recon
     trackedSet.add(trackedSource);
     if (!trackedSource.isConnected) {
       dead += 1;
-    } else if (!rawDom.renderedMatches(trackedSource)) {
+    } else if (!rawDomRenderedMatches(rawDomContext, trackedSource)) {
       drifted.push(trackedSource);
-    } else if (!rawDom.rawDomMatches(trackedSource)) {
+    } else if (!rawDomMatches(rawDomContext, trackedSource)) {
       rawDomDrifted.push(trackedSource);
     }
   }
@@ -165,10 +172,10 @@ export function classifyReconcile(rawDom: RawDomApi, spec: ReconcileSpec): Recon
 // rendered paragraph. Release prepared styles, restore the engine-owned
 // shell, stamp the rendered marker, and let the caller re-lower the
 // surviving live content as the new raw-DOM backup source.
-export function prepareTrackedParagraphForRelowering(rawDom: RawDomApi, element: HTMLElement): void {
+export function prepareTrackedParagraphForRelowering(rawDomContext: EnhancedElementContext, element: HTMLElement): void {
   releasePreparedStyles(element);
-  rawDom.restoreShell(element);
-  rawDom.stampRendered(element);
+  rawDomRestoreShell(rawDomContext, element);
+  rawDomStampRendered(rawDomContext, element);
 }
 
 // CloneDescaffoldEngineMarkup: innerHTML re-projection hands the runtime a
@@ -177,7 +184,7 @@ export function prepareTrackedParagraphForRelowering(rawDom: RawDomApi, element:
 // takeover attributes. Remove exactly those engine-authored artifacts so
 // the clone lowers as ordinary host content. Host elements and host
 // inline styles survive untouched.
-export function stripEngineMarkupFromStrandedParagraph(rawDom: RawDomApi, paragraph: HTMLElement): void {
+export function stripEngineMarkupFromStrandedParagraph(rawDomContext: EnhancedElementContext, paragraph: HTMLElement): void {
   releasePreparedStyles(paragraph);
   // The hidden data-tq-hard-break span is the only place a cloned hard
   // break keeps its source form. Restore a bare br before removing
@@ -290,10 +297,10 @@ function paragraphViewportDistance(element: Element | null): number {
 // Root-level drift probe: a root without runtime state answers the unknown
 // bucket (the former facade's '{"unknown":1,...}' answer), otherwise the
 // tracked sources classify through the read-only probe.
-export function probeRootContentDrift(rawDom: RawDomApi, rootState: RootStateApi, root: Element): ContentDriftProbeResult {
+export function probeRootContentDrift(rawDomContext: EnhancedElementContext, rootState: RootStateApi, root: Element): ContentDriftProbeResult {
   const state = rootState.getState(root);
   if (!state) return { unknown: 1, drifted: 0, dead: 0, rawDom: 0 };
-  return probeContentDrift(rawDom, sourcesOf(state));
+  return probeContentDrift(rawDomContext, sourcesOf(state));
 }
 
 // Root-level reconcile orchestration (aligns WebEnhancerContentReconcile.kt
@@ -301,7 +308,7 @@ export function probeRootContentDrift(rawDom: RawDomApi, rootState: RootStateApi
 // classifies, refreshes the CJK dash capability evidence when needed, and
 // schedules one layout job for every affected paragraph.
 export function reconcileRoot(
-  rawDom: RawDomApi,
+  rawDomContext: EnhancedElementContext,
   rootState: RootStateApi,
   layoutJobPool: LayoutJobPool,
   root: HTMLElement,
@@ -315,7 +322,7 @@ export function reconcileRoot(
     strandedCandidates: rootState.strandedSourceParagraphs(root, state),
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const verdict = classifyReconcile(rawDom, spec);
+  const verdict = classifyReconcile(rawDomContext, spec);
   const result: ContentReconcileResult = {
     outcome: verdict.outcome,
     drifted: verdict.drifted.length,
@@ -370,8 +377,8 @@ export function reconcileRoot(
         element: element,
         run: function () {
           removeEntryFor(state, element);
-          prepareTrackedParagraphForRelowering(rawDom, element);
-          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+          prepareTrackedParagraphForRelowering(rawDomContext, element);
+          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
         },
       });
     })(verdict.drifted[vi] as HTMLElement);
@@ -386,8 +393,8 @@ export function reconcileRoot(
         element: element,
         run: function () {
           removeEntryFor(state, element);
-          rawDom.restoreParagraph(element);
-          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+          rawDomRestoreParagraph(rawDomContext, element);
+          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
         },
       });
     })(verdict.rawDom[vi] as HTMLElement);
@@ -402,8 +409,8 @@ export function reconcileRoot(
         element: element,
         run: function () {
           removeEntryFor(state, element);
-          rawDom.restoreParagraph(element);
-          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+          rawDomRestoreParagraph(rawDomContext, element);
+          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
         },
       });
     })(verdict.tainted[vi] as HTMLElement);
@@ -413,8 +420,8 @@ export function reconcileRoot(
       actions.push({
         element: element,
         run: function () {
-          stripEngineMarkupFromStrandedParagraph(rawDom, element);
-          processParagraph(rawDom, rootState.processParagraphArgument(state, element));
+          stripEngineMarkupFromStrandedParagraph(rawDomContext, element);
+          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
         },
       });
     })(verdict.stranded[vi] as HTMLElement);

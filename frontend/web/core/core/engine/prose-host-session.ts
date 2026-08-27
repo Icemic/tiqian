@@ -214,9 +214,9 @@ function coordinationService(): CoordinationService {
 // Root teardown through the plain runtime graph (R10 dissolved the engine
 // facade): a null graph means the runtime never loaded, so there is no
 // runtime state to tear down.
-function destroyRuntimeRoot(root: HTMLElement): void {
+function destroyRuntimeRoot(context: EnhancedElementContext, root: HTMLElement): void {
   const graph = tiqianRuntimeGraph();
-  if (graph) destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+  if (graph) destroyRoot(graph.rootState, graph.layoutJobPool, context, root);
 }
 
 function detachRuntimeRoot(root: HTMLElement): void {
@@ -368,7 +368,7 @@ class ProseHostSession {
     // that needs to pay the restoration cost before starting a new lifecycle.
     if (!this.#stateMachine.connected) {
       if (isLoadedSnapshotAdopted(this.#root)) restoreLoadedSnapshot(this.#root);
-      if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#root);
+      if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#context, this.#root);
       this.#stateMachine.runtimeActive = false;
     }
     this.#stateMachine.connect(this.disabled);
@@ -862,7 +862,7 @@ class ProseHostSession {
     this.#stopWidthObservation();
     this.#stopContentObservation();
     restoreLoadedSnapshot(this.#root);
-    if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#root);
+    if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#context, this.#root);
     this.#stateMachine.runtimeActive = false;
     this.#releaseSnapshotFontSession();
     this.#root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
@@ -1098,7 +1098,7 @@ class ProseHostSession {
     try {
       const graph = tiqianRuntimeGraph();
       if (graph) {
-        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, this.#root, preparedOptions);
+        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, this.#context, this.#root, preparedOptions);
       }
     } finally {
       compensateViewportAnchor(this.#root, runAnchor);
@@ -1431,7 +1431,7 @@ class ProseHostSession {
       this.#snapshotEnhancedCount = 0;
       this.#context.diagnosis.clear("tiqianSnapshotCount");
       if (this.#stateMachine.runtimeActive) {
-        destroyRuntimeRoot(this.#root);
+        destroyRuntimeRoot(this.#context, this.#root);
         this.#stateMachine.runtimeActive = false;
       }
     };
@@ -1500,7 +1500,7 @@ class ProseHostSession {
       // start stay in one task and cannot expose unvalidated SSR as a settled
       // state. A miss below immediately starts a fresh runtime enhancement.
       this.#stateMachine.dispatched = false;
-      destroyRuntimeRoot(this.#root);
+      destroyRuntimeRoot(this.#context, this.#root);
       this.#stateMachine.runtimeActive = false;
     }
     try {
@@ -1656,7 +1656,7 @@ class ProseHostSession {
     const relayoutAnchor = captureViewportAnchor(this.#root);
     try {
       const graph = tiqianRuntimeGraph();
-      if (graph) relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, this.#root);
+      if (graph) relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, this.#context, this.#root);
     } finally {
       compensateViewportAnchor(this.#root, relayoutAnchor);
       releaseNativeScrollAnchoring(this.#root);
@@ -1680,7 +1680,7 @@ class ProseHostSession {
       // new width or typography is being prepared. Restore the complete
       // semantic source first so every remaining paragraph responds through the
       // host cascade while viewport-near paragraphs are enhanced atomically.
-      destroyRuntimeRoot(this.#root);
+      destroyRuntimeRoot(this.#context, this.#root);
       this.#stateMachine.runtimeActive = false;
     }
     this.#dispatchProgressiveEnhance(generation, { revalidateSnapshotFont }).catch((error) => {
@@ -2250,7 +2250,7 @@ class ProseHostSession {
     // already under observation when the probe runs.
     this.#contentInvalidation?.syncRawDom();
     const graph = tiqianRuntimeGraph();
-    const drift = graph ? probeRootContentDrift(graph.rawDom, graph.rootState, this.#root) : null;
+    const drift = graph ? probeRootContentDrift(this.#context, graph.rootState, this.#root) : null;
     const drifted = (drift?.drifted || 0) + (drift?.dead || 0) + (drift?.unknown || 0) +
       (drift?.rawDom || 0);
     const tainted = this.#contentTainted.size;
@@ -2278,7 +2278,7 @@ class ProseHostSession {
     this.#stateMachine.completionGateOpen = true;
     this.#ensureLayoutWorker();
     const graph = tiqianRuntimeGraph();
-    const outcome = graph ? reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, this.#root, paragraphs) : null;
+    const outcome = graph ? reconcileRoot(this.#context, graph.rootState, graph.layoutJobPool, this.#root, paragraphs) : null;
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready
@@ -2399,7 +2399,7 @@ class ProseHostSession {
     // next responsive commit starts viewport-priority enhancement from this
     // responsive semantic backing.
     if (this.#stateMachine.runtimeActive) {
-      destroyRuntimeRoot(this.#root);
+      destroyRuntimeRoot(this.#context, this.#root);
       this.#stateMachine.runtimeActive = false;
     } else {
       cancelRootLayoutWork(this.#root);

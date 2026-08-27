@@ -19,7 +19,11 @@
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
 import { preparedDomRendererModule, commitValidator } from "./loaders/runtime-loader.js";
-import type { RawDomApi } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import {
+  rawDomStampRendered,
+  rawDomSuspendEngineWrites,
+} from "./raw-dom.js";
 import { effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
 import { prepareParagraphLayout } from "./prepare-paragraph-layout.js";
 
@@ -109,7 +113,7 @@ function releasePreparedDomStyles(host: Element): boolean {
 // RenderPreparedWorkerParagraphDom: direct port of the
 // renderPreparedWorkerParagraphDom @JsFun body in WebEnhancerSupport.kt.
 function renderWorkerPrepared(
-  rawDom: RawDomApi,
+  rawDomContext: EnhancedElementContext,
   host: Element,
   recordJson: string,
   locale: string,
@@ -130,7 +134,7 @@ function renderWorkerPrepared(
       element: inlineObjects[index],
     };
   });
-  return rawDom.suspendEngineWrites(host, function () {
+  return rawDomSuspendEngineWrites(rawDomContext, host, function () {
     return preparedDomRendererModule()!.render(
       host,
       record.plan,
@@ -151,7 +155,7 @@ function renderWorkerPrepared(
 // RenderPreparedParagraphDom: direct port of the renderPreparedParagraphDom
 // @JsFun body in WebEnhancerSupport.kt.
 function renderPrepared(
-  rawDom: RawDomApi,
+  rawDomContext: EnhancedElementContext,
   host: Element,
   planJson: string,
   locale: string,
@@ -165,7 +169,7 @@ function renderPrepared(
   const semantics = Array.from(semanticElements || []);
   const inlineObjects = Array.from(inlineObjectElements || []);
   const hasLiveSources = semantics.length > 0 || inlineObjects.length > 0;
-  return rawDom.suspendEngineWrites(host, function () {
+  return rawDomSuspendEngineWrites(rawDomContext, host, function () {
     const meta = JSON.parse(inlineObjectMetaJson || '[]');
     const inlineObjectsMetaPaired = meta.map(function (entry: Record<string, unknown>, index: number) {
       return {
@@ -195,11 +199,11 @@ function renderPrepared(
 /**
  * Commit a worker-prepared paragraph to the DOM.
  *
- * @param {Object} rawDom
+ * @param {Object} rawDomContext
  * @param {Object} argument
  * @returns {Object|null}
  */
-export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
+export function commitWorkerPreparedParagraph(rawDomContext: EnhancedElementContext, argument: CommitWorkerPreparedParagraphArgument): CommitResult | null {
   const paragraph = argument.paragraph;
   const source = paragraph.source;
   const lowered = paragraph.lowered;
@@ -228,7 +232,7 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
   });
 
   renderWorkerPrepared(
-    rawDom,
+    rawDomContext,
     source,
     argument.workerPlan,
     lowered.textStyle.locale,
@@ -263,18 +267,18 @@ export function commitWorkerPreparedParagraph(rawDom: RawDomApi, argument: Commi
     width,
     lowered.textStyle.fontSize
   );
-  rawDom.stampRendered(source);
+  rawDomStampRendered(rawDomContext, source);
   return null;
 }
 
 /**
  * Commit a direct prepared paragraph layout result to the DOM.
  *
- * @param {Object} rawDom
+ * @param {Object} rawDomContext
  * @param {Object} argument
  * @returns {Object}
  */
-export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPreparedParagraphArgument): CommitResult {
+export function commitPreparedParagraph(rawDomContext: EnhancedElementContext, argument: CommitPreparedParagraphArgument): CommitResult {
   const paragraph = argument.paragraph;
   const preparation = argument.preparation;
   const source = paragraph.source;
@@ -302,7 +306,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
   // preparation.planJson is already the byte-equivalent wire form and is used
   // directly.
   renderPrepared(
-    rawDom,
+    rawDomContext,
     source,
     preparation.planJson!,
     lowered.textStyle.locale,
@@ -316,7 +320,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
 
   const preparedDomIssue = rendererIssue(source, preparation.width!);
   if (preparedDomIssue == null) {
-    rawDom.stampRendered(source);
+    rawDomStampRendered(rawDomContext, source);
     return {
       kind: 'success',
       measure: preparation.measure,
@@ -366,7 +370,7 @@ export function commitPreparedParagraph(rawDom: RawDomApi, argument: CommitPrepa
           element: fallbackPreparation.element,
         };
       case 'ready':
-        return commitPreparedParagraph(rawDom, {
+        return commitPreparedParagraph(rawDomContext, {
           paragraph: paragraph,
           preparation: fallbackPreparation,
           options: fallbackOptions,

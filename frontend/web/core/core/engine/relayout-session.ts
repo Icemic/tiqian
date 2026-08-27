@@ -21,7 +21,13 @@ import type {
   SessionArgument,
   RootStateIssueRecord,
 } from "./root-state.js";
-import type { RawDomApi, RawDomSnapshot } from "./raw-dom.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import type { RawDomSnapshot } from "./raw-dom.js";
+import {
+  rawDomCaptureLive,
+  rawDomRestoreParagraph,
+  rawDomRollback,
+} from "./raw-dom.js";
 import type { CapabilityIssueRecord } from "./lifecycle.js";
 import { reportIssue } from "./lifecycle.js";
 import {
@@ -50,13 +56,13 @@ export type RelayoutSession = {
 /**
  * Open a relayout session for one run.
  *
- * @param {Object} rawDom
+ * @param {Object} rawDomContext
  * @param {Object} argument
  * @param {Array} argument.paragraphs
  * @param {Object} argument.state
  * @returns {Object}
  */
-export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument): RelayoutSession {
+export function openRelayoutSession(rawDomContext: EnhancedElementContext, argument: SessionArgument): RelayoutSession {
     const paragraphs = argument.paragraphs.slice();
     const state = argument.state;
     const snapshots = new Map<TrackedParagraph, RawDomSnapshot>();
@@ -74,15 +80,15 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
         return;
       }
       if (preparation.kind === 'unsupported') {
-        snapshots.set(paragraph, rawDom.captureLive(paragraph.source, paragraph.lastMeasure));
+        snapshots.set(paragraph, rawDomCaptureLive(rawDomContext, paragraph.source, paragraph.lastMeasure));
         unsupported.push([paragraph, preparation]);
-        rawDom.restoreParagraph(paragraph.source);
+        rawDomRestoreParagraph(rawDomContext, paragraph.source);
         return;
       }
       if (preparation.kind === 'ready') {
-        snapshots.set(paragraph, rawDom.captureLive(paragraph.source, paragraph.lastMeasure));
+        snapshots.set(paragraph, rawDomCaptureLive(rawDomContext, paragraph.source, paragraph.lastMeasure));
         const result: CommitResult = commitPreparedParagraph(
-          rawDom,
+          rawDomContext,
           {
             paragraph: paragraph,
             preparation: preparation,
@@ -99,7 +105,7 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
           successful.push([paragraph, result.measure]);
         } else {
           unsupported.push([paragraph, result]);
-          rawDom.restoreParagraph(paragraph.source);
+          rawDomRestoreParagraph(rawDomContext, paragraph.source);
         }
       }
     }
@@ -156,7 +162,7 @@ export function openRelayoutSession(rawDom: RawDomApi, argument: SessionArgument
         state.issues.push(stateIssuesBefore[is]);
       }
       const snapshotsArray = Array.from(snapshots.values());
-      const results = rawDom.rollback(snapshotsArray);
+      const results = rawDomRollback(rawDomContext, snapshotsArray);
       const paragraphBySource = new Map<Element, TrackedParagraph>();
       for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);

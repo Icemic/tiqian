@@ -31,6 +31,25 @@ export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
   engineWriteDepth: number;           // host engine-write suspension counter
   forwarding: boolean;                // commit-forwarding installed flag
+  originalContent: DocumentFragment | null;
+  renderedNodes: Node[];
+  rawDomNodes: Node[];
+  originalRenderedAttribute: string | null;
+  originalPreparedFlowAttribute: string | null;
+  originalCanonicalSourceAttribute: string | null;
+  originalSnapshotPreparedDomAttribute: string | null;
+  originalLangAttribute: string | null;
+  originalStyleAttribute: string | null;
+  originalPosition: string;
+  originalPositionPriority: string;
+  originalInlineSize: string;
+  originalInlineSizePriority: string;
+  originalFontSize: string;
+  originalFontSizePriority: string;
+  originalHostInlineSizeAttribute: string | null;
+  containingBlockApplied: boolean;
+  hostInlineSizeApplied: string | null;
+  hostFontSizeApplied: string | null;
 }
 
 interface SnapshotFontSessionState {
