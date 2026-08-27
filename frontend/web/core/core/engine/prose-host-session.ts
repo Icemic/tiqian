@@ -196,6 +196,17 @@ function forceTypographyStyleRecompute(root: HTMLElement): void {
   }
 }
 
+// HostCommitFrameYield: connectedCallback can fire inside a host framework's
+// commit phase, before the framework's DOM writes for this frame settle. The
+// style flush above updates computed style synchronously and yields no frame
+// boundary, so a gate that never waits can schedule the initial enhance
+// ahead of the host's first post-connect commit. Policy: HostCascadeReadyGate.
+// Not disableable. Verified by demo/web framework-commit-conflict.test.mjs;
+// removing the yield broke that suite at 0e46a072 and restoring it passed.
+function nextHostFrame(): Promise<number> {
+  return new Promise((resolve) => coordinationService().requestFrame((now) => resolve(now)));
+}
+
 function coordinationService(): CoordinationService {
   return globalServices().coordination;
 }
@@ -517,8 +528,10 @@ class ProseHostSession {
   // recompute binds the loaded faces to the prose before the first commit.
   // Waiting for global DOMContentLoaded or document.fonts.ready would stall
   // prose on unrelated scripts, icon fonts, code fonts, or widgets.
-  // CausalFontReadiness (ruling R4): both waits are causal signals instead
-  // of counted frames.
+  // CausalFontReadiness (ruling R4): both waits use causal style signals.
+  // HostCommitFrameYield (R4 revision, FCC evidence): each stage also yields
+  // one frame so the host framework's first post-connect commit lands ahead
+  // of the initial enhance.
   async #runHostCascadeGate(
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
@@ -528,7 +541,8 @@ class ProseHostSession {
     const styles = await raceAbort(signal, ensureTiqianStyles(this.#root.ownerDocument, this.#root));
     if (styles.aborted) return;
     forceTypographyStyleRecompute(this.#root);
-    if (signal.aborted) return;
+    const cascadeFlush = await raceAbort(signal, nextHostFrame());
+    if (cascadeFlush.aborted) return;
     const fontGate = await raceAbort(signal, awaitInitialTypographyFonts({
       generation,
       fonts: this.#root.ownerDocument?.fonts ?? null,
@@ -542,6 +556,8 @@ class ProseHostSession {
     }));
     if (fontGate.aborted || !fontGate.value) return;
     forceTypographyStyleRecompute(this.#root);
+    const hostCommit = await raceAbort(signal, nextHostFrame());
+    if (hostCommit.aborted) return;
     if (!this.#root.isConnected || generation !== this.#context.generation || signal.aborted) return;
     coordinationService().requestFrame(() => {
       this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise, signal)
