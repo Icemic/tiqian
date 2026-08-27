@@ -124,15 +124,23 @@ internal fun clusterRoleRanges(
     classifier: FontRoleClassifier,
     context: FontRoleContext,
     profile: ClreqProfile,
-    spanBoundaries: Set<Int> = emptySet(),
-    emojiShapingBoundaries: Set<Int> = spanBoundaries,
+    spanBoundaries: Set<Int>,
+    emojiShapingBoundaries: Set<Int>,
     inlineObjectsByStart: Map<Int, InlineObjectSpan> = emptyMap(),
 ): List<ResolvedClusterRange> {
     val sourceGraphemeBoundaries = text.sourceGraphemeBoundaries(TextRange(0, text.length))
     val coalesceSet = profile.coalesceRepeatablePunctuation
     val ranges = mutableListOf<ResolvedClusterRange>()
     var index = 0
+    var graphemeBoundaryIndex = if (text.isEmpty()) 0 else 1
+    var graphemeStart = sourceGraphemeBoundaries.first()
+    var graphemeEnd = sourceGraphemeBoundaries.getOrElse(graphemeBoundaryIndex) { text.length }
     while (index < text.length) {
+        while (index >= graphemeEnd && graphemeBoundaryIndex < sourceGraphemeBoundaries.lastIndex) {
+            graphemeStart = graphemeEnd
+            graphemeBoundaryIndex += 1
+            graphemeEnd = sourceGraphemeBoundaries[graphemeBoundaryIndex]
+        }
         val inlineObject = inlineObjectsByStart[index]
         if (inlineObject != null) {
             ranges.add(
@@ -176,8 +184,6 @@ internal fun clusterRoleRanges(
             continue
         }
         val firstRange = TextRange(start, start + charCount)
-        val graphemeStart = sourceGraphemeBoundaries.last { it <= start }
-        val graphemeEnd = sourceGraphemeBoundaries.first { it > start }
         val classifiedRole = classifier.classify(text, firstRange, context)
         val role = if (
             classifiedRole == FontRole.Emoji ||
