@@ -24,6 +24,8 @@ import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 import type { PreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
 import { releasePreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
 import { getElementContexts } from "../../services/element-contexts.js";
+import { createDiagnosisManager } from "./diagnosis-manager.js";
+import type { DiagnosisDatasetRecord, DiagnosisManager } from "./diagnosis-manager.js";
 
 export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
@@ -40,6 +42,7 @@ interface EnhancedElementContext {
   readonly generation: number;
   readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
+  readonly diagnosis: DiagnosisManager;
   preparedStyle: PreparedStyleState | null;
   update(): number;
   destroy(): void;
@@ -50,6 +53,12 @@ function getContextForElement(element: Element): EnhancedElementContext | undefi
   return getElementContexts().get(element);
 }
 
+// Only HTMLElement hosts carry a dataset surface; the context types its
+// element as Element, so the diagnosis host resolves it live and cast-free.
+function isDatasetRecord(value: unknown): value is DiagnosisDatasetRecord {
+  return typeof value === "object" && value !== null;
+}
+
 // Open construction surface (plan A): builds the plain context value without
 // touching the element registry, so hosts and tests can construct a context
 // explicitly before injecting it into the engine paths.
@@ -58,6 +67,12 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
   const snapshotFontSession: SnapshotFontSessionState = { entry: null };
   const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
   let preparedStyle: PreparedStyleState | null = null;
+  const diagnosis = createDiagnosisManager({
+    get dataset() {
+      const candidate = Reflect.get(element, "dataset");
+      return isDatasetRecord(candidate) ? candidate : undefined;
+    },
+  });
 
   return {
     element,
@@ -66,6 +81,7 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
     },
     snapshotFontSession,
     rawDomParagraphs,
+    diagnosis,
     get preparedStyle() {
       return preparedStyle;
     },
@@ -82,6 +98,7 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
         releasePreparedStyleState(preparedStyle);
         preparedStyle = null;
       }
+      diagnosis.dispose();
       getElementContexts().delete(element);
     },
   };
