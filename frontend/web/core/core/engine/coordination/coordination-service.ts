@@ -549,6 +549,16 @@ export class CoordinationService {
     }
   }
 
+  // FrameBoundaryYield: one-shot continuation at the next frame start that
+  // deliberately bypasses the frame loop. The direct-SSR background proof uses
+  // it only to reach the frame boundary before handing its continuation to
+  // background-priority scheduler work; running it as a budgeted frame task
+  // would contend with layout work it is meant to yield to. This keeps every
+  // native frame call inside the coordination service (ruling R5).
+  requestFrameBoundary(callback: FrameTaskCallback): number {
+    return requestAnimationFrame(callback);
+  }
+
   registerWorker(session: RootSessionId, element: HTMLElement, pool: LayoutJobPool): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].session === session) {

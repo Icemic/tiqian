@@ -375,7 +375,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(elementSource, /RESPONSIVE_LATEST_RETARGET_QUIET_MS/u);
   assert.match(
     elementSource,
-    /#scheduleResponsiveRetarget\(\)[\s\S]*?#responsiveRetargetFrame = requestAnimationFrame/u,
+    /#scheduleResponsiveRetarget\(\)[\s\S]*?coordinationService\(\)\.requestFrame\(responsiveRetargetFrame\)/u,
   );
   assert.match(viewportListenerSource, /ViewportResizeValidatesCapturedLayoutInputs/u);
   assert.match(

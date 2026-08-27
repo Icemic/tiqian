@@ -373,7 +373,7 @@ async function yieldDirectSsrValidationIfNeeded(sliceStartedAt: number): Promise
     typeof globalThis.requestAnimationFrame === "function" &&
     globalThis.document?.visibilityState !== "hidden"
   ) {
-    await new Promise((resolve) => globalThis.requestAnimationFrame(() => {
+    await new Promise((resolve) => globalServices().coordination.requestFrameBoundary(() => {
       const sched2 = (globalThis as GlobalWithScheduler).scheduler;
       if (sched2 && typeof sched2.postTask === "function") {
         void sched2.postTask(() => resolve(undefined), { priority: "background" });

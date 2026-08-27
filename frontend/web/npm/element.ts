@@ -41,7 +41,7 @@ import {
   compensateViewportAnchor,
   releaseNativeScrollAnchoring,
 } from "@tiqian/core/core/engine/coordination/viewport-anchor.js";
-import { CoordinationService, type RootSessionId } from "@tiqian/core/core/engine/coordination/coordination-service.js";
+import { CoordinationService, type FrameTaskCallback, type RootSessionId } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 import { globalServices } from "@tiqian/core/core/services/global-services.js";
 import { enhanceProgressively, relayout } from "@tiqian/core/core/engine/progressive-drivers.js";
 import { destroyRoot, detachRoot } from "@tiqian/core/core/engine/lifecycle.js";
@@ -127,8 +127,10 @@ function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandid
   return error?.code ?? "SnapshotFontSessionUnavailable";
 }
 
+// One-frame waits ride the coordination service's frame loop (ruling R5),
+// so no component calls native requestAnimationFrame directly.
 function nextFrame(): Promise<number> {
-  return new Promise((resolve) => requestAnimationFrame(resolve));
+  return new Promise((resolve) => coordinationService().requestFrame(resolve));
 }
 
 function coordinationService(): CoordinationService {
@@ -213,7 +215,7 @@ class TiqianProseElement extends HTMLElementBase {
   #detachAttributeSnapshot: (string | null)[] | null = null;
   #lastCommittedParagraphMeasures = "";
   #contentInvalidation: ContentInvalidationSource | null = null;
-  #contentProbeFrame = 0;
+  #contentProbeFrame: FrameTaskCallback | null = null;
   #contentTainted = new Set<Element>();
   #typographyInvalidation: TypographyInvalidationSource | null = null;
   #context = createEnhanceContext(this);
@@ -230,14 +232,12 @@ class TiqianProseElement extends HTMLElementBase {
   #paragraphObserver: IntersectionObserver | null = null;
   #paragraphTierIndex = new Map<Element, TiqianParagraphTierInfo>();
   #readyListener: EventListener | null = null;
-  #resizeFrame = 0;
-  #resizeObserverFrame = 0;
   #sizeObservation: RootSizeObservationSource | null = null;
   #gridMetricsState = createParagraphGridMetricsState();
   #pendingCommittedMeasures = "";
-  #responsiveRetargetFrame = 0;
+  #responsiveRetargetFrame: FrameTaskCallback | null = null;
   #snapshotEnhancedCount = 0;
-  #typographyFrame = 0;
+  #typographyFrame: FrameTaskCallback | null = null;
   #viewportResizeInvalidation: ViewportResizeInvalidationSource | null = null;
 
   get disabled(): boolean {
@@ -1298,11 +1298,13 @@ class TiqianProseElement extends HTMLElementBase {
       // the flag.
       this.#ensureViewportResizeListener();
       const operation = transaction.layoutOperation;
-      this.#contentProbeFrame = requestAnimationFrame(() => {
-        this.#contentProbeFrame = 0;
+      const contentProbeFrame: FrameTaskCallback = () => {
+        this.#contentProbeFrame = null;
         if (!this.isConnected || operation !== this.#stateMachine.transaction.layoutOperation) return;
         this.#probeContentDrift();
-      });
+      };
+      this.#contentProbeFrame = contentProbeFrame;
+      coordinationService().requestFrame(contentProbeFrame);
     }
     stateMachine.clearInvalidation(InvalidationReason.ResponsiveCommit);
     stateMachine.clearInvalidation(InvalidationReason.ResponsiveRelayout);
@@ -1956,10 +1958,6 @@ class TiqianProseElement extends HTMLElementBase {
     this.#sizeObservation = null;
     this.#gridMetricsState.metrics = null;
     this.#lastObservedWidth = 0;
-    if (this.#resizeObserverFrame) cancelAnimationFrame(this.#resizeObserverFrame);
-    this.#resizeObserverFrame = 0;
-    if (this.#resizeFrame) cancelAnimationFrame(this.#resizeFrame);
-    this.#resizeFrame = 0;
     this.#removeViewportResizeListener();
   }
 
@@ -1968,8 +1966,8 @@ class TiqianProseElement extends HTMLElementBase {
     if (!stateMachine.workInFlight || !stateMachine.work.usesCapturedMeasure) return;
     this.#clearResponsiveRetarget();
     const operation = stateMachine.transaction.layoutOperation;
-    this.#responsiveRetargetFrame = requestAnimationFrame(() => {
-      this.#responsiveRetargetFrame = 0;
+    const responsiveRetargetFrame: FrameTaskCallback = () => {
+      this.#responsiveRetargetFrame = null;
       const work = stateMachine.work;
       if (
         !this.isConnected || !stateMachine.workInFlight ||
@@ -1998,13 +1996,15 @@ class TiqianProseElement extends HTMLElementBase {
         maximumMeasure === work.maximumMeasure
       ) return;
       this.#cancelCapturedLayoutForLatestGeometry();
-    });
+    };
+    this.#responsiveRetargetFrame = responsiveRetargetFrame;
+    coordinationService().requestFrame(responsiveRetargetFrame);
   }
 
   #clearResponsiveRetarget() {
     if (!this.#responsiveRetargetFrame) return;
-    cancelAnimationFrame(this.#responsiveRetargetFrame);
-    this.#responsiveRetargetFrame = 0;
+    coordinationService().cancelFrame(this.#responsiveRetargetFrame);
+    this.#responsiveRetargetFrame = null;
   }
 
   #observeTypography() {
@@ -2056,8 +2056,8 @@ class TiqianProseElement extends HTMLElementBase {
 
   #stopTypographyObservation() {
     this.#typographyInvalidation?.stop();
-    if (this.#typographyFrame) cancelAnimationFrame(this.#typographyFrame);
-    this.#typographyFrame = 0;
+    if (this.#typographyFrame) coordinationService().cancelFrame(this.#typographyFrame);
+    this.#typographyFrame = null;
     this.#stateMachine.clearInvalidation(InvalidationReason.TypographyRefreshForced);
     this.#stateMachine.clearInvalidation(InvalidationReason.DeferredTypographyCheck);
   }
@@ -2092,8 +2092,8 @@ class TiqianProseElement extends HTMLElementBase {
   #stopContentObservation() {
     this.#contentInvalidation?.stop();
     this.#contentInvalidation = null;
-    if (this.#contentProbeFrame) cancelAnimationFrame(this.#contentProbeFrame);
-    this.#contentProbeFrame = 0;
+    if (this.#contentProbeFrame) coordinationService().cancelFrame(this.#contentProbeFrame);
+    this.#contentProbeFrame = null;
     this.#contentTainted.clear();
     this.#stateMachine.clearInvalidation(InvalidationReason.ContentDrift);
   }
@@ -2126,11 +2126,13 @@ class TiqianProseElement extends HTMLElementBase {
       // engine-owned batch is disproven there without cancelling anything.
       if (!this.#contentProbeFrame) {
         const operation = this.#stateMachine.transaction.layoutOperation;
-        this.#contentProbeFrame = requestAnimationFrame(() => {
-          this.#contentProbeFrame = 0;
+        const contentProbeFrame: FrameTaskCallback = () => {
+          this.#contentProbeFrame = null;
           if (!this.isConnected || operation !== this.#stateMachine.transaction.layoutOperation) return;
           this.#probeContentDrift();
-        });
+        };
+        this.#contentProbeFrame = contentProbeFrame;
+        coordinationService().requestFrame(contentProbeFrame);
       }
       return;
     }
@@ -2307,8 +2309,8 @@ class TiqianProseElement extends HTMLElementBase {
   #scheduleTypographyCheck(force = false) {
     if (force) this.#stateMachine.invalidate(InvalidationReason.TypographyRefreshForced);
     if (this.#typographyFrame) return;
-    this.#typographyFrame = requestAnimationFrame(() => {
-      this.#typographyFrame = 0;
+    const typographyFrame: FrameTaskCallback = () => {
+      this.#typographyFrame = null;
       if (!this.isConnected) return;
       // A loading font would immediately invalidate another measurement. Its
       // loadingdone event will schedule the authoritative check.
@@ -2328,7 +2330,9 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       this.#refreshRuntimeFromSource();
-    });
+    };
+    this.#typographyFrame = typographyFrame;
+    coordinationService().requestFrame(typographyFrame);
   }
 
   #observeIntersection() {
