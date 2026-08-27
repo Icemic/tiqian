@@ -2,6 +2,7 @@ import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-c
 import type { RawDomParagraphRecord } from "@tiqian/core/core/engine/context/enhance-context.js";
 import { createProseHostStateMachine } from "@tiqian/core/core/engine/prose-host-state-machine.js";
 import { InvalidationReason } from "@tiqian/core/core/engine/prose-host-state.js";
+import { raceAbort } from "@tiqian/core/core/engine/abort-race.js";
 import {
   copyInstaller,
   loadTiqianRuntime,
@@ -418,7 +419,11 @@ class TiqianProseElement extends HTMLElementBase {
     // runtime import or enhance failure inside the frame task became an
     // unhandled rejection: no RuntimeLoadFailed marker, the ready listener
     // left attached, and consumers awaiting tiqian:ready hanging forever.
-    this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, runtimePromise)
+    // EnhanceAbortControllerSlot: one AbortController per connected lifecycle,
+    // published on the state machine transaction slot. Disconnect and restart
+    // abort it; every pipeline await below races against its signal.
+    const enhanceAbortController = this.#beginEnhanceAbortController();
+    this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, runtimePromise, enhanceAbortController.signal)
       .catch((error) => this.#failInitialEnhance(generation, error));
   }
 
@@ -434,10 +439,13 @@ class TiqianProseElement extends HTMLElementBase {
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
     runtimePromise: Promise<unknown> | null,
+    signal: AbortSignal,
   ): Promise<void> {
-    await ensureTiqianStyles(this.ownerDocument, this);
+    const styles = await raceAbort(signal, ensureTiqianStyles(this.ownerDocument, this));
+    if (styles.aborted) return;
     await nextFrame();
-    const fontGateOpen = await awaitInitialTypographyFonts(this, {
+    if (signal.aborted) return;
+    const fontGate = await raceAbort(signal, awaitInitialTypographyFonts(this, {
       generation,
       fonts: this.ownerDocument?.fonts ?? null,
       isCurrent: () => this.isConnected && generation === this.#context.generation,
@@ -446,14 +454,32 @@ class TiqianProseElement extends HTMLElementBase {
       typographyElements: () => typographyElements(this),
       deferUntilFontsSettle: (gateGeneration, completion) =>
         this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
-    });
-    if (!fontGateOpen) return;
+    }));
+    if (fontGate.aborted || !fontGate.value) return;
     await nextFrame();
-    if (!this.isConnected || generation !== this.#context.generation) return;
+    if (!this.isConnected || generation !== this.#context.generation || signal.aborted) return;
     coordinationService().requestFrame(() => {
-      this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise)
+      this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise, signal)
         .catch((error) => this.#failInitialEnhance(generation, error));
     }, this.#coordinationSession);
+  }
+
+  // EnhanceAbortControllerSlot: publishes the lifecycle's AbortController on
+  // the state machine transaction slot and returns it. A controller still in
+  // the slot belongs to a lifecycle that never reached its teardown owner, so
+  // starting a new lifecycle aborts it first.
+  #beginEnhanceAbortController(): AbortController {
+    const transaction = this.#stateMachine.transaction;
+    transaction.abortController?.abort();
+    transaction.abortController = new AbortController();
+    return transaction.abortController;
+  }
+
+  #abortEnhancePipeline(): void {
+    const transaction = this.#stateMachine.transaction;
+    const controller = transaction.abortController;
+    transaction.abortController = null;
+    controller?.abort();
   }
 
   #failInitialEnhance(generation: number, error: unknown): void {
@@ -471,8 +497,9 @@ class TiqianProseElement extends HTMLElementBase {
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
     runtimePromise: Promise<unknown> | null,
+    signal: AbortSignal,
   ): Promise<void> {
-    if (!this.isConnected || generation !== this.#context.generation) return;
+    if (!this.isConnected || generation !== this.#context.generation || signal.aborted) return;
     const enhanceStartedAt = Date.now();
     const operation = this.#beginLayoutWork({ captureSignatures: false });
     let snapshot: TiqianSnapshotAdoptionOutcome = { adopted: false };
@@ -482,7 +509,7 @@ class TiqianProseElement extends HTMLElementBase {
           this,
           this.ownerDocument,
           () => this.isConnected && generation === this.#context.generation &&
-            operation === this.#stateMachine.transaction.layoutOperation,
+            operation === this.#stateMachine.transaction.layoutOperation && !signal.aborted,
           this.#snapshotAdoptionAnchors(),
         );
       }
@@ -495,7 +522,7 @@ class TiqianProseElement extends HTMLElementBase {
     releaseNativeScrollAnchoring(this);
     if (
       !this.isConnected || generation !== this.#context.generation ||
-      operation !== this.#stateMachine.transaction.layoutOperation
+      operation !== this.#stateMachine.transaction.layoutOperation || signal.aborted
     ) {
       if (snapshot.adopted) restoreLoadedSnapshot(this);
       return;
@@ -510,8 +537,9 @@ class TiqianProseElement extends HTMLElementBase {
       // server geometry for its keyed siblings.
       const completionSelector = snapshotCompletionSelector(this);
       if (completionSelector) {
-        await (runtimePromise ?? loadTiqianRuntime());
-        if (!this.isConnected || generation !== this.#context.generation) {
+        const runtime = await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));
+        if (runtime.aborted) return;
+        if (!this.isConnected || generation !== this.#context.generation || signal.aborted) {
           return;
         }
         this.#acceptValidatedSnapshotGeometry();
@@ -538,8 +566,9 @@ class TiqianProseElement extends HTMLElementBase {
       return;
     }
     this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
-    await (runtimePromise ?? loadTiqianRuntime());
-    if (!this.isConnected || generation !== this.#context.generation) return;
+    const runtime = await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));
+    if (runtime.aborted) return;
+    if (!this.isConnected || generation !== this.#context.generation || signal.aborted) return;
     if (!(await this.#dispatchProgressiveEnhance(generation))) return;
   }
 
@@ -564,6 +593,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #settleDisconnection() {
+    this.#abortEnhancePipeline();
     coordinationService().unregister(this.#coordinationSession);
     this.#coordinationSession = 0;
     coordinationService().cancelFrame(this.#boundResponsiveCommit);
@@ -715,6 +745,7 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #restartConnectedLifecycle() {
+    this.#abortEnhancePipeline();
     // Reconnect starts a fresh context: disconnect destroyed the previous
     // one and dropped it from the registry, so the constructor re-registers.
     this.#context = createEnhanceContext(this);
@@ -756,6 +787,10 @@ class TiqianProseElement extends HTMLElementBase {
       revalidateSnapshotFont = true,
     }: TiqianEnhanceDispatchOptions = {},
   ): Promise<boolean> {
+    // The dispatch runs under the lifecycle whose controller occupies the
+    // transaction slot at entry; capturing the signal here keeps this dispatch
+    // bound to its own lifecycle even if a restart replaces the slot later.
+    const signal = this.#stateMachine.transaction.abortController?.signal ?? null;
     const request = this.#stateMachine.claimEnhanceRequest();
     // PlainHostPreparedBridge: the runtime lowers every paragraph through
     // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without a snapshot
@@ -763,7 +798,8 @@ class TiqianProseElement extends HTMLElementBase {
     // snapshot-session path installs it through loadSnapshotFontFallback; this
     // await covers the remaining hosts and leaves an already-installed
     // renderer (a snapshot session or a test fixture) untouched.
-    await ensurePreparedDomBridge();
+    const bridge = await raceAbort(signal, ensurePreparedDomBridge());
+    if (bridge.aborted) return false;
     this.#beginLayoutWork();
     const baseOptions = {
       ...(this.#baseEnhanceOptions() ?? {}),
@@ -774,11 +810,17 @@ class TiqianProseElement extends HTMLElementBase {
     const snapshotFontSessionAlreadyPrepared = !revalidateSnapshotFont &&
       this.#snapshotFontSession?.reference === this.getAttribute("snapshot-ref");
     try {
-      snapshotFontSession = await this.#prepareSnapshotFontSession(
+      const preparedSession = await raceAbort(signal, this.#prepareSnapshotFontSession(
         generation,
         request,
         revalidateSnapshotFont,
-      );
+        signal,
+      ));
+      if (preparedSession.aborted) {
+        this.#releaseSnapshotFontSession();
+        return false;
+      }
+      snapshotFontSession = preparedSession.value;
       delete this.dataset.tiqianSnapshotFontMiss;
     } catch (error) {
       if (
@@ -788,8 +830,13 @@ class TiqianProseElement extends HTMLElementBase {
       this.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate);
       console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     }
-    if (!this.isConnected || generation !== this.#context.generation || request !== this.#stateMachine.transaction.enhanceRequest) {
-      if (!this.isConnected || generation !== this.#context.generation) this.#releaseSnapshotFontSession();
+    if (
+      !this.isConnected || generation !== this.#context.generation ||
+      request !== this.#stateMachine.transaction.enhanceRequest || signal?.aborted
+    ) {
+      if (!this.isConnected || generation !== this.#context.generation || signal?.aborted) {
+        this.#releaseSnapshotFontSession();
+      }
       return false;
     }
     // PreparedSnapshotTransition: callers leaving a precomputed snapshot keep
@@ -821,11 +868,15 @@ class TiqianProseElement extends HTMLElementBase {
         // still take the validating path; a responsive retarget can start the
         // latest-width paragraph queue without repeating font probes first.
         if (!snapshotFontSessionAlreadyPrepared) {
-          await this.#snapshotFontSession!.prepareRenderFont(this, snapshotFontSession);
+          const renderFont = await raceAbort(signal, this.#snapshotFontSession!.prepareRenderFont(this, snapshotFontSession));
+          if (renderFont.aborted) {
+            this.#releaseSnapshotFontSession();
+            return false;
+          }
         }
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          request !== this.#stateMachine.transaction.enhanceRequest
+          request !== this.#stateMachine.transaction.enhanceRequest || signal?.aborted
         ) {
           this.#releaseSnapshotFontSession();
           return false;
@@ -852,13 +903,21 @@ class TiqianProseElement extends HTMLElementBase {
     // before the first layout so a dash paragraph is never laid out once as
     // pending and then redundantly retried. An exact server-replay session is
     // carried separately and remains the authoritative dash path.
-    const cjkDashCapability = needsDash
-      ? await prepareCjkDashShapingIfNeeded(this, {
+    const dashCapability = needsDash
+      ? await raceAbort(signal, prepareCjkDashShapingIfNeeded(this, {
           ...baseOptions,
           ...(snapshotFontSession ? { snapshotFontSession } : {}),
-        })
-      : { status: "not-needed" };
-    if (!this.isConnected || generation !== this.#context.generation || request !== this.#stateMachine.transaction.enhanceRequest) {
+        }))
+      : { aborted: false as const, value: { status: "not-needed" as const } };
+    if (dashCapability.aborted) {
+      this.#releaseSnapshotFontSession();
+      return false;
+    }
+    const cjkDashCapability = dashCapability.value;
+    if (
+      !this.isConnected || generation !== this.#context.generation ||
+      request !== this.#stateMachine.transaction.enhanceRequest || signal?.aborted
+    ) {
       this.#releaseSnapshotFontSession();
       return false;
     }
@@ -883,15 +942,25 @@ class TiqianProseElement extends HTMLElementBase {
     };
     if (snapshotFontSession) {
       try {
-        const { createPrepareJob } = await import("@tiqian/core/core/engine/web-worker/worker-channel.js");
-        const prepareJob = await createPrepareJob(
+        const channel = await raceAbort(signal, import("@tiqian/core/core/engine/web-worker/worker-channel.js"));
+        if (channel.aborted) return false;
+        const prepareJob = await raceAbort(signal, channel.value.createPrepareJob(
           this,
           snapshotFontSession,
           preparedOptions,
+          // AbortSignalStandardShell: the worker channel's generational
+          // isCurrent predicate stays the cancellation kernel; the lifecycle
+          // signal is its standard shell, consulted at every kernel check.
           () => this.isConnected && generation === this.#context.generation &&
-            request === this.#stateMachine.transaction.enhanceRequest && layoutOperation === this.#stateMachine.transaction.layoutOperation,
-        );
-        if (prepareJob) await coordinationService().runPrepare(this.#coordinationSession, prepareJob);
+            request === this.#stateMachine.transaction.enhanceRequest &&
+            layoutOperation === this.#stateMachine.transaction.layoutOperation &&
+            !(signal?.aborted ?? false),
+        ));
+        if (prepareJob.aborted) return false;
+        if (prepareJob.value) {
+          const prepared = await raceAbort(signal, coordinationService().runPrepare(this.#coordinationSession, prepareJob.value));
+          if (prepared.aborted) return false;
+        }
       } catch (error) {
         // SnapshotWorkerFailureMustStayNative: synchronous Kotlin/JS fallback can
         // block scroll under JIT restrictions. Progressive enhancement will
@@ -900,9 +969,10 @@ class TiqianProseElement extends HTMLElementBase {
       }
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        request !== this.#stateMachine.transaction.enhanceRequest || layoutOperation !== this.#stateMachine.transaction.layoutOperation
+        request !== this.#stateMachine.transaction.enhanceRequest ||
+        layoutOperation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
       ) {
-        if (!this.isConnected || generation !== this.#context.generation) {
+        if (!this.isConnected || generation !== this.#context.generation || signal?.aborted) {
           this.#releaseSnapshotFontSession();
         }
         return false;
@@ -1032,6 +1102,7 @@ class TiqianProseElement extends HTMLElementBase {
     generation: number,
     request: number,
     revalidateExisting = true,
+    signal: AbortSignal | null = null,
   ): Promise<BrowserFontSessionHandle | null> {
     const reference = this.getAttribute("snapshot-ref");
     if (!reference) {
@@ -1058,14 +1129,16 @@ class TiqianProseElement extends HTMLElementBase {
       if (revalidateExisting) await existing.revalidate(this, existing.handle);
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        request !== this.#stateMachine.transaction.enhanceRequest || this.getAttribute("snapshot-ref") !== reference
+        request !== this.#stateMachine.transaction.enhanceRequest ||
+        this.getAttribute("snapshot-ref") !== reference || signal?.aborted
       ) return null;
       return existing.handle;
     }
     const handle = await loader.prepareBrowserFontSession(this);
     if (
       !this.isConnected || generation !== this.#context.generation ||
-      request !== this.#stateMachine.transaction.enhanceRequest || this.getAttribute("snapshot-ref") !== reference
+      request !== this.#stateMachine.transaction.enhanceRequest ||
+      this.getAttribute("snapshot-ref") !== reference || signal?.aborted
     ) {
       loader.releaseBrowserFontSession(handle);
       return null;
@@ -1245,6 +1318,7 @@ class TiqianProseElement extends HTMLElementBase {
   async #invalidateSnapshotAndEnhance({ restoreBeforeLoad = false }: TiqianSnapshotInvalidateOptions = {}) {
     if (!this.#stateMachine.snapshotAdopted && !isLoadedSnapshotAdopted(this)) return;
     const generation = this.#context.generation;
+    const signal = this.#stateMachine.transaction.abortController?.signal ?? null;
     this.#stateMachine.dispatched = false;
     let activeRequest = this.#stateMachine.claimEnhanceRequest();
     this.#beginLayoutWork();
@@ -1260,10 +1334,11 @@ class TiqianProseElement extends HTMLElementBase {
     };
     if (restoreBeforeLoad) restoreImmediatelyBeforeDispatch();
     try {
-      await loadTiqianRuntime();
+      const runtime = await raceAbort(signal, loadTiqianRuntime());
+      if (runtime.aborted) return;
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        activeRequest !== this.#stateMachine.transaction.enhanceRequest
+        activeRequest !== this.#stateMachine.transaction.enhanceRequest || signal?.aborted
       ) return;
       const enhancement = this.#dispatchProgressiveEnhance(generation, restoreBeforeLoad
         ? undefined
@@ -1309,6 +1384,7 @@ class TiqianProseElement extends HTMLElementBase {
   async #tryReadoptSnapshotAtMaximumMeasure() {
     if (!this.hasAttribute("snapshot-ref")) return;
     const generation = this.#context.generation;
+    const signal = this.#stateMachine.transaction.abortController?.signal ?? null;
     const startedAt = Date.now();
     const operation = this.#beginLayoutWork();
     const runtimeSnapshotBackingRestored = this.#stateMachine.runtimeActive;
@@ -1329,7 +1405,8 @@ class TiqianProseElement extends HTMLElementBase {
         this,
         this.ownerDocument,
         () => this.isConnected && generation === this.#context.generation &&
-          operation === this.#stateMachine.transaction.layoutOperation,
+          operation === this.#stateMachine.transaction.layoutOperation &&
+          !(signal?.aborted ?? false),
         this.#snapshotAdoptionAnchors(),
       );
       // The adoption commits are over; hand the scroller back to the
@@ -1337,7 +1414,7 @@ class TiqianProseElement extends HTMLElementBase {
       releaseNativeScrollAnchoring(this);
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        operation !== this.#stateMachine.transaction.layoutOperation
+        operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
       ) {
         if (snapshot.adopted) restoreLoadedSnapshot(this);
         return;
@@ -1360,10 +1437,11 @@ class TiqianProseElement extends HTMLElementBase {
       this.#snapshotEnhancedCount = snapshot.count;
       const completionSelector = snapshotCompletionSelector(this);
       if (completionSelector) {
-        await loadTiqianRuntime();
+        const runtime = await raceAbort(signal, loadTiqianRuntime());
+        if (runtime.aborted) return;
         if (
           !this.isConnected || generation !== this.#context.generation ||
-          operation !== this.#stateMachine.transaction.layoutOperation
+          operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
         ) {
           return;
         }
@@ -1392,7 +1470,7 @@ class TiqianProseElement extends HTMLElementBase {
     } catch (error) {
       if (
         !this.isConnected || generation !== this.#context.generation ||
-        operation !== this.#stateMachine.transaction.layoutOperation
+        operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
       ) return;
       this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
       console.warn("Tiqian Web responsive snapshot validation failed", error);

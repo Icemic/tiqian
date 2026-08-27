@@ -26,7 +26,7 @@ async function drivePrepareJob(module, root, handle, options) {
     job.step(() => false);
     await Promise.resolve();
   }
-  return await job.settled;
+  return await job.finished;
 }
 
 function assertCode(code) {

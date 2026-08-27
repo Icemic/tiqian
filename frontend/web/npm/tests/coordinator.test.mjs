@@ -389,12 +389,12 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
     function createFakeJob(totalCandidates = 3) {
       let index = 0;
       let done = false;
-      let settledResolve = null;
-      const settled = new Promise((resolve) => { settledResolve = resolve; });
+      let finishedResolve = null;
+      const finished = new Promise((resolve) => { finishedResolve = resolve; });
       const job = {
         get done() { return done; },
-        onSettled: null,
-        settled,
+        onFinished: null,
+        finished,
         step(shouldYield) {
           let dispatched = 0;
           while (index < totalCandidates) {
@@ -403,15 +403,15 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
             dispatched += 1;
             if (index >= totalCandidates) {
               done = true;
-              settledResolve(totalCandidates);
+              finishedResolve(totalCandidates);
             }
-            if (job.onSettled) job.onSettled(job);
+            if (job.onFinished) job.onFinished(job);
             return dispatched;
           }
           if (index >= totalCandidates) {
             done = true;
-            settledResolve(totalCandidates);
-            if (job.onSettled) job.onSettled(job);
+            finishedResolve(totalCandidates);
+            if (job.onFinished) job.onFinished(job);
           }
           return dispatched;
         },
@@ -422,7 +422,7 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
     const job = createFakeJob(3);
     const promise = coordinator.runPrepare(session, job);
 
-    // Advancing the clock through 3 frames steps each candidate and settles the job.
+    // Advancing the clock through 3 frames steps each candidate and finishes the job.
     clock.advance(48);
     assert.equal(await promise, 3);
 
@@ -433,7 +433,7 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
     const secondPromise = coordinator.runPrepare(session, secondJob);
     assert.equal(await firstPromise, 0);
 
-    // Advancing through the second job settles it cleanly.
+    // Advancing through the second job finishes it cleanly.
     clock.advance(48);
     assert.equal(await secondPromise, 3);
   } finally {
@@ -441,13 +441,13 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
   }
 });
 
-test("a prepare job cancelled by its staleness guard settles and retires its member", async () => {
+test("a prepare job cancelled by its staleness guard finishes and retires its member", async () => {
   const globals = preserveGlobals(globalNames);
   const clock = installFakeClock();
   // Count rAF requests so the retirement assertion can see the frame loop
   // disarm instead of spinning on a member that will never advance. The
   // fake clock fires every queued frame immediately, so each fake job must
-  // settle inside the advance that steps it.
+  // finish inside the advance that steps it.
   const realRaf = globalThis.requestAnimationFrame;
   let rafRequests = 0;
   globalThis.requestAnimationFrame = (callback) => {
@@ -459,20 +459,20 @@ test("a prepare job cancelled by its staleness guard settles and retires its mem
     const coordinator = new Coordinator();
     const session = coordinator.register();
 
-    // Phase one: a healthy job settles through the frame loop.
+    // Phase one: a healthy job finishes through the frame loop.
     let remaining = 2;
     let done = false;
-    let settledResolve = null;
-    const settled = new Promise((resolve) => { settledResolve = resolve; });
+    let finishedResolve = null;
+    const finished = new Promise((resolve) => { finishedResolve = resolve; });
     const healthy = {
       get done() { return done; },
-      onSettled: null,
-      settled,
+      onFinished: null,
+      finished,
       step() {
         remaining -= 1;
         if (remaining <= 0) {
           done = true;
-          settledResolve(remaining === 0 ? 2 : 1);
+          finishedResolve(remaining === 0 ? 2 : 1);
         }
         return 1;
       },
@@ -482,15 +482,15 @@ test("a prepare job cancelled by its staleness guard settles and retires its mem
     assert.equal(await healthyPromise, 2);
     assert.ok(rafRequests > 0);
 
-    // Phase two: a job already stale settles from inside its first step the
-    // way CancelledPrepareSettlesEarly does, and the member retires.
+    // Phase two: a job already stale finishes from inside its first step the
+    // way CancelledPrepareFinishesEarly does, and the member retires.
     let cancelledDone = false;
     let cancelledResolve = null;
-    const cancelledSettled = new Promise((resolve) => { cancelledResolve = resolve; });
+    const cancelledFinished = new Promise((resolve) => { cancelledResolve = resolve; });
     const cancelled = {
       get done() { return cancelledDone; },
-      onSettled: null,
-      settled: cancelledSettled,
+      onFinished: null,
+      finished: cancelledFinished,
       step() {
         cancelledDone = true;
         cancelledResolve(0);

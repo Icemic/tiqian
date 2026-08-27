@@ -514,7 +514,7 @@ async function runWorkerMessagesJourney() {
           job.step(() => false);
           await Promise.resolve();
         }
-        prepared = await job.settled;
+        prepared = await job.finished;
       }
       ops.push({ op: "prepare", text: activeElement.textContent, prepared });
       return prepared;

@@ -52,7 +52,7 @@ export type RootSessionId = number;
 export type FrameTaskCallback = (now: number) => void;
 export type GrantStopPredicate = (processedCount: number) => boolean;
 export type ShouldYieldPredicate = () => boolean;
-export type PrepareSettledCallback = (job: PrepareJob) => void;
+export type PrepareFinishedCallback = (job: PrepareJob) => void;
 export type PrepareStepFn = (shouldYield: ShouldYieldPredicate) => number;
 export type PrepareResolveFn = (count: number) => void;
 export type SpentReporter = (consumedMs: number) => void;
@@ -111,8 +111,8 @@ export interface CoordinatorWorkerSlot {
 
 export interface PrepareJob {
   readonly done: boolean;
-  onSettled: PrepareSettledCallback | null;
-  settled: Promise<number>;
+  onFinished: PrepareFinishedCallback | null;
+  finished: Promise<number>;
   step: PrepareStepFn;
 }
 
@@ -631,8 +631,8 @@ export class CoordinationService {
   // loop outside this pool. A job registered here advances inside the frame
   // loop after tasks and grants, under the same startTime deadline, one
   // candidate guaranteed per frame. Worker replies re-arm the loop through
-  // the job's onSettled; the returned promise resolves with the stored-plan
-  // count once the job settles. A second registration for the same root
+  // the job's onFinished; the returned promise resolves with the stored-plan
+  // count once the job finishes. A second registration for the same root
   // session resolves the previous promise and replaces the member.
   runPrepare(session: RootSessionId, job: PrepareJob): Promise<number> {
     const existing = this.#prepareMembers.get(session);
@@ -640,11 +640,11 @@ export class CoordinationService {
     let resolve: PrepareResolveFn | null = null;
     const promise = new Promise<number>((r) => { resolve = r; });
     this.#prepareMembers.set(session, { job, resolve });
-    job.onSettled = (settledJob: PrepareJob): void => {
-      if (settledJob.done) {
+    job.onFinished = (finishedJob: PrepareJob): void => {
+      if (finishedJob.done) {
         const member = this.#prepareMembers.get(session);
-        if (member && member.job === settledJob) this.#prepareMembers.delete(session);
-        settledJob.settled.then(resolve!);
+        if (member && member.job === finishedJob) this.#prepareMembers.delete(session);
+        finishedJob.finished.then(resolve!);
       } else if (!this.#rafId) {
         this.#rafId = requestAnimationFrame(this.#runFrameLoop);
       }
@@ -860,12 +860,12 @@ export class CoordinationService {
       const job = member.job;
       if (job.done) continue;
       job.step(() => performance.now() - startTime >= this.#budgetMs);
-      // A step can settle the job itself (cancellation settles without a
+      // A step can finish the job itself (cancellation finishes without a
       // reply); retire the member here so the root's await resumes and
       // the retained frame loop has one less reason to stay armed.
       if (job.done) {
         this.#prepareMembers.delete(session);
-        job.settled.then(member.resolve);
+        job.finished.then(member.resolve);
       }
     }
   }

@@ -183,7 +183,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const adoption = elementSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
   const connectedStart = elementSource.indexOf("  connectedCallback() {");
   const initialSnapshotSource = elementSource.slice(connectedStart, adoption);
-  const runtimeLoad = elementSource.indexOf("await (runtimePromise ?? loadTiqianRuntime());", adoption);
+  const runtimeLoad = elementSource.indexOf("await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));", adoption);
   const invalidationStart = elementSource.indexOf("  async #invalidateSnapshotAndEnhance(");
   const invalidationEnd = elementSource.indexOf(
     "  async #tryReadoptSnapshotAtMaximumMeasure(",
@@ -275,15 +275,15 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /await existing\.revalidate\(this, existing\.handle\)/u);
   assert.match(
     elementSource,
-    /HostRenderFontReadyBeforeCommit[\s\S]*?await this\.#snapshotFontSession\.prepareRenderFont\(this, snapshotFontSession\)/u,
+    /HostRenderFontReadyBeforeCommit[\s\S]*?await raceAbort\(signal, this\.#snapshotFontSession\.prepareRenderFont\(this, snapshotFontSession\)\)/u,
   );
   assert.match(
     elementSource,
-    /await coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
+    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
   );
   assert.match(
     elementSource,
-    /const layoutOperation = this\.#beginLayoutWork\(\{ usesCapturedMeasure: true \}\)[\s\S]*?request === this\.#stateMachine\.transaction\.enhanceRequest && layoutOperation === this\.#stateMachine\.transaction\.layoutOperation/u,
+    /const layoutOperation = this\.#beginLayoutWork\(\{ usesCapturedMeasure: true \}\)[\s\S]*?request === this\.#stateMachine\.transaction\.enhanceRequest &&[\s\S]*?layoutOperation === this\.#stateMachine\.transaction\.layoutOperation/u,
   );
   assert.match(
     elementSource,

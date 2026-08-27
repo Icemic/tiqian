@@ -20,9 +20,9 @@ import type {
 } from "../../sampler/snapshot/snapshot-source.js";
 import { LAYOUT_REQUEST_FIELDS } from "./assembly-record-fields.js";
 import type {
+  PrepareFinishedCallback,
   PrepareJob,
   PrepareResolveFn,
-  PrepareSettledCallback,
   PrepareStepFn,
   ShouldYieldPredicate,
 } from "../coordination/coordination-service.js";
@@ -145,10 +145,10 @@ export interface InternalPrepareCandidate {
 
 export interface InternalPrepareJob {
   readonly done: boolean;
-  onSettled: PrepareSettledCallback | null;
-  settled: Promise<number> | null;
+  onFinished: PrepareFinishedCallback | null;
+  finished: Promise<number> | null;
   step: PrepareStepFn;
-  settledResolve?: PrepareResolveFn;
+  finishedResolve?: PrepareResolveFn;
 }
 
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
@@ -330,8 +330,8 @@ installBridge();
 // coordinator frame loop advances. step() builds requests and fires Worker
 // round-trips without awaiting them, so a step's main-thread cost is only
 // the synchronous request builds. Replies land in their own microtasks,
-// store their plans, and call onSettled, which re-arms the frame loop.
-// `settled` resolves with the stored-plan count once every candidate was
+// store their plans, and call onFinished, which re-arms the frame loop.
+// `finished` resolves with the stored-plan count once every candidate was
 // both dispatched and answered; `done` carries the same moment for
 // synchronous pollers. Pacing follows the page's visibility because the
 // frame loop drives it, matching the grant lanes.
@@ -369,8 +369,8 @@ export async function createPrepareJob(
   };
   const job: InternalPrepareJob = {
     get done() { return done; },
-    onSettled: null,
-    settled: null,
+    onFinished: null,
+    finished: null,
     // One step = one synchronous slice of request builds. The first
     // candidate always runs; shouldYield() stops the slice afterwards.
     // Returns the number of candidates dispatched in this step.
@@ -378,13 +378,13 @@ export async function createPrepareJob(
       let dispatched = 0;
       while (index < candidates.length) {
         if (!isCurrent()) {
-          // CancelledPrepareSettlesEarly: a stale job never becomes current
+          // CancelledPrepareFinishesEarly: a stale job never becomes current
           // again, so waiting for the remaining candidates would leave the
-          // member parked in the coordinator forever. Settle with the plans
+          // member parked in the coordinator forever. Finish with the plans
           // stored so far; the awaiting element re-checks staleness and
           // aborts its own dispatch.
           done = true;
-          job.settledResolve!(stored);
+          job.finishedResolve!(stored);
           return dispatched;
         }
         if (dispatched > 0 && shouldYield()) return dispatched;
@@ -421,16 +421,16 @@ export async function createPrepareJob(
           .finally(() => {
             inflight -= 1;
             finishIfIdle();
-            if (done) job.settledResolve!(stored);
-            else if (job.onSettled) job.onSettled(job as PrepareJob);
+            if (done) job.finishedResolve!(stored);
+            else if (job.onFinished) job.onFinished(job as PrepareJob);
           });
       }
       finishIfIdle();
-      if (done) job.settledResolve!(stored);
+      if (done) job.finishedResolve!(stored);
       return dispatched;
     },
   };
-  job.settled = new Promise<number>((resolve) => { job.settledResolve = resolve; });
+  job.finished = new Promise<number>((resolve) => { job.finishedResolve = resolve; });
   return job as PrepareJob;
 }
 
