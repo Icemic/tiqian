@@ -8,6 +8,9 @@ import {
   relayout,
   startLayoutJob,
 } from "../core/engine/progressive-drivers.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 // The drivers functions take fake rootState/engine/layoutJobPool deps; the
 // relayout-session and process-paragraph deps bundles carry a fake

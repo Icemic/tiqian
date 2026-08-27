@@ -6,6 +6,9 @@ import { processParagraph } from "../core/engine/process-paragraph.js";
 import { withoutSnapshotFontSession } from "../core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 // All module seams are gone: eligibility, markdown lowering, the lifecycle
 // helpers, the worker request serializer, the prepared-metadata builders and

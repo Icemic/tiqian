@@ -34,6 +34,9 @@ import {
 } from "./timing-golden-host.mjs";
 import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
 import { optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;

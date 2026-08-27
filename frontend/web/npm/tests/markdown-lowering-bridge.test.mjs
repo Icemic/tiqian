@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { lowerMarkdown } from "@tiqian/core/core/engine/markdown-lowering.js";
 import { cleanupMounted, mount } from "./runtime-host.mjs";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation
 // is cjk-punctuation, everything else is a latin run. The engine only treats

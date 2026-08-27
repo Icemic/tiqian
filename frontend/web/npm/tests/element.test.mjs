@@ -11,6 +11,9 @@ import {
   driveElementTimeline,
   ELEMENT_DRIVE_GLOBALS,
 } from "./timing-golden-host.mjs";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 test("element entry imports without browser globals during SSR", async () => {
   const globals = preserveGlobals(["document", "HTMLElement", "customElements"]);

@@ -13,6 +13,9 @@ import {
   ProseHostSession,
 } from "../core/engine/prose-host-session.js";
 import type { ProseHostEvent } from "../core/engine/prose-host-session.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 function fakeOf(members: Record<string, unknown>) {
   return Object.assign(Object.create(null), members);

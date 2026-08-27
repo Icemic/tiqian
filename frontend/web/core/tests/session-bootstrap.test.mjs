@@ -9,6 +9,9 @@ import {
 import { createServerReplayFontSession } from "../core/measurement/browser-font-replay.js";
 import { FONT_REPLAY_REVISION } from "../core/sampler/snapshot/snapshot-schema.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 function recordingMeasureAdapter(calls) {
   return (cssFont, text) => {

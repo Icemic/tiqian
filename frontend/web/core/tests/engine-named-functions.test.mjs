@@ -5,6 +5,9 @@ import { enhance, enhanceProgressively } from "../core/engine/progressive-driver
 import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-reconcile.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 const ENV_GLOBALS = ["window", "document", "getComputedStyle"];
 

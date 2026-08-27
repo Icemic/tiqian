@@ -20,6 +20,9 @@ import {
   rawDomSuspendEngineWrites,
 } from "@tiqian/core/core/engine/raw-dom.js";
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 function rawDomParagraph(t, markup) {
   const root = mount(markup);

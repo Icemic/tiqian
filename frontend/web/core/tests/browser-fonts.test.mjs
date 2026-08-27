@@ -16,6 +16,9 @@ import {
 } from "./browser-fonts-fixtures.mjs";
 import { optionsFromJs } from "../core/engine/lifecycle.js";
 import { workerLayoutRequestForRoot } from "../core/engine/worker-request.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 // PrepareJob driver for channel tests: steps the job without a budget and
 // awaits the stored-plan count.

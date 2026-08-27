@@ -13,6 +13,9 @@ import {
   isOpaqueInlineDisplay,
   isOpaqueInlineLevelDisplay,
 } from "@tiqian/core/core/engine/eligibility.js";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 test("eligibilityBridge_exportsFullApiSurface", () => {
   for (const predicate of [

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createRootState } from "../core/engine/root-state.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 // Real lifecycle defaults resolved by withRootDefaults when the root inherits
 // nothing.

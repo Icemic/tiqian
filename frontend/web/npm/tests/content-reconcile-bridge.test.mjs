@@ -21,6 +21,9 @@ import {
   rawDomSuspendEngineWrites,
 } from "@tiqian/core/core/engine/raw-dom.js";
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+initializeGlobalServices();
+
 
 // Move a mounted paragraph into the enhanced state: take the host children
 // into the raw-DOM backup, publish the fragment, write one engine-owned rendered child

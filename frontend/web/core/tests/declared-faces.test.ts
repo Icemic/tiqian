@@ -12,6 +12,9 @@ import {
 } from "../core/sampler/snapshot/declared-faces.js";
 import type { DeclaredFaceDiagnostic, DeclaredFaceSheet } from "../core/sampler/snapshot/declared-faces.js";
 import { collectFontFaces } from "../core/sampler/snapshot/precomputed.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 interface FakeStyleLike {
   getPropertyValue(prop: string): string;

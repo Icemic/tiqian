@@ -18,6 +18,9 @@ import type {
   ShapeInput,
 } from "../core/engine/canvas-shaping.js";
 import type { CanvasContextLike, CanvasTextMetricsLike } from "../core/engine/canvas-metrics.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 const PARITY_PROBE_TEXT: string = "Benjamini-Hochberg WAVE fjord, 0x7f.";
 const DEGENERATE_PROBE_TEXT: string = "\u3002";

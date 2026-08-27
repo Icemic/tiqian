@@ -4,6 +4,9 @@ import test from "node:test";
 import { precomputeParagraphWithDiagnostics, type PrepareParagraphRequest } from "@tiqian/ffi";
 import { createProbeBootstrapFontSession } from "../core/engine/web-worker/session-bootstrap.js";
 import { prepareParagraphRequestWire } from "../core/engine/wire-construction.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 interface CanvasMeasurementResult {
   width: number;

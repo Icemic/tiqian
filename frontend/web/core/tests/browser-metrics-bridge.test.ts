@@ -10,6 +10,9 @@ import { createBrowserMetricsBridge } from "../core/engine/browser-metrics-bridg
 import type { CanvasContextLike, CanvasTextMetricsLike } from "../core/engine/canvas-metrics.js";
 import type { CanvasShapingEnv, ProbeElementLike } from "../core/engine/canvas-shaping.js";
 import { prepareParagraphRequestWire } from "../core/engine/wire-construction.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 const EXPECTED_FIRST_SHAPING_REQUEST: string =
   '{"text":"中文中文","range":{"start":0,"end":1},"style":{"fontFamilies":["Fixture CJK"],"fontSize":18,"fontWeight":400,"italic":false,"locale":"zh-Hans"},"fontDecision":{"role":"CjkText","candidateKey":"cjk-primary"},"displayText":"中","openTypeFeatures":[]}';

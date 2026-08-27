@@ -28,6 +28,9 @@ import {
   metricReplayKey,
   shapeReplayKey,
 } from "../core/sampler/snapshot/snapshot-schema.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 type MeasureFunction = (font: string, text: string) => ProbeMeasureResult | null;
 

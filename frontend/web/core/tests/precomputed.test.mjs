@@ -27,6 +27,9 @@ import {
 import { FONT_REPLAY_REVISION, stableStringify } from "../core/sampler/snapshot/snapshot-schema.js";
 import { snapshotTablesForRoot } from "../core/sampler/snapshot/snapshot-tables.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
 
 /**
  * Snapshot tables of the fixtures. Each fixture registers its own bytes under
