@@ -129,8 +129,8 @@ export function createLayoutJobPool(): LayoutJobPool {
   // Job registry: one job per root. Grants address jobs by generation:
   // every started job increments the counter and carries the value, so a
   // grant built for an older job is rejected once the root's job has been
-  // replaced.
-  const jobs = new Map<Element, LayoutJob>();
+  // replaced. WeakMap avoids strong references that would prevent Element GC.
+  const jobs = new WeakMap<Element, LayoutJob>();
   const attachedRoots = new WeakSet<Element>();
   let jobGenerationCounter: number = 0;
 

@@ -175,7 +175,7 @@ export function createCopyInstaller(): CopyInstaller {
       return;
     installedDocuments.add(documentObject);
     documentObject.addEventListener("copy", (event) => {
-      const hostWindow = globalThis.window;
+      const hostWindow = documentObject.defaultView;
       const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
