@@ -5,8 +5,9 @@ import {
   mergeSerializedSourceBoundaries,
   workerSnapshotSubsetSourceBoundaries,
 } from "../core/sampler/font-face-boundaries.js";
+import type { FontFaceRecord, WorkerFontContractRequest } from "../core/sampler/font-face-boundaries.js";
 
-function face(sourceOrder, unicodeRange, publicUrl) {
+function face(sourceOrder: number, unicodeRange: string, publicUrl: string): FontFaceRecord {
   return {
     family: "MiSans VF",
     localNames: ["MiSans VF"],
@@ -20,12 +21,12 @@ function face(sourceOrder, unicodeRange, publicUrl) {
 }
 
 test("Worker recreates an exact subset boundary between Latin and curly-quote shards", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+0041-005A", "/fonts/latin.woff2"),
     face(1, "U+201D", "/fonts/punctuation.woff2"),
   ];
-  const request = {
-    text: "B”",
+  const request: WorkerFontContractRequest = {
+    text: "B\u201d",
     fontFamilies: "MiSans VF\u001fui-sans-serif",
     fontSizePx: 18,
     fontWeight: 460,
@@ -38,12 +39,12 @@ test("Worker recreates an exact subset boundary between Latin and curly-quote sh
 });
 
 test("Worker subset boundaries preserve DOM style boundaries and UTF-16 offsets", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+0041-005A", "/fonts/latin.woff2"),
     face(1, "U+201D", "/fonts/punctuation.woff2"),
   ];
-  const request = {
-    text: "B”B",
+  const request: WorkerFontContractRequest = {
+    text: "B\u201dB",
     fontFamilies: "MiSans VF",
     fontSizePx: 18,
     fontWeight: 460,
@@ -64,11 +65,11 @@ test("Worker subset boundaries preserve DOM style boundaries and UTF-16 offsets"
 });
 
 test("Worker follows CSS source order when subset declarations overlap", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+0041-005A", "/fonts/latin-a.woff2"),
     face(1, "U+0042", "/fonts/latin-b.woff2"),
   ];
-  const request = {
+  const request: WorkerFontContractRequest = {
     text: "AB",
     fontFamilies: "MiSans VF",
     fontSizePx: 18,
@@ -81,12 +82,12 @@ test("Worker follows CSS source order when subset declarations overlap", () => {
 });
 
 test("Worker does not require a font face for zero-width soft-break controls", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+0041-005A", "/fonts/latin.woff2"),
     face(1, "U+201D", "/fonts/punctuation.woff2"),
   ];
-  const request = {
-    text: "B\u200B”",
+  const request: WorkerFontContractRequest = {
+    text: "B\u200B\u201D",
     fontFamilies: "MiSans VF",
     fontSizePx: 18,
     fontWeight: 460,
@@ -98,11 +99,11 @@ test("Worker does not require a font face for zero-width soft-break controls", (
 });
 
 test("Worker does not require font coverage for mandatory-break controls", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+4E00-9FFF", "/fonts/cjk.woff2"),
   ];
-  const request = {
-    text: "甲\n\v\f\r\u0085\u2028\u2029乙",
+  const request: WorkerFontContractRequest = {
+    text: "\u7532\n\v\f\r\u0085\u2028\u2029\u4e59",
     fontFamilies: "MiSans VF",
     fontSizePx: 18,
     fontWeight: 460,
@@ -114,12 +115,12 @@ test("Worker does not require font coverage for mandatory-break controls", () =>
 });
 
 test("Worker preserves UTF-16 face boundaries across CRLF", () => {
-  const faces = [
+  const faces: FontFaceRecord[] = [
     face(0, "U+4E00-9FFF", "/fonts/cjk.woff2"),
     face(1, "U+0041-005A", "/fonts/latin.woff2"),
   ];
-  const request = {
-    text: "甲\r\nB",
+  const request: WorkerFontContractRequest = {
+    text: "\u7532\r\nB",
     fontFamilies: "MiSans VF",
     fontSizePx: 18,
     fontWeight: 460,
