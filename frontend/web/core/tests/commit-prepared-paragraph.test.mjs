@@ -1,16 +1,16 @@
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../core/engine/commit-prepared-paragraph.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
-import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
 
-// The commit functions run for real; only the detached-fragment backup dep and the
-// host-installed prepared-DOM renderer/validator globals are fakes. The direct
-// distrust-retry path drives the real prepareParagraphLayout, so the planted
-// fixture font backend must answer the snapshot-session prepare and the
-// browserFallback bridge must answer the browser-metrics re-prepare.
+// The commit functions run for real, including the real prepared-DOM
+// renderer. The former injected validator and its mismatch/fallback/retry
+// machinery were dissolved; renderer contract failures now surface as thrown
+// errors (UnsupportedPreparedLayoutRevision, InvalidPreparedParagraphHost)
+// that the commit functions propagate to the caller.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -46,7 +46,7 @@ function computedStyle(values = {}) {
   return style;
 }
 
-function withEnv(fn, overrides = {}) {
+function withEnv(fn) {
   const saved = saveGlobals([
     "getComputedStyle",
   ]);
@@ -55,9 +55,6 @@ function withEnv(fn, overrides = {}) {
       target && target._computedValues
         ? computedStyle(target._computedValues)
         : computedStyle();
-    // Tests now use the real prepared-dom renderer directly.
-    // Validator injection removed per spec: production degradation only by
-    // renderer exceptions and capability failures.
     return fn();
   } finally {
     restoreGlobals(saved);
@@ -68,8 +65,10 @@ function makeElement(initialAttributes = {}, options = {}) {
   const attributes = new Map(Object.entries(initialAttributes));
   const removedAttributes = [];
   const setAttributes = [];
-  return {
-    tagName: "P",
+  const element = {
+    tagName: options.tagName ?? "P",
+    innerHTML: "",
+    style: { setProperty: () => {} },
     getAttribute: (name) => attributes.get(name) ?? null,
     setAttribute: (name, value) => {
       const strVal = String(value);
@@ -86,7 +85,13 @@ function makeElement(initialAttributes = {}, options = {}) {
     getBoundingClientRect: () => ({ width: options.width ?? 320 }),
     getClientRects: () => [],
     parentElement: null,
+    closest: () => null,
+    // An empty-lines plan renders no markup, so the renderer's marker and
+    // placeholder queries all answer empty.
+    querySelectorAll: () => [],
+    cloneNode: () => makeElement({}, options),
   };
+  return element;
 }
 
 function textStyle(overrides = {}) {
@@ -128,57 +133,19 @@ function createTestContext(source) {
   return createEnhanceContext(source);
 }
 
-// A browserFallback bridge whose callbacks answer every shape/metrics request
-// with a valid, full-coverage cluster response on the real wire. The direct
-// distrust-retry re-prepares through these callbacks.
-function makeValidBridge() {
-  return {
-    shapeJson(req) {
-      const parsed = JSON.parse(req);
-      const text = parsed.text;
-      const start = parsed.range.start;
-      const end = parsed.range.end;
-      const size = parsed.style.fontSize;
-      const clusters = [];
-      const glyphs = [];
-      let x = 0;
-      for (let i = start; i < end; i += 1) {
-        const ch = text[i];
-        clusters.push({
-          range: { start: i, end: i + 1 },
-          text: ch,
-          displayText: ch,
-          fontKey: "cjk-primary",
-          advance: size,
-          baselineShift: 0,
-        });
-        glyphs.push({
-          id: 100 + i,
-          clusterRange: { start: i, end: i + 1 },
-          advance: size,
-          x,
-          y: 0,
-          bounds: { left: 0, top: -size * 0.88, right: size, bottom: size * 0.12 },
-        });
-        x += size;
-      }
-      return JSON.stringify({
-        clusters,
-        glyphRuns: [{ range: { start, end }, fontKey: "cjk-primary", glyphs, advance: x, openTypeFeatures: [] }],
-        decisions: [{ range: { start, end }, sourceText: text.substring(start, end), displayText: parsed.displayText, fontKey: "cjk-primary", glyphCount: end - start, advance: x, source: "Harness", reason: "harness" }],
-      });
-    },
-    metricsJson() {
-      return JSON.stringify({ ascent: 21.2, descent: 5.3, leading: 0, source: "RawTables", typoAscent: 16.7, typoDescent: 2.3 });
-    },
-  };
-}
+// The minimal schema-conforming plan: the renderer accepts it and renders no
+// lines, so the commit contract is exercised without a shaping fixture.
+const EMPTY_PLAN_JSON = JSON.stringify({
+  schema: SNAPSHOT_SCHEMA,
+  layoutRevision: LAYOUT_REVISION,
+  height: 0,
+  lines: [],
+});
 
-test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps rawDom, returns null", () => {
+test("worker happy path: sets four attributes, renders the plan, sets lastMeasure, stamps rawDom, returns null", () => {
   withEnv(() => {
     const source = makeElement({}, { width: 300 });
     const context = createTestContext(source);
-
 
     const domObjElement = makeElement();
     const paragraph = makeParagraph({
@@ -191,90 +158,54 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     });
 
     const record = {
-      plan: '{"lines":[{"rangeStart":0,"rangeEnd":4}]}',
-      semantics: [{ start: 0, end: 2 }],
+      plan: EMPTY_PLAN_JSON,
+      semantics: [{ start: 0, end: 2, tagName: "em" }],
       inlineBoxes: [{ start: 0, end: 1 }],
     };
     const workerPlan = JSON.stringify(record);
     const inlineObjectMetaJson = JSON.stringify([{ start: 2, end: 3, marginRight: 6 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
-    let fallbackCalled = false;
     const result = commitWorkerPreparedParagraph(context, {
       paragraph,
       workerPlan,
-      onSnapshotPreparedDomFallback: () => {
-        fallbackCalled = true;
-      },
       inlineObjectMetaJson,
       cjkStrongSemanticsJson,
     });
 
     assert.equal(result, null);
-    assert.equal(fallbackCalled, false);
     assert.equal(paragraph.source.getAttribute("lang"), "zh-Hans");
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null); // not plain due to domInlineObjects
     assert.equal(paragraph.source.getAttribute("data-tq-snapshot-prepared-dom"), "true");
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.lastMeasure, effectiveLineMeasure(300, 19));
 
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
-    const renderCall = renderer.renders[0];
-    assert.equal(renderCall.host, paragraph.source);
-    assert.equal(renderCall.plan, record.plan);
-    assert.equal(renderCall.locale, "zh-Hans");
-    assert.equal(renderCall.rawDomCounterDuringRender, 1);
-    assert.equal(context.rawDomParagraphs.get(paragraph.source)?.engineWriteDepth, 0);
-
-    assert.deepEqual(renderCall.options, {
-      sourceText: "hello world",
-      semanticReplay: "snapshot-safe",
-      semantics: [{ start: 0, end: 2 }],
-      inlineBoxes: [{ start: 0, end: 1 }],
-      liveSemanticElements: [],
-      inlineObjects: [{ start: 2, end: 3, marginRight: 6, element: domObjElement }],
-      cjkStrongSemantics: [{ start: 0, end: 1 }],
-    });
-
+    // The real renderer ran against the host: the empty plan lowered to empty
+    // markup, and the rawDom stamp registered the paragraph with the engine
+    // write suspension closed.
+    assert.equal(paragraph.source.innerHTML, "");
     assert.ok(context.rawDomParagraphs.has(paragraph.source));
-  }, { validator: () => null });
+    assert.equal(context.rawDomParagraphs.get(paragraph.source)?.engineWriteDepth, 0);
+  });
 });
 
-test("worker mismatch: validator issue triggers fallback callback, releases styles, strips attributes, returns unsupported", () => {
+test("worker commit propagates the renderer layout-revision rejection", () => {
   withEnv(() => {
     const paragraph = makeParagraph();
     const context = createTestContext(paragraph.source);
 
-    let fallbackIssue = null;
-
-    const result = commitWorkerPreparedParagraph(context, {
-      paragraph,
-      workerPlan: JSON.stringify({ plan: "{}" }),
-      onSnapshotPreparedDomFallback: (issue) => {
-        fallbackIssue = issue;
-      },
-      inlineObjectMetaJson: "[]",
-      cjkStrongSemanticsJson: "[]",
-    });
-
-    assert.equal(fallbackIssue, "LineHeightMismatch");
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.releases.length, 1);
-    assert.equal(renderer.releases[0], paragraph.source);
-
-    assert.equal(paragraph.source.getAttribute("data-tq-snapshot-prepared-dom"), null);
-    assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
-    assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), null);
-    assert.equal(paragraph.source.getAttribute("lang"), null);
-
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "WorkerPreparedDomContractMismatch",
-      detail: "LineHeightMismatch",
-      element: paragraph.source,
-    });
-  }, { validator: () => "LineHeightMismatch" });
+    // A plan without the schema/revision envelope is rejected by the real
+    // renderer; the commit layer no longer swallows or re-verdicts it.
+    assert.throws(
+      () => commitWorkerPreparedParagraph(context, {
+        paragraph,
+        workerPlan: JSON.stringify({ plan: "{}" }),
+        inlineObjectMetaJson: "[]",
+        cjkStrongSemanticsJson: "[]",
+      }),
+      { message: "UnsupportedPreparedLayoutRevision" },
+    );
+  });
 });
 
 test("worker rich lowered: removes canonical-plain attribute for rich lowered", () => {
@@ -291,7 +222,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
 
     const result = commitWorkerPreparedParagraph(context, {
       paragraph,
-      workerPlan: JSON.stringify({ plan: "{}" }),
+      workerPlan: JSON.stringify({ plan: EMPTY_PLAN_JSON }),
       inlineObjectMetaJson: "[]",
       cjkStrongSemanticsJson: "[]",
     });
@@ -299,28 +230,26 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
     assert.equal(result, null);
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
     assert.ok(paragraph.source.removedAttributes.includes("data-tq-canonical-plain"));
-  }, { validator: () => null });
+  });
 });
 
-test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps rawDom, returns success", () => {
+test("direct happy path, no live sources: sets canonical-plain and canonical-source, stamps rawDom, returns success", () => {
   withEnv(() => {
     const paragraph = makeParagraph();
     const context = createTestContext(paragraph.source);
 
     const preparation = {
-      planJson: '{"lines":[]}',
+      planJson: EMPTY_PLAN_JSON,
       width: 320,
       measure: 339,
       snapshotFontSessionUsed: false,
     };
 
     const result = commitPreparedParagraph(context, {
-      ffi: {},
       paragraph,
       preparation,
       options: {},
       browserFallback: null,
-      onSnapshotPreparedDomFallback: () => {},
       semanticReplayJson: "[]",
       inlineObjectMetaJson: "[]",
       cjkStrongSemanticsJson: "[]",
@@ -331,17 +260,16 @@ test("direct happy path, no live sources: renders with undefined options, sets c
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.source.getAttribute("lang"), "zh-Hans");
 
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
-    assert.equal(renderer.renders[0].options, undefined);
-
+    // Plain paragraphs render through the real renderer with no live-source
+    // options; the empty plan lowered to empty markup on the host.
+    assert.equal(paragraph.source.innerHTML, "");
     assert.ok(context.rawDomParagraphs.has(paragraph.source));
-  }, { validator: () => null });
+  });
 });
 
-test("direct rich path with sourceSpans elements: renders with live-source replay options", () => {
+test("direct rich path with sourceSpans elements: renders without canonical-plain and returns success", () => {
   withEnv(() => {
-    const spanElement = makeElement();
+    const spanElement = makeElement({}, { tagName: "EM" });
     const objElement = makeElement();
     const paragraph = makeParagraph({
       lowered: {
@@ -353,18 +281,20 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const context = createTestContext(paragraph.source);
 
     const preparation = {
-      planJson: '{"lines":[]}',
+      planJson: EMPTY_PLAN_JSON,
       width: 320,
       measure: 339,
       snapshotFontSessionUsed: false,
     };
 
-    const semanticReplayJson = JSON.stringify([{ sourceIndex: 0, tag: "em" }]);
+    // The rich lowered (sourceSpans + domInlineObjects) drives the live-source
+    // branch with an empty semantic replay: no semantic placeholders render in
+    // the empty plan, but the commit still takes the hasLiveSources path.
+    const semanticReplayJson = "[]";
     const inlineObjectMetaJson = JSON.stringify([{ start: 1, end: 2, marginRight: 5 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
     const result = commitPreparedParagraph(context, {
-      ffi: {},
       paragraph,
       preparation,
       options: {},
@@ -376,21 +306,12 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
 
     assert.deepEqual(result, { kind: "success", measure: 339 });
     assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
-
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
-    assert.deepEqual(renderer.renders[0].options, {
-      sourceText: "hello world",
-      semanticReplay: "live-source",
-      semantics: [{ sourceIndex: 0, tag: "em" }],
-      liveSemanticElements: [spanElement],
-      inlineObjects: [{ start: 1, end: 2, marginRight: 5, element: objElement }],
-      cjkStrongSemantics: [{ start: 0, end: 1 }],
-    });
-  }, { validator: () => null });
+    assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), "true");
+    assert.equal(paragraph.source.getAttribute("lang"), "zh-Hans");
+  });
 });
 
-test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
+test("direct commit propagates the renderer layout-revision rejection", () => {
   withEnv(() => {
     const paragraph = makeParagraph();
     const context = createTestContext(paragraph.source);
@@ -402,160 +323,21 @@ test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed,
       snapshotFontSessionUsed: false,
     };
 
-    let fallbackCalled = false;
-    const result = commitPreparedParagraph(context, {
-      ffi: {},
-      paragraph,
-      preparation,
-      options: {},
-      browserFallback: { bridge: {} },
-      onSnapshotPreparedDomFallback: (issue) => {
-        fallbackCalled = issue;
-      },
-    });
+    // The former GeometryMismatch fallback verdict is dissolved; a plan the
+    // renderer rejects surfaces as the thrown renderer error.
+    assert.throws(
+      () => commitPreparedParagraph(context, {
+        paragraph,
+        preparation,
+        options: {},
+        browserFallback: { bridge: {} },
+      }),
+      { message: "UnsupportedPreparedLayoutRevision" },
+    );
 
-    assert.equal(fallbackCalled, "GeometryMismatch");
     assert.equal(
       paragraph.source.setAttributes.some((a) => a.name === "data-tq-snapshot-prepared-dom"),
       false,
     );
-    assert.equal(paragraph.source.getAttribute("data-tq-canonical-plain"), null);
-    assert.equal(paragraph.source.getAttribute("data-tq-canonical-source"), null);
-    assert.equal(paragraph.source.getAttribute("lang"), null);
-
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "PreparedDomRenderMismatch",
-      detail: "GeometryMismatch",
-      element: paragraph.source,
-    });
-  }, { validator: () => "GeometryMismatch" });
-});
-
-test("direct mismatch with distrust retry: prepares with browser metrics fallback and commits second plan on success", () => {
-  let validateCount = 0;
-  const validator = () => {
-    validateCount += 1;
-    return validateCount === 1 ? "SnapshotSessionMismatch" : null;
-  };
-  withEnv(() => {
-    const paragraph = makeParagraph();
-    const context = createTestContext(paragraph.source);
-
-    const preparation = {
-      planJson: '{"plan":"first"}',
-      width: 320,
-      measure: 320,
-      snapshotFontSessionUsed: true,
-    };
-
-    const browserFallback = { bridge: makeValidBridge() };
-    const originalOptions = {
-      snapshotFontSession: { session: 1 },
-      firstLineIndentIc: 2,
-    };
-
-    let fallbackReported = null;
-
-    const result = commitPreparedParagraph(context, {
-      paragraph,
-      preparation,
-      options: originalOptions,
-      browserFallback,
-      onSnapshotPreparedDomFallback: (issue) => {
-        fallbackReported = issue;
-      },
-    });
-
-    assert.equal(fallbackReported, "SnapshotSessionMismatch");
-
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 2);
-    assert.equal(renderer.renders[0].plan, '{"plan":"first"}');
-    // The retry re-prepared through the real browser-metrics path over the
-    // valid bridge, so the second render carries a real "hello" plan.
-    const secondPlan = JSON.parse(renderer.renders[1].plan);
-    assert.equal(secondPlan.layoutRevision, "tiqian-layout-v2");
-    assert.equal(secondPlan.lines[0].rangeEnd, 5);
-
-    assert.deepEqual(result, { kind: "success", measure: effectiveLineMeasure(320, 19) });
-  }, { validator });
-});
-
-test("distrust retry returning unsupported: propagated as the final unsupported verdict", () => {
-  withEnv(() => {
-    const paragraph = makeParagraph();
-    const context = createTestContext(paragraph.source);
-
-    const preparation = {
-      planJson: '{"plan":"first"}',
-      width: 320,
-      measure: 320,
-      snapshotFontSessionUsed: true,
-    };
-
-    const bridge = makeValidBridge();
-    const originalShapeJson = bridge.shapeJson;
-    bridge.shapeJson = function (req) {
-      const parsed = JSON.parse(req);
-      const inner = JSON.parse(originalShapeJson(req));
-      inner.decisions = [{
-        range: { start: parsed.range.start, end: parsed.range.end },
-        sourceText: parsed.text.substring(parsed.range.start, parsed.range.end),
-        displayText: parsed.displayText,
-        fontKey: "cjk-primary",
-        glyphCount: parsed.range.end - parsed.range.start,
-        advance: 0,
-        source: "Harness",
-        reason: "unsupported glyph",
-        capabilityIssue: "BrowserFallbackUnsupported",
-      }];
-      return JSON.stringify(inner);
-    };
-
-    const result = commitPreparedParagraph(context, {
-      paragraph,
-      preparation,
-      options: { snapshotFontSession: {} },
-      browserFallback: { bridge },
-    });
-
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "BrowserFallbackUnsupported",
-      detail: "unsupported glyph",
-      element: paragraph.source,
-    });
-  }, { validator: () => "SnapshotSessionMismatch" });
-});
-
-test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
-  withEnv(() => {
-    const paragraph = makeParagraph();
-    const context = createTestContext(paragraph.source);
-
-    const preparation = {
-      planJson: '{"plan":"first"}',
-      width: 320,
-      measure: 320,
-      snapshotFontSessionUsed: true,
-    };
-
-    const result = commitPreparedParagraph(context, {
-      paragraph,
-      preparation,
-      options: { snapshotFontSession: {} },
-      browserFallback: { bridge: makeValidBridge() },
-    });
-
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 2);
-
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "PreparedDomRenderMismatch",
-      detail: "PersistentMismatch",
-      element: paragraph.source,
-    });
-  }, { validator: () => "PersistentMismatch" });
+  });
 });
