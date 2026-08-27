@@ -368,11 +368,6 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-snapshot-layout-issue",
-          "value": null
-        },
-        {
-          "phase": "s1-adopt",
           "name": "data-tiqian-enhanced-count",
           "value": "1"
         },
@@ -570,11 +565,6 @@
           "phase": "s4-reconnect",
           "name": "data-tiqian-snapshot-count",
           "value": "1"
-        },
-        {
-          "phase": "s4-reconnect",
-          "name": "data-tiqian-snapshot-layout-issue",
-          "value": null
         },
         {
           "phase": "s4-reconnect",

@@ -236,14 +236,6 @@ export interface SnapshotAdoptAnchors {
   compensate: AnchorCompensate;
 }
 
-interface PreparedDomValidatorIssueFn {
-  (host: Element, width: number): string | null;
-}
-
-export interface PreparedDomValidatorInterface {
-  issue: PreparedDomValidatorIssueFn;
-}
-
 interface TypographyIssueOptions {
   allowLiveFontSizeAndLineHeight?: boolean;
 }
@@ -434,7 +426,6 @@ const PROPORTIONAL_CURLY_QUOTE_FEATURE_SETTINGS =
 export const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-snapshot-render-font";
 const SNAPSHOT_PREPARED_DOM_ATTRIBUTE = "data-tq-snapshot-prepared-dom";
 const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
-const SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
 const states = (): WeakMap<HTMLElement, SnapshotAdoptionState> =>
   snapshotAdoptionCaches().states;
@@ -1410,18 +1401,6 @@ export function renderedPreparedParagraphIssue(
   }
   return null;
 }
-
-export const preparedDomValidator: PreparedDomValidatorInterface = Object.freeze({
-  revision: RENDER_REVISION,
-  issue(paragraph: Element, expectedContentWidth: number): string | null {
-    const issue = renderedPreparedParagraphIssue(paragraph, expectedContentWidth);
-    if (issue) {
-      const key = paragraph.getAttribute("data-tq-snapshot-key") ?? "unkeyed";
-      paragraph.closest(ROOT_SELECTOR)?.setAttribute(SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE, `${key}:${issue}`);
-    }
-    return issue;
-  },
-});
 
 function computedTypographyIssue(
   paragraph: HTMLElement,
@@ -2809,7 +2788,6 @@ export async function tryAdoptPrecomputedSnapshot(
   root.setAttribute("data-tiqian-snapshot-count", String(adopted.length));
   root.dataset.tiqianSnapshot = "maximum-measure";
   root.dataset.tiqianSnapshotFontPolicy = compatibleLocalDeclared ? "compatible-local" : "url-only";
-  root.removeAttribute(SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE);
   delete root.dataset.tiqianSnapshotMiss;
   return { adopted: true, count: adopted.length };
 }
