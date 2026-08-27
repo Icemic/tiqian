@@ -39,11 +39,26 @@ initializeGlobalServices();
 // Minimal node tree for the raw-DOM lifecycle: the commit forwarding captures
 // the prototype mutation verbs as its native layer, and the takeover moves
 // children through fragments built by the fake document.
-class PlainNode {
+// Structural node surface shared by PlainNode and the null-prototype element
+// fakes; named per G1 code standard rule 5 so annotations carry no any and no
+// inline function types.
+interface NodeSurface {
+  nodeType: number;
+  childNodes: NodeSurface[];
+  parentNode: NodeSurface | null;
+  readonly firstChild: NodeSurface | null;
+  readonly nextSibling: NodeSurface | null;
+  appendChild(node: NodeSurface): NodeSurface;
+  removeChild(node: NodeSurface): NodeSurface;
+  insertBefore(node: NodeSurface, reference: NodeSurface | null): NodeSurface;
+  replaceChild(next: NodeSurface, previous: NodeSurface): NodeSurface;
+}
+
+class PlainNode implements NodeSurface {
   nodeType: number;
   textContent: string;
-  childNodes: PlainNode[];
-  parentNode: PlainNode | any;
+  childNodes: NodeSurface[];
+  parentNode: NodeSurface | null;
 
   constructor(nodeType: number, textContent = "") {
     this.nodeType = nodeType;
@@ -52,17 +67,17 @@ class PlainNode {
     this.parentNode = null;
   }
 
-  get firstChild(): PlainNode | null {
+  get firstChild(): NodeSurface | null {
     return this.childNodes[0] ?? null;
   }
 
-  get nextSibling(): PlainNode | null {
+  get nextSibling(): NodeSurface | null {
     if (!this.parentNode) return null;
     const siblings = this.parentNode.childNodes;
     return siblings[siblings.indexOf(this) + 1] ?? null;
   }
 
-  appendChild(node: any): any {
+  appendChild(node: NodeSurface): NodeSurface {
     if (node.nodeType === 11) {
       while (node.firstChild) PlainNode.prototype.appendChild.call(this, node.firstChild);
       return node;
@@ -73,14 +88,14 @@ class PlainNode {
     return node;
   }
 
-  removeChild(node: any): any {
+  removeChild(node: NodeSurface): NodeSurface {
     const index = this.childNodes.indexOf(node);
     if (index >= 0) this.childNodes.splice(index, 1);
     node.parentNode = null;
     return node;
   }
 
-  insertBefore(node: any, reference: any): any {
+  insertBefore(node: NodeSurface, reference: NodeSurface | null): NodeSurface {
     if (node.nodeType === 11) {
       while (node.firstChild) PlainNode.prototype.insertBefore.call(this, node.firstChild, reference);
       return node;
@@ -92,7 +107,7 @@ class PlainNode {
     return node;
   }
 
-  replaceChild(next: any, previous: any): any {
+  replaceChild(next: NodeSurface, previous: NodeSurface): NodeSurface {
     this.insertBefore(next, previous);
     return this.removeChild(previous);
   }
@@ -122,8 +137,8 @@ function fakeDocument() {
 
 function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
   const attributes = new Map<string, string>();
-  const childNodes: any[] = [];
-  const element: any = Object.assign(
+  const childNodes: NodeSurface[] = [];
+  const element = Object.assign(
     Object.create(null),
     {
       nodeType: 1,
@@ -144,7 +159,7 @@ function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
       closest: () => null,
       querySelectorAll: () => [],
       getBoundingClientRect: () => ({ width: 360, top: 0, bottom: 24 }),
-      appendChild(node: any) {
+      appendChild(node: NodeSurface) {
         if (node.nodeType === 11) {
           while (node.firstChild) element.appendChild(node.firstChild);
           return node;
@@ -154,13 +169,13 @@ function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
         node.parentNode = element;
         return node;
       },
-      removeChild(node: any) {
+      removeChild(node: NodeSurface) {
         const index = childNodes.indexOf(node);
         if (index >= 0) childNodes.splice(index, 1);
         node.parentNode = null;
         return node;
       },
-      insertBefore(node: any, reference: any) {
+      insertBefore(node: NodeSurface, reference: NodeSurface | null) {
         if (node.nodeType === 11) {
           while (node.firstChild) element.insertBefore(node.firstChild, reference);
           return node;
@@ -171,7 +186,7 @@ function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
         node.parentNode = element;
         return node;
       },
-      replaceChild(next: any, previous: any) {
+      replaceChild(next: NodeSurface, previous: NodeSurface) {
         element.insertBefore(next, previous);
         return element.removeChild(previous);
       },
@@ -182,6 +197,8 @@ function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
     enumerable: true,
     get: () => childNodes[0] ?? null,
   });
+  // Untyped like the lowered-dom-helpers fake factories: callers apply the
+  // single boundary cast the product surface requires.
   return element;
 }
 
@@ -413,7 +430,7 @@ function makePlainContext(): PlainContext {
 
 // Registers the paragraph with the context's raw-DOM bookkeeping exactly the
 // way the enhance pass did, so restore/probe/match paths find the record.
-function registerParagraph(context: EnhancedElementContext, source: any) {
+function registerParagraph(context: EnhancedElementContext, source: Element) {
   rawDomBegin(context, source, null, null, null, null, null, null, "", "", "", "", "", "", null);
   rawDomTake(context, source, null);
   rawDomCommit(context, source, null);
