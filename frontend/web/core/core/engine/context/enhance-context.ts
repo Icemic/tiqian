@@ -4,11 +4,11 @@
 // (ResizeObserver/IntersectionObserver instances, frame handles, viewport
 // flags) lives on the web host element, not here.
 //
-// Construction surface (ADR 0053 batch R3, plan A): the context is a plain
-// value object. constructEnhanceContext(element) is the open construction
-// entry — hosts and tests build a context explicitly and inject it into the
-// engine paths. createEnhanceContext(element) is an alias for the same
-// constructor. The caller holds the context; no registry is involved.
+// Construction surface (ADR 0053 batch R3, plan A; single-name ruling
+// 2026-08-27): the context is a plain value object.
+// createEnhanceContext(element) is the construction entry — hosts and tests
+// build a context explicitly and inject it into the engine paths. The caller
+// holds the context; no registry is involved.
 //
 // Lifecycle verbs follow the 2026-08-25 naming ruling: update() is the single
 // refresh verb (it bumps the generation to supersede in-flight work started
@@ -54,6 +54,11 @@ interface SnapshotFontSessionState {
 interface EnhancedElementContext {
   readonly element: Element;
   readonly generation: number;
+  // Scoped-style identity owned by this context. Prepared-dom rules mint one
+  // scope per context and use it as the style element's data attribute value;
+  // uniqueness is required only among live roots of the same document, so a
+  // random string suffices. Scope values never enter fixtures.
+  readonly scope: string;
   readonly snapshotFontSession: SnapshotFontSessionState;
   readonly rawDomParagraphs: Map<Element, RawDomParagraphRecord>;
   readonly diagnosis: DiagnosisManager;
@@ -68,11 +73,12 @@ function isDatasetRecord(value: unknown): value is DiagnosisDatasetRecord {
   return typeof value === "object" && value !== null;
 }
 
-// Open construction surface (plan A): builds the plain context value without
-// touching the element registry, so hosts and tests can construct a context
-// explicitly before injecting it into the engine paths.
-function constructEnhanceContext(element: Element): EnhancedElementContext {
+// Open construction surface (plan A): builds the plain context value, so
+// hosts and tests can construct a context explicitly before injecting it
+// into the engine paths.
+function createEnhanceContext(element: Element): EnhancedElementContext {
   let generation = 0;
+  const scope = `tqv-${Math.random().toString(36).slice(2, 10)}`;
   const snapshotFontSession: SnapshotFontSessionState = { entry: null };
   const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
   let preparedStyle: PreparedStyleState | null = null;
@@ -83,11 +89,12 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
     },
   });
 
-  return {
+  const context: EnhancedElementContext = {
     element,
     get generation() {
       return generation;
     },
+    scope,
     snapshotFontSession,
     rawDomParagraphs,
     diagnosis,
@@ -104,17 +111,14 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
     destroy() {
       rawDomParagraphs.clear();
       if (preparedStyle) {
-        releasePreparedStyleState(preparedStyle);
+        releasePreparedStyleState(preparedStyle, context);
         preparedStyle = null;
       }
       diagnosis.dispose();
     },
   };
+  return context;
 }
 
-// Pure constructor alias (plan A): identical to constructEnhanceContext.
-// The caller holds the returned context; no registry is involved.
-const createEnhanceContext = constructEnhanceContext;
-
-export { constructEnhanceContext, createEnhanceContext };
+export { createEnhanceContext };
 export type { EnhancedElementContext, SnapshotFontSessionState };

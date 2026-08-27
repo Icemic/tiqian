@@ -69,7 +69,6 @@ interface ProcessSnapshotSessionDescriptor {
 
 type ProcessIssueHandler = (issue: Record<string, unknown>) => void;
 type ProcessParagraphCommittedHandler = (item: ProcessParagraphTarget) => void;
-type ProcessDisableSnapshotPreparedDomHandler = (issue: unknown) => void;
 
 interface ProcessParagraphState {
   onIssue: ProcessIssueHandler;
@@ -78,7 +77,6 @@ interface ProcessParagraphState {
   options: EnhanceOptions;
   snapshotSession: ProcessSnapshotSessionDescriptor | null;
   browserFallback: Record<string, unknown> | null;
-  onDisableSnapshotPreparedDom: ProcessDisableSnapshotPreparedDomHandler;
 }
 
 interface ProcessParagraphInvocation {
@@ -300,7 +298,6 @@ interface ProcessInlineShapingDecisionResult {
           {
             paragraph: item,
             workerPlan: workerPlan,
-            onSnapshotPreparedDomFallback: state.onDisableSnapshotPreparedDom,
             inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
             cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
           }
@@ -326,8 +323,7 @@ interface ProcessInlineShapingDecisionResult {
               preparation: preparation,
               options: activeOptions,
               browserFallback: state.browserFallback,
-              onSnapshotPreparedDomFallback: state.onDisableSnapshotPreparedDom,
-              semanticReplayJson: preparedSemanticReplayJson(lowered),
+                semanticReplayJson: preparedSemanticReplayJson(lowered),
               inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
               cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
             }

@@ -2,9 +2,8 @@
 // paragraph layout COMMIT functions of the web host from
 // WebEnhancerParagraphPipeline.kt (commitWorkerPreparedParagraph, lines 266-313,
 // and commitPreparedParagraph, lines 500-583). The module mounts the rendered
-// prepared DOM, sets canonical-source and canonical-plain attributes, checks
-// validator verdicts, manages rawDom engine write suspensions, and handles
-// snapshot-session distrust retries.
+// prepared DOM, sets canonical-source and canonical-plain attributes, and
+// manages rawDom engine write suspensions.
 //
 // Stateless module: commitWorkerPreparedParagraph(rawDom, argument) and
 // commitPreparedParagraph(rawDom, argument) are named functions that receive
@@ -18,7 +17,7 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
-import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
+import { renderPreparedParagraphInto } from "../sampler/snapshot/prepared-dom.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import {
   rawDomStampRendered,
@@ -51,12 +50,9 @@ interface CommitParagraphTarget {
   lastMeasure: number | null;
 }
 
-type CommitSnapshotPreparedDomFallbackCallback = (issue: unknown) => void;
-
 interface CommitWorkerPreparedParagraphArgument {
   paragraph: CommitParagraphTarget;
   workerPlan: string;
-  onSnapshotPreparedDomFallback: CommitSnapshotPreparedDomFallbackCallback;
   inlineObjectMetaJson: string;
   cjkStrongSemanticsJson: string;
 }
@@ -66,7 +62,6 @@ interface CommitPreparedParagraphArgument {
   preparation: PrepareReadyResult;
   options: Record<string, unknown>;
   browserFallback: Record<string, unknown> | null;
-  onSnapshotPreparedDomFallback: CommitSnapshotPreparedDomFallbackCallback;
   semanticReplayJson: string;
   inlineObjectMetaJson: string;
   cjkStrongSemanticsJson: string;
@@ -90,13 +85,6 @@ function isCanonicalPlain(lowered: LoweredParagraph): boolean {
     lowered.inlineObjects.length === 0 &&
     lowered.domInlineObjects.length === 0 &&
     lowered.sourceSpans.length === 0;
-}
-
-// ReleasePreparedParagraphDomStyles: inline twin of
-// releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
-// installed renderer. Callers ignore the return value.
-function releasePreparedDomStyles(host: Element): boolean {
-  return !!(typeof preparedDom.release === 'function' && preparedDom.release(host) === true);
 }
 
 // RenderPreparedWorkerParagraphDom: direct port of the
@@ -124,7 +112,7 @@ function renderWorkerPrepared(
     };
   });
   return rawDomSuspendEngineWrites(rawDomContext, host, function () {
-    return preparedDom.render(
+    return renderPreparedParagraphInto(
       host,
       record.plan,
       locale,
@@ -177,7 +165,7 @@ function renderPrepared(
       inlineObjects: inlineObjectsMetaPaired,
       cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
     } : undefined;
-    return preparedDom.render(
+    return renderPreparedParagraphInto(
       host,
       planJson,
       locale,

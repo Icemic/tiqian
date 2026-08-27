@@ -1,4 +1,4 @@
-import { constructEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -125,7 +125,7 @@ function makeParagraph(overrides = {}) {
 }
 
 function createTestContext(source) {
-  return constructEnhanceContext(source);
+  return createEnhanceContext(source);
 }
 
 // A browserFallback bridge whose callbacks answer every shape/metrics request

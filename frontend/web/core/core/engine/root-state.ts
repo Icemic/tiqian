@@ -71,13 +71,11 @@ export type RootState = {
   paragraphs: TrackedParagraph[];
   issues: RootStateIssueRecord[];
   preparedDomEnabled: boolean;
-  preparedDomFallback: string | null;
   cjkDashCapability: CjkDashShapingOutcome;
 };
 
 type RootStateOnIssueFn = (issue: RootStateIssueRecord) => void;
 type RootStateOnParagraphCommittedFn = (item: TrackedParagraph) => void;
-type RootStateOnDisableSnapshotPreparedDomFn = (detail: unknown) => void;
 
 // Live view handed to the embedded TS orchestrators: callbacks splice/push the
 // same arrays the host mutates.
@@ -88,7 +86,6 @@ export type EngineState = {
   browserFallback: BrowserFallbackDescriptor | null;
   onIssue: RootStateOnIssueFn;
   onParagraphCommitted: RootStateOnParagraphCommittedFn;
-  onDisableSnapshotPreparedDom: RootStateOnDisableSnapshotPreparedDomFn;
   paragraphs: TrackedParagraph[];
   issues: RootStateIssueRecord[];
 };
@@ -140,7 +137,6 @@ export type RootStateApi = {
   createRootStateFromCanonical: RootStateCreateFromCanonicalFn;
   activeTsOptions: RootStateActiveTsOptionsFn;
   activeSnapshotSessionDescriptor: RootStateActiveSnapshotSessionDescriptorFn;
-  disableSnapshotPreparedDom: RootStateDisableSnapshotPreparedDomFn;
   engineState: RootStateEngineStateFn;
   processParagraphArgument: RootStateProcessParagraphArgumentFn;
   sessionArgument: RootStateSessionArgumentFn;
@@ -155,7 +151,6 @@ export type RootStateApi = {
 };
 
 export function createRootState(): RootStateApi {
-  const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE: string = "data-tiqian-snapshot-layout-fallback";
   const ROOT_SELECTOR: string = "tiqian-prose, [data-tiqian-root]";
   const CAPABILITY_DETAIL_LIMIT: number = 512;
 
@@ -231,7 +226,6 @@ export function createRootState(): RootStateApi {
   }
 
   function createRootState(root: Element, optionsBag: Record<string, unknown>): RootState {
-    root.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     const canonical = optionsFromJs(optionsBag);
     // allowsSnapshotLayout ? options : options.copy(snapshotFontSession =
     // null): an exact snapshot only reproduces the host with root defaults,
@@ -247,7 +241,6 @@ export function createRootState(): RootStateApi {
   function createRootStateFromCanonical(root: Element, canonicalOptions: EnhanceOptions): RootState {
     // Re-entry path for relayout/refresh: the canonical options already came
     // from optionsFromJs output shape, so the snapshot gate is skipped.
-    root.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     const resolved = withRootDefaults(canonicalOptions, root);
     if (resolved.trace) globalServices().coordination.traceConfig = resolved.trace;
     return newRootState(root, resolved);
@@ -274,7 +267,6 @@ export function createRootState(): RootStateApi {
       paragraphs: [],
       issues: [],
       preparedDomEnabled: true,
-      preparedDomFallback: null,
       cjkDashCapability: cjkDashCapability,
     };
   }
@@ -305,13 +297,6 @@ export function createRootState(): RootStateApi {
     return snapshotSessionCallbacks(sessionId);
   }
 
-  function disableSnapshotPreparedDom(state: RootState, detail: unknown): void {
-    if (!state.preparedDomEnabled) return;
-    state.preparedDomEnabled = false;
-    state.preparedDomFallback = String(detail).slice(0, CAPABILITY_DETAIL_LIMIT);
-    state.root.setAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE, state.preparedDomFallback);
-  }
-
   function engineState(state: RootState): EngineState {
     return {
       options: state.options,
@@ -320,7 +305,6 @@ export function createRootState(): RootStateApi {
       browserFallback: state.browserFallback,
       onIssue: function (issue: RootStateIssueRecord): void { state.issues.push(issue); },
       onParagraphCommitted: function (item: TrackedParagraph): void { state.paragraphs.push(item); },
-      onDisableSnapshotPreparedDom: function (detail: unknown): void { disableSnapshotPreparedDom(state, detail); },
       paragraphs: state.paragraphs,
       issues: state.issues,
     };
@@ -404,7 +388,6 @@ export function createRootState(): RootStateApi {
     createRootStateFromCanonical: createRootStateFromCanonical,
     activeTsOptions: activeTsOptions,
     activeSnapshotSessionDescriptor: activeSnapshotSessionDescriptor,
-    disableSnapshotPreparedDom: disableSnapshotPreparedDom,
     engineState: engineState,
     processParagraphArgument: processParagraphArgument,
     sessionArgument: sessionArgument,

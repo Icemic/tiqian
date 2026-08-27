@@ -28,7 +28,6 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
-import * as preparedDom from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
 // ADR 0053 C1 removed the internal document-level event channel, so the
 // timing drive observes the engine surface through a recording runtime graph

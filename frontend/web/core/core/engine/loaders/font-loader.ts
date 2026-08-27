@@ -16,13 +16,8 @@ import {
   releaseBrowserFontSession,
   revalidateBrowserFontSession,
 } from "../../measurement/browser-fonts.js";
-import type {
-  PreparedRenderFontStyleInstaller,
-  PreparedRenderFontStyleReleaser,
-} from "../snapshot-font.js";
 import { globalServices } from "../../services/global-services.js";
 import type { DiagnosisManager } from "../context/diagnosis-manager.js";
-import * as preparedDom from "../../sampler/snapshot/prepared-dom.js";
 
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
@@ -217,37 +212,20 @@ export interface SnapshotFontFallbackLoader {
   revalidateBrowserFontSession: BrowserFontSessionRevalidator;
   prepareBrowserRenderFonts: BrowserRenderFontPreparer;
   releaseBrowserFontSession: BrowserFontSessionReleaser;
-  installPreparedRenderFontStyle: PreparedRenderFontStyleInstaller;
-  releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
-// The snapshot-font-fallback and prepared-dom-bridge memos live on the
-// service-owned FontCoordinationState (page-level once-per-document).
-// The renderer module reference is a direct import from prepared-dom.
+// The snapshot-font-fallback memo lives on the service-owned
+// FontCoordinationState (page-level once-per-document). The browser-font
+// adapters are direct imports from the measurement module.
 export function loadSnapshotFontFallback(): Promise<SnapshotFontFallbackLoader> {
   const state = globalServices().coordination.fonts;
-  state.snapshotFontFallbackPromise ??= Promise.resolve(preparedDom).then((preparedDomModule): SnapshotFontFallbackLoader => {
-    return {
-      prepareBrowserFontSession,
-      revalidateBrowserFontSession,
-      prepareBrowserRenderFonts,
-      releaseBrowserFontSession,
-      installPreparedRenderFontStyle: preparedDomModule.installPreparedRenderFontStyle,
-      releasePreparedRenderFontStyle: preparedDomModule.releasePreparedRenderFontStyle,
-    };
+  state.snapshotFontFallbackPromise ??= Promise.resolve({
+    prepareBrowserFontSession,
+    revalidateBrowserFontSession,
+    prepareBrowserRenderFonts,
+    releaseBrowserFontSession,
   });
   return state.snapshotFontFallbackPromise as Promise<SnapshotFontFallbackLoader>;
-}
-
-// PlainHostPreparedBridge: every paragraph lowers through the prepared DOM
-// (ADR 0053 B8.3c), so a host without an snapshot font session still needs the
-// renderer bridge before its first enhance. An already-occupied slot belongs
-// to a test fixture or an snapshot-session install and is left untouched —
-// loadSnapshotFontFallback keeps its own monotonic upgrade for a stale legacy occupant.
-export function ensurePreparedDomBridge(): Promise<typeof preparedDom | undefined> {
-  const state = globalServices().coordination.fonts;
-  state.preparedBridgePromise ??= Promise.resolve(preparedDom);
-  return state.preparedBridgePromise;
 }
 
 // CSS font-family parsing and the document font-loading filter moved here

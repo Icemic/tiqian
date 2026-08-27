@@ -194,7 +194,6 @@ export class CoordinationService {
   // fonts.ts / measurement.ts for why each is page-level single).
   readonly fonts: FontCoordinationState = {
     snapshotFontFallbackPromise: undefined,
-    preparedBridgePromise: undefined,
     declaredFacesEntries: new Map(),
     declaredFacesChangeListeners: new Set(),
     browserFontLoader: undefined,

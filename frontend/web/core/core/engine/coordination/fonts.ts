@@ -18,8 +18,6 @@
 // globalServices container (Symbol.for key).
 import { FONT_REPLAY_REVISION } from "../../sampler/snapshot/snapshot-schema.js";
 import type { SnapshotFontFallbackLoader } from "../loaders/font-loader.js";
-import type * as PreparedDomNamespace from "../../sampler/snapshot/prepared-dom.js";
-import type { PreparedDomRendererApi } from "../../sampler/snapshot/prepared-dom.js";
 import type { BrowserFontSessionLoader } from "../../measurement/browser-fonts.js";
 import type { ReplayRegistry } from "../../measurement/browser-font-replay.js";
 import type {
@@ -29,7 +27,6 @@ import type {
 
 export interface FontCoordinationState {
   snapshotFontFallbackPromise: Promise<SnapshotFontFallbackLoader> | undefined;
-  preparedBridgePromise: Promise<typeof PreparedDomNamespace | undefined> | undefined;
   declaredFacesEntries: Map<string, DeclaredFaceEntry>;
   declaredFacesChangeListeners: Set<DeclaredFaceVoidCallbackFn>;
   // Constructed lazily on first use (see browser-fonts.ts): constructing it

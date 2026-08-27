@@ -22,7 +22,6 @@ import { raceAbort } from "./abort-race.js";
 import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
-  ensurePreparedDomBridge,
   fontLoadingAffectsTypography,
   loadSnapshotFontFallback,
 } from "./loaders/font-loader.js";
@@ -44,7 +43,7 @@ import {
 import {
   createSnapshotFontSessionEntry,
   releaseSnapshotFontSession,
-  snapshotFontMissDatasetValue,
+  formatSnapshotFontMissDatasetValue,
   type TiqianElementSnapshotFontMissCandidate,
 } from "./snapshot-font.js";
 import { ensureTiqianStyles } from "./loaders/styles.js";
@@ -159,7 +158,6 @@ export const OBSERVED_ATTRIBUTES: string[] = [
 ];
 
 const SNAPSHOT_RENDER_FONT_ATTRIBUTE = "data-tiqian-snapshot-render-font";
-const SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE = "data-tiqian-snapshot-layout-fallback";
 const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
   "SnapshotWidthMismatch",
   "SnapshotWidthChangedDuringValidation",
@@ -199,8 +197,8 @@ function destroyRuntimeRoot(rootState: RootStateApi, context: EnhancedElementCon
   destroyRoot(rootState, coordinationService().layoutJobPool, context, root);
 }
 
-function detachRuntimeRoot(root: HTMLElement): void {
-  detachRoot(coordinationService().layoutJobPool, root);
+function detachRuntimeRoot(context: EnhancedElementContext, root: HTMLElement): void {
+  detachRoot(coordinationService().layoutJobPool, root, context);
 }
 
 function cancelRootLayoutWork(root: HTMLElement): void {
@@ -347,7 +345,7 @@ class ProseHostSession {
     // rebuilding an invisible old article. A real reconnection is the one case
     // that needs to pay the restoration cost before starting a new lifecycle.
     if (!this.#stateMachine.connected) {
-      if (isLoadedSnapshotAdopted(this.#root)) restoreLoadedSnapshot(this.#root);
+      if (isLoadedSnapshotAdopted(this.#root)) restoreLoadedSnapshot(this.#root, this.#context);
       if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#rootState, this.#context, this.#root);
       this.#stateMachine.runtimeActive = false;
     }
@@ -439,20 +437,6 @@ class ProseHostSession {
           pendingLoadMs = Date.now() - loadStartedAt;
           this.#context.diagnosis.set("tiqianLoadMs", (Date.now() - loadStartedAt).toFixed(1));
         }
-      }
-      // SnapshotPreparedDomFallbackSingleFlight: once browser replay proves that
-      // the snapshot HarfBuzz result cannot be represented at this effective
-      // measure, retain the readable browser-metric rendering without letting
-      // font loading events start the same failed snapshot session indefinitely.
-      // A route reconnect or a different line-length grid gets a fresh attempt.
-      if (this.#root.hasAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE)) {
-        this.#snapshotFontRejectedAttempt = this.#snapshotFontAttemptSignature();
-        // ResponsiveSnapshotFontSessionReuse: the server replay tables and host
-        // font proof are still valid; only this line measure failed DOM replay.
-        // Retain the session so a later grid can revalidate without rebuilding
-        // the replay corpus. Disconnect and snapshot adoption remain the owners
-        // of final release.
-        this.#root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
       }
       if (stale) this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       if (stale) this.#stateMachine.invalidate(InvalidationReason.ResponsiveRelayout);
@@ -581,6 +565,7 @@ class ProseHostSession {
       if (!strongEmphasisRuntimeRequired) {
         snapshot = await tryAdoptRequestedSnapshot(
           this.#root,
+          this.#context,
           this.#root.ownerDocument,
           () => this.#root.isConnected && generation === this.#context.generation &&
             operation === this.#stateMachine.transaction.layoutOperation && !signal.aborted,
@@ -598,7 +583,7 @@ class ProseHostSession {
       !this.#root.isConnected || generation !== this.#context.generation ||
       operation !== this.#stateMachine.transaction.layoutOperation || signal.aborted
     ) {
-      if (snapshot.adopted) restoreLoadedSnapshot(this.#root);
+      if (snapshot.adopted) restoreLoadedSnapshot(this.#root, this.#context);
       return;
     }
     if (snapshot.adopted) {
@@ -686,9 +671,9 @@ class ProseHostSession {
     // Keep the backing in weak state for a possible reconnection, but cancel all
     // work and release document-scoped styles without touching detached DOM.
     if (this.#stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(this.#root)) {
-      detachLoadedSnapshot(this.#root);
+      detachLoadedSnapshot(this.#root, this.#context);
     }
-    if (this.#stateMachine.runtimeActive) detachRuntimeRoot(this.#root);
+    if (this.#stateMachine.runtimeActive) detachRuntimeRoot(this.#context, this.#root);
     if (this.#stateMachine.workerAttached) {
       // tiqian:detach already cancelled the job, so the pool's detach has no
       // in-flight work to finish on this disconnected root.
@@ -830,7 +815,7 @@ class ProseHostSession {
     this.#stopLayoutWorkInputObservation();
     this.#stopWidthObservation();
     this.#stopContentObservation();
-    restoreLoadedSnapshot(this.#root);
+    restoreLoadedSnapshot(this.#root, this.#context);
     if (this.#stateMachine.runtimeActive) destroyRuntimeRoot(this.#rootState, this.#context, this.#root);
     this.#stateMachine.runtimeActive = false;
     this.#releaseSnapshotFontSession();
@@ -862,14 +847,6 @@ class ProseHostSession {
     // bound to its own lifecycle even if a restart replaces the slot later.
     const signal = this.#stateMachine.transaction.abortController?.signal ?? null;
     const request = this.#stateMachine.claimEnhanceRequest();
-    // PlainHostPreparedBridge: the runtime lowers every paragraph through
-    // the prepared-DOM bridge (ADR 0053 B8.3c), so a host without a snapshot
-    // font session needs that bridge installed before layout starts. The
-    // snapshot-session path installs it through loadSnapshotFontFallback; this
-    // await covers the remaining hosts and leaves an already-installed
-    // renderer (a snapshot session or a test fixture) untouched.
-    const bridge = await raceAbort(signal, ensurePreparedDomBridge());
-    if (bridge.aborted) return false;
     this.#beginLayoutWork();
     const baseOptions = {
       ...(this.#baseEnhanceOptions() ?? {}),
@@ -897,7 +874,7 @@ class ProseHostSession {
         this.#root.isConnected && generation === this.#context.generation &&
         request === this.#stateMachine.transaction.enhanceRequest
       ) this.#releaseSnapshotFontSession();
-      this.#context.diagnosis.set("tiqianSnapshotFontMiss", snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate));
+      this.#context.diagnosis.set("tiqianSnapshotFontMiss", formatSnapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate));
       console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     }
     if (
@@ -921,13 +898,8 @@ class ProseHostSession {
     // on geometry from the previous measure. The current run will set them
     // again if its own prepared DOM cannot be represented.
     this.#context.diagnosis.clear("tiqianExactLayoutIssue");
-    this.#root.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     if (snapshotFontSession) {
       try {
-        this.#snapshotFontSession!.installRenderFont(
-          this.#root,
-          snapshotFontSession.renderFontFamilies,
-        );
         this.#root.setAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true");
         // HostRenderFontReadyBeforeCommit: server replay already owns the
         // layout metrics, but CSS must finish loading the proven host faces before the
@@ -1220,7 +1192,7 @@ class ProseHostSession {
     const entry = this.#snapshotFontSession;
     if (!entry) return false;
     this.#snapshotFontSession = null;
-    return releaseSnapshotFontSession(entry, this.#root);
+    return releaseSnapshotFontSession(entry);
   }
 
   #snapshotFontAttemptSignature(reference: string | null = this.#root.getAttribute("snapshot-ref")) {
@@ -1391,7 +1363,7 @@ class ProseHostSession {
     let activeRequest = this.#stateMachine.claimEnhanceRequest();
     this.#beginLayoutWork();
     const restoreImmediatelyBeforeDispatch = () => {
-      if (!restoreLoadedSnapshot(this.#root)) throw new Error("Adopted snapshot could not be restored");
+      if (!restoreLoadedSnapshot(this.#root, this.#context)) throw new Error("Adopted snapshot could not be restored");
       this.#stateMachine.snapshotAdopted = false;
       this.#snapshotEnhancedCount = 0;
       this.#context.diagnosis.clear("tiqianSnapshotCount");
@@ -1469,6 +1441,7 @@ class ProseHostSession {
     try {
       const snapshot = await tryAdoptRequestedSnapshot(
         this.#root,
+        this.#context,
         this.#root.ownerDocument,
         () => this.#root.isConnected && generation === this.#context.generation &&
           operation === this.#stateMachine.transaction.layoutOperation &&
@@ -1482,7 +1455,7 @@ class ProseHostSession {
         !this.#root.isConnected || generation !== this.#context.generation ||
         operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
       ) {
-        if (snapshot.adopted) restoreLoadedSnapshot(this.#root);
+        if (snapshot.adopted) restoreLoadedSnapshot(this.#root, this.#context);
         return;
       }
       if (!snapshot.adopted) {

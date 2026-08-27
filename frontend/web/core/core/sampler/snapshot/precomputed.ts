@@ -51,6 +51,7 @@ import type {
   SnapshotFontReplayWire,
 } from "./snapshot-manifest.js";
 import { globalServices } from "../../services/global-services.js";
+import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
 
 // SnapshotTransportManifest / SnapshotTransportEntry are the transport wire
 // shape read directly at the JSON.parse boundary (inventory A/B tables). The
@@ -2489,7 +2490,7 @@ export function precomputedSnapshotMaximumMeasureMatches(root: HTMLElement): boo
   });
 }
 
-export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
+export function restorePrecomputedSnapshot(root: HTMLElement, context: EnhancedElementContext): boolean {
   const state = states().get(root);
   if (!state) return false;
   states().delete(root);
@@ -2522,7 +2523,7 @@ export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
       item.paragraph.setAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE, item.originalSnapshotPreparedDomAttribute);
     }
   }
-  if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root);
+  if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root, context);
   if (state.serverRenderedEntries) {
     root.removeAttribute(SERVER_RENDERED_SNAPSHOT_ATTRIBUTE);
     root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
@@ -2545,21 +2546,22 @@ export function restorePrecomputedSnapshot(root: HTMLElement): boolean {
  * the semantic backing if the same custom element is later reconnected; when
  * the detached tree becomes unreachable, the backing is collected with it.
  */
-export function detachPrecomputedSnapshot(root: HTMLElement): boolean {
+export function detachPrecomputedSnapshot(root: HTMLElement, context: EnhancedElementContext): boolean {
   const state = states().get(root);
   if (!state) return false;
-  if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root);
+  if (state.valueStylesInstalled) releasePreparedValueStyleRoot(root, context);
   return true;
 }
 
 export async function tryAdoptPrecomputedSnapshot(
   root: HTMLElement,
+  context: EnhancedElementContext,
   targetDocument: Document | null | undefined,
   isCurrent: IsCurrent = () => true,
   anchors: SnapshotAdoptAnchors | null = null,
 ): Promise<SnapshotAdoptOutcome> {
   if (!isCurrent()) return { adopted: false, reason: "superseded" };
-  restorePrecomputedSnapshot(root);
+  restorePrecomputedSnapshot(root, context);
   delete root.dataset.tiqianSnapshotMiss;
   const reference = root.getAttribute("snapshot-ref");
   if (!reference) return { adopted: false, reason: "not-requested" };
@@ -2715,6 +2717,7 @@ export async function tryAdoptPrecomputedSnapshot(
   try {
     valueStylesInstalled = installPreparedValueStyles(
       root,
+      context,
       manifest.valueStyles,
     );
     adoptionState.valueStylesInstalled = valueStylesInstalled;
@@ -2728,7 +2731,7 @@ export async function tryAdoptPrecomputedSnapshot(
     sliceStartedAt = performance.now();
     for (const { paragraph, snapshot, sourceSnapshot, entry } of prepared) {
       if (!isCurrent() || states().get(root) !== adoptionState) {
-        if (states().get(root) === adoptionState) restorePrecomputedSnapshot(root);
+        if (states().get(root) === adoptionState) restorePrecomputedSnapshot(root, context);
         return { adopted: false, reason: "superseded" };
       }
       // SnapshotAdoptionAnchorCompensation: each cooperative commit slice
@@ -2793,12 +2796,12 @@ export async function tryAdoptPrecomputedSnapshot(
     }
   } catch (error) {
     const currentState = states().get(root);
-    if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root);
+    if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root, context);
     return miss(root, `SnapshotAdoptionFailed:${error instanceof Error ? error.message : String(error)}`);
   }
   if (!isCurrent()) {
     const currentState = states().get(root);
-    if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root);
+    if (currentState?.paragraphs === adopted) restorePrecomputedSnapshot(root, context);
     return { adopted: false, reason: "superseded" };
   }
   root.setAttribute("data-tiqian-enhanced", "true");

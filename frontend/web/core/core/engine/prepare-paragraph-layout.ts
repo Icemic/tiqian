@@ -15,7 +15,7 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../sampler/snapshot/snapshot-schema.js";
 import {
   precomputeParagraphWithBrowserMetrics,
   precomputeParagraphWithDiagnostics,
@@ -244,16 +244,11 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
       lowered.sourceSpans.length > 0;
   }
 
-  // PreparedDomUnifiedEligibility: inline the WebEnhancerSupport.kt
-  // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
-  // shape, schema, and matching layout revision.
+  // PreparedDomUnifiedEligibility: the prepared-dom module is imported
+  // statically, so bridge availability reduces to a schema and layout
+  // revision comparison against the imported constants.
   function isPreparedDomBridgeAvailable(): boolean {
-    return !!(preparedDom &&
-      typeof preparedDom.render === 'function' &&
-      typeof preparedDom.release === 'function' &&
-      typeof preparedDom.releaseRoot === 'function' &&
-      preparedDom.schema === 1 &&
-      preparedDom.layoutRevision === PREPARED_LAYOUT_REVISION);
+    return SNAPSHOT_SCHEMA === 1 && LAYOUT_REVISION === PREPARED_LAYOUT_REVISION;
   }
 
   function isSnapshotSessionCapabilityFailure(error: unknown): boolean {

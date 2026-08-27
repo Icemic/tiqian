@@ -17,6 +17,7 @@ import {
   relayout,
 } from "../core/engine/progressive-drivers.js";
 import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import {
   probeRootContentDrift,
   reconcileRoot,
@@ -128,7 +129,6 @@ function blankRootState(root: Element, options: EnhanceOptions): RootState {
     paragraphs: [],
     issues: [],
     preparedDomEnabled: false,
-    preparedDomFallback: null,
     cjkDashCapability: { status: "unavailable", detail: null },
   };
 }
@@ -141,7 +141,6 @@ function blankEngineState(state: RootState): EngineState {
     browserFallback: null,
     onIssue() {},
     onParagraphCommitted() {},
-    onDisableSnapshotPreparedDom() {},
     paragraphs: state.paragraphs,
     issues: state.issues,
   };
@@ -233,9 +232,6 @@ function makePlainContext(): PlainContext {
     },
     activeSnapshotSessionDescriptor(state) {
       return realRootState.activeSnapshotSessionDescriptor(state);
-    },
-    disableSnapshotPreparedDom(state, detail) {
-      realRootState.disableSnapshotPreparedDom(state, detail);
     },
     engineState(state) {
       return realRootState.engineState(state);
@@ -582,8 +578,9 @@ test("detachRoot cancels the job without touching the root state", () => {
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
   const seeded = blankRootState(root, canonicalOptions());
   context.states.set(root, seeded);
+  const enhanceContext = createEnhanceContext(root);
 
-  detachRoot(context.layoutJobPool, root);
+  detachRoot(context.layoutJobPool, root, enhanceContext);
 
   assert.deepEqual(context.ops, ["pool.cancelJob"]);
   assert.equal(context.states.get(root), seeded);

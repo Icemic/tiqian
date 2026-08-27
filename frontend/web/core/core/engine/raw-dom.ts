@@ -1,5 +1,5 @@
 import type { EnhancedElementContext, RawDomParagraphRecord } from "./context/enhance-context.js";
-import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
+import { releasePreparedParagraphStyles } from "../sampler/snapshot/prepared-dom.js";
 import { DEFAULT_PARAGRAPH_SELECTOR } from "../sampler/signatures.js";
 
 type RawDomRemoveChildFn = (child: Node) => Node;
@@ -310,7 +310,7 @@ export function rawDomRollback(context: EnhancedElementContext, snapshots: RawDo
 
 export function rawDomRestoreParagraph(context: EnhancedElementContext, source: Element): void {
   const record = recordOfOrThrow(context, source);
-  preparedDom.release(source);
+  releasePreparedParagraphStyles(source, context);
   while (source.firstChild) {
     source.removeChild(source.firstChild as ChildNode);
   }

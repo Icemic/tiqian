@@ -12,24 +12,17 @@ import type {
   BrowserRenderFontPreparer,
 } from "../measurement/browser-fonts.js";
 
-export type PreparedRenderFontStyleInstaller = (root: Element, renderFontFamilies: readonly string[]) => boolean;
-export type PreparedRenderFontStyleReleaser = (root: Element) => boolean;
-
 // Loader operations carry the browser font session implementation; their
 // precise signatures arrive with the browser-fonts conversion wave.
 type BrowserFontSessionOperation =
   | BrowserFontSessionRevalidator
   | BrowserRenderFontPreparer
-  | BrowserFontSessionReleaser
-  | PreparedRenderFontStyleInstaller
-  | PreparedRenderFontStyleReleaser;
+  | BrowserFontSessionReleaser;
 
 export interface SnapshotFontLoader {
   revalidateBrowserFontSession: BrowserFontSessionRevalidator;
   prepareBrowserRenderFonts: BrowserRenderFontPreparer;
   releaseBrowserFontSession: BrowserFontSessionReleaser;
-  installPreparedRenderFontStyle: PreparedRenderFontStyleInstaller;
-  releasePreparedRenderFontStyle: PreparedRenderFontStyleReleaser;
 }
 
 export interface SnapshotFontSessionEntry {
@@ -38,8 +31,6 @@ export interface SnapshotFontSessionEntry {
   revalidate: BrowserFontSessionRevalidator;
   prepareRenderFont: BrowserRenderFontPreparer;
   release: BrowserFontSessionReleaser;
-  installRenderFont: PreparedRenderFontStyleInstaller;
-  releaseRenderFont: PreparedRenderFontStyleReleaser;
 }
 
 const SNAPSHOT_LAYOUT_OVERRIDE_KEYS = [
@@ -59,13 +50,10 @@ export function createSnapshotFontSessionEntry(reference: string | null, handle:
     revalidate: loader.revalidateBrowserFontSession,
     prepareRenderFont: loader.prepareBrowserRenderFonts,
     release: loader.releaseBrowserFontSession,
-    installRenderFont: loader.installPreparedRenderFontStyle,
-    releaseRenderFont: loader.releasePreparedRenderFontStyle,
   };
 }
 
-export function releaseSnapshotFontSession(entry: SnapshotFontSessionEntry, root: HTMLElement): boolean {
-  entry.releaseRenderFont(root);
+export function releaseSnapshotFontSession(entry: SnapshotFontSessionEntry): boolean {
   return entry.release(entry.handle);
 }
 
@@ -80,7 +68,7 @@ export interface TiqianElementSnapshotFontMissCandidate {
   detail?: string;
 }
 
-export function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandidate): string {
+export function formatSnapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandidate): string {
   if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
     const pipeIndex = error.detail.indexOf("|");
     if (pipeIndex !== -1) {

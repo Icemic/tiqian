@@ -19,7 +19,7 @@ import {
   rawDomEnsureContainingBlock,
   rawDomSuspendEngineWrites,
 } from "@tiqian/core/core/engine/raw-dom.js";
-import { constructEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
+import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 function rawDomParagraph(t, markup) {
   const root = mount(markup);
@@ -70,7 +70,7 @@ test("rawDomBridge_exportsFullApiSurface", () => {
 
 test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   const child = paragraph.firstChild;
   assert.ok(child);
 
@@ -92,7 +92,7 @@ test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
 
 test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   beginDefaults(context, paragraph);
   rawDomTake(context, paragraph, null);
   rawDomCommit(context, paragraph, null);
@@ -109,7 +109,7 @@ test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
 
 test("rawDomBridge_engineWritesBypassForwarding", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   beginDefaults(context, paragraph);
   rawDomTake(context, paragraph, null);
   rawDomCommit(context, paragraph, null);
@@ -127,7 +127,7 @@ test("rawDomBridge_engineWritesBypassForwarding", (t) => {
 
 test("rawDomBridge_renderedDriftDetection", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   beginDefaults(context, paragraph);
   rawDomTake(context, paragraph, null);
   rawDomCommit(context, paragraph, null);
@@ -151,7 +151,7 @@ test("rawDomBridge_renderedDriftDetection", (t) => {
 
 test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   beginDefaults(context, paragraph);
   rawDomTake(context, paragraph, null);
   rawDomCommit(context, paragraph, null);
@@ -191,7 +191,7 @@ test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
 
 test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   const originalChild = paragraph.firstChild;
   beginDefaults(context, paragraph);
   rawDomTake(context, paragraph, null);
@@ -229,7 +229,7 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
   // so initialize the host-owned declaration through the proxy itself.
   paragraph.style.setProperty("width", "10px");
   const originalChild = paragraph.firstChild;
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   rawDomBegin(
     context,
     paragraph,
@@ -273,7 +273,7 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "<div data-tiqian-root='true'><p>原始 inline-size 要写回。</p></div>",
   );
   paragraph.style.setProperty("inline-size", "55px");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   rawDomBegin(
     context,
     paragraph,
@@ -305,7 +305,7 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
 
 test("rawDomBridge_ensureContainingBlockAppliesAndRestores", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
-  const context = constructEnhanceContext(paragraph);
+  const context = createEnhanceContext(paragraph);
   const realGetComputedStyle = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (element, pseudo) => {
     const style = realGetComputedStyle(element, pseudo);

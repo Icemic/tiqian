@@ -10,7 +10,7 @@ import test from "node:test";
 
 import { createDiagnosisManager } from "../core/engine/context/diagnosis-manager.js";
 import type { DiagnosisEvent } from "../core/engine/context/diagnosis-manager.js";
-import { constructEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 
 // The fakes ride through the same any-typed Object.create seam the
 // engine-plain-context suite uses: the typed contracts are satisfied by
@@ -85,11 +85,11 @@ test("dispose detaches every remaining listener", () => {
 });
 
 test("the context-owned manager resolves the host dataset live", () => {
-  // constructEnhanceContext types the element as Element; the fake carries
+  // createEnhanceContext types the element as Element; the fake carries
   // only the readable `dataset` property the diagnosis host resolves.
   const dataset = fakeDataset();
   const element = Object.assign(Object.create(null), { dataset });
-  const context = constructEnhanceContext(element);
+  const context = createEnhanceContext(element);
 
   context.diagnosis.set("tiqianSnapshotCount", "3");
   assert.equal(dataset.tiqianSnapshotCount, "3");

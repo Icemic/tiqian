@@ -9,7 +9,7 @@
 
 import type { CjkDashCapability } from "./canvas-shaping.js";
 import { elementContentWidth, effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
-import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
+import { releasePreparedValueStyleRoot } from "../sampler/snapshot/prepared-dom.js";
 import type { RootStateApi } from "./root-state.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import { rawDomRestoreParagraph } from "./raw-dom.js";
@@ -315,10 +315,10 @@ export function restoreAttribute(element: Element, name: string, value?: string 
   }
 }
 
-// Prepared-dom release used by root teardown and detach: the renderer module
-// reference resolves directly from prepared-dom.
-function releasePreparedRootDomStyles(root: HTMLElement, context?: EnhancedElementContext): boolean {
-  return !!(preparedDom.releaseRoot && preparedDom.releaseRoot(root, context) === true);
+// Prepared-dom release used by root teardown and detach: the per-root
+// prepared-style state lives on the root's enhance context.
+function releasePreparedRootDomStyles(root: HTMLElement, context: EnhancedElementContext): boolean {
+  return releasePreparedValueStyleRoot(root, context) === true;
 }
 
 // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
@@ -368,7 +368,7 @@ export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPoo
 // DetachedRootWeakOwnership: cancel the job and release document-scoped
 // styles; weak table state stays for reconnection on the same node. The
 // suspend verb stays distinct from destroy teardown.
-export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement, context?: EnhancedElementContext): void {
+export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement, context: EnhancedElementContext): void {
   layoutJobPool.cancelJob(root);
   releasePreparedRootDomStyles(root, context);
 }

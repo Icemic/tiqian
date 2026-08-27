@@ -43,40 +43,12 @@ import {
   inlineObjectPlaceholder,
   rubyAnnotationSpan,
 } from "./prepared-dom-evidence.js";
-import { constructEnhanceContext } from "../../engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
-
-// Prepared-style scoping state (wc-s5 R9): rootsByHost tracks which root owns
-// a given host paragraph element; scopeCounters assigns monotonically
-// increasing scope IDs per document. Both are document-scoped, behavior-less
-// records owned by the prepared-style behavior in this module, so they live
-// in this module's closure behind a Symbol.for registry key rather than in
-// the service container; module copies in one document still share one record.
-interface PreparedScopeCounter {
-  next: number;
-}
-
-interface PreparedStylesState {
-  rootsByHost: WeakMap<Element, Element>;
-  scopeCounters: WeakMap<Document, PreparedScopeCounter>;
-}
-
-const PREPARED_STYLES_KEY: unique symbol = Symbol.for("@tiqian/core.prepared-styles.v1");
-
-type PreparedStylesRegistry = Record<symbol, PreparedStylesState | undefined>;
-
-function preparedStylesState(): PreparedStylesState {
-  const registry = globalThis as PreparedStylesRegistry;
-  return registry[PREPARED_STYLES_KEY] ??= {
-    rootsByHost: new WeakMap(),
-    scopeCounters: new WeakMap(),
-  };
-}
 
 // --- Internal types ---
 
-/** Style owner key: either a host Element or the frozen snapshot sentinel. */
-type StyleOwner = Element | Readonly<Record<string, never>>;
+/** Style owner key: either a host Element or the snapshot sentinel marker. */
+type StyleOwner = Element | typeof SNAPSHOT_STYLE_OWNER;
 
 /** Style delta from the prepared layout plan cell. */
 interface StyleDelta {
@@ -133,19 +105,6 @@ export interface PreparedStyleState {
   indexes: Map<string, number>;
   owners: Map<StyleOwner, Set<number>>;
   dirty: boolean;
-}
-
-/** Shape of the bridge object installed on globalThis. */
-export interface PreparedDomRendererApi {
-  readonly version: number;
-  readonly semanticReplayRevision: number;
-  readonly schema: number;
-  readonly layoutRevision: string;
-  readonly renderRevision: string;
-  lower: typeof renderPreparedParagraphArtifact;
-  render: typeof renderPreparedParagraphInto;
-  release: typeof releasePreparedParagraphStyles;
-  releaseRoot: typeof releasePreparedValueStyleRoot;
 }
 
 export {};
@@ -354,20 +313,9 @@ const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const VALUE_STYLE_SCOPE_ATTRIBUTE = "data-tq-value-style-scope";
 const VALUE_STYLE_ELEMENT_ATTRIBUTE = "data-tq-prepared-value-styles";
 const LIVE_SEMANTIC_INDEX_ATTRIBUTE = "data-tq-live-semantic-index";
-const SNAPSHOT_STYLE_OWNER = Object.freeze({});
-
-function nextPreparedScopeForDocument(documentObject: Document | null | undefined): number {
-  if (!documentObject) return 1;
-  const scopeCounters = preparedStylesState().scopeCounters;
-  let counter = scopeCounters.get(documentObject);
-  if (!counter) {
-    counter = { next: 1 };
-    scopeCounters.set(documentObject, counter);
-  }
-  const current = counter.next;
-  counter.next += 1;
-  return current;
-}
+// Snapshot style owner sentinel. A string marker: host Elements never
+// compare equal to it, so owner discrimination is unchanged.
+const SNAPSHOT_STYLE_OWNER = "tiqian-snapshot-style-owner";
 
 function preparedPlan(value: string | PreparedLayoutPlan): PreparedLayoutPlan {
   return typeof value === "string" ? JSON.parse(value) : value;
@@ -410,12 +358,12 @@ function runtimeValueStyleClass(key: string) {
   return `tqvr-${key}`;
 }
 
-function createPreparedStyleState(root: Element, context?: EnhancedElementContext) {
+function createPreparedStyleState(root: Element, context: EnhancedElementContext) {
   const documentObject = root?.ownerDocument ?? globalThis.document;
   const parent = documentObject?.head ?? documentObject?.documentElement ?? documentObject?.body;
   if (!documentObject?.createElement || !parent?.appendChild || !root?.setAttribute) return null;
   const styleElement = documentObject.createElement("style");
-  const scope = `tqv${nextPreparedScopeForDocument(documentObject)}`;
+  const scope = context.scope;
   styleElement.setAttribute(VALUE_STYLE_ELEMENT_ATTRIBUTE, scope);
   const originalScope = root.getAttribute(VALUE_STYLE_SCOPE_ATTRIBUTE);
   root.setAttribute(VALUE_STYLE_SCOPE_ATTRIBUTE, scope);
@@ -430,15 +378,13 @@ function createPreparedStyleState(root: Element, context?: EnhancedElementContex
     owners: new Map(),
     dirty: false,
   };
-  const effectiveContext = context ?? constructEnhanceContext(root);
-  effectiveContext.preparedStyle = state;
+  context.preparedStyle = state;
   return state;
 }
 
-function preparedStyleState(root: Element, context?: EnhancedElementContext) {
-  const effectiveContext = context ?? constructEnhanceContext(root);
-  if (effectiveContext.preparedStyle) return effectiveContext.preparedStyle;
-  return createPreparedStyleState(root, effectiveContext);
+function preparedStyleState(root: Element, context: EnhancedElementContext) {
+  if (context.preparedStyle) return context.preparedStyle;
+  return createPreparedStyleState(root, context);
 }
 
 function registerPreparedValueStyle(state: PreparedStyleState, declaration: string) {
@@ -475,13 +421,8 @@ function syncPreparedValueStyles(state: PreparedStyleState) {
   state.dirty = false;
 }
 
-function removePreparedStyleState(state: PreparedStyleState, context?: EnhancedElementContext) {
-  const effectiveContext = context ?? constructEnhanceContext(state.root);
-  if (effectiveContext) effectiveContext.preparedStyle = null;
-  const rootsByHost = preparedStylesState().rootsByHost;
-  for (const owner of state.owners.keys()) {
-    if (owner !== SNAPSHOT_STYLE_OWNER) rootsByHost.delete(owner as Element);
-  }
+function removePreparedStyleState(state: PreparedStyleState, context: EnhancedElementContext) {
+  context.preparedStyle = null;
   state.styleElement.remove?.();
   if (state.styleElement.parentNode) state.styleElement.parentNode.removeChild(state.styleElement);
   if (state.originalScope == null) state.root.removeAttribute(VALUE_STYLE_SCOPE_ATTRIBUTE);
@@ -489,13 +430,13 @@ function removePreparedStyleState(state: PreparedStyleState, context?: EnhancedE
 }
 
 /** Installs the compact snapshot's dynamic declarations before DOM adoption. */
-export function installPreparedValueStyles(root: Element, declarations: string[], renderFontFamilies: string[] = []) {
+export function installPreparedValueStyles(root: Element, context: EnhancedElementContext, declarations: string[], renderFontFamilies: string[] = []) {
   if (!Array.isArray(declarations)) throw new Error("InvalidPreparedValueStyles");
   if (!Array.isArray(renderFontFamilies) || renderFontFamilies.some((family) =>
     typeof family !== "string" || !family.trim())) throw new Error("InvalidPreparedRenderFontFamilies");
-  releasePreparedValueStyleRoot(root);
+  releasePreparedValueStyleRoot(root, context);
   if (declarations.length === 0) return false;
-  const state = preparedStyleState(root);
+  const state = preparedStyleState(root, context);
   if (!state) throw new Error("PreparedValueStyleHostUnavailable");
   try {
     const indexes = declarations.map((declaration, expectedIndex) => {
@@ -510,50 +451,28 @@ export function installPreparedValueStyles(root: Element, declarations: string[]
     syncPreparedValueStyles(state);
     return true;
   } catch (error) {
-    removePreparedStyleState(state);
+    removePreparedStyleState(state, context);
     throw error;
   }
 }
 
-/**
- * Kept as an internal compatibility hook. Host-compatible replay inherits the
- * existing font-family, so installing a package-owned family style is a no-op.
- */
-export function installPreparedRenderFontStyle(root: Element, renderFontFamilies: readonly string[]) {
-  if (!Array.isArray(renderFontFamilies) || renderFontFamilies.length === 0 ||
-      renderFontFamilies.some((family) => typeof family !== "string" || !family.trim())) {
-    throw new Error("InvalidPreparedRenderFontFamilies");
-  }
-  return false;
-}
-
-export function releasePreparedRenderFontStyle(root: Element) {
-  return false;
-}
-
-export function releasePreparedParagraphStyles(host: Element, context?: EnhancedElementContext) {
-  const rootsByHost = preparedStylesState().rootsByHost;
-  const root = rootsByHost.get(host);
-  if (!root) return false;
-  rootsByHost.delete(host);
-  const effectiveContext = context ?? constructEnhanceContext(root);
-  const state = effectiveContext.preparedStyle;
+export function releasePreparedParagraphStyles(host: Element, context: EnhancedElementContext) {
+  const state = context.preparedStyle;
   if (!state) return false;
   state.owners.delete(host);
-  if (state.owners.size === 0) removePreparedStyleState(state, effectiveContext);
+  if (state.owners.size === 0) removePreparedStyleState(state, context);
   return true;
 }
 
-export function releasePreparedValueStyleRoot(root: Element, context?: EnhancedElementContext) {
-  const effectiveContext = context ?? constructEnhanceContext(root);
-  const state = effectiveContext.preparedStyle;
+export function releasePreparedValueStyleRoot(root: Element, context: EnhancedElementContext) {
+  const state = context.preparedStyle;
   if (!state) return false;
-  removePreparedStyleState(state, effectiveContext);
+  removePreparedStyleState(state, context);
   return true;
 }
 
-export function releasePreparedStyleState(state: PreparedStyleState): void {
-  removePreparedStyleState(state);
+export function releasePreparedStyleState(state: PreparedStyleState, context: EnhancedElementContext): void {
+  removePreparedStyleState(state, context);
 }
 
 function preparedSpacing(display: string, naturalWidth: number, trailingGap: number) {
@@ -1208,7 +1127,7 @@ export function renderPreparedParagraphInto(
   planOrJson: string | PreparedLayoutPlan,
   typographyOrLocale: string | Record<string, unknown> = DEFAULT_LOCALE,
   options: PreparedParagraphRenderOptions = {},
-  context?: EnhancedElementContext,
+  context: EnhancedElementContext,
 ): PreparedParagraphIntoResult {
   if (host == null || !("innerHTML" in Object(host)) || typeof host.querySelectorAll !== "function") {
     throw new Error("InvalidPreparedParagraphHost");
@@ -1259,13 +1178,12 @@ export function renderPreparedParagraphInto(
         : null,
     });
   } catch (error) {
-    if (state?.owners.size === 0) removePreparedStyleState(state);
+    if (state?.owners.size === 0) removePreparedStyleState(state, context);
     throw error;
   }
   if (state) {
     state.owners.set(host, usedStyles);
     state.dirty = true;
-    preparedStylesState().rootsByHost.set(host, root);
     syncPreparedValueStyles(state);
   }
   host.innerHTML = lowered.html;
@@ -1299,5 +1217,3 @@ export function renderPreparedParagraphInto(
 
 export const version = 1;
 export const semanticReplayRevision = 1;
-export { SNAPSHOT_SCHEMA as schema, LAYOUT_REVISION as layoutRevision, RENDER_REVISION as renderRevision };
-export { renderPreparedParagraphArtifact as lower, renderPreparedParagraphInto as render, releasePreparedParagraphStyles as release, releasePreparedValueStyleRoot as releaseRoot };

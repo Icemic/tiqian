@@ -4,6 +4,7 @@
 
 import * as precomputed from "./precomputed.js";
 import type { SnapshotAdoptAnchors, SnapshotAdoptOutcome } from "./precomputed.js";
+import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
 
 type SnapshotIsCurrent = () => boolean;
 export type PrecomputedSnapshotModule = typeof precomputed;
@@ -27,20 +28,21 @@ export function loadedSnapshotMaximumMeasureMatches(root: HTMLElement): boolean 
   return precomputed.precomputedSnapshotMaximumMeasureMatches(root);
 }
 
-export function restoreLoadedSnapshot(root: HTMLElement): boolean {
-  return precomputed.restorePrecomputedSnapshot(root);
+export function restoreLoadedSnapshot(root: HTMLElement, context: EnhancedElementContext): boolean {
+  return precomputed.restorePrecomputedSnapshot(root, context);
 }
 
-export function detachLoadedSnapshot(root: HTMLElement): boolean {
-  return precomputed.detachPrecomputedSnapshot(root);
+export function detachLoadedSnapshot(root: HTMLElement, context: EnhancedElementContext): boolean {
+  return precomputed.detachPrecomputedSnapshot(root, context);
 }
 
-export async function restoreAdoptedSnapshot(root: HTMLElement): Promise<boolean> {
-  return precomputed.restorePrecomputedSnapshot(root);
+export async function restoreAdoptedSnapshot(root: HTMLElement, context: EnhancedElementContext): Promise<boolean> {
+  return precomputed.restorePrecomputedSnapshot(root, context);
 }
 
 export async function tryAdoptRequestedSnapshot(
   root: HTMLElement,
+  context: EnhancedElementContext,
   targetDocument: Document | null | undefined,
   isCurrent: SnapshotIsCurrent = () => true,
   anchors: SnapshotAdoptAnchors | null = null,
@@ -48,5 +50,5 @@ export async function tryAdoptRequestedSnapshot(
   if (!root?.getAttribute?.("snapshot-ref")) {
     return { adopted: false, reason: "not-requested" };
   }
-  return precomputed.tryAdoptPrecomputedSnapshot(root, targetDocument, isCurrent, anchors);
+  return precomputed.tryAdoptPrecomputedSnapshot(root, context, targetDocument, isCurrent, anchors);
 }

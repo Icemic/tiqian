@@ -19,7 +19,7 @@
 // and apply instead.
 
 // Ambient global declarations pulled in via import type from owner modules.
-import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
+import { releasePreparedParagraphStyles } from "../sampler/snapshot/prepared-dom.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import {
   rawDomRenderedMatches,
@@ -79,9 +79,8 @@ export interface ReconcileAction {
   run: ReconcileActionRun;
 }
 
-function releasePreparedStyles(element: Element): boolean {
-  if (preparedDom.release && preparedDom.release(element) === true) return true;
-  return false;
+function releasePreparedStyles(element: Element, context: EnhancedElementContext): boolean {
+  return releasePreparedParagraphStyles(element, context) === true;
 }
 
 // Read-only drift probe for captured in-flight jobs: answers the same
@@ -172,7 +171,7 @@ export function classifyReconcile(rawDomContext: EnhancedElementContext, spec: R
 // shell, stamp the rendered marker, and let the caller re-lower the
 // surviving live content as the new raw-DOM backup source.
 export function prepareTrackedParagraphForRelowering(rawDomContext: EnhancedElementContext, element: HTMLElement): void {
-  releasePreparedStyles(element);
+  releasePreparedStyles(element, rawDomContext);
   rawDomRestoreShell(rawDomContext, element);
   rawDomStampRendered(rawDomContext, element);
 }
@@ -184,7 +183,7 @@ export function prepareTrackedParagraphForRelowering(rawDomContext: EnhancedElem
 // the clone lowers as ordinary host content. Host elements and host
 // inline styles survive untouched.
 export function stripEngineMarkupFromStrandedParagraph(rawDomContext: EnhancedElementContext, paragraph: HTMLElement): void {
-  releasePreparedStyles(paragraph);
+  releasePreparedStyles(paragraph, rawDomContext);
   // The hidden data-tq-hard-break span is the only place a cloned hard
   // break keeps its source form. Restore a bare br before removing
   // engine elements: a newline text node would be folded into a space by
