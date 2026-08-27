@@ -8,18 +8,20 @@ import {
   relayout,
   startLayoutJob,
 } from "../core/engine/progressive-drivers.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
+import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
 
 
-// The drivers functions take fake rootState/engine/layoutJobPool deps; the
-// relayout-session and process-paragraph deps bundles carry a fake
-// detached-fragment backup. The real openRelayoutSession and the real
-// processParagraph run against those fakes, so the relayout main path and the
-// enhance processItem path are observable through the fake detached-fragment backup ledger. The
-// direct prepare step, the lifecycle helpers and sourceParagraphWidth also run
-// for real, so the relayout main path needs measurable source elements and the
-// getComputedStyle global.
+// The drivers functions take fake rootState/layoutJobPool deps; the third
+// parameter is the per-element EnhancedElementContext. Tests that only
+// observe the job spec pass a bare object there; tests that drive the
+// processItem paths run the real processParagraph, prepareParagraphLayout,
+// relayout session and prepared-DOM renderer, and observe the consequences
+// on the context's raw-DOM records, the live elements and the state.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -42,6 +44,15 @@ function makeComputedStyle(values = {}) {
     paddingRight: "0px",
     borderLeftWidth: "0px",
     borderRightWidth: "0px",
+    position: "static",
+    transform: "none",
+    float: "none",
+    marginLeft: "0px",
+    marginRight: "0px",
+    marginTop: "0px",
+    marginBottom: "0px",
+    "line-height": "33px",
+    "font-family": "Fixture CJK",
     ...values,
   };
   const style = {};
@@ -56,7 +67,7 @@ function makeComputedStyle(values = {}) {
 }
 
 function withEnv(fn, overrides = {}) {
-  const saved = saveGlobals(["window", "document", "getComputedStyle", "CustomEvent"]);
+  const saved = saveGlobals(["window", "document", "getComputedStyle", "CustomEvent", "Node"]);
   try {
     const values = overrides.computedStyleValues ?? { "--tq-styles-ready": "1" };
     const computed = (el, pseudo) => makeComputedStyle(values);
@@ -65,7 +76,8 @@ function withEnv(fn, overrides = {}) {
       innerHeight: 800,
       getComputedStyle: computed,
     };
-    globalThis.document = { documentElement: { clientHeight: 800 } };
+    globalThis.document = overrides.document ?? { documentElement: { clientHeight: 800 } };
+    if (overrides.node) globalThis.Node = overrides.node;
     globalThis.CustomEvent = function (type, init) {
       this.type = type;
       this.bubbles = init && init.bubbles;
@@ -137,13 +149,56 @@ function makeElement(initialAttributes, options = {}) {
   };
 }
 
+// Paragraph host on the fixture fake-DOM base for tests that drive the real
+// processParagraph/prepare pipeline: lowerable children, a measurable box, and
+// a parseable innerHTML for the prepared-DOM renderer.
+function makeFixtureParagraphElement(text = "hello world") {
+  const element = new FakeElement("p");
+  element.width = 320;
+  element.appendChild(new FakeText(text));
+  return element;
+}
+
+// Fake document for the full pipeline: the fragment factory the raw-DOM
+// takeover uses, lowering probe elements, an inert Range, the style head, and
+// the documentElement the viewport distance reads.
+function makePipelineDocument() {
+  const documentObject = {
+    documentElement: { clientHeight: 800 },
+    createElement: (tagName) => new FakeElement(tagName || "span"),
+    createDocumentFragment: () => new FakeFragment(),
+    createRange: () => ({
+      selectNodeContents() {},
+      getClientRects: () => [],
+    }),
+  };
+  documentObject.head = new FakeElement("head");
+  return documentObject;
+}
+
+// Registers the paragraph with the context's raw-DOM bookkeeping exactly the
+// way the enhance pass did, so the relayout session's captureLive and
+// rollback find the record.
+function registerParagraph(context, source) {
+  rawDomBegin(context, source, null, null, null, null, null, null, "", "", "", "", "", "", null);
+  rawDomTake(context, source, null);
+  rawDomCommit(context, source, null);
+}
+
+// The fixture font backend's synchronous callbacks are the snapshot-session
+// descriptor the real prepare step shapes with.
+function fixtureSnapshotSession() {
+  const backend = installFixtureFontBackend();
+  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
+}
+
 function makeParagraph(overrides = {}) {
   overrides = overrides || {};
   const source = overrides.source || makeElement();
   const lowered = overrides.lowered || {
     text: "test",
     textStyle: {
-      fontFamilies: [],
+      fontFamilies: ["Fixture CJK"],
       fontSize: 19,
       fontWeight: 400,
       italic: false,
@@ -412,27 +467,31 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
 });
 
 test("1d. processItem calls processParagraphArgument and processParagraph for non-stale items", function () {
-  const p1 = makeParagraph();
-  const p2 = makeParagraph();
+  const p1 = makeParagraph({ source: makeFixtureParagraphElement() });
+  const p2 = makeParagraph({ source: makeFixtureParagraphElement() });
 
   withEnv(() => {
     const ctx = makeDrivers({
       candidates: [p1.source, p2.source],
+      snapshotSession: fixtureSnapshotSession(),
     });
     const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    const context = createEnhanceContext(root);
+    enhanceProgressively(ctx.rootState, ctx.layoutJobPool, context, root, {});
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.processItem);
 
     // Call processItem for index 0: live measure matches captured => the real
-    // processParagraph runs and reaches detached-fragment backup.begin.
+    // processParagraph runs and registers its raw-DOM record on the enhance
+    // context.
     spec.processItem(0);
     assert.equal(ctx.rootState._calls.processParagraphArgument.length, 1);
     assert.equal(ctx.rootState._calls.processParagraphArgument[0].paragraph, p1.source);
-    assert.equal(ctx.rawDom._calls.begin.length, 1);
-    assert.equal(ctx.rawDom._calls.begin[0][0], p1.source);
-  });
+    const record = context.rawDomParagraphs.get(p1.source);
+    assert.ok(record);
+    assert.equal(record.originalContent.textContent, "hello world");
+  }, { document: makePipelineDocument(), node: FakeNode });
 });
 
 test("1e. processItem sets stale when measure drifts and does not process", function () {
@@ -599,15 +658,14 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
-  const renderedP = makeParagraph();
-  const strandedP = makeParagraph();
+  const renderedP = makeParagraph({ source: makeFixtureParagraphElement() });
+  const strandedSource = makeFixtureParagraphElement();
   const state = {
     root: root,
     options: { fontSize: 19, paragraphSelector: "p" },
     paragraphs: [renderedP],
     issues: [],
-    ffi: null,
-    snapshotSession: null,
+    snapshotSession: fixtureSnapshotSession(),
     browserFallback: null,
     onIssue: function () {},
     onParagraphCommitted: function () {},
@@ -617,12 +675,15 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
   withEnv(() => {
     const ctx = makeDrivers({
       getStateValue: state,
-      stranded: [strandedP.source],
+      stranded: [strandedSource],
       candidates: [],
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(...driverArgs(ctx), root);
+    const context = createEnhanceContext(root);
+    // The rendered paragraph already carries its enhance-time raw-DOM record.
+    registerParagraph(context, renderedP.source);
+    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
 
     assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
     const spec = ctx.layoutJobPool._calls.startJob[0];
@@ -630,33 +691,33 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     // count = rendered(1) + stranded(1) = 2
     assert.equal(spec.itemCount, 2);
 
-    // Process rendered item (mixIndex 0): the real prepare runs (returns
-    // PreparedDomBridgeUnavailable without a renderer), the real session
-    // captures a live detached-fragment backup snapshot for the unsupported verdict.
+    // Process rendered item (mixIndex 0): the real prepare succeeds on the
+    // fixture session, and the session commits through the real renderer.
     spec.processItem(0);
-    assert.equal(ctx.rawDom._calls.captureLive.length, 1);
-    assert.equal(ctx.rawDom._calls.captureLive[0].source, renderedP.source);
+    assert.equal(renderedP.source.getAttribute("data-tq-canonical-source"), "true");
+    assert.equal(typeof renderedP.lastMeasure, "number");
 
     // Process stranded item (mixIndex 1): the real processParagraph runs and
-    // reaches detached-fragment backup.begin.
+    // registers its raw-DOM record on the context.
     spec.processItem(1);
-    assert.equal(ctx.rawDom._calls.begin.length, 1);
-    assert.equal(ctx.rawDom._calls.begin[0][0], strandedP.source);
-  });
+    const strandedRecord = context.rawDomParagraphs.get(strandedSource);
+    assert.ok(strandedRecord);
+    assert.equal(strandedRecord.originalContent.textContent, "hello world");
+  }, { document: makePipelineDocument(), node: FakeNode });
 });
 
 test("5b. relayout main path: prepareArgument includes widths", function () {
   const root = makeElement();
 
-  const renderedP = makeParagraph();
-  renderedP.source._rect.width = 250;
+  const renderedSource = makeFixtureParagraphElement();
+  renderedSource.width = 250;
+  const renderedP = makeParagraph({ source: renderedSource });
   const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [renderedP],
     issues: [],
-    ffi: null,
-    snapshotSession: null,
+    snapshotSession: fixtureSnapshotSession(),
     browserFallback: null,
   };
 
@@ -667,6 +728,8 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
+    const context = createEnhanceContext(root);
+    registerParagraph(context, renderedSource);
 
     const prepareArgCalls = [];
     const origPrepareArg = ctx.rootState.prepareArgument;
@@ -675,7 +738,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
       return origPrepareArg(st, paragraph, widthOverride);
     };
 
-    relayout(...driverArgs(ctx), root);
+    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     spec.processItem(0);
@@ -684,7 +747,7 @@ test("5b. relayout main path: prepareArgument includes widths", function () {
     assert.equal(prepareArgCalls[0].paragraph, renderedP);
     // width should come from the measured source element
     assert.equal(prepareArgCalls[0].widthOverride, 250);
-  });
+  }, { document: makePipelineDocument(), node: FakeNode });
 });
 
 test("5c. relayout main path: stale when root width drifts >= 0.5", function () {
@@ -723,14 +786,14 @@ test("5c. relayout main path: stale when root width drifts >= 0.5", function () 
 test("5d. relayout main path: onFailure calls rollback", function () {
   const root = makeElement();
 
-  const renderedP = makeParagraph();
+  const renderedSource = makeFixtureParagraphElement();
+  const renderedP = makeParagraph({ source: renderedSource });
   const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [renderedP],
     issues: [],
-    ffi: null,
-    snapshotSession: null,
+    snapshotSession: fixtureSnapshotSession(),
     browserFallback: null,
   };
 
@@ -741,26 +804,65 @@ test("5d. relayout main path: onFailure calls rollback", function () {
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(...driverArgs(ctx), root);
+    const context = createEnhanceContext(root);
+    registerParagraph(context, renderedSource);
+    // Enhanced steady state: the renderer wrote the prepared DOM through
+    // innerHTML before the relayout session opens.
+    renderedSource.innerHTML = "rendered v1";
+    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
+
+    // The successful item captured the live content before its commit
+    // replaced it.
+    spec.processItem(0);
+    assert.equal(typeof renderedP.lastMeasure, "number");
+    assert.notEqual(renderedSource.textContent, "rendered v1");
+
+    // The real session rollback restores the captured live content and the
+    // pre-session measure.
     assert.ok(spec.onFailure);
     spec.onFailure();
-    // The real session rollback hands the captured snapshots to detached-fragment backup.
-    assert.equal(ctx.rawDom._calls.rollback.length, 1);
-  });
+    assert.equal(renderedSource.textContent, "rendered v1");
+    assert.equal(renderedP.lastMeasure, null);
+    assert.equal(state.paragraphs.length, 1);
+  }, { document: makePipelineDocument(), node: FakeNode });
 });
 
 test("5e. relayout main path: onItemsFinished calls finish which ejects unsupported paragraphs", function () {
   const root = makeElement();
 
-  const renderedP = makeParagraph();
+  const renderedSource = makeFixtureParagraphElement();
+  // A span whose locale diverges from the paragraph locale makes the real
+  // prepare return the SpanLocaleMismatchUnsupported verdict.
+  const renderedP = makeParagraph({
+    source: renderedSource,
+    lowered: {
+      text: "test",
+      textStyle: {
+        fontFamilies: [],
+        fontSize: 19,
+        fontWeight: 400,
+        italic: false,
+        baselineShift: 0,
+        locale: "zh-Hans",
+      },
+      lineHeight: 28,
+      spans: [{ start: 0, end: 4, style: { locale: "en" } }],
+      decorations: [],
+      inlineBoxes: [],
+      inlineObjects: [],
+      domInlineObjects: [],
+      sourceSpans: [],
+      sourceBoundaries: [],
+      lineBreakSpans: [],
+    },
+  });
   const state = {
     root: root,
     options: { fontSize: 19 },
     paragraphs: [renderedP],
     issues: [],
-    ffi: null,
     snapshotSession: null,
     browserFallback: null,
   };
@@ -772,19 +874,20 @@ test("5e. relayout main path: onItemsFinished calls finish which ejects unsuppor
 
       layoutJobPool: makeFakeLayoutJobPool(),
     });
-    relayout(...driverArgs(ctx), root);
+    const context = createEnhanceContext(root);
+    registerParagraph(context, renderedSource);
+    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
 
     const spec = ctx.layoutJobPool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
-    // The rendered item prepares to PreparedDomBridgeUnavailable (no
-    // renderer), so the real session marks it unsupported; finish ejects it
-    // from state.paragraphs and reports the issue.
+    // The session marks the unsupported paragraph and finish ejects it from
+    // state.paragraphs and reports the issue.
     spec.processItem(0);
     spec.onItemsFinished();
     assert.equal(state.paragraphs.length, 0);
     assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "PreparedDomBridgeUnavailable");
-  });
+    assert.equal(state.issues[0].name, "SpanLocaleMismatchUnsupported");
+  }, { document: makePipelineDocument(), node: FakeNode });
 });
 
 // ---------------------------------------------------------------------------
