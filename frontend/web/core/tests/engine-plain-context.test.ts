@@ -1,12 +1,17 @@
 // R10 verification surface (spec wc-s3 item 4, ruling R8 TS-ifies new
 // tests): the dissolved engine entry is driven by a plain-data mock
 // runtime-graph context. Per ruling 1 this direct-drive test assembles its
-// own dependencies: the graph products (rootState,
-// layoutJobPool, rawDom) are plain object literals that satisfy the product
-// contracts by assignment, and the named entry functions receive them as
-// explicit arguments. No engine instance, no registry, no browser globals
-// beyond the two reads the drivers document (window.getComputedStyle for the
-// shared-runtime-styles gate, window.innerHeight for viewport distance).
+// own dependencies: the rootState and layoutJobPool collaborators are plain
+// object literals that satisfy the product contracts by assignment, and the
+// named entry functions receive them as explicit arguments. The third
+// parameter is a real EnhancedElementContext built through
+// createEnhanceContext; the raw-DOM lifecycle runs for real against the
+// context's paragraph records, so no module-level stubbing is involved. No
+// engine instance, no registry beyond the plain states map the wrapper
+// keeps, and no browser globals beyond the documented reads
+// (getComputedStyle for the shared-runtime-styles gate and root defaults,
+// window.innerHeight for viewport distance, document/Node for the raw-DOM
+// takeover).
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -23,12 +28,81 @@ import {
   reconcileRoot,
 } from "../core/engine/content-reconcile.js";
 import { createRootState } from "../core/engine/root-state.js";
+import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
 import type { RootStateApi, RootState, EngineState } from "../core/engine/root-state.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import type { RawDomParagraphRecord } from "../core/engine/context/enhance-context.js";
-import * as rawDomModule from "../core/engine/raw-dom.js";
 import type { EnhanceOptions } from "../core/engine/lifecycle.js";
+import { initializeGlobalServices } from "../core/services/global-services.js";
+initializeGlobalServices();
+
+// Minimal node tree for the raw-DOM lifecycle: the commit forwarding captures
+// the prototype mutation verbs as its native layer, and the takeover moves
+// children through fragments built by the fake document.
+class PlainNode {
+  nodeType: number;
+  textContent: string;
+  childNodes: PlainNode[];
+  parentNode: PlainNode | any;
+
+  constructor(nodeType: number, textContent = "") {
+    this.nodeType = nodeType;
+    this.textContent = textContent;
+    this.childNodes = [];
+    this.parentNode = null;
+  }
+
+  get firstChild(): PlainNode | null {
+    return this.childNodes[0] ?? null;
+  }
+
+  get nextSibling(): PlainNode | null {
+    if (!this.parentNode) return null;
+    const siblings = this.parentNode.childNodes;
+    return siblings[siblings.indexOf(this) + 1] ?? null;
+  }
+
+  appendChild(node: any): any {
+    if (node.nodeType === 11) {
+      while (node.firstChild) PlainNode.prototype.appendChild.call(this, node.firstChild);
+      return node;
+    }
+    if (node.parentNode) node.parentNode.removeChild(node);
+    this.childNodes.push(node);
+    node.parentNode = this;
+    return node;
+  }
+
+  removeChild(node: any): any {
+    const index = this.childNodes.indexOf(node);
+    if (index >= 0) this.childNodes.splice(index, 1);
+    node.parentNode = null;
+    return node;
+  }
+
+  insertBefore(node: any, reference: any): any {
+    if (node.nodeType === 11) {
+      while (node.firstChild) PlainNode.prototype.insertBefore.call(this, node.firstChild, reference);
+      return node;
+    }
+    const index = reference == null ? this.childNodes.length : this.childNodes.indexOf(reference);
+    if (node.parentNode) node.parentNode.removeChild(node);
+    this.childNodes.splice(index, 0, node);
+    node.parentNode = this;
+    return node;
+  }
+
+  replaceChild(next: any, previous: any): any {
+    this.insertBefore(next, previous);
+    return this.removeChild(previous);
+  }
+}
+
+class PlainFragment extends PlainNode {
+  constructor() {
+    super(11);
+  }
+}
 
 // Plain fakes ride through an any-typed builder (Object.create(null)), the
 // same shape the lowered-dom-helpers suite uses; the typed seam is the
@@ -42,18 +116,21 @@ function fakeDocument() {
     nodeType: 9,
     addEventListener() {},
     removeEventListener() {},
+    createDocumentFragment: () => new PlainFragment(),
   });
 }
 
 function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
   const attributes = new Map<string, string>();
-  return Object.assign(
+  const childNodes: any[] = [];
+  const element: any = Object.assign(
     Object.create(null),
     {
       nodeType: 1,
       tagName: tagName.toUpperCase(),
       isConnected: true,
       attributes,
+      childNodes,
       textContent: "",
       ownerDocument: null,
       getAttribute: (name: string) => attributes.get(name) ?? null,
@@ -67,39 +144,84 @@ function fakeElement(tagName: string, extras: Record<string, unknown> = {}) {
       closest: () => null,
       querySelectorAll: () => [],
       getBoundingClientRect: () => ({ width: 360, top: 0, bottom: 24 }),
+      appendChild(node: any) {
+        if (node.nodeType === 11) {
+          while (node.firstChild) element.appendChild(node.firstChild);
+          return node;
+        }
+        if (node.parentNode) node.parentNode.removeChild(node);
+        childNodes.push(node);
+        node.parentNode = element;
+        return node;
+      },
+      removeChild(node: any) {
+        const index = childNodes.indexOf(node);
+        if (index >= 0) childNodes.splice(index, 1);
+        node.parentNode = null;
+        return node;
+      },
+      insertBefore(node: any, reference: any) {
+        if (node.nodeType === 11) {
+          while (node.firstChild) element.insertBefore(node.firstChild, reference);
+          return node;
+        }
+        const index = reference == null ? childNodes.length : childNodes.indexOf(reference);
+        if (node.parentNode) node.parentNode.removeChild(node);
+        childNodes.splice(index, 0, node);
+        node.parentNode = element;
+        return node;
+      },
+      replaceChild(next: any, previous: any) {
+        element.insertBefore(next, previous);
+        return element.removeChild(previous);
+      },
     },
     extras,
   );
+  Object.defineProperty(element, "firstChild", {
+    enumerable: true,
+    get: () => childNodes[0] ?? null,
+  });
+  return element;
 }
 
-// The drivers read the shared-runtime-styles marker off window.getComputedStyle
-// and the viewport height off window.innerHeight; install both and hand back
-// a restore closure. Reflect keeps the global writes cast-free.
+// The drivers read the shared-runtime-styles marker and the root defaults
+// through getComputedStyle, the viewport height off window.innerHeight, and
+// the raw-DOM takeover reads the fragment factory and the Node prototype;
+// install all four and hand back a restore closure. Reflect keeps the global
+// writes cast-free.
 function installDriveGlobals() {
-  const savedWindow = Reflect.get(globalThis, "window");
+  const saved = ["window", "getComputedStyle", "document", "Node"].map((name) => ({
+    name,
+    own: Object.prototype.hasOwnProperty.call(globalThis, name),
+    value: Reflect.get(globalThis, name),
+  }));
+  const computedStyle = () => ({
+    getPropertyValue: (name: string) => (name === "--tq-styles-ready" ? "1" : ""),
+  });
   Reflect.set(globalThis, "window", {
     innerHeight: 800,
-    getComputedStyle: () => ({
-      getPropertyValue: (name: string) => (name === "--tq-styles-ready" ? "1" : ""),
-    }),
+    getComputedStyle: computedStyle,
   });
+  Reflect.set(globalThis, "getComputedStyle", computedStyle);
+  Reflect.set(globalThis, "document", fakeDocument());
+  Reflect.set(globalThis, "Node", PlainNode);
   return () => {
-    if (savedWindow === undefined) Reflect.deleteProperty(globalThis, "window");
-    else Reflect.set(globalThis, "window", savedWindow);
+    for (const entry of saved) {
+      if (entry.own) Reflect.set(globalThis, entry.name, entry.value);
+      else Reflect.deleteProperty(globalThis, entry.name);
+    }
   };
 }
 
 interface PlainContext {
   rootState: RootStateApi;
   layoutJobPool: LayoutJobPool;
-  rawDomContext: EnhancedElementContext;
   ops: string[];
   jobs: LayoutJobSpec[];
   states: Map<unknown, RootState>;
   createdBags: (Record<string, unknown> | null)[];
   canonicalBags: EnhanceOptions[];
-  installedDocuments: unknown[];
-  restoredParagraphs: unknown[];
   poolJobKind: string | null;
 }
 
@@ -133,19 +255,6 @@ function blankRootState(root: Element, options: EnhanceOptions): RootState {
   };
 }
 
-function blankEngineState(state: RootState): EngineState {
-  return {
-    options: state.options,
-    preparedDomEnabled: false,
-    snapshotSession: null,
-    browserFallback: null,
-    onIssue() {},
-    onParagraphCommitted() {},
-    paragraphs: state.paragraphs,
-    issues: state.issues,
-  };
-}
-
 function canonicalOptions(): EnhanceOptions {
   return {
     fontFamilies: {
@@ -173,59 +282,26 @@ function makePlainContext(): PlainContext {
   const states = new Map<unknown, RootState>();
   const createdBags: (Record<string, unknown> | null)[] = [];
   const canonicalBags: EnhanceOptions[] = [];
-  const installedDocuments: unknown[] = [];
-  const restoredParagraphs: unknown[] = [];
   const jobKindBox: JobKindBox = { value: null };
 
-  // Create a fake EnhancedElementContext with a rawDomParagraphs map
-  const rawDomParagraphs = new Map<Element, RawDomParagraphRecord>();
-  const rawDomContext: EnhancedElementContext = {
-    rawDomParagraphs,
-  } as EnhancedElementContext;
-
-  // Stub all named export functions from raw-dom module
-  const originalRawDomBegin = rawDomModule.rawDomBegin;
-  const originalRawDomTake = rawDomModule.rawDomTake;
-  const originalRawDomCommit = rawDomModule.rawDomCommit;
-  const originalRawDomStampRendered = rawDomModule.rawDomStampRendered;
-  const originalRawDomRenderedMatches = rawDomModule.rawDomRenderedMatches;
-  const originalRawDomMatches = rawDomModule.rawDomMatches;
-  const originalRawDomCaptureLive = rawDomModule.rawDomCaptureLive;
-  const originalRawDomRollback = rawDomModule.rawDomRollback;
-  const originalRawDomRestoreParagraph = rawDomModule.rawDomRestoreParagraph;
-  const originalRawDomRestoreShell = rawDomModule.rawDomRestoreShell;
-  const originalRawDomEnsureContainingBlock = rawDomModule.rawDomEnsureContainingBlock;
-  const originalRawDomSuspendEngineWrites = rawDomModule.rawDomSuspendEngineWrites;
-
-  // Replace with no-op stubs that work with our fake context
-  (rawDomModule as any).rawDomBegin = () => {};
-  (rawDomModule as any).rawDomTake = () => {};
-  (rawDomModule as any).rawDomCommit = () => {};
-  (rawDomModule as any).rawDomStampRendered = () => {};
-  (rawDomModule as any).rawDomRenderedMatches = () => true;
-  (rawDomModule as any).rawDomMatches = () => true;
-  (rawDomModule as any).rawDomCaptureLive = () => ({ source: null, content: null });
-  (rawDomModule as any).rawDomRollback = () => [];
-  (rawDomModule as any).rawDomRestoreParagraph = (context: EnhancedElementContext, source: Element) => {
-    ops.push("rawDom.restoreParagraph");
-    restoredParagraphs.push(source);
-  };
-  (rawDomModule as any).rawDomRestoreShell = () => {};
-  (rawDomModule as any).rawDomEnsureContainingBlock = () => {};
-  (rawDomModule as any).rawDomSuspendEngineWrites = (_context: EnhancedElementContext, _source: Element, action: () => any) => action();
-
-  // Create a real rootState API instance and wrap its methods to track calls.
+  // Create a real rootState API instance and wrap its methods to track
+  // calls. The state registry lives on the plain states map so tests can
+  // seed enhanced steady states by assignment.
   const realRootState = createRootState();
   const rootState: RootStateApi = {
     createRootState(root, bag) {
       ops.push("rs.createRootState");
       createdBags.push(bag);
-      return realRootState.createRootState(root, bag);
+      const state = realRootState.createRootState(root, bag);
+      states.set(root, state);
+      return state;
     },
     createRootStateFromCanonical(root, options) {
       ops.push("rs.createRootStateFromCanonical");
       canonicalBags.push(options);
-      return realRootState.createRootStateFromCanonical(root, options);
+      const state = realRootState.createRootStateFromCanonical(root, options);
+      states.set(root, state);
+      return state;
     },
     activeTsOptions(state) {
       return realRootState.activeTsOptions(state);
@@ -247,15 +323,15 @@ function makePlainContext(): PlainContext {
       return realRootState.prepareArgument(state, paragraph, widthOverride);
     },
     getState(root) {
-      return realRootState.getState(root);
+      return states.get(root);
     },
     setState(root, state) {
       ops.push("rs.setState");
-      realRootState.setState(root, state);
+      states.set(root, state);
     },
     deleteState(root) {
       ops.push("rs.deleteState");
-      realRootState.deleteState(root);
+      states.delete(root);
     },
     paragraphCandidates(root, selector) {
       ops.push("rs.paragraphCandidates");
@@ -321,14 +397,11 @@ function makePlainContext(): PlainContext {
   return {
     rootState,
     layoutJobPool,
-    rawDomContext,
     ops,
     jobs,
     states,
     createdBags,
     canonicalBags,
-    installedDocuments,
-    restoredParagraphs,
     get poolJobKind() {
       return jobKindBox.value;
     },
@@ -338,10 +411,12 @@ function makePlainContext(): PlainContext {
   };
 }
 
-function graphOf(context: PlainContext) {
-  return {
-    rawDomContext: context.rawDomContext,
-  };
+// Registers the paragraph with the context's raw-DOM bookkeeping exactly the
+// way the enhance pass did, so restore/probe/match paths find the record.
+function registerParagraph(context: EnhancedElementContext, source: any) {
+  rawDomBegin(context, source, null, null, null, null, null, null, "", "", "", "", "", "", null);
+  rawDomTake(context, source, null);
+  rawDomCommit(context, source, null);
 }
 
 test("the plain context rootState satisfies the product contracts", () => {
@@ -359,7 +434,7 @@ test("enhance installs the copy listener, tears down, then builds and publishes"
     const enhancedCount = enhance(
       context.rootState,
       context.layoutJobPool,
-      context.rawDomContext,
+      createEnhanceContext(root),
       root,
       { paragraphSelector: "p" },
     );
@@ -391,7 +466,7 @@ test("enhanceProgressively starts an Enhance job through the plain pool", () => 
     enhanceProgressively(
       context.rootState,
       context.layoutJobPool,
-      context.rawDomContext,
+      createEnhanceContext(root),
       root,
       bag,
     );
@@ -427,7 +502,7 @@ test("relayout cold-starts a Relayout job when the root carries no state", () =>
     relayout(
       context.rootState,
       context.layoutJobPool,
-      context.rawDomContext,
+      createEnhanceContext(root),
       root,
     );
     assert.deepEqual(context.ops, [
@@ -458,7 +533,7 @@ test("relayout restarts an interrupted Enhance through the canonical builder", (
     relayout(
       context.rootState,
       context.layoutJobPool,
-      context.rawDomContext,
+      createEnhanceContext(root),
       root,
     );
 
@@ -484,7 +559,7 @@ test("relayout main path cancels the job and rebuilds a Relayout session", () =>
     relayout(
       context.rootState,
       context.layoutJobPool,
-      context.rawDomContext,
+      createEnhanceContext(root),
       root,
     );
 
@@ -516,6 +591,10 @@ test("destroyRoot restores tracked paragraphs, clears markers, rewrites attribut
 
   const paragraphA = fakeElement("p");
   const paragraphB = fakeElement("p");
+  const contentA = new PlainNode(3, "content a");
+  const contentB = new PlainNode(3, "content b");
+  paragraphA.appendChild(contentA);
+  paragraphB.appendChild(contentB);
   const issueElement = fakeElement("p");
   issueElement.setAttribute("data-tiqian-capability-issue", "LoweringFailed");
   issueElement.setAttribute("data-tiqian-capability-detail", "detail");
@@ -538,26 +617,36 @@ test("destroyRoot restores tracked paragraphs, clears markers, rewrites attribut
   );
   context.states.set(root, seeded);
 
-  destroyRoot(context.rootState, context.layoutJobPool, context.rawDomContext, root);
+  const restoreGlobals = installDriveGlobals();
+  try {
+    const enhanceContext = createEnhanceContext(root);
+    // Enhanced steady state: the takeover moved the original content into
+    // the raw-DOM backup.
+    registerParagraph(enhanceContext, paragraphA);
+    registerParagraph(enhanceContext, paragraphB);
+    assert.equal(paragraphA.childNodes.length, 0);
+    assert.equal(paragraphB.childNodes.length, 0);
 
-  assert.deepEqual(context.ops, [
-    "pool.cancelJob",
-    "rs.deleteState",
-    "rawDom.restoreParagraph",
-    "rawDom.restoreParagraph",
-  ]);
-  assert.deepEqual(context.restoredParagraphs, [paragraphA, paragraphB]);
-  assert.equal(context.states.has(root), false);
-  // clearIssue restored the capability marker attributes to their captured
-  // (absent) originals.
-  assert.equal(issueElement.hasAttribute("data-tiqian-capability-issue"), false);
-  assert.equal(issueElement.hasAttribute("data-tiqian-capability-detail"), false);
-  // Without a snapshot count the observable markers are removed outright.
-  assert.equal(root.hasAttribute("data-tiqian-enhanced"), false);
-  assert.equal(root.hasAttribute("data-tiqian-enhanced-count"), false);
-  assert.equal(root.hasAttribute("data-tiqian-issue-count"), false);
-  assert.equal(root.hasAttribute("data-tiqian-relayout-error"), false);
-  assert.equal(root.hasAttribute("data-tiqian-snapshot-layout-fallback"), false);
+    destroyRoot(context.rootState, context.layoutJobPool, enhanceContext, root);
+
+    assert.deepEqual(context.ops, ["pool.cancelJob", "rs.deleteState"]);
+    // The real restore handed the captured original content back to the hosts.
+    assert.deepEqual(paragraphA.childNodes, [contentA]);
+    assert.deepEqual(paragraphB.childNodes, [contentB]);
+    assert.equal(context.states.has(root), false);
+    // clearIssue restored the capability marker attributes to their captured
+    // (absent) originals.
+    assert.equal(issueElement.hasAttribute("data-tiqian-capability-issue"), false);
+    assert.equal(issueElement.hasAttribute("data-tiqian-capability-detail"), false);
+    // Without a snapshot count the observable markers are removed outright.
+    assert.equal(root.hasAttribute("data-tiqian-enhanced"), false);
+    assert.equal(root.hasAttribute("data-tiqian-enhanced-count"), false);
+    assert.equal(root.hasAttribute("data-tiqian-issue-count"), false);
+    assert.equal(root.hasAttribute("data-tiqian-relayout-error"), false);
+    assert.equal(root.hasAttribute("data-tiqian-snapshot-layout-fallback"), false);
+  } finally {
+    restoreGlobals();
+  }
 });
 
 test("destroyRoot keeps the snapshot-owned enhancement markers", () => {
@@ -567,7 +656,7 @@ test("destroyRoot keeps the snapshot-owned enhancement markers", () => {
   const seeded = blankRootState(root, canonicalOptions());
   context.states.set(root, seeded);
 
-  destroyRoot(context.rootState, context.layoutJobPool, context.rawDomContext, root);
+  destroyRoot(context.rootState, context.layoutJobPool, createEnhanceContext(root), root);
 
   assert.equal(root.getAttribute("data-tiqian-enhanced"), "true");
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "3");
@@ -591,7 +680,7 @@ test("probeRootContentDrift answers the probe verdict as a plain object", () => 
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
 
   // No runtime state: the whole root is unknown.
-  assert.deepEqual(probeRootContentDrift(context.rawDomContext, context.rootState, root), {
+  assert.deepEqual(probeRootContentDrift(createEnhanceContext(root), context.rootState, root), {
     unknown: 1,
     drifted: 0,
     dead: 0,
@@ -608,14 +697,25 @@ test("probeRootContentDrift answers the probe verdict as a plain object", () => 
     fakeOf({ source: dead, lowered: fakeOf({}), lastMeasure: null }),
   );
   context.states.set(root, seeded);
-  (rawDomModule as any).rawDomRenderedMatches = (source: Element) => source !== drifted;
 
-  assert.deepEqual(probeRootContentDrift(context.rawDomContext, context.rootState, root), {
-    unknown: 0,
-    drifted: 1,
-    dead: 1,
-    rawDom: 0,
-  });
+  const restoreGlobals = installDriveGlobals();
+  try {
+    const enhanceContext = createEnhanceContext(root);
+    registerParagraph(enhanceContext, clean);
+    registerParagraph(enhanceContext, drifted);
+    // A host edit through the native mutation path breaks the rendered
+    // identity of the drifted paragraph.
+    PlainNode.prototype.appendChild.call(drifted, new PlainNode(3, "host edit"));
+
+    assert.deepEqual(probeRootContentDrift(enhanceContext, context.rootState, root), {
+      unknown: 0,
+      drifted: 1,
+      dead: 1,
+      rawDom: 0,
+    });
+  } finally {
+    restoreGlobals();
+  }
 });
 
 test("reconcileRoot answers null without state and idle without job dispatch", () => {
@@ -623,7 +723,7 @@ test("reconcileRoot answers null without state and idle without job dispatch", (
   const root = fakeElement("tiqian-prose", { ownerDocument: fakeDocument() });
 
   assert.equal(
-    reconcileRoot(context.rawDomContext, context.rootState, context.layoutJobPool, root, []),
+    reconcileRoot(createEnhanceContext(root), context.rootState, context.layoutJobPool, root, []),
     null,
   );
 
@@ -634,8 +734,10 @@ test("reconcileRoot answers null without state and idle without job dispatch", (
 
   const restoreGlobals = installDriveGlobals();
   try {
+    const enhanceContext = createEnhanceContext(root);
+    registerParagraph(enhanceContext, clean);
     const result = reconcileRoot(
-      context.rawDomContext,
+      enhanceContext,
       context.rootState,
       context.layoutJobPool,
       root,
