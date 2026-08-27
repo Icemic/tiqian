@@ -40,6 +40,7 @@ import {
   restoreLoadedSnapshot,
   tryAdoptRequestedSnapshot,
 } from "../sampler/snapshot/loaded-snapshots.js";
+import { releasePreparedValueStyleRoot } from "../sampler/snapshot/prepared-dom.js";
 import {
   createSnapshotFontSessionEntry,
   releaseSnapshotFontSession,
@@ -663,7 +664,12 @@ class ProseHostSession {
     releaseNativeScrollAnchoring(this.#root);
     this.#stopIntersectionObservation();
     this.#stopParagraphTierObservation();
-    this.#context.destroy();
+    // DetachedNavigationDisposal: the settle is a detach, not a destroy. The
+    // rawDom paragraph backups stay on the context so a reconnection can
+    // reclaim the source (ReconnectedSourceReclamation); destroy() would
+    // clear them and strand the rendered DOM. Only the diagnosis listeners
+    // drop here; the detach calls below release the prepared-style state.
+    this.#context.diagnosis.dispose();
     this.#stateMachine.settleDisconnection();
     this.#clearResponsiveRetarget();
     this.#clearInitialFontRetry();
@@ -682,6 +688,10 @@ class ProseHostSession {
       detachLoadedSnapshot(this.#root, this.#context);
     }
     if (this.#stateMachine.runtimeActive) detachRuntimeRoot(this.#context, this.#root);
+    // The detach calls above release the prepared styles for their own
+    // backing; this idempotent sweep covers any remainder so the settle
+    // releases document-scoped styles as completely as a destroy would.
+    releasePreparedValueStyleRoot(this.#root, this.#context);
     if (this.#stateMachine.workerAttached) {
       // tiqian:detach already cancelled the job, so the pool's detach has no
       // in-flight work to finish on this disconnected root.
@@ -809,9 +819,10 @@ class ProseHostSession {
 
   #restartConnectedLifecycle() {
     this.#abortEnhancePipeline();
-    // Reconnect starts a fresh context: disconnect destroyed the previous
-    // one and dropped it from the registry, so the constructor re-registers.
-    this.#context = createEnhanceContext(this.#root);
+    // The per-root context outlives every connection cycle: its rawDom
+    // records are the source backing the teardown below, so the restart
+    // restores through the same context. The mount that follows bumps the
+    // generation and supersedes any in-flight work.
     this.#stateMachine.bumpEnhanceRequest();
     this.#stateMachine.dispatched = false;
     this.#stateMachine.completionGateOpen = false;
