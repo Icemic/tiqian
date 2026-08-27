@@ -259,7 +259,25 @@ internal fun clusterRoleRanges(
             index += extender.charCount()
         }
 
-        ranges.add(ResolvedClusterRange(TextRange(start, index), role))
+        val range = TextRange(start, index)
+        ranges.add(
+            ResolvedClusterRange(
+                range = range,
+                role = role,
+                roleOverride = if (role == FontRole.Emoji && classifiedRole != FontRole.Emoji) {
+                    RoleOverrideInfo(
+                        range = range,
+                        sourceText = text.substring(range.start, range.end),
+                        originalRole = classifiedRole.name,
+                        overriddenRole = role.name,
+                        source = "EmojiPresentationSignalRolePromotion",
+                        reason = "GraphemeContainsEmojiPresentationSignal",
+                    )
+                } else {
+                    null
+                },
+            ),
+        )
     }
     return ranges
 }
@@ -340,4 +358,5 @@ internal data class ResolvedClusterRange(
     val role: FontRole,
     val mandatoryBreak: Boolean = false,
     val zeroWidthSoftBreak: Boolean = false,
+    val roleOverride: RoleOverrideInfo? = null,
 )

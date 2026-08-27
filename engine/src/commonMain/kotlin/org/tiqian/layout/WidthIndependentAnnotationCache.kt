@@ -289,7 +289,7 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
     val quotePairs = quotePairAnalyzer.analyze(text)
     val quoteRoleDecisions = quotePairAnalyzer.classifyQuoteRoles(text, quotePairs, context)
     val quoteRoleOverrides = quoteRoleDecisions.associate { it.index to it.role }
-    val roleOverrideInfos = quoteRoleDecisions.toRoleOverrideInfos(
+    val quoteRoleOverrideInfos = quoteRoleDecisions.toRoleOverrideInfos(
         text = text,
         baseClassifier = fontRoleClassifier,
         context = context,
@@ -309,6 +309,8 @@ internal fun ExplainableStubParagraphLayoutEngine.prepareWidthIndependentAnnotat
         emojiShapingBoundaries,
         input.inlineObjects.associateBy { it.range.start },
     )
+    val roleOverrideInfos = (quoteRoleOverrideInfos + clusterRanges.mapNotNull { it.roleOverride })
+        .sortedBy { it.range.start }
     val shapeableRanges = clusterRanges.filterNot {
         it.mandatoryBreak || it.zeroWidthSoftBreak || inlineObjectByRange.containsKey(it.range)
     }
