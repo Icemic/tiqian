@@ -2715,6 +2715,7 @@ export function installSnapshotFontSessionFixture({
   failFamily = null,
   failText = null,
   varyFaceByText = false,
+  corruptShapeError = null,
 } = {}) {
   globalThis.__TiqianSnapshotFixtureActive = true;
   globalThis.__TiqianSnapshotFontShapeCount = 0;
@@ -2728,6 +2729,9 @@ export function installSnapshotFontSessionFixture({
 
   class FixtureShapeTable extends Map {
     get(key) {
+      // Corrupted font evidence is a hard error, not a capability issue: the
+      // prepare path must rethrow it so the relayout job fails and rolls back.
+      if (corruptShapeError) throw new Error(corruptShapeError);
       const [displayText, serializedFamilies] = JSON.parse(key);
       if (shapeFailure(displayText, serializedFamilies)) {
         globalThis.__TiqianSnapshotFontFallbackCount += 1;

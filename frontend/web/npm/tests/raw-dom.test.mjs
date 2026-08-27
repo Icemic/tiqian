@@ -6,11 +6,11 @@ import test from "node:test";
 import {
   attachWorker,
   cleanupMounted,
+  clearSnapshotFontSessionFixture,
   detachViaChannel,
   dispatchRelayout,
   drainMicrotasks,
   snapshotTestOptions,
-  failSnapshotPreparedDomRender,
   flushAllTestAnimationFrames,
   grantWorkerSlice,
   installSnapshotFontSessionFixture,
@@ -118,6 +118,7 @@ test("rawDom_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => 
 
 test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   t.after(cleanupMounted);
+  t.after(() => clearSnapshotFontSessionFixture());
   const TiqianWeb = await loadHostRuntime();
   installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(
@@ -141,7 +142,13 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
     readyCount += 1;
   });
 
-  failSnapshotPreparedDomRender("fixture-commit-failure");
+  // Corrupt the snapshot font session's shape evidence: the relayout
+  // re-shapes through this session, and the hard error must fail the layout
+  // job closed, roll the session back, and report through the root channel.
+  installSnapshotFontSessionFixture({
+    failShaping: false,
+    corruptShapeError: "SnapshotSessionShapeTableCorrupted:fixture-shape-table",
+  });
   root.style.width = "180px";
   dispatchRelayout(root);
   await drainMicrotasks();
@@ -154,7 +161,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   assert.equal(paragraph.getAttribute("style"), renderedStyle);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
-  assert.ok(root.getAttribute("data-tiqian-relayout-error")?.includes("fixture-commit-failure") === true);
+  assert.ok(root.getAttribute("data-tiqian-relayout-error")?.includes("SnapshotSessionShapeTableCorrupted") === true);
   assert.equal(errorCount, 1);
   assert.equal(readyCount, 1);
   assert.equal(pendingTestAnimationFrameCount(), 0);
