@@ -63,7 +63,7 @@ function fakeDocument(): FakeDocument {
 
 class FakeHTMLElement {}
 
-test("element import registers the default tag and installs the copy interceptor", async () => {
+test("registerTiqianProse registers the default tag and installs the copy interceptor", async () => {
   const saved = preserveGlobals();
   const registry = new FakeCustomElementRegistry();
   const documentObject = fakeDocument();
@@ -74,6 +74,10 @@ test("element import registers the default tag and installs the copy interceptor
     Reflect.set(globalThis, "document", documentObject);
 
     const module = await import(`../element.js?register-default=${Date.now()}`);
+
+    // The /element import stays side-effect free; registration is explicit.
+    assert.equal(registry.get("tiqian-prose"), undefined);
+    module.registerTiqianProse();
 
     assert.equal(registry.get("tiqian-prose"), module.TiqianProseElement);
     // The default registration installs the source-faithful copy interceptor.
@@ -111,13 +115,16 @@ test("interceptCopy=false skips the copy interceptor for the target document", a
   const saved = preserveGlobals();
   const registry = new FakeCustomElementRegistry();
   try {
-    // No document at import time: the top-level registration defines the tag
-    // but installs no copy interceptor, leaving a clean baseline.
+    // No document at import time: the import registers nothing, and the
+    // explicit default registration defines the tag but installs no copy
+    // interceptor without a document, leaving a clean baseline.
     clearBrowserGlobals();
     Reflect.set(globalThis, "HTMLElement", FakeHTMLElement);
     Reflect.set(globalThis, "customElements", registry);
 
     const module = await import(`../element.js?register-copy=${Date.now()}`);
+    assert.equal(registry.get("tiqian-prose"), undefined);
+    module.registerTiqianProse();
     assert.equal(registry.get("tiqian-prose"), module.TiqianProseElement);
 
     const copyless = fakeDocument();
