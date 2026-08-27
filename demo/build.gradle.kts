@@ -35,4 +35,11 @@ tasks.register<JavaExec>("runComposeDemo") {
     mainClass.set("org.tiqian.demo.DesktopMainKt")
     classpath = files(tasks.named("jvmJar")) + configurations.named("jvmRuntimeClasspath").get()
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+
+    providers.gradleProperty("tiqianDemoDensity").orNull?.let { scale ->
+        require(scale.toFloatOrNull()?.let { it > 0f } == true) {
+            "tiqianDemoDensity must be a positive number, but was '$scale'."
+        }
+        systemProperty("tiqian.demo.density", scale)
+    }
 }
