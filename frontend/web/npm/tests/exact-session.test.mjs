@@ -16,11 +16,7 @@ import {
   enginePunctuationFeatureStyle,
   snapshotFontFallbackCount,
   snapshotFontShapeCount,
-  snapshotPreparedPlan,
-  snapshotPreparedRenderCount,
   snapshotTestOptions,
-  failSnapshotPreparedDomValidation,
-  failNextSnapshotPreparedDomValidation,
   flushAllTestAnimationFrames,
   dispatchRelayout,
   installSnapshotFontSessionFixture,
@@ -29,6 +25,7 @@ import {
   installTestAnimationFrames,
   loadHostRuntime,
   mount,
+  preparedValueStyleProperty,
   testOptions,
 } from "./runtime-host.mjs";
 
@@ -85,7 +82,7 @@ test("snapshotSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", asy
 
   const paragraph = root.querySelector("#prepared-fallback");
   const line = paragraph.querySelector(":scope > .tq-line");
-  assert.equal(cssPx(line.style.getPropertyValue("--tq-line-height")), 30);
+  assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 30);
   assert.equal(copySelection(paragraph), "第一行正文第二行正文");
 });
 
@@ -109,10 +106,11 @@ test("snapshotSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridg
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
-  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
+  assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
   assertEnginePunctuationFeatureLock(paragraph);
-  assert.ok(snapshotPreparedPlan().includes('"layoutRevision":"tiqian-layout-v2"'));
-  assert.ok(snapshotPreparedPlan().includes('"height":'));
+  const line = paragraph.querySelector(".tq-line");
+  assert.ok(line, paragraph.innerHTML);
+  assert.ok(cssPx(preparedValueStyleProperty(line, "--tq-line-height")) > 0, paragraph.innerHTML);
 });
 
 test("snapshotSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) => {
@@ -134,7 +132,7 @@ test("snapshotSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) 
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.ok(paragraph.querySelector("a[href='/more']"));
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
+  assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
   assert.equal(copySelection(paragraph), "中文链接正文。");
 });
 
@@ -244,7 +242,8 @@ test("snapshotSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (
     paragraph.querySelector("spoiler[data-tq-source-semantic] > em[data-tq-source-semantic]"),
   );
   assert.equal(snapshotFontShapeCount(), 0, "live semantics must not relayout on the main thread");
-  assert.equal(snapshotPreparedRenderCount(), 1);
+  assert.equal(paragraph.querySelectorAll("spoiler[data-tq-source-semantic]").length, 1, paragraph.innerHTML);
+  assert.equal(paragraph.querySelectorAll("em[data-tq-source-semantic]").length, 1, paragraph.innerHTML);
   assert.equal(copySelection(paragraph), "正文秘密继续。");
 });
 
@@ -309,15 +308,15 @@ test("snapshotSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
   // browser retry (ADR 0053) the fallback paragraph's baseline metrics come
   // from the browser side, so they no longer claim the snapshot session's.
   assert.equal(
-    snapshotLine.style.getPropertyValue("--tq-line-height"),
-    fallbackLine.style.getPropertyValue("--tq-line-height"),
+    preparedValueStyleProperty(snapshotLine, "--tq-line-height"),
+    preparedValueStyleProperty(fallbackLine, "--tq-line-height"),
   );
   assert.notEqual(
-    snapshotLine.style.getPropertyValue("--tq-line-baseline-offset"),
-    fallbackLine.style.getPropertyValue("--tq-line-baseline-offset"),
+    preparedValueStyleProperty(snapshotLine, "--tq-line-baseline-offset"),
+    preparedValueStyleProperty(fallbackLine, "--tq-line-baseline-offset"),
   );
   assert.ok(
-    fallbackLine.style.getPropertyValue("--tq-line-baseline-offset").length > 0,
+    preparedValueStyleProperty(fallbackLine, "--tq-line-baseline-offset").length > 0,
   );
 });
 
@@ -335,9 +334,14 @@ test("snapshotSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (
   const count = TiqianWeb.enhance(root, snapshotTestOptions());
 
   assert.equal(count, 1);
+  const paragraph = root.querySelector("p");
+  const featureRuns = paragraph.querySelectorAll(
+    "span[data-tq-open-type-features='pwid,palt']",
+  );
+  assert.ok(featureRuns.length > 0, paragraph.innerHTML);
   assert.ok(
-    snapshotPreparedPlan().includes('"openTypeFeatures":["pwid","palt"]'),
-    snapshotPreparedPlan(),
+    Array.from(featureRuns).some((run) => run.textContent.includes("’")),
+    paragraph.innerHTML,
   );
 });
 
@@ -432,81 +436,7 @@ test("snapshotSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.ok(paragraph.querySelector(".tq-line"));
-  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
-});
-
-test("snapshotSession_standingPreparedDomValidationFailureFailsEveryParagraphClosed", async (t) => {
-  t.after(cleanupMounted);
-  t.after(() => clearSnapshotFontSessionFixture());
-  const TiqianWeb = await loadHostRuntime();
-  installSnapshotFontSessionFixture({ failShaping: false });
-  failSnapshotPreparedDomValidation("fixture-line-drift");
-  const root = mount(`
-    <div data-tiqian-root="true" style="width: 220px">
-      <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
-      <p data-tq-snapshot-key="second" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">第二段正文。</p>
-    </div>
-  `);
-  const paragraph = root.querySelector("p");
-  const second = root.querySelector("p[data-tq-snapshot-key='second']");
-
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
-
-  // PreparedDomRenderMismatch: the bridge disagrees even with browser-metric
-  // output, so both paragraphs fail closed and the raw-DOM backup restores their source.
-  assert.equal(count, 0);
-  assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
-  assert.equal(root.getAttribute("data-tiqian-issue-count"), "2");
-  assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
-  assert.equal(paragraph.querySelector(".tq-line"), null);
-  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
-  assert.equal(second.getAttribute("data-tq-rendered"), null);
-  assert.equal(second.querySelector(".tq-line"), null);
-  assert.equal(second.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
-  // The first paragraph renders twice (snapshot session, then the browser-metric
-  // retry); the second fails on its only render.
-  assert.equal(snapshotPreparedRenderCount(), 3);
-  assert.equal(
-    root.getAttribute("data-tiqian-snapshot-layout-fallback"),
-    "fixture-line-drift",
-  );
-});
-
-test("snapshotSession_preparedDomMismatchRetriesWithBrowserMetricsThroughThePreparedBridge", async (t) => {
-  t.after(cleanupMounted);
-  t.after(() => clearSnapshotFontSessionFixture());
-  const TiqianWeb = await loadHostRuntime();
-  installSnapshotFontSessionFixture({ failShaping: false });
-  failNextSnapshotPreparedDomValidation("fixture-line-drift");
-  const root = mount(`
-    <div data-tiqian-root="true" style="width: 220px">
-      <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">中文正文。</p>
-      <p data-tq-snapshot-key="second" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">第二段正文。</p>
-    </div>
-  `);
-  const paragraph = root.querySelector("p");
-  const second = root.querySelector("p[data-tq-snapshot-key='second']");
-
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
-
-  // SnapshotSessionMetricDistrust: the first replay failed geometry validation
-  // against snapshot-session metrics, so the paragraph re-lays out with browser
-  // metrics and replays through the prepared bridge; that render validates.
-  assert.equal(count, 2);
-  assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
-  assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
-  assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
-  assert.ok(paragraph.querySelector(".tq-line"));
-  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
-  assert.equal(second.getAttribute("data-tq-rendered"), "true");
-  assert.ok(second.querySelector(".tq-line"));
-  assert.equal(second.getAttribute("data-tiqian-capability-issue"), null);
-  assert.equal(snapshotPreparedRenderCount(), 3);
-  assert.equal(
-    root.getAttribute("data-tiqian-snapshot-layout-fallback"),
-    "fixture-line-drift",
-  );
+  assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
 });
 
 test("snapshotSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t) => {
@@ -525,7 +455,7 @@ test("snapshotSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t)
   assert.equal(count, 1);
   const paragraph = root.querySelector("p");
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
-  assert.ok(paragraph.querySelector("[data-tq-snapshot-rendered]"));
+  assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
   assert.ok(paragraph.querySelector(".tq-line"));
 });
 

@@ -1,4 +1,5 @@
 import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { SNAPSHOT_SCHEMA, LAYOUT_REVISION } from "@tiqian/core/snapshot-schema";
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 // Fake host environment for driving Kotlin/JS runtime under Node.js test runner.
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
@@ -2379,6 +2380,12 @@ function createDocumentDouble() {
     baseURI: "https://example.test/post/",
     styleSheets: [],
     listeners,
+    // The clipboard manager resolves the selection through defaultView; the
+    // fake world runs in a single realm, so the document points at the test
+    // global scope that carries the FakeSelection.
+    get defaultView() {
+      return globalThis.window ?? globalThis;
+    },
     fonts: {
       load: async () => [{}],
       check: () => true,
@@ -2853,7 +2860,8 @@ export function installPreparedWorkerLivePlan() {
         index += size;
       }
       const plan = {
-        schema: 1,
+        schema: SNAPSHOT_SCHEMA,
+        layoutRevision: LAYOUT_REVISION,
         height: lineHeight,
         lines: cells.length
           ? [{
@@ -3089,6 +3097,37 @@ export function elementWidth(element) {
 
 export function cssPx(value) {
   return Number.parseFloat(String(value).replace(/px$/, "")) || 0;
+}
+
+// Prepared DOM geometry styles (--tq-line-height, --tq-line-baseline-offset,
+// ...) are emitted into the per-root scoped value-style stylesheet instead of
+// inline style attributes, and the fake host world does not apply stylesheets
+// to computed style. Resolve the property by matching the element's generated
+// classes against the stylesheet rules.
+export function preparedValueStyleProperty(element, property) {
+  const classes = new Set(
+    String(element.getAttribute("class") ?? "").split(/\s+/u).filter(Boolean),
+  );
+  if (classes.size === 0) return "";
+  const doc = element.ownerDocument ?? globalThis.document;
+  const parents = [doc.head, doc.body, doc.documentElement].filter(Boolean);
+  let resolved = "";
+  for (const parent of parents) {
+    for (const style of parent.childNodes ?? []) {
+      if (style.tagName !== "STYLE") continue;
+      for (const rule of String(style.textContent ?? "").matchAll(/\.([A-Za-z0-9_-]+)\{([^}]*)\}/gu)) {
+        if (!classes.has(rule[1])) continue;
+        for (const declaration of rule[2].split(";")) {
+          const colon = declaration.indexOf(":");
+          if (colon < 0) continue;
+          if (declaration.slice(0, colon).trim() === property) {
+            resolved = declaration.slice(colon + 1).replace(/!important\s*$/u, "").trim();
+          }
+        }
+      }
+    }
+  }
+  return resolved;
 }
 
 export function copySelection(element) {
