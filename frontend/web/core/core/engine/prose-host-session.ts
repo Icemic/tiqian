@@ -337,7 +337,11 @@ class ProseHostSession {
     return record?.fragment ?? null;
   }
 
-  mount() {
+  // MountCompletionPromise: the returned promise tracks the one-time work
+  // of this mount, runtime loading included. It only ever resolves; failures
+  // surface through the capability-issue markers, so hosts and custom-element
+  // callbacks can await it without handling rejections.
+  mount(): Promise<void> {
     // AppliedLedgerMountSync: attribute changes made through property setters
     // or present before construction never passed through updateOptions; sync
     // the ledger from the live attributes so the next reflection diffs
@@ -345,9 +349,18 @@ class ProseHostSession {
     this.#syncAppliedOptions();
     if (!this.#coordinationSession) this.#coordinationSession = coordinationService().register();
     this.#observeIntersection();
+    // ForeignEnhancedRootMountNoOp: one session owns one root's lifecycle. A
+    // fresh session mounting over a root a foreign session already drove to
+    // the terminal state would re-lower the rendered DOM (producing invalid
+    // inline-object geometry markers) while the owning session's
+    // identity-based drift reconcile restores its own records back, and the
+    // two sessions rewrite the root forever. Stay inert instead; the owning
+    // session keeps observing the root, and its attribute reflection answers
+    // option changes written onto the root.
+    if (this.#rootIsForeignEnhanced()) return Promise.resolve();
     if (this.#canAdoptRawDomMoveReconnection()) {
       this.#adoptRawDomMoveReconnection();
-      return;
+      return Promise.resolve();
     }
     // ReconnectedSourceReclamation: detached roots keep their source backing in
     // weak runtime/snapshot state so navigation can discard them without
@@ -363,7 +376,8 @@ class ProseHostSession {
     // ReversibleDisabledEnhancement: the Boolean attribute is the complete
     // opt-out contract. Keep semantic SSR children live and avoid stylesheet,
     // font, snapshot, runtime and observer work until the host removes it.
-    if (this.disabled) return;
+    if (this.disabled) return Promise.resolve();
+    const completion = this.#beginMountCompletion();
     this.#snapshotFontRejectedAttempt = "";
     const generation = this.#context.update();
     this.#clearInitialFontRetry();
@@ -445,6 +459,10 @@ class ProseHostSession {
           initialReadyReported = true;
           pendingLoadMs = Date.now() - loadStartedAt;
           this.#context.diagnosis.set("tiqianLoadMs", (Date.now() - loadStartedAt).toFixed(1));
+          // The first non-relayout ready event is the one-time work's
+          // completion: runtime loading, snapshot adoption and the initial
+          // enhance all landed.
+          this.#finishMountCompletion();
         }
       }
       if (stale) this.#stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
@@ -486,6 +504,7 @@ class ProseHostSession {
     const enhanceAbortController = this.#beginEnhanceAbortController();
     this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, enhanceAbortController.signal)
       .catch((error) => this.#failInitialEnhance(generation, error));
+    return completion;
   }
 
   // HostCascadeReadyGate: connectedCallback may run before an app's
@@ -558,6 +577,9 @@ class ProseHostSession {
     if (!isLoadedSnapshotAdopted(this.#root)) this.#root.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
     this.#removeReadyListener();
     this.#context.diagnosis.set("tiqianCapabilityIssue", "RuntimeLoadFailed");
+    // The one-time work finished, albeit failed: the marker above is the
+    // observable outcome, and the promise must settle for awaiting hosts.
+    this.#finishMountCompletion();
     console.warn("Tiqian Web runtime failed to load", error);
   }
 
@@ -658,6 +680,9 @@ class ProseHostSession {
 
   #settleDisconnection() {
     this.#abortEnhancePipeline();
+    // A disconnection ends the one-time work: no ready event will follow for
+    // an aborted pipeline, so settle the mount promise here.
+    this.#finishMountCompletion();
     coordinationService().unregister(this.#coordinationSession);
     this.#coordinationSession = 0;
     coordinationService().cancelFrame(this.#boundResponsiveCommit);
@@ -761,6 +786,13 @@ class ProseHostSession {
       name !== "strong-as-emphasis-marks"
     ) return;
     if (!this.#root.isConnected) return;
+    // PreMountAttributeReflectionNoRestart: option reflection runs before the
+    // owning mount (createProseHostSession applies options first), and a
+    // restart needs a connected lifecycle to restart. The values already sit
+    // on the root attributes, where the coming mount reads them; attribute
+    // edits during a deferred-teardown gap still reject adoption through the
+    // detach attribute snapshot comparison.
+    if (!this.#stateMachine.connected) return;
     // LatestObservedAttributeGeneration: strong emphasis controls snapshot
     // eligibility, while all public options belong to the same connection
     // generation. An initial async gate must never commit captured old values.
@@ -773,6 +805,48 @@ class ProseHostSession {
       return;
     }
     this.#refreshRuntimeFromSource();
+  }
+
+  // ForeignEnhancedRootMountNoOp detection: a fresh session with no runtime
+  // state of its own mounts over a root whose paragraph candidates all sit
+  // in a terminal state (rendered or capability-marked) only when a foreign
+  // session already owns the root. Terminal candidates here count everything
+  // shouldTryParagraph accepts, so an unenhanced root never matches.
+  #rootIsForeignEnhanced(): boolean {
+    if (this.#stateMachine.connected || this.#stateMachine.runtimeActive) return false;
+    if (this.#stateMachine.snapshotAdopted) return false;
+    if (this.#rootState.getState(this.#root) != null) return false;
+    const candidates = this.#rootState.paragraphCandidates(this.#root, "p, li");
+    if (candidates.length === 0) return false;
+    for (let i = 0; i < candidates.length; i += 1) {
+      const candidate = candidates[i];
+      if (candidate.getAttribute("data-tq-rendered") !== "true" &&
+          !candidate.hasAttribute("data-tiqian-capability-issue")) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  #mountCompletionPromise: Promise<void> = Promise.resolve();
+  #mountCompletionResolve: (() => void) | null = null;
+
+  #beginMountCompletion(): Promise<void> {
+    // Supersede any lifecycle whose completion never reported: a restart
+    // between dispatch and ready abandons the earlier promise.
+    this.#finishMountCompletion();
+    let resolver: (() => void) | null = null;
+    this.#mountCompletionPromise = new Promise<void>((resolve) => {
+      resolver = resolve;
+    });
+    this.#mountCompletionResolve = resolver;
+    return this.#mountCompletionPromise;
+  }
+
+  #finishMountCompletion(): void {
+    const resolver = this.#mountCompletionResolve;
+    this.#mountCompletionResolve = null;
+    if (resolver) resolver();
   }
 
   #baseEnhanceOptions(): HostEnhanceOptionsBag | undefined {

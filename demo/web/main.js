@@ -6,15 +6,9 @@ import { createProseHostSession } from '@tiqian/core/core/engine/prose-host-sess
 // instances so the page cannot re-import them by URL, and the retired document
 // event channel (ADR 0053 C1) no longer accepts replays. Tests replay captured
 // root options through this public surface. Replaces the retired enhance() verb
-// (wc-s6 scope 9). Each call creates a fresh ProseHostSession for the root,
-// applies the provided options, and mounts it to trigger enhancement.
-globalThis.__tiqianOneShot = (root, options) => {
-  const session = createProseHostSession(root);
-  if (options) {
-    session.updateOptions(options);
-  }
-  session.mount();
-};
+// (wc-s6 scope 9): options apply through the factory, and mount returns the
+// completion promise covering the one-time work, runtime loading included.
+globalThis.__tiqianOneShot = (root, options) => createProseHostSession(root, options).mount();
 
 // Explicit registration entry point for programmatic hosts. The /auto entry
 // already registers <tiqian-prose> with default options on import, but tests
