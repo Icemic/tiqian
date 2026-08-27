@@ -501,7 +501,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(elementSource, /let initialReadyReported = false/u);
   assert.match(
     elementSource,
-    /if \(!initialReadyReported\)[\s\S]*?this\.dataset\.tiqianLoadMs/u,
+    /if \(!initialReadyReported\)[\s\S]*?diagnosis\.set\("tiqianLoadMs"/u,
   );
   assert.doesNotMatch(elementSource, /addEventListener\("DOMContentLoaded"/u);
   assert.doesNotMatch(elementSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
@@ -510,7 +510,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(fontLoaderSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
   assert.match(
     fontLoaderSource,
-    /fontWait\.status !== "timeout"[\s\S]*?tiqianFontWait = "timeout"[\s\S]*?deferUntilFontsSettle/u,
+    /fontWait\.status !== "timeout"[\s\S]*?diagnosis\.set\("tiqianFontWait", "timeout"\)[\s\S]*?deferUntilFontsSettle/u,
   );
   assert.match(
     fontLoaderSource,

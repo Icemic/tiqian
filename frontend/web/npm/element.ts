@@ -353,7 +353,7 @@ class TiqianProseElement extends HTMLElementBase {
               ? Math.max(0, (Number(detail.enhancedCount) || 0) - snapshotCount)
               : Math.max(0, Number(detail.enhancedCount) || 0);
         const enhancedCount = runtimeEnhancedCount + snapshotCount;
-        this.dataset.tiqianSnapshotCount = String(this.#snapshotEnhancedCount);
+        this.#context.diagnosis.set("tiqianSnapshotCount", String(this.#snapshotEnhancedCount));
         this.setAttribute("data-tiqian-enhanced-count", String(enhancedCount));
         try {
           detail.runtimeEnhancedCount = runtimeEnhancedCount;
@@ -366,9 +366,9 @@ class TiqianProseElement extends HTMLElementBase {
       }
       const { durationMs, maxSliceMs, relayout, stale } = detail;
       if (relayout) {
-        if (Number.isFinite(durationMs)) this.dataset.tiqianRelayoutMs = durationMs.toFixed(1);
+        if (Number.isFinite(durationMs)) this.#context.diagnosis.set("tiqianRelayoutMs", durationMs.toFixed(1));
         if (Number.isFinite(maxSliceMs)) {
-          this.dataset.tiqianRelayoutMaxSliceMs = maxSliceMs.toFixed(1);
+          this.#context.diagnosis.set("tiqianRelayoutMaxSliceMs", maxSliceMs.toFixed(1));
         }
         // CommittedMeasureLedger: forced commits (viewport revalidation,
         // stale follow-ups) skip against what the last clean relayout
@@ -389,11 +389,11 @@ class TiqianProseElement extends HTMLElementBase {
           }
         }
       } else {
-        if (Number.isFinite(durationMs)) this.dataset.tiqianEnhanceMs = durationMs.toFixed(1);
-        if (Number.isFinite(maxSliceMs)) this.dataset.tiqianMaxSliceMs = maxSliceMs.toFixed(1);
+        if (Number.isFinite(durationMs)) this.#context.diagnosis.set("tiqianEnhanceMs", durationMs.toFixed(1));
+        if (Number.isFinite(maxSliceMs)) this.#context.diagnosis.set("tiqianMaxSliceMs", maxSliceMs.toFixed(1));
         if (!initialReadyReported) {
           initialReadyReported = true;
-          this.dataset.tiqianLoadMs = (Date.now() - loadStartedAt).toFixed(1);
+          this.#context.diagnosis.set("tiqianLoadMs", (Date.now() - loadStartedAt).toFixed(1));
         }
       }
       // SnapshotPreparedDomFallbackSingleFlight: once browser replay proves that
@@ -454,7 +454,7 @@ class TiqianProseElement extends HTMLElementBase {
     if (styles.aborted) return;
     forceTypographyStyleRecompute(this);
     if (signal.aborted) return;
-    const fontGate = await raceAbort(signal, awaitInitialTypographyFonts(this, {
+    const fontGate = await raceAbort(signal, awaitInitialTypographyFonts({
       generation,
       fonts: this.ownerDocument?.fonts ?? null,
       isCurrent: () => this.isConnected && generation === this.#context.generation,
@@ -463,6 +463,7 @@ class TiqianProseElement extends HTMLElementBase {
       typographyElements: () => typographyElements(this),
       deferUntilFontsSettle: (gateGeneration, completion) =>
         this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
+      diagnosis: this.#context.diagnosis,
     }));
     if (fontGate.aborted || !fontGate.value) return;
     forceTypographyStyleRecompute(this);
@@ -498,7 +499,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#releaseSnapshotFontSession();
     if (!isLoadedSnapshotAdopted(this)) this.removeAttribute(SNAPSHOT_RENDER_FONT_ATTRIBUTE);
     this.#removeReadyListener();
-    this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
+    this.#context.diagnosis.set("tiqianCapabilityIssue", "RuntimeLoadFailed");
     console.warn("Tiqian Web runtime failed to load", error);
   }
 
@@ -523,7 +524,7 @@ class TiqianProseElement extends HTMLElementBase {
         );
       }
     } catch (error) {
-      this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
+      this.#context.diagnosis.set("tiqianSnapshotMiss", "SnapshotValidationFailed");
       console.warn("Tiqian Web maximum-measure snapshot validation failed", error);
     }
     // The adoption commits are over; hand the scroller back to the
@@ -537,7 +538,7 @@ class TiqianProseElement extends HTMLElementBase {
       return;
     }
     if (snapshot.adopted) {
-      delete this.dataset.tiqianSnapshotMiss;
+      this.#context.diagnosis.clear("tiqianSnapshotMiss");
       this.#stateMachine.snapshotAdopted = true;
       this.#snapshotEnhancedCount = snapshot.count;
       // MixedSnapshotRuntimeCompletion: the snapshot owns only keyed
@@ -574,7 +575,7 @@ class TiqianProseElement extends HTMLElementBase {
       }));
       return;
     }
-    this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
+    this.#context.diagnosis.set("tiqianSnapshotMiss", snapshot.reason ?? "SnapshotNotAdopted");
     const runtime = await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));
     if (runtime.aborted) return;
     if (!this.isConnected || generation !== this.#context.generation || signal.aborted) return;
@@ -613,7 +614,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stateMachine.settleDisconnection();
     this.#clearResponsiveRetarget();
     this.#clearInitialFontRetry();
-    delete this.dataset.tiqianFontWait;
+    this.#context.diagnosis.clear("tiqianFontWait");
     this.#removeReadyListener();
     this.#stopTypographyObservation();
     this.#stopLayoutWorkInputObservation();
@@ -741,16 +742,16 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   #clearLifecycleDiagnostics() {
-    delete this.dataset.tiqianCapabilityIssue;
-    delete this.dataset.tiqianEnhanceMs;
-    delete this.dataset.tiqianLoadMs;
-    delete this.dataset.tiqianMaxSliceMs;
-    delete this.dataset.tiqianRelayoutMs;
-    delete this.dataset.tiqianRelayoutMaxSliceMs;
-    delete this.dataset.tiqianFontWait;
-    delete this.dataset.tiqianSnapshotLiveIssue;
-    delete this.dataset.tiqianSnapshotCount;
-    delete this.dataset.tiqianSnapshotMiss;
+    this.#context.diagnosis.clear("tiqianCapabilityIssue");
+    this.#context.diagnosis.clear("tiqianEnhanceMs");
+    this.#context.diagnosis.clear("tiqianLoadMs");
+    this.#context.diagnosis.clear("tiqianMaxSliceMs");
+    this.#context.diagnosis.clear("tiqianRelayoutMs");
+    this.#context.diagnosis.clear("tiqianRelayoutMaxSliceMs");
+    this.#context.diagnosis.clear("tiqianFontWait");
+    this.#context.diagnosis.clear("tiqianSnapshotLiveIssue");
+    this.#context.diagnosis.clear("tiqianSnapshotCount");
+    this.#context.diagnosis.clear("tiqianSnapshotMiss");
   }
 
   #restartConnectedLifecycle() {
@@ -830,13 +831,13 @@ class TiqianProseElement extends HTMLElementBase {
         return false;
       }
       snapshotFontSession = preparedSession.value;
-      delete this.dataset.tiqianSnapshotFontMiss;
+      this.#context.diagnosis.clear("tiqianSnapshotFontMiss");
     } catch (error) {
       if (
         this.isConnected && generation === this.#context.generation &&
         request === this.#stateMachine.transaction.enhanceRequest
       ) this.#releaseSnapshotFontSession();
-      this.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate);
+      this.#context.diagnosis.set("tiqianSnapshotFontMiss", snapshotFontMissDatasetValue(error as TiqianElementSnapshotFontMissCandidate));
       console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     }
     if (
@@ -859,7 +860,7 @@ class TiqianProseElement extends HTMLElementBase {
     // replay diagnostics can be cleared without briefly re-enabling exact CSS
     // on geometry from the previous measure. The current run will set them
     // again if its own prepared DOM cannot be represented.
-    delete this.dataset.tiqianExactLayoutIssue;
+    this.#context.diagnosis.clear("tiqianExactLayoutIssue");
     this.removeAttribute(SNAPSHOT_PREPARED_FALLBACK_ATTRIBUTE);
     if (snapshotFontSession) {
       try {
@@ -900,7 +901,7 @@ class TiqianProseElement extends HTMLElementBase {
         }
         this.#releaseSnapshotFontSession();
         snapshotFontSession = null;
-        this.dataset.tiqianSnapshotFontMiss = "SnapshotRenderFontStyleUnavailable";
+        this.#context.diagnosis.set("tiqianSnapshotFontMiss", "SnapshotRenderFontStyleUnavailable");
         console.warn("Tiqian Web snapshot render font style unavailable; using browser metrics", error);
       }
     }
@@ -1001,7 +1002,7 @@ class TiqianProseElement extends HTMLElementBase {
     // them back after parcel bundling removes direct module re-import. This is
     // the public successor of the retired document event channel (ADR 0053
     // C1); no event is dispatched here.
-    this.dataset.tiqianEnhanceOptions = JSON.stringify(preparedOptions);
+    this.#context.diagnosis.set("tiqianEnhanceOptions", JSON.stringify(preparedOptions));
     const runAnchor = captureViewportAnchor(this);
     try {
       const graph = tiqianRuntimeGraph();
@@ -1337,7 +1338,7 @@ class TiqianProseElement extends HTMLElementBase {
       if (!restoreLoadedSnapshot(this)) throw new Error("Adopted snapshot could not be restored");
       this.#stateMachine.snapshotAdopted = false;
       this.#snapshotEnhancedCount = 0;
-      delete this.dataset.tiqianSnapshotCount;
+      this.#context.diagnosis.clear("tiqianSnapshotCount");
       if (this.#stateMachine.runtimeActive) {
         destroyRuntimeRoot(this);
         this.#stateMachine.runtimeActive = false;
@@ -1378,7 +1379,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#stateMachine.dispatched = snapshotStillLive || this.#stateMachine.runtimeActive;
     this.#stateMachine.completionGateOpen = false;
     this.#finishLayoutWorkAndObserve();
-    this.dataset.tiqianCapabilityIssue = "RuntimeLoadFailed";
+    this.#context.diagnosis.set("tiqianCapabilityIssue", "RuntimeLoadFailed");
     console.warn("Tiqian Web runtime failed to load after snapshot invalidation", error);
   }
 
@@ -1431,7 +1432,7 @@ class TiqianProseElement extends HTMLElementBase {
         return;
       }
       if (!snapshot.adopted) {
-        this.dataset.tiqianSnapshotMiss = snapshot.reason ?? "SnapshotNotAdopted";
+        this.#context.diagnosis.set("tiqianSnapshotMiss", snapshot.reason ?? "SnapshotNotAdopted");
         // Full validation is intentionally fail-closed. The existing runtime
         // DOM stayed live throughout. It still carries the previous narrow
         // measure, so a maximum-measure miss must finish with a runtime
@@ -1443,7 +1444,7 @@ class TiqianProseElement extends HTMLElementBase {
         );
         return;
       }
-      delete this.dataset.tiqianSnapshotMiss;
+      this.#context.diagnosis.clear("tiqianSnapshotMiss");
       this.#stateMachine.snapshotAdopted = true;
       this.#snapshotEnhancedCount = snapshot.count;
       const completionSelector = snapshotCompletionSelector(this);
@@ -1483,7 +1484,7 @@ class TiqianProseElement extends HTMLElementBase {
         !this.isConnected || generation !== this.#context.generation ||
         operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted
       ) return;
-      this.dataset.tiqianSnapshotMiss = "SnapshotValidationFailed";
+      this.#context.diagnosis.set("tiqianSnapshotMiss", "SnapshotValidationFailed");
       console.warn("Tiqian Web responsive snapshot validation failed", error);
       this.#recoverRuntimeAfterSnapshotMiss(
         operation,
@@ -1507,7 +1508,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#dispatchProgressiveEnhance(generation).catch((error) => {
         if (!this.isConnected || generation !== this.#context.generation) return;
         this.#finishLayoutWorkAndObserve();
-        this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
+        this.#context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
         console.warn("Tiqian Web snapshot miss recovery failed", error);
       });
       return;
@@ -1526,7 +1527,7 @@ class TiqianProseElement extends HTMLElementBase {
       this.#dispatchProgressiveEnhance(generation).catch((error) => {
         if (!this.isConnected || generation !== this.#context.generation) return;
         this.#finishLayoutWorkAndObserve();
-        this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
+        this.#context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
         console.warn("Tiqian Web unclaimed snapshot miss recovery failed", error);
       });
       return;
@@ -1539,7 +1540,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#dispatchProgressiveEnhance(generation).catch((error) => {
       if (!this.isConnected || generation !== this.#context.generation) return;
       this.#finishLayoutWorkAndObserve();
-      this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
+      this.#context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
       console.warn("Tiqian Web snapshot miss recovery failed", error);
     });
   }
@@ -1594,7 +1595,7 @@ class TiqianProseElement extends HTMLElementBase {
     this.#dispatchProgressiveEnhance(generation, { revalidateSnapshotFont }).catch((error) => {
       if (!this.isConnected || generation !== this.#context.generation) return;
       this.#finishLayoutWorkAndObserve();
-      this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
+      this.#context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
       console.warn("Tiqian Web source refresh failed", error);
     });
   }
@@ -1893,7 +1894,7 @@ class TiqianProseElement extends HTMLElementBase {
           }).catch((error) => {
             if (!this.isConnected || generation !== this.#context.generation) return;
             this.#finishLayoutWorkAndObserve();
-            this.dataset.tiqianCapabilityIssue = "FontCapabilityPreparationFailed";
+            this.#context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
             console.warn("Tiqian Web snapshot completion restart failed", error);
           });
           return;
@@ -2047,10 +2048,9 @@ class TiqianProseElement extends HTMLElementBase {
             // corresponding loadingdone task only after observers resume; retain
             // the snapshot when its CSS face, typography and rendered geometry
             // contracts still hold instead of starting a redundant font cycle.
-            delete this.dataset.tiqianSnapshotLiveIssue;
             return;
           }
-          if (snapshotLiveIssue) this.dataset.tiqianSnapshotLiveIssue = snapshotLiveIssue;
+          if (snapshotLiveIssue) this.#context.diagnosis.signal("tiqianSnapshotLiveIssue", snapshotLiveIssue);
           const relevantFaceLoaded = fontLoadingAffectsTypography(
             event as FontLoadingEventLike,
             typographyElements(this),

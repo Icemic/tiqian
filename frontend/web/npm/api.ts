@@ -133,7 +133,7 @@ async function prepareRootFontSession(
         context.snapshotFontSession.entry = null;
       }
     }
-    root.dataset.tiqianSnapshotFontMiss = "SnapshotLayoutOptionsOverride";
+    context.diagnosis.set("tiqianSnapshotFontMiss", "SnapshotLayoutOptionsOverride");
     return null;
   }
   const reference = root.getAttribute("snapshot-ref");
@@ -148,7 +148,7 @@ async function prepareRootFontSession(
     const next = createSnapshotFontSessionEntry(reference, handle, loader);
     context.snapshotFontSession.entry = next;
     if (existing && existing !== next) existing.release(existing.handle);
-    delete root.dataset.tiqianSnapshotFontMiss;
+    context.diagnosis.clear("tiqianSnapshotFontMiss");
     return handle;
   } catch (error) {
     if (context.generation === generation && context.snapshotFontSession.entry === existing) {
@@ -158,7 +158,7 @@ async function prepareRootFontSession(
         context.snapshotFontSession.entry = null;
       }
     }
-    root.dataset.tiqianSnapshotFontMiss = snapshotFontMissDatasetValue(error as TiqianSnapshotFontMissCandidate);
+    context.diagnosis.set("tiqianSnapshotFontMiss", snapshotFontMissDatasetValue(error as TiqianSnapshotFontMissCandidate));
     console.warn("Tiqian Web snapshot font session unavailable; using browser metrics", error);
     return null;
   }

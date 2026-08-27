@@ -22,6 +22,7 @@ import type {
   PreparedRenderFontStyleReleaser,
 } from "../snapshot-font.js";
 import { globalServices } from "../../services/global-services.js";
+import type { DiagnosisManager } from "../context/diagnosis-manager.js";
 
 export const DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000;
 
@@ -110,9 +111,10 @@ export interface InitialTypographyFontContext {
   bypassesFontWait: ContextPredicate;
   typographyElements: TypographyElementsProvider;
   deferUntilFontsSettle: DeferFontSettlement;
+  diagnosis: DiagnosisManager;
 }
 
-export async function awaitInitialTypographyFonts(root: HTMLElement, context: InitialTypographyFontContext): Promise<boolean> {
+export async function awaitInitialTypographyFonts(context: InitialTypographyFontContext): Promise<boolean> {
   if (!context.isCurrent()) return false;
   // Snapshot validation loads and probes the exact declared faces itself.
   // Repeating a per-paragraph computed-style scan here delayed the first
@@ -130,7 +132,7 @@ export async function awaitInitialTypographyFonts(root: HTMLElement, context: In
   // invisible transition in flight. Native SSR remains authoritative;
   // the exact completion promise and relevant font/style events restart
   // the whole gate against the latest host state.
-  root.dataset.tiqianFontWait = "timeout";
+  context.diagnosis.set("tiqianFontWait", "timeout");
   context.deferUntilFontsSettle(context.generation, fontWait.completion);
   return false;
 }
