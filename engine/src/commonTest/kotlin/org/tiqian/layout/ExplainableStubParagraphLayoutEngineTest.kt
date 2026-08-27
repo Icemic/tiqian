@@ -25,6 +25,7 @@ import org.tiqian.core.TextSpan
 import org.tiqian.core.TextStyle
 import org.tiqian.core.TiqianTextContent
 import org.tiqian.core.positionedClusters
+import org.tiqian.core.sourceGraphemeBoundaries
 import org.tiqian.font.FontRole
 import org.tiqian.shaping.ExplainableStubTextShaper
 import org.tiqian.shaping.ShapingInput
@@ -372,6 +373,159 @@ class ExplainableStubParagraphLayoutEngineTest {
             result.debug.shapingDecisions
                 .filter { it.fontKey == "symbol-fallback" }
                 .map { it.sourceText },
+        )
+    }
+
+    @Test
+    fun emojiRoleMatrixSeparatesSupportedSequencesFromAdjacentAndUnrelatedText() {
+        data class Case(
+            val text: String,
+            val expectedRoles: List<Pair<String, FontRole>>,
+        )
+
+        val cases = listOf(
+            Case(
+                text = "a1️⃣",
+                expectedRoles = listOf("a" to FontRole.LatinText, "1️⃣" to FontRole.Emoji),
+            ),
+            Case(
+                text = "1️⃣a",
+                expectedRoles = listOf("1️⃣" to FontRole.Emoji, "a" to FontRole.LatinText),
+            ),
+            Case(
+                text = "a😀中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "😀" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a❤️中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "❤️" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a©️中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "©️" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a⌚︎中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "⌚︎" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a1⃣中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "1⃣" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a👍🏽中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "👍🏽" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a👩🏽‍💻中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "👩🏽‍💻" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a🏳️‍⚧️中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "🏳️‍⚧️" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a🇨🇳中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "🇨🇳" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F中",
+                expectedRoles = listOf(
+                    "a" to FontRole.LatinText,
+                    "🏴\uDB40\uDC67\uDB40\uDC62\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67\uDB40\uDC7F" to FontRole.Emoji,
+                    "中" to FontRole.CjkText,
+                ),
+            ),
+            Case(
+                text = "中\uFE0F",
+                expectedRoles = listOf("中\uFE0F" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a\uFE0F",
+                expectedRoles = listOf("a\uFE0F" to FontRole.LatinText),
+            ),
+            Case(
+                text = "a⃣中",
+                expectedRoles = listOf("a⃣" to FontRole.LatinText, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "a1\uFE0F中",
+                expectedRoles = listOf("a1\uFE0F" to FontRole.LatinText, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "中🏽",
+                expectedRoles = listOf("中" to FontRole.CjkText, "🏽" to FontRole.Emoji),
+            ),
+            Case(
+                text = "a👩‍中",
+                expectedRoles = listOf("a" to FontRole.LatinText, "👩‍" to FontRole.Emoji, "中" to FontRole.CjkText),
+            ),
+            Case(
+                text = "中‍👩a",
+                expectedRoles = listOf(
+                    "中" to FontRole.CjkText,
+                    "‍" to FontRole.Unknown,
+                    "👩" to FontRole.Emoji,
+                    "a" to FontRole.LatinText,
+                ),
+            ),
+        )
+
+        val mismatches = cases.mapNotNull { case ->
+            val result = ExplainableStubParagraphLayoutEngine().layout(
+                LayoutInput(
+                    paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                    content = TiqianTextContent(case.text),
+                    constraints = LayoutConstraints(maxWidth = 320f),
+                ),
+            )
+
+            val actualRoles = result.debug.fontDecisions.map { it.sourceText to FontRole.valueOf(it.role) }
+            if (actualRoles == case.expectedRoles) {
+                null
+            } else {
+                "${case.text}: expected=${case.expectedRoles}, actual=$actualRoles"
+            }
+        }
+        assertEquals(emptyList(), mismatches)
+    }
+
+    @Test
+    fun sourceGraphemeBoundariesDoNotJoinZwJWithOrdinaryText() {
+        assertEquals(
+            listOf(0, 3, 4),
+            "👩‍中".sourceGraphemeBoundaries(TextRange(0, "👩‍中".length)),
+        )
+        assertEquals(
+            listOf(0, 2, 4),
+            "中‍👩".sourceGraphemeBoundaries(TextRange(0, "中‍👩".length)),
+        )
+    }
+
+    @Test
+    fun recordsUnicodeEmojiSequenceRolePromotions() {
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent("❤️与1️⃣"),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "❤️" to "Symbol",
+                "1️⃣" to "LatinText",
+            ),
+            result.debug.roleOverrides
+                .filter { it.source == "UnicodeEmojiSequenceRolePromotion" }
+                .map { it.sourceText to it.originalRole },
+        )
+        assertTrue(
+            result.debug.roleOverrides
+                .filter { it.source == "UnicodeEmojiSequenceRolePromotion" }
+                .map { it.overriddenRole to it.reason }
+                .all { it.first == FontRole.Emoji.name && it.second in setOf("EmojiStyleVariationSequence", "KeycapSequence") },
         )
     }
 
