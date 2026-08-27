@@ -10,8 +10,6 @@ const EXPECTED_NAME = "@tiqian/prose";
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
-  "api.d.ts",
-  "api.js",
   "auto.d.ts",
   "auto.js",
   "element.d.ts",

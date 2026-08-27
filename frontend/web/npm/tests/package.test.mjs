@@ -265,7 +265,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     sessionSource,
-    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
+    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(this\.#rootState, coordinationService\(\)\.layoutJobPool, this\.#context, this\.#root, preparedOptions\)/u,
   );
   assert.match(
     sessionSource,
@@ -297,10 +297,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     sessionSource,
-    /SnapshotPreparedDomFallbackSingleFlight[\s\S]*?#snapshotFontRejectedAttempt = this\.#snapshotFontAttemptSignature\(\)/u,
-  );
-  assert.match(
-    sessionSource,
     /#snapshotFontRejectedAttempt === this\.#snapshotFontAttemptSignature\(reference\)/u,
   );
   assert.match(sessionSource, /#restartConnectedLifecycle\(\)/u);
@@ -314,7 +310,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(sessionSource, /paragraphSelector:\s*completionSelector/u);
   assert.doesNotMatch(
     mixedCompletionSource,
-    /restoreLoadedSnapshot\(this\.#root\)/u,
+    /restoreLoadedSnapshot\(this\.#root, this\.#context\)/u,
   );
   assert.doesNotMatch(sessionSource, /runtimeCoversSnapshotParagraphs|preserveSnapshotRenderFont/u);
   assert.match(
@@ -327,7 +323,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(readoptionSource, /RuntimeSnapshotBackingRestore/u);
   assert.ok(
-    readoptionSource.indexOf("destroyRuntimeRoot(this.#root)") <
+    readoptionSource.indexOf("destroyRuntimeRoot(this.#rootState, this.#context, this.#root)") <
       readoptionSource.indexOf("tryAdoptRequestedSnapshot("),
   );
   assert.match(
@@ -389,18 +385,25 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     sessionSource,
-    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\.#root\)[\s\S]*?this\.#stateMachine\.runtimeActive = false/u,
+    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\.#rootState, this\.#context, this\.#root\)[\s\S]*?this\.#stateMachine\.runtimeActive = false/u,
   );
   assert.match(
     sessionSource,
     /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinationService\(\)\.requestFrame/u,
   );
-  assert.ok(invalidationRuntimeLoad >= 0);
-  assert.ok(invalidationDispatch > invalidationRuntimeLoad);
-  assert.equal(invalidationSource.match(/restoreLoadedSnapshot\(this\.#root\)/gu)?.length, 1);
+  const dispatchStart = sessionSource.indexOf("async #dispatchProgressiveEnhance(");
+  const dispatchSource = sessionSource.slice(dispatchStart);
+  const dispatchRuntimeLoad = dispatchSource.indexOf(
+    'import("@tiqian/core/core/engine/web-worker/worker-channel.js")',
+  );
+  assert.ok(dispatchStart >= 0);
+  assert.ok(dispatchSource.indexOf("beforeDispatch?.();") >= 0);
+  assert.ok(dispatchRuntimeLoad >= 0);
+  assert.ok(dispatchSource.indexOf("beforeDispatch?.();") < dispatchRuntimeLoad);
+  assert.equal(invalidationSource.match(/restoreLoadedSnapshot\(this\.#root, this\.#context\)/gu)?.length, 1);
   assert.match(
     invalidationSource,
-    /const restoreImmediatelyBeforeDispatch = \(\) => \{[\s\S]*?restoreLoadedSnapshot\(this\.#root\)/u,
+    /const restoreImmediatelyBeforeDispatch = \(\) => \{[\s\S]*?restoreLoadedSnapshot\(this\.#root, this\.#context\)/u,
   );
   assert.match(invalidationSource, /beforeDispatch: restoreImmediatelyBeforeDispatch/u);
   assert.match(
@@ -422,11 +425,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(sessionSource, /PreparedSnapshotTransition/u);
   assert.match(
     sessionSource,
-    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
+    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(this\.#rootState, coordinationService\(\)\.layoutJobPool, this\.#context, this\.#root, preparedOptions\)/u,
   );
   assert.match(
     sessionSource,
-    /ResponsiveNativeBacking[\s\S]*?destroyRuntimeRoot\(this\.#root\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
+    /ResponsiveNativeBacking[\s\S]*?destroyRuntimeRoot\(this\.#rootState, this\.#context, this\.#root\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
   );
   assert.match(
     sessionSource,
@@ -649,7 +652,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
   );
   assert.match(
     coordinatorSource,
-    /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = slot\.pool\.runSlice\(/u,
+    /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = this\.layoutJobPool\.runSlice\(\{/u,
   );
   assert.match(
     coordinatorSource,
