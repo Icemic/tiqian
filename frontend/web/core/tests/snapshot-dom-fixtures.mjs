@@ -33,13 +33,22 @@ class FakeNode {
     return this.childNodes[0] ?? null;
   }
 
+  get nextSibling() {
+    if (!this.parentNode) return null;
+    const siblings = this.parentNode.childNodes;
+    return siblings[siblings.indexOf(this) + 1] ?? null;
+  }
+
   append(...nodes) {
     for (const node of nodes) this.appendChild(node);
   }
 
   appendChild(node) {
     if (node.nodeType === 11) {
-      while (node.firstChild) this.appendChild(node.firstChild);
+      // Expand through the prototype method, never through this.appendChild:
+      // the browser's native fragment append is atomic and bypasses any
+      // wrapper installed on the element.
+      while (node.firstChild) FakeNode.prototype.appendChild.call(this, node.firstChild);
       return node;
     }
     if (node.parentNode) node.parentNode.removeChild(node);
@@ -56,6 +65,41 @@ class FakeNode {
     node.parentNode = null;
     node.parentElement = null;
     return node;
+  }
+
+  insertBefore(node, reference) {
+    if (node.nodeType === 11) {
+      while (node.firstChild) FakeNode.prototype.insertBefore.call(this, node.firstChild, reference);
+      return node;
+    }
+    const index = reference == null ? this.childNodes.length : this.childNodes.indexOf(reference);
+    if (reference != null && index < 0) throw new Error("NotAChild");
+    if (node.parentNode) node.parentNode.removeChild(node);
+    this.childNodes.splice(index, 0, node);
+    node.parentNode = this;
+    node.parentElement = this.nodeType === 1 ? this : null;
+    return node;
+  }
+
+  replaceChild(next, prev) {
+    const index = this.childNodes.indexOf(prev);
+    if (index < 0) throw new Error("NotAChild");
+    if (next.nodeType === 11) {
+      let child = next.firstChild;
+      while (child) {
+        const following = child.nextSibling;
+        FakeNode.prototype.insertBefore.call(this, child, prev);
+        child = following;
+      }
+      return this.removeChild(prev);
+    }
+    if (next.parentNode) next.parentNode.removeChild(next);
+    this.childNodes[index] = next;
+    prev.parentNode = null;
+    prev.parentElement = null;
+    next.parentNode = this;
+    next.parentElement = this.nodeType === 1 ? this : null;
+    return prev;
   }
 
   remove() {
@@ -203,6 +247,18 @@ class FakeElement extends FakeNode {
 
   set innerText(value) {
     this._innerText = String(value);
+  }
+
+  get innerHTML() {
+    return this.textContent;
+  }
+
+  set innerHTML(value) {
+    this._innerText = null;
+    // The browser's innerHTML parser bypasses per-element mutation wrappers,
+    // so install the replacement text through the prototype method.
+    while (this.firstChild) FakeNode.prototype.removeChild.call(this, this.firstChild);
+    if (value) FakeNode.prototype.appendChild.call(this, new FakeText(String(value)));
   }
 
   getBoundingClientRect() {
