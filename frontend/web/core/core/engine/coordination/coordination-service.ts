@@ -97,7 +97,12 @@ export interface GrantController {
 
 export interface CoordinatorWorkerSlot {
   session: RootSessionId;
-  element: HTMLElement;
+  // WeakSlotElement: the slot must not be the reason a detached root object
+  // stays reachable. Removed iframes and abandoned hosts do not reliably fire
+  // disconnectedCallback, so the frame scan drops a slot whose target has
+  // been collected (spec wc-s6 scope 5: no cleanup path may depend on that
+  // callback).
+  elementRef: WeakRef<HTMLElement>;
   active: boolean;
   pendingByTier: [number, number, number] | number[];
   generation: number;
@@ -560,13 +565,13 @@ export class CoordinationService {
   registerWorker(session: RootSessionId, element: HTMLElement): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].session === session) {
-        this.#workerSlots[i].element = element;
+        this.#workerSlots[i].elementRef = new WeakRef(element);
         return;
       }
     }
     this.#workerSlots.push({
       session,
-      element,
+      elementRef: new WeakRef(element),
       active: false,
       pendingByTier: [0, 0, 0],
       generation: 0,
@@ -588,7 +593,8 @@ export class CoordinationService {
   grantImmediate(session: RootSessionId): boolean {
     const slot = this.#findWorkerSlot(session);
     if (!slot || typeof this.layoutJobPool?.runSlice !== "function") return false;
-    const element = slot.element;
+    const element = slot.elementRef.deref();
+    if (!element) return false;
     if (!this.layoutJobPool.hasJob(element)) return false;
     const admission = this.#admitMainSlice("prepaint");
     if (!admission) return false;
@@ -759,12 +765,21 @@ export class CoordinationService {
     // counters per attached root. Grants re-read only the tier they drained.
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
-      if (this.layoutJobPool.hasJob(slot.element)) {
+      const element = slot.elementRef.deref();
+      if (!element) {
+        // WeakSlotElement: the root object was collected without a
+        // disconnectedCallback, so the slot retires here instead of waiting
+        // for an unregister that will never arrive.
+        this.#removeWorkerSlot(slot.session);
+        i -= 1;
+        continue;
+      }
+      if (this.layoutJobPool.hasJob(element)) {
         slot.active = true;
-        slot.generation = this.layoutJobPool.jobGeneration(slot.element);
-        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(slot.element, 3);
+        slot.generation = this.layoutJobPool.jobGeneration(element);
+        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(element, 1);
+        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(element, 2);
+        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(element, 3);
       } else {
         slot.active = false;
         slot.generation = 0;
@@ -773,7 +788,7 @@ export class CoordinationService {
         slot.pendingByTier[2] = 0;
         // NativeAnchoringHandover: the job is over; hand the scroller back to
         // the browser's own anchoring until the next slice commits.
-        releaseNativeScrollAnchoring(slot.element);
+        releaseNativeScrollAnchoring(element);
       }
     }
     slots.sort(this.#compareWorkerSlots);
@@ -784,6 +799,8 @@ export class CoordinationService {
     let grants = 0;
     let workDone = executedCount;
     const grantSlot = (slot: CoordinatorWorkerSlot, tier: number): boolean => {
+      const element = slot.elementRef.deref();
+      if (!element) return false;
       // SliceCommitAnchorCompensation: every slice this grant runs happens in
       // this same task, so one capture/compensate pair around the drain sees
       // the pure layout displacement of all its commits.
@@ -791,7 +808,7 @@ export class CoordinationService {
       let anchorCaptured = false;
       let grantProcessed = 0;
       const finish = (result: boolean): boolean => {
-        if (grantProcessed > 0) compensateViewportAnchor(slot.element, viewportAnchor);
+        if (grantProcessed > 0) compensateViewportAnchor(element, viewportAnchor);
         return result;
       };
       while (sumPendingUpTo(slot, tier) > 0) {
@@ -812,11 +829,11 @@ export class CoordinationService {
         const quota = slot.quota;
         if (!anchorCaptured) {
           anchorCaptured = true;
-          viewportAnchor = captureViewportAnchor(slot.element);
+          viewportAnchor = captureViewportAnchor(element);
         }
         const processed = this.layoutJobPool.runSlice({
           admissionClass: "grant",
-          root: slot.element,
+          root: element,
           generation: slot.generation,
           deadline: grantDeadline,
           quota,
@@ -833,9 +850,9 @@ export class CoordinationService {
         }
         // A tier-N grant may drain leftover lower-tier items, so every grant
         // refreshes all three counters.
-        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(slot.element, 3);
+        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(element, 1);
+        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(element, 2);
+        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(element, 3);
         if (processed === 0) return finish(true);
       }
       return finish(true);
