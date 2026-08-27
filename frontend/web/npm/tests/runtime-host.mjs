@@ -1,4 +1,5 @@
-import { globalServices } from "@tiqian/core/core/services/global-services.js";
+import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 // Fake host environment for driving Kotlin/JS runtime under Node.js test runner.
 // Node does not provide rAF or DOM; the fake clock and DOM doubles below provide
 // stable and synchronous execution for raw-DOM backup relayout and destruction tests.
@@ -2643,23 +2644,43 @@ export function eventDetailInt(event, name) {
 
 // ADR 0053 C1: the internal document event channel is retired; these host
 // helpers keep their export names but drive the dissolved engine surface
-// (named functions over the plain runtime graph) directly.
-let runtimeGraph = null;
+// (named functions over the shared root state and job pool) directly. The
+// raw-DOM context is per root; the harness owns one context per root element.
+let runtimeServices = null;
+const contextsByRoot = new WeakMap();
+
+export function contextForRoot(root) {
+  let context = contextsByRoot.get(root);
+  if (!context) {
+    context = createEnhanceContext(root);
+    contextsByRoot.set(root, context);
+  }
+  return context;
+}
+
+function requireRuntimeServices() {
+  if (!runtimeServices) throw new Error("host runtime not loaded; call loadHostRuntime() first");
+  return runtimeServices;
+}
 
 export function dispatchRelayout(root) {
-  relayout(runtimeGraph.rootState, runtimeGraph.layoutJobPool, runtimeGraph.rawDom, root);
+  const runtime = requireRuntimeServices();
+  relayout(runtime.rootState, runtime.layoutJobPool, contextForRoot(root), root);
 }
 
 export function probeContentDrift(root) {
-  return probeRootContentDrift(runtimeGraph.rawDom, runtimeGraph.rootState, root);
+  const runtime = requireRuntimeServices();
+  return probeRootContentDrift(contextForRoot(root), runtime.rootState, root);
 }
 
 export function reconcileContent(root, paragraphs = []) {
-  return reconcileRoot(runtimeGraph.rawDom, runtimeGraph.rootState, runtimeGraph.layoutJobPool, root, paragraphs);
+  const runtime = requireRuntimeServices();
+  return reconcileRoot(contextForRoot(root), runtime.rootState, runtime.layoutJobPool, root, paragraphs);
 }
 
 export function detachViaChannel(root) {
-  detachRoot(runtimeGraph.layoutJobPool, root);
+  const runtime = requireRuntimeServices();
+  detachRoot(runtime.layoutJobPool, root, contextForRoot(root));
 }
 
 export function testGrantController(root, generation, deadlineMs, quota) {
@@ -2675,12 +2696,89 @@ export function testGrantController(root, generation, deadlineMs, quota) {
 }
 
 
+// Snapshot font session fixture: the engine resolves a session id into the
+// shapeJson/metricsJson callback pair through the coordination replay
+// registry, and this fixture registers a session whose tables synthesize one
+// entry per request from the replay key itself. Synthesis keeps the fixture
+// geometry: one glyph per code point at advance 1em, bounds
+// [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
+// [1, 0.25, 0, 0.88, 0.12]em, and the NoSnapshotFontFace failure injections.
+export function installSnapshotFontSessionFixture({
+  failShaping = false,
+  failFamily = null,
+  failText = null,
+  varyFaceByText = false,
+} = {}) {
+  globalThis.__TiqianSnapshotFixtureActive = true;
+  globalThis.__TiqianSnapshotFontShapeCount = 0;
+  globalThis.__TiqianSnapshotFontFallbackCount = 0;
+
+  function shapeFailure(displayText, serializedFamilies) {
+    return failShaping ||
+      (failFamily && String(serializedFamilies).includes(failFamily)) ||
+      (failText && String(displayText).includes(failText));
+  }
+
+  class FixtureShapeTable extends Map {
+    get(key) {
+      const [displayText, serializedFamilies] = JSON.parse(key);
+      if (shapeFailure(displayText, serializedFamilies)) {
+        globalThis.__TiqianSnapshotFontFallbackCount += 1;
+        throw new Error("NoSnapshotFontFace:test");
+      }
+      globalThis.__TiqianSnapshotFontShapeCount += 1;
+      const glyphs = [];
+      let glyphIndex = 0;
+      for (const _point of displayText) {
+        glyphs.push({
+          id: 100 + glyphIndex,
+          advanceEm: 1,
+          xEm: glyphIndex,
+          yEm: 0,
+          boundsEm: [0, -0.88, 1, 0.12],
+        });
+        glyphIndex++;
+      }
+      const role = JSON.parse(key)[5];
+      const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
+        ? ["pwid", "palt"]
+        : [];
+      return {
+        key,
+        result: {
+          glyphs,
+          advanceEm: glyphs.length,
+          features,
+          faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
+          fontInstanceId: "fixture:0:default",
+          script: "Hani",
+          unsafeBreakCount: 0,
+        },
+      };
+    }
+  }
+
+  class FixtureMetricTable extends Map {
+    get(key) {
+      const [serializedFamilies] = JSON.parse(key);
+      if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
+        globalThis.__TiqianSnapshotFontFallbackCount += 1;
+        throw new Error("NoSnapshotFontFace:test");
+      }
+      return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
+    }
+  }
+
+  globalServices().coordination.fonts.replayRegistry.sessions.set(
+    "fixture-snapshot-session",
+    { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
+  );
+}
+
 export function clearSnapshotFontSessionFixture() {
   globalServices().coordination.fonts.replayRegistry.sessions.delete("fixture-snapshot-session");
   delete globalThis.__TiqianSnapshotFixtureActive;
   delete globalServices().coordination.layoutWorker;
-  delete globalThis.__TiqianSnapshotPreparedPlan;
-  delete globalThis.__TiqianSnapshotPreparedRenderCount;
   delete globalThis.__TiqianSnapshotFontShapeCount;
   delete globalThis.__TiqianSnapshotFontFallbackCount;
 }
@@ -2691,14 +2789,6 @@ export function snapshotFontShapeCount() {
 
 export function snapshotFontFallbackCount() {
   return globalThis.__TiqianSnapshotFontFallbackCount || 0;
-}
-
-export function snapshotPreparedPlan() {
-  return globalThis.__TiqianSnapshotPreparedPlan || "";
-}
-
-export function snapshotPreparedRenderCount() {
-  return globalThis.__TiqianSnapshotPreparedRenderCount || 0;
 }
 
 export function installPreparedWorkerIssue(detail) {
@@ -2904,13 +2994,13 @@ let runtimePromise;
 // names bind directly to the graph's LayoutJobPool.
 export function loadHostRuntime() {
   buildWorld();
-  installPreparedRendererFixture();
+  initializeGlobalServices();
   runtimePromise ??= Promise.resolve().then(() => {
     // The runtime graph is now empty; the session owns its own rootState.
     // Create rootState and other services separately.
     const rootState = createRootState();
     const layoutJobPool = globalServices().coordination.layoutJobPool;
-    const rawDomContext = globalServices().rawDom.context;
+    runtimeServices = { rootState, layoutJobPool };
 
     const bridge = {
       // TiqianWeb.install() in the Kotlin runtime attached the clipboard
@@ -2923,29 +3013,29 @@ export function loadHostRuntime() {
         if (globalThis.document) globalServices().clipboard.install(globalThis.document);
       },
       enhance(root, options) {
-        enhance(rootState, layoutJobPool, rawDomContext, root, options);
+        enhance(rootState, layoutJobPool, contextForRoot(root), root, options);
         const count = root.getAttribute("data-tiqian-enhanced-count");
         return count != null ? Number(count) : 0;
       },
       enhanceProgressively(root, options) {
-        enhanceProgressively(rootState, layoutJobPool, rawDomContext, root, options);
+        enhanceProgressively(rootState, layoutJobPool, contextForRoot(root), root, options);
       },
       destroy(root) {
-        destroyRoot(rootState, layoutJobPool, rawDomContext, root);
+        destroyRoot(rootState, layoutJobPool, contextForRoot(root), root);
       },
       detach(root) {
-        detachRoot(layoutJobPool, root);
+        detachRoot(layoutJobPool, root, contextForRoot(root));
       },
       relayout(root) {
-        relayout(rootState, layoutJobPool, rawDomContext, root);
+        relayout(rootState, layoutJobPool, contextForRoot(root), root);
       },
       refresh(root, progressively = true) {
         const state = rootState.getState(root);
         if (state) {
           if (progressively) {
-            enhanceProgressivelyFromCanonical(rootState, layoutJobPool, rawDomContext, root, state.options);
+            enhanceProgressivelyFromCanonical(rootState, layoutJobPool, contextForRoot(root), root, state.options);
           } else {
-            enhance(rootState, layoutJobPool, rawDomContext, root, state.options, true);
+            enhance(rootState, layoutJobPool, contextForRoot(root), root, state.options, true);
           }
         }
         return root || globalThis.document.body;
@@ -2954,10 +3044,10 @@ export function loadHostRuntime() {
         layoutJobPool.cancelJob(root);
       },
       probeContentDrift(root) {
-        return probeRootContentDrift(rawDomContext, rootState, root);
+        return probeRootContentDrift(contextForRoot(root), rootState, root);
       },
       reconcileContent(root, paragraphs) {
-        return reconcileRoot(rawDomContext, rootState, layoutJobPool, root, paragraphs);
+        return reconcileRoot(contextForRoot(root), rootState, layoutJobPool, root, paragraphs);
       },
       workerLayoutRequest(root, paragraph, options) {
         const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs(options ?? {}));
