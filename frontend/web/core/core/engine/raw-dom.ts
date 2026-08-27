@@ -385,7 +385,11 @@ export function rawDomEnsureContainingBlock(context: EnhancedElementContext, sou
   record.containingBlockApplied = true;
 }
 
-export function rawDomSuspendEngineWrites<T>(context: EnhancedElementContext, source: Element, action: () => T): T {
+// Named per G1 code standard rule 5: the suspended action runs with engine
+// writes held off; its return value passes through untouched.
+type RawDomSuspendedAction<T> = () => T;
+
+export function rawDomSuspendEngineWrites<T>(context: EnhancedElementContext, source: Element, action: RawDomSuspendedAction<T>): T {
   const record = rawDomRecordOf(context, source);
   record.engineWriteDepth = (record.engineWriteDepth || 0) + 1;
   try {
