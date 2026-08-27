@@ -82,7 +82,7 @@ test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
 
   assert.equal(paragraph.firstChild, null);
   assert.equal(rawDomMatches(context, paragraph), false);
-  assert.equal(context.rawDomParagraphs.get(paragraph)?.fragment, undefined);
+  assert.equal(context.rawDomParagraphs.get(paragraph)?.fragment, null);
 
   rawDomCommit(context, paragraph, null);
 
@@ -241,7 +241,6 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
     null,
     null,
     null,
-    null,
     paragraph.getAttribute("style"),
     "",
     "",
@@ -280,7 +279,6 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
   rawDomBegin(
     context,
     paragraph,
-    null,
     null,
     null,
     null,
