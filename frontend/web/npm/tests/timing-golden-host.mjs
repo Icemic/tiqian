@@ -28,9 +28,6 @@ import {
 } from "./snapshot-dom-fixtures.mjs";
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
-import {
-  setPreparedDomRendererForTesting,
-} from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import * as preparedDom from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
 // ADR 0053 C1 removed the internal document-level event channel, so the
@@ -189,18 +186,6 @@ function installRecordingEngine(record, initialPhase) {
   const layoutJobPool = recordingLayoutJobPool();
   const rawDomContext = recordingRawDomContext();
   
-  setPreparedDomRendererForTesting({
-    ...preparedDom,
-    releaseRoot(root) {
-      // Resolve buffered cancel as detach when prepared-dom release follows cancelJob.
-      if (layoutJobPool._cancelPending) {
-        layoutJobPool._cancelPending = false;
-        layoutJobPool._installArmed = false;
-        if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method: "detach" });
-      }
-      return preparedDom.releaseRoot(root);
-    },
-  });
   activeEngineRecord = record.engineCalls;
   activeEnginePhase = initialPhase;
   return {
@@ -214,7 +199,6 @@ function installRecordingEngine(record, initialPhase) {
     teardown() {
       rootState.flushProjection();
       activeEngineRecord = null;
-      setPreparedDomRendererForTesting(undefined);
     },
   };
 }

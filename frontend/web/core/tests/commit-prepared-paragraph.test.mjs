@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../core/engine/commit-prepared-paragraph.js";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
 
@@ -56,43 +55,11 @@ function withEnv(fn, overrides = {}) {
       target && target._computedValues
         ? computedStyle(target._computedValues)
         : computedStyle();
-    if (overrides.renderer !== false) {
-      const renders = [];
-      const releases = [];
-      setPreparedDomRendererForTesting({
-        render: (host, plan, locale, options) => {
-          renders.push({
-            host,
-            plan,
-            locale,
-            options,
-            rawDomCounterDuringRender: getOrCreateEnhanceContext(host).rawDomParagraphs.get(host)?.engineWriteDepth,
-          });
-        },
-        release: (host) => {
-          releases.push(host);
-          return true;
-        },
-        releaseRoot: () => true,
-        schema: 1,
-        layoutRevision: "tiqian-layout-v2",
-        renders,
-        releases,
-      });
-    } else {
-      setPreparedDomRendererForTesting(null);
-    }
-    if (overrides.validator !== undefined) {
-      setCommitValidatorForTesting({
-        issue: overrides.validator,
-      });
-    } else {
-      setCommitValidatorForTesting(null);
-    }
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec: production degradation only by
+    // renderer exceptions and capability failures.
     return fn();
   } finally {
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

@@ -19,7 +19,7 @@
 // and apply instead.
 
 // Ambient global declarations pulled in via import type from owner modules.
-import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
+import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import {
   rawDomRenderedMatches,
@@ -80,8 +80,7 @@ export interface ReconcileAction {
 }
 
 function releasePreparedStyles(element: Element): boolean {
-  const renderer = preparedDomRendererModule();
-  if (renderer && renderer.release && renderer.release(element) === true) return true;
+  if (preparedDom.release && preparedDom.release(element) === true) return true;
   return false;
 }
 

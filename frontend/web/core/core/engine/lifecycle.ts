@@ -9,7 +9,7 @@
 
 import type { CjkDashCapability } from "./canvas-shaping.js";
 import { elementContentWidth, effectiveLineMeasure, sourceParagraphWidth } from "./responsive-measure.js";
-import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
+import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
 import type { RootStateApi } from "./root-state.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import { rawDomRestoreParagraph } from "./raw-dom.js";
@@ -316,10 +316,9 @@ export function restoreAttribute(element: Element, name: string, value?: string 
 }
 
 // Prepared-dom release used by root teardown and detach: the renderer module
-// reference resolves through the runtime loader so test overrides apply.
+// reference resolves directly from prepared-dom.
 function releasePreparedRootDomStyles(root: HTMLElement): boolean {
-  const renderer = preparedDomRendererModule();
-  return !!(renderer && renderer.releaseRoot && renderer.releaseRoot(root) === true);
+  return !!(preparedDom.releaseRoot && preparedDom.releaseRoot(root) === true);
 }
 
 // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe

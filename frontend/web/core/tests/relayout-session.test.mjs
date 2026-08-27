@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { openRelayoutSession } from "../core/engine/relayout-session.js";
@@ -89,18 +88,10 @@ function withPreparedBridge(fn, overrides = {}) {
     value: globalThis[name],
   }));
   try {
-    setPreparedDomRendererForTesting(overrides.renderer || {
-      render: function () {},
-      release: function () { return true; },
-      releaseRoot: function () { return true; },
-    });
-    setCommitValidatorForTesting(overrides.validator || {
-      issue: function () { return null; },
-    });
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec.
     return fn();
   } finally {
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     for (const entry of saved) {
       if (entry.own) globalThis[entry.name] = entry.value;
       else delete globalThis[entry.name];

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting } from "../core/engine/loaders/runtime-loader.js";
 import { enhance, enhanceProgressively } from "../core/engine/progressive-drivers.js";
 import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-reconcile.js";
@@ -127,27 +126,11 @@ function withEnv(fn, overrides = {}) {
         return { length: 0, item: function () { return undefined; } };
       },
     };
-    if (overrides.preparedDom !== false) {
-      setPreparedDomRendererForTesting({
-        render: function () {},
-        release: function () { return true; },
-        releaseRoot: function () { return true; },
-        schema: 1,
-        layoutRevision: "tiqian-layout-v2",
-      });
-    } else {
-      setPreparedDomRendererForTesting(null);
-    }
-    if (overrides.validator !== undefined) {
-      setCommitValidatorForTesting({ issue: overrides.validator });
-    } else {
-      setCommitValidatorForTesting(null);
-    }
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec.
     return fn();
   } finally {
     if (backend) backend.uninstall();
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     restoreEnv(saved);
   }
 }

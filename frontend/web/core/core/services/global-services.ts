@@ -12,8 +12,7 @@
 // cross-copy sharing lives in its owning module's closure behind a
 // Symbol.for registry key (the prepared-styles, snapshot-table,
 // snapshot-adoption, viewport-anchor and stylesheet-loader records moved to
-// that pattern in this ruling; the prepared-dom override record lives in
-// runtime-loader's registry).
+// that pattern in this ruling).
 //
 // The container must be one per document rather than one per module copy
 // because client routers, dev HMR and duplicated package chunks can evaluate

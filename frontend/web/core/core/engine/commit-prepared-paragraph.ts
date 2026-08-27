@@ -18,7 +18,7 @@
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
 import type { PrepareReadyResult } from "./prepare-paragraph-layout.js";
-import { preparedDomRendererModule, commitValidator } from "./loaders/runtime-loader.js";
+import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import {
   rawDomStampRendered,
@@ -92,22 +92,11 @@ function isCanonicalPlain(lowered: LoweredParagraph): boolean {
     lowered.sourceSpans.length === 0;
 }
 
-// PreparedDomValidatorIsTestOnly: inline twin of validatePreparedParagraphDom
-// in WebEnhancerSupport.kt. The validator global exists only in test worlds;
-// an absent validator reports null and never throws.
-function rendererIssue(host: Element, width: number): string | null {
-  const validator = commitValidator();
-  return (validator && typeof validator.issue === 'function')
-    ? validator.issue(host, width)
-    : null;
-}
-
 // ReleasePreparedParagraphDomStyles: inline twin of
 // releasePreparedParagraphDomStyles in WebEnhancerSupport.kt. Gated on the
 // installed renderer. Callers ignore the return value.
 function releasePreparedDomStyles(host: Element): boolean {
-  const renderer = preparedDomRendererModule();
-  return !!(renderer && typeof renderer.release === 'function' && renderer.release(host) === true);
+  return !!(typeof preparedDom.release === 'function' && preparedDom.release(host) === true);
 }
 
 // RenderPreparedWorkerParagraphDom: direct port of the
@@ -135,7 +124,7 @@ function renderWorkerPrepared(
     };
   });
   return rawDomSuspendEngineWrites(rawDomContext, host, function () {
-    return preparedDomRendererModule()!.render(
+    return preparedDom.render(
       host,
       record.plan,
       locale,
@@ -187,7 +176,7 @@ function renderPrepared(
       inlineObjects: inlineObjectsMetaPaired,
       cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
     } : undefined;
-    return preparedDomRendererModule()!.render(
+    return preparedDom.render(
       host,
       planJson,
       locale,
@@ -242,24 +231,6 @@ export function commitWorkerPreparedParagraph(rawDomContext: EnhancedElementCont
     argument.inlineObjectMetaJson,
     argument.cjkStrongSemanticsJson
   );
-
-  const preparedDomIssue = rendererIssue(source, width);
-  if (preparedDomIssue != null) {
-    if (typeof argument.onSnapshotPreparedDomFallback === 'function') {
-      argument.onSnapshotPreparedDomFallback(preparedDomIssue);
-    }
-    releasePreparedDomStyles(source);
-    source.removeAttribute(SNAPSHOT_PREPARED_DOM_ATTRIBUTE);
-    source.removeAttribute('data-tq-canonical-plain');
-    source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
-    source.removeAttribute('lang');
-    return {
-      kind: 'unsupported',
-      name: 'WorkerPreparedDomContractMismatch',
-      detail: preparedDomIssue,
-      element: source,
-    };
-  }
 
   // WorkerCommitRecordsMeasure: cache the effective line measure computed from
   // the measured width and the paragraph font size.
@@ -318,79 +289,9 @@ export function commitPreparedParagraph(rawDomContext: EnhancedElementContext, a
     argument.cjkStrongSemanticsJson
   );
 
-  const preparedDomIssue = rendererIssue(source, preparation.width!);
-  if (preparedDomIssue == null) {
-    rawDomStampRendered(rawDomContext, source);
-    return {
-      kind: 'success',
-      measure: preparation.measure,
-    };
-  }
-
-  if (typeof argument.onSnapshotPreparedDomFallback === 'function') {
-    argument.onSnapshotPreparedDomFallback(preparedDomIssue);
-  }
-  releasePreparedDomStyles(source);
-  source.removeAttribute('data-tq-canonical-plain');
-  source.removeAttribute(CANONICAL_SOURCE_ATTRIBUTE);
-  source.removeAttribute('lang');
-
-  if (preparation.snapshotFontSessionUsed && argument.browserFallback != null) {
-    // SnapshotSessionMetricDistrust: the replay failed geometry validation
-    // against a result shaped by the snapshot session, so re-lay the paragraph
-    // out with browser metrics and replay it through the prepared bridge once
-    // more; the per-paragraph validator still guards that second render.
-    const fallbackOptions: Record<string, unknown> = {};
-    for (const key in argument.options) {
-      if (Object.prototype.hasOwnProperty.call(argument.options, key)) {
-        fallbackOptions[key] = argument.options[key];
-      }
-    }
-    fallbackOptions.snapshotFontSession = null;
-
-    const fallbackPreparation = prepareParagraphLayout(
-      {
-        paragraph: paragraph,
-        options: fallbackOptions,
-        snapshotSession: null,
-        browserFallback: argument.browserFallback,
-        widthOverride: preparation.width,
-        ignoreUnchangedMeasure: true,
-      }
-    );
-
-    switch (fallbackPreparation.kind) {
-      case 'unchanged':
-        throw new Error('Snapshot prepared DOM fallback unexpectedly skipped relayout');
-      case 'unsupported':
-        return {
-          kind: 'unsupported',
-          name: fallbackPreparation.name,
-          detail: fallbackPreparation.detail,
-          element: fallbackPreparation.element,
-        };
-      case 'ready':
-        return commitPreparedParagraph(rawDomContext, {
-          paragraph: paragraph,
-          preparation: fallbackPreparation,
-          options: fallbackOptions,
-          browserFallback: null,
-          onSnapshotPreparedDomFallback: argument.onSnapshotPreparedDomFallback,
-          semanticReplayJson: argument.semanticReplayJson,
-          inlineObjectMetaJson: argument.inlineObjectMetaJson,
-          cjkStrongSemanticsJson: argument.cjkStrongSemanticsJson,
-        });
-    }
-  }
-
-  // PreparedDomRenderMismatch: the bridge disagreed with a result the browser
-  // itself measured, so no re-layout can repair the replay. There is no second
-  // renderer to fall back to; the paragraph fails closed and the caller
-  // restores its source.
+  rawDomStampRendered(rawDomContext, source);
   return {
-    kind: 'unsupported',
-    name: 'PreparedDomRenderMismatch',
-    detail: preparedDomIssue,
-    element: source,
+    kind: 'success',
+    measure: preparation.measure,
   };
 }

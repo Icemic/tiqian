@@ -11,7 +11,6 @@ import {
   FakeText,
   fixtureComputedStyle,
 } from "./snapshot-dom-fixtures.mjs";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, commitValidator } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import {
   enhance,
   enhanceProgressively,
@@ -2675,707 +2674,705 @@ export function testGrantController(root, generation, deadlineMs, quota) {
   };
 }
 
-export function failSnapshotPreparedDomRender(detail) {
-  setCommitValidatorForTesting({ issue: () => null });
-  setPreparedDomRendererForTesting({
-    schema: 1,
-    layoutRevision: "tiqian-layout-v2",
-    render() {
-      throw new Error(detail);
-    },
-    release() {
-      return true;
-    },
-    releaseRoot() {
-      return true;
-    },
-  });
-}
-
-// Shared prepared-DOM renderer fixture: the full ported pipeline without
-// the exact font backend. Host-runtime worlds install it so plain-host
-// tests render through the prepared bridge (ADR 0053 B8.3c); the exact
-// session fixture layers its font backend on top of the same renderer.
-export function installPreparedRendererFixture() {
-  globalThis.__TiqianSnapshotPreparedPlan = "";
-  globalThis.__TiqianSnapshotPreparedPlans = [];
-  globalThis.__TiqianSnapshotPreparedSemantics = [];
-  globalThis.__TiqianSnapshotPreparedCjkStrong = [];
-  globalThis.__TiqianSnapshotPreparedSemanticElements = [];
-  globalThis.__TiqianSnapshotPreparedInlineObjects = [];
-  globalThis.__TiqianSnapshotPreparedRenderCount = 0;
-  globalThis.__TiqianSnapshotFontShapeCount = 0;
-  globalThis.__TiqianSnapshotFontFallbackCount = 0;
-  setPreparedDomRendererForTesting({
-    schema: 1,
-    layoutRevision: "tiqian-layout-v2",
-    render(host, planJson, locale, options = {}) {
-      globalThis.__TiqianSnapshotPreparedRenderCount += 1;
-      globalThis.__TiqianSnapshotPreparedPlan = planJson;
-      globalThis.__TiqianSnapshotPreparedPlans.push(planJson);
-      globalThis.__TiqianSnapshotPreparedSemantics = Array.from(options.semantics || []);
-      globalThis.__TiqianSnapshotPreparedCjkStrong = Array.from(options.cjkStrongSemantics || []);
-      globalThis.__TiqianSnapshotPreparedSemanticElements =
-        Array.from(options.liveSemanticElements || []);
-      globalThis.__TiqianSnapshotPreparedInlineObjects = Array.from(options.inlineObjects || []);
-      if (globalThis.__TiqianSnapshotFixtureActive) {
-        for (const element of globalThis.__TiqianSnapshotPreparedSemanticElements) {
-          if (element && element.setAttribute) {
-            element.setAttribute("data-tq-fixture-seen", "semantic");
-          }
-        }
-        for (const entry of globalThis.__TiqianSnapshotPreparedInlineObjects) {
-          if (entry && entry.element && entry.element.setAttribute) {
-            entry.element.setAttribute("data-tq-fixture-seen", "inline-object");
-          }
-        }
-      }
-      const plan = typeof planJson === "string" ? JSON.parse(planJson) : (planJson || {});
-      const lines = Array.from(plan.lines || []);
-      const inlineStartByOffset = new Map();
-      const inlineEndByOffset = new Map();
-      for (const edge of Array.from((plan && plan.inlineEdges) || [])) {
-        const offset = Number(edge.offset);
-        if (edge.inlineStart != null) {
-          inlineStartByOffset.set(
-            offset,
-            (inlineStartByOffset.get(offset) || 0) + Number(edge.inlineStart),
-          );
-        }
-        if (edge.inlineEnd != null) {
-          inlineEndByOffset.set(
-            offset,
-            (inlineEndByOffset.get(offset) || 0) + Number(edge.inlineEnd),
-          );
-        }
-      }
-      const inlineObjects = Array.from(options.inlineObjects || [])
-        .slice()
-        .sort(function (left, right) { return left.start - right.start; });
-      // EmphasisDotColorBeforeSwap: computed colors must be read while the
-      // live semantic elements are still connected, before the host swap.
-      const semanticColors = [];
-      for (const element of Array.from(options.liveSemanticElements || [])) {
-        let color = "";
-        try {
-          color = String(globalThis.getComputedStyle(element).color || "");
-        } catch (error) {
-          color = "";
-        }
-        if (!color.trim() && element.style) color = String(element.style.color || "");
-        semanticColors.push(color.trim());
-      }
-      host.replaceChildren();
-      const marker = globalThis.document.createElement("span");
-      marker.setAttribute("data-tq-snapshot-rendered", String(locale));
-      host.appendChild(marker);
-      // Pending plain text flushes only when a different container or an
-      // element is appended, so semantic clones attach in source order.
-      let pendingText = "";
-      let pendingContainer = null;
-      const flushText = () => {
-        if (pendingContainer) {
-          pendingContainer.appendChild(globalThis.document.createTextNode(pendingText));
-        }
-        pendingText = "";
-        pendingContainer = null;
-      };
-      const emitText = (container, text) => {
-        if (pendingContainer !== container) flushText();
-        if (!pendingContainer) pendingContainer = container;
-        pendingText += text;
-      };
-      let containers = null;
-      let semanticRoots = [];
-      let coveringSignature = function () { return ""; };
-      if (options.semanticReplay === "live-source") {
-        const semantics = Array.from(options.semantics || []);
-        const sourceElements = Array.from(options.liveSemanticElements || []);
-        const cjkStrongSemantics = Array.from(options.cjkStrongSemantics || []);
-        const roots = [];
-        const stack = [];
-        for (const semantic of semantics) {
-          while (stack.length > 0 && semantic.start >= stack.at(-1).end) stack.pop();
-          const node = {
-            start: semantic.start,
-            end: semantic.end,
-            sourceIndex: semantic.sourceIndex,
-            children: [],
-            clone: null,
-          };
-          const parent = stack.at(-1);
-          if (parent) {
-            if (semantic.end > parent.end) throw new Error("CrossingLiveSemanticRanges");
-            parent.children.push(node);
-          } else {
-            roots.push(node);
-          }
-          stack.push(node);
-        }
-        // LiveSourceSemanticReplay: geometry renders inside shallow clones
-        // of the source elements, created lazily so host child order
-        // follows source order. An inline-object range renders as a deep
-        // clone of the live element, never as the replacement character
-        // that rides the lowered source text.
-        const attach = (node, container) => {
-          if (!node.clone) {
-            const source = sourceElements[node.sourceIndex];
-            if (!source) throw new Error("MissingLiveSemanticSource:" + node.sourceIndex);
-            const clone = source.cloneNode(false);
-            clone.setAttribute("data-tq-source-semantic", "true");
-            const cjkStrong = cjkStrongSemantics.find(function (entry) {
-              return Number(entry.start) === node.start && Number(entry.end) === node.end;
-            });
-            if (cjkStrong) {
-              clone.setAttribute("data-tq-cjk-emphasis", "true");
-              clone.style.setProperty("font-weight", String(cjkStrong.weight), "important");
-            }
-            node.clone = clone;
-          }
-          if (!node.clone.parentNode) container.appendChild(node.clone);
-          return node.clone;
-        };
-        const coveringPath = (nodes, start, end, path) => {
-          for (const node of nodes) {
-            if (start >= node.start && end <= node.end) {
-              return coveringPath(node.children, start, end, path.concat([node]));
-            }
-          }
-          return path;
-        };
-        const crossingPath = (nodes, offset, path) => {
-          let deepest = path;
-          for (const node of nodes) {
-            if (node.start < offset && offset < node.end) {
-              deepest = crossingPath(node.children, offset, path.concat([node]));
-            }
-          }
-          return deepest;
-        };
-        const descend = (path) => {
-          let container = host;
-          for (const node of path) {
-            flushText();
-            container = attach(node, container);
-          }
-          return container;
-        };
-        containers = {
-          range: (start, end) => descend(coveringPath(roots, start, end, [])),
-          crossing: (offset) => descend(crossingPath(roots, offset, [])),
-        };
-        semanticRoots = roots;
-        coveringSignature = function (start, end) {
-          return coveringPath(roots, start, end, [])
-            .map(function (node) { return node.sourceIndex; })
-            .join("/");
-        };
-      }
-      const spacingEpsilon = 0.01;
-      const numberOr = (value, fallback) => {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : fallback;
-      };
-      const preparedSpacing = (display, naturalWidth, trailingGap) => {
-        if (Math.abs(trailingGap) < spacingEpsilon) return { kind: "none", px: 0 };
-        if (display.length === 1 && naturalWidth + trailingGap >= 0) {
-          return { kind: "letter", px: trailingGap };
-        }
-        if (trailingGap < 0) return { kind: "overlap", px: trailingGap };
-        return { kind: "trailing-letter", px: trailingGap };
-      };
-      const featureSignatureOf = (run) => run.openTypeFeatures.join(",");
-      const canMergeRun = (left, right) =>
-        left.rangeEnd === right.rangeStart &&
-        left.semanticSignature === right.semanticSignature &&
-        !left.shapingBoundary && !right.shapingBoundary &&
-        featureSignatureOf(left) === featureSignatureOf(right) &&
-        left.renderFontFamily === right.renderFontFamily &&
-        left.dashStrategy == null && right.dashStrategy == null &&
-        left.styleSignature === right.styleSignature &&
-        left.punctuationSignature === right.punctuationSignature &&
-        left.italicEffect === right.italicEffect &&
-        ((left.spacing.kind === "none" && right.spacing.kind === "none") ||
-          (left.spacing.kind === "letter" && right.spacing.kind === "letter" &&
-            Math.abs(left.spacing.px - right.spacing.px) < spacingEpsilon));
-      const mergeRun = (left, right) => {
-        left.rangeEnd = right.rangeEnd;
-        left.source += right.source;
-        left.display += right.display;
-        left.naturalWidth += right.naturalWidth;
-        left.trailingGap += right.trailingGap;
-        left.rawTrailingGap += right.rawTrailingGap;
-      };
-      // Runs and plain text append at the host level when no live-source
-      // replay is active; line markers ride alongside as empty spans.
-      const emitRun = (run) => {
-        const container = containers
-          ? containers.range(run.rangeStart, run.rangeEnd)
-          : host;
-        let text = String(run.display != null ? run.display : "");
-        if (text === "" && run.source) text = String(run.source);
-        if (text === "") return;
-        const features = featureSignatureOf(run);
-        const needsElement = run.shapingBoundary || features ||
-          run.renderFontFamily != null || run.source !== run.display ||
-          run.spacing.kind !== "none" ||
-          (run.style && Object.keys(run.style).length > 0) ||
-          run.italicEffect || run.dashStrategy != null ||
-          run.punctuationInkFloor != null;
-        if (!needsElement) {
-          emitText(container, text);
-          return;
-        }
-        flushText();
-        const runSpan = globalThis.document.createElement("span");
-        runSpan.setAttribute(
-          "data-tq-advance",
-          String(
-            run.spacing.kind === "letter" || run.spacing.kind === "trailing-letter"
-              ? run.naturalWidth + run.trailingGap
-              : run.naturalWidth,
-          ),
-        );
-        runSpan.setAttribute("data-tq-geometry", "true");
-        runSpan.setAttribute("data-tq-x", String(run.drawX));
-        if (run.shapingBoundary || features) {
-          runSpan.setAttribute("data-tq-shaping-boundary", "");
-        }
-        if (features) {
-          runSpan.setAttribute("data-tq-open-type-features", features);
-        }
-        if (run.source !== run.display) {
-          runSpan.setAttribute("data-tq-src", String(run.source));
-        }
-        if (run.dashStrategy != null) {
-          runSpan.setAttribute("data-tq-dash-strategy", String(run.dashStrategy));
-          runSpan.setAttribute("data-tq-dash-advance", String(run.naturalWidth));
-        }
-        if (run.punctuationInkFloor != null) {
-          runSpan.setAttribute("data-tq-punctuation-ink-floor", String(run.punctuationInkFloor));
-          if (run.punctuationBodyWidth != null) {
-            runSpan.setAttribute("data-tq-punctuation-body-width", String(run.punctuationBodyWidth));
-          }
-        }
-        if (run.renderFontFamily != null) {
-          runSpan.setAttribute("data-tq-render-font-projection", "true");
-          runSpan.style.setProperty("font-family", String(run.renderFontFamily), "important");
-        }
-        if (run.style && run.style.fontSize != null) {
-          runSpan.style.setProperty("font-size", String(run.style.fontSize) + "px", "important");
-        }
-        if (run.style && run.style.fontWeight != null) {
-          runSpan.style.setProperty("font-weight", String(run.style.fontWeight), "important");
-        }
-        if (run.italicEffect) {
-          runSpan.style.setProperty("font-style", "italic", "important");
-        } else if (run.style && run.style.italic === false) {
-          runSpan.style.setProperty("font-style", "normal", "important");
-        }
-        if (run.spacing.kind === "letter") {
-          runSpan.style.setProperty("letter-spacing", String(run.spacing.px) + "px", "important");
-        } else if (run.spacing.kind === "overlap") {
-          runSpan.style.setProperty("margin-right", String(run.spacing.px) + "px", "important");
-        }
-        if (run.spacing.kind === "trailing-letter") {
-          runSpan.appendChild(globalThis.document.createTextNode(text));
-          const carrier = globalThis.document.createElement("span");
-          carrier.setAttribute("aria-hidden", "true");
-          carrier.setAttribute("data-tq-copy-ignore", "true");
-          carrier.setAttribute("data-tq-geometry", "true");
-          carrier.setAttribute("data-tq-spacing-carrier", "true");
-          carrier.style.setProperty("display", "inline-block", "important");
-          carrier.style.setProperty("inline-size", String(run.spacing.px) + "px", "important");
-          carrier.style.setProperty("height", "0", "important");
-          carrier.style.setProperty("line-height", "0", "important");
-          carrier.style.setProperty("letter-spacing", String(run.spacing.px) + "px", "important");
-          carrier.style.setProperty("overflow", "hidden", "important");
-          carrier.style.setProperty("vertical-align", "baseline", "important");
-          carrier.style.setProperty("white-space", "pre", "important");
-          carrier.appendChild(globalThis.document.createTextNode("\u00a0"));
-          runSpan.appendChild(carrier);
-          container.appendChild(runSpan);
-          return;
-        }
-        runSpan.appendChild(globalThis.document.createTextNode(text));
-        container.appendChild(runSpan);
-      };
-      for (let index = 0; index < lines.length; index++) {
-        if (index > 0) {
-          const previous = lines[index - 1];
-          const engineBreak = globalThis.document.createElement("br");
-          engineBreak.setAttribute(
-            "data-tq-engine-break",
-            String(previous.endReason || "AutoWrap"),
-          );
-          if (previous.endReason !== "MandatoryBreak") {
-            engineBreak.setAttribute("aria-hidden", "true");
-            engineBreak.setAttribute("data-tq-copy-ignore", "true");
-          }
-          flushText();
-          if (containers) containers.crossing(previous.rangeEnd).appendChild(engineBreak);
-          else host.appendChild(engineBreak);
-        }
-        const line = lines[index];
-        const cells = Array.from(line.cells || []);
-        const first = cells[0];
-        const flowStart = first
-          ? numberOr(first.drawX, 0) - numberOr(first.leadingLayoutAdvance, 0)
-          : 0;
-        const firstInlineStart = first ? inlineStartByOffset.get(first.rangeStart) || 0 : 0;
-        if (
-          first &&
-          Math.abs(numberOr(first.leadingLayoutAdvance, 0) - firstInlineStart) > 0.01
-        ) {
-          throw new Error("SnapshotRenderFlowMismatch:line=" + index + ";leading-layout-advance");
-        }
-        const runs = [];
-        for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
-          const cell = cells[cellIndex];
-          const next = cells[cellIndex + 1];
-          const naturalWidth = numberOr(cell.naturalWidth, 0);
-          const trailingInlineEdge = inlineEndByOffset.get(cell.rangeEnd) || 0;
-          const nextLeadingInlineEdge = next ? inlineStartByOffset.get(next.rangeStart) || 0 : 0;
-          const rawTrailingGap = next
-            ? numberOr(next.drawX, 0) - numberOr(cell.drawX, 0) - naturalWidth -
-              trailingInlineEdge - nextLeadingInlineEdge
-            : numberOr(line.hyphenAdvance, 0) > 0
-              ? 0
-              : numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) -
-                numberOr(cell.drawX, 0) - naturalWidth - trailingInlineEdge;
-          const trailingGap = Math.abs(rawTrailingGap) < spacingEpsilon ? 0 : rawTrailingGap;
-          runs.push({
-            rangeStart: cell.rangeStart,
-            rangeEnd: cell.rangeEnd,
-            source: cell.source,
-            display: cell.display,
-            drawX: numberOr(cell.drawX, 0),
-            naturalWidth: naturalWidth,
-            shapingBoundary: cell.shapingBoundary === true,
-            openTypeFeatures: Array.from(cell.openTypeFeatures || [], String),
-            renderFontFamily: cell.renderFontFamily != null ? String(cell.renderFontFamily) : null,
-            trailingGap: trailingGap,
-            rawTrailingGap: rawTrailingGap,
-            spacing: preparedSpacing(
-              String(cell.display != null ? cell.display : ""),
-              naturalWidth,
-              trailingGap,
-            ),
-            style: cell.style || null,
-            italicEffect: !!(cell.style && cell.style.italic === true),
-            dashStrategy: cell.dashStrategy != null ? cell.dashStrategy : null,
-            punctuationInkFloor: cell.punctuationInkFloor != null ? cell.punctuationInkFloor : null,
-            punctuationBodyWidth: cell.punctuationBodyWidth != null ? cell.punctuationBodyWidth : null,
-            semanticSignature: coveringSignature(cell.rangeStart, cell.rangeEnd),
-            styleSignature: JSON.stringify(cell.style || null),
-            punctuationSignature: JSON.stringify([
-              cell.punctuationInkFloor != null ? cell.punctuationInkFloor : null,
-              cell.punctuationBodyWidth != null ? cell.punctuationBodyWidth : null,
-            ]),
-          });
-        }
-        const children = [];
-        let pendingRun = null;
-        const flushRun = () => {
-          if (pendingRun == null) return;
-          children.push({ kind: "run", run: pendingRun });
-          pendingRun = null;
-        };
-        for (const run of runs) {
-          const inlineObject = inlineObjects.find(function (entry) {
-            return entry.start === run.rangeStart && entry.end === run.rangeEnd;
-          });
-          if (inlineObject) {
-            flushRun();
-            children.push({ kind: "inlineObject", entry: inlineObject, run: run });
-            continue;
-          }
-          const record = Object.assign({}, run, { spacing: Object.assign({}, run.spacing) });
-          if (pendingRun && canMergeRun(pendingRun, record)) {
-            mergeRun(pendingRun, record);
-          } else {
-            flushRun();
-            pendingRun = record;
-          }
-        }
-        flushRun();
-        const last = cells[cells.length - 1];
-        const flowEnd = last
-          ? numberOr(last.drawX, 0) + numberOr(last.naturalWidth, 0) +
-            (inlineEndByOffset.get(last.rangeEnd) || 0)
-          : 0;
-        const hyphenAdvance = numberOr(line.hyphenAdvance, 0);
-        const hyphenLeadingGap = hyphenAdvance > 0
-          ? numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) - flowEnd
-          : 0;
-        let inlineEdgeWidth = 0;
-        for (const cell of cells) {
-          inlineEdgeWidth += (inlineStartByOffset.get(cell.rangeStart) || 0) +
-            (inlineEndByOffset.get(cell.rangeEnd) || 0);
-        }
-        let expectedFlowWidth = flowStart + inlineEdgeWidth + hyphenLeadingGap + hyphenAdvance;
-        for (const child of children) {
-          // FlowValidationUsesRawGaps: per-cell gaps below the spacing
-          // epsilon snap to zero for the emitted spacing, but the flow
-          // identity must sum the raw values; a stretched line with many
-          // sub-epsilon gaps would otherwise lose n-times-epsilon width
-          // and read as an arithmetic mismatch.
-          expectedFlowWidth += child.run.naturalWidth + child.run.rawTrailingGap;
-        }
-        const coreLineWidth =
-          numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) + hyphenAdvance;
-        if (Math.abs(expectedFlowWidth - coreLineWidth) > 0.01) {
-          throw new Error(
-            "SnapshotRenderFlowMismatch:line=" + index +
-              ";expected=" + expectedFlowWidth +
-              ";core=" + coreLineWidth +
-              ";flowStart=" + flowStart +
-              ";edges=" + inlineEdgeWidth,
-          );
-        }
-        const markerSpan = globalThis.document.createElement("span");
-        markerSpan.setAttribute("aria-hidden", "true");
-        markerSpan.className = "tq-line";
-        markerSpan.setAttribute("data-tq-copy-ignore", "true");
-        markerSpan.setAttribute("data-tq-geometry", "true");
-        markerSpan.setAttribute("data-tq-line-empty", String(cells.length === 0));
-        markerSpan.setAttribute("data-tq-line-end", String(line.endReason || "AutoWrap"));
-        markerSpan.setAttribute("data-tq-line-top", String(line.top));
-        markerSpan.setAttribute("data-tq-line-bottom", String(line.bottom));
-        markerSpan.setAttribute("data-tq-line-baseline", String(line.baseline));
-        markerSpan.setAttribute("data-tq-line-flow-width", String(expectedFlowWidth));
-        markerSpan.setAttribute("data-tq-line-index", String(index));
-        markerSpan.setAttribute(
-          "data-tq-line-range",
-          String(line.rangeStart) + "-" + String(line.rangeEnd),
-        );
-        markerSpan.setAttribute("data-tq-line-width", String(coreLineWidth));
-        markerSpan.setAttribute("data-tq-paragraph-height", String(numberOr(plan.height, 0)));
-        markerSpan.style.setProperty(
-          "--tq-line-height",
-          String(numberOr(line.bottom, 0) - numberOr(line.top, 0)) + "px",
-          "important",
-        );
-        markerSpan.style.setProperty(
-          "--tq-line-baseline-offset",
-          String(-(numberOr(line.bottom, 0) - numberOr(line.baseline, 0))) + "px",
-          "important",
-        );
-        if (Math.abs(flowStart) >= spacingEpsilon) {
-          markerSpan.setAttribute("data-tq-line-shift", "true");
-          markerSpan.style.setProperty(
-            "--tq-line-flow-start",
-            String(flowStart) + "px",
-            "important",
-          );
-        }
-        const markerContainer = containers && first
-          ? containers.range(first.rangeStart, first.rangeEnd)
-          : host;
-        flushText();
-        markerContainer.appendChild(markerSpan);
-        for (const child of children) {
-          if (child.kind === "run") {
-            emitRun(child.run);
-            continue;
-          }
-          flushText();
-          const clone = child.entry.element.cloneNode(true);
-          clone.setAttribute("data-tq-inline-object", "true");
-          const container = containers
-            ? containers.range(child.run.rangeStart, child.run.rangeEnd)
-            : host;
-          container.appendChild(clone);
-        }
-        if (hyphenAdvance > 0) {
-          flushText();
-          const hyphenSpan = globalThis.document.createElement("span");
-          hyphenSpan.setAttribute("aria-hidden", "true");
-          hyphenSpan.setAttribute("data-tq-advance", String(hyphenAdvance));
-          hyphenSpan.setAttribute("data-tq-copy-ignore", "true");
-          hyphenSpan.setAttribute("data-tq-engine-hyphen", "true");
-          hyphenSpan.setAttribute("data-tq-geometry", "true");
-          hyphenSpan.setAttribute(
-            "data-tq-x",
-            String(numberOr(line.indent, 0) + numberOr(line.visualWidth, 0)),
-          );
-          hyphenSpan.setAttribute("lang", String(locale));
-          if (Math.abs(hyphenLeadingGap) >= spacingEpsilon) {
-            hyphenSpan.style.setProperty(
-              "margin-left",
-              String(hyphenLeadingGap) + "px",
-              "important",
-            );
-          }
-          hyphenSpan.appendChild(globalThis.document.createTextNode("-"));
-          markerContainer.appendChild(hyphenSpan);
-        }
-        flushText();
-        const sentinel = globalThis.document.createElement("span");
-        sentinel.setAttribute("aria-hidden", "true");
-        sentinel.setAttribute("data-tq-copy-ignore", "true");
-        sentinel.setAttribute("data-tq-geometry", "true");
-        sentinel.setAttribute("data-tq-line-end-sentinel", String(index));
-        const boundaryContainer = containers
-          ? containers.crossing(line.rangeEnd)
-          : host;
-        boundaryContainer.appendChild(sentinel);
-        if (line.endReason === "MandatoryBreak") {
-          const hardBreak = globalThis.document.createElement("span");
-          hardBreak.setAttribute("data-tq-geometry", "true");
-          hardBreak.setAttribute("data-tq-hard-break", "true");
-          hardBreak.setAttribute("data-tq-src", "\n");
-          boundaryContainer.appendChild(hardBreak);
-        }
-      }
-      if (lines.length > 0) {
-        const selectionEnd = globalThis.document.createElement("span");
-        selectionEnd.setAttribute("aria-hidden", "true");
-        selectionEnd.setAttribute("data-tq-copy-ignore", "true");
-        selectionEnd.setAttribute("data-tq-selection-end", "true");
-        selectionEnd.appendChild(globalThis.document.createTextNode("\u200b"));
-        host.appendChild(selectionEnd);
-      }
-      const dots = Array.from(plan.emphasisDots || []);
-      if (dots.length > 0) {
-        const semantics = Array.from(options.semantics || []);
-        // EmphasisDotColorBeforeSwap: colors were captured while the live
-        // semantic elements were still connected; the elements themselves
-        // are detached after the host swap.
-        const resolveDotColor = (offset) => {
-          if (!semantics.length) return null;
-          let maxOrder = -Infinity;
-          let selected = null;
-          for (const semantic of semantics) {
-            if (offset >= Number(semantic.start) && offset < Number(semantic.end)) {
-              const order = Number(semantic.order || 0);
-              if (order > maxOrder) {
-                maxOrder = order;
-                selected = semantic;
-              }
-            }
-          }
-          if (!selected) return null;
-          const color = semanticColors[selected.sourceIndex];
-          return typeof color === "string" && color.length > 0 ? color : null;
-        };
-        const svg = globalThis.document.createElement("svg");
-        svg.setAttribute("data-tq-geometry", "true");
-        svg.setAttribute(
-          "style",
-          "--tq-overlay-width:" + Number(plan.overlayWidth) +
-            "px;--tq-overlay-height:" + Number(plan.height) + "px",
-        );
-        for (const dot of dots) {
-          const color = resolveDotColor(dot.clusterRangeStart);
-          const dotColor = color || "currentColor";
-          const circle = globalThis.document.createElement("circle");
-          circle.setAttribute("cx", String(Number(dot.anchorX)));
-          circle.setAttribute("cy", String(Number(dot.anchorY)));
-          circle.setAttribute("data-tq-decoration-dot", "true");
-          circle.setAttribute("fill", dotColor);
-          circle.setAttribute("r", String(Number(dot.dotDiameter) / 2));
-          circle.setAttribute("style", "--tq-decoration-color:" + dotColor);
-          svg.appendChild(circle);
-        }
-        host.appendChild(svg);
-      }
-      return {};
-    },
-    release() {
-      return true;
-    },
-    releaseRoot() {
-      return true;
-    },
-  });
-  setCommitValidatorForTesting({ issue: () => null });
-}
-
-// Snapshot font session fixture (backend-global retirement): the exact options
-// declare a conforming session id, the engine resolves that id into the
-// shapeJson/metricsJson callback pair through the coordination replay
-// registry, and this fixture registers a session whose tables synthesize one
-// entry per request from the replay key itself. Synthesis keeps the old
-// fixture geometry: one glyph per code point at advance 1em, bounds
-// [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
-// [1, 0.25, 0, 0.88, 0.12]em, and the NoSnapshotFontFace failure injections.
-export function installSnapshotFontSessionFixture({
-  failShaping = false,
-  failFamily = null,
-  failText = null,
-  varyFaceByText = false,
-} = {}) {
-  installPreparedRendererFixture();
-  globalThis.__TiqianSnapshotFixtureActive = true;
-
-  function shapeFailure(displayText, serializedFamilies) {
-    return failShaping ||
-      (failFamily && String(serializedFamilies).includes(failFamily)) ||
-      (failText && String(displayText).includes(failText));
-  }
-
-  class FixtureShapeTable extends Map {
-    get(key) {
-      const [displayText, serializedFamilies] = JSON.parse(key);
-      if (shapeFailure(displayText, serializedFamilies)) {
-        globalThis.__TiqianSnapshotFontFallbackCount += 1;
-        throw new Error("NoSnapshotFontFace:test");
-      }
-      globalThis.__TiqianSnapshotFontShapeCount += 1;
-      const glyphs = [];
-      let glyphIndex = 0;
-      for (const _point of displayText) {
-        glyphs.push({
-          id: 100 + glyphIndex,
-          advanceEm: 1,
-          xEm: glyphIndex,
-          yEm: 0,
-          boundsEm: [0, -0.88, 1, 0.12],
-        });
-        glyphIndex++;
-      }
-      const role = JSON.parse(key)[5];
-      const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
-        ? ["pwid", "palt"]
-        : [];
-      return {
-        key,
-        result: {
-          glyphs,
-          advanceEm: glyphs.length,
-          features,
-          faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
-          fontInstanceId: "fixture:0:default",
-          script: "Hani",
-          unsafeBreakCount: 0,
-        },
-      };
-    }
-  }
-
-  class FixtureMetricTable extends Map {
-    get(key) {
-      const [serializedFamilies] = JSON.parse(key);
-      if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
-        globalThis.__TiqianSnapshotFontFallbackCount += 1;
-        throw new Error("NoSnapshotFontFace:test");
-      }
-      return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
-    }
-  }
-
-  globalServices().coordination.fonts.replayRegistry.sessions.set(
-    "fixture-snapshot-session",
-    { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
-  );
-}
+// REMOVED: export function failSnapshotPreparedDomRender(detail) {
+// REMOVED:   setCommitValidatorForTesting({ issue: () => null });
+// REMOVED:   setPreparedDomRendererForTesting({
+// REMOVED:     schema: 1,
+// REMOVED:     layoutRevision: "tiqian-layout-v2",
+// REMOVED:     render() {
+// REMOVED:       throw new Error(detail);
+// REMOVED:     },
+// REMOVED:     release() {
+// REMOVED:       return true;
+// REMOVED:     },
+// REMOVED:     releaseRoot() {
+// REMOVED:       return true;
+// REMOVED:     },
+// REMOVED:   });
+// REMOVED: }
+// REMOVED: 
+// REMOVED: // Shared prepared-DOM renderer fixture: the full ported pipeline without
+// REMOVED: // the exact font backend. Host-runtime worlds install it so plain-host
+// REMOVED: // tests render through the prepared bridge (ADR 0053 B8.3c); the exact
+// REMOVED: // session fixture layers its font backend on top of the same renderer.
+// REMOVED: export function installPreparedRendererFixture() {
+// REMOVED:   globalThis.__TiqianSnapshotPreparedPlan = "";
+// REMOVED:   globalThis.__TiqianSnapshotPreparedPlans = [];
+// REMOVED:   globalThis.__TiqianSnapshotPreparedSemantics = [];
+// REMOVED:   globalThis.__TiqianSnapshotPreparedCjkStrong = [];
+// REMOVED:   globalThis.__TiqianSnapshotPreparedSemanticElements = [];
+// REMOVED:   globalThis.__TiqianSnapshotPreparedInlineObjects = [];
+// REMOVED:   globalThis.__TiqianSnapshotPreparedRenderCount = 0;
+// REMOVED:   globalThis.__TiqianSnapshotFontShapeCount = 0;
+// REMOVED:   globalThis.__TiqianSnapshotFontFallbackCount = 0;
+// REMOVED:   setPreparedDomRendererForTesting({
+// REMOVED:     schema: 1,
+// REMOVED:     layoutRevision: "tiqian-layout-v2",
+// REMOVED:     render(host, planJson, locale, options = {}) {
+// REMOVED:       globalThis.__TiqianSnapshotPreparedRenderCount += 1;
+// REMOVED:       globalThis.__TiqianSnapshotPreparedPlan = planJson;
+// REMOVED:       globalThis.__TiqianSnapshotPreparedPlans.push(planJson);
+// REMOVED:       globalThis.__TiqianSnapshotPreparedSemantics = Array.from(options.semantics || []);
+// REMOVED:       globalThis.__TiqianSnapshotPreparedCjkStrong = Array.from(options.cjkStrongSemantics || []);
+// REMOVED:       globalThis.__TiqianSnapshotPreparedSemanticElements =
+// REMOVED:         Array.from(options.liveSemanticElements || []);
+// REMOVED:       globalThis.__TiqianSnapshotPreparedInlineObjects = Array.from(options.inlineObjects || []);
+// REMOVED:       if (globalThis.__TiqianSnapshotFixtureActive) {
+// REMOVED:         for (const element of globalThis.__TiqianSnapshotPreparedSemanticElements) {
+// REMOVED:           if (element && element.setAttribute) {
+// REMOVED:             element.setAttribute("data-tq-fixture-seen", "semantic");
+// REMOVED:           }
+// REMOVED:         }
+// REMOVED:         for (const entry of globalThis.__TiqianSnapshotPreparedInlineObjects) {
+// REMOVED:           if (entry && entry.element && entry.element.setAttribute) {
+// REMOVED:             entry.element.setAttribute("data-tq-fixture-seen", "inline-object");
+// REMOVED:           }
+// REMOVED:         }
+// REMOVED:       }
+// REMOVED:       const plan = typeof planJson === "string" ? JSON.parse(planJson) : (planJson || {});
+// REMOVED:       const lines = Array.from(plan.lines || []);
+// REMOVED:       const inlineStartByOffset = new Map();
+// REMOVED:       const inlineEndByOffset = new Map();
+// REMOVED:       for (const edge of Array.from((plan && plan.inlineEdges) || [])) {
+// REMOVED:         const offset = Number(edge.offset);
+// REMOVED:         if (edge.inlineStart != null) {
+// REMOVED:           inlineStartByOffset.set(
+// REMOVED:             offset,
+// REMOVED:             (inlineStartByOffset.get(offset) || 0) + Number(edge.inlineStart),
+// REMOVED:           );
+// REMOVED:         }
+// REMOVED:         if (edge.inlineEnd != null) {
+// REMOVED:           inlineEndByOffset.set(
+// REMOVED:             offset,
+// REMOVED:             (inlineEndByOffset.get(offset) || 0) + Number(edge.inlineEnd),
+// REMOVED:           );
+// REMOVED:         }
+// REMOVED:       }
+// REMOVED:       const inlineObjects = Array.from(options.inlineObjects || [])
+// REMOVED:         .slice()
+// REMOVED:         .sort(function (left, right) { return left.start - right.start; });
+// REMOVED:       // EmphasisDotColorBeforeSwap: computed colors must be read while the
+// REMOVED:       // live semantic elements are still connected, before the host swap.
+// REMOVED:       const semanticColors = [];
+// REMOVED:       for (const element of Array.from(options.liveSemanticElements || [])) {
+// REMOVED:         let color = "";
+// REMOVED:         try {
+// REMOVED:           color = String(globalThis.getComputedStyle(element).color || "");
+// REMOVED:         } catch (error) {
+// REMOVED:           color = "";
+// REMOVED:         }
+// REMOVED:         if (!color.trim() && element.style) color = String(element.style.color || "");
+// REMOVED:         semanticColors.push(color.trim());
+// REMOVED:       }
+// REMOVED:       host.replaceChildren();
+// REMOVED:       const marker = globalThis.document.createElement("span");
+// REMOVED:       marker.setAttribute("data-tq-snapshot-rendered", String(locale));
+// REMOVED:       host.appendChild(marker);
+// REMOVED:       // Pending plain text flushes only when a different container or an
+// REMOVED:       // element is appended, so semantic clones attach in source order.
+// REMOVED:       let pendingText = "";
+// REMOVED:       let pendingContainer = null;
+// REMOVED:       const flushText = () => {
+// REMOVED:         if (pendingContainer) {
+// REMOVED:           pendingContainer.appendChild(globalThis.document.createTextNode(pendingText));
+// REMOVED:         }
+// REMOVED:         pendingText = "";
+// REMOVED:         pendingContainer = null;
+// REMOVED:       };
+// REMOVED:       const emitText = (container, text) => {
+// REMOVED:         if (pendingContainer !== container) flushText();
+// REMOVED:         if (!pendingContainer) pendingContainer = container;
+// REMOVED:         pendingText += text;
+// REMOVED:       };
+// REMOVED:       let containers = null;
+// REMOVED:       let semanticRoots = [];
+// REMOVED:       let coveringSignature = function () { return ""; };
+// REMOVED:       if (options.semanticReplay === "live-source") {
+// REMOVED:         const semantics = Array.from(options.semantics || []);
+// REMOVED:         const sourceElements = Array.from(options.liveSemanticElements || []);
+// REMOVED:         const cjkStrongSemantics = Array.from(options.cjkStrongSemantics || []);
+// REMOVED:         const roots = [];
+// REMOVED:         const stack = [];
+// REMOVED:         for (const semantic of semantics) {
+// REMOVED:           while (stack.length > 0 && semantic.start >= stack.at(-1).end) stack.pop();
+// REMOVED:           const node = {
+// REMOVED:             start: semantic.start,
+// REMOVED:             end: semantic.end,
+// REMOVED:             sourceIndex: semantic.sourceIndex,
+// REMOVED:             children: [],
+// REMOVED:             clone: null,
+// REMOVED:           };
+// REMOVED:           const parent = stack.at(-1);
+// REMOVED:           if (parent) {
+// REMOVED:             if (semantic.end > parent.end) throw new Error("CrossingLiveSemanticRanges");
+// REMOVED:             parent.children.push(node);
+// REMOVED:           } else {
+// REMOVED:             roots.push(node);
+// REMOVED:           }
+// REMOVED:           stack.push(node);
+// REMOVED:         }
+// REMOVED:         // LiveSourceSemanticReplay: geometry renders inside shallow clones
+// REMOVED:         // of the source elements, created lazily so host child order
+// REMOVED:         // follows source order. An inline-object range renders as a deep
+// REMOVED:         // clone of the live element, never as the replacement character
+// REMOVED:         // that rides the lowered source text.
+// REMOVED:         const attach = (node, container) => {
+// REMOVED:           if (!node.clone) {
+// REMOVED:             const source = sourceElements[node.sourceIndex];
+// REMOVED:             if (!source) throw new Error("MissingLiveSemanticSource:" + node.sourceIndex);
+// REMOVED:             const clone = source.cloneNode(false);
+// REMOVED:             clone.setAttribute("data-tq-source-semantic", "true");
+// REMOVED:             const cjkStrong = cjkStrongSemantics.find(function (entry) {
+// REMOVED:               return Number(entry.start) === node.start && Number(entry.end) === node.end;
+// REMOVED:             });
+// REMOVED:             if (cjkStrong) {
+// REMOVED:               clone.setAttribute("data-tq-cjk-emphasis", "true");
+// REMOVED:               clone.style.setProperty("font-weight", String(cjkStrong.weight), "important");
+// REMOVED:             }
+// REMOVED:             node.clone = clone;
+// REMOVED:           }
+// REMOVED:           if (!node.clone.parentNode) container.appendChild(node.clone);
+// REMOVED:           return node.clone;
+// REMOVED:         };
+// REMOVED:         const coveringPath = (nodes, start, end, path) => {
+// REMOVED:           for (const node of nodes) {
+// REMOVED:             if (start >= node.start && end <= node.end) {
+// REMOVED:               return coveringPath(node.children, start, end, path.concat([node]));
+// REMOVED:             }
+// REMOVED:           }
+// REMOVED:           return path;
+// REMOVED:         };
+// REMOVED:         const crossingPath = (nodes, offset, path) => {
+// REMOVED:           let deepest = path;
+// REMOVED:           for (const node of nodes) {
+// REMOVED:             if (node.start < offset && offset < node.end) {
+// REMOVED:               deepest = crossingPath(node.children, offset, path.concat([node]));
+// REMOVED:             }
+// REMOVED:           }
+// REMOVED:           return deepest;
+// REMOVED:         };
+// REMOVED:         const descend = (path) => {
+// REMOVED:           let container = host;
+// REMOVED:           for (const node of path) {
+// REMOVED:             flushText();
+// REMOVED:             container = attach(node, container);
+// REMOVED:           }
+// REMOVED:           return container;
+// REMOVED:         };
+// REMOVED:         containers = {
+// REMOVED:           range: (start, end) => descend(coveringPath(roots, start, end, [])),
+// REMOVED:           crossing: (offset) => descend(crossingPath(roots, offset, [])),
+// REMOVED:         };
+// REMOVED:         semanticRoots = roots;
+// REMOVED:         coveringSignature = function (start, end) {
+// REMOVED:           return coveringPath(roots, start, end, [])
+// REMOVED:             .map(function (node) { return node.sourceIndex; })
+// REMOVED:             .join("/");
+// REMOVED:         };
+// REMOVED:       }
+// REMOVED:       const spacingEpsilon = 0.01;
+// REMOVED:       const numberOr = (value, fallback) => {
+// REMOVED:         const number = Number(value);
+// REMOVED:         return Number.isFinite(number) ? number : fallback;
+// REMOVED:       };
+// REMOVED:       const preparedSpacing = (display, naturalWidth, trailingGap) => {
+// REMOVED:         if (Math.abs(trailingGap) < spacingEpsilon) return { kind: "none", px: 0 };
+// REMOVED:         if (display.length === 1 && naturalWidth + trailingGap >= 0) {
+// REMOVED:           return { kind: "letter", px: trailingGap };
+// REMOVED:         }
+// REMOVED:         if (trailingGap < 0) return { kind: "overlap", px: trailingGap };
+// REMOVED:         return { kind: "trailing-letter", px: trailingGap };
+// REMOVED:       };
+// REMOVED:       const featureSignatureOf = (run) => run.openTypeFeatures.join(",");
+// REMOVED:       const canMergeRun = (left, right) =>
+// REMOVED:         left.rangeEnd === right.rangeStart &&
+// REMOVED:         left.semanticSignature === right.semanticSignature &&
+// REMOVED:         !left.shapingBoundary && !right.shapingBoundary &&
+// REMOVED:         featureSignatureOf(left) === featureSignatureOf(right) &&
+// REMOVED:         left.renderFontFamily === right.renderFontFamily &&
+// REMOVED:         left.dashStrategy == null && right.dashStrategy == null &&
+// REMOVED:         left.styleSignature === right.styleSignature &&
+// REMOVED:         left.punctuationSignature === right.punctuationSignature &&
+// REMOVED:         left.italicEffect === right.italicEffect &&
+// REMOVED:         ((left.spacing.kind === "none" && right.spacing.kind === "none") ||
+// REMOVED:           (left.spacing.kind === "letter" && right.spacing.kind === "letter" &&
+// REMOVED:             Math.abs(left.spacing.px - right.spacing.px) < spacingEpsilon));
+// REMOVED:       const mergeRun = (left, right) => {
+// REMOVED:         left.rangeEnd = right.rangeEnd;
+// REMOVED:         left.source += right.source;
+// REMOVED:         left.display += right.display;
+// REMOVED:         left.naturalWidth += right.naturalWidth;
+// REMOVED:         left.trailingGap += right.trailingGap;
+// REMOVED:         left.rawTrailingGap += right.rawTrailingGap;
+// REMOVED:       };
+// REMOVED:       // Runs and plain text append at the host level when no live-source
+// REMOVED:       // replay is active; line markers ride alongside as empty spans.
+// REMOVED:       const emitRun = (run) => {
+// REMOVED:         const container = containers
+// REMOVED:           ? containers.range(run.rangeStart, run.rangeEnd)
+// REMOVED:           : host;
+// REMOVED:         let text = String(run.display != null ? run.display : "");
+// REMOVED:         if (text === "" && run.source) text = String(run.source);
+// REMOVED:         if (text === "") return;
+// REMOVED:         const features = featureSignatureOf(run);
+// REMOVED:         const needsElement = run.shapingBoundary || features ||
+// REMOVED:           run.renderFontFamily != null || run.source !== run.display ||
+// REMOVED:           run.spacing.kind !== "none" ||
+// REMOVED:           (run.style && Object.keys(run.style).length > 0) ||
+// REMOVED:           run.italicEffect || run.dashStrategy != null ||
+// REMOVED:           run.punctuationInkFloor != null;
+// REMOVED:         if (!needsElement) {
+// REMOVED:           emitText(container, text);
+// REMOVED:           return;
+// REMOVED:         }
+// REMOVED:         flushText();
+// REMOVED:         const runSpan = globalThis.document.createElement("span");
+// REMOVED:         runSpan.setAttribute(
+// REMOVED:           "data-tq-advance",
+// REMOVED:           String(
+// REMOVED:             run.spacing.kind === "letter" || run.spacing.kind === "trailing-letter"
+// REMOVED:               ? run.naturalWidth + run.trailingGap
+// REMOVED:               : run.naturalWidth,
+// REMOVED:           ),
+// REMOVED:         );
+// REMOVED:         runSpan.setAttribute("data-tq-geometry", "true");
+// REMOVED:         runSpan.setAttribute("data-tq-x", String(run.drawX));
+// REMOVED:         if (run.shapingBoundary || features) {
+// REMOVED:           runSpan.setAttribute("data-tq-shaping-boundary", "");
+// REMOVED:         }
+// REMOVED:         if (features) {
+// REMOVED:           runSpan.setAttribute("data-tq-open-type-features", features);
+// REMOVED:         }
+// REMOVED:         if (run.source !== run.display) {
+// REMOVED:           runSpan.setAttribute("data-tq-src", String(run.source));
+// REMOVED:         }
+// REMOVED:         if (run.dashStrategy != null) {
+// REMOVED:           runSpan.setAttribute("data-tq-dash-strategy", String(run.dashStrategy));
+// REMOVED:           runSpan.setAttribute("data-tq-dash-advance", String(run.naturalWidth));
+// REMOVED:         }
+// REMOVED:         if (run.punctuationInkFloor != null) {
+// REMOVED:           runSpan.setAttribute("data-tq-punctuation-ink-floor", String(run.punctuationInkFloor));
+// REMOVED:           if (run.punctuationBodyWidth != null) {
+// REMOVED:             runSpan.setAttribute("data-tq-punctuation-body-width", String(run.punctuationBodyWidth));
+// REMOVED:           }
+// REMOVED:         }
+// REMOVED:         if (run.renderFontFamily != null) {
+// REMOVED:           runSpan.setAttribute("data-tq-render-font-projection", "true");
+// REMOVED:           runSpan.style.setProperty("font-family", String(run.renderFontFamily), "important");
+// REMOVED:         }
+// REMOVED:         if (run.style && run.style.fontSize != null) {
+// REMOVED:           runSpan.style.setProperty("font-size", String(run.style.fontSize) + "px", "important");
+// REMOVED:         }
+// REMOVED:         if (run.style && run.style.fontWeight != null) {
+// REMOVED:           runSpan.style.setProperty("font-weight", String(run.style.fontWeight), "important");
+// REMOVED:         }
+// REMOVED:         if (run.italicEffect) {
+// REMOVED:           runSpan.style.setProperty("font-style", "italic", "important");
+// REMOVED:         } else if (run.style && run.style.italic === false) {
+// REMOVED:           runSpan.style.setProperty("font-style", "normal", "important");
+// REMOVED:         }
+// REMOVED:         if (run.spacing.kind === "letter") {
+// REMOVED:           runSpan.style.setProperty("letter-spacing", String(run.spacing.px) + "px", "important");
+// REMOVED:         } else if (run.spacing.kind === "overlap") {
+// REMOVED:           runSpan.style.setProperty("margin-right", String(run.spacing.px) + "px", "important");
+// REMOVED:         }
+// REMOVED:         if (run.spacing.kind === "trailing-letter") {
+// REMOVED:           runSpan.appendChild(globalThis.document.createTextNode(text));
+// REMOVED:           const carrier = globalThis.document.createElement("span");
+// REMOVED:           carrier.setAttribute("aria-hidden", "true");
+// REMOVED:           carrier.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:           carrier.setAttribute("data-tq-geometry", "true");
+// REMOVED:           carrier.setAttribute("data-tq-spacing-carrier", "true");
+// REMOVED:           carrier.style.setProperty("display", "inline-block", "important");
+// REMOVED:           carrier.style.setProperty("inline-size", String(run.spacing.px) + "px", "important");
+// REMOVED:           carrier.style.setProperty("height", "0", "important");
+// REMOVED:           carrier.style.setProperty("line-height", "0", "important");
+// REMOVED:           carrier.style.setProperty("letter-spacing", String(run.spacing.px) + "px", "important");
+// REMOVED:           carrier.style.setProperty("overflow", "hidden", "important");
+// REMOVED:           carrier.style.setProperty("vertical-align", "baseline", "important");
+// REMOVED:           carrier.style.setProperty("white-space", "pre", "important");
+// REMOVED:           carrier.appendChild(globalThis.document.createTextNode("\u00a0"));
+// REMOVED:           runSpan.appendChild(carrier);
+// REMOVED:           container.appendChild(runSpan);
+// REMOVED:           return;
+// REMOVED:         }
+// REMOVED:         runSpan.appendChild(globalThis.document.createTextNode(text));
+// REMOVED:         container.appendChild(runSpan);
+// REMOVED:       };
+// REMOVED:       for (let index = 0; index < lines.length; index++) {
+// REMOVED:         if (index > 0) {
+// REMOVED:           const previous = lines[index - 1];
+// REMOVED:           const engineBreak = globalThis.document.createElement("br");
+// REMOVED:           engineBreak.setAttribute(
+// REMOVED:             "data-tq-engine-break",
+// REMOVED:             String(previous.endReason || "AutoWrap"),
+// REMOVED:           );
+// REMOVED:           if (previous.endReason !== "MandatoryBreak") {
+// REMOVED:             engineBreak.setAttribute("aria-hidden", "true");
+// REMOVED:             engineBreak.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:           }
+// REMOVED:           flushText();
+// REMOVED:           if (containers) containers.crossing(previous.rangeEnd).appendChild(engineBreak);
+// REMOVED:           else host.appendChild(engineBreak);
+// REMOVED:         }
+// REMOVED:         const line = lines[index];
+// REMOVED:         const cells = Array.from(line.cells || []);
+// REMOVED:         const first = cells[0];
+// REMOVED:         const flowStart = first
+// REMOVED:           ? numberOr(first.drawX, 0) - numberOr(first.leadingLayoutAdvance, 0)
+// REMOVED:           : 0;
+// REMOVED:         const firstInlineStart = first ? inlineStartByOffset.get(first.rangeStart) || 0 : 0;
+// REMOVED:         if (
+// REMOVED:           first &&
+// REMOVED:           Math.abs(numberOr(first.leadingLayoutAdvance, 0) - firstInlineStart) > 0.01
+// REMOVED:         ) {
+// REMOVED:           throw new Error("SnapshotRenderFlowMismatch:line=" + index + ";leading-layout-advance");
+// REMOVED:         }
+// REMOVED:         const runs = [];
+// REMOVED:         for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+// REMOVED:           const cell = cells[cellIndex];
+// REMOVED:           const next = cells[cellIndex + 1];
+// REMOVED:           const naturalWidth = numberOr(cell.naturalWidth, 0);
+// REMOVED:           const trailingInlineEdge = inlineEndByOffset.get(cell.rangeEnd) || 0;
+// REMOVED:           const nextLeadingInlineEdge = next ? inlineStartByOffset.get(next.rangeStart) || 0 : 0;
+// REMOVED:           const rawTrailingGap = next
+// REMOVED:             ? numberOr(next.drawX, 0) - numberOr(cell.drawX, 0) - naturalWidth -
+// REMOVED:               trailingInlineEdge - nextLeadingInlineEdge
+// REMOVED:             : numberOr(line.hyphenAdvance, 0) > 0
+// REMOVED:               ? 0
+// REMOVED:               : numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) -
+// REMOVED:                 numberOr(cell.drawX, 0) - naturalWidth - trailingInlineEdge;
+// REMOVED:           const trailingGap = Math.abs(rawTrailingGap) < spacingEpsilon ? 0 : rawTrailingGap;
+// REMOVED:           runs.push({
+// REMOVED:             rangeStart: cell.rangeStart,
+// REMOVED:             rangeEnd: cell.rangeEnd,
+// REMOVED:             source: cell.source,
+// REMOVED:             display: cell.display,
+// REMOVED:             drawX: numberOr(cell.drawX, 0),
+// REMOVED:             naturalWidth: naturalWidth,
+// REMOVED:             shapingBoundary: cell.shapingBoundary === true,
+// REMOVED:             openTypeFeatures: Array.from(cell.openTypeFeatures || [], String),
+// REMOVED:             renderFontFamily: cell.renderFontFamily != null ? String(cell.renderFontFamily) : null,
+// REMOVED:             trailingGap: trailingGap,
+// REMOVED:             rawTrailingGap: rawTrailingGap,
+// REMOVED:             spacing: preparedSpacing(
+// REMOVED:               String(cell.display != null ? cell.display : ""),
+// REMOVED:               naturalWidth,
+// REMOVED:               trailingGap,
+// REMOVED:             ),
+// REMOVED:             style: cell.style || null,
+// REMOVED:             italicEffect: !!(cell.style && cell.style.italic === true),
+// REMOVED:             dashStrategy: cell.dashStrategy != null ? cell.dashStrategy : null,
+// REMOVED:             punctuationInkFloor: cell.punctuationInkFloor != null ? cell.punctuationInkFloor : null,
+// REMOVED:             punctuationBodyWidth: cell.punctuationBodyWidth != null ? cell.punctuationBodyWidth : null,
+// REMOVED:             semanticSignature: coveringSignature(cell.rangeStart, cell.rangeEnd),
+// REMOVED:             styleSignature: JSON.stringify(cell.style || null),
+// REMOVED:             punctuationSignature: JSON.stringify([
+// REMOVED:               cell.punctuationInkFloor != null ? cell.punctuationInkFloor : null,
+// REMOVED:               cell.punctuationBodyWidth != null ? cell.punctuationBodyWidth : null,
+// REMOVED:             ]),
+// REMOVED:           });
+// REMOVED:         }
+// REMOVED:         const children = [];
+// REMOVED:         let pendingRun = null;
+// REMOVED:         const flushRun = () => {
+// REMOVED:           if (pendingRun == null) return;
+// REMOVED:           children.push({ kind: "run", run: pendingRun });
+// REMOVED:           pendingRun = null;
+// REMOVED:         };
+// REMOVED:         for (const run of runs) {
+// REMOVED:           const inlineObject = inlineObjects.find(function (entry) {
+// REMOVED:             return entry.start === run.rangeStart && entry.end === run.rangeEnd;
+// REMOVED:           });
+// REMOVED:           if (inlineObject) {
+// REMOVED:             flushRun();
+// REMOVED:             children.push({ kind: "inlineObject", entry: inlineObject, run: run });
+// REMOVED:             continue;
+// REMOVED:           }
+// REMOVED:           const record = Object.assign({}, run, { spacing: Object.assign({}, run.spacing) });
+// REMOVED:           if (pendingRun && canMergeRun(pendingRun, record)) {
+// REMOVED:             mergeRun(pendingRun, record);
+// REMOVED:           } else {
+// REMOVED:             flushRun();
+// REMOVED:             pendingRun = record;
+// REMOVED:           }
+// REMOVED:         }
+// REMOVED:         flushRun();
+// REMOVED:         const last = cells[cells.length - 1];
+// REMOVED:         const flowEnd = last
+// REMOVED:           ? numberOr(last.drawX, 0) + numberOr(last.naturalWidth, 0) +
+// REMOVED:             (inlineEndByOffset.get(last.rangeEnd) || 0)
+// REMOVED:           : 0;
+// REMOVED:         const hyphenAdvance = numberOr(line.hyphenAdvance, 0);
+// REMOVED:         const hyphenLeadingGap = hyphenAdvance > 0
+// REMOVED:           ? numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) - flowEnd
+// REMOVED:           : 0;
+// REMOVED:         let inlineEdgeWidth = 0;
+// REMOVED:         for (const cell of cells) {
+// REMOVED:           inlineEdgeWidth += (inlineStartByOffset.get(cell.rangeStart) || 0) +
+// REMOVED:             (inlineEndByOffset.get(cell.rangeEnd) || 0);
+// REMOVED:         }
+// REMOVED:         let expectedFlowWidth = flowStart + inlineEdgeWidth + hyphenLeadingGap + hyphenAdvance;
+// REMOVED:         for (const child of children) {
+// REMOVED:           // FlowValidationUsesRawGaps: per-cell gaps below the spacing
+// REMOVED:           // epsilon snap to zero for the emitted spacing, but the flow
+// REMOVED:           // identity must sum the raw values; a stretched line with many
+// REMOVED:           // sub-epsilon gaps would otherwise lose n-times-epsilon width
+// REMOVED:           // and read as an arithmetic mismatch.
+// REMOVED:           expectedFlowWidth += child.run.naturalWidth + child.run.rawTrailingGap;
+// REMOVED:         }
+// REMOVED:         const coreLineWidth =
+// REMOVED:           numberOr(line.indent, 0) + numberOr(line.visualWidth, 0) + hyphenAdvance;
+// REMOVED:         if (Math.abs(expectedFlowWidth - coreLineWidth) > 0.01) {
+// REMOVED:           throw new Error(
+// REMOVED:             "SnapshotRenderFlowMismatch:line=" + index +
+// REMOVED:               ";expected=" + expectedFlowWidth +
+// REMOVED:               ";core=" + coreLineWidth +
+// REMOVED:               ";flowStart=" + flowStart +
+// REMOVED:               ";edges=" + inlineEdgeWidth,
+// REMOVED:           );
+// REMOVED:         }
+// REMOVED:         const markerSpan = globalThis.document.createElement("span");
+// REMOVED:         markerSpan.setAttribute("aria-hidden", "true");
+// REMOVED:         markerSpan.className = "tq-line";
+// REMOVED:         markerSpan.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:         markerSpan.setAttribute("data-tq-geometry", "true");
+// REMOVED:         markerSpan.setAttribute("data-tq-line-empty", String(cells.length === 0));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-end", String(line.endReason || "AutoWrap"));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-top", String(line.top));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-bottom", String(line.bottom));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-baseline", String(line.baseline));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-flow-width", String(expectedFlowWidth));
+// REMOVED:         markerSpan.setAttribute("data-tq-line-index", String(index));
+// REMOVED:         markerSpan.setAttribute(
+// REMOVED:           "data-tq-line-range",
+// REMOVED:           String(line.rangeStart) + "-" + String(line.rangeEnd),
+// REMOVED:         );
+// REMOVED:         markerSpan.setAttribute("data-tq-line-width", String(coreLineWidth));
+// REMOVED:         markerSpan.setAttribute("data-tq-paragraph-height", String(numberOr(plan.height, 0)));
+// REMOVED:         markerSpan.style.setProperty(
+// REMOVED:           "--tq-line-height",
+// REMOVED:           String(numberOr(line.bottom, 0) - numberOr(line.top, 0)) + "px",
+// REMOVED:           "important",
+// REMOVED:         );
+// REMOVED:         markerSpan.style.setProperty(
+// REMOVED:           "--tq-line-baseline-offset",
+// REMOVED:           String(-(numberOr(line.bottom, 0) - numberOr(line.baseline, 0))) + "px",
+// REMOVED:           "important",
+// REMOVED:         );
+// REMOVED:         if (Math.abs(flowStart) >= spacingEpsilon) {
+// REMOVED:           markerSpan.setAttribute("data-tq-line-shift", "true");
+// REMOVED:           markerSpan.style.setProperty(
+// REMOVED:             "--tq-line-flow-start",
+// REMOVED:             String(flowStart) + "px",
+// REMOVED:             "important",
+// REMOVED:           );
+// REMOVED:         }
+// REMOVED:         const markerContainer = containers && first
+// REMOVED:           ? containers.range(first.rangeStart, first.rangeEnd)
+// REMOVED:           : host;
+// REMOVED:         flushText();
+// REMOVED:         markerContainer.appendChild(markerSpan);
+// REMOVED:         for (const child of children) {
+// REMOVED:           if (child.kind === "run") {
+// REMOVED:             emitRun(child.run);
+// REMOVED:             continue;
+// REMOVED:           }
+// REMOVED:           flushText();
+// REMOVED:           const clone = child.entry.element.cloneNode(true);
+// REMOVED:           clone.setAttribute("data-tq-inline-object", "true");
+// REMOVED:           const container = containers
+// REMOVED:             ? containers.range(child.run.rangeStart, child.run.rangeEnd)
+// REMOVED:             : host;
+// REMOVED:           container.appendChild(clone);
+// REMOVED:         }
+// REMOVED:         if (hyphenAdvance > 0) {
+// REMOVED:           flushText();
+// REMOVED:           const hyphenSpan = globalThis.document.createElement("span");
+// REMOVED:           hyphenSpan.setAttribute("aria-hidden", "true");
+// REMOVED:           hyphenSpan.setAttribute("data-tq-advance", String(hyphenAdvance));
+// REMOVED:           hyphenSpan.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:           hyphenSpan.setAttribute("data-tq-engine-hyphen", "true");
+// REMOVED:           hyphenSpan.setAttribute("data-tq-geometry", "true");
+// REMOVED:           hyphenSpan.setAttribute(
+// REMOVED:             "data-tq-x",
+// REMOVED:             String(numberOr(line.indent, 0) + numberOr(line.visualWidth, 0)),
+// REMOVED:           );
+// REMOVED:           hyphenSpan.setAttribute("lang", String(locale));
+// REMOVED:           if (Math.abs(hyphenLeadingGap) >= spacingEpsilon) {
+// REMOVED:             hyphenSpan.style.setProperty(
+// REMOVED:               "margin-left",
+// REMOVED:               String(hyphenLeadingGap) + "px",
+// REMOVED:               "important",
+// REMOVED:             );
+// REMOVED:           }
+// REMOVED:           hyphenSpan.appendChild(globalThis.document.createTextNode("-"));
+// REMOVED:           markerContainer.appendChild(hyphenSpan);
+// REMOVED:         }
+// REMOVED:         flushText();
+// REMOVED:         const sentinel = globalThis.document.createElement("span");
+// REMOVED:         sentinel.setAttribute("aria-hidden", "true");
+// REMOVED:         sentinel.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:         sentinel.setAttribute("data-tq-geometry", "true");
+// REMOVED:         sentinel.setAttribute("data-tq-line-end-sentinel", String(index));
+// REMOVED:         const boundaryContainer = containers
+// REMOVED:           ? containers.crossing(line.rangeEnd)
+// REMOVED:           : host;
+// REMOVED:         boundaryContainer.appendChild(sentinel);
+// REMOVED:         if (line.endReason === "MandatoryBreak") {
+// REMOVED:           const hardBreak = globalThis.document.createElement("span");
+// REMOVED:           hardBreak.setAttribute("data-tq-geometry", "true");
+// REMOVED:           hardBreak.setAttribute("data-tq-hard-break", "true");
+// REMOVED:           hardBreak.setAttribute("data-tq-src", "\n");
+// REMOVED:           boundaryContainer.appendChild(hardBreak);
+// REMOVED:         }
+// REMOVED:       }
+// REMOVED:       if (lines.length > 0) {
+// REMOVED:         const selectionEnd = globalThis.document.createElement("span");
+// REMOVED:         selectionEnd.setAttribute("aria-hidden", "true");
+// REMOVED:         selectionEnd.setAttribute("data-tq-copy-ignore", "true");
+// REMOVED:         selectionEnd.setAttribute("data-tq-selection-end", "true");
+// REMOVED:         selectionEnd.appendChild(globalThis.document.createTextNode("\u200b"));
+// REMOVED:         host.appendChild(selectionEnd);
+// REMOVED:       }
+// REMOVED:       const dots = Array.from(plan.emphasisDots || []);
+// REMOVED:       if (dots.length > 0) {
+// REMOVED:         const semantics = Array.from(options.semantics || []);
+// REMOVED:         // EmphasisDotColorBeforeSwap: colors were captured while the live
+// REMOVED:         // semantic elements were still connected; the elements themselves
+// REMOVED:         // are detached after the host swap.
+// REMOVED:         const resolveDotColor = (offset) => {
+// REMOVED:           if (!semantics.length) return null;
+// REMOVED:           let maxOrder = -Infinity;
+// REMOVED:           let selected = null;
+// REMOVED:           for (const semantic of semantics) {
+// REMOVED:             if (offset >= Number(semantic.start) && offset < Number(semantic.end)) {
+// REMOVED:               const order = Number(semantic.order || 0);
+// REMOVED:               if (order > maxOrder) {
+// REMOVED:                 maxOrder = order;
+// REMOVED:                 selected = semantic;
+// REMOVED:               }
+// REMOVED:             }
+// REMOVED:           }
+// REMOVED:           if (!selected) return null;
+// REMOVED:           const color = semanticColors[selected.sourceIndex];
+// REMOVED:           return typeof color === "string" && color.length > 0 ? color : null;
+// REMOVED:         };
+// REMOVED:         const svg = globalThis.document.createElement("svg");
+// REMOVED:         svg.setAttribute("data-tq-geometry", "true");
+// REMOVED:         svg.setAttribute(
+// REMOVED:           "style",
+// REMOVED:           "--tq-overlay-width:" + Number(plan.overlayWidth) +
+// REMOVED:             "px;--tq-overlay-height:" + Number(plan.height) + "px",
+// REMOVED:         );
+// REMOVED:         for (const dot of dots) {
+// REMOVED:           const color = resolveDotColor(dot.clusterRangeStart);
+// REMOVED:           const dotColor = color || "currentColor";
+// REMOVED:           const circle = globalThis.document.createElement("circle");
+// REMOVED:           circle.setAttribute("cx", String(Number(dot.anchorX)));
+// REMOVED:           circle.setAttribute("cy", String(Number(dot.anchorY)));
+// REMOVED:           circle.setAttribute("data-tq-decoration-dot", "true");
+// REMOVED:           circle.setAttribute("fill", dotColor);
+// REMOVED:           circle.setAttribute("r", String(Number(dot.dotDiameter) / 2));
+// REMOVED:           circle.setAttribute("style", "--tq-decoration-color:" + dotColor);
+// REMOVED:           svg.appendChild(circle);
+// REMOVED:         }
+// REMOVED:         host.appendChild(svg);
+// REMOVED:       }
+// REMOVED:       return {};
+// REMOVED:     },
+// REMOVED:     release() {
+// REMOVED:       return true;
+// REMOVED:     },
+// REMOVED:     releaseRoot() {
+// REMOVED:       return true;
+// REMOVED:     },
+// REMOVED:   });
+// REMOVED:   setCommitValidatorForTesting({ issue: () => null });
+// REMOVED: }
+// REMOVED: 
+// REMOVED: // Snapshot font session fixture (backend-global retirement): the exact options
+// REMOVED: // declare a conforming session id, the engine resolves that id into the
+// REMOVED: // shapeJson/metricsJson callback pair through the coordination replay
+// REMOVED: // registry, and this fixture registers a session whose tables synthesize one
+// REMOVED: // entry per request from the replay key itself. Synthesis keeps the old
+// REMOVED: // fixture geometry: one glyph per code point at advance 1em, bounds
+// REMOVED: // [0, -0.88, 1, 0.12]em, pwid/palt for Latin quotes, metrics
+// REMOVED: // [1, 0.25, 0, 0.88, 0.12]em, and the NoSnapshotFontFace failure injections.
+// REMOVED: export function installSnapshotFontSessionFixture({
+// REMOVED:   failShaping = false,
+// REMOVED:   failFamily = null,
+// REMOVED:   failText = null,
+// REMOVED:   varyFaceByText = false,
+// REMOVED: } = {}) {
+// REMOVED:   installPreparedRendererFixture();
+// REMOVED:   globalThis.__TiqianSnapshotFixtureActive = true;
+// REMOVED: 
+// REMOVED:   function shapeFailure(displayText, serializedFamilies) {
+// REMOVED:     return failShaping ||
+// REMOVED:       (failFamily && String(serializedFamilies).includes(failFamily)) ||
+// REMOVED:       (failText && String(displayText).includes(failText));
+// REMOVED:   }
+// REMOVED: 
+// REMOVED:   class FixtureShapeTable extends Map {
+// REMOVED:     get(key) {
+// REMOVED:       const [displayText, serializedFamilies] = JSON.parse(key);
+// REMOVED:       if (shapeFailure(displayText, serializedFamilies)) {
+// REMOVED:         globalThis.__TiqianSnapshotFontFallbackCount += 1;
+// REMOVED:         throw new Error("NoSnapshotFontFace:test");
+// REMOVED:       }
+// REMOVED:       globalThis.__TiqianSnapshotFontShapeCount += 1;
+// REMOVED:       const glyphs = [];
+// REMOVED:       let glyphIndex = 0;
+// REMOVED:       for (const _point of displayText) {
+// REMOVED:         glyphs.push({
+// REMOVED:           id: 100 + glyphIndex,
+// REMOVED:           advanceEm: 1,
+// REMOVED:           xEm: glyphIndex,
+// REMOVED:           yEm: 0,
+// REMOVED:           boundsEm: [0, -0.88, 1, 0.12],
+// REMOVED:         });
+// REMOVED:         glyphIndex++;
+// REMOVED:       }
+// REMOVED:       const role = JSON.parse(key)[5];
+// REMOVED:       const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
+// REMOVED:         ? ["pwid", "palt"]
+// REMOVED:         : [];
+// REMOVED:       return {
+// REMOVED:         key,
+// REMOVED:         result: {
+// REMOVED:           glyphs,
+// REMOVED:           advanceEm: glyphs.length,
+// REMOVED:           features,
+// REMOVED:           faceId: varyFaceByText ? `Fixture CJK:${displayText}` : "Fixture CJK",
+// REMOVED:           fontInstanceId: "fixture:0:default",
+// REMOVED:           script: "Hani",
+// REMOVED:           unsafeBreakCount: 0,
+// REMOVED:         },
+// REMOVED:       };
+// REMOVED:     }
+// REMOVED:   }
+// REMOVED: 
+// REMOVED:   class FixtureMetricTable extends Map {
+// REMOVED:     get(key) {
+// REMOVED:       const [serializedFamilies] = JSON.parse(key);
+// REMOVED:       if (failShaping || (failFamily && String(serializedFamilies).includes(failFamily))) {
+// REMOVED:         globalThis.__TiqianSnapshotFontFallbackCount += 1;
+// REMOVED:         throw new Error("NoSnapshotFontFace:test");
+// REMOVED:       }
+// REMOVED:       return { key, valuesEm: [1, 0.25, 0, 0.88, 0.12] };
+// REMOVED:     }
+// REMOVED:   }
+// REMOVED: 
+// REMOVED:   globalServices().coordination.fonts.replayRegistry.sessions.set(
+// REMOVED:     "fixture-snapshot-session",
+// REMOVED:     { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
+// REMOVED:   );
+// REMOVED: }
 
 export function clearSnapshotFontSessionFixture() {
   globalServices().coordination.fonts.replayRegistry.sessions.delete("fixture-snapshot-session");
   delete globalThis.__TiqianSnapshotFixtureActive;
-  setPreparedDomRendererForTesting(null);
-  setCommitValidatorForTesting(null);
   delete globalServices().coordination.layoutWorker;
   delete globalThis.__TiqianSnapshotPreparedPlan;
   delete globalThis.__TiqianSnapshotPreparedRenderCount;
@@ -3397,26 +3394,6 @@ export function snapshotPreparedPlan() {
 
 export function snapshotPreparedRenderCount() {
   return globalThis.__TiqianSnapshotPreparedRenderCount || 0;
-}
-
-export function failSnapshotPreparedDomValidation(detail) {
-  setCommitValidatorForTesting({ issue: () => detail });
-}
-
-export function failNextSnapshotPreparedDomValidation(detail) {
-  const previous = commitValidator();
-  let spent = false;
-  setCommitValidatorForTesting({
-    issue(host, width) {
-      if (!spent) {
-        spent = true;
-        return detail;
-      }
-      return previous && typeof previous.issue === "function"
-        ? previous.issue(host, width)
-        : null;
-    },
-  });
 }
 
 export function installPreparedWorkerIssue(detail) {

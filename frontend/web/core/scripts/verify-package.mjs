@@ -13,7 +13,6 @@ const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
   "core/",
-  "core/engine/loaders/runtime-loader.js",
   "core/sampler/snapshot/snapshot-schema.js",
   "core/sampler/snapshot/snapshot-tables.js",
   "core/engine/layout-worker.js",

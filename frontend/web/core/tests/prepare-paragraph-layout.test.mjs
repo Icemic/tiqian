@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { prepareParagraphLayout } from "../core/engine/prepare-paragraph-layout.js";
@@ -53,30 +52,14 @@ function computedStyle(values = {}) {
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals(["getComputedStyle"]);
   try {
-    if (overrides.renderer !== false) {
-      setPreparedDomRendererForTesting({
-        render: () => {},
-        release: () => {},
-        releaseRoot: () => {},
-        schema: 1,
-        layoutRevision: overrides.layoutRevision ?? "tiqian-layout-v2",
-      });
-    } else {
-      setPreparedDomRendererForTesting(null);
-    }
-    if (overrides.validator !== undefined) {
-      setCommitValidatorForTesting({ issue: overrides.validator });
-    } else {
-      setCommitValidatorForTesting(null);
-    }
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec.
     globalThis.getComputedStyle = (target, pseudo) =>
       target && target._computedValues
         ? computedStyle(target._computedValues)
         : computedStyle();
     return fn();
   } finally {
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

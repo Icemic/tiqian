@@ -68,7 +68,6 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.deepEqual(coreManifest.dependencies, { "@tiqian/ffi": "0.1.0-alpha.1" });
   assert.ok(coreManifest.files.includes("core/"));
   assert.equal(coreManifest.files.includes("runtime/"), false, "the Kotlin bundle directory is retired");
-  assert.ok(coreManifest.files.includes("core/engine/loaders/runtime-loader.js"));
   assert.ok(coreManifest.files.includes("core/engine/layout-worker.js"));
 });
 
@@ -166,10 +165,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
     assert.equal(coreExports["./precomputed"].default, "./core/sampler/snapshot/precomputed.js");
     assert.equal(coreExports["./snapshot-source"].default, "./core/sampler/snapshot/snapshot-source.js");
   }
-  const runtimeSource = await readFile(
-    new URL("../../core/core/engine/loaders/runtime-loader.js", import.meta.url),
-    "utf8",
-  );
   const fontLoaderSource = await readFile(
     new URL("../../core/core/engine/loaders/font-loader.js", import.meta.url),
     "utf8",
@@ -235,12 +230,10 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(sessionSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /from "\.\.\/\.\.\/measurement\/browser-fonts\.js"/u);
-  // The prepared-dom renderer import moved to runtime-loader (S4); font-loader
-  // reaches it through the synchronous renderer accessor and no longer
+  // The prepared-dom renderer is now imported directly from prepared-dom.js;
+  // font-loader reaches it through the synchronous module import and no longer
   // installs the deleted prepared-dom bridge itself.
-  assert.match(runtimeSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
-  assert.match(fontLoaderSource, /preparedDomRenderer\(\)/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
   assert.match(sessionSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
   assert.doesNotMatch(sessionSource, /from "\.\/browser-fonts\.js"/u);

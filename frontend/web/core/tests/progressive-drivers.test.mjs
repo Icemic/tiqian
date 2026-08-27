@@ -8,7 +8,6 @@ import {
   relayout,
   startLayoutJob,
 } from "../core/engine/progressive-drivers.js";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting } from "../core/engine/loaders/runtime-loader.js";
 
 // The drivers functions take fake rootState/engine/layoutJobPool deps; the
 // relayout-session and process-paragraph deps bundles carry a fake
@@ -70,20 +69,10 @@ function withEnv(fn, overrides = {}) {
       this.composed = init && init.composed;
       this.detail = init && init.detail;
     };
-    if (overrides.renderer !== undefined) {
-      setPreparedDomRendererForTesting(overrides.renderer);
-    } else {
-      setPreparedDomRendererForTesting(null);
-    }
-    if (overrides.validator !== undefined) {
-      setCommitValidatorForTesting({ issue: overrides.validator });
-    } else {
-      setCommitValidatorForTesting(null);
-    }
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec.
     return fn();
   } finally {
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

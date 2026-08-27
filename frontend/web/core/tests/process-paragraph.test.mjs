@@ -1,6 +1,5 @@
 import { globalServices } from "../core/services/global-services.js";
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { processParagraph } from "../core/engine/process-paragraph.js";
@@ -66,11 +65,9 @@ function computedStyle(values = {}) {
   return style;
 }
 
-// Runs fn with the environment globals the real pipeline reads. The renderer
-// is installed by default (the direct prepare path needs a live bridge); a
-// test that wants the bridge-unavailable verdict passes renderer: false. The
-// fixture font backend is installed by default so the real prepare step can
-// shape; a test that must not reach ffi passes fontBackend: false.
+// Runs fn with the environment globals the real pipeline reads. The fixture
+// font backend is installed by default so the real prepare step can shape;
+// a test that must not reach ffi passes fontBackend: false.
 function withEnv(fn, overrides = {}) {
 const saved = saveGlobals([
       "getComputedStyle",
@@ -79,31 +76,8 @@ const saved = saveGlobals([
     ]);
   const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
-    if (overrides.renderer !== false) {
-      const renders = [];
-      const releases = [];
-      setPreparedDomRendererForTesting({
-        render: (host, plan, locale, options) => {
-          renders.push({ host, plan, locale, options });
-        },
-        release: (host) => {
-          releases.push(host);
-          return true;
-        },
-        releaseRoot: () => true,
-        schema: 1,
-        layoutRevision: "tiqian-layout-v2",
-        renders,
-        releases,
-      });
-    } else {
-      setPreparedDomRendererForTesting(null);
-    }
-    if (overrides.validator !== undefined) {
-      setCommitValidatorForTesting({ issue: overrides.validator });
-    } else {
-      setCommitValidatorForTesting(null);
-    }
+    // Tests now use the real prepared-dom renderer directly.
+    // Validator injection removed per spec.
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
     }
@@ -123,8 +97,6 @@ const saved = saveGlobals([
     return fn();
   } finally {
     if (backend) backend.uninstall();
-    setPreparedDomRendererForTesting(undefined);
-    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

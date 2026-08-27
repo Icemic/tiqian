@@ -15,7 +15,7 @@
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import { preparedDomRendererModule } from "./loaders/runtime-loader.js";
+import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
 import {
   precomputeParagraphWithBrowserMetrics,
   precomputeParagraphWithDiagnostics,
@@ -248,13 +248,12 @@ export function wireArguments(lowered: LoweredParagraph): PrepareParagraphReques
   // isPreparedDomBridgeAvailable @JsFun body, gating on the installed renderer
   // shape, schema, and matching layout revision.
   function isPreparedDomBridgeAvailable(): boolean {
-    const renderer = preparedDomRendererModule();
-    return !!(renderer &&
-      typeof renderer.render === 'function' &&
-      typeof renderer.release === 'function' &&
-      typeof renderer.releaseRoot === 'function' &&
-      renderer.schema === 1 &&
-      renderer.layoutRevision === PREPARED_LAYOUT_REVISION);
+    return !!(preparedDom &&
+      typeof preparedDom.render === 'function' &&
+      typeof preparedDom.release === 'function' &&
+      typeof preparedDom.releaseRoot === 'function' &&
+      preparedDom.schema === 1 &&
+      preparedDom.layoutRevision === PREPARED_LAYOUT_REVISION);
   }
 
   function isSnapshotSessionCapabilityFailure(error: unknown): boolean {
