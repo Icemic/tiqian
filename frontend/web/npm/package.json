@@ -22,9 +22,9 @@
   },
   "license": "MPL-2.0",
   "type": "module",
-  "main": "./api.js",
-  "module": "./api.js",
-  "types": "./api.d.ts",
+  "main": "./element.js",
+  "module": "./element.js",
+  "types": "./element.d.ts",
   "engines": {
     "node": ">=22"
   },
@@ -45,8 +45,6 @@
   "files": [
     "LICENSE",
     "README.md",
-    "api.d.ts",
-    "api.js",
     "auto.d.ts",
     "auto.js",
     "element.d.ts",
@@ -58,8 +56,8 @@
   ],
   "exports": {
     ".": {
-      "types": "./api.d.ts",
-      "default": "./api.js"
+      "types": "./element.d.ts",
+      "default": "./element.js"
     },
     "./auto": {
       "types": "./auto.d.ts",
@@ -82,7 +80,6 @@
     "@tiqian/core": "0.1.0-alpha.5"
   },
   "sideEffects": [
-    "./api.js",
     "./auto.js",
     "./element.js",
     "./prepared-dom.js",

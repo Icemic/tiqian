@@ -102,13 +102,12 @@ try {
   await writeFile(
     resolve(consumerRoot, "verify.mjs"),
     `import assert from "node:assert/strict";
-import * as api from "@tiqian/prose";
-import { TiqianProseElement } from "@tiqian/prose/element";
+import { registerTiqianProse, TiqianProseElement, CoordinationService } from "@tiqian/prose";
 import { readFile, stat } from "node:fs/promises";
 
-assert.equal(typeof api.enhance, "function");
-assert.equal(typeof api.destroy, "function");
+assert.equal(typeof registerTiqianProse, "function");
 assert.equal(typeof TiqianProseElement, "function");
+assert.equal(typeof CoordinationService, "function");
 // Single source of truth: the stylesheet ships from @tiqian/core only;
 // prose neither ships nor exports it.
 const proseManifest = JSON.parse(await readFile(new URL("./node_modules/@tiqian/prose/package.json", import.meta.url), "utf8"));

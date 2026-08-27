@@ -1,47 +1,25 @@
-import { globalServices } from "@tiqian/core/core/services/global-services.js";
-import { prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
-import { restoreAdoptedSnapshot } from "@tiqian/core/core/sampler/snapshot/loaded-snapshots.js";
-import { ensureTiqianStyles } from "@tiqian/core/core/engine/loaders/styles.js";
-import {
-  createSnapshotFontSessionEntry,
-  hasSnapshotLayoutOverride,
-  releaseSnapshotFontSession,
-} from "@tiqian/core/core/engine/snapshot-font.js";
-import {
-  ensurePreparedDomBridge,
-  loadSnapshotFontFallback,
-} from "@tiqian/core/core/engine/loaders/font-loader.js";
-import {
-  enhance as enhanceRoot,
-  enhanceProgressively as enhanceProgressivelyRoot,
-} from "@tiqian/core/core/engine/progressive-drivers.js";
-import { destroyRoot } from "@tiqian/core/core/engine/lifecycle.js";
-import { createRootState } from "@tiqian/core/core/engine/root-state.js";
-import type { RootStateApi } from "@tiqian/core/core/engine/root-state.js";
-import type { CjkDashShapingOutcome } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
-import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
-import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
-import { getOrCreateEnhanceContext, getContextForElement } from "@tiqian/core/core/engine/context/enhance-context.js";
+// Session-level font session helpers (wc-s5 scope 9). Extracted from the
+// dissolved npm package api.ts entry so the core engine can reuse these
+// operations without depending on the npm facade.
 
-// Per-root rootState holder for the npm API (scope 9 deletes this file).
-// The session layer holds its own rootState; this map is for the direct API.
-const apiRootStates = new WeakMap<HTMLElement, RootStateApi>();
+import { restoreAdoptedSnapshot } from "../sampler/snapshot/loaded-snapshots.js";
+import { ensureTiqianStyles } from "./loaders/styles.js";
+import { prepareCjkDashShapingIfNeeded } from "./loaders/cjk-dash.js";
+import { ensurePreparedDomBridge, loadSnapshotFontFallback } from "./loaders/font-loader.js";
+import { createSnapshotFontSessionEntry, hasSnapshotLayoutOverride, releaseSnapshotFontSession } from "./snapshot-font.js";
+import type { CjkDashShapingOutcome } from "./loaders/cjk-dash.js";
+import type { BrowserFontSessionHandle } from "../measurement/browser-fonts.js";
+import type { SnapshotFontSessionEntry } from "./snapshot-font.js";
+import type { EnhancedElementContext } from "./context/enhance-context.js";
+import { getOrCreateEnhanceContext } from "./context/enhance-context.js";
 
-function getOrCreateApiRootState(root: HTMLElement): RootStateApi {
-  let rootState = apiRootStates.get(root);
-  if (!rootState) {
-    rootState = createRootState();
-    apiRootStates.set(root, rootState);
-  }
-  return rootState;
+interface TiqianSnapshotFontMissCandidate {
+  code?: string;
+  detail?: string;
 }
 
-export { declareTiqianFontFaces } from "@tiqian/core/core/sampler/snapshot/declared-faces.js";
-
-export type TraceConfig = { maxEntries?: number; };
-
-export type TiqianWebOptions = {
-  trace?: TraceConfig;
+interface TiqianWebOptions {
+  trace?: { maxEntries?: number };
   cjkFontFamily?: string;
   latinFontFamily?: string;
   monospaceFontFamily?: string;
@@ -53,7 +31,7 @@ export type TiqianWebOptions = {
   emphasisDotGapEm?: number;
   strongAsEmphasisMarks?: boolean;
   paragraphSelector?: string;
-};
+}
 
 interface TiqianWebSnapshotFontSessionWire {
   status: "conforming";
@@ -66,31 +44,11 @@ type TiqianPreparedWebOptions = TiqianWebOptions & {
   snapshotFontSession?: TiqianWebSnapshotFontSessionWire;
 };
 
-type TiqianWebAction<T> = (rootState: RootStateApi, prepared: TiqianPreparedWebOptions, context: ReturnType<typeof getOrCreateEnhanceContext>) => T;
-
-export interface TiqianWebGlobalApi {
-  enhance(root?: HTMLElement, options?: TiqianWebOptions): Promise<HTMLElement>;
-  enhanceProgressively(root?: HTMLElement, options?: TiqianWebOptions): HTMLElement;
-  destroy(root?: HTMLElement): void;
-  enhanceAll(options?: TiqianWebOptions): void;
-}
-
-declare global {
-  interface Window {
-    TiqianWeb?: TiqianWebGlobalApi;
-  }
-}
-
-interface TiqianSnapshotFontMissCandidate {
-  code?: string;
-  detail?: string;
-}
-
 interface TiqianCjkDashPrepareOptions extends TiqianWebOptions {
   snapshotFontSession?: unknown;
 }
 
-function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): string {
+export function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): string {
   if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
     const pipeIndex = error.detail.indexOf("|");
     if (pipeIndex !== -1) {
@@ -103,10 +61,10 @@ function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): s
   return error?.code ?? "SnapshotFontSessionUnavailable";
 }
 
-const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
+export const ANY_FONT_SESSION = Symbol("tiqian.anyFontSession");
 
-function releaseContextFontSession(
-  context: ReturnType<typeof getOrCreateEnhanceContext>,
+export function releaseContextFontSession(
+  context: EnhancedElementContext,
   root: HTMLElement,
   expectedHandle: BrowserFontSessionHandle | null | typeof ANY_FONT_SESSION = ANY_FONT_SESSION,
 ): boolean {
@@ -116,11 +74,11 @@ function releaseContextFontSession(
   return releaseSnapshotFontSession(entry, root);
 }
 
-async function prepareRootFontSession(
+export async function prepareRootFontSession(
   root: HTMLElement,
   generation: number,
   options: TiqianWebOptions,
-  context: ReturnType<typeof getOrCreateEnhanceContext>
+  context: EnhancedElementContext,
 ): Promise<BrowserFontSessionHandle | null> {
   if (!root?.getAttribute?.("snapshot-ref")) {
     if (context.generation === generation) {
@@ -132,7 +90,7 @@ async function prepareRootFontSession(
     }
     return null;
   }
-  if (hasSnapshotLayoutOverride(options)) {
+  if (hasSnapshotLayoutOverride(options as Record<string, unknown>)) {
     if (context.generation === generation) {
       const entry = context.snapshotFontSession.entry;
       if (entry) {
@@ -171,10 +129,10 @@ async function prepareRootFontSession(
   }
 }
 
-async function withTiqianWeb<T>(
+export async function withTiqianWeb<T>(
   root: HTMLElement,
   options: TiqianWebOptions,
-  action: TiqianWebAction<T>,
+  action: (context: EnhancedElementContext, prepared: TiqianPreparedWebOptions) => T,
 ): Promise<HTMLElement | T> {
   const context = getOrCreateEnhanceContext(root);
   await restoreAdoptedSnapshot(root);
@@ -198,9 +156,7 @@ async function withTiqianWeb<T>(
       }
       return root;
     }
-    const rootState = getOrCreateApiRootState(root);
-    if (context.generation !== generation) return root;
-    return action(rootState, {
+    return action(context, {
       ...options,
       cjkDashCapability,
       ...(fontSession ? {
@@ -210,7 +166,7 @@ async function withTiqianWeb<T>(
           detail: "SnapshotFontBytes",
         },
       } : {}),
-    }, context);
+    });
   } catch (error) {
     if (context.generation === generation) {
       const entry = context.snapshotFontSession.entry;
@@ -221,48 +177,4 @@ async function withTiqianWeb<T>(
     }
     throw error;
   }
-}
-
-export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
-  return withTiqianWeb(root, options, (rootState, prepared, context) =>
-    enhanceRoot(rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
-}
-
-export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
-  return withTiqianWeb(root, options, (rootState, prepared, context) =>
-    enhanceProgressivelyRoot(rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
-}
-
-export async function destroy(root: HTMLElement = document.body): Promise<void> {
-  const context = getContextForElement(root);
-  if (!context) return;
-  const generation = context.update();
-  try {
-    const restored = await restoreAdoptedSnapshot(root);
-    if (restored) {
-      releaseContextFontSession(context, root);
-      context.destroy();
-      return;
-    }
-    const rootState = getOrCreateApiRootState(root);
-    if (context.generation !== generation) return;
-    try {
-      destroyRoot(rootState, globalServices().coordination.layoutJobPool, context, root);
-    } finally {
-      apiRootStates.delete(root);
-      releaseContextFontSession(context, root);
-      context.destroy();
-    }
-  } catch (error) {
-    if (context.generation === generation) {
-      releaseContextFontSession(context, root);
-      context.destroy();
-    }
-    throw error;
-  }
-}
-
-export function enhanceAll(options: TiqianWebOptions = {}): Promise<Array<HTMLElement | number>> {
-  const roots = [...document.querySelectorAll<HTMLElement>("tiqian-prose, [data-tiqian-root]")];
-  return Promise.all(roots.map((root) => enhance(root, options)));
 }

@@ -10,7 +10,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
   assert.equal(manifest.name, "@tiqian/prose");
   assert.equal(lock.version, manifest.version);
   assert.equal(manifest.license, "MPL-2.0");
-  assert.equal(manifest.types, "./api.d.ts");
+  assert.equal(manifest.types, "./element.d.ts");
   assert.equal(manifest.engines.node, ">=22");
   assert.deepEqual(manifest.publishConfig, { access: "public", tag: "alpha" });
   assert.ok(manifest.files.includes("LICENSE"));
@@ -130,8 +130,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
     "utf8",
   );
   const elementDeclarations = await readFile(new URL("../element.d.ts", import.meta.url), "utf8");
-  const apiSource = await readFile(new URL("../api.js", import.meta.url), "utf8");
-  const apiDeclarations = await readFile(new URL("../api.d.ts", import.meta.url), "utf8");
   const browserFontsSource = await readFile(
     new URL("../../core/core/measurement/browser-fonts.js", import.meta.url),
     "utf8",
@@ -239,12 +237,9 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(sessionSource, /from "\.\/browser-fonts\.js"/u);
   assert.doesNotMatch(sessionSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(sessionSource, /from "\.\/font-shaping\.js"/u);
-  assert.doesNotMatch(apiSource, /from "\.\/precomputed\.js"/u);
-  assert.doesNotMatch(apiSource, /from "\.\/font-shaping\.js"/u);
   assert.match(loadedSnapshotsSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(loadedSnapshotsSource, /font-shaping\.js/u);
   assert.doesNotMatch(sessionSource, /lazy-capabilities/u);
-  assert.doesNotMatch(apiSource, /lazy-capabilities/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-fonts\.js|harfbuzzjs|woff2-encoder/u);
   assert.match(layoutWorkerSource, /from "@tiqian\/ffi"/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-runtime/u);
@@ -253,7 +248,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(sessionSource, /tiqian:retry-cjk-dash/u);
   assert.match(sessionSource, /BrowserDashCapabilityBeforeDispatch/u);
   assert.doesNotMatch(sessionSource, /#snapshotFontSession\?\.reference === reference/u);
-  assert.doesNotMatch(apiSource, /existing\?\.reference === reference/u);
   assert.match(browserFontsSource, /await requirePreparedOrSnapshotContract\(root\)/u);
   assert.match(
     browserFontsSource,
@@ -293,7 +287,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(sessionSource, /get strongAsEmphasisMarks\(\)[\s\S]*?hasAttribute\("strong-as-emphasis-marks"\)/u);
   assert.match(elementDeclarations, /get strongAsEmphasisMarks\(\): boolean/u);
-  assert.match(apiDeclarations, /strongAsEmphasisMarks\?: boolean/u);
   assert.match(
     sessionSource,
     /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#stateMachine\.connected\)\s*this\.#restartConnectedLifecycle\(\)/u,
