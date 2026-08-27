@@ -127,10 +127,17 @@ function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandid
   return error?.code ?? "SnapshotFontSessionUnavailable";
 }
 
-// One-frame waits ride the coordination service's frame loop (ruling R5),
-// so no component calls native requestAnimationFrame directly.
-function nextFrame(): Promise<number> {
-  return new Promise((resolve) => coordinationService().requestFrame(resolve));
+// CausalFontReadiness (ruling R4): reading computed typography styles forces
+// the document to flush pending style work — a newly registered stylesheet
+// reaches the cascade and loaded faces bind to the prose — a causal signal
+// that replaces counting frames.
+function forceTypographyStyleRecompute(root: HTMLElement): void {
+  const win = root.ownerDocument?.defaultView;
+  if (!win) return;
+  win.getComputedStyle(root).getPropertyValue("font-family");
+  for (const element of typographyElements(root)) {
+    win.getComputedStyle(element).getPropertyValue("font-family");
+  }
 }
 
 function coordinationService(): CoordinationService {
@@ -428,13 +435,15 @@ class TiqianProseElement extends HTMLElementBase {
   }
 
   // HostCascadeReadyGate: connectedCallback may run before an app's
-  // module-loaded styles have reached the cascade. Once Tiqian's own stylesheet
-  // is ready, one frame lets the parser and host cascade settle; then load only
-  // the faces used by the prose and wait one painted frame. Waiting for global
-  // DOMContentLoaded or document.fonts.ready would stall prose on unrelated
-  // scripts, icon fonts, code fonts, or widgets. The two frame waits stay
-  // separate awaits: the first lets the CSSOM settle after the stylesheet
-  // lands, the second lets the loaded faces rasterize before the first commit.
+  // module-loaded styles have reached the cascade. Once Tiqian's own
+  // stylesheet is registered, one forced style recompute flushes the
+  // cascade; then only the faces used by the prose load through
+  // document.fonts.load to their concrete families, and a second forced
+  // recompute binds the loaded faces to the prose before the first commit.
+  // Waiting for global DOMContentLoaded or document.fonts.ready would stall
+  // prose on unrelated scripts, icon fonts, code fonts, or widgets.
+  // CausalFontReadiness (ruling R4): both waits are causal signals instead
+  // of counted frames.
   async #runHostCascadeGate(
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
@@ -443,7 +452,7 @@ class TiqianProseElement extends HTMLElementBase {
   ): Promise<void> {
     const styles = await raceAbort(signal, ensureTiqianStyles(this.ownerDocument, this));
     if (styles.aborted) return;
-    await nextFrame();
+    forceTypographyStyleRecompute(this);
     if (signal.aborted) return;
     const fontGate = await raceAbort(signal, awaitInitialTypographyFonts(this, {
       generation,
@@ -456,7 +465,7 @@ class TiqianProseElement extends HTMLElementBase {
         this.#deferInitialEnhancementUntilFontsSettle(gateGeneration, completion),
     }));
     if (fontGate.aborted || !fontGate.value) return;
-    await nextFrame();
+    forceTypographyStyleRecompute(this);
     if (!this.isConnected || generation !== this.#context.generation || signal.aborted) return;
     coordinationService().requestFrame(() => {
       this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise, signal)

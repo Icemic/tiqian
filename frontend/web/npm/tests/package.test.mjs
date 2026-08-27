@@ -505,7 +505,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.doesNotMatch(elementSource, /addEventListener\("DOMContentLoaded"/u);
   assert.doesNotMatch(elementSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
-  assert.match(elementSource, /await nextFrame\(\);[\s\S]*?awaitInitialTypographyFonts/u);
+  assert.match(elementSource, /forceTypographyStyleRecompute\(this\);[\s\S]*?awaitInitialTypographyFonts/u);
   assert.match(fontLoaderSource, /waitForTypographyFonts/u);
   assert.match(fontLoaderSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
   assert.match(
