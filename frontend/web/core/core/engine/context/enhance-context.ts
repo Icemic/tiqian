@@ -7,23 +7,18 @@
 // Construction surface (ADR 0053 batch R3, plan A): the context is a plain
 // value object. constructEnhanceContext(element) is the open construction
 // entry — hosts and tests build a context explicitly and inject it into the
-// engine paths. createEnhanceContext(element) remains the compatibility
-// factory: it constructs through the same surface and additionally registers
-// the context in the per-document element registry consumed by
-// getOrCreateEnhanceContext / getContextForElement (both lookup signatures
-// stay unchanged).
+// engine paths. createEnhanceContext(element) is an alias for the same
+// constructor. The caller holds the context; no registry is involved.
 //
 // Lifecycle verbs follow the 2026-08-25 naming ruling: update() is the single
 // refresh verb (it bumps the generation to supersede in-flight work started
 // under an earlier generation; readers compare context.generation against the
 // value they captured before their first await) and destroy() clears the
-// paragraph records, releases the prepared-style state, and drops the context
-// from the registry.
+// paragraph records and releases the prepared-style state.
 
 import type { SnapshotFontSessionEntry } from "../snapshot-font.js";
 import type { PreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
 import { releasePreparedStyleState } from "../../sampler/snapshot/prepared-dom.js";
-import { getElementContexts } from "../../services/element-contexts.js";
 import { createDiagnosisManager } from "./diagnosis-manager.js";
 import type { DiagnosisDatasetRecord, DiagnosisManager } from "./diagnosis-manager.js";
 
@@ -65,11 +60,6 @@ interface EnhancedElementContext {
   preparedStyle: PreparedStyleState | null;
   update(): number;
   destroy(): void;
-}
-
-/** Returns the live context for the given element, or undefined. */
-function getContextForElement(element: Element): EnhancedElementContext | undefined {
-  return getElementContexts().get(element);
 }
 
 // Only HTMLElement hosts carry a dataset surface; the context types its
@@ -118,26 +108,13 @@ function constructEnhanceContext(element: Element): EnhancedElementContext {
         preparedStyle = null;
       }
       diagnosis.dispose();
-      getElementContexts().delete(element);
     },
   };
 }
 
-// Compatibility factory: constructs through the open surface and registers
-// the result in the per-document element registry.
-function createEnhanceContext(element: Element): EnhancedElementContext {
-  const context = constructEnhanceContext(element);
-  getElementContexts().set(element, context);
-  return context;
-}
+// Pure constructor alias (plan A): identical to constructEnhanceContext.
+// The caller holds the returned context; no registry is involved.
+const createEnhanceContext = constructEnhanceContext;
 
-function getOrCreateEnhanceContext(element: Element): EnhancedElementContext {
-  let context = getElementContexts().get(element);
-  if (!context) {
-    context = createEnhanceContext(element);
-  }
-  return context;
-}
-
-export { constructEnhanceContext, createEnhanceContext, getContextForElement, getOrCreateEnhanceContext };
+export { constructEnhanceContext, createEnhanceContext };
 export type { EnhancedElementContext, SnapshotFontSessionState };

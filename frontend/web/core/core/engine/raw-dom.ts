@@ -1,4 +1,3 @@
-import { getContextForElement } from "./context/enhance-context.js";
 import type { EnhancedElementContext, RawDomParagraphRecord } from "./context/enhance-context.js";
 import * as preparedDom from "../sampler/snapshot/prepared-dom.js";
 import { DEFAULT_PARAGRAPH_SELECTOR } from "../sampler/signatures.js";
@@ -400,12 +399,12 @@ const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const RENDERED_PARAGRAPH_SELECTOR = "p[data-tq-rendered=true], li[data-tq-rendered=true]";
 const RENDERED_RAW_DOM_SELECTOR = `:is(${DEFAULT_PARAGRAPH_SELECTOR})[data-tq-rendered="true"]`;
 
-export function renderedRawDomParagraphs(root: Element): [Element, RawDomParagraphRecord][] {
+export function renderedRawDomParagraphs(context: EnhancedElementContext, root: Element): [Element, RawDomParagraphRecord][] {
   const pairs: [Element, RawDomParagraphRecord][] = [];
   const paragraphs = root.querySelectorAll(RENDERED_RAW_DOM_SELECTOR);
   for (let i = 0; i < paragraphs.length; i += 1) {
     const paragraph = paragraphs[i];
-    const record = getContextForElement(paragraph)?.rawDomParagraphs.get(paragraph);
+    const record = context.rawDomParagraphs.get(paragraph);
     if (record) pairs.push([paragraph, record]);
   }
   return pairs;

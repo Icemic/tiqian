@@ -1,4 +1,4 @@
-import { getOrCreateEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { constructEnhanceContext } from "../core/engine/context/enhance-context.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -124,29 +124,8 @@ function makeParagraph(overrides = {}) {
   };
 }
 
-function installFakeRawDom(overrides = {}) {
-  const stamped = [];
-  return {
-    stampRendered: (el) => {
-      stamped.push(el);
-      if (overrides.stampRendered) overrides.stampRendered(el);
-    },
-    stamped,
-    suspendEngineWrites: (source, action) => {
-      const context = getOrCreateEnhanceContext(source);
-      let record = context.rawDomParagraphs.get(source);
-      if (!record) {
-        record = { fragment: null, engineWriteDepth: 0, forwarding: false };
-        context.rawDomParagraphs.set(source, record);
-      }
-      record.engineWriteDepth += 1;
-      try {
-        return action();
-      } finally {
-        record.engineWriteDepth -= 1;
-      }
-    },
-  };
+function createTestContext(source) {
+  return constructEnhanceContext(source);
 }
 
 // A browserFallback bridge whose callbacks answer every shape/metrics request
@@ -198,7 +177,7 @@ function makeValidBridge() {
 test("worker happy path: sets four attributes, invokes renderer with options, sets lastMeasure, stamps rawDom, returns null", () => {
   withEnv(() => {
     const source = makeElement({}, { width: 300 });
-    const rawDom = installFakeRawDom();
+    const context = createTestContext(source);
 
 
     const domObjElement = makeElement();
@@ -221,7 +200,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
     let fallbackCalled = false;
-    const result = commitWorkerPreparedParagraph(rawDom, {
+    const result = commitWorkerPreparedParagraph(context, {
       paragraph,
       workerPlan,
       onSnapshotPreparedDomFallback: () => {
@@ -246,7 +225,7 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
     assert.equal(renderCall.plan, record.plan);
     assert.equal(renderCall.locale, "zh-Hans");
     assert.equal(renderCall.rawDomCounterDuringRender, 1);
-    assert.equal(getOrCreateEnhanceContext(paragraph.source).rawDomParagraphs.get(paragraph.source)?.engineWriteDepth, 0);
+    assert.equal(context.rawDomParagraphs.get(paragraph.source)?.engineWriteDepth, 0);
 
     assert.deepEqual(renderCall.options, {
       sourceText: "hello world",
@@ -258,20 +237,18 @@ test("worker happy path: sets four attributes, invokes renderer with options, se
       cjkStrongSemantics: [{ start: 0, end: 1 }],
     });
 
-    assert.equal(rawDom.stamped.length, 1);
-    assert.equal(rawDom.stamped[0], paragraph.source);
+    assert.ok(context.rawDomParagraphs.has(paragraph.source));
   }, { validator: () => null });
 });
 
 test("worker mismatch: validator issue triggers fallback callback, releases styles, strips attributes, returns unsupported", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     let fallbackIssue = null;
 
-    const result = commitWorkerPreparedParagraph(rawDom, {
+    const result = commitWorkerPreparedParagraph(context, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       onSnapshotPreparedDomFallback: (issue) => {
@@ -302,10 +279,9 @@ test("worker mismatch: validator issue triggers fallback callback, releases styl
 
 test("worker rich lowered: removes canonical-plain attribute for rich lowered", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const source = makeElement({ "data-tq-canonical-plain": "true" });
+    const context = createTestContext(source);
+
     const paragraph = makeParagraph({
       source,
       lowered: {
@@ -313,7 +289,7 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
       },
     });
 
-    const result = commitWorkerPreparedParagraph(rawDom, {
+    const result = commitWorkerPreparedParagraph(context, {
       paragraph,
       workerPlan: JSON.stringify({ plan: "{}" }),
       inlineObjectMetaJson: "[]",
@@ -328,10 +304,9 @@ test("worker rich lowered: removes canonical-plain attribute for rich lowered", 
 
 test("direct happy path, no live sources: renders with undefined options, sets canonical-plain and canonical-source, stamps rawDom, returns success", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     const preparation = {
       planJson: '{"lines":[]}',
       width: 320,
@@ -339,7 +314,7 @@ test("direct happy path, no live sources: renders with undefined options, sets c
       snapshotFontSessionUsed: false,
     };
 
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       ffi: {},
       paragraph,
       preparation,
@@ -360,16 +335,12 @@ test("direct happy path, no live sources: renders with undefined options, sets c
     assert.equal(renderer.renders.length, 1);
     assert.equal(renderer.renders[0].options, undefined);
 
-    assert.equal(rawDom.stamped.length, 1);
-    assert.equal(rawDom.stamped[0], paragraph.source);
+    assert.ok(context.rawDomParagraphs.has(paragraph.source));
   }, { validator: () => null });
 });
 
 test("direct rich path with sourceSpans elements: renders with live-source replay options", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const spanElement = makeElement();
     const objElement = makeElement();
     const paragraph = makeParagraph({
@@ -379,6 +350,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
         domInlineObjects: [{ element: objElement }],
       },
     });
+    const context = createTestContext(paragraph.source);
 
     const preparation = {
       planJson: '{"lines":[]}',
@@ -391,7 +363,7 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
     const inlineObjectMetaJson = JSON.stringify([{ start: 1, end: 2, marginRight: 5 }]);
     const cjkStrongSemanticsJson = JSON.stringify([{ start: 0, end: 1 }]);
 
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       ffi: {},
       paragraph,
       preparation,
@@ -420,10 +392,9 @@ test("direct rich path with sourceSpans elements: renders with live-source repla
 
 test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed, exact-prepared-dom never set, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     const preparation = {
       planJson: '{"lines":[]}',
       width: 320,
@@ -432,7 +403,7 @@ test("direct mismatch, snapshotFontSessionUsed: false: three attributes removed,
     };
 
     let fallbackCalled = false;
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       ffi: {},
       paragraph,
       preparation,
@@ -468,10 +439,9 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
     return validateCount === 1 ? "SnapshotSessionMismatch" : null;
   };
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     const preparation = {
       planJson: '{"plan":"first"}',
       width: 320,
@@ -487,7 +457,7 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 
     let fallbackReported = null;
 
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       paragraph,
       preparation,
       options: originalOptions,
@@ -514,10 +484,9 @@ test("direct mismatch with distrust retry: prepares with browser metrics fallbac
 
 test("distrust retry returning unsupported: propagated as the final unsupported verdict", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     const preparation = {
       planJson: '{"plan":"first"}',
       width: 320,
@@ -544,7 +513,7 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
       return JSON.stringify(inner);
     };
 
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       paragraph,
       preparation,
       options: { snapshotFontSession: {} },
@@ -562,10 +531,9 @@ test("distrust retry returning unsupported: propagated as the final unsupported 
 
 test("recursion passes browserFallback null: validator fails both renders, prepareParagraphLayout called once, returns PreparedDomRenderMismatch", () => {
   withEnv(() => {
-    const rawDom = installFakeRawDom();
-
-
     const paragraph = makeParagraph();
+    const context = createTestContext(paragraph.source);
+
     const preparation = {
       planJson: '{"plan":"first"}',
       width: 320,
@@ -573,7 +541,7 @@ test("recursion passes browserFallback null: validator fails both renders, prepa
       snapshotFontSessionUsed: true,
     };
 
-    const result = commitPreparedParagraph(rawDom, {
+    const result = commitPreparedParagraph(context, {
       paragraph,
       preparation,
       options: { snapshotFontSession: {} },

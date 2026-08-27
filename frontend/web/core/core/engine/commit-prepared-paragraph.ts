@@ -136,7 +136,8 @@ function renderWorkerPrepared(
         liveSemanticElements: Array.from(semanticElements || []),
         inlineObjects: inlineObjectsMetaPaired,
         cjkStrongSemantics: JSON.parse(cjkStrongSemanticsJson || '[]'),
-      }
+      },
+      rawDomContext
     );
   });
 }
@@ -180,7 +181,8 @@ function renderPrepared(
       host,
       planJson,
       locale,
-      options
+      options,
+      rawDomContext
     );
   });
 }

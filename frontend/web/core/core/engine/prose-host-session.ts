@@ -44,6 +44,8 @@ import {
 import {
   createSnapshotFontSessionEntry,
   releaseSnapshotFontSession,
+  snapshotFontMissDatasetValue,
+  type TiqianElementSnapshotFontMissCandidate,
 } from "./snapshot-font.js";
 import { ensureTiqianStyles } from "./loaders/styles.js";
 import {
@@ -162,24 +164,6 @@ const RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES = new Set([
   "SnapshotWidthMismatch",
   "SnapshotWidthChangedDuringValidation",
 ]);
-
-interface TiqianElementSnapshotFontMissCandidate {
-  code?: string;
-  detail?: string;
-}
-
-function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandidate): string {
-  if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
-    const pipeIndex = error.detail.indexOf("|");
-    if (pipeIndex !== -1) {
-      const detailSuffix = error.detail.slice(pipeIndex + 1);
-      if (detailSuffix === "EmptyCandidateSet" || detailSuffix.startsWith("FieldMismatch|")) {
-        return `${error.code}|${detailSuffix}`;
-      }
-    }
-  }
-  return error?.code ?? "SnapshotFontSessionUnavailable";
-}
 
 // CausalFontReadiness (ruling R4): reading computed typography styles forces
 // the document to flush pending style work — a newly registered stylesheet
@@ -2144,14 +2128,10 @@ class ProseHostSession {
   // work on purpose: engine commits also produce records, and the drift
   // probe disproves those by identity instead of disconnecting and losing
   // host edits that land mid-flight.
-  // Raw-dom records live on each paragraph's own enhance context (raw-dom
-  // keys them by paragraph element), not on this root's context. This is the
-  // pre-context enumeration order: rendered paragraphs come from the DOM
-  // query (the original syncRawDom selector) and each record is read from
-  // its paragraph's context — the state home that replaced the retired
-  // __tqRawDomFragment DOM property.
+  // Renders the root's raw-dom paragraph records in DOM order (the context
+  // owns the paragraph map; the DOM query supplies the ordering).
   #renderedRawDomParagraphs(): Iterable<[Element, RawDomParagraphRecord]> {
-    return renderedRawDomParagraphs(this.#root);
+    return renderedRawDomParagraphs(this.#context, this.#root);
   }
 
   #observeContent() {

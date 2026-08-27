@@ -317,8 +317,8 @@ export function restoreAttribute(element: Element, name: string, value?: string 
 
 // Prepared-dom release used by root teardown and detach: the renderer module
 // reference resolves directly from prepared-dom.
-function releasePreparedRootDomStyles(root: HTMLElement): boolean {
-  return !!(preparedDom.releaseRoot && preparedDom.releaseRoot(root) === true);
+function releasePreparedRootDomStyles(root: HTMLElement, context?: EnhancedElementContext): boolean {
+  return !!(preparedDom.releaseRoot && preparedDom.releaseRoot(root, context) === true);
 }
 
 // observableSnapshotCount: reads data-tiqian-snapshot-count attribute; safe
@@ -349,7 +349,7 @@ export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPoo
     // SnapshotCompactValueCSS: a precomputed snapshot may be live without a
     // runtime state while list-only enhancement starts. Its compact value
     // CSS belongs to the snapshot owner and must survive that no-op destroy.
-    releasePreparedRootDomStyles(root);
+    releasePreparedRootDomStyles(root, rawDomContext);
   }
   const snapshotCount = observableSnapshotCount(root);
   if (snapshotCount > 0) {
@@ -368,9 +368,9 @@ export function destroyRoot(rootState: RootStateApi, layoutJobPool: LayoutJobPoo
 // DetachedRootWeakOwnership: cancel the job and release document-scoped
 // styles; weak table state stays for reconnection on the same node. The
 // suspend verb stays distinct from destroy teardown.
-export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement): void {
+export function detachRoot(layoutJobPool: LayoutJobPool, root: HTMLElement, context?: EnhancedElementContext): void {
   layoutJobPool.cancelJob(root);
-  releasePreparedRootDomStyles(root);
+  releasePreparedRootDomStyles(root, context);
 }
 
 export function captureSourceInlineSize(paragraph: Element): SourceInlineSizeCapture {

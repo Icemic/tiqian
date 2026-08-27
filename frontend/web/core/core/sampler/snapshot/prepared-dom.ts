@@ -43,7 +43,7 @@ import {
   inlineObjectPlaceholder,
   rubyAnnotationSpan,
 } from "./prepared-dom-evidence.js";
-import { getContextForElement, createEnhanceContext } from "../../engine/context/enhance-context.js";
+import { constructEnhanceContext } from "../../engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
 
 // Prepared-style scoping state (wc-s5 R9): rootsByHost tracks which root owns
@@ -410,7 +410,7 @@ function runtimeValueStyleClass(key: string) {
   return `tqvr-${key}`;
 }
 
-function createPreparedStyleState(root: Element) {
+function createPreparedStyleState(root: Element, context?: EnhancedElementContext) {
   const documentObject = root?.ownerDocument ?? globalThis.document;
   const parent = documentObject?.head ?? documentObject?.documentElement ?? documentObject?.body;
   if (!documentObject?.createElement || !parent?.appendChild || !root?.setAttribute) return null;
@@ -430,15 +430,15 @@ function createPreparedStyleState(root: Element) {
     owners: new Map(),
     dirty: false,
   };
-  const context = getContextForElement(root) ?? createEnhanceContext(root);
-  context.preparedStyle = state;
+  const effectiveContext = context ?? constructEnhanceContext(root);
+  effectiveContext.preparedStyle = state;
   return state;
 }
 
-function preparedStyleState(root: Element) {
-  const context = getContextForElement(root);
-  if (context?.preparedStyle) return context.preparedStyle;
-  return createPreparedStyleState(root);
+function preparedStyleState(root: Element, context?: EnhancedElementContext) {
+  const effectiveContext = context ?? constructEnhanceContext(root);
+  if (effectiveContext.preparedStyle) return effectiveContext.preparedStyle;
+  return createPreparedStyleState(root, effectiveContext);
 }
 
 function registerPreparedValueStyle(state: PreparedStyleState, declaration: string) {
@@ -475,9 +475,9 @@ function syncPreparedValueStyles(state: PreparedStyleState) {
   state.dirty = false;
 }
 
-function removePreparedStyleState(state: PreparedStyleState) {
-  const context = getContextForElement(state.root);
-  if (context) context.preparedStyle = null;
+function removePreparedStyleState(state: PreparedStyleState, context?: EnhancedElementContext) {
+  const effectiveContext = context ?? constructEnhanceContext(state.root);
+  if (effectiveContext) effectiveContext.preparedStyle = null;
   const rootsByHost = preparedStylesState().rootsByHost;
   for (const owner of state.owners.keys()) {
     if (owner !== SNAPSHOT_STYLE_OWNER) rootsByHost.delete(owner as Element);
@@ -531,24 +531,24 @@ export function releasePreparedRenderFontStyle(root: Element) {
   return false;
 }
 
-export function releasePreparedParagraphStyles(host: Element) {
+export function releasePreparedParagraphStyles(host: Element, context?: EnhancedElementContext) {
   const rootsByHost = preparedStylesState().rootsByHost;
   const root = rootsByHost.get(host);
   if (!root) return false;
   rootsByHost.delete(host);
-  const context = getContextForElement(root);
-  const state = context?.preparedStyle;
+  const effectiveContext = context ?? constructEnhanceContext(root);
+  const state = effectiveContext.preparedStyle;
   if (!state) return false;
   state.owners.delete(host);
-  if (state.owners.size === 0) removePreparedStyleState(state);
+  if (state.owners.size === 0) removePreparedStyleState(state, effectiveContext);
   return true;
 }
 
-export function releasePreparedValueStyleRoot(root: Element) {
-  const context = getContextForElement(root);
-  const state = context?.preparedStyle;
+export function releasePreparedValueStyleRoot(root: Element, context?: EnhancedElementContext) {
+  const effectiveContext = context ?? constructEnhanceContext(root);
+  const state = effectiveContext.preparedStyle;
   if (!state) return false;
-  removePreparedStyleState(state);
+  removePreparedStyleState(state, effectiveContext);
   return true;
 }
 
@@ -1208,12 +1208,13 @@ export function renderPreparedParagraphInto(
   planOrJson: string | PreparedLayoutPlan,
   typographyOrLocale: string | Record<string, unknown> = DEFAULT_LOCALE,
   options: PreparedParagraphRenderOptions = {},
+  context?: EnhancedElementContext,
 ): PreparedParagraphIntoResult {
   if (host == null || !("innerHTML" in Object(host)) || typeof host.querySelectorAll !== "function") {
     throw new Error("InvalidPreparedParagraphHost");
   }
   const root = host.closest?.(ROOT_SELECTOR) ?? host;
-  const state = preparedStyleState(root);
+  const state = preparedStyleState(root, context);
   const usedStyles = new Set<number>();
   const emphasisDotColor = options.emphasisDotColor ?? (
     options.semantics && options.liveSemanticElements && typeof globalThis.getComputedStyle === "function"

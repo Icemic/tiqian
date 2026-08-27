@@ -18,7 +18,7 @@ import {
 import { snapshotFontAttemptSignature } from "../core/sampler/signatures.js";
 import { lineLengthGridMeasure } from "../core/sampler/grid-metrics.js";
 import { hasHostInlineSizeParagraph } from "../core/engine/responsive-measure.js";
-import { getOrCreateEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { constructEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { ensureTiqianStyles } from "../core/engine/loaders/styles.js";
 import { createTiqianClipboardPayload } from "../core/utils/copy.js";
 
@@ -404,10 +404,11 @@ test("renderedRawDomParagraphs keeps document order and drops untracked paragrap
 
   const firstRecord = fakeOf({ fragment: null, engineWriteDepth: 0, forwarding: false });
   const secondRecord = fakeOf({ fragment: null, engineWriteDepth: 1, forwarding: true });
-  getOrCreateEnhanceContext(first as Element).rawDomParagraphs.set(first as Element, firstRecord);
-  getOrCreateEnhanceContext(second as Element).rawDomParagraphs.set(second as Element, secondRecord);
+  const context = constructEnhanceContext(root as Element);
+  context.rawDomParagraphs.set(first as Element, firstRecord);
+  context.rawDomParagraphs.set(second as Element, secondRecord);
 
-  const pairs = renderedRawDomParagraphs(root as Element);
+  const pairs = renderedRawDomParagraphs(context, root as Element);
   assert.equal(pairs.length, 2);
   assert.equal(pairs[0][0], first);
   assert.equal(pairs[0][1], firstRecord);
