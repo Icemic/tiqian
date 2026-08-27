@@ -102,6 +102,7 @@ import org.tiqian.font.PreferCjkForAmbiguousPunctuationResolver
 import org.tiqian.font.RawFontMetrics
 import org.tiqian.font.ScriptAwareFontMetricsNormalizer
 import org.tiqian.font.StubFontMetricsResolver
+import org.tiqian.font.UnicodeEmojiPresentationData
 import org.tiqian.linebreak.Hyphenator
 import org.tiqian.linebreak.isMandatoryBreakCodePoint
 import org.tiqian.linebreak.isZeroWidthSpaceCodePoint
@@ -124,8 +125,10 @@ internal fun clusterRoleRanges(
     context: FontRoleContext,
     profile: ClreqProfile,
     spanBoundaries: Set<Int> = emptySet(),
+    emojiShapingBoundaries: Set<Int> = spanBoundaries,
     inlineObjectsByStart: Map<Int, InlineObjectSpan> = emptyMap(),
 ): List<ResolvedClusterRange> {
+    val sourceGraphemeBoundaries = text.sourceGraphemeBoundaries(TextRange(0, text.length))
     val coalesceSet = profile.coalesceRepeatablePunctuation
     val ranges = mutableListOf<ResolvedClusterRange>()
     var index = 0
@@ -173,7 +176,17 @@ internal fun clusterRoleRanges(
             continue
         }
         val firstRange = TextRange(start, start + charCount)
-        val role = classifier.classify(text, firstRange, context)
+        val graphemeStart = sourceGraphemeBoundaries.last { it <= start }
+        val graphemeEnd = sourceGraphemeBoundaries.first { it > start }
+        val classifiedRole = classifier.classify(text, firstRange, context)
+        val role = if (
+            classifiedRole == FontRole.Emoji ||
+            text.hasEmojiPresentationSignal(graphemeStart, graphemeEnd)
+        ) {
+            FontRole.Emoji
+        } else {
+            classifiedRole
+        }
         val previousRange = ranges.lastOrNull()
         val attachedAsciiPointMark =
             role == FontRole.LatinText &&
@@ -184,7 +197,19 @@ internal fun clusterRoleRanges(
                 previousRange.range.end == start
 
         index += charCount
-        if (role == FontRole.LatinText) {
+        if (role == FontRole.Emoji) {
+            // `EmojiGraphemeShapingAtomicity`: source graphemes preserve
+            // modifier, variation-selector, keycap, RI-pair, tag, and ZWJ
+            // shaping context. A real layout style/object edge still wins:
+            // ShapingInput has one TextStyle, so silently crossing that edge
+            // would discard author intent. Geometry-only source boundaries
+            // deliberately do not participate here.
+            index = emojiShapingBoundaries
+                .asSequence()
+                .filter { it > start && it < graphemeEnd }
+                .minOrNull()
+                ?: graphemeEnd
+        } else if (role == FontRole.LatinText) {
             if (attachedAsciiPointMark) {
                 // `AttachedAsciiPointMarkSegmentation`: keep the leading
                 // point-mark run independent from following Latin text so
@@ -258,6 +283,26 @@ private fun Int.isCombiningMarkCodePoint(): Boolean =
 
 private fun Int.isAsciiPointMarkCodePoint(): Boolean =
     this in 0..0xFFFF && ClreqPunctuationPolicies.isAsciiPointMark(toChar())
+
+/** Promotes text-default emoji and emoji presentation sequences to one role. */
+private fun String.hasEmojiPresentationSignal(start: Int, end: Int): Boolean {
+    var index = start
+    while (index < end) {
+        val codePoint = codePointAtCompat(index)
+        if (
+            codePoint == EMOJI_VARIATION_SELECTOR ||
+            codePoint == COMBINING_ENCLOSING_KEYCAP ||
+            UnicodeEmojiPresentationData.contains(codePoint)
+        ) {
+            return true
+        }
+        index += codePoint.charCount()
+    }
+    return false
+}
+
+private const val EMOJI_VARIATION_SELECTOR = 0xFE0F
+private const val COMBINING_ENCLOSING_KEYCAP = 0x20E3
 
 internal fun List<Cluster>.requireCoveredBy(fontDecisions: List<FontDecision>) {
     var clusterIndex = 0

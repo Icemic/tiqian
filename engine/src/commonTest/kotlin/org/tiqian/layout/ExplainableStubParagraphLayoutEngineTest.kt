@@ -331,4 +331,69 @@ class ExplainableStubParagraphLayoutEngineTest {
         assertTrue(result.debug.shapingDecisions.any { it.sourceText == "Ỏ̷" })
         assertTrue(result.debug.shapingDecisions.none { it.sourceText == "ຶ" || it.sourceText == "̷" })
     }
+
+    @Test
+    fun complexEmojiGraphemesStayAtomicAcrossGeometryOnlyBoundaries() {
+        val text = "👩🏽‍💻"
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(text, sourceBoundaries = setOf(2)),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertEquals(
+            listOf(TextRange(0, text.length)),
+            result.debug.fontDecisions.filter { it.role == FontRole.Emoji.name }.map { it.range },
+        )
+        assertEquals(listOf(text), result.debug.shapingDecisions.map { it.sourceText })
+    }
+
+    @Test
+    fun complexEmojiSequencesReachTheShaperAsCompleteEmojiRanges() {
+        val text = "前👩🏽‍💻后🇨🇳与1️⃣和❤️。"
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(text),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertEquals(
+            listOf("👩🏽‍💻", "🇨🇳", "1️⃣", "❤️"),
+            result.debug.fontDecisions
+                .filter { it.role == FontRole.Emoji.name }
+                .map { it.sourceText },
+        )
+        assertEquals(
+            listOf("👩🏽‍💻", "🇨🇳", "1️⃣", "❤️"),
+            result.debug.shapingDecisions
+                .filter { it.fontKey == "symbol-fallback" }
+                .map { it.sourceText },
+        )
+    }
+
+    @Test
+    fun complexEmojiGraphemesHonorTextSpanStyleBoundaries() {
+        val text = "👩🏽‍💻"
+        val result = ExplainableStubParagraphLayoutEngine().layout(
+            LayoutInput(
+                paragraphStyle = ParagraphStyle(firstLineIndent = Ic(0f)),
+                content = TiqianTextContent(
+                    text = text,
+                    spans = listOf(TextSpan(TextRange(2, text.length), TextStyle(fontWeight = 700))),
+                    sourceBoundaries = setOf(2),
+                ),
+                constraints = LayoutConstraints(maxWidth = 320f),
+            ),
+        )
+
+        assertEquals(
+            listOf(TextRange(0, 2), TextRange(2, text.length)),
+            result.debug.fontDecisions.filter { it.role == FontRole.Emoji.name }.map { it.range },
+        )
+        assertEquals(listOf("👩", "🏽‍💻"), result.debug.shapingDecisions.map { it.sourceText })
+    }
 }
