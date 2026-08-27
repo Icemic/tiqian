@@ -193,25 +193,25 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/font-face-boundaries.test.mjs",
+    file: "frontend/web/core/tests/font-face-boundaries.test.ts",
     reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/lowered-paragraph-metadata.test.mjs",
+    file: "frontend/web/core/tests/lowered-paragraph-metadata.test.ts",
     reason: "Separator fixture strings of the untyped payload; replaced by declared DTOs.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/replay-entry-codec.test.mjs",
+    file: "frontend/web/core/tests/replay-entry-codec.test.ts",
     reason: "Separator fixture strings of the replay entry codec pending the typed-DTO wave.",
   },
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/tests/replay-probe.test.mjs",
+    file: "frontend/web/core/tests/replay-probe.test.ts",
     reason: "Separator fixture strings of the untyped replay probe; replaced by declared DTOs.",
   },
   {
