@@ -28,6 +28,14 @@
               "target": "paragraph"
             },
             {
+              "op": "unobserve",
+              "target": "root"
+            },
+            {
+              "op": "observe",
+              "target": "root"
+            },
+            {
               "op": "disconnect",
               "target": "other"
             }
@@ -202,6 +210,30 @@
           "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
         },
         {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "op": "delete",
           "key": "tiqianFontWait"
@@ -371,11 +403,6 @@
         },
         {
           "phase": "s2-resize",
-          "name": "data-tiqian-snapshot-layout-fallback",
-          "value": null
-        },
-        {
-          "phase": "s2-resize",
           "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
@@ -406,8 +433,88 @@
         },
         {
           "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
           "name": "data-tiqian-relayout-error",
           "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
         },
         {
           "phase": "s3-midflight-disconnect",
@@ -488,6 +595,30 @@
           }
         },
         {
+          "phase": "s2-resize",
+          "type": "tiqian:ready",
+          "detail": {
+            "enhancedCount": 0,
+            "runtimeEnhancedCount": 0,
+            "snapshotCount": 0,
+            "issueCount": 1,
+            "stale": false
+          }
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "type": "tiqian:relayout-ready",
+          "detail": {
+            "enhancedCount": 0,
+            "runtimeEnhancedCount": 0,
+            "snapshotCount": 0,
+            "issueCount": 2,
+            "relayout": true,
+            "failed": false,
+            "stale": false
+          }
+        },
+        {
           "phase": "s4-reconnect",
           "type": "tiqian:ready",
           "detail": {
@@ -498,351 +629,17 @@
         }
       ],
       "documentEvents": [],
-      "engineCalls": [
-        {
-          "phase": "s2-resize",
-          "method": "enhanceProgressively"
-        },
-        {
-          "phase": "s3-midflight-disconnect",
-          "method": "detach"
-        },
-        {
-          "phase": "s4-reconnect",
-          "method": "destroy"
-        }
-      ]
+      "engineCalls": []
     },
     "grant-rounds": {
-      "grants": [
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 6,
-          "quota": 2,
-          "processed": 1,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "beta",
-          "lane": "grant",
-          "tier": 2,
-          "generation": 1,
-          "deadline": 6,
-          "quota": 2,
-          "processed": 2,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 22,
-          "quota": 3,
-          "processed": 2,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 38,
-          "quota": 4,
-          "processed": 3,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 54,
-          "quota": 5,
-          "processed": 4,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 70,
-          "quota": 6,
-          "processed": 5,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 86,
-          "quota": 7,
-          "processed": 6,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 102,
-          "quota": 8,
-          "processed": 7,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 118,
-          "quota": 8,
-          "processed": 8,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 134,
-          "quota": 8,
-          "processed": 8,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 150,
-          "quota": 8,
-          "processed": 8,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 210,
-          "quota": 4,
-          "processed": 4,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 226,
-          "quota": 5,
-          "processed": 5,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 242,
-          "quota": 6,
-          "processed": 6,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 542,
-          "quota": 6,
-          "processed": 6,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 602,
-          "quota": 3,
-          "processed": 3,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 662,
-          "quota": 1,
-          "processed": 1,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 722,
-          "quota": 1,
-          "processed": 1,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 782,
-          "quota": 1,
-          "processed": 1,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        },
-        {
-          "root": "alpha",
-          "lane": "grant",
-          "tier": 1,
-          "generation": 1,
-          "deadline": 798,
-          "quota": 2,
-          "processed": 2,
-          "pendingAfter": [
-            0,
-            0,
-            0
-          ],
-          "gateStopsAtQuota": true,
-          "gateStopsPastQuota": true
-        }
-      ],
+      "grants": [],
       "frameTrace": [
         [
           0,
           6,
           0,
-          2,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -851,8 +648,8 @@
           16,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -861,8 +658,8 @@
           32,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -871,8 +668,8 @@
           48,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -881,8 +678,8 @@
           64,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -891,8 +688,8 @@
           80,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -901,8 +698,8 @@
           96,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -911,8 +708,8 @@
           112,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -921,8 +718,8 @@
           128,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -931,8 +728,8 @@
           144,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -941,8 +738,8 @@
           204,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -951,8 +748,8 @@
           220,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -961,8 +758,8 @@
           236,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -971,8 +768,8 @@
           536,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -981,8 +778,8 @@
           596,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -991,8 +788,8 @@
           656,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -1001,8 +798,8 @@
           716,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -1011,8 +808,8 @@
           776,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -1021,8 +818,8 @@
           792,
           6,
           0,
-          1,
-          2,
+          0,
+          0,
           0,
           0,
           0
@@ -1030,13 +827,13 @@
       ],
       "finalPending": {
         "alpha": [
-          0,
+          2,
           0,
           0
         ],
         "beta": [
           0,
-          0,
+          2,
           0
         ]
       }
@@ -1133,6 +930,48 @@
           "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
         },
         {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMs",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "op": "set",
+          "key": "tiqianRelayoutMaxSliceMs",
+          "value": null
+        },
+        {
           "phase": "s3-midflight-disconnect",
           "op": "delete",
           "key": "tiqianFontWait"
@@ -1225,6 +1064,24 @@
           "op": "set",
           "key": "tiqianEnhanceOptions",
           "value": "{\"cjkDashCapability\":{\"status\":\"not-needed\"}}"
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianEnhanceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianMaxSliceMs",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "op": "set",
+          "key": "tiqianLoadMs",
+          "value": null
         }
       ],
       "attributeWrites": [
@@ -1245,11 +1102,6 @@
         },
         {
           "phase": "s1-adopt",
-          "name": "data-tiqian-snapshot-layout-fallback",
-          "value": null
-        },
-        {
-          "phase": "s1-adopt",
           "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
@@ -1280,8 +1132,123 @@
         },
         {
           "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s1-adopt",
           "name": "data-tiqian-relayout-error",
           "value": null
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s1-adopt",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s2-resize",
+          "name": "data-tiqian-issue-count",
+          "value": "2"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-relayout-error",
+          "value": null
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "3"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s3-midflight-disconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "3"
         },
         {
           "phase": "s3-midflight-disconnect",
@@ -1330,11 +1297,6 @@
         },
         {
           "phase": "s4-reconnect",
-          "name": "data-tiqian-snapshot-layout-fallback",
-          "value": null
-        },
-        {
-          "phase": "s4-reconnect",
           "name": "data-tiqian-snapshot-render-font",
           "value": null
         },
@@ -1365,8 +1327,53 @@
         },
         {
           "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": null
+        },
+        {
+          "phase": "s4-reconnect",
           "name": "data-tiqian-relayout-error",
           "value": null
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced",
+          "value": "true"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-enhanced-count",
+          "value": "0"
+        },
+        {
+          "phase": "s4-reconnect",
+          "name": "data-tiqian-issue-count",
+          "value": "1"
         }
       ]
     },
@@ -1387,7 +1394,7 @@
           "verdicts": [
             "relayout-event-suppressed",
             "paragraph-restored",
-            "enhance-progressively-engine-called",
+            "enhance-progressively-engine-missing",
             "snapshot-font-miss-recorded"
           ]
         },
@@ -1395,15 +1402,15 @@
           "phase": "s3-midflight-disconnect",
           "trigger": "midflight-disconnect",
           "verdicts": [
-            "detach-engine-called",
-            "element-events-suppressed"
+            "detach-engine-missing",
+            "element-events-present"
           ]
         },
         {
           "phase": "s4-reconnect",
           "trigger": "reconnect",
           "verdicts": [
-            "destroy-engine-called",
+            "destroy-engine-missing",
             "ready-dispatched",
             "paragraph-adopted"
           ]

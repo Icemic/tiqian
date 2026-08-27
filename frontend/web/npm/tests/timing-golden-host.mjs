@@ -20,6 +20,7 @@
 import {
   FakeElement,
   FakeFragment,
+  FakeNode,
   FakeText,
   canonicalFixtureNode,
   fixtureComputedStyle,
@@ -506,6 +507,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
     constructor() { super("tiqian-prose"); }
   }
   globalThis.HTMLElement = FakeHostElement;
+  globalThis.Node = FakeNode;
   globalThis.customElements = { define() {}, get() { return undefined; } };
   globalThis.document = world.documentObject;
   let hostElement = null;

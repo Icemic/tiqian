@@ -33,13 +33,25 @@ class FakeNode {
     return this.childNodes[0] ?? null;
   }
 
+  get nextSibling() {
+    const parent = this.parentNode;
+    if (!parent) return null;
+    const index = parent.childNodes.indexOf(this);
+    return parent.childNodes[index + 1] ?? null;
+  }
+
   append(...nodes) {
     for (const node of nodes) this.appendChild(node);
   }
 
   appendChild(node) {
     if (node.nodeType === 11) {
-      while (node.firstChild) this.appendChild(node.firstChild);
+      // The browser's native fragment append is atomic and bypasses any
+      // wrapper installed on the element (e.g. the raw-dom commit
+      // forwarding), so expand through the prototype method directly.
+      while (node.firstChild) {
+        FakeNode.prototype.appendChild.call(this, node.firstChild);
+      }
       return node;
     }
     if (node.parentNode) node.parentNode.removeChild(node);
@@ -47,6 +59,40 @@ class FakeNode {
     node.parentNode = this;
     node.parentElement = this.nodeType === 1 ? this : null;
     return node;
+  }
+
+  insertBefore(node, reference) {
+    if (reference == null) return this.appendChild(node);
+    if (node.nodeType === 11) {
+      while (node.firstChild) {
+        FakeNode.prototype.insertBefore.call(this, node.firstChild, reference);
+      }
+      return node;
+    }
+    const index = this.childNodes.indexOf(reference);
+    if (index < 0) throw new Error("NotFound");
+    if (node.parentNode) node.parentNode.removeChild(node);
+    this.childNodes.splice(index, 0, node);
+    node.parentNode = this;
+    node.parentElement = this.nodeType === 1 ? this : null;
+    return node;
+  }
+
+  replaceChild(next, previous) {
+    const index = this.childNodes.indexOf(previous);
+    if (index < 0) throw new Error("NotFound");
+    if (next.nodeType === 11) {
+      this.removeChild(previous);
+      FakeNode.prototype.insertBefore.call(this, next, this.childNodes[index] ?? null);
+      return previous;
+    }
+    if (next.parentNode) next.parentNode.removeChild(next);
+    this.childNodes[index] = next;
+    previous.parentNode = null;
+    previous.parentElement = null;
+    next.parentNode = this;
+    next.parentElement = this.nodeType === 1 ? this : null;
+    return previous;
   }
 
   removeChild(node) {
@@ -165,13 +211,77 @@ function computeNormalInnerText(root) {
   return result;
 }
 
+// Minimal inline-style declaration mirroring the CSSStyleDeclaration surface
+// the engine uses: getPropertyValue/getPropertyPriority/setProperty/
+// removeProperty, with cssText derived from the stored properties so probe
+// checks that sniff the serialized style keep working.
+class FakeInlineStyle {
+  constructor() {
+    this._values = new Map();
+    this._priorities = new Map();
+  }
+
+  getPropertyValue(name) {
+    return this._values.get(name) ?? "";
+  }
+
+  getPropertyPriority(name) {
+    return this._priorities.get(name) ?? "";
+  }
+
+  setProperty(name, value, priority = "") {
+    if (value == null || String(value) === "") {
+      this.removeProperty(name);
+      return;
+    }
+    this._values.set(name, String(value));
+    if (priority === "important") this._priorities.set(name, "important");
+    else this._priorities.delete(name);
+  }
+
+  removeProperty(name) {
+    const value = this._values.get(name) ?? "";
+    this._values.delete(name);
+    this._priorities.delete(name);
+    return value;
+  }
+
+  get cssText() {
+    const parts = [];
+    for (const [name, value] of this._values) {
+      const priority = this._priorities.get(name);
+      parts.push(priority ? `${name}:${value}!${priority}` : `${name}:${value}`);
+    }
+    return parts.join(";");
+  }
+
+  set cssText(value) {
+    this._values.clear();
+    this._priorities.clear();
+    for (const declaration of String(value).split(";")) {
+      const colon = declaration.indexOf(":");
+      if (colon < 0) continue;
+      const name = declaration.slice(0, colon).trim();
+      let declarationValue = declaration.slice(colon + 1).trim();
+      if (!name) continue;
+      let priority = "";
+      if (/!important$/i.test(declarationValue)) {
+        priority = "important";
+        declarationValue = declarationValue.slice(0, -10).trim();
+      }
+      this._values.set(name, declarationValue);
+      if (priority) this._priorities.set(name, priority);
+    }
+  }
+}
+
 class FakeElement extends FakeNode {
   constructor(tagName) {
     super(1);
     this.tagName = tagName.toUpperCase();
     this.attributes = new Map();
     this.dataset = {};
-    this.style = { cssText: "" };
+    this.style = new FakeInlineStyle();
     this.ownerDocument = null;
     this.width = 0;
     this.height = 0;
