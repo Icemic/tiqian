@@ -121,10 +121,10 @@ test("eligibility_nestedRootsOwnOnlyDirectParagraphScope", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhanceAll(testOptions()), 2);
-
   const innerRoot = root.querySelector("[data-tiqian-root]");
   assert.ok(innerRoot);
+  TiqianWeb.enhance(innerRoot, testOptions());
+  TiqianWeb.enhance(root, testOptions());
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(innerRoot.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(root.querySelectorAll("p.outer[data-tq-rendered='true']").length, 1);

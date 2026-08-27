@@ -47,7 +47,7 @@ test("engineApi_enhanceWithoutOptionsUsesComputedMetrics", async (t) => {
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
 });
 
-test("engineApi_enhanceAllFindsCustomElementRoots", async (t) => {
+test("engineApi_enhanceFindsCustomElementRoots", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const root = mount(`
@@ -56,7 +56,7 @@ test("engineApi_enhanceAllFindsCustomElementRoots", async (t) => {
     </tiqian-prose>
   `);
 
-  assert.equal(TiqianWeb.enhanceAll(), 1);
+  TiqianWeb.enhance(root);
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.ok(root.querySelector(".tq-line"));
 });

@@ -1,6 +1,6 @@
 // Source-faithful clipboard projection (SourceFaithfulSemanticClipboard).
 //
-// ES module exporting createTiqianClipboardPayload and createCopyInstaller().
+// ES module exporting createTiqianClipboardPayload for use by ClipboardManager.
 // Each installer owns its per-document WeakSet, so the
 // one-listener-per-document invariant is instance state rather than a module
 // side table.
@@ -159,59 +159,3 @@ export function createTiqianClipboardPayload(fragment: DocumentFragment | null, 
   };
 }
 
-export interface CopyInstaller {
-  install(documentObject: Document): void;
-}
-
-export function createCopyInstaller(): CopyInstaller {
-  // Documents that already carry the copy listener. A per-document weak set
-  // keeps the one-listener-per-document invariant, and a host that swaps in a
-  // fresh document still gets the handler.
-  const installedDocuments = new WeakSet<Document>();
-
-  function install(documentObject: Document): void {
-    if (!documentObject || installedDocuments.has(documentObject) ||
-        typeof documentObject.addEventListener !== "function")
-      return;
-    installedDocuments.add(documentObject);
-    documentObject.addEventListener("copy", (event) => {
-      const hostWindow = documentObject.defaultView;
-      const selection = hostWindow && hostWindow.getSelection ? hostWindow.getSelection() : null;
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-      const range = selection.getRangeAt(0);
-      const renderedAncestor = (node: Node | null): Element | null => {
-        const element = node && node.nodeType === 1 ? node as Element : (node ? node.parentElement : null);
-        return element && element.closest ? element.closest("[data-tq-rendered]") : null;
-      };
-      let touchesRendered = Boolean(
-        renderedAncestor(range.startContainer) || renderedAncestor(range.endContainer),
-      );
-      if (!touchesRendered) {
-        const common = range.commonAncestorContainer;
-        const commonElement = common && common.nodeType === 1 ? common as Element : (common ? common.parentElement : null);
-        const candidates = commonElement && commonElement.querySelectorAll
-          ? Array.from(commonElement.querySelectorAll("[data-tq-rendered]"))
-          : [];
-        if (commonElement && commonElement.matches && commonElement.matches("[data-tq-rendered]")) {
-          candidates.unshift(commonElement);
-        }
-        touchesRendered = candidates.some((candidate) => {
-          try {
-            return range.intersectsNode(candidate);
-          } catch (error) {
-            return false;
-          }
-        });
-      }
-      if (!touchesRendered) return;
-      const payload = createTiqianClipboardPayload(range.cloneContents(), documentObject);
-      if ((payload.text || payload.html) && event.clipboardData) {
-        event.clipboardData.setData("text/plain", payload.text);
-        if (payload.html) event.clipboardData.setData("text/html", payload.html);
-        event.preventDefault();
-      }
-    });
-  }
-
-  return { install: install };
-}

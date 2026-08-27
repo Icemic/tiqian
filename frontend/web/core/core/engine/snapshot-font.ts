@@ -74,3 +74,21 @@ export function hasSnapshotLayoutOverride(options: Record<string, unknown> | nul
   if (SNAPSHOT_LAYOUT_OVERRIDE_KEYS.some((key) => options[key] != null)) return true;
   return options.firstLineIndentIc != null && Number(options.firstLineIndentIc) !== 0;
 }
+
+export interface TiqianElementSnapshotFontMissCandidate {
+  code?: string;
+  detail?: string;
+}
+
+export function snapshotFontMissDatasetValue(error: TiqianElementSnapshotFontMissCandidate): string {
+  if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
+    const pipeIndex = error.detail.indexOf("|");
+    if (pipeIndex !== -1) {
+      const detailSuffix = error.detail.slice(pipeIndex + 1);
+      if (detailSuffix === "EmptyCandidateSet" || detailSuffix.startsWith("FieldMismatch|")) {
+        return `${error.code}|${detailSuffix}`;
+      }
+    }
+  }
+  return error?.code ?? "SnapshotFontSessionUnavailable";
+}

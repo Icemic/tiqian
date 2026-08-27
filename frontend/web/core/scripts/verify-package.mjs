@@ -3,7 +3,7 @@
 // Package integrity check for @tiqian/core. Verifies the manifest name,
 // license, dependency surface, and that every required published file exists
 // and is non-empty. The engine runtime installs through
-// core/engine/loaders/ts-runtime.js at import time; no bundled Kotlin/JS
+// core/engine/loaders/cjk-dash.js at import time; no bundled Kotlin/JS
 // runtime artifact is scanned here anymore.
 
 import { readFile, stat } from "node:fs/promises";
