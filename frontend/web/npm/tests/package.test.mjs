@@ -518,7 +518,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     sessionSource,
-    /unmount\(\)[\s\S]*?this\.#context\.destroy\(\)[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
+    /unmount\(\)[\s\S]*?this\.#context\.diagnosis\.dispose\(\)[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
   );
   assert.match(stylesSource, /\[data-tq-geometry="true"\]::before/u);
   assert.match(stylesSource, /\[data-tq-rendered="true"\]::before,[\s\S]*?content: none !important/u);
