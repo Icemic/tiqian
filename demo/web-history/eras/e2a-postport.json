@@ -1,0 +1,22 @@
+{
+  "label": "E2a-postport",
+  "commit": "e8752ae4",
+  "range": "e8752ae4 .. before 4ca49e71 core rename",
+  "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core TS modules (Kotlin engine export removed)",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "frontend/web/npm-core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/prose-core/": "/corepkg/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "frontend/web/npm",
+    "/corepkg": "frontend/web/npm-core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [],
+  "engineNote": "TS engine modules committed as compiled .js inside frontend/web/npm-core; layout-worker.js consumes @tiqian/ffi runtime built by ./gradlew :ffi:js:assembleNpmPackage when the worker lane is exercised"
+}

@@ -1,0 +1,27 @@
+{
+  "label": "E4-register",
+  "commit": "9561c747",
+  "range": "9561c747 (registerTiqianProse + auto entry) .. before acdce952 api dissolution",
+  "entry": "@tiqian/prose/element (registerTiqianProse) + @tiqian/core prose-host-session",
+  "adapter": "adapters/host-session.js",
+  "stylesheet": "frontend/web/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose/element": "/pkg/element.js",
+      "@tiqian/prose/auto": "/pkg/auto.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "frontend/web/npm",
+    "/core": "frontend/web/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "npm install --no-audit --no-fund",
+    "cd frontend/web/core && npx tsc",
+    "npx tsc -b frontend/web/npm"
+  ],
+  "engineNote": "Explicit registration era: element.registerTiqianProse() is called by the adapter when present"
+}

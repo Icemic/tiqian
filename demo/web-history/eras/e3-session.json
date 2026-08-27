@@ -1,0 +1,27 @@
+{
+  "label": "E3-session",
+  "commit": "bed4c791",
+  "range": "bed4c791 (prose host session public api) .. before 9561c747 explicit registration",
+  "entry": "@tiqian/prose/element + @tiqian/core prose-host-session (wc-s5 era)",
+  "adapter": "adapters/host-session.js",
+  "stylesheet": "frontend/web/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose/element": "/pkg/element.js",
+      "@tiqian/prose/auto": "/pkg/auto.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "frontend/web/npm",
+    "/core": "frontend/web/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "npm install --no-audit --no-fund",
+    "cd frontend/web/core && npx tsc",
+    "npx tsc -b frontend/web/npm"
+  ],
+  "engineNote": "wc-s5/s6 era: the element upgrades tiqian-prose nodes on import; one-shot replays through createProseHostSession"
+}

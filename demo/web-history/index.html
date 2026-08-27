@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiqian Web History Fixed Corpus</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/tiqian.css" data-tiqian-stylesheet="true" />
+  <style>
+    /* Fixed kit styles, extracted from demo/web/index.css at 1ad320ce and
+       frozen for the whole history sweep. No HUD, no interactive chrome.
+       Typography pins (font families, sizes, line heights) are the fixed
+       options of this kit: eras resolve them from these computed styles. */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg-color: #ffffff;
+      --text-color: #111111;
+      --border-color: #000000;
+      --border-subtle: #444444;
+      --code-bg: #f4f4f4;
+      --hover-bg: #eeeeee;
+      --font-family: "Roboto", "Noto Sans CJK SC", "Noto Sans", sans-serif;
+      --font-mono: "Noto Sans Mono", ui-monospace, monospace;
+    }
+
+    html {
+      overflow-y: scroll;
+      scrollbar-gutter: stable;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: var(--font-family);
+      font-size: 16px;
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      padding: 0;
+      margin: 0;
+    }
+
+    .page-wrapper {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 16px;
+      width: 100%;
+    }
+
+    .site-header {
+      padding: 24px 0 16px 0;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .site-title {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+    }
+
+    .site-subtitle {
+      font-size: 14px;
+      color: #333333;
+      margin-top: 4px;
+      max-width: 640px;
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: 3fr 1fr;
+      gap: 32px;
+      align-items: start;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .layout-grid > * {
+      min-width: 0;
+      min-inline-size: 0;
+    }
+
+    .articles-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .article-card {
+      border: 1px solid var(--border-color);
+      padding: 24px;
+      background: #ffffff;
+      min-width: 0;
+      max-width: 100%;
+      width: 100%;
+      overflow: clip;
+      overflow-wrap: break-word;
+    }
+
+    .article-header {
+      margin-bottom: 16px;
+      border-bottom: 1px solid #000000;
+      padding-bottom: 12px;
+    }
+
+    .article-category {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border-color);
+      padding: 2px 8px;
+      margin-bottom: 8px;
+      background: #fdfdfd;
+    }
+
+    .article-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+
+    .article-title a {
+      color: var(--text-color);
+      text-decoration: none;
+    }
+
+    .article-meta {
+      font-size: 13px;
+      color: #555555;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .article-meta span {
+      display: inline-block;
+    }
+
+    tiqian-prose, .prose {
+      display: block;
+      font-size: 16px;
+      line-height: 1.8;
+      color: #111111;
+      min-width: 0;
+      max-width: 100%;
+      width: 100%;
+    }
+
+    tiqian-prose p, .prose p {
+      margin-bottom: 14px;
+      text-align: justify;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: break-word;
+    }
+
+    tiqian-prose code, .prose code {
+      font-family: var(--font-mono);
+      font-size: 0.9em;
+      background: var(--code-bg);
+      border: 1px solid #ddd;
+      padding: 1px 4px;
+      overflow-wrap: break-word;
+      word-break: break-all;
+    }
+
+    tiqian-prose a, .prose a {
+      color: #000000;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    tiqian-prose strong, .prose strong {
+      font-weight: 700;
+    }
+
+    tiqian-prose em, .prose em {
+      font-style: italic;
+    }
+
+    .article-footer {
+      margin-top: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      color: #555555;
+      min-width: 0;
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 0;
+      width: 100%;
+    }
+
+    .sidebar-box {
+      border: 1px solid var(--border-color);
+      padding: 18px;
+      background: #ffffff;
+      min-width: 0;
+      width: 100%;
+      overflow-wrap: break-word;
+    }
+
+    tiqian-prose.sidebar-prose, .sidebar-prose {
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    tiqian-prose.sidebar-prose p, .sidebar-prose p {
+      margin-bottom: 8px;
+    }
+
+    .sidebar-title {
+      font-size: 15px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .author-bio {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .author-bio p {
+      margin-bottom: 10px;
+    }
+
+    .skill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    .skill-tag {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      border: 1px solid var(--border-color);
+      padding: 1px 5px;
+    }
+
+    .towitter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .towitter-item {
+      border-left: 2px solid var(--border-color);
+      padding-left: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .towitter-meta {
+      font-size: 11px;
+      color: #666666;
+      margin-bottom: 2px;
+      font-family: var(--font-mono);
+    }
+
+    .site-footer {
+      border-top: 2px solid var(--border-color);
+      padding: 24px 0 40px 0;
+      margin-top: 40px;
+      text-align: center;
+      font-size: 13px;
+      color: #555555;
+    }
+  </style>
+  <script type="importmap" id="era-importmap">{"imports":{}}</script>
+</head>
+<body>
+  <div class="page-wrapper">
+    <header class="site-header">
+      <div class="header-top">
+        <div>
+          <h1 class="site-title">分布式计算与排版工程实验室</h1>
+          <p class="site-subtitle">探索中文正文排版、浏览器渲染管线、分布式存储系统以及现代 Web 运行时性能的实验记录与技术观察。</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout-grid">
+      <div class="articles-feed">
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">系统架构</span>
+            <h2 class="article-title"><a href="#">现代浏览器渲染管线的瓶颈与突破：从 DOM 构建到合成线程</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-08-12</span>
+              <span>✍️ By System Team</span>
+              <span>⏱️ 约需一盏茶的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>在现代 Web 渲染架构中，从 HTML 字符串到屏幕像素的转化经历了一条高度复杂的流水线：<code>DOM Tree 构建 → Style 样式计算 → Layout 布局几何生成 → Paint 绘制记录 → Composite 图层合成</code>。在大部分轻量页面中，Blink 或 WebKit 的内置排版引擎能够以极高吞吐完成排版；然而，一旦遇到大段富文本或者频繁的容器尺寸变化（例如响应式栅格系统下的 <code>ResizeObserver</code> 事件），主线程就容易陷入严重的卡顿。</p>
+            <p>这种瓶颈的核心原因在于：浏览器原生布局将「字符测量（Shaping &amp; Font Metrics）」与「按宽折行（Line Breaking）」耦合在同一次全量遍历中。每当容器宽度发生 1px 的微小位移，浏览器往往需要重新解析全部的 CSSOM 树，重新执行一次耗时的 OpenType 字形定位（GPOS / GSUB 特性表查询）。当页面包含成千上万个段落、上万行代码 <code>const token = "0x7f8a9b2c3d4e5f60"</code> 以及各种混合标点时，微小的宽度抖动便足以产生长达数百毫秒的 Long Task。</p>
+            <p>为了解决这一长期困扰前端工程的难题，我们将排版流水线解耦为宽度无关的预注记阶段与轻量算术折行阶段。通过在内存中缓存不可变的字形宽度与标点压缩方案（<code>WidthIndependentAnnotationCache</code>），在窗口缩放的热路径上彻底规避了重复测量，从而让复杂长文页面也能在 16ms 帧预算内保持绝对跟手。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#渲染引擎 #浏览器内核 #性能优化 #架构设计</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">排版工程</span>
+            <h2 class="article-title"><a href="#">中西文混排的微观几何：CLREQ 标点挤压与字身框对齐浅析</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-08-08</span>
+              <span>✍️ By Typography SIG</span>
+              <span>⏱️ 约需一集剧的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>中文排版（Chinese Typesetting）具有独特的网格化特征。根据 W3C 发布的《中文排版需求》（CLREQ §3.1）规范，汉字原则上严格基于全角正方形的「字身框（Ideographic Em-box, 1.0 ic）」进行排列，而西文字母（Latin Alphabet）则基于基线（Baseline）与比例宽度（Proportional Advance）。当中西文在同一段落中混合排版时，由于字面重心与字符间距模型不同，极易出现节奏不均与视觉拥挤。</p>
+            <p>例如，当汉字与西文字词（如 <code>Kotlin/JS</code>、<code>WebAssembly</code>、<code>HarfBuzz</code>）相邻时，若不添加微量间隙，西文紧贴汉字会导致辨识度显著下降。传统出版规范要求在两者之间插入约 <code>1/4em</code> 的微量空白（即俗称的「盘古之白」）。此外，当遇到连续全角标点时（例如句末的连续句号与引号 <code>。“</code> 或逗号与书名号 <code>，《</code>），必须执行标点挤压算法（Punctuation Compression），将其合计占用的 2.0em 空间压缩至 1.0 ~ 1.5em，避免在正文中产生刺眼的空洞。</p>
+            <p>在行首与行尾的禁则处理（Kinsoku Shori）中，排版引擎还需严格遵循避头尾规则：顿号、逗号、句号、右括号等不可出现在行首；左括号、左双引号等不可出现在行尾。若某行末尾恰好出现禁则字符，引擎必须通过「推出（Push-out）」或「推入（Push-in）」调整字词分布，并在整行内执行两端对齐（Justification）平摊误差，以达到印刷级的整齐美感。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#Typography #CLREQ #中文排版 #字形度量</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">分布式系统</span>
+            <h2 class="article-title"><a href="#">分布式共识协议在极端网络分区下的崩溃与自愈机制</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-07-29</span>
+              <span>✍️ By Distributed Systems Lab</span>
+              <span>⏱️ 约需一盏茶的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>在构建高可用分布式存储系统时，Raft 与 Paxos 共识算法是保证数据一致性的核心基石。然而在真实生产环境的跨地域多活集群中，网络分区（Network Partitioning）往往不是简单的二元断开，而是伴随着间歇性丢包、非对称网络隔离（Asymmetric Partition）以及脑裂前期的心跳抖动。</p>
+            <p>我们曾在一个包含 5 个节点（Node A 至 Node E）的集群中观察到极端边缘情况：Node A 与 Node B 之间存在长达 <code>1200ms</code> 的单向延迟，而 Node C 可以与所有节点双向通信。此时如果旧 Leader 在 Lease 过期瞬间发出了 Pre-Vote 请求，而新 Term 的投票由于非对称网络延迟发生时序倒挂，集群可能会在两个 Candidate 之间反复震荡，导致整体吞吐量跌零近 15 秒。</p>
+            <p>为了缓解这一问题，引入了基于自适应心跳时间戳（Adaptive Heartbeat Timestamp）与仲裁租约（Quorum Lease Extension）的双重防护机制。通过在 RPC 层拦截异常 Term 的无效选举，并在节点自愈后采用快速日志回放（Fast Log Catch-up），使故障恢复时间从秒级缩减至 80ms 以内，保障了分布式事务在极端扰动下的持久可用。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#分布式 #Raft #共识算法 #高可用</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">前端工程</span>
+            <h2 class="article-title"><a href="#">WebAssembly 运行时内存布局与多语言互操作实践</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-07-15</span>
+              <span>✍️ By Runtime SIG</span>
+              <span>⏱️ 约需一盏茶的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>随着 WebAssembly（Wasm）在前端计算密集型领域的广泛落地，越来越多的底层库（如基于 C++ 的字体引擎 HarfBuzz、FreeType 以及基于 Rust 的图像处理模块）被编译并在浏览器沙箱中运行。然而，Wasm 与 JavaScript 宿主环境之间的数据交互一直存在不可忽视的序列化与内存拷贝开销。</p>
+            <p>传统的互操作方式是通过 <code>TextEncoder / TextDecoder</code> 在 JS 堆与 Wasm 线性内存（<code>WebAssembly.Memory</code>）之间来回搬运 UTF-8 字节流。当需要对一个包含数万字符的长文档进行逐字排版和断行分析时，频繁的内存分配会导致 V8 引擎产生剧烈的垃圾回收（Major GC Pause）。</p>
+            <p>现代架构设计转向了「共享线性内存环形缓冲区（Shared Memory Ring Buffer）」方案：在 Wasm 模块初始化时预分配一块连续的 ArrayBuffer，JS 侧仅传递 32 位整型指针与偏移量。对于只读度量数据，双方直接通过 <code>Float32Array</code> 视图零拷贝（Zero-copy）读写，使跨语言调用的平均开销从微秒级直接降低到了纳秒级。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#WebAssembly #V8 #内存管理 #前端性能</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">统计与推断</span>
+            <h2 class="article-title"><a href="#">浅谈统计假设检验中的多重比较谬误与矫正算法</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-06-28</span>
+              <span>✍️ By Statistics Group</span>
+              <span>⏱️ 约需一盏茶的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>在数据科学与科学实验的推断统计中，零假设显著性检验（NHST）是常用的决策工具。然而在实际业务分析中，研究者经常需要同时对比数十个指标或上百个实验组。如果不进行适当的统计控制，简单的 <code>p &lt; 0.05</code> 显著性判断将导致第一类错误率（Type I Error Rate / 假阳性）迅速膨胀。</p>
+            <p>数学原理非常直观：假设同时进行 $k$ 次互相独立的假设检验，每次检验犯第一类错误的概率为 $\alpha = 0.05$，则至少出现一次假阳性的整体族系误差率（Family-Wise Error Rate, FWER）为 $1 - (1 - \alpha)^k$。当 $k = 20$ 时，出现假阳性的概率高达 <strong>64.2%</strong>，这意味着即使所有指标完全没有真实效应，盲目寻找也会大概率得到一个「假显著」的实验结果。</p>
+            <p>为了解决这一问题，经典统计学提供了严格控制 FWER 的 Bonferroni 校正与 Holm-Bonferroni 方法；而在高维数据与大规模 A/B 测试场景下，控制错误发现率（False Discovery Rate, FDR）的 Benjamini-Hochberg (BH) 算法成为了更加平衡且具有统计功效（Statistical Power）的标准选择。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#统计推断 #假阳性 #实验设计 #数据科学</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">用户体验</span>
+            <h2 class="article-title"><a href="#">大语言模型上下文检索的认知负荷与交互界面设计</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-06-14</span>
+              <span>✍️ By HCI Lab</span>
+              <span>⏱️ 约需一炷香的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>伴随大语言模型上下文长度（Context Window）扩展到上百万 Token，用户的交互模式也从简单的单轮问答演进为多轮长程协作。然而，当前主流的线性对话流界面（Chat Stream UI）在面对复杂编程、深度研报写作等长任务时，暴露出了严重的认知过载问题。</p>
+            <p>在长对话中，人类短期工作记忆（Working Memory）容量有限，无法在动辄上万行的线性滚动视图中迅速定位关键推导前提。当用户需要回顾某段关键参数配置时，线性的「向前滚动寻找」过程会打断当前的心流状态（Flow State），产生明显的注意切换成本（Attention Switching Overhead）。</p>
+            <p>基于人机交互（HCI）实验的对比测试表明：采用结构化卡片与语义大纲（Semantic Outline）的双栏视图，结合实时代码块版本差异对比（Diff Replay），能够使用户在多阶段长程任务中的检索准确率提升 45%，并显著降低长文本界面的视觉疲劳感。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#HCI #人机交互 #认知负荷 #界面设计</span>
+          </div>
+        </article>
+
+        <article class="article-card">
+          <div class="article-header">
+            <span class="article-category">底层探索</span>
+            <h2 class="article-title"><a href="#">从零实现一个无依赖的 CJK 避头尾断行算法与几何重放器</a></h2>
+            <div class="article-meta">
+              <span>📅 2026-05-30</span>
+              <span>✍️ By Tiqian Core Team</span>
+              <span>⏱️ 约需两集剧的时间读完</span>
+            </div>
+          </div>
+          <tiqian-prose class="prose">
+            <p>在没有现成排版引擎支持的环境下，要从底层实现一套符合 CLREQ 规范的中文正文排版器，核心难点在于如何精确处理各种复杂的边缘边界情况。这包括：包含强制换行符 <code>\n</code> 的空行保留、包含连字符（Hyphenation）的西文词断行、包含链接与代码块的跨行连续背景高亮，以及极端窄容器下的溢出保护。</p>
+            <p>在算法实现上，贪心折行（Greedy Line Breaker）由于无法预判下一行的标点状态，容易在当前行尾盲目塞入字符，导致下一行首被迫出现逗号、句号等禁则标点，进而触发反复的回溯与抖动。而基于双向预读（Lookahead Line Breaker）与动态规划惩罚模型的策略，可以在遍历过程中向前探测 2~3 个可能断点，评估整体压缩与拉伸的视觉代价（Visual Cost Function），从而选出全局最优解。</p>
+            <p>通过将所有断行决策输出为结构化的 <code>LayoutResult</code>，前端呈现层只需忠实根据每个字符的 <code>(x, y, advance, baseline)</code> 进行快速重放，即可兼顾印刷级的排版保真度与 Web 端的极速渲染性能。</p>
+          </tiqian-prose>
+          <div class="article-footer">
+            <span>标签：#算法 #断行引擎 #CLREQ #开源架构</span>
+          </div>
+        </article>
+
+      </div>
+
+      <aside class="sidebar">
+        <div class="sidebar-box">
+          <h3 class="sidebar-title">
+            <span>关于实验室</span>
+            <span>🔬</span>
+          </h3>
+          <tiqian-prose class="prose sidebar-prose" slice-budget-ms="16">
+            <div class="author-bio">
+              <p><strong>Distributed Systems &amp; Typography Lab</strong></p>
+              <p>专注于中文正文排版引擎、现代 Web 渲染流水线架构、分布式计算一致性协议与统计推断的研究小组。</p>
+              <p>关注的技术领域与工具链：</p>
+              <div class="skill-list">
+                <span class="skill-tag">Kotlin Multiplatform</span>
+                <span class="skill-tag">Typography</span>
+                <span class="skill-tag">CLREQ</span>
+                <span class="skill-tag">WebAssembly</span>
+                <span class="skill-tag">Distributed Systems</span>
+                <span class="skill-tag">HCI &amp; UX</span>
+                <span class="skill-tag">HarfBuzz</span>
+                <span class="skill-tag">Performance</span>
+              </div>
+            </div>
+          </tiqian-prose>
+        </div>
+
+        <div class="sidebar-box">
+          <h3 class="sidebar-title">
+            <span>CLREQ 排版几何规范</span>
+            <span>📐</span>
+          </h3>
+          <tiqian-prose class="prose sidebar-prose">
+            <ul style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px;">
+              <li><strong>避头尾禁则（Kinsoku Shori）</strong>：句末标点（<code>，。！？、</code>）禁止出现在行首；开引号、开括号（<code>“《（【</code>）禁止出现在行尾。</li>
+              <li><strong>标点挤压（Punctuation Compression）</strong>：连续半角/全角标点占用空间从 <code>2.0ic</code> 弹性挤压为 <code>1.0 ~ 1.5ic</code>。</li>
+              <li><strong>盘古之白（Hanja-Latin Spacing）</strong>：汉字与 ASCII 西文词汇之间自动分配 <code>1/4em (0.25ic)</code> 的微观字距。</li>
+              <li><strong>字身框对齐（Em-box Alignment）</strong>：正文字符严格锁定于 <code>1.0ic</code> 汉字网格基准线。</li>
+              <li><strong>两端对齐回弹（Justification Redistribution）</strong>：双向预读算法在整行汉字与空白间均匀分配松弛度量（Slack）。</li>
+            </ul>
+          </tiqian-prose>
+        </div>
+
+        <div class="sidebar-box">
+          <h3 class="sidebar-title">
+            <span>实验观测说明</span>
+            <span>📌</span>
+          </h3>
+          <tiqian-prose class="prose sidebar-prose">
+            <p>本页面用于测试与验证大规模复杂中英文混排正文在不同容器宽度与视口尺度下的重排表现。</p>
+            <p>通过右上角悬浮控制栏的宽度滑块或直接缩放浏览器窗口，可直观观测 Tiqian 引擎在启用 <code>WidthIndependentAnnotationCache</code> 前后的单帧重排延迟、帧率稳定性与 DOM 提交消耗。</p>
+            <p>主栏与边栏保持严格的 <code>3:1</code> 比例缩放，并全量施加 <code>min-width: 0</code> 弹性网格约束，防止任何内联字符造成容器尺寸死锁。</p>
+          </tiqian-prose>
+        </div>
+
+        <div class="sidebar-box">
+          <h3 class="sidebar-title">
+            <span>核心术语速查</span>
+            <span>📖</span>
+          </h3>
+          <tiqian-prose class="prose sidebar-prose">
+            <p><strong>Shaping &amp; Font Metrics</strong>：通过 OpenType GPOS/GSUB 特性表计算字符 Advance Width 与字形定位。</p>
+            <p><strong>Width-Independent Annotation</strong>：在首次加载时完成不可变分词与测量，并在内存中预注记断点代价。</p>
+            <p><strong>Lookahead Line Breaker</strong>：基于动态规划与惩罚函数前向探测 2~3 个候选断点，实现全局最优折行。</p>
+            <p><strong>In-place Atomic Relayout</strong>：单帧内直接按最新行宽重新计算并原子更新 DOM，消除中继白屏与回退。</p>
+          </tiqian-prose>
+        </div>
+
+        <div class="sidebar-box">
+          <h3 class="sidebar-title">
+            <span>最新实验动态</span>
+            <span>📡</span>
+          </h3>
+          <tiqian-prose class="prose sidebar-prose">
+            <div class="towitter-list">
+              <div class="towitter-item">
+                <div class="towitter-meta">System SIG • 1 day ago</div>
+                <p>在超长段落测试中，结合 <code>WidthIndependentAnnotationCache</code> 与 <code>LookaheadLineBreaker</code>，单段 500 字的纯算术重排耗时已稳定在 2.6ms 以内。</p>
+              </div>
+              <div class="towitter-item">
+                <div class="towitter-meta">Typography SIG • 3 days ago</div>
+                <p>针对中文全角双引号 <code>“”</code> 与双书名号 <code>《》</code> 的字身框挤压算法完成跨平台一致性测试，JVM 与 Web 端 Golden 保持 0 diff。</p>
+              </div>
+              <div class="towitter-item">
+                <div class="towitter-meta">Web SIG • 5 days ago</div>
+                <p><code>&lt;tiqian-prose&gt;</code> 自定义元素已原生支持 <code>disabled</code> 属性，支持在轻量级 DOM 与完整排版引擎之间无缝平滑回退。</p>
+              </div>
+              <div class="towitter-item">
+                <div class="towitter-meta">Runtime SIG • 1 week ago</div>
+                <p>在基于 Chromium 的无头测试环境中，全量通过了 176 项 NPM 测试与 103 项浏览器集成回归测试。</p>
+              </div>
+              <div class="towitter-item">
+                <div class="towitter-meta">Core Team • 2 weeks ago</div>
+                <p>完成对西文连续字符连字符断行（Hyphenation）与内联代码背景几何的高保真重放集成。</p>
+              </div>
+            </div>
+          </tiqian-prose>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="site-footer">
+      <p>© 2026 Distributed Systems &amp; Typography Lab · Powered by Tiqian CJK Layout Engine</p>
+    </footer>
+  </div>
+
+  <script type="module" src="/era-adapter.js"></script>
+</body>
+</html>
