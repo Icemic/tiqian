@@ -186,7 +186,8 @@ function startFixtureServer() {
 }
 
 const PAGE_DRIVER = `
-  import "@tiqian/prose/element";
+  import { registerTiqianProse } from "@tiqian/prose/element";
+  registerTiqianProse();
 
   const stage = document.getElementById("stage");
   globalThis.__pageErrors = [];

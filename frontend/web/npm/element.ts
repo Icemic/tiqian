@@ -12,8 +12,9 @@
 // effects — clipboard interception, snapshot-table prefetch, and the custom
 // element definition — are consolidated into the named, idempotent,
 // parameterized registerTiqianProse(). The /auto entry is the canonical
-// zero-config import; importing this module keeps its historical zero-config
-// behavior by calling registerTiqianProse() once with the defaults.
+// zero-config import: it calls registerTiqianProse() once with the defaults.
+// Importing this module registers nothing; explicit hosts call
+// registerTiqianProse() themselves (wc-s6 scope 8).
 import {
   createProseHostSession,
   OBSERVED_ATTRIBUTES,

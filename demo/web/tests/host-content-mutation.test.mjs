@@ -227,6 +227,14 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
           p.getAttribute("data-tq-rendered") === "true" &&
           p.querySelectorAll("[data-tq-line-index]").length > 0;
 
+        // Host-side test probe: ADR 0053 rules that the product carries no DOM
+        // property for the raw-DOM fragment, so tests dig through this seam
+        // instead (wc-s6 scope 9 removed the library-level probe).
+        globalThis.__tiqianRawDomFragment = (paragraph) => {
+          const host = paragraph.closest("tiqian-prose");
+          return host ? host.rawDomFragmentOf(paragraph) : null;
+        };
+
         // Viewport-zone classification over article roots. "edge" means the
         // root intersects the viewport without being fully inside it.
         globalThis.__zones = () => __roots().map((root, ri) => {
