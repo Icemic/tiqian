@@ -20,11 +20,25 @@ import {
   enhanceProgressively as enhanceProgressivelyRoot,
 } from "@tiqian/core/core/engine/progressive-drivers.js";
 import { destroyRoot } from "@tiqian/core/core/engine/lifecycle.js";
-import type { TiqianRuntimeGraph } from "@tiqian/core/core/engine/loaders/ts-runtime.js";
+import { createRootState } from "@tiqian/core/core/engine/root-state.js";
+import type { RootStateApi } from "@tiqian/core/core/engine/root-state.js";
 import type { CjkDashShapingOutcome } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import type { BrowserFontSessionHandle } from "@tiqian/core/core/measurement/browser-fonts.js";
 import type { SnapshotFontSessionEntry } from "@tiqian/core/core/engine/snapshot-font.js";
 import { getOrCreateEnhanceContext, getContextForElement } from "@tiqian/core/core/engine/context/enhance-context.js";
+
+// Per-root rootState holder for the npm API (scope 9 deletes this file).
+// The session layer holds its own rootState; this map is for the direct API.
+const apiRootStates = new WeakMap<HTMLElement, RootStateApi>();
+
+function getOrCreateApiRootState(root: HTMLElement): RootStateApi {
+  let rootState = apiRootStates.get(root);
+  if (!rootState) {
+    rootState = createRootState();
+    apiRootStates.set(root, rootState);
+  }
+  return rootState;
+}
 
 export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/core/core/sampler/snapshot/declared-faces.js";
@@ -57,7 +71,7 @@ type TiqianPreparedWebOptions = TiqianWebOptions & {
   snapshotFontSession?: TiqianWebSnapshotFontSessionWire;
 };
 
-type TiqianWebAction<T> = (graph: TiqianRuntimeGraph, prepared: TiqianPreparedWebOptions, context: ReturnType<typeof getOrCreateEnhanceContext>) => T;
+type TiqianWebAction<T> = (rootState: RootStateApi, prepared: TiqianPreparedWebOptions, context: ReturnType<typeof getOrCreateEnhanceContext>) => T;
 
 export interface TiqianWebGlobalApi {
   enhance(root?: HTMLElement, options?: TiqianWebOptions): Promise<HTMLElement>;
@@ -190,9 +204,9 @@ async function withTiqianWeb<T>(
       }
       return root;
     }
-    const graph = await loadTiqianRuntime();
+    const rootState = getOrCreateApiRootState(root);
     if (context.generation !== generation) return root;
-    return action(graph, {
+    return action(rootState, {
       ...options,
       cjkDashCapability,
       ...(fontSession ? {
@@ -216,13 +230,13 @@ async function withTiqianWeb<T>(
 }
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
-  return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
+  return withTiqianWeb(root, options, (rootState, prepared, context) =>
+    enhanceRoot(rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
-  return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceProgressivelyRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
+  return withTiqianWeb(root, options, (rootState, prepared, context) =>
+    enhanceProgressivelyRoot(rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export async function destroy(root: HTMLElement = document.body): Promise<void> {
@@ -236,11 +250,12 @@ export async function destroy(root: HTMLElement = document.body): Promise<void> 
       context.destroy();
       return;
     }
-    const graph = await loadTiqianRuntime();
+    const rootState = getOrCreateApiRootState(root);
     if (context.generation !== generation) return;
     try {
-      destroyRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root);
+      destroyRoot(rootState, globalServices().coordination.layoutJobPool, context, root);
     } finally {
+      apiRootStates.delete(root);
       releaseContextFontSession(context, root);
       context.destroy();
     }

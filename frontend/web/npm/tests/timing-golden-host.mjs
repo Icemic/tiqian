@@ -71,94 +71,150 @@ function recordingRuntimeGraph() {
     return state;
   };
 
+  // The graph is now empty; return an empty object.
+  return {};
+}
+
+// Recording service implementations for the timing-golden drive.
+function recordingRootState() {
+  const states = new WeakMap();
+  let installArmed = false;
+  let cancelPending = false;
+
+  const log = (method) => {
+    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
+  };
+  const flushCancelAsWork = () => {
+    if (!cancelPending) return;
+    cancelPending = false;
+    installArmed = false;
+    log("cancelLayoutWork");
+  };
+  const blankState = (root, options) => {
+    const state = { root, options, paragraphs: [], issues: [] };
+    states.set(root, state);
+    return state;
+  };
+
   return {
-    rawDom: {
-      restoreParagraph() {},
-      clearIssue() {},
-    },
-    rootState: {
-      getState(root) { return states.get(root) ?? null; },
-      setState(root, state) { states.set(root, state); },
-      deleteState(root) {
-        states.delete(root);
-        cancelPending = false;
-        if (!installArmed) log("destroy");
-      },
-      createRootState(root, bag) {
-        if (installArmed) {
-          installArmed = false;
-          log(bag == null ? "relayout" : "enhanceProgressively");
-        }
-        const selector = (bag && bag.paragraphSelector) || "p, li";
-        return blankState(root, { paragraphSelector: selector, fontSize: 16 });
-      },
-      createRootStateFromCanonical(root, canonicalOptions) {
-        if (installArmed) {
-          installArmed = false;
-          log("relayout");
-        }
-        return blankState(root, canonicalOptions);
-      },
-      paragraphCandidates() { return []; },
-      strandedSourceParagraphs() { return []; },
-      sessionArgument(state) { return { paragraphs: state.paragraphs, state: {} }; },
-      prepareArgument(state, paragraph, widthOverride) {
-        return { paragraph, widthOverride, state: {} };
-      },
-      publishState() {},
-      processParagraphArgument(state, paragraph) { return { state, paragraph }; },
-      updateCjkDashCapability() {},
-    },
-    layoutJobPool: {
-      attach() { return true; },
-      detach() { return true; },
-      isAttached() { return false; },
-      hasJob() { return false; },
-      jobGeneration() { return 0; },
-      jobKind() { return null; },
-      runSlice() { return 0; },
-      pendingInTier() { return 0; },
-      paragraphCount() { return 0; },
-      paragraphAt() { return null; },
-      setParagraphTier() { return false; },
-      startJob() {},
-      cancelJob() {
-        flushCancelAsWork();
-        cancelPending = true;
-        // The drivers call clipboard.install before cancelJob via destroyRoot;
-        // arm here so createRootState can distinguish enhance/relayout paths.
-        installArmed = true;
-      },
-    },
-    flushProjection: flushCancelAsWork,
-    resolveRelease() {
-      if (!cancelPending) return;
+    getState(root) { return states.get(root) ?? null; },
+    setState(root, state) { states.set(root, state); },
+    deleteState(root) {
+      states.delete(root);
       cancelPending = false;
-      installArmed = false;
-      log("detach");
+      if (!installArmed) log("destroy");
     },
+    createRootState(root, bag) {
+      if (installArmed) {
+        installArmed = false;
+        log(bag == null ? "relayout" : "enhanceProgressively");
+      }
+      const selector = (bag && bag.paragraphSelector) || "p, li";
+      return blankState(root, { paragraphSelector: selector, fontSize: 16 });
+    },
+    createRootStateFromCanonical(root, canonicalOptions) {
+      if (installArmed) {
+        installArmed = false;
+        log("relayout");
+      }
+      return blankState(root, canonicalOptions);
+    },
+    paragraphCandidates() { return []; },
+    strandedSourceParagraphs() { return []; },
+    sessionArgument(state) { return { paragraphs: state.paragraphs, state: {} }; },
+    prepareArgument(state, paragraph, widthOverride) {
+      return { paragraph, widthOverride, state: {} };
+    },
+    publishState() {},
+    processParagraphArgument(state, paragraph) { return { state, paragraph }; },
+    updateCjkDashCapability() {},
+    armInstall() { installArmed = true; },
+    flushProjection: flushCancelAsWork,
+  };
+}
+
+function recordingLayoutJobPool() {
+  let cancelPending = false;
+  let installArmed = false;
+
+  const log = (method) => {
+    if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method });
+  };
+  const flushCancelAsWork = () => {
+    if (!cancelPending) return;
+    cancelPending = false;
+    installArmed = false;
+    log("cancelLayoutWork");
+  };
+
+  return {
+    attach() { return true; },
+    detach() { return true; },
+    isAttached() { return false; },
+    hasJob() { return false; },
+    jobGeneration() { return 0; },
+    jobKind() { return null; },
+    runSlice() { return 0; },
+    pendingInTier() { return 0; },
+    paragraphCount() { return 0; },
+    paragraphAt() { return null; },
+    setParagraphTier() { return false; },
+    startJob() {},
+    cancelJob() {
+      flushCancelAsWork();
+      cancelPending = true;
+      // The drivers call clipboard.install before cancelJob via destroyRoot;
+      // arm here so createRootState can distinguish enhance/relayout paths.
+      installArmed = true;
+    },
+    // Expose internal state for prepared-dom release tracking.
+    get _cancelPending() { return cancelPending; },
+    set _cancelPending(value) { cancelPending = value; },
+    get _installArmed() { return installArmed; },
+    set _installArmed(value) { installArmed = value; },
+  };
+}
+
+function recordingRawDomContext() {
+  return {
+    restoreParagraph() {},
+    clearIssue() {},
   };
 }
 
 function installRecordingEngine(record, initialPhase) {
   const graph = recordingRuntimeGraph();
   const restoreGraph = installTiqianRuntimeGraphForTesting(graph);
+  
+  // Create recording service instances.
+  const rootState = recordingRootState();
+  const layoutJobPool = recordingLayoutJobPool();
+  const rawDomContext = recordingRawDomContext();
+  
   setPreparedDomRendererForTesting({
     ...preparedDom,
     releaseRoot(root) {
-      graph.resolveRelease();
+      // Resolve buffered cancel as detach when prepared-dom release follows cancelJob.
+      if (layoutJobPool._cancelPending) {
+        layoutJobPool._cancelPending = false;
+        layoutJobPool._installArmed = false;
+        if (activeEngineRecord) activeEngineRecord.push({ phase: activeEnginePhase, method: "detach" });
+      }
       return preparedDom.releaseRoot(root);
     },
   });
   activeEngineRecord = record.engineCalls;
   activeEnginePhase = initialPhase;
   return {
+    rootState,
+    layoutJobPool,
+    rawDomContext,
     // Resolve a buffered cancelJob as cancelLayoutWork before the phase
     // changes, so a standalone cancel never leaks into the next phase's
     // projection.
-    flushPending: graph.flushProjection,
+    flushPending: rootState.flushProjection,
     teardown() {
-      graph.flushProjection();
+      rootState.flushProjection();
       activeEngineRecord = null;
       setPreparedDomRendererForTesting(undefined);
       restoreGraph();

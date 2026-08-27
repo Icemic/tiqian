@@ -21,6 +21,7 @@ import {
   probeRootContentDrift,
   reconcileRoot,
 } from "../core/engine/content-reconcile.js";
+import { createRootState } from "../core/engine/root-state.js";
 import type { RootStateApi, RootState, EngineState } from "../core/engine/root-state.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
@@ -101,6 +102,10 @@ interface PlainContext {
   poolJobKind: string | null;
 }
 
+interface JobKindBox {
+  value: string | null;
+}
+
 function blankRootState(root: Element, options: EnhanceOptions): RootState {
   return {
     root,
@@ -163,10 +168,6 @@ function canonicalOptions(): EnhanceOptions {
   };
 }
 
-interface JobKindBox {
-  value: string | null;
-}
-
 function makePlainContext(): PlainContext {
   const ops: string[] = [];
   const jobs: LayoutJobSpec[] = [];
@@ -214,73 +215,67 @@ function makePlainContext(): PlainContext {
   (rawDomModule as any).rawDomEnsureContainingBlock = () => {};
   (rawDomModule as any).rawDomSuspendEngineWrites = (_context: EnhancedElementContext, _source: Element, action: () => any) => action();
 
+  // Create a real rootState API instance and wrap its methods to track calls.
+  const realRootState = createRootState();
   const rootState: RootStateApi = {
     createRootState(root, bag) {
       ops.push("rs.createRootState");
       createdBags.push(bag);
-      const state = blankRootState(root, canonicalOptions());
-      if (bag && typeof bag.paragraphSelector === "string") {
-        state.options.paragraphSelector = bag.paragraphSelector;
-      }
-      states.set(root, state);
-      return state;
+      return realRootState.createRootState(root, bag);
     },
     createRootStateFromCanonical(root, options) {
       ops.push("rs.createRootStateFromCanonical");
       canonicalBags.push(options);
-      const state = blankRootState(root, options);
-      states.set(root, state);
-      return state;
+      return realRootState.createRootStateFromCanonical(root, options);
     },
     activeTsOptions(state) {
-      return state.options;
+      return realRootState.activeTsOptions(state);
     },
-    activeSnapshotSessionDescriptor() {
-      return null;
+    activeSnapshotSessionDescriptor(state) {
+      return realRootState.activeSnapshotSessionDescriptor(state);
     },
-    disableSnapshotPreparedDom() {},
+    disableSnapshotPreparedDom(state, detail) {
+      realRootState.disableSnapshotPreparedDom(state, detail);
+    },
     engineState(state) {
-      return blankEngineState(state);
+      return realRootState.engineState(state);
     },
     processParagraphArgument(state, paragraph) {
-      return { paragraph, state: blankEngineState(state) };
+      return realRootState.processParagraphArgument(state, paragraph);
     },
     sessionArgument(state) {
       ops.push("rs.sessionArgument");
-      return { paragraphs: state.paragraphs, state: blankEngineState(state) };
+      return realRootState.sessionArgument(state);
     },
     prepareArgument(state, paragraph, widthOverride) {
-      return {
-        paragraph,
-        options: state.options,
-        snapshotSession: null,
-        browserFallback: state.browserFallback,
-        widthOverride,
-      };
+      return realRootState.prepareArgument(state, paragraph, widthOverride);
     },
     getState(root) {
-      return states.get(root);
+      return realRootState.getState(root);
     },
     setState(root, state) {
       ops.push("rs.setState");
-      states.set(root, state);
+      realRootState.setState(root, state);
     },
     deleteState(root) {
       ops.push("rs.deleteState");
-      states.delete(root);
+      realRootState.deleteState(root);
     },
-    paragraphCandidates() {
+    paragraphCandidates(root, selector) {
       ops.push("rs.paragraphCandidates");
-      return [];
+      return realRootState.paragraphCandidates(root, selector);
     },
-    strandedSourceParagraphs() {
+    strandedSourceParagraphs(root, state) {
       ops.push("rs.strandedSourceParagraphs");
-      return [];
+      return realRootState.strandedSourceParagraphs(root, state);
     },
     publishState(state, keepEmpty) {
       ops.push(keepEmpty ? "rs.publishState:keepEmpty" : "rs.publishState");
+      realRootState.publishState(state, keepEmpty);
     },
-    updateCjkDashCapability() {},
+    updateCjkDashCapability(state, outcome) {
+      realRootState.updateCjkDashCapability(state, outcome);
+    },
   };
 
   const layoutJobPool: LayoutJobPool = {
@@ -349,16 +344,14 @@ function makePlainContext(): PlainContext {
 
 function graphOf(context: PlainContext) {
   return {
-    rootState: context.rootState,
     rawDomContext: context.rawDomContext,
   };
 }
 
-test("the plain context literals satisfy the runtime-graph product contracts", () => {
+test("the plain context rootState satisfies the product contracts", () => {
   const context = makePlainContext();
-  const graph = graphOf(context);
-  assert.equal(typeof graph.rootState.createRootState, "function");
-  assert.equal(typeof graph.rootState.sessionArgument, "function");
+  assert.equal(typeof context.rootState.createRootState, "function");
+  assert.equal(typeof context.rootState.sessionArgument, "function");
 });
 
 test("enhance installs the copy listener, tears down, then builds and publishes", () => {

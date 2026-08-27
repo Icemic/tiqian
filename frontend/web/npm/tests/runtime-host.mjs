@@ -21,6 +21,7 @@ import {
 import { destroyRoot, detachRoot, optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/core/engine/content-reconcile.js";
 import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
+import { createRootState } from "@tiqian/core/core/engine/root-state.js";
 
 export class FakeDOMRect {
   constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -3625,7 +3626,11 @@ export function loadHostRuntime() {
   runtimePromise ??= import("@tiqian/core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
     const graph = await loader.loadTiqianRuntime();
     runtimeGraph = graph;
-    const pool = graph.layoutJobPool;
+    
+    // The graph is now empty; create rootState and other services separately.
+    const rootState = createRootState();
+    const layoutJobPool = globalServices().coordination.layoutJobPool;
+    const rawDomContext = globalServices().rawDom.context;
 
     const bridge = {
       // TiqianWeb.install() in the Kotlin runtime attached the clipboard
@@ -3638,64 +3643,64 @@ export function loadHostRuntime() {
         if (globalThis.document) globalServices().clipboard.install(globalThis.document);
       },
       enhance(root, options) {
-        enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
+        enhance(rootState, layoutJobPool, rawDomContext, root, options);
         const count = root.getAttribute("data-tiqian-enhanced-count");
         return count != null ? Number(count) : 0;
       },
       enhanceProgressively(root, options) {
-        enhanceProgressively(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
+        enhanceProgressively(rootState, layoutJobPool, rawDomContext, root, options);
       },
       enhanceAll(options) {
         let count = 0;
         for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
-          enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
+          enhance(rootState, layoutJobPool, rawDomContext, root, options);
           const c = root.getAttribute("data-tiqian-enhanced-count");
           if (c != null) count += Number(c);
         }
         return count;
       },
       destroy(root) {
-        destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+        destroyRoot(rootState, layoutJobPool, rawDomContext, root);
       },
       detach(root) {
-        detachRoot(graph.layoutJobPool, root);
+        detachRoot(layoutJobPool, root);
       },
       relayout(root) {
-        relayout(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+        relayout(rootState, layoutJobPool, rawDomContext, root);
       },
       refresh(root, progressively = true) {
-        const state = graph.rootState.getState(root);
+        const state = rootState.getState(root);
         if (state) {
           if (progressively) {
-            enhanceProgressivelyFromCanonical(graph.rootState, graph.layoutJobPool, graph.rawDom, root, state.options);
+            enhanceProgressivelyFromCanonical(rootState, layoutJobPool, rawDomContext, root, state.options);
           } else {
-            enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, state.options, true);
+            enhance(rootState, layoutJobPool, rawDomContext, root, state.options, true);
           }
         }
         return root || globalThis.document.body;
       },
       cancelLayoutWork(root) {
-        pool.cancelJob(root);
+        layoutJobPool.cancelJob(root);
       },
       probeContentDrift(root) {
-        return probeRootContentDrift(graph.rawDom, graph.rootState, root);
+        return probeRootContentDrift(rawDomContext, rootState, root);
       },
       reconcileContent(root, paragraphs) {
-        return reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, paragraphs);
+        return reconcileRoot(rawDomContext, rootState, layoutJobPool, root, paragraphs);
       },
       workerLayoutRequest(root, paragraph, options) {
         const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs(options ?? {}));
         return request ? JSON.stringify(request) : null;
       },
-      workerAttach: (root) => pool.attach(root),
-      workerDetach: (root) => pool.detach(root),
-      workerHasJob: (root) => pool.hasJob(root),
-      workerJobGeneration: (root) => pool.jobGeneration(root),
-      workerRunSlice: (controller, minTier) => pool.runSlice(controller, minTier),
-      workerPendingInTier: (root, tier) => pool.pendingInTier(root, tier),
-      workerParagraphCount: (root) => pool.paragraphCount(root),
-      workerParagraphAt: (root, index) => pool.paragraphAt(root, index),
-      workerSetParagraphTier: (root, index, tier) => pool.setParagraphTier(root, index, tier),
+      workerAttach: (root) => layoutJobPool.attach(root),
+      workerDetach: (root) => layoutJobPool.detach(root),
+      workerHasJob: (root) => layoutJobPool.hasJob(root),
+      workerJobGeneration: (root) => layoutJobPool.jobGeneration(root),
+      workerRunSlice: (controller, minTier) => layoutJobPool.runSlice(controller, minTier),
+      workerPendingInTier: (root, tier) => layoutJobPool.pendingInTier(root, tier),
+      workerParagraphCount: (root) => layoutJobPool.paragraphCount(root),
+      workerParagraphAt: (root, index) => layoutJobPool.paragraphAt(root, index),
+      workerSetParagraphTier: (root, index, tier) => layoutJobPool.setParagraphTier(root, index, tier),
     };
     globalThis.TiqianWeb = bridge;
     return bridge;

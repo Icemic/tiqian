@@ -44,25 +44,26 @@ test("tiqianRuntimeGraph becomes the loaded graph and stays stable after load", 
   assert.equal(tiqianRuntimeGraph(), graph);
 });
 
-test("the loaded graph exposes the rootState product", async () => {
+test("the loaded graph is empty (rootState moved to session ownership)", async () => {
   const graph = await loadTiqianRuntime();
-  assert.ok(graph.rootState, "rootState product");
+  assert.deepEqual(graph, {}, "graph should be an empty object");
 });
 
 test("installTiqianRuntimeGraphForTesting substitutes the graph and restore returns the loaded one", async () => {
   const loaded = await loadTiqianRuntime();
-  const fakeGraph = { rootState: {} };
+  const fakeGraph = {};
   const restore = installTiqianRuntimeGraphForTesting(fakeGraph);
   assert.equal(tiqianRuntimeGraph(), fakeGraph);
   restore();
   assert.equal(tiqianRuntimeGraph(), loaded);
 });
 
-test("buildTiqianRuntimeGraph builds a fresh graph per call, distinct from the loader graph", async () => {
+test("buildTiqianRuntimeGraph builds a fresh graph per call, all empty objects", async () => {
   const loaded = await loadTiqianRuntime();
   const first = buildTiqianRuntimeGraph();
   const second = buildTiqianRuntimeGraph();
   assert.notEqual(first, second);
-  assert.notEqual(first.rootState, second.rootState);
-  assert.notEqual(first.rootState, loaded.rootState);
+  assert.deepEqual(first, {}, "first graph should be empty");
+  assert.deepEqual(second, {}, "second graph should be empty");
+  assert.deepEqual(loaded, {}, "loaded graph should be empty");
 });

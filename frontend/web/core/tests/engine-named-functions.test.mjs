@@ -297,11 +297,9 @@ function makeFakeRawDom(overrides = {}) {
 
 function makeGraph(opts) {
   opts = opts || {};
-  const rootState = opts.rs || makeFakeRootState(opts.rsOpts || {});
   const layoutJobPool = opts.job || makeFakeJob();
   const rawDom = opts.rawDom || makeFakeRawDom();
   return {
-    rootState: rootState,
     layoutJobPool: layoutJobPool,
     rawDom: rawDom,
   };
@@ -317,9 +315,9 @@ test("1. enhance: processes each candidate via the real processParagraph, return
   const fakeState = makeStateWithCallbacks({ root: null });
   const rs = makeFakeRootState({ state: fakeState, candidates: [c1, c2] });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs });
+    const graph = makeGraph({});
     const root = makeElement();
-    const result = enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, { fontSize: 20 });
+    const result = enhance(rs, graph.layoutJobPool, graph.rawDom, root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     // The real processParagraph ran once per candidate, observable on the
@@ -339,8 +337,8 @@ test("1. enhance: processes each candidate via the real processParagraph, return
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
   const rs = makeFakeRootState({ candidates: [makeElement()] });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs });
-    const result = enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, makeElement(), {});
+    const graph = makeGraph({});
+    const result = enhance(rs, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.equal(result, 0);
     assert.equal(graph.rawDom._calls.begin.length, 0);
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
@@ -368,8 +366,8 @@ test("3. enhance: destroyRoot runs before createRootState (call order)", functio
     return origCreate(root, bag);
   };
   withEnv(() => {
-    const graph = makeGraph({ rs: rs, job: fakeJob });
-    enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, makeElement(), {});
+    const graph = makeGraph({ job: fakeJob });
+    enhance(rs, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.deepEqual(callOrder, ["destroy", "createRootState"]);
   });
 });
@@ -380,22 +378,20 @@ test("3. enhance: destroyRoot runs before createRootState (call order)", functio
 
 test("4. enhanceProgressively installs the copy handler, destroys, rebuilds state and starts one Enhance job", function () {
   const job = makeFakeJob();
+  const rs = makeFakeRootState({
+    state: makeStateWithCallbacks({ root: null }),
+    candidates: [],
+  });
   withEnv(() => {
-    const graph = makeGraph({
-      job: job,
-      rsOpts: {
-        state: makeStateWithCallbacks({ root: null }),
-        candidates: [],
-      },
-    });
+    const graph = makeGraph({ job: job });
     const root = makeElement();
     const bag = { fontSize: 20 };
-    enhanceProgressively(graph.rootState, graph.layoutJobPool, graph.rawDom, root, bag);
+    enhanceProgressively(rs, graph.layoutJobPool, graph.rawDom, root, bag);
     // The drivers core cancels the job before rebuilding state.
     assert.equal(job._calls.cancelJob.length, 1);
     assert.equal(job._calls.cancelJob[0], root);
-    assert.equal(graph.rootState._calls.createRootState.length, 1);
-    assert.equal(graph.rootState._calls.createRootState[0].bag.fontSize, 20);
+    assert.equal(rs._calls.createRootState.length, 1);
+    assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     // The real startLayoutJob starts one Enhance job.
     assert.equal(job._calls.startJob.length, 1);
     assert.equal(job._calls.startJob[0].kind, "Enhance");
@@ -433,9 +429,9 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs, rawDom: rawDom });
+    const graph = makeGraph({ rawDom: rawDom });
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-snapshot-layout-fallback": "fb" });
-    destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+    destroyRoot(rs, graph.layoutJobPool, graph.rawDom, root);
     assert.deepEqual(rawDom._calls.restoreParagraph, [src1, src2]);
     // clearIssue restored the captured original attributes.
     assert.equal(issue1.markerCaptured, false);
@@ -458,9 +454,9 @@ test("6. destroyRoot: no state => still cancelJob + attribute cleanup, no throw"
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs, rawDom: rawDom });
+    const graph = makeGraph({ rawDom: rawDom });
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
-    destroyRoot(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
+    destroyRoot(rs, graph.layoutJobPool, graph.rawDom, root);
     assert.equal(rawDom._calls.restoreParagraph.length, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
@@ -474,7 +470,7 @@ test("6. destroyRoot: no state => still cancelJob + attribute cleanup, no throw"
 test("7. detachRoot: cancelJob + releaseRoot only, does not touch paragraphs/issues/state", function () {
   const rs = makeFakeRootState();
   withEnv(() => {
-    const graph = makeGraph({ rs: rs });
+    const graph = makeGraph({});
     const root = makeElement();
     detachRoot(graph.layoutJobPool, root);
     assert.equal(rs._calls.getState.length, 0);
@@ -492,8 +488,8 @@ test("7. detachRoot: cancelJob + releaseRoot only, does not touch paragraphs/iss
 test("8. probeRootContentDrift: no state returns the unknown result; with state passes sources to the real probe", function () {
   const rsNoState = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const graph = makeGraph({ rs: rsNoState });
-    const result = probeRootContentDrift(graph.rawDom, graph.rootState, makeElement());
+    const graph = makeGraph({});
+    const result = probeRootContentDrift(graph.rawDom, rsNoState, makeElement());
     assert.deepEqual(result, { unknown: 1, drifted: 0, dead: 0, rawDom: 0 });
   });
 
@@ -503,8 +499,8 @@ test("8. probeRootContentDrift: no state returns the unknown result; with state 
   const rawDom = makeFakeRawDom();
   const rs = makeFakeRootState({ getStateValue: state });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs, rawDom: rawDom });
-    const result2 = probeRootContentDrift(graph.rawDom, graph.rootState, makeElement());
+    const graph = makeGraph({ rawDom: rawDom });
+    const result2 = probeRootContentDrift(graph.rawDom, rs, makeElement());
     // The real probe classified both matching sources through the
     // detached-fragment backup ledger, so nothing drifted, died or fell out
     // of detached-fragment backup.
@@ -522,17 +518,18 @@ test("8. probeRootContentDrift: no state returns the unknown result; with state 
 test("9a. reconcileRoot: no state returns null", function () {
   const rs = makeFakeRootState({ getStateValue: null });
   withEnv(() => {
-    const graph = makeGraph({ rs: rs });
-    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, makeElement(), []);
+    const graph = makeGraph({});
+    const result = reconcileRoot(graph.rawDom, rs, graph.layoutJobPool, makeElement(), []);
     assert.equal(result, null);
   });
 });
 
 test("9b. reconcileRoot: state + idle verdict => returns the result, no startLayoutJob", function () {
   const state = { root: null, options: {}, paragraphs: [{ source: makeElement() }], issues: [] };
+  const rs = makeFakeRootState({ getStateValue: state, candidates: [] });
   withEnv(() => {
-    const graph = makeGraph({ rs: makeFakeRootState({ getStateValue: state, candidates: [] }) });
-    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, makeElement(), []);
+    const graph = makeGraph({});
+    const result = reconcileRoot(graph.rawDom, rs, graph.layoutJobPool, makeElement(), []);
     assert.deepEqual(result, { outcome: "idle", drifted: 0, rawDom: 0, tainted: 0, stranded: 0, dead: 0 });
     assert.equal(graph.layoutJobPool._calls.startJob.length, 0);
   });
@@ -559,12 +556,10 @@ test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + Dea
     renderedMatches: (el) => el !== driftedEl,
     rawDomMatches: (el) => el !== rawDomEl,
   });
+  const rs = makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] });
   withEnv(() => {
-    const graph = makeGraph({
-      rs: makeFakeRootState({ getStateValue: state, candidates: [], stranded: [strandedEl] }),
-      rawDom: rawDom,
-    });
-    const result = reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, [taintedEl]);
+    const graph = makeGraph({ rawDom: rawDom });
+    const result = reconcileRoot(graph.rawDom, rs, graph.layoutJobPool, root, [taintedEl]);
     // DeadTrackedParagraphDrop: deadEl removed from state.paragraphs.
     assert.equal(state.paragraphs.length, 3);
     assert.equal(state.paragraphs[0].source, driftedEl);
@@ -617,12 +612,10 @@ test("9d. reconcileRoot: itemTierIndex sorted by (distance, index), stale closur
     issues: [],
   };
   const rawDom = makeFakeRawDom({ renderedMatches: () => false });
+  const rs = makeFakeRootState({ getStateValue: state, candidates: [] });
   withEnv(() => {
-    const graph = makeGraph({
-      rs: makeFakeRootState({ getStateValue: state, candidates: [] }),
-      rawDom: rawDom,
-    });
-    reconcileRoot(graph.rawDom, graph.rootState, graph.layoutJobPool, root, []);
+    const graph = makeGraph({ rawDom: rawDom });
+    reconcileRoot(graph.rawDom, rs, graph.layoutJobPool, root, []);
     assert.equal(graph.layoutJobPool._calls.startJob.length, 1);
     const call = graph.layoutJobPool._calls.startJob[0];
     // el2 visible (distance 0) first, then el1 above viewport (distance 100).
