@@ -139,6 +139,7 @@ export interface ProseHostDiagnostics {
 }
 
 export type ProseHostEventCallback = (diagnostics: ProseHostDiagnostics) => void;
+type MountCompletionResolver = () => void;
 
 /** Unsubscribe handle returned by the event subscription surface. */
 export type ProseHostEventUnsubscribe = () => void;
@@ -811,31 +812,37 @@ class ProseHostSession {
   // state of its own mounts over a root whose paragraph candidates all sit
   // in a terminal state (rendered or capability-marked) only when a foreign
   // session already owns the root. Terminal candidates here count everything
-  // shouldTryParagraph accepts, so an unenhanced root never matches.
+  // shouldTryParagraph accepts, so an unenhanced root never matches. Fake-DOM
+  // test worlds without the eligibility DOM surface fall through to the
+  // ordinary mount path.
   #rootIsForeignEnhanced(): boolean {
     if (this.#stateMachine.connected || this.#stateMachine.runtimeActive) return false;
     if (this.#stateMachine.snapshotAdopted) return false;
     if (this.#rootState.getState(this.#root) != null) return false;
-    const candidates = this.#rootState.paragraphCandidates(this.#root, "p, li");
-    if (candidates.length === 0) return false;
-    for (let i = 0; i < candidates.length; i += 1) {
-      const candidate = candidates[i];
-      if (candidate.getAttribute("data-tq-rendered") !== "true" &&
-          !candidate.hasAttribute("data-tiqian-capability-issue")) {
-        return false;
+    try {
+      const candidates = this.#rootState.paragraphCandidates(this.#root, "p, li");
+      if (candidates.length === 0) return false;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const candidate = candidates[i];
+        if (candidate.getAttribute("data-tq-rendered") !== "true" &&
+            !candidate.hasAttribute("data-tiqian-capability-issue")) {
+          return false;
+        }
       }
+      return true;
+    } catch {
+      return false;
     }
-    return true;
   }
 
   #mountCompletionPromise: Promise<void> = Promise.resolve();
-  #mountCompletionResolve: (() => void) | null = null;
+  #mountCompletionResolve: MountCompletionResolver | null = null;
 
   #beginMountCompletion(): Promise<void> {
     // Supersede any lifecycle whose completion never reported: a restart
     // between dispatch and ready abandons the earlier promise.
     this.#finishMountCompletion();
-    let resolver: (() => void) | null = null;
+    let resolver: MountCompletionResolver | null = null;
     this.#mountCompletionPromise = new Promise<void>((resolve) => {
       resolver = resolve;
     });
