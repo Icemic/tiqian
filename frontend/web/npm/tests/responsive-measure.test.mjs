@@ -23,6 +23,7 @@ import {
   loadHostRuntime,
   mount,
   pendingTestAnimationFrameCount,
+  preparedValueStyleProperty,
   relayoutEventIsStale,
   renderedLineSignature,
   runWorkerJobToCompletion,
@@ -127,7 +128,7 @@ test("responsiveMeasure_typographyRefreshRelowersCurrentHostMetrics", async (t) 
   assert.equal(TiqianWeb.enhance(root), 1);
   let paragraph = root.querySelector("p");
   assert.equal(
-    cssPx(paragraph.querySelector(".tq-line").style.getPropertyValue("--tq-line-height")),
+    cssPx(preparedValueStyleProperty(paragraph.querySelector(".tq-line"), "--tq-line-height")),
     28,
   );
 
@@ -139,7 +140,7 @@ test("responsiveMeasure_typographyRefreshRelowersCurrentHostMetrics", async (t) 
   paragraph = root.querySelector("p");
   const line = paragraph.querySelector(".tq-line");
   assert.ok(line);
-  assert.equal(cssPx(line.style.getPropertyValue("--tq-line-height")), 32);
+  assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 32);
   assert.equal(computedStyleValue(paragraph, "font-size"), "18px");
   assert.equal(computedStyleValue(paragraph, "font-weight"), "460");
 });
@@ -185,7 +186,7 @@ test("responsiveMeasure_configuredFontSizeMeasuresAndPaintsConsistently", async 
   const link = paragraph.querySelector("a");
   assert.equal(computedStyleValue(paragraph, "font-size"), "19px");
   assert.equal(computedStyleValue(link, "font-size"), "19px");
-  assert.equal(cssPx(line.style.getPropertyValue("--tq-line-height")), 33.25);
+  assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 33.25);
   assert.ok(Math.abs(Number(line.getAttribute("data-tq-line-width")) - 342) <= 0.5);
 
   TiqianWeb.destroy(root);

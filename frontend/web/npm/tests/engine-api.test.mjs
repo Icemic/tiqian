@@ -11,6 +11,7 @@ import {
   cssPx,
   loadHostRuntime,
   mount,
+  preparedValueStyleProperty,
 } from "./runtime-host.mjs";
 
 test("engineApi_jsOptionsMapStrongToEmphasisMarks", async (t) => {
@@ -43,7 +44,7 @@ test("engineApi_enhanceWithoutOptionsUsesComputedMetrics", async (t) => {
   const paragraph = root.querySelector("p");
   const line = paragraph.querySelector(".tq-line");
   assert.ok(line);
-  assert.equal(cssPx(line.style.getPropertyValue("--tq-line-height")), 32);
+  assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 32);
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
 });
 

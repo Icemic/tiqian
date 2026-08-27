@@ -9,6 +9,7 @@ import {
   elementWidth,
   loadHostRuntime,
   mount,
+  preparedValueStyleProperty,
   testOptions,
 } from "./runtime-host.mjs";
 
@@ -253,8 +254,8 @@ test("rendererSourceFidelity_emitsFinalAndLatinAdjacentPunctuationSpacingWithout
   assert.ok(lines.length > 1);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines.item(index);
-    assert.ok(line.style.getPropertyValue("--tq-line-height").length > 0);
-    assert.ok(line.style.getPropertyValue("--tq-line-baseline-offset").length > 0);
+    assert.ok(preparedValueStyleProperty(line, "--tq-line-height").length > 0);
+    assert.ok(preparedValueStyleProperty(line, "--tq-line-baseline-offset").length > 0);
     assert.equal(line.style.getPropertyValue("display"), "");
     assert.equal(line.style.getPropertyValue("width"), "");
     assert.equal(line.style.getPropertyValue("height"), "");

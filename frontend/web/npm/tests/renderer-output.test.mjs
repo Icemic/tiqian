@@ -17,6 +17,7 @@ import {
   installTestAnimationFrames,
   loadHostRuntime,
   mount,
+  preparedValueStyleProperty,
   renderedLineSignature,
   selectionCoversElement,
   testOptions,
@@ -200,11 +201,12 @@ test("rendererOutput_unorderedListUsesNativeMarkerColumnWithoutParagraphIndent",
   assert.equal(computedStyleValue(item, "display"), "list-item");
   // The prepared renderer states the indent as the flow-start variable on a
   // shifted line marker; styles.css turns that pair into margin-left at paint
-  // time ([data-tq-line-shift] rule).
+  // time ([data-tq-line-shift] rule). The variable lives in the per-root
+  // value-style stylesheet, not the marker's inline style.
   assert.equal(paragraphLine.getAttribute("data-tq-line-shift"), "true");
-  assert.ok(paragraphLine.style.getPropertyValue("--tq-line-flow-start").includes("36px"));
+  assert.ok(preparedValueStyleProperty(paragraphLine, "--tq-line-flow-start").includes("36px"));
   assert.equal(itemLine.getAttribute("data-tq-line-shift"), null);
-  assert.equal(itemLine.style.getPropertyValue("--tq-line-flow-start"), "");
+  assert.equal(preparedValueStyleProperty(itemLine, "--tq-line-flow-start"), "");
 });
 
 test("rendererOutput_strongStaysBoldByDefault", async (t) => {
@@ -367,9 +369,10 @@ test("rendererOutput_negativeGapResolvesToOverlapCarrier", async (t) => {
 
   // A multi-character run keeps a negative trailing gap as a negative
   // margin-right overlap instead of dropping it or using letter-spacing.
+  // Both declarations live in the per-root value-style stylesheet now.
   const run = Array.from(root.querySelector("p").querySelectorAll("[data-tq-geometry]"))
     .find((element) => element.textContent === "C++");
   assert.ok(run);
-  assert.equal(cssPx(run.style.getPropertyValue("margin-right")), -9);
-  assert.equal(run.style.getPropertyValue("letter-spacing"), "");
+  assert.equal(cssPx(preparedValueStyleProperty(run, "margin-right")), -9);
+  assert.equal(preparedValueStyleProperty(run, "letter-spacing"), "");
 });

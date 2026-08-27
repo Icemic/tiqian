@@ -885,11 +885,60 @@ function getPseudoStylesheetProperty(element, kebab, pseudoKey) {
   return "";
 }
 
+// The prepared renderer emits its geometry and run declarations
+// (--tq-line-height, letter-spacing, margin-right, ...) into a per-root
+// scoped value-style stylesheet (<style data-tq-prepared-value-styles> in
+// document.head) at enhance time, which postdates the static stylesheet
+// parse. Match those rules lazily here so computed style, inline-advance
+// accounting, and box geometry observe the same declarations a browser
+// applies. Declarations are product-emitted with !important, so a matching
+// rule wins the host cascade.
+function getPreparedValueStyleProperty(element, kebab) {
+  if (!element || element.nodeType !== 1) return "";
+  const doc = element.ownerDocument ?? globalThis.document;
+  if (!doc) return "";
+  let bestImportant = null;
+  let bestNormal = null;
+  let ruleIndex = 0;
+  for (const parent of [doc.head, doc.body, doc.documentElement].filter(Boolean)) {
+    for (const node of parent.childNodes ?? []) {
+      if (!node || node.nodeType !== 1 || node.tagName !== "STYLE") continue;
+      if (typeof node.hasAttribute === "function" &&
+          !node.hasAttribute("data-tq-prepared-value-styles")) continue;
+      const cleaned = String(node.textContent ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const match of cleaned.matchAll(/([^{}]+)\{([^}]+)\}/g)) {
+        const declarations = parseDeclarationBlock(match[2]);
+        if (!declarations.has(kebab)) continue;
+        for (const selector of splitSelectorList(match[1])) {
+          const trimmed = selector.trim();
+          if (!trimmed || !matchesHostSelector(element, trimmed)) continue;
+          const rule = { specificity: computeSpecificity(trimmed), index: ruleIndex++ };
+          const decl = declarations.get(kebab);
+          if (decl.important) {
+            if (!bestImportant || compareSpecificity(rule.specificity, bestImportant.rule.specificity, rule.index, bestImportant.rule.index) >= 0) {
+              bestImportant = { rule, decl };
+            }
+          } else {
+            if (!bestNormal || compareSpecificity(rule.specificity, bestNormal.rule.specificity, rule.index, bestNormal.rule.index) >= 0) {
+              bestNormal = { rule, decl };
+            }
+          }
+        }
+      }
+    }
+  }
+  if (bestImportant) return bestImportant.decl.value;
+  if (bestNormal) return bestNormal.decl.value;
+  return "";
+}
+
 function resolveElementPropertyRaw(element, property, base = {}) {
   if (!element || element.nodeType !== 1) return "";
 
   if (property.startsWith("--")) {
     for (let curr = element; curr; curr = curr.parentElement) {
+      const prepared = getPreparedValueStyleProperty(curr, property);
+      if (prepared !== "") return prepared;
       const v = curr.style?.getPropertyValue?.(property);
       if (v !== undefined && v !== "") return v;
       const attrV = getStyleAttrProperty(curr, property);
@@ -907,6 +956,10 @@ function resolveElementPropertyRaw(element, property, base = {}) {
   // 2. Element style attribute string
   const attrVal = getStyleAttrProperty(element, kebab);
   if (attrVal !== "") return attrVal;
+
+  // 2b. Per-root prepared value-style stylesheet (product !important rules).
+  const preparedVal = getPreparedValueStyleProperty(element, kebab);
+  if (preparedVal !== "") return preparedVal;
 
   // 3. Stylesheet rules (extended specificity-based rules)
   const sheetVal = getStylesheetProperty(element, kebab);

@@ -14,6 +14,7 @@ import {
   cssPx,
   loadHostRuntime,
   mount,
+  preparedValueStyleProperty,
   testOptions,
 } from "./runtime-host.mjs";
 
@@ -83,7 +84,7 @@ test("markdownLowering_measurableUnknownInlineElementsBecomeOpaqueObjects", asyn
 
   const objectLine = paragraph.querySelector(".tq-line");
   assert.ok(objectLine);
-  assert.ok(cssPx(objectLine.style.getPropertyValue("--tq-line-height")) >= 30);
+  assert.ok(cssPx(preparedValueStyleProperty(objectLine, "--tq-line-height")) >= 30);
 });
 
 test("markdownLowering_paragraphOfOnlyInlineObjectEnhances", async (t) => {

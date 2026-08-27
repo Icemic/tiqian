@@ -20,6 +20,7 @@ import {
   mount,
   nativeInnerText,
   pendingTestAnimationFrameCount,
+  preparedValueStyleProperty,
   renderedLineSignature,
   testOptions,
 } from "./runtime-host.mjs";
@@ -194,7 +195,7 @@ test("sourceFidelity_hostFontFamiliesDriveMeasureAndPaint", async (t) => {
   assert.ok(paragraph.style.fontFamily.includes("HostFace"), paragraph.style.fontFamily);
   const line = paragraph.querySelector(".tq-line");
   assert.ok(line);
-  assert.equal(cssPx(line.style.getPropertyValue("--tq-line-height")), 33);
+  assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 33);
   assert.equal(
     computedStyleValue(paragraph, "font-family"),
     computedStyleValue(line, "font-family"),
