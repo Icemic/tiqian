@@ -25,12 +25,13 @@ import { initializeGlobalServices } from "@tiqian/core/core/services/global-serv
 initializeGlobalServices();
 
 
-// Move a mounted paragraph into the enhanced state: take the host children
-// into the raw-DOM backup, publish the fragment, write one engine-owned rendered child
-// (through the engine-write suspension), and stamp the rendered output.
-function enhanceParagraph(paragraph, t) {
+// Move a mounted paragraph into the enhanced state on the given context: take
+// the host children into the raw-DOM backup, publish the fragment, write one
+// engine-owned rendered child (through the engine-write suspension), and
+// stamp the rendered output. The rawDom records live on the context, so the
+// caller must reuse this same context for probes and preparation.
+function enhanceParagraph(context, paragraph, t) {
   t.after(cleanupMounted);
-  const context = createEnhanceContext(paragraph);
   rawDomBegin(
     context,
     paragraph,
@@ -84,7 +85,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
   );
 
   const paragraph = root.querySelector("p");
-  const rendered = enhanceParagraph(paragraph, t);
+  const rendered = enhanceParagraph(context, paragraph, t);
   assert.ok(rendered);
   paragraph.removeChild(rendered);
 
@@ -115,10 +116,10 @@ test("contentReconcileProbe_staysReadOnly", (t) => {
     </div>
   `);
   const paragraph = root.querySelector("p");
-  enhanceParagraph(paragraph, t);
+  const context = createEnhanceContext(paragraph);
+  enhanceParagraph(context, paragraph, t);
   const beforeNodes = Array.from(paragraph.childNodes);
 
-  const context = createEnhanceContext(paragraph);
   probeContentDrift(context, [paragraph]);
 
   const afterNodes = Array.from(paragraph.childNodes);
@@ -177,11 +178,11 @@ test("contentReconcilePrepare_restoresShellAndStamps", (t) => {
     </div>
   `);
   const paragraph = root.querySelector("p");
-  const rendered = enhanceParagraph(paragraph, t);
+  const context = createEnhanceContext(paragraph);
+  const rendered = enhanceParagraph(context, paragraph, t);
 
   assert.ok(paragraph.firstChild);
   paragraph.removeChild(rendered);
-  const context = createEnhanceContext(paragraph);
   assert.equal(rawDomRenderedMatches(context, paragraph), false);
 
   prepareTrackedParagraphForRelowering(context, paragraph);
