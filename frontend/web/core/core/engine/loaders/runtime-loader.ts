@@ -14,17 +14,16 @@ import type { TiqianRuntimeGraph } from "./ts-runtime.js";
 //   relayout, reconcile, cancel) that run from observer callbacks after the
 //   load resolved and read the graph synchronously.
 // - currentTiqianRuntime: npm/api.ts restore-path check.
-// - copyInstaller: one per-page instance, memoized here. The element layer
-//   installs it at module scope (element.ts, api.ts), the named engine
-//   functions install it again at enhance time; both must share the same
-//   per-document WeakSet.
+// - copyInstaller: moved to the ClipboardManager service in globalServices
+//   (wc-s6 scope 4). The element layer installs it at enhance time through
+//   the service; the per-document WeakSet lives on the service.
 // - prepared-dom record: the renderer module reference consumed by the
 //   prepared pipeline (raw-dom, prepare-paragraph-layout,
 //   commit-prepared-paragraph, content-reconcile, lifecycle, font-loader)
 //   with its test override, plus the commit validator oracle.
 //
 // R10 ruling 4: loadTiqianRuntime memoizes the plain runtime graph
-// {rawDom, copyInstaller, rootState, layoutJobPool}; there is no engine
+// {rootState}; there is no engine
 // facade object and no engineApi/workerApi/setEngineOverride surface. The
 // load memo lives in this module's closure; the memo survives module
 // re-evaluation within one document through the Symbol.for registry (client
@@ -34,9 +33,6 @@ import type { TiqianRuntimeGraph } from "./ts-runtime.js";
 // registry (wc-s5 R9): it carries function members, which the Service
 // container does not admit, and every consumer resolves it through this
 // module's accessors anyway.
-
-import { createCopyInstaller } from "../../utils/copy.js";
-import type { CopyInstaller } from "../../utils/copy.js";
 
 export type RendererModuleFn = () => typeof preparedDom | null;
 export type CommitValidatorFn = () => PreparedDomValidatorInterface | null;
@@ -63,7 +59,6 @@ interface RuntimeLoadMemo {
   load: Promise<TiqianRuntimeGraph> | undefined;
   graph: TiqianRuntimeGraph | null;
   graphOverride: TiqianRuntimeGraph | null | undefined;
-  copyInstaller: CopyInstaller | null;
 }
 
 const RUNTIME_LOAD_MEMO_KEY: unique symbol = Symbol.for("@tiqian/prose.runtime-load-memo.v1");
@@ -76,7 +71,6 @@ function loadMemo(): RuntimeLoadMemo {
     load: undefined,
     graph: null,
     graphOverride: undefined,
-    copyInstaller: null,
   };
 }
 
@@ -104,17 +98,6 @@ function preparedDomState(): PreparedDomState {
   return registry[PREPARED_DOM_STATE_KEY] ??= createPreparedDomState();
 }
 
-// Shared copy installer (one-listener-per-document invariant): the element
-// layer installs the handler at module scope and the named engine functions
-// install it again at enhance time; both must share the same per-document
-// WeakSet, so the loader owns one instance and hands it to the composition
-// root.
-export function copyInstaller(): CopyInstaller {
-  const memo = loadMemo();
-  memo.copyInstaller ??= createCopyInstaller();
-  return memo.copyInstaller;
-}
-
 // Loads the runtime graph once per document and memoizes it. A repeated call
 // returns the memoized first graph; it does not build a second one. An
 // installed test graph wins over a fresh build.
@@ -126,7 +109,7 @@ export function loadTiqianRuntime(): Promise<TiqianRuntimeGraph> {
 
 function buildRuntimeGraph(): TiqianRuntimeGraph {
   const memo = loadMemo();
-  const graph = tsRuntime.buildTiqianRuntimeGraph({ copyInstaller: copyInstaller() });
+  const graph = tsRuntime.buildTiqianRuntimeGraph();
   memo.graph = graph;
   return graph;
 }

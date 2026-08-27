@@ -1,5 +1,4 @@
 import {
-  copyInstaller,
   currentTiqianRuntime,
   loadTiqianRuntime,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
@@ -81,8 +80,6 @@ interface TiqianSnapshotFontMissCandidate {
 interface TiqianCjkDashPrepareOptions extends TiqianWebOptions {
   snapshotFontSession?: unknown;
 }
-
-copyInstaller().install(globalThis.document);
 
 function snapshotFontMissDatasetValue(error: TiqianSnapshotFontMissCandidate): string {
   if (error?.code === "SnapshotFontContractMismatch" && typeof error?.detail === "string") {
@@ -220,12 +217,12 @@ async function withTiqianWeb<T>(
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
   return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceRoot(graph.rootState, graph.copyInstaller, globalServices().coordination.layoutJobPool, context, root, prepared));
+    enhanceRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
   return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, globalServices().coordination.layoutJobPool, context, root, prepared));
+    enhanceProgressivelyRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export async function destroy(root: HTMLElement = document.body): Promise<void> {

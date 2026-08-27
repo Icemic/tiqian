@@ -286,7 +286,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(
     sessionSource,
-    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
+    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
   );
   assert.match(
     sessionSource,
@@ -444,7 +444,7 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(sessionSource, /PreparedSnapshotTransition/u);
   assert.match(
     sessionSource,
-    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
+    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
   );
   assert.match(
     sessionSource,

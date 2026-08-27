@@ -10,9 +10,9 @@ import {
 } from "../core/engine/progressive-drivers.js";
 import { setPreparedDomRendererForTesting, setCommitValidatorForTesting } from "../core/engine/loaders/runtime-loader.js";
 
-// The drivers functions take fake rootState/engine/layoutJobPool/copyInstaller
-// deps; the relayout-session and process-paragraph deps bundles
-// carry a fake detached-fragment backup. The real openRelayoutSession and the real
+// The drivers functions take fake rootState/engine/layoutJobPool deps; the
+// relayout-session and process-paragraph deps bundles carry a fake
+// detached-fragment backup. The real openRelayoutSession and the real
 // processParagraph run against those fakes, so the relayout main path and the
 // enhance processItem path are observable through the fake detached-fragment backup ledger. The
 // direct prepare step, the lifecycle helpers and sourceParagraphWidth also run
@@ -331,33 +331,21 @@ function makeFakeLayoutJobPool(overrides = {}) {
   };
 }
 
-function makeFakeCopyInstaller() {
-  const calls = [];
-  return {
-    _calls: calls,
-    install: function (doc) {
-      calls.push(doc);
-    },
-  };
-}
-
 function makeDrivers(overrides = {}) {
   const rawDom = overrides.rawDom || makeFakeRawDom();
   const rootState = overrides.rootState || makeFakeRootState(overrides);
   const layoutJobPool = overrides.layoutJobPool || makeFakeLayoutJobPool(overrides);
-  const copyInstaller = overrides.copyInstaller || makeFakeCopyInstaller();
   return {
     rootState: rootState,
     layoutJobPool: layoutJobPool,
-    copyInstaller: copyInstaller,
     rawDom: rawDom,
   };
 }
 
 // Collaborator argument list for the driver entry functions in the unit-test
-// world: the four runtime-graph products, in the public signature order.
+// world: the three runtime-graph products, in the public signature order.
 function driverArgs(ctx) {
-  return [ctx.rootState, ctx.copyInstaller, ctx.layoutJobPool, ctx.rawDom];
+  return [ctx.rootState, ctx.layoutJobPool, ctx.rawDom];
 }
 
 // ---------------------------------------------------------------------------

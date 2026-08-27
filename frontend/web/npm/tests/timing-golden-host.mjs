@@ -76,9 +76,6 @@ function recordingRuntimeGraph() {
       restoreParagraph() {},
       clearIssue() {},
     },
-    copyInstaller: {
-      install() { flushCancelAsWork(); installArmed = true; },
-    },
     rootState: {
       getState(root) { return states.get(root) ?? null; },
       setState(root, state) { states.set(root, state); },
@@ -125,7 +122,13 @@ function recordingRuntimeGraph() {
       paragraphAt() { return null; },
       setParagraphTier() { return false; },
       startJob() {},
-      cancelJob() { flushCancelAsWork(); cancelPending = true; },
+      cancelJob() {
+        flushCancelAsWork();
+        cancelPending = true;
+        // The drivers call clipboard.install before cancelJob via destroyRoot;
+        // arm here so createRootState can distinguish enhance/relayout paths.
+        installArmed = true;
+      },
     },
     flushProjection: flushCancelAsWork,
     resolveRelease() {

@@ -1098,7 +1098,7 @@ class ProseHostSession {
     try {
       const graph = tiqianRuntimeGraph();
       if (graph) {
-        enhanceProgressively(graph.rootState, graph.copyInstaller, coordinationService().layoutJobPool, this.#context, this.#root, preparedOptions);
+        enhanceProgressively(graph.rootState, coordinationService().layoutJobPool, this.#context, this.#root, preparedOptions);
       }
     } finally {
       compensateViewportAnchor(this.#root, runAnchor);
@@ -1655,7 +1655,7 @@ class ProseHostSession {
     const relayoutAnchor = captureViewportAnchor(this.#root);
     try {
       const graph = tiqianRuntimeGraph();
-      if (graph) relayout(graph.rootState, graph.copyInstaller, coordinationService().layoutJobPool, this.#context, this.#root);
+      if (graph) relayout(graph.rootState, coordinationService().layoutJobPool, this.#context, this.#root);
     } finally {
       compensateViewportAnchor(this.#root, relayoutAnchor);
       releaseNativeScrollAnchoring(this.#root);

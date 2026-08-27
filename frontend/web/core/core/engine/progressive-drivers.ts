@@ -5,7 +5,7 @@
 //
 // Stateless module: enhance, enhanceProgressively, relayout,
 // rejectMissingSharedRuntimeStyles and startLayoutJob are named functions
-// that receive the root-state, copy-installer, layout-job-pool and rawDom
+// that receive the root-state, layout-job-pool and rawDom
 // collaborators as explicit parameters; the stateless prepare-paragraph-layout,
 // lifecycle and responsive-measure helpers are imported directly. Root
 // teardown inside the drivers runs through lifecycle's destroyRoot with the
@@ -35,7 +35,7 @@ import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
 import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
 import { destroyRoot, reportIssue, responsiveSourceMeasure } from "./lifecycle.js";
 import { processParagraph } from "./process-paragraph.js";
-import type { CopyInstaller } from "../utils/copy.js";
+import { globalServices } from "../services/global-services.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
 import {
   rawDomBegin,
@@ -329,7 +329,6 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
   // createRootStateFromCanonical instead of re-resolving the bag.
   function enhanceProgressivelyCore(
     rootState: RootStateApi,
-    copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDomContext: EnhancedElementContext,
     root: Element,
@@ -348,7 +347,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // owns the enhanced root; the ambient fallback covers fake-DOM test
     // worlds whose roots carry no ownerDocument.
     const targetDocument = root.ownerDocument ?? globalThis.document;
-    if (targetDocument) copyInstaller.install(targetDocument);
+    if (targetDocument) globalServices().clipboard.install(targetDocument);
     destroyRoot(rootState, layoutJobPool, rawDomContext, root as HTMLElement);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
@@ -448,7 +447,6 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
 
   export function relayout(
     rootState: RootStateApi,
-    copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDomContext: EnhancedElementContext,
     root: Element,
@@ -464,7 +462,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (PJ.jobKind(root) === "Enhance") {
       const running = RS.getState(root);
       if (running != null) {
-        enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, running.options, "Enhance", true);
+        enhanceProgressivelyCore(rootState, layoutJobPool, rawDomContext, root, running.options, "Enhance", true);
         return;
       }
     }
@@ -472,7 +470,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // Branch 2: no state at all -- cold-start a Relayout with bag null.
     const state = RS.getState(root);
     if (state == null) {
-      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, null, "Relayout");
+      enhanceProgressivelyCore(rootState, layoutJobPool, rawDomContext, root, null, "Relayout");
       return;
     }
 
@@ -493,7 +491,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       // the new width. Restore semantic source once, then let viewport-near
       // paragraphs take over atomically in bounded slices just like any other
       // source refresh. state.options is canonical.
-      enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, state.options, "Relayout", true);
+      enhanceProgressivelyCore(rootState, layoutJobPool, rawDomContext, root, state.options, "Relayout", true);
       return;
     }
 
@@ -613,7 +611,6 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
   // controls the root-state creation path; public entries pass false.
   export function enhance(
     rootState: RootStateApi,
-    copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDomContext: EnhancedElementContext,
     root: Element,
@@ -625,7 +622,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     // actually owns the enhanced root; the ambient fallback covers fake-DOM
     // test worlds whose roots carry no ownerDocument.
     const targetDocument = root.ownerDocument ?? globalThis.document;
-    if (targetDocument) copyInstaller.install(targetDocument);
+    if (targetDocument) globalServices().clipboard.install(targetDocument);
     destroyRoot(rootState, layoutJobPool, rawDomContext, root as HTMLElement);
     const state = fromCanonical
       ? RS.createRootStateFromCanonical(root, optionsBag as EnhanceOptions)
@@ -648,22 +645,20 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
   // builder.
   export function enhanceProgressively(
     rootState: RootStateApi,
-    copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDomContext: EnhancedElementContext,
     root: Element,
     optionsBag: Record<string, unknown> | null,
   ): void {
-    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, optionsBag, "Enhance", false);
+    enhanceProgressivelyCore(rootState, layoutJobPool, rawDomContext, root, optionsBag, "Enhance", false);
   }
 
   export function enhanceProgressivelyFromCanonical(
     rootState: RootStateApi,
-    copyInstaller: CopyInstaller,
     layoutJobPool: LayoutJobPool,
     rawDomContext: EnhancedElementContext,
     root: Element,
     canonicalOptions: EnhanceOptions,
   ): void {
-    enhanceProgressivelyCore(rootState, copyInstaller, layoutJobPool, rawDomContext, root, canonicalOptions, "Enhance", true);
+    enhanceProgressivelyCore(rootState, layoutJobPool, rawDomContext, root, canonicalOptions, "Enhance", true);
   }

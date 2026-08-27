@@ -2647,7 +2647,7 @@ export function eventDetailInt(event, name) {
 let runtimeGraph = null;
 
 export function dispatchRelayout(root) {
-  relayout(runtimeGraph.rootState, runtimeGraph.copyInstaller, runtimeGraph.layoutJobPool, runtimeGraph.rawDom, root);
+  relayout(runtimeGraph.rootState, runtimeGraph.layoutJobPool, runtimeGraph.rawDom, root);
 }
 
 export function probeContentDrift(root) {
@@ -3633,23 +3633,22 @@ export function loadHostRuntime() {
       // missing call here while the bundle existed). With ts-runtime there is
       // no main(), so the bridge performs the install itself.
       install() {
-        // The loader's copy installer is the one the engine graph shares
-        // (one-listener-per-document); the harness must install the same
-        // instance, not a second one.
-        if (globalThis.document) loader.copyInstaller().install(globalThis.document);
+        // The clipboard manager is now a global service; install on the test
+        // document so copy interception works during hosted tests.
+        if (globalThis.document) globalServices().clipboard.install(globalThis.document);
       },
       enhance(root, options) {
-        enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
+        enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
         const count = root.getAttribute("data-tiqian-enhanced-count");
         return count != null ? Number(count) : 0;
       },
       enhanceProgressively(root, options) {
-        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
+        enhanceProgressively(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
       },
       enhanceAll(options) {
         let count = 0;
         for (const root of globalThis.document.querySelectorAll("tiqian-prose, [data-tiqian-root]")) {
-          enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, options);
+          enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, options);
           const c = root.getAttribute("data-tiqian-enhanced-count");
           if (c != null) count += Number(c);
         }
@@ -3662,15 +3661,15 @@ export function loadHostRuntime() {
         detachRoot(graph.layoutJobPool, root);
       },
       relayout(root) {
-        relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root);
+        relayout(graph.rootState, graph.layoutJobPool, graph.rawDom, root);
       },
       refresh(root, progressively = true) {
         const state = graph.rootState.getState(root);
         if (state) {
           if (progressively) {
-            enhanceProgressivelyFromCanonical(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, state.options);
+            enhanceProgressivelyFromCanonical(graph.rootState, graph.layoutJobPool, graph.rawDom, root, state.options);
           } else {
-            enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, state.options, true);
+            enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, state.options, true);
           }
         }
         return root || globalThis.document.body;

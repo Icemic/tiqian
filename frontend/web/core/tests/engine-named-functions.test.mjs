@@ -295,25 +295,13 @@ function makeFakeRawDom(overrides = {}) {
   };
 }
 
-function makeFakeCopyInstaller() {
-  const calls = { install: [] };
-  return {
-    _calls: calls,
-    install: function (doc) { calls.install.push(doc); },
-  };
-}
-
-// Assembles the four runtime-graph products the named engine functions take
-// as explicit dependencies; each slot defaults to a recording fake.
 function makeGraph(opts) {
   opts = opts || {};
   const rootState = opts.rs || makeFakeRootState(opts.rsOpts || {});
   const layoutJobPool = opts.job || makeFakeJob();
   const rawDom = opts.rawDom || makeFakeRawDom();
-  const copyInstaller = opts.copyInstaller || makeFakeCopyInstaller();
   return {
     rootState: rootState,
-    copyInstaller: copyInstaller,
     layoutJobPool: layoutJobPool,
     rawDom: rawDom,
   };
@@ -331,7 +319,7 @@ test("1. enhance: processes each candidate via the real processParagraph, return
   withEnv(() => {
     const graph = makeGraph({ rs: rs });
     const root = makeElement();
-    const result = enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, { fontSize: 20 });
+    const result = enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, root, { fontSize: 20 });
     assert.equal(rs._calls.createRootState.length, 1);
     assert.equal(rs._calls.createRootState[0].bag.fontSize, 20);
     // The real processParagraph ran once per candidate, observable on the
@@ -352,7 +340,7 @@ test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no
   const rs = makeFakeRootState({ candidates: [makeElement()] });
   withEnv(() => {
     const graph = makeGraph({ rs: rs });
-    const result = enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, makeElement(), {});
+    const result = enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.equal(result, 0);
     assert.equal(graph.rawDom._calls.begin.length, 0);
   }, { computedStyleValues: { "--tq-styles-ready": "0" } });
@@ -381,7 +369,7 @@ test("3. enhance: destroyRoot runs before createRootState (call order)", functio
   };
   withEnv(() => {
     const graph = makeGraph({ rs: rs, job: fakeJob });
-    enhance(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, makeElement(), {});
+    enhance(graph.rootState, graph.layoutJobPool, graph.rawDom, makeElement(), {});
     assert.deepEqual(callOrder, ["destroy", "createRootState"]);
   });
 });
@@ -392,11 +380,9 @@ test("3. enhance: destroyRoot runs before createRootState (call order)", functio
 
 test("4. enhanceProgressively installs the copy handler, destroys, rebuilds state and starts one Enhance job", function () {
   const job = makeFakeJob();
-  const copyInstaller = makeFakeCopyInstaller();
   withEnv(() => {
     const graph = makeGraph({
       job: job,
-      copyInstaller: copyInstaller,
       rsOpts: {
         state: makeStateWithCallbacks({ root: null }),
         candidates: [],
@@ -404,10 +390,8 @@ test("4. enhanceProgressively installs the copy handler, destroys, rebuilds stat
     });
     const root = makeElement();
     const bag = { fontSize: 20 };
-    enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, graph.rawDom, root, bag);
-    // The drivers core installs the copy handler and cancels the job before
-    // rebuilding state.
-    assert.equal(copyInstaller._calls.install.length, 1);
+    enhanceProgressively(graph.rootState, graph.layoutJobPool, graph.rawDom, root, bag);
+    // The drivers core cancels the job before rebuilding state.
     assert.equal(job._calls.cancelJob.length, 1);
     assert.equal(job._calls.cancelJob[0], root);
     assert.equal(graph.rootState._calls.createRootState.length, 1);

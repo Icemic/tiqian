@@ -1,7 +1,7 @@
 // R10 verification surface (spec wc-s3 item 4, ruling R8 TS-ifies new
 // tests): the dissolved engine entry is driven by a plain-data mock
 // runtime-graph context. Per ruling 1 this direct-drive test assembles its
-// own dependencies: the four graph products (rootState, copyInstaller,
+// own dependencies: the graph products (rootState,
 // layoutJobPool, rawDom) are plain object literals that satisfy the product
 // contracts by assignment, and the named entry functions receive them as
 // explicit arguments. No engine instance, no registry, no browser globals
@@ -26,7 +26,6 @@ import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-poo
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import type { RawDomParagraphRecord } from "../core/engine/context/enhance-context.js";
 import * as rawDomModule from "../core/engine/raw-dom.js";
-import type { CopyInstaller } from "../core/utils/copy.js";
 import type { EnhanceOptions } from "../core/engine/lifecycle.js";
 
 // Plain fakes ride through an any-typed builder (Object.create(null)), the
@@ -90,7 +89,6 @@ function installDriveGlobals() {
 
 interface PlainContext {
   rootState: RootStateApi;
-  copyInstaller: CopyInstaller;
   layoutJobPool: LayoutJobPool;
   rawDomContext: EnhancedElementContext;
   ops: string[];
@@ -329,16 +327,8 @@ function makePlainContext(): PlainContext {
     },
   };
 
-  const copyInstaller: CopyInstaller = {
-    install(documentObject) {
-      ops.push("copyInstaller.install");
-      installedDocuments.push(documentObject);
-    },
-  };
-
   return {
     rootState,
-    copyInstaller,
     layoutJobPool,
     rawDomContext,
     ops,
@@ -360,7 +350,6 @@ function makePlainContext(): PlainContext {
 function graphOf(context: PlainContext) {
   return {
     rootState: context.rootState,
-    copyInstaller: context.copyInstaller,
     rawDomContext: context.rawDomContext,
   };
 }
@@ -370,7 +359,6 @@ test("the plain context literals satisfy the runtime-graph product contracts", (
   const graph = graphOf(context);
   assert.equal(typeof graph.rootState.createRootState, "function");
   assert.equal(typeof graph.rootState.sessionArgument, "function");
-  assert.equal(typeof graph.copyInstaller.install, "function");
 });
 
 test("enhance installs the copy listener, tears down, then builds and publishes", () => {
@@ -381,7 +369,6 @@ test("enhance installs the copy listener, tears down, then builds and publishes"
   try {
     const enhancedCount = enhance(
       context.rootState,
-      context.copyInstaller,
       context.layoutJobPool,
       context.rawDomContext,
       root,
@@ -389,15 +376,12 @@ test("enhance installs the copy listener, tears down, then builds and publishes"
     );
     assert.equal(enhancedCount, 0);
     assert.deepEqual(context.ops, [
-      "copyInstaller.install",
       "pool.cancelJob",
       "rs.deleteState",
       "rs.createRootState",
       "rs.paragraphCandidates",
       "rs.publishState",
     ]);
-    assert.equal(context.installedDocuments.length, 1);
-    assert.equal(context.installedDocuments[0], rootDocument);
     assert.deepEqual(context.createdBags, [{ paragraphSelector: "p" }]);
     // The created state carries the bag's selector into the root state.
     assert.equal(context.states.get(root)?.options.paragraphSelector, "p");
@@ -417,14 +401,12 @@ test("enhanceProgressively starts an Enhance job through the plain pool", () => 
     const bag: Record<string, unknown> = { paragraphSelector: "p, li" };
     enhanceProgressively(
       context.rootState,
-      context.copyInstaller,
       context.layoutJobPool,
       context.rawDomContext,
       root,
       bag,
     );
     assert.deepEqual(context.ops, [
-      "copyInstaller.install",
       "pool.cancelJob",
       "rs.deleteState",
       "rs.createRootState",
@@ -455,13 +437,11 @@ test("relayout cold-starts a Relayout job when the root carries no state", () =>
   try {
     relayout(
       context.rootState,
-      context.copyInstaller,
       context.layoutJobPool,
       context.rawDomContext,
       root,
     );
     assert.deepEqual(context.ops, [
-      "copyInstaller.install",
       "pool.cancelJob",
       "rs.deleteState",
       "rs.createRootState",
@@ -488,7 +468,6 @@ test("relayout restarts an interrupted Enhance through the canonical builder", (
 
     relayout(
       context.rootState,
-      context.copyInstaller,
       context.layoutJobPool,
       context.rawDomContext,
       root,
@@ -515,7 +494,6 @@ test("relayout main path cancels the job and rebuilds a Relayout session", () =>
 
     relayout(
       context.rootState,
-      context.copyInstaller,
       context.layoutJobPool,
       context.rawDomContext,
       root,

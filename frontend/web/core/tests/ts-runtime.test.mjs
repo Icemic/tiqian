@@ -44,17 +44,14 @@ test("tiqianRuntimeGraph becomes the loaded graph and stays stable after load", 
   assert.equal(tiqianRuntimeGraph(), graph);
 });
 
-test("the loaded graph exposes the four plain products", async () => {
+test("the loaded graph exposes the rootState product", async () => {
   const graph = await loadTiqianRuntime();
-  assert.ok(graph.rawDom, "rawDom product");
-  assert.ok(graph.copyInstaller, "copyInstaller product");
   assert.ok(graph.rootState, "rootState product");
-  assert.ok(graph.layoutJobPool, "layoutJobPool product");
 });
 
 test("installTiqianRuntimeGraphForTesting substitutes the graph and restore returns the loaded one", async () => {
   const loaded = await loadTiqianRuntime();
-  const fakeGraph = { rawDom: {}, copyInstaller: {}, rootState: {}, layoutJobPool: {} };
+  const fakeGraph = { rootState: {} };
   const restore = installTiqianRuntimeGraphForTesting(fakeGraph);
   assert.equal(tiqianRuntimeGraph(), fakeGraph);
   restore();
@@ -67,6 +64,5 @@ test("buildTiqianRuntimeGraph builds a fresh graph per call, distinct from the l
   const second = buildTiqianRuntimeGraph();
   assert.notEqual(first, second);
   assert.notEqual(first.rootState, second.rootState);
-  assert.notEqual(first.layoutJobPool, second.layoutJobPool);
   assert.notEqual(first.rootState, loaded.rootState);
 });

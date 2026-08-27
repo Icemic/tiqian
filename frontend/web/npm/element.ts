@@ -19,7 +19,7 @@ import {
   OBSERVED_ATTRIBUTES,
 } from "@tiqian/core/core/engine/prose-host-session.js";
 import type { ProseHostSession } from "@tiqian/core/core/engine/prose-host-session.js";
-import { copyInstaller } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import { globalServices } from "@tiqian/core/core/services/global-services.js";
 import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
 import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 
@@ -139,7 +139,7 @@ export function registerTiqianProse(options: RegisterTiqianProseOptions = {}): v
   const targetDocument = options.targetDocument ??
     (typeof globalThis.document !== "undefined" ? globalThis.document : undefined);
 
-  if (interceptCopy && targetDocument) copyInstaller().install(targetDocument);
+  if (interceptCopy && targetDocument) globalServices().clipboard.install(targetDocument);
   // The scan is document-guarded internally and a no-op without a document.
   if (prefetchTables) prefetchSnapshotTables();
 

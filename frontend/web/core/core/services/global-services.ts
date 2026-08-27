@@ -26,9 +26,11 @@
 // swaps the container for an explicit replacement and returns a restore
 // function. Hosts must not touch it.
 import { CoordinationService } from "../engine/coordination/coordination-service.js";
+import { ClipboardManager } from "./clipboard-manager.js";
 
 export interface GlobalServices {
   coordination: CoordinationService;
+  clipboard: ClipboardManager;
 }
 
 type GlobalServicesRegistry = Record<symbol, GlobalServices | undefined>;
@@ -40,6 +42,7 @@ const GLOBAL_SERVICES_KEY: unique symbol = Symbol.for("@tiqian/prose.global-serv
 function createGlobalServices(): GlobalServices {
   return {
     coordination: new CoordinationService(),
+    clipboard: new ClipboardManager(),
   };
 }
 
