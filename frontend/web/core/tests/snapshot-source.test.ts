@@ -9,6 +9,13 @@ import {
   snapshotSourceArtifactString,
 } from "../core/sampler/snapshot/snapshot-source.js";
 
+interface SemanticSpanInput {
+  start?: unknown;
+  end?: unknown;
+  tagName?: unknown;
+  attributes?: unknown;
+}
+
 test("snapshot source semantics are nested deterministically and include behavior attributes", () => {
   const semantics = normalizeSnapshotSemantics("前链接后", [{
     start: 1,
@@ -22,14 +29,25 @@ test("snapshot source semantics are nested deterministically and include behavio
     attributes: {},
   }]);
 
-  assert.deepEqual(semantics.map((span) => span.tagName), ["a", "strong"]);
+  const tagNames = semantics.map((span) => span.tagName);
+  assert.deepEqual(tagNames, ["a", "strong"]);
   assert.notEqual(
-    snapshotSourceArtifactString("前链接后", semantics),
     snapshotSourceArtifactString("前链接后", [{
       start: 1,
       end: 3,
       tagName: "a",
       attributes: { title: "入口", href: "/second" },
+    }, {
+      start: 1,
+      end: 3,
+      tagName: "strong",
+      attributes: {},
+    }]),
+    snapshotSourceArtifactString("前链接后", [{
+      start: 1,
+      end: 3,
+      tagName: "a",
+      attributes: { title: "入口", href: "/first" },
     }, {
       start: 1,
       end: 3,
@@ -50,7 +68,7 @@ test("snapshot semantics reject crossing ranges and active content attributes", 
 });
 
 test("live semantics validate structure without serializing host tags or attributes", () => {
-  let snapshotError;
+  let snapshotError: SnapshotSemanticError | undefined;
   try {
     normalizeSnapshotSemantics("前秘密后", [{
       start: 1,
@@ -59,18 +77,21 @@ test("live semantics validate structure without serializing host tags or attribu
       attributes: { style: "padding:4px", onclick: "reveal()" },
     }]);
   } catch (error) {
+    if (!(error instanceof SnapshotSemanticError)) throw new Error("Expected SnapshotSemanticError");
     snapshotError = error;
   }
+  if (snapshotError == null) throw new Error("Expected error to be thrown");
   assert.ok(snapshotError instanceof SnapshotSemanticError);
   assert.equal(snapshotError.code, "UnsupportedSnapshotSemanticTag");
   assert.equal(snapshotError.detail, "spoiler");
 
-  assert.deepEqual(normalizeLiveSemantics("前秘密后", [{
+  const liveResult = normalizeLiveSemantics("前秘密后", [{
     start: 1,
     end: 3,
     tagName: "spoiler",
     attributes: { style: "padding:4px", onclick: "reveal()" },
-  }]), [{
+  }]);
+  assert.deepEqual(liveResult, [{
     start: 1,
     end: 3,
     tagName: "spoiler",
@@ -83,7 +104,7 @@ test("live semantics validate structure without serializing host tags or attribu
 });
 
 test("live semantics keep hierarchy order separate from live source indices", () => {
-  assert.deepEqual(normalizeLiveSemantics("秘密", [{
+  const result = normalizeLiveSemantics("秘密", [{
     start: 0,
     end: 2,
     tagName: "em",
@@ -95,7 +116,8 @@ test("live semantics keep hierarchy order separate from live source indices", ()
     tagName: "spoiler",
     sourceIndex: 1,
     order: 0,
-  }]), [{
+  }]);
+  assert.deepEqual(result, [{
     start: 0,
     end: 2,
     tagName: "spoiler",
@@ -108,6 +130,23 @@ test("live semantics keep hierarchy order separate from live source indices", ()
   }]);
 });
 
+interface TextSpan {
+  start: number;
+  end: number;
+  fontFamilies?: string[];
+  fontSizePx?: number;
+  fontWeight?: number;
+  italic?: boolean;
+  baselineShiftPx?: number;
+}
+
+interface InlineBox {
+  start: number;
+  end: number;
+  inlineStartPx?: number;
+  inlineEndPx?: number;
+}
+
 test("inline code requires an explicit snapshot-font and box metric contract", () => {
   const semantics = normalizeSnapshotSemantics("中code文", [{
     start: 1,
@@ -117,10 +156,10 @@ test("inline code requires an explicit snapshot-font and box metric contract", (
   }]);
 
   assert.equal(
-    snapshotSemanticMetricContractIssue(semantics, [], []),
+    snapshotSemanticMetricContractIssue(Array.from(semantics), [], []),
     "InlineCodeFontContractUnavailable",
   );
-  const textSpans = [{
+  const textSpans: TextSpan[] = [{
     start: 1,
     end: 5,
     fontFamilies: ["Host Exact Mono"],
@@ -130,13 +169,14 @@ test("inline code requires an explicit snapshot-font and box metric contract", (
     baselineShiftPx: 0,
   }];
   assert.equal(
-    snapshotSemanticMetricContractIssue(semantics, textSpans, []),
+    snapshotSemanticMetricContractIssue(Array.from(semantics), textSpans, []),
     "InlineCodeBoxContractUnavailable",
   );
-  assert.equal(snapshotSemanticMetricContractIssue(semantics, textSpans, [{
+  const inlineBoxes: InlineBox[] = [{
     start: 1,
     end: 5,
     inlineStartPx: 5.6,
     inlineEndPx: 5.6,
-  }]), null);
+  }];
+  assert.equal(snapshotSemanticMetricContractIssue(Array.from(semantics), textSpans, inlineBoxes), null);
 });
