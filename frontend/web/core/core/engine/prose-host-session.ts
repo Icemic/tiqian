@@ -20,9 +20,6 @@ import { createProseHostStateMachine } from "./prose-host-state-machine.js";
 import { InvalidationReason } from "./prose-host-state.js";
 import { raceAbort } from "./abort-race.js";
 import {
-  loadTiqianRuntime,
-} from "./loaders/runtime-loader.js";
-import {
   awaitInitialTypographyFonts,
   createInitialFontRetryController,
   ensurePreparedDomBridge,
@@ -395,13 +392,8 @@ class ProseHostSession {
     // SnapshotFirstInputBeforeRuntimeCompile: even a mixed root can prove and
     // display its keyed snapshot without Kotlin. Under Edge JITless, eagerly
     // importing the full runtime for one unkeyed paragraph delays the first
-    // wheel event before adoption has even started. Load it only after a
-    // successful snapshot reports that completion is still required.
-    const runtimePromise = this.#root.hasAttribute("snapshot-ref") &&
-        !strongEmphasisRuntimeRequired
-      ? null
-      : loadTiqianRuntime();
-    runtimePromise?.catch(() => {});
+    // wheel event before adoption has even started. The runtime is no longer
+    // loaded here; the session owns its own rootState.
     this.#removeReadyListener();
     this.#stopTypographyObservation();
     this.#readyListener = (event) => {
@@ -515,7 +507,7 @@ class ProseHostSession {
     // published on the state machine transaction slot. Disconnect and restart
     // abort it; every pipeline await below races against its signal.
     const enhanceAbortController = this.#beginEnhanceAbortController();
-    this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, runtimePromise, enhanceAbortController.signal)
+    this.#runHostCascadeGate(generation, strongEmphasisRuntimeRequired, enhanceAbortController.signal)
       .catch((error) => this.#failInitialEnhance(generation, error));
   }
 
@@ -534,7 +526,6 @@ class ProseHostSession {
   async #runHostCascadeGate(
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
-    runtimePromise: Promise<unknown> | null,
     signal: AbortSignal,
   ): Promise<void> {
     const styles = await raceAbort(signal, ensureTiqianStyles(this.#root.ownerDocument, this.#root));
@@ -559,7 +550,7 @@ class ProseHostSession {
     if (hostCommit.aborted) return;
     if (!this.#root.isConnected || generation !== this.#context.generation || signal.aborted) return;
     coordinationService().requestFrame(() => {
-      this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, runtimePromise, signal)
+      this.#runInitialEnhance(generation, strongEmphasisRuntimeRequired, signal)
         .catch((error) => this.#failInitialEnhance(generation, error));
     }, this.#coordinationSession);
   }
@@ -596,7 +587,6 @@ class ProseHostSession {
   async #runInitialEnhance(
     generation: number,
     strongEmphasisRuntimeRequired: boolean,
-    runtimePromise: Promise<unknown> | null,
     signal: AbortSignal,
   ): Promise<void> {
     if (!this.#root.isConnected || generation !== this.#context.generation || signal.aborted) return;
@@ -637,8 +627,6 @@ class ProseHostSession {
       // server geometry for its keyed siblings.
       const completionSelector = snapshotCompletionSelector(this.#root);
       if (completionSelector) {
-        const runtime = await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));
-        if (runtime.aborted) return;
         if (!this.#root.isConnected || generation !== this.#context.generation || signal.aborted) {
           return;
         }
@@ -666,8 +654,6 @@ class ProseHostSession {
       return;
     }
     this.#context.diagnosis.set("tiqianSnapshotMiss", snapshot.reason ?? "SnapshotNotAdopted");
-    const runtime = await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));
-    if (runtime.aborted) return;
     if (!this.#root.isConnected || generation !== this.#context.generation || signal.aborted) return;
     if (!(await this.#dispatchProgressiveEnhance(generation))) return;
   }
@@ -1432,8 +1418,6 @@ class ProseHostSession {
     };
     if (restoreBeforeLoad) restoreImmediatelyBeforeDispatch();
     try {
-      const runtime = await raceAbort(signal, loadTiqianRuntime());
-      if (runtime.aborted) return;
       if (
         !this.#root.isConnected || generation !== this.#context.generation ||
         activeRequest !== this.#stateMachine.transaction.enhanceRequest || signal?.aborted
@@ -1535,8 +1519,6 @@ class ProseHostSession {
       this.#snapshotEnhancedCount = snapshot.count;
       const completionSelector = snapshotCompletionSelector(this.#root);
       if (completionSelector) {
-        const runtime = await raceAbort(signal, loadTiqianRuntime());
-        if (runtime.aborted) return;
         if (
           !this.#root.isConnected || generation !== this.#context.generation ||
           operation !== this.#stateMachine.transaction.layoutOperation || signal?.aborted

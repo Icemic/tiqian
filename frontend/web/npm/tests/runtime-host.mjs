@@ -3623,11 +3623,9 @@ let runtimePromise;
 export function loadHostRuntime() {
   buildWorld();
   installPreparedRendererFixture();
-  runtimePromise ??= import("@tiqian/core/core/engine/loaders/runtime-loader.js").then(async (loader) => {
-    const graph = await loader.loadTiqianRuntime();
-    runtimeGraph = graph;
-    
-    // The graph is now empty; create rootState and other services separately.
+  runtimePromise ??= Promise.resolve().then(() => {
+    // The runtime graph is now empty; the session owns its own rootState.
+    // Create rootState and other services separately.
     const rootState = createRootState();
     const layoutJobPool = globalServices().coordination.layoutJobPool;
     const rawDomContext = globalServices().rawDom.context;

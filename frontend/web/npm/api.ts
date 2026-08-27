@@ -1,7 +1,3 @@
-import {
-  currentTiqianRuntime,
-  loadTiqianRuntime,
-} from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import { globalServices } from "@tiqian/core/core/services/global-services.js";
 import { prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import { restoreAdoptedSnapshot } from "@tiqian/core/core/sampler/snapshot/loaded-snapshots.js";
@@ -40,7 +36,6 @@ function getOrCreateApiRootState(root: HTMLElement): RootStateApi {
   return rootState;
 }
 
-export { loadTiqianRuntime };
 export { declareTiqianFontFaces } from "@tiqian/core/core/sampler/snapshot/declared-faces.js";
 
 export type TraceConfig = { maxEntries?: number; };
@@ -188,7 +183,6 @@ async function withTiqianWeb<T>(
   let cjkDashCapability: CjkDashShapingOutcome;
   try {
     await Promise.all([
-      loadTiqianRuntime(),
       ensureTiqianStyles(root.ownerDocument ?? globalThis.document, root),
       ensurePreparedDomBridge(),
     ]);
@@ -245,7 +239,7 @@ export async function destroy(root: HTMLElement = document.body): Promise<void> 
   const generation = context.update();
   try {
     const restored = await restoreAdoptedSnapshot(root);
-    if (restored && !currentTiqianRuntime()) {
+    if (restored) {
       releaseContextFontSession(context, root);
       context.destroy();
       return;

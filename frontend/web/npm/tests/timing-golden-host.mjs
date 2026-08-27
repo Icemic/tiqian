@@ -29,7 +29,6 @@ import {
 import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
 import {
-  installTiqianRuntimeGraphForTesting,
   setPreparedDomRendererForTesting,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import * as preparedDom from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
@@ -183,8 +182,7 @@ function recordingRawDomContext() {
 }
 
 function installRecordingEngine(record, initialPhase) {
-  const graph = recordingRuntimeGraph();
-  const restoreGraph = installTiqianRuntimeGraphForTesting(graph);
+  // The runtime graph is now empty; the session owns its own rootState.
   
   // Create recording service instances.
   const rootState = recordingRootState();
@@ -217,7 +215,6 @@ function installRecordingEngine(record, initialPhase) {
       rootState.flushProjection();
       activeEngineRecord = null;
       setPreparedDomRendererForTesting(undefined);
-      restoreGraph();
     },
   };
 }

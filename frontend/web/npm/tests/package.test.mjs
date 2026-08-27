@@ -190,14 +190,12 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const adoption = sessionSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
   const connectedStart = sessionSource.indexOf("  mount() {");
   const initialSnapshotSource = sessionSource.slice(connectedStart, adoption);
-  const runtimeLoad = sessionSource.indexOf("await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));", adoption);
   const invalidationStart = sessionSource.indexOf("  async #invalidateSnapshotAndEnhance(");
   const invalidationEnd = sessionSource.indexOf(
     "  async #tryReadoptSnapshotAtMaximumMeasure(",
     invalidationStart,
   );
   const invalidationSource = sessionSource.slice(invalidationStart, invalidationEnd);
-  const invalidationRuntimeLoad = invalidationSource.indexOf("loadTiqianRuntime()");
   const invalidationDispatch = invalidationSource.indexOf("this.#dispatchProgressiveEnhance(");
   const readoptionStart = sessionSource.indexOf("  async #tryReadoptSnapshotAtMaximumMeasure() {");
   const readoptionEnd = sessionSource.indexOf("  #recoverRuntimeAfterSnapshotMiss(", readoptionStart);
@@ -222,7 +220,6 @@ test("the custom element validates a snapshot before dynamically loading the bro
     initialSnapshotSource,
     /bypassesFontWait: \(\) => this\.#root\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired/u,
   );
-  assert.ok(runtimeLoad > adoption);
   assert.match(
     sessionSource,
     /OptInStrongSnapshotExclusion[\s\S]*?this\.strongAsEmphasisMarks && hasStrongEmphasis\(this\.#root\)/u,
@@ -231,16 +228,11 @@ test("the custom element validates a snapshot before dynamically loading the bro
     eligibilitySource,
     /function hasStrongEmphasis\(root\) \{[\s\S]*?querySelector\("strong"\)/u,
   );
-  assert.match(
-    sessionSource,
-    /SnapshotFirstInputBeforeRuntimeCompile[\s\S]*?this\.#root\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired[\s\S]*?\? null[\s\S]*?: loadTiqianRuntime\(\)/u,
-  );
   assert.doesNotMatch(initialSnapshotSource, /initialCompletionSelector/u);
   assert.match(
     sessionSource,
     /if \(!strongEmphasisRuntimeRequired\) \{[\s\S]*?tryAdoptRequestedSnapshot\(/u,
   );
-  assert.match(runtimeSource, /from "\.\/ts-runtime\.js"/u);
   assert.doesNotMatch(sessionSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /from "\.\.\/\.\.\/measurement\/browser-fonts\.js"/u);
   // The prepared-dom renderer import moved to runtime-loader (S4); font-loader
