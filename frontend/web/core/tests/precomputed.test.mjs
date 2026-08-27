@@ -27,8 +27,24 @@ import {
 import { FONT_REPLAY_REVISION, stableStringify } from "../core/sampler/snapshot/snapshot-schema.js";
 import { snapshotTablesForRoot } from "../core/sampler/snapshot/snapshot-tables.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
+
+/**
+ * The adoption/restore/detach entry points take an EnhancedElementContext as
+ * their second argument. One context per fake root, cached so adopt and the
+ * later restore/detach in the same test share the same context value.
+ */
+const enhanceContexts = new WeakMap();
+function contextFor(root) {
+  let context = enhanceContexts.get(root);
+  if (!context) {
+    context = createEnhanceContext(root);
+    enhanceContexts.set(root, context);
+  }
+  return context;
+}
 
 
 /**
@@ -390,7 +406,7 @@ test("snapshot list items preserve their native marker display contract", async 
       paragraphSelector: ":is(p, li)[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: true,
       count: 1,
     });
@@ -416,7 +432,7 @@ test("exact runtime font evidence remains valid across responsive size and line-
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotTypographyMismatch",
     });
@@ -454,7 +470,7 @@ test("proportional quote evidence and prepared boundaries replay the same featur
       boundaryFeatureSignature: "pwid,palt",
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: true,
       count: 1,
     });
@@ -473,7 +489,7 @@ test("unknown font probe features fail before snapshot adoption", async () => {
   try {
     const { root, paragraph, originalText } = fixture({ probeFeatures: ["calt"] });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "FontProbeFeaturesUnsupported",
     });
@@ -522,7 +538,7 @@ test("a compact client font contract enables the exact runtime without claiming 
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotLayoutArtifactUnavailable",
     });
@@ -604,7 +620,7 @@ test("one host typography variant cannot poison a sibling runtime font replay", 
       compatibleLocalDeclared: false,
     });
     assert.equal(root.getAttribute("data-tiqian-snapshot-typography-issue"), null);
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotLayoutArtifactUnavailable",
     });
@@ -747,7 +763,7 @@ test("shaping boundaries may carry engine-owned letter spacing when their advanc
   );
   try {
     const { root } = fixture({ shapingBoundary: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -790,7 +806,7 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.equal(isPrecomputedSnapshotAdopted(root), true);
     assert.equal(root.dataset.tiqianSnapshotFontPolicy, "url-only");
@@ -802,11 +818,11 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
     assert.notStrictEqual(paragraph.firstChild, originalText);
 
     const preparedNode = paragraph.firstChild;
-    assert.equal(detachPrecomputedSnapshot(root), true);
+    assert.equal(detachPrecomputedSnapshot(root, contextFor(root)), true);
     assert.equal(isPrecomputedSnapshotAdopted(root), true);
     assert.strictEqual(paragraph.firstChild, preparedNode);
 
-    assert.equal(restorePrecomputedSnapshot(root), true);
+    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
     assert.equal(isPrecomputedSnapshotAdopted(root), false);
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -845,12 +861,12 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
       "p-0:RenderedPreparedParagraphLineAdvanceMismatch:stale",
     );
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.strictEqual(paragraph.firstChild, firstPaintNode);
     assert.equal(root.dataset.tiqianSnapshot, "maximum-measure");
     assert.equal(root.getAttribute("data-tiqian-snapshot-layout-issue"), null);
 
-    assert.equal(restorePrecomputedSnapshot(root), true);
+    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
     assert.equal(paragraph.textContent, "中国");
     assert.equal(paragraph.firstChild.nodeType, 3);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -859,7 +875,7 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
     assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.equal(paragraph.firstChild.nodeType, 1);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   } finally {
@@ -888,7 +904,7 @@ test("a direct SSR width miss restores native source before runtime fallback", a
     });
     template.content.removeChild(entry);
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotWidthMismatch",
     });
@@ -900,7 +916,7 @@ test("a direct SSR width miss restores native source before runtime fallback", a
     assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.equal(paragraph.firstChild.nodeType, 1);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
@@ -921,7 +937,7 @@ test("translation-only ancestor matrices preserve the exact snapshot geometry co
         element === root ? { transform } : {},
       );
 
-      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
       assert.notStrictEqual(paragraph.firstChild, originalText);
     }
   } finally {
@@ -949,7 +965,7 @@ test("non-translation ancestor transforms remain outside the exact snapshot cont
         element === root ? ancestorStyle : {},
       );
 
-      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
         adopted: false,
         reason: "SnapshotTypographyMismatch",
       });
@@ -970,7 +986,7 @@ test("a translation on the paragraph itself remains outside the exact snapshot c
       element === paragraph ? { transform: "matrix(1, 0, 0, 1, 12, 8)" } : {},
     );
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotTypographyMismatch",
     });
@@ -1004,7 +1020,7 @@ test("duplicate manifest keys cannot corrupt source restoration", async () => {
       matches: false,
       reason: "SnapshotManifestEntryKeyInvalid",
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotManifestEntryKeyInvalid",
     });
@@ -1054,7 +1070,7 @@ test("snapshots adopt through the snapshot table reference", async () => {
     assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
     // After adoption the verified table sits in the transport cache and the
@@ -1064,7 +1080,7 @@ test("snapshots adopt through the snapshot table reference", async () => {
     // A manifest pinning a different digest reads the cached reference as a
     // mismatch and misses without adopting anything.
     const mismatch = fixture({ snapshotTablesSha: "0".repeat(64) });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(mismatch.root, mismatch.root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(mismatch.root, contextFor(mismatch.root), mismatch.root.ownerDocument), {
       adopted: false,
       reason: "SnapshotTablesMissing",
     });
@@ -1081,7 +1097,7 @@ test("snapshot adoption accepts a wider container in the same line-length grid c
     const { root, paragraph } = fixture();
     paragraph.width = 368;
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.equal(root.dataset.tiqianSnapshot, "maximum-measure");
     assert.equal(await adoptedPrecomputedSnapshotLiveIssue(root), null);
 
@@ -1097,7 +1113,7 @@ test("snapshot adoption preserves native Text nodes for ordinary prepared prose"
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph } = fixture({ nativeText: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
 
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.equal(paragraph.childNodes[1].nodeType, 3);
@@ -1112,7 +1128,7 @@ test("snapshot adoption accepts sparse inline geometry without an atomic shaping
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root } = fixture({ shapingBoundary: false });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1127,7 +1143,7 @@ test("prepared geometry inherits shaping styles from its nearest semantic source
   );
   try {
     const { root } = fixture({ semanticGeometry: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1146,7 +1162,7 @@ test("prepared geometry may carry an artifact-owned exact render-font projection
   );
   try {
     const { root } = fixture({ semanticGeometry: true, renderFontProjection: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1168,7 +1184,7 @@ test("prepared geometry still rejects shaping styles that differ from its semant
       semanticGeometry: true,
       shapingBoundary: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotGeometryMismatch:Geometry:fontWeight",
     });
@@ -1189,7 +1205,7 @@ test("snapshot adoption requires the engine-owned punctuation feature lock", asy
   );
   try {
     const { root, paragraph, originalText } = fixture();
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotHostContractMismatch",
     });
@@ -1216,12 +1232,12 @@ test("maximum-measure snapshot atomically replaces and restores canonical runtim
     runtimeRun.textContent = "中国";
     paragraph.append(runtimeMarker, runtimeRun);
 
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, runtimeMarker);
     assert.equal(originalText.parentNode, null, "re-adoption must not expose retained SSR source");
 
-    assert.equal(restorePrecomputedSnapshot(root), true);
+    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
     assert.strictEqual(paragraph.firstChild, runtimeMarker);
     assert.strictEqual(paragraph.childNodes[1], runtimeRun);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -1237,7 +1253,7 @@ test("a same-face local() source can satisfy the compatible-local contract", asy
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
     assert.equal(isPrecomputedSnapshotAdopted(root), true);
@@ -1252,7 +1268,7 @@ test("a local() token outside the build face name table is rejected", async () =
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, localName: "Arial" });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1265,7 +1281,7 @@ test("a compatible local face with a different probe advance is rejected", async
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, probeWidth: 40 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "FontAdvanceProbeMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1278,7 +1294,7 @@ test("an optional render face cannot promise exact direct first paint", async ()
   globalThis.document = setup.documentObject;
   globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo);
   try {
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, setup.root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, contextFor(setup.root), setup.root.ownerDocument), {
       adopted: false,
       reason: "FontFaceContractMismatch",
     });
@@ -1293,7 +1309,7 @@ test("an inert snapshot may adopt a swap face only after its exact probe loads",
   globalThis.document = setup.documentObject;
   globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo);
   try {
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, setup.root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, contextFor(setup.root), setup.root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     delete globalThis.document;
     delete globalThis.getComputedStyle;
@@ -1305,7 +1321,7 @@ test("post-adoption segment advance mismatch restores the original paragraph", a
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, segmentWidth: 38 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotSegmentAdvanceMismatch:0;expected=36;actual=38;text=\"中国\";letterSpacing=normal;features=none;source=same",
@@ -1321,7 +1337,7 @@ test("post-adoption line pen mismatch restores the original paragraph", async ()
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, lineEnd: 38 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineAdvanceMismatch:0;sentinel;expectedFlow=36;expectedCore=36;actual=38;contentWidth=360",
@@ -1342,7 +1358,7 @@ test("an exact engine-owned line pen may protrude beyond the raw content box", a
       maximumWidth: 35,
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1353,7 +1369,7 @@ test("post-adoption baseline drift restores the original paragraph", async () =>
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ sentinelTop: 20.1 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineVerticalMismatch:0",
@@ -1369,7 +1385,7 @@ test("post-adoption paragraph height drift restores the original paragraph", asy
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ paragraphHeight: 28 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineVerticalMismatch:paragraph",
@@ -1389,7 +1405,7 @@ test("post-adoption prefix position drift cannot cancel out at the line end", as
       segmentLeft: 1,
       lineEnd: 36,
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineAdvanceMismatch:0;position;expected=0;actual=1",
@@ -1405,7 +1421,7 @@ test("an ambiguous sibling face prevents exact-source adoption", async () => {
   globalThis.getComputedStyle = fixtureComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ unsafeSibling: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1430,7 +1446,7 @@ test("an overlapping unicode-range sibling prevents exact-source adoption", asyn
       }),
       parentStyleSheet: { href: sheet.href },
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1453,7 +1469,7 @@ test("font-face metric override descriptors cannot satisfy exact evidence", asyn
       src: originalStyle.getPropertyValue("src"),
       "size-adjust": "110%",
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1469,7 +1485,7 @@ test("non-default shaping CSS misses before DOM adoption", async () => {
   });
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1488,7 +1504,7 @@ test("lining numeric typography validates the matching lnum font probe", async (
       probeFeatures: ["lnum"],
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
     assert.ok(measuredProbeStyles.some((style) =>
       style.includes("font-variant-numeric:lining-nums!important")));
@@ -1504,7 +1520,7 @@ test("generated pseudo content is outside the plain-text snapshot contract", asy
   });
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1519,7 +1535,7 @@ test("prepared pseudo isolation avoids per-node pseudo probes after adoption", a
   });
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
     assert.equal(isPrecomputedSnapshotAdopted(root), true);
@@ -1539,7 +1555,7 @@ test("horizontal padding cannot masquerade as the prepared content width", async
   try {
     const { root, paragraph, originalText } = fixture();
     paragraph.width = 400;
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1549,7 +1565,7 @@ test("horizontal padding cannot masquerade as the prepared content width", async
 
 test("typography manifest tampering misses before DOM adoption", async () => {
   const { root, paragraph, originalText } = fixture({ typographyDigest: "c".repeat(64) });
-  const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+  const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
   assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyDigestMismatch" });
   assert.strictEqual(paragraph.firstChild, originalText);
 });
@@ -1558,7 +1574,7 @@ test("rendered snapshot artifact tampering misses before DOM adoption", async ()
   const { documentObject, root, paragraph, originalText } = fixture();
   documentObject.getElementById("tq-page").content
     .querySelector("[data-tq-entry]").firstChild.textContent = "错误";
-  const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+  const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
   assert.deepEqual(adopted, { adopted: false, reason: "SnapshotArtifactDigestMismatch" });
   assert.strictEqual(paragraph.firstChild, originalText);
 });
@@ -1570,7 +1586,7 @@ test("host text alignment outside the v1 contract misses before DOM adoption", a
   });
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1588,7 +1604,7 @@ test("a superseded async validation never mutates the live paragraph", async () 
       current = false;
       return [{}];
     };
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument, () => current);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument, () => current);
     assert.deepEqual(adopted, { adopted: false, reason: "superseded" });
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.equal(isPrecomputedSnapshotAdopted(root), false);
@@ -1616,7 +1632,7 @@ test("a superseded post-adoption proof rolls back only its provisional DOM", asy
       },
     };
 
-    const adopted = await tryAdoptPrecomputedSnapshot(root, root.ownerDocument, () => current);
+    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument, () => current);
     assert.deepEqual(adopted, { adopted: false, reason: "superseded" });
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.equal(isPrecomputedSnapshotAdopted(root), false);
