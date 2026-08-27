@@ -228,7 +228,7 @@ import { preparedDomRenderer } from "./runtime-loader.js";
 // renderer module reference is a static import reached through the loader;
 // the promise shape keeps the memo API stable for awaiting callers.
 export function loadSnapshotFontFallback(): Promise<SnapshotFontFallbackLoader> {
-  const state = globalServices().fonts;
+  const state = globalServices().coordination.fonts;
   state.snapshotFontFallbackPromise ??= Promise.resolve(preparedDomRenderer()).then((preparedDom): SnapshotFontFallbackLoader => {
     return {
       prepareBrowserFontSession,
@@ -248,7 +248,7 @@ export function loadSnapshotFontFallback(): Promise<SnapshotFontFallbackLoader> 
 // to a test fixture or an snapshot-session install and is left untouched —
 // loadSnapshotFontFallback keeps its own monotonic upgrade for a stale legacy occupant.
 export function ensurePreparedDomBridge(): Promise<typeof PreparedDomNamespace | undefined> {
-  const state = globalServices().fonts;
+  const state = globalServices().coordination.fonts;
   state.preparedBridgePromise ??= Promise.resolve(preparedDomRenderer());
   return state.preparedBridgePromise;
 }

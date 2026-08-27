@@ -11,7 +11,7 @@ import {
   FakeText,
   fixtureComputedStyle,
 } from "./snapshot-dom-fixtures.mjs";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, commitValidator } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, commitValidator } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import {
   enhance,
   enhanceProgressively,
@@ -2675,8 +2675,8 @@ export function testGrantController(root, generation, deadlineMs, quota) {
 }
 
 export function failSnapshotPreparedDomRender(detail) {
-  setCommitValidatorForTest({ issue: () => null });
-  setPreparedDomRendererForTest({
+  setCommitValidatorForTesting({ issue: () => null });
+  setPreparedDomRendererForTesting({
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     render() {
@@ -2705,7 +2705,7 @@ export function installPreparedRendererFixture() {
   globalThis.__TiqianSnapshotPreparedRenderCount = 0;
   globalThis.__TiqianSnapshotFontShapeCount = 0;
   globalThis.__TiqianSnapshotFontFallbackCount = 0;
-  setPreparedDomRendererForTest({
+  setPreparedDomRendererForTesting({
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     render(host, planJson, locale, options = {}) {
@@ -3288,7 +3288,7 @@ export function installPreparedRendererFixture() {
       return true;
     },
   });
-  setCommitValidatorForTest({ issue: () => null });
+  setCommitValidatorForTesting({ issue: () => null });
 }
 
 // Snapshot font session fixture (backend-global retirement): the exact options
@@ -3364,17 +3364,17 @@ export function installSnapshotFontSessionFixture({
     }
   }
 
-  globalServices().fonts.replayRegistry.sessions.set(
+  globalServices().coordination.fonts.replayRegistry.sessions.set(
     "fixture-snapshot-session",
     { shapes: new FixtureShapeTable(), metrics: new FixtureMetricTable(), probe: null },
   );
 }
 
 export function clearSnapshotFontSessionFixture() {
-  globalServices().fonts.replayRegistry.sessions.delete("fixture-snapshot-session");
+  globalServices().coordination.fonts.replayRegistry.sessions.delete("fixture-snapshot-session");
   delete globalThis.__TiqianSnapshotFixtureActive;
-  setPreparedDomRendererForTest(null);
-  setCommitValidatorForTest(null);
+  setPreparedDomRendererForTesting(null);
+  setCommitValidatorForTesting(null);
   delete globalServices().coordination.layoutWorker;
   delete globalThis.__TiqianSnapshotPreparedPlan;
   delete globalThis.__TiqianSnapshotPreparedRenderCount;
@@ -3399,13 +3399,13 @@ export function snapshotPreparedRenderCount() {
 }
 
 export function failSnapshotPreparedDomValidation(detail) {
-  setCommitValidatorForTest({ issue: () => detail });
+  setCommitValidatorForTesting({ issue: () => detail });
 }
 
 export function failNextSnapshotPreparedDomValidation(detail) {
   const previous = commitValidator();
   let spent = false;
-  setCommitValidatorForTest({
+  setCommitValidatorForTesting({
     issue(host, width) {
       if (!spent) {
         spent = true;

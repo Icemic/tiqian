@@ -43,10 +43,35 @@ import {
   inlineObjectPlaceholder,
   rubyAnnotationSpan,
 } from "./prepared-dom-evidence.js";
-import { globalServices } from "../../services/global-services.js";
 import { getContextForElement, createEnhanceContext } from "../../engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "../../engine/context/enhance-context.js";
-import type { PreparedScopeCounter } from "../../services/global-services.js";
+
+// Prepared-style scoping state (wc-s5 R9): rootsByHost tracks which root owns
+// a given host paragraph element; scopeCounters assigns monotonically
+// increasing scope IDs per document. Both are document-scoped, behavior-less
+// records owned by the prepared-style behavior in this module, so they live
+// in this module's closure behind a Symbol.for registry key rather than in
+// the service container; module copies in one document still share one record.
+interface PreparedScopeCounter {
+  next: number;
+}
+
+interface PreparedStylesState {
+  rootsByHost: WeakMap<Element, Element>;
+  scopeCounters: WeakMap<Document, PreparedScopeCounter>;
+}
+
+const PREPARED_STYLES_KEY: unique symbol = Symbol.for("@tiqian/core.prepared-styles.v1");
+
+type PreparedStylesRegistry = Record<symbol, PreparedStylesState | undefined>;
+
+function preparedStylesState(): PreparedStylesState {
+  const registry = globalThis as PreparedStylesRegistry;
+  return registry[PREPARED_STYLES_KEY] ??= {
+    rootsByHost: new WeakMap(),
+    scopeCounters: new WeakMap(),
+  };
+}
 
 // --- Internal types ---
 
@@ -333,11 +358,11 @@ const SNAPSHOT_STYLE_OWNER = Object.freeze({});
 
 function nextPreparedScopeForDocument(documentObject: Document | null | undefined): number {
   if (!documentObject) return 1;
-  const services = globalServices();
-  let counter = services.preparedStyles.scopeCounters.get(documentObject);
+  const scopeCounters = preparedStylesState().scopeCounters;
+  let counter = scopeCounters.get(documentObject);
   if (!counter) {
     counter = { next: 1 };
-    services.preparedStyles.scopeCounters.set(documentObject, counter);
+    scopeCounters.set(documentObject, counter);
   }
   const current = counter.next;
   counter.next += 1;
@@ -453,9 +478,9 @@ function syncPreparedValueStyles(state: PreparedStyleState) {
 function removePreparedStyleState(state: PreparedStyleState) {
   const context = getContextForElement(state.root);
   if (context) context.preparedStyle = null;
-  const services = globalServices();
+  const rootsByHost = preparedStylesState().rootsByHost;
   for (const owner of state.owners.keys()) {
-    if (owner !== SNAPSHOT_STYLE_OWNER) services.preparedStyles.rootsByHost.delete(owner as Element);
+    if (owner !== SNAPSHOT_STYLE_OWNER) rootsByHost.delete(owner as Element);
   }
   state.styleElement.remove?.();
   if (state.styleElement.parentNode) state.styleElement.parentNode.removeChild(state.styleElement);
@@ -507,10 +532,10 @@ export function releasePreparedRenderFontStyle(root: Element) {
 }
 
 export function releasePreparedParagraphStyles(host: Element) {
-  const services = globalServices();
-  const root = services.preparedStyles.rootsByHost.get(host);
+  const rootsByHost = preparedStylesState().rootsByHost;
+  const root = rootsByHost.get(host);
   if (!root) return false;
-  services.preparedStyles.rootsByHost.delete(host);
+  rootsByHost.delete(host);
   const context = getContextForElement(root);
   const state = context?.preparedStyle;
   if (!state) return false;
@@ -1239,7 +1264,7 @@ export function renderPreparedParagraphInto(
   if (state) {
     state.owners.set(host, usedStyles);
     state.dirty = true;
-    globalServices().preparedStyles.rootsByHost.set(host, root);
+    preparedStylesState().rootsByHost.set(host, root);
     syncPreparedValueStyles(state);
   }
   host.innerHTML = lowered.html;

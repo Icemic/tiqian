@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { setPreparedDomRendererForTest, setCommitValidatorForTest } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting } from "../core/engine/loaders/runtime-loader.js";
 import { enhance, enhanceProgressively } from "../core/engine/progressive-drivers.js";
 import { destroyRoot, detachRoot } from "../core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-reconcile.js";
@@ -128,7 +128,7 @@ function withEnv(fn, overrides = {}) {
       },
     };
     if (overrides.preparedDom !== false) {
-      setPreparedDomRendererForTest({
+      setPreparedDomRendererForTesting({
         render: function () {},
         release: function () { return true; },
         releaseRoot: function () { return true; },
@@ -136,18 +136,18 @@ function withEnv(fn, overrides = {}) {
         layoutRevision: "tiqian-layout-v2",
       });
     } else {
-      setPreparedDomRendererForTest(null);
+      setPreparedDomRendererForTesting(null);
     }
     if (overrides.validator !== undefined) {
-      setCommitValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTesting({ issue: overrides.validator });
     } else {
-      setCommitValidatorForTest(null);
+      setCommitValidatorForTesting(null);
     }
     return fn();
   } finally {
     if (backend) backend.uninstall();
-    setPreparedDomRendererForTest(undefined);
-    setCommitValidatorForTest(undefined);
+    setPreparedDomRendererForTesting(undefined);
+    setCommitValidatorForTesting(undefined);
     restoreEnv(saved);
   }
 }

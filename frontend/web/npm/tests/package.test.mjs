@@ -123,6 +123,10 @@ test("the release verifier accepts the verified package files", async () => {
 
 test("the custom element validates a snapshot before dynamically loading the browser runtime", async () => {
   const elementSource = await readFile(new URL("../element.js", import.meta.url), "utf8");
+  const sessionSource = await readFile(
+    new URL("../../core/core/engine/prose-host-session.js", import.meta.url),
+    "utf8",
+  );
   const elementDeclarations = await readFile(new URL("../element.d.ts", import.meta.url), "utf8");
   const apiSource = await readFile(new URL("../api.js", import.meta.url), "utf8");
   const apiDeclarations = await readFile(new URL("../api.d.ts", import.meta.url), "utf8");
@@ -180,61 +184,61 @@ test("the custom element validates a snapshot before dynamically loading the bro
   const coreResolvedSource = await readFile(new URL(coreStylesResolution), "utf8");
   assert.equal(coreResolvedSource, coreStylesSource);
   const stylesSource = coreStylesSource;
-  const adoption = elementSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
-  const connectedStart = elementSource.indexOf("  connectedCallback() {");
-  const initialSnapshotSource = elementSource.slice(connectedStart, adoption);
-  const runtimeLoad = elementSource.indexOf("await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));", adoption);
-  const invalidationStart = elementSource.indexOf("  async #invalidateSnapshotAndEnhance(");
-  const invalidationEnd = elementSource.indexOf(
+  const adoption = sessionSource.indexOf("snapshot = await tryAdoptRequestedSnapshot(");
+  const connectedStart = sessionSource.indexOf("  mount() {");
+  const initialSnapshotSource = sessionSource.slice(connectedStart, adoption);
+  const runtimeLoad = sessionSource.indexOf("await raceAbort(signal, Promise.resolve(runtimePromise ?? loadTiqianRuntime()));", adoption);
+  const invalidationStart = sessionSource.indexOf("  async #invalidateSnapshotAndEnhance(");
+  const invalidationEnd = sessionSource.indexOf(
     "  async #tryReadoptSnapshotAtMaximumMeasure(",
     invalidationStart,
   );
-  const invalidationSource = elementSource.slice(invalidationStart, invalidationEnd);
+  const invalidationSource = sessionSource.slice(invalidationStart, invalidationEnd);
   const invalidationRuntimeLoad = invalidationSource.indexOf("loadTiqianRuntime()");
   const invalidationDispatch = invalidationSource.indexOf("this.#dispatchProgressiveEnhance(");
-  const readoptionStart = elementSource.indexOf("  async #tryReadoptSnapshotAtMaximumMeasure() {");
-  const readoptionEnd = elementSource.indexOf("  #recoverRuntimeAfterSnapshotMiss(", readoptionStart);
-  const readoptionSource = elementSource.slice(readoptionStart, readoptionEnd);
-  const mixedCompletionStart = elementSource.indexOf("MixedSnapshotRuntimeCompletion");
-  const mixedCompletionEnd = elementSource.indexOf(
-    "            if (!this.#stateMachine.runtimeActive)",
+  const readoptionStart = sessionSource.indexOf("  async #tryReadoptSnapshotAtMaximumMeasure() {");
+  const readoptionEnd = sessionSource.indexOf("  #recoverRuntimeAfterSnapshotMiss(", readoptionStart);
+  const readoptionSource = sessionSource.slice(readoptionStart, readoptionEnd);
+  const mixedCompletionStart = sessionSource.indexOf("MixedSnapshotRuntimeCompletion");
+  const mixedCompletionEnd = sessionSource.indexOf(
+    "      if (!this.#stateMachine.runtimeActive)",
     mixedCompletionStart,
   );
-  const mixedCompletionSource = elementSource.slice(mixedCompletionStart, mixedCompletionEnd);
-  const viewportListenerStart = elementSource.indexOf("  #ensureViewportResizeListener() {");
-  const viewportListenerEnd = elementSource.indexOf(
+  const mixedCompletionSource = sessionSource.slice(mixedCompletionStart, mixedCompletionEnd);
+  const viewportListenerStart = sessionSource.indexOf("  #ensureViewportResizeListener() {");
+  const viewportListenerEnd = sessionSource.indexOf(
     "  #handleResponsiveGeometryChange() {",
     viewportListenerStart,
   );
-  const viewportListenerSource = elementSource.slice(viewportListenerStart, viewportListenerEnd);
+  const viewportListenerSource = sessionSource.slice(viewportListenerStart, viewportListenerEnd);
 
   assert.ok(adoption >= 0);
   assert.match(initialSnapshotSource, /#beginLayoutWork\(\{ captureSignatures: false \}\)/u);
   assert.doesNotMatch(initialSnapshotSource, /#lastTypography = this\.#typographySignature\(\)/u);
   assert.match(
     initialSnapshotSource,
-    /bypassesFontWait: \(\) => this\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired/u,
+    /bypassesFontWait: \(\) => this\.#root\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired/u,
   );
   assert.ok(runtimeLoad > adoption);
   assert.match(
-    elementSource,
-    /OptInStrongSnapshotExclusion[\s\S]*?this\.strongAsEmphasisMarks && hasStrongEmphasis\(this\)/u,
+    sessionSource,
+    /OptInStrongSnapshotExclusion[\s\S]*?this\.strongAsEmphasisMarks && hasStrongEmphasis\(this\.#root\)/u,
   );
   assert.match(
     eligibilitySource,
     /function hasStrongEmphasis\(root\) \{[\s\S]*?querySelector\("strong"\)/u,
   );
   assert.match(
-    elementSource,
-    /SnapshotFirstInputBeforeRuntimeCompile[\s\S]*?this\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired[\s\S]*?\? null[\s\S]*?: loadTiqianRuntime\(\)/u,
+    sessionSource,
+    /SnapshotFirstInputBeforeRuntimeCompile[\s\S]*?this\.#root\.hasAttribute\("snapshot-ref"\) &&[\s\S]*?!strongEmphasisRuntimeRequired[\s\S]*?\? null[\s\S]*?: loadTiqianRuntime\(\)/u,
   );
   assert.doesNotMatch(initialSnapshotSource, /initialCompletionSelector/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /if \(!strongEmphasisRuntimeRequired\) \{[\s\S]*?tryAdoptRequestedSnapshot\(/u,
   );
   assert.match(runtimeSource, /from "\.\/ts-runtime\.js"/u);
-  assert.doesNotMatch(elementSource, /from "\.\/runtime\/tiqian-web\.js"/u);
+  assert.doesNotMatch(sessionSource, /from "\.\/runtime\/tiqian-web\.js"/u);
   assert.match(fontLoaderSource, /from "\.\.\/\.\.\/measurement\/browser-fonts\.js"/u);
   // The prepared-dom renderer import moved to runtime-loader (S4); font-loader
   // reaches it through the synchronous renderer accessor and no longer
@@ -243,24 +247,24 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.doesNotMatch(fontLoaderSource, /from "\.\.\/\.\.\/sampler\/snapshot\/prepared-dom\.js"/u);
   assert.match(fontLoaderSource, /preparedDomRenderer\(\)/u);
   assert.doesNotMatch(fontLoaderSource, /installPreparedDomRendererBridge/u);
-  assert.match(elementSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
-  assert.doesNotMatch(elementSource, /from "\.\/browser-fonts\.js"/u);
-  assert.doesNotMatch(elementSource, /from "\.\/precomputed\.js"/u);
-  assert.doesNotMatch(elementSource, /from "\.\/font-shaping\.js"/u);
+  assert.match(sessionSource, /import\("@tiqian\/core\/core\/engine\/web-worker\/worker-channel\.js"\)/u);
+  assert.doesNotMatch(sessionSource, /from "\.\/browser-fonts\.js"/u);
+  assert.doesNotMatch(sessionSource, /from "\.\/precomputed\.js"/u);
+  assert.doesNotMatch(sessionSource, /from "\.\/font-shaping\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(apiSource, /from "\.\/font-shaping\.js"/u);
   assert.match(loadedSnapshotsSource, /from "\.\/precomputed\.js"/u);
   assert.doesNotMatch(loadedSnapshotsSource, /font-shaping\.js/u);
-  assert.doesNotMatch(elementSource, /lazy-capabilities/u);
+  assert.doesNotMatch(sessionSource, /lazy-capabilities/u);
   assert.doesNotMatch(apiSource, /lazy-capabilities/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-fonts\.js|harfbuzzjs|woff2-encoder/u);
   assert.match(layoutWorkerSource, /from "@tiqian\/ffi"/u);
   assert.doesNotMatch(layoutWorkerSource, /precompute-runtime/u);
   assert.match(layoutWorkerSource, /workerSnapshotSubsetSourceBoundaries\(session\.faces, request\)/u);
   assert.doesNotMatch(browserFontsSource, /harfbuzzjs|woff2-encoder/u);
-  assert.doesNotMatch(elementSource, /tiqian:retry-cjk-dash/u);
-  assert.match(elementSource, /BrowserDashCapabilityBeforeDispatch/u);
-  assert.doesNotMatch(elementSource, /#snapshotFontSession\?\.reference === reference/u);
+  assert.doesNotMatch(sessionSource, /tiqian:retry-cjk-dash/u);
+  assert.match(sessionSource, /BrowserDashCapabilityBeforeDispatch/u);
+  assert.doesNotMatch(sessionSource, /#snapshotFontSession\?\.reference === reference/u);
   assert.doesNotMatch(apiSource, /existing\?\.reference === reference/u);
   assert.match(browserFontsSource, /await requirePreparedOrSnapshotContract\(root\)/u);
   assert.match(
@@ -271,69 +275,69 @@ test("the custom element validates a snapshot before dynamically loading the bro
   assert.match(browserFontsSource, /ServerReplayNeedsNoBrowserFontBytes/u);
   assert.doesNotMatch(browserFontsSource, /fetchImplementation|createRenderFontFace/u);
   assert.match(browserFontsSource, /export function prepareBrowserRenderFonts/u);
-  assert.match(elementSource, /SnapshotFontSessionLiveRevalidation/u);
-  assert.match(elementSource, /await existing\.revalidate\(this, existing\.handle\)/u);
+  assert.match(sessionSource, /SnapshotFontSessionLiveRevalidation/u);
+  assert.match(sessionSource, /await existing\.revalidate\(this\.#root, existing\.handle\)/u);
   assert.match(
-    elementSource,
-    /HostRenderFontReadyBeforeCommit[\s\S]*?await raceAbort\(signal, this\.#snapshotFontSession\.prepareRenderFont\(this, snapshotFontSession\)\)/u,
+    sessionSource,
+    /HostRenderFontReadyBeforeCommit[\s\S]*?await raceAbort\(signal, this\.#snapshotFontSession\.prepareRenderFont\(this\.#root, snapshotFontSession\)\)/u,
   );
   assert.match(
-    elementSource,
-    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
+    sessionSource,
+    /await raceAbort\(signal, coordinationService\(\)\.runPrepare\([\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /const layoutOperation = this\.#beginLayoutWork\(\{ usesCapturedMeasure: true \}\)[\s\S]*?request === this\.#stateMachine\.transaction\.enhanceRequest &&[\s\S]*?layoutOperation === this\.#stateMachine\.transaction\.layoutOperation/u,
   );
   assert.match(
-    elementSource,
-    /observedAttributes = \[[\s\S]*?"disabled",[\s\S]*?"emphasis-dot-gap-em",[\s\S]*?"strong-as-emphasis-marks",[\s\S]*?"snapshot-ref",[\s\S]*?\]/u,
+    sessionSource,
+    /OBSERVED_ATTRIBUTES = \[[\s\S]*?"disabled",[\s\S]*?"emphasis-dot-gap-em",[\s\S]*?"strong-as-emphasis-marks",[\s\S]*?"snapshot-ref",[\s\S]*?\]/u,
   );
-  assert.match(elementSource, /get disabled\(\)[\s\S]*?hasAttribute\("disabled"\)/u);
+  assert.match(sessionSource, /get disabled\(\)[\s\S]*?hasAttribute\("disabled"\)/u);
   assert.match(elementDeclarations, /get disabled\(\): boolean/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /ReversibleDisabledEnhancement[\s\S]*?if \(this\.disabled\)\s*return/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /DisabledAttributeOwnsTeardown[\s\S]*?#restartConnectedLifecycle\(\)/u,
   );
-  assert.match(elementSource, /get strongAsEmphasisMarks\(\)[\s\S]*?hasAttribute\("strong-as-emphasis-marks"\)/u);
+  assert.match(sessionSource, /get strongAsEmphasisMarks\(\)[\s\S]*?hasAttribute\("strong-as-emphasis-marks"\)/u);
   assert.match(elementDeclarations, /get strongAsEmphasisMarks\(\): boolean/u);
   assert.match(apiDeclarations, /strongAsEmphasisMarks\?: boolean/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /UpgradeAttributeReactionGuard[\s\S]*?if \(this\.#stateMachine\.connected\)\s*this\.#restartConnectedLifecycle\(\)/u,
   );
   assert.match(
-    elementSource,
-    /SnapshotFontValidationRenderProjection[\s\S]*?this\.setAttribute\(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true"\)/u,
+    sessionSource,
+    /SnapshotFontValidationRenderProjection[\s\S]*?this\.#root\.setAttribute\(SNAPSHOT_RENDER_FONT_ATTRIBUTE, "true"\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /SnapshotPreparedDomFallbackSingleFlight[\s\S]*?#snapshotFontRejectedAttempt = this\.#snapshotFontAttemptSignature\(\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /#snapshotFontRejectedAttempt === this\.#snapshotFontAttemptSignature\(reference\)/u,
   );
-  assert.match(elementSource, /#restartConnectedLifecycle\(\)/u);
+  assert.match(sessionSource, /#restartConnectedLifecycle\(\)/u);
   assert.match(snapshotCompletionSource, /function snapshotCompletionSelector\(root\) \{/u);
   assert.match(snapshotCompletionSource, /:is\(p, li\):not\(\[data-tq-snapshot-key\]\)/u);
-  assert.match(elementSource, /!strongEmphasisRuntimeRequired\) \{/u);
+  assert.match(sessionSource, /!strongEmphasisRuntimeRequired\) \{/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /MixedSnapshotRuntimeCompletion[\s\S]*?#dispatchProgressiveEnhance\(generation, \{[\s\S]*?paragraphSelector: completionSelector/u,
   );
-  assert.match(elementSource, /paragraphSelector:\s*completionSelector/u);
+  assert.match(sessionSource, /paragraphSelector:\s*completionSelector/u);
   assert.doesNotMatch(
     mixedCompletionSource,
-    /restoreLoadedSnapshot\(this\)/u,
+    /restoreLoadedSnapshot\(this\.#root\)/u,
   );
-  assert.doesNotMatch(elementSource, /runtimeCoversSnapshotParagraphs|preserveSnapshotRenderFont/u);
+  assert.doesNotMatch(sessionSource, /runtimeCoversSnapshotParagraphs|preserveSnapshotRenderFont/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /restoreImmediatelyBeforeDispatch[\s\S]*?this\.#stateMachine\.snapshotAdopted = false/u,
   );
   assert.match(
@@ -342,26 +346,26 @@ test("the custom element validates a snapshot before dynamically loading the bro
   );
   assert.match(readoptionSource, /RuntimeSnapshotBackingRestore/u);
   assert.ok(
-    readoptionSource.indexOf("destroyRuntimeRoot(this)") <
+    readoptionSource.indexOf("destroyRuntimeRoot(this.#root)") <
       readoptionSource.indexOf("tryAdoptRequestedSnapshot("),
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /#recoverRuntimeAfterSnapshotMiss\(operation, reason, runtimeSnapshotBackingRestored = false\)/u,
   );
-  assert.doesNotMatch(elementSource, /tq-inline-size-probe/u);
+  assert.doesNotMatch(sessionSource, /tq-inline-size-probe/u);
   const observersSource = await readFile(
     new URL("../../core/core/sampler/observers.js", import.meta.url),
     "utf8",
   );
   assert.match(observersSource, /observer\??\.observe\([^)]+, \{ box: "border-box" \}\)/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /ResponsiveInlineSizeObservation[\s\S]*?onWidthsChanged[\s\S]*?#scheduleResponsiveGeometryCommit/u,
   );
   assert.match(observersSource, /Math\.abs\(width - previous\) >= 0\.5/u);
   assert.doesNotMatch(stylesSource, /tq-inline-size-probe/u);
-  assert.match(elementSource, /paragraphWidthSignature\(this\)/u);
+  assert.match(sessionSource, /paragraphWidthSignature\(this\.#root\)/u);
   const signaturesSource = await readFile(
     new URL("../../core/core/sampler/signatures.js", import.meta.url),
     "utf8",
@@ -371,10 +375,10 @@ test("the custom element validates a snapshot before dynamically loading the bro
     signaturesSource,
     /responsiveGeometrySignature\(root\)[\s\S]*?fragmentedBorderBoxInlineSize\(root\)/u,
   );
-  assert.doesNotMatch(elementSource, /RESPONSIVE_LAYOUT_SETTLE_MS|#resizeSettleTimer/u);
-  assert.doesNotMatch(elementSource, /RESPONSIVE_LATEST_RETARGET_QUIET_MS/u);
+  assert.doesNotMatch(sessionSource, /RESPONSIVE_LAYOUT_SETTLE_MS|#resizeSettleTimer/u);
+  assert.doesNotMatch(sessionSource, /RESPONSIVE_LATEST_RETARGET_QUIET_MS/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /#scheduleResponsiveRetarget\(\)[\s\S]*?coordinationService\(\)\.requestFrame\(responsiveRetargetFrame\)/u,
   );
   assert.match(viewportListenerSource, /ViewportResizeValidatesCapturedLayoutInputs/u);
@@ -387,12 +391,12 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /#cancelCapturedLayoutForLatestGeometry|#cancelPendingLayoutForLatestGeometry|#restoreRuntimeSourceForRetarget/u,
   );
   assert.match(
-    elementSource,
-    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?cancelRootLayoutWork\(this\)[\s\S]*?invalidate\(InvalidationReason\.ResponsiveRelayout\)/u,
+    sessionSource,
+    /#cancelCapturedLayoutForLatestGeometry\(\)[\s\S]*?cancelRootLayoutWork\(this\.#root\)[\s\S]*?invalidate\(InvalidationReason\.ResponsiveRelayout\)/u,
   );
   assert.match(
-    elementSource,
-    /ProgressiveOutputTypographyBaseline[\s\S]*?this\.#stateMachine\.work\.typographySignature = typographySignature\(this\)/u,
+    sessionSource,
+    /ProgressiveOutputTypographyBaseline[\s\S]*?this\.#stateMachine\.work\.typographySignature = typographySignature\(this\.#root\)/u,
   );
   assert.match(
     signaturesSource,
@@ -403,109 +407,109 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /ROOT_VIEWPORT_TYPOGRAPHY_PROPERTIES = TYPOGRAPHY_PROPERTIES\.filter\([\s\S]*?property !== "margin-left" && property !== "margin-right"/u,
   );
   assert.match(
-    elementSource,
-    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?this\.#stateMachine\.runtimeActive = false/u,
+    sessionSource,
+    /ResponsiveRetargetNativeRollback[\s\S]*?destroyRuntimeRoot\(this\.#root\)[\s\S]*?this\.#stateMachine\.runtimeActive = false/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /#scheduleResponsiveGeometryCommit\(\) \{[\s\S]*?coordinationService\(\)\.requestFrame/u,
   );
   assert.ok(invalidationRuntimeLoad >= 0);
   assert.ok(invalidationDispatch > invalidationRuntimeLoad);
-  assert.equal(invalidationSource.match(/restoreLoadedSnapshot\(this\)/gu)?.length, 1);
+  assert.equal(invalidationSource.match(/restoreLoadedSnapshot\(this\.#root\)/gu)?.length, 1);
   assert.match(
     invalidationSource,
-    /const restoreImmediatelyBeforeDispatch = \(\) => \{[\s\S]*?restoreLoadedSnapshot\(this\)/u,
+    /const restoreImmediatelyBeforeDispatch = \(\) => \{[\s\S]*?restoreLoadedSnapshot\(this\.#root\)/u,
   );
   assert.match(invalidationSource, /beforeDispatch: restoreImmediatelyBeforeDispatch/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /ResponsiveSnapshotRollbackAtFirstSafeSignal[\s\S]*?#invalidateSnapshotAndEnhance\(\{ restoreBeforeLoad: true \}\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /ResponsiveRuntimeDirectInPlaceRelayout[\s\S]*?#scheduleResponsiveGeometryCommit\(\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /MixedSnapshotCompletionResume[\s\S]*?completionSelector && !this\.#stateMachine\.runtimeActive[\s\S]*?paragraphSelector: completionSelector/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /if \(!this\.#stateMachine\.runtimeActive\) \{[\s\S]*?ReadoptionMissMustReclaimSource[\s\S]*?#dispatchProgressiveEnhance\(generation\)/u,
   );
-  assert.match(elementSource, /PreparedSnapshotTransition/u);
+  assert.match(sessionSource, /PreparedSnapshotTransition/u);
   assert.match(
-    elementSource,
-    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this, preparedOptions\)/u,
+    sessionSource,
+    /beforeDispatch\?\.\(\);[\s\S]*?usesCapturedMeasure: true[\s\S]*?enhanceProgressively\(graph\.rootState, graph\.copyInstaller, graph\.layoutJobPool, graph\.rawDom, this\.#root, preparedOptions\)/u,
   );
   assert.match(
-    elementSource,
-    /ResponsiveNativeBacking[\s\S]*?destroyRuntimeRoot\(this\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
+    sessionSource,
+    /ResponsiveNativeBacking[\s\S]*?destroyRuntimeRoot\(this\.#root\)[\s\S]*?#dispatchProgressiveEnhance\(generation, \{ revalidateSnapshotFont \}\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /const snapshotFontSessionAlreadyPrepared = !revalidateSnapshotFont[\s\S]*?this\.#snapshotFontSession\?\.reference/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /WidthOnlySnapshotFontSessionReuse[\s\S]*?if \(!snapshotFontSessionAlreadyPrepared\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /ResponsiveNativeRetargetSingleFlight[\s\S]*?isInvalidated\(InvalidationReason\.ResponsiveRelayout\) && !this\.#stateMachine\.runtimeActive/u,
   );
-  assert.match(elementSource, /this\.addEventListener\("tiqian:relayout-ready"/u);
-  assert.match(elementSource, /loadedSnapshotMaximumMeasureMatches\(this\)/u);
-  assert.match(elementSource, /transaction\.geometryRevision !== transaction\.layoutWorkRevision/u);
-  assert.match(elementSource, /#paragraphMeasureSignature\(\)/u);
-  assert.match(elementSource, /ObserverBaselineAfterUncapturedLayout/u);
+  assert.match(sessionSource, /this\.#root\.addEventListener\("tiqian:relayout-ready"/u);
+  assert.match(sessionSource, /loadedSnapshotMaximumMeasureMatches\(this\.#root\)/u);
+  assert.match(sessionSource, /transaction\.geometryRevision !== transaction\.layoutWorkRevision/u);
+  assert.match(sessionSource, /#paragraphMeasureSignature\(\)/u);
+  assert.match(sessionSource, /ObserverBaselineAfterUncapturedLayout/u);
   assert.match(
-    elementSource,
-    /const currentParagraphWidths =[\s\S]*?paragraphWidthSignature\(this\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
+    sessionSource,
+    /const currentParagraphWidths =[\s\S]*?paragraphWidthSignature\(this\.#root\)[\s\S]*?this\.#lastParagraphWidths = currentParagraphWidths/u,
   );
-  assert.match(elementSource, /!widthsChanged && !measuresChanged/u);
+  assert.match(sessionSource, /!widthsChanged && !measuresChanged/u);
   assert.match(
-    elementSource,
-    /hostInlineSizeRefresh = widthsChanged && hasHostInlineSizeParagraph\(this\)[\s\S]*?!hostInlineSizeRefresh/u,
+    sessionSource,
+    /hostInlineSizeRefresh = widthsChanged && hasHostInlineSizeParagraph\(this\.#root\)[\s\S]*?!hostInlineSizeRefresh/u,
   );
   assert.match(
     responsiveMeasureSource,
     /querySelector\("\[data-tq-host-inline-size\]"\)/u,
   );
-  assert.match(elementSource, /usesCapturedMeasure: true/u);
-  assert.match(elementSource, /currentMeasures !== work\.measureSignature/u);
-  assert.match(elementSource, /RenderOutputTypographyIsNotAnInputChange/u);
+  assert.match(sessionSource, /usesCapturedMeasure: true/u);
+  assert.match(sessionSource, /currentMeasures !== work\.measureSignature/u);
+  assert.match(sessionSource, /RenderOutputTypographyIsNotAnInputChange/u);
   assert.match(
-    elementSource,
-    /RendererOwnedProgressiveStyleMutation[\s\S]*?rendererOwnedProgressiveStyleMutation\(record, this\)/u,
+    sessionSource,
+    /RendererOwnedProgressiveStyleMutation[\s\S]*?rendererOwnedProgressiveStyleMutation\(record, this\.#root\)/u,
   );
   assert.match(observersSource, /attributeOldValue: true/u);
   assert.doesNotMatch(
-    elementSource,
+    sessionSource,
     /const capturedTypographyChanged = this\.#layoutWorkUsesCapturedMeasure/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /work\.usesCapturedMeasure\)\s*stateMachine\.clearInvalidation\(InvalidationReason\.ResponsiveRelayout\);[\s\S]*?stateMachine\.invalidate\(InvalidationReason\.ResponsiveRelayout\);/u,
   );
-  assert.match(elementSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
-  assert.match(elementSource, /if \(stale\)\s*this\.#stateMachine\.invalidate\(InvalidationReason\.ResponsiveCommit\)/u);
-  assert.doesNotMatch(elementSource, /tiqian:enhance-atomically/u);
-  assert.match(elementSource, /cancelRootLayoutWork\(this\)/u);
-  assert.match(elementSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
-  assert.match(elementSource, /responsiveGeometrySignature\(this\) !== work\.geometrySignature/u);
-  assert.match(elementSource, /this\.#stateMachine\.runtimeActive = false/u);
-  assert.match(elementSource, /operation === this\.#stateMachine\.transaction\.layoutOperation/u);
-  assert.doesNotMatch(elementSource, /#snapshotBackedByRuntime/u);
-  assert.match(elementSource, /let initialReadyReported = false/u);
+  assert.match(sessionSource, /RESPONSIVE_SNAPSHOT_GEOMETRY_MISSES/u);
+  assert.match(sessionSource, /if \(stale\)\s*this\.#stateMachine\.invalidate\(InvalidationReason\.ResponsiveCommit\)/u);
+  assert.doesNotMatch(sessionSource, /tiqian:enhance-atomically/u);
+  assert.match(sessionSource, /cancelRootLayoutWork\(this\.#root\)/u);
+  assert.match(sessionSource, /this\.#dispatchProgressiveEnhance\(generation\)/u);
+  assert.match(sessionSource, /responsiveGeometrySignature\(this\.#root\) !== work\.geometrySignature/u);
+  assert.match(sessionSource, /this\.#stateMachine\.runtimeActive = false/u);
+  assert.match(sessionSource, /operation === this\.#stateMachine\.transaction\.layoutOperation/u);
+  assert.doesNotMatch(sessionSource, /#snapshotBackedByRuntime/u);
+  assert.match(sessionSource, /let initialReadyReported = false/u);
   assert.match(
-    elementSource,
+    sessionSource,
     /if \(!initialReadyReported\)[\s\S]*?diagnosis\.set\("tiqianLoadMs"/u,
   );
-  assert.doesNotMatch(elementSource, /addEventListener\("DOMContentLoaded"/u);
-  assert.doesNotMatch(elementSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
-  assert.match(elementSource, /forceTypographyStyleRecompute\(this\);[\s\S]*?awaitInitialTypographyFonts/u);
+  assert.doesNotMatch(sessionSource, /addEventListener\("DOMContentLoaded"/u);
+  assert.doesNotMatch(sessionSource, /\.then\(\(\) => document\.fonts\?\.ready/u);
+  assert.match(sessionSource, /forceTypographyStyleRecompute\(this\.#root\);[\s\S]*?awaitInitialTypographyFonts/u);
   assert.match(fontLoaderSource, /waitForTypographyFonts/u);
   assert.match(fontLoaderSource, /DEFAULT_TYPOGRAPHY_FONT_WAIT_MS = 3_000/u);
   assert.match(
@@ -517,20 +521,20 @@ test("the custom element validates a snapshot before dynamically loading the bro
     /deferUntilFontsSettle[\s\S]*?"loadingdone"[\s\S]*?"loadingerror"[\s\S]*?Promise\.resolve\(completion\)\.then\(restart\)/u,
   );
   assert.match(
-    elementSource,
+    sessionSource,
     /LatestObservedAttributeGeneration[\s\S]*?if \(!this\.#stateMachine\.dispatched\) \{[\s\S]*?this\.#restartConnectedLifecycle\(\)/u,
   );
   assert.match(
-    elementSource,
-    /attributeChangedCallback\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
+    sessionSource,
+    /#attributeChanged\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\.#root\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
   );
   assert.match(
-    elementSource,
-    /#scheduleTypographyCheck\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
+    sessionSource,
+    /#scheduleTypographyCheck\([\s\S]*?this\.#stateMachine\.snapshotAdopted \|\| isLoadedSnapshotAdopted\(this\.#root\)[\s\S]*?#invalidateSnapshotAndEnhance\(\)[\s\S]*?#refreshRuntimeFromSource\(\)/u,
   );
   assert.match(
-    elementSource,
-    /disconnectedCallback\(\)[\s\S]*?this\.#context\.destroy\(\)[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
+    sessionSource,
+    /unmount\(\)[\s\S]*?this\.#context\.destroy\(\)[\s\S]*?this\.#clearInitialFontRetry\(\)/u,
   );
   assert.match(stylesSource, /\[data-tq-geometry="true"\]::before/u);
   assert.match(stylesSource, /\[data-tq-rendered="true"\]::before,[\s\S]*?content: none !important/u);
@@ -580,10 +584,26 @@ test("the custom element validates a snapshot before dynamically loading the bro
     stylesSource,
     /font-feature-settings: "halt" 0, "chws" 0, "palt" 1 !important/u,
   );
+
+  // Thin shell contract (wc-s5 R1): the element keeps only attribute
+  // reflection into session.updateOptions and the mount/unmount lifecycle
+  // delegation; every behavior lives in the core ProseHostSession.
+  assert.match(elementSource, /class TiqianProseElement/u);
+  assert.match(elementSource, /connectedCallback\(\) \{\s*this\.#session\.mount\(\);/u);
+  assert.match(elementSource, /disconnectedCallback\(\) \{\s*this\.#session\.unmount\(\);/u);
+  assert.match(elementSource, /this\.#session\.updateOptions\(\{ disabled: newValue != null \}\)/u);
+  assert.match(elementSource, /this\.#session\.updateOptions\(\{ snapshotRef: newValue \}\)/u);
+  assert.match(elementSource, /this\.#session\.updateOptions\(\{ strongAsEmphasisMarks: newValue != null \}\)/u);
+  assert.match(elementSource, /this\.#session\.updateOptions\(\{ emphasisDotGapEm: this\.emphasisDotGapEm \}\)/u);
+  assert.match(elementSource, /static observedAttributes = \[\.\.\.OBSERVED_ATTRIBUTES\]/u);
+  assert.doesNotMatch(elementSource, /#dispatchProgressiveEnhance|#beginLayoutWork|tryAdoptRequestedSnapshot/u);
 });
 
 test("layout coordinator implements visual prominence scoring, proportional backoff and anti-starvation aging", async () => {
-  const elementSource = await readFile(new URL("../element.js", import.meta.url), "utf8");
+  const sessionSource = await readFile(
+    new URL("../../core/core/engine/prose-host-session.js", import.meta.url),
+    "utf8",
+  );
   const coordinatorSource = await readFile(
     new URL("../../core/core/engine/coordination/coordination-service.js", import.meta.url),
     "utf8",
@@ -634,7 +654,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
 
   // 5. Lifecycle ready events bubble up for document-level observation
   assert.match(
-    elementSource,
+    sessionSource,
     /new CustomEvent\("tiqian:relayout-ready", \{[\s\S]*?bubbles: true,[\s\S]*?composed: true,/u,
   );
 
@@ -658,7 +678,7 @@ test("layout coordinator implements visual prominence scoring, proportional back
   // for the job window; every path that ends or abandons a job releases it.
   assert.match(coordinatorSource, /if \(!slot\.active\)\s*releaseNativeScrollAnchoring\(element\);/u);
   assert.match(coordinatorSource, /releaseNativeScrollAnchoring\(slot\.element\);/u);
-  assert.match(elementSource, /releaseNativeScrollAnchoring\(this\);/u);
+  assert.match(sessionSource, /releaseNativeScrollAnchoring\(this\.#root\);/u);
 });
 
 test("offscreen deferred queue keeps every pending callback per element", async () => {

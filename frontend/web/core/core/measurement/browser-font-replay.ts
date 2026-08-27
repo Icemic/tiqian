@@ -139,7 +139,7 @@ export interface ServerReplayFontBackend {
 }
 
 function replayRegistry(): ReplayRegistry {
-  return globalServices().fonts.replayRegistry;
+  return globalServices().coordination.fonts.replayRegistry;
 }
 
 function replayIndex<T extends { key: string }>(items: T[], kind: string): Map<string, T> {

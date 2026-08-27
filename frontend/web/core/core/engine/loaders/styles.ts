@@ -1,6 +1,24 @@
-import { globalServices } from "../../services/global-services.js";
+// Stylesheet loader handles (wc-s5 R9): one stylesheet link element and load
+// promise per document, owned by this module. The record lives in this
+// module's closure behind a Symbol.for registry key rather than in the
+// service container because it is behavior-less state: module copies in one
+// document (client routers, HMR, duplicated chunks) still share one record.
+interface StylesheetLoaderState {
+  stylesheetPromises: WeakMap<Document, Promise<HTMLLinkElement>>;
+  stylesheetElements: WeakMap<Document, HTMLLinkElement>;
+}
 
-const getStylesheetState = () => globalServices().stylesheetLoader!;
+const STYLESHEET_LOADER_KEY: unique symbol = Symbol.for("@tiqian/core.stylesheet-loader.v1");
+
+type StylesheetLoaderRegistry = Record<symbol, StylesheetLoaderState | undefined>;
+
+const getStylesheetState = (): StylesheetLoaderState => {
+  const registry = globalThis as StylesheetLoaderRegistry;
+  return registry[STYLESHEET_LOADER_KEY] ??= {
+    stylesheetPromises: new WeakMap(),
+    stylesheetElements: new WeakMap(),
+  };
+};
 
 export function ensureTiqianStyles(
   targetDocument: Document | null | undefined,
@@ -25,7 +43,7 @@ export function ensureTiqianStyles(
   }
   const previousPromise = state.stylesheetPromises.get(targetDocument);
   if (existing && existing === state.stylesheetElements.get(targetDocument) && previousPromise) {
-    return previousPromise as Promise<HTMLLinkElement | null>;
+    return previousPromise;
   }
 
   const link = existing ?? targetDocument.createElement("link");

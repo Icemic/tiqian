@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { openRelayoutSession } from "../core/engine/relayout-session.js";
@@ -89,18 +89,18 @@ function withPreparedBridge(fn, overrides = {}) {
     value: globalThis[name],
   }));
   try {
-    setPreparedDomRendererForTest(overrides.renderer || {
+    setPreparedDomRendererForTesting(overrides.renderer || {
       render: function () {},
       release: function () { return true; },
       releaseRoot: function () { return true; },
     });
-    setCommitValidatorForTest(overrides.validator || {
+    setCommitValidatorForTesting(overrides.validator || {
       issue: function () { return null; },
     });
     return fn();
   } finally {
-    setPreparedDomRendererForTest(undefined);
-    setCommitValidatorForTest(undefined);
+    setPreparedDomRendererForTesting(undefined);
+    setCommitValidatorForTesting(undefined);
     for (const entry of saved) {
       if (entry.own) globalThis[entry.name] = entry.value;
       else delete globalThis[entry.name];
@@ -240,7 +240,7 @@ test("4. ready + commit unsupported: real validator rejects, restoreParagraph ca
 
   const preparation = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
   withPreparedBridge(() => {
-    setCommitValidatorForTest({
+    setCommitValidatorForTesting({
       issue: function () { return "DOM mismatch"; },
     });
     active.processItem(0, preparation);
@@ -307,7 +307,7 @@ test("5. ready path passes the exact metadata JSON strings to the prepared-DOM r
 
   const preparation = { kind: "ready", planJson: '{"plan":true}', measure: 310, width: 300 };
   withPreparedBridge(() => {
-    setPreparedDomRendererForTest({
+    setPreparedDomRendererForTesting({
       render: function (host, planJson, locale, options) {
         renderCalls.push({ host, planJson, locale, options });
       },

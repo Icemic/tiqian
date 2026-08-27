@@ -105,7 +105,7 @@ function parseDeclaredText(cssText: string, baseUrl: string): DeclaredFaceParseO
 }
 
 function notifyChanged(): void {
-  for (const listener of globalServices().fonts.declaredFacesChangeListeners) listener();
+  for (const listener of globalServices().coordination.fonts.declaredFacesChangeListeners) listener();
 }
 
 /**
@@ -123,7 +123,7 @@ export function declareTiqianFontFaces(cssText: unknown, options: DeclaredFaceOp
   }
   const baseUrl = typeof options.baseUrl === "string" ? options.baseUrl : "";
   const key = entryKey(cssText, baseUrl);
-  const entries = globalServices().fonts.declaredFacesEntries;
+  const entries = globalServices().coordination.fonts.declaredFacesEntries;
   const existing = entries.get(key);
   if (existing) {
     existing.refCount += 1;
@@ -153,7 +153,7 @@ export function declareTiqianFontFaces(cssText: unknown, options: DeclaredFaceOp
 /** Parseable declared sheets, declaration order preserved. */
 export function declaredFaceSheets(): DeclaredFaceSheet[] {
   const sheets: DeclaredFaceSheet[] = [];
-  for (const entry of globalServices().fonts.declaredFacesEntries.values()) {
+  for (const entry of globalServices().coordination.fonts.declaredFacesEntries.values()) {
     if (entry.outcome.rules) {
       sheets.push({ rules: entry.outcome.rules, baseUrl: entry.baseUrl });
     }
@@ -164,7 +164,7 @@ export function declaredFaceSheets(): DeclaredFaceSheet[] {
 /** Parse outcomes for declarations that contributed no faces. */
 export function declaredFacesDiagnostics(): DeclaredFaceDiagnostic[] {
   const diagnostics: DeclaredFaceDiagnostic[] = [];
-  for (const entry of globalServices().fonts.declaredFacesEntries.values()) {
+  for (const entry of globalServices().coordination.fonts.declaredFacesEntries.values()) {
     if (!entry.outcome.rules) diagnostics.push(...entry.outcome.diagnostics);
   }
   return diagnostics;
@@ -172,7 +172,7 @@ export function declaredFacesDiagnostics(): DeclaredFaceDiagnostic[] {
 
 /** Subscribe to registry changes; returns an unsubscribe function. */
 export function onDeclaredFacesChanged(listener: DeclaredFaceVoidCallbackFn): DeclaredFaceUnsubscribeBoolFn {
-  const changeListeners = globalServices().fonts.declaredFacesChangeListeners;
+  const changeListeners = globalServices().coordination.fonts.declaredFacesChangeListeners;
   changeListeners.add(listener);
   return () => changeListeners.delete(listener);
 }

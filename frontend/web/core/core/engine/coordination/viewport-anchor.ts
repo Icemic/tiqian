@@ -24,8 +24,6 @@ export interface NativeScrollAnchoringHold {
   saved: SavedOverflowAnchor | null;
 }
 
-import { globalServices } from "../../services/global-services.js";
-
 const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
 const PARAGRAPH_SELECTOR = "p, li";
 const GESTURE_GRACE_MS = 350;
@@ -69,7 +67,31 @@ function readRect(element: HTMLElement | null | undefined): ViewportAnchorRect |
 // finger lifts, only scroll events. A scroll arriving shortly after a real
 // gesture extends the grace; an isolated scroll (including our own
 // correction) does not.
-const getViewportState = () => globalServices().viewportAnchor!;
+// Viewport gesture and scroll-anchoring state (wc-s5 R9): document-wide
+// singletons owned by this module. The record lives in this module's closure
+// behind a Symbol.for registry key rather than in the service container
+// because it is behavior-less state; module copies in one document still
+// share one record.
+interface ViewportAnchorState {
+  gestureTrackerInstalled: boolean;
+  lastGestureAt: number;
+  heldOwnerByRoot: WeakMap<HTMLElement, HTMLElement>;
+  ownerHolds: WeakMap<HTMLElement, NativeScrollAnchoringHold>;
+}
+
+const VIEWPORT_ANCHOR_KEY: unique symbol = Symbol.for("@tiqian/core.viewport-anchor.v1");
+
+type ViewportAnchorRegistry = Record<symbol, ViewportAnchorState | undefined>;
+
+const getViewportState = (): ViewportAnchorState => {
+  const registry = globalThis as ViewportAnchorRegistry;
+  return registry[VIEWPORT_ANCHOR_KEY] ??= {
+    gestureTrackerInstalled: false,
+    lastGestureAt: Number.NEGATIVE_INFINITY,
+    heldOwnerByRoot: new WeakMap(),
+    ownerHolds: new WeakMap(),
+  };
+};
 
 function installGestureTracker(root: HTMLElement): void {
   const state = getViewportState();
@@ -228,9 +250,9 @@ export function compensateViewportAnchor(root: HTMLElement, anchor: ViewportAnch
 }
 
 const heldOwnerByRoot = (): WeakMap<HTMLElement, HTMLElement> =>
-  getViewportState().heldOwnerByRoot as WeakMap<HTMLElement, HTMLElement>;
+  getViewportState().heldOwnerByRoot;
 const ownerHolds = (): WeakMap<HTMLElement, NativeScrollAnchoringHold> =>
-  getViewportState().ownerHolds as WeakMap<HTMLElement, NativeScrollAnchoringHold>;
+  getViewportState().ownerHolds;
 
 /**
  * NativeAnchoringHandover: two anchoring systems must never share one

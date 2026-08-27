@@ -1,6 +1,6 @@
 import { globalServices } from "../core/services/global-services.js";
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { processParagraph } from "../core/engine/process-paragraph.js";
@@ -82,7 +82,7 @@ const saved = saveGlobals([
     if (overrides.renderer !== false) {
       const renders = [];
       const releases = [];
-      setPreparedDomRendererForTest({
+      setPreparedDomRendererForTesting({
         render: (host, plan, locale, options) => {
           renders.push({ host, plan, locale, options });
         },
@@ -97,12 +97,12 @@ const saved = saveGlobals([
         releases,
       });
     } else {
-      setPreparedDomRendererForTest(null);
+      setPreparedDomRendererForTesting(null);
     }
     if (overrides.validator !== undefined) {
-      setCommitValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTesting({ issue: overrides.validator });
     } else {
-      setCommitValidatorForTest(null);
+      setCommitValidatorForTesting(null);
     }
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
@@ -123,8 +123,8 @@ const saved = saveGlobals([
     return fn();
   } finally {
     if (backend) backend.uninstall();
-    setPreparedDomRendererForTest(undefined);
-    setCommitValidatorForTest(undefined);
+    setPreparedDomRendererForTesting(undefined);
+    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

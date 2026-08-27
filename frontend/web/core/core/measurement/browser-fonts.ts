@@ -929,7 +929,7 @@ function snapshotContextFromState(state: BrowserFontSessionState): string {
 // prepared-dom.ts, whose module body installs the read-only prepared
 // renderer bridge — ahead of test fixtures that pre-seed that slot.
 function defaultFontSessionLoader(): BrowserFontSessionLoader {
-  const fonts = globalServices().fonts;
+  const fonts = globalServices().coordination.fonts;
   fonts.browserFontLoader ??= createBrowserFontSessionLoader();
   return fonts.browserFontLoader;
 }

@@ -7,7 +7,6 @@
 
 import { decodeSnapshotTableBinary, isSnapshotTableBinary } from "./snapshot-table-binary.js";
 import type { SnapshotTableBinaryView } from "./snapshot-table-binary.js";
-import { globalServices } from "../../services/global-services.js";
 
 const TABLES_ATTRIBUTE = "tq-tables";
 
@@ -17,12 +16,34 @@ export interface LoadedSnapshotTable {
   sha256: string;
 }
 
+// Snapshot-table deduplication caches (wc-s5 R9): one page-wide map per
+// direction deduplicates loads per URL reference so every root shares one
+// table. The record lives in this module's closure behind a Symbol.for
+// registry key rather than in the service container because it is
+// behavior-less state; module copies in one document still share one record.
+interface SnapshotTablesState {
+  loadedTables: Map<string, Promise<LoadedSnapshotTable>>;
+  resolvedTables: Map<string, LoadedSnapshotTable>;
+}
+
+const SNAPSHOT_TABLES_KEY: unique symbol = Symbol.for("@tiqian/core.snapshot-tables.v1");
+
+type SnapshotTablesRegistry = Record<symbol, SnapshotTablesState | undefined>;
+
+function snapshotTablesState(): SnapshotTablesState {
+  const registry = globalThis as SnapshotTablesRegistry;
+  return registry[SNAPSHOT_TABLES_KEY] ??= {
+    loadedTables: new Map(),
+    resolvedTables: new Map(),
+  };
+}
+
 /** Reference key to loaded table; successes stay for the page lifetime. */
 const loadedTables = (): Map<string, Promise<LoadedSnapshotTable>> =>
-  globalServices().snapshotTables!.loadedTables as Map<string, Promise<LoadedSnapshotTable>>;
+  snapshotTablesState().loadedTables;
 /** Reference key to the resolved, verified table, readable synchronously. */
 const resolvedTables = (): Map<string, LoadedSnapshotTable> =>
-  globalServices().snapshotTables!.resolvedTables as Map<string, LoadedSnapshotTable>;
+  snapshotTablesState().resolvedTables;
 
 /**
  * Builds the accessor surface of one table file. The binary form is the only

@@ -323,8 +323,33 @@ const INLINE_POSITION_TOLERANCE_PX = PROBE_ABSOLUTE_TOLERANCE_PX +
   BROWSER_SUBPIXEL_QUANTIZATION_PX + GEOMETRY_COMPARISON_EPSILON_PX;
 const LINE_VERTICAL_TOLERANCE_PX = 0.75;
 const PREPARED_VERTICAL_TOLERANCE_PX = 0.02;
+// Snapshot adoption per-element caches (wc-s5 R9): WeakMaps keyed by
+// paragraph elements for font-replay proofs, adoption state and direct
+// server artifacts. The record lives in this module's closure behind a
+// Symbol.for registry key rather than in the service container because it is
+// behavior-less state owned by the adoption behavior in this module; module
+// copies in one document still share one record.
+interface SnapshotAdoptionCaches {
+  snapshotFontReplayProofs: WeakMap<HTMLElement, SnapshotFontReplayProof>;
+  states: WeakMap<HTMLElement, SnapshotAdoptionState>;
+  directServerArtifacts: WeakMap<HTMLElement, Map<string, Element>>;
+}
+
+const SNAPSHOT_ADOPTION_KEY: unique symbol = Symbol.for("@tiqian/core.snapshot-adoption.v1");
+
+type SnapshotAdoptionRegistry = Record<symbol, SnapshotAdoptionCaches | undefined>;
+
+function snapshotAdoptionCaches(): SnapshotAdoptionCaches {
+  const registry = globalThis as SnapshotAdoptionRegistry;
+  return registry[SNAPSHOT_ADOPTION_KEY] ??= {
+    snapshotFontReplayProofs: new WeakMap(),
+    states: new WeakMap(),
+    directServerArtifacts: new WeakMap(),
+  };
+}
+
 const snapshotFontReplayProofs = (): WeakMap<HTMLElement, SnapshotFontReplayProof> =>
-  globalServices().snapshotAdoption!.snapshotFontReplayProofs as WeakMap<HTMLElement, SnapshotFontReplayProof>;
+  snapshotAdoptionCaches().snapshotFontReplayProofs;
 const FONT_FACE_LIVE_SIGNATURE_PROPERTIES = Object.freeze([
   "font-family",
   "font-style",
@@ -411,9 +436,9 @@ const SERVER_RENDERED_SNAPSHOT_ATTRIBUTE = "data-tq-ssr-snapshot";
 const SNAPSHOT_LAYOUT_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-layout-issue";
 const TYPOGRAPHY_ISSUE_ATTRIBUTE = "data-tiqian-snapshot-typography-issue";
 const states = (): WeakMap<HTMLElement, SnapshotAdoptionState> =>
-  globalServices().snapshotAdoption!.states as WeakMap<HTMLElement, SnapshotAdoptionState>;
+  snapshotAdoptionCaches().states;
 const directServerArtifacts = (): WeakMap<HTMLElement, Map<string, Element>> =>
-  globalServices().snapshotAdoption!.directServerArtifacts as WeakMap<HTMLElement, Map<string, Element>>;
+  snapshotAdoptionCaches().directServerArtifacts;
 
 function parseFontFamilies(value: unknown): string[] {
   const families = [];

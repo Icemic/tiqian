@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../core/engine/commit-prepared-paragraph.js";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
 
@@ -59,7 +59,7 @@ function withEnv(fn, overrides = {}) {
     if (overrides.renderer !== false) {
       const renders = [];
       const releases = [];
-      setPreparedDomRendererForTest({
+      setPreparedDomRendererForTesting({
         render: (host, plan, locale, options) => {
           renders.push({
             host,
@@ -80,19 +80,19 @@ function withEnv(fn, overrides = {}) {
         releases,
       });
     } else {
-      setPreparedDomRendererForTest(null);
+      setPreparedDomRendererForTesting(null);
     }
     if (overrides.validator !== undefined) {
-      setCommitValidatorForTest({
+      setCommitValidatorForTesting({
         issue: overrides.validator,
       });
     } else {
-      setCommitValidatorForTest(null);
+      setCommitValidatorForTesting(null);
     }
     return fn();
   } finally {
-    setPreparedDomRendererForTest(undefined);
-    setCommitValidatorForTest(undefined);
+    setPreparedDomRendererForTesting(undefined);
+    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

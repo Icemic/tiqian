@@ -329,6 +329,11 @@ class ProseHostSession {
   }
 
   mount() {
+    // AppliedLedgerMountSync: attribute changes made through property setters
+    // or present before construction never passed through updateOptions; sync
+    // the ledger from the live attributes so the next reflection diffs
+    // against what the root actually carries.
+    this.#syncAppliedOptions();
     if (!this.#coordinationSession) this.#coordinationSession = coordinationService().register();
     this.#observeIntersection();
     if (this.#canAdoptRawDomMoveReconnection()) {
@@ -2496,10 +2501,24 @@ class ProseHostSession {
       apply("disabled", applied.disabled ? "" : null, options.disabled ? "" : null);
     }
     if (options.emphasisDotGapEm !== undefined && options.emphasisDotGapEm !== applied.emphasisDotGapEm) {
-      apply(
+      const next = options.emphasisDotGapEm == null ? null : String(options.emphasisDotGapEm);
+      // AttributeAlreadyEquivalent: the custom-element path arrives after the
+      // platform wrote the attribute, and the author string may carry a
+      // non-canonical form ("0.50"). Compare parsed values so the reflection
+      // never rewrites the author's attribute text, only absent or
+      // numerically different ones.
+      const currentParsed = Number.parseFloat(root.getAttribute("emphasis-dot-gap-em") ?? "");
+      const attributeAlreadyEquivalent = options.emphasisDotGapEm == null
+        ? !Number.isFinite(currentParsed)
+        : currentParsed === options.emphasisDotGapEm;
+      if (!attributeAlreadyEquivalent) {
+        if (next == null) root.removeAttribute("emphasis-dot-gap-em");
+        else root.setAttribute("emphasis-dot-gap-em", next);
+      }
+      this.#attributeChanged(
         "emphasis-dot-gap-em",
         applied.emphasisDotGapEm == null ? null : String(applied.emphasisDotGapEm),
-        options.emphasisDotGapEm == null ? null : String(options.emphasisDotGapEm),
+        next,
       );
     }
     if (options.strongAsEmphasisMarks !== undefined && options.strongAsEmphasisMarks !== applied.strongAsEmphasisMarks) {

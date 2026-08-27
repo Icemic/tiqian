@@ -227,7 +227,7 @@ function measurementCacheKey(actualFont: string, display: string, featureSignatu
 }
 
 function measurementCacheGetOrPut(key: string, compute: ShapingComputeMeasurementFn): MeasuredTextLike {
-  const measurementCache = globalServices().measurement.measurementCache;
+  const measurementCache = globalServices().coordination.measurement.measurementCache;
   if (measurementCache.has(key)) {
     const hit = measurementCache.get(key)!;
     measurementCache.delete(key);
@@ -254,7 +254,7 @@ function measurementCacheGetOrPut(key: string, compute: ShapingComputeMeasuremen
  * @returns {void}
  */
 export function installFontLoadInvalidation(fontSet?: ShapingFontSetLike | FontFaceSet | null): void {
-  const state = globalServices().measurement;
+  const state = globalServices().coordination.measurement;
   if (state.fontLoadInvalidationInstalled) return;
   state.fontLoadInvalidationInstalled = true;
   if (!fontSet || typeof fontSet.addEventListener !== "function") return;
@@ -269,7 +269,7 @@ export function installFontLoadInvalidation(fontSet?: ShapingFontSetLike | FontF
  * @returns {void}
  */
 export function clearMeasurementCache(): void {
-  clearMeasurementState(globalServices().measurement);
+  clearMeasurementState(globalServices().coordination.measurement);
 }
 
 /**
@@ -278,7 +278,7 @@ export function clearMeasurementCache(): void {
  * @returns {number}
  */
 export function measurementCacheSize(): number {
-  return measurementCacheEntryCount(globalServices().measurement);
+  return measurementCacheEntryCount(globalServices().coordination.measurement);
 }
 
 // CjkDashCapabilityPolicy ports inline (see the font module): the CJK dash
@@ -483,7 +483,7 @@ export function createTextShaper(
    * @returns {boolean}
    */
   function canvasInkBoundsDegenerate(actualFont: string): boolean {
-    const degenerateInkBoundsByFont = globalServices().measurement.degenerateInkBoundsByFont;
+    const degenerateInkBoundsByFont = globalServices().coordination.measurement.degenerateInkBoundsByFont;
     if (Object.prototype.hasOwnProperty.call(degenerateInkBoundsByFont, actualFont)) {
       return degenerateInkBoundsByFont[actualFont];
     }
@@ -598,7 +598,7 @@ export function createTextShaper(
     // the exemption keeps CjkPunctuation on the canvas path where the
     // raster ink measurement stays reachable.
     if (role === "CjkText" || role === "CjkPunctuation") return true;
-    const canvasAdvanceParityByFont = globalServices().measurement.canvasAdvanceParityByFont;
+    const canvasAdvanceParityByFont = globalServices().coordination.measurement.canvasAdvanceParityByFont;
     if (Object.prototype.hasOwnProperty.call(canvasAdvanceParityByFont, actualFont)) {
       return canvasAdvanceParityByFont[actualFont];
     }

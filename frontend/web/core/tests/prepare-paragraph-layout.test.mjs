@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { setPreparedDomRendererForTest, setCommitValidatorForTest, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
+import { setPreparedDomRendererForTesting, setCommitValidatorForTesting, preparedDomRendererModule } from "../core/engine/loaders/runtime-loader.js";
 import test from "node:test";
 
 import { prepareParagraphLayout } from "../core/engine/prepare-paragraph-layout.js";
@@ -54,7 +54,7 @@ function withEnv(fn, overrides = {}) {
   const saved = saveGlobals(["getComputedStyle"]);
   try {
     if (overrides.renderer !== false) {
-      setPreparedDomRendererForTest({
+      setPreparedDomRendererForTesting({
         render: () => {},
         release: () => {},
         releaseRoot: () => {},
@@ -62,12 +62,12 @@ function withEnv(fn, overrides = {}) {
         layoutRevision: overrides.layoutRevision ?? "tiqian-layout-v2",
       });
     } else {
-      setPreparedDomRendererForTest(null);
+      setPreparedDomRendererForTesting(null);
     }
     if (overrides.validator !== undefined) {
-      setCommitValidatorForTest({ issue: overrides.validator });
+      setCommitValidatorForTesting({ issue: overrides.validator });
     } else {
-      setCommitValidatorForTest(null);
+      setCommitValidatorForTesting(null);
     }
     globalThis.getComputedStyle = (target, pseudo) =>
       target && target._computedValues
@@ -75,8 +75,8 @@ function withEnv(fn, overrides = {}) {
         : computedStyle();
     return fn();
   } finally {
-    setPreparedDomRendererForTest(undefined);
-    setCommitValidatorForTest(undefined);
+    setPreparedDomRendererForTesting(undefined);
+    setCommitValidatorForTesting(undefined);
     restoreGlobals(saved);
   }
 }

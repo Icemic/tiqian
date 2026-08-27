@@ -30,7 +30,7 @@ import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-sch
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
 import {
   installTiqianRuntimeGraphForTesting,
-  setPreparedDomRendererForTest,
+  setPreparedDomRendererForTesting,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
 import * as preparedDom from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 
@@ -140,7 +140,7 @@ function recordingRuntimeGraph() {
 function installRecordingEngine(record, initialPhase) {
   const graph = recordingRuntimeGraph();
   const restoreGraph = installTiqianRuntimeGraphForTesting(graph);
-  setPreparedDomRendererForTest({
+  setPreparedDomRendererForTesting({
     ...preparedDom,
     releaseRoot(root) {
       graph.resolveRelease();
@@ -157,7 +157,7 @@ function installRecordingEngine(record, initialPhase) {
     teardown() {
       graph.flushProjection();
       activeEngineRecord = null;
-      setPreparedDomRendererForTest(undefined);
+      setPreparedDomRendererForTesting(undefined);
       restoreGraph();
     },
   };

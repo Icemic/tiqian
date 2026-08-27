@@ -29,30 +29,31 @@ import type { TiqianRuntimeGraph } from "./ts-runtime.js";
 // load memo lives in this module's closure; the memo survives module
 // re-evaluation within one document through the Symbol.for registry (client
 // routers, dev HMR and duplicated package chunks can evaluate this module
-// more than once), mirroring the global-services container rationale. The
-// prepared-dom state stays registered in globalServices because it is
-// consumed from modules that never import the loader for its load memo.
+// more than once), mirroring the global-services container rationale.
+// The prepared-dom state likewise lives in this module's Symbol.for
+// registry (wc-s5 R9): it carries function members, which the Service
+// container does not admit, and every consumer resolves it through this
+// module's accessors anyway.
 
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
-import { globalServices } from "../../services/global-services.js";
 
 export type RendererModuleFn = () => typeof preparedDom | null;
 export type CommitValidatorFn = () => PreparedDomValidatorInterface | null;
-export type SetRendererForTestFn = (renderer: typeof preparedDom | null | undefined) => void;
-export type SetCommitValidatorForTestFn = (validator: PreparedDomValidatorInterface | null | undefined) => void;
+export type SetRendererForTestingFn = (renderer: typeof preparedDom | null | undefined) => void;
+export type SetCommitValidatorForTestingFn = (validator: PreparedDomValidatorInterface | null | undefined) => void;
 
 // PreparedDomState: accessors for the prepared pipeline. The renderer
 // reference is a static import, not a lazy load; the test override swaps the
 // module and an explicit null makes rendererModule answer null. The commit
 // validator oracle is a test-world instrument: it reads live geometry per
 // node, production commits run without one (QA3 parity policy), test worlds
-// install it through setCommitValidatorForTest.
+// install it through setCommitValidatorForTesting.
 export type PreparedDomState = {
   rendererModule: RendererModuleFn;
   commitValidator: CommitValidatorFn;
-  setRendererForTest: SetRendererForTestFn;
-  setCommitValidatorForTest: SetCommitValidatorForTestFn;
+  setRendererForTesting: SetRendererForTestingFn;
+  setCommitValidatorForTesting: SetCommitValidatorForTestingFn;
 };
 
 // RuntimeLoadMemo: the per-document load state shared across module copies
@@ -86,22 +87,21 @@ function createPreparedDomState(): PreparedDomState {
   return {
     rendererModule: () => rendererOverride !== undefined ? rendererOverride : preparedDom,
     commitValidator: () => validatorOverride !== undefined ? validatorOverride : null,
-    setRendererForTest: (renderer) => { rendererOverride = renderer; },
-    setCommitValidatorForTest: (validator) => { validatorOverride = validator; },
+    setRendererForTesting: (renderer) => { rendererOverride = renderer; },
+    setCommitValidatorForTesting: (validator) => { validatorOverride = validator; },
   };
 }
 
-// The prepared-dom record is registered in globalServices (S5-bc): module
-// copies in one document reach the same record, and consumers that never
-// load the runtime still resolve the renderer through it.
-globalServices().preparedDom = createPreparedDomState();
+// The prepared-dom record lives in this module's Symbol.for registry (wc-s5
+// R9): module copies in one document reach the same record, and the Service
+// container admits behavior services only, not function-carrying records.
+const PREPARED_DOM_STATE_KEY: unique symbol = Symbol.for("@tiqian/prose.prepared-dom-state.v1");
+
+type PreparedDomStateRegistry = Record<symbol, PreparedDomState | undefined>;
 
 function preparedDomState(): PreparedDomState {
-  const state = globalServices().preparedDom;
-  if (!state) {
-    throw new Error("prepared-dom state not registered (runtime-loader.js must be imported first)");
-  }
-  return state;
+  const registry = globalThis as PreparedDomStateRegistry;
+  return registry[PREPARED_DOM_STATE_KEY] ??= createPreparedDomState();
 }
 
 // Shared copy installer (one-listener-per-document invariant): the element
@@ -181,10 +181,10 @@ export function commitValidator(): PreparedDomValidatorInterface | null {
   return preparedDomState().commitValidator();
 }
 
-export function setPreparedDomRendererForTest(renderer: typeof preparedDom | null | undefined): void {
-  preparedDomState().setRendererForTest(renderer);
+export function setPreparedDomRendererForTesting(renderer: typeof preparedDom | null | undefined): void {
+  preparedDomState().setRendererForTesting(renderer);
 }
 
-export function setCommitValidatorForTest(validator: PreparedDomValidatorInterface | null | undefined): void {
-  preparedDomState().setCommitValidatorForTest(validator);
+export function setCommitValidatorForTesting(validator: PreparedDomValidatorInterface | null | undefined): void {
+  preparedDomState().setCommitValidatorForTesting(validator);
 }
