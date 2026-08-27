@@ -19,7 +19,7 @@ import {
   OBSERVED_ATTRIBUTES,
 } from "@tiqian/core/core/engine/prose-host-session.js";
 import type { ProseHostSession } from "@tiqian/core/core/engine/prose-host-session.js";
-import { globalServices } from "@tiqian/core/core/services/global-services.js";
+import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
 import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
 import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 
@@ -133,6 +133,7 @@ export interface RegisterTiqianProseOptions {
  * snapshot-table prefetch, custom element definition) behind one named call.
  */
 export function registerTiqianProse(options: RegisterTiqianProseOptions = {}): void {
+  initializeGlobalServices();
   const tagName = options.tagName ?? ELEMENT_NAME;
   const interceptCopy = options.interceptCopy ?? true;
   const prefetchTables = options.prefetchTables ?? true;
@@ -154,10 +155,8 @@ export function registerTiqianProse(options: RegisterTiqianProseOptions = {}): v
   }
 }
 
-// The /element entry preserves its historical zero-config contract: importing
-// it registers <tiqian-prose> with the default options. Explicit,
-// parameterized registration calls registerTiqianProse() directly; the /auto
-// entry is the canonical zero-config import.
-registerTiqianProse();
+// The /element entry exports the registration function and types. Consumers
+// who want zero-config auto-registration import from @tiqian/prose/auto.
+// Explicit, parameterized registration calls registerTiqianProse() directly.
 
 export { TiqianProseElement, CoordinationService };

@@ -21,6 +21,11 @@
 // globalServices() accessor rather than passed as parameters because hosts
 // reach the services from async callbacks without a construction context.
 //
+// Explicit initialization (wc-s6 scope 8): the container is not auto-
+// constructed on first access. Hosts must call initializeGlobalServices()
+// before any service access; registerTiqianProse does this. Access before
+// initialization throws an error pointing to the initialization function.
+//
 // Library-internal, test-only injection: installGlobalServicesForTesting
 // swaps the container for an explicit replacement and returns a restore
 // function. Hosts must not touch it.
@@ -45,8 +50,22 @@ function createGlobalServices(): GlobalServices {
   };
 }
 
+// Explicit initialization: idempotent. Called by registerTiqianProse and
+// the /auto entry. Returns the initialized container.
+export function initializeGlobalServices(): GlobalServices {
+  const registry = globalThis as GlobalServicesRegistry;
+  return registry[GLOBAL_SERVICES_KEY] ??= createGlobalServices();
+}
+
+// Accessor: throws if not initialized. Hosts must call initializeGlobalServices
+// before accessing services.
 export function globalServices(): GlobalServices {
-  return (globalThis as GlobalServicesRegistry)[GLOBAL_SERVICES_KEY] ??= createGlobalServices();
+  const registry = globalThis as GlobalServicesRegistry;
+  const services = registry[GLOBAL_SERVICES_KEY];
+  if (!services) {
+    throw new Error("GlobalServices not initialized. Call initializeGlobalServices() or registerTiqianProse() first.");
+  }
+  return services;
 }
 
 export function installGlobalServicesForTesting(container: GlobalServices): GlobalServicesRestoreFn {
