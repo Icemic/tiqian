@@ -123,7 +123,8 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
 // grant's quota from the lowest non-empty tier at or below minTier, mirroring
 // the real pool's done-scan and its obedience to the quota stop term.
 // runSlice receives one grant controller per call; the fake reads the
-// recipient root off it, like the real pool does.
+// recipient root off it, like the real pool does. The service owns the pool
+// now, so each test installs the fake on coordinator.layoutJobPool.
 function fakeWorkerRuntime(pendingByElement, grants, controllers) {
   return {
     hasJob: (element) => pendingByElement.has(element),
@@ -163,8 +164,9 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
     const grants = [];
     const controllers = [];
     const runtime = fakeWorkerRuntime(pending, grants, controllers);
-    coordinator.registerWorker(sessionA, rootA, runtime);
-    coordinator.registerWorker(sessionB, rootB, runtime);
+    coordinator.layoutJobPool = runtime;
+    coordinator.registerWorker(sessionA, rootA);
+    coordinator.registerWorker(sessionB, rootB);
     coordinator.setWorkerActive(sessionA, true);
 
     clock.advance(16);
@@ -202,7 +204,8 @@ test("offscreen workers wait out the debounce before receiving grants", async ()
     coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [2, 0, 0]]]);
     const grants = [];
-    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, grants));
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants);
+    coordinator.registerWorker(session, root);
     coordinator.setWorkerActive(session, true);
 
     // Frames inside the debounce window: no grant at all.
@@ -231,7 +234,8 @@ test("returning to the viewport clears the worker debounce immediately", async (
     coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [1, 0, 0]]]);
     const grants = [];
-    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, grants));
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants);
+    coordinator.registerWorker(session, root);
     coordinator.setWorkerActive(session, true);
     clock.advance(32);
     assert.equal(grants.length, 0);
@@ -261,7 +265,8 @@ test("grant quota grows on healthy frames and halves on slow ones", async () => 
     const session = coordinator.register();
     const pending = new Map([[root, [0, 0, 0]]]);
     const controllers = [];
-    coordinator.registerWorker(session, root, fakeWorkerRuntime(pending, [], controllers));
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, [], controllers);
+    coordinator.registerWorker(session, root);
     coordinator.setWorkerActive(session, true);
 
     const feed = (n) => { pending.get(root)[0] = n; };
@@ -329,8 +334,9 @@ test("a slow frame halves only roots that committed in the previous frame", asyn
       [rootB, [0, 0, 0]],
     ]);
     const controllers = [];
-    coordinator.registerWorker(sessionA, rootA, fakeWorkerRuntime(pending, [], controllers));
-    coordinator.registerWorker(sessionB, rootB, fakeWorkerRuntime(pending, [], controllers));
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, [], controllers);
+    coordinator.registerWorker(sessionA, rootA);
+    coordinator.registerWorker(sessionB, rootB);
     coordinator.setWorkerActive(sessionA, true);
     coordinator.setWorkerActive(sessionB, true);
 
