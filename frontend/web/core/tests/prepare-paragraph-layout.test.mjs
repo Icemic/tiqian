@@ -8,7 +8,8 @@ import { installFixtureFontBackend, installThrowingFontBackend } from "../test-s
 
 // The responsive measure helpers are real: sourceParagraphWidth reads element
 // geometry through globalThis.getComputedStyle and effectiveLineMeasure is
-// imported above. Only the host-installed __TiqianPreparedDomRenderer global stays fake.
+// imported above. The prepared-dom bridge is a static import, so no renderer
+// global stays fake.
 //
 // The wire byte lock (rule c) now asserts the DTO shape produced by wireArguments
 // and the real direct ffi call consumes the DTO. The verdict/gating and
@@ -298,30 +299,6 @@ test("widthOverride wins and ready.width is raw while ffi receives the measure",
   } finally {
     backend.uninstall();
   }
-});
-
-test("PreparedDomBridgeUnavailable when the renderer global is absent", () => {
-  withEnv(() => {
-    const result = prepareParagraphLayout(snapshotArgument());
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "PreparedDomBridgeUnavailable",
-      detail: "expectedLayoutRevision=tiqian-layout-v2",
-      element: RICH_ELEMENT,
-    });
-  }, { renderer: false });
-});
-
-test("PreparedDomBridgeUnavailable when the layout revision mismatches", () => {
-  withEnv(() => {
-    const result = prepareParagraphLayout(snapshotArgument());
-    assert.deepEqual(result, {
-      kind: "unsupported",
-      name: "PreparedDomBridgeUnavailable",
-      detail: "expectedLayoutRevision=tiqian-layout-v2",
-      element: RICH_ELEMENT,
-    });
-  }, { layoutRevision: "tiqian-layout-v1" });
 });
 
 test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {

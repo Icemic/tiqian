@@ -1,22 +1,23 @@
-import { globalServices } from "../core/services/global-services.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import { processParagraph } from "../core/engine/process-paragraph.js";
-import { withoutSnapshotFontSession } from "../core/engine/lifecycle.js";
+import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
+import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
 import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
 initializeGlobalServices();
 
-
-// All module seams are gone: eligibility, markdown lowering, the lifecycle
-// helpers, the worker request serializer, the prepared-metadata builders and
-// the direct prepare step run for real. The direct prepare step drives the
-// real @tiqian/ffi over the planted fixture font backend; only the detached-fragment backup
-// graph is a fake dep, plus the host-installed __TiqianLayoutWorker /
-// __TiqianPreparedDomRenderer / __TiqianPreparedDomValidator environment
-// globals.
+// The pipeline runs for real: eligibility, markdown lowering, the lifecycle
+// helpers, the worker request serializer, the prepared-metadata builders, the
+// direct prepare step and both commit functions (including the real
+// prepared-DOM renderer). The first parameter is the per-element
+// EnhancedElementContext; the raw-DOM record it carries is the observation
+// point for begin/take/commit/restore. The fake world supplies the document
+// (fragment factory, style head, lowering probes) and the Node prototype the
+// raw-DOM commit forwarding captures.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -31,10 +32,6 @@ function restoreGlobals(entries) {
     if (own) globalThis[name] = value;
     else delete globalThis[name];
   }
-}
-
-function textNode(text) {
-  return { nodeType: 3, textContent: text };
 }
 
 // Computed style double: property accessors feed elementContentWidth and the
@@ -68,24 +65,43 @@ function computedStyle(values = {}) {
   return style;
 }
 
+// The fake document supplies the fragment factory the raw-DOM takeover uses,
+// a style-carrying head for the prepared-value style state, lowering probes
+// whose baseline answers probeBottom, and an inert Range for the inline-edge
+// measurement.
+function makeFakeDocument(probeBottom = 0) {
+  const documentObject = {
+    createElement: (tagName) => {
+      const probe = new FakeElement(tagName || "span");
+      probe.top = probeBottom;
+      return probe;
+    },
+    createDocumentFragment: () => new FakeFragment(),
+    createRange: () => ({
+      selectNodeContents() {},
+      getClientRects: () => [],
+    }),
+  };
+  documentObject.head = new FakeElement("head");
+  return documentObject;
+}
+
 // Runs fn with the environment globals the real pipeline reads. The fixture
 // font backend is installed by default so the real prepare step can shape;
 // a test that must not reach ffi passes fontBackend: false.
 function withEnv(fn, overrides = {}) {
-const saved = saveGlobals([
-      "getComputedStyle",
-      "__TiqianLayoutWorker",
-      "document",
-    ]);
+  const saved = saveGlobals([
+    "getComputedStyle",
+    "document",
+    "Node",
+  ]);
+  const savedLayoutWorker = globalServices().coordination.layoutWorker;
   const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
-    // Tests now use the real prepared-dom renderer directly.
-    // Validator injection removed per spec.
+    globalThis.document = overrides.document ?? makeFakeDocument();
+    globalThis.Node = FakeNode;
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
-    }
-    if (overrides.document !== undefined) {
-      globalThis.document = overrides.document;
     }
     if (overrides.throwComputedStyle) {
       globalThis.getComputedStyle = () => {
@@ -100,118 +116,9 @@ const saved = saveGlobals([
     return fn();
   } finally {
     if (backend) backend.uninstall();
+    globalServices().coordination.layoutWorker = savedLayoutWorker;
     restoreGlobals(saved);
   }
-}
-
-// Live paragraph double: doubles as an eligible source element (closest,
-// textContent, querySelectorAll), a lowerable DOM (childNodes, style), and a
-// measurable element (getBoundingClientRect/getClientRects).
-function makeElement(initialAttributes = {}, initialStyle = {}, options = {}) {
-  const attributes = new Map(Object.entries(initialAttributes));
-  const removedAttributes = [];
-  const setAttributes = [];
-  const styleProps = new Map(Object.entries(initialStyle));
-  const text = options.text ?? "hello world";
-  return {
-    tagName: options.tagName ?? "P",
-    textContent: text,
-    childNodes: options.childNodes ?? [textNode(text)],
-    getAttribute: (name) => attributes.get(name) ?? null,
-    setAttribute: (name, value) => {
-      const strVal = String(value);
-      attributes.set(name, strVal);
-      setAttributes.push({ name, value: strVal });
-    },
-    removeAttribute: (name) => {
-      attributes.delete(name);
-      removedAttributes.push(name);
-    },
-    style: {
-      getPropertyValue: (name) => styleProps.get(name) ?? "",
-      getPropertyPriority: () => "",
-      setProperty: (name, value) => styleProps.set(name, String(value)),
-      removeProperty: (name) => styleProps.delete(name),
-    },
-    attributes,
-    setAttributes,
-    removedAttributes,
-    closest: () => null,
-    querySelectorAll: () => [],
-    querySelector: () => null,
-    getBoundingClientRect: () => ({ width: options.width ?? 320 }),
-    getClientRects: () => [],
-    parentElement: null,
-    insertBefore: () => {},
-    _computedValues: options.computedValues,
-  };
-}
-
-// A semantic inline child (an em with a divergent font-style) lowers into a
-// text span, making the lowered paragraph non-plain.
-function inlineChild(tagName, text, values = {}) {
-  return {
-    nodeType: 1,
-    tagName,
-    textContent: text,
-    childNodes: [textNode(text)],
-    attributes: [],
-    getAttribute: () => null,
-    hasAttribute: () => false,
-    matches: () => false,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    getClientRects: () => [],
-    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
-    _computedValues: { display: "inline", ...values },
-  };
-}
-
-// A block-level child fails lowering with UnsupportedInlineFormattingContext.
-function blockChild(tagName, text) {
-  return inlineChild(tagName, text, { display: "block" });
-}
-
-// A latin STRONG with strongAsEmphasisMarks lowers into a sourceSpan carrying
-// a non-null cjkStrongBaseWeight and no Emphasis decoration.
-function strongChild(text) {
-  return inlineChild("STRONG", text, { "font-weight": "normal" });
-}
-
-// A static inline object child: the geometry probe measures it through a
-// probe span created against globalThis.document.
-function inlineObjectSpan(width, height) {
-  return {
-    nodeType: 1,
-    tagName: "SPAN",
-    localName: "span",
-    textContent: "obj",
-    childNodes: [textNode("obj")],
-    attributes: [],
-    getAttribute: (name) => (name === "data-tiqian-static-inline-object" ? "" : null),
-    hasAttribute: (name) => name === "data-tiqian-static-inline-object",
-    matches: () => false,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    getClientRects: () => [],
-    getBoundingClientRect: () => ({ width, height, top: 10, bottom: 10 + height }),
-    parentNode: null,
-    nextSibling: null,
-    style: { getPropertyValue: () => "", getPropertyPriority: () => "" },
-    _computedValues: { display: "inline-block" },
-    remove: () => {},
-  };
-}
-
-function makeFakeDocument(baselineBottom) {
-  return {
-    createElement: () => ({
-      getBoundingClientRect: () => ({ bottom: baselineBottom }),
-      setAttribute: () => {},
-      style: { cssText: "" },
-      remove: () => {},
-    }),
-  };
 }
 
 // The snapshot-session descriptor carries the shaping callbacks ffi takes as
@@ -227,7 +134,6 @@ function fixtureSnapshotSession() {
 function makeState(overrides = {}) {
   const issues = [];
   const paragraphs = [];
-  const fallbacks = [];
   return {
     options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
     preparedDomEnabled: overrides.preparedDomEnabled ?? true,
@@ -235,65 +141,104 @@ function makeState(overrides = {}) {
     browserFallback: overrides.browserFallback ?? null,
     onIssue: (issue) => {
       issues.push(issue);
-      if (overrides.onIssue) overrides.onIssue(issue);
     },
     onParagraphCommitted: (item) => {
       paragraphs.push(item);
-      if (overrides.onParagraphCommitted) overrides.onParagraphCommitted(item);
-    },
-    onDisableSnapshotPreparedDom: (detail) => {
-      fallbacks.push(detail);
-      if (overrides.onDisableSnapshotPreparedDom) overrides.onDisableSnapshotPreparedDom(detail);
     },
     issues,
     paragraphs,
-    fallbacks,
   };
 }
 
-test("1. Direct happy path: lowering ok, rawDom begin called with 14 args, prepare ready, commit success", () => {
+// Paragraph host element on the fixture fake-DOM base: a measurable P whose
+// children survive the raw-DOM takeover and whose innerHTML carries the
+// renderer output.
+function makeParagraphElement(options = {}) {
+  const element = new FakeElement("p");
+  element.width = options.width ?? 320;
+  element.ownerDocument = globalThis.document;
+  for (const [name, value] of Object.entries(options.attributes ?? {})) {
+    element.setAttribute(name, value);
+  }
+  for (const child of options.childNodes ?? [new FakeText("hello world")]) {
+    element.appendChild(child);
+  }
+  return element;
+}
+
+// A latin STRONG with strongAsEmphasisMarks lowers into a sourceSpan carrying
+// a non-null cjkStrongBaseWeight and no Emphasis decoration.
+function strongChild(text) {
+  const element = new FakeElement("strong");
+  element.appendChild(new FakeText(text));
+  element._computedValues = { display: "inline", "font-weight": "normal" };
+  return element;
+}
+
+// A block-level child fails lowering with UnsupportedInlineFormattingContext.
+function blockChild(tagName, text) {
+  const element = new FakeElement(tagName);
+  element.appendChild(new FakeText(text));
+  element._computedValues = { display: "block" };
+  return element;
+}
+
+// A static inline object child: the geometry probe measures it against the
+// fake document's probe baseline.
+function inlineObjectSpan(width, height) {
+  const element = new FakeElement("span");
+  element.setAttribute("data-tiqian-static-inline-object", "");
+  element.appendChild(new FakeText("obj"));
+  element.width = width;
+  element.height = height;
+  element.top = 10;
+  element._computedValues = { display: "inline-block" };
+  return element;
+}
+
+// The minimal schema-conforming worker plan: the renderer accepts it and
+// renders no lines, so the worker commit path runs without line geometry.
+const EMPTY_PLAN_JSON = JSON.stringify({
+  schema: SNAPSHOT_SCHEMA,
+  layoutRevision: LAYOUT_REVISION,
+  height: 0,
+  lines: [],
+});
+
+test("1. Direct happy path: lowering ok, rawDom record captures the original shell, prepare ready, commit success", () => {
   withEnv(() => {
-    const rawDomBeginArgs = [];
-    let rawDomTakeCalled = false;
-    let rawDomCommitCalled = false;
-    let rawDomRestoreCalled = false;
-
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: (...args) => rawDomBeginArgs.push(args),
-      take: () => { rawDomTakeCalled = true; },
-      commit: () => { rawDomCommitCalled = true; },
-      restoreParagraph: () => { rawDomRestoreCalled = true; },
-      stampRendered: () => {},
-    };
-
-
-    const paragraph = makeElement(
-      {
+    const paragraph = makeParagraphElement({
+      attributes: {
         style: "color: blue;",
         "data-tq-rendered": "false",
         "data-tq-host-inline-size": "300px",
       },
-      {
-        position: "relative",
-        "inline-size": "300px",
-        "font-size": "19px",
-      }
-    );
+    });
+    paragraph.style.setProperty("position", "relative");
+    paragraph.style.setProperty("inline-size", "300px");
+    paragraph.style.setProperty("font-size", "19px");
+
+    const context = createEnhanceContext(paragraph);
     const state = makeState();
 
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    assert.equal(rawDomBeginArgs.length, 1);
-    const args = rawDomBeginArgs[0];
-    assert.equal(args.length, 14);
-    assert.equal(args[0], paragraph);
-    assert.equal(args[1], "false"); // renderedAttribute
-    assert.equal(args[6], "color: blue;"); // styleAttribute
-    assert.equal(args[13], "300px"); // hostInlineSizeAttribute
+    // The raw-DOM record captured the original shell values begin received.
+    const record = context.rawDomParagraphs.get(paragraph);
+    assert.ok(record);
+    assert.equal(record.originalRenderedAttribute, "false");
+    assert.equal(record.originalStyleAttribute, "color: blue;");
+    assert.equal(record.originalHostInlineSizeAttribute, "300px");
+    assert.equal(record.originalPosition, "relative");
+    assert.equal(record.originalInlineSize, "300px");
+    assert.equal(record.originalFontSize, "19px");
+    // Take moved the original children into the backup fragment and commit
+    // published it; the host now carries the rendered replay.
+    assert.ok(record.originalContent);
+    assert.ok(record.fragment);
+    assert.equal(record.originalContent.textContent, "hello world");
+    assert.ok(paragraph.textContent.includes("hello world"));
 
-    assert.equal(rawDomTakeCalled, true);
-    assert.equal(rawDomCommitCalled, true);
-    assert.equal(rawDomRestoreCalled, false);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
     assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
 
@@ -304,37 +249,29 @@ test("1. Direct happy path: lowering ok, rawDom begin called with 14 args, prepa
     // 300.
     assert.equal(item.lastMeasure, effectiveLineMeasure(320, 19));
     assert.equal(state.issues.length, 0);
-  }, { validator: () => null });
+  });
 });
 
-test("2. Worker happy path: worker request built, layout worker take returns a plan, worker commit called with plan and metadata JSONs", () => {
+test("2. Worker happy path: worker request built, layout worker take returns a plan, worker commit commits it", () => {
+  const takeCalls = [];
   const layoutWorker = {
-    take: (el, sessionKey, req) => '{"plan":"{}"}',
+    take: (element, sessionKey, request) => {
+      takeCalls.push({ element, sessionKey, request });
+      return JSON.stringify({ plan: EMPTY_PLAN_JSON });
+    },
     issue: () => null,
   };
-  const documentStub = makeFakeDocument(30);
   withEnv(() => {
     const objSpan = inlineObjectSpan(42, 20);
-    // Children: latin strong (sourceSpan with cjkStrongBaseWeight) then the
-    // opaque inline object (domInlineObject). No Emphasis decoration, so the
-    // paragraph stays Worker-eligible.
-    const children = [strongChild("hello"), objSpan];
-    const paragraph = makeElement({}, {}, {
-      text: "hello obj",
-      childNodes: children,
-      computedValues: { "font-weight": "normal" },
+    // Children: latin strong (sourceSpan with cjkStrongBaseWeight), a space,
+    // then the opaque inline object (domInlineObject). No Emphasis
+    // decoration, so the paragraph stays Worker-eligible.
+    const paragraph = makeParagraphElement({
+      childNodes: [strongChild("hello"), new FakeText(" "), objSpan],
     });
-    objSpan.parentNode = paragraph;
+    paragraph._computedValues = { "font-weight": "normal" };
 
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: () => {},
-      stampRendered: () => {},
-    };
-
-
+    const context = createEnhanceContext(paragraph);
     const state = makeState({
       options: {
         fontSize: 19,
@@ -343,46 +280,37 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       },
     });
 
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    // The real worker commit ran against the planted renderer with the plan
-    // and the prepared-metadata JSONs derived from the lowered paragraph.
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
-    assert.equal(renderer.renders[0].plan, "{}");
-    assert.equal(renderer.renders[0].locale, "zh-Hans");
-    assert.deepEqual(renderer.renders[0].options.inlineObjects, [
-      { start: 5, end: 6, marginRight: 0, element: objSpan },
-    ]);
-    assert.deepEqual(renderer.renders[0].options.cjkStrongSemantics, [
-      { start: 0, end: 5, weight: 400 },
-    ]);
-    // The worker commit set the exact-prepared-dom and canonical attributes
-    // and cached the effective line measure.
+    // The worker request was built from the lowered paragraph and sent with
+    // the conforming session key; the opaque inline object lowers to the
+    // object replacement character.
+    assert.equal(takeCalls.length, 1);
+    assert.equal(takeCalls[0].element, paragraph);
+    assert.equal(takeCalls[0].sessionKey, "session-1");
+    assert.equal(JSON.parse(takeCalls[0].request).text, "hello \ufffc");
+
+    // The worker commit set the prepared-dom and canonical attributes and
+    // cached the effective line measure.
     assert.equal(paragraph.getAttribute("data-tq-snapshot-prepared-dom"), "true");
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
+    assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
 
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.paragraphs[0].lastMeasure, effectiveLineMeasure(320, 19));
     assert.equal(state.issues.length, 0);
-  }, { layoutWorker, document: documentStub, validator: () => null });
+  }, { layoutWorker, document: makeFakeDocument(30) });
 });
 
-test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (rawDom begin never called)", () => {
+test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (rawDom never registered)", () => {
   const throwError = new Error("lowering syntax error");
   withEnv(() => {
-    let rawDomBeginCalled = false;
-
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => { rawDomBeginCalled = true; },
-    };
-
-
-    const paragraph = makeElement();
+    const paragraph = makeParagraphElement();
+    const context = createEnhanceContext(paragraph);
     const state = makeState();
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    assert.equal(rawDomBeginCalled, false);
+    assert.equal(context.rawDomParagraphs.has(paragraph), false);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "DomLoweringFailure");
     assert.equal(state.issues[0].detail, "lowering syntax error");
@@ -395,21 +323,14 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (r
 
 test("4. Lowering ok false with an issue -> that issue reported", () => {
   withEnv(() => {
-    let rawDomBeginCalled = false;
-
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => { rawDomBeginCalled = true; },
-    };
-
-
-    const paragraph = makeElement({}, {}, {
-      text: "blocked",
-      childNodes: [blockChild("DIV", "blocked")],
+    const paragraph = makeParagraphElement({
+      childNodes: [blockChild("div", "blocked")],
     });
+    const context = createEnhanceContext(paragraph);
     const state = makeState();
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    assert.equal(rawDomBeginCalled, false);
+    assert.equal(context.rawDomParagraphs.has(paragraph), false);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "UnsupportedInlineFormattingContext");
     assert.equal(state.issues[0].detail, "div:block");
@@ -420,33 +341,29 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
   });
 });
 
-test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, worker request built, plan null, rich fallback not applicable -> style attribute restored, SnapshotLayoutWorkerPlanUnavailable", () => {
+test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, plan null, rich fallback not applicable -> style attribute restored, SnapshotLayoutWorkerPlanUnavailable", () => {
   const layoutWorker = {
     take: () => null,
     issue: () => "No worker available in this context",
   };
   withEnv(() => {
-    let rawDomTakeCalled = false;
-
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => { rawDomTakeCalled = true; },
-      commit: () => {},
-      restoreParagraph: () => {},
-    };
-
-
-    const paragraph = makeElement({ style: "margin: 10px;" });
+    const paragraph = makeParagraphElement({
+      attributes: { style: "margin: 10px;" },
+    });
+    const context = createEnhanceContext(paragraph);
     const state = makeState({
       options: {
         requireSnapshotLayoutWorker: true,
         snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       },
     });
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
-    assert.equal(rawDomTakeCalled, false);
+    // Begin recorded the shell but the gate tripped before the takeover.
+    const record = context.rawDomParagraphs.get(paragraph);
+    assert.ok(record);
+    assert.equal(record.originalContent, null);
     assert.equal(state.issues.length, 1);
     assert.equal(state.issues[0].name, "SnapshotLayoutWorkerPlanUnavailable");
     assert.equal(state.issues[0].detail, "No worker available in this context");
@@ -463,21 +380,13 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     issue: () => "MissingServerShapingReplay for CodeFont",
   };
   withEnv(() => {
-    let rawDomTakeCalled = false;
-
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => { rawDomTakeCalled = true; },
-      commit: () => {},
-      restoreParagraph: () => {},
-      stampRendered: () => {},
-    };
-
-
-    const paragraph = makeElement({}, {}, {
-      text: "hello x",
-      childNodes: [inlineChild("EM", "x", { "font-style": "italic" })],
+    // The opaque inline object makes the lowered paragraph rich without
+    // adding live semantic sources, so the direct commit stays on the
+    // inline-object branch.
+    const paragraph = makeParagraphElement({
+      childNodes: [new FakeText("hello "), inlineObjectSpan(42, 20)],
     });
+    const context = createEnhanceContext(paragraph);
     const state = makeState({
       options: {
         requireSnapshotLayoutWorker: true,
@@ -485,97 +394,31 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
       },
     });
 
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    assert.equal(rawDomTakeCalled, true);
-    // The rich fallback bypassed the worker gate and the direct path committed
-    // through the planted renderer.
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
+    // The rich fallback bypassed the worker gate: the takeover ran and the
+    // direct path committed.
+    const record = context.rawDomParagraphs.get(paragraph);
+    assert.ok(record);
+    assert.ok(record.originalContent);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  }, { layoutWorker, validator: () => null });
+  }, { layoutWorker, document: makeFakeDocument(30) });
 });
 
-test("9. prepare unsupported -> issue reported, rawDom restored", () => {
-  withEnv(() => {
-    let rawDomRestored = false;
-
-    const paragraph = makeElement();
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: (el) => {
-        if (el === paragraph) rawDomRestored = true;
-      },
-    };
-
-
-    const state = makeState();
-    processParagraph(rawDom, { paragraph, state });
-
-    assert.equal(rawDomRestored, true);
-    assert.equal(state.paragraphs.length, 0);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "PreparedDomBridgeUnavailable");
-    assert.equal(state.issues[0].element, paragraph);
-    // The lifecycle marker was written onto the paragraph element.
-    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomBridgeUnavailable");
-  }, { renderer: false });
-});
-
-test("10. commit unsupported -> issue reported, rawDom restored", () => {
-  withEnv(() => {
-    let rawDomRestored = false;
-
-    const paragraph = makeElement();
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: (el) => {
-        if (el === paragraph) rawDomRestored = true;
-      },
-    };
-
-
-    const state = makeState();
-
-    processParagraph(rawDom, { paragraph, state });
-
-    assert.equal(rawDomRestored, true);
-    assert.equal(state.paragraphs.length, 0);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "PreparedDomRenderMismatch");
-    assert.equal(state.issues[0].detail, "height mismatch");
-    // The lifecycle marker was written onto the paragraph element.
-    assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "PreparedDomRenderMismatch");
-  }, { validator: () => "height mismatch" });
-});
-
-test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
+test("9. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   const backend = installThrowingFontBackend(new Error("unexpected engine crash"));
   try {
     withEnv(() => {
-      let rawDomRestored = false;
-
-      const paragraph = makeElement();
-      const rawDom = { suspendEngineWrites: (s, a) => a(),
-        begin: () => {},
-        take: () => {},
-        commit: () => {},
-        restoreParagraph: (el) => {
-          if (el === paragraph) rawDomRestored = true;
-        },
-      };
-
-
+      const paragraph = makeParagraphElement();
+      const context = createEnhanceContext(paragraph);
       const state = makeState({ snapshotSession: snapshotSessionCallbacksOf(backend) });
 
-      processParagraph(rawDom, { paragraph, state });
+      processParagraph(context, { paragraph, state });
 
-      assert.equal(rawDomRestored, true);
+      // The restore returned the original children and shell to the host.
+      assert.equal(paragraph.textContent, "hello world");
+      assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
       assert.equal(state.paragraphs.length, 0);
       assert.equal(state.issues.length, 1);
       assert.equal(state.issues[0].name, "WebEnhancementFailure");
@@ -588,61 +431,42 @@ test("11. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   }
 });
 
-test("12. preparedDomEnabled false -> active options come from withoutSnapshotFontSession", () => {
+test("10. preparedDomEnabled false -> the snapshot font session option is dropped and the direct path proceeds", () => {
   withEnv(() => {
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: () => {},
-      stampRendered: () => {},
-    };
-
-
-    const paragraph = makeElement();
-    const rawOptions = { fontSize: 20, snapshotFontSession: { sessionId: "sess-abc" } };
+    const paragraph = makeParagraphElement();
+    const context = createEnhanceContext(paragraph);
+    const rawOptions = { fontSize: 19, snapshotFontSession: { status: "conforming", sessionId: "sess-abc" } };
     const state = makeState({
       options: rawOptions,
       preparedDomEnabled: false,
     });
 
-    processParagraph(rawDom, { paragraph, state });
+    processParagraph(context, { paragraph, state });
 
-    // The real pipeline reuses withoutSnapshotFontSession when prepared DOM is
-    // disabled: the snapshot font session is dropped into a fresh options object
-    // while the remaining options are preserved.
-    const active = withoutSnapshotFontSession(rawOptions);
-    assert.notEqual(active, rawOptions);
-    assert.equal(active.fontSize, 20);
-    assert.equal(active.snapshotFontSession, null);
-    // The direct path proceeded and committed through the planted renderer.
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
-    assert.equal(state.paragraphs.length, 1);
-  }, { validator: () => null });
-});
-
-test("13. absent layout worker channel reads as no reusable plan and the direct path proceeds", () => {
-  withEnv(() => {
-    const rawDom = { suspendEngineWrites: (s, a) => a(),
-      begin: () => {},
-      take: () => {},
-      commit: () => {},
-      restoreParagraph: () => {},
-      stampRendered: () => {},
-    };
-
-
-    const paragraph = makeElement();
-    const state = makeState();
-
-    processParagraph(rawDom, { paragraph, state });
-
-    // No layout worker channel is installed, so the direct snapshot-session path
-    // ran the real prepare and commit.
-    const renderer = preparedDomRendererModule();
-    assert.equal(renderer.renders.length, 1);
+    // With the snapshot font session dropped from the active options the
+    // worker channel is skipped and the direct path committed.
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.issues.length, 0);
-  }, { validator: () => null });
+  });
+});
+
+test("11. absent layout worker channel reads as no reusable plan and the direct path proceeds", () => {
+  withEnv(() => {
+    const paragraph = makeParagraphElement();
+    const context = createEnhanceContext(paragraph);
+    const state = makeState({
+      options: {
+        fontSize: 19,
+        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
+      },
+    });
+
+    processParagraph(context, { paragraph, state });
+
+    // No layout worker channel is installed, so the direct snapshot-session
+    // path ran the real prepare and commit.
+    assert.ok(!globalServices().coordination.layoutWorker);
+    assert.equal(state.paragraphs.length, 1);
+    assert.equal(state.issues.length, 0);
+  });
 });

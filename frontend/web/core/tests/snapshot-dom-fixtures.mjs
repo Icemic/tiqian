@@ -67,6 +67,15 @@ class FakeNode {
     return node;
   }
 
+  replaceWith(node) {
+    const parent = this.parentNode;
+    if (!parent) return;
+    const following = this.nextSibling;
+    parent.removeChild(this);
+    if (following) parent.insertBefore(node, following);
+    else parent.appendChild(node);
+  }
+
   insertBefore(node, reference) {
     if (node.nodeType === 11) {
       while (node.firstChild) FakeNode.prototype.insertBefore.call(this, node.firstChild, reference);
@@ -209,13 +218,182 @@ function computeNormalInnerText(root) {
   return result;
 }
 
+// Minimal HTML fragment parser covering the engine's emitted markup subset:
+// named tags with quoted or unquoted attributes, closing tags, void br, and
+// entity-escaped text. The prepared-DOM renderer verifies its rendered
+// output through host.querySelectorAll marker queries and placeholder
+// swaps, so the fake innerHTML must expose a parsed tree.
+const HTML_ENTITY_NAMES = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: "\"",
+  apos: "'",
+  nbsp: "\u00a0",
+};
+
+function decodeHtmlEntities(text) {
+  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match, body) => {
+    if (body[0] === "#") {
+      const code = body[1] === "x" || body[1] === "X"
+        ? parseInt(body.slice(2), 16)
+        : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : match;
+    }
+    return HTML_ENTITY_NAMES[body.toLowerCase()] ?? match;
+  });
+}
+
+function parseHtmlAttributes(source, element) {
+  let index = 0;
+  while (index < source.length) {
+    while (index < source.length && /\s/.test(source[index])) index += 1;
+    if (index >= source.length) break;
+    let nameEnd = index;
+    while (nameEnd < source.length && !/[\s=]/.test(source[nameEnd])) nameEnd += 1;
+    const name = source.slice(index, nameEnd);
+    index = nameEnd;
+    while (index < source.length && /\s/.test(source[index])) index += 1;
+    if (source[index] !== "=") {
+      if (name) element.setAttribute(name.toLowerCase(), "");
+      continue;
+    }
+    index += 1;
+    while (index < source.length && /\s/.test(source[index])) index += 1;
+    let value = "";
+    const quote = source[index];
+    if (quote === "\"" || quote === "'") {
+      const end = source.indexOf(quote, index + 1);
+      value = source.slice(index + 1, end < 0 ? source.length : end);
+      index = end < 0 ? source.length : end + 1;
+    } else {
+      let end = index;
+      while (end < source.length && !/\s/.test(source[end])) end += 1;
+      value = source.slice(index, end);
+      index = end;
+    }
+    if (name) element.setAttribute(name.toLowerCase(), decodeHtmlEntities(value));
+  }
+}
+
+const HTML_VOID_TAGS = ["BR", "IMG", "HR", "INPUT", "WBR"];
+
+function parseHtmlFragment(html) {
+  const root = new FakeFragment();
+  const stack = [root];
+  const source = String(html);
+  let index = 0;
+  const appendText = (value) => {
+    if (value) FakeNode.prototype.appendChild.call(stack[stack.length - 1], new FakeText(value));
+  };
+  while (index < source.length) {
+    const open = source.indexOf("<", index);
+    if (open < 0) {
+      appendText(decodeHtmlEntities(source.slice(index)));
+      break;
+    }
+    if (open > index) appendText(decodeHtmlEntities(source.slice(index, open)));
+    const close = source.indexOf(">", open);
+    if (close < 0) {
+      appendText(decodeHtmlEntities(source.slice(open)));
+      break;
+    }
+    const raw = source.slice(open + 1, close);
+    index = close + 1;
+    if (raw.startsWith("!--")) continue;
+    if (raw.startsWith("/")) {
+      const tagName = raw.slice(1).trim().toUpperCase();
+      for (let depth = stack.length - 1; depth > 0; depth -= 1) {
+        if (stack[depth].tagName === tagName) {
+          stack.length = depth;
+          break;
+        }
+      }
+      continue;
+    }
+    const selfClosing = raw.endsWith("/");
+    const body = selfClosing ? raw.slice(0, -1).trim() : raw;
+    const nameMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(body);
+    if (!nameMatch) continue;
+    const element = new FakeElement(nameMatch[1]);
+    parseHtmlAttributes(body.slice(nameMatch[0].length), element);
+    FakeNode.prototype.appendChild.call(stack[stack.length - 1], element);
+    if (!selfClosing && !HTML_VOID_TAGS.includes(element.tagName)) stack.push(element);
+  }
+  return root;
+}
+
+// Minimal inline-style declaration mirroring the CSSStyleDeclaration surface
+// the engine uses: getPropertyValue/getPropertyPriority/setProperty/
+// removeProperty, with cssText derived from the stored properties so probe
+// checks that sniff the serialized style keep working.
+class FakeInlineStyle {
+  constructor() {
+    this._values = new Map();
+    this._priorities = new Map();
+  }
+
+  getPropertyValue(name) {
+    return this._values.get(name) ?? "";
+  }
+
+  getPropertyPriority(name) {
+    return this._priorities.get(name) ?? "";
+  }
+
+  setProperty(name, value, priority = "") {
+    if (value == null || String(value) === "") {
+      this.removeProperty(name);
+      return;
+    }
+    this._values.set(name, String(value));
+    if (priority === "important") this._priorities.set(name, "important");
+    else this._priorities.delete(name);
+  }
+
+  removeProperty(name) {
+    const value = this._values.get(name) ?? "";
+    this._values.delete(name);
+    this._priorities.delete(name);
+    return value;
+  }
+
+  get cssText() {
+    const parts = [];
+    for (const [name, value] of this._values) {
+      const priority = this._priorities.get(name);
+      parts.push(priority ? `${name}:${value}!${priority}` : `${name}:${value}`);
+    }
+    return parts.join(";");
+  }
+
+  set cssText(value) {
+    this._values.clear();
+    this._priorities.clear();
+    for (const declaration of String(value).split(";")) {
+      const colon = declaration.indexOf(":");
+      if (colon < 0) continue;
+      const name = declaration.slice(0, colon).trim();
+      let declarationValue = declaration.slice(colon + 1).trim();
+      if (!name) continue;
+      let priority = "";
+      if (/!important$/i.test(declarationValue)) {
+        priority = "important";
+        declarationValue = declarationValue.slice(0, -10).trim();
+      }
+      this._values.set(name, declarationValue);
+      if (priority) this._priorities.set(name, priority);
+    }
+  }
+}
+
 class FakeElement extends FakeNode {
   constructor(tagName) {
     super(1);
     this.tagName = tagName.toUpperCase();
     this.attributes = new Map();
     this.dataset = {};
-    this.style = { cssText: "" };
+    this.style = new FakeInlineStyle();
     this.ownerDocument = null;
     this.width = 0;
     this.height = 0;
@@ -256,9 +434,9 @@ class FakeElement extends FakeNode {
   set innerHTML(value) {
     this._innerText = null;
     // The browser's innerHTML parser bypasses per-element mutation wrappers,
-    // so install the replacement text through the prototype method.
+    // so install the replacement tree through the prototype method.
     while (this.firstChild) FakeNode.prototype.removeChild.call(this, this.firstChild);
-    if (value) FakeNode.prototype.appendChild.call(this, new FakeText(String(value)));
+    if (value) FakeNode.prototype.appendChild.call(this, parseHtmlFragment(value));
   }
 
   getBoundingClientRect() {
