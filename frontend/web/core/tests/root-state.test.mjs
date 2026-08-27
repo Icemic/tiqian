@@ -98,7 +98,9 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     // fontSize bag: the snapshot gate routes through withoutSnapshotFontSession.
     const state = rs.createRootState(root, { fontSize: 19 });
 
-    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
+    // Creation leaves the fallback marker untouched; destroyRoot owns that
+    // cleanup now.
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "stale");
     assert.equal(state.root, root);
     assert.equal(state.options.fontSize, 19);
     assert.equal(state.options.snapshotFontSession, null);
@@ -110,7 +112,7 @@ test("1. createRootState: optionsBag -> optionsFromJs -> snapshot gate -> withRo
     assert.deepEqual(state.paragraphs, []);
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
-    assert.equal(state.preparedDomFallback, null);
+    assert.deepEqual(state.cjkDashCapability, { status: "not-needed", detail: null });
     assert.ok(state.browserFallback.bridge);
     assert.equal(typeof state.browserFallback.bridge.shapeJson, "function");
     assert.equal(typeof state.browserFallback.bridge.metricsJson, "function");
@@ -153,11 +155,11 @@ test("2. createRootStateFromCanonical skips optionsFromJs and the snapshot gate 
     assert.deepEqual(state.paragraphs, []);
     assert.deepEqual(state.issues, []);
     assert.equal(state.preparedDomEnabled, true);
-    assert.equal(state.preparedDomFallback, null);
+    assert.deepEqual(state.cjkDashCapability, { status: "not-needed", detail: null });
   });
 });
 
-test("3. preparedDom toggle: active options, snapshot session descriptor, attribute write, truncation, idempotence", () => {
+test("3. preparedDom enabled path: active options, snapshot session descriptor, no fallback attribute", () => {
   withComputedStyle(() => {
     const { rs } = makeRootState();
 
@@ -174,30 +176,12 @@ test("3. preparedDom toggle: active options, snapshot session descriptor, attrib
     assert.equal(typeof descriptor.shapeJson, "function");
     assert.equal(typeof descriptor.metricsJson, "function");
 
-    const detail = "x".repeat(600);
-    rs.disableSnapshotPreparedDom(state, detail);
-    assert.equal(state.preparedDomEnabled, false);
-    assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "x".repeat(512));
+    // The former disable toggle and its fallback attribute were dissolved;
+    // creation must not write the fallback marker at all.
+    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
     assert.equal(
       root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
-      1
-    );
-
-    // After disable: active options drop the snapshot font session and the
-    // descriptor becomes null.
-    const active = rs.activeTsOptions(state);
-    assert.notEqual(active, state.options);
-    assert.equal(active.snapshotFontSession, null);
-    assert.equal(rs.activeSnapshotSessionDescriptor(state), null);
-
-    // Idempotent: a second call changes nothing and does not rewrite the attribute.
-    rs.disableSnapshotPreparedDom(state, "second-detail");
-    assert.equal(state.preparedDomFallback, "x".repeat(512));
-    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "x".repeat(512));
-    assert.equal(
-      root.setAttributeCalls.filter((call) => call[0] === "data-tiqian-snapshot-layout-fallback").length,
-      1
+      0
     );
   });
 });
@@ -229,10 +213,6 @@ test("4. engineState cross-section: live arrays, callback wiring", () => {
     engine.onParagraphCommitted(item);
     assert.equal(state.paragraphs.length, 1);
     assert.equal(state.paragraphs[0], item);
-
-    engine.onDisableSnapshotPreparedDom("replay-mismatch");
-    assert.equal(state.preparedDomEnabled, false);
-    assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), "replay-mismatch");
   });
 });
 
