@@ -43,7 +43,16 @@ class UnicodeEmoji17RgiRoleAuditTest {
     }
 
     private fun String.toUnicodeString(): String = buildString {
-        this@toUnicodeString.split(Regex("\\s+")).forEach { appendCodePoint(it.toInt(16)) }
+        this@toUnicodeString.split(Regex("\\s+")).forEach { hex ->
+            val codePoint = hex.toInt(16)
+            if (codePoint <= 0xFFFF) {
+                append(codePoint.toChar())
+            } else {
+                val scalar = codePoint - 0x10000
+                append(((scalar shr 10) + 0xD800).toChar())
+                append(((scalar and 0x3FF) + 0xDC00).toChar())
+            }
+        }
     }
 
     private companion object {

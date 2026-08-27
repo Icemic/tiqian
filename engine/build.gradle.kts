@@ -33,6 +33,69 @@ val generateEmbeddedHyphenationPatterns = tasks.register("generateEmbeddedHyphen
     }
 }
 
+// The layout-dump goldens are language-neutral text files; the JVM golden test
+// owns and regenerates them, and commonTest replays the same corpus on every
+// target. They are embedded as generated chunked constants (same mechanism as
+// the hyphenation patterns) because only the JVM can read files at test time.
+val generateLayoutDumpGoldens = tasks.register("generateLayoutDumpGoldens") {
+    val goldenDir = layout.projectDirectory.dir("src/jvmTest/resources/golden/layout-dumps")
+    val outputDir = layout.buildDirectory.dir("generated/layout-dump-goldens/kotlin")
+    inputs.dir(goldenDir)
+    outputs.dir(outputDir)
+    doLast {
+        // Chunked so no literal exceeds the JVM constant-pool string limit
+        // (65535 modified-UTF-8 bytes); never cuts between surrogate halves.
+        fun escapedChunks(text: String): List<String> {
+            val chunks = mutableListOf<String>()
+            val current = StringBuilder()
+            var bytes = 0
+            for (ch in text) {
+                val escaped = when (ch) {
+                    '\\' -> "\\\\"
+                    '"' -> "\\\""
+                    '$' -> "\\$"
+                    '\n' -> "\\n"
+                    '\r' -> "\\r"
+                    else -> ch.toString()
+                }
+                current.append(escaped)
+                bytes += escaped.sumOf { c -> if (c.code <= 0x7F) 1 else 3L }.toInt()
+                if (bytes >= 40000 && !ch.isHighSurrogate()) {
+                    chunks += current.toString()
+                    current.setLength(0)
+                    bytes = 0
+                }
+            }
+            if (current.isNotEmpty() || chunks.isEmpty()) chunks += current.toString()
+            return chunks
+        }
+        val files = goldenDir.asFile.listFiles { f -> f.extension == "txt" }?.sortedBy { it.name }.orEmpty()
+        val out = outputDir.get().file("org/tiqian/layout/LayoutDumpGoldenData.kt").asFile
+        out.parentFile.mkdirs()
+        out.writeText(
+            buildString {
+                appendLine("package org.tiqian.layout")
+                appendLine()
+                appendLine("// GENERATED from src/jvmTest/resources/golden/layout-dumps — do not edit.")
+                appendLine("internal object LayoutDumpGoldens {")
+                appendLine("    val byId: Map<String, String> = buildMap {")
+                for (file in files) {
+                    appendLine("        put(")
+                    appendLine("            \"${file.nameWithoutExtension}\",")
+                    appendLine("            listOf(")
+                    for (chunk in escapedChunks(file.readText())) {
+                        appendLine("                \"$chunk\",")
+                    }
+                    appendLine("            ).joinToString(\"\"),")
+                    appendLine("        )")
+                }
+                appendLine("    }")
+                appendLine("}")
+            },
+        )
+    }
+}
+
 kotlin {
     jvm()
     android {
@@ -62,8 +125,12 @@ kotlin {
     }
 
     sourceSets {
-        commonTest.dependencies {
-            implementation(kotlin("test"))
+        commonTest {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(project(":test-support"))
+            }
+            kotlin.srcDir(generateLayoutDumpGoldens)
         }
 
         jsMain {
