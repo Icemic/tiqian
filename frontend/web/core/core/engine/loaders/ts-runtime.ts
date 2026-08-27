@@ -1,11 +1,10 @@
 // Pure TS installer for the Tiqian engine (ADR 0053 Slice 7 installation
 // path).
 // This module replaces the bundle init block. It is the concrete composition
-// root: it builds the three stateful engine graph products (copy installer,
-// root-state, layout-job-pool) that the named engine functions receive as
-// explicit dependencies. After bundle retirement this is the sole installation
-// entry point; calling buildTiqianRuntimeGraph() again builds a fresh graph
-// with its own job pool and root-state.
+// root: it builds the two stateful engine graph products (copy installer,
+// root-state) that the named engine functions receive as explicit dependencies.
+// After bundle retirement this is the sole installation entry point; calling
+// buildTiqianRuntimeGraph() again builds a fresh graph with its own root-state.
 // R10 dissolved the former engineEntry()/createEngineEntry facade assembly:
 // buildTiqianRuntimeGraph replaces engineEntry and returns the plain graph.
 
@@ -14,18 +13,15 @@
 // root builds the graph products instead.
 import { createCopyInstaller } from "../../utils/copy.js";
 import type { CopyInstaller } from "../../utils/copy.js";
-import { createLayoutJobPool } from "../layout-job-pool.js";
-import type { LayoutJobPool } from "../layout-job-pool.js";
 import { createRootState } from "../root-state.js";
 import type { RootStateApi } from "../root-state.js";
 
-// The three stateful engine graph products (R10 ruling 4): every named engine
+// The two stateful engine graph products (R10 ruling 4): every named engine
 // function receives the products it needs from this record; no facade object
 // bundles them behind method closures.
 export interface TiqianRuntimeGraph {
   copyInstaller: CopyInstaller;
   rootState: RootStateApi;
-  layoutJobPool: LayoutJobPool;
 }
 
 // RuntimeGraphOptions: the concrete composition root accepts an optional
@@ -35,14 +31,13 @@ export interface RuntimeGraphOptions {
   copyInstaller?: CopyInstaller;
 }
 
-// Construct the whole engine object graph: copy installer, root-state and
-// layout-job-pool. Every product is built here.
+// Construct the whole engine object graph: copy installer and root-state.
+// Every product is built here.
 export function buildTiqianRuntimeGraph(options?: RuntimeGraphOptions): TiqianRuntimeGraph {
   return {
     copyInstaller: options && options.copyInstaller
       ? options.copyInstaller
       : createCopyInstaller(),
     rootState: createRootState(),
-    layoutJobPool: createLayoutJobPool(),
   };
 }

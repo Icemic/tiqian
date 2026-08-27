@@ -3,6 +3,7 @@ import {
   currentTiqianRuntime,
   loadTiqianRuntime,
 } from "@tiqian/core/core/engine/loaders/runtime-loader.js";
+import { globalServices } from "@tiqian/core/core/services/global-services.js";
 import { prepareCjkDashShapingIfNeeded } from "@tiqian/core/core/engine/loaders/cjk-dash.js";
 import { restoreAdoptedSnapshot } from "@tiqian/core/core/sampler/snapshot/loaded-snapshots.js";
 import { ensureTiqianStyles } from "@tiqian/core/core/engine/loaders/styles.js";
@@ -219,12 +220,12 @@ async function withTiqianWeb<T>(
 
 export function enhance(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | number> {
   return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, context, root, prepared));
+    enhanceRoot(graph.rootState, graph.copyInstaller, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export function enhanceProgressively(root: HTMLElement = document.body, options: TiqianWebOptions = {}): Promise<HTMLElement | void> {
   return withTiqianWeb(root, options, (graph, prepared, context) =>
-    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, graph.layoutJobPool, context, root, prepared));
+    enhanceProgressivelyRoot(graph.rootState, graph.copyInstaller, globalServices().coordination.layoutJobPool, context, root, prepared));
 }
 
 export async function destroy(root: HTMLElement = document.body): Promise<void> {
@@ -241,7 +242,7 @@ export async function destroy(root: HTMLElement = document.body): Promise<void> 
     const graph = await loadTiqianRuntime();
     if (context.generation !== generation) return;
     try {
-      destroyRoot(graph.rootState, graph.layoutJobPool, context, root);
+      destroyRoot(graph.rootState, globalServices().coordination.layoutJobPool, context, root);
     } finally {
       releaseContextFontSession(context, root);
       context.destroy();

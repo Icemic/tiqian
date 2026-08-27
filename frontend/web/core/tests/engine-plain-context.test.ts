@@ -361,7 +361,6 @@ function graphOf(context: PlainContext) {
   return {
     rootState: context.rootState,
     copyInstaller: context.copyInstaller,
-    layoutJobPool: context.layoutJobPool,
     rawDomContext: context.rawDomContext,
   };
 }
@@ -372,8 +371,6 @@ test("the plain context literals satisfy the runtime-graph product contracts", (
   assert.equal(typeof graph.rootState.createRootState, "function");
   assert.equal(typeof graph.rootState.sessionArgument, "function");
   assert.equal(typeof graph.copyInstaller.install, "function");
-  assert.equal(typeof graph.layoutJobPool.startJob, "function");
-  assert.equal(typeof graph.layoutJobPool.cancelJob, "function");
 });
 
 test("enhance installs the copy listener, tears down, then builds and publishes", () => {

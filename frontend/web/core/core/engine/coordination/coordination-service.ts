@@ -19,6 +19,7 @@ import { createReplayRegistry } from "./fonts.js";
 import type { MeasurementCoordinationState } from "./measurement.js";
 import type { TraceConfig } from "../lifecycle.js";
 import type { LayoutJobPool } from "../layout-job-pool.js";
+import { createLayoutJobPool } from "../layout-job-pool.js";
 import type {
   PageWorkerCoordinator,
   PlanRecord,
@@ -97,9 +98,6 @@ export interface GrantController {
 export interface CoordinatorWorkerSlot {
   session: RootSessionId;
   element: HTMLElement;
-  // R10 ruling 3: the slot holds the root's layout job pool directly; the
-  // former worker-prefixed alias layer (CoordinatorWorkerRuntime) is gone.
-  pool: LayoutJobPool;
   active: boolean;
   pendingByTier: [number, number, number] | number[];
   generation: number;
@@ -178,6 +176,7 @@ export class CoordinationService {
   layoutWorker?: TiqianLayoutWorkerInstance;
   traceConfig?: TraceConfig;
   frameTrace?: FrameTraceRow[];
+  readonly layoutJobPool: LayoutJobPool = createLayoutJobPool();
   // PageWorkerCoordinator: the Kotlin-era page bridge registry consolidated
   // from worker-channel.ts module scope (S5-bc). The Symbol.for sharing
   // pattern is preserved through globalServices, which itself uses Symbol.for.
@@ -559,18 +558,16 @@ export class CoordinationService {
     return requestAnimationFrame(callback);
   }
 
-  registerWorker(session: RootSessionId, element: HTMLElement, pool: LayoutJobPool): void {
+  registerWorker(session: RootSessionId, element: HTMLElement): void {
     for (let i = 0; i < this.#workerSlots.length; i++) {
       if (this.#workerSlots[i].session === session) {
         this.#workerSlots[i].element = element;
-        this.#workerSlots[i].pool = pool;
         return;
       }
     }
     this.#workerSlots.push({
       session,
       element,
-      pool,
       active: false,
       pendingByTier: [0, 0, 0],
       generation: 0,
@@ -591,13 +588,13 @@ export class CoordinationService {
   // loop. Remaining tiers stay with it.
   grantImmediate(session: RootSessionId): boolean {
     const slot = this.#findWorkerSlot(session);
-    if (!slot || typeof slot.pool?.runSlice !== "function") return false;
+    if (!slot || typeof this.layoutJobPool?.runSlice !== "function") return false;
     const element = slot.element;
-    if (!slot.pool.hasJob(element)) return false;
+    if (!this.layoutJobPool.hasJob(element)) return false;
     const admission = this.#admitMainSlice("prepaint");
     if (!admission) return false;
     const sliceStart = performance.now();
-    const generation = slot.pool.jobGeneration(element);
+    const generation = this.layoutJobPool.jobGeneration(element);
     const quota = slot.quota;
     let processed = 0;
     const viewportAnchor = captureViewportAnchor(element);
@@ -607,7 +604,7 @@ export class CoordinationService {
       // root whose visible paragraph count exceeds the adaptive quota still
       // commits atomically before this frame paints.
       while (Date.now() < admission.deadline) {
-        const sliceProcessed = slot.pool.runSlice({
+        const sliceProcessed = this.layoutJobPool.runSlice({
           admissionClass: "prepaint",
           root: element,
           generation,
@@ -619,7 +616,7 @@ export class CoordinationService {
         }, 1);
         processed += sliceProcessed;
         if (sliceProcessed === 0) break;
-        if (slot.pool.pendingInTier(element, 1) === 0) break;
+        if (this.layoutJobPool.pendingInTier(element, 1) === 0) break;
       }
     } finally {
       admission.spent(performance.now() - sliceStart);
@@ -629,11 +626,11 @@ export class CoordinationService {
       slot.deferCount = 0;
       slot.lastGrantFrame = this.#frameCounter;
     }
-    slot.active = slot.pool.hasJob(element);
+    slot.active = this.layoutJobPool.hasJob(element);
     if (!slot.active) releaseNativeScrollAnchoring(element);
-    slot.pendingByTier[0] = slot.pool.pendingInTier(element, 1);
-    slot.pendingByTier[1] = slot.pool.pendingInTier(element, 2);
-    slot.pendingByTier[2] = slot.pool.pendingInTier(element, 3);
+    slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(element, 1);
+    slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(element, 2);
+    slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(element, 3);
     return processed > 0;
   }
 
@@ -763,12 +760,12 @@ export class CoordinationService {
     // counters per attached root. Grants re-read only the tier they drained.
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
-      if (slot.pool.hasJob(slot.element)) {
+      if (this.layoutJobPool.hasJob(slot.element)) {
         slot.active = true;
-        slot.generation = slot.pool.jobGeneration(slot.element);
-        slot.pendingByTier[0] = slot.pool.pendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.pool.pendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.pool.pendingInTier(slot.element, 3);
+        slot.generation = this.layoutJobPool.jobGeneration(slot.element);
+        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(slot.element, 3);
       } else {
         slot.active = false;
         slot.generation = 0;
@@ -818,7 +815,7 @@ export class CoordinationService {
           anchorCaptured = true;
           viewportAnchor = captureViewportAnchor(slot.element);
         }
-        const processed = slot.pool.runSlice({
+        const processed = this.layoutJobPool.runSlice({
           admissionClass: "grant",
           root: slot.element,
           generation: slot.generation,
@@ -837,9 +834,9 @@ export class CoordinationService {
         }
         // A tier-N grant may drain leftover lower-tier items, so every grant
         // refreshes all three counters.
-        slot.pendingByTier[0] = slot.pool.pendingInTier(slot.element, 1);
-        slot.pendingByTier[1] = slot.pool.pendingInTier(slot.element, 2);
-        slot.pendingByTier[2] = slot.pool.pendingInTier(slot.element, 3);
+        slot.pendingByTier[0] = this.layoutJobPool.pendingInTier(slot.element, 1);
+        slot.pendingByTier[1] = this.layoutJobPool.pendingInTier(slot.element, 2);
+        slot.pendingByTier[2] = this.layoutJobPool.pendingInTier(slot.element, 3);
         if (processed === 0) return finish(true);
       }
       return finish(true);

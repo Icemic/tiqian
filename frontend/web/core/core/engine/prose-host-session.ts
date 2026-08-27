@@ -216,16 +216,16 @@ function coordinationService(): CoordinationService {
 // runtime state to tear down.
 function destroyRuntimeRoot(context: EnhancedElementContext, root: HTMLElement): void {
   const graph = tiqianRuntimeGraph();
-  if (graph) destroyRoot(graph.rootState, graph.layoutJobPool, context, root);
+  if (graph) destroyRoot(graph.rootState, coordinationService().layoutJobPool, context, root);
 }
 
 function detachRuntimeRoot(root: HTMLElement): void {
   const graph = tiqianRuntimeGraph();
-  if (graph) detachRoot(graph.layoutJobPool, root);
+  if (graph) detachRoot(coordinationService().layoutJobPool, root);
 }
 
 function cancelRootLayoutWork(root: HTMLElement): void {
-  tiqianRuntimeGraph()?.layoutJobPool.cancelJob(root);
+  coordinationService().layoutJobPool.cancelJob(root);
 }
 
 interface TiqianParagraphTierInfo {
@@ -723,7 +723,7 @@ class ProseHostSession {
     if (this.#stateMachine.workerAttached) {
       // tiqian:detach already cancelled the job, so the pool's detach has no
       // in-flight work to finish on this disconnected root.
-      tiqianRuntimeGraph()?.layoutJobPool.detach(this.#root);
+      coordinationService().layoutJobPool.detach(this.#root);
       this.#stateMachine.workerAttached = false;
     }
     this.#releaseSnapshotFontSession();
@@ -1098,7 +1098,7 @@ class ProseHostSession {
     try {
       const graph = tiqianRuntimeGraph();
       if (graph) {
-        enhanceProgressively(graph.rootState, graph.copyInstaller, graph.layoutJobPool, this.#context, this.#root, preparedOptions);
+        enhanceProgressively(graph.rootState, graph.copyInstaller, coordinationService().layoutJobPool, this.#context, this.#root, preparedOptions);
       }
     } finally {
       compensateViewportAnchor(this.#root, runAnchor);
@@ -1113,16 +1113,15 @@ class ProseHostSession {
     // coordinated from the start and every slice comes from a grant. The
     // dispatch task runs inside the coordinator frame, so the first polled
     // grant lands in the same frame under the shared budget.
-    const pool = tiqianRuntimeGraph()?.layoutJobPool;
-    if (!pool) return;
+    const pool = coordinationService().layoutJobPool;
     pool.attach(this.#root);
     this.#stateMachine.workerAttached = true;
-    coordinationService().registerWorker(this.#coordinationSession, this.#root, pool);
+    coordinationService().registerWorker(this.#coordinationSession, this.#root);
   }
 
   #syncLayoutWorker() {
-    const pool = tiqianRuntimeGraph()?.layoutJobPool;
-    if (!this.#stateMachine.workerAttached || !pool) return;
+    const pool = coordinationService().layoutJobPool;
+    if (!this.#stateMachine.workerAttached) return;
     coordinationService().setWorkerActive(this.#coordinationSession, pool.hasJob(this.#root));
     this.#observeParagraphTiers(pool);
     coordinationService().requestWorkerFrame(this.#coordinationSession);
@@ -1143,7 +1142,7 @@ class ProseHostSession {
     this.#paragraphObserver ??= new IntersectionObserver((entries) => {
       // The runtime graph can be rebuilt between dispatch and intersection;
       // read the pool live so tier flips always reach the current job.
-      const live = tiqianRuntimeGraph()?.layoutJobPool;
+      const live = coordinationService().layoutJobPool;
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const info = this.#paragraphTierIndex.get(entry.target);
@@ -1656,7 +1655,7 @@ class ProseHostSession {
     const relayoutAnchor = captureViewportAnchor(this.#root);
     try {
       const graph = tiqianRuntimeGraph();
-      if (graph) relayout(graph.rootState, graph.copyInstaller, graph.layoutJobPool, this.#context, this.#root);
+      if (graph) relayout(graph.rootState, graph.copyInstaller, coordinationService().layoutJobPool, this.#context, this.#root);
     } finally {
       compensateViewportAnchor(this.#root, relayoutAnchor);
       releaseNativeScrollAnchoring(this.#root);
@@ -2278,7 +2277,7 @@ class ProseHostSession {
     this.#stateMachine.completionGateOpen = true;
     this.#ensureLayoutWorker();
     const graph = tiqianRuntimeGraph();
-    const outcome = graph ? reconcileRoot(this.#context, graph.rootState, graph.layoutJobPool, this.#root, paragraphs) : null;
+    const outcome = graph ? reconcileRoot(this.#context, graph.rootState, coordinationService().layoutJobPool, this.#root, paragraphs) : null;
     if (outcome?.outcome !== "work") {
       // ReconcileIdleReleasesWorkSlot: the records were engine-owned output
       // or touched nothing tracked. Release the work slot without a ready
