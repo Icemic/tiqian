@@ -2,28 +2,58 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createFontFamilies } from "../core/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
 import { stubFontMetrics, createMetricsResolver, ZERO_ADVANCE_EPSILON } from "../core/engine/canvas-metrics.js";
+import type {
+  CanvasFontMetricsRequest,
+  CanvasFontMetricsResult,
+  CanvasTextMetricsLike,
+  CanvasContextLike,
+  CanvasMetricsResolverInstance,
+} from "../core/engine/canvas-metrics.js";
 
-function createFakeCanvasContext(options = {}) {
-  let fontValue = "10px sans-serif";
-  const fontAssignments = [];
-  let measureCount = 0;
-  const measureCalls = [];
+interface FakeCanvasOptions {
+  measure?: FakeMeasureFn;
+}
 
-  return {
-    get font() {
+type FakeMeasureFn = (text: string, font: string, count: number) => CanvasTextMetricsLike;
+
+interface FakeMeasureCall {
+  font: string;
+  text: string;
+}
+
+interface FakeCanvasContext extends CanvasContextLike {
+  fontAssignments: string[];
+  measureCount: number;
+  measureCalls: FakeMeasureCall[];
+}
+
+interface FakeImageDataLike {
+  data: Uint8ClampedArray;
+}
+
+function createFakeCanvasContext(options: FakeCanvasOptions = {}): FakeCanvasContext {
+  let fontValue: string = "10px sans-serif";
+  const fontAssignments: string[] = [];
+  let measureCount: number = 0;
+  const measureCalls: FakeMeasureCall[] = [];
+
+  const ctx: FakeCanvasContext = {
+    get font(): string {
       return fontValue;
     },
-    set font(value) {
+    set font(value: string) {
       fontAssignments.push(value);
       fontValue = value;
     },
+    canvas: { width: 0, height: 0 },
     fontAssignments,
-    get measureCount() {
+    get measureCount(): number {
       return measureCount;
     },
     measureCalls,
-    measureText(text) {
+    measureText(text: string): CanvasTextMetricsLike {
       measureCount += 1;
       measureCalls.push({ font: fontValue, text });
       if (typeof options.measure === "function") {
@@ -36,9 +66,18 @@ function createFakeCanvasContext(options = {}) {
         actualBoundingBoxAscent: 10,
         actualBoundingBoxDescent: 2,
         ideographicBaseline: -2.4,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: 10,
       };
     },
+    setTransform(_a: number, _b: number, _c: number, _d: number, _e: number, _f: number): void {},
+    clearRect(_x: number, _y: number, _w: number, _h: number): void {},
+    fillText(_text: string, _x: number, _y: number): void {},
+    getImageData(_sx: number, _sy: number, _sw: number, _sh: number): FakeImageDataLike {
+      return { data: new Uint8ClampedArray(0) };
+    },
   };
+  return ctx;
 }
 
 test("canvas-metrics module exports resolvers and the epsilon", () => {
@@ -48,13 +87,13 @@ test("canvas-metrics module exports resolvers and the epsilon", () => {
 });
 
 test("stubFontMetrics computes constants for CJK roles with typo pair", () => {
-  const cjkRequest = {
+  const cjkRequest: CanvasFontMetricsRequest = {
     role: "CjkText",
     fontSize: 20,
     fontWeight: 400,
     italic: false,
   };
-  const cjkMetrics = stubFontMetrics(cjkRequest);
+  const cjkMetrics: CanvasFontMetricsResult = stubFontMetrics(cjkRequest);
   assert.equal(cjkMetrics.ascent, 20 * 1.16);
   assert.equal(cjkMetrics.descent, 20 * 0.288);
   assert.equal(cjkMetrics.leading, 0);
@@ -62,11 +101,11 @@ test("stubFontMetrics computes constants for CJK roles with typo pair", () => {
   assert.equal(cjkMetrics.typoAscent, 20 * 0.88);
   assert.equal(cjkMetrics.typoDescent, 20 * 0.12);
 
-  const punctRequest = {
+  const punctRequest: CanvasFontMetricsRequest = {
     role: "CjkPunctuation",
     fontSize: 25,
   };
-  const punctMetrics = stubFontMetrics(punctRequest);
+  const punctMetrics: CanvasFontMetricsResult = stubFontMetrics(punctRequest);
   assert.equal(punctMetrics.ascent, 25 * 1.16);
   assert.equal(punctMetrics.descent, 25 * 0.288);
   assert.equal(punctMetrics.typoAscent, 25 * 0.88);
@@ -74,13 +113,13 @@ test("stubFontMetrics computes constants for CJK roles with typo pair", () => {
 });
 
 test("stubFontMetrics computes constants for LatinText without typo pair", () => {
-  const latinRequest = {
+  const latinRequest: CanvasFontMetricsRequest = {
     role: "LatinText",
     fontSize: 20,
   };
-  const latinMetrics = stubFontMetrics(latinRequest);
-  assert.equal(latinMetrics.ascent, 16); // 20 * 0.8
-  assert.equal(latinMetrics.descent, 4); // 20 * 0.2
+  const latinMetrics: CanvasFontMetricsResult = stubFontMetrics(latinRequest);
+  assert.equal(latinMetrics.ascent, 16);
+  assert.equal(latinMetrics.descent, 4);
   assert.equal(latinMetrics.leading, 0);
   assert.equal(latinMetrics.source, "RawTables");
   assert.equal(latinMetrics.typoAscent, null);
@@ -88,10 +127,11 @@ test("stubFontMetrics computes constants for LatinText without typo pair", () =>
 });
 
 test("stubFontMetrics computes constants for Symbol, Emoji, and Unknown roles without typo pair", () => {
-  for (const role of ["Symbol", "Emoji", "Unknown", "Other"]) {
-    const metrics = stubFontMetrics({ role, fontSize: 20 });
-    assert.equal(metrics.ascent, 18); // 20 * 0.9
-    assert.equal(metrics.descent, 5); // 20 * 0.25
+  const roles: string[] = ["Symbol", "Emoji", "Unknown", "Other"];
+  for (const role of roles) {
+    const metrics: CanvasFontMetricsResult = stubFontMetrics({ role, fontSize: 20 });
+    assert.equal(metrics.ascent, 18);
+    assert.equal(metrics.descent, 5);
     assert.equal(metrics.leading, 0);
     assert.equal(metrics.source, "RawTables");
     assert.equal(metrics.typoAscent, null);
@@ -100,112 +140,116 @@ test("stubFontMetrics computes constants for Symbol, Emoji, and Unknown roles wi
 });
 
 test("createMetricsResolver selects probe character by role", () => {
-  let fakeCtx = null;
-  const fonts = createFontFamilies({
+  let fakeCtx: FakeCanvasContext | null = null;
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
 
-  const resolver = createMetricsResolver(fonts, () => {
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => {
     fakeCtx = createFakeCanvasContext();
     return fakeCtx;
   });
 
-  // CJK probe is "中"
   resolver.resolve({ role: "CjkText", fontSize: 16 });
-  assert.equal(fakeCtx.measureCalls[0].text, "中");
+  assert.equal(fakeCtx!.measureCalls[0].text, "\u4e2d");
 
-  // CjkPunctuation probe is "中"
   resolver.resolve({ role: "CjkPunctuation", fontSize: 16 });
-  assert.equal(fakeCtx.measureCalls[1].text, "中");
+  assert.equal(fakeCtx!.measureCalls[1].text, "\u4e2d");
 
-  // LatinText probe is "Hg"
   resolver.resolve({ role: "LatinText", fontSize: 16 });
-  assert.equal(fakeCtx.measureCalls[2].text, "Hg");
+  assert.equal(fakeCtx!.measureCalls[2].text, "Hg");
 
-  // Symbol probe is "Hg"
   resolver.resolve({ role: "Symbol", fontSize: 16 });
-  assert.equal(fakeCtx.measureCalls[3].text, "Hg");
+  assert.equal(fakeCtx!.measureCalls[3].text, "Hg");
 });
 
 test("resolve prioritizes fontBoundingBox over actualBoundingBox", () => {
-  const fakeCtx = createFakeCanvasContext({
-    measure: () => ({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (): CanvasTextMetricsLike => ({
       width: 16,
       fontBoundingBoxAscent: 15,
       fontBoundingBoxDescent: 4,
       actualBoundingBoxAscent: 11,
       actualBoundingBoxDescent: 2,
       ideographicBaseline: -2,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: 16,
     }),
   });
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const metrics = resolver.resolve({ role: "CjkText", fontSize: 16 });
+  const metrics: CanvasFontMetricsResult = resolver.resolve({ role: "CjkText", fontSize: 16 });
   assert.equal(metrics.ascent, 15);
   assert.equal(metrics.descent, 4);
   assert.equal(metrics.source, "GlyphSampling");
   assert.equal(metrics.leading, 0);
-  assert.equal(metrics.typoAscent, 14); // 16 - 2
+  assert.equal(metrics.typoAscent, 14);
   assert.equal(metrics.typoDescent, 2);
 });
 
 test("resolve falls back to actualBoundingBox when fontBoundingBox is missing or non-positive", () => {
-  const fakeCtx = createFakeCanvasContext({
-    measure: () => ({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (): CanvasTextMetricsLike => ({
       width: 16,
       fontBoundingBoxAscent: null,
       fontBoundingBoxDescent: 0,
       actualBoundingBoxAscent: 11.5,
       actualBoundingBoxDescent: 2.5,
       ideographicBaseline: -2,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: 16,
     }),
   });
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const metrics = resolver.resolve({ role: "CjkText", fontSize: 16 });
+  const metrics: CanvasFontMetricsResult = resolver.resolve({ role: "CjkText", fontSize: 16 });
   assert.equal(metrics.ascent, 11.5);
   assert.equal(metrics.descent, 2.5);
 });
 
 test("resolve skips family when probe width is zero, non-finite, or <= 0.01", () => {
-  const measuredFonts = [];
-  const fakeCtx = createFakeCanvasContext({
-    measure: (_text, font) => {
+  const measuredFonts: string[] = [];
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (_text: string, font: string, _count: number): CanvasTextMetricsLike => {
       measuredFonts.push(font);
       if (font.includes("ZeroWidthFont")) {
-        return { width: 0, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3 };
+        return { width: 0, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 };
       }
       if (font.includes("EpsilonFont")) {
-        return { width: 0.01, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3 };
+        return { width: 0.01, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 };
       }
       if (font.includes("NaNFont")) {
-        return { width: Number.NaN, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3 };
+        return { width: Number.NaN, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: 3, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 };
       }
       return {
         width: 16,
         fontBoundingBoxAscent: 14,
         fontBoundingBoxDescent: 3,
         ideographicBaseline: -2,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: 16,
+        actualBoundingBoxAscent: 0,
+        actualBoundingBoxDescent: 0,
       };
     },
   });
 
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const result = resolver.resolve({
+  const result: CanvasFontMetricsResult = resolver.resolve({
     role: "CjkText",
     fontSize: 16,
     fontFamilies: ["ZeroWidthFont", "EpsilonFont", "NaNFont", "ValidFont"],
@@ -222,31 +266,35 @@ test("resolve skips family when probe width is zero, non-finite, or <= 0.01", ()
 });
 
 test("resolve skips family when ascent or descent is unusable", () => {
-  const measuredFonts = [];
-  const fakeCtx = createFakeCanvasContext({
-    measure: (_text, font) => {
+  const measuredFonts: string[] = [];
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (_text: string, font: string, _count: number): CanvasTextMetricsLike => {
       measuredFonts.push(font);
       if (font.includes("NoAscentFont")) {
-        return { width: 16, fontBoundingBoxAscent: null, actualBoundingBoxAscent: 0, fontBoundingBoxDescent: 4 };
+        return { width: 16, fontBoundingBoxAscent: null, actualBoundingBoxAscent: 0, fontBoundingBoxDescent: 4, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 16, actualBoundingBoxDescent: 0 };
       }
       if (font.includes("NoDescentFont")) {
-        return { width: 16, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: null, actualBoundingBoxDescent: -1 };
+        return { width: 16, fontBoundingBoxAscent: 12, fontBoundingBoxDescent: null, actualBoundingBoxDescent: -1, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 16, actualBoundingBoxAscent: 0 };
       }
       return {
         width: 16,
         fontBoundingBoxAscent: 13,
         fontBoundingBoxDescent: 3,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxRight: 16,
+        actualBoundingBoxAscent: 0,
+        actualBoundingBoxDescent: 0,
       };
     },
   });
 
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const result = resolver.resolve({
+  const result: CanvasFontMetricsResult = resolver.resolve({
     role: "LatinText",
     fontSize: 16,
     fontFamilies: ["NoAscentFont", "NoDescentFont", "GoodFont"],
@@ -258,65 +306,76 @@ test("resolve skips family when ascent or descent is unusable", () => {
 });
 
 test("resolve calculates CJK typo pair from ideographicBaseline and clamps at 0", () => {
-  const fakeCtx = createFakeCanvasContext({
-    measure: () => ({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (): CanvasTextMetricsLike => ({
       width: 16,
       fontBoundingBoxAscent: 15,
       fontBoundingBoxDescent: 4,
-      // ideographicDescent = -(-25) = 25; fontSize = 20 => typoAscent = max(20 - 25, 0) = 0
       ideographicBaseline: -25,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: 16,
+      actualBoundingBoxAscent: 0,
+      actualBoundingBoxDescent: 0,
     }),
   });
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const metrics = resolver.resolve({ role: "CjkText", fontSize: 20 });
+  const metrics: CanvasFontMetricsResult = resolver.resolve({ role: "CjkText", fontSize: 20 });
   assert.equal(metrics.typoAscent, 0);
   assert.equal(metrics.typoDescent, 25);
 });
 
 test("resolve emits null typo pair for non-CJK roles even if ideographicBaseline is present", () => {
-  const fakeCtx = createFakeCanvasContext({
-    measure: () => ({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (): CanvasTextMetricsLike => ({
       width: 16,
       fontBoundingBoxAscent: 14,
       fontBoundingBoxDescent: 3,
       ideographicBaseline: -2.5,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: 16,
+      actualBoundingBoxAscent: 0,
+      actualBoundingBoxDescent: 0,
     }),
   });
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const latinMetrics = resolver.resolve({ role: "LatinText", fontSize: 16 });
+  const latinMetrics: CanvasFontMetricsResult = resolver.resolve({ role: "LatinText", fontSize: 16 });
   assert.equal(latinMetrics.typoAscent, null);
   assert.equal(latinMetrics.typoDescent, null);
 
-  const symbolMetrics = resolver.resolve({ role: "Symbol", fontSize: 16 });
+  const symbolMetrics: CanvasFontMetricsResult = resolver.resolve({ role: "Symbol", fontSize: 16 });
   assert.equal(symbolMetrics.typoAscent, null);
   assert.equal(symbolMetrics.typoDescent, null);
 });
 
 test("resolve falls back to stub metrics when all stack families fail", () => {
-  const fakeCtx = createFakeCanvasContext({
-    measure: () => ({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext({
+    measure: (): CanvasTextMetricsLike => ({
       width: 0,
       fontBoundingBoxAscent: 0,
       fontBoundingBoxDescent: 0,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: 0,
+      actualBoundingBoxAscent: 0,
+      actualBoundingBoxDescent: 0,
     }),
   });
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"FailedCJK", sans-serif',
     latin: '"FailedLatin", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const metrics = resolver.resolve({
+  const metrics: CanvasFontMetricsResult = resolver.resolve({
     role: "CjkText",
     fontSize: 20,
     fontFamilies: ["Broken1", "Broken2"],
@@ -330,65 +389,60 @@ test("resolve falls back to stub metrics when all stack families fail", () => {
 });
 
 test("cache behavior: identical request hits cache and faceSelectionText is ignored in cache key", () => {
-  const fakeCtx = createFakeCanvasContext();
-  const fonts = createFontFamilies({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext();
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  const request1 = {
+  const request1: CanvasFontMetricsRequest = {
     fontKey: "primary",
     fontSize: 16,
     role: "CjkText",
     locale: "zh-Hans",
     fontWeight: 400,
     italic: false,
-    faceSelectionText: "一",
+    faceSelectionText: "\u4e00",
   };
-  const request2 = {
+  const request2: CanvasFontMetricsRequest = {
     fontKey: "primary",
     fontSize: 16,
     role: "CjkText",
     locale: "zh-Hans",
     fontWeight: 400,
     italic: false,
-    faceSelectionText: "二",
+    faceSelectionText: "\u4e8c",
   };
 
-  const res1 = resolver.resolve(request1);
+  const res1: CanvasFontMetricsResult = resolver.resolve(request1);
   assert.equal(fakeCtx.measureCount, 1);
 
-  const res2 = resolver.resolve(request2);
+  const res2: CanvasFontMetricsResult = resolver.resolve(request2);
   assert.equal(fakeCtx.measureCount, 1);
   assert.strictEqual(res1, res2);
 });
 
 test("ctx.font is not reassigned when the cssFont string repeats across queries", () => {
-  const fakeCtx = createFakeCanvasContext();
-  const fonts = createFontFamilies({
+  const fakeCtx: FakeCanvasContext = createFakeCanvasContext();
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
-  const resolver = createMetricsResolver(fonts, () => fakeCtx);
+  const resolver: CanvasMetricsResolverInstance = createMetricsResolver(fonts, () => fakeCtx);
 
-  // Request 1: fontSize 16, normal 400
   resolver.resolve({ role: "CjkText", fontSize: 16 });
   assert.equal(fakeCtx.fontAssignments.length, 1);
   assert.equal(fakeCtx.fontAssignments[0], 'normal 400 16px "PingFang SC", sans-serif');
 
-  // Request 2: different font size -> assigns ctx.font
   resolver.resolve({ role: "CjkText", fontSize: 20 });
   assert.equal(fakeCtx.fontAssignments.length, 2);
   assert.equal(fakeCtx.fontAssignments[1], 'normal 400 20px "PingFang SC", sans-serif');
 
-  // Request 3: Back to fontSize 16, different fontKey so not in cache, but same cssFont as before
   resolver.resolve({ fontKey: "differentKey", role: "CjkText", fontSize: 16 });
   assert.equal(fakeCtx.fontAssignments.length, 3);
   assert.equal(fakeCtx.fontAssignments[2], 'normal 400 16px "PingFang SC", sans-serif');
 
-  // Request 4: Same cssFont again with yet another fontKey
   resolver.resolve({ fontKey: "yetAnotherKey", role: "CjkText", fontSize: 16 });
-  // Since currentCanvasFont was already 'normal 400 16px "PingFang SC", sans-serif', ctx.font was not set again!
   assert.equal(fakeCtx.fontAssignments.length, 3);
 });

@@ -1,42 +1,106 @@
-// Tests for the canvas text shaping adapter (TsHost runtime port, Slice 4a
-// part 2). Uses the real canvas-fonts module for font stack resolution
-// and a fake DOM injection surface (env) for measurement.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createFontFamilies } from "../core/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
 import {
   createTextShaper,
   installFontLoadInvalidation,
   clearMeasurementCache,
   measurementCacheSize,
 } from "../core/engine/canvas-shaping.js";
+import type {
+  CanvasTextShaperInstance,
+  CanvasShapingEnv,
+  CanvasShapingResult,
+  ProbeElementLike,
+  CjkDashCapability,
+  ShapeInput,
+} from "../core/engine/canvas-shaping.js";
+import type { CanvasContextLike, CanvasTextMetricsLike } from "../core/engine/canvas-metrics.js";
 
-const PARITY_PROBE_TEXT = "Benjamini-Hochberg WAVE fjord, 0x7f.";
-const DEGENERATE_PROBE_TEXT = "\u3002";
+const PARITY_PROBE_TEXT: string = "Benjamini-Hochberg WAVE fjord, 0x7f.";
+const DEGENERATE_PROBE_TEXT: string = "\u3002";
 
-// A fresh, programmable env and fonts instance per call. clearMeasurementCache
-// isolates the shared measurement/verdict caches from earlier tests.
-function makeHarness(program) {
+interface HarnessProgram {
+  measureText: HarnessMeasureFn;
+  probeWidth?: HarnessProbeWidthFn;
+  cjkDashCapability?: CjkDashCapability | null;
+  record?: HarnessRecordEntry[];
+  getImageData?: HarnessGetImageDataFn;
+}
+
+type HarnessMeasureFn = (text: string, font: string) => CanvasTextMetricsLike;
+type HarnessProbeWidthFn = (text: string) => number;
+
+interface ShapingImageDataLike {
+  data: Uint8ClampedArray;
+}
+
+type HarnessGetImageDataFn = (x: number, y: number, w: number, h: number) => ShapingImageDataLike;
+
+interface ShapingProbeRectWidth {
+  width: number;
+}
+
+interface HarnessRecordEntry {
+  name: string;
+  args: unknown[];
+}
+
+interface HarnessStyleEntry {
+  value: string;
+  priority: string | undefined;
+}
+
+interface HarnessProbeElement extends ProbeElementLike {
+  styleEntries: Record<string, HarnessStyleEntry>;
+  textMeasureCalls: Record<string, number>;
+}
+
+interface Harness {
+  env: HarnessEnv;
+  fonts: WebFontFamiliesInstance;
+  shaper: CanvasTextShaperInstance;
+  measureCount: Record<string, number>;
+}
+
+interface HarnessEnv extends CanvasShapingEnv {
+  probes: HarnessProbeElement[];
+}
+
+type HarnessVoidCallbackFn = () => void;
+
+interface FontSetLike {
+  listeners: Record<string, HarnessVoidCallbackFn>;
+  addEventListener(name: string, fn: HarnessVoidCallbackFn): void;
+}
+
+interface CanvasSizeLike {
+  width: number;
+  height: number;
+}
+
+function makeHarness(program: HarnessProgram): Harness {
   clearMeasurementCache();
-  const cfg = program;
-  const measureCount = {};
-  const probes = [];
+  const cfg: HarnessProgram = program;
+  const measureCount: Record<string, number> = {};
+  const probes: HarnessProbeElement[] = [];
 
-  function makeProbe() {
-    const styleEntries = {};
-    const textMeasureCalls = {};
-    const element = {
+  function makeProbe(): HarnessProbeElement {
+    const styleEntries: Record<string, HarnessStyleEntry> = {};
+    const textMeasureCalls: Record<string, number> = {};
+    const element: HarnessProbeElement = {
       parentNode: null,
       textContent: "",
-      setAttribute() {},
+      setAttribute(_name: string, _value: string): void {},
       style: {
-        setProperty(name, value, priority) {
+        setProperty(name: string, value: string, priority?: string): void {
           styleEntries[name] = { value, priority };
         },
       },
-      getBoundingClientRect() {
-        const key = element.textContent;
+      getBoundingClientRect(): ShapingProbeRectWidth {
+        const key: string = element.textContent;
         textMeasureCalls[key] = (textMeasureCalls[key] || 0) + 1;
         return { width: cfg.probeWidth ? cfg.probeWidth(key) : 0 };
       },
@@ -47,56 +111,56 @@ function makeHarness(program) {
     return element;
   }
 
-  function createCanvasContext() {
-    const canvas = { width: 0, height: 0 };
+  function createCanvasContext(): CanvasContextLike {
+    const canvas: CanvasSizeLike = { width: 0, height: 0 };
     return {
       canvas,
       font: "",
-      measureText(text) {
+      measureText(text: string): CanvasTextMetricsLike {
         measureCount[text] = (measureCount[text] || 0) + 1;
         return cfg.measureText(text, this.font);
       },
-      setTransform() {
-        if (cfg.record) cfg.record.push(["setTransform", Array.from(arguments)]);
+      setTransform(...args: number[]): void {
+        if (cfg.record) cfg.record.push({ name: "setTransform", args });
       },
-      clearRect() {
-        if (cfg.record) cfg.record.push(["clearRect", Array.from(arguments)]);
+      clearRect(...args: number[]): void {
+        if (cfg.record) cfg.record.push({ name: "clearRect", args });
       },
-      fillText() {
-        if (cfg.record) cfg.record.push(["fillText", Array.from(arguments)]);
+      fillText(...args: unknown[]): void {
+        if (cfg.record) cfg.record.push({ name: "fillText", args });
       },
-      getImageData(x, y, w, h) {
+      getImageData(x: number, y: number, w: number, h: number): ShapingImageDataLike {
         return cfg.getImageData ? cfg.getImageData(x, y, w, h) : { data: new Uint8ClampedArray(w * h * 4) };
       },
     };
   }
 
-  function createProbeElement() {
+  function createProbeElement(): HarnessProbeElement {
     return makeProbe();
   }
 
-  function attachProbe(element) {
+  function attachProbe(element: ProbeElementLike): void {
     if (element.parentNode == null) element.parentNode = {};
   }
 
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"CJK", sans-serif',
     latin: '"Latin", sans-serif',
   });
-  const env = { createCanvasContext, createProbeElement, attachProbe, probes };
-  const shaper = createTextShaper(fonts, cfg.cjkDashCapability, env);
+  const env: HarnessEnv = { createCanvasContext, createProbeElement, attachProbe, probes };
+  const shaper: CanvasTextShaperInstance = createTextShaper(fonts, cfg.cjkDashCapability ?? null, env);
   return { env, fonts, shaper, measureCount };
 }
 
-function findParityProbe(env) {
-  return env.probes.find((p) => !p.styleEntries.border);
+function findParityProbe(env: HarnessEnv): HarnessProbeElement | undefined {
+  return env.probes.find((p: HarnessProbeElement): boolean => !p.styleEntries["border"]);
 }
 
-function findFeatureProbe(env) {
-  return env.probes.find((p) => p.styleEntries.border);
+function findFeatureProbe(env: HarnessEnv): HarnessProbeElement | undefined {
+  return env.probes.find((p: HarnessProbeElement): boolean => !!p.styleEntries["border"]);
 }
 
-function defaultMetrics() {
+function defaultMetrics(): CanvasTextMetricsLike {
   return {
     width: 19,
     actualBoundingBoxLeft: -0.1,
@@ -109,21 +173,28 @@ function defaultMetrics() {
   };
 }
 
-function input(overrides = {}) {
+function input(overrides: Partial<ShapeInput> = {}): ShapeInput {
   return {
-    text: "中",
+    text: "\u4e2d",
     range: { start: 0, end: 1 },
     style: { fontSize: 19, fontWeight: 400, italic: false, fontFamilies: [] },
     fontDecision: { role: "CjkText", candidate: { key: "k1" } },
-    displayText: "中",
+    displayText: "\u4e2d",
     ...overrides,
   };
 }
 
-function buildInkData(width, height, ink) {
-  const data = new Uint8ClampedArray(width * height * 4);
-  for (let y = ink.minY; y <= ink.maxY; y += 1) {
-    for (let x = ink.minX; x <= ink.maxX; x += 1) {
+interface InkRect {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function buildInkData(width: number, height: number, ink: InkRect): ShapingImageDataLike {
+  const data: Uint8ClampedArray = new Uint8ClampedArray(width * height * 4);
+  for (let y: number = ink.minY; y <= ink.maxY; y += 1) {
+    for (let x: number = ink.minX; x <= ink.maxX; x += 1) {
       data[(y * width + x) * 4 + 3] = 255;
     }
   }
@@ -132,9 +203,9 @@ function buildInkData(width, height, ink) {
 
 test("plain CJK measure: advance from width, bounds from the actualBoundingBox quadruple, exact reason", () => {
   const { shaper } = makeHarness({
-    measureText: () => defaultMetrics(),
+    measureText: (): CanvasTextMetricsLike => defaultMetrics(),
   });
-  const result = shaper.shape(input({ text: "中", displayText: "中" }));
+  const result: CanvasShapingResult = shaper.shape(input({ text: "\u4e2d", displayText: "\u4e2d" }));
   const decision = result.decisions[0];
   assert.equal(decision.source, "OffscreenMeasureTextShaping");
   assert.equal(decision.advance, 19);
@@ -155,15 +226,15 @@ test("plain CJK measure: advance from width, bounds from the actualBoundingBox q
 
 test("stack iteration: first stack zero advance routes to the second stack", () => {
   const { shaper, measureCount } = makeHarness({
-    measureText: (text, font) => {
+    measureText: (_text: string, font: string): CanvasTextMetricsLike => {
       if (font.indexOf("FamilyA") !== -1) return { ...defaultMetrics(), width: 0 };
       return { ...defaultMetrics(), width: 30 };
     },
   });
-  const result = shaper.shape(
+  const result: CanvasShapingResult = shaper.shape(
     input({
-      text: "中",
-      displayText: "中",
+      text: "\u4e2d",
+      displayText: "\u4e2d",
       style: { fontSize: 19, fontWeight: 400, italic: false, fontFamilies: ["FamilyA", "FamilyB"] },
     }),
   );
@@ -175,9 +246,9 @@ test("stack iteration: first stack zero advance routes to the second stack", () 
 
 test("requiresAdvance false: zero advance accepted, no stack iteration", () => {
   const { shaper, measureCount } = makeHarness({
-    measureText: () => ({ ...defaultMetrics(), width: 0 }),
+    measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 0 }),
   });
-  const result = shaper.shape(
+  const result: CanvasShapingResult = shaper.shape(
     input({
       text: "a\nb",
       displayText: "a\nb",
@@ -187,20 +258,18 @@ test("requiresAdvance false: zero advance accepted, no stack iteration", () => {
   const decision = result.decisions[0];
   assert.equal(decision.advance, 0);
   assert.ok(decision.reason.includes("; stackIndex=0;"));
-  // Only the first stack was measured; no iteration occurred.
   assert.equal(measureCount["a\nb"], 1);
 });
 
 test("CanvasDomAdvanceParityGate: Latin divergence uses hidden-DOM advance; CJK exempt", () => {
-  // LatinText with a divergent canvas-vs-DOM parity probe.
-  const latin = makeHarness({
-    measureText: (text) => {
+  const latin: Harness = makeHarness({
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === PARITY_PROBE_TEXT) return { ...defaultMetrics(), width: 100 };
       return { ...defaultMetrics(), width: 9 };
     },
-    probeWidth: (text) => (text === PARITY_PROBE_TEXT ? 200 : 50),
+    probeWidth: (text: string): number => (text === PARITY_PROBE_TEXT ? 200 : 50),
   });
-  const latinResult = latin.shaper.shape(
+  const latinResult: CanvasShapingResult = latin.shaper.shape(
     input({
       text: "hello",
       displayText: "hello",
@@ -208,54 +277,53 @@ test("CanvasDomAdvanceParityGate: Latin divergence uses hidden-DOM advance; CJK 
     }),
   );
   const latinDecision = latinResult.decisions[0];
-  assert.equal(latinDecision.advance, 50); // hidden-DOM width
+  assert.equal(latinDecision.advance, 50);
   assert.equal(latinResult.glyphRuns[0].glyphs[0].bounds, null);
   assert.ok(latinDecision.reason.includes("; inkBounds=CanvasDomAdvanceParityGate"));
   assert.equal(latinDecision.glyphsWithoutInkBounds, 1);
 
-  // CJK role: exempt from the parity gate even with the same divergent probe.
-  const cjk = makeHarness({
-    measureText: (text) => {
+  const cjk: Harness = makeHarness({
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === PARITY_PROBE_TEXT) return { ...defaultMetrics(), width: 100 };
       return { ...defaultMetrics(), width: 9 };
     },
-    probeWidth: (text) => (text === PARITY_PROBE_TEXT ? 200 : 50),
+    probeWidth: (text: string): number => (text === PARITY_PROBE_TEXT ? 200 : 50),
   });
-  const cjkResult = cjk.shaper.shape(input({ text: "中", displayText: "中" }));
+  const cjkResult: CanvasShapingResult = cjk.shaper.shape(input({ text: "\u4e2d", displayText: "\u4e2d" }));
   const cjkDecision = cjkResult.decisions[0];
-  assert.equal(cjkDecision.advance, 9); // canvas width, no gate
+  assert.equal(cjkDecision.advance, 9);
   assert.ok(!cjkDecision.reason.includes("CanvasDomAdvanceParityGate"));
   const parityProbe = findParityProbe(cjk.env);
-  assert.equal(parityProbe, undefined); // parity probe never created for CJK
+  assert.equal(parityProbe, undefined);
 });
 
 test("parity verdict cached per font: hidden-DOM probe runs once", () => {
   const { env, shaper } = makeHarness({
-    measureText: (text) => {
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === PARITY_PROBE_TEXT) return { ...defaultMetrics(), width: 100 };
       return { ...defaultMetrics(), width: 9 };
     },
-    probeWidth: (text) => (text === PARITY_PROBE_TEXT ? 200 : 50),
+    probeWidth: (text: string): number => (text === PARITY_PROBE_TEXT ? 200 : 50),
   });
-  const base = {
+  const base: Partial<ShapeInput> = {
     style: { fontSize: 19, fontWeight: 400, italic: false, fontFamilies: [] },
     fontDecision: { role: "LatinText", candidate: { key: "k" } },
   };
   shaper.shape(input({ text: "one", displayText: "one", ...base }));
   shaper.shape(input({ text: "two", displayText: "two", ...base }));
   const parityProbe = findParityProbe(env);
-  assert.equal(parityProbe.textMeasureCalls[PARITY_PROBE_TEXT], 1);
+  assert.equal(parityProbe!.textMeasureCalls[PARITY_PROBE_TEXT], 1);
 });
 
 test("curly quote: features pwid,palt with advance from the feature probe", () => {
   const { shaper, env } = makeHarness({
-    measureText: () => defaultMetrics(),
-    probeWidth: (text) => (text === "\u2018" ? 12 : 0),
+    measureText: (): CanvasTextMetricsLike => defaultMetrics(),
+    probeWidth: (text: string): number => (text === "\u2018" ? 12 : 0),
   });
-  const result = shaper.shape(
+  const result: CanvasShapingResult = shaper.shape(
     input({
-      text: "‘",
-      displayText: "‘",
+      text: "\u2018",
+      displayText: "\u2018",
       fontDecision: { role: "LatinText", candidate: { key: "k" } },
     }),
   );
@@ -267,28 +335,28 @@ test("curly quote: features pwid,palt with advance from the feature probe", () =
     decision.reason.includes("; features=pwid,palt; featureMeasure=HiddenDomRange"),
   );
   const featureProbe = findFeatureProbe(env);
-  assert.equal(featureProbe.styleEntries["font-feature-settings"].value, '"palt" 1');
-  assert.equal(featureProbe.styleEntries["font-variant-east-asian"].value, "proportional-width");
+  assert.equal(featureProbe!.styleEntries["font-feature-settings"].value, '"palt" 1');
+  assert.equal(featureProbe!.styleEntries["font-variant-east-asian"].value, "proportional-width");
 });
 
 test("degenerate ink probe: CjkPunctuation rasterizes ink bounds and matches hand-computed back-transform", () => {
-  const scale = 4;
-  const margin = 19;
-  const baseline = 19 * 1.25;
-  const ink = { minX: 100, maxX: 120, minY: 40, maxY: 50 };
+  const scale: number = 4;
+  const margin: number = 19;
+  const baseline: number = 19 * 1.25;
+  const ink: InkRect = { minX: 100, maxX: 120, minY: 40, maxY: 50 };
   const { shaper } = makeHarness({
-    measureText: (text) => {
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === DEGENERATE_PROBE_TEXT) {
         return { ...defaultMetrics(), width: 19, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 19 };
       }
       return { ...defaultMetrics(), width: 19 };
     },
-    getImageData: (x, y, w, h) => buildInkData(w, h, ink),
+    getImageData: (x: number, y: number, w: number, h: number): ShapingImageDataLike => buildInkData(w, h, ink),
   });
-  const result = shaper.shape(
+  const result: CanvasShapingResult = shaper.shape(
     input({
-      text: "，",
-      displayText: "，",
+      text: "\uff0c",
+      displayText: "\uff0c",
       fontDecision: { role: "CjkPunctuation", candidate: { key: "k" } },
     }),
   );
@@ -305,27 +373,26 @@ test("degenerate ink probe: CjkPunctuation rasterizes ink bounds and matches han
 
 test("degenerate verdict cached per font: probe text measured once", () => {
   const { shaper, measureCount } = makeHarness({
-    measureText: (text) => {
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === DEGENERATE_PROBE_TEXT) {
         return { ...defaultMetrics(), width: 19, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 19 };
       }
       return { ...defaultMetrics(), width: 19 };
     },
-    getImageData: () => buildInkData(228, 152, { minX: 100, maxX: 120, minY: 40, maxY: 50 }),
+    getImageData: (): ShapingImageDataLike => buildInkData(228, 152, { minX: 100, maxX: 120, minY: 40, maxY: 50 }),
   });
-  const base = {
+  const base: Partial<ShapeInput> = {
     style: { fontSize: 19, fontWeight: 400, italic: false, fontFamilies: [] },
     fontDecision: { role: "CjkPunctuation", candidate: { key: "k" } },
   };
-  shaper.shape(input({ text: "，", displayText: "，", ...base }));
-  shaper.shape(input({ text: "、", displayText: "、", ...base }));
+  shaper.shape(input({ text: "\uff0c", displayText: "\uff0c", ...base }));
+  shaper.shape(input({ text: "\u3001", displayText: "\u3001", ...base }));
   assert.equal(measureCount[DEGENERATE_PROBE_TEXT], 1);
 });
 
 test("subpixel clamp: overhangs under 1px clamp to the advance box, over 1px kept", () => {
-  // overhang 0.4px each side -> clamp
-  const clamped = makeHarness({
-    measureText: (text) => {
+  const clamped: CanvasShapingResult = makeHarness({
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === DEGENERATE_PROBE_TEXT) return { ...defaultMetrics(), width: 0 };
       return {
         ...defaultMetrics(),
@@ -336,8 +403,8 @@ test("subpixel clamp: overhangs under 1px clamp to the advance box, over 1px kep
     },
   }).shaper.shape(
     input({
-      text: "，",
-      displayText: "，",
+      text: "\uff0c",
+      displayText: "\uff0c",
       fontDecision: { role: "CjkPunctuation", candidate: { key: "k" } },
     }),
   );
@@ -349,9 +416,8 @@ test("subpixel clamp: overhangs under 1px clamp to the advance box, over 1px kep
     ),
   );
 
-  // overhang 1.2px each side -> kept
-  const keptHarness = makeHarness({
-    measureText: (text) => {
+  const keptHarness: Harness = makeHarness({
+    measureText: (text: string): CanvasTextMetricsLike => {
       if (text === DEGENERATE_PROBE_TEXT) return { ...defaultMetrics(), width: 0 };
       return {
         ...defaultMetrics(),
@@ -361,10 +427,10 @@ test("subpixel clamp: overhangs under 1px clamp to the advance box, over 1px kep
       };
     },
   });
-  const kept = keptHarness.shaper.shape(
+  const kept: CanvasShapingResult = keptHarness.shaper.shape(
     input({
-      text: "，",
-      displayText: "，",
+      text: "\uff0c",
+      displayText: "\uff0c",
       fontDecision: { role: "CjkPunctuation", candidate: { key: "k" } },
     }),
   );
@@ -373,31 +439,31 @@ test("subpixel clamp: overhangs under 1px clamp to the advance box, over 1px kep
 });
 
 test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
-  const conforming = makeHarness({
+  const conforming: Harness = makeHarness({
     cjkDashCapability: { status: "conforming", detail: null },
-    measureText: () => ({ ...defaultMetrics(), width: 38 }),
+    measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const cResult = conforming.shaper.shape(
+  const cResult: CanvasShapingResult = conforming.shaper.shape(
     input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
   );
   assert.equal(cResult.decisions[0].capabilityIssue, "ConformingCjkDashRequiresSnapshotFontSession");
   assert.ok(cResult.decisions[0].reason.includes("; status=conforming"));
 
-  const partial = makeHarness({
+  const partial: Harness = makeHarness({
     cjkDashCapability: { status: "partial", detail: "probe-detail" },
-    measureText: () => ({ ...defaultMetrics(), width: 38 }),
+    measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const pResult = partial.shaper.shape(
+  const pResult: CanvasShapingResult = partial.shaper.shape(
     input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
   );
   assert.equal(pResult.decisions[0].capabilityIssue, "NoConformingCjkDashGlyph");
   assert.ok(pResult.decisions[0].reason.includes("; status=partial; probe-detail"));
 
-  const none = makeHarness({
+  const none: Harness = makeHarness({
     cjkDashCapability: null,
-    measureText: () => ({ ...defaultMetrics(), width: 38 }),
+    measureText: (): CanvasTextMetricsLike => ({ ...defaultMetrics(), width: 38 }),
   });
-  const nResult = none.shaper.shape(
+  const nResult: CanvasShapingResult = none.shaper.shape(
     input({ text: "\u2014\u2014", range: { start: 0, end: 2 }, displayText: "\u2014\u2014" }),
   );
   assert.equal(nResult.decisions[0].capabilityIssue, "NoConformingCjkDashGlyph");
@@ -406,9 +472,9 @@ test("dash: CjkDashCapabilityPolicy issue name and detail variants", () => {
 
 test("ellipsis: unverified display substitution carries the U+22EF issue", () => {
   const { shaper } = makeHarness({
-    measureText: () => defaultMetrics(),
+    measureText: (): CanvasTextMetricsLike => defaultMetrics(),
   });
-  const result = shaper.shape(
+  const result: CanvasShapingResult = shaper.shape(
     input({
       text: "\u2026\u2026",
       range: { start: 0, end: 2 },
@@ -423,92 +489,93 @@ test("ellipsis: unverified display substitution carries the U+22EF issue", () =>
 test("shared LRU cache: shared across shapers, bounded, and re-touched entries survive", () => {
   clearMeasurementCache();
 
-  function makeSharer() {
+  interface Sharer {
+    shaper: CanvasTextShaperInstance;
+    measureCount: Record<string, number>;
+  }
+
+  function makeSharer(): Sharer {
     const program = {
-      measureText: () => defaultMetrics(),
+      measureText: (_text: string): CanvasTextMetricsLike => defaultMetrics(),
     };
-    const fonts = createFontFamilies({
+    const fonts: WebFontFamiliesInstance = createFontFamilies({
       cjk: '"CJK", sans-serif',
       latin: '"Latin", sans-serif',
     });
-    const measureCount = {};
-    const env = {
-      createCanvasContext() {
+    const measureCount: Record<string, number> = {};
+    const env: CanvasShapingEnv = {
+      createCanvasContext(): CanvasContextLike {
         return {
           canvas: { width: 0, height: 0 },
           font: "",
-          measureText(text) {
+          measureText(text: string): CanvasTextMetricsLike {
             measureCount[text] = (measureCount[text] || 0) + 1;
             return program.measureText(text);
           },
-          setTransform() {},
-          clearRect() {},
-          fillText() {},
-          getImageData(x, y, w, h) {
+          setTransform(_a: number, _b: number, _c: number, _d: number, _e: number, _f: number): void {},
+          clearRect(_x: number, _y: number, _w: number, _h: number): void {},
+          fillText(_text: string, _x: number, _y: number): void {},
+          getImageData(_x: number, _y: number, w: number, h: number): ShapingImageDataLike {
             return { data: new Uint8ClampedArray(w * h * 4) };
           },
         };
       },
-      createProbeElement() {
+      createProbeElement(): ProbeElementLike {
         return {
           parentNode: null,
           textContent: "",
-          setAttribute() {},
-          style: { setProperty() {} },
-          getBoundingClientRect() {
+          setAttribute(_name: string, _value: string): void {},
+          style: { setProperty(_name: string, _value: string, _priority?: string): void {} },
+          getBoundingClientRect(): ShapingProbeRectWidth {
             return { width: 0 };
           },
         };
       },
-      attachProbe() {},
+      attachProbe(_element: ProbeElementLike): void {},
     };
-    const shaper = createTextShaper(fonts, null, env);
+    const shaper: CanvasTextShaperInstance = createTextShaper(fonts, null, env);
     return { shaper, measureCount };
   }
 
-  function shapeText(shaper, text) {
+  function shapeText(shaper: CanvasTextShaperInstance, text: string): void {
     shaper.shape(
       input({ text, displayText: text, style: { fontSize: 19, fontWeight: 400, italic: false, fontFamilies: [] } }),
     );
   }
 
-  // Two shapers share one cache.
-  const a = makeSharer();
-  const b = makeSharer();
+  const a: Sharer = makeSharer();
+  const b: Sharer = makeSharer();
   shapeText(a.shaper, "shared");
   shapeText(b.shaper, "shared");
   assert.equal(a.measureCount["shared"], 1);
 
-  // Bounded eviction with LRU touch.
-  const c = makeSharer();
+  const c: Sharer = makeSharer();
   shapeText(c.shaper, "elder");
   shapeText(c.shaper, "keep");
-  shapeText(c.shaper, "keep"); // touch -> most recent
-  for (let i = 0; i < 2047; i += 1) {
+  shapeText(c.shaper, "keep");
+  for (let i: number = 0; i < 2047; i += 1) {
     shapeText(c.shaper, "e" + String(i).padStart(4, "0"));
   }
   assert.equal(measurementCacheSize(), 2048);
-  // "keep" survived (re-touched); "elder" was evicted.
   shapeText(c.shaper, "keep");
-  assert.equal(c.measureCount["keep"], 1); // cache hit, no re-measure
+  assert.equal(c.measureCount["keep"], 1);
   shapeText(c.shaper, "elder");
-  assert.equal(c.measureCount["elder"], 2); // re-measured after eviction
+  assert.equal(c.measureCount["elder"], 2);
 });
 
 test("clearMeasurementCache and installFontLoadInvalidation", () => {
   clearMeasurementCache();
 
-  const fontSet = {
+  const fontSet: FontSetLike = {
     listeners: {},
-    addEventListener(name, fn) {
+    addEventListener(name: string, fn: HarnessVoidCallbackFn): void {
       this.listeners[name] = fn;
     },
   };
   installFontLoadInvalidation(fontSet);
-  // once-guard: a second call with a different fontSet adds no listener.
-  const fontSet2 = {
+  const fontSet2: FontSetLike = {
     listeners: {},
-    addEventListener(name, fn) {
+    addEventListener(name: string, fn: HarnessVoidCallbackFn): void {
       this.listeners[name] = fn;
     },
   };
@@ -516,41 +583,40 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
   assert.equal(Object.keys(fontSet2.listeners).length, 0);
   assert.equal(typeof fontSet.listeners["loadingdone"], "function");
 
-  // Populate the measurement cache and a verdict cache.
   const program = {
-    measureText: (text) => {
+    measureText: (text: string, _font: string): CanvasTextMetricsLike => {
       if (text === PARITY_PROBE_TEXT) return { ...defaultMetrics(), width: 100 };
       return { ...defaultMetrics(), width: 9 };
     },
-    probeWidth: (text) => (text === PARITY_PROBE_TEXT ? 200 : 50),
+    probeWidth: (text: string): number => (text === PARITY_PROBE_TEXT ? 200 : 50),
   };
-  const fonts = createFontFamilies({ cjk: '"CJK", sans-serif', latin: '"Latin", sans-serif' });
-  const probes = [];
-  const env = {
-    createCanvasContext() {
+  const fonts: WebFontFamiliesInstance = createFontFamilies({ cjk: '"CJK", sans-serif', latin: '"Latin", sans-serif' });
+  const probes: HarnessProbeElement[] = [];
+  const env: HarnessEnv = {
+    createCanvasContext(): CanvasContextLike {
       return {
         canvas: { width: 0, height: 0 },
         font: "",
-        measureText(text) {
+        measureText(text: string): CanvasTextMetricsLike {
           return program.measureText(text, this.font);
         },
-        setTransform() {},
-        clearRect() {},
-        fillText() {},
-        getImageData(x, y, w, h) {
+        setTransform(_a: number, _b: number, _c: number, _d: number, _e: number, _f: number): void {},
+        clearRect(_x: number, _y: number, _w: number, _h: number): void {},
+        fillText(_text: string, _x: number, _y: number): void {},
+        getImageData(_x: number, _y: number, w: number, h: number): ShapingImageDataLike {
           return { data: new Uint8ClampedArray(w * h * 4) };
         },
       };
     },
-    createProbeElement() {
-      const textMeasureCalls = {};
-      const styleEntries = {};
-      const element = {
+    createProbeElement(): HarnessProbeElement {
+      const textMeasureCalls: Record<string, number> = {};
+      const styleEntries: Record<string, HarnessStyleEntry> = {};
+      const element: HarnessProbeElement = {
         parentNode: null,
         textContent: "",
-        setAttribute() {},
-        style: { setProperty(name, value, priority) { styleEntries[name] = { value, priority }; } },
-        getBoundingClientRect() {
+        setAttribute(_name: string, _value: string): void {},
+        style: { setProperty(name: string, value: string, priority?: string): void { styleEntries[name] = { value, priority }; } },
+        getBoundingClientRect(): ShapingProbeRectWidth {
           textMeasureCalls[element.textContent] = (textMeasureCalls[element.textContent] || 0) + 1;
           return { width: program.probeWidth(element.textContent) };
         },
@@ -560,21 +626,21 @@ test("clearMeasurementCache and installFontLoadInvalidation", () => {
       probes.push(element);
       return element;
     },
-    attachProbe() {},
+    attachProbe(_element: ProbeElementLike): void {},
+    probes,
   };
-  const shaper = createTextShaper(fonts, null, env);
+  const shaper: CanvasTextShaperInstance = createTextShaper(fonts, null, env);
   shaper.shape(
     input({ text: "hello", displayText: "hello", fontDecision: { role: "LatinText", candidate: { key: "k" } } }),
   );
   assert.ok(measurementCacheSize() >= 1);
-  const parityProbe = probes.find((p) => !p.styleEntries.border);
-  assert.equal(parityProbe.textMeasureCalls[PARITY_PROBE_TEXT], 1);
+  const parityProbe = probes.find((p: HarnessProbeElement): boolean => !p.styleEntries["border"]);
+  assert.equal(parityProbe!.textMeasureCalls[PARITY_PROBE_TEXT], 1);
 
-  // loadingdone callback clears the cache and both verdict caches.
   fontSet.listeners["loadingdone"]();
   assert.equal(measurementCacheSize(), 0);
   shaper.shape(
     input({ text: "hello", displayText: "hello", fontDecision: { role: "LatinText", candidate: { key: "k" } } }),
   );
-  assert.equal(parityProbe.textMeasureCalls[PARITY_PROBE_TEXT], 2); // verdict re-probed
+  assert.equal(parityProbe!.textMeasureCalls[PARITY_PROBE_TEXT], 2);
 });

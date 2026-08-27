@@ -9,14 +9,15 @@ import {
   DEFAULT_LATIN_SERIF_FONT_FAMILY,
   DEFAULT_BOPOMOFO_FONT_FAMILY,
 } from "../core/engine/canvas-fonts.js";
+import type { WebFontFamiliesInstance } from "../core/engine/canvas-fonts.js";
 
-const EXPECTED_LATIN_MONOSPACE =
+const EXPECTED_LATIN_MONOSPACE: string =
   '"SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
-const EXPECTED_CJK_SERIF =
+const EXPECTED_CJK_SERIF: string =
   '"Songti SC", "Noto Serif CJK SC", serif';
-const EXPECTED_LATIN_SERIF =
+const EXPECTED_LATIN_SERIF: string =
   'Georgia, "Times New Roman", serif';
-const EXPECTED_BOPOMOFO =
+const EXPECTED_BOPOMOFO: string =
   '"PingFang TC", "Hiragino Sans CNS", "Heiti TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC", "Source Han Sans TC", "Noto Sans Bopomofo", "Noto Serif Bopomofo", "BpmfGenYoGothic", "BpmfGenSenRounded", "Apple LiGothic", "Apple LiSung", "PMingLiU", "MingLiU", "Noto Serif CJK TC", "Source Han Serif TC", sans-serif';
 
 test("canvas-fonts module exports defaults and helper", () => {
@@ -29,7 +30,7 @@ test("canvas-fonts module exports defaults and helper", () => {
 });
 
 test("createFontFamilies applies default stack strings verbatim", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
   });
@@ -43,7 +44,7 @@ test("createFontFamilies applies default stack strings verbatim", () => {
 });
 
 test("createFontFamilies allows overriding optional default stacks", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"PingFang SC", sans-serif',
     latin: '"Inter", sans-serif',
     latinMonospace: "CustomMono, monospace",
@@ -58,10 +59,11 @@ test("createFontFamilies allows overriding optional default stacks", () => {
   assert.equal(fonts.bopomofo, "CustomBopomofo, sans-serif");
 });
 
-test("cssFamilyToken quotes bare names and preserves generic keywords / quoted strings", () => {
-  const token = cssFamilyToken;
+type CssFamilyTokenFn = (family: string) => string;
 
-  // Generic keywords remain unquoted
+test("cssFamilyToken quotes bare names and preserves generic keywords / quoted strings", () => {
+  const token: CssFamilyTokenFn = cssFamilyToken;
+
   assert.equal(token("serif"), "serif");
   assert.equal(token("sans-serif"), "sans-serif");
   assert.equal(token("sansserif"), "sansserif");
@@ -72,18 +74,16 @@ test("cssFamilyToken quotes bare names and preserves generic keywords / quoted s
   assert.equal(token("Sans-Serif"), "Sans-Serif");
   assert.equal(token("MONOSPACE"), "MONOSPACE");
 
-  // Already quoted strings remain unchanged
   assert.equal(token('"SFMono-Regular"'), '"SFMono-Regular"');
   assert.equal(token("'Times New Roman'"), "'Times New Roman'");
 
-  // Bare names get wrapped in double quotes
   assert.equal(token("PingFang SC"), '"PingFang SC"');
   assert.equal(token("Noto Sans CJK SC"), '"Noto Sans CJK SC"');
   assert.equal(token("Inter"), '"Inter"');
 });
 
 test("forRole selects role defaults when preferredFamilies is empty", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -99,41 +99,37 @@ test("forRole selects role defaults when preferredFamilies is empty", () => {
 });
 
 test("forRole resolves single-keyword generic aliases per role", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
 
-  // monospace: latinMonospace for LatinText, cjk for other roles
   assert.equal(fonts.forRole("LatinText", ["monospace"]), EXPECTED_LATIN_MONOSPACE);
   assert.equal(fonts.forRole("LatinText", ["MonoSpace"]), EXPECTED_LATIN_MONOSPACE);
   assert.equal(fonts.forRole("CjkText", ["monospace"]), '"DefaultCJK", sans-serif');
   assert.equal(fonts.forRole("CjkPunctuation", ["monospace"]), '"DefaultCJK", sans-serif');
 
-  // serif: latinSerif for LatinText, cjkSerif for other roles
   assert.equal(fonts.forRole("LatinText", ["serif"]), EXPECTED_LATIN_SERIF);
   assert.equal(fonts.forRole("LatinText", ["SERIF"]), EXPECTED_LATIN_SERIF);
   assert.equal(fonts.forRole("CjkText", ["serif"]), EXPECTED_CJK_SERIF);
   assert.equal(fonts.forRole("CjkPunctuation", ["serif"]), EXPECTED_CJK_SERIF);
 
-  // sans-serif / sansserif: role default
   assert.equal(fonts.forRole("LatinText", ["sans-serif"]), '"DefaultLatin", sans-serif');
   assert.equal(fonts.forRole("LatinText", ["sansserif"]), '"DefaultLatin", sans-serif');
   assert.equal(fonts.forRole("CjkText", ["sans-serif"]), '"DefaultCJK", sans-serif');
   assert.equal(fonts.forRole("CjkText", ["sansserif"]), '"DefaultCJK", sans-serif');
 
-  // Custom single family
   assert.equal(fonts.forRole("LatinText", ["CustomFont"]), '"CustomFont"');
   assert.equal(fonts.forRole("CjkText", ['"AlreadyQuoted"']), '"AlreadyQuoted"');
 });
 
 test("forRole formats multi-family preference with cssFamilyToken", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
 
-  const resolved = fonts.forRole("CjkText", [
+  const resolved: string = fonts.forRole("CjkText", [
     "PingFang SC",
     "sans-serif",
     '"CustomQuoted"',
@@ -143,7 +139,7 @@ test("forRole formats multi-family preference with cssFamilyToken", () => {
 });
 
 test("fallbackStacks generates single stack for 0 or 1 preferred family", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -155,21 +151,20 @@ test("fallbackStacks generates single stack for 0 or 1 preferred family", () => 
 });
 
 test("fallbackStacks generates suffix sublists and collapses duplicate suffix stacks", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
 
-  const stacks = fonts.fallbackStacks("CjkText", ["FontA", "FontB", "sans-serif"]);
+  const stacks: string[] = fonts.fallbackStacks("CjkText", ["FontA", "FontB", "sans-serif"]);
   assert.deepEqual(stacks, [
     '"FontA", "FontB", sans-serif',
     '"FontB", sans-serif',
     "sans-serif",
   ]);
 
-  // Collapses identical suffix joins while preserving first occurrence order
-  const duplicateInput = ["FontA", "FontB", "FontA", "FontB"];
-  const deduplicatedStacks = fonts.fallbackStacks("CjkText", duplicateInput);
+  const duplicateInput: string[] = ["FontA", "FontB", "FontA", "FontB"];
+  const deduplicatedStacks: string[] = fonts.fallbackStacks("CjkText", duplicateInput);
   assert.deepEqual(deduplicatedStacks, [
     '"FontA", "FontB", "FontA", "FontB"',
     '"FontB", "FontA", "FontB"',
@@ -179,7 +174,7 @@ test("fallbackStacks generates suffix sublists and collapses duplicate suffix st
 });
 
 test("forRuby delegates to forRole with LatinText", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -190,7 +185,7 @@ test("forRuby delegates to forRole with LatinText", () => {
 });
 
 test("forBopomofo returns default stack or prepends explicit families", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -198,12 +193,12 @@ test("forBopomofo returns default stack or prepends explicit families", () => {
   assert.equal(fonts.forBopomofo(), EXPECTED_BOPOMOFO);
   assert.equal(fonts.forBopomofo([]), EXPECTED_BOPOMOFO);
 
-  const custom = fonts.forBopomofo(["RubySpanFont", "sans-serif"]);
+  const custom: string = fonts.forBopomofo(["RubySpanFont", "sans-serif"]);
   assert.equal(custom, '"RubySpanFont", sans-serif, ' + EXPECTED_BOPOMOFO);
 });
 
 test("forRoleName maps LatinText to LatinText and anything else to CjkText", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
@@ -219,13 +214,13 @@ test("forRoleName maps LatinText to LatinText and anything else to CjkText", () 
 });
 
 test("roleFamilyCache returns the identical string instance on repeated queries", () => {
-  const fonts = createFontFamilies({
+  const fonts: WebFontFamiliesInstance = createFontFamilies({
     cjk: '"DefaultCJK", sans-serif',
     latin: '"DefaultLatin", sans-serif',
   });
 
-  const query1 = fonts.forRole("CjkText", ["CustomFamily"]);
-  const query2 = fonts.forRole("CjkText", ["CustomFamily"]);
+  const query1: string = fonts.forRole("CjkText", ["CustomFamily"]);
+  const query2: string = fonts.forRole("CjkText", ["CustomFamily"]);
   assert.equal(query1, query2);
   assert.strictEqual(query1, query2);
 });
