@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import v8 from "node:v8";
+import vm from "node:vm";
 
 import {
   preserveGlobals,
@@ -513,6 +515,48 @@ test("a prepare job cancelled by its staleness guard finishes and retires its me
     assert.equal(rafRequests, rafAtRetirement);
   } finally {
     globalThis.requestAnimationFrame = realRaf;
+    restoreGlobals(globals);
+  }
+});
+
+// WeakSlotElement retirement (spec wc-s6 scope 5: no cleanup path may depend
+// on disconnectedCallback). The slot holds its root through a WeakRef, so a
+// root object that nobody else references is collectable; the next frame scan
+// retires the slot and the worker wake timer stops being re-armed. Node's
+// test runner starts without --expose-gc, so the test enables the flag at
+// runtime and runs a full collection twice (WeakRef targets clear on the
+// collection after they become unreachable).
+test("worker slot retires without unregister once the root object is collected", async () => {
+  const globals = preserveGlobals(globalNames);
+  const clock = installFakeClock();
+  try {
+    v8.setFlagsFromString("--expose-gc");
+    const gc = vm.runInNewContext("gc");
+    const Coordinator = await importCoordinator();
+    const coordinator = new Coordinator();
+    const session = coordinator.register();
+    coordinator.update(session, { inViewport: false });
+    let root = { name: "collected" };
+    const pending = new Map([[root, [2, 0, 0]]]);
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, []);
+    coordinator.registerWorker(session, root);
+    coordinator.setWorkerActive(session, true);
+
+    // Inside the debounce window the off-screen slot holds one pending wake
+    // timer. Dropping every strong reference to the root and collecting it
+    // leaves only the slot's WeakRef.
+    clock.advance(16);
+    assert.ok(clock.pendingTimerCount() >= 1, "off-screen slot keeps a wake timer armed");
+    coordinator.layoutJobPool = fakeWorkerRuntime(new Map(), []);
+    root = null;
+    gc();
+    gc();
+
+    // The wake timer fires, the frame scan meets a dead WeakRef, and the
+    // slot retires without unregister: no further timer is armed for it.
+    clock.advance(300);
+    assert.equal(clock.pendingTimerCount(), 0, "no wake timer survives the retired slot");
+  } finally {
     restoreGlobals(globals);
   }
 });

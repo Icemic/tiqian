@@ -59,6 +59,12 @@ export function installFakeClock() {
   globalThis.clearTimeout = (id) => timers.delete(id);
 
   return {
+    // Pending timer count: lets tests observe whether the coordination
+    // service still holds a worker wake timer (see the worker-slot
+    // weak-reference tests).
+    pendingTimerCount() {
+      return timers.size;
+    },
     advance(ms) {
       const target = now + ms;
       for (;;) {

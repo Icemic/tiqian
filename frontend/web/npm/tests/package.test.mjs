@@ -652,16 +652,16 @@ test("layout coordinator implements visual prominence scoring, proportional back
   );
   assert.match(
     coordinatorSource,
-    /viewportAnchor = captureViewportAnchor\(slot\.element\);[\s\S]*?const processed = this\.layoutJobPool\.runSlice\(\{/u,
+    /viewportAnchor = captureViewportAnchor\(element\);[\s\S]*?const processed = this\.layoutJobPool\.runSlice\(\{/u,
   );
   assert.match(
     coordinatorSource,
-    /if \(grantProcessed > 0\)\s*compensateViewportAnchor\(slot\.element, viewportAnchor\);/u,
+    /if \(grantProcessed > 0\)\s*compensateViewportAnchor\(element, viewportAnchor\);/u,
   );
   // NativeAnchoringHandover: capture holds the scroller's native anchoring
   // for the job window; every path that ends or abandons a job releases it.
   assert.match(coordinatorSource, /if \(!slot\.active\)\s*releaseNativeScrollAnchoring\(element\);/u);
-  assert.match(coordinatorSource, /releaseNativeScrollAnchoring\(slot\.element\);/u);
+  assert.match(coordinatorSource, /releaseNativeScrollAnchoring\(element\);/u);
   assert.match(sessionSource, /releaseNativeScrollAnchoring\(this\.#root\);/u);
 });
 
