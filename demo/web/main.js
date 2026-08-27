@@ -1,23 +1,25 @@
 import '@tiqian/prose/auto';
-import { enhance } from '@tiqian/prose';
-import { getContextForElement } from '@tiqian/core/core/engine/context/enhance-context.js';
+import { registerTiqianProse } from '@tiqian/prose/element';
+import { createProseHostSession } from '@tiqian/core/core/engine/prose-host-session.js';
 
 // One-shot replay entry for the demo/web tests: parcel bundles module
 // instances so the page cannot re-import them by URL, and the retired document
 // event channel (ADR 0053 C1) no longer accepts replays. Tests replay captured
-// root options through this public surface. The returned promise resolves when
-// the one-shot runtime work (including runtime loading) has finished.
-globalThis.__tiqianOneShot = (root, options) => enhance(root, options);
-
-// Host-side test probe: ADR 0053 rules that the product carries no DOM
-// property for the raw-DOM fragment, so tests dig through this seam instead;
-// the library face is unchanged. The engine keys both the per-element context
-// and the rawDomParagraphs entry by the paragraph element itself.
-globalThis.__tiqianRawDomFragment = (paragraph) => {
-  const context = getContextForElement(paragraph);
-  const record = context?.rawDomParagraphs.get(paragraph);
-  return record?.fragment ?? null;
+// root options through this public surface. Replaces the retired enhance() verb
+// (wc-s6 scope 9). Each call creates a fresh ProseHostSession for the root,
+// applies the provided options, and mounts it to trigger enhancement.
+globalThis.__tiqianOneShot = (root, options) => {
+  const session = createProseHostSession(root);
+  if (options) {
+    session.updateOptions(options);
+  }
+  session.mount();
 };
+
+// Explicit registration entry point for programmatic hosts. The /auto entry
+// already registers <tiqian-prose> with default options on import, but tests
+// and controlled environments can call this directly for parameterized setup.
+globalThis.__tiqianRegister = registerTiqianProse;
 
 // Fixed Benchmark HUD Controls
 const slider = document.getElementById('width-slider');

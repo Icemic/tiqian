@@ -256,7 +256,7 @@ function startDemoServer(port, pkgDir, label) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/api.js"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
