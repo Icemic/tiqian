@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  installPreparedRenderFontStyle,
   installPreparedValueStyles,
   releasePreparedParagraphStyles,
-  releasePreparedRenderFontStyle,
   releasePreparedValueStyleRoot,
   renderPreparedParagraphArtifact,
   renderPreparedParagraphInto,
 } from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
+import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
 function fixturePlan() {
   return {
@@ -385,7 +384,7 @@ test("browser replay installs the same canonical HTML and returns its line marke
   const planJson = JSON.stringify(fixturePlan());
   const expected = renderPreparedParagraphArtifact(planJson, "zh-Hans");
   const host = fakeHost();
-  const rendered = renderPreparedParagraphInto(host, planJson, "zh-Hans");
+  const rendered = renderPreparedParagraphInto(host, planJson, "zh-Hans", {}, createEnhanceContext(host));
 
   assert.equal(host.innerHTML, expected.html);
   assert.equal(rendered.html, expected.html);
@@ -397,7 +396,7 @@ test("browser replay preserves controlled inline semantics supplied by a Worker 
   renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {
     sourceText: "中文",
     semantics: [{ start: 0, end: 2, tagName: "strong", attributes: [] }],
-  });
+  }, createEnhanceContext(host));
 
   assert.match(host.innerHTML, /<strong data-tq-source-semantic="true">中文<\/strong>/u);
 });
@@ -455,7 +454,8 @@ test("live Worker replay nests equal-range placeholders in source hierarchy orde
 
 test("browser replay moves dynamic prepared values into one root-scoped stylesheet", () => {
   const { host, head, attributes } = styleBackedHost();
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans");
+  const context = createEnhanceContext(host);
+  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {}, context);
 
   assert.doesNotMatch(rendered.html, / style=/u);
   const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
@@ -472,27 +472,29 @@ test("browser replay moves dynamic prepared values into one root-scoped styleshe
   // same plan must mint the identical class names without sharing registry
   // state, so a one-shot replay reproduces coordinated output byte for byte.
   const second = styleBackedHost();
-  const secondRendered = renderPreparedParagraphInto(second.host, fixturePlan(), "zh-Hans");
+  const secondRendered = renderPreparedParagraphInto(second.host, fixturePlan(), "zh-Hans", {}, createEnhanceContext(second.host));
   const secondClass = secondRendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
   assert.equal(secondClass, runtimeClass);
 
-  assert.equal(releasePreparedParagraphStyles(host), true);
+  assert.equal(releasePreparedParagraphStyles(host, context), true);
   assert.equal(head.childNodes.length, 0);
   assert.equal(attributes.has("data-tq-value-style-scope"), false);
 });
 
 test("runtime value classes cannot inherit unrelated snapshot declarations", () => {
   const { host, root, head } = styleBackedHost();
+  const context = createEnhanceContext(root);
   assert.equal(
     installPreparedValueStyles(
       root,
+      context,
       ["letter-spacing:-1.79285px!important"],
       ["Tiqian Fixture Sans"],
     ),
     true,
   );
 
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans");
+  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {}, context);
   const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
   assert.ok(runtimeClass, "the line marker must carry a runtime value class");
   assert.doesNotMatch(rendered.html, /class="[^"]*tqv-[0-9a-z]/u);
@@ -507,14 +509,13 @@ test("runtime value classes cannot inherit unrelated snapshot declarations", () 
   assert.notEqual(runtimeClass, "tqv-0");
 });
 
-test("host-compatible runtime families do not allocate a projection stylesheet", () => {
+test("snapshot host families never become root projection variables", () => {
   const { root, head, attributes } = styleBackedHost();
+  const context = createEnhanceContext(root);
 
-  assert.equal(installPreparedRenderFontStyle(root, ["Fixture Sans"]), false);
+  assert.equal(installPreparedValueStyles(root, context, [], ["Snapshot Sans"]), false);
   assert.equal(head.childNodes.length, 0);
-  assert.equal(attributes.has("data-tq-value-style-scope"), false);
-
-  assert.equal(releasePreparedRenderFontStyle(root), false);
+  assert.equal(releasePreparedValueStyleRoot(root, context), false);
   assert.equal(head.childNodes.length, 0);
   assert.equal(attributes.has("data-tq-value-style-scope"), false);
 });
@@ -538,18 +539,6 @@ test("prepared semantic font runs replay their explicit host-family projection",
   assert.match(rendered.html, /data-tq-render-font-projection="true"/u);
   assert.ok(valueStyles.some((value) =>
     value.includes('font-family:"Tiqian Exact Mono"!important')));
-});
-
-test("snapshot and runtime host families never become root projection variables", () => {
-  const { root, head, attributes } = styleBackedHost();
-
-  assert.equal(installPreparedValueStyles(root, [], ["Snapshot Sans"]), false);
-  assert.equal(installPreparedRenderFontStyle(root, ["Runtime Sans"]), false);
-  assert.equal(head.childNodes.length, 0);
-  assert.equal(releasePreparedRenderFontStyle(root), false);
-  assert.equal(releasePreparedValueStyleRoot(root), false);
-  assert.equal(head.childNodes.length, 0);
-  assert.equal(attributes.has("data-tq-value-style-scope"), false);
 });
 
 test("prepared positive spacing participates in native selection instead of using margin", () => {
@@ -1047,7 +1036,7 @@ test("inlineObjectCloneSwapReplacesPlaceholdersWithDeepClones", () => {
   const element = fakeInlineElement("IMG");
   const rendered = renderPreparedParagraphInto(host, inlineObjectPlan({ trailingMargin: true }), "zh-Hans", {
     inlineObjects: [{ start: 0, end: 1, element, marginRight: 4.5 }],
-  });
+  }, createEnhanceContext(host));
 
   assert.deepEqual(element.cloneCalls, [true]);
   assert.equal(host.swapped.length, 1);
@@ -1066,7 +1055,7 @@ test("inlineObjectCloneSwapSkipsMarginWithoutTrailingGap", () => {
   const host = swapHost();
   renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
     inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG"), marginRight: 4.5 }],
-  });
+  }, createEnhanceContext(host));
 
   assert.equal(host.swapped.length, 1);
   assert.deepEqual(host.swapped[0].styleProperties, []);
@@ -1076,7 +1065,7 @@ test("inlineObjectCloneSwapSkipsMarginWithoutTrailingGap", () => {
 test("inlineObjectCloneSwapThrowsWithoutSource", () => {
   const host = swapHost();
   assert.throws(
-    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans"),
+    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {}, createEnhanceContext(host)),
     /InlineObjectSourceUnavailable:0-1/u,
   );
 });
@@ -1087,7 +1076,7 @@ test("inlineObjectCloneSwapThrowsOnDuplicateRanges", () => {
   assert.throws(
     () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
       inlineObjects: [entry, entry],
-    }),
+    }, createEnhanceContext(host)),
     /ConflictingInlineObjectRange:0-1/u,
   );
 });
@@ -1096,7 +1085,7 @@ test("inlineObjectCloneSwapIgnoresEntriesWithoutPlaceholders", () => {
   const host = swapHost();
   const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {
     inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG") }],
-  });
+  }, createEnhanceContext(host));
 
   assert.equal(host.swapped.length, 0);
   assert.equal(rendered.markers.length, rendered.html.match(/data-tq-line-flow-width=/gu).length);
@@ -1107,7 +1096,7 @@ test("inlineObjectCloneSwapClonesAreIndependentOfSource", () => {
   const element = fakeInlineElement("IMG");
   renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
     inlineObjects: [{ start: 0, end: 1, element }],
-  });
+  }, createEnhanceContext(host));
   element.setAttribute("data-tq-late", "1");
 
   assert.equal(host.swapped[0].attributes.has("data-tq-late"), false);
@@ -1393,7 +1382,7 @@ test("emphasis dot color resolves from live source spans", () => {
     const rendered = renderPreparedParagraphInto(host, plan, "zh-Hans", {
       semantics: [{ start: 0, end: 1, tagName: "strong", sourceIndex: 0, order: 0 }],
       liveSemanticElements: [liveElement],
-    });
+    }, createEnhanceContext(host));
     assert.ok(rendered.html.includes('fill="rgb(255, 0, 0)"'));
     assert.ok(rendered.html.includes("--tq-decoration-color:rgb(255, 0, 0)"));
 
@@ -1459,7 +1448,7 @@ test("emphasis dot color selects the deepest covering semantic span", () => {
         { start: 1, end: 2, tagName: "strong", sourceIndex: 1, order: 1 },
       ],
       liveSemanticElements: [outerElement, innerElement],
-    });
+    }, createEnhanceContext(host));
     assert.ok(rendered.html.includes('fill="rgb(0, 128, 0)"'));
     assert.ok(rendered.html.includes("--tq-decoration-color:rgb(0, 128, 0)"));
   } finally {
@@ -1482,7 +1471,7 @@ test("cjkStrongSemantics marks clone with data-tq-cjk-emphasis and font-weight",
     liveSemanticElements: [sourceElement],
     cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
   };
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", options);
+  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", options, createEnhanceContext(host));
   assert.ok(rendered.html.includes('data-tq-cjk-emphasis="true"'));
   assert.ok(rendered.html.includes("font-weight:700!important"));
 
@@ -1507,6 +1496,6 @@ test("cjkStrongSemantics marks clone with data-tq-cjk-emphasis and font-weight",
       sourceIndex: 0,
     }],
     liveSemanticElements: [fakeInlineElement("STRONG")],
-  });
+  }, createEnhanceContext(unadornedHost));
   assert.equal(unadorned.html.includes("data-tq-cjk-emphasis"), false);
 });
