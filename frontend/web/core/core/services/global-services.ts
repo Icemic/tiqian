@@ -54,7 +54,12 @@ function createGlobalServices(): GlobalServices {
 // the /auto entry. Returns the initialized container.
 export function initializeGlobalServices(): GlobalServices {
   const registry = globalThis as GlobalServicesRegistry;
-  return registry[GLOBAL_SERVICES_KEY] ??= createGlobalServices();
+  let services = registry[GLOBAL_SERVICES_KEY];
+  if (!services) {
+    services = createGlobalServices();
+    registry[GLOBAL_SERVICES_KEY] = services;
+  }
+  return services;
 }
 
 // Accessor: throws if not initialized. Hosts must call initializeGlobalServices
