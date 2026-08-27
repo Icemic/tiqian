@@ -77,6 +77,10 @@ class TiqianProseElement extends HTMLElementBase {
     }
   }
 
+  rawDomFragmentOf(paragraph: Element): DocumentFragment | null {
+    return this.#session.rawDomFragmentOf(paragraph);
+  }
+
   connectedCallback() {
     this.#session.mount();
   }

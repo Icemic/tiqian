@@ -328,6 +328,14 @@ class ProseHostSession {
     }
   }
 
+  // Test/probe seam (ADR 0053): the product carries no DOM property for the
+  // raw-DOM fragment, so probes ask the host session, which keys the custody
+  // records by paragraph element on its own context.
+  rawDomFragmentOf(paragraph: Element): DocumentFragment | null {
+    const record = this.#context.rawDomParagraphs.get(paragraph);
+    return record?.fragment ?? null;
+  }
+
   mount() {
     // AppliedLedgerMountSync: attribute changes made through property setters
     // or present before construction never passed through updateOptions; sync

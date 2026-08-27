@@ -148,8 +148,8 @@ async function compileSvelteMultiComponent() {
 // The in-page driver: framework loaders, scenario registry, settle helpers,
 // and per-scenario state snapshots. Served at /page-driver.mjs.
 const PAGE_DRIVER = `
-  import "@tiqian/prose/element";
-  import { getContextForElement } from "@tiqian/core/core/engine/context/enhance-context.js";
+  import { registerTiqianProse } from "@tiqian/prose/element";
+  registerTiqianProse();
 
   const stage = document.getElementById("stage");
   globalThis.__pageErrors = [];
@@ -159,12 +159,11 @@ const PAGE_DRIVER = `
 
   // Host-side test probe: ADR 0053 rules that the product carries no DOM
   // property for the raw-DOM fragment, so tests dig through this seam instead;
-  // the library face is unchanged. The engine keys both the per-element
-  // context and the rawDomParagraphs entry by the paragraph element itself.
+  // the library face is unchanged. The host session keys the rawDomParagraphs
+  // entry by the paragraph element itself.
   globalThis.__tiqianRawDomFragment = (paragraph) => {
-    const context = getContextForElement(paragraph);
-    const record = context?.rawDomParagraphs.get(paragraph);
-    return record?.fragment ?? null;
+    const host = paragraph.closest("tiqian-prose");
+    return host ? host.rawDomFragmentOf(paragraph) : null;
   };
 
   // ---- react-dom 19 through a minimal CommonJS loader ----
