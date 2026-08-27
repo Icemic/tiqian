@@ -316,7 +316,13 @@ private fun Int.isCombiningMarkCodePoint(): Boolean =
 private fun Int.isAsciiPointMarkCodePoint(): Boolean =
     this in 0..0xFFFF && ClreqPunctuationPolicies.isAsciiPointMark(toChar())
 
-/** Returns the Unicode-defined sequence mechanism that promotes a scalar role to Emoji. */
+/**
+ * `UnicodeEmojiSequenceRolePromotion`: promotes a text-default scalar to the Emoji fallback
+ * policy only for a Unicode keycap, emoji-style variation, or modifier sequence. The generated
+ * Unicode 17 property tables define the recognized bases; verified by
+ * `emojiRoleMatrixSeparatesSupportedSequencesFromAdjacentAndUnrelatedText`,
+ * `recordsUnicodeEmojiSequenceRolePromotions`, and `UnicodeEmoji17RgiRoleAuditTest`.
+ */
 private fun String.emojiRolePromotionReason(start: Int, end: Int): String? {
     val base = codePointAtCompat(start)
     var next = start + base.charCount()
