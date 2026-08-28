@@ -45,4 +45,4 @@ jobs:
       # tools/package-topology/check.mjs uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run package topology check
-        run: node tools/package-topology/check.mjs
+        run: node tools/package-topology/check.ts

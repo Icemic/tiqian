@@ -48,4 +48,4 @@ jobs:
       # tools/boundary-check/check.mjs uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run boundary check
-        run: node tools/boundary-check/check.mjs
+        run: node tools/boundary-check/check.ts

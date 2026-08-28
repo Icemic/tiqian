@@ -42,4 +42,4 @@ jobs:
       # tools/service-directory/check.mjs uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run service directory check
-        run: node tools/service-directory/check.mjs
+        run: node tools/service-directory/check.ts

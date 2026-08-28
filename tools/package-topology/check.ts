@@ -43,31 +43,53 @@
 // Zero npm dependencies; node >= 22 builtins only. Exit codes: 0 = clean,
 // 1 = violation or unreadable input.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 
-const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+function findRepoRoot(): string {
+  let current: string = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (existsSync(path.join(current, ".git"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  return process.cwd();
+}
 
-const PACKAGES = [
+const repoRoot: string = findRepoRoot();
+
+interface Package {
+  readonly name: string;
+  readonly dir: string;
+}
+
+interface SpecifierHit {
+  readonly line: number;
+  readonly column: number;
+  readonly specifier: string;
+}
+
+const PACKAGES: readonly Package[] = [
   { name: "@tiqian/prose", dir: "frontend/web/npm" },
   { name: "@tiqian/core", dir: "frontend/web/core" },
   { name: "@tiqian/ffi", dir: "ffi/js/npm" },
 ];
 
-const ALLOWED_EDGES = new Set([
+const ALLOWED_EDGES: ReadonlySet<string> = new Set([
   "@tiqian/prose -> @tiqian/core",
   "@tiqian/prose -> @tiqian/ffi",
   "@tiqian/core -> @tiqian/ffi",
 ]);
 
-const ALLOWED_DIRECTIONS =
+const ALLOWED_DIRECTIONS: string =
   "Allowed inter-package edges (web-component -> core -> ffi): " +
   [...ALLOWED_EDGES].join("; ") +
   ".";
 
-const DEPENDENCY_FIELDS = [
+const DEPENDENCY_FIELDS: readonly string[] = [
   "dependencies",
   "devDependencies",
   "peerDependencies",
@@ -77,7 +99,7 @@ const DEPENDENCY_FIELDS = [
 // Directory names never scanned, mirroring the ignores in
 // tools/ts-discipline/eslint.config.mjs restricted to what can occur inside
 // the three package directories.
-const IGNORED_DIR_NAMES = new Set([
+const IGNORED_DIR_NAMES: ReadonlySet<string> = new Set([
   "node_modules",
   "runtime",
   "build",
@@ -87,9 +109,9 @@ const IGNORED_DIR_NAMES = new Set([
   "demo",
 ]);
 
-const STRICT_OUTSIDE_ESCAPES = process.env.TIQIAN_TOPOLOGY_STRICT === "1";
+const STRICT_OUTSIDE_ESCAPES: boolean = process.env.TIQIAN_TOPOLOGY_STRICT === "1";
 
-function isScannedSourceFile(fileName) {
+function isScannedSourceFile(fileName: string): boolean {
   if (fileName.endsWith(".test.js")) return false;
   return (
     fileName.endsWith(".d.ts") ||
@@ -99,14 +121,14 @@ function isScannedSourceFile(fileName) {
   );
 }
 
-function collectSourceFiles(packageRoot) {
-  const files = [];
-  const visit = (dir) => {
-    const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-      a.name.localeCompare(b.name),
+function collectSourceFiles(packageRoot: string): string[] {
+  const files: string[] = [];
+  const visit = (dir: string): void => {
+    const entries: Dirent[] = readdirSync(dir, { withFileTypes: true }).sort(
+      (a: Dirent, b: Dirent): number => a.name.localeCompare(b.name),
     );
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
+      const fullPath: string = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (!IGNORED_DIR_NAMES.has(entry.name)) visit(fullPath);
       } else if (entry.isFile() && isScannedSourceFile(entry.name)) {
@@ -121,25 +143,25 @@ function collectSourceFiles(packageRoot) {
 // Module specifier extraction. Line-based regexes instead of a parser because
 // the script must stay dependency-free; the patterns cover static imports,
 // side-effect imports, dynamic import(), re-exports and require().
-const SPECIFIER_PATTERNS = [
+const SPECIFIER_PATTERNS: readonly RegExp[] = [
   /\bfrom\s*(["'])([^"'\n]+)\1/g,
   /\bimport\s*\(?\s*(["'])([^"'\n]+)\1/g,
   /\brequire\s*\(\s*(["'])([^"'\n]+)\1/g,
 ];
 
-function extractRelativeSpecifiers(text) {
-  const hits = [];
-  const lines = text.split("\n");
+function extractRelativeSpecifiers(text: string): SpecifierHit[] {
+  const hits: SpecifierHit[] = [];
+  const lines: readonly string[] = text.split("\n");
   for (const [lineIndex, line] of lines.entries()) {
-    const seenOnLine = new Set();
+    const seenOnLine: Set<string> = new Set<string>();
     for (const pattern of SPECIFIER_PATTERNS) {
       pattern.lastIndex = 0;
-      let match;
+      let match: RegExpExecArray | null;
       while ((match = pattern.exec(line)) !== null) {
-        const specifier = match[2];
+        const specifier: string = match[2];
         if (!specifier.startsWith(".")) continue;
         // Patterns overlap (import ... from "..."), dedupe per line/column.
-        const key = `${match.index}:${specifier}`;
+        const key: string = `${match.index}:${specifier}`;
         if (seenOnLine.has(key)) continue;
         seenOnLine.add(key);
         hits.push({ line: lineIndex + 1, column: match.index + 1, specifier });
@@ -149,32 +171,33 @@ function extractRelativeSpecifiers(text) {
   return hits;
 }
 
-function isInside(parent, candidate) {
-  const rel = path.relative(parent, candidate);
+function isInside(parent: string, candidate: string): boolean {
+  const rel: string = path.relative(parent, candidate);
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
-function owningTopologyPackage(resolvedTarget) {
+function owningTopologyPackage(resolvedTarget: string): Package | null {
   for (const pkg of PACKAGES) {
     if (isInside(path.join(repoRoot, pkg.dir), resolvedTarget)) return pkg;
   }
   return null;
 }
 
-function checkDependencyDeclarations(errors) {
+function checkDependencyDeclarations(errors: string[]): void {
   for (const pkg of PACKAGES) {
-    const manifestPath = path.join(repoRoot, pkg.dir, "package.json");
-    let manifest;
+    const manifestPath: string = path.join(repoRoot, pkg.dir, "package.json");
+    let manifest: Record<string, unknown>;
     try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    } catch (error) {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    } catch (error: unknown) {
+      const message: string = error instanceof Error ? error.message : String(error);
       errors.push(
-        `[manifest] ${pkg.dir}/package.json cannot be read or parsed: ${error.message}`,
+        `[manifest] ${pkg.dir}/package.json cannot be read or parsed: ${message}`,
       );
       continue;
     }
     for (const field of DEPENDENCY_FIELDS) {
-      const deps = manifest[field];
+      const deps: unknown = manifest[field];
       if (deps === undefined || deps === null) continue;
       if (typeof deps !== "object" || Array.isArray(deps)) {
         errors.push(
@@ -182,9 +205,10 @@ function checkDependencyDeclarations(errors) {
         );
         continue;
       }
-      for (const depName of Object.keys(deps)) {
+      const depsRecord: Record<string, unknown> = deps as Record<string, unknown>;
+      for (const depName of Object.keys(depsRecord)) {
         if (!depName.startsWith("@tiqian/")) continue;
-        const edge = `${pkg.name} -> ${depName}`;
+        const edge: string = `${pkg.name} -> ${depName}`;
         if (ALLOWED_EDGES.has(edge)) continue;
         errors.push(
           `[dependency direction] ${pkg.dir}/package.json: ${pkg.name} declares ` +
@@ -196,28 +220,29 @@ function checkDependencyDeclarations(errors) {
   }
 }
 
-function checkCrossPackageImports(errors, notes) {
-  let scannedFiles = 0;
+function checkCrossPackageImports(errors: string[], notes: string[]): number {
+  let scannedFiles: number = 0;
   for (const pkg of PACKAGES) {
-    const packageRoot = path.join(repoRoot, pkg.dir);
+    const packageRoot: string = path.join(repoRoot, pkg.dir);
     for (const file of collectSourceFiles(packageRoot)) {
       scannedFiles += 1;
-      const displayPath = path.relative(repoRoot, file);
-      let text;
+      const displayPath: string = path.relative(repoRoot, file);
+      let text: string;
       try {
         text = readFileSync(file, "utf8");
-      } catch (error) {
-        errors.push(`[read] ${displayPath}: ${error.message}`);
+      } catch (error: unknown) {
+        const message: string = error instanceof Error ? error.message : String(error);
+        errors.push(`[read] ${displayPath}: ${message}`);
         continue;
       }
       for (const hit of extractRelativeSpecifiers(text)) {
-        const resolvedTarget = path.resolve(
+        const resolvedTarget: string = path.resolve(
           path.dirname(file),
           hit.specifier,
         );
-        const escapesOwnPackage = !isInside(packageRoot, resolvedTarget);
+        const escapesOwnPackage: boolean = !isInside(packageRoot, resolvedTarget);
         if (!escapesOwnPackage) continue;
-        const owner = owningTopologyPackage(resolvedTarget);
+        const owner: Package | null = owningTopologyPackage(resolvedTarget);
         if (owner !== null) {
           errors.push(
             `[cross-package import] ${displayPath}:${hit.line}:${hit.column}: ` +
@@ -228,8 +253,8 @@ function checkCrossPackageImports(errors, notes) {
               `across package boundaries.\n  ${ALLOWED_DIRECTIONS}`,
           );
         } else {
-          const verdict = STRICT_OUTSIDE_ESCAPES ? "violation" : "note";
-          const message =
+          const verdict: string = STRICT_OUTSIDE_ESCAPES ? "violation" : "note";
+          const message: string =
             `[outside-topology escape: ${verdict}] ${displayPath}:${hit.line}:${hit.column}: ` +
             `"${hit.specifier}" resolves to ${path.relative(repoRoot, resolvedTarget)}, ` +
             `which is outside all three topology packages.` +
@@ -245,11 +270,11 @@ function checkCrossPackageImports(errors, notes) {
   return scannedFiles;
 }
 
-function main() {
-  const errors = [];
-  const notes = [];
+function main(): void {
+  const errors: string[] = [];
+  const notes: string[] = [];
   checkDependencyDeclarations(errors);
-  const scannedFiles = checkCrossPackageImports(errors, notes);
+  const scannedFiles: number = checkCrossPackageImports(errors, notes);
 
   for (const note of notes) console.error(note);
   if (errors.length > 0) {

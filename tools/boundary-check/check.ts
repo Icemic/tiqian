@@ -62,14 +62,22 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import process from "node:process";
-import { fileURLToPath } from "node:url";
+function findRepoRoot(): string {
+  let current: string = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (existsSync(path.join(current, ".git"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  return process.cwd();
+}
 
-const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+const repoRoot: string = findRepoRoot();
 
-const SCANNED_ROOTS = ["engine", "ffi", "frontend", "platforms"];
+const SCANNED_ROOTS: readonly string[] = ["engine", "ffi", "frontend", "platforms"];
 
-const IGNORED_DIR_NAMES = new Set([
+const IGNORED_DIR_NAMES: ReadonlySet<string> = new Set([
   "node_modules",
   "runtime",
   "build",
@@ -80,7 +88,7 @@ const IGNORED_DIR_NAMES = new Set([
   "dist",
 ]);
 
-const SOURCE_EXTENSIONS = new Set([
+const SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".kt",
   ".rs",
   ".ts",
@@ -90,33 +98,56 @@ const SOURCE_EXTENSIONS = new Set([
   ".cjs",
 ]);
 
-const KOTLIN_EXTENSIONS = new Set([".kt"]);
+const KOTLIN_EXTENSIONS: ReadonlySet<string> = new Set([".kt"]);
+
+interface Exemption {
+  readonly task: string;
+  readonly rules: readonly string[];
+  readonly file: string;
+  readonly reason: string;
+  readonly line?: number | null;
+  readonly symbol?: string;
+}
+
+interface Violation {
+  readonly rule: string;
+  readonly file: string;
+  readonly line: number | null;
+  readonly snippet: string;
+  readonly symbol?: string;
+}
+
+interface ExportEntry {
+  readonly name: string;
+  readonly file: string;
+  readonly line: number;
+}
 
 // The gate reviews the tracked sources, which is what CI sees on a fresh
 // checkout. Enumerating with `git ls-files` keeps local runs identical even
 // when in-place emit artifacts (untracked .js next to their .ts sources) or
 // other build outputs sit on disk in a developer tree.
-function collectFiles(rootRelPath, extensions) {
+function collectFiles(rootRelPath: string, extensions: ReadonlySet<string>): string[] {
   return execFileSync("git", ["ls-files", "--", rootRelPath], {
     cwd: repoRoot,
     encoding: "utf8",
   })
     .split("\n")
     .filter(Boolean)
-    .filter((relPath) => {
-      const segments = relPath.split("/");
-      if (segments.some((segment) => IGNORED_DIR_NAMES.has(segment))) {
+    .filter((relPath: string): boolean => {
+      const segments: string[] = relPath.split("/");
+      if (segments.some((segment: string): boolean => IGNORED_DIR_NAMES.has(segment))) {
         return false;
       }
       if (!extensions.has(path.extname(relPath))) return false;
       return existsSync(path.join(repoRoot, relPath));
     })
-    .map((relPath) => path.join(repoRoot, relPath))
+    .map((relPath: string): string => path.join(repoRoot, relPath))
     .sort();
 }
 
-function readLines(file) {
-  const text = readFileSync(file, "utf8");
+function readLines(file: string): string[] {
+  const text: string = readFileSync(file, "utf8");
   return text.split("\n");
 }
 
@@ -126,7 +157,7 @@ function readLines(file) {
 // `symbol` is set.
 // ---------------------------------------------------------------------------
 
-const EXEMPTIONS = [
+const EXEMPTIONS: readonly Exemption[] = [
   // R2: the wire codec sits in engine commonMain until 纠偏 2/#103 moves the
   // parsers back to ffi/js.
 
@@ -294,7 +325,7 @@ const EXEMPTIONS = [
 // Top-level names ending in Wire/Face that were reviewed and found to use
 // "face" as the standard typography term (font face), not as wire-transport
 // naming. Anything not listed here fails rule R2 and must be judged by hand.
-const REVIEWED_WIRE_FACE_NAMES = new Set([
+const REVIEWED_WIRE_FACE_NAMES: ReadonlySet<string> = new Set([
   "fontRoleNameUsesLatinFace",
   "usesLatinFace",
 ]);
@@ -302,14 +333,14 @@ const REVIEWED_WIRE_FACE_NAMES = new Set([
 // Modules allowed to contain the four separator escape literals (rule R4):
 // the current wire codec, and the parity oracle whose frozen-text byte
 // comparison the ruling explicitly retains.
-const SEPARATOR_CODEC_MODULES = [
+const SEPARATOR_CODEC_MODULES: readonly string[] = [
   "ffi/js/src/jsMain/kotlin/org/tiqian/ffi/js/ParagraphWireCodec.kt",
   "frontend/web-precompute/scripts/plan-parity-oracle.mjs",
 ];
 
 // Export entries already reviewed against an engine function counterpart
 // (rule R3b). The comment states the engine side each entry forwards to.
-const REVIEWED_EXPORT_ENTRIES = new Map([
+const REVIEWED_EXPORT_ENTRIES: ReadonlyMap<string, string> = new Map([
   ["fontMetricsResolve", "org.tiqian.font.FontMetricsResolver.resolve via WireJson parse"],
   ["fontFallbackResolve", "engine font fallback policy query"],
   ["bopomofoParse", "org.tiqian.clreq.BopomofoReading parse"],
@@ -340,7 +371,7 @@ const REVIEWED_EXPORT_ENTRIES = new Map([
 // Rule implementations
 // ---------------------------------------------------------------------------
 
-const RULE_CITATIONS = {
+const RULE_CITATIONS: Readonly<Record<string, string>> = {
   "R1-globalThis":
     "ADR 0053 ffi boundary review record (2026-08-25): the js target must not depend on environment globals; corrective wave 1 (#102) deletes the family.",
   "R1-Tiqian-global":
@@ -357,7 +388,7 @@ const RULE_CITATIONS = {
     "ADR 0053 cross-boundary payload audit: separators travel only inside declared codec modules until payloads become declared DTOs (corrective wave 5, #106).",
 };
 
-function exemptionCovers(exemption, violation) {
+function exemptionCovers(exemption: Exemption, violation: Violation): boolean {
   if (!exemption.rules.includes(violation.rule)) return false;
   if (violation.symbol !== undefined) {
     return exemption.symbol === violation.symbol;
@@ -366,21 +397,22 @@ function exemptionCovers(exemption, violation) {
   return exemption.line === undefined || exemption.line === null || exemption.line === violation.line;
 }
 
-function makeViolation(rule, file, line, snippet) {
+function makeViolation(rule: string, file: string, line: number | null, snippet: string): Violation {
   return { rule, file, line, snippet };
 }
 
 // R1: globalThis and __Tiqian-prefixed identifiers anywhere in engine/.
-function scanEngineGlobals(violations) {
-  const globalThisPattern = /\bglobalThis\b/g;
-  const tiqianGlobalPattern = /__Tiqian\w*/g;
+function scanEngineGlobals(violations: Violation[]): void {
+  const globalThisPattern: RegExp = /\bglobalThis\b/g;
+  const tiqianGlobalPattern: RegExp = /__Tiqian\w*/g;
   for (const file of collectFiles("engine", KOTLIN_EXTENSIONS)) {
-    const relFile = path.relative(repoRoot, file);
-    readLines(file).forEach((lineText, index) => {
-      for (const [rule, pattern] of [
+    const relFile: string = path.relative(repoRoot, file);
+    readLines(file).forEach((lineText: string, index: number): void => {
+      const checks: readonly [string, RegExp][] = [
         ["R1-globalThis", globalThisPattern],
         ["R1-Tiqian-global", tiqianGlobalPattern],
-      ]) {
+      ];
+      for (const [rule, pattern] of checks) {
         pattern.lastIndex = 0;
         if (pattern.test(lineText)) {
           violations.push(
@@ -392,26 +424,26 @@ function scanEngineGlobals(violations) {
   }
 }
 
-const TOP_LEVEL_NAME_PATTERN =
+const TOP_LEVEL_NAME_PATTERN: RegExp =
   /^(?:public|private|internal|protected|open|final|abstract|sealed|data|value|inline|suspend|operator|const|expect|actual|lateinit|external|enum|annotation)*\s*(?:class|interface|object|fun|val|var|typealias)\b/;
-const DECLARATION_KEYWORD_PATTERN =
+const DECLARATION_KEYWORD_PATTERN: RegExp =
   /\b(?:class|interface|object|fun|val|var|typealias)\b\s*(?:<[^>]*>\s*)?(`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)/;
 
-function topLevelDeclarationName(lineText) {
+function topLevelDeclarationName(lineText: string): string | null {
   // Top-level only: declarations start at column 0. Indented lines are
   // members, locals, or continuation lines.
   if (/^\s/.test(lineText)) return null;
   if (!TOP_LEVEL_NAME_PATTERN.test(lineText)) return null;
-  const match = DECLARATION_KEYWORD_PATTERN.exec(lineText);
+  const match: RegExpExecArray | null = DECLARATION_KEYWORD_PATTERN.exec(lineText);
   return match ? match[1].replace(/`/g, "") : null;
 }
 
 // R2: file names and top-level declaration names in engine commonMain.
-function scanCommonMainNaming(violations) {
-  const commonMainRoot = "engine/src/commonMain";
+function scanCommonMainNaming(violations: Violation[]): void {
+  const commonMainRoot: string = "engine/src/commonMain";
   for (const file of collectFiles(commonMainRoot, KOTLIN_EXTENSIONS)) {
-    const relFile = path.relative(repoRoot, file);
-    const baseName = path.basename(file, ".kt");
+    const relFile: string = path.relative(repoRoot, file);
+    const baseName: string = path.basename(file, ".kt");
     if (/(?:Wire|Face)$/.test(baseName)) {
       violations.push(
         makeViolation("R2-filename", relFile, null, `file name "${baseName}.kt" ends in Wire/Face`),
@@ -423,7 +455,7 @@ function scanCommonMainNaming(violations) {
       );
     }
     for (const [index, lineText] of readLines(file).entries()) {
-      const trimmed = lineText.trimStart();
+      const trimmed: string = lineText.trimStart();
       if (
         trimmed.length === 0 ||
         trimmed.startsWith("*") ||
@@ -432,7 +464,7 @@ function scanCommonMainNaming(violations) {
       ) {
         continue;
       }
-      const name = topLevelDeclarationName(lineText);
+      const name: string | null = topLevelDeclarationName(lineText);
       if (name === null) continue;
       if (/(?:Wire|Face)$/.test(name)) {
         if (REVIEWED_WIRE_FACE_NAMES.has(name)) continue;
@@ -459,11 +491,11 @@ function scanCommonMainNaming(violations) {
   }
 }
 
-const SESSION_STATE_TOKENS = /\b(?:HarfBuzzSession|buildPrecomputeBackends|fontSessionId)\b/;
-const NON_JS_LANE_SESSION_TOKENS = /\b(?:HarfBuzzSession|buildPrecomputeBackends)\b/;
+const SESSION_STATE_TOKENS: RegExp = /\b(?:HarfBuzzSession|buildPrecomputeBackends|fontSessionId)\b/;
+const NON_JS_LANE_SESSION_TOKENS: RegExp = /\b(?:HarfBuzzSession|buildPrecomputeBackends)\b/;
 
-function isFfiJsLane(relFile) {
-  const segments = relFile.split(path.sep);
+function isFfiJsLane(relFile: string): boolean {
+  const segments: string[] = relFile.split(path.sep);
   return (
     segments[0] === "ffi" &&
     segments[1] === "js" &&
@@ -472,10 +504,10 @@ function isFfiJsLane(relFile) {
 }
 
 // R3a: font-session state markers inside ffi/.
-function scanFfiSessionState(violations) {
+function scanFfiSessionState(violations: Violation[]): void {
   for (const file of collectFiles("ffi", KOTLIN_EXTENSIONS)) {
-    const relFile = path.relative(repoRoot, file);
-    const jsLaneOnlyLine = isFfiJsLane(relFile);
+    const relFile: string = path.relative(repoRoot, file);
+    const jsLaneOnlyLine: boolean = isFfiJsLane(relFile);
     for (const [index, lineText] of readLines(file).entries()) {
       if (!SESSION_STATE_TOKENS.test(lineText)) continue;
       if (!jsLaneOnlyLine && !NON_JS_LANE_SESSION_TOKENS.test(lineText)) {
@@ -494,29 +526,29 @@ function scanFfiSessionState(violations) {
 }
 
 // R3b: exported entries must be reviewed against engine counterparts.
-const FFI_ROOTS = [["ffi", KOTLIN_EXTENSIONS]];
+const FFI_ROOTS: readonly (readonly [string, ReadonlySet<string>])[] = [["ffi", KOTLIN_EXTENSIONS]];
 
-function extractExportEntries() {
-  const entries = [];
+function extractExportEntries(): ExportEntry[] {
+  const entries: ExportEntry[] = [];
   for (const [root, extensions] of FFI_ROOTS) {
     for (const file of collectFiles(root, extensions)) {
-      const relFile = path.relative(repoRoot, file);
-      const lines = readLines(file);
+      const relFile: string = path.relative(repoRoot, file);
+      const lines: string[] = readLines(file);
       for (const [index, lineText] of lines.entries()) {
-        const trimmed = lineText.trim();
-        const cName = /^@CName\("([^"]+)"\)/.exec(trimmed);
+        const trimmed: string = lineText.trim();
+        const cName: RegExpExecArray | null = /^@CName\("([^"]+)"\)/.exec(trimmed);
         if (cName !== null) {
           entries.push({ name: cName[1], file: relFile, line: index + 1 });
           continue;
         }
         if (trimmed !== "@JsExport") continue;
-        for (let peek = index + 1; peek < lines.length; peek += 1) {
-          const candidate = lines[peek].trim();
+        for (let peek: number = index + 1; peek < lines.length; peek += 1) {
+          const candidate: string = lines[peek].trim();
           if (candidate.length === 0 || candidate.startsWith("@")) {
             if (candidate.startsWith("@")) continue;
             break;
           }
-          const funMatch = /^(?:internal\s+)?fun\s+(?:<[^>]*>\s*)?(`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)/.exec(candidate);
+          const funMatch: RegExpExecArray | null = /^(?:internal\s+)?fun\s+(?:<[^>]*>\s*)?(`[^`]+`|[A-Za-z_][A-Za-z0-9_]*)/.exec(candidate);
           if (funMatch !== null) {
             entries.push({
               name: funMatch[1].replace(/`/g, ""),
@@ -532,7 +564,7 @@ function extractExportEntries() {
   return entries;
 }
 
-function checkExportEntries(violations) {
+function checkExportEntries(violations: Violation[]): void {
   for (const entry of extractExportEntries()) {
     if (REVIEWED_EXPORT_ENTRIES.has(entry.name)) continue;
     violations.push({
@@ -546,19 +578,19 @@ function checkExportEntries(violations) {
 }
 
 // R4: separator escape literals outside the declared codec modules.
-const SEPARATOR_PATTERNS = [
+const SEPARATOR_PATTERNS: readonly RegExp[] = [
   /\\u001[a-fA-F]/,
   /\\x1[a-fA-F]/,
   /\\u\{0*1[a-fA-F]\}/,
 ];
 
-function scanSeparatorLiterals(violations) {
+function scanSeparatorLiterals(violations: Violation[]): void {
   for (const root of SCANNED_ROOTS) {
     for (const file of collectFiles(root, SOURCE_EXTENSIONS)) {
-      const relFile = path.relative(repoRoot, file);
+      const relFile: string = path.relative(repoRoot, file);
       if (SEPARATOR_CODEC_MODULES.includes(relFile)) continue;
       for (const [index, lineText] of readLines(file).entries()) {
-        if (SEPARATOR_PATTERNS.some((pattern) => pattern.test(lineText))) {
+        if (SEPARATOR_PATTERNS.some((pattern: RegExp): boolean => pattern.test(lineText))) {
           violations.push(
             makeViolation(
               "R4-separator-literal",
@@ -577,18 +609,18 @@ function scanSeparatorLiterals(violations) {
 // Driver
 // ---------------------------------------------------------------------------
 
-function main() {
-  const violations = [];
+function main(): void {
+  const violations: Violation[] = [];
   scanEngineGlobals(violations);
   scanCommonMainNaming(violations);
   scanFfiSessionState(violations);
   checkExportEntries(violations);
   scanSeparatorLiterals(violations);
 
-  const matchedExemptions = new Set();
-  const open = [];
+  const matchedExemptions: Set<Exemption> = new Set<Exemption>();
+  const open: Violation[] = [];
   for (const violation of violations) {
-    const exemption = EXEMPTIONS.find((candidate) =>
+    const exemption: Exemption | undefined = EXEMPTIONS.find((candidate: Exemption): boolean =>
       exemptionCovers(candidate, violation),
     );
     if (exemption === undefined) open.push(violation);
@@ -596,7 +628,7 @@ function main() {
   }
 
   for (const violation of open) {
-    const where =
+    const where: string =
       violation.line === null
         ? violation.file
         : `${violation.file}:${violation.line}`;
@@ -611,7 +643,7 @@ function main() {
       console.error(
         `[boundary] STALE EXEMPTION (${exemption.task}): ` +
           `${exemption.symbol ?? exemption.file}${exemption.line ? `:${exemption.line}` : ""} matched no current hit.\n` +
-          `  Delete this entry from tools/boundary-check/check.mjs.`,
+          `  Delete this entry from tools/boundary-check/check.ts.`,
       );
     }
   }

@@ -29,13 +29,25 @@
 //      type assertions on derived collections (`f(...) as T[]`): declare the
 //      shape at the source or narrow with a type predicate (wc-s1, P/S/C 10).
 
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import process from "node:process";
 import tseslint from "typescript-eslint";
 
-const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+function findRepoRoot(): string {
+  let current: string = process.cwd();
+  while (current !== path.dirname(current)) {
+    if (existsSync(path.join(current, ".git"))) {
+      return current;
+    }
+    current = path.dirname(current);
+  }
+  return process.cwd();
+}
 
-const targetPackages = [
+const repoRoot: string = findRepoRoot();
+
+const targetPackages: readonly string[] = [
   "frontend/web/npm",
   "frontend/web/core",
   "frontend/web/react",
@@ -43,15 +55,15 @@ const targetPackages = [
   "demo/web/tests",
 ];
 
-const patterns = [
-  ...targetPackages.flatMap((pkg) => [
+const patterns: readonly string[] = [
+  ...targetPackages.flatMap((pkg: string): readonly string[] => [
     path.join(repoRoot, pkg, "**/*.js"),
     path.join(repoRoot, pkg, "**/*.mjs"),
     path.join(repoRoot, pkg, "**/*.ts"),
     path.join(repoRoot, pkg, "**/*.d.ts"),
     path.join(repoRoot, pkg, "*.d.ts"),
   ]),
-  ...targetPackages.flatMap((pkg) => [
+  ...targetPackages.flatMap((pkg: string): readonly string[] => [
     `${pkg}/**/*.js`,
     `${pkg}/**/*.mjs`,
     `${pkg}/**/*.ts`,
@@ -62,20 +74,20 @@ const patterns = [
 
 // TypeScript sources only: prefer-const is a source discipline; handwritten
 // .mjs test files and printer emit products stay out of its scope.
-const tsPatterns = [
-  ...targetPackages.flatMap((pkg) => [
+const tsPatterns: readonly string[] = [
+  ...targetPackages.flatMap((pkg: string): readonly string[] => [
     path.join(repoRoot, pkg, "**/*.ts"),
     path.join(repoRoot, pkg, "**/*.d.ts"),
     path.join(repoRoot, pkg, "*.d.ts"),
   ]),
-  ...targetPackages.flatMap((pkg) => [
+  ...targetPackages.flatMap((pkg: string): readonly string[] => [
     `${pkg}/**/*.ts`,
     `${pkg}/**/*.d.ts`,
     `${pkg}/*.d.ts`,
   ]),
 ];
 
-const ignores = [
+const ignores: readonly string[] = [
   "**/node_modules/**",
   "ffi/js/npm/runtime/**",
   "**/runtime/**",
@@ -105,12 +117,12 @@ const ignores = [
   "frontend/web/integrations/**",
 ];
 
-export default [
+export default tseslint.config(
   {
-    ignores,
+    ignores: ignores as string[],
   },
   {
-    files: patterns,
+    files: patterns as string[],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -190,9 +202,9 @@ export default [
     },
   },
   {
-    files: tsPatterns,
+    files: tsPatterns as string[],
     rules: {
       "prefer-const": "error",
     },
   },
-];
+);
