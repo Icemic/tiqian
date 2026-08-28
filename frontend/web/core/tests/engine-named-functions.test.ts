@@ -7,16 +7,17 @@ import { probeRootContentDrift, reconcileRoot } from "../core/engine/content-rec
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
-import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
+import { FakeElement, FakeFragment, FakeNode, FakeText, asNode, asNodeConstructor, emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
 import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import type { LayoutJobPool, LayoutJobSpec } from "../core/engine/layout-job-pool.js";
-import type { ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";
+import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";
+import type { BrowserFallbackDescriptor } from "../core/engine/enhance/typography.js";
+import type { DiagnosisIssueRecord } from "../core/engine/context/diagnosis-manager.js";
+import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
+import type { FixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import type { CoordinationPoolSlot, GlobalEntry, Thunk } from "./types.js";
 initializeGlobalServices();
-
-// Type aliases for bridging fake elements with DOM interfaces.
-type FakeElementAsHTMLElement = FakeElement & HTMLElement;
-type FakeElementAsElement = FakeElement & Element;
 
 const ENV_GLOBALS = ["window", "document", "getComputedStyle", "Node"];
 
@@ -30,23 +31,18 @@ const ENV_GLOBALS = ["window", "document", "getComputedStyle", "Node"];
 // helpers run the real pipeline and observe the context's raw-DOM records,
 // the live paragraph/issue arrays and the live element consequences.
 
-interface SavedGlobal {
-  name: string;
-  own: boolean;
-  value: unknown;
-}
-
 interface FakeElementOptions {
   tagName?: string;
   text?: string;
   width?: number;
   isConnected?: boolean;
-  childNodes?: Array<{ nodeType: number; textContent: string }>;
+  childNodes?: FakeChildDescriptor[];
   closestTo?: FakeElement | null;
 }
 
-interface FakeStyleProps {
-  [key: string]: string;
+interface FakeChildDescriptor {
+  nodeType: number;
+  textContent: string;
 }
 
 interface SetAttributeCall {
@@ -63,67 +59,89 @@ interface FakeRect {
   right: number;
 }
 
-type FakeElementFull = FakeElement & {
-  nodeType: number;
-  tagName: string;
-  isConnected?: boolean;
-  textContent: string;
-  childNodes: Array<{ nodeType: number; textContent: string }>;
-  getAttribute: (name: string) => string | null;
-  setAttribute: (name: string, value: string) => void;
-  removeAttribute: (name: string) => void;
-  hasAttribute: (name: string) => boolean;
-  closest: (selector: string) => FakeElement | null;
-  querySelectorAll: () => [];
-  querySelector: () => null;
-  style: {
-    getPropertyValue: (name: string) => string;
-    getPropertyPriority: () => string;
-    setProperty: (name: string, value: string) => void;
-    removeProperty: (name: string) => void;
-    item: () => string;
-    length: number;
-  };
-  getBoundingClientRect: () => FakeRect;
-  _rect: FakeRect;
-  getClientRects: () => [];
-  parentElement: null;
-  parentNode: null;
-  insertBefore: () => void;
-  dispatchEvent: (event: unknown) => boolean;
+// The rect fields the instrumented root's recording getBoundingClientRect
+// reads; tests may seed a partial rect (top/bottom/width).
+interface InstrumentedRect {
+  top: number;
+  bottom: number;
+  width: number;
+}
+
+// The recording additions the instrumented root carries beyond the fake
+// element surface: connection state, scriptable rect, event log, attribute
+// bookkeeping and a fixture dispatchEvent.
+interface InstrumentedExtras {
+  isConnected: boolean;
+  _rect: InstrumentedRect;
   events: unknown[];
-  attributes: Map<string, string>;
   setAttributes: SetAttributeCall[];
   removedAttributes: string[];
-  _computedValues?: Record<string, string>;
-};
+  dispatchEvent(event: unknown): boolean;
+}
+
+type InstrumentedBase = FakeElement & InstrumentedExtras;
+type InstrumentedElement = InstrumentedBase & HTMLElement;
 
 interface PoolOverrides {
-  startJob?: (spec: LayoutJobSpec) => void;
-  cancelJob?: (root: Element) => void;
-  jobKind?: (root: Element) => string | null;
+  startJob?(spec: LayoutJobSpec): void;
+  cancelJob?(root: Element): void;
+  jobKind?(root: Element): string | null;
+}
+
+interface FakePoolCalls {
+  startJob: LayoutJobSpec[];
+  cancelJob: Element[];
 }
 
 interface FakeLayoutJobPool extends LayoutJobPool {
-  _calls: {
-    startJob: LayoutJobSpec[];
-    cancelJob: Element[];
-  };
+  _calls: FakePoolCalls;
 }
+
+// The fixture document replaces the real style head with a fake element.
+interface FakeHeadSlot {
+  head: FakeElement;
+}
+
+type PipelineDocument = Document & FakeHeadSlot;
 
 interface WithEnvOverrides extends PoolOverrides {
   computedStyleValues?: Record<string, string>;
-  document?: Document & { head: FakeElement };
+  document?: PipelineDocument;
   node?: typeof Node;
   layoutJobPool?: FakeLayoutJobPool;
 }
 
+interface PoolTestFn<T> {
+  (pool: FakeLayoutJobPool): T;
+}
+
+interface ResolveEngineOptionsCall {
+  root: Element;
+  optionsBag: Record<string, unknown> | null;
+}
+
+interface ResolveCanonicalOptionsCall {
+  root: Element;
+  options: unknown;
+}
+
+interface ParagraphCandidateCall {
+  root: Element;
+  selector: string;
+}
+
+interface PublishStateCall {
+  paragraphCount: number;
+  issueCount: number;
+  keepEmpty: boolean;
+}
+
 interface TestContextCalls {
-  resolveEngineOptions: Array<{ root: Element; optionsBag: Record<string, unknown> | null }>;
-  resolveEngineOptionsFromCanonical: Array<{ root: Element; options: unknown }>;
-  paragraphCandidates: Array<{ root: Element; selector: string }>;
-  strandedSourceParagraphs: Array<Record<string, never>>;
-  publishState: Array<{ paragraphCount: number; issueCount: number; keepEmpty: boolean }>;
+  resolveEngineOptions: ResolveEngineOptionsCall[];
+  resolveEngineOptionsFromCanonical: ResolveCanonicalOptionsCall[];
+  paragraphCandidates: ParagraphCandidateCall[];
+  strandedSourceParagraphs: Record<string, never>[];
+  publishState: PublishStateCall[];
 }
 
 interface MakeTestContextOverrides {
@@ -131,13 +149,19 @@ interface MakeTestContextOverrides {
   stranded?: Element[];
 }
 
+// The resolver view tests seed through: the real ledger resolver takes a
+// non-null bag, seeding passes the bag through nullable parameters.
+interface NullableOptionsResolver {
+  (rootElement: Element, optionsBag: Record<string, unknown> | null): ResolvedEnhanceOptions;
+}
+
 interface ObservedContext {
   context: EnhancedElementContext;
   calls: TestContextCalls;
-  realResolve: (rootElement: Element, optionsBag: Record<string, unknown> | null) => ResolvedEnhanceOptions;
+  realResolve: NullableOptionsResolver;
 }
 
-function makeElement(initialAttributes: Record<string, string> | undefined, options: FakeElementOptions = {}): FakeElementFull {
+function makeElement(initialAttributes: Record<string, string> | undefined, options: FakeElementOptions = {}): InstrumentedElement {
   const attrs = new Map(Object.entries(initialAttributes || {}));
   const setAttributes: SetAttributeCall[] = [];
   const removedAttributes: string[] = [];
@@ -148,18 +172,18 @@ function makeElement(initialAttributes: Record<string, string> | undefined, opti
   for (const [name, value] of attrs) {
     baseElement.setAttribute(name, value);
   }
-  (baseElement as any).isConnected = options.isConnected !== false;
-  baseElement.width = options.width ?? 300;
+  const element = baseElement as InstrumentedBase;
+  element.isConnected = options.isConnected !== false;
+  element.width = options.width ?? 300;
   for (const child of (options.childNodes ?? [{ nodeType: 3, textContent: text }])) {
     if (child.nodeType === 3) {
-      baseElement.appendChild(new FakeText(child.textContent));
+      element.appendChild(new FakeText(child.textContent));
     }
   }
-  const element = baseElement as unknown as FakeElementFull;
-  (element as any).setAttributes = setAttributes;
-  (element as any).removedAttributes = removedAttributes;
-  (element as any)._rect = rect;
-  (element as any).events = [];
+  element.setAttributes = setAttributes;
+  element.removedAttributes = removedAttributes;
+  element._rect = rect;
+  element.events = [];
   const originalSetAttribute = element.setAttribute.bind(element);
   element.setAttribute = function (name: string, value: string): void {
     const strVal = String(value);
@@ -171,33 +195,33 @@ function makeElement(initialAttributes: Record<string, string> | undefined, opti
     originalRemoveAttribute(name);
     removedAttributes.push(name);
   };
-  (element as any).dispatchEvent = function (event: unknown): boolean {
-    (element as any).events.push(event);
+  element.dispatchEvent = function (event: unknown): boolean {
+    element.events.push(event);
     return true;
   };
   const originalGetBCR = element.getBoundingClientRect.bind(element);
-  (element as any).getBoundingClientRect = function (): FakeRect {
-    const r = (element as any)._rect || rect;
+  element.getBoundingClientRect = function (): FakeRect {
+    const r = element._rect || rect;
     return { top: r.top, bottom: r.bottom, width: r.width, height: r.bottom - r.top, left: 0, right: r.width };
   };
-  (element as any).closest = function (selector: string): FakeElement | null {
+  element.closest = function (selector: string): FakeElement | null {
     if (options.closestTo && selector === "tiqian-prose, [data-tiqian-root]") {
       return options.closestTo;
     }
     return null;
   };
-  return element;
+  return element as InstrumentedElement;
 }
 
-function saveEnv(): SavedGlobal[] {
+function saveEnv(): GlobalEntry[] {
   return ENV_GLOBALS.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name as keyof typeof globalThis],
+    value: (globalThis as Record<string, unknown>)[name],
   }));
 }
 
-function restoreEnv(entries: SavedGlobal[]): void {
+function restoreEnv(entries: GlobalEntry[]): void {
   for (const { name, own, value } of entries) {
     if (own) (globalThis as Record<string, unknown>)[name] = value;
     else delete (globalThis as Record<string, unknown>)[name];
@@ -255,21 +279,30 @@ function makeFakeLayoutJobPool(overrides: PoolOverrides = {}): FakeLayoutJobPool
 
 // The drivers reach the pool through the coordination service, so the fake
 // pool is installed there for the duration of one test.
-function installFakePool(pool: FakeLayoutJobPool): () => void {
-  const coordination = globalServices().coordination;
+function installFakePool(pool: FakeLayoutJobPool): Thunk<void> {
+  const coordination = globalServices().coordination as CoordinationPoolSlot;
   const previous = coordination.layoutJobPool;
-  (coordination as unknown as Record<string, unknown>).layoutJobPool = pool as LayoutJobPool;
+  coordination.layoutJobPool = pool;
   return function (): void {
-    (coordination as unknown as Record<string, unknown>).layoutJobPool = previous;
+    coordination.layoutJobPool = previous;
   };
 }
 
-function withEnv<T>(fn: (pool: FakeLayoutJobPool) => T, overrides: WithEnvOverrides = {}): T {
+interface EmptyQueryResult {
+  length: number;
+  item(): undefined;
+}
+
+interface MinimalDocumentView {
+  querySelectorAll(): unknown;
+}
+
+function withEnv<T>(fn: PoolTestFn<T>, overrides: WithEnvOverrides = {}): T {
   const saved = saveEnv();
   const pool = overrides.layoutJobPool ?? makeFakeLayoutJobPool(overrides);
   const restorePool = installFakePool(pool);
   try {
-    const computed = (_el: Element, _pseudo?: string | null): CSSStyleDeclaration & { getPropertyValue: (name: string) => string } => {
+    const computed = (_el: Element, _pseudo?: string | null): CSSStyleDeclaration => {
       const props: Record<string, string> = {
         paddingLeft: "0px",
         paddingRight: "0px",
@@ -287,15 +320,18 @@ function withEnv<T>(fn: (pool: FakeLayoutJobPool) => T, overrides: WithEnvOverri
           ? String(props[key])
           : "";
       };
-      return styleObj as unknown as CSSStyleDeclaration & { getPropertyValue: (name: string) => string };
+      const styleValue: unknown = styleObj;
+      return styleValue as CSSStyleDeclaration;
     };
-    (globalThis as Record<string, unknown>).getComputedStyle = computed as typeof getComputedStyle;
-    (globalThis as Record<string, unknown>).window = { innerHeight: 800, getComputedStyle: computed } as unknown as Window & typeof globalThis;
-    (globalThis as Record<string, unknown>).document = (overrides.document || {
-      querySelectorAll: function (): { length: number; item: () => undefined } {
+    (globalThis as Record<string, unknown>).getComputedStyle = computed;
+    const fakeWindow: Pick<Window, "innerHeight" | "getComputedStyle"> = { innerHeight: 800, getComputedStyle: computed };
+    (globalThis as Record<string, unknown>).window = fakeWindow as Window & typeof globalThis;
+    const defaultDocument: MinimalDocumentView = {
+      querySelectorAll: function (): EmptyQueryResult {
         return { length: 0, item: function (): undefined { return undefined; } };
       },
-    }) as unknown as Document & { head: FakeElement };
+    };
+    (globalThis as Record<string, unknown>).document = (overrides.document || defaultDocument) as PipelineDocument;
     if (overrides.node) (globalThis as Record<string, unknown>).Node = overrides.node;
     return fn(pool);
   } finally {
@@ -307,31 +343,57 @@ function withEnv<T>(fn: (pool: FakeLayoutJobPool) => T, overrides: WithEnvOverri
 // Paragraph host on the fixture fake-DOM base for specs that drive the real
 // pipeline: lowerable children, a measurable box, a parseable innerHTML, and
 // a connected steady state.
-function makeFixtureParagraphElement(text: string = "hello world"): FakeElement {
-  const element = new FakeElement("p") as FakeElement & { width: number; isConnected: boolean };
-  (element as any).width = 320;
-  (element as any).isConnected = true;
+interface ConnectedState {
+  isConnected: boolean;
+}
+
+type FixtureParagraphElement = FakeElement & Element & ConnectedState;
+type FixtureParagraphBase = FakeElement & ConnectedState;
+
+function makeFixtureParagraphElement(text: string = "hello world"): FixtureParagraphElement {
+  const element = new FakeElement("p") as FixtureParagraphBase;
+  element.width = 320;
+  element.isConnected = true;
   element.appendChild(new FakeText(text));
-  return element;
+  return element as FixtureParagraphElement;
 }
 
 // Fake document for the full pipeline: the fragment factory the raw-DOM
 // takeover uses, lowering probe elements, an inert Range, the style head, and
 // an inert event surface for the clipboard installer.
-function makePipelineDocument(): Document & { head: FakeElement } {
-  const documentObject = {
+interface RootMetrics {
+  clientHeight: number;
+}
+
+interface InertRange {
+  selectNodeContents(): void;
+  getClientRects(): DOMRectList;
+}
+
+interface PipelineDocumentLiteral {
+  documentElement: RootMetrics;
+  createElement(tagName: string): unknown;
+  createDocumentFragment(): unknown;
+  createRange(): unknown;
+  addEventListener(type: string, listener: unknown): void;
+  removeEventListener(type: string, listener: unknown): void;
+  head: FakeElement;
+}
+
+function makePipelineDocument(): PipelineDocument {
+  const documentObject: PipelineDocumentLiteral = {
     documentElement: { clientHeight: 800 },
     createElement: (tagName: string): FakeElement => new FakeElement(tagName || "span"),
     createDocumentFragment: (): FakeFragment => new FakeFragment(),
-    createRange: (): Range => ({
-      selectNodeContents() {},
-      getClientRects: (): DOMRectList => [] as unknown as DOMRectList,
-    } as unknown as Range),
+    createRange: (): InertRange => ({
+      selectNodeContents: function (): void {},
+      getClientRects: function (): DOMRectList { return emptyDomRectList(); },
+    }),
     addEventListener: (): void => {},
     removeEventListener: (): void => {},
-  } as unknown as Document;
-  (documentObject as any).head = new FakeElement("head");
-  return documentObject as Document & { head: FakeElement };
+    head: new FakeElement("head"),
+  };
+  return documentObject as PipelineDocument;
 }
 
 // Registers the paragraph with the context's raw-DOM bookkeeping exactly the
@@ -340,6 +402,22 @@ function registerParagraph(context: EnhancedElementContext, source: Element): vo
   rawDomBegin(context, source, null, null, null, null, null, null, "", "", "", "", "", "", null);
   rawDomTake(context, source, null);
   rawDomCommit(context, source, null);
+}
+
+// Source-only TrackedParagraph stub: the lifecycle and reconcile reads these
+// seeded records resolve through the source; the remaining fields stay
+// unread inside the live array.
+function trackedParagraphStub(source: Element): TrackedParagraph {
+  const stub: Pick<TrackedParagraph, "source"> = { source };
+  return stub as TrackedParagraph;
+}
+
+// Test 7's minimal paragraph seed: its lowered payload is never built before
+// the detach the spec verifies.
+interface SeededParagraph {
+  source: Element;
+  lowered: unknown;
+  lastMeasure: number | null;
 }
 
 // A real EnhancedElementContext whose driver-observable part surface is
@@ -360,7 +438,7 @@ function makeTestContext(root: Element, overrides: MakeTestContextOverrides = {}
   };
 
   const ledger = context.optionsLedger;
-  const realResolve = ledger.resolveEngineOptions as (rootElement: Element, optionsBag: Record<string, unknown> | null) => ResolvedEnhanceOptions;
+  const realResolve = ledger.resolveEngineOptions as NullableOptionsResolver;
   const realResolveCanonical = ledger.resolveEngineOptionsFromCanonical;
   ledger.resolveEngineOptions = function (rootElement: Element, optionsBag: Record<string, unknown> | null): ResolvedEnhanceOptions {
     calls.resolveEngineOptions.push({ root: rootElement, optionsBag: optionsBag });
@@ -368,7 +446,7 @@ function makeTestContext(root: Element, overrides: MakeTestContextOverrides = {}
   };
   ledger.resolveEngineOptionsFromCanonical = function (rootElement: Element, options: unknown): ResolvedEnhanceOptions {
     calls.resolveEngineOptionsFromCanonical.push({ root: rootElement, options });
-    return realResolveCanonical(rootElement, options as any);
+    return realResolveCanonical(rootElement, options as EnhanceOptions);
   };
 
   const state = context.contextState;
@@ -415,11 +493,11 @@ function seedEstablishedRuntime(observed: ObservedContext, root: Element, option
 // prepare step consumes through the typography browser-fallback descriptor.
 // The descriptor lives behind a getter on the typography part, so the fixture
 // override redefines the accessor.
-function installFixtureBrowserFallback(context: EnhancedElementContext): { uninstall: () => void; shapeJson: (requestJson: string) => string; metricsJson: (requestJson: string) => string } {
+function installFixtureBrowserFallback(context: EnhancedElementContext): FixtureFontBackend {
   const backend = installFixtureFontBackend();
   Object.defineProperty(context.typography, "browserFallback", {
     configurable: true,
-    get: function (): { bridge: { shapeJson: (requestJson: string) => string; metricsJson: (requestJson: string) => string } } {
+    get: function (): BrowserFallbackDescriptor {
       return { bridge: backend };
     },
   });
@@ -431,13 +509,13 @@ function installFixtureBrowserFallback(context: EnhancedElementContext): { unins
 // ---------------------------------------------------------------------------
 
 test("1. enhance: processes each candidate via the real processParagraph, returns paragraphs.length, calls publishState", function () {
-  const c1 = makeFixtureParagraphElement() as unknown as Element;
-  const c2 = makeFixtureParagraphElement() as unknown as Element;
+  const c1 = makeFixtureParagraphElement();
+  const c2 = makeFixtureParagraphElement();
   withEnv(() => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element as unknown as Element, { candidates: [c1, c2] });
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, { candidates: [c1, c2] });
     installFixtureBrowserFallback(observed.context);
-    const result = enhance(observed.context, root as unknown as HTMLElement, { fontSize: 20 });
+    const result = enhance(observed.context, root, { fontSize: 20 });
     assert.equal(observed.calls.resolveEngineOptions.length, 1);
     assert.equal(observed.calls.resolveEngineOptions[0].optionsBag!.fontSize, 20);
     // The real processParagraph ran once per candidate, observable through
@@ -451,7 +529,7 @@ test("1. enhance: processes each candidate via the real processParagraph, return
     assert.equal(observed.calls.publishState.length, 1);
     assert.equal(observed.calls.publishState[0].paragraphCount, 2);
     assert.equal(result, 2);
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });
 
 // ---------------------------------------------------------------------------
@@ -460,9 +538,9 @@ test("1. enhance: processes each candidate via the real processParagraph, return
 
 test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no processParagraph", function () {
   withEnv(() => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element as unknown as Element, { candidates: [makeElement(undefined) as unknown as FakeElementFull as unknown as Element] });
-    const result = enhance(observed.context, root as unknown as HTMLElement, {});
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, { candidates: [makeElement(undefined)] });
+    const result = enhance(observed.context, root, {});
     assert.equal(result, 0);
     assert.equal(observed.context.rawDomParagraphs.size, 0);
     assert.equal(observed.context.diagnosis.issues.length, 1);
@@ -477,14 +555,14 @@ test("2. enhance: rejectMissingSharedRuntimeStyles returns true => returns 0, no
 test("3. enhance: destroyRoot runs before resolveEngineOptions (call order)", function () {
   const callOrder: string[] = [];
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element as unknown as Element, { candidates: [] });
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, { candidates: [] });
     const wrappedResolve = observed.context.optionsLedger.resolveEngineOptions;
     observed.context.optionsLedger.resolveEngineOptions = function (rootElement: Element, bag: Record<string, unknown> | null): ResolvedEnhanceOptions {
       callOrder.push("ledger.resolveEngineOptions");
       return wrappedResolve(rootElement, bag ?? {});
     };
-    enhance(observed.context, root as unknown as HTMLElement, {});
+    enhance(observed.context, root, {});
     assert.deepEqual(callOrder, ["pool.cancelJob", "ledger.resolveEngineOptions"]);
     assert.equal(pool._calls.cancelJob.length, 1);
   }, { cancelJob: () => callOrder.push("pool.cancelJob") });
@@ -496,10 +574,10 @@ test("3. enhance: destroyRoot runs before resolveEngineOptions (call order)", fu
 
 test("4. enhanceProgressively destroys, rebuilds the runtime options and starts one Enhance job", function () {
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element, { candidates: [] });
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, { candidates: [] });
     const bag: Record<string, unknown> = { fontSize: 20 };
-    enhanceProgressively(observed.context, root as unknown as Element, bag);
+    enhanceProgressively(observed.context, root, bag);
     // The drivers core cancels the job before rebuilding the runtime.
     assert.equal(pool._calls.cancelJob.length, 1);
     assert.equal(pool._calls.cancelJob[0], root);
@@ -517,16 +595,16 @@ test("4. enhanceProgressively destroys, rebuilds the runtime options and starts 
 // ---------------------------------------------------------------------------
 
 test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/removes snapshot attrs, cleans 3 attrs", function () {
-  const src1 = makeFixtureParagraphElement() as unknown as Element;
-  const src2 = makeFixtureParagraphElement() as unknown as Element;
-  const issue1 = {
+  const src1 = makeFixtureParagraphElement();
+  const src2 = makeFixtureParagraphElement();
+  const issue1: DiagnosisIssueRecord = {
     name: "X",
     element: src1,
     markerCaptured: true,
     originalNameAttribute: "orig-name",
     originalDetailAttribute: "orig-detail",
   };
-  const issue2 = {
+  const issue2: DiagnosisIssueRecord = {
     name: "Y",
     element: src2,
     markerCaptured: true,
@@ -535,17 +613,17 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
   };
   withEnv((pool) => {
     const root = makeElement({ "data-tiqian-snapshot-count": "5", "data-tiqian-issue-count": "2", "data-tiqian-relayout-error": "err", "data-tiqian-snapshot-layout-fallback": "fb" });
-    const context = createEnhanceContext(root as unknown as Element);
+    const context = createEnhanceContext(root);
     context.contextState.setRuntimeEstablished(true);
-    context.contextState.paragraphs.push({ source: src1 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph, { source: src2 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph);
-    context.diagnosis.issues.push(issue1 as any, issue2 as any);
+    context.contextState.paragraphs.push(trackedParagraphStub(src1), trackedParagraphStub(src2));
+    context.diagnosis.issues.push(issue1, issue2);
     // Enhanced steady state: both paragraphs carry raw-DOM records and their
     // live hosts show rendered output.
-    registerParagraph(context, src1 as unknown as Element);
-    registerParagraph(context, src2 as unknown as Element);
-    (src1 as unknown as Element).innerHTML = "rendered one";
-    (src2 as unknown as Element).innerHTML = "rendered two";
-    destroyRoot(context, root as unknown as HTMLElement);
+    registerParagraph(context, src1);
+    registerParagraph(context, src2);
+    src1.innerHTML = "rendered one";
+    src2.innerHTML = "rendered two";
+    destroyRoot(context, root);
     // The registry dissolution observes the teardown through the context:
     // cancelJob ran, the runtime-established flag reset, and both live arrays
     // were cleared.
@@ -567,7 +645,7 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
     assert.equal(root.getAttribute("data-tiqian-issue-count"), null);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
     assert.equal(root.getAttribute("data-tiqian-snapshot-layout-fallback"), null);
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });
 
 // ---------------------------------------------------------------------------
@@ -577,8 +655,8 @@ test("5. destroyRoot: restores paragraphs, clears issues, releases styles, sets/
 test("6. destroyRoot: no established runtime => still cancelJob + attribute cleanup, no throw", function () {
   withEnv((pool) => {
     const root = makeElement({ "data-tiqian-relayout-error": "err" });
-    const context = createEnhanceContext(root as unknown as Element);
-    destroyRoot(context, root as unknown as HTMLElement);
+    const context = createEnhanceContext(root);
+    destroyRoot(context, root);
     assert.equal(pool._calls.cancelJob.length, 1);
     assert.equal(context.rawDomParagraphs.size, 0);
     assert.equal(root.getAttribute("data-tiqian-relayout-error"), null);
@@ -592,13 +670,13 @@ test("6. destroyRoot: no established runtime => still cancelJob + attribute clea
 
 test("7. detachRoot: cancelJob only, does not touch the context state", function () {
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext(root as unknown as Element);
-    const runtimeOptions = seedEstablishedRuntime(observed, root as unknown as Element, { fontSize: 19 });
-    const paragraph = { source: makeFixtureParagraphElement() as unknown as Element, lowered: {}, lastMeasure: null };
-    observed.context.contextState.paragraphs.push(paragraph as any);
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root);
+    const runtimeOptions = seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    const paragraph: SeededParagraph = { source: makeFixtureParagraphElement(), lowered: {}, lastMeasure: null };
+    observed.context.contextState.paragraphs.push(paragraph as TrackedParagraph);
 
-    detachRoot(observed.context, root as unknown as HTMLElement);
+    detachRoot(observed.context, root);
 
     assert.equal(pool._calls.cancelJob.length, 1);
     assert.equal(pool._calls.cancelJob[0], root);
@@ -619,27 +697,27 @@ test("7. detachRoot: cancelJob only, does not touch the context state", function
 
 test("8. probeRootContentDrift: not established returns the unknown result; established classifies the context's sources", function () {
   withEnv(() => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext(root as unknown as Element);
-    const result = probeRootContentDrift(observed.context, root as unknown as Element);
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root);
+    const result = probeRootContentDrift(observed.context, root);
     assert.deepEqual(result, { unknown: 1, drifted: 0, dead: 0, rawDom: 0 });
   });
 
-  const src1 = makeFixtureParagraphElement() as unknown as Element;
-  const src2 = makeFixtureParagraphElement() as unknown as Element;
+  const src1 = makeFixtureParagraphElement();
+  const src2 = makeFixtureParagraphElement();
   withEnv(() => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext(root as unknown as Element);
-    seedEstablishedRuntime(observed, root as unknown as Element, {});
-    observed.context.contextState.paragraphs.push({ source: src1 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph, { source: src2 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph);
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root);
+    seedEstablishedRuntime(observed, root, {});
+    observed.context.contextState.paragraphs.push(trackedParagraphStub(src1), trackedParagraphStub(src2));
     registerParagraph(observed.context, src1);
     registerParagraph(observed.context, src2);
-    const result2 = probeRootContentDrift(observed.context, root as unknown as Element);
+    const result2 = probeRootContentDrift(observed.context, root);
     // The real probe classified both registered sources through the
     // context's raw-DOM records: their rendered and backup identities match,
     // so nothing drifted, died or fell out of the raw-DOM backup.
     assert.deepEqual(result2, { unknown: 0, drifted: 0, dead: 0, rawDom: 0 });
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });
 
 // ---------------------------------------------------------------------------
@@ -649,65 +727,65 @@ test("8. probeRootContentDrift: not established returns the unknown result; esta
 
 test("9a. reconcileRoot: not established returns null", function () {
   withEnv(() => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext(root as unknown as Element);
-    const result = reconcileRoot(observed.context, root as unknown as HTMLElement, []);
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root);
+    const result = reconcileRoot(observed.context, root, []);
     assert.equal(result, null);
   });
 });
 
 test("9b. reconcileRoot: established + idle verdict => returns the result, no startLayoutJob", function () {
-  const source = makeFixtureParagraphElement() as unknown as Element;
+  const source = makeFixtureParagraphElement();
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element as unknown as Element, { candidates: [] });
-    seedEstablishedRuntime(observed, root as unknown as Element, {});
-    observed.context.contextState.paragraphs.push({ source: source } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph);
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, {});
+    observed.context.contextState.paragraphs.push(trackedParagraphStub(source));
     registerParagraph(observed.context, source);
-    const result = reconcileRoot(observed.context, root as unknown as HTMLElement, []);
+    const result = reconcileRoot(observed.context, root, []);
     assert.deepEqual(result, { outcome: "idle", drifted: 0, rawDom: 0, tainted: 0, stranded: 0, dead: 0 });
     assert.equal(pool._calls.startJob.length, 0);
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });
 
 test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + DeadTrackedParagraphDrop", function () {
-  const deadEl = makeFixtureParagraphElement() as unknown as Element;
-  (deadEl as any).isConnected = false;
-  const driftedEl = makeFixtureParagraphElement() as unknown as Element;
-  const rawDomEl = makeFixtureParagraphElement() as unknown as Element;
-  const taintedEl = makeFixtureParagraphElement() as unknown as Element;
+  const deadEl = makeFixtureParagraphElement();
+  deadEl.isConnected = false;
+  const driftedEl = makeFixtureParagraphElement();
+  const rawDomEl = makeFixtureParagraphElement();
+  const taintedEl = makeFixtureParagraphElement();
   // The tainted host stays only when connected inside a root.
   const proseRoot = new FakeElement("tiqian-prose");
-  proseRoot.appendChild(taintedEl as unknown as FakeNode);
-  const strandedEl = makeFixtureParagraphElement() as unknown as Element;
+  proseRoot.appendChild(taintedEl);
+  const strandedEl = makeFixtureParagraphElement();
   // Engine scaffolding the stranded action must strip before re-lowering.
   strandedEl.setAttribute("data-tq-snapshot-prepared-dom", "true");
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element, {
+    const root = makeElement(undefined);
+    const observed = makeTestContext(root, {
       candidates: [],
       stranded: [strandedEl],
     });
-    seedEstablishedRuntime(observed, root as unknown as Element, {});
+    seedEstablishedRuntime(observed, root, {});
     installFixtureBrowserFallback(observed.context);
     const context = observed.context;
     context.contextState.paragraphs.push(
-      { source: deadEl } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph,
-      { source: driftedEl } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph,
-      { source: rawDomEl } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph,
-      { source: taintedEl } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph,
+      trackedParagraphStub(deadEl),
+      trackedParagraphStub(driftedEl),
+      trackedParagraphStub(rawDomEl),
+      trackedParagraphStub(taintedEl),
     );
-    registerParagraph(context, deadEl as unknown as Element);
-    registerParagraph(context, driftedEl as unknown as Element);
-    registerParagraph(context, rawDomEl as unknown as Element);
-    registerParagraph(context, taintedEl as unknown as Element);
+    registerParagraph(context, deadEl);
+    registerParagraph(context, driftedEl);
+    registerParagraph(context, rawDomEl);
+    registerParagraph(context, taintedEl);
     // Host edits: the drifted paragraph's rendered children changed through
     // innerHTML (which bypasses the commit forwarding), and the raw-DOM
     // backup of the second gained content while its rendered output stayed.
-    (driftedEl as unknown as Element).innerHTML = "edited live";
-    context.rawDomParagraphs.get(rawDomEl as unknown as Element)!.originalContent!.appendChild(new FakeText(" host edit") as unknown as Node);
+    driftedEl.innerHTML = "edited live";
+    context.rawDomParagraphs.get(rawDomEl)!.originalContent!.appendChild(asNode(new FakeText(" host edit")));
 
-    const result = reconcileRoot(context, root as unknown as HTMLElement, [taintedEl]);
+    const result = reconcileRoot(context, root, [taintedEl]);
     // DeadTrackedParagraphDrop: deadEl removed from the context's paragraphs.
     assert.equal(context.contextState.paragraphs.length, 3);
     assert.equal(context.contextState.paragraphs[0].source, driftedEl);
@@ -737,34 +815,34 @@ test("9c. reconcileRoot: work verdict with drifted/rawDom/tainted/stranded + Dea
       assert.ok(context.rawDomParagraphs.get(item.source));
     }
     // The drifted action re-lowered the live edit.
-    assert.ok((driftedEl as unknown as Element).textContent.includes("edited live"));
+    assert.ok(driftedEl.textContent.includes("edited live"));
     // The raw-DOM action restored the edited backup and re-lowered it.
-    assert.ok((rawDomEl as unknown as Element).textContent.includes("host edit"));
+    assert.ok(rawDomEl.textContent.includes("host edit"));
     // stripEngineMarkupFromStrandedParagraph removed the scaffolding marker
     // before re-lowering, and the re-process rendered the paragraph again.
     assert.equal(strandedEl.getAttribute("data-tq-snapshot-prepared-dom"), null);
     assert.equal(strandedEl.getAttribute("data-tq-rendered"), "true");
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });
 
 test("9d. reconcileRoot: itemTierIndex sorted by (distance, index), stale closure detects width drift >= 0.5", function () {
-  const el1 = makeFixtureParagraphElement() as unknown as Element;
-  (el1 as any).top = -200;
-  (el1 as any).height = 100;
-  const el2 = makeFixtureParagraphElement() as unknown as Element;
+  const el1 = makeFixtureParagraphElement();
+  el1.top = -200;
+  el1.height = 100;
+  const el2 = makeFixtureParagraphElement();
   withEnv((pool) => {
-    const root = makeElement(undefined) as unknown as FakeElementFull;
-    (root as any)._rect = { top: 0, bottom: 100, width: 300 };
-    const observed = makeTestContext((root as unknown as FakeElementFull) as unknown as Element as unknown as Element, { candidates: [] });
-    seedEstablishedRuntime(observed, root as unknown as Element, {});
+    const root = makeElement(undefined);
+    root._rect = { top: 0, bottom: 100, width: 300 };
+    const observed = makeTestContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, {});
     const context = observed.context;
-    context.contextState.paragraphs.push({ source: el1 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph, { source: el2 } as unknown as import("../core/engine/enhance/context-state.js").TrackedParagraph);
-    registerParagraph(context, el1 as unknown as Element);
-    registerParagraph(context, el2 as unknown as Element);
+    context.contextState.paragraphs.push(trackedParagraphStub(el1), trackedParagraphStub(el2));
+    registerParagraph(context, el1);
+    registerParagraph(context, el2);
     // Both paragraph drift: the host replaced their rendered children.
-    (el1 as any).innerHTML = "edited one";
-    (el2 as any).innerHTML = "edited two";
-    reconcileRoot(context, root as unknown as HTMLElement, []);
+    el1.innerHTML = "edited one";
+    el2.innerHTML = "edited two";
+    reconcileRoot(context, root, []);
     assert.equal(pool._calls.startJob.length, 1);
     const call = pool._calls.startJob[0];
     // el2 visible (distance 0) first, then el1 above viewport (distance 100).
@@ -772,7 +850,7 @@ test("9d. reconcileRoot: itemTierIndex sorted by (distance, index), stale closur
     // stale closure: root width matches initially.
     assert.equal(call.isStale!(), false);
     // After root width drift of 1.0.
-    (root as any)._rect.width = 301;
+    root._rect.width = 301;
     assert.equal(call.isStale!(), true);
-  }, { document: makePipelineDocument(), node: FakeNode as unknown as typeof Node });
+  }, { document: makePipelineDocument(), node: asNodeConstructor(FakeNode) });
 });

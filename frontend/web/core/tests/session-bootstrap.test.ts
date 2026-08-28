@@ -11,6 +11,8 @@ import { createServerReplayFontSession } from "../core/measurement/browser-font-
 import type { ServerReplayFontSession, ReplayProbe } from "../core/measurement/browser-font-replay.js";
 import { FONT_REPLAY_REVISION } from "../core/sampler/snapshot/snapshot-schema.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import type { BinaryTableInput } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import type { SnapshotManifestWire } from "../core/sampler/snapshot/snapshot-manifest.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
 
@@ -33,79 +35,6 @@ function recordingMeasureAdapter(calls: MeasureCall[]): ProbeMeasureAdapter {
     calls.push({ cssFont, text });
     return { width: 18, fontBoundingBoxAscent: 30, fontBoundingBoxDescent: 10 };
   };
-}
-
-interface SnapshotTablesFixture {
-  replayStrings: string[];
-  typographies: Array<{
-    sha256: string;
-    value: {
-      fontFamilies: string[];
-      fontSizePx: number;
-      lineHeightPx: number;
-      locale: string;
-    };
-  }>;
-  faces: Array<{
-    family: string;
-    style: string;
-    weight: [number, number];
-    unicodeRange: string;
-    publicUrl: string;
-    sourceSha256: string;
-    sfntSha256: string;
-    faceIndex: number;
-    sourceOrder: number;
-    axes: Record<string, never>;
-    localNames: string[];
-  }>;
-  metrics: Array<{
-    serializedFamilies: string;
-    fontWeight: number;
-    italic: boolean;
-    role: string;
-    faceSelectionText: string;
-    valuesEm: [number, number, number, null, null];
-  }>;
-  probes: Array<{
-    text: string;
-    advancePx: number;
-    fontSizePx: number;
-    fontWeight: number;
-    italic: boolean;
-    script: string;
-    language: string;
-    features: never[];
-  }>;
-  valueStyles: string[];
-  fontPreloads: string[];
-  revisions: {
-    backendRevision: string;
-    harfbuzzVersion: string;
-  };
-}
-
-interface TablesManifestFixture {
-  schema: number;
-  tables: { snapshot: string };
-  layoutRevision: string;
-  renderRevision: string;
-  fontSourcePolicy: string;
-  paragraphSelector: string;
-  renderFontFamilies: string[];
-  fontReplay: {
-    revision: string;
-    encoding: string;
-    shapes: unknown[];
-  };
-  entries: Array<{
-    key: string;
-    sourceSha256: string;
-    typographyRef: number;
-    maxWidthPx: number;
-    fontFaceEvidence: Array<{ faceRef: number; probeRef: number }>;
-    renderArtifactSha256: string;
-  }>;
 }
 
 test("empty tables with a probe create an unbaked session", async () => {
@@ -167,13 +96,14 @@ test("probe bootstrap backfills a miss and serves the same key from the table", 
 });
 
 test("a missing measure adapter names LayoutWorkerProbeUnavailable", () => {
+  const nullAdapter = null as ProbeMeasureAdapter | null;
   assert.throws(
-    () => createProbeBootstrapFontSession("no-adapter", { measureAdapter: null as unknown as ProbeMeasureAdapter }),
+    () => createProbeBootstrapFontSession("no-adapter", { measureAdapter: nullAdapter as ProbeMeasureAdapter }),
     /LayoutWorkerProbeUnavailable/u,
   );
 });
 
-function snapshotTablesFixture(): SnapshotTablesFixture {
+function snapshotTablesFixture(): BinaryTableInput {
   return {
     replayStrings: ["a", "Fixture CJK", "zh-Hans", "CjkText", "fixture-face", "fixture-instance", "Hani"],
     typographies: [{
@@ -216,7 +146,7 @@ function snapshotTablesFixture(): SnapshotTablesFixture {
   };
 }
 
-function tablesManifestFixture(): TablesManifestFixture {
+function tablesManifestFixture(): SnapshotManifestWire {
   return {
     schema: 2,
     tables: { snapshot: "0".repeat(64) },
@@ -256,7 +186,7 @@ test("manifest sessions keep the baked contract path", async () => {
   }
 
   const broken = tablesManifestFixture();
-  delete (broken as Partial<TablesManifestFixture>).fontReplay;
+  delete broken.fontReplay;
   assert.throws(
     () => createManifestFontSession(JSON.stringify(broken), tablesBytes, "manifest-broken"),
     /LayoutWorkerFontContractInvalid/u,

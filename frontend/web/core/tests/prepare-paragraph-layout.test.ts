@@ -4,8 +4,12 @@ import test from "node:test";
 import { prepareParagraphLayout, wireArguments } from "../core/engine/prepare-paragraph-layout.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
-import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle } from "../core/engine/lowered-paragraph.js";
+import { emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
+import type { FixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
+import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle, DomInlineObject } from "../core/engine/lowered-paragraph.js";
 import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
+
+type PrepareParagraphLayoutArgument = Parameters<typeof prepareParagraphLayout>[0];
 
 interface SavedGlobal {
   name: string;
@@ -28,15 +32,17 @@ interface FakeComputedProps extends ComputedStyleValues {
   borderRightWidth: string;
 }
 
+type GetPropertyValueFn = (name: string) => string;
+
 interface FakeComputedStyle {
-  [key: string]: string | ((name: string) => string);
-  getPropertyValue: (name: string) => string;
+  [key: string]: string | GetPropertyValueFn;
+  getPropertyValue: GetPropertyValueFn;
 }
 
 interface SpanOverrides {
   start?: number;
   end?: number;
-  style?: Partial<TextStyle>;
+  style?: TextStyle;
 }
 
 interface InlineBoxStyleOverrides {
@@ -47,25 +53,32 @@ interface InlineBoxStyleOverrides {
   boxDecorationBreak?: string;
 }
 
+interface SourceSpanElementStub {
+  tagName: string;
+  attributes: Array<[string, string]>;
+}
+
+type SourceSpanElement = SourceSpanElementStub & Element;
+
 interface SourceSpanOverrides {
   start?: number;
   end?: number;
-  element?: { tagName: string; attributes: Array<[string, string]> };
+  element?: SourceSpanElementStub;
   depth?: number;
   cjkStrongBaseWeight?: number | null;
   computedColor?: string | null;
-  inlineBoxStyle?: InlineBoxStyleOverrides;
+  inlineBoxStyle?: DomInlineBoxStyle;
 }
 
 interface ParagraphOverrides {
   text?: string;
-  textStyle?: Partial<TextStyle>;
+  textStyle?: TextStyle;
   lineHeight?: number;
   spans?: TextSpan[];
   decorations?: DecorationSpan[];
   inlineBoxes?: InlineBoxSpan[];
   inlineObjects?: InlineObjectSpan[];
-  domInlineObjects?: unknown[];
+  domInlineObjects?: DomInlineObject[];
   sourceSpans?: DomSourceSpan[];
   sourceBoundaries?: number[];
   lineBreakSpans?: LineBreakSpan[];
@@ -75,32 +88,55 @@ interface ElementOverrides {
   width?: number;
 }
 
+interface WidthOnlyRect {
+  width: number;
+}
+
+type GetBoundingClientRectFn = () => WidthOnlyRect;
+type GetClientRectsFn = () => DOMRectList;
+
 interface FakeElement {
   tagName: string;
-  getBoundingClientRect: () => { width: number };
-  getClientRects: () => DOMRectList;
+  getBoundingClientRect: GetBoundingClientRectFn;
+  getClientRects: GetClientRectsFn;
   parentElement: Element | null;
   _computedValues?: ComputedStyleValues;
 }
 
+interface IndexRange {
+  start: number;
+  end: number;
+}
+
+interface BridgeShapeRequestFont {
+  fontSize: number;
+}
+
 interface BridgeShapeRequest {
   text: string;
-  range: { start: number; end: number };
-  style: { fontSize: number };
+  range: IndexRange;
+  style: BridgeShapeRequestFont;
   displayText: string;
+}
+
+interface GlyphBounds {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 }
 
 interface BridgeGlyph {
   id: number;
-  clusterRange: { start: number; end: number };
+  clusterRange: IndexRange;
   advance: number;
   x: number;
   y: number;
-  bounds: { left: number; top: number; right: number; bottom: number };
+  bounds: GlyphBounds;
 }
 
 interface BridgeCluster {
-  range: { start: number; end: number };
+  range: IndexRange;
   text: string;
   displayText: string;
   fontKey: string;
@@ -109,7 +145,7 @@ interface BridgeCluster {
 }
 
 interface BridgeGlyphRun {
-  range: { start: number; end: number };
+  range: IndexRange;
   fontKey: string;
   glyphs: BridgeGlyph[];
   advance: number;
@@ -117,7 +153,7 @@ interface BridgeGlyphRun {
 }
 
 interface BridgeDecision {
-  range: { start: number; end: number };
+  range: IndexRange;
   sourceText: string;
   displayText: string;
   fontKey: string;
@@ -143,25 +179,44 @@ interface BridgeMetricsResponse {
   typoDescent: number;
 }
 
+type JsonBridgeFn = (request: string) => string;
+
 interface BrowserFallbackBridge {
-  shapeJson: (req: string) => string;
-  metricsJson: () => string;
+  shapeJson: JsonBridgeFn;
+  metricsJson: JsonBridgeFn;
 }
 
 interface PrepareSnapshotSessionDescriptor {
-  shapeJson: (req: string) => string;
-  metricsJson: (req: string) => string;
+  shapeJson: JsonBridgeFn;
+  metricsJson: JsonBridgeFn;
+}
+
+interface SnapshotParagraphTarget {
+  source: Element;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+}
+
+type SnapshotOptionsOverride = {
+  firstLineIndentIc: number;
+  emphasisDotGapEm: number | null;
+};
+
+type BrowserFallbackOverride = {
+  bridge: BrowserFallbackBridge;
+};
+
+interface UnsupportedVerdictProbe {
+  kind: string;
+  name: string;
+  detail?: string;
 }
 
 interface SnapshotArgumentOverrides {
-  paragraph?: {
-    source: FakeElement;
-    lowered: LoweredParagraph;
-    lastMeasure: number | null;
-  };
-  options?: { firstLineIndentIc: number; emphasisDotGapEm: number | null };
+  paragraph?: SnapshotParagraphTarget;
+  options?: SnapshotOptionsOverride;
   snapshotSession?: PrepareSnapshotSessionDescriptor | null;
-  browserFallback?: { bridge: BrowserFallbackBridge } | null;
+  browserFallback?: BrowserFallbackOverride | null;
   widthOverride?: number | null;
   ignoreUnchangedMeasure?: boolean;
 }
@@ -208,13 +263,15 @@ function computedStyle(values: ComputedStyleValues = {}): FakeComputedStyle {
   return result;
 }
 
-function withEnv<T>(fn: () => T, overrides: Record<string, never> = {}): T {
+type EnvAction<T> = () => T;
+
+function withEnv<T>(fn: EnvAction<T>, overrides: Record<string, never> = {}): T {
   const saved = saveGlobals(["getComputedStyle"]);
   try {
-    globalThis.getComputedStyle = ((target: Element | null, pseudo?: string | null): FakeComputedStyle =>
+    (globalThis as Record<string, unknown>).getComputedStyle = (target: Element | null, pseudo?: string | null): FakeComputedStyle =>
       target && (target as FakeElement)._computedValues
         ? computedStyle((target as FakeElement)._computedValues)
-        : computedStyle()) as any;
+        : computedStyle();
     return fn();
   } finally {
     restoreGlobals(saved);
@@ -222,7 +279,7 @@ function withEnv<T>(fn: () => T, overrides: Record<string, never> = {}): T {
 }
 
 function textStyle(overrides: Partial<TextStyle> = {}): TextStyle {
-  return {
+  const style: TextStyle = {
     fontFamilies: ["Noto Serif CJK SC"],
     fontSize: 19,
     fontWeight: 400,
@@ -230,44 +287,53 @@ function textStyle(overrides: Partial<TextStyle> = {}): TextStyle {
     baselineShift: 0,
     locale: "zh-Hans",
     ...overrides,
-  } as TextStyle;
+  };
+  return style;
 }
 
 function span(overrides: SpanOverrides = {}): TextSpan {
-  return {
+  const textSpan: TextSpan = {
     start: 0,
     end: 2,
     style: textStyle(),
     ...overrides,
-  } as TextSpan;
+  };
+  return textSpan;
 }
 
 function inlineBoxStyle(overrides: InlineBoxStyleOverrides = {}): DomInlineBoxStyle {
-  return {
+  const style: DomInlineBoxStyle = {
     inlineStart: 0,
     inlineEnd: 0,
     marginRight: 0,
     letterSpacing: 0,
     boxDecorationBreak: "slice",
     ...overrides,
-  } as DomInlineBoxStyle;
+  };
+  return style;
 }
 
 function sourceSpan(overrides: SourceSpanOverrides = {}): DomSourceSpan {
-  return {
+  const defaultElement: SourceSpanElementStub = { tagName: "EM", attributes: [] };
+  const merged = {
     start: 0,
     end: 2,
-    element: { tagName: "EM", attributes: [] },
+    element: defaultElement,
     depth: 0,
     cjkStrongBaseWeight: null,
     computedColor: null,
     inlineBoxStyle: inlineBoxStyle(),
     ...overrides,
-  } as unknown as DomSourceSpan;
+  };
+  const domSourceSpan: DomSourceSpan = {
+    ...merged,
+    element: merged.element as SourceSpanElement,
+  };
+  return domSourceSpan;
 }
 
 function paragraph(overrides: ParagraphOverrides = {}): LoweredParagraph {
-  return {
+  const lowered: LoweredParagraph = {
     text: "ab",
     textStyle: textStyle(),
     lineHeight: 28,
@@ -280,17 +346,19 @@ function paragraph(overrides: ParagraphOverrides = {}): LoweredParagraph {
     sourceBoundaries: [],
     lineBreakSpans: [],
     ...overrides,
-  } as LoweredParagraph;
+  };
+  return lowered;
 }
 
 function element(tagName: string = "P", overrides: ElementOverrides = {}): FakeElement {
-  return {
+  const fake: FakeElement = {
     tagName,
-    getBoundingClientRect: (): { width: number } => ({ width: overrides.width ?? 320 }),
-    getClientRects: (): DOMRectList => [] as unknown as DOMRectList,
+    getBoundingClientRect: () => ({ width: overrides.width ?? 320 }),
+    getClientRects: () => emptyDomRectList(),
     parentElement: null,
     ...overrides,
-  } as FakeElement;
+  };
+  return fake;
 }
 
 const RICH_LOWERED: LoweredParagraph = paragraph({
@@ -330,7 +398,7 @@ const RICH_LOWERED: LoweredParagraph = paragraph({
   ],
 });
 
-const RICH_ELEMENT: FakeElement = element("P");
+const RICH_ELEMENT = element("P") as FakeElement & Element;
 
 function makeBridge(): BrowserFallbackBridge {
   return {
@@ -377,33 +445,27 @@ function makeBridge(): BrowserFallbackBridge {
   };
 }
 
-const RICH_BROWSER_FALLBACK = { bridge: makeBridge() };
+const RICH_BROWSER_FALLBACK: BrowserFallbackOverride = { bridge: makeBridge() };
 
-type BackendWithCallbacks = {
-  uninstall: () => void;
-  shapeJson: (req: string) => string;
-  metricsJson: (req: string) => string;
-};
-
-function snapshotSessionCallbacksOf(backend: BackendWithCallbacks): PrepareSnapshotSessionDescriptor {
+function snapshotSessionCallbacksOf(backend: FixtureFontBackend): PrepareSnapshotSessionDescriptor {
   return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
 
 function fixtureSnapshotSession(): PrepareSnapshotSessionDescriptor {
-  return snapshotSessionCallbacksOf(installFixtureFontBackend() as BackendWithCallbacks);
+  return snapshotSessionCallbacksOf(installFixtureFontBackend());
 }
 
-function snapshotArgument(overrides: SnapshotArgumentOverrides = {}): any {
+function snapshotArgument(overrides: SnapshotArgumentOverrides = {}): PrepareParagraphLayoutArgument {
   const { snapshotSession = fixtureSnapshotSession(), ...rest } = overrides;
-  return {
-    paragraph: { source: RICH_ELEMENT as any, lowered: RICH_LOWERED, lastMeasure: null },
+  const defaults: PrepareParagraphLayoutArgument = {
+    paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
     options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
     snapshotSession,
-    browserFallback: RICH_BROWSER_FALLBACK as any,
+    browserFallback: RICH_BROWSER_FALLBACK,
     widthOverride: null,
     ignoreUnchangedMeasure: false,
-    ...rest,
   };
+  return { ...defaults, ...rest };
 }
 
 const DEFAULT_MEASURE = effectiveLineMeasure(320, 19);
@@ -418,7 +480,7 @@ test("returns unchanged when lastMeasure matches the effective measure", () => {
 });
 
 test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({
@@ -433,14 +495,15 @@ test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
 });
 
 test("widthOverride wins and ready.width is raw while ffi receives the measure", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const expectedMeasure = effectiveLineMeasure(200, 19);
       const result = prepareParagraphLayout(snapshotArgument({ widthOverride: 200 }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.width, 200);
-      assert.equal(result.measure, expectedMeasure);
+      const ready = result as PrepareReadyResult;
+      assert.equal(ready.width, 200);
+      assert.equal(ready.measure, expectedMeasure);
       const wire = wireArguments(RICH_LOWERED);
       assert.equal(wire.text, "abcde");
     });
@@ -462,8 +525,9 @@ test("SpanLocaleMismatchUnsupported uses the first mismatching span", () => {
       paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
     }));
     assert.equal(result.kind, "unsupported");
-    assert.equal(result.name, "SpanLocaleMismatchUnsupported");
-    assert.equal(result.detail, "spanRange=2..5; spanLocale=ja; paragraphLocale=zh-Hans");
+    const verdict = result as UnsupportedVerdictProbe;
+    assert.equal(verdict.name, "SpanLocaleMismatchUnsupported");
+    assert.equal(verdict.detail, "spanRange=2..5; spanLocale=ja; paragraphLocale=zh-Hans");
   });
 });
 
@@ -522,11 +586,12 @@ test("wire byte lock: wireArguments DTO carries the full structured argument", (
     assert.equal(wire.emphasisDotGapEm, null);
     assert.equal(wire.renderEvidenceOverride, null);
 
-    const backend = installFixtureFontBackend() as BackendWithCallbacks;
+    const backend = installFixtureFontBackend();
     try {
       const result = prepareParagraphLayout(snapshotArgument());
       assert.equal(result.kind, "ready");
-      assert.equal(result.measure, DEFAULT_MEASURE);
+      const ready = result as PrepareReadyResult;
+      assert.equal(ready.measure, DEFAULT_MEASURE);
     } finally {
       backend.uninstall();
     }
@@ -534,7 +599,7 @@ test("wire byte lock: wireArguments DTO carries the full structured argument", (
 });
 
 test("render evidence override carries the six-collection verdict", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const linkOnly = paragraph({
@@ -553,11 +618,11 @@ test("render evidence override carries the six-collection verdict", () => {
 });
 
 test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const li = prepareParagraphLayout(snapshotArgument({
-        paragraph: { source: element("LI"), lowered: RICH_LOWERED, lastMeasure: null },
+        paragraph: { source: element("LI") as FakeElement & Element, lowered: RICH_LOWERED, lastMeasure: null },
         options: { firstLineIndentIc: 4, emphasisDotGapEm: null },
       }));
       assert.equal(li.kind, "ready");
@@ -573,7 +638,7 @@ test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss")) as BackendWithCallbacks;
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
   const bridge = makeBridge();
   const originalShapeJson = bridge.shapeJson;
   bridge.shapeJson = function (req: string): string {
@@ -663,7 +728,7 @@ test("advance suspects skip empty and newline display text, then the first real 
 });
 
 test("clone decoration crossed by two plan lines is unsupported with the lowercased tag", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -694,7 +759,7 @@ test("clone decoration crossed by two plan lines is unsupported with the lowerca
 });
 
 test("clone decoration on a single line does not trigger", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -719,7 +784,7 @@ test("clone decoration on a single line does not trigger", () => {
 });
 
 test("a non-clone span with edges never triggers the clone verdict", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -744,12 +809,13 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss")) as BackendWithCallbacks;
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.snapshotFontSessionUsed, false);
+      const ready = result as PrepareReadyResult;
+      assert.equal(ready.snapshotFontSessionUsed, false);
     });
   } finally {
     backend.uninstall();
@@ -757,12 +823,13 @@ test("a capability-failure throws retry through the browser metrics call", () =>
 });
 
 test("another capability-failure name triggers the retry", () => {
-  const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay")) as BackendWithCallbacks;
+  const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay"));
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.snapshotFontSessionUsed, false);
+      const ready = result as PrepareReadyResult;
+      assert.equal(ready.snapshotFontSessionUsed, false);
     });
   } finally {
     backend.uninstall();
@@ -770,7 +837,7 @@ test("another capability-failure name triggers the retry", () => {
 });
 
 test("a non-matching error rethrows", () => {
-  const backend = installThrowingFontBackend(new Error("some unrelated failure")) as BackendWithCallbacks;
+  const backend = installThrowingFontBackend(new Error("some unrelated failure"));
   try {
     withEnv(() => {
       assert.throws(() => prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) })), /some unrelated failure/);
@@ -787,7 +854,8 @@ test("snapshotSession == null runs the browser metrics call directly without a s
       browserFallback: RICH_BROWSER_FALLBACK,
     }));
     assert.equal(result.kind, "ready");
-    assert.equal(result.snapshotFontSessionUsed, false);
+    const ready = result as PrepareReadyResult;
+    assert.equal(ready.snapshotFontSessionUsed, false);
   });
 });
 
@@ -801,21 +869,22 @@ test("snapshotSession == null with a missing browserFallback throws", () => {
 });
 
 test("ready shape carries the envelope pieces on the happy exact path", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
       }));
       assert.equal(result.kind, "ready");
-      assert.equal(result.snapshotFontSessionUsed, true);
-      assert.equal(result.width, 320);
-      assert.equal(result.measure, DEFAULT_MEASURE);
-      assert.equal(result.plan.lines[0].rangeStart, 0);
-      assert.equal(result.plan.lines[result.plan.lines.length - 1].rangeEnd, 5);
-      assert.deepEqual(result.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
-      assert.equal(typeof result.rawEnvelope, "string");
-      assert.equal(result.planJson, result.plan ? JSON.stringify(result.plan) : null);
+      const ready = result as PrepareReadyResult;
+      assert.equal(ready.snapshotFontSessionUsed, true);
+      assert.equal(ready.width, 320);
+      assert.equal(ready.measure, DEFAULT_MEASURE);
+      assert.equal(ready.plan.lines[0].rangeStart, 0);
+      assert.equal(ready.plan.lines[ready.plan.lines.length - 1].rangeEnd, 5);
+      assert.deepEqual(ready.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
+      assert.equal(typeof ready.rawEnvelope, "string");
+      assert.equal(ready.planJson, ready.plan ? JSON.stringify(ready.plan) : null);
     });
   } finally {
     backend.uninstall();
@@ -823,7 +892,7 @@ test("ready shape carries the envelope pieces on the happy exact path", () => {
 });
 
 test("emphasisDotGapEm passes through to the DTO", () => {
-  const backend = installFixtureFontBackend() as BackendWithCallbacks;
+  const backend = installFixtureFontBackend();
   try {
     withEnv(() => {
       const wire = wireArguments(RICH_LOWERED);

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { openRelayoutSession } from "../core/engine/relayout-session.js";
 import type { RelayoutSession } from "../core/engine/relayout-session.js";
-import type { PrepareLayoutResult } from "../core/engine/prepare-paragraph-layout.js";
+import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import {
@@ -12,11 +12,12 @@ import {
   rawDomTake,
 } from "../core/engine/raw-dom.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
+import { FakeElement, FakeFragment, FakeNode, FakeText, styleDeclaration } from "./snapshot-dom-fixtures.mjs";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
 import type { DiagnosisIssueRecord } from "../core/engine/context/diagnosis-manager.js";
-import type { TextSpan, DecorationSpan } from "../core/engine/lowered-paragraph.js";
+import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import type { PartialReadyVerdict, Thunk } from "./types.js";
 initializeGlobalServices();
 
 // The relayout session runs for real against the real raw-DOM lifecycle and
@@ -34,31 +35,9 @@ interface SavedGlobals {
   computedValue: unknown;
 }
 
-interface ParagraphLowered {
-  text: string;
-  textStyle: {
-    fontFamilies: string[];
-    fontSize: number;
-    fontWeight: number;
-    italic: boolean;
-    baselineShift: number;
-    locale: string;
-  };
-  lineHeight: number;
-  spans: TextSpan[];
-  decorations: DecorationSpan[];
-  inlineBoxes: unknown[];
-  inlineObjects: unknown[];
-  domInlineObjects: unknown[];
-  sourceSpans: unknown[];
-  sourceBoundaries: unknown[];
-  lineBreakSpans: unknown[];
-}
-
-interface TrackedParagraphWithMeasure {
+interface TrackedParagraphWithMeasure extends TrackedParagraph {
   source: FakeElement & Element;
-  lowered: ParagraphLowered;
-  lastMeasure: number | null;
+  lowered: LoweredParagraph;
 }
 
 interface SeedContextOverrides {
@@ -67,7 +46,7 @@ interface SeedContextOverrides {
   issues?: DiagnosisIssueRecord[];
 }
 
-function withDocument<T>(fn: () => T): T {
+function withDocument<T>(fn: Thunk<T>): T {
   const saved: SavedGlobals = {
     documentOwn: Object.prototype.hasOwnProperty.call(globalThis, "document"),
     documentValue: globalThis.document,
@@ -85,7 +64,7 @@ function withDocument<T>(fn: () => T): T {
   // The options ledger's withRootDefaults resolves the inherited font-family
   // through getComputedStyle while seeding the runtime options; answer an
   // empty declaration so resolution falls back to the family defaults.
-  (globalThis as Record<string, unknown>).getComputedStyle = (): CSSStyleDeclaration => ({ getPropertyValue: (): string => "" }) as unknown as CSSStyleDeclaration;
+  (globalThis as Record<string, unknown>).getComputedStyle = (): CSSStyleDeclaration => styleDeclaration({});
   try {
     return fn();
   } finally {
@@ -98,14 +77,16 @@ function withDocument<T>(fn: () => T): T {
   }
 }
 
-function makeParagraph(overrides: {
+interface ParagraphOverrides {
   source?: FakeElement & Element;
-  lowered?: Partial<ParagraphLowered>;
+  lowered?: Partial<LoweredParagraph>;
   lastMeasure?: number | null;
-} = {}): TrackedParagraphWithMeasure {
+}
+
+function makeParagraph(overrides: ParagraphOverrides = {}): TrackedParagraphWithMeasure {
   const source = overrides.source ?? (new FakeElement("p") as FakeElement & Element);
   if (source.childNodes.length === 0) source.appendChild(new FakeText("hello world"));
-  const lowered: ParagraphLowered = {
+  const lowered: LoweredParagraph = {
     text: "hello world",
     textStyle: {
       fontFamilies: ["Noto Serif CJK SC"],
@@ -162,7 +143,7 @@ function seedContext(element: FakeElement & Element, overrides: SeedContextOverr
   context.contextState.setRuntimeOptions(resolved);
   context.typography.establishRuntime(element, resolved);
   for (const paragraph of overrides.paragraphs ?? []) {
-    context.contextState.paragraphs.push(paragraph as unknown as TrackedParagraph);
+    context.contextState.paragraphs.push(paragraph);
   }
   for (const issue of overrides.issues ?? []) {
     context.diagnosis.issues.push(issue);
@@ -216,7 +197,7 @@ test("2. unsupported verdict: live content captured and restored, finish() remov
       detail: "font size too large",
     };
 
-    active.processItem(0, unsupportedVerdict as PrepareLayoutResult);
+    active.processItem(0, unsupportedVerdict);
 
     // captureLive moved the live content into the backup snapshot and
     // restoreParagraph immediately put the original content back.
@@ -245,8 +226,8 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, the par
 
     const active = openRelayoutSession(context);
 
-    const preparation = { kind: "ready" as const, planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 };
-    active.processItem(0, preparation as PrepareLayoutResult);
+    const preparation: PartialReadyVerdict = { kind: "ready", planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 };
+    active.processItem(0, preparation as PrepareReadyResult);
 
     assert.equal(p1.lastMeasure, preparation.measure);
     // The real commit rendered the empty plan and stamped the paragraph. The
@@ -277,8 +258,9 @@ test("4. ready + commit failure: capture precedes the render, the failure propag
 
     // A plan without the schema envelope makes the real renderer throw; the
     // session catches nothing, so the driver-level failure contract applies.
+    const invalidReady: PartialReadyVerdict = { kind: "ready", planJson: "{}", measure: 250, width: 300 };
     assert.throws(
-      () => active.processItem(0, { kind: "ready" as const, planJson: "{}", measure: 250, width: 300 } as PrepareLayoutResult),
+      () => active.processItem(0, invalidReady as PrepareReadyResult),
       { message: "UnsupportedPreparedLayoutRevision" },
     );
 
@@ -313,8 +295,10 @@ test("6. rollback(): state lists restored to before, captured snapshots rolled b
 
     const active = openRelayoutSession(context);
 
-    active.processItem(0, { kind: "unsupported" as const, name: "Unsupported", detail: "no" } as PrepareLayoutResult);
-    active.processItem(1, { kind: "ready" as const, planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 } as PrepareLayoutResult);
+    const unsupportedItem: PrepareLayoutResult = { kind: "unsupported", name: "Unsupported", detail: "no" };
+    const readyItem: PartialReadyVerdict = { kind: "ready", planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 };
+    active.processItem(0, unsupportedItem);
+    active.processItem(1, readyItem as PrepareReadyResult);
 
     // Mutate the context's live lists to simulate mid-session modifications.
     context.contextState.paragraphs.length = 0;

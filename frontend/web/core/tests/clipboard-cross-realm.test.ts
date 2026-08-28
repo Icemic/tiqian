@@ -43,12 +43,12 @@ interface FakeWindow {
 
 interface FakeListener {
   readonly type: string;
-  readonly listener: () => void;
+  readonly listener: VoidFunction;
 }
 
 interface FakeDocument {
   readonly defaultView: FakeWindow | null;
-  addEventListener(type: string, listener: () => void): void;
+  addEventListener(type: string, listener: VoidFunction): void;
 }
 
 interface FakeDocumentResult {
@@ -87,7 +87,7 @@ function createFakeDocumentWithRealm(): FakeDocumentResult {
   };
   const document: FakeDocument = {
     defaultView: realmWindow,
-    addEventListener: (type: string, listener: () => void) => {
+    addEventListener: (type: string, listener: VoidFunction) => {
       listeners.push({ type, listener });
     },
   };
@@ -132,7 +132,8 @@ test("ClipboardManager install skips documents without addEventListener", () => 
 
 test("ClipboardManager install skips null documents", () => {
   const manager = new ClipboardManager();
+  const nullDocument = null as Document | null;
 
   // Should not throw
-  manager.install(null as unknown as Document);
+  manager.install(nullDocument as Document);
 });

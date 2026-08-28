@@ -11,6 +11,7 @@ import {
   FONT_REPLAY_REVISION,
 } from "../core/sampler/snapshot/snapshot-schema.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
+import { FakeElement } from "./snapshot-dom-fixtures.mjs";
 
 export function digest(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -194,14 +195,16 @@ export function snapshotRoot(manifest, documentOverrides = {}) {
     },
     ...documentOverrides,
   };
-  return {
-    ownerDocument: documentObject,
-    getAttribute(name) {
-      if (name === "snapshot-ref") return "tq-page";
-      if (name === "tq-tables" && currentTable) return currentTable.url;
-      return null;
-    },
+  const root = new FakeElement("tiqian-prose");
+  root.ownerDocument = documentObject;
+  root.setAttribute("snapshot-ref", "tq-page");
+  // Override getAttribute to handle special cases
+  const originalGetAttribute = root.getAttribute.bind(root);
+  root.getAttribute = function(name) {
+    if (name === "tq-tables" && currentTable) return currentTable.url;
+    return originalGetAttribute(name);
   };
+  return root;
 }
 
 export function harness(manifest, options = {}) {

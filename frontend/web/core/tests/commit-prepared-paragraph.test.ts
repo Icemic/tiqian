@@ -6,7 +6,15 @@ import { createEnhanceContext } from "../core/engine/context/enhance-context.js"
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
 import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
-import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
+import type {
+  DecorationSpan,
+  InlineBoxSpan,
+  InlineObjectSpan,
+  LineBreakSpan,
+  LoweredParagraph,
+  TextSpan,
+  TextStyle,
+} from "../core/engine/lowered-paragraph.js";
 
 // The commit functions run for real, including the real prepared-DOM
 // renderer. The former injected validator and its mismatch/fallback/retry
@@ -21,7 +29,7 @@ interface SavedGlobal {
 }
 
 interface FakeStyle {
-  setProperty: () => void;
+  setProperty(): void;
 }
 
 interface FakeElementOptions {
@@ -33,58 +41,78 @@ interface ComputedStyleValues {
   [key: string]: string;
 }
 
+interface AttributeRecord {
+  name: string;
+  value: string;
+}
+
+interface FakeBoundingRect {
+  width: number;
+}
+
 interface FakeElement {
   tagName: string;
   innerHTML: string;
   style: FakeStyle;
-  getAttribute: (name: string) => string | null;
-  setAttribute: (name: string, value: string) => void;
-  removeAttribute: (name: string) => void;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
   attributes: Map<string, string>;
-  setAttributes: Array<{ name: string; value: string }>;
+  setAttributes: AttributeRecord[];
   removedAttributes: string[];
-  getBoundingClientRect: () => { width: number };
-  getClientRects: () => [];
+  getBoundingClientRect(): FakeBoundingRect;
+  getClientRects(): [];
   parentElement: null;
-  closest: () => null;
-  querySelectorAll: () => [];
-  cloneNode: () => FakeElement;
+  closest(): null;
+  querySelectorAll(): [];
+  cloneNode(): FakeElement;
   _computedValues?: ComputedStyleValues;
 }
 
 type FakeElementWithDom = FakeElement & Element;
 
-interface TextStyleOverrides {
-  fontFamilies?: string[];
-  fontSize?: number;
-  fontWeight?: number;
-  italic?: boolean;
-  baselineShift?: number;
-  locale?: string;
-}
+type TextStyleOverrides = Partial<TextStyle>;
 
-interface TextStyle {
-  fontFamilies: string[];
-  fontSize: number;
-  fontWeight: number;
-  italic: boolean;
-  baselineShift: number;
-  locale: string;
+// The live-DOM collections ride element-only holders: the runtime objects
+// the tests build carry only the element field. The full LoweredParagraph
+// assigns onto the holder shape, which keeps makeParagraph's single boundary
+// cast legal.
+interface ElementHolder {
+  element: Element;
 }
 
 interface LoweredParagraphOverrides {
   text?: string;
   textStyle?: TextStyle;
   lineHeight?: number;
-  spans?: unknown[];
-  decorations?: unknown[];
-  inlineBoxes?: unknown[];
-  inlineObjects?: unknown[];
-  domInlineObjects?: Array<{ element: FakeElement }>;
-  sourceSpans?: Array<{ element: FakeElement }>;
-  sourceBoundaries?: unknown[];
-  lineBreakSpans?: unknown[];
+  spans?: TextSpan[];
+  decorations?: DecorationSpan[];
+  inlineBoxes?: InlineBoxSpan[];
+  inlineObjects?: InlineObjectSpan[];
+  domInlineObjects?: ElementHolder[];
+  sourceSpans?: ElementHolder[];
+  sourceBoundaries?: number[];
+  lineBreakSpans?: LineBreakSpan[];
 }
+
+interface TestLoweredHolders {
+  domInlineObjects: ElementHolder[];
+  sourceSpans: ElementHolder[];
+}
+
+type TestLoweredParagraph = Pick<
+  LoweredParagraph,
+  | "text"
+  | "textStyle"
+  | "lineHeight"
+  | "spans"
+  | "decorations"
+  | "inlineBoxes"
+  | "inlineObjects"
+  | "sourceBoundaries"
+  | "lineBreakSpans"
+> &
+  TestLoweredHolders;
 
 interface ParagraphOverrides {
   source?: FakeElement;
@@ -113,7 +141,13 @@ function restoreGlobals(entries: SavedGlobal[]): void {
   }
 }
 
-function computedStyle(values: ComputedStyleValues = {}): CSSStyleDeclaration & { getPropertyValue: (name: string) => string } {
+interface PropertyReader {
+  getPropertyValue(name: string): string;
+}
+
+type ComputedStyleStub = Record<string, unknown> & PropertyReader;
+
+function computedStyle(values: ComputedStyleValues = {}): ComputedStyleStub {
   const props: ComputedStyleValues = {
     paddingLeft: "0px",
     paddingRight: "0px",
@@ -121,7 +155,7 @@ function computedStyle(values: ComputedStyleValues = {}): CSSStyleDeclaration & 
     borderRightWidth: "0px",
     ...values,
   };
-  const style: Record<string, unknown> & { getPropertyValue: (name: string) => string } = {
+  const style: ComputedStyleStub = {
     getPropertyValue: (name: string): string => {
       const key = String(name).toLowerCase();
       return Object.prototype.hasOwnProperty.call(props, key)
@@ -130,15 +164,17 @@ function computedStyle(values: ComputedStyleValues = {}): CSSStyleDeclaration & 
     },
   };
   for (const key of Object.keys(props)) style[key] = props[key];
-  return style as unknown as CSSStyleDeclaration & { getPropertyValue: (name: string) => string };
+  return style;
 }
 
-function withEnv<T>(fn: () => T): T {
+type EnvScopedRun<T> = () => T;
+
+function withEnv<T>(fn: EnvScopedRun<T>): T {
   const saved = saveGlobals([
     "getComputedStyle",
   ]);
   try {
-    globalThis.getComputedStyle = (target: Element | null, pseudo?: string | null): CSSStyleDeclaration =>
+    (globalThis as Record<string, unknown>).getComputedStyle = (target: Element | null, pseudo?: string | null): ComputedStyleStub =>
       target && (target as FakeElement & Element)._computedValues
         ? computedStyle((target as FakeElement & Element)._computedValues)
         : computedStyle();
@@ -151,7 +187,7 @@ function withEnv<T>(fn: () => T): T {
 function makeElement(initialAttributes: Record<string, string> = {}, options: FakeElementOptions = {}): FakeElementWithDom {
   const attributes = new Map(Object.entries(initialAttributes));
   const removedAttributes: string[] = [];
-  const setAttributes: Array<{ name: string; value: string }> = [];
+  const setAttributes: AttributeRecord[] = [];
   const element: FakeElement = {
     tagName: options.tagName ?? "P",
     innerHTML: "",
@@ -169,7 +205,7 @@ function makeElement(initialAttributes: Record<string, string> = {}, options: Fa
     attributes,
     setAttributes,
     removedAttributes,
-    getBoundingClientRect: (): { width: number } => ({ width: options.width ?? 320 }),
+    getBoundingClientRect: (): FakeBoundingRect => ({ width: options.width ?? 320 }),
     getClientRects: (): [] => [],
     parentElement: null,
     closest: (): null => null,
@@ -195,7 +231,7 @@ function textStyle(overrides: TextStyleOverrides = {}): TextStyle {
 
 function makeParagraph(overrides: ParagraphOverrides = {}): CommitParagraphTarget {
   const source = (overrides.source ?? makeElement()) as FakeElementWithDom;
-  const lowered: LoweredParagraphOverrides = {
+  const lowered: TestLoweredParagraph = {
     text: "hello",
     textStyle: textStyle(),
     lineHeight: 28,
@@ -211,7 +247,7 @@ function makeParagraph(overrides: ParagraphOverrides = {}): CommitParagraphTarge
   };
   return {
     source,
-    lowered: lowered as unknown as LoweredParagraph,
+    lowered: lowered as LoweredParagraph,
     lastMeasure: overrides.lastMeasure ?? null,
   };
 }
@@ -240,7 +276,7 @@ test("worker happy path: sets four attributes, renders the plan, sets lastMeasur
       lowered: {
         text: "hello world",
         textStyle: textStyle({ locale: "zh-Hans", fontSize: 19 }),
-        domInlineObjects: [{ element: domObjElement as unknown as FakeElement }],
+        domInlineObjects: [{ element: domObjElement }],
       },
     });
 

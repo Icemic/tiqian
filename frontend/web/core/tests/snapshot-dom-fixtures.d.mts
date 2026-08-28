@@ -27,14 +27,14 @@ export class FakeElement extends FakeNode {
   attributes: Map<string, string>;
   dataset: Record<string, string>;
   style: FakeInlineStyle;
-  ownerDocument: any;
+  ownerDocument: Document | null;
   width: number;
   height: number;
   left: number;
   top: number;
   content: FakeNode | null;
 
-  _innerText: string | null;
+  _innerText?: string | null;
   _fixtureProbeWidth?: number;
   _onFixtureProbeMeasure?: (cssText: string) => void;
 
@@ -103,15 +103,64 @@ export function fixtureComputedStyle(
 
 export function matchesSelector(element: FakeElement, selector: string): boolean;
 
+export function asElement(fake: FakeElement): Element;
+export function asHTMLElement(fake: FakeElement): HTMLElement;
+export function asNode(fake: FakeNode): Node;
+export function asFakeElement(element: Element): FakeElement;
+export function asFakeNode(node: Node): FakeNode;
+export function asNodeConstructor(constructor: typeof FakeNode): typeof Node;
+export function emptyDomRectList(): DOMRectList;
+export function asGetComputedStyle(fn: (element: FakeElement | null, pseudo?: string | null, overrides?: FixtureComputedStyleOverrides) => CSSStyleDeclaration): (element: Element | null, pseudoElement?: string | null) => CSSStyleDeclaration;
+
+export interface FixtureDocument {
+  baseURI: string;
+  elements: Map<string, FakeElement>;
+  styleSheets: FixtureStyleSheet[];
+  fonts: FixtureFontFaceSet;
+  createDocumentFragment(): FakeFragment;
+  createElement(tagName: string): FakeElement;
+  createRange(): FixtureRange;
+  getElementById(id: string): FakeElement | null;
+  body: FakeElement;
+}
+
+export interface FixtureStyleSheet {
+  href: string;
+  cssRules: FixtureCssRule[];
+}
+
+export interface FixtureCssRule {
+  type: number;
+  style: CSSStyleDeclaration;
+  parentStyleSheet: FixtureStyleSheetReference;
+}
+
+export interface FixtureStyleSheetReference {
+  href: string;
+}
+
+export interface FixtureFontFaceSet {
+  load(descriptor: string): Promise<Record<string, never>[]>;
+}
+
+export interface FixtureRange {
+  selectNodeContents(node: FakeElement): void;
+  getBoundingClientRect(): FixtureRangeRect;
+}
+
+export interface FixtureRangeRect {
+  width: number;
+}
+
+export function asDocument(doc: FixtureDocument): Document;
+
 export function sha256(value: string | Uint8Array): string;
 
 export interface StyleDeclarationValues {
   [key: string]: string;
 }
 
-export function styleDeclaration(values: StyleDeclarationValues): {
-  getPropertyValue(name: string): string;
-};
+export function styleDeclaration(values: StyleDeclarationValues): CSSStyleDeclaration;
 
 export type CanonicalFixtureNode =
   | ["#", string]

@@ -14,23 +14,47 @@ import {
   harness,
   manifestWithFaces,
 } from "./browser-fonts-fixtures.mjs";
+import { emptyDomRectList } from "./snapshot-dom-fixtures.mjs";
 import { optionsFromJs } from "../core/engine/lifecycle.js";
 import { workerLayoutRequestForRoot } from "../core/engine/worker-request.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 
+import type {
+  BrowserFontSessionCreateOptions,
+  BrowserFontSessionHandle,
+  BrowserFontSessionLoader,
+  ManifestFaceSpec,
+} from "../core/measurement/browser-fonts.js";
+import type {
+  PrepareJob,
+  TiqianLayoutWorkerInstance,
+} from "../core/engine/coordination/coordination-service.js";
+import type {
+  IsCurrentPredicate,
+  PrepareJobOptions,
+} from "../core/engine/web-worker/worker-channel.js";
+import type { SnapshotRootDocumentOverrides } from "./browser-fonts-fixtures.mjs";
+import type { Thunk } from "./types.js";
+
+type NodeListOfElement = NodeListOf<Element>;
+type ForEachCallback = (value: Element, key: number, parent: NodeListOfElement) => void;
+
 initializeGlobalServices();
 
+type CreatePrepareJobFn = (
+  root: HTMLElement | null | undefined,
+  handle: BrowserFontSessionHandle | null | undefined,
+  options: PrepareJobOptions | null | undefined,
+  isCurrent: IsCurrentPredicate,
+) => Promise<PrepareJob | null>;
+
 interface PrepareJobModule {
-  createPrepareJob: (root: Element, handle: unknown, options: Record<string, unknown>, shouldContinue: () => boolean) => Promise<{
-    done: boolean;
-    step: (isStale: () => boolean) => void;
-    finished: Promise<number>;
-  } | null>;
+  createPrepareJob: CreatePrepareJobFn;
 }
 
 // PrepareJob driver for channel tests: steps the job without a budget and
 // awaits the stored-plan count.
-async function drivePrepareJob(module: PrepareJobModule, root: Element, handle: unknown, options: Record<string, unknown>): Promise<number> {
+async function drivePrepareJob(module: PrepareJobModule, root: HTMLElement, handle: BrowserFontSessionHandle, options: Record<string, unknown>): Promise<number> {
   const job = await module.createPrepareJob(root, handle, options, () => true);
   if (!job) return 0;
   while (!job.done) {
@@ -40,7 +64,9 @@ async function drivePrepareJob(module: PrepareJobModule, root: Element, handle: 
   return await job.finished;
 }
 
-function assertCode(code: string): (error: unknown) => boolean {
+type ErrorAssertion = (error: unknown) => boolean;
+
+function assertCode(code: string): ErrorAssertion {
   return (error: unknown): boolean => {
     assert.ok(error instanceof BrowserFontSessionError);
     assert.equal((error as BrowserFontSessionError).code, code);
@@ -48,24 +74,38 @@ function assertCode(code: string): (error: unknown) => boolean {
   };
 }
 
+// View over the browser-fonts-fixtures harness result: the members the tests
+// read, typed through the product loader/handle shapes. The harness returns
+// this exact object and mutates its arrays in place.
+interface RecordedFetchRequest {
+  url: string;
+}
+
+interface CreateCallRecord {
+  specs: readonly ManifestFaceSpec[];
+  options: BrowserFontSessionCreateOptions;
+}
+
+interface FontLoadRecord {
+  descriptor: string;
+  text: string;
+}
+
 interface HarnessState {
-  loader: {
-    prepare: (root: Element) => Promise<unknown>;
-    release: (handle: unknown) => boolean;
-    revalidate: (root: Element, handle: unknown) => Promise<unknown>;
-    prepareRenderFonts: (root: Element, handle: unknown) => Promise<boolean>;
-  };
-  root: Element;
-  requests: Array<{ url: string }>;
-  createCalls: Array<{ specs: Array<{ publicUrl: string; sourceOrder?: number }>; options: { sessionPrefix: string; baseFeatures: string[] } }>;
-  contractCalls: Array<{ matches: boolean; reason: string | null }>;
-  preparedContractCalls: Array<unknown>;
-  closeCount: () => number;
-  renderFaceDeletes: unknown[];
+  loader: BrowserFontSessionLoader;
+  root: HTMLElement;
+  requests: RecordedFetchRequest[];
+  createCalls: CreateCallRecord[];
+  sessions: unknown[];
+  contractCalls: HTMLElement[];
+  preparedContractCalls: HTMLElement[];
   renderFaceCreates: unknown[];
   renderFaceAdds: unknown[];
-  fontLoads: Array<{ descriptor: string; text: string }>;
-  mutateSession?: (session: unknown) => void;
+  renderFaceDeletes: unknown[];
+  renderFontSourceCreates: unknown[];
+  renderFontSourceReleases: string[];
+  fontLoads: FontLoadRecord[];
+  closeCount: Thunk<number>;
 }
 
 test("browser font sessions aggregate manifest evidence and close after the final release", async () => {
@@ -75,16 +115,16 @@ test("browser font sessions aggregate manifest evidence and close after the fina
     [faceEvidence(sourceSha256)],
     [faceEvidence(sourceSha256, { fontWeight: 500, axes: { wght: 500 } })],
   ]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   const [first, second] = await Promise.all([
     state.loader.prepare(state.root),
     state.loader.prepare(state.root),
   ]);
 
-  assert.equal((first as { id: string }).id, "browser-session-1");
-  assert.equal((second as { id: string }).id, (first as { id: string }).id);
-  assert.equal((first as { paragraphSelector: string }).paragraphSelector, "p[data-tq-snapshot-key]");
+  assert.equal(first.id, "browser-session-1");
+  assert.equal(second.id, first.id);
+  assert.equal(first.paragraphSelector, "p[data-tq-snapshot-key]");
   assert.equal(state.requests.length, 0);
   assert.equal(state.createCalls.length, 1);
   assert.equal(state.contractCalls.length, 4);
@@ -102,7 +142,7 @@ test("browser font sessions aggregate manifest evidence and close after the fina
   assert.equal(state.renderFaceDeletes.length, 0);
 
   const next = await state.loader.prepare(state.root);
-  assert.equal((next as { id: string }).id, "browser-session-2");
+  assert.equal(next.id, "browser-session-2");
   assert.equal(state.requests.length, 0);
   assert.equal(state.createCalls.length, 2);
   assert.equal(state.loader.release(next), true);
@@ -119,7 +159,7 @@ test("browser font sessions reuse a live adoption proof before probing again", a
       { matches: true, reason: null },
       { matches: true, reason: null },
     ],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
   assert.equal(state.contractCalls.length, 0);
@@ -134,58 +174,124 @@ test("browser font sessions reuse a live adoption proof before probing again", a
 test("browser font sessions expose only replay identity to the layout Worker", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
-  const contract = browserFontSessionWorkerContract(handle as any);
+  const contract = browserFontSessionWorkerContract(handle);
 
   assert.deepEqual(contract, {
-    sessionKey: (handle as { id: string }).id,
+    sessionKey: handle.id,
     manifestText: JSON.stringify(manifest),
     tablesBytes: getCurrentTable()!.bytes,
   });
   assert.equal(state.loader.release(handle), true);
-  assert.throws(() => browserFontSessionWorkerContract(handle as any), assertCode("BrowserFontSessionHandleInvalid"));
+  assert.throws(() => browserFontSessionWorkerContract(handle), assertCode("BrowserFontSessionHandleInvalid"));
 });
+
+interface FixtureTextNode {
+  nodeType: number;
+  textContent: string;
+}
+
+type AttributeReader = (name: string) => string | null;
+type AttributeWriter = (name: string, value: string) => void;
+type AttributeRemover = (name: string) => void;
+type StylePropertyWriter = (name: string, value: string) => void;
+type StylePropertyRemover = (name: string) => void;
+type StylePropertyReader = (name: string) => string;
+type SelectorMatcher = (selector: string) => Element | null;
+type SelectorQueryAll = (selector: string) => Element[];
+type RectReader = Thunk<Partial<DOMRect>>;
+type RectListReader = Thunk<DOMRectList>;
+
+interface FixtureInlineStyleStub {
+  setProperty: StylePropertyWriter;
+  removeProperty: StylePropertyRemover;
+  getPropertyValue: StylePropertyReader;
+  getPropertyPriority: StylePropertyReader;
+}
 
 interface FixtureElement {
   tagName: string;
   textContent: string;
-  childNodes: Array<{ nodeType: number; textContent: string }>;
-  getAttribute: (name: string) => string | null;
-  setAttribute: (name: string, value: string) => void;
-  removeAttribute: (name: string) => void;
-  style: {
-    setProperty: (name: string, value: string) => void;
-    removeProperty: (name: string) => void;
-    getPropertyValue: (name: string) => string;
-    getPropertyPriority: () => string;
-  };
-  closest: (selector: string) => Element | null;
-  querySelectorAll: (selector: string) => Element[];
-  querySelector: (selector: string) => Element | null;
-  getBoundingClientRect: () => Partial<DOMRect>;
-  getClientRects: () => DOMRectList;
+  childNodes: FixtureTextNode[];
+  getAttribute: AttributeReader;
+  setAttribute: AttributeWriter;
+  removeAttribute: AttributeRemover;
+  style: FixtureInlineStyleStub;
+  closest: SelectorMatcher;
+  querySelectorAll: SelectorQueryAll;
+  querySelector: SelectorMatcher;
+  getBoundingClientRect: RectReader;
+  getClientRects: RectListReader;
   parentElement: Element | null;
 }
 
 interface InvalidFixtureElement {
   tagName: string;
   textContent: string;
-  closest: (selector: string) => Element | null;
-  getBoundingClientRect: () => Partial<DOMRect>;
+  closest: SelectorMatcher;
+  getBoundingClientRect: RectReader;
 }
 
-interface FixtureWorker {
-  listeners: Map<string, (message: { data: unknown }) => void>;
-  addEventListener: (type: string, listener: (message: { data: unknown }) => void) => void;
-  postMessage: (message: { type: string; request: { text: string }; id: string }) => void;
-  terminate: () => void;
+// Writable view over the snapshot root so the test can install its
+// querySelectorAll probe without touching the fixture.
+type MutableRootRecord = HTMLElement & Record<string, unknown>;
+
+interface WorkerMessageEnvelope {
+  data: unknown;
+}
+
+type WorkerMessageListener = (message: WorkerMessageEnvelope) => void;
+type WorkerEventListenerAdder = (type: string, listener: WorkerMessageListener) => void;
+
+interface WorkerRequestText {
+  text: string;
+}
+
+interface WorkerPostMessageBody {
+  type: string;
+  request: WorkerRequestText;
+  id: string;
+}
+
+type WorkerMessagePoster = (message: WorkerPostMessageBody) => void;
+
+interface FixtureWorkerLike {
+  listeners: Map<string, WorkerMessageListener>;
+  addEventListener: WorkerEventListenerAdder;
+  postMessage: WorkerMessagePoster;
+  terminate: Thunk<void>;
+}
+
+interface ComputedStyleStub {
+  paddingLeft: string;
+  paddingRight: string;
+  borderLeftWidth: string;
+  borderRightWidth: string;
+  position: string;
+  transform: string;
+  marginLeft: string;
+  marginRight: string;
+  marginTop: string;
+  marginBottom: string;
+  getPropertyValue: StylePropertyReader;
+}
+
+interface LegacyWorkerBridge {
+  version: number;
+  take: Thunk<string>;
+  issue: Thunk<string>;
+  release: Thunk<boolean>;
+}
+
+interface TerminableCoordinatorWorker {
+  terminate: Thunk<void>;
 }
 
 test("layout Worker plans survive duplicate module instances and reach the layout Worker bridge", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
-  const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes }) as unknown as HarnessState;
+  const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes }) as HarnessState;
   const handle = await state.loader.prepare(state.root);
   const originalWorker = globalThis.Worker;
   const originalInnerHeight = globalThis.innerHeight;
@@ -199,7 +305,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
   // workerLayoutRequestForRoot, so the candidate is a lowerable paragraph
   // double whose text follows requestText, and the take/issue calls reuse
   // that candidate's serialized build.
-  const element: FixtureElement = {
+  const elementFixture: FixtureElement = {
     tagName: "P",
     get textContent() { return requestText; },
     get childNodes() { return [{ nodeType: 3, textContent: requestText }]; },
@@ -216,44 +322,73 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     querySelectorAll: (): Element[] => [],
     querySelector: (): Element | null => null,
     getBoundingClientRect: (): Partial<DOMRect> => ({ width: 323, top: 0, bottom: 24 }),
-    getClientRects: (): DOMRectList => [] as unknown as DOMRectList,
+    getClientRects: (): DOMRectList => emptyDomRectList(),
     parentElement: null,
-  } as unknown as FixtureElement;
+  };
+  const element = elementFixture as FixtureElement & Element;
   // No childNodes: lowering fails, so the candidate stays native without
   // blocking the following paragraphs (ParagraphAtomicNativeRollback).
-  const invalidElement: InvalidFixtureElement = {
+  const invalidElementFixture: InvalidFixtureElement = {
     tagName: "P",
     textContent: requestText,
     closest: (selector: string): Element | null => (selector === ROOT_SELECTOR ? state.root : null),
     getBoundingClientRect: (): Partial<DOMRect> => ({ width: 323, top: 0, bottom: 24 }),
-  } as unknown as InvalidFixtureElement;
-  let queriedElements: Element[] = [element as unknown as Element];
+  };
+  const invalidElement = invalidElementFixture as InvalidFixtureElement & Element;
+  let queriedElements: Element[] = [element];
   const selectors: string[] = [];
-  (state.root as any).querySelectorAll = (selector: string): Element[] => {
+  const mutableRoot = state.root as MutableRootRecord;
+  mutableRoot.querySelectorAll = (selector: string): NodeListOfElement => {
     selectors.push(selector);
-    return queriedElements;
+    const result = queriedElements;
+    const fakeNodeList: NodeListOfElement = {
+      item(index: number): Element {
+        const el = result[index];
+        if (el === undefined) {
+          throw new Error("Index out of bounds");
+        }
+        return el;
+      },
+      length: result.length,
+      forEach(callbackfn: ForEachCallback, thisArg?: unknown): void {
+        result.forEach((value, index) => callbackfn(value, index, fakeNodeList), thisArg);
+      },
+      entries(): IterableIterator<[number, Element]> {
+        return result.entries();
+      },
+      keys(): IterableIterator<number> {
+        return result.keys();
+      },
+      values(): IterableIterator<Element> {
+        return result.values();
+      },
+      [Symbol.iterator](): IterableIterator<Element> {
+        return result[Symbol.iterator]();
+      },
+    };
+    return fakeNodeList;
   };
   const completionSelector = ":is(p, li):not([data-tq-snapshot-key])";
   // SnapshotLayoutGate: the snapshot eligibility gate requires the option
   // fontSize/lineHeight/families to stay unset; lowering defaults them.
   const sessionOptions: Record<string, unknown> = {
-    snapshotFontSession: { status: "conforming", sessionId: (handle as { id: string }).id, detail: "test" },
+    snapshotFontSession: { status: "conforming", sessionId: handle.id, detail: "test" },
   };
   const preparedOptions: Record<string, unknown> = { paragraphSelector: completionSelector, ...sessionOptions };
   const canonicalOptions = optionsFromJs(preparedOptions);
   const requestJson = (): string => {
-    const built = workerLayoutRequestForRoot(state.root, element as unknown as Element, canonicalOptions);
+    const built = workerLayoutRequestForRoot(state.root, element, canonicalOptions);
     return JSON.stringify({ ...built, semantics: [], renderInlineBoxes: [] });
   };
 
-  class FixtureWorker implements FixtureWorker {
-    listeners = new Map<string, (message: { data: unknown }) => void>();
+  class FixtureWorker implements FixtureWorkerLike {
+    listeners = new Map<string, WorkerMessageListener>();
 
-    addEventListener(type: string, listener: (message: { data: unknown }) => void): void {
+    addEventListener(type: string, listener: WorkerMessageListener): void {
       this.listeners.set(type, listener);
     }
 
-    postMessage(message: { type: string; request: { text: string }; id: string }): void {
+    postMessage(message: WorkerPostMessageBody): void {
       queueMicrotask(() => {
         const listener = this.listeners.get("message");
         if (listener) {
@@ -273,19 +408,19 @@ test("layout Worker plans survive duplicate module instances and reach the layou
 
   try {
     delete (globalThis as Record<symbol, unknown>)[coordinatorKey];
-    delete (globalServices().coordination as any).layoutWorker;
-    const legacyBridge = Object.freeze({
+    delete globalServices().coordination.layoutWorker;
+    const legacyBridge: LegacyWorkerBridge = Object.freeze({
       version: 1,
       take: (): string => "legacy",
       issue: (): string => "legacy",
       release: (): boolean => false,
     });
-    globalServices().coordination.layoutWorker = legacyBridge as never;
+    globalServices().coordination.layoutWorker = legacyBridge as TiqianLayoutWorkerInstance & LegacyWorkerBridge;
     (globalThis as Record<string, unknown>).Worker = FixtureWorker;
     globalThis.innerHeight = 800;
     // Zero padding/borders so the pure request builder measures the
     // candidate's rect width.
-    globalThis.getComputedStyle = ((): Partial<CSSStyleDeclaration> & { getPropertyValue: (name: string) => string } => ({
+    const computedStyleStub: ComputedStyleStub = {
       paddingLeft: "0px",
       paddingRight: "0px",
       borderLeftWidth: "0px",
@@ -297,18 +432,20 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       marginTop: "0px",
       marginBottom: "0px",
       getPropertyValue: (): string => "",
-    })) as unknown as typeof globalThis.getComputedStyle;
+    };
+    const computedStyleDeclaration = computedStyleStub as CSSStyleDeclaration;
+    globalThis.getComputedStyle = (): CSSStyleDeclaration => computedStyleDeclaration;
 
-    const firstModule = await import(
+    const firstModule: PrepareJobModule = await import(
       `../core/engine/web-worker/worker-channel.js?fixture=first-${Date.now()}`
-    ) as unknown as PrepareJobModule;
+    );
     assert.notEqual(globalServices().coordination.layoutWorker, legacyBridge);
-    assert.equal((globalServices().coordination.layoutWorker as { version: number }).version, 1);
-    assert.equal((globalServices().coordination.layoutWorker as { semanticReplayRevision: number }).semanticReplayRevision, 1);
+    assert.equal(globalServices().coordination.layoutWorker!.version, 1);
+    assert.equal(globalServices().coordination.layoutWorker!.semanticReplayRevision, 1);
     assert.equal(await drivePrepareJob(firstModule, state.root, handle, preparedOptions), 1);
     const firstRequest = requestJson();
     assert.equal(
-      JSON.parse(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, firstRequest) as string).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker!.take(element, handle.id, firstRequest) as string).plan.fixture,
       "first",
     );
     const semanticOnlyChange = JSON.stringify({
@@ -317,7 +454,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       renderInlineBoxes: [{ start: 0, end: 5, inlineStart: 1, inlineEnd: 2 }],
     });
     const semanticRecord = JSON.parse(
-      globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, semanticOnlyChange) as string,
+      globalServices().coordination.layoutWorker!.take(element, handle.id, semanticOnlyChange) as string,
     );
     assert.equal(semanticRecord.plan.fixture, "first");
     assert.deepEqual(semanticRecord.semantics, [{
@@ -334,28 +471,28 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       maxWidthPx: JSON.parse(firstRequest).maxWidthPx - 1,
     });
     assert.equal(
-      globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, changedMeasure),
+      globalServices().coordination.layoutWorker!.take(element, handle.id, changedMeasure),
       null,
     );
 
     requestText = "second";
-    const secondModule = await import(
+    const secondModule: PrepareJobModule = await import(
       `../core/engine/web-worker/worker-channel.js?fixture=second-${Date.now()}`
-    ) as unknown as PrepareJobModule;
+    );
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
     const secondRequest = requestJson();
     assert.equal(
-      JSON.parse(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, secondRequest) as string).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker!.take(element, handle.id, secondRequest) as string).plan.fixture,
       "second",
     );
-    assert.equal(globalServices().coordination.layoutWorker!.issue(element as unknown as Element, (handle as { id: string }).id, secondRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker!.issue(element, handle.id, secondRequest), null);
 
     requestText = "failure";
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 0);
     const failedRequest = requestJson();
-    assert.equal(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, failedRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker!.take(element, handle.id, failedRequest), null);
     assert.equal(
-      globalServices().coordination.layoutWorker!.issue(element as unknown as Element, (handle as { id: string }).id, failedRequest),
+      globalServices().coordination.layoutWorker!.issue(element, handle.id, failedRequest),
       "fixture replay miss",
     );
 
@@ -372,7 +509,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       renderInlineBoxes: [],
     });
     const unsupportedSemanticRecord = JSON.parse(
-      globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, unsupportedSemanticRequest) as string,
+      globalServices().coordination.layoutWorker!.take(element, handle.id, unsupportedSemanticRequest) as string,
     );
     assert.equal(unsupportedSemanticRecord.plan.fixture, "live semantic");
     assert.equal(unsupportedSemanticRecord.semanticReplay, "live-source");
@@ -383,7 +520,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       sourceIndex: 0,
     }]);
     assert.equal(
-      globalServices().coordination.layoutWorker!.issue(element as unknown as Element, (handle as { id: string }).id, unsupportedSemanticRequest),
+      globalServices().coordination.layoutWorker!.issue(element, handle.id, unsupportedSemanticRequest),
       null,
     );
 
@@ -407,7 +544,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     });
     assert.deepEqual(
       JSON.parse(
-        globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, nestedLiveSemanticRequest) as string,
+        globalServices().coordination.layoutWorker!.take(element, handle.id, nestedLiveSemanticRequest) as string,
       ).semantics,
       [{ start: 0, end: 4, tagName: "spoiler", sourceIndex: 1 },
         { start: 0, end: 4, tagName: "em", sourceIndex: 0 }],
@@ -423,7 +560,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       }],
     });
     const sameLayoutSafeSemanticRecord = JSON.parse(
-      globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, sameLayoutSafeSemanticRequest) as string,
+      globalServices().coordination.layoutWorker!.take(element, handle.id, sameLayoutSafeSemanticRequest) as string,
     );
     assert.equal(sameLayoutSafeSemanticRecord.plan.fixture, "live semantic");
     assert.equal(sameLayoutSafeSemanticRecord.semanticReplay, "snapshot-safe");
@@ -440,8 +577,8 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     assert.equal(
       JSON.parse(
         globalServices().coordination.layoutWorker!.take(
-          element as unknown as Element,
-          (handle as { id: string }).id,
+          element,
+          handle.id,
           sameLayoutStyledSemanticRequest,
         ) as string,
       ).semanticReplay,
@@ -459,7 +596,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     });
     assert.equal(
       JSON.parse(
-        globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, sameLayoutLiveHrefRequest) as string,
+        globalServices().coordination.layoutWorker!.take(element, handle.id, sameLayoutLiveHrefRequest) as string,
       ).semanticReplay,
       "live-source",
     );
@@ -469,38 +606,38 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       semantics: [{ start: 0, end: 99, tagName: "spoiler", attributes: [] }],
     });
     assert.equal(
-      globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, invalidSemanticRequest),
+      globalServices().coordination.layoutWorker!.take(element, handle.id, invalidSemanticRequest),
       null,
     );
     assert.equal(
-      globalServices().coordination.layoutWorker!.issue(element as unknown as Element, (handle as { id: string }).id, invalidSemanticRequest),
+      globalServices().coordination.layoutWorker!.issue(element, handle.id, invalidSemanticRequest),
       "InvalidSnapshotSemanticRange",
     );
 
-    queriedElements = [invalidElement as unknown as Element, element as unknown as Element];
+    queriedElements = [invalidElement, element];
     requestText = "after invalid candidate";
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, preparedOptions), 1);
     const afterInvalidRequest = requestJson();
     assert.equal(
       JSON.parse(
-        globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, afterInvalidRequest) as string,
+        globalServices().coordination.layoutWorker!.take(element, handle.id, afterInvalidRequest) as string,
       ).plan.fixture,
       "after invalid candidate",
     );
-    queriedElements = [element as unknown as Element];
+    queriedElements = [element];
 
     requestText = "default-runtime-set";
     assert.equal(await drivePrepareJob(secondModule, state.root, handle, { ...sessionOptions }), 1);
     const defaultRequest = requestJson();
     assert.equal(
-      JSON.parse(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, defaultRequest) as string).plan.fixture,
+      JSON.parse(globalServices().coordination.layoutWorker!.take(element, handle.id, defaultRequest) as string).plan.fixture,
       "default-runtime-set",
     );
 
     assert.equal(state.loader.release(handle), true);
-    assert.equal(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, firstRequest), null);
-    assert.equal(globalServices().coordination.layoutWorker!.take(element as unknown as Element, (handle as { id: string }).id, secondRequest), null);
-    assert.equal(globalServices().coordination.layoutWorker!.issue(element as unknown as Element, (handle as { id: string }).id, failedRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker!.take(element, handle.id, firstRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker!.take(element, handle.id, secondRequest), null);
+    assert.equal(globalServices().coordination.layoutWorker!.issue(element, handle.id, failedRequest), null);
     assert.deepEqual(selectors, [
       completionSelector,
       completionSelector,
@@ -511,8 +648,8 @@ test("layout Worker plans survive duplicate module instances and reach the layou
     ]);
   } finally {
     const coordinatorValue = (globalThis as Record<symbol, unknown>)[coordinatorKey];
-    if (coordinatorValue && typeof coordinatorValue === "object" && "worker" in coordinatorValue && coordinatorValue.worker && typeof (coordinatorValue.worker as { terminate?: () => void }).terminate === "function") {
-      (coordinatorValue.worker as { terminate: () => void }).terminate();
+    if (coordinatorValue && typeof coordinatorValue === "object" && "worker" in coordinatorValue && coordinatorValue.worker && typeof (coordinatorValue.worker as TerminableCoordinatorWorker).terminate === "function") {
+      (coordinatorValue.worker as TerminableCoordinatorWorker).terminate();
     }
     if (originalCoordinator === undefined) {
       delete (globalThis as Record<symbol, unknown>)[coordinatorKey];
@@ -520,7 +657,7 @@ test("layout Worker plans survive duplicate module instances and reach the layou
       (globalThis as Record<symbol, unknown>)[coordinatorKey] = originalCoordinator;
     }
     if (originalBridge === undefined) {
-      delete (globalServices().coordination as any).layoutWorker;
+      delete globalServices().coordination.layoutWorker;
     } else {
       globalServices().coordination.layoutWorker = originalBridge;
     }
@@ -558,7 +695,7 @@ test("browser font sessions retain whitespace-only glyph evidence", async () => 
       },
     }),
   ]]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -572,7 +709,7 @@ test("browser font sessions never fetch font bytes for server replay", async () 
   const state = harness(manifest, {
     bytes,
     fetchErrors: [new TypeError("conditional cache race")],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -580,17 +717,22 @@ test("browser font sessions never fetch font bytes for server replay", async () 
   assert.equal(state.loader.release(handle), true);
 });
 
+interface ProbeFeatureOverrides {
+  features: string[];
+}
+
 test("lining numeric snapshots preserve the server lnum replay contract", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
+  const lnumProbeFeatures: ProbeFeatureOverrides = { features: ["lnum"] };
   const manifest = manifestWithFaces(
     [[faceEvidence(digest(bytes), { probe: {
       ...faceEvidence(digest(bytes)).probe,
-      ...( { features: ["lnum"] } as any ),
+      ...lnumProbeFeatures,
     } })]],
     undefined,
     { fontVariantNumeric: "lining-nums" },
   );
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -598,10 +740,15 @@ test("lining numeric snapshots preserve the server lnum replay contract", async 
   assert.equal(state.loader.release(handle), true);
 });
 
+interface SemanticEntryManifest {
+  entries: unknown[];
+  fontContractEntries?: unknown[];
+}
+
 test("browser font sessions include runtime-only semantic contract entries", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const sourceSha256 = digest(bytes);
-  const manifest = manifestWithFaces([
+  const manifest: SemanticEntryManifest = manifestWithFaces([
     [faceEvidence(sourceSha256)],
     [faceEvidence(sourceSha256, {
       publicUrl: "/assets/semantic-deadbeef.woff2",
@@ -614,8 +761,8 @@ test("browser font sessions include runtime-only semantic contract entries", asy
       },
     })],
   ]);
-  (manifest as any).fontContractEntries = [(manifest as { entries: unknown[] }).entries.pop()];
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  manifest.fontContractEntries = [manifest.entries.pop()];
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -627,10 +774,10 @@ test("browser font sessions include runtime-only semantic contract entries", asy
 test("runtime replay loads and preserves the host render family", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
   const handle = await state.loader.prepare(state.root);
 
-  assert.deepEqual((handle as { renderFontFamilies: string[] }).renderFontFamilies, ["Fixture CJK"]);
+  assert.deepEqual(handle.renderFontFamilies, ["Fixture CJK"]);
   assert.equal(state.renderFaceCreates.length, 0);
   assert.equal(state.renderFaceAdds.length, 0);
   assert.equal(await state.loader.prepareRenderFonts(state.root, handle), true);
@@ -648,7 +795,7 @@ test("live snapshot font contract is required before creating replay state", asy
   const state = harness(manifest, {
     bytes,
     contractResults: [{ matches: false, reason: "SnapshotSourceMismatch" }],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
 
   await assert.rejects(
     state.loader.prepare(state.root),
@@ -662,21 +809,48 @@ test("live snapshot font contract is required before creating replay state", asy
   assert.equal(state.createCalls.length, 0);
 });
 
+interface MutationObserverStub {
+  observe: Thunk<void>;
+  disconnect: Thunk<void>;
+}
+
 interface MutationObserverConstructor {
-  new (callback: () => void): { observe: () => void; disconnect: () => void };
+  new (callback: Thunk<void>): MutationObserverStub;
+}
+
+interface FixtureDefaultView {
+  MutationObserver: MutationObserverConstructor;
+}
+
+type DocumentEventListenerAdder = (name: string, listener: Thunk<void>) => void;
+type DocumentEventListenerRemover = Thunk<void>;
+
+// The harness merges these overrides into its fake document, so the view
+// extends the fixture's declared override shape to stay assignable to it.
+interface FixtureMutationDocumentOverrides extends SnapshotRootDocumentOverrides {
+  readyState: string;
+  defaultView: FixtureDefaultView;
+  addEventListener: DocumentEventListenerAdder;
+  removeEventListener: DocumentEventListenerRemover;
 }
 
 test("parser-time source mismatch retries as soon as the snapshot source becomes complete", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  let mutationCallback: (() => void) | undefined;
+  let mutationCallback: Thunk<void> | undefined;
   class FixtureMutationObserver {
-    constructor(callback: () => void) {
+    constructor(callback: Thunk<void>) {
       mutationCallback = callback;
     }
     observe(): void {}
     disconnect(): void {}
   }
+  const documentOverrides: FixtureMutationDocumentOverrides = {
+    readyState: "loading",
+    defaultView: { MutationObserver: FixtureMutationObserver },
+    addEventListener(): void {},
+    removeEventListener(): void {},
+  };
   const state = harness(manifest, {
     bytes,
     contractResults: [
@@ -685,13 +859,8 @@ test("parser-time source mismatch retries as soon as the snapshot source becomes
       { matches: true, reason: null },
       { matches: true, reason: null },
     ],
-    documentOverrides: {
-      ...( { readyState: "loading" } as any ),
-      defaultView: { MutationObserver: FixtureMutationObserver as unknown as MutationObserverConstructor },
-      addEventListener(): void {},
-      removeEventListener(): void {},
-    },
-  }) as unknown as HarnessState;
+    documentOverrides,
+  }) as HarnessState;
 
   const pending = state.loader.prepare(state.root);
   await new Promise((resolve) => setImmediate(resolve));
@@ -707,11 +876,19 @@ test("parser-time source mismatch retries as soon as the snapshot source becomes
 test("parser completion makes an unresolved source mismatch fail closed", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  let parserComplete: (() => void) | undefined;
+  let parserComplete: Thunk<void> | undefined;
   class FixtureMutationObserver {
     observe(): void {}
     disconnect(): void {}
   }
+  const documentOverrides: FixtureMutationDocumentOverrides = {
+    readyState: "loading",
+    defaultView: { MutationObserver: FixtureMutationObserver },
+    addEventListener(name: string, listener: Thunk<void>): void {
+      if (name === "DOMContentLoaded") parserComplete = listener;
+    },
+    removeEventListener(): void {},
+  };
   const state = harness(manifest, {
     bytes,
     contractResults: [
@@ -719,15 +896,8 @@ test("parser completion makes an unresolved source mismatch fail closed", async 
       { matches: false, reason: "SnapshotSourceMismatch" },
       { matches: false, reason: "SnapshotSourceMismatch" },
     ],
-    documentOverrides: {
-      ...( { readyState: "loading" } as any ),
-      defaultView: { MutationObserver: FixtureMutationObserver as unknown as MutationObserverConstructor },
-      addEventListener(name: string, listener: () => void): void {
-        if (name === "DOMContentLoaded") parserComplete = listener;
-      },
-      removeEventListener(): void {},
-    },
-  }) as unknown as HarnessState;
+    documentOverrides,
+  }) as HarnessState;
 
   const pending = state.loader.prepare(state.root);
   await new Promise((resolve) => setImmediate(resolve));
@@ -751,7 +921,7 @@ test("live snapshot font contract is revalidated after asynchronous font prepara
       { matches: true, reason: null },
       { matches: false, reason: "FontFaceContractMismatch" },
     ],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
 
   await assert.rejects(
     state.loader.prepare(state.root),
@@ -781,7 +951,7 @@ test("SnapshotFontContractMismatch message carries structured suffix for FieldMi
         },
       },
     ],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
   await assert.rejects(
     fieldMismatchState.loader.prepare(fieldMismatchState.root),
     (error: unknown) => {
@@ -806,7 +976,7 @@ test("SnapshotFontContractMismatch message carries structured suffix for FieldMi
         },
       },
     ],
-  }) as unknown as HarnessState;
+  }) as HarnessState;
   await assert.rejects(
     emptyCandidateState.loader.prepare(emptyCandidateState.root),
     (error: unknown) => {
@@ -820,16 +990,21 @@ test("SnapshotFontContractMismatch message carries structured suffix for FieldMi
   );
 });
 
+// The fake document's baseURI is plain data, so the test rewrites it through
+// a writable view instead of the readonly Document property.
+interface MutableBaseUriDocument {
+  baseURI: string;
+}
+
 test("same-document navigation keeps a root-relative font session valid", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  let state: HarnessState;
-  state = harness(manifest, {
+  const state = harness(manifest, {
     bytes,
     mutateSession(session: unknown): void {
-      (state.root.ownerDocument as { baseURI: string }).baseURI = "https://example.test/another/article/";
+      (state.root.ownerDocument as MutableBaseUriDocument | null)!.baseURI = "https://example.test/another/article/";
     },
-  }) as unknown as HarnessState;
+  }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -840,7 +1015,7 @@ test("same-document navigation keeps a root-relative font session valid", async 
 test("an existing font session revalidates live inputs without loading bytes again", async () => {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
   const handle = await state.loader.prepare(state.root);
 
   assert.strictEqual(await state.loader.revalidate(state.root, handle), handle);
@@ -858,7 +1033,7 @@ test("an existing font session revalidates live inputs without loading bytes aga
 
 test("runtime replay trusts captured manifest digests without refetching font bytes", async () => {
   const manifest = manifestWithFaces([[faceEvidence("0".repeat(64))]]);
-  const state = harness(manifest) as unknown as HarnessState;
+  const state = harness(manifest) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
   assert.equal(state.requests.length, 0);
@@ -866,26 +1041,41 @@ test("runtime replay trusts captured manifest digests without refetching font by
   assert.equal(state.loader.release(handle), true);
 });
 
-for (const [name, expectedCode, options] of [
+// View over the harness-created session the mismatch cases mutate before the
+// product loader validates it.
+interface SessionFaceView {
+  sfntSha256: string;
+  family: string;
+  axisTags: string[];
+  localNames: string[];
+}
+
+interface SessionView {
+  faces: SessionFaceView[];
+}
+
+type MismatchCase = [name: string, expectedCode: string, options: Record<string, unknown>];
+
+const mismatchCases: MismatchCase[] = [
   [
     "decompressed sfnt digest",
     "FontSessionFaceMetadataMismatch",
-    { mutateSession: (session: unknown): void => { (session as { faces: Array<{ sfntSha256: string }> }).faces[0].sfntSha256 = "c".repeat(64); } },
+    { mutateSession: (session: unknown): void => { (session as SessionView).faces[0].sfntSha256 = "c".repeat(64); } },
   ],
   [
     "face family metadata",
     "FontSessionFaceMetadataMismatch",
-    { mutateSession: (session: unknown): void => { (session as { faces: Array<{ family: string }> }).faces[0].family = "Wrong Family"; } },
+    { mutateSession: (session: unknown): void => { (session as SessionView).faces[0].family = "Wrong Family"; } },
   ],
   [
     "variable axes",
     "FontSessionFaceMetadataMismatch",
-    { mutateSession: (session: unknown): void => { (session as { faces: Array<{ axisTags: string[] }> }).faces[0].axisTags = []; } },
+    { mutateSession: (session: unknown): void => { (session as SessionView).faces[0].axisTags = []; } },
   ],
   [
     "OpenType local names",
     "FontSessionFaceMetadataMismatch",
-    { mutateSession: (session: unknown): void => { (session as { faces: Array<{ localNames: string[] }> }).faces[0].localNames = ["Wrong Name"]; } },
+    { mutateSession: (session: unknown): void => { (session as SessionView).faces[0].localNames = ["Wrong Name"]; } },
   ],
   [
     "backend revision",
@@ -897,11 +1087,13 @@ for (const [name, expectedCode, options] of [
     "HarfBuzzVersionMismatch",
     { harfbuzzVersion: "other-hb" },
   ],
-] as Array<[string, string, Record<string, unknown>]>) {
+];
+
+for (const [name, expectedCode, options] of mismatchCases) {
   test(`browser font session rejects mismatched ${name} and closes it`, async () => {
     const bytes = new TextEncoder().encode("fixture-font-source");
     const manifest = manifestWithFaces([[faceEvidence(digest(bytes))]]);
-    const state = harness(manifest, { bytes, ...options }) as unknown as HarnessState;
+    const state = harness(manifest, { bytes, ...options }) as HarnessState;
 
     await assert.rejects(state.loader.prepare(state.root), assertCode(expectedCode));
 
@@ -918,7 +1110,7 @@ test("conflicting duplicate face evidence misses before fetching font bytes", as
     [faceEvidence(sourceSha256)],
     [conflicting],
   ]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   await assert.rejects(state.loader.prepare(state.root), assertCode("SnapshotFontEvidenceConflict"));
 
@@ -930,7 +1122,7 @@ test("the shared manifest HarfBuzz version must match the loaded session", async
   const bytes = new TextEncoder().encode("fixture-font-source");
   const evidence = faceEvidence(digest(bytes));
   const manifest = manifestWithFaces([[evidence], [evidence]], ["hb-one", "hb-two"]);
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   await assert.rejects(state.loader.prepare(state.root), assertCode("HarfBuzzVersionMismatch"));
   assert.equal(state.requests.length, 0);
@@ -947,7 +1139,7 @@ test("sourceOrder restores the build face priority before creating the browser s
     publicUrl: "/assets/earlier-deadbeef.woff2",
     sourceOrder: 2,
   });
-  const state = harness(manifestWithFaces([[later], [earlier]]), { bytes }) as unknown as HarnessState;
+  const state = harness(manifestWithFaces([[later], [earlier]]), { bytes }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
 
@@ -972,7 +1164,7 @@ test("duplicate sourceOrder across distinct faces misses before fetching", async
     publicUrl: "/assets/second-deadbeef.woff2",
     sourceOrder: 3,
   });
-  const state = harness(manifestWithFaces([[first], [second]]), { bytes }) as unknown as HarnessState;
+  const state = harness(manifestWithFaces([[first], [second]]), { bytes }) as HarnessState;
 
   await assert.rejects(
     state.loader.prepare(state.root),
@@ -987,7 +1179,7 @@ test("manifest backend revisions must agree with the browser backend", async () 
   const manifest = manifestWithFaces([[faceEvidence(sourceSha256)]], undefined, {}, {
     backendRevision: "stale-backend",
   });
-  const state = harness(manifest, { bytes }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes }) as HarnessState;
 
   await assert.rejects(
     state.loader.prepare(state.root),
@@ -1039,13 +1231,13 @@ test("the default browser session scales server shaping evidence without loading
       valuesEm: [0.8, 0.2, 0, 0.8, 0.2],
     }],
   });
-  const state = harness(manifest, { bytes, useDefaultSession: true }) as unknown as HarnessState;
+  const state = harness(manifest, { bytes, useDefaultSession: true }) as HarnessState;
 
   const handle = await state.loader.prepare(state.root);
   // The default session resolves through the coordination registry, so the
   // callbacks for the prepared handle id address the same replay tables the
   // former handle-based global backend exposed.
-  const { shapeJson, metricsJson } = snapshotSessionCallbacks((handle as { id: string }).id);
+  const { shapeJson, metricsJson } = snapshotSessionCallbacks(handle.id);
   const shapeResponse = JSON.parse(shapeJson(JSON.stringify({
     text: "正文",
     sourceText: "正文",

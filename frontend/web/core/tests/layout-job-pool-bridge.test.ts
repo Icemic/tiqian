@@ -44,7 +44,8 @@ test("layoutJobPoolBridge_installedByScriptImport", () => {
 
 test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-1" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-1" };
+  const root = rootStub as TestRoot & Element;
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
   assert.equal(engine.jobKind(root), null);
@@ -70,14 +71,15 @@ test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
   assert.equal(engine.jobKind(root), null);
-  const rootAsHt = root as unknown as HTMLElement;
+  const rootAsHt = root as TestRoot & HTMLElement;
   assert.equal(engine.runSlice({ root: rootAsHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant", deadline: Date.now(), quota: 16 }, 3), 0);
   engine.detach(root);
 });
 
 test("layoutJobPoolBridge_zeroItemCountFinishesImmediately", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-zero" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-zero" };
+  const root = rootStub as TestRoot & Element;
   const events: string[] = [];
   let finishReport: LayoutJobFinishReport | null = null;
 
@@ -107,7 +109,8 @@ test("layoutJobPoolBridge_zeroItemCountFinishesImmediately", () => {
 
 test("layoutJobPoolBridge_uncoordinatedJobRunsToCompletionSynchronously", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-uncoordinated" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-uncoordinated" };
+  const root = rootStub as TestRoot & Element;
   const tracker: ProcessedTracker = {
     processed: [],
     finished: false,
@@ -141,7 +144,8 @@ test("layoutJobPoolBridge_uncoordinatedJobRunsToCompletionSynchronously", () => 
 
 test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-coord" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-coord" };
+  const root = rootStub as TestRoot & Element;
   const processed: number[] = [];
   let finished = false;
 
@@ -168,7 +172,7 @@ test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
 
   // Mismatched generation returns 0
   const gen = engine.jobGeneration(root);
-  const rootHt = root as unknown as HTMLElement;
+  const rootHt = root as TestRoot & HTMLElement;
   assert.equal(engine.runSlice({ root: rootHt, generation: gen + 999, shouldStop: (): boolean => false, admissionClass: "grant", deadline: Date.now(), quota: 16 }, 3), 0);
 
   // shouldStop always true: processes exactly 1 item per slice
@@ -191,16 +195,20 @@ test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
 
 test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-tier" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-tier" };
+  const root = rootStub as TestRoot & Element;
   const processed: number[] = [];
   let finished = false;
   // 3 items in work order; itemTierIndex maps item index to doc-order index:
   // item 0 -> doc 2, item 1 -> doc 0, item 2 -> doc 1
   const itemTierIndex: number[] = [2, 0, 1];
+  const p0: TestRoot = { id: "p0" };
+  const p1: TestRoot = { id: "p1" };
+  const p2: TestRoot = { id: "p2" };
   const paragraphsByDoc: Element[] = [
-    { id: "p0" } as unknown as Element,
-    { id: "p1" } as unknown as Element,
-    { id: "p2" } as unknown as Element,
+    p0 as TestRoot & Element,
+    p1 as TestRoot & Element,
+    p2 as TestRoot & Element,
   ];
 
   engine.attach(root);
@@ -235,7 +243,7 @@ test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
   assert.equal(engine.pendingInTier(root, 3), 0);
 
   const gen = engine.jobGeneration(root);
-  const rootHt = root as unknown as HTMLElement;
+  const rootHt = root as TestRoot & HTMLElement;
   // minTier = 1 slice: should skip item 0 (doc 2, tier 2) and process item 1 and 2 (doc 0 and 1, tier 1)
   const count1 = engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 1);
   assert.equal(count1, 2);
@@ -258,7 +266,8 @@ test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
 
 test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-stale" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-stale" };
+  const root = rootStub as TestRoot & Element;
   const processed: number[] = [];
   let finished = false;
   let finishReport: LayoutJobFinishReport | null = null;
@@ -281,7 +290,7 @@ test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
   });
 
   const gen = engine.jobGeneration(root);
-  const rootHt = root as unknown as HTMLElement;
+  const rootHt = root as TestRoot & HTMLElement;
   // Process 1 item in slice 1
   engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => true, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
   assert.deepEqual(processed, [0]);
@@ -302,7 +311,8 @@ test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
 
 test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-error" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-error" };
+  const root = rootStub as TestRoot & Element;
   const events: string[] = [];
   let failurePayload: LayoutJobFailureReport | null = null;
 
@@ -325,7 +335,7 @@ test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
   });
 
   const gen = engine.jobGeneration(root);
-  const rootHt = root as unknown as HTMLElement;
+  const rootHt = root as TestRoot & HTMLElement;
   const processed = engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
 
   assert.equal(processed, 1); // 1 item succeeded before error on item 1
@@ -342,7 +352,8 @@ test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
 
 test("layoutJobPoolBridge_attachAndDetachStateTransitions", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-detach" } as unknown as Element;
+  const rootStub: TestRoot = { id: "root-detach" };
+  const root = rootStub as TestRoot & Element;
   const processed: number[] = [];
   let finished = false;
 
@@ -359,7 +370,7 @@ test("layoutJobPoolBridge_attachAndDetachStateTransitions", () => {
   });
 
   const gen = engine.jobGeneration(root);
-  const rootHt = root as unknown as HTMLElement;
+  const rootHt = root as TestRoot & HTMLElement;
   // Run 1 item
   engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => true, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
   assert.deepEqual(processed, [0]);

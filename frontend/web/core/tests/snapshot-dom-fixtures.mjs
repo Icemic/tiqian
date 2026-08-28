@@ -585,13 +585,61 @@ function fixtureComputedStyle(element, _pseudo, overrides = {}) {
     ...overrides,
   };
 }
+// Identity boundary casts between the fake-DOM fixtures and the DOM lib
+// types. Runtime no-ops; the typing lives in the .d.mts boundary so tests
+// never need a double assertion to cross the fake/DOM seam.
+function asElement(fake) {
+  return fake;
+}
+
+function asHTMLElement(fake) {
+  return fake;
+}
+
+function asNode(fake) {
+  return fake;
+}
+
+function asFakeElement(element) {
+  return element;
+}
+
+function asFakeNode(node) {
+  return node;
+}
+
+function asNodeConstructor(constructor) {
+  return constructor;
+}
+
+function emptyDomRectList() {
+  return [];
+}
+
+function asGetComputedStyle(fn) {
+  return fn;
+}
+
+function asDocument(doc) {
+  return doc;
+}
+
 export {
   FakeElement,
   FakeFragment,
   FakeInlineStyle,
   FakeNode,
   FakeText,
+  asDocument,
+  asElement,
+  asFakeElement,
+  asFakeNode,
+  asGetComputedStyle,
+  asHTMLElement,
+  asNode,
+  asNodeConstructor,
   canonicalFixtureNode,
+  emptyDomRectList,
   fixtureComputedStyle,
   matchesSelector,
   sha256,

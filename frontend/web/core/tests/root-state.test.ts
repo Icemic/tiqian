@@ -18,6 +18,8 @@ import type { EnhancedElementContext } from "../core/engine/context/enhance-cont
 import { activeSnapshotSessionDescriptor } from "../core/engine/enhance/snapshot-adoption.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 import type { EnhanceOptions, ResolvedEnhanceOptions } from "../core/engine/lifecycle.js";
+import type { TrackedParagraph } from "../core/engine/enhance/context-state.js";
+import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
 initializeGlobalServices();
 
 
@@ -51,12 +53,14 @@ function restoreGlobals(entries: SavedGlobal[]): void {
   }
 }
 
+type ClosestFn = (selector: string) => FakeElement | null;
+
 interface FakeElementOverrides {
   tagName?: string;
   parent?: FakeElement | null;
   children?: FakeElement[];
   textContent?: string;
-  closestFn?: ((selector: string) => FakeElement | null) | null;
+  closestFn?: ClosestFn | null;
   querySelectorAllResult?: FakeElement[] | null;
   attributes?: Record<string, string>;
 }
@@ -66,7 +70,7 @@ class FakeElement {
   parent: FakeElement | null;
   children: FakeElement[];
   textContent: string;
-  closestFn: ((selector: string) => FakeElement | null) | null;
+  closestFn: ClosestFn | null;
   querySelectorAllResult: FakeElement[] | null;
   attributes: Map<string, string>;
   setAttributeCalls: Array<[string, string]>;
@@ -110,13 +114,26 @@ class FakeElement {
   }
 }
 
+// Bridge alias so the local fake crosses into DOM-typed APIs with a single
+// assertion (the intersection is assignable back to FakeElement).
+type FakeElementAsElement = FakeElement & Element;
+
+interface FakeComputedStyle {
+  getPropertyValue(property: string): string;
+}
+
+type FakeGetComputedStyle = () => FakeComputedStyle;
+
+type Producer<T> = () => T;
+
 // withRootDefaults reads the root's computed font-family; an empty answer
 // makes every family fall back to the built-in default stack.
-function withComputedStyle<T>(fn: () => T): T {
+function withComputedStyle<T>(fn: Producer<T>): T {
   const saved = preserveGlobals(["getComputedStyle"]);
-  (globalThis as Record<string, unknown>).getComputedStyle = (): any => ({
+  const fakeGetComputedStyle: FakeGetComputedStyle = () => ({
     getPropertyValue: (): string => "",
   });
+  (globalThis as Record<string, unknown>).getComputedStyle = fakeGetComputedStyle;
   try {
     return fn();
   } finally {
@@ -124,10 +141,22 @@ function withComputedStyle<T>(fn: () => T): T {
   }
 }
 
+// Paragraph records pushed in these tests only exercise `source`; lowered and
+// lastMeasure stay null placeholders. The nullable widening keeps the real
+// TrackedParagraph assignable, so the stub crosses into pushParagraph with a
+// single assertion.
+interface TrackedParagraphStub {
+  source: Element;
+  lowered: LoweredParagraph | null;
+  lastMeasure: number | null;
+}
+
 test("1. resolveEngineOptions: bag -> optionsFromJs -> snapshot gate -> withRootDefaults; context parts start empty", () => {
   withComputedStyle(() => {
-    const root = new FakeElement({ attributes: { "data-tiqian-snapshot-layout-fallback": "stale" } });
-    const context = createEnhanceContext(root as unknown as Element);
+    const root = new FakeElement({
+      attributes: { "data-tiqian-snapshot-layout-fallback": "stale" },
+    }) as FakeElementAsElement;
+    const context = createEnhanceContext(root);
 
     // Context construction leaves the fallback marker untouched and writes
     // no attributes of its own.
@@ -141,7 +170,7 @@ test("1. resolveEngineOptions: bag -> optionsFromJs -> snapshot gate -> withRoot
     assert.deepEqual(context.diagnosis.issues, []);
 
     // fontSize bag: the snapshot gate routes through withoutSnapshotFontSession.
-    const resolved = context.optionsLedger.resolveEngineOptions(root as unknown as Element, { fontSize: 19 });
+    const resolved = context.optionsLedger.resolveEngineOptions(root, { fontSize: 19 });
     assert.equal(resolved.fontSize, 19);
     assert.equal(resolved.snapshotFontSession, null);
     assert.equal(resolved.fontFamilies.cjk, DEFAULT_CJK_FONT_FAMILY);
@@ -153,7 +182,7 @@ test("1. resolveEngineOptions: bag -> optionsFromJs -> snapshot gate -> withRoot
     // Runtime establishment computes the dash capability evidence and builds
     // the browser fallback bridge (both dissolved from root-state onto the
     // typography part).
-    context.typography.establishRuntime(root as unknown as Element, resolved);
+    context.typography.establishRuntime(root, resolved);
     assert.deepEqual(context.typography.cjkDashCapability, { status: "not-needed", detail: null });
     assert.ok(context.typography.browserFallback != null);
     assert.ok(context.typography.browserFallback.bridge);
@@ -162,19 +191,19 @@ test("1. resolveEngineOptions: bag -> optionsFromJs -> snapshot gate -> withRoot
 
     // All-default bag: the snapshot gate passes straight through, so the
     // withoutSnapshotFontSession path is never taken.
-    const allDefault = context.optionsLedger.resolveEngineOptions(root as unknown as Element, {});
+    const allDefault = context.optionsLedger.resolveEngineOptions(root, {});
     assert.equal(allDefault.snapshotFontSession, null);
 
     // null bag also works.
-    const nullBag = context.optionsLedger.resolveEngineOptions(root as unknown as Element, {});
+    const nullBag = context.optionsLedger.resolveEngineOptions(root, {});
     assert.equal(nullBag.fontSize, null);
   });
 });
 
 test("2. resolveEngineOptionsFromCanonical skips optionsFromJs and the snapshot gate but runs withRootDefaults", () => {
   withComputedStyle(() => {
-    const root = new FakeElement();
-    const context = createEnhanceContext(root as unknown as Element);
+    const root = new FakeElement() as FakeElementAsElement;
+    const context = createEnhanceContext(root);
     const canonical: EnhanceOptions = {
       fontFamilies: { cjk: "CJK", latin: "Latin", monospace: "Mono", cjkSerif: "Serif", latinSerif: "LatinSerif" },
       fontSize: 19,
@@ -188,7 +217,7 @@ test("2. resolveEngineOptionsFromCanonical skips optionsFromJs and the snapshot 
       requireSnapshotLayoutWorker: false,
     };
 
-    const resolved = context.optionsLedger.resolveEngineOptionsFromCanonical(root as unknown as Element, canonical);
+    const resolved = context.optionsLedger.resolveEngineOptionsFromCanonical(root, canonical);
 
     assert.equal(context.element, root);
     // Explicit families pass through unchanged; the snapshot gate is
@@ -198,16 +227,16 @@ test("2. resolveEngineOptionsFromCanonical skips optionsFromJs and the snapshot 
     assert.deepEqual(context.contextState.paragraphs, []);
     assert.deepEqual(context.diagnosis.issues, []);
 
-    context.typography.establishRuntime(root as unknown as Element, resolved);
+    context.typography.establishRuntime(root, resolved);
     assert.deepEqual(context.typography.cjkDashCapability, { status: "not-needed", detail: null });
   });
 });
 
 test("3. snapshot session descriptor: resolved from the canonical options, no fallback attribute", () => {
   withComputedStyle(() => {
-    const root = new FakeElement();
-    const context = createEnhanceContext(root as unknown as Element);
-    const resolved = context.optionsLedger.resolveEngineOptions(root as unknown as Element, {
+    const root = new FakeElement() as FakeElementAsElement;
+    const context = createEnhanceContext(root);
+    const resolved = context.optionsLedger.resolveEngineOptions(root, {
       snapshotFontSession: { status: "conforming", sessionId: "sess-1", detail: null },
     });
 
@@ -229,12 +258,12 @@ test("3. snapshot session descriptor: resolved from the canonical options, no fa
 
 test("4. context cross-section: live arrays, reference push paths", () => {
   withComputedStyle(() => {
-    const root = new FakeElement();
-    const context = createEnhanceContext(root as unknown as Element);
-    const resolved = context.optionsLedger.resolveEngineOptions(root as unknown as Element, {
+    const root = new FakeElement() as FakeElementAsElement;
+    const context = createEnhanceContext(root);
+    const resolved = context.optionsLedger.resolveEngineOptions(root, {
       snapshotFontSession: { status: "conforming", sessionId: "sess-1", detail: null },
     });
-    context.typography.establishRuntime(root as unknown as Element, resolved);
+    context.typography.establishRuntime(root, resolved);
 
     assert.ok(context.typography.browserFallback != null);
     assert.ok(context.typography.browserFallback.bridge);
@@ -250,8 +279,8 @@ test("4. context cross-section: live arrays, reference push paths", () => {
 
     // Tracked paragraphs accumulate through pushParagraph on the context
     // state's live array (the former onParagraphCommitted callback).
-    const item = { source: root as unknown as Element, lowered: null as any, lastMeasure: null as any };
-    context.contextState.pushParagraph(item);
+    const item: TrackedParagraphStub = { source: root, lowered: null, lastMeasure: null };
+    context.contextState.pushParagraph(item as TrackedParagraph);
     assert.equal(context.contextState.paragraphs.length, 1);
     assert.equal(context.contextState.paragraphs[0], item);
   });
@@ -262,9 +291,10 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
     // Work branch: attributes written, the runtime-established flag replaces
     // the former WeakMap presence check, and the observable snapshot count
     // participates in the enhanced count.
-    const rootWork = new FakeElement();
-    const contextWork = createEnhanceContext(rootWork as unknown as Element);
-    contextWork.contextState.pushParagraph({ source: rootWork as unknown as Element, lowered: null as any, lastMeasure: null as any });
+    const rootWork = new FakeElement() as FakeElementAsElement;
+    const contextWork = createEnhanceContext(rootWork);
+    const workParagraph: TrackedParagraphStub = { source: rootWork, lowered: null, lastMeasure: null };
+    contextWork.contextState.pushParagraph(workParagraph as TrackedParagraph);
     rootWork.setAttribute("data-tiqian-snapshot-count", "3");
     contextWork.domWriteLayer.publishState(
       contextWork.contextState.paragraphs.length,
@@ -276,8 +306,8 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
     assert.equal(contextWork.contextState.runtimeEstablished, true);
 
     // keepEmpty: no work but the flag is retained and attributes still write.
-    const rootKeep = new FakeElement();
-    const contextKeep = createEnhanceContext(rootKeep as unknown as Element);
+    const rootKeep = new FakeElement() as FakeElementAsElement;
+    const contextKeep = createEnhanceContext(rootKeep);
     contextKeep.domWriteLayer.publishState(0, 0, true);
     assert.equal(contextKeep.contextState.runtimeEstablished, true);
     assert.equal(rootKeep.getAttribute("data-tiqian-enhanced"), "true");
@@ -292,8 +322,8 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
         "data-tiqian-enhanced-count": "2",
         "data-tiqian-issue-count": "1",
       },
-    });
-    const contextDelete = createEnhanceContext(rootDelete as unknown as Element);
+    }) as FakeElementAsElement;
+    const contextDelete = createEnhanceContext(rootDelete);
     contextDelete.contextState.setRuntimeEstablished(true);
     contextDelete.domWriteLayer.publishState(0, 0);
     assert.equal(contextDelete.contextState.runtimeEstablished, false);
@@ -302,8 +332,8 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
     assert.equal(rootDelete.getAttribute("data-tiqian-issue-count"), null);
 
     // Issue count branch: issues present -> issue-count written.
-    const rootIssue = new FakeElement();
-    const contextIssue = createEnhanceContext(rootIssue as unknown as Element);
+    const rootIssue = new FakeElement() as FakeElementAsElement;
+    const contextIssue = createEnhanceContext(rootIssue);
     contextIssue.diagnosis.issues.push({ name: "MissingSharedRuntimeStyles" });
     contextIssue.domWriteLayer.publishState(
       contextIssue.contextState.paragraphs.length,
@@ -315,24 +345,26 @@ test("5. publishState: work branch, keepEmpty branch, delete branch, snapshot co
 
 test("6. strandedSourceParagraphs: empty paragraphs returns all candidates; rendered sources subtracted", () => {
   withComputedStyle(() => {
-    const c0 = new FakeElement();
+    const c0 = new FakeElement() as FakeElementAsElement;
     const c1 = new FakeElement();
-    const c2 = new FakeElement();
-    const root = new FakeElement({ children: [c0, c1, c2] });
-    const context = createEnhanceContext(root as unknown as Element);
-    context.contextState.setRuntimeOptions(context.optionsLedger.resolveEngineOptions(root as unknown as Element, {}));
+    const c2 = new FakeElement() as FakeElementAsElement;
+    const root = new FakeElement({ children: [c0, c1, c2] }) as FakeElementAsElement;
+    const context = createEnhanceContext(root);
+    context.contextState.setRuntimeOptions(context.optionsLedger.resolveEngineOptions(root, {}));
 
     assert.deepEqual(context.effectSync.strandedSourceParagraphs(), [c0, c1, c2]);
 
-    context.contextState.pushParagraph({ source: c0 as unknown as Element, lowered: null as any, lastMeasure: null as any });
-    context.contextState.pushParagraph({ source: c2 as unknown as Element, lowered: null as any, lastMeasure: null as any });
+    const firstTracked: TrackedParagraphStub = { source: c0, lowered: null, lastMeasure: null };
+    context.contextState.pushParagraph(firstTracked as TrackedParagraph);
+    const secondTracked: TrackedParagraphStub = { source: c2, lowered: null, lastMeasure: null };
+    context.contextState.pushParagraph(secondTracked as TrackedParagraph);
     assert.deepEqual(context.effectSync.strandedSourceParagraphs(), [c1]);
   });
 });
 
 test("7. paragraphCandidates: root-scope and real eligibility filtering", () => {
-  const root = new FakeElement();
-  const context = createEnhanceContext(root as unknown as Element);
+  const root = new FakeElement() as FakeElementAsElement;
+  const context = createEnhanceContext(root);
   const innerEl = new FakeElement({ parent: root });
   const outsideEl = new FakeElement();
   // closest answers the root-scope owner for the root selector and stays null
@@ -354,7 +386,7 @@ test("7. paragraphCandidates: root-scope and real eligibility filtering", () => 
   const p6 = new FakeElement({ parent: root, attributes: { "data-tiqian-skip": "" } });
   root.querySelectorAllResult = [p1, p2, p3, p4, p5, p6];
 
-  const candidates = context.contextState.paragraphCandidates(root as unknown as Element, "p, li");
+  const candidates = context.contextState.paragraphCandidates(root, "p, li");
   assert.deepEqual(candidates, [p1, p2, p3, p5]);
   // p4 is rejected by the root-scope gate (its scope owner is a nested
   // element inside the root); p6 by the real eligibility predicate

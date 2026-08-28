@@ -35,6 +35,7 @@ import type {
   EnhanceOptions,
   ResolvedEnhanceOptions,
 } from "../core/engine/lifecycle.js";
+import type { CoordinationPoolSlot } from "./types.js";
 initializeGlobalServices();
 
 // Minimal node tree for the raw-DOM lifecycle: the commit forwarding captures
