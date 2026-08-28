@@ -16,7 +16,7 @@ import {
   mount,
   preparedValueStyleProperty,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
 
 test("markdownLowering_enhancesSupportedMarkdownInlineParagraphInPlace", async (t) => {
   t.after(cleanupMounted);
@@ -27,10 +27,10 @@ test("markdownLowering_enhancesSupportedMarkdownInlineParagraphInPlace", async (
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(paragraph);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(root.querySelector(".tq-paragraph"), null);
@@ -39,7 +39,7 @@ test("markdownLowering_enhancesSupportedMarkdownInlineParagraphInPlace", async (
   assert.ok(paragraph.querySelector("em"));
   assert.ok(paragraph.querySelector("code"));
   assert.ok(paragraph.querySelector("a.host-link[href='/target/']"));
-  assert.equal(paragraph.style.display, "");
+  assert.equal(paragraph.style.getPropertyValue("display"), "");
   assert.equal(paragraph.getAttribute("data-tq-copy-ignore"), null);
 });
 
@@ -52,10 +52,10 @@ test("markdownLowering_enhancesInlineCodeParagraphWithBrowserResolvedMonospaceFo
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, { fontSize: 18, lineHeight: 30 });
+  const count = TiqianWeb.enhance(root as unknown as Element, { fontSize: 18, lineHeight: 30 });
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.ok(paragraph.querySelector("code"));
@@ -71,9 +71,9 @@ test("markdownLowering_measurableUnknownInlineElementsBecomeOpaqueObjects", asyn
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.querySelectorAll("[data-tq-inline-object]").length, 3);
   assert.ok(paragraph.querySelector("span.badge[data-tq-inline-object]"));
   assert.ok(paragraph.querySelector("img.icon[data-tq-inline-object][alt='icon']"));
@@ -82,7 +82,7 @@ test("markdownLowering_measurableUnknownInlineElementsBecomeOpaqueObjects", asyn
   assert.ok(!paragraph.textContent.includes("￼"));
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
 
-  const objectLine = paragraph.querySelector(".tq-line");
+  const objectLine = paragraph.querySelector(".tq-line")!;
   assert.ok(objectLine);
   assert.ok(cssPx(preparedValueStyleProperty(objectLine, "--tq-line-height")) >= 30);
 });
@@ -96,9 +96,9 @@ test("markdownLowering_paragraphOfOnlyInlineObjectEnhances", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.ok(paragraph.querySelector("svg.only-object[data-tq-inline-object] circle"));
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
@@ -113,9 +113,9 @@ test("markdownLowering_loweringDecidesByTextualFormattingContext", async (t) => 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.ok(paragraph.querySelector("span.host-span[data-tq-source-semantic]"));
   assert.ok(paragraph.querySelector("mark[data-tq-source-semantic]"));
@@ -139,17 +139,17 @@ test("markdownLowering_generatedContentOnSemanticsUsesMeasuredBox", async (t) =>
       <p class="decorated">正文<span class="absolute-decoration">装饰</span>继续。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p.generated");
+  const paragraph = root.querySelector("p.generated")!;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 3);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 3);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
-  const footnote = paragraph.querySelector("a.generated-footnote");
+  const footnote = paragraph.querySelector("a.generated-footnote")!;
   assert.ok(footnote);
   assert.equal(computedPseudoContent(footnote, "::before"), "[");
   assert.equal(computedPseudoContent(footnote, "::after"), "]");
   assert.equal(copySelection(paragraph), "正文1继续。");
-  const plain = root.querySelector("p.plain");
+  const plain = root.querySelector("p.plain")!;
   const generatedWidth = parseFloat(
     paragraph.querySelector(".tq-line")?.getAttribute("data-tq-line-width") ?? "",
   );
@@ -159,7 +159,7 @@ test("markdownLowering_generatedContentOnSemanticsUsesMeasuredBox", async (t) =>
   assert.ok(Number.isFinite(generatedWidth));
   assert.ok(Number.isFinite(plainWidth));
   assert.ok(generatedWidth > plainWidth + 1);
-  const decorated = root.querySelector("p.decorated");
+  const decorated = root.querySelector("p.decorated")!;
   assert.equal(decorated.getAttribute("data-tq-rendered"), "true");
   assert.equal(decorated.getAttribute("data-tiqian-capability-issue"), null);
 });
@@ -173,10 +173,10 @@ test("markdownLowering_rootGeneratedContentKeepsParagraphNative", async (t) => {
       <p class="generated-root">正文保持原生。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -198,10 +198,10 @@ test("markdownLowering_hostInlineBoxEdgesMeasuredIntoLayout", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const code = paragraph.querySelector("code");
   assert.ok(code);
   assert.equal(computedStyleValue(code, "padding-left"), "4px");
@@ -218,9 +218,9 @@ test("markdownLowering_superscriptAndSubscriptParticipateInEnhancement", async (
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.ok(paragraph.querySelector("sup"));
   assert.ok(paragraph.querySelector("sub"));
@@ -242,9 +242,9 @@ test("markdownLowering_superscriptGeneratedContentKeepsUniqueId", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const sup = paragraph.querySelector("sup");
   assert.ok(sup);
   assert.equal(computedStyleValue(sup, "top"), "-5px");
@@ -258,9 +258,9 @@ test("markdownLowering_superscriptGeneratedContentKeepsUniqueId", async (t) => {
   // line's flow width come from the plan and must agree. The inline sup clone
   // re-measures at its own 12px font in the DOM, so the flow-width invariant
   // is asserted on the marker attributes the engine itself declares.
-  const lineMarker = paragraph.querySelector(".tq-line");
-  const declaredWidth = parseFloat(lineMarker.getAttribute("data-tq-line-width"));
-  const flowWidth = parseFloat(lineMarker.getAttribute("data-tq-line-flow-width"));
+  const lineMarker = paragraph.querySelector(".tq-line")!;
+  const declaredWidth = parseFloat(lineMarker.getAttribute("data-tq-line-width") ?? "");
+  const flowWidth = parseFloat(lineMarker.getAttribute("data-tq-line-flow-width") ?? "");
   assert.ok(Number.isFinite(declaredWidth));
   assert.ok(Number.isFinite(flowWidth));
   assert.ok(

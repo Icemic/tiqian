@@ -11,8 +11,10 @@ import {
   dispatchRelayout,
   dispatchTestProgressiveScroll,
   eventDetailInt,
+  FakeEvent,
   grantUnboundedSlice,
   grantWorkerSlice,
+  HostElement,
   loadHostRuntime,
   mount,
   pendingTestAnimationFrameCount,
@@ -22,7 +24,7 @@ import {
   runWorkerJobToCompletion,
   setElementRect,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
 
 test("layoutJobPool_mixedSnapshotProgressReportsObservableTotal", async (t) => {
   t.after(cleanupMounted);
@@ -35,14 +37,14 @@ test("layoutJobPool_mixedSnapshotProgressReportsObservableTotal", async (t) => {
   let readyEnhancedCount = -1;
   let readyRuntimeCount = -1;
   let readySnapshotCount = -1;
-  root.addEventListener("tiqian:ready", (event) => {
+  (root as unknown as HostElement).addEventListener("tiqian:ready", (event: FakeEvent) => {
     readyEnhancedCount = eventDetailInt(event, "enhancedCount");
     readyRuntimeCount = eventDetailInt(event, "runtimeEnhancedCount");
     readySnapshotCount = eventDetailInt(event, "snapshotCount");
   });
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
 
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
   runWorkerJobToCompletion(root);
@@ -51,7 +53,7 @@ test("layoutJobPool_mixedSnapshotProgressReportsObservableTotal", async (t) => {
   assert.equal(readyRuntimeCount, 1);
   assert.equal(readySnapshotCount, 2);
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
   assert.equal(root.getAttribute("data-tiqian-enhanced"), "true");
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "2");
 });
@@ -70,17 +72,17 @@ test("layoutJobPool_longJobCommitsParagraphsAtomicallyAcrossFrames", async (t) =
   });
   let readyCount = 0;
   let stale = false;
-  root.addEventListener("tiqian:ready", (event) => {
+  (root as unknown as HostElement).addEventListener("tiqian:ready", (event: FakeEvent) => {
     readyCount += 1;
     stale = relayoutEventIsStale(event);
   });
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
 
   let progressiveSlices = 0;
   let previousRenderedCount = 0;
-  while (TiqianWeb.workerHasJob(root)) {
+  while (TiqianWeb.workerHasJob(root as unknown as Element)) {
     grantWorkerSlice(root);
     const renderedCount = root.querySelectorAll("p[data-tq-rendered='true']").length;
     assert.ok(renderedCount >= previousRenderedCount);
@@ -88,7 +90,7 @@ test("layoutJobPool_longJobCommitsParagraphsAtomicallyAcrossFrames", async (t) =
       paragraph.firstChild === sourceChildren[index] ||
       paragraph.getAttribute("data-tq-rendered") === "true",
     ), "each paragraph must be either intact source or a complete Tiqian result");
-    if (TiqianWeb.workerHasJob(root)) {
+    if (TiqianWeb.workerHasJob(root as unknown as Element)) {
       progressiveSlices += 1;
       assert.ok(renderedCount >= 1 && renderedCount < paragraphs.length);
       assert.equal(root.getAttribute("data-tiqian-enhanced-count"), String(renderedCount));
@@ -118,7 +120,7 @@ test("layoutJobPool_viewportParagraphsCommitFirst", async (t) => {
   setElementRect(paragraphs[paragraphs.length - 1], 0, 180);
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   grantWorkerSlice(root);
 
   assert.equal(paragraphs[paragraphs.length - 1].getAttribute("data-tq-rendered"), "true");
@@ -135,11 +137,11 @@ test("layoutJobPool_handledScrollDoesNotDelayCommits", async (t) => {
       <p>已处理的滚动不能再人为冻结可见段落提交。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   setElementRect(paragraph, 0, 180);
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   dispatchTestProgressiveScroll();
   grantWorkerSlice(root);
 
@@ -160,15 +162,15 @@ test("layoutJobPool_staleFinishPreservesCommittedParagraphs", async (t) => {
   });
   let readyCount = 0;
   let stale = false;
-  root.addEventListener("tiqian:ready", (event) => {
+  (root as unknown as HostElement).addEventListener("tiqian:ready", (event: FakeEvent) => {
     readyCount += 1;
     stale = relayoutEventIsStale(event);
   });
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   grantWorkerSlice(root);
-  root.style.width = "120px";
+  root.style.setProperty("width", "120px");
   runWorkerJobToCompletion(root);
 
   const renderedCount = root.querySelectorAll("p[data-tq-rendered='true']").length;
@@ -180,7 +182,7 @@ test("layoutJobPool_staleFinishPreservesCommittedParagraphs", async (t) => {
   assert.equal(readyCount, 1);
   assert.equal(stale, true);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   runWorkerJobToCompletion(root);
 
   assert.equal(root.querySelectorAll("p[data-tq-rendered='true']").length, 18);
@@ -198,14 +200,14 @@ test("layoutJobPool_relayoutDuringInitialWorkRestartsCleanly", async (t) => {
     </div>
   `);
   let readyCount = 0;
-  root.addEventListener("tiqian:ready", () => {
+  (root as unknown as HostElement).addEventListener("tiqian:ready", () => {
     readyCount += 1;
   });
   TiqianWeb.install();
   attachWorker(root);
 
-  TiqianWeb.enhanceProgressively(root, testOptions());
-  root.style.width = "120px";
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
+  root.style.setProperty("width", "120px");
   dispatchRelayout(root);
 
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
@@ -225,26 +227,26 @@ test("layoutJobPool_newerRelayoutSupersedesPendingWork", async (t) => {
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
   const expectedRoot = mount(`<div data-tiqian-root='true' style='width: 100px'>${markup}</div>`);
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 10);
-  assert.equal(TiqianWeb.enhance(expectedRoot, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(expectedRoot as unknown as Element, testOptions()), 10);
   const paragraphs = root.querySelectorAll("p");
   const initialChildren = paragraphs.map((paragraph) => {
     assert.ok(paragraph.firstChild);
     return paragraph.firstChild;
   });
   const initial = renderedLineSignature(paragraphs[0]);
-  const expected = renderedLineSignature(expectedRoot.querySelector("p"));
+  const expected = renderedLineSignature(expectedRoot.querySelector("p")!);
   assert.notEqual(initial, expected);
   let relayoutReadyCount = 0;
-  root.addEventListener("tiqian:relayout-ready", () => {
+  (root as unknown as HostElement).addEventListener("tiqian:relayout-ready", () => {
     relayoutReadyCount += 1;
   });
 
   attachWorker(root);
-  root.style.width = "180px";
+  root.style.setProperty("width", "180px");
   dispatchRelayout(root);
   grantWorkerSlice(root);
-  root.style.width = "100px";
+  root.style.setProperty("width", "100px");
   dispatchRelayout(root);
 
   const replacedAtLatestWidth = paragraphs.filter((p, i) => p.firstChild !== initialChildren[i]).length;
@@ -268,7 +270,7 @@ test("layoutJobPool_relayoutSwapsDomAtomicallyWithoutFrameDelay", async (t) => {
     "</div>",
   );
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 2);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 2);
   const first = root.querySelectorAll("p")[0];
   const second = root.querySelectorAll("p")[1];
   const firstRenderedChild = first.firstChild;
@@ -276,11 +278,11 @@ test("layoutJobPool_relayoutSwapsDomAtomicallyWithoutFrameDelay", async (t) => {
   assert.ok(firstRenderedChild != null);
   assert.ok(secondRenderedChild != null);
   let relayoutReadyCount = 0;
-  root.addEventListener("tiqian:relayout-ready", () => {
+  (root as unknown as HostElement).addEventListener("tiqian:relayout-ready", () => {
     relayoutReadyCount += 1;
   });
 
-  root.style.width = "120px";
+  root.style.setProperty("width", "120px");
   dispatchRelayout(root);
 
   assert.ok(first.firstChild !== firstRenderedChild);
@@ -303,19 +305,19 @@ test("layoutJobPool_longRelayoutYieldsBetweenAtomicCommits", async (t) => {
   ).join("");
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 18);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 18);
   const paragraphs = root.querySelectorAll("p");
   const previousChildren = paragraphs.map((paragraph) => {
     assert.ok(paragraph.firstChild);
     return paragraph.firstChild;
   });
   let relayoutReadyCount = 0;
-  root.addEventListener("tiqian:relayout-ready", () => {
+  (root as unknown as HostElement).addEventListener("tiqian:relayout-ready", () => {
     relayoutReadyCount += 1;
   });
 
   attachWorker(root);
-  root.style.width = "120px";
+  root.style.setProperty("width", "120px");
   dispatchRelayout(root);
   grantWorkerSlice(root);
 
@@ -324,11 +326,11 @@ test("layoutJobPool_longRelayoutYieldsBetweenAtomicCommits", async (t) => {
 
   let progressiveSlices = 0;
   let previousUpdatedCount = committedBeforeAnyFrame;
-  while (TiqianWeb.workerHasJob(root)) {
+  while (TiqianWeb.workerHasJob(root as unknown as Element)) {
     grantWorkerSlice(root);
     const updatedCount = paragraphs.filter((p, i) => p.firstChild !== previousChildren[i]).length;
     assert.ok(updatedCount >= previousUpdatedCount);
-    if (TiqianWeb.workerHasJob(root)) {
+    if (TiqianWeb.workerHasJob(root as unknown as Element)) {
       progressiveSlices += 1;
       assert.ok(updatedCount >= 1 && updatedCount < paragraphs.length);
       assert.equal(relayoutReadyCount, 0);
@@ -348,19 +350,19 @@ test("layoutJobPool_tierGatedParagraphKeepsJobOpen", async (t) => {
   const markup = Array.from({ length: 3 }, () => `<p>${source}</p>`).join("");
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 3);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 3);
   const paragraphs = root.querySelectorAll("p");
   const wideSignatures = paragraphs.map((p) => renderedLineSignature(p));
   let relayoutReadyCount = 0;
   let staleReadyCount = 0;
-  root.addEventListener("tiqian:relayout-ready", (event) => {
+  (root as unknown as HostElement).addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
     relayoutReadyCount += 1;
     if (relayoutEventIsStale(event)) staleReadyCount += 1;
   });
 
   attachWorker(root);
 
-  root.style.width = "120px";
+  root.style.setProperty("width", "120px");
   dispatchRelayout(root);
   runWorkerJobToCompletion(root);
   assert.equal(relayoutReadyCount, 1);
@@ -370,26 +372,26 @@ test("layoutJobPool_tierGatedParagraphKeepsJobOpen", async (t) => {
   });
   assert.ok(paragraphs.every((p, i) => renderedLineSignature(p) !== wideSignatures[i]));
 
-  root.style.width = "320px";
+  root.style.setProperty("width", "320px");
   dispatchRelayout(root);
-  assert.equal(TiqianWeb.workerSetParagraphTier(root, 1, 3), true);
+  assert.equal(TiqianWeb.workerSetParagraphTier(root as unknown as Element, 1, 3), true);
 
   const committed = grantUnboundedSlice(root, 1);
   assert.equal(committed, 2);
 
   assert.ok(
-    TiqianWeb.workerHasJob(root),
+    TiqianWeb.workerHasJob(root as unknown as Element),
     "a tier-gated paragraph must keep its job open instead of being abandoned as finished",
   );
   assert.equal(staleReadyCount, 0);
   assert.equal(relayoutReadyCount, 1);
-  assert.equal(TiqianWeb.workerPendingInTier(root, 3), 1);
+  assert.equal(TiqianWeb.workerPendingInTier(root as unknown as Element, 3), 1);
   assert.ok(paragraphs[1].firstChild === narrowChildren[1]);
   assert.ok(paragraphs[0].firstChild !== narrowChildren[0]);
   assert.ok(paragraphs[2].firstChild !== narrowChildren[2]);
 
   grantUnboundedSlice(root, 3);
-  assert.equal(TiqianWeb.workerHasJob(root), false);
+  assert.equal(TiqianWeb.workerHasJob(root as unknown as Element), false);
   assert.equal(relayoutReadyCount, 2);
   assert.equal(staleReadyCount, 0);
   assert.ok(paragraphs[1].firstChild !== narrowChildren[1]);
@@ -406,21 +408,21 @@ test("layoutJobPool_widthDependentCapabilityRetryRestartsFromNative", async (t) 
       <p class="plain">普通段落在 capability retry 时不能跨帧暴露原生正文。</p>
     </div>
   `);
-  const cloneParagraph = root.querySelector("p.clone");
-  const plainParagraph = root.querySelector("p.plain");
+  const cloneParagraph = root.querySelector("p.clone")!;
+  const plainParagraph = root.querySelector("p.plain")!;
   const originalHtml = cloneParagraph.innerHTML;
   let relayoutReadyCount = 0;
-  root.addEventListener("tiqian:relayout-ready", () => {
+  (root as unknown as HostElement).addEventListener("tiqian:relayout-ready", () => {
     relayoutReadyCount += 1;
   });
   TiqianWeb.install();
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 2);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 2);
   assert.equal(cloneParagraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(plainParagraph.getAttribute("data-tq-rendered"), "true");
 
   attachWorker(root);
-  root.style.width = "90px";
+  root.style.setProperty("width", "90px");
   dispatchRelayout(root);
   runWorkerJobToCompletion(root);
 
@@ -436,7 +438,7 @@ test("layoutJobPool_widthDependentCapabilityRetryRestartsFromNative", async (t) 
   const narrowRenderedChild = plainParagraph.firstChild;
   assert.ok(narrowRenderedChild != null);
 
-  root.style.width = "520px";
+  root.style.setProperty("width", "520px");
   dispatchRelayout(root);
 
   assert.equal(relayoutReadyCount, 1);

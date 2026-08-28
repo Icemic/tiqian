@@ -4,7 +4,7 @@
 // prepared DOM bridge, per-run browser fallback, worker plan replay and the
 // quote feature locks.
 
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertEnginePunctuationFeatureLock,
@@ -27,20 +27,20 @@ import {
   mount,
   preparedValueStyleProperty,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
 
-function curlyQuoteCount(text) {
+function curlyQuoteCount(text: string): number {
   let count = 0;
   for (const ch of text) {
-    if (ch === "‘" || ch === "’" || ch === "“" || ch === "”") count += 1;
+    if (ch === '\u2018' || ch === '\u2019' || ch === '\u201C' || ch === '\u201D') count += 1;
   }
   return count;
 }
 
-function quoteRangeCount(text) {
+function quoteRangeCount(text: string): number {
   let count = 0;
   for (const ch of text) {
-    if (ch >= "‘" && ch <= "”") count += 1;
+    if (ch >= '\u2018' && ch <= '\u201D') count += 1;
   }
   return count;
 }
@@ -48,16 +48,16 @@ function quoteRangeCount(text) {
 test("snapshotSession_canonicalPreparedParagraphFallsBackIntoRuntimeCleanly", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
-  const source = "甲’乙\n丙";
+  const source = "甲\u2019乙\n丙";
   const root = mount(`
     <div data-tiqian-root="true" style="width: 180px; font-size: 18px; line-height: 30px">
-      <p data-tq-rendered="true" data-tq-canonical-plain="true" data-tq-canonical-source="true"><span data-tq-geometry="true">甲</span><span data-tq-src="’" data-tq-geometry="true">＇</span><br data-tq-engine-break="AutoWrap"><span data-tq-geometry="true">乙</span><span data-tq-src="&#10;" data-tq-hard-break="true"></span><br data-tq-engine-break="MandatoryBreak"><span data-tq-geometry="true">丙</span></p>
+      <p data-tq-rendered="true" data-tq-canonical-plain="true" data-tq-canonical-source="true"><span data-tq-geometry="true">甲</span><span data-tq-src="\u2019" data-tq-geometry="true">\uFF07</span><br data-tq-engine-break="AutoWrap"><span data-tq-geometry="true">乙</span><span data-tq-src="&#10;" data-tq-hard-break="true"></span><br data-tq-engine-break="MandatoryBreak"><span data-tq-geometry="true">丙</span></p>
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(copySelection(paragraph), source);
 });
@@ -78,10 +78,10 @@ test("snapshotSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", asy
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element), 1);
 
-  const paragraph = root.querySelector("#prepared-fallback");
-  const line = paragraph.querySelector(":scope > .tq-line");
+  const paragraph = root.querySelector("#prepared-fallback")!;
+  const line = paragraph.querySelector(":scope > .tq-line")!;
   assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 30);
   assert.equal(copySelection(paragraph), "第一行正文第二行正文");
 });
@@ -98,17 +98,17 @@ test("snapshotSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridg
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
   assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
   assertEnginePunctuationFeatureLock(paragraph);
-  const line = paragraph.querySelector(".tq-line");
+  const line = paragraph.querySelector(".tq-line")!;
   assert.ok(line, paragraph.innerHTML);
   assert.ok(cssPx(preparedValueStyleProperty(line, "--tq-line-height")) > 0, paragraph.innerHTML);
 });
@@ -124,10 +124,10 @@ test("snapshotSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) 
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontShapeCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.ok(paragraph.querySelector("a[href='/more']"));
@@ -148,9 +148,9 @@ test("snapshotSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => 
   `);
   const options = { ...snapshotTestOptions(), paragraphSelector: "p" };
 
-  assert.equal(TiqianWeb.enhance(root, options), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(
     paragraph.querySelectorAll(
       ":scope > span[data-tq-geometry]:not(.tq-line):not([data-tq-line-end-sentinel])",
@@ -172,9 +172,9 @@ test("snapshotSession_unsupportedFontRunFallsBackPerRunNotPerParagraph", async (
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontShapeCount() > 0);
   assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
@@ -196,11 +196,11 @@ test("snapshotSession_workerReplayMissFallsBackOnlyForRichRun", async (t) => {
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root, { ...snapshotTestOptions(), requireSnapshotLayoutWorker: true }),
+    TiqianWeb.enhance(root as unknown as Element, { ...snapshotTestOptions(), requireSnapshotLayoutWorker: true }),
     1,
   );
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
@@ -219,9 +219,9 @@ test("snapshotSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (
       <p style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">正文<spoiler style="box-decoration-break: slice; padding-left: 4px; padding-right: 4px"><em>秘密</em></spoiler>继续。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const enhanced = TiqianWeb.enhance(
-    root,
+    root as unknown as Element,
     {
       ...snapshotTestOptions(),
       paragraphSelector: "p:not([data-tq-snapshot-key])",
@@ -270,9 +270,9 @@ test("snapshotSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async 
   // whose snapshot session fails one run retries the whole paragraph with
   // browser metrics; the dash run then fails closed when the dash capability
   // is non-conforming, and the paragraph stays native.
-  assert.equal(TiqianWeb.enhance(root, options), 0);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 0);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontFallbackCount() > 0);
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), null);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -296,13 +296,13 @@ test("snapshotSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 2);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 2);
 
   const paragraphs = root.querySelectorAll("p");
   const snapshotParagraph = paragraphs[0];
   const fallbackParagraph = paragraphs[1];
-  const snapshotLine = snapshotParagraph.querySelector(".tq-line");
-  const fallbackLine = fallbackParagraph.querySelector(".tq-line");
+  const snapshotLine = snapshotParagraph.querySelector(".tq-line")!;
+  const fallbackLine = fallbackParagraph.querySelector(".tq-line")!;
   assert.ok(snapshotFontFallbackCount() > 0);
   // The declared line height stays shared; since the Slice 4a whole-paragraph
   // browser retry (ADR 0053) the fallback paragraph's baseline metrics come
@@ -327,20 +327,20 @@ test("snapshotSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (
   installSnapshotFontSessionFixture({ failShaping: false });
   const root = mount(`
     <div data-tiqian-root="true" style="width: 220px">
-      <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">that’s James’ ’90s</p>
+      <p data-tq-snapshot-key="plain" style="font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px">that\u2019s James\u2019 \u201990s</p>
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const featureRuns = paragraph.querySelectorAll(
     "span[data-tq-open-type-features='pwid,palt']",
   );
   assert.ok(featureRuns.length > 0, paragraph.innerHTML);
   assert.ok(
-    Array.from(featureRuns).some((run) => run.textContent.includes("’")),
+    Array.from(featureRuns).some((run) => run.textContent.includes('\u2019')),
     paragraph.innerHTML,
   );
 });
@@ -348,7 +348,7 @@ test("snapshotSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (
 test("snapshotSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
-  const source = "that’s；（如 ‘O’, ‘Q’）";
+  const source = "that\u2019s\uFF1B\uFF08如 \u2018O\u2019, \u2018Q\u2019\uFF09";
   const root = mount(`
     <div data-tiqian-root="true" style="width: 500px">
       ${enginePunctuationFeatureStyle}
@@ -356,9 +356,9 @@ test("snapshotSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures",
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const featureRuns = paragraph.querySelectorAll(
     "span[data-tq-open-type-features='pwid,palt']",
   );
@@ -376,14 +376,14 @@ test("snapshotSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
   const cases = [
-    { source: "中“文”中", proportionalQuoteCount: 0 },
-    { source: "便延伸出了“乃子”“大波”“大灯”“大雷”“大扎”“对A”“波霸”这些词", proportionalQuoteCount: 0 },
-    { source: "这些太直白了是吧， “欧派”“double”“double may”呢", proportionalQuoteCount: 0 },
-    { source: "“Hello”", proportionalQuoteCount: 2 },
-    { source: "that’s James’ ’90s", proportionalQuoteCount: 3 },
-    { source: "中文 ‘don’t’", proportionalQuoteCount: 3 },
-    { source: "他说：“She said ‘hello’.”", proportionalQuoteCount: 2 },
-    { source: "中文 ‘don’t’", html: "中文 <strong>‘don’t’</strong>", proportionalQuoteCount: 3 },
+    { source: "中\u201C文\u201D中", proportionalQuoteCount: 0 },
+    { source: "便延伸出了\u201C乃子\u201D\u201C大波\u201D\u201C大灯\u201D\u201C大雷\u201D\u201C大扎\u201D\u201C对A\u201D\u201C波霸\u201D这些词", proportionalQuoteCount: 0 },
+    { source: "这些太直白了是吧， \u201C欧派\u201D\u201Cdouble\u201D\u201Cdouble may\u201D呢", proportionalQuoteCount: 0 },
+    { source: "\u201CHello\u201D", proportionalQuoteCount: 2 },
+    { source: "that\u2019s James\u2019 \u201990s", proportionalQuoteCount: 3 },
+    { source: "中文 \u2018don\u2019t\u2019", proportionalQuoteCount: 3 },
+    { source: "他说：\u201CShe said \u2018hello\u2019.\u201D", proportionalQuoteCount: 2 },
+    { source: "中文 \u2018don\u2019t\u2019", html: "中文 <strong>\u2018don\u2019t\u2019</strong>", proportionalQuoteCount: 3 },
   ];
   const root = mount(
     "<div data-tiqian-root='true' style='width: 520px'>" +
@@ -392,12 +392,12 @@ test("snapshotSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t
   );
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), cases.length);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), cases.length);
 
   const assertCases = () => {
     const paragraphs = root.querySelectorAll("p");
-    for (const [index, testCase] of cases.entries()) {
-      const paragraph = paragraphs[index];
+    for (const [index, testCase] of Array.from(cases.entries())) {
+      const paragraph = paragraphs[index]!;
       const featureRuns = paragraph.querySelectorAll(
         "span[data-tq-open-type-features='pwid,palt']",
       );
@@ -412,7 +412,7 @@ test("snapshotSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t
   assertCases();
 
   installTestAnimationFrames();
-  root.style.width = "180px";
+  root.style.setProperty("width", "180px");
   dispatchRelayout(root);
   flushAllTestAnimationFrames();
   assertCases();
@@ -429,10 +429,10 @@ test("snapshotSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, snapshotTestOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
   assert.ok(paragraph.querySelector(".tq-line"));
@@ -450,10 +450,10 @@ test("snapshotSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t)
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, { ...snapshotTestOptions(), fontSize: 24 });
+  const count = TiqianWeb.enhance(root as unknown as Element, { ...snapshotTestOptions(), fontSize: 24 });
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-canonical-plain"), "true");
   assert.ok(paragraph.querySelector(".tq-line[data-tq-line-flow-width]"));
   assert.ok(paragraph.querySelector(".tq-line"));
@@ -468,11 +468,11 @@ test("snapshotSession_dashParagraphNativeWithoutVerifiableFontSource", async (t)
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 0);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.textContent.includes("中文——中文。"));
-  assert.ok(!paragraph.textContent.includes("⸺"));
+  assert.ok(!paragraph.textContent.includes('\u2E3A'));
   assert.equal(
     paragraph.getAttribute("data-tiqian-capability-issue"),
     "NoConformingCjkDashGlyph",
@@ -495,9 +495,9 @@ test("snapshotSession_conformingDashEvidenceWithoutSnapshotSessionReportsMissing
     },
   };
 
-  assert.equal(TiqianWeb.enhance(root, options), 0);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 0);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(
     paragraph.getAttribute("data-tiqian-capability-issue"),
     "ConformingCjkDashRequiresSnapshotFontSession",

@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
+
 import {
   cleanupMounted,
   computedStyleValue,
@@ -11,7 +13,7 @@ import {
   mount,
   preparedValueStyleProperty,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
 
 const enginePunctuationFeatureStyle = `
   <style>
@@ -24,31 +26,31 @@ const enginePunctuationFeatureStyle = `
   </style>
 `;
 
-function lastTextLeaf(paragraph) {
+function lastTextLeaf(paragraph: FakeElement) {
   const leaves = Array.from(paragraph.querySelectorAll("[data-tq-geometry]"))
-    .filter((element) => !element.classList.contains("tq-line") && element.textContent.length > 0);
+    .filter((element) => !(element as FakeElement & { classList: { contains(name: string): boolean } }).classList.contains("tq-line") && element.textContent.length > 0);
   return leaves.length === 0 ? null : leaves[leaves.length - 1];
 }
 
-function geometryLeafWithText(paragraph, text) {
+function geometryLeafWithText(paragraph: FakeElement, text: string) {
   return Array.from(paragraph.querySelectorAll("[data-tq-geometry]"))
     .find((element) => element.textContent === text) || null;
 }
 
-function textNodeCharacterWidths(element) {
+function textNodeCharacterWidths(element: FakeElement) {
   const node = element.firstChild;
   if (!node || node.nodeType !== 3) return "";
   const widths = [];
-  for (let index = 0; index < node.data.length; index += 1) {
+  for (let index = 0; index < node.textContent.length; index += 1) {
     const range = globalThis.document.createRange();
-    range.setStart(node, index);
-    range.setEnd(node, index + 1);
+    range.setStart(node as unknown as Node, index);
+    range.setEnd(node as unknown as Node, index + 1);
     widths.push(range.getBoundingClientRect().width);
   }
   return widths.join(",");
 }
 
-function assertEnginePunctuationFeatureLock(element, proportionalQuote = false) {
+function assertEnginePunctuationFeatureLock(element: FakeElement, proportionalQuote = false) {
   const features = computedStyleValue(element, "font-feature-settings");
   assert.ok(/["']halt["']\s+0/.test(features), features);
   assert.ok(/["']chws["']\s+0/.test(features), features);
@@ -68,7 +70,7 @@ test("rendererSourceFidelity_expandsCjkContextCurlyQuotesButKeepsLatinPairsPropo
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root), 2);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element), 2);
 
   const cjk = root.querySelector(".cjk-quotes[data-tq-source-semantic]");
   const latin = root.querySelector(".latin-quotes[data-tq-source-semantic]");
@@ -92,12 +94,12 @@ test("rendererSourceFidelity_preservesOneNativeLinkAcrossEngineOwnedLines", asyn
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
 
   assert.equal(count, 1);
   const links = root.querySelectorAll("p a.host-link[href='/target/']");
   assert.equal(links.length, 1, "one source link must remain one DOM link across soft wraps");
-  const link = links.item(0);
+  const link = links[0];
   assert.equal(link.parentElement, root.querySelector("p"), "top-level source link must stay a direct child");
   assert.equal(link.getAttribute("target"), "_self");
   assert.equal(link.getAttribute("rel"), "author");
@@ -109,10 +111,10 @@ test("rendererSourceFidelity_preservesOneNativeLinkAcrossEngineOwnedLines", asyn
   assert.ok(link.querySelectorAll("br[data-tq-engine-break]").length > 1);
   assert.equal(link.textContent, "一段足够长而且确定会跨过许多视觉行的链接文字");
 
-  TiqianWeb.refresh(root, false);
+  TiqianWeb.refresh(root as unknown as Element, false);
   const refreshedLinks = root.querySelectorAll("p a.host-link[href='/target/']");
   assert.equal(refreshedLinks.length, 1);
-  assert.equal(refreshedLinks.item(0).getAttribute("data-tq-link-group"), null);
+  assert.equal(refreshedLinks[0].getAttribute("data-tq-link-group"), null);
 });
 
 test("rendererSourceFidelity_keepsOneLinkAcrossConsecutiveEmptyHardBreakLines", async (t) => {
@@ -124,12 +126,12 @@ test("rendererSourceFidelity_keepsOneLinkAcrossConsecutiveEmptyHardBreakLines", 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const links = paragraph.querySelectorAll("a.host-link[href='/target/']");
   assert.equal(links.length, 1);
-  const link = links.item(0);
+  const link = links[0];
   assert.equal(link.querySelectorAll("[data-tq-hard-break]").length, 2);
   assert.equal(link.querySelectorAll("br[data-tq-engine-break='MandatoryBreak']").length, 2);
   assert.equal(copySelection(paragraph), "甲\n\n乙");
@@ -144,14 +146,14 @@ test("rendererSourceFidelity_keepsSemanticLinkContinuousAcrossGeometryFragments"
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const links = paragraph.querySelectorAll("a.host-link[href='/pull/4479']");
   assert.equal(links.length, 1, "one source link must stay one semantic wrapper per line");
-  const link = links.item(0);
+  const link = links[0];
   assert.equal(copySelection(link), "添加windows-reactor的PR");
-  assert.ok(link.children.length > 1, "geometry fragments should live inside the host link");
+  assert.ok((link as unknown as { children: FakeElement[] }).children.length > 1, "geometry fragments should live inside the host link");
 });
 
 test("rendererSourceFidelity_keepsInlineBoxAsOneNativeElementAcrossEngineLines", async (t) => {
@@ -163,11 +165,11 @@ test("rendererSourceFidelity_keepsInlineBoxAsOneNativeElementAcrossEngineLines",
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
   const inline = root.querySelectorAll("p spoiler");
   assert.equal(inline.length, 1);
-  const spoiler = inline.item(0);
+  const spoiler = inline[0];
   assert.ok(spoiler.querySelectorAll("br[data-tq-engine-break]").length > 1);
   assert.equal(computedStyleValue(spoiler, "padding-left"), "4px");
   assert.equal(computedStyleValue(spoiler, "padding-right"), "4px");
@@ -192,9 +194,9 @@ test("rendererSourceFidelity_engineGeometrySpansAreNeutralToHostSpanRules", asyn
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.querySelector(".tq-flow"), null);
   const run = paragraph.querySelector(":scope > [data-tq-geometry]:not(.tq-line)");
   assert.ok(run);
@@ -225,11 +227,11 @@ test("rendererSourceFidelity_engineAnnotationsAreNeutralToHostSpanAndSvgRules", 
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root, { ...testOptions(), strongAsEmphasisMarks: true }),
+    TiqianWeb.enhance(root as unknown as Element, { ...testOptions(), strongAsEmphasisMarks: true }),
     1,
   );
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const svg = paragraph.querySelector("svg[data-tq-geometry]");
   const circle = paragraph.querySelector("circle");
   assert.ok(svg);
@@ -247,13 +249,13 @@ test("rendererSourceFidelity_emitsFinalAndLatinAdjacentPunctuationSpacingWithout
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const lines = paragraph.querySelectorAll(".tq-line");
   assert.ok(lines.length > 1);
   for (let index = 0; index < lines.length; index += 1) {
-    const line = lines.item(index);
+    const line = lines[index];
     assert.ok(preparedValueStyleProperty(line, "--tq-line-height").length > 0);
     assert.ok(preparedValueStyleProperty(line, "--tq-line-baseline-offset").length > 0);
     assert.equal(line.style.getPropertyValue("display"), "");
@@ -290,9 +292,9 @@ test("rendererSourceFidelity_browserPunctuationTrimDoesNotDoubleCompressClosingC
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const closingCommaRun = geometryLeafWithText(paragraph, "」、");
   assert.ok(closingCommaRun);
   assert.equal(computedStyleValue(closingCommaRun, "text-spacing-trim"), "space-all");

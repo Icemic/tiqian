@@ -21,7 +21,8 @@ import {
   renderedLineSignature,
   selectionCoversElement,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
 test("rendererOutput_plainFlowUsesTextNodesUntilGeometryNeedsSpan", async (t) => {
   t.after(cleanupMounted);
@@ -29,11 +30,11 @@ test("rendererOutput_plainFlowUsesTextNodesUntilGeometryNeedsSpan", async (t) =>
   const source = "很长时间没写";
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'><p>${source}</p></div>`);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(directTextContent(paragraph), source, paragraph.innerHTML);
-  const selectionEnd = paragraph.querySelector("span[data-tq-selection-end='true']");
+  const selectionEnd = paragraph.querySelector("span[data-tq-selection-end='true']")!;
   assert.ok(selectionEnd);
   assert.equal(selectionEnd.textContent, "​");
   assert.equal(selectionEnd.getAttribute("data-tq-copy-ignore"), "true");
@@ -43,7 +44,7 @@ test("rendererOutput_plainFlowUsesTextNodesUntilGeometryNeedsSpan", async (t) =>
   ).length, 0);
   const generated = paragraph.querySelectorAll("[data-tq-geometry][style]");
   for (let index = 0; index < generated.length; index += 1) {
-    const style = generated.item(index)?.getAttribute("style") ?? "";
+    const style = generated[index]?.getAttribute("style") ?? "";
     assert.ok(!style.includes("all:"), style);
     assert.ok(!style.includes("text-spacing-trim:"), style);
   }
@@ -63,11 +64,11 @@ test("rendererOutput_longInlineCodeTokenUsesEmergencyBreaksWithoutOverflow", asy
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
-  const code = paragraph.querySelector("code");
+  const code = paragraph.querySelector("code")!;
   assert.ok(code);
   assert.equal(paragraph.querySelectorAll("code").length, 1);
   assert.equal(computedStyleValue(code, "box-decoration-break"), "slice");
@@ -75,8 +76,8 @@ test("rendererOutput_longInlineCodeTokenUsesEmergencyBreaksWithoutOverflow", asy
   assert.equal(code.getAttribute("data-tq-inline-open-end"), null);
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1, "Expected more than 1 tq-line");
   assert.ok(
-    paragraph.scrollWidth <= paragraph.clientWidth + 1,
-    `scrollWidth ${paragraph.scrollWidth} should be <= clientWidth ${paragraph.clientWidth} + 1`,
+    (paragraph as unknown as Element).scrollWidth <= (paragraph as unknown as Element).clientWidth + 1,
+    `scrollWidth ${(paragraph as unknown as Element).scrollWidth} should be <= clientWidth ${(paragraph as unknown as Element).clientWidth} + 1`,
   );
   assert.ok(
     paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
@@ -97,13 +98,13 @@ test("rendererOutput_longLinkTokenSharesCleanEmergencyBreakPolicy", async (t) =>
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.ok(paragraph.querySelector("a"));
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1);
-  assert.ok(paragraph.scrollWidth <= paragraph.clientWidth + 1);
+  assert.ok((paragraph as unknown as Element).scrollWidth <= (paragraph as unknown as Element).clientWidth + 1);
   assert.ok(
     paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
       ?.textContent !== "-",
@@ -129,11 +130,11 @@ test("rendererOutput_orderedListKeepsNativeMarkersOnTwoIcBodyIndent", async (t) 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 4);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 4);
 
-  const list = root.querySelector("ol");
-  const body = root.querySelector("#body");
-  const tenth = root.querySelector("#ten");
+  const list = root.querySelector("ol")!;
+  const body = root.querySelector("#body")!;
+  const tenth = root.querySelector("#ten")!;
   assert.equal(tenth.querySelector(":scope > [data-tq-list-marker]"), null);
   assert.equal(list.getAttribute("data-tq-list-layout"), null);
   assert.equal(list.getAttribute("data-tq-list-gutter-ic"), null);
@@ -142,12 +143,12 @@ test("rendererOutput_orderedListKeepsNativeMarkersOnTwoIcBodyIndent", async (t) 
   assert.equal(computedStyleValue(list, "padding-inline-start"), "36px");
   assert.equal(computedStyleValue(tenth, "display"), "list-item");
 
-  const proseLine = body.querySelector("[data-tq-line-width]");
-  const listLine = tenth.querySelector(":scope > [data-tq-line-width]");
+  const proseLine = body.querySelector("[data-tq-line-width]")!;
+  const listLine = tenth.querySelector(":scope > [data-tq-line-width]")!;
   assert.ok(proseLine);
   assert.ok(listLine);
-  const proseMeasure = parseFloat(proseLine.getAttribute("data-tq-line-width"));
-  const listMeasure = parseFloat(listLine.getAttribute("data-tq-line-width"));
+  const proseMeasure = parseFloat(proseLine.getAttribute("data-tq-line-width")!);
+  const listMeasure = parseFloat(listLine.getAttribute("data-tq-line-width")!);
   assert.ok(Number.isFinite(proseMeasure));
   assert.ok(Number.isFinite(listMeasure));
   assert.ok(Math.abs((36.0 + listMeasure) - proseMeasure) < 0.5);
@@ -156,14 +157,14 @@ test("rendererOutput_orderedListKeepsNativeMarkersOnTwoIcBodyIndent", async (t) 
   const wideLines = renderedLineSignature(tenth);
   TiqianWeb.install();
   installTestAnimationFrames();
-  root.style.width = "176px";
+  (root.style as unknown as { width: string }).width = "176px";
   dispatchRelayout(root);
   flushAllTestAnimationFrames();
   assert.notEqual(wideLines, renderedLineSignature(tenth));
   assert.equal(tenth.querySelector(":scope > [data-tq-list-marker]"), null);
   assert.equal(copySelection(tenth), tenthSource);
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
   assert.equal(list.getAttribute("data-tq-list-layout"), null);
   assert.equal(list.getAttribute("data-tq-list-gutter-ic"), null);
   assert.equal(list.getAttribute("role"), null);
@@ -186,13 +187,13 @@ test("rendererOutput_unorderedListUsesNativeMarkerColumnWithoutParagraphIndent",
   `);
   const options = { fontSize: 18, lineHeight: 30, firstLineIndentIc: 2 };
 
-  assert.equal(TiqianWeb.enhance(root, options), 2);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 2);
 
-  const list = root.querySelector("ul");
-  const paragraph = root.querySelector("p");
-  const item = root.querySelector("#bullet");
-  const paragraphLine = paragraph.querySelector(":scope > .tq-line");
-  const itemLine = item.querySelector(":scope > .tq-line");
+  const list = root.querySelector("ul")!;
+  const paragraph = root.querySelector("p")!;
+  const item = root.querySelector("#bullet")!;
+  const paragraphLine = paragraph.querySelector(":scope > .tq-line")!;
+  const itemLine = item.querySelector(":scope > .tq-line")!;
   assert.ok(paragraphLine);
   assert.ok(itemLine);
   assert.equal(list.getAttribute("data-tq-list-gutter-ic"), null);
@@ -218,10 +219,10 @@ test("rendererOutput_strongStaysBoldByDefault", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
-  const strong = paragraph.querySelector("strong");
+  const paragraph = root.querySelector("p")!;
+  const strong = paragraph.querySelector("strong")!;
   assert.ok(strong);
   assert.equal(strong.getAttribute("data-tq-cjk-emphasis"), null);
   assert.equal(paragraph.querySelectorAll("circle").length, 0);
@@ -239,18 +240,18 @@ test("rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks", async (t) => {
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root, { ...testOptions(), strongAsEmphasisMarks: true }),
+    TiqianWeb.enhance(root as unknown as Element, { ...testOptions(), strongAsEmphasisMarks: true }),
     1,
   );
 
-  const paragraph = root.querySelector("p");
-  const strong = paragraph.querySelector("strong[data-tq-cjk-emphasis]");
+  const paragraph = root.querySelector("p")!;
+  const strong = paragraph.querySelector("strong[data-tq-cjk-emphasis]")!;
   assert.ok(strong);
   assert.equal(computedStyleValue(strong, "font-weight"), "430");
   assert.equal(paragraph.querySelectorAll("circle").length, 2);
-  const overlay = paragraph.querySelector("svg[data-tq-geometry='true']");
+  const overlay = paragraph.querySelector("svg[data-tq-geometry='true']")!;
   assert.ok(overlay);
-  const firstDot = paragraph.querySelector("circle");
+  const firstDot = paragraph.querySelector("circle")!;
   assert.ok(firstDot);
   assert.equal(firstDot.getAttribute("fill"), "rgb(1, 2, 3)");
   assert.ok(!(overlay.getAttribute("style") ?? "").includes("position:absolute"));
@@ -258,9 +259,9 @@ test("rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks", async (t) => {
   assert.equal(firstDot.getAttribute("style"), "--tq-decoration-color:rgb(1, 2, 3)");
 
   const descendants = strong.querySelectorAll("span");
-  let latinRun = null;
+  let latinRun: FakeElement | null = null;
   for (let index = 0; index < descendants.length; index += 1) {
-    const element = descendants.item(index);
+    const element = descendants[index];
     if (element?.nodeType !== 1) continue;
     const content = element.textContent;
     if (!content) continue;
@@ -277,7 +278,7 @@ test("rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks", async (t) => {
 test("rendererOutput_emphasisDotGapShiftsDotCenterByConfiguredEm", async (t) => {
   t.after(cleanupMounted);
   const TiqianWeb = await loadHostRuntime();
-  const enhanceWithGap = (gap) => {
+  const enhanceWithGap = (gap: number) => {
     const root = mount(`
       <div data-tiqian-root="true" style="width: 320px">
         <p style="font-size: 18px">前<strong>强调</strong>后。</p>
@@ -285,12 +286,12 @@ test("rendererOutput_emphasisDotGapShiftsDotCenterByConfiguredEm", async (t) => 
     `);
     assert.equal(
       TiqianWeb.enhance(
-        root,
+        root as unknown as Element,
         { ...testOptions(), emphasisDotGapEm: gap, strongAsEmphasisMarks: true },
       ),
       1,
     );
-    return parseFloat(root.querySelector("circle").getAttribute("cy"));
+    return parseFloat(root.querySelector("circle")!.getAttribute("cy")!);
   };
 
   const defaultCenter = enhanceWithGap(0.10);
@@ -307,36 +308,36 @@ test("rendererOutput_positiveGapUsesSelectableZeroHeightCarrier", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const link = root.querySelector("p a");
+  const link = root.querySelector("p a")!;
   assert.ok(link);
   assert.equal(cssPx(computedStyleValue(link, "padding-right")), 4);
   assert.equal(cssPx(computedStyleValue(link, "margin-right")), -4);
   const fragments = link.querySelectorAll(":scope > span");
-  let spacingFragment = null;
+  let spacingFragment: FakeElement | null = null;
   for (let index = 0; index < fragments.length; index += 1) {
-    const fragment = fragments.item(index);
+    const fragment = fragments[index];
     const carrier = fragment?.querySelector?.("[data-tq-spacing-carrier]");
     if (carrier && elementWidth(carrier) > 0.1) {
       spacingFragment = fragment;
     }
   }
   assert.ok(spacingFragment);
-  const carrier = spacingFragment.querySelector("[data-tq-spacing-carrier]");
+  const carrier = spacingFragment!.querySelector("[data-tq-spacing-carrier]")!;
   assert.ok(carrier);
-  assert.equal(spacingFragment.firstChild?.textContent, "bug");
-  assert.equal(spacingFragment.getAttribute("data-tq-shaping-boundary"), "");
+  assert.equal(spacingFragment!.firstChild?.textContent, "bug");
+  assert.equal(spacingFragment!.getAttribute("data-tq-shaping-boundary"), "");
   assert.equal(carrier.textContent, " ");
   assert.equal(carrier.getAttribute("data-tq-copy-ignore"), "true");
   assert.equal(carrier.getAttribute("aria-hidden"), "true");
   assert.equal(computedStyleValue(carrier, "display"), "inline-block");
   assert.equal(cssPx(computedStyleValue(carrier, "height")), 0);
   assert.equal(cssPx(computedStyleValue(carrier, "line-height")), 0);
-  assert.equal(cssPx(computedStyleValue(spacingFragment, "padding-right")), 0);
+  assert.equal(cssPx(computedStyleValue(spacingFragment!, "padding-right")), 0);
   assert.ok(
-    selectionCoversElement(spacingFragment, carrier),
-    `engine spacing must remain inside the native Range selection: ${spacingFragment.outerHTML}`,
+    selectionCoversElement(spacingFragment!, carrier),
+    `engine spacing must remain inside the native Range selection: ${(spacingFragment! as unknown as { outerHTML: string }).outerHTML}`,
   );
   assert.equal(copySelection(link), "bug");
 });
@@ -347,9 +348,9 @@ test("rendererOutput_plainBodyTextRendersSparseRuns", async (t) => {
   const text = "中文排版需要保留语义与宿主样式，同时由引擎负责断行和标点几何。".repeat(8);
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'><p>${text}</p></div>`);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const renderedNodes = paragraph.querySelectorAll("*").length;
   assert.ok(renderedNodes < text.length / 2, `renderedNodes=${renderedNodes} chars=${text.length}`);
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1);
@@ -365,12 +366,12 @@ test("rendererOutput_negativeGapResolvesToOverlapCarrier", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
   // A multi-character run keeps a negative trailing gap as a negative
   // margin-right overlap instead of dropping it or using letter-spacing.
   // Both declarations live in the per-root value-style stylesheet now.
-  const run = Array.from(root.querySelector("p").querySelectorAll("[data-tq-geometry]"))
+  const run = Array.from(root.querySelector("p")!.querySelectorAll("[data-tq-geometry]"))
     .find((element) => element.textContent === "C++");
   assert.ok(run);
   assert.equal(cssPx(preparedValueStyleProperty(run, "margin-right")), -9);

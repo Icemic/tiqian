@@ -10,7 +10,10 @@ import {
 } from "@tiqian/core/core/sampler/snapshot/prepared-dom.js";
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 
-function fixturePlan() {
+type TestPlan = Exclude<Parameters<typeof renderPreparedParagraphArtifact>[0], string>;
+type Host = Parameters<typeof renderPreparedParagraphInto>[0];
+
+function fixturePlan(): TestPlan {
   return {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
@@ -46,7 +49,7 @@ function fixturePlan() {
   };
 }
 
-function twoLineFixture(firstEndReason) {
+function twoLineFixture(firstEndReason: string) {
   return {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
@@ -130,7 +133,7 @@ function articleFixture(lineCount = 25, cellsPerLine = 40) {
 function fakeHost() {
   return {
     innerHTML: "",
-    querySelectorAll(selector) {
+    querySelectorAll(selector: string): Array<{ index: number }> {
       if (selector !== "[data-tq-line-flow-width]") return [];
       return Array.from(
         { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
@@ -159,8 +162,8 @@ function inlineObjectPlan({ trailingMargin = false } = {}) {
         {
           rangeStart: 0,
           rangeEnd: 1,
-          source: "￼",
-          display: "￼",
+          source: "\uFFFC",
+          display: "\uFFFC",
           drawX: 0,
           naturalWidth: 18,
           leadingLayoutAdvance: 0,
@@ -180,21 +183,31 @@ function inlineObjectPlan({ trailingMargin = false } = {}) {
   };
 }
 
-function fakeInlineElement(tagName) {
-  const element = {
+interface FakeInlineElement {
+  tagName: string;
+  attributes: Map<string, string>;
+  cloneCalls: boolean[];
+  styleProperties: [string, string, string][];
+  style: { setProperty: (name: string, value: string, priority: string) => void };
+  setAttribute: (name: string, value: string) => void;
+  cloneNode: (deep: boolean) => FakeInlineElement;
+}
+
+function fakeInlineElement(tagName: string): FakeInlineElement {
+  const element: FakeInlineElement = {
     tagName,
     attributes: new Map(),
     cloneCalls: [],
     styleProperties: [],
     style: {
-      setProperty(name, value, priority) {
+      setProperty(name: string, value: string, priority: string) {
         element.styleProperties.push([name, value, priority]);
       },
     },
-    setAttribute(name, value) {
+    setAttribute(name: string, value: string) {
       element.attributes.set(name, String(value));
     },
-    cloneNode(deep) {
+    cloneNode(deep: boolean) {
       element.cloneCalls.push(deep);
       const copy = fakeInlineElement(tagName);
       copy.attributes = new Map(element.attributes);
@@ -205,10 +218,14 @@ function fakeInlineElement(tagName) {
 }
 
 function swapHost() {
-  const host = {
+  const host: {
+    innerHTML: string;
+    swapped: FakeInlineElement[];
+    querySelectorAll(selector: string): Array<{ index: number }> | Array<{ openingTag: string; getAttribute(name: string): string | null; replaceWith(clone: FakeInlineElement): void }>;
+  } = {
     innerHTML: "",
     swapped: [],
-    querySelectorAll(selector) {
+    querySelectorAll(selector: string) {
       if (selector === "[data-tq-line-flow-width]") {
         return Array.from(
           { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
@@ -216,17 +233,17 @@ function swapHost() {
         );
       }
       if (selector !== '[data-tq-inline-object="pending"]') return [];
-      const placeholders = [];
+      const placeholders: Array<{ openingTag: string; getAttribute(name: string): string | null; replaceWith(clone: FakeInlineElement): void }> = [];
       const pattern = /<span\b[^>]*\bdata-tq-inline-object="pending"[^>]*><\/span>/gu;
       for (const match of this.innerHTML.matchAll(pattern)) {
         const openingTag = match[0];
         placeholders.push({
           openingTag,
-          getAttribute(name) {
+          getAttribute(name: string) {
             const found = openingTag.match(new RegExp(`${name}="([^"]*)"`, "u"));
             return found ? found[1] : null;
           },
-          replaceWith(clone) {
+          replaceWith(clone: FakeInlineElement) {
             const serialized = `<${clone.tagName}` +
               Array.from(clone.attributes).sort(([left], [right]) => left.localeCompare(right))
                 .map(([name, value]) => ` ${name}="${value}"`).join("") + ">";
@@ -242,9 +259,12 @@ function swapHost() {
 }
 
 function liveSemanticHost() {
-  const host = {
+  const host: {
+    innerHTML: string;
+    querySelectorAll(selector: string): Array<{ index: number }> | Array<{ getAttribute(name: string): string | null; firstChild: null; replaceWith(clone: { styleProperties?: [string, string, string][]; attributes: Map<string, string>; tagName: string }): void }>;
+  } = {
     innerHTML: "",
-    querySelectorAll(selector) {
+    querySelectorAll(selector: string) {
       if (selector === "[data-tq-line-flow-width]") {
         return Array.from(
           { length: this.innerHTML.match(/data-tq-line-flow-width=/gu)?.length ?? 0 },
@@ -252,19 +272,19 @@ function liveSemanticHost() {
         );
       }
       if (selector === "[data-tq-live-semantic-index]") {
-        const placeholders = [];
+        const placeholders: Array<{ getAttribute(name: string): string | null; firstChild: null; replaceWith(clone: { styleProperties?: [string, string, string][]; attributes: Map<string, string>; tagName: string }): void }> = [];
         const pattern = /<span\b[^>]*\bdata-tq-live-semantic-index="(\d+)"[^>]*>([\s\S]*?)<\/span>/gu;
         for (const match of this.innerHTML.matchAll(pattern)) {
           const fullMatch = match[0];
           const sourceIndex = match[1];
           const innerContent = match[2];
           placeholders.push({
-            getAttribute(name) {
+            getAttribute(name: string) {
               if (name === "data-tq-live-semantic-index") return sourceIndex;
               return null;
             },
             firstChild: null,
-            replaceWith(clone) {
+            replaceWith(clone: { styleProperties?: [string, string, string][]; attributes: Map<string, string>; tagName: string }) {
               const styleAttr = clone.styleProperties?.length
                 ? ` style="${clone.styleProperties.map(([k, v, p]) => `${k}:${v}${p ? "!" + p : ""}`).join(";")}"`
                 : "";
@@ -285,15 +305,24 @@ function liveSemanticHost() {
   return host;
 }
 
+interface MockNode {
+  textContent: string;
+  parentNode: MockNode | null;
+}
+
 function styleBackedHost() {
-  const head = {
+  const head: {
+    childNodes: MockNode[];
+    appendChild: (node: MockNode) => MockNode;
+    removeChild: (node: MockNode) => MockNode;
+  } = {
     childNodes: [],
-    appendChild(node) {
+    appendChild(node: MockNode) {
       this.childNodes.push(node);
-      node.parentNode = this;
+      node.parentNode = this as unknown as MockNode;
       return node;
     },
-    removeChild(node) {
+    removeChild(node: MockNode) {
       this.childNodes.splice(this.childNodes.indexOf(node), 1);
       node.parentNode = null;
       return node;
@@ -301,24 +330,29 @@ function styleBackedHost() {
   };
   const documentObject = {
     head,
-    createElement(tagName) {
+    createElement(tagName: string) {
       assert.equal(tagName, "style");
       return {
         attributes: new Map(),
-        parentNode: null,
+        parentNode: null as MockNode | null,
         textContent: "",
-        setAttribute(name, value) {
+        setAttribute(name: string, value: string) {
           this.attributes.set(name, String(value));
         },
       };
     },
   };
-  const attributes = new Map();
-  const root = {
+  const attributes = new Map<string, string>();
+  const root: {
+    ownerDocument: typeof documentObject;
+    getAttribute: (name: string) => string | null;
+    setAttribute: (name: string, value: string) => void;
+    removeAttribute: (name: string) => void;
+  } = {
     ownerDocument: documentObject,
-    getAttribute: (name) => attributes.get(name) ?? null,
-    setAttribute: (name, value) => attributes.set(name, String(value)),
-    removeAttribute: (name) => attributes.delete(name),
+    getAttribute: (name: string) => attributes.get(name) ?? null,
+    setAttribute: (name: string, value: string) => attributes.set(name, String(value)),
+    removeAttribute: (name: string) => attributes.delete(name),
   };
   const host = {
     ...fakeHost(),
@@ -351,8 +385,9 @@ test("prepared semantic links remain one native element across engine soft wraps
       semantics: [{
         start: 0,
         end: 2,
+        sourceIndex: 0,
         tagName: "a",
-        attributes: { href: "/article", class: "host-link" },
+        attributes: [["href", "/article"], ["class", "host-link"]],
       }],
     },
   );
@@ -372,7 +407,7 @@ test("prepared semantic inline boxes reserve host padding in the same flow", () 
   plan.lines[0].cells[1].drawX = 24.2;
   const rendered = renderPreparedParagraphArtifact(plan, { locale: "zh-Hans" }, {
     sourceText: "中文",
-    semantics: [{ start: 0, end: 2, tagName: "code", attributes: {} }],
+    semantics: [{ start: 0, end: 2, sourceIndex: 0, tagName: "code", attributes: [] }],
     inlineBoxes: [{ start: 0, end: 2, inlineStartPx: 6.2, inlineEndPx: 6.2 }],
   });
 
@@ -384,7 +419,7 @@ test("browser replay installs the same canonical HTML and returns its line marke
   const planJson = JSON.stringify(fixturePlan());
   const expected = renderPreparedParagraphArtifact(planJson, "zh-Hans");
   const host = fakeHost();
-  const rendered = renderPreparedParagraphInto(host, planJson, "zh-Hans", {}, createEnhanceContext(host));
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, planJson, "zh-Hans", {}, createEnhanceContext(host as unknown as Element));
 
   assert.equal(host.innerHTML, expected.html);
   assert.equal(rendered.html, expected.html);
@@ -393,10 +428,10 @@ test("browser replay installs the same canonical HTML and returns its line marke
 
 test("browser replay preserves controlled inline semantics supplied by a Worker plan", () => {
   const host = fakeHost();
-  renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {
+  renderPreparedParagraphInto(host as unknown as Host, fixturePlan(), "zh-Hans", {
     sourceText: "中文",
-    semantics: [{ start: 0, end: 2, tagName: "strong", attributes: [] }],
-  }, createEnhanceContext(host));
+    semantics: [{ start: 0, end: 2, sourceIndex: 0, tagName: "strong", attributes: [] }],
+  }, createEnhanceContext(host as unknown as Element));
 
   assert.match(host.innerHTML, /<strong data-tq-source-semantic="true">中文<\/strong>/u);
 });
@@ -414,8 +449,9 @@ test("live Worker replay lowers semantic placeholders without serializing host b
       end: 2,
       tagName: "spoiler",
       sourceIndex: 0,
+      attributes: [],
     }],
-    liveSemanticElements: [sourceElement],
+    liveSemanticElements: [sourceElement] as unknown as Element[],
   });
 
   assert.equal(rendered.liveSemanticCount, 1);
@@ -433,17 +469,19 @@ test("live Worker replay nests equal-range placeholders in source hierarchy orde
       tagName: "em",
       sourceIndex: 0,
       order: 1,
+      attributes: [],
     }, {
       start: 0,
       end: 2,
       tagName: "spoiler",
       sourceIndex: 1,
       order: 0,
+      attributes: [],
     }],
     liveSemanticElements: [{ tagName: "EM", cloneNode() {} }, {
       tagName: "SPOILER",
       cloneNode() {},
-    }],
+    }] as unknown as Element[],
   });
 
   assert.match(
@@ -454,8 +492,8 @@ test("live Worker replay nests equal-range placeholders in source hierarchy orde
 
 test("browser replay moves dynamic prepared values into one root-scoped stylesheet", () => {
   const { host, head, attributes } = styleBackedHost();
-  const context = createEnhanceContext(host);
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {}, context);
+  const context = createEnhanceContext(host as unknown as Element);
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, fixturePlan(), "zh-Hans", {}, context);
 
   assert.doesNotMatch(rendered.html, / style=/u);
   const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
@@ -468,25 +506,22 @@ test("browser replay moves dynamic prepared values into one root-scoped styleshe
   );
   assert.ok(attributes.has("data-tq-value-style-scope"));
 
-  // RuntimeValueStyleContentAddressing: a second, fresh root lowering the
-  // same plan must mint the identical class names without sharing registry
-  // state, so a one-shot replay reproduces coordinated output byte for byte.
   const second = styleBackedHost();
-  const secondRendered = renderPreparedParagraphInto(second.host, fixturePlan(), "zh-Hans", {}, createEnhanceContext(second.host));
+  const secondRendered = renderPreparedParagraphInto(second.host as unknown as Host, fixturePlan(), "zh-Hans", {}, createEnhanceContext(second.host as unknown as Element));
   const secondClass = secondRendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
   assert.equal(secondClass, runtimeClass);
 
-  assert.equal(releasePreparedParagraphStyles(host, context), true);
+  assert.equal(releasePreparedParagraphStyles(host as unknown as Element, context), true);
   assert.equal(head.childNodes.length, 0);
   assert.equal(attributes.has("data-tq-value-style-scope"), false);
 });
 
 test("runtime value classes cannot inherit unrelated snapshot declarations", () => {
   const { host, root, head } = styleBackedHost();
-  const context = createEnhanceContext(root);
+  const context = createEnhanceContext(root as unknown as Element);
   assert.equal(
     installPreparedValueStyles(
-      root,
+      root as unknown as Element,
       context,
       ["letter-spacing:-1.79285px!important"],
       ["Tiqian Fixture Sans"],
@@ -494,7 +529,7 @@ test("runtime value classes cannot inherit unrelated snapshot declarations", () 
     true,
   );
 
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {}, context);
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, fixturePlan(), "zh-Hans", {}, context);
   const runtimeClass = rendered.html.match(/class="tq-line (tqvr-[0-9a-z]+)"/u)?.[1];
   assert.ok(runtimeClass, "the line marker must carry a runtime value class");
   assert.doesNotMatch(rendered.html, /class="[^"]*tqv-[0-9a-z]/u);
@@ -511,20 +546,20 @@ test("runtime value classes cannot inherit unrelated snapshot declarations", () 
 
 test("snapshot host families never become root projection variables", () => {
   const { root, head, attributes } = styleBackedHost();
-  const context = createEnhanceContext(root);
+  const context = createEnhanceContext(root as unknown as Element);
 
-  assert.equal(installPreparedValueStyles(root, context, [], ["Snapshot Sans"]), false);
+  assert.equal(installPreparedValueStyles(root as unknown as Element, context, [], ["Snapshot Sans"]), false);
   assert.equal(head.childNodes.length, 0);
-  assert.equal(releasePreparedValueStyleRoot(root, context), false);
+  assert.equal(releasePreparedValueStyleRoot(root as unknown as Element, context), false);
   assert.equal(head.childNodes.length, 0);
   assert.equal(attributes.has("data-tq-value-style-scope"), false);
 });
 
 test("prepared semantic font runs replay their explicit host-family projection", () => {
-  const valueStyles = [];
+  const valueStyles: string[] = [];
   const rendered = renderPreparedParagraphArtifact(fixturePlan(), "zh-Hans", {
     sourceText: "中文",
-    styleClassFor: (value) => {
+    styleClassFor: (value: string) => {
       valueStyles.push(value);
       return `tqv-${valueStyles.length - 1}`;
     },
@@ -555,7 +590,7 @@ test("prepared positive spacing participates in native selection instead of usin
 });
 
 test("a single-cell overlap preserves its glyph width and carries negative flow in margin", () => {
-  const plan = fixturePlan();
+  const plan = fixturePlan() as TestPlan & { sourceText?: string };
   plan.sourceText = " 中";
   plan.lines[0].rangeEnd = 2;
   plan.lines[0].visualWidth = 17;
@@ -652,7 +687,7 @@ test("visual soft wraps stay out of accessibility and copy semantics", () => {
   const lineBreak = lowered.artifact.find(([tag]) => tag === "br");
 
   assert.ok(lineBreak);
-  assert.deepEqual(Object.fromEntries(lineBreak[1]), {
+  assert.deepEqual(Object.fromEntries(lineBreak[1] as readonly [string, string][]), {
     "aria-hidden": "true",
     "data-tq-copy-ignore": "true",
     "data-tq-engine-break": "AutoWrap",
@@ -665,7 +700,7 @@ test("mandatory breaks retain source newline semantics", () => {
   const lineBreak = lowered.artifact.find(([tag]) => tag === "br");
 
   assert.ok(lineBreak);
-  assert.deepEqual(Object.fromEntries(lineBreak[1]), {
+  assert.deepEqual(Object.fromEntries(lineBreak[1] as readonly [string, string][]), {
     "data-tq-engine-break": "MandatoryBreak",
   });
   assert.match(lowered.html, /data-tq-hard-break="true"/u);
@@ -674,17 +709,17 @@ test("mandatory breaks retain source newline semantics", () => {
 
 test("prepared DOM carries only the supported proportional quote feature signature", () => {
   const plan = fixturePlan();
-  plan.lines[0].cells[0].source = "’";
-  plan.lines[0].cells[0].display = "’";
+  plan.lines[0].cells[0].source = "\u2019";
+  plan.lines[0].cells[0].display = "\u2019";
   plan.lines[0].cells[0].openTypeFeatures = ["pwid", "palt"];
 
   const lowered = renderPreparedParagraphArtifact(plan, "zh-Hans");
   const featureRun = lowered.artifact.find(([, attributes]) =>
-    Object.fromEntries(attributes)["data-tq-open-type-features"] != null);
+    Object.fromEntries(attributes as readonly [string, string][])["data-tq-open-type-features"] != null);
 
   assert.ok(featureRun);
   assert.equal(
-    Object.fromEntries(featureRun[1])["data-tq-open-type-features"],
+    Object.fromEntries(featureRun![1] as readonly [string, string][])["data-tq-open-type-features"],
     "pwid,palt",
   );
   assert.match(lowered.html, /data-tq-open-type-features="pwid,palt"/u);
@@ -703,25 +738,25 @@ test("prepared DOM carries only the supported proportional quote feature signatu
 test("canonical prepared nodes keep repeated reset declarations in shared CSS", () => {
   const lowered = renderPreparedParagraphArtifact(twoLineFixture("MandatoryBreak"), "zh-Hans");
   const marker = lowered.artifact.find(([, attributes]) =>
-    Array.isArray(attributes) && Object.fromEntries(attributes)["data-tq-line-flow-width"] != null);
+    Array.isArray(attributes) && Object.fromEntries(attributes as readonly [string, string][])["data-tq-line-flow-width"] != null);
   const sentinel = lowered.artifact.find(([, attributes]) =>
-    Array.isArray(attributes) && Object.fromEntries(attributes)["data-tq-line-end-sentinel"] != null);
+    Array.isArray(attributes) && Object.fromEntries(attributes as readonly [string, string][])["data-tq-line-end-sentinel"] != null);
   const selectionEnd = lowered.artifact.find(([, attributes]) =>
-    Array.isArray(attributes) && Object.fromEntries(attributes)["data-tq-selection-end"] != null);
+    Array.isArray(attributes) && Object.fromEntries(attributes as readonly [string, string][])["data-tq-selection-end"] != null);
   const hardBreak = lowered.artifact.find(([, attributes]) =>
-    Array.isArray(attributes) && Object.fromEntries(attributes)["data-tq-hard-break"] != null);
+    Array.isArray(attributes) && Object.fromEntries(attributes as readonly [string, string][])["data-tq-hard-break"] != null);
   const lineBreak = lowered.artifact.find(([tag]) => tag === "br");
 
   assert.equal(
-    Object.fromEntries(marker[1]).style,
+    Object.fromEntries(marker![1] as readonly [string, string][]).style,
     "--tq-line-height:27px!important;--tq-line-baseline-offset:-7px!important",
   );
-  assert.equal(Object.hasOwn(Object.fromEntries(sentinel[1]), "style"), false);
-  assert.deepEqual(selectionEnd[2], [["#", "\u200B"]]);
-  assert.equal(Object.fromEntries(selectionEnd[1])["data-tq-copy-ignore"], "true");
-  assert.equal(Object.hasOwn(Object.fromEntries(selectionEnd[1]), "style"), false);
-  assert.equal(Object.hasOwn(Object.fromEntries(hardBreak[1]), "style"), false);
-  assert.equal(Object.hasOwn(Object.fromEntries(lineBreak[1]), "style"), false);
+  assert.equal(Object.hasOwn(Object.fromEntries(sentinel![1] as readonly [string, string][]) as object, "style"), false);
+  assert.deepEqual(selectionEnd![2], [["#", "\u200B"]]);
+  assert.equal(Object.fromEntries(selectionEnd![1] as readonly [string, string][])["data-tq-copy-ignore"], "true");
+  assert.equal(Object.hasOwn(Object.fromEntries(selectionEnd![1] as readonly [string, string][]) as object, "style"), false);
+  assert.equal(Object.hasOwn(Object.fromEntries(hardBreak![1] as readonly [string, string][]) as object, "style"), false);
+  assert.equal(Object.hasOwn(Object.fromEntries(lineBreak![1] as readonly [string, string][]) as object, "style"), false);
   assert.doesNotMatch(
     lowered.html,
     /(?:all:unset|display:inline-block|pointer-events:none|overflow:hidden)/u,
@@ -777,8 +812,8 @@ test("dashEvidenceAttributesRender", () => {
       cells: [{
         rangeStart: 0,
         rangeEnd: 1,
-        source: "—",
-        display: "—",
+        source: "\u2014",
+        display: "\u2014",
         drawX: 0,
         naturalWidth: 18,
         leadingLayoutAdvance: 0,
@@ -831,8 +866,8 @@ test("dashRunIsolatesAndPunctuationAttributesRender", () => {
         {
           rangeStart: 1,
           rangeEnd: 2,
-          source: "—",
-          display: "—",
+          source: "\u2014",
+          display: "\u2014",
           drawX: 18,
           naturalWidth: 18,
           leadingLayoutAdvance: 0,
@@ -919,7 +954,7 @@ test("latinEmphasisItalicEffect", () => {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     height: 27,
-    emphasisRanges: [[0, 1]],
+    emphasisRanges: [[0, 1]] as [number, number][],
     lines: [{
       rangeStart: 0,
       rangeEnd: 1,
@@ -949,7 +984,7 @@ test("latinEmphasisItalicEffect", () => {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     height: 27,
-    emphasisRanges: [[0, 1]],
+    emphasisRanges: [[0, 1]] as [number, number][],
     lines: [{
       rangeStart: 1,
       rangeEnd: 2,
@@ -1034,9 +1069,9 @@ test("inlineObjectPlaceholderCarriesTrailingMarginAttribute", () => {
 test("inlineObjectCloneSwapReplacesPlaceholdersWithDeepClones", () => {
   const host = swapHost();
   const element = fakeInlineElement("IMG");
-  const rendered = renderPreparedParagraphInto(host, inlineObjectPlan({ trailingMargin: true }), "zh-Hans", {
-    inlineObjects: [{ start: 0, end: 1, element, marginRight: 4.5 }],
-  }, createEnhanceContext(host));
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, inlineObjectPlan({ trailingMargin: true }), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: element as unknown as Element, marginRight: 4.5 }],
+  }, createEnhanceContext(host as unknown as Element));
 
   assert.deepEqual(element.cloneCalls, [true]);
   assert.equal(host.swapped.length, 1);
@@ -1053,9 +1088,9 @@ test("inlineObjectCloneSwapReplacesPlaceholdersWithDeepClones", () => {
 
 test("inlineObjectCloneSwapSkipsMarginWithoutTrailingGap", () => {
   const host = swapHost();
-  renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
-    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG"), marginRight: 4.5 }],
-  }, createEnhanceContext(host));
+  renderPreparedParagraphInto(host as unknown as Host, inlineObjectPlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG") as unknown as Element, marginRight: 4.5 }],
+  }, createEnhanceContext(host as unknown as Element));
 
   assert.equal(host.swapped.length, 1);
   assert.deepEqual(host.swapped[0].styleProperties, []);
@@ -1065,52 +1100,60 @@ test("inlineObjectCloneSwapSkipsMarginWithoutTrailingGap", () => {
 test("inlineObjectCloneSwapThrowsWithoutSource", () => {
   const host = swapHost();
   assert.throws(
-    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {}, createEnhanceContext(host)),
+    () => renderPreparedParagraphInto(host as unknown as Host, inlineObjectPlan(), "zh-Hans", {}, createEnhanceContext(host as unknown as Element)),
     /InlineObjectSourceUnavailable:0-1/u,
   );
 });
 
 test("inlineObjectCloneSwapThrowsOnDuplicateRanges", () => {
   const host = swapHost();
-  const entry = { start: 0, end: 1, element: fakeInlineElement("IMG") };
+  const entry = { start: 0, end: 1, element: fakeInlineElement("IMG") as unknown as Element };
   assert.throws(
-    () => renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
+    () => renderPreparedParagraphInto(host as unknown as Host, inlineObjectPlan(), "zh-Hans", {
       inlineObjects: [entry, entry],
-    }, createEnhanceContext(host)),
+    }, createEnhanceContext(host as unknown as Element)),
     /ConflictingInlineObjectRange:0-1/u,
   );
 });
 
 test("inlineObjectCloneSwapIgnoresEntriesWithoutPlaceholders", () => {
   const host = swapHost();
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", {
-    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG") }],
-  }, createEnhanceContext(host));
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, fixturePlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: fakeInlineElement("IMG") as unknown as Element }],
+  }, createEnhanceContext(host as unknown as Element));
 
   assert.equal(host.swapped.length, 0);
-  assert.equal(rendered.markers.length, rendered.html.match(/data-tq-line-flow-width=/gu).length);
+  assert.equal(rendered.markers.length, rendered.html.match(/data-tq-line-flow-width=/gu)!.length);
 });
 
 test("inlineObjectCloneSwapClonesAreIndependentOfSource", () => {
   const host = swapHost();
   const element = fakeInlineElement("IMG");
-  renderPreparedParagraphInto(host, inlineObjectPlan(), "zh-Hans", {
-    inlineObjects: [{ start: 0, end: 1, element }],
-  }, createEnhanceContext(host));
+  renderPreparedParagraphInto(host as unknown as Host, inlineObjectPlan(), "zh-Hans", {
+    inlineObjects: [{ start: 0, end: 1, element: element as unknown as Element }],
+  }, createEnhanceContext(host as unknown as Element));
   element.setAttribute("data-tq-late", "1");
 
   assert.equal(host.swapped[0].attributes.has("data-tq-late"), false);
 });
 
+// This fixture deliberately omits RubyAnnotation.ascent so the renderer falls
+// back to the ratio-derived ascent (top:-3px); the planAscent test below
+// supplies ascent: 7 and asserts the direct value instead. TestPlan requires
+// ascent, so the fixture type drops that one field and the call widens once.
+type RatioAscentPlan = Omit<TestPlan, "rubyDecisions"> & {
+  rubyDecisions: Array<Omit<NonNullable<TestPlan["rubyDecisions"]>[number], "ascent"> & { baseRangeStart?: number }>;
+};
+
 test("rubyAnnotationSpanUsesRatioAscent", () => {
-  const plan = {
+  const plan: RatioAscentPlan = {
     schema: 1,
     layoutRevision: "tiqian-layout-v2",
     height: 27,
     rubyDecisions: [{
       baseRangeStart: 0,
       baseRangeEnd: 1,
-      text: "Běijīng",
+      text: "B\u011Bij\u012Bng",
       fontSize: 10,
       fontWeight: 500,
       centerX: 9,
@@ -1138,8 +1181,8 @@ test("rubyAnnotationSpanUsesRatioAscent", () => {
       }],
     }],
   };
-  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
-  assert.ok(html.includes('data-tq-src="（Běijīng）"'));
+  const html = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans").html;
+  assert.ok(html.includes('data-tq-src="\uFF08B\u011Bij\u012Bng\uFF09"'));
   assert.ok(html.includes("left:9px!important"));
   assert.ok(html.includes("top:-3px!important"));
   assert.ok(html.includes("transform:translateX(-50%)!important"));
@@ -1154,7 +1197,7 @@ test("rubyAnnotationSpanUsesPlanAscent", () => {
     rubyDecisions: [{
       baseRangeStart: 0,
       baseRangeEnd: 1,
-      text: "Běijīng",
+      text: "B\u011Bij\u012Bng",
       fontSize: 10,
       ascent: 7,
       fontWeight: 500,
@@ -1183,8 +1226,7 @@ test("rubyAnnotationSpanUsesPlanAscent", () => {
       }],
     }],
   };
-  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
-  // top = baselineY - lineTop - plan ascent = 5 - 0 - 7, not the 0.8 ratio's -3.
+  const html = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans").html;
   assert.ok(html.includes("top:-2px!important"));
   assert.ok(!html.includes("top:-3px!important"));
 });
@@ -1241,7 +1283,7 @@ test("bopomofoAnnotationSpanOccupiesSlack", () => {
       }],
     }],
   };
-  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  const html = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans").html;
   assert.ok(html.includes("width:6px!important"));
   assert.ok(html.includes('data-tq-src="（ㄓˇ）"'));
   assert.ok(html.includes("writing-mode:vertical-rl!important"));
@@ -1284,7 +1326,7 @@ test("interlinearAndDotOverlaysRender", () => {
       }],
     }],
   };
-  const html = renderPreparedParagraphArtifact(plan, "zh-Hans").html;
+  const html = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans").html;
   const svgMatches = html.match(/<svg/gu) ?? [];
   assert.equal(svgMatches.length, 2);
   assert.ok(html.includes("--tq-overlay-width:120px;--tq-overlay-height:27px"));
@@ -1334,18 +1376,27 @@ test("planInlineEdgesTakePrecedence", () => {
       ],
     }],
   };
-  const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans", {
+  const artifact = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans", {
     inlineBoxes: [{ start: 1, end: 1, inlineStartPx: 0, inlineEndPx: 10 }],
   });
   assert.equal(artifact.markerCount, 1);
   assert.ok(artifact.html.includes('data-tq-line-flow-width="40"'));
 });
 
+// Both emphasis-dot tests stub getComputedStyle with fixtures that carry only
+// a styleColor field; the engine reads the resolved color and nothing else.
+// The parameter stays unknown because the fixtures are not real Elements.
+interface StyleColorSource {
+  styleColor?: string;
+}
+const styleColorComputedStyle = (fallback: string) => (element: unknown): CSSStyleDeclaration => {
+  const styleColor = (element as StyleColorSource | null | undefined)?.styleColor;
+  return { color: styleColor ?? fallback } as CSSStyleDeclaration;
+};
+
 test("emphasis dot color resolves from live source spans", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element) => ({
-    color: element?.styleColor ?? "rgb(255, 0, 0)",
-  });
+  globalThis.getComputedStyle = styleColorComputedStyle("rgb(255, 0, 0)");
   try {
     const plan = {
       schema: 1,
@@ -1379,15 +1430,14 @@ test("emphasis dot color resolves from live source spans", () => {
     };
     const liveElement = { styleColor: "rgb(255, 0, 0)" };
     const host = fakeHost();
-    const rendered = renderPreparedParagraphInto(host, plan, "zh-Hans", {
-      semantics: [{ start: 0, end: 1, tagName: "strong", sourceIndex: 0, order: 0 }],
-      liveSemanticElements: [liveElement],
-    }, createEnhanceContext(host));
+    const rendered = renderPreparedParagraphInto(host as unknown as Host, plan as TestPlan, "zh-Hans", {
+      semantics: [{ start: 0, end: 1, tagName: "strong", sourceIndex: 0, order: 0, attributes: [] }],
+      liveSemanticElements: [liveElement] as unknown as Element[],
+    }, createEnhanceContext(host as unknown as Element));
     assert.ok(rendered.html.includes('fill="rgb(255, 0, 0)"'));
     assert.ok(rendered.html.includes("--tq-decoration-color:rgb(255, 0, 0)"));
 
-    // Without semantics or liveSemanticElements, dots stay currentColor
-    const artifact = renderPreparedParagraphArtifact(plan, "zh-Hans");
+    const artifact = renderPreparedParagraphArtifact(plan as TestPlan, "zh-Hans");
     assert.ok(artifact.html.includes('fill="currentColor"'));
     assert.ok(artifact.html.includes("--tq-decoration-color:currentColor"));
   } finally {
@@ -1397,9 +1447,7 @@ test("emphasis dot color resolves from live source spans", () => {
 
 test("emphasis dot color selects the deepest covering semantic span", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element) => ({
-    color: element?.styleColor ?? "currentColor",
-  });
+  globalThis.getComputedStyle = styleColorComputedStyle("currentColor");
   try {
     const plan = {
       schema: 1,
@@ -1442,13 +1490,13 @@ test("emphasis dot color selects the deepest covering semantic span", () => {
     const outerElement = { styleColor: "rgb(255, 0, 0)" };
     const innerElement = { styleColor: "rgb(0, 128, 0)" };
     const host = fakeHost();
-    const rendered = renderPreparedParagraphInto(host, plan, "zh-Hans", {
+    const rendered = renderPreparedParagraphInto(host as unknown as Host, plan as TestPlan, "zh-Hans", {
       semantics: [
-        { start: 0, end: 2, tagName: "em", sourceIndex: 0, order: 0 },
-        { start: 1, end: 2, tagName: "strong", sourceIndex: 1, order: 1 },
+        { start: 0, end: 2, tagName: "em", sourceIndex: 0, order: 0, attributes: [] },
+        { start: 1, end: 2, tagName: "strong", sourceIndex: 1, order: 1, attributes: [] },
       ],
-      liveSemanticElements: [outerElement, innerElement],
-    }, createEnhanceContext(host));
+      liveSemanticElements: [outerElement, innerElement] as unknown as Element[],
+    }, createEnhanceContext(host as unknown as Element));
     assert.ok(rendered.html.includes('fill="rgb(0, 128, 0)"'));
     assert.ok(rendered.html.includes("--tq-decoration-color:rgb(0, 128, 0)"));
   } finally {
@@ -1467,26 +1515,25 @@ test("cjkStrongSemantics marks clone with data-tq-cjk-emphasis and font-weight",
       end: 2,
       tagName: "strong",
       sourceIndex: 0,
+      attributes: [],
     }],
-    liveSemanticElements: [sourceElement],
+    liveSemanticElements: [sourceElement] as unknown as Element[],
     cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
   };
-  const rendered = renderPreparedParagraphInto(host, fixturePlan(), "zh-Hans", options, createEnhanceContext(host));
+  const rendered = renderPreparedParagraphInto(host as unknown as Host, fixturePlan(), "zh-Hans", options, createEnhanceContext(host as unknown as Element));
   assert.ok(rendered.html.includes('data-tq-cjk-emphasis="true"'));
   assert.ok(rendered.html.includes("font-weight:700!important"));
 
-  // Virtual DOM artifact path also emits attribute and inline style
   const artifact = renderPreparedParagraphArtifact(fixturePlan(), "zh-Hans", {
     sourceText: "中文",
-    semantics: [{ start: 0, end: 2, tagName: "strong" }],
+    semantics: [{ start: 0, end: 2, tagName: "strong", sourceIndex: 0, attributes: [] }],
     cjkStrongSemantics: [{ start: 0, end: 2, weight: 700 }],
   });
   assert.ok(artifact.html.includes('data-tq-cjk-emphasis="true"'));
   assert.ok(artifact.html.includes('style="font-weight:700!important"'));
 
-  // Without cjkStrongSemantics: attribute absent
   const unadornedHost = liveSemanticHost();
-  const unadorned = renderPreparedParagraphInto(unadornedHost, fixturePlan(), "zh-Hans", {
+  const unadorned = renderPreparedParagraphInto(unadornedHost as unknown as Host, fixturePlan(), "zh-Hans", {
     sourceText: "中文",
     semanticReplay: "live-source",
     semantics: [{
@@ -1494,8 +1541,9 @@ test("cjkStrongSemantics marks clone with data-tq-cjk-emphasis and font-weight",
       end: 2,
       tagName: "strong",
       sourceIndex: 0,
+      attributes: [],
     }],
-    liveSemanticElements: [fakeInlineElement("STRONG")],
-  }, createEnhanceContext(unadornedHost));
+    liveSemanticElements: [fakeInlineElement("STRONG")] as unknown as Element[],
+  }, createEnhanceContext(unadornedHost as unknown as Element));
   assert.equal(unadorned.html.includes("data-tq-cjk-emphasis"), false);
 });

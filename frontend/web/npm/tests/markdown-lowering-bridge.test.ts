@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { lowerMarkdown } from "@tiqian/core/core/engine/markdown-lowering.js";
-import { cleanupMounted, mount } from "./runtime-host.mjs";
+import { cleanupMounted, mount } from "./runtime-host.js";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
 initializeGlobalServices();
 
@@ -13,18 +14,18 @@ initializeGlobalServices();
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation
 // is cjk-punctuation, everything else is a latin run. The engine only treats
 // the first two as CJK.
-function cjkRoleStub(text, start, end) {
+function cjkRoleStub(text: string, start: number, end: number) {
   const slice = text.slice(start, end);
   if (/[一-鿿]/.test(slice)) return "cjk-text";
   if (/[，。、！？；：（）《》「」『』]/.test(slice)) return "cjk-punctuation";
   return "latin";
 }
 
-function lowerParagraph(html, options = {}, roleStub = cjkRoleStub) {
+function lowerParagraph(html: string, options: Record<string, unknown> = {}, roleStub: (text: string, start: number, end: number) => string = cjkRoleStub) {
   const root = mount(`<div data-tiqian-root="true">${html}</div>`);
   const paragraph = root.querySelector("p");
   assert.ok(paragraph, "mount must produce a <p>");
-  const result = lowerMarkdown(paragraph, options, {
+  const result = lowerMarkdown(paragraph as FakeElement & Element, options, {
     classifyRole: roleStub,
   });
   return { root, paragraph, result };
@@ -53,7 +54,7 @@ const INLINE_SHAPING_PROPERTIES = [
 
 // Host-side stub of the Kotlin InlineShapingStylePolicy decision the facade
 // installs: first index whose normalized values differ names the issue.
-function inlineShapingDecisionStub(tag, elementValues, paragraphValues) {
+function inlineShapingDecisionStub(tag: string, elementValues: string[], paragraphValues: string[]) {
   for (let i = 0; i < INLINE_SHAPING_PROPERTIES.length; i++) {
     if (elementValues[i] !== paragraphValues[i]) {
       return {
@@ -72,15 +73,15 @@ function shapingHelpers(decision = inlineShapingDecisionStub) {
   };
 }
 
-function lowerWithHelpers(paragraph, helpers, options = {}) {
+function lowerWithHelpers(paragraph: Element, helpers: Record<string, unknown>, options: Record<string, unknown> = {}) {
   return lowerMarkdown(paragraph, options, helpers);
 }
 
-function lowerParagraphWithShapingDecision(html, options = {}) {
+function lowerParagraphWithShapingDecision(html: string, options: Record<string, unknown> = {}) {
   const root = mount(`<div data-tiqian-root="true">${html}</div>`);
   const paragraph = root.querySelector("p");
   assert.ok(paragraph, "mount must produce a <p>");
-  const result = lowerWithHelpers(paragraph, {
+  const result = lowerWithHelpers(paragraph as FakeElement & Element, {
     classifyRole: cjkRoleStub,
     ...shapingHelpers(),
   }, options);
@@ -90,14 +91,14 @@ function lowerParagraphWithShapingDecision(html, options = {}) {
 // Patch globalThis.getComputedStyle so getPropertyValue(name) answers the
 // overrides map for the given lowercase property names; everything else keeps
 // the host computed style. Mirrors the withGetComputedStyle precedent in
-// responsive-measure-bridge.test.mjs.
-function withComputedStyleOverride(overrides, fn) {
+// responsive-measure-bridge.test.ts.
+function withComputedStyleOverride(overrides: Record<string, string>, fn: () => any) {
   return withComputedStyleOverrideFor(null, overrides, fn);
 }
 
 // Element-scoped variant: the overrides apply to one element only, so a
 // paragraph and a styled child can carry different computed values.
-function withComputedStyleOverrideFor(element, overrides, fn) {
+function withComputedStyleOverrideFor(element: Element | null, overrides: Record<string, string>, fn: () => any) {
   const real = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (target, pseudo) => {
     const style = real(target, pseudo);
@@ -105,7 +106,7 @@ function withComputedStyleOverrideFor(element, overrides, fn) {
     return new Proxy(style, {
       get(targetStyle, prop) {
         if (prop === "getPropertyValue") {
-          return (name) => {
+          return (name: string) => {
             const key = String(name).toLowerCase();
             if (Object.prototype.hasOwnProperty.call(overrides, key)) {
               return overrides[key];
@@ -159,7 +160,7 @@ test("markdownLoweringBridge_defaultFontSizeFallbackIs19Px", (t) => {
   const result = withComputedStyleOverride(
     { "font-size": "normal" },
     () =>
-      lowerMarkdown(paragraph, {}, { classifyRole: cjkRoleStub }),
+      lowerMarkdown(paragraph as FakeElement & Element, {}, { classifyRole: cjkRoleStub }),
   );
   assert.equal(result.ok, true);
   const lowered = result.lowered;
@@ -359,7 +360,7 @@ test("markdownLoweringBridge_rootGeneratedContentFailsGeneratedInline", (t) => {
   );
   assert.equal(result.ok, false);
   assert.equal(result.issue.name, "UnsupportedGeneratedInlineContent");
-  assert.ok(result.issue.detail.startsWith("p::before:"));
+  assert.ok(result.issue.detail!.startsWith("p::before:"));
 });
 
 test("markdownLoweringBridge_divergentInlineShapingStyleFails", (t) => {
@@ -374,30 +375,39 @@ test("markdownLoweringBridge_divergentInlineShapingStyleFails", (t) => {
   assert.equal(result.issue.detail, "em:font-kerning");
 });
 
+interface CapturedShapingDecision {
+  tag: string;
+  elementValues: string[];
+  paragraphValues: string[];
+}
+
 test("markdownLoweringBridge_inlineShapingDecisionReceivesNormalizedValues", (t) => {
   t.after(cleanupMounted);
   const root = mount('<div data-tiqian-root="true"><p><em style="font-kerning: none">斜</em>尾</p></div>');
   const paragraph = root.querySelector("p");
-  let captured = null;
-  const decision = (tag, elementValues, paragraphValues) => {
+  let captured: CapturedShapingDecision | null = null;
+  const decision = (tag: string, elementValues: string[], paragraphValues: string[]) => {
     captured = { tag, elementValues, paragraphValues };
     return null;
   };
   // The paragraph answers with whitespace and casing noise; the element keeps
   // its inline "none". Both must reach the callback normalized and equal.
   const result = withComputedStyleOverrideFor(
-    paragraph,
+    paragraph as (FakeElement & Element) | null,
     { "font-kerning": "  NonE\t" },
-    () => lowerWithHelpers(paragraph, { classifyRole: cjkRoleStub, ...shapingHelpers(decision) }),
+    () => lowerWithHelpers(paragraph as FakeElement & Element, { classifyRole: cjkRoleStub, ...shapingHelpers(decision) }),
   );
   assert.equal(result.ok, true);
   assert.ok(captured, "the decision callback must run for a styled inline element");
-  assert.equal(captured.tag, "em");
-  assert.equal(captured.elementValues.length, INLINE_SHAPING_PROPERTIES.length);
-  assert.equal(captured.paragraphValues.length, INLINE_SHAPING_PROPERTIES.length);
+  // The assignment lives inside the decision closure, invisible to control-flow
+  // analysis, so the narrowed flow type collapses to never; re-widen once.
+  const c = captured as CapturedShapingDecision;
+  assert.equal(c.tag, "em");
+  assert.equal(c.elementValues.length, INLINE_SHAPING_PROPERTIES.length);
+  assert.equal(c.paragraphValues.length, INLINE_SHAPING_PROPERTIES.length);
   const kerning = INLINE_SHAPING_PROPERTIES.indexOf("font-kerning");
-  assert.equal(captured.elementValues[kerning], "none");
-  assert.equal(captured.paragraphValues[kerning], "none");
+  assert.equal(c.elementValues[kerning], "none");
+  assert.equal(c.paragraphValues[kerning], "none");
 });
 
 test("markdownLoweringBridge_missingDecisionCallbackSkipsDowngrade", (t) => {

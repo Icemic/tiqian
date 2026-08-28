@@ -23,7 +23,13 @@ import {
   preparedValueStyleProperty,
   renderedLineSignature,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
+
+type CSSStyleView = { fontFamily: string; fontSize: string; fontWeight: string; width: string; [key: string]: string };
+
+function cssStyle(el: { style: unknown }): CSSStyleView {
+  return el.style as unknown as CSSStyleView;
+}
 
 test("sourceFidelity_variationSelectorStaysWithItsVisibleBase", async (t) => {
   t.after(cleanupMounted);
@@ -33,8 +39,8 @@ test("sourceFidelity_variationSelectorStaysWithItsVisibleBase", async (t) => {
     `<div data-tiqian-root='true' style='width: 220px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
-  const paragraph = root.querySelector("p");
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(copySelection(paragraph), source);
 });
@@ -49,16 +55,16 @@ test("sourceFidelity_shapingBoundariesStayInNativeSelectionFlow", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const boundaries = paragraph.querySelectorAll("[data-tq-shaping-boundary]");
   assert.ok(boundaries.length > 0, paragraph.innerHTML);
   for (const boundary of boundaries) {
     assert.equal(
-      computedStyleValue(boundary, "display"),
+      computedStyleValue(boundary as unknown as import("./snapshot-dom-fixtures.js").FakeElement, "display"),
       "inline",
-      `a shaping run must not become an atomic selection island: ${boundary.outerHTML}`,
+      `a shaping run must not become an atomic selection island: ${(boundary as unknown as import("./snapshot-dom-fixtures.js").FakeElement).innerHTML}`,
     );
   }
   assert.equal(copySelection(paragraph), source);
@@ -72,9 +78,9 @@ test("sourceFidelity_combiningMarksShapedWithTheirBases", async (t) => {
     `<div data-tiqian-root='true' style='width: 320px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(copySelection(paragraph), source);
@@ -89,10 +95,10 @@ test("sourceFidelity_unverifiedEllipsisKeepsSourceCodepoint", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.textContent.includes("……"));
   assert.ok(!paragraph.textContent.includes("⋯⋯"));
   assert.equal(copySelection(paragraph), "中文……中文。");
@@ -107,11 +113,11 @@ test("sourceFidelity_whitespaceCollapseProjectionMatchesInnerText", async (t) =>
       "<p>第一句。\n<strong>第二句。\n第三句。</strong><br>\n第四句。</p>" +
       "</div>",
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(nativeInnerText(paragraph), expected);
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
   assert.equal(copySelection(paragraph), expected);
   assert.equal(paragraph.querySelectorAll("[data-tq-hard-break]").length, 1);
   assert.equal(emptyRenderedLineCount(paragraph), 0);
@@ -119,7 +125,7 @@ test("sourceFidelity_whitespaceCollapseProjectionMatchesInnerText", async (t) =>
 
   const initial = renderedLineSignature(paragraph);
   installTestAnimationFrames();
-  root.style.width = "120px";
+  cssStyle(root).width = "120px";
   dispatchRelayout(root);
   // SyncFirstSlice: the relayout commits inside the dispatch task. The
   // narrow result is already live with no frame delay, and there is no
@@ -131,7 +137,7 @@ test("sourceFidelity_whitespaceCollapseProjectionMatchesInnerText", async (t) =>
   flushAllTestAnimationFrames();
   assert.equal(narrow, renderedLineSignature(paragraph));
 
-  root.style.width = "220px";
+  cssStyle(root).width = "220px";
   dispatchRelayout(root);
   flushAllTestAnimationFrames();
   assert.equal(initial, renderedLineSignature(paragraph));
@@ -145,10 +151,10 @@ test("sourceFidelity_preservedCrLfNormalizesToOneBreak", async (t) => {
   const root = mount(
     "<div data-tiqian-root='true' style='width: 220px'><p style='white-space: pre-wrap'></p></div>",
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   paragraph.textContent = "前\r\n后";
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
   assert.equal(copySelection(paragraph), "前\n后");
   assert.equal(paragraph.querySelectorAll("[data-tq-hard-break]").length, 1);
@@ -163,9 +169,9 @@ test("sourceFidelity_zeroWidthSpaceCopiesFaithfully", async (t) => {
     `<div data-tiqian-root='true' style='width: 120px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1);
@@ -181,7 +187,7 @@ test("sourceFidelity_hostFontFamiliesDriveMeasureAndPaint", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, {
+  const count = TiqianWeb.enhance(root as unknown as Element, {
     fontFamilies: {
       cjk: "ConfiguredCjk, sans-serif",
       latin: "ConfiguredLatin, sans-serif",
@@ -190,27 +196,30 @@ test("sourceFidelity_hostFontFamiliesDriveMeasureAndPaint", async (t) => {
   });
 
   assert.equal(count, 1);
-  const paragraph = root.querySelector("p");
-  assert.ok(paragraph.style.fontFamily.includes("CP-hashed"), paragraph.style.fontFamily);
-  assert.ok(paragraph.style.fontFamily.includes("HostFace"), paragraph.style.fontFamily);
-  const line = paragraph.querySelector(".tq-line");
+  const paragraph = root.querySelector("p")!;
+  const ps = cssStyle(paragraph);
+  assert.ok(ps.fontFamily.includes("CP-hashed"), ps.fontFamily);
+  assert.ok(ps.fontFamily.includes("HostFace"), ps.fontFamily);
+  const line = paragraph.querySelector(".tq-line")!;
   assert.ok(line);
   assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 33);
   assert.equal(
-    computedStyleValue(paragraph, "font-family"),
+    computedStyleValue(paragraph as unknown as import("./snapshot-dom-fixtures.js").FakeElement, "font-family"),
     computedStyleValue(line, "font-family"),
   );
   assert.equal(computedStyleValue(line, "font-size"), "21px");
 
-  const link = paragraph.querySelector("a");
-  assert.ok(link.style.fontFamily.includes("LinkFace"), link.style.fontFamily);
-  assert.equal(link.style.fontSize, "22px");
-  assert.equal(link.style.fontWeight, "520");
+  const link = paragraph.querySelector("a")!;
+  const ls = cssStyle(link);
+  assert.ok(ls.fontFamily.includes("LinkFace"), ls.fontFamily);
+  assert.equal(ls.fontSize, "22px");
+  assert.equal(ls.fontWeight, "520");
 
-  const code = paragraph.querySelector("code");
-  assert.ok(code.style.fontFamily.includes("CodeFace"), code.style.fontFamily);
-  assert.equal(code.style.fontSize, "13px");
-  assert.equal(code.style.fontWeight, "430");
+  const code = paragraph.querySelector("code")!;
+  const cs = cssStyle(code);
+  assert.ok(cs.fontFamily.includes("CodeFace"), cs.fontFamily);
+  assert.equal(cs.fontSize, "13px");
+  assert.equal(cs.fontWeight, "430");
 });
 
 test("sourceFidelity_hostInlineRenderStylesPreservedOnStrong", async (t) => {
@@ -222,10 +231,10 @@ test("sourceFidelity_hostInlineRenderStylesPreservedOnStrong", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
 
   assert.equal(count, 1);
-  const strong = root.querySelector("p strong.host-strong");
+  const strong = root.querySelector("p strong.host-strong")!;
   assert.ok(strong);
   assert.equal(strong.style.getPropertyValue("color"), "rgb(1, 2, 3)");
   assert.equal(strong.style.getPropertyValue("text-decoration-line"), "underline");

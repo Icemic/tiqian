@@ -10,6 +10,13 @@ import {
   CLOCK_GLOBALS as globalNames,
 } from "./test-clock.js";
 
+interface FakePrepareJob {
+  readonly done: boolean;
+  onFinished: ((job: FakePrepareJob) => void) | null;
+  finished: Promise<number>;
+  step: (shouldYield: () => boolean) => number;
+}
+
 async function importCoordinator() {
   const module = await import(`../element.js?coordinator=${Math.random()}`);
   return module.CoordinationService;
@@ -127,16 +134,20 @@ test("in-viewport frame tasks keep running on the next frame", async () => {
 // runSlice receives one grant controller per call; the fake reads the
 // recipient root off it, like the real pool does. The service owns the pool
 // now, so each test installs the fake on coordinator.layoutJobPool.
-function fakeWorkerRuntime(pendingByElement, grants, controllers) {
+function fakeWorkerRuntime(
+  pendingByElement: Map<{ name: string }, number[]>,
+  grants: (string | number)[][],
+  controllers?: { admissionClass: string; root: { name: string }; generation: number; quota: number; shouldStop: (quota: number) => boolean }[],
+) {
   return {
-    hasJob: (element) => pendingByElement.has(element),
-    jobGeneration: (element) => (pendingByElement.has(element) ? 1 : 0),
-    pendingInTier: (element, tier) => pendingByElement.get(element)[tier - 1],
-    runSlice: (controller, minTier) => {
+    hasJob: (element: { name: string }) => pendingByElement.has(element),
+    jobGeneration: (element: { name: string }) => (pendingByElement.has(element) ? 1 : 0),
+    pendingInTier: (element: { name: string }, tier: number) => pendingByElement.get(element)![tier - 1],
+    runSlice: (controller: { root: { name: string }; quota: number }, minTier: number) => {
       const element = controller.root;
-      const tiers = pendingByElement.get(element);
+      const tiers = pendingByElement.get(element)!;
       grants.push([element.name, minTier]);
-      if (controllers) controllers.push(controller);
+      if (controllers) controllers.push(controller as unknown as { admissionClass: string; root: { name: string }; generation: number; quota: number; shouldStop: (quota: number) => boolean });
       let processed = 0;
       for (let tier = 1; tier <= minTier && processed < controller.quota; tier++) {
         while (tiers[tier - 1] > 0 && processed < controller.quota) {
@@ -163,12 +174,12 @@ test("visible workers drain tier 1 before any worker runs tier 2", async () => {
       [rootA, [1, 0, 0]],
       [rootB, [0, 1, 0]],
     ]);
-    const grants = [];
-    const controllers = [];
+    const grants: (string | number)[][] = [];
+    const controllers: { admissionClass: string; root: { name: string }; generation: number; quota: number; shouldStop: (quota: number) => boolean }[] = [];
     const runtime = fakeWorkerRuntime(pending, grants, controllers);
     coordinator.layoutJobPool = runtime;
-    coordinator.registerWorker(sessionA, rootA);
-    coordinator.registerWorker(sessionB, rootB);
+    coordinator.registerWorker(sessionA, rootA as unknown as HTMLElement);
+    coordinator.registerWorker(sessionB, rootB as unknown as HTMLElement);
     coordinator.setWorkerActive(sessionA, true);
 
     clock.advance(16);
@@ -205,9 +216,9 @@ test("offscreen workers wait out the debounce before receiving grants", async ()
     const session = coordinator.register();
     coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [2, 0, 0]]]);
-    const grants = [];
-    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants);
-    coordinator.registerWorker(session, root);
+    const grants: (string | number)[][] = [];
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants, []);
+    coordinator.registerWorker(session, root as unknown as HTMLElement);
     coordinator.setWorkerActive(session, true);
 
     // Frames inside the debounce window: no grant at all.
@@ -235,9 +246,9 @@ test("returning to the viewport clears the worker debounce immediately", async (
     const session = coordinator.register();
     coordinator.update(session, { inViewport: false });
     const pending = new Map([[root, [1, 0, 0]]]);
-    const grants = [];
-    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants);
-    coordinator.registerWorker(session, root);
+    const grants: (string | number)[][] = [];
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, grants, []);
+    coordinator.registerWorker(session, root as unknown as HTMLElement);
     coordinator.setWorkerActive(session, true);
     clock.advance(32);
     assert.equal(grants.length, 0);
@@ -266,18 +277,18 @@ test("grant quota grows on healthy frames and halves on slow ones", async () => 
     const root = { name: "adaptive" };
     const session = coordinator.register();
     const pending = new Map([[root, [0, 0, 0]]]);
-    const controllers = [];
+    const controllers: { admissionClass: string; root: { name: string }; generation: number; quota: number; shouldStop: (quota: number) => boolean }[] = [];
     coordinator.layoutJobPool = fakeWorkerRuntime(pending, [], controllers);
-    coordinator.registerWorker(session, root);
+    coordinator.registerWorker(session, root as unknown as HTMLElement);
     coordinator.setWorkerActive(session, true);
 
-    const feed = (n) => { pending.get(root)[0] = n; };
+    const feed = (n: number) => { pending.get(root)![0] = n; };
     const frameQuota = () => {
       const quotas = controllers.map((c) => c.quota);
       controllers.length = 0;
       return quotas;
     };
-    const runFrame = (quota, stepMs) => {
+    const runFrame = (quota: number, stepMs: number) => {
       feed(quota);
       coordinator.requestWorkerFrame(session);
       clock.advance(stepMs);
@@ -335,20 +346,20 @@ test("a slow frame halves only roots that committed in the previous frame", asyn
       [rootA, [0, 0, 0]],
       [rootB, [0, 0, 0]],
     ]);
-    const controllers = [];
+    const controllers: { admissionClass: string; root: { name: string }; generation: number; quota: number; shouldStop: (quota: number) => boolean }[] = [];
     coordinator.layoutJobPool = fakeWorkerRuntime(pending, [], controllers);
-    coordinator.registerWorker(sessionA, rootA);
-    coordinator.registerWorker(sessionB, rootB);
+    coordinator.registerWorker(sessionA, rootA as unknown as HTMLElement);
+    coordinator.registerWorker(sessionB, rootB as unknown as HTMLElement);
     coordinator.setWorkerActive(sessionA, true);
     coordinator.setWorkerActive(sessionB, true);
 
-    const feed = (element, n) => { pending.get(element)[0] = n; };
+    const feed = (element: { name: string }, n: number) => { pending.get(element)![0] = n; };
     const frameQuotas = () => {
       const quotas = controllers.map((c) => [c.root.name, c.quota]);
       controllers.length = 0;
       return quotas;
     };
-    const runFrame = (a, b, stepMs) => {
+    const runFrame = (a: number, b: number, stepMs: number) => {
       feed(rootA, a);
       feed(rootB, b);
       coordinator.requestWorkerFrame(sessionA);
@@ -397,9 +408,9 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
     function createFakeJob(totalCandidates = 3) {
       let index = 0;
       let done = false;
-      let finishedResolve = null;
-      const finished = new Promise((resolve) => { finishedResolve = resolve; });
-      const job = {
+      let finishedResolve: ((value: number | PromiseLike<number>) => void) | null = null;
+      const finished = new Promise<number>((resolve) => { finishedResolve = resolve; });
+      const job: FakePrepareJob = {
         get done() { return done; },
         onFinished: null,
         finished,
@@ -411,14 +422,14 @@ test("runPrepare advances candidate jobs inside the frame loop and handles rereg
             dispatched += 1;
             if (index >= totalCandidates) {
               done = true;
-              finishedResolve(totalCandidates);
+              finishedResolve!(totalCandidates);
             }
             if (job.onFinished) job.onFinished(job);
             return dispatched;
           }
           if (index >= totalCandidates) {
             done = true;
-            finishedResolve(totalCandidates);
+            finishedResolve!(totalCandidates);
             if (job.onFinished) job.onFinished(job);
           }
           return dispatched;
@@ -470,9 +481,9 @@ test("a prepare job cancelled by its staleness guard finishes and retires its me
     // Phase one: a healthy job finishes through the frame loop.
     let remaining = 2;
     let done = false;
-    let finishedResolve = null;
-    const finished = new Promise((resolve) => { finishedResolve = resolve; });
-    const healthy = {
+    let finishedResolve: ((value: number | PromiseLike<number>) => void) | null = null;
+    const finished = new Promise<number>((resolve) => { finishedResolve = resolve; });
+    const healthy: FakePrepareJob = {
       get done() { return done; },
       onFinished: null,
       finished,
@@ -480,7 +491,7 @@ test("a prepare job cancelled by its staleness guard finishes and retires its me
         remaining -= 1;
         if (remaining <= 0) {
           done = true;
-          finishedResolve(remaining === 0 ? 2 : 1);
+          finishedResolve!(remaining === 0 ? 2 : 1);
         }
         return 1;
       },
@@ -493,15 +504,15 @@ test("a prepare job cancelled by its staleness guard finishes and retires its me
     // Phase two: a job already stale finishes from inside its first step the
     // way CancelledPrepareFinishesEarly does, and the member retires.
     let cancelledDone = false;
-    let cancelledResolve = null;
-    const cancelledFinished = new Promise((resolve) => { cancelledResolve = resolve; });
-    const cancelled = {
+    let cancelledResolve: ((value: number | PromiseLike<number>) => void) | null = null;
+    const cancelledFinished = new Promise<number>((resolve) => { cancelledResolve = resolve; });
+    const cancelled: FakePrepareJob = {
       get done() { return cancelledDone; },
       onFinished: null,
       finished: cancelledFinished,
       step() {
         cancelledDone = true;
-        cancelledResolve(0);
+        cancelledResolve!(0);
         return 0;
       },
     };
@@ -536,10 +547,10 @@ test("worker slot retires without unregister once the root object is collected",
     const coordinator = new Coordinator();
     const session = coordinator.register();
     coordinator.update(session, { inViewport: false });
-    let root = { name: "collected" };
+    let root: { name: string } | null = { name: "collected" };
     const pending = new Map([[root, [2, 0, 0]]]);
-    coordinator.layoutJobPool = fakeWorkerRuntime(pending, []);
-    coordinator.registerWorker(session, root);
+    coordinator.layoutJobPool = fakeWorkerRuntime(pending, [], []);
+    coordinator.registerWorker(session, root as unknown as HTMLElement);
     coordinator.setWorkerActive(session, true);
 
     // Inside the debounce window the off-screen slot holds one pending wake
@@ -547,7 +558,7 @@ test("worker slot retires without unregister once the root object is collected",
     // leaves only the slot's WeakRef.
     clock.advance(16);
     assert.ok(clock.pendingTimerCount() >= 1, "off-screen slot keeps a wake timer armed");
-    coordinator.layoutJobPool = fakeWorkerRuntime(new Map(), []);
+    coordinator.layoutJobPool = fakeWorkerRuntime(new Map(), [], []);
     root = null;
     gc();
     gc();

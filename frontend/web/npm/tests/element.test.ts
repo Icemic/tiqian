@@ -10,7 +10,7 @@ import {
   driveDeclaredFaceWakeTimeline,
   driveElementTimeline,
   ELEMENT_DRIVE_GLOBALS,
-} from "./timing-golden-host.mjs";
+} from "./timing-golden-host.js";
 import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
 initializeGlobalServices();
 
@@ -18,9 +18,9 @@ initializeGlobalServices();
 test("element entry imports without browser globals during SSR", async () => {
   const globals = preserveGlobals(["document", "HTMLElement", "customElements"]);
   try {
-    delete globalThis.document;
-    delete globalThis.HTMLElement;
-    delete globalThis.customElements;
+    delete (globalThis as Record<string, unknown>)["document"];
+    delete (globalThis as Record<string, unknown>)["HTMLElement"];
+    delete (globalThis as Record<string, unknown>)["customElements"];
 
     const module = await import(`../element.js?ssr=${Date.now()}`);
 
@@ -35,14 +35,14 @@ test("element entry registers the browser custom element through registerTiqianP
   const elements = new Map();
   class FakeHTMLElement {}
   try {
-    delete globalThis.document;
-    globalThis.HTMLElement = FakeHTMLElement;
-    globalThis.customElements = {
-      define(name, constructor) {
+    delete (globalThis as Record<string, unknown>)["document"];
+    (globalThis as Record<string, unknown>)["HTMLElement"] = FakeHTMLElement;
+    (globalThis as Record<string, unknown>)["customElements"] = {
+      define(name: string, constructor: CustomElementConstructor) {
         assert.equal(elements.has(name), false);
         elements.set(name, constructor);
       },
-      get(name) {
+      get(name: string) {
         return elements.get(name);
       },
     };
@@ -80,12 +80,13 @@ test("disabled is reversible and cancels stale initial font work", async () => {
   const globals = preserveGlobals(globalNames);
   const documentListeners = new Map();
   const fontListeners = new Map();
-  const fontLoads = [];
+  const fontLoads: Array<(value: unknown) => void> = [];
   const timers = new Set();
   let nextTimer = 1;
 
   class FakeMutationObserver {
-    constructor(callback) {
+    callback: (...args: unknown[]) => void;
+    constructor(callback: (...args: unknown[]) => void) {
       this.callback = callback;
     }
     observe() {}
@@ -93,6 +94,17 @@ test("disabled is reversible and cancels stale initial font work", async () => {
   }
 
   class FakeHTMLElement {
+    attributes: Map<string, string>;
+    dataset: Record<string, string | undefined>;
+    isConnected: boolean;
+    parentElement: null;
+    listeners: Map<string, (...args: unknown[]) => void>;
+    paragraph: {
+      textContent: string;
+      hasAttribute(): boolean;
+      getAttribute(): null;
+      querySelectorAll(): never[];
+    };
     constructor() {
       this.attributes = new Map();
       this.dataset = {};
@@ -112,32 +124,32 @@ test("disabled is reversible and cancels stale initial font work", async () => {
         },
       };
     }
-    addEventListener(name, listener) {
+    addEventListener(name: string, listener: (...args: unknown[]) => void) {
       this.listeners.set(name, listener);
     }
-    removeEventListener(name, listener) {
+    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
       if (this.listeners.get(name) === listener) this.listeners.delete(name);
     }
-    getAttribute(name) {
+    getAttribute(name: string) {
       return this.attributes.get(name) ?? null;
     }
-    hasAttribute(name) {
+    hasAttribute(name: string) {
       return this.attributes.has(name);
     }
-    setAttribute(name, value) {
+    setAttribute(name: string, value: string | number) {
       this.attributes.set(name, String(value));
     }
-    removeAttribute(name) {
+    removeAttribute(name: string) {
       this.attributes.delete(name);
     }
-    toggleAttribute(name, force) {
+    toggleAttribute(name: string, force: boolean) {
       if (force) this.setAttribute(name, "");
       else this.removeAttribute(name);
     }
     querySelector() {
       return null;
     }
-    querySelectorAll(selector) {
+    querySelectorAll(selector: string) {
       return selector === "p, li" ? [this.paragraph] : [];
     }
     getBoundingClientRect() {
@@ -150,19 +162,19 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     load() {
       return new Promise((resolve) => fontLoads.push(resolve));
     },
-    addEventListener(name, listener) {
+    addEventListener(name: string, listener: (...args: unknown[]) => void) {
       fontListeners.set(name, listener);
     },
-    removeEventListener(name, listener) {
+    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
       if (fontListeners.get(name) === listener) fontListeners.delete(name);
     },
   };
   const documentObject = {
     fonts,
-    addEventListener(name, listener) {
+    addEventListener(name: string, listener: (...args: unknown[]) => void) {
       documentListeners.set(name, listener);
     },
-    removeEventListener(name, listener) {
+    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
       if (documentListeners.get(name) === listener) documentListeners.delete(name);
     },
     dispatchEvent() {},
@@ -176,18 +188,18 @@ test("disabled is reversible and cancels stale initial font work", async () => {
   const elements = new Map();
 
   try {
-    globalThis.document = documentObject;
-    globalThis.HTMLElement = FakeHTMLElement;
-    globalThis.customElements = {
-      define(name, constructor) {
+    (globalThis as Record<string, unknown>)["document"] = documentObject;
+    (globalThis as Record<string, unknown>)["HTMLElement"] = FakeHTMLElement;
+    (globalThis as Record<string, unknown>)["customElements"] = {
+      define(name: string, constructor: CustomElementConstructor) {
         elements.set(name, constructor);
       },
-      get(name) {
+      get(name: string) {
         return elements.get(name);
       },
     };
-    globalThis.getComputedStyle = (element) => ({
-      getPropertyValue(property) {
+    (globalThis as Record<string, unknown>)["getComputedStyle"] = (element: FakeHTMLElement) => ({
+      getPropertyValue(property: string) {
         if (element instanceof FakeHTMLElement && property === "--tq-styles-ready") return "1";
         return {
           "font-family": '"Example CJK", sans-serif',
@@ -198,21 +210,21 @@ test("disabled is reversible and cancels stale initial font work", async () => {
         }[property] ?? "";
       },
     });
-    globalThis.MutationObserver = FakeMutationObserver;
-    globalThis.requestAnimationFrame = (callback) => {
+    (globalThis as Record<string, unknown>)["MutationObserver"] = FakeMutationObserver;
+    (globalThis as Record<string, unknown>)["requestAnimationFrame"] = (callback: (time: number) => void) => {
       queueMicrotask(() => callback(0));
       return 1;
     };
-    globalThis.cancelAnimationFrame = () => {};
-    globalThis.setTimeout = (callback) => {
+    (globalThis as Record<string, unknown>)["cancelAnimationFrame"] = () => {};
+    (globalThis as Record<string, unknown>)["setTimeout"] = (callback: () => void) => {
       const id = nextTimer++;
       queueMicrotask(() => {
         if (!timers.has(id)) callback();
       });
       return id;
     };
-    globalThis.clearTimeout = (id) => timers.add(id);
-    globalThis.window = {
+    (globalThis as Record<string, unknown>)["clearTimeout"] = (id: number) => timers.add(id);
+    (globalThis as Record<string, unknown>)["window"] = {
       addEventListener() {},
       removeEventListener() {},
     };
@@ -276,47 +288,29 @@ test("disabled is reversible and cancels stale initial font work", async () => {
 });
 
 test("declared face change wakes revalidate and merge per root", async () => {
-  // Real-element drive: the timing-golden host grafts the element onto its
-  // fixture world and settles it through S1, then registers declared faces
-  // while the real session answers every wake. The assertions read the
-  // element's own forced-check path end to end: registry notify, source
-  // subscription, scheduleTypographyCheck(true) through rAF dedup, snapshot
-  // invalidation, and the enhance dispatch that follows. The dissolved
-  // engine stub's revalidate count is now read off the session's dispatch
-  // oracle: every progressive dispatch writes tiqianEnhanceOptions exactly
-  // once. Declared sheets never enter the CSSOM the typography signature
-  // reads, so an unforced check would dedup and produce no dispatch at all.
   const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
   const clock = installFakeClock();
   try {
     const record = await driveDeclaredFaceWakeTimeline(clock, "declared-wake");
-    const wake = record.declaredWake;
-    const dispatchesIn = (phase) =>
+    const wake = record.declaredWake as { paragraphQueries?: Record<string, number> } | undefined;
+    const dispatchesIn = (phase: string) =>
       record.datasetWrites.filter(
         (write) => write.phase === phase && write.op === "set" && write.key === "tiqianEnhanceOptions",
       ).length;
 
-    // Two same-frame declarations merge into exactly one revalidate cycle:
-    // one forced check, one snapshot invalidation, one progressive dispatch.
-    // A wake without the rAF dedup would dispatch twice.
     assert.equal(dispatchesIn("w1-declared-merge"), 1,
       "two same-frame declarations merge into one revalidate cycle");
-    assert.ok((wake.paragraphQueries["w1-declared-merge"] ?? 0) >= 1,
+    assert.ok((wake?.paragraphQueries?.["w1-declared-merge"] ?? 0) >= 1,
       "the merged wake reaches a scheduled typography check");
 
-    // After the job the first wake opened completes, the root observes
-    // again; a later declaration forces one fresh refresh cycle: the source
-    // refresh destroys the prior runtime state, then dispatches.
     assert.equal(dispatchesIn("w2-declared-later"), 1,
       "a later declaration revalidates again");
-    assert.ok((wake.paragraphQueries["w2-declared-later"] ?? 0) >= 1,
+    assert.ok((wake?.paragraphQueries?.["w2-declared-later"] ?? 0) >= 1,
       "the later wake reaches a scheduled typography check");
 
-    // A disabled element unsubscribed from the declared-face registry: the
-    // declaration produces neither a scheduled check nor a dispatch.
     assert.equal(dispatchesIn("w3-disabled"), 0,
       "a disabled element no longer wakes");
-    assert.equal(wake.paragraphQueries["w3-disabled"] ?? 0, 0,
+    assert.equal(wake?.paragraphQueries?.["w3-disabled"] ?? 0, 0,
       "no typography check executes after the element stops observing");
   } finally {
     restoreGlobals(globals);
@@ -333,7 +327,7 @@ test("element exact font contract mismatch writes structured detail to tiqianSna
     const missWrite = record.datasetWrites.find((w) => w.key === "tiqianSnapshotFontMiss");
     assert.ok(missWrite, "tiqianSnapshotFontMiss dataset write was recorded");
     assert.match(
-      missWrite.value,
+      missWrite.value!,
       /^SnapshotFontContractMismatch\|FieldMismatch\|expectedFaces=\d+\|actualFaces=\d+\|firstField=\w+$/u,
     );
     assert.equal(

@@ -4,7 +4,7 @@
 // nested roots, stateful inline objects, block images, zero-advance glyphs
 // and unmodelable inline features.
 
-import assert from "node:assert/strict";
+import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
   cleanupMounted,
@@ -18,7 +18,8 @@ import {
   mount,
   relayoutEventIsStale,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
 test("eligibility_enhancesLeafListItemsWithoutReplacingListContainers", async (t) => {
   t.after(cleanupMounted);
@@ -32,14 +33,14 @@ test("eligibility_enhancesLeafListItemsWithoutReplacingListContainers", async (t
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as FakeElement & Element, testOptions());
 
   assert.equal(count, 2);
-  const outer = root.querySelector("#outer");
-  const inner = root.querySelector("#inner");
-  const plain = root.querySelector("#plain");
-  const outerList = root.querySelector("ul");
-  const innerList = outer.querySelector(":scope > ul");
+  const outer = root.querySelector("#outer")!;
+  const inner = root.querySelector("#inner")!;
+  const plain = root.querySelector("#plain")!;
+  const outerList = root.querySelector("ul")!;
+  const innerList = outer.querySelector(":scope > ul")!;
   assert.equal(outer.getAttribute("data-tq-rendered"), null);
   assert.ok(outer.querySelector(":scope > ul"));
   assert.equal(outerList.getAttribute("data-tq-list-layout"), null);
@@ -66,16 +67,16 @@ test("eligibility_progressiveEnhancementSkipsAutoSizedListContainers", async (t)
       </div>
     `);
     t.after(() => cleanupMounted());
-    const outer = root.querySelector("#outer");
-    const child = root.querySelector("#child");
+    const outer = root.querySelector("#outer")!;
+    const child = root.querySelector("#child")!;
     const sourceWidth = elementWidth(child);
     let stale = false;
-    root.addEventListener("tiqian:ready", (event) => {
-      stale = relayoutEventIsStale(event);
+    (root as unknown as { addEventListener(type: string, listener: (event: unknown) => void): void }).addEventListener("tiqian:ready", (event) => {
+      stale = relayoutEventIsStale(event as Parameters<typeof relayoutEventIsStale>[0]);
     });
     installTestAnimationFrames();
 
-    TiqianWeb.enhanceProgressively(root, testOptions());
+    TiqianWeb.enhanceProgressively(root as FakeElement & Element, testOptions());
     flushAllTestAnimationFrames();
 
     assert.equal(outer.getAttribute("data-tq-rendered"), null);
@@ -85,7 +86,7 @@ test("eligibility_progressiveEnhancementSkipsAutoSizedListContainers", async (t)
     assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
     assert.equal(stale, false);
 
-    TiqianWeb.destroy(root);
+    TiqianWeb.destroy(root as FakeElement & Element);
     assert.equal(child.getAttribute("data-tq-host-inline-size"), null);
     assert.ok(Math.abs(elementWidth(child) - sourceWidth) < 0.5);
   }
@@ -98,10 +99,10 @@ test("eligibility_missingSharedStylesKeepsSourceNativeWithIssue", async (t) => {
     "<div data-tiqian-root='true' style='width: 220px'><p>没有共享样式时不能静默接管断行。</p></div>",
     { sharedStylesReady: false },
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -121,15 +122,15 @@ test("eligibility_nestedRootsOwnOnlyDirectParagraphScope", async (t) => {
     </div>
   `);
 
-  const innerRoot = root.querySelector("[data-tiqian-root]");
+  const innerRoot = root.querySelector("[data-tiqian-root]")!;
   assert.ok(innerRoot);
-  TiqianWeb.enhance(innerRoot, testOptions());
-  TiqianWeb.enhance(root, testOptions());
+  TiqianWeb.enhance(innerRoot as FakeElement & Element, testOptions());
+  TiqianWeb.enhance(root as FakeElement & Element, testOptions());
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(innerRoot.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(root.querySelectorAll("p.outer[data-tq-rendered='true']").length, 1);
   assert.equal(root.querySelectorAll("p.inner[data-tq-rendered='true']").length, 1);
-  TiqianWeb.destroy(innerRoot);
+  TiqianWeb.destroy(innerRoot as FakeElement & Element);
 });
 
 test("eligibility_statefulInlineObjectKeepsParagraphOriginal", async (t) => {
@@ -140,12 +141,12 @@ test("eligibility_statefulInlineObjectKeepsParagraphOriginal", async (t) => {
       <p>中文<button style="display: inline-block">unsupported</button>。</p>
     </div>
   `);
-  const original = root.querySelector("p").innerHTML;
+  const original = root.querySelector("p")!.innerHTML;
 
-  const count = TiqianWeb.enhance(root, testOptions());
+  const count = TiqianWeb.enhance(root as FakeElement & Element, testOptions());
 
   assert.equal(count, 0);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.innerHTML, original);
   assert.equal(
     paragraph.getAttribute("data-tiqian-capability-issue"),
@@ -161,10 +162,10 @@ test("eligibility_blockImageOnlyParagraphIgnoredQuietly", async (t) => {
       <p><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='20'/%3E" alt="sample" width="24" height="20" style="display:block"></p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
@@ -181,10 +182,10 @@ test("eligibility_textWithBlockImageFallsBackAtomically", async (t) => {
       <p>图片说明<img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='20'/%3E" alt="sample" width="24" height="20" style="display:block"></p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(
@@ -203,10 +204,10 @@ test("eligibility_zeroAdvanceGlyphsKeepParagraphNative", async (t) => {
       <p style="font-size: 0px">不可生成零宽行盒。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  const count = TiqianWeb.enhance(root);
+  const count = TiqianWeb.enhance(root as FakeElement & Element);
 
   // Since the Slice 4d-2b host switchover (ADR 0053) the wire face rejects a
   // computed font size of zero up front with InvalidFontSize; the paragraph
@@ -230,10 +231,10 @@ test("eligibility_unmodelableInlineFeatureStaysParagraphNative", async (t) => {
       <p>阅读 <span style="font-feature-settings: 'hwid'; font-variant-east-asian: proportional-width">Font size</span> 以了解更多。</p>
     </div>
   `);
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(

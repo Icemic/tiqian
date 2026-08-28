@@ -20,7 +20,7 @@ import {
   runWorkerJobToCompletion,
   setElementRect,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
 
 test("rawDom_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
   t.after(cleanupMounted);
@@ -28,14 +28,14 @@ test("rawDom_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
   const root = mount(
     '<div data-tiqian-root="true"><p data-tq-rendered="host-owned" data-tq-canonical-source="host-owned" data-tq-copy-ignore="host-owned">需要<strong>增强</strong>。</p></div>',
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
   assert.equal(paragraph.getAttribute("data-tq-copy-ignore"), "host-owned");
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-copy-ignore"), "host-owned");
@@ -51,14 +51,14 @@ test("rawDom_destroyCancelsPendingWorkBeforeTouchingContent", async (t) => {
   const root = mount(
     '<div data-tiqian-root="true"><p>渐进增强尚未执行时仍然是原生正文。</p></div>',
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
   attachWorker(root);
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
@@ -72,10 +72,10 @@ test("rawDom_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   const root = mount(
     '<div data-tiqian-root="true"><p>路由移除旧文章时不应该同步重建这一段。</p></div>',
   );
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
   const renderedHtml = paragraph.innerHTML;
   assert.notEqual(paragraph.innerHTML, originalHtml);
 
@@ -84,7 +84,7 @@ test("rawDom_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   assert.equal(paragraph.innerHTML, renderedHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -103,11 +103,11 @@ test("rawDom_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => 
   }
 
   attachWorker(root);
-  TiqianWeb.enhanceProgressively(root, testOptions());
+  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
   grantWorkerSlice(root);
   assert.ok(root.querySelectorAll("p[data-tq-rendered='true']").length < 2);
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
   runWorkerJobToCompletion(root);
 
   paragraphs.forEach((paragraph, index) => {
@@ -125,9 +125,9 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
     "<div data-tiqian-root='true' style='width: 220px'><p data-tq-snapshot-key='plain' style=\"font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px\">原节点必须在异常后原样回来。</p></div>",
   );
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, snapshotTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const renderedChild = paragraph.firstChild;
   const renderedHtml = paragraph.innerHTML;
   const renderedStyle = paragraph.getAttribute("style");
@@ -135,10 +135,10 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
 
   let errorCount = 0;
   let readyCount = 0;
-  root.addEventListener("tiqian:relayout-error", () => {
+  (root as unknown as { addEventListener(type: string, listener: () => void): void }).addEventListener("tiqian:relayout-error", () => {
     errorCount += 1;
   });
-  root.addEventListener("tiqian:relayout-ready", () => {
+  (root as unknown as { addEventListener(type: string, listener: () => void): void }).addEventListener("tiqian:relayout-ready", () => {
     readyCount += 1;
   });
 
@@ -149,7 +149,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
     failShaping: false,
     corruptShapeError: "SnapshotSessionShapeTableCorrupted:fixture-shape-table",
   });
-  root.style.width = "180px";
+  root.style.setProperty("width", "180px");
   dispatchRelayout(root);
   await drainMicrotasks();
   flushAllTestAnimationFrames();
@@ -167,7 +167,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
   assert.equal(pendingTestAnimationFrameCount(), 0);
 
   installSnapshotFontSessionFixture({ failShaping: false });
-  root.style.width = "140px";
+  root.style.setProperty("width", "140px");
   dispatchRelayout(root);
   await drainMicrotasks();
   flushAllTestAnimationFrames();
@@ -188,18 +188,18 @@ test("rawDom_destroyCancelsInFlightRelayoutAndRollsBack", async (t) => {
   const originalHtmls = paragraphs.map((paragraph) => paragraph.innerHTML);
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
 
   attachWorker(root);
-  root.style.width = "100px";
+  root.style.setProperty("width", "100px");
   dispatchRelayout(root);
   grantWorkerSlice(root);
 
-  assert.equal(TiqianWeb.workerHasJob(root), true);
+  assert.equal(TiqianWeb.workerHasJob(root as unknown as Element), true);
 
-  TiqianWeb.destroy(root);
+  TiqianWeb.destroy(root as unknown as Element);
 
-  assert.equal(TiqianWeb.workerHasJob(root), false);
+  assert.equal(TiqianWeb.workerHasJob(root as unknown as Element), false);
   paragraphs.forEach((paragraph, index) => {
     assert.equal(paragraph.innerHTML, originalHtmls[index]);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);

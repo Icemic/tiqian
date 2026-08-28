@@ -3,7 +3,7 @@ import { SNAPSHOT_SCHEMA, LAYOUT_REVISION } from "@tiqian/core/snapshot-schema";
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { EnhancedElementContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import type { ReplayMetricItem, ReplayShapeItem } from "@tiqian/core/core/measurement/replay-entry-codec.js";
-import type { GrantController } from "@tiqian/core/core/engine/coordination/coordination-service.js";
+import type { GrantController, TiqianLayoutWorkerInstance } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 
 // Type definitions for test environment
 type FrameRequestCallback = (time: number) => void;
@@ -41,7 +41,6 @@ import {
   FakeNode,
   FakeText,
   fixtureComputedStyle,
-  HTML_VOID_TAGS,
 } from "./snapshot-dom-fixtures.js";
 import {
   enhance,
@@ -154,7 +153,7 @@ export class FakeDataTransfer {
 }
 
 export class FakeSelection {
-  readonly _ranges: unknown[];
+  _ranges: unknown[];
 
   constructor() {
     this._ranges = [];
@@ -175,7 +174,7 @@ export class FakeSelection {
   }
 
   removeAllRanges(): void {
-    this._ranges.length = 0;
+    this._ranges = [];
   }
 
   addRange(range: unknown): void {
@@ -1274,45 +1273,82 @@ function findContentSizedAncestor(element: FakeElement): FakeElement | null {
 }
 
 export function cssPx(value: string | number): number {
-  const parsed = Number.parseFloat(String(value));
-  return Number.isNaN(parsed) ? 0 : parsed;
+  return Number.parseFloat(String(value).replace(/px$/, "")) || 0;
 }
 
 function inlineContentAdvance(node: FakeNode): number {
   if (node.nodeType === 3) {
-    return (node.textContent ?? "").length * 18;
-  }
-  if (node.nodeType === 1) {
-    const element = node as FakeElement;
-    const pad = getHorizontalPadding(element);
-    let inner = 0;
-    for (const child of element.childNodes) {
-      inner += inlineContentAdvance(child);
+    const data = ((node as FakeNode & { data?: string }).data ?? "").replace(/[\u200B\uFEFF]/g, "");
+    if (data.length === 0) return 0;
+    const baseFontSize = node.parentElement ? blockFontSizePx(node.parentElement) : 18;
+    const letterSpacing = computedLetterSpacingPx(node.parentElement);
+    let advance = 0;
+    for (const ch of data) {
+      advance += fakeCharNaturalAdvance(ch, baseFontSize) + letterSpacing;
     }
-    const beforeAdv = pseudoContentAdvance(element, "::before");
-    const afterAdv = pseudoContentAdvance(element, "::after");
-    return pad.left + beforeAdv + inner + afterAdv + pad.right;
+    return advance;
   }
-  return 0;
+  if (node.nodeType !== 1) return 0;
+  const element = node as FakeElement;
+  if (NON_RENDERED_TAGS.has(element.tagName)) return 0;
+  const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle | undefined;
+  const cs = computed?.(element as FakeElement & Element);
+  const margin = (side: string): number => {
+    const raw = cs?.getPropertyValue?.(side) ?? "0";
+    const parsed = Number.parseFloat(raw);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const explicit = getElementExplicitWidth(element);
+  if (explicit != null) return margin("margin-left") + explicit + margin("margin-right");
+  const pad = getHorizontalPadding(element);
+  let inner = 0;
+  for (const child of element.childNodes) inner += inlineContentAdvance(child);
+  const beforeAdvance = pseudoContentAdvance(element, "::before");
+  const afterAdvance = pseudoContentAdvance(element, "::after");
+  return margin("margin-left") + pad.left + beforeAdvance + inner + afterAdvance + pad.right + margin("margin-right");
 }
 
 function pseudoContentAdvance(element: FakeElement, pseudo: string): number {
-  const content = element.style?.getPropertyValue?.(`content`);
-  if (!content || content === "none") return 0;
-  // Simplified: count characters
-  return content.replace(/["']/g, "").length * 18;
+  if (!element || element.nodeType !== 1) return 0;
+  const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle | undefined;
+  const cs = computed?.(element as FakeElement & Element, pseudo);
+  if (!cs) return 0;
+  const display = cs.getPropertyValue?.("display") ?? "";
+  if (display === "none") return 0;
+  const position = cs.getPropertyValue?.("position") ?? "";
+  if (position === "absolute" || position === "fixed") return 0;
+  let content = cs.getPropertyValue?.("content") ?? "";
+  content = content.trim();
+  if (!content || content === "none" || content === "normal") return 0;
+  if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith("'") && content.endsWith("'"))) {
+    content = content.slice(1, -1);
+  }
+  if (!content) return 0;
+  const fontSize = cssPx(cs.getPropertyValue?.("font-size")) || 18;
+  const letterSpacing = computedLetterSpacingPx(element);
+  return content.length * (fontSize + letterSpacing);
 }
 
-function inlineStartOffset(element: FakeElement): number {
-  let offset = 0;
-  for (let curr = element.previousSibling; curr; curr = curr.previousSibling) {
-    if (curr.nodeType === 3) {
-      offset += (curr.textContent ?? "").length * 18;
-    } else if (curr.nodeType === 1) {
-      offset += inlineContentAdvance(curr);
-    }
+// Left edge of a node within its block container's content box, by walking
+// preceding inline siblings and ancestor paddings.
+function inlineStartOffset(node: FakeNode): number {
+  const parent = node.parentNode;
+  if (!parent || parent.nodeType !== 1) return 0;
+  const parentElement = parent as FakeElement;
+  const isInline = INLINE_FLOW_TAGS.has(parentElement.tagName);
+  const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle | undefined;
+  const cs = computed?.(parentElement as FakeElement & Element);
+  const margin = (side: string): number => {
+    const raw = cs?.getPropertyValue?.(side) ?? "0";
+    const parsed = Number.parseFloat(raw);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  let offset = getHorizontalPadding(parentElement).left + pseudoContentAdvance(parentElement, "::before");
+  for (const sibling of parent.childNodes) {
+    if (sibling === node) break;
+    offset += inlineContentAdvance(sibling);
   }
-  return offset;
+  return (isInline ? inlineStartOffset(parentElement) + margin("margin-left") : 0) + offset;
 }
 
 export class FakeAttributesMap extends Map<string, string> {
@@ -1508,7 +1544,7 @@ export class HostElement extends FakeElement {
     return !event.defaultPrevented;
   }
 
-  override matches(selector: string): boolean {
+  matches(selector: string): boolean {
     return matchesHostSelector(this as unknown as FakeElement, selector);
   }
 
@@ -1728,63 +1764,129 @@ export class HostElement extends FakeElement {
 
 function serializeNode(node: FakeNode): string {
   if (node.nodeType === 3) {
-    return node.textContent.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+    return (node as FakeText).value ?? node.textContent ?? "";
   }
-  if (node.nodeType !== 1) return "";
-  const element = node as FakeElement;
-  const attrs: string[] = [];
-  for (const [name, value] of element.attributes) {
-    attrs.push(`${name}="${value}"`);
-  }
-  const attrStr = attrs.length ? " " + attrs.join(" ") : "";
-  const children = element.childNodes.map(serializeNode).join("");
-  return `<${element.tagName.toLowerCase()}${attrStr}>${children}</${element.tagName.toLowerCase()}>`;
-}
-
-function parseHtmlNodes(html: string, ownerDocument: FakeDocument | null): FakeNode[] {
-  const fragment = parseHtmlFragment(html);
-  const nodes: FakeNode[] = [];
-  for (const child of fragment.childNodes) {
-    nodes.push(adoptNode(child, ownerDocument));
-  }
-  return nodes;
-}
-
-function adoptNode(node: FakeNode, ownerDocument: FakeDocument | null): FakeNode {
-  node.ownerDocument = ownerDocument;
   if (node.nodeType === 1) {
     const element = node as FakeElement;
-    for (const child of element.childNodes) {
-      adoptNode(child, ownerDocument);
+    const tag = element.tagName.toLowerCase();
+    let attrs = "";
+    if (element.attributes) {
+      for (const [k, v] of element.attributes) {
+        attrs += ` ${k}="${v}"`;
+      }
     }
+    const isVoid = ["br", "hr", "img", "input", "link", "meta"].includes(tag);
+    if (isVoid) {
+      return `<${tag}${attrs}>`;
+    }
+    const inner = (element.childNodes || []).map(serializeNode).join("");
+    return `<${tag}${attrs}>${inner}</${tag}>`;
   }
-  return node;
+  if (node.nodeType === 11) {
+    return (node.childNodes || []).map(serializeNode).join("");
+  }
+  return "";
 }
 
-function widestInlineSegment(root: FakeElement): number {
-  let max = 0;
-  let current = 0;
-  function visit(node: FakeNode): void {
-    if (node.nodeType === 3) {
-      current += (node.textContent ?? "").length * 18;
-      if (current > max) max = current;
-    } else if (node.nodeType === 1) {
-      const element = node as FakeElement;
-      const isInline = [
-        "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
-        "SUB", "SUP", "CODE", "KBD", "SAMP", "VAR", "TIME", "DATA",
-        "RUBY", "RT", "RP", "BDI", "BDO", "ABBR", "Q", "CITE", "DEL", "SPOILER",
-      ].includes(element.tagName);
-      if (!isInline) {
-        if (current > max) max = current;
-        current = 0;
+function parseHtmlNodes(html: string, doc: FakeDocument | null = defaultParserDocument()): FakeNode[] {
+  const tagRegex = /<\/?([a-zA-Z0-9-]+)((?:\s+[a-zA-Z0-9_-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|([^<]+)/gs;
+  const attrRegex = /([a-zA-Z0-9_-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+
+  const root = new HostElement("div");
+  if (doc) root.ownerDocument = doc;
+  const stack: HostElement[] = [root];
+
+  let match: RegExpExecArray | null;
+  while ((match = tagRegex.exec(html)) !== null) {
+    const [full, tagName, attrStr, text] = match as unknown as [string, string | undefined, string | undefined, string | undefined];
+    if (text !== undefined) {
+      if (text.length > 0) {
+        const parent = stack[stack.length - 1];
+        if (parent?.tagName === "STYLE") {
+          collectStylesheetRules(text);
+        }
+        const textNode = new FakeText(text);
+        parent.appendChild(textNode);
       }
-      for (const child of element.childNodes) visit(child);
-      if (!isInline) current = 0;
+    } else if (full.startsWith("</")) {
+      const closingTag = (tagName || "").toLowerCase();
+      if (!["br", "hr", "img", "input", "link", "meta"].includes(closingTag)) {
+        if (stack.length > 1) {
+          stack.pop();
+        }
+      }
+    } else {
+      const el = new HostElement(tagName ?? "div");
+      if (doc) el.ownerDocument = doc;
+      if (attrStr) {
+        let attrMatch: RegExpExecArray | null;
+        while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
+          const attrName = attrMatch[1];
+          const attrVal = decodeHtmlEntities(attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? "");
+          el.setAttribute(attrName, attrVal);
+        }
+      }
+      stack[stack.length - 1].appendChild(el);
+      const isSelfClosing = full.endsWith("/>") || ["br", "hr", "img", "input"].includes((tagName || "").toLowerCase());
+      if (!isSelfClosing) {
+        stack.push(el);
+      }
     }
   }
-  visit(root);
-  return Math.ceil(max / 18) * 18;
+
+  return Array.from(root.childNodes);
+}
+
+function defaultParserDocument(): FakeDocument | null {
+  return ((globalThis as Record<string, unknown>).document as FakeDocument | undefined) ?? null;
+}
+
+// Widest inline run between engine line markers in a block container.
+// Line breaks surface both as BR (data-tq-engine-break) and as empty
+// SPAN.tq-line markers, and inside sliced inline elements they sit below
+// the direct children, so the walk recurses and resets the running segment
+// at either marker kind while mirroring inlineContentAdvance's chrome
+// model (margins, padding, pseudo advances) for the elements it crosses.
+function widestInlineSegment(container: FakeElement): number {
+  let max = 0;
+  let current = 0;
+  const marginOf = (element: FakeElement, side: string): number => {
+    const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle | undefined;
+    const parsed = Number.parseFloat(computed?.(element as FakeElement & Element)?.getPropertyValue?.(side) ?? "0");
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const visit = (node: FakeNode): void => {
+    if (node.nodeType === 3) {
+      current += inlineContentAdvance(node);
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    const element = node as FakeElement;
+    if (NON_RENDERED_TAGS.has(element.tagName)) return;
+    if (element.tagName === "BR") {
+      max = Math.max(max, current);
+      current = 0;
+      return;
+    }
+    const classList = (element as FakeElement & { classList?: { contains(name: string): boolean } | null }).classList;
+    const isLineMarker = Boolean(classList && classList.contains("tq-line"));
+    if (isLineMarker) {
+      max = Math.max(max, current);
+      current = 0;
+      return;
+    }
+    const explicit = getElementExplicitWidth(element);
+    if (explicit != null) {
+      current += marginOf(element, "margin-left") + explicit + marginOf(element, "margin-right");
+      return;
+    }
+    const pad = getHorizontalPadding(element);
+    current += marginOf(element, "margin-left") + pad.left + pseudoContentAdvance(element, "::before");
+    for (const child of element.childNodes) visit(child);
+    current += pseudoContentAdvance(element, "::after") + pad.right + marginOf(element, "margin-right");
+  };
+  for (const child of container.childNodes) visit(child);
+  return Math.max(max, current);
 }
 
 // ---- Runtime host exports ----
@@ -1802,47 +1904,15 @@ Object.defineProperty(FakeText.prototype, "data", {
   configurable: true,
 });
 
-function parseHtmlFragment(html: string): FakeFragment {
-  const root = new FakeFragment();
-  const stack: (FakeFragment | FakeElement)[] = [root];
-  const source = String(html);
-  let index = 0;
-  const appendText = (value: string): void => {
-    if (value) FakeNode.prototype.appendChild.call(stack[stack.length - 1], new FakeText(value));
-  };
-  while (index < source.length) {
-    const open = source.indexOf("<", index);
-    if (open < 0) {
-      appendText(decodeHtmlEntities(source.slice(index)));
-      break;
-    }
-    if (open > index) appendText(decodeHtmlEntities(source.slice(index, open)));
-    const close = source.indexOf(">", open);
-    if (close < 0) {
-      appendText(decodeHtmlEntities(source.slice(open)));
-      break;
-    }
-    const raw = source.slice(open + 1, close);
-    index = close + 1;
-    if (raw.startsWith("!--")) continue;
-    if (raw.startsWith("/")) {
-      const tagName = raw.slice(1).trim().toUpperCase();
-      for (let depth = stack.length - 1; depth > 0; depth -= 1) {
-        if ((stack[depth] as FakeElement).tagName === tagName) {
-          stack.length = depth;
-          break;
-        }
-      }
-      continue;
-    }
-    const selfClosing = raw.endsWith("/");
-    const body = selfClosing ? raw.slice(0, -1).trim() : raw;
-    const nameMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(body);
-    if (!nameMatch) continue;
-    const element = new HostElement(nameMatch[1]);
-    parseHtmlAttributes(body.slice(nameMatch[0].length), element);
-    FakeNode.prototype.appendChild.call(stack[stack.length - 1], element);
-    if (!selfClosing && !HTML_VOID_TAGS.includes(element.tagName)) stack.push(element);
+export function parseHtmlFragment(html: string, doc: FakeDocument | null = defaultParserDocument()): FakeElement {
+  const nodes = parseHtmlNodes(html, doc);
+  if (nodes.length === 1 && nodes[0].nodeType === 1) {
+    return nodes[0] as FakeElement;
+  }
+  const root = new HostElement("div");
+  if (doc) root.ownerDocument = doc;
+  for (const node of nodes) {
+    root.appendChild(node);
   }
   return root;
 }
@@ -1852,43 +1922,11 @@ function decodeHtmlEntities(str: string): string {
   return str
     .replace(/&#(\d+);/g, (_match, num) => String.fromCharCode(Number(num)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex) => String.fromCharCode(Number.parseInt(hex, 16)))
-    .replace(/"/g, '"')
+    .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/&/g, "&");
-}
-
-function parseHtmlAttributes(source: string, element: HostElement): void {
-  let index = 0;
-  while (index < source.length) {
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    if (index >= source.length) break;
-    let nameEnd = index;
-    while (nameEnd < source.length && !/[\s=]/.test(source[nameEnd])) nameEnd += 1;
-    const name = source.slice(index, nameEnd);
-    index = nameEnd;
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    if (source[index] !== "=") {
-      if (name) element.setAttribute(name.toLowerCase(), "");
-      continue;
-    }
-    index += 1;
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    let value = "";
-    const quote = source[index];
-    if (quote === "\"" || quote === "'") {
-      const end = source.indexOf(quote, index + 1);
-      value = source.slice(index + 1, end < 0 ? source.length : end);
-      index = end < 0 ? source.length : end + 1;
-    } else {
-      let end = index;
-      while (end < source.length && !/\s/.test(source[end])) end += 1;
-      value = source.slice(index, end);
-      index = end;
-    }
-    if (name) element.setAttribute(name.toLowerCase(), decodeHtmlEntities(value));
-  }
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
 }
 
 const PUNCT_OPENING_FULLWIDTH = new Set<string>("（〔【《〈「『｛".split(""));
@@ -1941,7 +1979,9 @@ function fakeCharNaturalAdvance(ch: string, fontSize: number): number {
 interface FakeTextMetrics {
   width: number;
   actualBoundingBoxLeft: number;
-  actualBoundingBoxRight: number;
+  // Unmeasured multi-char strings never assign inkRight in the .mjs host, so
+  // the field can legitimately be undefined there.
+  actualBoundingBoxRight: number | undefined;
   actualBoundingBoxAscent: number;
   actualBoundingBoxDescent: number;
   fontBoundingBoxAscent: number;
@@ -2009,7 +2049,7 @@ export class FakeCanvasRenderingContext2D {
     return {
       width,
       actualBoundingBoxLeft: inkLeft,
-      actualBoundingBoxRight: inkRight ?? width,
+      actualBoundingBoxRight: inkRight,
       actualBoundingBoxAscent: ascent,
       actualBoundingBoxDescent: descent,
       fontBoundingBoxAscent: ascent,
@@ -2174,7 +2214,7 @@ if (!(Array.prototype as object & { item?: unknown }).item) {
   });
 }
 
-FakeNode.prototype.contains = function (other: FakeNode): boolean {
+(FakeNode.prototype as unknown as { contains: (other: FakeNode) => boolean }).contains = function contains(this: FakeNode, other: FakeNode): boolean {
   for (let node: FakeNode | null = other; node; node = node.parentNode) {
     if (node === this) return true;
   }
@@ -2199,7 +2239,7 @@ FakeNode.prototype.querySelector = function (selector: string): FakeElement | nu
   return this.querySelectorAll(selector)[0] ?? null;
 };
 
-FakeNode.prototype.matches = function (selector: string): boolean {
+(FakeNode.prototype as unknown as { matches: (selector: string) => boolean }).matches = function matches(this: FakeNode, selector: string): boolean {
   return matchesHostSelector(this as FakeElement, selector);
 };
 
@@ -2211,13 +2251,16 @@ export class HostNode extends FakeNode {
     return false;
   }
 }
-HostNode.TEXT_NODE = 3;
-HostNode.ELEMENT_NODE = 1;
-HostNode.DOCUMENT_FRAGMENT_NODE = 11;
+const HostNodeStatics = HostNode as unknown as Record<string, number>;
+HostNodeStatics.TEXT_NODE = 3;
+HostNodeStatics.ELEMENT_NODE = 1;
+HostNodeStatics.DOCUMENT_FRAGMENT_NODE = 11;
 
-FakeNode.TEXT_NODE = 3;
-FakeNode.ELEMENT_NODE = 1;
-FakeNode.DOCUMENT_FRAGMENT_NODE = 11;
+// Constructor statics are enrichment the fixtures class never declares.
+const FakeNodeStatics = FakeNode as unknown as Record<string, number>;
+FakeNodeStatics.TEXT_NODE = 3;
+FakeNodeStatics.ELEMENT_NODE = 1;
+FakeNodeStatics.DOCUMENT_FRAGMENT_NODE = 11;
 
 Object.defineProperty(FakeNode.prototype, "nextSibling", {
   get() {
@@ -2272,6 +2315,94 @@ Object.defineProperty(FakeNode.prototype, "isConnected", {
   },
   configurable: true,
 });
+
+FakeNode.prototype.appendChild = function appendChild(node: FakeNode): FakeNode {
+  if (node.nodeType === 11) {
+    while (node.firstChild) {
+      const child = node.firstChild;
+      node.childNodes.shift();
+      this.childNodes.push(child);
+      child.parentNode = this;
+      child.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+    }
+    return node;
+  }
+  if (node.parentNode) node.parentNode.removeChild(node);
+  this.childNodes.push(node);
+  node.parentNode = this;
+  node.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+  return node;
+};
+
+FakeNode.prototype.removeChild = function removeChild(node: FakeNode): FakeNode {
+  const index = this.childNodes.indexOf(node);
+  if (index < 0) throw new Error("NotFoundError");
+  this.childNodes.splice(index, 1);
+  node.parentNode = null;
+  node.parentElement = null;
+  return node;
+};
+
+FakeNode.prototype.insertBefore = function insertBefore(newNode: FakeNode, referenceNode: FakeNode | null): FakeNode {
+  if (!referenceNode) return this.appendChild(newNode);
+  if (newNode.nodeType === 11) {
+    while (newNode.firstChild) this.insertBefore(newNode.firstChild, referenceNode);
+    return newNode;
+  }
+  if (newNode.parentNode) newNode.parentNode.removeChild(newNode);
+  const index = this.childNodes.indexOf(referenceNode);
+  if (index < 0) throw new Error("NotFoundError");
+  this.childNodes.splice(index, 0, newNode);
+  newNode.parentNode = this;
+  newNode.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+  return newNode;
+};
+
+FakeNode.prototype.replaceChild = function replaceChild(newChild: FakeNode, oldChild: FakeNode): FakeNode {
+  this.insertBefore(newChild, oldChild);
+  return this.removeChild(oldChild);
+};
+
+// replaceChildren/replaceWith are enrichment the fixtures never declare, so
+// the installs go through the same seam the runtime defines them on.
+const FakeNodePrototype = FakeNode.prototype as unknown as {
+  replaceChildren: (...nodes: FakeNode[]) => void;
+  replaceWith: (...nodes: FakeNode[]) => void;
+};
+
+FakeNodePrototype.replaceChildren = function replaceChildren(this: FakeNode, ...nodes: FakeNode[]): void {
+  while (this.firstChild) {
+    const child = this.firstChild;
+    this.childNodes.shift();
+    child.parentNode = null;
+    child.parentElement = null;
+  }
+  for (const node of nodes) {
+    if (node.nodeType === 11) {
+      while (node.firstChild) {
+        const child = node.firstChild;
+        node.childNodes.shift();
+        this.childNodes.push(child);
+        child.parentNode = this;
+        child.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+      }
+    } else {
+      if (node.parentNode) node.parentNode.removeChild(node);
+      this.childNodes.push(node);
+      node.parentNode = this;
+      node.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+    }
+  }
+};
+
+FakeNodePrototype.replaceWith = function replaceWith(this: FakeNode, ...nodes: FakeNode[]): void {
+  if (!this.parentNode) return;
+  const parent = this.parentNode;
+  for (const node of nodes) {
+    parent.insertBefore(node, this);
+  }
+  parent.removeChild(this);
+};
 
 const NON_RENDERED_TAGS = new Set(["HEAD", "STYLE", "SCRIPT", "META", "LINK", "TITLE", "NOSCRIPT"]);
 
@@ -2331,7 +2462,11 @@ export class FakeRange {
     if (node?.nodeType === 1) {
       this.endOffset = node.childNodes.length;
     } else {
-      this.endOffset = (node?.textContent ?? (node as FakeText | undefined)?.value ?? "").length;
+      this.endOffset = (
+        (node as (FakeNode & { data?: string }) | undefined)?.data ??
+        (node as FakeText | undefined)?.value ??
+        node?.textContent ?? ""
+      ).length;
     }
   }
 
@@ -2356,7 +2491,9 @@ export class FakeRange {
   intersectsNode(node: FakeNode): boolean {
     if (!node) return false;
     if (node === this.startContainer || node === this.endContainer) return true;
-    if (this.startContainer?.contains?.(node) || node.contains?.(this.startContainer)) return true;
+    const startContainer = this.startContainer as (FakeNode & { contains?: (node: FakeNode | null) => boolean }) | null;
+    const nodeWithContains = node as FakeNode & { contains?: (node: FakeNode | null) => boolean };
+    if (startContainer?.contains?.(node) || nodeWithContains.contains?.(startContainer)) return true;
     return false;
   }
 
@@ -2370,7 +2507,8 @@ export class FakeRange {
           fragment.appendChild(child.cloneNode(true));
         }
       } else if (this.startContainer.nodeType === 3) {
-        const full = this.startContainer.textContent ?? (this.startContainer as FakeText).value ?? "";
+        const container = this.startContainer as FakeNode & { data?: string };
+        const full = container.data ?? (container as FakeText).value ?? container.textContent ?? "";
         const start = this.startOffset ?? 0;
         const end = this.endOffset ?? full.length;
         fragment.appendChild(new FakeText(full.slice(start, end)));
@@ -2385,7 +2523,8 @@ export class FakeRange {
     if (!this.startContainer) return "";
     if (this.startContainer === this.endContainer) {
       if (this.startContainer.nodeType === 3) {
-        const full = this.startContainer.textContent ?? (this.startContainer as FakeText).value ?? "";
+        const container = this.startContainer as FakeNode & { data?: string };
+        const full = container.data ?? (container as FakeText).value ?? container.textContent ?? "";
         const start = this.startOffset ?? 0;
         const end = this.endOffset ?? full.length;
         return full.slice(start, end);
@@ -2405,7 +2544,8 @@ export class FakeRange {
     let width = 0;
     if (this.startContainer) {
       if (this.startContainer.nodeType === 3) {
-        const full = this.startContainer.textContent ?? (this.startContainer as FakeText).value ?? "";
+        const container = this.startContainer as FakeNode & { data?: string };
+        const full = container.data ?? (container as FakeText).value ?? container.textContent ?? "";
         const start = this.startOffset ?? 0;
         const end = this.endOffset ?? full.length;
         const anchorElement = this.startContainer.parentElement;
@@ -2478,6 +2618,7 @@ function createDocumentDouble(): FakeDocument {
       check: () => true,
       addEventListener() {},
       removeEventListener() {},
+      ready: Promise.resolve(),
     },
     createElement(tagName: string): FakeElement {
       if (String(tagName).toLowerCase() === "canvas") {
@@ -2533,7 +2674,7 @@ function createDocumentDouble(): FakeDocument {
       return !event.defaultPrevented;
     },
     getSelection(): FakeSelection {
-      return ((globalThis as unknown as { getSelection?: () => FakeSelection }).getSelection?.()) ?? new FakeSelection();
+      return ((globalThis as Record<string, unknown>).getSelection as () => FakeSelection)();
     },
     contains(other: FakeNode): boolean {
       for (let node: FakeNode | null = other; node; node = node.parentNode) {
@@ -2889,13 +3030,12 @@ export function snapshotFontFallbackCount(): number {
 }
 
 export function installPreparedWorkerIssue(detail: unknown): void {
+  // The .mjs stub never carries version/semanticReplayRevision/release; the
+  // assertion keeps the installed shape identical to the frozen host.
   globalServices().coordination.layoutWorker = {
-    version: 0,
-    semanticReplayRevision: 0,
     take: () => null,
     issue: () => detail as string | null,
-    release: () => true,
-  };
+  } as unknown as TiqianLayoutWorkerInstance;
 }
 
 // One semantic entry of a serialized live-plan worker request.
@@ -2917,12 +3057,10 @@ interface LivePlanSemanticEntry {
 
 export function installPreparedWorkerLivePlan(): void {
   globalServices().coordination.layoutWorker = {
-    version: 0,
-    semanticReplayRevision: 0,
     take(_element: unknown, _sessionKey: string, requestText: string): string {
       const request = JSON.parse(requestText) as Record<string, unknown>;
       const semantics: LivePlanSemanticEntry[] = Array.from(
-        Array.isArray(request.semantics) ? request.semantics as Record<string, unknown>[] : [],
+        (request.semantics || []) as Record<string, unknown>[],
         function (this: void, semantic: Record<string, unknown>, sourceIndex: number): LivePlanSemantic {
           return {
             start: semantic.start as number,
@@ -3009,8 +3147,7 @@ export function installPreparedWorkerLivePlan(): void {
       });
     },
     issue: () => null,
-    release: () => true,
-  };
+  } as unknown as TiqianLayoutWorkerInstance;
 }
 
 export const enginePunctuationFeatureStyle = `
@@ -3037,22 +3174,22 @@ export function assertEnginePunctuationFeatureLock(element: FakeElement, proport
 export const PROGRESSIVE_TIER_COUNT = 3;
 
 export function attachWorker(root: FakeElement): void {
-  tiqianWeb()?.workerAttach?.(root as FakeElement & Element);
+  tiqianWeb().workerAttach(root as FakeElement & Element);
 }
 
 export function grantWorkerSlice(root: FakeElement, deadlineMs = 0): number {
   const controller = testGrantController(
     root,
-    tiqianWeb()?.workerJobGeneration?.(root as FakeElement & Element) ?? 0,
+    tiqianWeb().workerJobGeneration(root as FakeElement & Element),
     deadlineMs,
     Number.MAX_SAFE_INTEGER,
   );
-  return tiqianWeb()?.workerRunSlice?.(controller, PROGRESSIVE_TIER_COUNT) ?? 0;
+  return tiqianWeb().workerRunSlice(controller, PROGRESSIVE_TIER_COUNT);
 }
 
 export function runWorkerJobToCompletion(root: FakeElement, deadlineMs = 0): number {
   let slices = 0;
-  while (tiqianWeb()?.workerHasJob?.(root as FakeElement & Element)) {
+  while (tiqianWeb().workerHasJob(root as FakeElement & Element)) {
     grantWorkerSlice(root, deadlineMs);
     slices += 1;
     if (slices > 1000) throw new Error("attached worker job did not settle");
@@ -3063,11 +3200,11 @@ export function runWorkerJobToCompletion(root: FakeElement, deadlineMs = 0): num
 export function grantUnboundedSlice(root: FakeElement, minTier: number): number {
   const controller = testGrantController(
     root,
-    tiqianWeb()?.workerJobGeneration?.(root as FakeElement & Element) ?? 0,
+    tiqianWeb().workerJobGeneration(root as FakeElement & Element),
     Infinity,
     Number.MAX_SAFE_INTEGER,
   );
-  return tiqianWeb()?.workerRunSlice?.(controller, minTier) ?? 0;
+  return tiqianWeb().workerRunSlice(controller, minTier);
 }
 
 export function renderedLineSignature(paragraph: FakeElement): string {
@@ -3145,8 +3282,8 @@ function globalCreateRange(): FakeRange | null {
 // through tiqianWeb() so none of them property-access an unknown-typed global.
 export interface TiqianWebBridge {
   install(): void;
-  enhance(root: Element, options: unknown): number;
-  enhanceProgressively(root: Element, options: unknown): void;
+  enhance(root: Element, options?: unknown): number;
+  enhanceProgressively(root: Element, options?: unknown): void;
   destroy(root: Element): void;
   detach(root: Element): void;
   relayout(root: Element): void;
@@ -3166,8 +3303,8 @@ export interface TiqianWebBridge {
   workerSetParagraphTier(root: Element, index: number, tier: number): void;
 }
 
-function tiqianWeb(): TiqianWebBridge | undefined {
-  return (globalThis as Record<string, unknown>).TiqianWeb as TiqianWebBridge | undefined;
+function tiqianWeb(): TiqianWebBridge {
+  return (globalThis as Record<string, unknown>).TiqianWeb as TiqianWebBridge;
 }
 
 export async function loadHostRuntime(): Promise<TiqianWebBridge> {
@@ -3209,7 +3346,7 @@ export async function loadHostRuntime(): Promise<TiqianWebBridge> {
         return root ?? ((globalThis as Record<string, unknown>).document as Document).body;
       },
       cancelLayoutWork(root: Element) {
-        layoutJobPool.cancelJob?.(root);
+        layoutJobPool.cancelJob(root);
       },
       probeContentDrift(root: Element) {
         return probeRootContentDrift(contextForRoot(root as Element & FakeElement), root);
@@ -3225,15 +3362,15 @@ export async function loadHostRuntime(): Promise<TiqianWebBridge> {
         const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs((options ?? {}) as Record<string, unknown>));
         return request ? JSON.stringify(request) : null;
       },
-      workerAttach: (root: Element) => layoutJobPool.attach?.(root),
-      workerDetach: (root: Element) => layoutJobPool.detach?.(root),
-      workerHasJob: (root: Element) => layoutJobPool.hasJob?.(root) ?? false,
-      workerJobGeneration: (root: Element) => layoutJobPool.jobGeneration?.(root) ?? 0,
-      workerRunSlice: (controller: unknown, minTier: number) => layoutJobPool.runSlice?.(controller as GrantController, minTier) ?? 0,
-      workerPendingInTier: (root: Element, tier: number) => layoutJobPool.pendingInTier?.(root, tier) ?? 0,
-      workerParagraphCount: (root: Element) => layoutJobPool.paragraphCount?.(root) ?? 0,
-      workerParagraphAt: (root: Element, index: number) => layoutJobPool.paragraphAt?.(root, index) ?? null,
-      workerSetParagraphTier: (root: Element, index: number, tier: number) => layoutJobPool.setParagraphTier?.(root, index, tier),
+      workerAttach: (root: Element) => layoutJobPool.attach(root),
+      workerDetach: (root: Element) => layoutJobPool.detach(root),
+      workerHasJob: (root: Element) => layoutJobPool.hasJob(root),
+      workerJobGeneration: (root: Element) => layoutJobPool.jobGeneration(root),
+      workerRunSlice: (controller: unknown, minTier: number) => layoutJobPool.runSlice(controller as GrantController, minTier),
+      workerPendingInTier: (root: Element, tier: number) => layoutJobPool.pendingInTier(root, tier),
+      workerParagraphCount: (root: Element) => layoutJobPool.paragraphCount(root),
+      workerParagraphAt: (root: Element, index: number) => layoutJobPool.paragraphAt(root, index),
+      workerSetParagraphTier: (root: Element, index: number, tier: number) => layoutJobPool.setParagraphTier(root, index, tier),
     };
     (globalThis as Record<string, unknown>).TiqianWeb = bridge;
     return bridge;
@@ -3242,7 +3379,8 @@ export async function loadHostRuntime(): Promise<TiqianWebBridge> {
 }
 
 export function computedStyleValue(element: FakeElement, property: string): string {
-  return (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(element as unknown as Element)?.getPropertyValue?.(property) ?? "";
+  const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle;
+  return computed(element as FakeElement & Element).getPropertyValue(property);
 }
 
 export function nativeInnerText(element: FakeElement): string {
@@ -3380,8 +3518,7 @@ export function mount(html: string, { sharedStylesReady = true }: { sharedStyles
   if (sharedStylesReady) {
     root.style.setProperty("--tq-styles-ready", "1");
   }
-  const doc = (globalThis as Record<string, unknown>).document as FakeDocument | undefined;
-  doc?.body?.appendChild?.(root);
+  ((globalThis as Record<string, unknown>).document as FakeDocument).body.appendChild(root);
   mounted.push(root);
   return root;
 }
@@ -3403,14 +3540,9 @@ export async function cleanupMounted(): Promise<void> {
   cleanupWorld();
 }
 
-export async function drainMicrotasksFull(times = 6): Promise<void> {
-  for (let i = 0; i < times; i += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-}
-
 export function computedPseudoContent(element: FakeElement, pseudo: string): string {
-  const content = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(element as unknown as Element, pseudo)?.getPropertyValue?.("content")?.trim() ?? "";
+  const computed = (globalThis as Record<string, unknown>).getComputedStyle as GlobalGetComputedStyle;
+  const content = computed(element as FakeElement & Element, pseudo).getPropertyValue("content").trim();
   if ((content.startsWith('"') && content.endsWith('"')) ||
       (content.startsWith("'") && content.endsWith("'"))) {
     return content.slice(1, -1);
@@ -3421,7 +3553,7 @@ export function computedPseudoContent(element: FakeElement, pseudo: string): str
 export function directTextContent(paragraph: FakeElement): string {
   return Array.from(paragraph.childNodes)
     .filter((node) => node.nodeType === 3)
-    .map((node) => (node as FakeText).value)
+    .map((node) => (node as FakeNode & { data?: string }).data)
     .join("");
 }
 

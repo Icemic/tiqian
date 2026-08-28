@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsc -b",
     "pretest": "npm run build",
-    "test": "node --test tests/*.test.mjs tests/*.test.js",
+    "test": "node --test tests/*.test.js",
     "verify:package": "node ./scripts/verify-package.mjs",
     "preverify:package": "npm run build",
     "verify:release": "npm run prepack && node ./scripts/verify-release.mjs",

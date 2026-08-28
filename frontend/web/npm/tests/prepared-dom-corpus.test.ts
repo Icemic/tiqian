@@ -16,11 +16,11 @@ const fixture = JSON.parse(
   readFileSync(new URL("./prepared-dom-corpus.fixture.json", import.meta.url), "utf8"),
 );
 
-const STYLE_CLASS_MODES = {
-  "declaration-length": (declaration) => `tqc-${declaration.length}`,
+const STYLE_CLASS_MODES: Record<string, (declaration: string) => string> = {
+  "declaration-length": (declaration: string) => `tqc-${declaration.length}`,
 };
 
-const EMPHASIS_DOT_COLOR_MODES = {
+const EMPHASIS_DOT_COLOR_MODES: Record<string, () => string> = {
   "fixed-color": () => "rgb(17, 34, 51)",
 };
 
@@ -29,8 +29,8 @@ test("prepared DOM lowering matches the shared golden corpus", () => {
   for (const { name, plan, locale, options = {}, expect } of fixture.cases) {
     assert.equal(typeof plan, "string", `${name}: plan stays wire JSON`);
     const callOptions = { ...options };
-    const styleMode = callOptions.styleClassFor;
-    const dotColorMode = callOptions.emphasisDotColor;
+    const styleMode = callOptions.styleClassFor as string | undefined;
+    const dotColorMode = callOptions.emphasisDotColor as string | undefined;
     delete callOptions.styleClassFor;
     delete callOptions.emphasisDotColor;
     if (styleMode) callOptions.styleClassFor = STYLE_CLASS_MODES[styleMode];

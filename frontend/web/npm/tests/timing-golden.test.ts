@@ -1,16 +1,16 @@
 import { globalServices } from "@tiqian/core/core/services/global-services.js";
 // Timing-anchor goldens for the web prose host refactor (ADR 0053 batch 0,
 // decomposition report section 11). Every journey runs real module code under
-// the shared fake clock (test-clock.mjs) so dispatch order and record
+// the shared fake clock (test-clock.ts) so dispatch order and record
 // structure are deterministic. Wall-clock-derived numbers are deliberately
 // not frozen: the element module's lazy imports do real I/O whose interleaving
 // with the fake-clock pump varies per process, so frame counts and every
-// duration derived from them vary too (timing-golden-host.mjs normalizes them
+// duration derived from them vary too (timing-golden-host.ts normalizes them
 // away at recording time). Golden updates go through
 // TIQIAN_UPDATE_TIMING_GOLDEN=1; each diff is reviewed before the fixture is
 // committed, mirroring the JVM LayoutDumpGoldenTest discipline.
 
-import assert from "node:assert/strict";
+import * as assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -26,17 +26,20 @@ import {
   faceEvidence,
   harness,
   manifestWithFaces,
-} from "./browser-fonts-fixtures.mjs";
+} from "./browser-fonts-fixtures.js";
 import {
   driveElementTimeline,
   ELEMENT_DRIVE_GLOBALS,
+  FakeClock,
   FRAME_STEP_MS,
-} from "./timing-golden-host.mjs";
+  TimingGoldenRecord,
+} from "./timing-golden-host.js";
 import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
 import { optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
 import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
+import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
+import type { createPrepareJob as CreatePrepareJob } from "@tiqian/core/core/engine/web-worker/worker-channel.js";
 initializeGlobalServices();
-
 
 const FIXTURE_PATH = fileURLToPath(new URL("./timing-golden.fixture.json", import.meta.url));
 const GOLDEN_VERSION = 1;
@@ -55,13 +58,13 @@ function loadFixture() {
     assert.equal(parsed.version, GOLDEN_VERSION, "fixture version");
     return parsed;
   } catch (error) {
-    if (error.code === "ENOENT") return { version: GOLDEN_VERSION, journeys: {} };
+    if ((error as Record<string, unknown>).code === "ENOENT") return { version: GOLDEN_VERSION, journeys: {} };
     throw error;
   }
 }
 
-function storeGolden(journeys) {
-  const ordered = {};
+function storeGolden(journeys: Record<string, unknown>) {
+  const ordered: Record<string, unknown> = {};
   for (const id of Object.keys(journeys).sort()) ordered[id] = journeys[id];
   writeFileSync(
     FIXTURE_PATH,
@@ -69,17 +72,22 @@ function storeGolden(journeys) {
   );
 }
 
-function firstDifferencePath(expected, actual, prefix = "$") {
+function firstDifferencePath(expected: unknown, actual: unknown, prefix = "$"): string | null {
   if (typeof expected !== typeof actual) return prefix;
-  if (expected === null || actual === null || typeof expected !== "object") {
+  if (
+    expected === null || actual === null ||
+    typeof expected !== "object" || typeof actual !== "object"
+  ) {
     return expected === actual ? null : prefix;
   }
   if (Array.isArray(expected) !== Array.isArray(actual)) return prefix;
-  const keys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+  const expectedRecord = expected as Record<string, unknown>;
+  const actualRecord = actual as Record<string, unknown>;
+  const keys = new Set([...Object.keys(expectedRecord), ...Object.keys(actualRecord)]);
   for (const key of keys) {
     const path = `${prefix}.${key}`;
-    if (!(key in expected) || !(key in actual)) return path;
-    const diff = firstDifferencePath(expected[key], actual[key], path);
+    if (!(key in expectedRecord) || !(key in actualRecord)) return path;
+    const diff = firstDifferencePath(expectedRecord[key], actualRecord[key], path);
     if (diff !== null) return diff;
   }
   return null;
@@ -89,9 +97,9 @@ function firstDifferencePath(expected, actual, prefix = "$") {
 // Element-journey projections (four record shapes from the shared drive)
 // ---------------------------------------------------------------------------
 
-function projectEventDispatch(full) {
+function projectEventDispatch(full: TimingGoldenRecord) {
   // frameAdvanceCounts is intentionally excluded: the pump frame counts ride
-  // the same lazy-import I/O interleaving (see timing-golden-host.mjs), so
+  // the same lazy-import I/O interleaving (see timing-golden-host.ts), so
   // this journey freezes dispatch order and detail structure only. The
   // engineCalls stream is the successor observable of the retired internal
   // document events (ADR 0053 C1): the drive substitutes a recording engine
@@ -103,7 +111,7 @@ function projectEventDispatch(full) {
   };
 }
 
-function projectDatasetFirstWrites(full) {
+function projectDatasetFirstWrites(full: TimingGoldenRecord) {
   return {
     datasetWrites: full.datasetWrites,
     attributeWrites: full.attributeWrites,
@@ -114,17 +122,17 @@ function projectDatasetFirstWrites(full) {
 // writes, paragraph state) so a behavior change moves the golden; nothing is
 // hardcoded. Complementary branch names keep a suppressed dispatch or a
 // missing write visible instead of silently absent.
-function deriveTransitions(full) {
-  const elementEventsIn = (phase) => full.elementEvents.filter((e) => e.phase === phase);
-  const has = (phase, type) => elementEventsIn(phase).some((e) => e.type === type);
-  const docHas = (phase, type) =>
+function deriveTransitions(full: TimingGoldenRecord) {
+  const elementEventsIn = (phase: string) => full.elementEvents.filter((e) => e.phase === phase);
+  const has = (phase: string, type: string) => elementEventsIn(phase).some((e) => e.type === type);
+  const docHas = (phase: string, type: string) =>
     full.documentEvents.some((e) => e.phase === phase && e.type === type);
-  const engineHas = (phase, method) =>
+  const engineHas = (phase: string, method: string) =>
     full.engineCalls.some((call) => call.phase === phase && call.method === method);
-  const dsHas = (phase, key) =>
+  const dsHas = (phase: string, key: string) =>
     full.datasetWrites.some((w) => w.phase === phase && w.key === key);
-  const adopted = (phase) => full.paragraphStates[phase]?.firstChildNodeType === 1;
-  const restored = (phase) => full.paragraphStates[phase]?.firstChildText === "中国";
+  const adopted = (phase: string) => full.paragraphStates[phase]?.firstChildNodeType === 1;
+  const restored = (phase: string) => full.paragraphStates[phase]?.firstChildText === "中国";
 
   return [
     {
@@ -176,7 +184,7 @@ function deriveTransitions(full) {
   ];
 }
 
-function projectTokenTransitions(full) {
+function projectTokenTransitions(full: TimingGoldenRecord) {
   return { transitions: deriveTransitions(full) };
 }
 
@@ -184,7 +192,7 @@ function projectTokenTransitions(full) {
 // Kotlin-runtime capture are unreachable in this no-runtime drive. Recorded
 // here is the JS-reachable side only: geometry-change consequences (restore,
 // observer teardown) and disconnect-driven release.
-function projectCacheInvalidation(full) {
+function projectCacheInvalidation(full: TimingGoldenRecord) {
   return {
     observerActivity: full.observerActivity,
     fetchCalls: full.fetchCalls,
@@ -196,7 +204,7 @@ function projectCacheInvalidation(full) {
   };
 }
 
-const ELEMENT_JOURNEYS = {
+const ELEMENT_JOURNEYS: Record<string, (full: TimingGoldenRecord) => Record<string, unknown>> = {
   "event-dispatch": projectEventDispatch,
   "dataset-first-writes": projectDatasetFirstWrites,
   "token-transitions": projectTokenTransitions,
@@ -206,7 +214,7 @@ const ELEMENT_JOURNEYS = {
 
 // Each element journey runs the full S1-S4 drive in a pristine global
 // environment and projects the shared record into its own frozen shape.
-async function recordElementJourney(journeyKey) {
+async function recordElementJourney(journeyKey: string) {
   const globals = preserveGlobals([...CLOCK_GLOBALS, ...ELEMENT_DRIVE_GLOBALS]);
   const clock = installFakeClock();
   try {
@@ -233,13 +241,13 @@ async function recordElementJourney(journeyKey) {
 // formula (quota reached OR Date-domain deadline passed) is part of the
 // frozen contract even though the fake clock never trips the deadline inside
 // a single frame. Every voucher also carries the admission class that issued it ("grant" for polled grants).
-function recordingRuntime(pendingByRoot, grants) {
+function recordingRuntime(pendingByRoot: Map<unknown, number[]>, grants: unknown[]) {
   return {
-    hasJob: (root) => pendingByRoot.has(root),
-    jobGeneration: (root) => (pendingByRoot.has(root) ? 1 : 0),
-    pendingInTier: (root, tier) => pendingByRoot.get(root)[tier - 1],
-    runSlice: (controller, minTier) => {
-      const tiers = pendingByRoot.get(controller.root);
+    hasJob: (root: unknown) => pendingByRoot.has(root),
+    jobGeneration: (root: unknown) => (pendingByRoot.has(root) ? 1 : 0),
+    pendingInTier: (root: unknown, tier: number) => (pendingByRoot.get(root) as number[])[tier - 1],
+    runSlice: (controller: { root: unknown; quota: number; admissionClass: string; generation: number; deadline: unknown; shouldStop: (n: number) => boolean }, minTier: number) => {
+      const tiers = pendingByRoot.get(controller.root) as number[];
       const pendingBefore = [...tiers];
       let processed = 0;
       for (let tier = 1; tier <= minTier && processed < controller.quota; tier += 1) {
@@ -259,7 +267,7 @@ function recordingRuntime(pendingByRoot, grants) {
         "grant must conserve pending+processed",
       );
       grants.push({
-        root: controller.root.name,
+        root: (controller.root as { name: string }).name,
         lane: controller.admissionClass,
         tier: minTier,
         generation: controller.generation,
@@ -300,8 +308,14 @@ const GRANT_SCHEDULE = [
   [2, FRAME_STEP_MS],
 ];
 
-async function runGrantRoundsJourney(clock) {
-  const module = await import("../element.js?timing-golden=grants");
+async function runGrantRoundsJourney(clock: FakeClock) {
+  // The query string only busts the module cache so the journey gets a
+  // pristine coordinator; the runtime shape is the element.js re-export of
+  // the core class. Widening the specifier to string keeps tsc from trying
+  // to resolve the query suffix as a file.
+  const module = await import("../element.js?timing-golden=grants" as string) as {
+    CoordinationService: typeof CoordinationService;
+  };
   const Coordinator = module.CoordinationService;
   const coordinator = new Coordinator();
   const alpha = { name: "alpha" };
@@ -312,10 +326,20 @@ async function runGrantRoundsJourney(clock) {
     [alpha, [1, 0, 0]],
     [beta, [0, 2, 0]],
   ]);
-  const grants = [];
+  const grants: unknown[] = [];
   const runtime = recordingRuntime(pending, grants);
-  coordinator.registerWorker(alphaSession, alpha, runtime);
-  coordinator.registerWorker(betaSession, beta, runtime);
+  // The third argument is a vestige of the pre-R10 wiring: registerWorker
+  // takes (session, element) and grants flow through the coordinator's own
+  // layoutJobPool, so the frozen golden records an empty grants stream on
+  // purpose and the runtime is kept alive only for its pending map. The
+  // method is bound because it reads private fields through this.
+  const registerWorkerWithRuntime: (
+    session: number,
+    element: HTMLElement,
+    runtime: unknown,
+  ) => void = coordinator.registerWorker.bind(coordinator);
+  registerWorkerWithRuntime(alphaSession, alpha as unknown as HTMLElement, runtime);
+  registerWorkerWithRuntime(betaSession, beta as unknown as HTMLElement, runtime);
   coordinator.setWorkerActive(alphaSession, true);
   coordinator.setWorkerActive(betaSession, true);
 
@@ -330,7 +354,7 @@ async function runGrantRoundsJourney(clock) {
 
   // Segment 2: adaptive quota schedule on alpha.
   for (const [alphaPending, stepMs] of GRANT_SCHEDULE) {
-    pending.get(alpha)[0] = alphaPending;
+    pending.get(alpha)![0] = alphaPending;
     coordinator.requestWorkerFrame(alphaSession);
     clock.advance(stepMs);
   }
@@ -364,25 +388,25 @@ async function recordGrantRounds() {
 // request text, error for the failure text) while recording every posted
 // message in order. The reply rides a microtask, matching the real Worker's
 // asynchronous postMessage.
-function recordingWorker(messages) {
+function recordingWorker(messages: unknown[]) {
   return class RecordingWorker {
     listeners = new Map();
 
-    addEventListener(type, listener) {
+    addEventListener(type: string, listener: unknown) {
       this.listeners.set(type, listener);
     }
 
-    postMessage(message) {
+    postMessage(message: { type: string; request?: { text: string }; id: unknown }) {
       messages.push(
         message.type === "layout"
-          ? { type: message.type, text: message.request.text }
+          ? { type: message.type, text: message.request?.text }
           : { type: message.type },
       );
       queueMicrotask(() => this.listeners.get("message")?.({
         data: message.type === "layout"
-          ? message.request.text === "failure"
+          ? message.request?.text === "failure"
             ? { id: message.id, ok: false, error: "fixture replay miss" }
-            : { id: message.id, ok: true, plan: { fixture: message.request.text } }
+            : { id: message.id, ok: true, plan: { fixture: message.request?.text } }
           : { id: message.id, ok: true },
       }));
     }
@@ -391,11 +415,17 @@ function recordingWorker(messages) {
   };
 }
 
+// The worker-messages journey attaches per-candidate computed values to the
+// fake paragraph; the stub reads them back through this shape.
+interface ComputedStyleSource {
+  _computedValues?: Record<string, string>;
+}
+
 // Computed-style double for the worker-messages journey: zero padding and
 // borders so the pure request builder measures the candidate's rect width,
 // and empty getPropertyValue answers for the lowerer's style reads.
-function journeyComputedStyle(values = {}) {
-  const style = {
+function journeyComputedStyle(values?: Record<string, string>): CSSStyleDeclaration {
+  const base = {
     paddingLeft: "0px",
     paddingRight: "0px",
     borderLeftWidth: "0px",
@@ -407,13 +437,13 @@ function journeyComputedStyle(values = {}) {
     marginTop: "0px",
     marginBottom: "0px",
   };
-  style.getPropertyValue = (name) => {
+  const getPropertyValue = (name: string): string => {
     const key = String(name).toLowerCase();
-    return Object.prototype.hasOwnProperty.call(values, key)
-      ? String(values[key])
+    return Object.prototype.hasOwnProperty.call(values ?? {}, key)
+      ? String(values?.[key] ?? "")
       : "";
   };
-  return style;
+  return { ...base, getPropertyValue } as CSSStyleDeclaration;
 }
 
 // One root with three lowerable candidate paragraphs drives the full
@@ -428,10 +458,10 @@ function journeyComputedStyle(values = {}) {
 async function runWorkerMessagesJourney() {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
-  const handle = await state.loader.prepare(state.root);
+  const handle = await state.loader.prepare(state.root as unknown as HTMLElement);
 
   const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
-  const lowerableParagraph = (text) => ({
+  const lowerableParagraph = (text: string): Element => ({
     tagName: "P",
     textContent: text,
     childNodes: [{ nodeType: 3, textContent: text }],
@@ -444,20 +474,20 @@ async function runWorkerMessagesJourney() {
       getPropertyValue: () => "",
       getPropertyPriority: () => "",
     },
-    closest: (selector) => (selector === ROOT_SELECTOR ? state.root : null),
+    closest: (selector: string) => (selector === ROOT_SELECTOR ? state.root : null),
     querySelectorAll: () => [],
     querySelector: () => null,
     getBoundingClientRect: () => ({ width: 323, top: 0, bottom: 24 }),
     getClientRects: () => [],
     parentElement: null,
-  });
+  } as unknown as Element);
   const candidates = {
     first: lowerableParagraph("first"),
     second: lowerableParagraph("second"),
     failure: lowerableParagraph("failure"),
   };
-  let activeElement = candidates.first;
-  state.root.querySelectorAll = () => [activeElement];
+  let activeElement: Element = candidates.first;
+  (state.root as unknown as { querySelectorAll: () => Element[] }).querySelectorAll = () => [activeElement];
 
   const prepareOptions = {
     paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])",
@@ -469,19 +499,19 @@ async function runWorkerMessagesJourney() {
   };
   const canonicalOptions = optionsFromJs(prepareOptions);
   const requestJson = () => {
-    const built = workerLayoutRequestForRoot(state.root, activeElement, canonicalOptions);
+    const built = workerLayoutRequestForRoot(state.root as unknown as Element, activeElement, canonicalOptions);
     return JSON.stringify({ ...built, semantics: [], renderInlineBoxes: [] });
   };
 
-  const messages = [];
-  const ops = [];
+  const messages: unknown[] = [];
+  const ops: unknown[] = [];
   const savedWorker = globalThis.Worker;
   const savedInnerHeight = globalThis.innerHeight;
   const savedBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
-  const savedCoordinator = globalThis[coordinatorKey];
+  const savedCoordinator = (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
   const savedComputedStyle = globalThis.getComputedStyle;
-  const compactTake = (resultText) => {
+  const compactTake = (resultText: string | null) => {
     if (resultText === null) return null;
     const record = JSON.parse(resultText);
     return {
@@ -493,20 +523,22 @@ async function runWorkerMessagesJourney() {
   };
 
   try {
-    delete globalThis[coordinatorKey];
-    delete globalServices().coordination.layoutWorker;
-    globalThis.Worker = recordingWorker(messages);
+    delete (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
+    delete (globalServices().coordination as unknown as Record<string, unknown>).layoutWorker;
+    globalThis.Worker = recordingWorker(messages) as unknown as typeof Worker;
     globalThis.innerHeight = 800;
-    globalThis.getComputedStyle = (target) =>
-      journeyComputedStyle(target && target._computedValues);
+    globalThis.getComputedStyle = (target: unknown): CSSStyleDeclaration =>
+      journeyComputedStyle((target as ComputedStyleSource | null | undefined)?._computedValues);
 
+    // Same query-string cache-bust trick as the grants journey: a pristine
+    // worker-channel module whose install step re-creates the bridge.
     const module = await import(
-      "@tiqian/core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages"
-    );
-    const bridge = globalServices().coordination.layoutWorker;
+      "@tiqian/core/core/engine/web-worker/worker-channel.js?timing-golden=worker-messages" as string
+    ) as { createPrepareJob: typeof CreatePrepareJob };
+    const bridge = globalServices().coordination.layoutWorker!;
     const prepare = async () => {
       const job = await module.createPrepareJob(
-        state.root,
+        state.root as unknown as HTMLElement,
         handle,
         prepareOptions,
         () => true,
@@ -519,7 +551,7 @@ async function runWorkerMessagesJourney() {
         }
         prepared = await job.finished;
       }
-      ops.push({ op: "prepare", text: activeElement.textContent, prepared });
+      ops.push({ op: "prepare", text: (activeElement as { textContent: string }).textContent, prepared });
       return prepared;
     };
     ops.push({ op: "bridge", version: bridge.version, semanticReplayRevision: bridge.semanticReplayRevision });
@@ -562,16 +594,20 @@ async function runWorkerMessagesJourney() {
 
     return { messages, ops };
   } finally {
-    if (savedWorker === undefined) delete globalThis.Worker;
+    if (savedWorker === undefined) delete (globalThis as Record<string, unknown>).Worker;
     else globalThis.Worker = savedWorker;
-    if (savedInnerHeight === undefined) delete globalThis.innerHeight;
-    else globalThis.innerHeight = savedInnerHeight;
-    if (savedComputedStyle === undefined) delete globalThis.getComputedStyle;
-    else globalThis.getComputedStyle = savedComputedStyle;
-    if (savedBridge === undefined) delete globalServices().coordination.layoutWorker;
-    else globalServices().coordination.layoutWorker = savedBridge;
-    if (savedCoordinator === undefined) delete globalThis[coordinatorKey];
-    else globalThis[coordinatorKey] = savedCoordinator;
+    if (savedInnerHeight === undefined) delete (globalThis as Record<string, unknown>).innerHeight;
+    else (globalThis as Record<string, unknown>).innerHeight = savedInnerHeight;
+    if (savedComputedStyle === undefined) delete (globalThis as Record<string, unknown>).getComputedStyle;
+    else (globalThis as Record<string, unknown>).getComputedStyle = savedComputedStyle;
+    if (savedBridge === undefined) {
+      const coord = globalServices().coordination;
+      delete (coord as unknown as Record<string, unknown>).layoutWorker;
+    } else {
+      (globalServices().coordination as unknown as Record<string, unknown>).layoutWorker = savedBridge;
+    }
+    if (savedCoordinator === undefined) delete (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
+    else (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey] = savedCoordinator;
     state.loader.release(handle);
   }
 }
@@ -580,7 +616,7 @@ async function recordWorkerMessages() {
   const globals = preserveGlobals(CLOCK_GLOBALS);
   const clock = installFakeClock();
   try {
-    return await runWorkerMessagesJourney(clock);
+    return await runWorkerMessagesJourney();
   } finally {
     restoreGlobals(globals);
   }
@@ -590,7 +626,7 @@ async function recordWorkerMessages() {
 // Suite
 // ---------------------------------------------------------------------------
 
-const JOURNEYS = {
+const JOURNEYS: Record<string, () => Promise<Record<string, unknown>>> = {
   "grant-rounds": recordGrantRounds,
   "worker-messages": recordWorkerMessages,
   "event-dispatch": () => recordElementJourney("event-dispatch"),
@@ -603,7 +639,7 @@ const JOURNEYS = {
 test("timing goldens match the frozen fixture", async () => {
   const updating = process.env[UPDATE_ENV] === "1";
   const fixture = loadFixture();
-  const journeys = {};
+  const journeys: Record<string, Record<string, unknown>> = {};
   let failed = false;
   for (const [id, run] of Object.entries(JOURNEYS)) {
     const recorded = await run();

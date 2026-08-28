@@ -12,7 +12,8 @@ import {
   loadHostRuntime,
   mount,
   preparedValueStyleProperty,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
 test("engineApi_jsOptionsMapStrongToEmphasisMarks", async (t) => {
   t.after(cleanupMounted);
@@ -23,9 +24,9 @@ test("engineApi_jsOptionsMapStrongToEmphasisMarks", async (t) => {
     </div>
   `);
 
-  TiqianWeb.enhance(root, { strongAsEmphasisMarks: true });
+  TiqianWeb.enhance(root as FakeElement & Element, { strongAsEmphasisMarks: true });
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.querySelector("strong[data-tq-cjk-emphasis]"));
   assert.equal(paragraph.querySelectorAll("circle").length, 2);
 });
@@ -39,13 +40,13 @@ test("engineApi_enhanceWithoutOptionsUsesComputedMetrics", async (t) => {
     </div>
   `);
 
-  TiqianWeb.enhance(root);
+  TiqianWeb.enhance(root as FakeElement & Element, {});
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   const line = paragraph.querySelector(".tq-line");
   assert.ok(line);
   assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 32);
-  assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
+  assert.equal(paragraph!.getAttribute("data-tiqian-capability-issue"), null);
 });
 
 test("engineApi_enhanceFindsCustomElementRoots", async (t) => {
@@ -57,7 +58,7 @@ test("engineApi_enhanceFindsCustomElementRoots", async (t) => {
     </tiqian-prose>
   `);
 
-  TiqianWeb.enhance(root);
+  TiqianWeb.enhance(root as FakeElement & Element, {});
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.ok(root.querySelector(".tq-line"));
 });

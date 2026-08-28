@@ -1,8 +1,8 @@
 // Fake host and S1-S4 element timeline shared by the element-driven
-// timing-golden journeys (timing-golden.test.mjs, decomposition report
-// section 11) and the declared-face wake drive (element.test.mjs, ADR 0053
+// timing-golden journeys (timing-golden.test.ts, decomposition report
+// section 11) and the declared-face wake drive (element.test.ts, ADR 0053
 // E2). The drive runs the real element.js module against a hand-grafted
-// fake DOM under the shared fake clock (test-clock.mjs) and records the
+// fake DOM under the shared fake clock (test-clock.ts) and records the
 // JS-observable anchors: element and document event dispatches, dataset and
 // attribute writes, ResizeObserver lifecycles, fetches, and per-phase
 // paragraph state.
@@ -16,21 +16,7 @@
 // (durations dropped from event details, duration dataset values nulled) so
 // the golden freezes structure: dispatch order, write order, keys, phases,
 // and derived verdicts.
-
-import {
-  FakeElement,
-  FakeFragment,
-  FakeNode,
-  FakeText,
-  canonicalFixtureNode,
-  fixtureComputedStyle,
-  sha256,
-  styleDeclaration,
-} from "./snapshot-dom-fixtures.mjs";
-import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
-import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
-import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
-
+//
 // ADR 0053 C1 removed the internal document-level event channel, and the R10
 // core-neutral refactor dissolved the engine facade the former recording stub
 // impersonated. The recording layer keeps the baseline recording CONTRACT, not
@@ -64,28 +50,61 @@ import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event
 // `new TiqianProseElement()`, matches that descriptor map and captures the
 // context object. teardown() restores every wrapper so sibling journeys in the
 // same process (worker messages, grant rounds) keep pristine services.
+
+import {
+  FakeDocument,
+  FakeElement,
+  FakeFragment,
+  FakeNode,
+  FakeText,
+  asElement,
+  asFakeElement,
+  asFakeNode,
+  canonicalFixtureNode,
+  fixtureComputedStyle,
+  sha256,
+  styleDeclaration,
+} from "./snapshot-dom-fixtures.js";
+import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-schema.js";
+import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
+import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
+
+interface FakeEvent {
+  readonly type: string;
+  readonly detail: unknown;
+  readonly bubbles?: boolean;
+  readonly composed?: boolean;
+}
+
 let activeEnginePhase = "";
 
 const CONTEXT_DESCRIPTOR_MARKERS = ["contextState", "optionsLedger", "typography", "domWriteLayer"];
 
-function installRecordingEngine(record, initialPhase) {
+interface RecordingEngine {
+  captureContextDuring: <T>(construct: () => T) => T;
+  flushPending: () => void;
+  teardown: () => void;
+}
+
+function installRecordingEngine(record: TimingGoldenRecord, initialPhase: string): RecordingEngine {
   activeEnginePhase = initialPhase;
 
-  const restores = [];
-  const recordEvent = (type, detail) => {
+  const restores: Array<() => void> = [];
+  const recordEvent = (type: string, detail: unknown): void => {
     record.elementEvents.push({
       phase: activeEnginePhase,
       type,
-      detail: stableDetail(detail),
+      detail: stableDetail(detail as Record<string, unknown>),
     });
   };
 
   // ---- Context part-method shims (installed once the context is captured) -
-  const wrapCapturedContext = (context) => {
-    const wrapPart = (partName, key, wrapper) => {
-      const part = context[partName];
+  const wrapCapturedContext = (context: Record<string, unknown>): void => {
+    type EventChannelSend = (kind: string, detail: unknown) => unknown;
+    const wrapPart = (partName: string, key: string, wrapper: (original: EventChannelSend) => EventChannelSend): void => {
+      const part = context[partName] as Record<string, unknown> | undefined;
       if (!part) return;
-      const original = part[key];
+      const original = part[key] as EventChannelSend | undefined;
       if (typeof original !== "function") return;
       part[key] = wrapper(original);
       restores.push(() => { part[key] = original; });
@@ -93,12 +112,13 @@ function installRecordingEngine(record, initialPhase) {
     // The pre-funnel recording point: notify runs the completion funnel after
     // the wrapper records the driver's detail; dispatch (the progressive error
     // events) is non-funnel and recorded the same way for a single recording
-    // surface.
-    wrapPart("eventChannel", "notify", (original) => function (kind, detail) {
+    // surface. Both wrappers forward the receiver: the channel methods read
+    // their own state through this.
+    wrapPart("eventChannel", "notify", (original) => function (this: unknown, kind: string, detail: unknown) {
       recordEvent(kind, detail);
       return original.call(this, kind, detail);
     });
-    wrapPart("eventChannel", "dispatch", (original) => function (kind, detail) {
+    wrapPart("eventChannel", "dispatch", (original) => function (this: unknown, kind: string, detail: unknown) {
       recordEvent(kind, detail);
       return original.call(this, kind, detail);
     });
@@ -110,17 +130,17 @@ function installRecordingEngine(record, initialPhase) {
   // descriptor map and captures the context. The private #context field that
   // holds it is otherwise unreachable.
   const realDefineProperties = Object.defineProperties;
-  const captureContextDuring = (construct) => {
-    let captured = null;
-    Object.defineProperties = function (target, properties) {
-      const result = realDefineProperties.call(Object, target, properties);
+  const captureContextDuring = <T>(construct: () => T): T => {
+    let captured: Record<string, unknown> | null = null;
+    Object.defineProperties = function (target: object, properties: PropertyDescriptorMap): object {
+      const result = realDefineProperties.call(Object, target, properties) as object;
       if (captured === null && properties &&
           CONTEXT_DESCRIPTOR_MARKERS.every((key) =>
             Object.prototype.hasOwnProperty.call(properties, key))) {
-        captured = target;
+        captured = target as unknown as Record<string, unknown>;
       }
       return result;
-    };
+    } as typeof Object.defineProperties;
     try {
       return construct();
     } finally {
@@ -173,60 +193,79 @@ const probe = {
   italic: false,
   script: "Hani",
   language: "zh-Hans",
-  features: [],
+  features: [] as string[],
 };
 const evidence = {
   family: "Fixture CJK",
   style: "normal",
-  weight: [400, 400],
+  weight: [400, 400] as [number, number],
   unicodeRange: "U+4E00-9FFF",
   publicUrl: "/assets/fixture-deadbeef.woff2",
   sourceSha256: "a".repeat(64),
   sfntSha256: "b".repeat(64),
   faceIndex: 0,
   sourceOrder: 0,
-  axes: {},
+  axes: {} as Record<string, unknown>,
   localNames: ["Fixture CJK", "FixtureCJK"],
   coverageText: "中国",
 };
 
-function buildWorld() {
-  const tableBytesByUrl = new Map();
-  const fetchCalls = [];
+function buildWorld(): {
+  documentObject: FakeDocument & {
+    body: FakeElement;
+    head: FakeElement;
+    documentElement: FakeElement;
+    dispatchEvent: (event: FakeEvent) => boolean;
+    listeners: Map<string, unknown>;
+  };
+  tableBytesByUrl: Map<string, Uint8Array>;
+  fetchCalls: string[];
+} {
+  const tableBytesByUrl = new Map<string, Uint8Array>();
+  const fetchCalls: string[] = [];
   const documentObject = {
     baseURI: "https://example.test/post/",
     elements: new Map(),
     styleSheets: [],
     listeners: new Map(),
     fonts: {
-      load: async () => [{}],
+      load: async () => [{}] as unknown[],
       addEventListener() {},
       removeEventListener() {},
     },
     createDocumentFragment: () => new FakeFragment(),
-    createElement(tagName) {
+    createElement(tagName: string) {
       const element = new FakeElement(tagName);
       element.ownerDocument = documentObject;
       element._fixtureProbeWidth = 36;
       return element;
     },
     createRange() {
-      let selectedNode = null;
+      let selectedNode: FakeNode | null = null;
       return {
-        selectNodeContents(node) { selectedNode = node; },
+        selectNodeContents(node: FakeNode) { selectedNode = node; },
         getBoundingClientRect() { return { width: 36 }; },
       };
     },
-    getElementById(id) { return documentObject.elements.get(id) ?? null; },
+    getElementById(id: string) { return (documentObject.elements.get(id) as FakeElement | undefined) ?? null; },
     querySelector() { return null; },
     querySelectorAll() { return []; },
     addEventListener() {},
     removeEventListener() {},
-    dispatchEvent(event) {
+    dispatchEvent(event: FakeEvent) {
       const listener = documentObject.listeners.get(event.type);
-      if (listener) listener(event);
+      if (listener) (listener as unknown as (event: FakeEvent) => void)(event);
       return true;
     },
+    body: null as unknown as FakeElement,
+    head: null as unknown as FakeElement,
+    documentElement: null as unknown as FakeElement,
+  } as unknown as FakeDocument & {
+    body: FakeElement;
+    head: FakeElement;
+    documentElement: FakeElement;
+    dispatchEvent: (event: FakeEvent) => boolean;
+    listeners: Map<string, unknown>;
   };
   documentObject.body = documentObject.createElement("body");
   documentObject.head = documentObject.createElement("head");
@@ -234,24 +273,30 @@ function buildWorld() {
   // document element while sorting work by viewport distance; the drive world
   // must answer both so a live relayout/enhance does not crash.
   documentObject.documentElement = documentObject.createElement("html");
-  documentObject.documentElement.clientHeight = 800;
+  (documentObject.documentElement as unknown as { clientHeight?: number }).clientHeight = 800;
 
   const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
+  (globalThis as { fetch: typeof globalThis.fetch }).fetch = async function (url: string | URL, init?: RequestInit) {
     fetchCalls.push(String(url));
     const bytes = tableBytesByUrl.get(String(url));
-    if (bytes != null) return { ok: true, arrayBuffer: async () => bytes };
-    return realFetch(url, init);
-  };
+    if (bytes != null) return { ok: true, arrayBuffer: async () => bytes } as unknown as Response;
+    return realFetch.call(globalThis, url, init);
+  } as typeof globalThis.fetch;
 
   return { documentObject, tableBytesByUrl, fetchCalls };
 }
 
-function buildSnapshot(world, {
-  fontFaceFamily = "\"Fixture CJK\"",
-  fontFaceSrc = "url(\"/assets/fixture-deadbeef.woff2\")",
-} = {}) {
+interface BuildSnapshotOptions {
+  fontFaceFamily?: string;
+  fontFaceSrc?: string;
+}
+
+function buildSnapshot(
+  world: ReturnType<typeof buildWorld>,
+  options: BuildSnapshotOptions = {}
+): { root: FakeElement; paragraph: FakeElement; originalText: FakeText } {
   const { documentObject, tableBytesByUrl } = world;
+  const { fontFaceFamily = "\"Fixture CJK\"", fontFaceSrc = "url(\"/assets/fixture-deadbeef.woff2\")" } = options;
   const root = documentObject.createElement("tiqian-prose");
   root.setAttribute("snapshot-ref", "tq-page");
   const paragraph = documentObject.createElement("p");
@@ -264,7 +309,7 @@ function buildSnapshot(world, {
   root.appendChild(paragraph);
 
   const template = documentObject.createElement("template");
-  template.content = new FakeFragment();
+  (template as unknown as { content: FakeFragment }).content = new FakeFragment();
   const entry = documentObject.createElement("div");
   entry.setAttribute("data-tq-entry", "p-1");
   const marker = documentObject.createElement("span");
@@ -333,7 +378,7 @@ function buildSnapshot(world, {
   const script = documentObject.createElement("script");
   script.setAttribute("data-tq-snapshot-manifest", "");
   script.textContent = JSON.stringify(manifest);
-  template.content.append(script, entry);
+  (template as unknown as { content: FakeFragment }).content.append(script, entry);
   documentObject.elements.set("tq-page", template);
 
   const fontFaceStyle = styleDeclaration({
@@ -358,8 +403,8 @@ const FRAME_DERIVED_DETAIL_KEYS = new Set(["durationMs", "maxSliceMs"]);
 
 // Stable JSON-safe view of an event detail: numbers, booleans, strings only,
 // minus the frame-derived duration keys.
-function stableDetail(detail) {
-  const out = {};
+function stableDetail(detail: Record<string, unknown> | undefined): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(detail ?? {})) {
     if (FRAME_DERIVED_DETAIL_KEYS.has(key)) continue;
     if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
@@ -369,8 +414,13 @@ function stableDetail(detail) {
   return out;
 }
 
-class FakeCustomEvent {
-  constructor(type, init = {}) {
+class FakeCustomEventClass {
+  readonly type: string;
+  readonly detail: unknown;
+  readonly bubbles: boolean | undefined;
+  readonly composed: boolean | undefined;
+
+  constructor(type: string, init: { detail?: unknown; bubbles?: boolean; composed?: boolean } = {}) {
     this.type = type;
     this.detail = init.detail;
     this.bubbles = init.bubbles;
@@ -383,30 +433,40 @@ class FakeCustomEvent {
 // registry is reset at each drive start so a journey records only its own
 // observer activity.
 let nextObserverId = 0;
-const observerInstances = [];
+const observerInstances: Array<{
+  id: number;
+  callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void;
+  log: Array<{ op: string; target?: Element }>;
+  observed: Set<Element>;
+}> = [];
 
 class FakeResizeObserver {
-  constructor(callback) {
+  readonly id: number;
+  readonly callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void;
+  readonly log: Array<{ op: string; target?: Element }>;
+  readonly observed: Set<Element>;
+
+  constructor(callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void) {
     this.id = ++nextObserverId;
     this.callback = callback;
     this.log = [];
     this.observed = new Set();
     observerInstances.push(this);
   }
-  observe(target) {
+  observe(target: Element): void {
     this.log.push({ op: "observe", target });
     this.observed.add(target);
-    const rect = target.getBoundingClientRect();
+    const rect = asFakeElement(target).getBoundingClientRect();
     queueMicrotask(() => this.callback([{
       target,
       contentRect: { width: rect.width, height: rect.height },
     }]));
   }
-  unobserve(target) {
+  unobserve(target: Element): void {
     this.log.push({ op: "unobserve", target });
     this.observed.delete(target);
   }
-  disconnect() {
+  disconnect(): void {
     this.log.push({ op: "disconnect" });
     this.observed.clear();
   }
@@ -421,13 +481,28 @@ class FakeResizeObserver {
 // and runs the S1 connect through "tiqian:ready". The timing-golden S1-S4
 // journey and the declared-face wake drive both start from this state, so
 // recorder semantics and the pump stay identical between them.
-async function startElementDrive(clock, journeyKey, options = {}) {
+async function startElementDrive(
+  clock: FakeClock,
+  journeyKey: string,
+  options: Record<string, unknown> = {}
+): Promise<{
+  world: ReturnType<typeof buildWorld>;
+  record: TimingGoldenRecord;
+  element: Element;
+  paragraph: FakeElement;
+  setPhase: (phase: string) => void;
+  pumpUntil: (predicate: () => boolean, cap?: number) => Promise<number>;
+  pumpQuiescent: (cap?: number) => Promise<number>;
+  widthObserver: () => { id: number; observed: Set<Element>; log: Array<{ op: string; target?: Element }>; callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void } | null;
+  paragraphState: () => Record<string, unknown>;
+  engineTeardown: RecordingEngine;
+}> {
   nextObserverId = 0;
   observerInstances.length = 0;
 
   const world = buildWorld();
   const { root, paragraph } = buildSnapshot(world, options);
-  const record = {
+  const record: TimingGoldenRecord = {
     engineCalls: [],
     elementEvents: [],
     documentEvents: [],
@@ -441,48 +516,48 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   let currentPhase = "s1-adopt";
   const engineTeardown = installRecordingEngine(record, currentPhase);
 
-  class FakeHostElement extends FakeElement {
+  class FakeHostElementClass extends FakeElement {
     constructor() { super("tiqian-prose"); }
   }
-  globalThis.HTMLElement = FakeHostElement;
-  globalThis.Node = FakeNode;
-  globalThis.customElements = { define() {}, get() { return undefined; } };
-  globalThis.document = world.documentObject;
-  let hostElement = null;
-  globalThis.getComputedStyle = (element, pseudo) => {
-    const values = fixtureComputedStyle(element, pseudo,
+  (globalThis as unknown as { HTMLElement: typeof FakeElement }).HTMLElement = FakeHostElementClass;
+  (globalThis as unknown as { Node: typeof FakeNode }).Node = FakeNode;
+  (globalThis as unknown as { customElements: { define: () => void; get: () => undefined } }).customElements = { define() {}, get() { return undefined; } };
+  (globalThis as unknown as { document: FakeDocument }).document = world.documentObject;
+  let hostElement: Element | null = null;
+  (globalThis as unknown as { getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration }).getComputedStyle = (element: Element, pseudo: string | null) => {
+    const values = fixtureComputedStyle(asFakeElement(element), pseudo,
       element === hostElement ? { "--tq-styles-ready": "1" } : {});
-    return { ...values, getPropertyValue: (name) => values[name] ?? "" };
+    return { ...values, getPropertyValue: (name: string) => values[name] ?? "" } as CSSStyleDeclaration;
   };
-  globalThis.MutationObserver = class {
+  (globalThis as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver = class {
     observe() {}
     disconnect() {}
     takeRecords() { return []; }
-  };
-  globalThis.CustomEvent = FakeCustomEvent;
-  globalThis.ResizeObserver = FakeResizeObserver;
-  globalThis.window = {
+  } as unknown as typeof MutationObserver;
+  (globalThis as unknown as { CustomEvent: typeof FakeCustomEventClass }).CustomEvent = FakeCustomEventClass;
+  (globalThis as unknown as { ResizeObserver: typeof FakeResizeObserver }).ResizeObserver = FakeResizeObserver;
+  (globalThis as unknown as { window: { addEventListener: () => void; removeEventListener: () => void; innerHeight: number; getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration } }).window = {
     addEventListener() {},
     removeEventListener() {},
     innerHeight: 800,
-    getComputedStyle: (element, pseudo) => globalThis.getComputedStyle(element, pseudo),
+    getComputedStyle: (element: Element, pseudo: string | null) => (globalThis as unknown as { getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration }).getComputedStyle(element, pseudo),
   };
-  delete globalThis.TiqianWeb;
-  delete globalThis.IntersectionObserver;
+  delete (globalThis as Record<string, unknown>).TiqianWeb;
+  delete (globalThis as Record<string, unknown>).IntersectionObserver;
 
   // rAF accounting wrapper so we can detect frame-loop quiescence.
-  const origRaf = globalThis.requestAnimationFrame;
-  const origCancel = globalThis.cancelAnimationFrame;
-  const activeFrames = new Set();
-  globalThis.requestAnimationFrame = (callback) => {
-    const id = origRaf((now) => {
+  const origRaf = (globalThis as unknown as { requestAnimationFrame: (callback: FrameRequestCallback) => number }).requestAnimationFrame;
+  const origCancel = (globalThis as unknown as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame;
+  const activeFrames = new Set<number>();
+  (globalThis as unknown as { requestAnimationFrame: (callback: FrameRequestCallback) => number }).requestAnimationFrame = (callback: FrameRequestCallback) => {
+    const id = origRaf((now: number) => {
       activeFrames.delete(id);
       callback(now);
     });
     activeFrames.add(id);
     return id;
   };
-  globalThis.cancelAnimationFrame = (id) => {
+  (globalThis as unknown as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = (id: number) => {
     activeFrames.delete(id);
     origCancel(id);
   };
@@ -493,53 +568,59 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   const module = await import(`../element.js?timing-golden=${journeyKey}`);
   // Capture the privately-held enhance context as it is published during
   // construction, then run the drive against the real context + shared pool.
-  const element = engineTeardown.captureContextDuring(() => new module.TiqianProseElement());
+  const element = engineTeardown.captureContextDuring(() => new module.TiqianProseElement()) as Element;
   hostElement = element;
-  element.attributes = root.attributes;
-  element.childNodes = root.childNodes;
-  element.ownerDocument = world.documentObject;
-  paragraph.parentNode = element;
-  paragraph.parentElement = element;
-  element.width = 360;
-  element.height = 27;
-  element.isConnected = true;
+  asFakeElement(element).attributes = root.attributes;
+  asFakeElement(element).childNodes = root.childNodes;
+  asFakeElement(element).ownerDocument = world.documentObject;
+  asFakeNode(paragraph as unknown as Node).parentNode = asFakeNode(element);
+  asFakeElement(paragraph as unknown as Element).parentElement = asFakeElement(element);
+  asFakeElement(element).width = 360;
+  asFakeElement(element).height = 27;
+  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = true;
 
   // Comma-aware querySelectorAll on the instance: the single-selector path
   // keeps FakeElement semantics, the multi-selector path walks the graft.
   const singleQuerySelectorAll = FakeElement.prototype.querySelectorAll;
-  element.querySelectorAll = (selector) => {
+  asFakeElement(element).querySelectorAll = (selector: string) => {
     const parts = String(selector).split(",").map((part) => part.trim());
-    if (parts.length === 1) return singleQuerySelectorAll.call(element, selector);
-    const out = [];
-    const visit = (node) => {
+    if (parts.length === 1) return singleQuerySelectorAll.call(asFakeNode(element as unknown as Node), selector);
+    const out: FakeElement[] = [];
+    const visit = (node: FakeNode): void => {
       for (const child of node.childNodes) {
         if (child.nodeType === 1) {
           for (const part of parts) {
-            if (child.closest && child.closest(part) === child) { out.push(child); break; }
+            if ((child as FakeElement).closest && (child as FakeElement).closest(part) === child) { out.push(child as FakeElement); break; }
           }
         }
         visit(child);
       }
     };
-    visit(element);
+    visit(asFakeNode(element));
     return out;
   };
 
-  const listeners = new Map();
-  element.addEventListener = (name, listener) => { listeners.set(name, listener); };
-  element.removeEventListener = (name, listener) => {
+  const listeners = new Map<string, (event: FakeEvent) => void>();
+  type FakeElementWithEvents = FakeElement & {
+    addEventListener: (name: string, listener: (event: FakeEvent) => void) => void;
+    removeEventListener: (name: string, listener: (event: FakeEvent) => void) => void;
+    dispatchEvent: (event: FakeEvent) => boolean;
+  };
+  const el = asFakeElement(element) as FakeElementWithEvents;
+  el.addEventListener = (name: string, listener: (event: FakeEvent) => void) => { listeners.set(name, listener); };
+  el.removeEventListener = (name: string, listener: (event: FakeEvent) => void) => {
     if (listeners.get(name) === listener) listeners.delete(name);
   };
-  element.dispatchEvent = (event) => {
+  el.dispatchEvent = (event: FakeEvent) => {
     // Channel-originated completions carry the internal dispatch marker and are
     // recorded at the pre-funnel notify/dispatch point; record only the
     // externally dispatched events here, like the baseline recorded every
     // dispatch that reached the element.
-    if (!event[INTERNAL_DISPATCH_MARKER]) {
+    if (!(event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER as unknown as string]) {
       record.elementEvents.push({
         phase: currentPhase,
         type: event.type,
-        detail: stableDetail(event.detail),
+        detail: stableDetail(event.detail as Record<string, unknown>),
       });
     }
     listeners.get(event.type)?.(event);
@@ -547,44 +628,44 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   };
 
   const realDocDispatch = world.documentObject.dispatchEvent.bind(world.documentObject);
-  world.documentObject.dispatchEvent = (event) => {
+  world.documentObject.dispatchEvent = (event: FakeEvent) => {
     record.documentEvents.push({ phase: currentPhase, type: event.type });
     return realDocDispatch(event);
   };
 
-  const datasetTarget = {};
+  const datasetTarget: Record<string, unknown> = {};
   const datasetWrites = record.datasetWrites;
-  element.dataset = new Proxy(datasetTarget, {
-    set(target, key, value) {
+  asFakeElement(element).dataset = new Proxy(datasetTarget, {
+    set(_target: Record<string, unknown>, key: string, value: unknown): boolean {
       if (String(key).startsWith("tiqian")) {
         // Duration-valued dataset keys share the frame-count instability;
         // keep the write itself (key, order) and drop the number.
         const stableValue = String(key).endsWith("Ms") ? null : String(value);
         datasetWrites.push({ phase: currentPhase, op: "set", key: String(key), value: stableValue });
       }
-      return Reflect.set(target, key, value);
+      return Reflect.set(datasetTarget, key, value);
     },
-    deleteProperty(target, key) {
+    deleteProperty(_target: Record<string, unknown>, key: string): boolean {
       if (String(key).startsWith("tiqian")) {
         datasetWrites.push({ phase: currentPhase, op: "delete", key: String(key) });
       }
-      return Reflect.deleteProperty(target, key);
+      return Reflect.deleteProperty(datasetTarget, key);
     },
-  });
+  }) as Record<string, string>;
 
   const realSetAttribute = FakeElement.prototype.setAttribute;
   const realRemoveAttribute = FakeElement.prototype.removeAttribute;
-  element.setAttribute = (name, value) => {
+  asFakeElement(element).setAttribute = (name: string, value: string) => {
     if (String(name).startsWith("data-tiqian-") || String(name).startsWith("data-tq-")) {
       record.attributeWrites.push({ phase: currentPhase, name: String(name), value: String(value) });
     }
-    return realSetAttribute.call(element, name, value);
+    return realSetAttribute.call(asFakeNode(element), name, value);
   };
-  element.removeAttribute = (name) => {
+  asFakeElement(element).removeAttribute = (name: string) => {
     if (String(name).startsWith("data-tiqian-") || String(name).startsWith("data-tq-")) {
       record.attributeWrites.push({ phase: currentPhase, name: String(name), value: null });
     }
-    return realRemoveAttribute.call(element, name);
+    return realRemoveAttribute.call(asFakeNode(element), name);
   };
 
   const paragraphState = () => ({
@@ -600,7 +681,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   // parallel, so a lazy-import compile can easily need more loop turns than
   // sixty setImmediate yields while the process is under load. A cap of a
   // few thousand turns keeps the hang guard without starving the import.
-  const pumpUntil = async (predicate, cap = 2000) => {
+  const pumpUntil = async (predicate: () => boolean, cap = 2000): Promise<number> => {
     let frames = 0;
     while (frames < cap) {
       await new Promise((resolve) => setImmediate(resolve));
@@ -611,7 +692,7 @@ async function startElementDrive(clock, journeyKey, options = {}) {
     return frames;
   };
 
-  const pumpQuiescent = async (cap = 2000) => {
+  const pumpQuiescent = async (cap = 2000): Promise<number> => {
     let frames = 0;
     let quietStreak = 0;
     while (frames < cap) {
@@ -640,13 +721,13 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   // fake-clock window, so any module top-level captures see the same doubles.
   await import("@tiqian/core/core/engine/web-worker/worker-channel.js");
   await import("@tiqian/core/core/measurement/browser-fonts.js");
-  element.connectedCallback();
+  (asFakeElement(element) as FakeElement & { connectedCallback: () => void }).connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
   );
   record.paragraphStates.s1 = paragraphState();
 
-  const setPhase = (phase) => {
+  const setPhase = (phase: string) => {
     engineTeardown.flushPending?.();
     currentPhase = phase;
     activeEnginePhase = phase;
@@ -666,7 +747,29 @@ async function startElementDrive(clock, journeyKey, options = {}) {
   };
 }
 
-export async function driveElementTimeline(clock, journeyKey, options = {}) {
+export interface TimingGoldenRecord {
+  readonly engineCalls: Array<{ phase: string; method: string }>;
+  readonly elementEvents: Array<{ phase: string; type: string; detail: Record<string, string | number | boolean> }>;
+  readonly documentEvents: Array<{ phase: string; type: string }>;
+  readonly datasetWrites: Array<{ phase: string; op: string; key: string; value?: string | null }>;
+  readonly attributeWrites: Array<{ phase: string; name: string; value: string | null }>;
+  readonly fetchCalls: string[];
+  readonly observerActivity: Array<{ id: number; ops: Array<{ op: string; target: string }> }>;
+  readonly frameAdvanceCounts: Record<string, number>;
+  readonly paragraphStates: Record<string, Record<string, unknown>>;
+  readonly declaredWake?: Record<string, unknown>;
+}
+
+export interface FakeClock {
+  pendingTimerCount(): number;
+  advance(ms: number): void;
+}
+
+export async function driveElementTimeline(
+  clock: FakeClock,
+  journeyKey: string,
+  options: Record<string, unknown> = {}
+): Promise<TimingGoldenRecord> {
   const drive = await startElementDrive(clock, journeyKey, options);
   const {
     record, element, paragraph, setPhase,
@@ -675,13 +778,13 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
 
   // ---- S2: width shrink to 340, RO delivery, commit pass ----
   setPhase("s2-resize");
-  element.width = 340;
+  asFakeElement(element).width = 340;
   paragraph.width = 340;
   const observer = widthObserver();
   if (observer) {
     observer.callback([
       { target: element, contentRect: { width: 340, height: 27 } },
-      { target: paragraph, contentRect: { width: 340, height: 27 } },
+      { target: asElement(paragraph), contentRect: { width: 340, height: 27 } },
     ]);
   }
   record.frameAdvanceCounts.s2 = await pumpQuiescent();
@@ -689,28 +792,28 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
 
   // ---- S3: width 320, freeze the clock, disconnect ----
   setPhase("s3-midflight-disconnect");
-  element.width = 320;
+  asFakeElement(element).width = 320;
   paragraph.width = 320;
   const observer3 = widthObserver();
   if (observer3) {
     observer3.callback([
       { target: element, contentRect: { width: 320, height: 27 } },
-      { target: paragraph, contentRect: { width: 320, height: 27 } },
+      { target: asElement(paragraph), contentRect: { width: 320, height: 27 } },
     ]);
   }
   await new Promise((resolve) => setImmediate(resolve));
-  element.isConnected = false;
-  element.disconnectedCallback();
+  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = false;
+  (asFakeElement(element) as FakeElement & { disconnectedCallback: () => void }).disconnectedCallback();
   await new Promise((resolve) => setImmediate(resolve));
   record.frameAdvanceCounts.s3 = await pumpQuiescent();
   record.paragraphStates.s3 = paragraphState();
 
   // ---- S4: reconnect at max width ----
   setPhase("s4-reconnect");
-  element.width = 360;
+  asFakeElement(element).width = 360;
   paragraph.width = 360;
-  element.isConnected = true;
-  element.connectedCallback();
+  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = true;
+  (asFakeElement(element) as FakeElement & { connectedCallback: () => void }).connectedCallback();
   record.frameAdvanceCounts.s4 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s4-reconnect"),
   );
@@ -720,15 +823,15 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
   record.paragraphStates.s4 = paragraphState();
 
   // Observer activity projection (targets serialized by identity kind).
-  record.observerActivity = observerInstances.map((instance) => ({
+  (record as { observerActivity: typeof record["observerActivity"] }).observerActivity = observerInstances.map((instance) => ({
     id: instance.id,
     ops: instance.log.map((entry) => ({
       op: entry.op,
-      target: entry.target === element ? "root" : entry.target === paragraph ? "paragraph" : "other",
+      target: entry.target != null && entry.target === element ? "root" : entry.target === asElement(paragraph) ? "paragraph" : "other",
     })),
   }));
 
-  record.fetchCalls = drive.world.fetchCalls;
+  (record as { fetchCalls: typeof record["fetchCalls"] }).fetchCalls = drive.world.fetchCalls;
   drive.engineTeardown.teardown();
 
   return record;
@@ -743,21 +846,24 @@ export async function driveElementTimeline(clock, journeyKey, options = {}) {
 // never enter the CSSOM the signature reads, so the wake must force past
 // the signature comparison; a wake that only scheduled an unforced check
 // would leave the phase with no engine calls at all.
-export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
+export async function driveDeclaredFaceWakeTimeline(
+  clock: FakeClock,
+  journeyKey: string
+): Promise<TimingGoldenRecord> {
   const drive = await startElementDrive(clock, journeyKey);
   const { record, element, setPhase, pumpQuiescent } = drive;
 
-  const revalidateCallsIn = (phase) =>
-    record.engineCalls.filter((call) => call.phase === phase);
+  const revalidateCallsIn = (phase: string) =>
+    record.engineCalls.filter((call) => (call as { phase?: string }).phase === phase);
 
   // Executed-check observable: every typography-check signature read walks
   // root "p, li". Counting those queries per phase shows whether a wake
   // reached a scheduled check even when the refresh decision dedups against
   // in-flight work and produces no engine call.
-  const paragraphQueriesByPhase = new Map();
-  const realQuerySelectorAll = element.querySelectorAll;
+  const paragraphQueriesByPhase = new Map<string, number>();
+  const realQuerySelectorAll = asFakeElement(element).querySelectorAll;
   let queryPhase = "pre-wake";
-  element.querySelectorAll = (selector) => {
+  asFakeElement(element).querySelectorAll = (selector: string) => {
     if (String(selector).includes("p") && String(selector).includes("li")) {
       paragraphQueriesByPhase.set(queryPhase, (paragraphQueriesByPhase.get(queryPhase) ?? 0) + 1);
     }
@@ -768,7 +874,7 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
     "@tiqian/core/core/sampler/snapshot/declared-faces.js"
   );
 
-  const setWakePhase = (phase) => {
+  const setWakePhase = (phase: string) => {
     setPhase(phase);
     queryPhase = phase;
   };
@@ -784,7 +890,7 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
     { baseUrl: "https://declared.test/wake-b.css" },
   );
   record.frameAdvanceCounts.w1 = await pumpQuiescent();
-  record.declaredWake = { w1RevalidateCalls: revalidateCallsIn("w1-declared-merge").length };
+  (record as { declaredWake: Record<string, unknown> }).declaredWake = { w1RevalidateCalls: revalidateCallsIn("w1-declared-merge").length };
 
   // ---- W2: a later declaration revalidates again ----
   // The W1 wake opened a layout job; typography observation pauses until the
@@ -795,7 +901,7 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
   // then meets an idle, observed root, exactly like a later declaration in
   // production.
   setWakePhase("w2-job-complete");
-  element.dispatchEvent(new FakeCustomEvent("tiqian:relayout-ready", {
+  (asFakeElement(element) as FakeElement & { dispatchEvent: (event: FakeEvent) => boolean }).dispatchEvent(new FakeCustomEventClass("tiqian:relayout-ready", {
     bubbles: true,
     composed: true,
     detail: { enhancedCount: 1, issueCount: 0 },
@@ -808,12 +914,12 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
     { baseUrl: "https://declared.test/wake-c.css" },
   );
   record.frameAdvanceCounts.w2 = await pumpQuiescent();
-  record.declaredWake.w2RevalidateCalls = revalidateCallsIn("w2-declared-later").length;
+  (record.declaredWake as Record<string, unknown>).w2RevalidateCalls = revalidateCallsIn("w2-declared-later").length;
 
   // ---- W3: a disabled element unsubscribes and stops waking ----
   setWakePhase("w3-disabled");
-  element.setAttribute("disabled", "");
-  element.attributeChangedCallback("disabled", null, "");
+  asFakeElement(element).setAttribute("disabled", "");
+  (asFakeElement(element) as FakeElement & { attributeChangedCallback: (name: string, oldValue: string | null, newValue: string) => void }).attributeChangedCallback("disabled", null, "");
   await pumpQuiescent();
   // Disabling itself reaches the engine (destroy, detach); snapshot the
   // record length after that settles so only wake-driven calls count.
@@ -823,18 +929,18 @@ export async function driveDeclaredFaceWakeTimeline(clock, journeyKey) {
     { baseUrl: "https://declared.test/wake-d.css" },
   );
   record.frameAdvanceCounts.w3 = await pumpQuiescent();
-  record.declaredWake.w3RevalidateCalls = record.engineCalls.length - engineCallsAtStop;
-  record.declaredWake.paragraphQueries = Object.fromEntries(paragraphQueriesByPhase);
+  (record.declaredWake as Record<string, unknown>).w3RevalidateCalls = record.engineCalls.length - engineCallsAtStop;
+  (record.declaredWake as Record<string, unknown>).paragraphQueries = Object.fromEntries(paragraphQueriesByPhase);
 
   unregisterA();
   unregisterB();
   unregisterC();
   unregisterD();
-  element.isConnected = false;
-  element.disconnectedCallback();
+  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = false;
+  (asFakeElement(element) as FakeElement & { disconnectedCallback: () => void }).disconnectedCallback();
   await new Promise((resolve) => setImmediate(resolve));
 
-  record.fetchCalls = drive.world.fetchCalls;
+  (record as { fetchCalls: typeof record["fetchCalls"] }).fetchCalls = drive.world.fetchCalls;
   drive.engineTeardown.teardown();
 
   return record;

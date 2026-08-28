@@ -17,7 +17,8 @@ import {
   loadHostRuntime,
   mount,
   testOptions,
-} from "./runtime-host.mjs";
+} from "./runtime-host.js";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
 test("copyFidelity_singleParagraphClipboardRestoresSourceAndSemanticHtml", async (t) => {
   t.after(cleanupMounted);
@@ -36,7 +37,7 @@ test("copyFidelity_singleParagraphClipboardRestoresSourceAndSemanticHtml", async
       "<span data-tq-copy-ignore='true'>paint-only</span></p></div>",
   );
   TiqianWeb.install();
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
 
   assert.equal(copiedData(paragraph, "text/plain"), "前强调链接原文\n后");
   const html = copiedData(paragraph, "text/html");
@@ -63,8 +64,8 @@ test("copyFidelity_partialRangeOfMandatoryBreakCopiesNewlineOrBr", async (t) => 
       "<br data-tq-engine-break='MandatoryBreak'>后</p></div>",
   );
   TiqianWeb.install();
-  const marker = root.querySelector("[data-tq-hard-break]");
-  const semanticBreak = root.querySelector("br[data-tq-engine-break='MandatoryBreak']");
+  const marker = root.querySelector("[data-tq-hard-break]")!;
+  const semanticBreak = root.querySelector("br[data-tq-engine-break='MandatoryBreak']")!;
 
   assert.equal(copiedNodeData(marker, "text/plain"), "\n");
   assert.equal(copiedNodeData(semanticBreak, "text/plain"), "\n");
@@ -81,7 +82,7 @@ test("copyFidelity_crossParagraphClipboardKeepsOnlySourceBoundaries", async (t) 
       "<p>第二段也会折行，<a class='host-link' href='/target/'>链接仍然保留</a>。</p>" +
       "</div>",
   );
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 2);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 2);
 
   assert.equal(
     copiedData(root, "text/plain"),
@@ -103,7 +104,7 @@ test("copyFidelity_copyOutsideRenderedParagraphRemainsNative", async (t) => {
   const TiqianWeb = await loadHostRuntime();
   TiqianWeb.install();
   const root = mount("<div><p>普通站点文本不属于提椠。</p></div>");
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
 
   assert.equal(copyWasIntercepted(paragraph), false);
   assert.equal(copiedData(paragraph, "text/plain"), "");
@@ -115,7 +116,7 @@ test("copyFidelity_copyHandlerIgnoresNonRenderedParagraphs", async (t) => {
   const TiqianWeb = await loadHostRuntime();
   const root = mount("<div><p>普通站点文本不属于 Tiqian。</p></div>");
   TiqianWeb.install();
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
 
   assert.equal(copySelection(paragraph), "普通站点文本不属于 Tiqian。");
   assert.equal(copySelectionWasIntercepted(paragraph), false);
@@ -130,8 +131,8 @@ test("copyFidelity_hardBreakCopiedSoftWrapsOmitted", async (t) => {
       `<p>${source}<br>显式换行之后。</p>` +
       "</div>",
   );
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
-  const paragraph = root.querySelector("p");
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 1);
+  const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 2);
 
   const visualBreaks = paragraph.querySelectorAll(
@@ -142,7 +143,7 @@ test("copyFidelity_hardBreakCopiedSoftWrapsOmitted", async (t) => {
     assert.equal(visualBreak.getAttribute("aria-hidden"), "true");
     assert.equal(visualBreak.getAttribute("data-tq-copy-ignore"), "true");
   }
-  const sourceBreak = paragraph.querySelector("br[data-tq-engine-break='MandatoryBreak']");
+  const sourceBreak = paragraph.querySelector("br[data-tq-engine-break='MandatoryBreak']")!;
   assert.equal(sourceBreak.getAttribute("aria-hidden"), null);
   assert.equal(sourceBreak.getAttribute("data-tq-copy-ignore"), null);
 
@@ -156,9 +157,9 @@ test("copyFidelity_engineHyphenGlyphsOmittedFromCopy", async (t) => {
   const root = mount(
     "<div data-tiqian-root='true' style='width: 64px'><p>" + source + "</p></div>",
   );
-  assert.equal(TiqianWeb.enhance(root, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 1);
 
-  const paragraph = root.querySelector("p");
+  const paragraph = root.querySelector("p")!;
   // The prepared renderer marks engine hyphens explicitly; the line-end
   // sentinels share the copy-ignore/aria-hidden pair with empty text.
   const hyphen = paragraph.querySelector("span[data-tq-engine-hyphen]");

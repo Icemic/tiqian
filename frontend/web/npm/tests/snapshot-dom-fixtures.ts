@@ -22,15 +22,10 @@ function matchesSelector(element: FakeElement, selector: string): boolean {
 }
 
 class FakeNode {
-  static TEXT_NODE = 3;
-  static ELEMENT_NODE = 1;
-  static DOCUMENT_FRAGMENT_NODE = 11;
-
   nodeType: number;
   childNodes: FakeNode[];
   parentNode: FakeNode | null;
   parentElement: FakeElement | null;
-  ownerDocument: FakeDocument | null = null;
 
   constructor(nodeType: number) {
     this.nodeType = nodeType;
@@ -46,28 +41,8 @@ class FakeNode {
   get nextSibling(): FakeNode | null {
     const parent = this.parentNode;
     if (!parent) return null;
-    const siblings = parent.childNodes;
-    return siblings[siblings.indexOf(this) + 1] ?? null;
-  }
-
-  get previousSibling(): FakeNode | null {
-    const parent = this.parentNode;
-    if (!parent) return null;
-    const siblings = parent.childNodes;
-    const index = siblings.indexOf(this);
-    if (index <= 0) return null;
-    return siblings[index - 1];
-  }
-
-  contains(other: FakeNode | null): boolean {
-    for (let node: FakeNode | null = other; node; node = node.parentNode) {
-      if (node === this) return true;
-    }
-    return false;
-  }
-
-  matches(_selector: string): boolean {
-    return false;
+    const index = parent.childNodes.indexOf(this);
+    return parent.childNodes[index + 1] ?? null;
   }
 
   append(...nodes: FakeNode[]): void {
@@ -76,10 +51,12 @@ class FakeNode {
 
   appendChild(node: FakeNode): FakeNode {
     if (node.nodeType === 11) {
-      // Expand through the prototype method, never through this.appendChild:
-      // the browser's native fragment append is atomic and bypasses any
-      // wrapper installed on the element.
-      while (node.firstChild) FakeNode.prototype.appendChild.call(this, node.firstChild);
+      // The browser's native fragment append is atomic and bypasses any
+      // wrapper installed on the element (e.g. the raw-dom commit
+      // forwarding), so expand through the prototype method directly.
+      while (node.firstChild) {
+        FakeNode.prototype.appendChild.call(this, node.firstChild);
+      }
       return node;
     }
     if (node.parentNode) node.parentNode.removeChild(node);
@@ -89,31 +66,16 @@ class FakeNode {
     return node;
   }
 
-  removeChild(node: FakeNode): FakeNode {
-    const index = this.childNodes.indexOf(node);
-    if (index < 0) throw new Error("NotAChild");
-    this.childNodes.splice(index, 1);
-    node.parentNode = null;
-    node.parentElement = null;
-    return node;
-  }
-
-  replaceWith(node: FakeNode): void {
-    const parent = this.parentNode;
-    if (!parent) return;
-    const following = this.nextSibling;
-    parent.removeChild(this);
-    if (following) parent.insertBefore(node, following);
-    else parent.appendChild(node);
-  }
-
   insertBefore(node: FakeNode, reference: FakeNode | null): FakeNode {
+    if (reference == null) return this.appendChild(node);
     if (node.nodeType === 11) {
-      while (node.firstChild) FakeNode.prototype.insertBefore.call(this, node.firstChild, reference);
+      while (node.firstChild) {
+        FakeNode.prototype.insertBefore.call(this, node.firstChild, reference);
+      }
       return node;
     }
-    const index = reference == null ? this.childNodes.length : this.childNodes.indexOf(reference);
-    if (reference != null && index < 0) throw new Error("NotAChild");
+    const index = this.childNodes.indexOf(reference);
+    if (index < 0) throw new Error("NotFound");
     if (node.parentNode) node.parentNode.removeChild(node);
     this.childNodes.splice(index, 0, node);
     node.parentNode = this;
@@ -121,25 +83,30 @@ class FakeNode {
     return node;
   }
 
-  replaceChild(next: FakeNode, prev: FakeNode): FakeNode {
-    const index = this.childNodes.indexOf(prev);
-    if (index < 0) throw new Error("NotAChild");
+  replaceChild(next: FakeNode, previous: FakeNode): FakeNode {
+    const index = this.childNodes.indexOf(previous);
+    if (index < 0) throw new Error("NotFound");
     if (next.nodeType === 11) {
-      let child = next.firstChild;
-      while (child) {
-        const following = child.nextSibling;
-        FakeNode.prototype.insertBefore.call(this, child, prev);
-        child = following;
-      }
-      return this.removeChild(prev);
+      this.removeChild(previous);
+      FakeNode.prototype.insertBefore.call(this, next, this.childNodes[index] ?? null);
+      return previous;
     }
     if (next.parentNode) next.parentNode.removeChild(next);
     this.childNodes[index] = next;
-    prev.parentNode = null;
-    prev.parentElement = null;
+    previous.parentNode = null;
+    previous.parentElement = null;
     next.parentNode = this;
     next.parentElement = this.nodeType === 1 ? asElementParent(this) : null;
-    return prev;
+    return previous;
+  }
+
+  removeChild(node: FakeNode): FakeNode {
+    const index = this.childNodes.indexOf(node);
+    if (index < 0) throw new Error("NotAChild");
+    this.childNodes.splice(index, 1);
+    node.parentNode = null;
+    node.parentElement = null;
+    return node;
   }
 
   remove(): void {
@@ -154,6 +121,7 @@ class FakeNode {
     while (this.firstChild) this.removeChild(this.firstChild);
     if (value) this.appendChild(new FakeText(String(value)));
   }
+
 
   querySelectorAll(selector: string): FakeElement[] {
     const result: FakeElement[] = [];
@@ -170,14 +138,13 @@ class FakeNode {
   querySelector(selector: string): FakeElement | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
+}
 
-  cloneNode(deep?: boolean): FakeNode {
-    const clone = new FakeNode(this.nodeType);
-    if (deep) {
-      for (const child of this.childNodes) clone.appendChild(child.cloneNode(true));
-    }
-    return clone;
-  }
+// Merged into the FakeNode class type: subclasses provide the real
+// implementations; the merged signature types the recursive calls in their
+// deep-clone loops against the shared base type.
+interface FakeNode {
+  cloneNode(deep?: boolean): FakeNode;
 }
 
 class FakeText extends FakeNode {
@@ -196,7 +163,7 @@ class FakeText extends FakeNode {
     this.value = String(value);
   }
 
-  cloneNode(deep?: boolean): FakeText {
+  cloneNode(): FakeText {
     return new FakeText(this.value);
   }
 }
@@ -260,106 +227,10 @@ function computeNormalInnerText(root: FakeElement): string {
   return result;
 }
 
-const HTML_ENTITY_NAMES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: "\"",
-  apos: "'",
-  nbsp: "\u00a0",
-};
-
-function decodeHtmlEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (_match, body) => {
-    if (body[0] === "#") {
-      const code = body[1] === "x" || body[1] === "X"
-        ? parseInt(body.slice(2), 16)
-        : parseInt(body.slice(1), 10);
-      return Number.isFinite(code) ? String.fromCodePoint(code) : _match;
-    }
-    return HTML_ENTITY_NAMES[body.toLowerCase()] ?? _match;
-  });
-}
-
-function parseHtmlAttributes(source: string, element: FakeElement): void {
-  let index = 0;
-  while (index < source.length) {
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    if (index >= source.length) break;
-    let nameEnd = index;
-    while (nameEnd < source.length && !/[\s=]/.test(source[nameEnd])) nameEnd += 1;
-    const name = source.slice(index, nameEnd);
-    index = nameEnd;
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    if (source[index] !== "=") {
-      if (name) element.setAttribute(name.toLowerCase(), "");
-      continue;
-    }
-    index += 1;
-    while (index < source.length && /\s/.test(source[index])) index += 1;
-    let value = "";
-    const quote = source[index];
-    if (quote === "\"" || quote === "'") {
-      const end = source.indexOf(quote, index + 1);
-      value = source.slice(index + 1, end < 0 ? source.length : end);
-      index = end < 0 ? source.length : end + 1;
-    } else {
-      let end = index;
-      while (end < source.length && !/\s/.test(source[end])) end += 1;
-      value = source.slice(index, end);
-      index = end;
-    }
-    if (name) element.setAttribute(name.toLowerCase(), decodeHtmlEntities(value));
-  }
-}
-
-export const HTML_VOID_TAGS = ["BR", "IMG", "HR", "INPUT", "WBR"];
-
-function parseHtmlFragment(html: string): FakeFragment {
-  const root = new FakeFragment();
-  const stack: (FakeFragment | FakeElement)[] = [root];
-  const source = String(html);
-  let index = 0;
-  const appendText = (value: string): void => {
-    if (value) FakeNode.prototype.appendChild.call(stack[stack.length - 1], new FakeText(value));
-  };
-  while (index < source.length) {
-    const open = source.indexOf("<", index);
-    if (open < 0) {
-      appendText(decodeHtmlEntities(source.slice(index)));
-      break;
-    }
-    if (open > index) appendText(decodeHtmlEntities(source.slice(index, open)));
-    const close = source.indexOf(">", open);
-    if (close < 0) {
-      appendText(decodeHtmlEntities(source.slice(open)));
-      break;
-    }
-    const raw = source.slice(open + 1, close);
-    index = close + 1;
-    if (raw.startsWith("!--")) continue;
-    if (raw.startsWith("/")) {
-      const tagName = raw.slice(1).trim().toUpperCase();
-      for (let depth = stack.length - 1; depth > 0; depth -= 1) {
-        if ((stack[depth] as FakeElement).tagName === tagName) {
-          stack.length = depth;
-          break;
-        }
-      }
-      continue;
-    }
-    const selfClosing = raw.endsWith("/");
-    const body = selfClosing ? raw.slice(0, -1).trim() : raw;
-    const nameMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(body);
-    if (!nameMatch) continue;
-    const element = new FakeElement(nameMatch[1]);
-    parseHtmlAttributes(body.slice(nameMatch[0].length), element);
-    FakeNode.prototype.appendChild.call(stack[stack.length - 1], element);
-    if (!selfClosing && !HTML_VOID_TAGS.includes(element.tagName)) stack.push(element);
-  }
-  return root;
-}
-
+// Minimal inline-style declaration mirroring the CSSStyleDeclaration surface
+// the engine uses: getPropertyValue/getPropertyPriority/setProperty/
+// removeProperty, with cssText derived from the stored properties so probe
+// checks that sniff the serialized style keep working.
 class FakeInlineStyle {
   readonly _values: Map<string, string>;
   readonly _priorities: Map<string, string>;
@@ -426,16 +297,18 @@ class FakeInlineStyle {
 class FakeElement extends FakeNode {
   tagName: string;
   attributes: Map<string, string>;
-  _dataset: Record<string, string | undefined>;
-  get dataset(): Record<string, string | undefined> { return this._dataset; }
-  set dataset(value: Record<string, string | undefined>) { this._dataset = value; }
   style: FakeInlineStyle;
   ownerDocument: FakeDocument | null;
   width: number;
   height: number;
   left: number;
   top: number;
-
+  // dataset and innerHTML stay accessor pairs so the runtime host's
+  // HostElement subclass can override them with its own accessors. In the
+  // bare fixture world dataset is a plain per-instance record and innerHTML
+  // reads undefined, exactly as the pre-conversion fixtures behaved.
+  protected declare _datasetRecord: Record<string, string | undefined> | undefined;
+  protected declare _innerHTMLValue: string | undefined;
   _innerText: string | null = null;
   _fixtureProbeWidth?: number;
   _onFixtureProbeMeasure?: (cssText: string) => void;
@@ -444,13 +317,30 @@ class FakeElement extends FakeNode {
     super(1);
     this.tagName = tagName.toUpperCase();
     this.attributes = new Map();
-    this._dataset = {};
+    this.dataset = {};
     this.style = new FakeInlineStyle();
     this.ownerDocument = null;
     this.width = 0;
     this.height = 0;
     this.left = 0;
     this.top = 0;
+  }
+
+  get dataset(): Record<string, string | undefined> {
+    this._datasetRecord ??= {};
+    return this._datasetRecord;
+  }
+
+  set dataset(value: Record<string, string | undefined>) {
+    this._datasetRecord = value;
+  }
+
+  get innerHTML(): string | undefined {
+    return this._innerHTMLValue;
+  }
+
+  set innerHTML(value: string | undefined) {
+    this._innerHTMLValue = value;
   }
 
   setAttribute(name: string, value: string): void {
@@ -476,18 +366,6 @@ class FakeElement extends FakeNode {
 
   set innerText(value: string) {
     this._innerText = String(value);
-  }
-
-  get innerHTML(): string {
-    return this.textContent;
-  }
-
-  set innerHTML(value: string) {
-    this._innerText = null;
-    // The browser's innerHTML parser bypasses per-element mutation wrappers,
-    // so install the replacement tree through the prototype method.
-    while (this.firstChild) FakeNode.prototype.removeChild.call(this, this.firstChild);
-    if (value) FakeNode.prototype.appendChild.call(this, parseHtmlFragment(value));
   }
 
   getBoundingClientRect(): {
@@ -546,7 +424,7 @@ class FakeElement extends FakeNode {
     clone.top = this.top;
     clone._innerText = this._innerText;
     clone.attributes = new Map(this.attributes);
-    clone._dataset = { ...this._dataset };
+    clone.dataset = { ...this.dataset };
     clone.style.cssText = this.style.cssText;
     if (deep) for (const child of this.childNodes) clone.appendChild(child.cloneNode(true));
     return clone;
@@ -589,6 +467,7 @@ interface FakeDocument {
     check: (descriptor: unknown, text: string) => boolean;
     addEventListener: () => void;
     removeEventListener: () => void;
+    ready?: Promise<void>;
   };
   createDocumentFragment(): FakeFragment;
   createElement(tagName: string): FakeElement;
@@ -648,7 +527,7 @@ function canonicalFixtureNode(node: FakeNode): unknown {
 function fixtureComputedStyle(
   element: FakeElement | null | undefined,
   _pseudo: string | null,
-  overrides: Record<string, string> = {}
+  overrides: Record<string, string> = {},
 ): Record<string, string> {
   const boundary = element?.hasAttribute?.("data-tq-shaping-boundary") === true;
   const engineHyphen = element?.hasAttribute?.("data-tq-engine-hyphen") === true;
