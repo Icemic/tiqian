@@ -276,23 +276,19 @@ interface AndroidTypefaceResolver {
  * resolve from the CJK font instead of the Latin head of the system
  * fallback chain — `textLocale` alone only reorders the CJK tail.
  *
- * Named heuristic: `SystemAndroidFontProbe`.
+ * Named heuristic: `SystemAndroidFontProbe`. Anchor face evidence, in order:
+ * `PlatformDefaultHanFaceReadback` (API 31+) shapes one Han character with the
+ * default typeface and anchors to the `Font` the platform fallback chain
+ * actually selected, so OEM/user theme fonts that never appear at the
+ * well-known paths are honored; the well-known file paths remain the
+ * API 26–30 path and the readback fallback.
  */
 class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
-    private val cjkTypeface: android.graphics.Typeface? =
-        if (Build.VERSION.SDK_INT >= 26) {
-            CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
-                val file = java.io.File(path)
-                if (!file.exists()) return@firstNotNullOfOrNull null
-                runCatching {
-                    android.graphics.Typeface.Builder(file)
-                        .setTtcIndex(ttcIndex)
-                        .build()
-                }.getOrNull()
-            }
-        } else {
-            null
-        }
+    private val cjkTypeface: android.graphics.Typeface? = when {
+        Build.VERSION.SDK_INT >= 31 -> platformDefaultHanTypeface() ?: wellKnownPathHanTypeface()
+        Build.VERSION.SDK_INT >= 26 -> wellKnownPathHanTypeface()
+        else -> null
+    }
 
     override fun resolve(input: ShapingInput): android.graphics.Typeface =
         resolve(
@@ -349,6 +345,43 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
             else -> Typeface.create(family, Typeface.NORMAL)
         }
 
+    @TargetApi(31)
+    private fun platformDefaultHanTypeface(): Typeface? = runCatching {
+        val paint = TextPaint().apply {
+            textSize = HAN_PROBE_TEXT_SIZE
+            textLocale = Locale.forLanguageTag("zh-Hans")
+            typeface = Typeface.DEFAULT
+        }
+        val shaped = TextRunShaper.shapeTextRun(
+            HAN_PROBE,
+            0,
+            HAN_PROBE.length,
+            0,
+            HAN_PROBE.length,
+            0f,
+            0f,
+            false,
+            paint,
+        )
+        if (shaped.glyphCount() != 1 || shaped.getGlyphId(0) == 0) return@runCatching null
+        Typeface.CustomFallbackBuilder(
+            android.graphics.fonts.FontFamily.Builder(shaped.getFont(0)).build(),
+        )
+            .setSystemFallback("sans-serif")
+            .build()
+    }.getOrNull()
+
+    private fun wellKnownPathHanTypeface(): Typeface? =
+        CJK_FONT_FILES.firstNotNullOfOrNull { (path, ttcIndex) ->
+            val file = java.io.File(path)
+            if (!file.exists()) return@firstNotNullOfOrNull null
+            runCatching {
+                android.graphics.Typeface.Builder(file)
+                    .setTtcIndex(ttcIndex)
+                    .build()
+            }.getOrNull()
+        }
+
     private companion object {
         /**
          * (path, ttcIndex) ordered by preference; first existing file wins.
@@ -362,5 +395,8 @@ class SystemAndroidTypefaceResolver : AndroidTypefaceResolver {
             "/system/fonts/NotoSansSC-Regular.otf" to 0,
             "/system/fonts/NotoSansCJKsc-Regular.otf" to 0,
         )
+
+        const val HAN_PROBE = "中"
+        const val HAN_PROBE_TEXT_SIZE = 32f
     }
 }
