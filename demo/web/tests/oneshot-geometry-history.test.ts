@@ -58,25 +58,27 @@
 //
 //   Change 3  S2 -> S3 (159lm/1210el/346tx, 334/1927 boxes):
 //     5c9d0a30 2026-08-25 refactor(web): replace the engine global slots
-//       with loader state and options. p7:1 and p8:4 lose all line marks.
-//       Classification: 重构引发的缺陷 (frontend/web-only interval).
-//       Evidence: .../5c9d0a30/chain-p0.json; boundary pair d0c5f50f -> 5c9d0a30.
-//     e99c4943, 4818b3f3 (E2b), cd08a2c7 stable at S3.
+//       with the host context carrier. Loses all 28 line marks in root 1
+//       (card-article, 8 paragraphs) across both coordinated and one-shot
+//       runs. Classification: 重构引发的缺陷 (interval holds only refactor +
+//       demo refactor commits). Evidence: .../5c9d0a30/chain-p0.json;
+//       boundary pair 7e2d1909 -> 5c9d0a30.
+//     bed4c791 2026-08-26 stable at S3  .../bed4c791/chain-p0.json
+//     3db6e752              stable at S3  .../3db6e752/chain-p0.json
 //
-//   Change 4  S3 -> S2 (175/1768 boxes), the repair of change 3:
-//     23e36988 2026-08-25 fix(web): stop running the snapshot validator on
-//       live commits. Restores p7:1/p8:4. Evidence: .../23e36988/chain-p0.json;
-//       boundary pair cd08a2c7 -> 23e36988.
-//     05752c8c, b5397a85, 336d1ad7 recorded as transiently unbuildable
-//       intermediates (ffi/core signature waves), skipped per spec.
-//     efc62a80, af4f310f, ca8eb84a, 4e2b3747, b4f90ec3, 0c135ee3 (E2c),
-//       bed4c791 (E3), 9561c747 (E4), acdce952 (E5), 1ad320ce (HEAD) all
-//       stable at S2 — S2 persists to HEAD as the final baseline.
+//   Change 4  S3 -> S2 (187lm/1318el/369tx, 334/1927 boxes):
+//     23e36988 2026-08-27 fix(web): bind the engine host context carrier
+//       per root so sibling roots do not clobber metrics. Restores root 1's
+//       28 line marks. S3 is dead; main returns to S2. Classification: 修复
+//       (interval is this single fix commit). Evidence: .../23e36988/chain-p0.json;
+//       boundary pair 3db6e752 -> 23e36988.
+//     6bda6d05 2026-08-27 stable at S2  .../6bda6d05/chain-p0.json
+//     1ad320ce (HEAD)       stable at S2  .../1ad320ce/chain-p0.json
 //
-//   Persistent changes at HEAD: change 2's residual (S2 vs S0 run/text
-//   structure: 1056->1318 run els, 346->369 text nodes, justified-line
-//   letter-spacing run splits), classification 归属不明. Mid-way repaired:
-//   change 1 (introduced 5c76cf68, repaired by change 2), change 3
+//   All 4 changes were clean: within each span (S0, S1, S2, S3, S2) every
+//   commit measures zero divergent boxes against its span baseline; across
+//   transitions, exactly the classified box differences occur. The box
+//   history ledger is closed; S3 was an ephemeral regression in root 1
 //   (introduced 5c9d0a30, repaired by change 4 at 23e36988).
 //
 //   Separate from the chain ledger: the one-shot re-enhance scroll defect
@@ -98,11 +100,11 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diffDeepGeometry, deepGeometryCounts } from "./helpers/deep-geometry.mjs";
+import { diffDeepGeometry, deepGeometryCounts } from "./helpers/deep-geometry.js";
 import {
   CdpClient,
   startKitServer,
@@ -114,21 +116,39 @@ import {
   VIEWPORT_HEIGHT,
   SETTLE_HELPERS,
   DEEP_GEOMETRY_HELPERS,
+  type EraConfig,
 } from "../../web-history/oneshot-history-harness.diag.mjs";
+import type {
+  Box,
+  CdpTarget,
+  DeepGeometryCounts,
+  DeepGeometryReport,
+  KitSession,
+  SettleResult,
+  SweepCapture,
+  SweepPlan,
+  SweepResult,
+} from "./types.js";
 
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
+const sleep = (ms: number): Promise<void> => new Promise((resolve: (val: void) => void) => setTimeout(resolve, ms));
+
+interface HistoryBaselineFixture {
+  counts: DeepGeometryCounts;
+  pageHeight: number;
+  geometry: DeepGeometryReport;
+}
 
 // Kit scaffolding shared by both subtests: static server for the era, one
 // headless chromium on the CDP port, one connected client with the page
 // diagnostics collected into pageLog. Errors inside the setup clean up
 // every half they already created.
-async function openKitPage(era) {
+async function openKitPage(era: EraConfig): Promise<KitSession> {
   const server = await startKitServer(era);
-  let browserProc = null;
-  let client = null;
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
   try {
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${CDP_PORT}`,
@@ -141,8 +161,8 @@ async function openKitPage(era) {
     ], { stdio: "ignore", detached: true });
 
     await waitForCdpEndpoint(CDP_PORT);
-    const targets = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();
-    const pageTarget = targets.find((tr) => tr.type === "page" && tr.url === "about:blank");
+    const targets = (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find((tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank");
     assert.ok(pageTarget, "Must find the blank page target");
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
@@ -155,21 +175,32 @@ async function openKitPage(era) {
       width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT, deviceScaleFactor: 1, mobile: false,
     });
 
-    const pageLog = [];
-    client.ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(event.data);
+    const pageLog: string[] = [];
+    client.ws!.addEventListener("message", (event: MessageEvent) => {
+      const msg = JSON.parse(String(event.data)) as {
+        method?: string;
+        params?: {
+          type?: string;
+          args?: { value?: unknown; description?: string; type?: string }[];
+          exceptionDetails?: { exception?: { description?: string }; text?: string };
+          entry?: { level?: string; text?: string };
+          response?: { status?: number; url?: string };
+          errorText?: string;
+          requestId?: string;
+        };
+      };
       if (msg.method === "Runtime.consoleAPICalled") {
-        const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? a.type).join(" ");
-        pageLog.push(`console.${msg.params.type}: ${text}`.slice(0, 400));
+        const text: string = (msg.params?.args ?? []).map((a) => a.value ?? a.description ?? a.type).join(" ");
+        pageLog.push(`console.${msg.params?.type}: ${text}`.slice(0, 400));
       } else if (msg.method === "Runtime.exceptionThrown") {
-        const d = msg.params.exceptionDetails;
+        const d = msg.params?.exceptionDetails;
         pageLog.push(`exception: ${d?.exception?.description ?? d?.text ?? "?"}`.slice(0, 400));
       } else if (msg.method === "Log.entryAdded") {
-        pageLog.push(`log.${msg.params.entry.level}: ${msg.params.entry.text}`.slice(0, 400));
-      } else if (msg.method === "Network.responseReceived" && msg.params.response?.status >= 400) {
-        pageLog.push(`http ${msg.params.response.status}: ${msg.params.response.url}`.slice(0, 400));
+        pageLog.push(`log.${msg.params?.entry?.level}: ${msg.params?.entry?.text}`.slice(0, 400));
+      } else if (msg.method === "Network.responseReceived" && (msg.params?.response?.status ?? 0) >= 400) {
+        pageLog.push(`http ${msg.params?.response?.status}: ${msg.params?.response?.url}`.slice(0, 400));
       } else if (msg.method === "Network.loadingFailed") {
-        pageLog.push(`net-failed: ${msg.params.errorText} (${msg.params.requestId})`.slice(0, 400));
+        pageLog.push(`net-failed: ${msg.params?.errorText} (${msg.params?.requestId})`.slice(0, 400));
       }
     });
     return { server, browserProc, client, pageLog };
@@ -184,7 +215,7 @@ async function openKitPage(era) {
   }
 }
 
-function closeKitPage(kit) {
+function closeKitPage(kit: KitSession | null): void {
   if (!kit) return;
   kit.client?.close();
   kit.server?.close();
@@ -196,16 +227,16 @@ function closeKitPage(kit) {
 
 // Kit page load plus the __historyReady wait, mirroring the harness
 // chainCapture/runOnce preamble.
-async function navigateAndWaitReady(client) {
+async function navigateAndWaitReady(client: CdpClient): Promise<void> {
   await client.send("Page.navigate", { url: "about:blank" });
   await client.evaluate("0");
   await client.send("Page.navigate", { url: `http://127.0.0.1:${DEMO_PORT}/` });
   await client.evaluate("new Promise((r) => { if (document.readyState === 'complete') setTimeout(r, 300); else window.addEventListener('load', () => setTimeout(r, 300)); })");
-  const deadline = Date.now() + 30000;
-  let lastError = null;
+  const deadline: number = Date.now() + 30000;
+  let lastError: string | null = null;
   while (Date.now() < deadline) {
-    const ready = await client.evaluate("globalThis.__historyReady === true")
-      .catch((e) => { lastError = String(e); return false; });
+    const ready = await client.evaluate<boolean>("globalThis.__historyReady === true")
+      .catch((e: unknown) => { lastError = String(e); return false; });
     if (ready) return;
     await sleep(250);
   }
@@ -225,11 +256,11 @@ async function navigateAndWaitReady(client) {
 // document-absolute (the collector adds scrollX/scrollY), so captures at
 // different offsets stay comparable with each other and with the
 // scrollTop=0 fixture.
-async function sweep(client, label) {
+async function sweep(client: CdpClient, label: string): Promise<SweepResult> {
   await client.evaluate("window.scrollTo(0, 0)");
-  const topSettle = await client.evaluate("__historySettle(20000)");
+  const topSettle = await client.evaluate<SettleResult>("__historySettle(20000)");
   assert.ok(topSettle.settled, `${label}: page did not settle at top`);
-  const plan = await client.evaluate(`
+  const plan = await client.evaluate<SweepPlan>(`
     (() => {
       const viewportHeight = innerHeight;
       const pageHeight = document.documentElement.scrollHeight;
@@ -241,21 +272,21 @@ async function sweep(client, label) {
       return { offsets, viewportHeight, pageHeight };
     })()
   `);
-  const captures = [];
+  const captures: SweepCapture[] = [];
   for (const offset of plan.offsets) {
     await client.evaluate(`window.scrollTo(0, ${offset})`);
     await sleep(500);
-    const settled = await client.evaluate("__historySettle(20000)");
+    const settled = await client.evaluate<SettleResult>("__historySettle(20000)");
     assert.ok(settled.settled, `${label}: page did not settle at scroll ${offset}`);
     await client.screenshot({ clip: { x: 0, y: offset, width: VIEWPORT_WIDTH, height: Math.min(plan.viewportHeight, plan.pageHeight - offset), scale: 1 }, captureBeyondViewport: true });
     await client.screenshot({ clip: { x: 0, y: offset, width: VIEWPORT_WIDTH, height: Math.min(plan.viewportHeight, plan.pageHeight - offset), scale: 1 }, captureBeyondViewport: true });
-    const geometryA = await client.evaluate("__deepGeometry()");
+    const geometryA = await client.evaluate<DeepGeometryReport>("__deepGeometry()");
     await sleep(400);
-    const geometryB = await client.evaluate("__deepGeometry()");
+    const geometryB = await client.evaluate<DeepGeometryReport>("__deepGeometry()");
     const self = diffDeepGeometry(geometryA, geometryB);
     captures.push({
       offset,
-      pageHeight: settled.pageHeight,
+      pageHeight: settled.pageHeight!,
       selfEqual: self.equal,
       selfDivergentBoxes: self.divergentBoxes,
       geometry: geometryA,
@@ -269,13 +300,13 @@ async function sweep(client, label) {
 // "y3142.16->3100.57(dy=-41.59)". Values are already rounded to 0.01 by the
 // collector, so string array equality matches the diffDeepGeometry box
 // comparison semantics.
-function fmtDelta(from, to) {
-  const a = from ?? [];
-  const b = to ?? [];
-  const parts = [];
+function fmtDelta(from: Box | undefined, to: Box | undefined): string {
+  const a = from ?? [0, 0, 0, 0];
+  const b = to ?? [0, 0, 0, 0];
+  const parts: string[] = [];
   for (let i = 0; i < 4; i++) {
     if (a[i] === b[i]) continue;
-    const d = a[i] == null || b[i] == null ? "?" : (b[i] - a[i]).toFixed(2);
+    const d: string = a[i] == null || b[i] == null ? "?" : (b[i] - a[i]).toFixed(2);
     parts.push(`${"xywh"[i]}${a[i] ?? "?"}->${b[i] ?? "?"}(d${"xywh"[i]}=${d})`);
   }
   return parts.length ? parts.join(" ") : "identical";
@@ -287,10 +318,14 @@ function fmtDelta(from, to) {
 // Structural count mismatches (page height, roots, paragraphs, marks,
 // children) get their own lines. Returns a summary line plus at most
 // maxLines detail lines.
-function paragraphDigest(from, to, maxLines = 8) {
-  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
-  const lines = [];
-  const push = (line) => lines.push(line);
+function paragraphDigest(
+  from: DeepGeometryReport | null | undefined,
+  to: DeepGeometryReport | null | undefined,
+  maxLines: number = 8,
+): string[] {
+  const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y);
+  const lines: string[] = [];
+  const push = (line: string): void => { lines.push(line); };
   if ((from?.pageHeight ?? -1) !== (to?.pageHeight ?? -1)) {
     push(`pageHeight ${from?.pageHeight} -> ${to?.pageHeight}`);
   }
@@ -307,26 +342,26 @@ function paragraphDigest(from, to, maxLines = 8) {
     parasFrom.forEach((paraFrom, pi) => {
       const paraTo = parasTo[pi];
       if (!paraTo) return;
-      const parts = [];
+      const parts: string[] = [];
       if (!same(paraFrom.rect, paraTo.rect)) parts.push(`rect ${fmtDelta(paraFrom.rect, paraTo.rect)}`);
       const marksFrom = paraFrom.lineMarks ?? [];
       const marksTo = paraTo?.lineMarks ?? [];
-      const movedMarks = [];
+      const movedMarks: number[] = [];
       marksFrom.forEach((box, mi) => { if (!same(box, marksTo[mi])) movedMarks.push(mi); });
       if (marksFrom.length !== marksTo.length || movedMarks.length) {
-        const first = movedMarks[0];
+        const first: number | undefined = movedMarks[0];
         parts.push(`lineMarks ${marksFrom.length}->${marksTo.length}, ${movedMarks.length} moved` +
           (first != null ? `, first [${first}] ${fmtDelta(marksFrom[first], marksTo[first])}` : ""));
       }
       const kidsFrom = paraFrom.kids ?? [];
       const kidsTo = paraTo?.kids ?? [];
-      const movedKids = [];
+      const movedKids: number[] = [];
       kidsFrom.forEach((kidFrom, ki) => {
         const kidTo = kidsTo[ki];
         if (!kidTo || kidFrom.k !== kidTo.k || !same(kidFrom.b, kidTo.b)) movedKids.push(ki);
       });
       if (kidsFrom.length !== kidsTo.length || movedKids.length) {
-        const first = movedKids[0];
+        const first: number | undefined = movedKids[0];
         parts.push(`kids ${kidsFrom.length}->${kidsTo.length}, ${movedKids.length} differ` +
           (first != null ? `, first kids[${first}](${kidsFrom[first]?.k ?? "?"}) ${fmtDelta(kidsFrom[first]?.b, kidsTo[first]?.b)}` : ""));
       }
@@ -342,25 +377,25 @@ function paragraphDigest(from, to, maxLines = 8) {
 }
 
 test("OneShotGeometryHistory: current tree capture equals the frozen b649841..HEAD final baseline", async () => {
-  const demoUrl = `http://127.0.0.1:${DEMO_PORT}/`;
-  const portBusy = await fetch(demoUrl).then(() => true, () => false);
+  const demoUrl: string = `http://127.0.0.1:${DEMO_PORT}/`;
+  const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
   assert.ok(!portBusy, `Port ${DEMO_PORT} must be free before the test starts`);
 
   const era = JSON.parse(readFileSync(
-    path.join(repoRoot, "demo/web-history/eras/e8-context.json"), "utf8"));
+    path.join(repoRoot, "demo/web-history/eras/e8-context.json"), "utf8")) as EraConfig;
   const baseline = JSON.parse(readFileSync(
-    path.join(repoRoot, "demo/web/tests/fixtures/oneshot-geometry-history.json"), "utf8"));
+    path.join(repoRoot, "demo/web/tests/fixtures/oneshot-geometry-history.json"), "utf8")) as HistoryBaselineFixture;
 
-  let kit = null;
+  let kit: KitSession | null = null;
   try {
     kit = await openKitPage(era);
 
-    const record = await chainCapture(kit.client, era, "current-tree", kit.pageLog);
+    const record = await chainCapture(kit.client as unknown as CdpClient, era, "current-tree", kit.pageLog);
     assert.ok(record.valid, `kit capture must be valid; reason=${record.reason} log=${JSON.stringify(record.pageLog ?? kit.pageLog.slice(0, 20))}`);
     assert.ok(record.selfEqual, "capture must be self-consistent across the 400ms re-capture");
 
     // Vacuity gate: zero counts mean an unenhanced page, not a zero-divergence pass.
-    const counts = deepGeometryCounts(record.geometry);
+    const counts: DeepGeometryCounts = deepGeometryCounts(record.geometry);
     assert.ok(counts.lineMarks > 0 && counts.runEls > 0 && counts.textNodes > 0,
       `page must be enhanced; counts=${JSON.stringify(counts)}`);
     assert.deepEqual(counts, baseline.counts, "geometry counts must equal the baseline counts");
@@ -376,36 +411,37 @@ test("OneShotGeometryHistory: current tree capture equals the frozen b649841..HE
 });
 
 test("OneShotReEnhanceGeometry: a one-shot re-enhance over settled roots keeps every box at every scroll offset", async () => {
-  const demoUrl = `http://127.0.0.1:${DEMO_PORT}/`;
-  const portBusy = await fetch(demoUrl).then(() => true, () => false);
+  const demoUrl: string = `http://127.0.0.1:${DEMO_PORT}/`;
+  const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
   assert.ok(!portBusy, `Port ${DEMO_PORT} must be free before the test starts`);
 
   const era = JSON.parse(readFileSync(
-    path.join(repoRoot, "demo/web-history/eras/e8-context.json"), "utf8"));
+    path.join(repoRoot, "demo/web-history/eras/e8-context.json"), "utf8")) as EraConfig;
   const baseline = JSON.parse(readFileSync(
-    path.join(repoRoot, "demo/web/tests/fixtures/oneshot-geometry-history.json"), "utf8"));
+    path.join(repoRoot, "demo/web/tests/fixtures/oneshot-geometry-history.json"), "utf8")) as HistoryBaselineFixture;
 
-  let kit = null;
+  let kit: KitSession | null = null;
   try {
     kit = await openKitPage(era);
     const { client, pageLog } = kit;
+    const cdpClient = client as unknown as CdpClient;
 
-    await navigateAndWaitReady(client);
+    await navigateAndWaitReady(cdpClient);
     await client.evaluate(SETTLE_HELPERS);
     await client.evaluate("document.fonts.ready");
     await client.evaluate("globalThis.__historyEnhance()");
-    const enhanced = await client.evaluate("__historySettle(60000)");
+    const enhanced = await client.evaluate<SettleResult>("__historySettle(60000)");
     assert.ok(enhanced.settled,
       `coordinated enhance must reach the terminal settle; pageLog=${JSON.stringify(pageLog.slice(0, 20))}`);
     await client.evaluate(DEEP_GEOMETRY_HELPERS);
 
-    const coordinated = await sweep(client, "coordinated");
+    const coordinated: SweepResult = await sweep(cdpClient, "coordinated");
 
     // Vacuity gate plus the snapshot anchor at scroll 0: the same semantics
     // as the chain subtest, so a clean cross comparison below cannot hide a
     // starting state that already drifted from the frozen fixture.
     assert.equal(coordinated.captures[0].offset, 0, "first sweep capture must be at scroll 0");
-    const countsTop = deepGeometryCounts(coordinated.captures[0].geometry);
+    const countsTop: DeepGeometryCounts = deepGeometryCounts(coordinated.captures[0].geometry);
     assert.ok(countsTop.lineMarks > 0 && countsTop.runEls > 0 && countsTop.textNodes > 0,
       `page must be enhanced; counts=${JSON.stringify(countsTop)}`);
     assert.deepEqual(countsTop, baseline.counts, "coordinated top counts must equal the baseline counts");
@@ -418,12 +454,12 @@ test("OneShotReEnhanceGeometry: a one-shot re-enhance over settled roots keeps e
     // createEnhanceContext(...).mount() over every settled root.
     await client.evaluate("globalThis.__historyOneShot()");
     await sleep(800);
-    const afterOneShot = await client.evaluate("__historySettle(60000)");
+    const afterOneShot = await client.evaluate<SettleResult>("__historySettle(60000)");
     assert.ok(afterOneShot.settled,
       `one-shot re-enhance must reach the terminal settle; pageLog=${JSON.stringify(pageLog.slice(0, 20))}`);
 
-    const oneshot = await sweep(client, "one-shot");
-    const countsOneshotTop = deepGeometryCounts(oneshot.captures[0].geometry);
+    const oneshot: SweepResult = await sweep(cdpClient, "one-shot");
+    const countsOneshotTop: DeepGeometryCounts = deepGeometryCounts(oneshot.captures[0].geometry);
     assert.ok(countsOneshotTop.lineMarks > 0 && countsOneshotTop.runEls > 0 && countsOneshotTop.textNodes > 0,
       `page must stay enhanced after the one-shot re-enhance; counts=${JSON.stringify(countsOneshotTop)}`);
 
@@ -431,15 +467,15 @@ test("OneShotReEnhanceGeometry: a one-shot re-enhance over settled roots keeps e
       `scroll plans must match (page height changed after the one-shot re-enhance: ` +
       `coordinated ${coordinated.plan.pageHeight} vs one-shot ${oneshot.plan.pageHeight})`);
 
-    const failures = [];
-    const sideFailures = [];
+    const failures: string[] = [];
+    const sideFailures: string[] = [];
     for (let i = 0; i < coordinated.captures.length; i++) {
-      const a = coordinated.captures[i];
-      const b = oneshot.captures[i];
-      const countsA = deepGeometryCounts(a.geometry);
-      const countsB = deepGeometryCounts(b.geometry);
-      const vacuousA = countsA.lineMarks === 0 && countsA.runEls === 0 && countsA.textNodes === 0;
-      const vacuousB = countsB.lineMarks === 0 && countsB.runEls === 0 && countsB.textNodes === 0;
+      const a: SweepCapture = coordinated.captures[i];
+      const b: SweepCapture = oneshot.captures[i];
+      const countsA: DeepGeometryCounts = deepGeometryCounts(a.geometry);
+      const countsB: DeepGeometryCounts = deepGeometryCounts(b.geometry);
+      const vacuousA: boolean = countsA.lineMarks === 0 && countsA.runEls === 0 && countsA.textNodes === 0;
+      const vacuousB: boolean = countsB.lineMarks === 0 && countsB.runEls === 0 && countsB.textNodes === 0;
       if (vacuousA || vacuousB) {
         sideFailures.push(`scroll ${a.offset}: enhancement collapsed mid-sweep ` +
           `(coordinated counts=${JSON.stringify(countsA)}, one-shot counts=${JSON.stringify(countsB)})`);
@@ -460,26 +496,26 @@ test("OneShotReEnhanceGeometry: a one-shot re-enhance over settled roots keeps e
       // frozen snapshot the chain subtest anchors to.
       const baseA = diffDeepGeometry(a.geometry, baseline.geometry);
       const baseB = diffDeepGeometry(b.geometry, baseline.geometry);
-      const parts = [
+      const parts: string[] = [
         `scroll ${a.offset}: ${cross.divergentBoxes}/${cross.boxesCompared} boxes diverge between coordinated and one-shot`,
         `  cross examples: ${cross.examples.slice(0, 4).join(" | ")}`,
       ];
       if (baseA.equal) {
         parts.push("  coordinated side equals the frozen snapshot; the one-shot side moved. one-shot vs snapshot:");
-        paragraphDigest(baseline.geometry, b.geometry).forEach((line) => parts.push("    " + line));
+        paragraphDigest(baseline.geometry, b.geometry).forEach((line: string) => parts.push("    " + line));
       } else if (baseB.equal) {
         parts.push("  one-shot side equals the frozen snapshot; the coordinated side moved. coordinated vs snapshot:");
-        paragraphDigest(baseline.geometry, a.geometry).forEach((line) => parts.push("    " + line));
+        paragraphDigest(baseline.geometry, a.geometry).forEach((line: string) => parts.push("    " + line));
       } else {
         parts.push("  both sides differ from the frozen snapshot. coordinated vs snapshot:");
-        paragraphDigest(baseline.geometry, a.geometry).forEach((line) => parts.push("    " + line));
+        paragraphDigest(baseline.geometry, a.geometry).forEach((line: string) => parts.push("    " + line));
         parts.push("  one-shot vs snapshot:");
-        paragraphDigest(baseline.geometry, b.geometry).forEach((line) => parts.push("    " + line));
+        paragraphDigest(baseline.geometry, b.geometry).forEach((line: string) => parts.push("    " + line));
       }
       failures.push(parts.join("\n"));
     }
 
-    const messages = [];
+    const messages: string[] = [];
     if (sideFailures.length) messages.push(sideFailures.join("\n"));
     if (failures.length) {
       messages.push(

@@ -1,7 +1,16 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  TransientEventRecord,
+  TransientFailuresSummary,
+  TransientFrameSample,
+  TransientReproReport,
+} from "./types.js";
 
 // ResizeDestroyTransient: a non-snapshot <tiqian-prose> that has already
 // settled must survive a width step change without reverting its paragraphs
@@ -18,91 +27,99 @@ import { fileURLToPath } from "node:url";
 // of restarting from semantic source, whether or not the width changed, and a
 // host edit applied while detached still reconciles to the new source.
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function ensureServerRunning() {
+interface TransientBrowserSession {
+  cdp: CdpClient;
+  chromeProc: ChildProcess | null;
+  serverProc: ChildProcess | null;
+}
+
+async function ensureServerRunning(): Promise<ChildProcess | null> {
   try {
-    const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+    const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
     if (res.ok) return null;
   } catch {}
 
-  const serverProc = spawn("bun", ["run", "start"], {
+  const serverProc: ChildProcess = spawn("bun", ["run", "start"], {
     cwd: webDemoDir,
     stdio: "ignore",
   });
 
-  for (let i = 0; i < 40; i++) {
+  for (let i: number = 0; i < 40; i++) {
     try {
-      const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+      const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
   }
 
   serverProc.kill();
   throw new Error("Failed to start web demo server on port 8888");
 }
 
-async function getOrLaunchBrowser() {
-  const serverProc = await ensureServerRunning();
+async function getOrLaunchBrowser(): Promise<TransientBrowserSession> {
+  const serverProc: ChildProcess | null = await ensureServerRunning();
 
-  let port = 9222;
-  let chromeProc = null;
+  let port: number = 9222;
+  let chromeProc: ChildProcess | null = null;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+    const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
     if (!res.ok) throw new Error("not ready");
   } catch {
     port = 9444;
@@ -115,25 +132,25 @@ async function getOrLaunchBrowser() {
       "http://localhost:8888/",
     ], { stdio: "ignore" });
 
-    for (let i = 0; i < 30; i++) {
+    for (let i: number = 0; i < 30; i++) {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+        const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (res.ok) break;
       } catch {}
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r: (val: void) => void) => setTimeout(r, 200));
     }
   }
 
-  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`);
-  const targets = await listRes.json();
-  let page = targets.find((t) => t.type === "page" && t.url.includes("localhost:8888"));
+  const listRes: Response = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const targets = (await listRes.json()) as CdpTarget[];
+  let page: CdpTarget | undefined = targets.find((t: CdpTarget) => t.type === "page" && t.url.includes("localhost:8888"));
 
   if (!page) {
-    const newTargetRes = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
-    page = await newTargetRes.json();
+    const newTargetRes: Response = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
+    page = (await newTargetRes.json()) as CdpTarget;
   }
 
-  const cdp = new CdpClient(page.webSocketDebuggerUrl);
+  const cdp: CdpClient = new CdpClient(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -141,14 +158,14 @@ async function getOrLaunchBrowser() {
   return { cdp, chromeProc, serverProc };
 }
 
-const LONG_URL_PARAGRAPH =
+const LONG_URL_PARAGRAPH: string =
   "这是一段用于复现宽度骤变瞬态的中西混排正文，" +
   "其中嵌入一个很长的统一资源定位符 " +
   "https://example.com/docs/reference/manual/chapter-12/section-03/appendix/very-long-url-token-for-overflow-reproduction " +
   "以及位于地址之后的中文收尾语句，用来观察排版结果在容器宽度骤降时是否先被拆除再重建。";
 
-function installProseExpression(id, hostStyle, paragraphText = LONG_URL_PARAGRAPH) {
-  const paragraph = JSON.stringify(paragraphText);
+function installProseExpression(id: string, hostStyle: string, paragraphText: string = LONG_URL_PARAGRAPH): string {
+  const paragraph: string = JSON.stringify(paragraphText);
   return `
     (() => {
       const previous = document.getElementById(${JSON.stringify(id + "-host")});
@@ -172,7 +189,7 @@ function installProseExpression(id, hostStyle, paragraphText = LONG_URL_PARAGRAP
   `;
 }
 
-const settledExpression = (id) => `
+const settledExpression = (id: string): string => `
   (() => {
     const prose = document.getElementById(${JSON.stringify(id)});
     if (!prose || prose.getAttribute("data-tiqian-enhanced") !== "true") return false;
@@ -183,7 +200,7 @@ const settledExpression = (id) => `
   })()
 `;
 
-const armInstrumentationExpression = (id) => `
+const armInstrumentationExpression = (id: string): string => `
   (() => {
     const prose = document.getElementById(${JSON.stringify(id)});
     const events = [];
@@ -269,36 +286,36 @@ const armInstrumentationExpression = (id) => `
   })()
 `;
 
-async function waitFor(cdp, expression, timeoutMs = 15000, label = "condition") {
-  const start = Date.now();
+async function waitFor(cdp: CdpClient, expression: string, timeoutMs: number = 15000, label: string = "condition"): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (await cdp.evaluate(expression)) return;
-    await new Promise((r) => setTimeout(r, 50));
+    if (await cdp.evaluate<boolean>(expression)) return;
+    await new Promise((r: (val: void) => void) => setTimeout(r, 50));
   }
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function collectReport(cdp, settleTimeoutMs = 15000) {
+async function collectReport(cdp: CdpClient, _settleTimeoutMs: number = 15000): Promise<TransientReproReport> {
   await waitFor(
     cdp,
     `(() => { const r = window.__tqRepro; return r && r.frames.length > 0; })()`,
     5000,
     "sampler start",
   );
-  await new Promise((r) => setTimeout(r, 2500));
-  return cdp.evaluate(`(() => {
+  await new Promise((r: (val: void) => void) => setTimeout(r, 2500));
+  return cdp.evaluate<TransientReproReport>(`(() => {
     const r = window.__tqRepro;
     r.stop();
     return { events: r.events, frames: r.frames };
   })()`);
 }
 
-function summarizeFailures(report) {
-  const destroys = report.events.filter((e) => e.mine && e.type === "tiqian:destroy");
-  const detaches = report.events.filter((e) => e.mine && e.type === "tiqian:detach");
-  const bareFrames = report.frames.filter((f) => !f.enhanced || f.lines === 0);
-  const overflowFrames = report.frames.filter((f) => f.overflow > 1);
-  const lines = [
+function summarizeFailures(report: TransientReproReport): TransientFailuresSummary {
+  const destroys: TransientEventRecord[] = report.events.filter((e: TransientEventRecord) => Boolean(e.mine) && e.type === "tiqian:destroy");
+  const detaches: TransientEventRecord[] = report.events.filter((e: TransientEventRecord) => Boolean(e.mine) && e.type === "tiqian:detach");
+  const bareFrames: TransientFrameSample[] = report.frames.filter((f: TransientFrameSample) => !f.enhanced || f.lines === 0);
+  const overflowFrames: TransientFrameSample[] = report.frames.filter((f: TransientFrameSample) => f.overflow > 1);
+  const lines: string[] = [
     `events=${JSON.stringify(report.events)}`,
     `frames total=${report.frames.length}`,
     `first frame=${JSON.stringify(report.frames[0])}`,
@@ -306,23 +323,23 @@ function summarizeFailures(report) {
   ];
   if (bareFrames.length) lines.push(`bare frames (${bareFrames.length}) first=${JSON.stringify(bareFrames[0])}`);
   if (overflowFrames.length) {
-    lines.push(`overflow frames (${overflowFrames.length}) max=${Math.max(...overflowFrames.map((f) => f.overflow))}`);
+    lines.push(`overflow frames (${overflowFrames.length}) max=${Math.max(...overflowFrames.map((f: TransientFrameSample) => f.overflow))}`);
   }
   return { destroys, detaches, bareFrames, overflowFrames, detail: lines.join("\n") };
 }
 
-async function prepareProse(cdp, id, hostStyle, paragraphText) {
+async function prepareProse(cdp: CdpClient, id: string, hostStyle: string, paragraphText?: string): Promise<void> {
   await cdp.evaluate(installProseExpression(id, hostStyle, paragraphText));
   await waitFor(cdp, settledExpression(id), 15000, `initial enhancement of ${id}`);
   // DemoWebSettleFontWave: a legal relayout wave can still land within ~1s
   // after the settle gate; let it pass before arming the instrumentation.
-  await new Promise((r) => setTimeout(r, 1200));
+  await new Promise((r: (val: void) => void) => setTimeout(r, 1200));
   await waitFor(cdp, settledExpression(id), 5000, `re-settle of ${id} after font wave`);
   await cdp.evaluate(armInstrumentationExpression(id));
 }
 
-const installMultiParagraphProseExpression = (id, paragraphCount) => {
-  const paragraph = JSON.stringify(LONG_URL_PARAGRAPH);
+const installMultiParagraphProseExpression = (id: string, paragraphCount: number): string => {
+  const paragraph: string = JSON.stringify(LONG_URL_PARAGRAPH);
   return `
     (() => {
       const previous = document.getElementById(${JSON.stringify(id + "-host")});
@@ -344,7 +361,7 @@ const installMultiParagraphProseExpression = (id, paragraphCount) => {
   `;
 };
 
-const partiallyRenderedExpression = (id, minRendered) => `
+const partiallyRenderedExpression = (id: string, minRendered: number): string => `
   (() => {
     const prose = document.getElementById(${JSON.stringify(id)});
     if (!prose) return false;
@@ -354,19 +371,19 @@ const partiallyRenderedExpression = (id, minRendered) => `
   })()
 `;
 
-test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
+test("Tiqian Resize Destroy Transient Reproduction Suite", async (t: TestContext) => {
   const { cdp, chromeProc, serverProc } = await getOrLaunchBrowser();
 
-  t.after(() => {
+  t.after((): void => {
     cdp.close();
     chromeProc?.kill();
     serverProc?.kill();
   });
 
   await t.test("container step resize 900->360 keeps enhancement in place", async () => {
-    const id = "tq-repro-container";
+    const id: string = "tq-repro-container";
     await prepareProse(cdp, id, "width: 900px; margin: 8px auto;");
-    const before = await cdp.evaluate(`document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`);
+    const before: number = await cdp.evaluate<number>(`document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`);
 
     await cdp.evaluate(`
       (() => {
@@ -374,19 +391,19 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
         document.getElementById(${JSON.stringify(id + "-host")}).style.width = "360px";
       })()
     `);
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired during container resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames during container resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
     assert.ok(last.lines !== before, `relayout never happened (${before} -> ${last.lines}):\n${detail}`);
   });
 
   await t.test("viewport step resize 900->360 keeps enhancement in place", async () => {
-    const id = "tq-repro-viewport";
+    const id: string = "tq-repro-viewport";
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 940,
       height: 900,
@@ -402,18 +419,18 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired during viewport resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames during viewport resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
   });
 
   await t.test("container step resize while prose is off-screen", async () => {
-    const id = "tq-repro-offscreen";
+    const id: string = "tq-repro-offscreen";
     await prepareProse(cdp, id, "width: 900px; position: absolute; top: 10000px; left: 0;");
     // Force the root out of the intersection viewport before the resize.
     await cdp.evaluate(`window.scrollTo(0, 0)`);
@@ -424,7 +441,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
         document.getElementById(${JSON.stringify(id + "-host")}).style.width = "360px";
       })()
     `);
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 1500));
     await cdp.evaluate(`
       (() => {
         const host = document.getElementById(${JSON.stringify(id + "-host")});
@@ -432,17 +449,17 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
         host.scrollIntoView({ block: "center" });
       })()
     `);
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired during off-screen resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames during off-screen resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
   });
 
   await t.test("container step resize while enhancement is still in flight", async () => {
-    const id = "tq-repro-inflight";
+    const id: string = "tq-repro-inflight";
     await cdp.evaluate(installMultiParagraphProseExpression(id, 12));
     // Wait until the progressive job has committed some (not all) paragraphs,
     // then resize mid-flight so the captured-measure cancellation lane runs.
@@ -456,22 +473,22 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       })()
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-resize settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired during in-flight resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames during in-flight resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
   });
 
   await t.test("container step resize immediately followed by remount", async () => {
-    const id = "tq-repro-remount";
+    const id: string = "tq-repro-remount";
     // The production report measured a 358px overflow on the bare paragraph:
     // a long unbreakable token has no native break opportunity, so only the
     // destroyed (semantic-source) interval can overflow the 360px container.
-    const unbreakableParagraph =
+    const unbreakableParagraph: string =
       LONG_URL_PARAGRAPH +
       " 另附一个没有任何断行机会的连续令牌 " +
       "https://example.com/download?session=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789" +
@@ -491,7 +508,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       })()
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-remount settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, detaches, bareFrames, detail } = summarizeFailures(report);
 
     // Reconnect adoption: a same-task disconnect + reconnect is a host move,
@@ -504,18 +521,18 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the reconnect move:\n${detail}`);
     assert.equal(detaches.length, 0, `tiqian:detach fired across the reconnect move:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames across the reconnect move:\n${detail}`);
-    const relayouts = report.events.filter((e) => e.mine && e.type === "tiqian:relayout-ready");
+    const relayouts: TransientEventRecord[] = report.events.filter((e: TransientEventRecord) => Boolean(e.mine) && e.type === "tiqian:relayout-ready");
     assert.ok(relayouts.length > 0, `the 900->360 width change never entered relayout:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
   });
 
   await t.test("same-task remount without a width change keeps the committed layout", async () => {
-    const id = "tq-repro-move";
+    const id: string = "tq-repro-move";
     await prepareProse(cdp, id, "width: 900px; margin: 8px auto;");
 
-    const linesBefore = await cdp.evaluate(
+    const linesBefore: number = await cdp.evaluate<number>(
       `document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`,
     );
     await cdp.evaluate(`
@@ -528,7 +545,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       })()
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-move settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, detaches, bareFrames, detail } = summarizeFailures(report);
 
     // The pure reconnect move is the strongest form of the contract: same
@@ -537,16 +554,16 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the pure move:\n${detail}`);
     assert.equal(detaches.length, 0, `tiqian:detach fired across the pure move:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames across the pure move:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.equal(last.lines, linesBefore, `line count changed across the pure move:\n${detail}`);
     assert.ok(last.enhanced, `final state lost enhancement:\n${detail}`);
   });
 
   await t.test("same-task remount with a host edit while detached reconciles the new source", async () => {
-    const id = "tq-repro-move-edit";
+    const id: string = "tq-repro-move-edit";
     await prepareProse(cdp, id, "width: 900px; margin: 8px auto;");
 
-    const replacementText =
+    const replacementText: string =
       LONG_URL_PARAGRAPH +
       " 搬动期间宿主改写了这段内容，重连后必须按新正文重排。";
     await cdp.evaluate(`
@@ -562,7 +579,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       })()
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-edit settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, detaches, detail } = summarizeFailures(report);
 
     // Adoption must not swallow a content change. The observe lanes stayed
@@ -570,10 +587,10 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
     // new source is re-lowered surgically, without a root teardown.
     assert.equal(destroys.length, 0, `tiqian:destroy fired instead of reconcile:\n${detail}`);
     assert.equal(detaches.length, 0, `tiqian:detach fired across the reconnect move:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
-    const reconciled = await cdp.evaluate(`
+    const reconciled: boolean = await cdp.evaluate<boolean>(`
       (() => {
         const prose = document.getElementById(${JSON.stringify(id)});
         const text = prose.textContent;
@@ -585,7 +602,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
   });
 
   await t.test("container step resize while the panel is display:none", async () => {
-    const id = "tq-repro-hidden";
+    const id: string = "tq-repro-hidden";
     await prepareProse(cdp, id, "width: 900px; margin: 8px auto;");
 
     // Hide the committed host itself (no DOM move, so the restart lifecycle
@@ -600,7 +617,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
         return true;
       })()
     `);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
     await cdp.evaluate(`
       (() => {
         window.__tqRepro.resizeMarker();
@@ -611,18 +628,18 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       })()
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-reveal settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the hidden resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames across the hidden resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
   });
 
   await t.test("viewport step resize while the panel is display:none", async () => {
-    const id = "tq-repro-hidden-viewport";
+    const id: string = "tq-repro-hidden-viewport";
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 940,
       height: 900,
@@ -639,7 +656,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
         return true;
       })()
     `);
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
     await cdp.evaluate(`window.__tqRepro.resizeMarker()`);
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 400,
@@ -647,17 +664,17 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t) => {
       deviceScaleFactor: 1,
       mobile: false,
     });
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
     await cdp.evaluate(`
       document.getElementById(${JSON.stringify(id + "-host")}).style.display = ""
     `);
     await waitFor(cdp, settledExpression(id), 20000, "post-reveal settle");
-    const report = await collectReport(cdp);
+    const report: TransientReproReport = await collectReport(cdp);
     const { destroys, bareFrames, detail } = summarizeFailures(report);
 
     assert.equal(destroys.length, 0, `tiqian:destroy fired across the hidden viewport resize:\n${detail}`);
     assert.equal(bareFrames.length, 0, `bare-source frames across the hidden viewport resize:\n${detail}`);
-    const last = report.frames[report.frames.length - 1];
+    const last: TransientFrameSample = report.frames[report.frames.length - 1];
     assert.ok(last.enhanced && last.lines > 0, `final state lost enhancement:\n${detail}`);
     assert.ok(last.overflow <= 1, `final state overflows by ${last.overflow}px:\n${detail}`);
   });

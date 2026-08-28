@@ -1,129 +1,159 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn, execFile } from "node:child_process";
-import { createServer } from "node:http";
+import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
+import type {
+  Box,
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpScreenshotParams,
+  CdpTarget,
+  CompareStateOptions,
+  CompareStateResult,
+  DemoServerHandle,
+  GeometryNodeReport,
+  GeometryReportResult,
+  PixelsDecoded,
+  PngDecoded,
+  ScreenshotComparison,
+  SettleResult,
+  VisualCapturePlan,
+  VisualCaptureSet,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
-const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const devPkgDir = join(repoRoot, "frontend/web/npm");
-const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
+const repoRoot: string = fileURLToPath(new URL("../../../", import.meta.url));
+const devPkgDir: string = join(repoRoot, "frontend/web/npm");
+const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 
 // The published release and the working tree are served through the same
 // static server and import map, so the only variable between the two pages is
 // which @tiqian/prose directory /frontend/web/npm/ resolves to. Both sides run
 // as native ESM; neither goes through parcel.
-const devPort = 9002;
-const pubPort = 9004;
-const cdpPort = 9902;
-const devUrl = `http://127.0.0.1:${devPort}/`;
-const pubUrl = `http://127.0.0.1:${pubPort}/`;
+const devPort: number = 9002;
+const pubPort: number = 9004;
+const cdpPort: number = 9902;
+const devUrl: string = `http://127.0.0.1:${devPort}/`;
+const pubUrl: string = `http://127.0.0.1:${pubPort}/`;
 
 // A CDP response can be dropped silently when the page's execution context is
 // destroyed mid-evaluate, wedging the suite. Every remote call has a deadline.
-const withTimeout = (promise, ms, label) =>
+const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     promise,
-    new Promise((_, reject) =>
+    new Promise<never>((_: (val: never) => void, reject: (err: Error) => void) =>
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
     ),
   ]);
 
-const run = (cmd, args, opts = {}) =>
-  withTimeout(new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
+const run = (cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<string> =>
+  withTimeout(new Promise((resolve: (val: string) => void, reject: (err: Error) => void) => {
+    execFile(cmd, args, opts, (err: Error | null, stdout: string, stderr: string) => {
       if (err) reject(new Error(`${cmd} ${args.join(" ")} failed: ${stderr || err.message}`));
       else resolve(stdout);
     });
   }), 120000, `${cmd} ${args[0]}`);
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+  console: string[] = [];
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
-    this.console = [];
   }
 
-  async connect() {
-    return withTimeout(new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return withTimeout(new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(msg.params.type)) {
-          this.console.push(`${msg.params.type}: ${msg.params.args.map((a) => a.value ?? a.description ?? "").join(" ")}`);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as {
+          id?: number;
+          method?: string;
+          params?: {
+            type?: string;
+            args?: { value?: unknown; description?: string }[];
+            exceptionDetails?: { text?: string; exception?: { description?: string } };
+          };
+          error?: { message?: string };
+          result?: unknown;
+        };
+        if (msg.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(msg.params?.type ?? "")) {
+          this.console.push(`${msg.params?.type}: ${(msg.params?.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ")}`);
         }
         if (msg.method === "Runtime.exceptionThrown") {
-          this.console.push(`exception: ${msg.params.exceptionDetails?.text} ${msg.params.exceptionDetails?.exception?.description ?? ""}`);
+          this.console.push(`exception: ${msg.params?.exceptionDetails?.text} ${msg.params?.exceptionDetails?.exception?.description ?? ""}`);
         }
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     }), 15000, "cdp connect");
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return withTimeout(new Promise((resolve, reject) => {
+    return withTimeout(new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     }), 60000, `cdp ${method}`);
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  async screenshot(params) {
-    const res = await this.send("Page.captureScreenshot", { format: "png", ...params });
+  async screenshot(params: CdpScreenshotParams = {}): Promise<Buffer> {
+    const res = (await this.send("Page.captureScreenshot", { format: "png", ...params })) as { data: string };
     return Buffer.from(res.data, "base64");
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
 // Minimal dependency-free PNG decode (8-bit RGB/RGBA, non-interlaced) and a
 // strict pixel comparison: any differing pixel fails the comparison.
-function decodePng(buf) {
+function decodePng(buf: Buffer): PngDecoded {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
-  let pos = 8;
-  let width = 0;
-  let height = 0;
-  const idat = [];
+  let pos: number = 8;
+  let width: number = 0;
+  let height: number = 0;
+  const idat: Buffer[] = [];
   while (pos < buf.length) {
-    const len = buf.readUInt32BE(pos);
-    const type = buf.toString("ascii", pos + 4, pos + 8);
-    const data = buf.subarray(pos + 8, pos + 8 + len);
+    const len: number = buf.readUInt32BE(pos);
+    const type: string = buf.toString("ascii", pos + 4, pos + 8);
+    const data: Buffer = buf.subarray(pos + 8, pos + 8 + len);
     if (type === "IHDR") {
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
-      const bitDepth = data[8];
-      const colorType = data[9];
-      const interlace = data[12];
+      const bitDepth: number = data[8];
+      const colorType: number = data[9];
+      const interlace: number = data[12];
       if (bitDepth !== 8 || (colorType !== 6 && colorType !== 2) || interlace !== 0) {
         throw new Error(`unsupported PNG: depth=${bitDepth} color=${colorType} interlace=${interlace}`);
       }
@@ -137,31 +167,31 @@ function decodePng(buf) {
   return { width, height, idat: Buffer.concat(idat) };
 }
 
-function decodePixels(png) {
+function decodePixels(png: Buffer): PixelsDecoded {
   const { width, height, idat } = decodePng(png);
-  const colorType = png[25];
-  const bpp = colorType === 6 ? 4 : 3;
-  const raw = inflateSync(idat);
-  const stride = width * bpp;
-  const out = Buffer.alloc(height * stride);
-  const paeth = (a, b, c) => {
-    const p = a + b - c;
-    const pa = Math.abs(p - a);
-    const pb = Math.abs(p - b);
-    const pc = Math.abs(p - c);
+  const colorType: number = png[25];
+  const bpp: number = colorType === 6 ? 4 : 3;
+  const raw: Buffer = inflateSync(idat);
+  const stride: number = width * bpp;
+  const out: Buffer = Buffer.alloc(height * stride);
+  const paeth = (a: number, b: number, c: number): number => {
+    const p: number = a + b - c;
+    const pa: number = Math.abs(p - a);
+    const pb: number = Math.abs(p - b);
+    const pc: number = Math.abs(p - c);
     return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
   };
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)];
-    const rowStart = y * (stride + 1) + 1;
-    const row = raw.subarray(rowStart, rowStart + stride);
-    const prev = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
-    const cur = out.subarray(y * stride, (y + 1) * stride);
-    for (let x = 0; x < stride; x++) {
-      const left = x >= bpp ? cur[x - bpp] : 0;
-      const up = prev ? prev[x] : 0;
-      const upLeft = prev && x >= bpp ? prev[x - bpp] : 0;
-      let value = row[x];
+  for (let y: number = 0; y < height; y++) {
+    const filter: number = raw[y * (stride + 1)];
+    const rowStart: number = y * (stride + 1) + 1;
+    const row: Buffer = raw.subarray(rowStart, rowStart + stride);
+    const prev: Buffer | null = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
+    const cur: Buffer = out.subarray(y * stride, (y + 1) * stride);
+    for (let x: number = 0; x < stride; x++) {
+      const left: number = x >= bpp ? cur[x - bpp] : 0;
+      const up: number = prev ? prev[x] : 0;
+      const upLeft: number = prev && x >= bpp ? prev[x - bpp] : 0;
+      let value: number = row[x];
       if (filter === 1) value = (value + left) & 0xff;
       else if (filter === 2) value = (value + up) & 0xff;
       else if (filter === 3) value = (value + ((left + up) >> 1)) & 0xff;
@@ -172,10 +202,10 @@ function decodePixels(png) {
   return { width, height, bpp, pixels: out };
 }
 
-function compareScreenshots(a, b) {
+function compareScreenshots(a: Buffer, b: Buffer): ScreenshotComparison {
   if (a.equals(b)) return { equal: true, differentPixels: 0, detail: null };
-  const da = decodePixels(a);
-  const db = decodePixels(b);
+  const da: PixelsDecoded = decodePixels(a);
+  const db: PixelsDecoded = decodePixels(b);
   if (da.width !== db.width || da.height !== db.height) {
     return {
       equal: false,
@@ -184,24 +214,25 @@ function compareScreenshots(a, b) {
     };
   }
   const { width, height, bpp, pixels: pa } = da;
-  const pb = db.pixels;
-  let different = 0;
-  let first = null;
-  for (let y = 0; y < height && !first; y++) {
-    for (let x = 0; x < width; x++) {
-      const offset = (y * width + x) * bpp;
-      let delta = 0;
-      for (let c = 0; c < bpp; c++) {
+  const pb: Buffer = db.pixels;
+  let different: number = 0;
+  let first: string | null = null;
+  for (let y: number = 0; y < height && !first; y++) {
+    for (let x: number = 0; x < width; x++) {
+      const offset: number = (y * width + x) * bpp;
+      let delta: number = 0;
+      for (let c: number = 0; c < bpp; c++) {
         delta = Math.max(delta, Math.abs(pa[offset + c] - pb[offset + c]));
       }
       if (delta > 0) {
+        different += 1;
         first = `(${x},${y}) rgba [${Array.from(pa.subarray(offset, offset + bpp))}] vs [${Array.from(pb.subarray(offset, offset + bpp))}]`;
         break;
       }
     }
   }
-  for (let i = 0; i < pa.length; i += bpp) {
-    for (let c = 0; c < bpp; c++) {
+  for (let i: number = 0; i < pa.length; i += bpp) {
+    for (let c: number = 0; c < bpp; c++) {
       if (pa[i + c] !== pb[i + c]) {
         different += 1;
         break;
@@ -217,13 +248,13 @@ function compareScreenshots(a, b) {
 // which the dev layout worker loads. The stylesheet link
 // "../../frontend/web/npm/styles.css" resolves from the page root to the same
 // directory, so published CSS pairs with published JS.
-function startDemoServer(port, pkgDir) {
-  const notFound = [];
-  const server = createServer(async (req, res) => {
-    const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
+function startDemoServer(port: number, pkgDir: string): Promise<DemoServerHandle> {
+  const notFound: string[] = [];
+  const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const path: string = decodeURIComponent(new URL(req.url!, "http://x").pathname);
     try {
       if (path === "/") {
-        const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
+        const html: string = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
           `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js","@tiqian/core/":"/frontend/web/core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
         );
@@ -231,8 +262,8 @@ function startDemoServer(port, pkgDir) {
         res.end(html);
         return;
       }
-      let file = null;
-      let type = "text/javascript";
+      let file: string | null = null;
+      let type: string = "text/javascript";
       if (path === "/main.js" || path === "/index.css") {
         file = join(webDemoDir, path.slice(1));
         if (path.endsWith(".css")) type = "text/css";
@@ -243,22 +274,22 @@ function startDemoServer(port, pkgDir) {
         // in ts-runtime.js resolves through the import map instead. The
         // published side predates the dependency and keeps its relative
         // precompute-runtime import.
-        const rest = path.slice("/ffi/".length);
+        const rest: string = path.slice("/ffi/".length);
         file = join(ffiRuntimeDir, rest);
       } else if (path.startsWith("/frontend/web/npm/")) {
-        const rest = path.slice("/frontend/web/npm/".length);
+        const rest: string = path.slice("/frontend/web/npm/".length);
         file = join(pkgDir, rest);
         if (rest.endsWith(".css")) type = "text/css";
       } else if (path.startsWith("/frontend/web/core/")) {
-        const rest = path.slice("/frontend/web/core/".length);
+        const rest: string = path.slice("/frontend/web/core/".length);
         file = join(repoRoot, "frontend/web/core", rest);
         if (rest.endsWith(".css")) type = "text/css";
       }
-      const data = file ? await readFile(file).catch(() => null) : null;
+      const data: Buffer | null = file ? await readFile(file).catch(() => null) : null;
       if (data) {
         if (path === "/frontend/web/core/layout-worker.js") {
-          const source = data.toString("utf8");
-          const occurrences = source.split('from "@tiqian/ffi"').length - 1;
+          const source: string = data.toString("utf8");
+          const occurrences: number = source.split('from "@tiqian/ffi"').length - 1;
           if (occurrences > 1) throw new Error(`unexpected engine import count ${occurrences}`);
           if (occurrences === 1) {
             res.setHeader("content-type", type);
@@ -278,19 +309,19 @@ function startDemoServer(port, pkgDir) {
       notFound.push(path);
       res.statusCode = 404;
       res.end("not found");
-    } catch (err) {
+    } catch (err: unknown) {
       notFound.push(`${path} (${err})`);
       res.statusCode = 500;
       res.end(String(err));
     }
   });
-  return withTimeout(new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({ server, notFound }))), 10000, `listen ${port}`);
+  return withTimeout(new Promise((resolve: (val: DemoServerHandle) => void) => server.listen(port, "127.0.0.1", () => resolve({ server, notFound }))), 10000, `listen ${port}`);
 }
 
 // In-page helpers shared by both sides. The settle check is attribute-agnostic:
 // the published release predates current markers, so quiescence is defined by
 // the full rendered-subtree fingerprint and page height alone.
-const PAGE_HELPERS = `
+const PAGE_HELPERS: string = `
   (() => {
     globalThis.__roots = () => Array.from(document.querySelectorAll("tiqian-prose"));
     const styleOf = (el) => {
@@ -350,13 +381,13 @@ const PAGE_HELPERS = `
   })()
 `;
 
-const captureSet = async (client, plan) => {
-  const shots = {};
+const captureSet = async (client: CdpClient, plan: VisualCapturePlan): Promise<VisualCaptureSet> => {
+  const shots: Record<string, Buffer> = {};
   // Capturing a background tab stalls in headless chromium; each capture pass
   // runs sequentially, so the page being photographed is brought to front.
   await client.send("Page.bringToFront");
   await client.evaluate("window.scrollTo(0, 0)");
-  const topSettled = await client.evaluate("__settle(20000)");
+  const topSettled = await client.evaluate<SettleResult>("__settle(20000)");
   assert.ok(topSettled.settled, "Must settle at the top before the full-page capture");
   shots["full"] = await client.screenshot({
     clip: { x: plan.rect.x, y: plan.rect.y, width: plan.rect.width, height: plan.rect.height, scale: 1 },
@@ -364,8 +395,8 @@ const captureSet = async (client, plan) => {
   });
   for (const scroll of plan.scrolls) {
     await client.evaluate(`window.scrollTo(0, ${scroll})`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const settled = await client.evaluate("__settle(20000)");
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 500));
+    const settled = await client.evaluate<SettleResult>("__settle(20000)");
     assert.ok(settled.settled, `Must settle at scroll offset ${scroll}`);
     shots["scroll" + scroll] = await client.screenshot({
       clip: {
@@ -379,52 +410,52 @@ const captureSet = async (client, plan) => {
     });
   }
   await client.evaluate("window.scrollTo(0, 0)");
-  const endHeight = await client.evaluate("document.documentElement.scrollHeight");
+  const endHeight: number = await client.evaluate<number>("document.documentElement.scrollHeight");
   return { shots, pageHeight: endHeight };
 };
 
 // Full scan of both geometry reports: first divergence for the assertion, plus
 // counts, worst delta, and examples for the diagnostic record.
-function geometryReport(dev, pub) {
+function geometryReport(dev: GeometryNodeReport[], pub: GeometryNodeReport[]): GeometryReportResult {
   if (dev.length !== pub.length) {
     return { firstDiff: `root count ${dev.length} vs ${pub.length}`, childDiffs: 0, paraRectDiffs: 0, maxDelta: 0, examples: [] };
   }
-  let firstDiff = null;
-  let childDiffs = 0;
-  let paraRectDiffs = 0;
-  let maxDelta = 0;
-  const examples = [];
-  const note = (msg, delta) => {
+  let firstDiff: string | null = null;
+  let childDiffs: number = 0;
+  let paraRectDiffs: number = 0;
+  let maxDelta: number = 0;
+  const examples: string[] = [];
+  const note = (msg: string, delta?: number): void => {
     if (!firstDiff) firstDiff = msg;
     if (examples.length < 8) examples.push(msg);
     maxDelta = Math.max(maxDelta, delta ?? 0);
   };
-  for (let r = 0; r < dev.length; r++) {
+  for (let r: number = 0; r < dev.length; r++) {
     if (JSON.stringify(dev[r].root) !== JSON.stringify(pub[r].root)) {
       note(`root#${r} rect ${JSON.stringify(dev[r].root)} vs ${JSON.stringify(pub[r].root)})`,
-        Math.max(...dev[r].root.map((v, i) => Math.abs(v - pub[r].root[i]))));
+        Math.max(...dev[r].root.map((v: number, i: number) => Math.abs(v - pub[r].root[i]))));
     }
     if (dev[r].paras.length !== pub[r].paras.length) {
       note(`root#${r} paragraph count ${dev[r].paras.length} vs ${pub[r].paras.length}`, 1);
       continue;
     }
-    for (let p = 0; p < dev[r].paras.length; p++) {
+    for (let p: number = 0; p < dev[r].paras.length; p++) {
       const dp = dev[r].paras[p];
       const pp = pub[r].paras[p];
       if (JSON.stringify(dp.rect) !== JSON.stringify(pp.rect)) {
         paraRectDiffs += 1;
         note(`root#${r} p#${p} rect ${JSON.stringify(dp.rect)} vs ${JSON.stringify(pp.rect)}`,
-          Math.max(...dp.rect.map((v, i) => Math.abs(v - pp.rect[i]))));
+          Math.max(...dp.rect.map((v: number, i: number) => Math.abs(v - pp.rect[i]))));
       }
       if (dp.kids.length !== pp.kids.length) {
         note(`root#${r} p#${p} child count ${dp.kids.length} vs ${pp.kids.length}`, 1);
         continue;
       }
-      for (let k = 0; k < dp.kids.length; k++) {
+      for (let k: number = 0; k < dp.kids.length; k++) {
         if (JSON.stringify(dp.kids[k]) !== JSON.stringify(pp.kids[k])) {
           childDiffs += 1;
           note(`root#${r} p#${p} line#${k} ${JSON.stringify(dp.kids[k])} vs ${JSON.stringify(pp.kids[k])}`,
-            Math.max(...dp.kids[k].map((v, i) => Math.abs(v - pp.kids[k][i]))));
+            Math.max(...dp.kids[k].map((v: number, i: number) => Math.abs(v - pp.kids[k][i]))));
         }
       }
     }
@@ -433,20 +464,20 @@ function geometryReport(dev, pub) {
 }
 
 test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visually and geometrically", async () => {
-  const tmpBase = await mkdtemp(join(tmpdir(), "tq-npm-pub-"));
-  let chromeProc = null;
-  let dev = null;
-  let pub = null;
-  const servers = [];
+  const tmpBase: string = await mkdtemp(join(tmpdir(), "tq-npm-pub-"));
+  let chromeProc: ChildProcess | null = null;
+  let dev: CdpClient | null = null;
+  let pub: CdpClient | null = null;
+  const servers: DemoServerHandle[] = [];
 
   try {
     await run("npm", ["pack", "@tiqian/prose@latest", "--pack-destination", tmpBase]);
-    const tarball = (await readdir(tmpBase)).find((f) => f.endsWith(".tgz"));
+    const tarball: string | undefined = (await readdir(tmpBase)).find((f: string) => f.endsWith(".tgz"));
     assert.ok(tarball, "npm pack must produce a tarball");
     await run("tar", ["xzf", join(tmpBase, tarball), "-C", tmpBase]);
-    const pubPkgDir = join(tmpBase, "package");
-    const pubVersion = JSON.parse(await readFile(join(pubPkgDir, "package.json"), "utf8")).version;
-    const devVersion = JSON.parse(await readFile(join(devPkgDir, "package.json"), "utf8")).version;
+    const pubPkgDir: string = join(tmpBase, "package");
+    const pubVersion: string = JSON.parse(await readFile(join(pubPkgDir, "package.json"), "utf8")).version;
+    const devVersion: string = JSON.parse(await readFile(join(devPkgDir, "package.json"), "utf8")).version;
     console.log(`published @tiqian/prose@${pubVersion} vs working tree ${devVersion}`);
 
     servers.push(await startDemoServer(devPort, devPkgDir));
@@ -463,20 +494,20 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       "about:blank",
     ], { stdio: "ignore", detached: true });
 
-    let cdpUp = false;
-    for (let i = 0; i < 75 && !cdpUp; i++) {
+    let cdpUp: boolean = false;
+    for (let i: number = 0; i < 75 && !cdpUp; i++) {
       try {
-        const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
+        const res: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
         cdpUp = res.ok;
       } catch {}
-      if (!cdpUp) await new Promise((r) => setTimeout(r, 200));
+      if (!cdpUp) await new Promise((r: (val: void) => void) => setTimeout(r, 200));
     }
     assert.ok(cdpUp, "browser remote debugging port must come up");
 
-    const openPage = async (url) => {
-      const res = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/new?${url}`, { method: "PUT" }), 10000, "json/new");
-      const target = await res.json();
-      const client = new CdpClient(target.webSocketDebuggerUrl);
+    const openPage = async (url: string): Promise<CdpClient> => {
+      const res: Response = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/new?${url}`, { method: "PUT" }), 10000, "json/new");
+      const target = (await res.json()) as CdpTarget;
+      const client: CdpClient = new CdpClient(target.webSocketDebuggerUrl);
       await client.connect();
       await client.send("Page.enable");
       await client.send("Runtime.enable");
@@ -485,9 +516,10 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     dev = await openPage(devUrl);
     pub = await openPage(pubUrl);
 
-    const both = async (fn) => Promise.all([fn(dev, "dev"), fn(pub, "published")]);
-    const setViewportWidth = (width) =>
-      both((client) => client.send("Emulation.setDeviceMetricsOverride", {
+    const both = async <R>(fn: (client: CdpClient, side: string) => Promise<R>): Promise<[R, R]> =>
+      Promise.all([fn(dev!, "dev"), fn(pub!, "published")]);
+    const setViewportWidth = (width: number): Promise<[unknown, unknown]> =>
+      both((client: CdpClient) => client.send("Emulation.setDeviceMetricsOverride", {
         width,
         height: 800,
         deviceScaleFactor: 1,
@@ -495,7 +527,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       }));
     await setViewportWidth(900);
 
-    await both(async (client) => {
+    await both(async (client: CdpClient) => {
       await client.evaluate(`
         new Promise((resolve) => {
           if (document.readyState === "complete") setTimeout(resolve, 800);
@@ -511,7 +543,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     // DOM identity check. Capability detail records which code path produced
     // the verdict (reconcile reuse vs relayout re-enhance), so it is equally
     // timing-dependent; the capability issue name itself stays compared.
-    const normalizedMainHtml = `(
+    const normalizedMainHtml: string = `(
       document.querySelector("main") ?? document.body
     ).outerHTML
       .replace(/data-tiqian-(enhance|max-slice|load|relayout|relayout-max-slice)-ms="[^"]*"/g, "")
@@ -519,14 +551,14 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       .replace(/\\s+/g, " ")
       .replace(/\\s>/g, ">")`;
 
-    const compareState = async (label, { assertPixels }) => {
+    const compareState = async (label: string, { assertPixels }: CompareStateOptions): Promise<CompareStateResult> => {
       // Settling is sequential with bringToFront: enhancement scheduling on a
       // background tab is throttled, and a hidden page never reaches its first
       // taken-over paragraph within the settle budget.
-      const settled = [];
-      for (const client of [dev, pub]) {
+      const settled: (SettleResult & { enhanced: number })[] = [];
+      for (const client of [dev!, pub!]) {
         await client.send("Page.bringToFront");
-        settled.push(await client.evaluate("__settle(45000)"));
+        settled.push(await client.evaluate<SettleResult & { enhanced: number }>("__settle(45000)"));
       }
       assert.ok(settled[0].settled, `${label}: dev page must settle`);
       assert.ok(settled[1].settled, `${label}: published page must settle`);
@@ -534,12 +566,12 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       // Both versions mark taken-over paragraphs with data-tq-rendered. If a
       // side has none, its element module failed to load and every comparison
       // below would pass against a raw unenhanced page.
-      const renderedCounts = await both((client, side) =>
-        client.evaluate(`document.querySelectorAll("tiqian-prose [data-tq-rendered]").length`));
+      const renderedCounts: [number, number] = await both((client: CdpClient, _side: string) =>
+        client.evaluate<number>(`document.querySelectorAll("tiqian-prose [data-tq-rendered]").length`));
       assert.ok(renderedCounts[0] > 0, `${label}: dev page must show enhanced paragraphs`);
       assert.ok(renderedCounts[1] > 0, `${label}: published page must show enhanced paragraphs (module load failure produces a raw page)`);
 
-      const heights = await both((client) => client.evaluate("document.documentElement.scrollHeight"));
+      const heights: [number, number] = await both((client: CdpClient) => client.evaluate<number>("document.documentElement.scrollHeight"));
       assert.strictEqual(
         heights[1],
         heights[0],
@@ -548,7 +580,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
 
       // Capture plan is computed once on the dev side and replayed on the
       // published side, so both photographs cover the same regions.
-      const plan = await dev.evaluate(`
+      const plan: VisualCapturePlan = await dev!.evaluate<VisualCapturePlan>(`
         (() => {
           const main = document.querySelector("main") ?? document.body;
           const rect = main.getBoundingClientRect();
@@ -568,26 +600,26 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
         })()
       `);
 
-      const devPass = await captureSet(dev, plan);
-      const pubPass = await captureSet(pub, plan);
+      const devPass: VisualCaptureSet = await captureSet(dev!, plan);
+      const pubPass: VisualCaptureSet = await captureSet(pub!, plan);
       assert.strictEqual(
         pubPass.pageHeight,
         devPass.pageHeight,
         `${label}: page height changed across capture passes (${devPass.pageHeight} vs ${pubPass.pageHeight})`,
       );
 
-      const failures = [];
+      const failures: string[] = [];
       for (const key of Object.keys(devPass.shots)) {
-        const result = compareScreenshots(devPass.shots[key], pubPass.shots[key]);
+        const result: ScreenshotComparison = compareScreenshots(devPass.shots[key], pubPass.shots[key]);
         if (!result.equal) {
           failures.push(`${key}: ${result.differentPixels} differing pixels, first ${result.detail}`);
         }
       }
 
-      const geometry = await both((client) => client.evaluate("__geometry()"));
-      const report = geometryReport(geometry[0], geometry[1]);
-      const geometryDiff = report.firstDiff;
-      const domHtml = await both((client) => client.evaluate(normalizedMainHtml));
+      const geometry: [GeometryNodeReport[], GeometryNodeReport[]] = await both((client: CdpClient) => client.evaluate<GeometryNodeReport[]>("__geometry()"));
+      const report: GeometryReportResult = geometryReport(geometry[0], geometry[1]);
+      const geometryDiff: string | null = report.firstDiff;
+      const domHtml: [string, string] = await both((client: CdpClient) => client.evaluate<string>(normalizedMainHtml));
       // Diagnostic record of where the two versions diverge; the assertions
       // below turn any divergence into a failure with this context.
       console.log(`[${label}] rendered dev=${settled[0].enhanced} published=${settled[1].enhanced}`);
@@ -611,7 +643,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       }
       if (domHtml[1] !== domHtml[0] && process.env.TIQIAN_DOM_DUMP_DIR) {
         const { writeFile } = await import("node:fs/promises");
-        const slug = label.replace(/[^a-z0-9]+/gi, "-");
+        const slug: string = label.replace(/[^a-z0-9]+/gi, "-");
         await writeFile(join(process.env.TIQIAN_DOM_DUMP_DIR, `${slug}-dev.html`), domHtml[0]);
         await writeFile(join(process.env.TIQIAN_DOM_DUMP_DIR, `${slug}-pub.html`), domHtml[1]);
       }
@@ -628,7 +660,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       return { shots: Object.keys(devPass.shots).length, pageHeight: heights[0] };
     };
 
-    const results = [];
+    const results: (CompareStateResult & { phase: string })[] = [];
     for (const width of [900, 700]) {
       await setViewportWidth(width);
       results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`, { assertPixels: true })) });
@@ -637,7 +669,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     // Supported mutations only: appended paragraphs and a removal, applied
     // identically to both sides. A host textContent rewrite has no observation
     // contract in either version and is pinned separately.
-    await both((client) => client.evaluate(`
+    await both((client: CdpClient) => client.evaluate(`
       (() => {
         const roots = __roots();
         const append = (ri, name, text) => {
@@ -659,7 +691,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     }
 
     assert.ok(
-      results.every((r) => r.shots >= 5),
+      results.every((r: CompareStateResult) => r.shots >= 5),
       `Each state must compare the full page plus multiple scrolled viewports: ${JSON.stringify(results)}`,
     );
 
@@ -670,8 +702,8 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
         `server #${i} must not serve any 404; missing assets would silently change rendering: ${side.notFound.join(", ")}`,
       );
     }
-  } catch (err) {
-    for (const [name, client] of [["dev", dev], ["published", pub]]) {
+  } catch (err: unknown) {
+    for (const [name, client] of [["dev", dev], ["published", pub]] as const) {
       if (client?.console?.length) {
         console.log(`${name} console:\n${client.console.join("\n")}`);
       }

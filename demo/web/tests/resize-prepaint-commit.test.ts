@@ -1,7 +1,14 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  PrepaintDelivery,
+  PrepaintReport,
+} from "./types.js";
 
 // PrePaintResponsiveCommit: a width-only change observed by ResizeObserver
 // on an in-viewport, runtime-active root commits its relayout synchronously
@@ -15,89 +22,97 @@ import { fileURLToPath } from "node:url";
 // fallback: the immediate lane declines and the scheduled lane converges
 // exactly as before.
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function ensureServerRunning() {
+interface PrepaintBrowserSession {
+  cdp: CdpClient;
+  chromeProc: ChildProcess | null;
+  serverProc: ChildProcess | null;
+}
+
+async function ensureServerRunning(): Promise<ChildProcess | null> {
   try {
-    const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+    const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
     if (res.ok) return null;
   } catch {}
-  const proc = spawn("bun", ["run", "start"], {
+  const proc: ChildProcess = spawn("bun", ["run", "start"], {
     cwd: webDemoDir,
     stdio: "ignore",
     detached: false,
   });
-  for (let i = 0; i < 60; i++) {
+  for (let i: number = 0; i < 60; i++) {
     try {
-      const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+      const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) return proc;
     } catch {}
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 500));
   }
   proc.kill();
   throw new Error("Failed to start web demo server on port 8888");
 }
 
-async function getOrLaunchBrowser() {
-  const serverProc = await ensureServerRunning();
+async function getOrLaunchBrowser(): Promise<PrepaintBrowserSession> {
+  const serverProc: ChildProcess | null = await ensureServerRunning();
 
-  let port = 9222;
-  let chromeProc = null;
+  let port: number = 9222;
+  let chromeProc: ChildProcess | null = null;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+    const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
     if (!res.ok) throw new Error("not ready");
   } catch {
     port = 9444;
@@ -110,37 +125,37 @@ async function getOrLaunchBrowser() {
       "http://localhost:8888/",
     ], { stdio: "ignore" });
 
-    for (let i = 0; i < 30; i++) {
+    for (let i: number = 0; i < 30; i++) {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+        const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (res.ok) break;
       } catch {}
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r: (val: void) => void) => setTimeout(r, 200));
     }
   }
 
-  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`);
-  const targets = await listRes.json();
-  let page = targets.find((t) => t.type === "page" && t.url.includes("localhost:8888"));
+  const listRes: Response = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const targets = (await listRes.json()) as CdpTarget[];
+  let page: CdpTarget | undefined = targets.find((t: CdpTarget) => t.type === "page" && t.url.includes("localhost:8888"));
 
   if (!page) {
-    const newTargetRes = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
-    page = await newTargetRes.json();
+    const newTargetRes: Response = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
+    page = (await newTargetRes.json()) as CdpTarget;
   }
 
-  const cdp = new CdpClient(page.webSocketDebuggerUrl);
+  const cdp: CdpClient = new CdpClient(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
   // A reused tab may still be running a bundle from before the current
   // build; reload so the suite always exercises the code under test.
   await cdp.send("Page.reload", { ignoreCache: true });
-  await new Promise((r) => setTimeout(r, 3000));
+  await new Promise((r: (val: void) => void) => setTimeout(r, 3000));
 
   return { cdp, chromeProc, serverProc };
 }
 
-const LONG_URL_PARAGRAPH =
+const LONG_URL_PARAGRAPH: string =
   "这是一段用于检验重排提交时机的中西混排正文，" +
   "其中嵌入一个很长的统一资源定位符 " +
   "https://example.com/docs/reference/manual/chapter-12/section-03/appendix/very-long-url-token-for-overflow-reproduction " +
@@ -149,10 +164,10 @@ const LONG_URL_PARAGRAPH =
 // Hanging punctuation and the trailing line marker may legitimately paint a
 // few pixels outside the paragraph content box; anything beyond one em at
 // the demo font size is stale line geometry from the previous width.
-const OVERFLOW_ALLOWANCE_PX = 24;
+const OVERFLOW_ALLOWANCE_PX: number = 24;
 
-function installProseExpression(id, hostStyle, paragraphText = LONG_URL_PARAGRAPH) {
-  const paragraph = JSON.stringify(paragraphText);
+function installProseExpression(id: string, hostStyle: string, paragraphText: string = LONG_URL_PARAGRAPH): string {
+  const paragraph: string = JSON.stringify(paragraphText);
   return `
     (() => {
       const previous = document.getElementById(${JSON.stringify(id + "-host")});
@@ -176,7 +191,7 @@ function installProseExpression(id, hostStyle, paragraphText = LONG_URL_PARAGRAP
   `;
 }
 
-const settledExpression = (id) => `
+const settledExpression = (id: string): string => `
   (() => {
     const prose = document.getElementById(${JSON.stringify(id)});
     if (!prose || prose.getAttribute("data-tiqian-enhanced") !== "true") return false;
@@ -197,7 +212,7 @@ const settledExpression = (id) => `
 // before the frame paints. Stale geometry it records is exactly what the
 // frame paints; geometry the immediate lane already committed shows up
 // clean here.
-const armSamplerExpression = (id) => `
+const armSamplerExpression = (id: string): string => `
   (() => {
     const prose = document.getElementById(${JSON.stringify(id)});
     const host = document.getElementById(${JSON.stringify(id + "-host")});
@@ -243,39 +258,39 @@ const armSamplerExpression = (id) => `
   })()
 `;
 
-async function waitFor(cdp, expression, timeoutMs = 15000, label = "condition") {
-  const start = Date.now();
+async function waitFor(cdp: CdpClient, expression: string, timeoutMs: number = 15000, label: string = "condition"): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (await cdp.evaluate(expression)) return;
-    await new Promise((r) => setTimeout(r, 50));
+    if (await cdp.evaluate<boolean>(expression)) return;
+    await new Promise((r: (val: void) => void) => setTimeout(r, 50));
   }
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function collectReport(cdp) {
-  await new Promise((r) => setTimeout(r, 1500));
-  return cdp.evaluate(`(() => {
+async function collectReport(cdp: CdpClient): Promise<PrepaintReport> {
+  await new Promise((r: (val: void) => void) => setTimeout(r, 1500));
+  return cdp.evaluate<PrepaintReport>(`(() => {
     const r = window.__tqPrePaint;
     r.stop();
     return { deliveries: r.deliveries, events: r.events };
   })()`);
 }
 
-function stalePaintedFrames(report) {
-  return report.deliveries.filter((f) => f.overflow > OVERFLOW_ALLOWANCE_PX);
+function stalePaintedFrames(report: PrepaintReport): PrepaintDelivery[] {
+  return report.deliveries.filter((f: PrepaintDelivery) => f.overflow > OVERFLOW_ALLOWANCE_PX);
 }
 
-test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
+test("Tiqian PrePaint Responsive Commit Suite", async (t: TestContext) => {
   const { cdp, chromeProc, serverProc } = await getOrLaunchBrowser();
 
-  t.after(() => {
+  t.after((): void => {
     cdp.close();
     chromeProc?.kill();
     serverProc?.kill();
   });
 
   await t.test("step resize 900->360 paints no frame with stale overflow", async () => {
-    const id = "prepaint-step";
+    const id: string = "prepaint-step";
     // position: fixed keeps the root inside the viewport regardless of the
     // demo page's own scroll height, so the immediate lane is eligible.
     await cdp.evaluate(installProseExpression(
@@ -284,9 +299,9 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
     ));
     await waitFor(cdp, settledExpression(id), 20000, "initial enhancement");
     await cdp.evaluate(armSamplerExpression(id));
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
 
-    const linesBefore = await cdp.evaluate(
+    const linesBefore: number = await cdp.evaluate<number>(
       `document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`,
     );
     await cdp.evaluate(
@@ -298,9 +313,9 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
       15000,
       "relayout at 360px",
     );
-    const report = await collectReport(cdp);
+    const report: PrepaintReport = await collectReport(cdp);
 
-    const stale = stalePaintedFrames(report);
+    const stale: PrepaintDelivery[] = stalePaintedFrames(report);
     assert.equal(
       stale.length,
       0,
@@ -314,14 +329,14 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
   });
 
   await t.test("fast drag keeps stale overflow off the screen", async () => {
-    const id = "prepaint-drag";
+    const id: string = "prepaint-drag";
     await cdp.evaluate(installProseExpression(
       id,
       "position: fixed; top: 8px; left: 8px; width: 900px; background: #fff; z-index: 99;",
     ));
     await waitFor(cdp, settledExpression(id), 20000, "initial enhancement");
     await cdp.evaluate(armSamplerExpression(id));
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
 
     // 12 steps of 90px mirror a fast drag, where each animation frame moves
     // the width by far more than the hanging-punctuation allowance; a
@@ -338,13 +353,13 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
       }
       return true;
     })()`);
-    const report = await collectReport(cdp);
+    const report: PrepaintReport = await collectReport(cdp);
 
     // The immediate allowance is a budget, not a promise: a slice that
     // overruns it drops that step back to the scheduled lane, whose single
     // transient frame is today's behavior. A stray fallback across 13 steps
     // stays acceptable; every step regressing does not.
-    const stale = stalePaintedFrames(report);
+    const stale: PrepaintDelivery[] = stalePaintedFrames(report);
     assert.ok(
       stale.length <= 2,
       `at most 2 of 13 drag steps may fall back to the scheduled lane; got ${stale.length}: ` +
@@ -363,7 +378,7 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
     // holds that cell's signature would let the forced convergence pass
     // skip and strand the mix forever. The oscillation below re-creates the
     // round-trip; the assertion is about the settled end state only.
-    const id = "prepaint-roundtrip";
+    const id: string = "prepaint-roundtrip";
     await cdp.evaluate(installProseExpression(
       id,
       "position: fixed; top: 8px; left: 8px; width: 900px; background: #fff; z-index: 99;",
@@ -401,7 +416,7 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
   });
 
   await t.test("off-screen root declines the immediate lane and still converges", async () => {
-    const id = "prepaint-offscreen";
+    const id: string = "prepaint-offscreen";
     await cdp.evaluate(installProseExpression(
       id,
       "width: 900px; margin: 16px auto; border: 1px solid transparent; position: absolute; top: 20000px;",
@@ -409,7 +424,7 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
     await waitFor(cdp, settledExpression(id), 20000, "initial enhancement");
     await cdp.evaluate(armSamplerExpression(id));
 
-    const linesBefore = await cdp.evaluate(
+    const linesBefore: number = await cdp.evaluate<number>(
       `document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`,
     );
     await cdp.evaluate(
@@ -422,9 +437,9 @@ test("Tiqian PrePaint Responsive Commit Suite", async (t) => {
       20000,
       "deferred relayout of the off-screen root",
     );
-    const report = await collectReport(cdp);
+    const report: PrepaintReport = await collectReport(cdp);
     assert.equal(report.events.destroy, 0, "off-screen fallback must not destroy the root");
-    const lines = await cdp.evaluate(
+    const lines: number = await cdp.evaluate<number>(
       `document.getElementById(${JSON.stringify(id)}).querySelectorAll(".tq-line").length`,
     );
     assert.ok(lines > linesBefore, "narrower width must produce more lines");

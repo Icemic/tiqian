@@ -1,93 +1,109 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpScreenshotParams,
+  CdpTarget,
+  CompareStateOptions,
+  CompareStateResult,
+  PixelsDecoded,
+  PngDecoded,
+  ScreenshotComparison,
+  SettleResult,
+  VisualCapturePlan,
+  VisualCaptureSet,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  async screenshot(params) {
-    const res = await this.send("Page.captureScreenshot", { format: "png", ...params });
+  async screenshot(params: CdpScreenshotParams = {}): Promise<Buffer> {
+    const res = (await this.send("Page.captureScreenshot", { format: "png", ...params })) as { data: string };
     return Buffer.from(res.data, "base64");
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForServer(url, timeoutMs = 20000) {
-  const start = Date.now();
+async function waitForServer(url: string, timeoutMs: number = 20000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url);
+      const res: Response = await fetch(url);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 250));
   }
   throw new Error(`Timeout waiting for demo server at ${url}`);
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
@@ -95,22 +111,22 @@ async function waitForCdpEndpoint(port, timeoutMs = 15000) {
 // Minimal dependency-free PNG decode (8-bit RGB/RGBA, non-interlaced) and a
 // strict pixel comparison. Visual regression must fail on any differing
 // pixel, so no perceptual threshold is applied.
-function decodePng(buf) {
+function decodePng(buf: Buffer): PngDecoded {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG");
-  let pos = 8;
-  let width = 0;
-  let height = 0;
-  const idat = [];
+  let pos: number = 8;
+  let width: number = 0;
+  let height: number = 0;
+  const idat: Buffer[] = [];
   while (pos < buf.length) {
-    const len = buf.readUInt32BE(pos);
-    const type = buf.toString("ascii", pos + 4, pos + 8);
-    const data = buf.subarray(pos + 8, pos + 8 + len);
+    const len: number = buf.readUInt32BE(pos);
+    const type: string = buf.toString("ascii", pos + 4, pos + 8);
+    const data: Buffer = buf.subarray(pos + 8, pos + 8 + len);
     if (type === "IHDR") {
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
-      const bitDepth = data[8];
-      const colorType = data[9];
-      const interlace = data[12];
+      const bitDepth: number = data[8];
+      const colorType: number = data[9];
+      const interlace: number = data[12];
       if (bitDepth !== 8 || (colorType !== 6 && colorType !== 2) || interlace !== 0) {
         throw new Error(`unsupported PNG: depth=${bitDepth} color=${colorType} interlace=${interlace}`);
       }
@@ -124,32 +140,32 @@ function decodePng(buf) {
   return { width, height, idat: Buffer.concat(idat) };
 }
 
-function decodePixels(png) {
+function decodePixels(png: Buffer): PixelsDecoded {
   const { width, height, idat } = decodePng(png);
   // color type from IHDR is validated in decodePng; re-read it here
-  const colorType = png[25];
-  const bpp = colorType === 6 ? 4 : 3;
-  const raw = inflateSync(idat);
-  const stride = width * bpp;
-  const out = Buffer.alloc(height * stride);
-  const paeth = (a, b, c) => {
-    const p = a + b - c;
-    const pa = Math.abs(p - a);
-    const pb = Math.abs(p - b);
-    const pc = Math.abs(p - c);
+  const colorType: number = png[25];
+  const bpp: number = colorType === 6 ? 4 : 3;
+  const raw: Buffer = inflateSync(idat);
+  const stride: number = width * bpp;
+  const out: Buffer = Buffer.alloc(height * stride);
+  const paeth = (a: number, b: number, c: number): number => {
+    const p: number = a + b - c;
+    const pa: number = Math.abs(p - a);
+    const pb: number = Math.abs(p - b);
+    const pc: number = Math.abs(p - c);
     return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
   };
-  for (let y = 0; y < height; y++) {
-    const filter = raw[y * (stride + 1)];
-    const rowStart = y * (stride + 1) + 1;
-    const row = raw.subarray(rowStart, rowStart + stride);
-    const prev = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
-    const cur = out.subarray(y * stride, (y + 1) * stride);
-    for (let x = 0; x < stride; x++) {
-      const left = x >= bpp ? cur[x - bpp] : 0;
-      const up = prev ? prev[x] : 0;
-      const upLeft = prev && x >= bpp ? prev[x - bpp] : 0;
-      let value = row[x];
+  for (let y: number = 0; y < height; y++) {
+    const filter: number = raw[y * (stride + 1)];
+    const rowStart: number = y * (stride + 1) + 1;
+    const row: Buffer = raw.subarray(rowStart, rowStart + stride);
+    const prev: Buffer | null = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
+    const cur: Buffer = out.subarray(y * stride, (y + 1) * stride);
+    for (let x: number = 0; x < stride; x++) {
+      const left: number = x >= bpp ? cur[x - bpp] : 0;
+      const up: number = prev ? prev[x] : 0;
+      const upLeft: number = prev && x >= bpp ? prev[x - bpp] : 0;
+      let value: number = row[x];
       if (filter === 1) value = (value + left) & 0xff;
       else if (filter === 2) value = (value + up) & 0xff;
       else if (filter === 3) value = (value + ((left + up) >> 1)) & 0xff;
@@ -160,10 +176,10 @@ function decodePixels(png) {
   return { width, height, bpp, pixels: out };
 }
 
-function compareScreenshots(a, b) {
+function compareScreenshots(a: Buffer, b: Buffer): ScreenshotComparison {
   if (a.equals(b)) return { equal: true, differentPixels: 0, detail: null };
-  const da = decodePixels(a);
-  const db = decodePixels(b);
+  const da: PixelsDecoded = decodePixels(a);
+  const db: PixelsDecoded = decodePixels(b);
   if (da.width !== db.width || da.height !== db.height) {
     return {
       equal: false,
@@ -172,14 +188,14 @@ function compareScreenshots(a, b) {
     };
   }
   const { width, height, bpp, pixels: pa } = da;
-  const pb = db.pixels;
-  let different = 0;
-  let first = null;
-  for (let y = 0; y < height && !first; y++) {
-    for (let x = 0; x < width; x++) {
-      const offset = (y * width + x) * bpp;
-      let delta = 0;
-      for (let c = 0; c < bpp; c++) {
+  const pb: Buffer = db.pixels;
+  let different: number = 0;
+  let first: string | null = null;
+  for (let y: number = 0; y < height && !first; y++) {
+    for (let x: number = 0; x < width; x++) {
+      const offset: number = (y * width + x) * bpp;
+      let delta: number = 0;
+      for (let c: number = 0; c < bpp; c++) {
         delta = Math.max(delta, Math.abs(pa[offset + c] - pb[offset + c]));
       }
       if (delta > 0) {
@@ -192,8 +208,8 @@ function compareScreenshots(a, b) {
   // count the rest without early exit for the report
   if (first) {
     different = 0;
-    for (let i = 0; i < pa.length; i += bpp) {
-      for (let c = 0; c < bpp; c++) {
+    for (let i: number = 0; i < pa.length; i += bpp) {
+      for (let c: number = 0; c < bpp; c++) {
         if (pa[i + c] !== pb[i + c]) {
           different += 1;
           break;
@@ -205,16 +221,16 @@ function compareScreenshots(a, b) {
 }
 
 test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identical across the whole page", async () => {
-  const demoPort = 9000;
-  const cdpPort = 9900;
-  const demoUrl = `http://127.0.0.1:${demoPort}/`;
+  const demoPort: number = 9000;
+  const cdpPort: number = 9900;
+  const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
-  let parcelProc = null;
-  let browserProc = null;
-  let client = null;
+  let parcelProc: ChildProcess | null = null;
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
-    const portBusy = await fetch(demoUrl).then(() => true, () => false);
+    const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
     assert.ok(!portBusy, `Port ${demoPort} must be free before the test starts`);
 
     parcelProc = spawn("npx", [
@@ -231,7 +247,7 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
 
     await waitForServer(demoUrl, 30000);
 
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -248,10 +264,10 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
 
     await waitForCdpEndpoint(cdpPort, 15000);
 
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find(
-      (tr) => tr.type === "page" && tr.url === "about:blank",
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find(
+      (tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank",
     );
     assert.ok(pageTarget, "Must find the blank page target");
 
@@ -264,7 +280,7 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
     await client.send("Page.navigate", { url: demoUrl });
     await client.evaluate("0");
 
-    const setViewportWidth = (width) => client.send("Emulation.setDeviceMetricsOverride", {
+    const setViewportWidth = (width: number): Promise<unknown> => client!.send("Emulation.setDeviceMetricsOverride", {
       width,
       height: 800,
       deviceScaleFactor: 1,
@@ -365,21 +381,21 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
       })()
     `);
 
-    const captureSet = async (plan) => {
-      const shots = {};
-      await client.evaluate("window.scrollTo(0, 0)");
-      const topSettled = await client.evaluate("__settle(15000)");
+    const captureSet = async (plan: VisualCapturePlan): Promise<VisualCaptureSet> => {
+      const shots: Record<string, Buffer> = {};
+      await client!.evaluate("window.scrollTo(0, 0)");
+      const topSettled = await client!.evaluate<SettleResult>("__settle(15000)");
       assert.ok(topSettled.settled, "Must settle at the top before the full-page capture");
-      shots["full"] = await client.screenshot({
+      shots["full"] = await client!.screenshot({
         clip: { x: plan.rect.x, y: plan.rect.y, width: plan.rect.width, height: plan.rect.height, scale: 1 },
         captureBeyondViewport: true,
       });
       for (const scroll of plan.scrolls) {
-        await client.evaluate(`window.scrollTo(0, ${scroll})`);
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const settled = await client.evaluate("__settle(15000)");
+        await client!.evaluate(`window.scrollTo(0, ${scroll})`);
+        await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 500));
+        const settled = await client!.evaluate<SettleResult>("__settle(15000)");
         assert.ok(settled.settled, `Must settle at scroll offset ${scroll}`);
-        shots["scroll" + scroll] = await client.screenshot({
+        shots["scroll" + scroll] = await client!.screenshot({
           clip: {
             x: plan.rect.x,
             y: scroll,
@@ -390,19 +406,19 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
           captureBeyondViewport: true,
         });
       }
-      await client.evaluate("window.scrollTo(0, 0)");
-      const endHeight = await client.evaluate("document.documentElement.scrollHeight");
+      await client!.evaluate("window.scrollTo(0, 0)");
+      const endHeight: number = await client!.evaluate<number>("document.documentElement.scrollHeight");
       return { shots, pageHeight: endHeight };
     };
 
-    const compareState = async (label, { assertPixels }) => {
-      const settled = await client.evaluate("__settle(45000)");
+    const compareState = async (label: string, { assertPixels }: CompareStateOptions): Promise<CompareStateResult> => {
+      const settled = await client!.evaluate<SettleResult>("__settle(45000)");
       assert.ok(settled.settled, `${label}: page must settle before capturing`);
 
       // Capture plan is computed once from the coordinated state and replayed
       // identically after the one-shot, so both passes photograph the same
       // regions at the same offsets.
-      const plan = await client.evaluate(`
+      const plan = await client!.evaluate<VisualCapturePlan>(`
         (() => {
           const main = document.querySelector("main") ?? document.body;
           const rect = main.getBoundingClientRect();
@@ -422,11 +438,11 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
         })()
       `);
 
-      const coordinatedPass = await captureSet(plan);
-      const coordinated = coordinatedPass.shots;
-      await client.evaluate("__oneshot()");
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const afterOneShot = await client.evaluate("__settle(45000)");
+      const coordinatedPass: VisualCaptureSet = await captureSet(plan);
+      const coordinated: Record<string, Buffer> = coordinatedPass.shots;
+      await client!.evaluate("__oneshot()");
+      await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 800));
+      const afterOneShot = await client!.evaluate<SettleResult>("__settle(45000)");
       assert.ok(afterOneShot.settled, `${label}: page must settle after the one-shot`);
 
       // The compared heights are taken after each pass's scroll sequence, so
@@ -438,8 +454,8 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
         `${label}: page height must be unchanged by the one-shot (${coordinatedPass.pageHeight} vs ${afterOneShot.pageHeight})`,
       );
 
-      const oneshotPass = await captureSet(plan);
-      const oneshot = oneshotPass.shots;
+      const oneshotPass: VisualCaptureSet = await captureSet(plan);
+      const oneshot: Record<string, Buffer> = oneshotPass.shots;
       assert.deepStrictEqual(
         Object.keys(coordinated).sort(),
         Object.keys(oneshot).sort(),
@@ -451,9 +467,9 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
         `${label}: page height must stay stable across both capture passes (${coordinatedPass.pageHeight} vs ${oneshotPass.pageHeight})`,
       );
 
-      const failures = [];
+      const failures: string[] = [];
       for (const key of Object.keys(coordinated)) {
-        const result = compareScreenshots(coordinated[key], oneshot[key]);
+        const result: ScreenshotComparison = compareScreenshots(coordinated[key], oneshot[key]);
         if (!result.equal) {
           failures.push(`${key}: ${result.differentPixels} differing pixels, first ${result.detail}`);
         }
@@ -477,10 +493,10 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
       } else if (failures.length) {
         console.log(`[${label}] pixel deltas (recorded, not asserted):\n  ${failures.join("\n  ")}`);
       }
-      return { shots: Object.keys(coordinated).length, pageHeight: settled.pageHeight };
+      return { shots: Object.keys(coordinated).length, pageHeight: settled.pageHeight! };
     };
 
-    const results = [];
+    const results: (CompareStateResult & { phase: string })[] = [];
     for (const width of [900, 700]) {
       await setViewportWidth(width);
       results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`, { assertPixels: true })) });

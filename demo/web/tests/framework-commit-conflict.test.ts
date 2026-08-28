@@ -21,48 +21,72 @@
 // CommonJS loader (react-dom 19 ships no UMD) and an import map that maps
 // the two bare specifiers svelte's own source uses (svelte, esm-env).
 
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer } from "node:http";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  DirectOpsResult,
+  PostSuiteResult,
+  ReactAnchorResult,
+  ReactBatchResult,
+  ReactEachResult,
+  ReactMidflightResult,
+  ReactRootflowResult,
+  ReactStressResult,
+  ReactSwapResult,
+  ReactTextResult,
+  ReactUnmountResult,
+  ReactZonesResult,
+  SvelteBasicResult,
+  SvelteComponents,
+  SvelteEachResult,
+  SvelteIfResult,
+  SvelteMultirootResult,
+  SvelteStressResult,
+  SvelteUnmountResult,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const npmDir = join(repoRoot, "frontend/web/npm");
-const npmCoreDir = join(repoRoot, "frontend/web/core");
-const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
+const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
+const npmDir: string = join(repoRoot, "frontend/web/npm");
+const npmCoreDir: string = join(repoRoot, "frontend/web/core");
+const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 // The npm workspace installs shared packages (react, scheduler, react-dom,
 // svelte, clsx) into the repo-root node_modules rather than demo/web's own,
 // so fixture lookups walk up from demo/web to the repo root and take the
 // first existing node_modules/<file> candidate; only a miss at every level
 // falls through to sendFile's 404.
-const nodeModuleDirs = (() => {
-  const start = resolve(webDemoDir);
-  const stop = resolve(repoRoot);
-  const dirs = [];
-  for (let dir = start; ; dir = dirname(dir)) {
+const nodeModuleDirs: string[] = (() => {
+  const start: string = resolve(webDemoDir);
+  const stop: string = resolve(repoRoot);
+  const dirs: string[] = [];
+  for (let dir: string = start; ; dir = dirname(dir)) {
     dirs.push(dir);
     if (dir === stop || dirname(dir) === dir) break;
   }
   return dirs;
 })();
 
-function nodeModulesFile(...segments) {
+function nodeModulesFile(...segments: string[]): string {
   for (const dir of nodeModuleDirs) {
-    const candidate = join(dir, "node_modules", ...segments);
+    const candidate: string = join(dir, "node_modules", ...segments);
     if (existsSync(candidate)) return candidate;
   }
   return join(nodeModuleDirs[0], "node_modules", ...segments);
 }
 
-const demoPort = 8995;
-const cdpPort = 9985;
-const demoUrl = `http://127.0.0.1:${demoPort}/`;
+const demoPort: number = 8995;
+const cdpPort: number = 9985;
+const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
 // Pure-CJK scenario strings. The engine inserts spacing between latin and
 // CJK runs, so expected strings avoid latin entirely; the live-rendered
@@ -70,7 +94,7 @@ const demoUrl = `http://127.0.0.1:${demoPort}/`;
 // Instance-level $state with a bind() callback: module-level $state compiles
 // to a plain object in svelte 5, so the page reaches the reactive values
 // through setters the component hands back at mount.
-const SVELTE_SOURCE = `
+const SVELTE_SOURCE: string = `
 <script>
   let { bind } = $props();
   let text = $state("初稿文本用于观察排版变化。");
@@ -99,7 +123,7 @@ const SVELTE_SOURCE = `
 // separated by tall spacers, so one mount yields a page with roots in every
 // tier. Spacers of 1200px and 2800px put the second root inside the observer
 // band (viewport 900px plus one viewport each way) and the third beyond it.
-const SVELTE_MULTI_SOURCE = `
+const SVELTE_MULTI_SOURCE: string = `
 <script>
   let { bind } = $props();
   let a1 = $state("甲根首段原稿文本。");
@@ -132,22 +156,22 @@ const SVELTE_MULTI_SOURCE = `
 // The compiled component keeps its bare svelte/internal/* specifiers: the
 // page import map resolves them (a path rewrite would bypass the map, since
 // leading-slash URLs are never looked up in it).
-function compileSvelteSource(source, name) {
+function compileSvelteSource(source: string, name: string): string {
   const out = compile(source, { generate: "client", css: "injected", name });
   return out.js.code;
 }
 
-async function compileSvelteComponent() {
+async function compileSvelteComponent(): Promise<string> {
   return compileSvelteSource(SVELTE_SOURCE, "FrameworkFixture");
 }
 
-async function compileSvelteMultiComponent() {
+async function compileSvelteMultiComponent(): Promise<string> {
   return compileSvelteSource(SVELTE_MULTI_SOURCE, "FrameworkMultiFixture");
 }
 
 // The in-page driver: framework loaders, scenario registry, settle helpers,
 // and per-scenario state snapshots. Served at /page-driver.mjs.
-const PAGE_DRIVER = `
+const PAGE_DRIVER: string = `
   import { registerTiqianProse } from "@tiqian/prose/element";
   registerTiqianProse();
 
@@ -291,7 +315,7 @@ const PAGE_DRIVER = `
 
 // React scenario definitions. Each returns { mount, container, act } where
 // act(state) applies a new component state through a real React commit.
-const REACT_APP = `
+const REACT_APP: string = `
   globalThis.__mountReact = async (fixtureId, render, initialState) => {
     const { React, ReactDOMClient } = await __loadReact();
     const { root, container } = __makeProseRoot(fixtureId);
@@ -333,91 +357,97 @@ const REACT_APP = `
 `;
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as {
+          id?: number;
+          error?: { message?: string; data?: string };
+          result?: unknown;
+        };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            const detail = msg.error.data ? ` (${msg.error.data})` : "";
-            reject(new Error(msg.error.message + detail));
+            const detail: string = msg.error.data ? ` (${msg.error.data})` : "";
+            rej(new Error(msg.error.message + detail));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
-      const detail = res.exceptionDetails.exception?.description ??
+      const detail: string = res.exceptionDetails.exception?.description ??
         JSON.stringify(res.exceptionDetails);
       throw new Error(`Runtime exception: ${detail}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-function startFixtureServer(svelteComponents) {
-  const server = createServer(async (req, res) => {
-    const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    const send = (data, type) => {
+function startFixtureServer(svelteComponents: SvelteComponents): Promise<Server> {
+  const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const path: string = decodeURIComponent(new URL(req.url!, "http://x").pathname);
+    const send = (data: string | Buffer, type: string): void => {
       res.setHeader("content-type", type);
       res.end(data);
     };
-    const sendFile = async (file, type) => {
-      const data = await readFile(file).catch(() => null);
+    const sendFile = async (file: string, type: string): Promise<void> => {
+      const data: Buffer | null = await readFile(file).catch(() => null);
       if (data) {
         // Module workers do not see the document import map, so the dev-tree
         // layout worker in core gets its bare "@tiqian/ffi" import
         // rewritten to the absolute /npm-ffi/ URL served below.
         if (file === join(npmCoreDir, "layout-worker.js")) {
-          const source = data.toString("utf8");
-          const occurrences = source.split('from "@tiqian/ffi"').length - 1;
+          const source: string = data.toString("utf8");
+          const occurrences: number = source.split('from "@tiqian/ffi"').length - 1;
           assert.ok(occurrences <= 1, `unexpected engine import count ${occurrences}`);
           if (occurrences === 1) {
             send(source.replace('from "@tiqian/ffi"', 'from "/npm-ffi/Tiqian-tiqian-ffi-js.mjs"'), type);
@@ -501,56 +531,56 @@ function startFixtureServer(svelteComponents) {
         return;
       }
       if (path.startsWith("/svelte/")) {
-        const rest = path.slice("/svelte/".length);
+        const rest: string = path.slice("/svelte/".length);
         await sendFile(nodeModulesFile("svelte", rest), "text/javascript");
         return;
       }
       if (path.startsWith("/clsx/")) {
-        const rest = path.slice("/clsx/".length);
+        const rest: string = path.slice("/clsx/".length);
         await sendFile(nodeModulesFile("clsx", rest), "text/javascript");
         return;
       }
       if (path.startsWith("/npm-ffi/")) {
-        const rest = path.slice("/npm-ffi/".length);
+        const rest: string = path.slice("/npm-ffi/".length);
         await sendFile(join(ffiRuntimeDir, rest), "text/javascript");
         return;
       }
       if (path.startsWith("/npm/")) {
-        const rest = path.slice("/npm/".length);
-        const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
+        const rest: string = path.slice("/npm/".length);
+        const type: string = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmDir, rest), type);
         return;
       }
       if (path.startsWith("/core/")) {
-        const rest = path.slice("/core/".length);
-        const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
+        const rest: string = path.slice("/core/".length);
+        const type: string = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmCoreDir, rest), type);
         return;
       }
       res.statusCode = 404;
       res.end("not found");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(`[fixture-server] error on ${path}:`, err);
       res.statusCode = 500;
       res.end(String(err));
     }
   });
-  return new Promise((resolve) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
+  return new Promise((resolve: (srv: Server) => void) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
 }
 
-test("FrameworkCommitConflict: framework commits survive and re-render through the tiqian raw-dom", async () => {
-  const svelteMain = await compileSvelteComponent();
+test("FrameworkCommitConflict: framework commits survive and re-render through the tiqian raw-dom", async (_t: TestContext) => {
+  const svelteMain: string = await compileSvelteComponent();
   assert.match(svelteMain, /svelte\/internal\/client/, "compiled fixture must use the svelte client runtime");
 
-  const portBusy = await fetch(demoUrl).then(() => true, () => false);
+  const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
   assert.ok(!portBusy, `Port ${demoPort} must be free before the test starts`);
 
-  const server = await startFixtureServer({ main: svelteMain, multi: await compileSvelteMultiComponent() });
-  let browserProc = null;
-  let client = null;
+  const server: Server = await startFixtureServer({ main: svelteMain, multi: await compileSvelteMultiComponent() });
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -564,9 +594,9 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
     });
 
     await waitForCdpEndpoint(cdpPort, 15000);
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find((tr) => tr.type === "page" && tr.url === "about:blank");
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find((tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank");
     assert.ok(pageTarget, "Must find the blank page target");
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
@@ -598,16 +628,16 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
       })
     `);
 
-    const run = (expression) => client.evaluate(`(async () => { ${expression} })()`);
-    const errorsOf = async (label) => {
-      const errors = await client.evaluate("__drainErrors()");
+    const run = <R = unknown>(expression: string): Promise<R> => client!.evaluate<R>(`(async () => { ${expression} })()`);
+    const errorsOf = async (label: string): Promise<string[]> => {
+      const errors: string[] = await client!.evaluate<string[]>("__drainErrors()");
       assert.deepEqual(errors, [], `[${label}] no uncaught page errors`);
       return errors;
     };
 
     // -------- React: mount and text updates (raw-dom characterData path)
     {
-      const result = await run(`
+      const result: ReactTextResult = await run<ReactTextResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null, s.text, s.em ? h("em", null, s.em) : null);
@@ -633,7 +663,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: anchored insert and remove (raw-dom removeChild path)
     {
-      const result = await run(`
+      const result: ReactAnchorResult = await run<ReactAnchorResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null,
@@ -663,7 +693,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: conditional swap of a whole inline run
     {
-      const result = await run(`
+      const result: ReactSwapResult = await run<ReactSwapResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null,
@@ -696,7 +726,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: keyed list reorder inside one paragraph
     {
-      const result = await run(`
+      const result: ReactEachResult = await run<ReactEachResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null,
@@ -734,7 +764,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: batch updates across paragraphs, whole-paragraph removal
     {
-      const result = await run(`
+      const result: ReactBatchResult = await run<ReactBatchResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("div", null,
@@ -768,7 +798,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: update issued before initial enhancement settles
     {
-      const result = await run(`
+      const result: ReactMidflightResult = await run<ReactMidflightResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null, s.text);
@@ -791,7 +821,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: rapid interleaved updates
     {
-      const result = await run(`
+      const result: ReactStressResult = await run<ReactStressResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null,
@@ -823,7 +853,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: full unmount while paragraphs are held in the raw-dom fragment
     {
-      const result = await run(`
+      const result: ReactUnmountResult = await run<ReactUnmountResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const render = (s) => h("p", null, s.text, h("em", null, "内联强调。"));
@@ -845,7 +875,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: long page, two concurrent roots, edits in every tier
     {
-      const result = await run(`
+      const result: ReactZonesResult = await run<ReactZonesResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         const filler = "正文填充句读测试。";
@@ -926,7 +956,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- React: roots and paragraphs enter and leave the document
     {
-      const result = await run(`
+      const result: ReactRootflowResult = await run<ReactRootflowResult>(`
         const { React } = await __loadReact();
         const h = React.createElement;
         let aParas = ["甲段首行文本。", "甲段中间行文本。", "甲段末行文本。"];
@@ -1000,7 +1030,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: mount and reactive text update
     {
-      const result = await run(`
+      const result: SvelteBasicResult = await run<SvelteBasicResult>(`
         const { default: Fixture } = await import("/svelte-component/main.js");
         const { mount } = await import("svelte");
         const { root } = __makeProseRoot("s-basic");
@@ -1028,7 +1058,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: if-block off and on around raw-dom-held siblings
     {
-      const result = await run(`
+      const result: SvelteIfResult = await run<SvelteIfResult>(`
         const { default: Fixture } = await import("/svelte-component/main.js");
         const { mount } = await import("svelte");
         const { root } = __makeProseRoot("s-if");
@@ -1059,7 +1089,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: keyed each reorder, head insert, middle remove
     {
-      const result = await run(`
+      const result: SvelteEachResult = await run<SvelteEachResult>(`
         const { default: Fixture } = await import("/svelte-component/main.js");
         const { mount } = await import("svelte");
         const { root } = __makeProseRoot("s-each");
@@ -1100,7 +1130,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: interleaved rapid mutations
     {
-      const result = await run(`
+      const result: SvelteStressResult = await run<SvelteStressResult>(`
         const { default: Fixture } = await import("/svelte-component/main.js");
         const { mount } = await import("svelte");
         const { root } = __makeProseRoot("s-stress");
@@ -1133,7 +1163,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: unmount with paragraphs held in the raw-dom fragment
     {
-      const result = await run(`
+      const result: SvelteUnmountResult = await run<SvelteUnmountResult>(`
         const { default: Fixture } = await import("/svelte-component/main.js");
         const { mount, unmount } = await import("svelte");
         const { root } = __makeProseRoot("s-unmount");
@@ -1155,7 +1185,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Svelte: owned roots on a long page, tier edits, re-entry
     {
-      const result = await run(`
+      const result: SvelteMultirootResult = await run<SvelteMultirootResult>(`
         const { default: Multi } = await import("/svelte-component/multi.js");
         const { mount } = await import("svelte");
         const host = document.createElement("div");
@@ -1233,7 +1263,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Direct DOM contract on taken-over paragraphs
     {
-      const result = await run(`
+      const result: DirectOpsResult = await run<DirectOpsResult>(`
         const { root } = __makeProseRoot("x-direct");
         const p = document.createElement("p");
         p.append("直接操作契约检查文本。");
@@ -1288,7 +1318,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
 
     // -------- Post-suite: page stays quiet with no leaked tracking
     {
-      const result = await client.evaluate(`
+      const result: PostSuiteResult = await client.evaluate<PostSuiteResult>(`
         (async () => {
           await __quiet(1500);
           const before = __pageErrors.length;
@@ -1306,7 +1336,7 @@ test("FrameworkCommitConflict: framework commits survive and re-render through t
     }
   } finally {
     try { client?.close(); } catch {}
-    if (browserProc) {
+    if (browserProc?.pid) {
       try { process.kill(-browserProc.pid, "SIGKILL"); } catch {}
       try { process.kill(browserProc.pid, "SIGKILL"); } catch {}
     }

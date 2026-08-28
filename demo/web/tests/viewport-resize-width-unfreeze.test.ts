@@ -1,104 +1,115 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  EnhancementWaitResult,
+  FinalCheckRoot,
+  UnfreezeRootReport,
+  UnfreezeSettleReport,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForServer(url, timeoutMs = 20000) {
-  const start = Date.now();
+async function waitForServer(url: string, timeoutMs: number = 20000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url);
+      const res: Response = await fetch(url);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 250));
   }
   throw new Error(`Timeout waiting for demo server at ${url}`);
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose root catching up", async (t) => {
-  const demoPort = 8995;
-  const cdpPort = 9985;
-  const demoUrl = `http://127.0.0.1:${demoPort}/`;
+test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose root catching up", async (t: TestContext) => {
+  const demoPort: number = 8995;
+  const cdpPort: number = 9985;
+  const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
-  let parcelProc = null;
-  let browserProc = null;
-  let client = null;
+  let parcelProc: ChildProcess | null = null;
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
     // A leftover service on the port would silently serve a different page
     // build, so require the port to be free before starting parcel.
-    const portBusy = await fetch(demoUrl).then(() => true, () => false);
+    const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
     assert.ok(!portBusy, `Port ${demoPort} must be free before the test starts`);
 
     parcelProc = spawn("npx", [
@@ -115,7 +126,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
 
     await waitForServer(demoUrl, 30000);
 
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -130,14 +141,14 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
 
     await waitForCdpEndpoint(cdpPort, 15000);
 
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find(
-      (tr) => tr.type === "page" && tr.url === "about:blank",
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find(
+      (tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank",
     );
     assert.ok(
       pageTarget,
-      `Must find the blank page target among: ${targets.map((tr) => `${tr.type}:${tr.url}`).join(", ")}`,
+      `Must find the blank page target among: ${targets.map((tr: CdpTarget) => `${tr.type}:${tr.url}`).join(", ")}`,
     );
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
@@ -175,7 +186,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
       })
     `);
 
-    const installInstrumentation = () => client.evaluate(`
+    const installInstrumentation = (): Promise<unknown> => client!.evaluate(`
       (() => {
         globalThis.__lastReadyAt = new Map();
         globalThis.__lastReadyWidth = new Map();
@@ -194,7 +205,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
 
     await installInstrumentation();
 
-    const waitForEnhancement = async () => client.evaluate(`
+    const waitForEnhancement = async (): Promise<EnhancementWaitResult> => client!.evaluate<EnhancementWaitResult>(`
       (async () => {
         const collect = () => {
           const prose = Array.from(document.querySelectorAll("tiqian-prose"));
@@ -238,13 +249,13 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
     // in the coordinator's single-slot deferred lane (OffscreenRequestQueue
     // fixed it). A reload restarts the pipeline and keeps this regression
     // test usable if another stall source ever appears.
-    let initial = await waitForEnhancement();
-    let stallReports = 0;
-    for (let attempt = 0; attempt < 2 && initial.stalled; attempt += 1) {
+    let initial: EnhancementWaitResult = await waitForEnhancement();
+    let stallReports: number = 0;
+    for (let attempt: number = 0; attempt < 2 && initial.stalled; attempt += 1) {
       stallReports += 1;
       // FrameTraceDiagnostics: capture the scheduling evidence while the
       // stalled page is still alive, before the reload resets it.
-      const stallDump = await client.evaluate(`
+      const stallDump: unknown = await client.evaluate(`
         (() => {
           const prose = Array.from(document.querySelectorAll("tiqian-prose"));
           const capabilityMarks = Array.from(
@@ -307,32 +318,32 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
       deviceScaleFactor: 1,
       mobile: false,
     });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 600));
 
     // Rapid widening at frame cadence with no settle pause between steps.
     // Each step changes real viewport width, which resizes prose roots
     // directly.
-    const widenRapidly = async (fromWidth, toWidth, steps) => {
-      for (let i = 1; i <= steps; i++) {
-        const width = Math.round(fromWidth + (toWidth - fromWidth) * (i / steps));
-        await client.send("Emulation.setDeviceMetricsOverride", {
+    const widenRapidly = async (fromWidth: number, toWidth: number, steps: number): Promise<void> => {
+      for (let i: number = 1; i <= steps; i++) {
+        const width: number = Math.round(fromWidth + (toWidth - fromWidth) * (i / steps));
+        await client!.send("Emulation.setDeviceMetricsOverride", {
           width,
           height: 900,
           deviceScaleFactor: 1,
           mobile: false,
         });
-        await new Promise((resolve) => setTimeout(resolve, 16));
+        await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 16));
       }
     };
 
-    const markRoundStart = () => client.evaluate(`
+    const markRoundStart = (): Promise<unknown> => client!.evaluate(`
       (() => {
         globalThis.__roundStartAt = performance.now();
         globalThis.__readyTimeline = [];
       })()
     `);
 
-    const settleAndReport = (label, dragEndAt) => client.evaluate(`
+    const settleAndReport = (label: string, dragEndAt: number): Promise<UnfreezeSettleReport> => client!.evaluate<UnfreezeSettleReport>(`
       (async (label, dragEndAt) => {
         await new Promise((r) => setTimeout(r, 2000));
         const prose = Array.from(document.querySelectorAll("tiqian-prose"));
@@ -362,12 +373,12 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
       })(${JSON.stringify(label)}, ${dragEndAt})
     `);
 
-    const dragEndClock = () => client.evaluate("performance.now()");
+    const dragEndClock = (): Promise<number> => client!.evaluate<number>("performance.now()");
 
     // Round 1: rapid widen across the breakpoint, then settle.
     await markRoundStart();
     await widenRapidly(700, 1400, 12);
-    const round1 = await settleAndReport("widen-700-1400", await dragEndClock());
+    const round1: UnfreezeSettleReport = await settleAndReport("widen-700-1400", await dragEndClock());
 
     // Round 2: squeeze back under the breakpoint and widen again without
     // pauses. Roots flip between stacked and column placement, which swaps
@@ -375,7 +386,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
     await markRoundStart();
     await widenRapidly(1400, 700, 8);
     await widenRapidly(700, 1400, 8);
-    const round2 = await settleAndReport("squeeze-widen-cycle", await dragEndClock());
+    const round2: UnfreezeSettleReport = await settleAndReport("squeeze-widen-cycle", await dragEndClock());
 
     // Round 3: scroll to the bottom so lower roots re-enter the viewport,
     // then cross the 860px breakpoint both ways. The container caps at
@@ -390,7 +401,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
     await markRoundStart();
     await widenRapidly(1400, 820, 8);
     await widenRapidly(820, 1500, 10);
-    const round3 = await settleAndReport("scrolled-bottom-widen", await dragEndClock());
+    const round3: UnfreezeSettleReport = await settleAndReport("scrolled-bottom-widen", await dragEndClock());
 
     for (const round of [round1, round2, round3]) {
       assert.ok(
@@ -403,8 +414,8 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
       // relayout when a squeeze-widen cycle returns to the committed measure,
       // so those roots correctly fire no event; a root frozen at its pre-drag
       // width fails the width comparison and is still flagged.
-      const stalled = round.report.filter(
-        (r) => r.readyDelta < 0
+      const stalled: UnfreezeRootReport[] = round.report.filter(
+        (r: UnfreezeRootReport) => r.readyDelta < 0
           && Math.abs(r.width - r.lastReadyWidth) >= 0.5
           && !r.capabilityIssue,
       );
@@ -414,7 +425,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
         `${round.label}: roots without a relayout-ready after the resize window began: ` +
           JSON.stringify(stalled),
       );
-      const broken = round.report.filter((r) => r.capabilityIssue);
+      const broken: UnfreezeRootReport[] = round.report.filter((r: UnfreezeRootReport) => r.capabilityIssue);
       assert.strictEqual(
         broken.length,
         0,
@@ -436,7 +447,7 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
     // Width follow-through: after settling, every root's last relayout-ready
     // width must equal its current width. A frozen root keeps the width it
     // had before the drag.
-    const finalCheck = await client.evaluate(`
+    const finalCheck: FinalCheckRoot[] = await client.evaluate<FinalCheckRoot[]>(`
       (() => {
         const prose = Array.from(document.querySelectorAll("tiqian-prose"));
         return prose.map((root, index) => ({
@@ -447,8 +458,8 @@ test("ViewportResizeWidthUnfreeze: rapid viewport widening keeps every prose roo
         }));
       })()
     `);
-    const mismatched = finalCheck.filter(
-      (r) => Math.abs(r.currentWidth - r.lastReadyWidth) >= 0.5,
+    const mismatched: FinalCheckRoot[] = finalCheck.filter(
+      (r: FinalCheckRoot) => Math.abs(r.currentWidth - r.lastReadyWidth) >= 0.5,
     );
     assert.strictEqual(
       mismatched.length,

@@ -1,104 +1,127 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  EnhancementWaitResult,
+  PhaseAppendsResult,
+  PhaseClearInsertResult,
+  PhaseCloneAfterWidthResult,
+  PhaseInPlaceResult,
+  PhaseMidFlightResult,
+  PhaseMutationsResult,
+  PhasePreservedResult,
+  PhaseQuietResult,
+  PhaseRawDomRemoveResult,
+  PhaseRawDomTextResult,
+  PhaseReplacedResult,
+  PhaseSameFrameResult,
+  PhaseSettledResult,
+  PhaseSingleResult,
+  ZonesResult,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForServer(url, timeoutMs = 20000) {
-  const start = Date.now();
+async function waitForServer(url: string, timeoutMs: number = 20000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url);
+      const res: Response = await fetch(url);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 250));
   }
   throw new Error(`Timeout waiting for demo server at ${url}`);
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-test("HostContentMutation: content changes re-enter layout with correct frame discipline", async () => {
-  const demoPort = 8997;
-  const cdpPort = 9987;
-  const demoUrl = `http://127.0.0.1:${demoPort}/`;
+test("HostContentMutation: content changes re-enter layout with correct frame discipline", async (_t: TestContext) => {
+  const demoPort: number = 8997;
+  const cdpPort: number = 9987;
+  const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
-  let parcelProc = null;
-  let browserProc = null;
-  let client = null;
+  let parcelProc: ChildProcess | null = null;
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
     // A leftover service on the port would silently serve a different page
     // build, so require the port to be free before starting parcel.
-    const portBusy = await fetch(demoUrl).then(() => true, () => false);
+    const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
     assert.ok(!portBusy, `Port ${demoPort} must be free before the test starts`);
 
     parcelProc = spawn("npx", [
@@ -115,7 +138,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
 
     await waitForServer(demoUrl, 30000);
 
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -130,10 +153,10 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
 
     await waitForCdpEndpoint(cdpPort, 15000);
 
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find(
-      (tr) => tr.type === "page" && tr.url === "about:blank",
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find(
+      (tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank",
     );
     assert.ok(pageTarget, "Must find the blank page target");
 
@@ -148,7 +171,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Stay above the 860px sidebar breakpoint the whole run: width nudges
     // then change prose measure without restacking the sidebar, and the
     // 800px height leaves room for in-viewport, edge, and off-screen roots.
-    const setViewportWidth = (width) => client.send("Emulation.setDeviceMetricsOverride", {
+    const setViewportWidth = (width: number): Promise<unknown> => client!.send("Emulation.setDeviceMetricsOverride", {
       width,
       height: 800,
       deviceScaleFactor: 1,
@@ -166,7 +189,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })
     `);
 
-    const initial = await client.evaluate(`
+    const initial: EnhancementWaitResult = await client.evaluate<EnhancementWaitResult>(`
       (async () => {
         const roots = () => Array.from(document.querySelectorAll("tiqian-prose:not(.sidebar-prose)"));
         const collect = () => {
@@ -328,7 +351,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase E (runs first on a quiet page): engine self-observation must not
     // loop, and a single host edit converges to exactly one job.
     // ------------------------------------------------------------------
-    const quiet = await client.evaluate(`
+    const quiet: PhaseQuietResult = await client.evaluate<PhaseQuietResult>(`
       (async () => {
         const root = __roots()[1];
         // The settle gate passes on fallback metrics; webfonts then load and
@@ -359,7 +382,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       `A settled root must not emit further jobs from its own render output: ${quiet.before} -> ${quiet.afterIdle}`,
     );
 
-    const single = await client.evaluate(`
+    const single: PhaseSingleResult = await client.evaluate<PhaseSingleResult>(`
       (async () => {
         const root = __roots()[1];
         const p = root.querySelectorAll("p")[0];
@@ -390,7 +413,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase A: framework-style text edits on rendered paragraphs in each
     // viewport zone re-enter layout and preserve the edited text.
     // ------------------------------------------------------------------
-    const zonesA = await client.evaluate("__ensureZones()");
+    const zonesA: ZonesResult = await client.evaluate<ZonesResult>("__ensureZones()");
     assert.ok(zonesA, "Must find in-viewport, edge, and off-screen article roots");
     assert.ok(
       zonesA.pick.inVp.ri !== zonesA.pick.edge.ri &&
@@ -403,7 +426,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })}`,
     );
 
-    const mutations = await client.evaluate(`
+    const mutations: PhaseMutationsResult = await client.evaluate<PhaseMutationsResult>(`
       (async () => {
         const picks = { inVp: ${zonesA.pick.inVp.ri}, edge: ${zonesA.pick.edge.ri}, off: ${zonesA.pick.off.ri} };
         const edited = {};
@@ -436,7 +459,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // source, so the paragraph re-renders with the framework's text instead of
     // keeping a stale marker over a raw text node.
     assert.ok(mutations.settle.ok, `Edited paragraphs must re-render: ${JSON.stringify(mutations.idle)}`);
-    for (const zone of ["inVp", "edge", "off"]) {
+    for (const zone of ["inVp", "edge", "off"] as const) {
       const idle = mutations.idle[zone];
       assert.strictEqual(idle.rendered, "true", `${zone}: re-rendered paragraph must carry a fresh marker`);
       assert.ok(idle.lines > 0, `${zone}: re-rendered paragraph must have rendered lines`);
@@ -445,7 +468,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
         `${zone}: rendered output must use the edited text`,
       );
     }
-    for (const zone of ["inVp", "edge", "off"]) {
+    for (const zone of ["inVp", "edge", "off"] as const) {
       const events = mutations.idleEvents.filter((entry) => String(entry.ri) === String(mutations.picks[zone]));
       assert.ok(
         events.length >= 1,
@@ -466,7 +489,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })()
     `);
     await setViewportWidth(920);
-    const preserved = await client.evaluate(`
+    const preserved: PhasePreservedResult = await client.evaluate<PhasePreservedResult>(`
       (async () => {
         const edited = globalThis.__edited;
         const allPreserved = () => Object.values(edited).every((e) => {
@@ -486,7 +509,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // source, so the width relayout re-breaks the edited text at the new
     // measure instead of reverting to pre-edit content.
     assert.ok(preserved.ok, `Width relayout must preserve host edits: ${JSON.stringify(preserved.after)}`);
-    for (const zone of ["inVp", "edge", "off"]) {
+    for (const zone of ["inVp", "edge", "off"] as const) {
       const after = preserved.after[zone];
       assert.ok(
         after.head.startsWith("宿主改写的运行期正文"),
@@ -512,10 +535,10 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase C: paragraphs appended after enhancement are adopted without any
     // geometry signal, in every zone.
     // ------------------------------------------------------------------
-    const zonesC = await client.evaluate("__ensureZones()");
+    const zonesC: ZonesResult = await client.evaluate<ZonesResult>("__ensureZones()");
     assert.ok(zonesC, "Must re-find in-viewport, edge, and off-screen roots before appends");
 
-    const appends = await client.evaluate(`
+    const appends: PhaseAppendsResult = await client.evaluate<PhaseAppendsResult>(`
       (async () => {
         const picks = { inVp: ${zonesC.pick.inVp.ri}, edge: ${zonesC.pick.edge.ri}, off: ${zonesC.pick.off.ri} };
         for (const [zone, ri] of Object.entries(picks)) {
@@ -545,7 +568,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       appends.settle.ok,
       `Appended paragraphs must be adopted without a geometry signal: ${JSON.stringify(appends.states)}`,
     );
-    for (const zone of ["inVp", "edge", "off"]) {
+    for (const zone of ["inVp", "edge", "off"] as const) {
       const state = appends.states[zone];
       assert.strictEqual(state.rendered, "true", `${zone}: adopted paragraph must be rendered`);
       assert.ok(state.lines >= 2, `${zone}: adopted paragraph must render multiple lines`);
@@ -563,7 +586,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })()
     `);
     await setViewportWidth(900);
-    const settled = await client.evaluate(`
+    const settled: PhaseSettledResult = await client.evaluate<PhaseSettledResult>(`
       (async () => {
         const allRendered = () => Array.from(document.querySelectorAll("tiqian-prose:not(.sidebar-prose) p"))
           .every((p) => p.getAttribute("data-tq-rendered") === "true");
@@ -593,7 +616,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // a clone carrying engine scaffolding. The clone is de-scaffolded and
     // re-rendered from its live content.
     // ------------------------------------------------------------------
-    const replaced = await client.evaluate(`
+    const replaced: PhaseReplacedResult = await client.evaluate<PhaseReplacedResult>(`
       (async () => {
         const root = __roots()[6];
         const p = root.querySelectorAll("p")[0];
@@ -654,7 +677,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     );
 
     await setViewportWidth(920);
-    const cloneAfterWidth = await client.evaluate(`
+    const cloneAfterWidth: PhaseCloneAfterWidthResult = await client.evaluate<PhaseCloneAfterWidthResult>(`
       (async () => {
         const root = globalThis.__preReplacement.root;
         const ok = await __waitFor(
@@ -682,7 +705,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase F: a content edit and a width change in the same task share one
     // commit; the content path wins and absorbs the width.
     // ------------------------------------------------------------------
-    const sameFrame = await client.evaluate(`
+    const sameFrame: PhaseSameFrameResult = await client.evaluate<PhaseSameFrameResult>(`
       (async () => {
         const root = __roots()[2];
         const p = root.querySelectorAll("p")[0];
@@ -717,7 +740,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase G: an in-place characterData edit inside engine output re-renders
     // from the raw-dom source; the edit on renderer-owned text does not survive.
     // ------------------------------------------------------------------
-    const inPlace = await client.evaluate(`
+    const inPlace: PhaseInPlaceResult = await client.evaluate<PhaseInPlaceResult>(`
       (async () => {
         const root = __roots()[3];
         const p = root.querySelectorAll("p")[0];
@@ -754,7 +777,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // Phase H: clear-then-insert in one task delivers both records together;
     // the engine must not wedge on the transient empty state.
     // ------------------------------------------------------------------
-    const clearInsert = await client.evaluate(`
+    const clearInsert: PhaseClearInsertResult = await client.evaluate<PhaseClearInsertResult>(`
       (async () => {
         const root = __roots()[4];
         const p = root.querySelectorAll("p")[0];
@@ -785,7 +808,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       })()
     `);
     await setViewportWidth(940);
-    const midFlight = await client.evaluate(`
+    const midFlight: PhaseMidFlightResult = await client.evaluate<PhaseMidFlightResult>(`
       (async () => {
         const root = __roots()[5];
         const p = root.querySelectorAll("p")[0];
@@ -827,7 +850,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
     // through child.parentNode. Both edits land inside the detached raw-dom
     // fragment, where the live-DOM subtree observer never fires.
     // ------------------------------------------------------------------
-    const rawDomText = await client.evaluate(`
+    const rawDomText: PhaseRawDomTextResult = await client.evaluate<PhaseRawDomTextResult>(`
       (async () => {
         const root = __roots()[__roots().length - 1];
         const p = root.querySelectorAll("p")[0];
@@ -886,7 +909,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       `The raw-dom reconcile path must not loop on its own output: ${rawDomText.idleEvents} events while idle`,
     );
 
-    const rawDomRemove = await client.evaluate(`
+    const rawDomRemove: PhaseRawDomRemoveResult = await client.evaluate<PhaseRawDomRemoveResult>(`
       (async () => {
         const root = __roots()[__roots().length - 1];
         const p = root.querySelectorAll("p")[1] ?? root.querySelectorAll("p")[0];
@@ -931,7 +954,7 @@ test("HostContentMutation: content changes re-enter layout with correct frame di
       !rawDomRemove.after.head.includes("强调"),
       `The rendered text must drop the removed raw-dom node: ${JSON.stringify(rawDomRemove.after)}`,
     );
-    assert.ok(rawDomRemove.newEvents >= 1, "The raw-dom removal must emit a job event");
+    assert.ok(rawDomRemove.newEvents ? rawDomRemove.newEvents >= 1 : false, "The raw-dom removal must emit a job event");
   } finally {
     client?.close();
     for (const proc of [browserProc, parcelProc]) {

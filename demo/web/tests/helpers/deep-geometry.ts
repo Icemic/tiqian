@@ -7,7 +7,14 @@
 // browser-measured layout truth, independent of the geometry attributes the
 // engine writes into the DOM.
 
-export const DEEP_GEOMETRY_HELPERS = `
+import type {
+  Box,
+  DeepGeometryCounts,
+  DeepGeometryReport,
+  DeepGeometryStats,
+} from "../types.js";
+
+export const DEEP_GEOMETRY_HELPERS: string = `
   globalThis.__deepGeometry = () => {
     const round = (v) => Math.round(v * 100) / 100;
     const sx = scrollX;
@@ -40,12 +47,15 @@ export const DEEP_GEOMETRY_HELPERS = `
 // box count (a vacuity guard for callers), the divergent box count, and up
 // to ten located examples. Structural mismatches (root, paragraph, or child
 // count differences, page height) surface as examples with explicit labels.
-export function diffDeepGeometry(a, b) {
-  const stats = { equal: false, boxesCompared: 0, divergentBoxes: 0, examples: [] };
-  const note = (msg) => {
+export function diffDeepGeometry(
+  a: DeepGeometryReport | null | undefined,
+  b: DeepGeometryReport | null | undefined,
+): DeepGeometryStats {
+  const stats: DeepGeometryStats = { equal: false, boxesCompared: 0, divergentBoxes: 0, examples: [] };
+  const note = (msg: string): void => {
     if (stats.examples.length < 10) stats.examples.push(msg);
   };
-  const cmpBox = (x, y, path) => {
+  const cmpBox = (x: Box | undefined, y: Box | undefined, path: string): void => {
     stats.boxesCompared += 1;
     const same = Array.isArray(x) && Array.isArray(y) &&
       x.length === y.length && x.every((v, i) => v === y[i]);
@@ -92,7 +102,9 @@ export function diffDeepGeometry(a, b) {
 
 // Counts of the measured surfaces, used to prove a comparison was not
 // vacuous (a page that failed to enhance measures zero line markers).
-export function deepGeometryCounts(report) {
+export function deepGeometryCounts(
+  report: DeepGeometryReport | null | undefined,
+): DeepGeometryCounts {
   let lineMarks = 0;
   let runEls = 0;
   let textNodes = 0;

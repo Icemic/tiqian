@@ -1,99 +1,108 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  BurstMetricsResult,
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  DragMetricsResult,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForServer(url, timeoutMs = 20000) {
-  const start = Date.now();
+async function waitForServer(url: string, timeoutMs: number = 20000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url);
+      const res: Response = await fetch(url);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 250));
   }
   throw new Error(`Timeout waiting for demo server at ${url}`);
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) => {
-  const demoPort = 8991;
-  const cdpPort = 9981;
-  const demoUrl = `http://127.0.0.1:${demoPort}/`;
+test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t: TestContext) => {
+  const demoPort: number = 8991;
+  const cdpPort: number = 9981;
+  const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
-  let parcelProc = null;
-  let browserProc = null;
-  let client = null;
+  let parcelProc: ChildProcess | null = null;
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
     parcelProc = spawn("npx", [
@@ -110,7 +119,7 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
 
     await waitForServer(demoUrl, 30000);
 
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -125,9 +134,9 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
 
     await waitForCdpEndpoint(cdpPort, 15000);
 
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find((t) => t.type === "page") || targets[0];
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find((tr: CdpTarget) => tr.type === "page") || targets[0];
     assert.ok(pageTarget, "Must find an active browser page target");
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
@@ -148,7 +157,7 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
     `);
 
     await t.test("Continuous rapid width dragging collects latency, long-task and frame metrics without freeze", async () => {
-      const metrics = await client.evaluate(`
+      const metrics: DragMetricsResult = await client!.evaluate<DragMetricsResult>(`
         (async () => {
           const slider = document.getElementById("width-slider");
           const pageWrapper = document.getElementById("page-wrapper");
@@ -491,13 +500,13 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
       // Grow the viewport so every prose root is on screen. The off-screen
       // defer lane would otherwise idle 11 of the 12 roots and hide the
       // per-job baseline cost this phase measures.
-      await client.send("Emulation.setDeviceMetricsOverride", {
+      await client!.send("Emulation.setDeviceMetricsOverride", {
         width: 1500,
         height: 6000,
         deviceScaleFactor: 1,
         mobile: false,
       });
-      await client.evaluate(`
+      await client!.evaluate(`
         new Promise((resolve) => {
           window.scrollTo(0, 0);
           // IntersectionObserver needs a delivery cycle after the viewport
@@ -505,7 +514,7 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           setTimeout(resolve, 400);
         })
       `);
-      await client.evaluate(`
+      await client!.evaluate<{ visible: number; total: number }>(`
         (() => {
           const allProse = Array.from(document.querySelectorAll("tiqian-prose"));
           const visible = allProse.filter((prose) => {
@@ -514,7 +523,7 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
           });
           return { visible: visible.length, total: allProse.length };
         })()
-      `).then((counts) => {
+      `).then((counts: { visible: number; total: number }) => {
         assert.ok(
           counts.visible === counts.total,
           `Expected all ${counts.total} prose roots visible after viewport override, saw ${counts.visible}`,
@@ -529,7 +538,7 @@ test("Tiqian Drag Responsiveness & Performance Metrics Test Suite", async (t) =>
       // widths and the once-per-frame retarget guard. The budget bounds the
       // paragraph gBCR and computed-style reads of this window at the measured
       // baseline plus headroom.
-      const burst = await client.evaluate(`
+      const burst: BurstMetricsResult = await client!.evaluate<BurstMetricsResult>(`
         (async () => {
           const slider = document.getElementById("width-slider");
           const startGbcReads = globalThis.__paragraphGbcReads;

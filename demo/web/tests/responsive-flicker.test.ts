@@ -1,93 +1,107 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  FlickerReport,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function ensureServerRunning() {
+interface LaunchedBrowserSession {
+  cdp: CdpClient;
+  chromeProc: ChildProcess | null;
+  serverProc: ChildProcess | null;
+}
+
+async function ensureServerRunning(): Promise<ChildProcess | null> {
   try {
-    const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+    const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
     if (res.ok) return null;
   } catch {}
 
-  const serverProc = spawn("bun", ["run", "start"], {
+  const serverProc: ChildProcess = spawn("bun", ["run", "start"], {
     cwd: webDemoDir,
     stdio: "ignore",
   });
 
   for (let i = 0; i < 40; i++) {
     try {
-      const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+      const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
   }
 
   serverProc.kill();
   throw new Error("Failed to start web demo server on port 8888");
 }
 
-async function getOrLaunchBrowser() {
-  const serverProc = await ensureServerRunning();
+async function getOrLaunchBrowser(): Promise<LaunchedBrowserSession> {
+  const serverProc: ChildProcess | null = await ensureServerRunning();
 
-  let port = 9222;
-  let chromeProc = null;
+  let port: number = 9222;
+  let chromeProc: ChildProcess | null = null;
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+    const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
     if (!res.ok) throw new Error("not ready");
   } catch {
     port = 9444;
@@ -102,23 +116,23 @@ async function getOrLaunchBrowser() {
 
     for (let i = 0; i < 30; i++) {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+        const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (res.ok) break;
       } catch {}
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r: (val: void) => void) => setTimeout(r, 200));
     }
   }
 
-  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`);
-  const targets = await listRes.json();
-  let page = targets.find((t) => t.type === "page" && t.url.includes("localhost:8888"));
+  const listRes: Response = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const targets = (await listRes.json()) as CdpTarget[];
+  let page: CdpTarget | undefined = targets.find((t: CdpTarget) => t.type === "page" && t.url.includes("localhost:8888"));
 
   if (!page) {
-    const newTargetRes = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
-    page = await newTargetRes.json();
+    const newTargetRes: Response = await fetch(`http://127.0.0.1:${port}/json/new?http://localhost:8888`, { method: "PUT" });
+    page = (await newTargetRes.json()) as CdpTarget;
   }
 
-  const cdp = new CdpClient(page.webSocketDebuggerUrl);
+  const cdp: CdpClient = new CdpClient(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -126,10 +140,10 @@ async function getOrLaunchBrowser() {
   return { cdp, chromeProc, serverProc };
 }
 
-test("Tiqian Responsive Relayout In-Place Non-Flicker Test Suite", async (t) => {
+test("Tiqian Responsive Relayout In-Place Non-Flicker Test Suite", async (t: TestContext) => {
   const { cdp, chromeProc, serverProc } = await getOrLaunchBrowser();
 
-  t.after(() => {
+  t.after((): void => {
     cdp.close();
     chromeProc?.kill();
     serverProc?.kill();
@@ -159,7 +173,7 @@ test("Tiqian Responsive Relayout In-Place Non-Flicker Test Suite", async (t) => 
   `);
 
   await t.test("Responsive resizing in place must never revert paragraphs to unrendered bare DOM", async () => {
-    const flickerReport = await cdp.evaluate(`
+    const flickerReport = await cdp.evaluate<FlickerReport>(`
       (async () => {
         const art0 = document.querySelector("article tiqian-prose");
         const ps = Array.from(art0.querySelectorAll("p"));

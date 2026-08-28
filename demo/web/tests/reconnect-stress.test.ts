@@ -13,105 +13,118 @@
 // fixed-seed random alternation ×150, and in-flight layout disconnect
 // with a large multi-paragraph root.
 
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer } from "node:http";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type {
+  AbandonedMutationDetail,
+  AbandonedSubtreeResult,
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  CrossTaskReconnectResult,
+  InflightDisconnectResult,
+  RandomAlternationResult,
+  RelayoutReadyEventsResult,
+  SameTaskReconnectResult,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const npmDir = join(repoRoot, "frontend/web/npm");
-const npmCoreDir = join(repoRoot, "frontend/web/core");
-const ffiRuntimeDir = join(repoRoot, "ffi/js/npm/runtime");
+const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
+const npmDir: string = join(repoRoot, "frontend/web/npm");
+const npmCoreDir: string = join(repoRoot, "frontend/web/core");
+const ffiRuntimeDir: string = join(repoRoot, "ffi/js/npm/runtime");
 
-const demoPort = 8994;
-const cdpPort = 9984;
-const demoUrl = `http://127.0.0.1:${demoPort}/`;
+const demoPort: number = 8994;
+const cdpPort: number = 9984;
+const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
-      const detail = res.exceptionDetails.exception?.description ??
+      const detail: string = res.exceptionDetails.exception?.description ??
         JSON.stringify(res.exceptionDetails);
       throw new Error(`Runtime exception: ${detail}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 15000) {
-  const start = Date.now();
+async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Promise<void> {
+  const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) return;
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
 
-function startFixtureServer() {
-  const server = createServer(async (req, res) => {
-    const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    const send = (data, type) => {
+function startFixtureServer(): Promise<Server> {
+  const server: Server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const path: string = decodeURIComponent(new URL(req.url!, "http://x").pathname);
+    const send = (data: string | Buffer, type: string): void => {
       res.setHeader("content-type", type);
       res.end(data);
     };
-    const sendFile = async (file, type) => {
-      const data = await readFile(file).catch(() => null);
+    const sendFile = async (file: string, type: string): Promise<void> => {
+      const data: Buffer | null = await readFile(file).catch(() => null);
       if (data) {
         if (file === join(npmCoreDir, "layout-worker.js")) {
-          const source = data.toString("utf8");
+          const source: string = data.toString("utf8");
           if (source.includes('from "@tiqian/ffi"')) {
             send(source.replace('from "@tiqian/ffi"', 'from "/npm-ffi/Tiqian-tiqian-ffi-js.mjs"'), type);
             return;
@@ -158,34 +171,34 @@ function startFixtureServer() {
         return;
       }
       if (path.startsWith("/npm-ffi/")) {
-        const rest = path.slice("/npm-ffi/".length);
+        const rest: string = path.slice("/npm-ffi/".length);
         await sendFile(join(ffiRuntimeDir, rest), "text/javascript");
         return;
       }
       if (path.startsWith("/npm/")) {
-        const rest = path.slice("/npm/".length);
-        const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
+        const rest: string = path.slice("/npm/".length);
+        const type: string = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmDir, rest), type);
         return;
       }
       if (path.startsWith("/core/")) {
-        const rest = path.slice("/core/".length);
-        const type = rest.endsWith(".css") ? "text/css" : "text/javascript";
+        const rest: string = path.slice("/core/".length);
+        const type: string = rest.endsWith(".css") ? "text/css" : "text/javascript";
         await sendFile(join(npmCoreDir, rest), type);
         return;
       }
       res.statusCode = 404;
       res.end("not found");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(`[fixture-server] error on ${path}:`, err);
       res.statusCode = 500;
       res.end(String(err));
     }
   });
-  return new Promise((resolve) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
+  return new Promise((resolve: (srv: Server) => void) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
 }
 
-const PAGE_DRIVER = `
+const PAGE_DRIVER: string = `
   import { registerTiqianProse } from "@tiqian/prose/element";
   registerTiqianProse();
 
@@ -264,18 +277,9 @@ const PAGE_DRIVER = `
   };
 `;
 
-async function waitFor(expression, cdp, timeoutMs = 15000, label = "condition") {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await cdp.evaluate(expression)) return true;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`Timed out waiting for ${label}`);
-}
+const SHORT_TEXT: string = "短文本用于压力测试重连路径。这是一段标准的中文正文内容。";
 
-const SHORT_TEXT = "短文本用于压力测试重连路径。这是一段标准的中文正文内容。";
-
-const LONG_FILLER =
+const LONG_FILLER: string =
   "这是一段用于压力测试的长文本段落，" +
   "目的是让排版引擎在多帧内完成渐进增强，" +
   "从而在断开连接时能够捕获在途的排版工作。" +
@@ -284,13 +288,13 @@ const LONG_FILLER =
   "快速重连压力测试旨在验证这些异步操作在" +
   "高频断开重连场景下的稳定性与安全性。".repeat(3);
 
-test("ReconnectStress: rapid reconnection through the adoption path", async (t) => {
-  const server = await startFixtureServer();
-  let browserProc = null;
-  let client = null;
+test("ReconnectStress: rapid reconnection through the adoption path", async (t: TestContext) => {
+  const server: Server = await startFixtureServer();
+  let browserProc: ChildProcess | null = null;
+  let client: CdpClient | null = null;
 
   try {
-    const chromeBin = process.env.CHROME_BIN || "chromium";
+    const chromeBin: string = process.env.CHROME_BIN || "chromium";
     browserProc = spawn(chromeBin, [
       "--headless=new",
       `--remote-debugging-port=${cdpPort}`,
@@ -304,9 +308,9 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     });
 
     await waitForCdpEndpoint(cdpPort, 15000);
-    const listRes = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
-    const targets = await listRes.json();
-    const pageTarget = targets.find((tr) => tr.type === "page" && tr.url === "about:blank");
+    const listRes: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget: CdpTarget | undefined = targets.find((tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank");
     assert.ok(pageTarget, "Must find the blank page target");
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
@@ -339,9 +343,9 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
       })
     `);
 
-    const run = (expression) => client.evaluate(`(async () => { ${expression} })()`);
-    const errorsOf = async (label) => {
-      const errors = await client.evaluate("__drainErrors()");
+    const run = <R = unknown>(expression: string): Promise<R> => client!.evaluate<R>(`(async () => { ${expression} })()`);
+    const errorsOf = async (label: string): Promise<string[]> => {
+      const errors: string[] = await client!.evaluate<string[]>("__drainErrors()");
       for (const e of errors) {
         console.error(`[${label}] uncaught: ${e}`);
       }
@@ -354,7 +358,7 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // exercising the #adoptRawDomMoveReconnection adoption path.
     // ----------------------------------------------------------------
     await t.test("same-task reconnect ×200", async () => {
-      await run(`
+      await run<SameTaskReconnectResult>(`
         const { host, prose } = __makeProseRoot("same-task", ${JSON.stringify(SHORT_TEXT)}, "width: 900px; margin: 8px auto;");
         if (!await __waitSettled(prose, 30000)) throw new Error("initial enhance never settled");
         // Let the font settling wave pass.
@@ -374,13 +378,13 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
         const rendered = Array.from(prose.querySelectorAll("p"))
           .every((p) => p.getAttribute("data-tq-rendered") === "true");
         return { reconnected, adoptCount, enhanced, rendered };
-      `).then((result) => {
+      `).then((result: SameTaskReconnectResult) => {
         assert.strictEqual(result.reconnected, 200, "must complete all 200 reconnects");
         assert.ok(result.enhanced, "element must remain enhanced after rapid same-task reconnects");
         assert.ok(result.rendered, "paragraphs must remain rendered");
       });
-      const errors = await errorsOf("same-task");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("same-task");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in same-task scenario");
       await run("__clearStage()");
     });
@@ -391,7 +395,7 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // This exercises the microtask-settle cleanup path (#settleDisconnection).
     // ----------------------------------------------------------------
     await t.test("cross-task reconnect ×100", async () => {
-      await run(`
+      await run<CrossTaskReconnectResult>(`
         const { host, prose } = __makeProseRoot("cross-task", ${JSON.stringify(SHORT_TEXT)}, "width: 900px; margin: 8px auto;");
         if (!await __waitSettled(prose, 30000)) throw new Error("initial enhance never settled");
         await new Promise((r) => setTimeout(r, 1200));
@@ -410,13 +414,13 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
         const rendered = Array.from(prose.querySelectorAll("p"))
           .every((p) => p.getAttribute("data-tq-rendered") === "true");
         return { reconnected, enhanced, rendered };
-      `).then((result) => {
+      `).then((result: CrossTaskReconnectResult) => {
         assert.strictEqual(result.reconnected, 100, "must complete all 100 reconnects");
         assert.ok(result.enhanced, "element must remain enhanced after cross-task reconnects");
         assert.ok(result.rendered, "paragraphs must remain rendered");
       });
-      const errors = await errorsOf("cross-task");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("cross-task");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in cross-task scenario");
       await run("__clearStage()");
     });
@@ -428,8 +432,8 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // detach. Fixed seed ensures reproducibility.
     // ----------------------------------------------------------------
     await t.test("fixed-seed random alternation ×150 (seed=42)", async () => {
-      const SEED = 42;
-      await run(`
+      const SEED: number = 42;
+      await run<RandomAlternationResult>(`
         const SEED = ${SEED};
         const rand = __seededRandom(SEED);
         const { host, prose } = __makeProseRoot("random", ${JSON.stringify(SHORT_TEXT)}, "width: 900px; margin: 8px auto;");
@@ -470,14 +474,14 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
         await new Promise((r) => setTimeout(r, 500));
         const enhanced = prose.getAttribute("data-tiqian-enhanced") === "true";
         return { counts, enhanced };
-      `).then((result) => {
+      `).then((result: RandomAlternationResult) => {
         assert.ok(result.enhanced, "element must remain enhanced after random alternation");
         assert.ok(result.counts.sameTask > 0, "must have exercised same-task path");
         assert.ok(result.counts.crossTask0 > 0 || result.counts.crossTask5 > 0, "must have exercised cross-task path");
         assert.ok(result.counts.editDetach > 0, "must have exercised edit-while-detached path");
       });
-      const errors = await errorsOf("random");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("random");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in random scenario");
       await run("__clearStage()");
     });
@@ -489,7 +493,7 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // verify the root recovers.
     // ----------------------------------------------------------------
     await t.test("in-flight layout disconnect (12 paragraphs)", async () => {
-      await run(`
+      await run<InflightDisconnectResult>(`
         const { host, prose } = __makeMultiParagraphProseRoot("inflight", 12, ${JSON.stringify(LONG_FILLER)});
         // Wait for at least 2 paragraphs to be rendered (partial enhancement).
         const deadline = Date.now() + 15000;
@@ -507,11 +511,11 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
         // Wait for full settlement.
         const settled = await __waitSettled(prose, 30000);
         return { settled };
-      `).then((result) => {
+      `).then((result: InflightDisconnectResult) => {
         assert.ok(result.settled, "root must recover after in-flight disconnect and reconnect");
       });
-      const errors = await errorsOf("inflight");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("inflight");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in in-flight scenario");
       await run("__clearStage()");
     });
@@ -522,7 +526,7 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // abandoned subtree received zero mutations.
     // ----------------------------------------------------------------
     await t.test("abandoned subtree zero mutations after disconnect", async () => {
-      const result = await run(`
+      const result: AbandonedSubtreeResult = await run<AbandonedSubtreeResult>(`
         const { host, prose } = __makeProseRoot("abandon", ${JSON.stringify(SHORT_TEXT)}, "width: 900px; margin: 8px auto;");
         if (!await __waitSettled(prose, 30000)) throw new Error("initial enhance never settled");
         // Wait for the font settling wave to pass (0-400ms window).
@@ -596,9 +600,9 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
       // Filter out known teardown mutations: the engine sets
       // data-tq-value-style-scope during disconnectedCallback cleanup,
       // which is a legitimate teardown, not a stale post-disconnect write.
-      const teardownAttrs = new Set(["data-tq-value-style-scope"]);
-      const staleMutations = result.mutationDetails.filter(
-        (m) => !(m.type === "attributes" && teardownAttrs.has(m.attr)),
+      const teardownAttrs = new Set<string>(["data-tq-value-style-scope"]);
+      const staleMutations: AbandonedMutationDetail[] = result.mutationDetails.filter(
+        (m: AbandonedMutationDetail) => !(m.type === "attributes" && teardownAttrs.has(m.attr ?? "")),
       );
       assert.strictEqual(staleMutations.length, 0,
         `abandoned subtree received ${staleMutations.length} stale mutations after disconnect: ${JSON.stringify(staleMutations)}`);
@@ -606,8 +610,8 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
         "tiqian:relayout-ready fired for a disconnected root");
       assert.ok(result.identical,
         `subtree state changed after disconnect: before=${result.snapshotBefore} after=${result.snapshotAfter}`);
-      const errors = await errorsOf("abandon");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("abandon");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in abandon scenario");
       await run("__clearStage()");
     });
@@ -617,7 +621,7 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
     // Verify that relayout-ready events stop arriving after disconnect.
     // ----------------------------------------------------------------
     await t.test("relayout-ready stops after disconnect", async () => {
-      const result = await run(`
+      const result: RelayoutReadyEventsResult = await run<RelayoutReadyEventsResult>(`
         const { host, prose } = __makeProseRoot("events", ${JSON.stringify(SHORT_TEXT)}, "width: 900px; margin: 8px auto;");
         if (!await __waitSettled(prose, 30000)) throw new Error("initial enhance never settled");
         await new Promise((r) => setTimeout(r, 1200));
@@ -647,20 +651,17 @@ test("ReconnectStress: rapid reconnection through the adoption path", async (t) 
       `);
       assert.strictEqual(result.readyAfterDisconnect, 0,
         `received ${result.readyAfterDisconnect} relayout-ready events after disconnect`);
-      const errors = await errorsOf("events");
-      assert.deepStrictEqual(errors.filter((e) => !e.includes("UNHANDLED_REJECTION:")), [],
+      const errors: string[] = await errorsOf("events");
+      assert.deepStrictEqual(errors.filter((e: string) => !e.includes("UNHANDLED_REJECTION:")), [],
         "no uncaught page errors in events scenario");
       await run("__clearStage()");
     });
   } finally {
     client?.close();
-    for (const proc of [browserProc, server]) {
-      if (!proc) continue;
-      if (proc.pid) {
-        try { process.kill(-proc.pid, "SIGKILL"); } catch {}
-        try { process.kill(proc.pid, "SIGKILL"); } catch {}
-      }
-      if (typeof proc.close === "function") proc.close();
+    if (browserProc?.pid) {
+      try { process.kill(-browserProc.pid, "SIGKILL"); } catch {}
+      try { process.kill(browserProc.pid, "SIGKILL"); } catch {}
     }
+    server.close();
   }
 });

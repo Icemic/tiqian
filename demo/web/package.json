@@ -6,7 +6,8 @@
   "scripts": {
     "start": "parcel index.html --port 8888",
     "build": "parcel build index.html",
-    "test": "node --test --test-concurrency=1 tests/*.test.mjs"
+    "pretest": "tsc -b",
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "dependencies": {
     "@tiqian/core": "0.1.0-alpha.5",

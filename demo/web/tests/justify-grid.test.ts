@@ -1,74 +1,90 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  DragStepProseInfo,
+  ProseElementInfo,
+  Width670ProseInfo,
+} from "./types.js";
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
-const TOTAL_EXPECTED_PROSE_ELEMENTS = 12;
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
+const TOTAL_EXPECTED_PROSE_ELEMENTS: number = 12;
 
 // A CDP response can be dropped silently when the page's execution context
 // is destroyed mid-evaluate, leaving the caller pending forever and hanging
 // the whole suite. Every remote call gets a hard deadline; a timeout fails
 // the test with the culprit method instead of wedging.
-const withTimeout = (promise, ms, label) =>
+const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     promise,
-    new Promise((_, reject) =>
+    new Promise<never>((_: (val: never) => void, reject: (err: Error) => void) =>
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
     ),
   ]);
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return withTimeout(new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return withTimeout(new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     }), 15000, "cdp connect");
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return withTimeout(new Promise((resolve, reject) => {
+    return withTimeout(new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     }), 30000, `cdp ${method}`);
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
+}
+
+interface LaunchedBrowserSession {
+  cdp: CdpClient;
+  chromeProc: ChildProcess | null;
+  serverProc: ChildProcess | null;
 }
 
 // Hermetic setup on dedicated ports, matching the other suite files. The old
@@ -76,12 +92,12 @@ class CdpClient {
 // spawn on 9444) let orphans from earlier runs poison this file: a stale
 // server was reused with unknown build state, and an orphan holding the IPv4
 // debug port made Chromium fall back to binding ::1 only, wedging the test.
-const demoPort = 8990;
-const cdpPort = 9980;
-const demoUrl = `http://127.0.0.1:${demoPort}/`;
+const demoPort: number = 8990;
+const cdpPort: number = 9980;
+const demoUrl: string = `http://127.0.0.1:${demoPort}/`;
 
-async function startDemoServer() {
-  const portBusy = await fetch(demoUrl).then(() => true, () => false);
+async function startDemoServer(): Promise<ChildProcess> {
+  const portBusy: boolean = await fetch(demoUrl).then(() => true, () => false);
   if (portBusy) {
     throw new Error(`Port ${demoPort} is already in use; a leftover server must be stopped first`);
   }
@@ -89,7 +105,7 @@ async function startDemoServer() {
   // --no-hmr: the suite server is cold when the page first loads, and a late
   // HMR push reloads the page mid-test, dropping in-flight CDP evaluate
   // responses. The test needs a static dev server, not live reloading.
-  const serverProc = spawn("npx", [
+  const serverProc: ChildProcess = spawn("npx", [
     "parcel",
     "index.html",
     "--port",
@@ -102,23 +118,23 @@ async function startDemoServer() {
     detached: true,
   });
 
-  for (let i = 0; i < 120; i++) {
+  for (let i: number = 0; i < 120; i++) {
     try {
-      const res = await fetch(demoUrl, { method: "HEAD" });
+      const res: Response = await fetch(demoUrl, { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 250));
   }
 
-  try { process.kill(-serverProc.pid, "SIGKILL"); } catch {}
+  try { if (serverProc.pid) process.kill(-serverProc.pid, "SIGKILL"); } catch {}
   serverProc.kill();
   throw new Error(`Failed to start web demo server on port ${demoPort}`);
 }
 
-async function launchBrowserAndGetPage() {
-  const serverProc = await startDemoServer();
+async function launchBrowserAndGetPage(): Promise<LaunchedBrowserSession> {
+  const serverProc: ChildProcess = await startDemoServer();
 
-  const chromeProc = spawn("chromium", [
+  const chromeProc: ChildProcess = spawn("chromium", [
     "--headless=new",
     `--remote-debugging-port=${cdpPort}`,
     "--no-sandbox",
@@ -127,28 +143,28 @@ async function launchBrowserAndGetPage() {
     demoUrl,
   ], { stdio: "ignore", detached: true });
 
-  for (let i = 0; i < 75; i++) {
+  for (let i: number = 0; i < 75; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
       if (res.ok) break;
     } catch {}
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
   }
 
-  const listRes = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/list`), 10000, "json/list");
-  const targets = await listRes.json();
-  let page = targets.find((t) => t.type === "page" && t.url.includes(`127.0.0.1:${demoPort}`));
+  const listRes: Response = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/list`), 10000, "json/list");
+  const targets = (await listRes.json()) as CdpTarget[];
+  let page: CdpTarget | undefined = targets.find((t: CdpTarget) => t.type === "page" && t.url.includes(`127.0.0.1:${demoPort}`));
 
   if (!page) {
-    const newTargetRes = await withTimeout(
+    const newTargetRes: Response = await withTimeout(
       fetch(`http://127.0.0.1:${cdpPort}/json/new?${demoUrl}`, { method: "PUT" }),
       10000,
       "json/new",
     );
-    page = await newTargetRes.json();
+    page = (await newTargetRes.json()) as CdpTarget;
   }
 
-  const cdp = new CdpClient(page.webSocketDebuggerUrl);
+  const cdp: CdpClient = new CdpClient(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -156,10 +172,10 @@ async function launchBrowserAndGetPage() {
   return { cdp, chromeProc, serverProc };
 }
 
-test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
+test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t: TestContext) => {
   const { cdp, chromeProc, serverProc } = await launchBrowserAndGetPage();
 
-  t.after(() => {
+  t.after((): void => {
     cdp.close();
     // Group SIGKILL: a plain SIGTERM to the wrapper pid leaves the browser
     // alive holding its debug port, which poisons later runs.
@@ -171,7 +187,7 @@ test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
   });
 
   // Helper to wait for all prose elements to settle to current container width
-  const waitForAllSettled = async () => {
+  const waitForAllSettled = async (): Promise<void> => {
     await cdp.evaluate(`
       new Promise((resolve, reject) => {
         const startTime = performance.now();
@@ -211,7 +227,7 @@ test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
   await waitForAllSettled();
 
   await t.test("All 12 prose elements and candidate paragraphs are 100% enhanced", async () => {
-    const data = await cdp.evaluate(`
+    const data = await cdp.evaluate<ProseElementInfo[]>(`
       Array.from(document.querySelectorAll("tiqian-prose")).map((el, i) => {
         const paragraphs = Array.from(el.querySelectorAll("p, li"));
         return {
@@ -274,7 +290,7 @@ test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
 
     await waitForAllSettled();
 
-    const result = await cdp.evaluate(`
+    const result = await cdp.evaluate<DragStepProseInfo[]>(`
       Array.from(document.querySelectorAll("tiqian-prose")).map((el, i) => {
         const paragraphs = Array.from(el.querySelectorAll("p, li"));
         return {
@@ -334,7 +350,7 @@ test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
     }
 
     // Article 1 first line (pure CJK) must quantize to 272px (17 * 16px) inside ~278px content box
-    const article1 = result[0];
+    const article1: DragStepProseInfo = result[0];
     assert.equal(
       Math.round(article1.paragraphsDetail[0].lines[0].width),
       272,
@@ -356,7 +372,7 @@ test("Tiqian Justify and LineLengthGrid Quantization Test Suite", async (t) => {
 
     await waitForAllSettled();
 
-    const result = await cdp.evaluate(`
+    const result = await cdp.evaluate<Width670ProseInfo[]>(`
       Array.from(document.querySelectorAll("tiqian-prose")).map((el, i) => {
         const p = el.querySelector("p, li");
         const line = p?.querySelector(".tq-line");

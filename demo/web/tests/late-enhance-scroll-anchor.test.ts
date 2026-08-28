@@ -1,7 +1,16 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import type {
+  AnchorProbeResult,
+  AnimationSamplesResult,
+  CdpEvaluateResponse,
+  CdpPendingCallback,
+  CdpTarget,
+  LaunchScenarioOptions,
+  ParagraphTopResult,
+} from "./types.js";
 
 // ProgressiveViewportAnchorCompensation: when the runtime enhances an article
 // the reader has already scrolled into, progressive slices replace content
@@ -14,98 +23,106 @@ import { fileURLToPath } from "node:url";
 // zero is never adjusted at all — the two failure modes of the external
 // MutationObserver + rAF prototype this design replaces.
 
-const webDemoDir = fileURLToPath(new URL("..", import.meta.url));
+const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
 
 class CdpClient {
-  constructor(wsUrl) {
+  wsUrl: string;
+  ws: WebSocket | null = null;
+  id: number = 0;
+  pending: Map<number, CdpPendingCallback> = new Map();
+
+  constructor(wsUrl: string) {
     this.wsUrl = wsUrl;
-    this.ws = null;
-    this.id = 0;
-    this.pending = new Map();
   }
 
-  async connect() {
-    return new Promise((resolve, reject) => {
+  async connect(): Promise<void> {
+    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
       this.ws = new WebSocket(this.wsUrl);
-      this.ws.onopen = () => resolve();
-      this.ws.onerror = (err) => reject(err);
-      this.ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
+      this.ws.onopen = (): void => resolve();
+      this.ws.onerror = (err: Event): void => reject(err);
+      this.ws.onmessage = (event: MessageEvent): void => {
+        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
         if (msg.id && this.pending.has(msg.id)) {
-          const { resolve, reject } = this.pending.get(msg.id);
+          const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
           if (msg.error) {
-            reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+            rej(new Error(msg.error.message || JSON.stringify(msg.error)));
           } else {
-            resolve(msg.result);
+            res(msg.result);
           }
         }
       };
     });
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
       this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws!.send(JSON.stringify({ id, method, params }));
     });
   }
 
-  async evaluate(expression) {
-    const res = await this.send("Runtime.evaluate", {
+  async evaluate<T = unknown>(expression: string): Promise<T> {
+    const res = (await this.send("Runtime.evaluate", {
       expression,
       awaitPromise: true,
       returnByValue: true,
-    });
+    })) as CdpEvaluateResponse<T>;
     if (res.exceptionDetails) {
       throw new Error(`Runtime exception: ${JSON.stringify(res.exceptionDetails)}`);
     }
-    return res.result?.value;
+    return res.result?.value as T;
   }
 
-  close() {
+  close(): void {
     this.ws?.close();
   }
+}
+
+interface ScenarioSession {
+  cdp: CdpClient;
+  chromeProc: ChildProcess | null;
+  serverProc: ChildProcess | null;
 }
 
 // One dev server serves every scenario in this file; killing it between
 // tests would race the HEAD preflight against a dying listener. The process
 // handle pins the event loop, so the file-level after hook is what lets the
 // serial runner move on.
-let spawnedServerProc = null;
+let spawnedServerProc: ChildProcess | null = null;
 
-async function ensureServerRunning() {
+async function ensureServerRunning(): Promise<ChildProcess | null> {
   try {
-    const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+    const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
     if (res.ok) return null;
   } catch {}
-  const proc = spawn("bun", ["run", "start"], {
+  const proc: ChildProcess = spawn("bun", ["run", "start"], {
     cwd: webDemoDir,
     stdio: "ignore",
     detached: false,
   });
-  for (let i = 0; i < 60; i++) {
+  for (let i: number = 0; i < 60; i++) {
     try {
-      const res = await fetch("http://localhost:8888/", { method: "HEAD" });
+      const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) {
         spawnedServerProc = proc;
         return proc;
       }
     } catch {}
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 500));
   }
   proc.kill();
   throw new Error("Failed to start web demo server on port 8888");
 }
 
-after(() => {
+after((): void => {
   spawnedServerProc?.kill();
 });
 
 // Marks every root disabled while the document streams in, so the page loads
 // with untouched native paragraphs — the "runtime arrives late" scenario.
-const DISABLE_ON_PARSE = `
+const DISABLE_ON_PARSE: string = `
   new MutationObserver((records) => {
     for (const record of records) {
       for (const node of record.addedNodes) {
@@ -121,10 +138,10 @@ const DISABLE_ON_PARSE = `
   }).observe(document, { childList: true, subtree: true });
 `;
 
-async function launchScenario({ disableRoots }) {
-  const serverProc = await ensureServerRunning();
-  const port = 9444;
-  const chromeProc = spawn("chromium", [
+async function launchScenario({ disableRoots }: LaunchScenarioOptions): Promise<ScenarioSession> {
+  const serverProc: ChildProcess | null = await ensureServerRunning();
+  const port: number = 9444;
+  const chromeProc: ChildProcess = spawn("chromium", [
     "--headless=new",
     `--remote-debugging-port=${port}`,
     "--no-sandbox",
@@ -132,17 +149,17 @@ async function launchScenario({ disableRoots }) {
     "--disable-dev-shm-usage",
     "about:blank",
   ], { stdio: "ignore" });
-  for (let i = 0; i < 40; i++) {
+  for (let i: number = 0; i < 40; i++) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/json/version`);
+      const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) break;
     } catch {}
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 250));
   }
-  const listRes = await fetch(`http://127.0.0.1:${port}/json/list`);
-  const targets = await listRes.json();
-  const page = targets.find((t) => t.type === "page");
-  const cdp = new CdpClient(page.webSocketDebuggerUrl);
+  const listRes: Response = await fetch(`http://127.0.0.1:${port}/json/list`);
+  const targets = (await listRes.json()) as CdpTarget[];
+  const page: CdpTarget = targets.find((t: CdpTarget) => t.type === "page")!;
+  const cdp: CdpClient = new CdpClient(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
@@ -161,26 +178,26 @@ async function launchScenario({ disableRoots }) {
   await cdp.send("Page.navigate", { url: "http://localhost:8888/" });
   // A cold parcel rebuild can hold the first response for many seconds; wait
   // for the article roots instead of a fixed delay.
-  const deadline = Date.now() + 60000;
+  const deadline: number = Date.now() + 60000;
   while (Date.now() < deadline) {
-    const roots = await cdp.evaluate(
+    const roots: number = await cdp.evaluate<number>(
       `document.querySelectorAll("tiqian-prose").length`,
     ).catch(() => 0);
     if (roots > 0) break;
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 500));
   }
-  await new Promise((r) => setTimeout(r, 1000));
+  await new Promise((r: (val: void) => void) => setTimeout(r, 1000));
   return { cdp, chromeProc, serverProc };
 }
 
-function releaseScenario({ cdp, chromeProc }) {
+function releaseScenario({ cdp, chromeProc }: ScenarioSession): void {
   cdp.close();
   chromeProc?.kill();
 }
 
 // Enhancement is settled when the taken-over paragraph count is nonzero and
 // stays stable across a quiet window.
-const SETTLE_EXPRESSION = `
+const SETTLE_EXPRESSION: string = `
   (async () => {
     const deadline = performance.now() + 25000;
     let last = -1;
@@ -200,7 +217,7 @@ const SETTLE_EXPRESSION = `
   })()
 `;
 
-const ANCHOR_PROBE_EXPRESSION = `
+const ANCHOR_PROBE_EXPRESSION: string = `
   (() => {
     const paragraphs = document.querySelectorAll("tiqian-prose p");
     const center = innerHeight / 2;
@@ -216,7 +233,7 @@ const ANCHOR_PROBE_EXPRESSION = `
   })()
 `;
 
-function paragraphTopExpression(index) {
+function paragraphTopExpression(index: number): string {
   return `
     (() => {
       const paragraph = document.querySelectorAll("tiqian-prose p")[${JSON.stringify(index)}];
@@ -234,7 +251,7 @@ function paragraphTopExpression(index) {
 // Scrolls a mid-page article's center into the viewport center, then lets the
 // gesture grace opened by the scroll event lapse, mirroring a reader who
 // stopped moving before the runtime arrives.
-const SCROLL_TO_MID_EXPRESSION = `
+const SCROLL_TO_MID_EXPRESSION: string = `
   (async () => {
     const roots = document.querySelectorAll("tiqian-prose");
     const target = roots[Math.min(4, roots.length - 1)];
@@ -245,7 +262,7 @@ const SCROLL_TO_MID_EXPRESSION = `
   })()
 `;
 
-const ENABLE_ROOTS_EXPRESSION = `
+const ENABLE_ROOTS_EXPRESSION: string = `
   (() => {
     const roots = document.querySelectorAll("tiqian-prose[disabled]");
     for (const root of roots) root.removeAttribute("disabled");
@@ -256,26 +273,26 @@ const ENABLE_ROOTS_EXPRESSION = `
 // Per-slice corrections below the 0.5px epsilon are deliberately skipped, so
 // a settled enhancement may leave a few pixels of accumulated residue; the
 // uncompensated displacement in these scenarios is several times larger.
-const ANCHOR_TOLERANCE_PX = 12;
-const MEANINGFUL_SHIFT_PX = 24;
+const ANCHOR_TOLERANCE_PX: number = 12;
+const MEANINGFUL_SHIFT_PX: number = 24;
 
 test("LateEnhanceScrollAnchor: enhancement under a mid-article reading position keeps the anchor paragraph still", async () => {
-  const scenario = await launchScenario({ disableRoots: true });
+  const scenario: ScenarioSession = await launchScenario({ disableRoots: true });
   const { cdp } = scenario;
   try {
     await cdp.evaluate(SCROLL_TO_MID_EXPRESSION);
-    await new Promise((r) => setTimeout(r, 600));
-    const before = await cdp.evaluate(ANCHOR_PROBE_EXPRESSION);
+    await new Promise((r: (val: void) => void) => setTimeout(r, 600));
+    const before = await cdp.evaluate<AnchorProbeResult | null>(ANCHOR_PROBE_EXPRESSION);
     assert.ok(before, "an anchor paragraph must intersect the viewport before enhancement");
 
-    const enabled = await cdp.evaluate(ENABLE_ROOTS_EXPRESSION);
+    const enabled = await cdp.evaluate<number>(ENABLE_ROOTS_EXPRESSION);
     assert.ok(enabled > 0, "the disabled-on-parse scenario must find roots to enable");
-    const rendered = await cdp.evaluate(SETTLE_EXPRESSION);
+    const rendered = await cdp.evaluate<number>(SETTLE_EXPRESSION);
     assert.ok(rendered > 0, "enhancement must take over paragraphs after enabling");
 
-    const after = await cdp.evaluate(paragraphTopExpression(before.index));
+    const after = await cdp.evaluate<ParagraphTopResult | null>(paragraphTopExpression(before.index));
     assert.ok(after, "the anchor paragraph must survive enhancement");
-    const pageHeightDelta = Math.abs(after.pageHeight - before.pageHeight);
+    const pageHeightDelta: number = Math.abs(after.pageHeight - before.pageHeight);
     assert.ok(
       pageHeightDelta >= MEANINGFUL_SHIFT_PX,
       `enhancement must change the page height enough to make the scenario meaningful ` +
@@ -292,10 +309,10 @@ test("LateEnhanceScrollAnchor: enhancement under a mid-article reading position 
 });
 
 test("LateEnhanceScrollAnchor: enhancing at the top of the page during an entrance animation never scrolls", async () => {
-  const scenario = await launchScenario({ disableRoots: true });
+  const scenario: ScenarioSession = await launchScenario({ disableRoots: true });
   const { cdp } = scenario;
   try {
-    const samples = await cdp.evaluate(`
+    const samples = await cdp.evaluate<AnimationSamplesResult>(`
       (async () => {
         scrollTo(0, 0);
         const style = document.createElement("style");
@@ -319,12 +336,12 @@ test("LateEnhanceScrollAnchor: enhancing at the top of the page during an entran
       })()
     `);
     assert.ok(samples.held > 0, "the disabled-on-parse scenario must hold roots until the animation starts");
-    const rendered = await cdp.evaluate(SETTLE_EXPRESSION);
+    const rendered = await cdp.evaluate<number>(SETTLE_EXPRESSION);
     assert.ok(rendered > 0, "enhancement must take over paragraphs during the animation");
     assert.ok(
-      samples.observed.every((value) => value === 0),
+      samples.observed.every((value: number) => value === 0),
       `scroll position must stay at the top through animation and enhancement (saw ${
-        samples.observed.find((value) => value !== 0)
+        samples.observed.find((value: number) => value !== 0)
       })`,
     );
   } finally {
@@ -333,12 +350,12 @@ test("LateEnhanceScrollAnchor: enhancing at the top of the page during an entran
 });
 
 test("LateEnhanceScrollAnchor: a running entrance animation does not pollute a mid-article compensation", async () => {
-  const scenario = await launchScenario({ disableRoots: true });
+  const scenario: ScenarioSession = await launchScenario({ disableRoots: true });
   const { cdp } = scenario;
   try {
     await cdp.evaluate(SCROLL_TO_MID_EXPRESSION);
-    await new Promise((r) => setTimeout(r, 600));
-    const before = await cdp.evaluate(ANCHOR_PROBE_EXPRESSION);
+    await new Promise((r: (val: void) => void) => setTimeout(r, 600));
+    const before = await cdp.evaluate<AnchorProbeResult | null>(ANCHOR_PROBE_EXPRESSION);
     assert.ok(before);
 
     // The animation starts in the same task as the un-disable, so slices
@@ -358,12 +375,12 @@ test("LateEnhanceScrollAnchor: a running entrance animation does not pollute a m
         return held;
       })()
     `);
-    assert.ok(await cdp.evaluate("1") === 1, "page must stay responsive");
-    const rendered = await cdp.evaluate(SETTLE_EXPRESSION);
+    assert.ok((await cdp.evaluate<number>("1")) === 1, "page must stay responsive");
+    const rendered = await cdp.evaluate<number>(SETTLE_EXPRESSION);
     assert.ok(rendered > 0, "enhancement must take over paragraphs during the animation");
     // Wait out the animation so the final read sees the resting transform.
-    await new Promise((r) => setTimeout(r, 1500));
-    const after = await cdp.evaluate(paragraphTopExpression(before.index));
+    await new Promise((r: (val: void) => void) => setTimeout(r, 1500));
+    const after = await cdp.evaluate<ParagraphTopResult | null>(paragraphTopExpression(before.index));
     assert.ok(after);
     assert.ok(
       Math.abs(after.top - before.top) <= ANCHOR_TOLERANCE_PX,
