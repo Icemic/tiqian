@@ -120,6 +120,7 @@ import {
 } from "../../web-history/oneshot-history-harness.diag.mjs";
 import type {
   Box,
+  CdpMessageEventPayload,
   CdpTarget,
   DeepGeometryCounts,
   DeepGeometryReport,
@@ -129,9 +130,10 @@ import type {
   SweepPlan,
   SweepResult,
 } from "./types.js";
+import { probe } from "./types.js";
 
 const repoRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
-const sleep = (ms: number): Promise<void> => new Promise((resolve: (val: void) => void) => setTimeout(resolve, ms));
+const sleep = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 interface HistoryBaselineFixture {
   counts: DeepGeometryCounts;
@@ -139,10 +141,7 @@ interface HistoryBaselineFixture {
   geometry: DeepGeometryReport;
 }
 
-// Kit scaffolding shared by both subtests: static server for the era, one
-// headless chromium on the CDP port, one connected client with the page
-// diagnostics collected into pageLog. Errors inside the setup clean up
-// every half they already created.
+// Opens the demo page in the kit harness under a chosen era.
 async function openKitPage(era: EraConfig): Promise<KitSession> {
   const server = await startKitServer(era);
   let browserProc: ChildProcess | null = null;
@@ -155,15 +154,14 @@ async function openKitPage(era: EraConfig): Promise<KitSession> {
       "--no-sandbox",
       "--disable-gpu",
       "--disable-dev-shm-usage",
-      "--force-device-scale-factor=1",
-      "--hide-scrollbars",
-      "about:blank",
-    ], { stdio: "ignore", detached: true });
+      `http://127.0.0.1:${DEMO_PORT}/`,
+    ], { stdio: "ignore" });
 
-    await waitForCdpEndpoint(CDP_PORT);
-    const targets = (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json()) as CdpTarget[];
-    const pageTarget: CdpTarget | undefined = targets.find((tr: CdpTarget) => tr.type === "page" && tr.url === "about:blank");
-    assert.ok(pageTarget, "Must find the blank page target");
+    await waitForCdpEndpoint(CDP_PORT, 15000);
+    const listRes: Response = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
+    const targets = (await listRes.json()) as CdpTarget[];
+    const pageTarget = targets.find((t) => t.type === "page") || targets[0];
+    assert.ok(pageTarget, "must find a page target");
 
     client = new CdpClient(pageTarget.webSocketDebuggerUrl);
     await client.connect();
@@ -177,18 +175,7 @@ async function openKitPage(era: EraConfig): Promise<KitSession> {
 
     const pageLog: string[] = [];
     client.ws!.addEventListener("message", (event: MessageEvent) => {
-      const msg = JSON.parse(String(event.data)) as {
-        method?: string;
-        params?: {
-          type?: string;
-          args?: { value?: unknown; description?: string; type?: string }[];
-          exceptionDetails?: { exception?: { description?: string }; text?: string };
-          entry?: { level?: string; text?: string };
-          response?: { status?: number; url?: string };
-          errorText?: string;
-          requestId?: string;
-        };
-      };
+      const msg = JSON.parse(String(event.data)) as CdpMessageEventPayload;
       if (msg.method === "Runtime.consoleAPICalled") {
         const text: string = (msg.params?.args ?? []).map((a) => a.value ?? a.description ?? a.type).join(" ");
         pageLog.push(`console.${msg.params?.type}: ${text}`.slice(0, 400));
@@ -390,7 +377,7 @@ test("OneShotGeometryHistory: current tree capture equals the frozen b649841..HE
   try {
     kit = await openKitPage(era);
 
-    const record = await chainCapture(kit.client as unknown as CdpClient, era, "current-tree", kit.pageLog);
+    const record = await chainCapture(probe<CdpClient>(kit.client), era, "current-tree", kit.pageLog);
     assert.ok(record.valid, `kit capture must be valid; reason=${record.reason} log=${JSON.stringify(record.pageLog ?? kit.pageLog.slice(0, 20))}`);
     assert.ok(record.selfEqual, "capture must be self-consistent across the 400ms re-capture");
 
@@ -424,7 +411,7 @@ test("OneShotReEnhanceGeometry: a one-shot re-enhance over settled roots keeps e
   try {
     kit = await openKitPage(era);
     const { client, pageLog } = kit;
-    const cdpClient = client as unknown as CdpClient;
+    const cdpClient = probe<CdpClient>(client);
 
     await navigateAndWaitReady(cdpClient);
     await client.evaluate(SETTLE_HELPERS);

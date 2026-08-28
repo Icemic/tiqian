@@ -9,6 +9,7 @@ import type {
   DragStepProseInfo,
   ProseElementInfo,
   Width670ProseInfo,
+  CdpWsMessage,
 } from "./types.js";
 
 const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
@@ -21,7 +22,7 @@ const TOTAL_EXPECTED_PROSE_ELEMENTS: number = 12;
 const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     promise,
-    new Promise<never>((_: (val: never) => void, reject: (err: Error) => void) =>
+    new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
     ),
   ]);
@@ -37,12 +38,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return withTimeout(new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return withTimeout(new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -58,7 +59,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return withTimeout(new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return withTimeout(new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     }), 30000, `cdp ${method}`);
@@ -123,7 +124,7 @@ async function startDemoServer(): Promise<ChildProcess> {
       const res: Response = await fetch(demoUrl, { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 250));
+    await new Promise<void>((r) => setTimeout(r, 250));
   }
 
   try { if (serverProc.pid) process.kill(-serverProc.pid, "SIGKILL"); } catch {}
@@ -148,7 +149,7 @@ async function launchBrowserAndGetPage(): Promise<LaunchedBrowserSession> {
       const res: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
       if (res.ok) break;
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+    await new Promise<void>((r) => setTimeout(r, 200));
   }
 
   const listRes: Response = await withTimeout(fetch(`http://127.0.0.1:${cdpPort}/json/list`), 10000, "json/list");

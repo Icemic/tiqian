@@ -32,12 +32,18 @@ if (!Object.getOwnPropertyDescriptor(FakeText.prototype, "nodeValue")) {
   });
 }
 
-export function createReactHarness(): {
+export type ReactHarnessRenderFn = (element: React.ReactElement) => Promise<void>;
+export type ReactHarnessUnmountFn = () => Promise<void>;
+export type ReactHarnessDisposeFn = () => void;
+
+export interface ReactHarness {
   container: Element;
-  render: (element: React.ReactElement) => Promise<void>;
-  unmount: () => Promise<void>;
-  dispose: () => void;
-} {
+  render: ReactHarnessRenderFn;
+  unmount: ReactHarnessUnmountFn;
+  dispose: ReactHarnessDisposeFn;
+}
+
+export function createReactHarness(): ReactHarness {
   const container = globalThis.document.createElement("div");
   globalThis.document.body.appendChild(container);
   const root = createRoot(container);

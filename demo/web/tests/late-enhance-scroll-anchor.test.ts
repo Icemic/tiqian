@@ -10,6 +10,7 @@ import type {
   CdpTarget,
   LaunchScenarioOptions,
   ParagraphTopResult,
+  CdpWsMessage,
 } from "./types.js";
 
 // ProgressiveViewportAnchorCompensation: when the runtime enhances an article
@@ -36,12 +37,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -57,7 +58,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     });
@@ -110,7 +111,7 @@ async function ensureServerRunning(): Promise<ChildProcess | null> {
         return proc;
       }
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 500));
+    await new Promise<void>((r) => setTimeout(r, 500));
   }
   proc.kill();
   throw new Error("Failed to start web demo server on port 8888");
@@ -154,7 +155,7 @@ async function launchScenario({ disableRoots }: LaunchScenarioOptions): Promise<
       const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) break;
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 250));
+    await new Promise<void>((r) => setTimeout(r, 250));
   }
   const listRes: Response = await fetch(`http://127.0.0.1:${port}/json/list`);
   const targets = (await listRes.json()) as CdpTarget[];
@@ -184,9 +185,9 @@ async function launchScenario({ disableRoots }: LaunchScenarioOptions): Promise<
       `document.querySelectorAll("tiqian-prose").length`,
     ).catch(() => 0);
     if (roots > 0) break;
-    await new Promise((r: (val: void) => void) => setTimeout(r, 500));
+    await new Promise<void>((r) => setTimeout(r, 500));
   }
-  await new Promise((r: (val: void) => void) => setTimeout(r, 1000));
+  await new Promise<void>((r) => setTimeout(r, 1000));
   return { cdp, chromeProc, serverProc };
 }
 
@@ -281,7 +282,7 @@ test("LateEnhanceScrollAnchor: enhancement under a mid-article reading position 
   const { cdp } = scenario;
   try {
     await cdp.evaluate(SCROLL_TO_MID_EXPRESSION);
-    await new Promise((r: (val: void) => void) => setTimeout(r, 600));
+    await new Promise<void>((r) => setTimeout(r, 600));
     const before = await cdp.evaluate<AnchorProbeResult | null>(ANCHOR_PROBE_EXPRESSION);
     assert.ok(before, "an anchor paragraph must intersect the viewport before enhancement");
 
@@ -354,7 +355,7 @@ test("LateEnhanceScrollAnchor: a running entrance animation does not pollute a m
   const { cdp } = scenario;
   try {
     await cdp.evaluate(SCROLL_TO_MID_EXPRESSION);
-    await new Promise((r: (val: void) => void) => setTimeout(r, 600));
+    await new Promise<void>((r) => setTimeout(r, 600));
     const before = await cdp.evaluate<AnchorProbeResult | null>(ANCHOR_PROBE_EXPRESSION);
     assert.ok(before);
 
@@ -379,7 +380,7 @@ test("LateEnhanceScrollAnchor: a running entrance animation does not pollute a m
     const rendered = await cdp.evaluate<number>(SETTLE_EXPRESSION);
     assert.ok(rendered > 0, "enhancement must take over paragraphs during the animation");
     // Wait out the animation so the final read sees the resting transform.
-    await new Promise((r: (val: void) => void) => setTimeout(r, 1500));
+    await new Promise<void>((r) => setTimeout(r, 1500));
     const after = await cdp.evaluate<ParagraphTopResult | null>(paragraphTopExpression(before.index));
     assert.ok(after);
     assert.ok(

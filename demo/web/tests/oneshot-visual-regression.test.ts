@@ -9,6 +9,7 @@ import type {
   CdpScreenshotParams,
   CdpTarget,
   CompareStateOptions,
+  CompareStatePhaseResult,
   CompareStateResult,
   PixelsDecoded,
   PngDecoded,
@@ -16,6 +17,7 @@ import type {
   SettleResult,
   VisualCapturePlan,
   VisualCaptureSet,
+  CdpWsMessage,
 } from "./types.js";
 
 const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
@@ -31,12 +33,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -52,7 +54,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     });
@@ -89,7 +91,7 @@ async function waitForServer(url: string, timeoutMs: number = 20000): Promise<vo
     } catch {
       // retry
     }
-    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 250));
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Timeout waiting for demo server at ${url}`);
 }
@@ -103,7 +105,7 @@ async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Prom
     } catch {
       // retry
     }
-    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
@@ -392,7 +394,7 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
       });
       for (const scroll of plan.scrolls) {
         await client!.evaluate(`window.scrollTo(0, ${scroll})`);
-        await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 500));
+        await new Promise<void>((resolve) => setTimeout(resolve, 500));
         const settled = await client!.evaluate<SettleResult>("__settle(15000)");
         assert.ok(settled.settled, `Must settle at scroll offset ${scroll}`);
         shots["scroll" + scroll] = await client!.screenshot({
@@ -441,7 +443,7 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
       const coordinatedPass: VisualCaptureSet = await captureSet(plan);
       const coordinated: Record<string, Buffer> = coordinatedPass.shots;
       await client!.evaluate("__oneshot()");
-      await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 800));
+      await new Promise<void>((resolve) => setTimeout(resolve, 800));
       const afterOneShot = await client!.evaluate<SettleResult>("__settle(45000)");
       assert.ok(afterOneShot.settled, `${label}: page must settle after the one-shot`);
 
@@ -496,7 +498,7 @@ test("OneShotVisualRegression: coordinated and one-shot pages are pixel-identica
       return { shots: Object.keys(coordinated).length, pageHeight: settled.pageHeight! };
     };
 
-    const results: (CompareStateResult & { phase: string })[] = [];
+    const results: CompareStatePhaseResult[] = [];
     for (const width of [900, 700]) {
       await setViewportWidth(width);
       results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`, { assertPixels: true })) });

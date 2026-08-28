@@ -18,9 +18,19 @@ export interface TiqianProseEventDetail {
   readonly [key: string]: unknown;
 }
 
+export type RelayoutReadyHandler = (detail: TiqianProseEventDetail) => void;
+
+export interface UseTiqianProseContextHolder {
+  current: EnhancedElementContext | null;
+}
+
+export interface UseTiqianProseHandlers {
+  onRelayoutReady?: RelayoutReadyHandler;
+}
+
 export interface UseTiqianProseResult {
   /** Live ref to the mounted EnhancedElementContext; null while unmounted. */
-  readonly contextRef: { current: EnhancedElementContext | null };
+  readonly contextRef: UseTiqianProseContextHolder;
 }
 
 // Mounts the enhancement context for a host element and keeps it alive for
@@ -31,7 +41,7 @@ export interface UseTiqianProseResult {
 function useTiqianProse(
   element: Element | null,
   options?: EnhancementOptions,
-  handlers: { onRelayoutReady?: (detail: TiqianProseEventDetail) => void } = {},
+  handlers: UseTiqianProseHandlers = {},
 ): UseTiqianProseResult {
   const contextRef = useRef<EnhancedElementContext | null>(null);
   const optionsRef = useRef(options);
@@ -69,7 +79,7 @@ export interface TiqianProseProps {
   /** The prose source paragraphs (plain HTML children). */
   readonly children?: ReactElement | ReactElement[] | string | null;
   readonly options?: EnhancementOptions;
-  readonly onRelayoutReady?: (detail: TiqianProseEventDetail) => void;
+  readonly onRelayoutReady?: RelayoutReadyHandler;
 }
 
 // Small component face: renders the <tiqian-prose> host element and drives

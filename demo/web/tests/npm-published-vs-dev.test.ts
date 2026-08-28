@@ -10,10 +10,12 @@ import { inflateSync } from "node:zlib";
 import type {
   Box,
   CdpEvaluateResponse,
+  CdpMessageEventPayload,
   CdpPendingCallback,
   CdpScreenshotParams,
   CdpTarget,
   CompareStateOptions,
+  CompareStatePhaseResult,
   CompareStateResult,
   DemoServerHandle,
   GeometryNodeReport,
@@ -22,6 +24,7 @@ import type {
   PngDecoded,
   ScreenshotComparison,
   SettleResult,
+  SettleWithEnhancedResult,
   VisualCapturePlan,
   VisualCaptureSet,
 } from "./types.js";
@@ -46,13 +49,13 @@ const pubUrl: string = `http://127.0.0.1:${pubPort}/`;
 const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
   Promise.race([
     promise,
-    new Promise<never>((_: (val: never) => void, reject: (err: Error) => void) =>
+    new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
     ),
   ]);
 
 const run = (cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<string> =>
-  withTimeout(new Promise((resolve: (val: string) => void, reject: (err: Error) => void) => {
+  withTimeout(new Promise<string>((resolve, reject) => {
     execFile(cmd, args, opts, (err: Error | null, stdout: string, stderr: string) => {
       if (err) reject(new Error(`${cmd} ${args.join(" ")} failed: ${stderr || err.message}`));
       else resolve(stdout);
@@ -71,22 +74,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return withTimeout(new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return withTimeout(new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as {
-          id?: number;
-          method?: string;
-          params?: {
-            type?: string;
-            args?: { value?: unknown; description?: string }[];
-            exceptionDetails?: { text?: string; exception?: { description?: string } };
-          };
-          error?: { message?: string };
-          result?: unknown;
-        };
+        const msg = JSON.parse(String(event.data)) as CdpMessageEventPayload;
         if (msg.method === "Runtime.consoleAPICalled" && ["error", "warning"].includes(msg.params?.type ?? "")) {
           this.console.push(`${msg.params?.type}: ${(msg.params?.args ?? []).map((a) => a.value ?? a.description ?? "").join(" ")}`);
         }
@@ -108,7 +101,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return withTimeout(new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return withTimeout(new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     }), 60000, `cdp ${method}`);
@@ -315,7 +308,7 @@ function startDemoServer(port: number, pkgDir: string): Promise<DemoServerHandle
       res.end(String(err));
     }
   });
-  return withTimeout(new Promise((resolve: (val: DemoServerHandle) => void) => server.listen(port, "127.0.0.1", () => resolve({ server, notFound }))), 10000, `listen ${port}`);
+  return withTimeout(new Promise<DemoServerHandle>((resolve) => server.listen(port, "127.0.0.1", () => resolve({ server, notFound }))), 10000, `listen ${port}`);
 }
 
 // In-page helpers shared by both sides. The settle check is attribute-agnostic:
@@ -395,7 +388,7 @@ const captureSet = async (client: CdpClient, plan: VisualCapturePlan): Promise<V
   });
   for (const scroll of plan.scrolls) {
     await client.evaluate(`window.scrollTo(0, ${scroll})`);
-    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 500));
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
     const settled = await client.evaluate<SettleResult>("__settle(20000)");
     assert.ok(settled.settled, `Must settle at scroll offset ${scroll}`);
     shots["scroll" + scroll] = await client.screenshot({
@@ -500,7 +493,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
         const res: Response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
         cdpUp = res.ok;
       } catch {}
-      if (!cdpUp) await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+      if (!cdpUp) await new Promise<void>((r) => setTimeout(r, 200));
     }
     assert.ok(cdpUp, "browser remote debugging port must come up");
 
@@ -516,7 +509,8 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
     dev = await openPage(devUrl);
     pub = await openPage(pubUrl);
 
-    const both = async <R>(fn: (client: CdpClient, side: string) => Promise<R>): Promise<[R, R]> =>
+    type BothClientFn<R> = (client: CdpClient, side: string) => Promise<R>;
+    const both = async <R>(fn: BothClientFn<R>): Promise<[R, R]> =>
       Promise.all([fn(dev!, "dev"), fn(pub!, "published")]);
     const setViewportWidth = (width: number): Promise<[unknown, unknown]> =>
       both((client: CdpClient) => client.send("Emulation.setDeviceMetricsOverride", {
@@ -555,10 +549,10 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       // Settling is sequential with bringToFront: enhancement scheduling on a
       // background tab is throttled, and a hidden page never reaches its first
       // taken-over paragraph within the settle budget.
-      const settled: (SettleResult & { enhanced: number })[] = [];
+      const settled: SettleWithEnhancedResult[] = [];
       for (const client of [dev!, pub!]) {
         await client.send("Page.bringToFront");
-        settled.push(await client.evaluate<SettleResult & { enhanced: number }>("__settle(45000)"));
+        settled.push(await client.evaluate<SettleWithEnhancedResult>("__settle(45000)"));
       }
       assert.ok(settled[0].settled, `${label}: dev page must settle`);
       assert.ok(settled[1].settled, `${label}: published page must settle`);
@@ -660,7 +654,7 @@ test("NpmPublishedVsDev: published @tiqian/prose matches the working tree visual
       return { shots: Object.keys(devPass.shots).length, pageHeight: heights[0] };
     };
 
-    const results: (CompareStateResult & { phase: string })[] = [];
+    const results: CompareStatePhaseResult[] = [];
     for (const width of [900, 700]) {
       await setViewportWidth(width);
       results.push({ phase: `initial@${width}`, ...(await compareState(`initial@${width}`, { assertPixels: true })) });

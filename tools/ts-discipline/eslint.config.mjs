@@ -38,7 +38,9 @@ const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const targetPackages = [
   "frontend/web/npm",
   "frontend/web/core",
+  "frontend/web/react",
   "ffi/js/npm",
+  "demo/web/tests",
 ];
 
 const patterns = [
@@ -81,7 +83,13 @@ const ignores = [
   "**/.gradle/**",
   "**/.b2-tmp/**",
   "**/target/**",
-  "demo/**",
+  "demo/font-diagnostics/**",
+  "demo/android/**",
+  "demo/apple/**",
+  "demo/src/**",
+  "demo/web-history/**",
+  "demo/web/dist/**",
+  "demo/web/main.js",
   "docs/**",
   "tools/**",
   "shaping/**",

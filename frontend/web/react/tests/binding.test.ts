@@ -14,6 +14,7 @@ import {
   installTestAnimationFrames,
   loadHostRuntime,
   mount,
+  probe,
   setElementRect,
 } from "../../npm/tests/runtime-host.js";
 import {
@@ -36,6 +37,18 @@ function corpusHtml(): string {
   return DEMO_CORPUS.map((text) => `<p>${text}</p>`).join("");
 }
 
+interface ContextHolder {
+  current: unknown;
+}
+
+interface CapturedHolder {
+  contextRef: ContextHolder;
+}
+
+interface HarnessOptionsProps {
+  options: Record<string, unknown>;
+}
+
 test("mount: the hook creates and mounts the EnhancedElementContext directly", async (t) => {
   t.after(cleanupMounted);
   installTestAnimationFrames();
@@ -45,9 +58,9 @@ test("mount: the hook creates and mounts the EnhancedElementContext directly", a
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
+  const captured: CapturedHolder = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root as FakeElement & Element).contextRef;
+    captured.contextRef = useTiqianProse(probe<Element>(root)).contextRef;
     return null;
   }
 
@@ -73,9 +86,9 @@ test("options update: new option objects flow through updateOptions", async (t) 
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
-  function Harness({ options }: { options: Record<string, unknown> }) {
-    captured.contextRef = useTiqianProse(root as FakeElement & Element, options).contextRef;
+  const captured: CapturedHolder = { contextRef: { current: null } };
+  function Harness({ options }: HarnessOptionsProps) {
+    captured.contextRef = useTiqianProse(probe<Element>(root), options).contextRef;
     return null;
   }
 
@@ -105,9 +118,9 @@ test("unmount: the effect cleanup settles the lifecycle and releases the context
 
   const harness = createReactHarness();
   t.after(() => harness.dispose());
-  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
+  const captured: CapturedHolder = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root as FakeElement & Element).contextRef;
+    captured.contextRef = useTiqianProse(probe<Element>(root)).contextRef;
     return null;
   }
 
@@ -135,8 +148,8 @@ test("unmount: the effect cleanup settles the lifecycle and releases the context
   );
   const host = componentHarness.container.querySelector("tiqian-prose");
   assert.ok(host, "the component rendered the tiqian-prose host element");
-  (host as HTMLElement).style.setProperty("--tq-styles-ready", "1");
-  setElementRect(host as TiqianProseElement & FakeElement, 0, 360);
+  probe<HTMLElement>(host).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(probe<FakeElement>(host), 0, 360);
   await componentHarness.render(
     React.createElement(TiqianProse, { options: { disabled: false } }, React.createElement("p", null, DEMO_CORPUS[0])),
   );
@@ -159,9 +172,9 @@ test("relayout-ready: the subscription prop surfaces the notification", async (t
   const harness = createReactHarness();
   t.after(() => harness.dispose());
   const notifications: unknown[] = [];
-  const captured: { contextRef: React.MutableRefObject<unknown> } = { contextRef: { current: null } };
+  const captured: CapturedHolder = { contextRef: { current: null } };
   function Harness() {
-    captured.contextRef = useTiqianProse(root as FakeElement & Element, {}, {
+    captured.contextRef = useTiqianProse(probe<Element>(root), {}, {
       onRelayoutReady: (detail: unknown) => notifications.push(detail),
     }).contextRef;
     return null;
@@ -198,8 +211,8 @@ test("component face: TiqianProse renders and enhances its own host element", as
   );
   const host = harness.container.querySelector("tiqian-prose");
   assert.ok(host, "the component rendered the tiqian-prose host element");
-  (host as HTMLElement).style.setProperty("--tq-styles-ready", "1");
-  setElementRect(host as TiqianProseElement & FakeElement, 0, 360);
+  probe<HTMLElement>(host).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(probe<FakeElement>(host), 0, 360);
   await harness.render(
     React.createElement(
       TiqianProse,
@@ -223,7 +236,7 @@ test("parity: binding geometry matches the web-component path on the demo corpus
   // entry over the same root markup.
   const wcRoot = mount(`<div data-tiqian-root="true">${corpusHtml()}</div>`);
   setElementRect(wcRoot, 0, 360);
-  assert.equal(TiqianWeb.enhance(wcRoot as FakeElement & Element, null), DEMO_CORPUS.length);
+  assert.equal(TiqianWeb.enhance(probe<Element>(wcRoot), null), DEMO_CORPUS.length);
   await settleEnhanced(wcRoot);
 
   // Binding path: the component face over the identical corpus, mounted
@@ -237,8 +250,8 @@ test("parity: binding geometry matches the web-component path on the demo corpus
   );
   const reactRoot = harness.container.querySelector("tiqian-prose");
   assert.ok(reactRoot, "react root element found");
-  (reactRoot as HTMLElement).style.setProperty("--tq-styles-ready", "1");
-  setElementRect(reactRoot as TiqianProseElement & FakeElement, 0, 360);
+  probe<HTMLElement>(reactRoot).style.setProperty("--tq-styles-ready", "1");
+  setElementRect(probe<FakeElement>(reactRoot), 0, 360);
   await harness.render(
     React.createElement(TiqianProse, { options: { disabled: false } }, ...corpusChildren()),
   );
@@ -250,7 +263,7 @@ test("parity: binding geometry matches the web-component path on the demo corpus
   for (let index = 0; index < wcParagraphs.length; index += 1) {
     assert.deepEqual(
       deepGeometry(reactParagraphs[index]),
-      deepGeometry(wcParagraphs[index] as FakeElement & Node),
+      deepGeometry(probe<Node>(wcParagraphs[index])),
       `paragraph ${index} geometry diverges between the binding and the web-component path`,
     );
   }

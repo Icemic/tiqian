@@ -34,6 +34,7 @@ import type {
   CdpEvaluateResponse,
   CdpPendingCallback,
   CdpTarget,
+  CdpWsMessage,
   DirectOpsResult,
   PostSuiteResult,
   ReactAnchorResult,
@@ -367,16 +368,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as {
-          id?: number;
-          error?: { message?: string; data?: string };
-          result?: unknown;
-        };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -393,7 +390,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     });
@@ -427,7 +424,7 @@ async function waitForCdpEndpoint(port: number, timeoutMs: number = 15000): Prom
     } catch {
       // retry
     }
-    await new Promise((resolve: (val: void) => void) => setTimeout(resolve, 200));
+    await new Promise<void>((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`Timeout waiting for browser remote debugging port on ${port}`);
 }
@@ -565,7 +562,7 @@ function startFixtureServer(svelteComponents: SvelteComponents): Promise<Server>
       res.end(String(err));
     }
   });
-  return new Promise((resolve: (srv: Server) => void) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
+  return new Promise<Server>((resolve) => server.listen(demoPort, "127.0.0.1", () => resolve(server)));
 }
 
 test("FrameworkCommitConflict: framework commits survive and re-render through the tiqian raw-dom", async (_t: TestContext) => {

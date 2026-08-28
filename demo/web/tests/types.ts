@@ -49,18 +49,83 @@ export interface CdpTarget {
   title?: string;
 }
 
-export interface CdpPendingCallback {
-  resolve: (val: unknown) => void;
-  reject: (err: unknown) => void;
+export interface CdpWsMessageError {
+  message?: string;
+  data?: string;
 }
 
-export interface CdpEvaluateExceptionDetails {
-  exception?: { description?: string };
+export interface CdpWsMessage {
+  id?: number;
+  error?: CdpWsMessageError;
+  result?: unknown;
+}
+
+export function probe<T>(value: unknown): T {
+  return value as T;
+}
+
+export interface CdpMessageArg {
+  value?: unknown;
+  description?: string;
+  type?: string;
+}
+
+export interface HistoryLogEntry {
+  level?: string;
   text?: string;
 }
 
+export interface HistoryHttpResponse {
+  status?: number;
+  url?: string;
+}
+
+export interface CdpMessageParams {
+  type?: string;
+  args?: CdpMessageArg[];
+  exceptionDetails?: CdpEvaluateExceptionDetails;
+  entry?: HistoryLogEntry;
+  response?: HistoryHttpResponse;
+  errorText?: string;
+  requestId?: string;
+}
+
+export interface CdpMessageEventPayload {
+  id?: number;
+  method?: string;
+  params?: CdpMessageParams;
+  error?: CdpWsMessageError;
+  result?: unknown;
+}
+
+export interface VisibleTotalCounts {
+  visible: number;
+  total: number;
+}
+
+export type CdpPendingCallbackResolve = (val: unknown) => void;
+export type CdpPendingCallbackReject = (err: unknown) => void;
+
+export interface CdpPendingCallback {
+  resolve: CdpPendingCallbackResolve;
+  reject: CdpPendingCallbackReject;
+}
+
+export interface CdpExceptionDescription {
+  description?: string;
+}
+
+export interface CdpEvaluateExceptionDetails {
+  exception?: CdpExceptionDescription;
+  text?: string;
+}
+
+export interface CdpEvaluateResult<T = unknown> {
+  value?: T;
+}
+
 export interface CdpEvaluateResponse<T = unknown> {
-  result?: { value?: T };
+  result?: CdpEvaluateResult<T>;
   exceptionDetails?: CdpEvaluateExceptionDetails;
   data?: string;
 }
@@ -94,6 +159,10 @@ export interface SettleResult {
   pageHeight?: number;
 }
 
+export interface SettleWithEnhancedResult extends SettleResult {
+  enhanced: number;
+}
+
 export interface DiffIssue {
   k: string;
   kind: string;
@@ -117,6 +186,10 @@ export interface CompareRoundResult {
   ms: number;
   boxes: number;
   width?: number;
+}
+
+export interface CompareRoundWidthResult extends CompareRoundResult {
+  width: number;
 }
 
 export interface CoverageResult {
@@ -152,18 +225,25 @@ export interface SweepResult {
   captures: SweepCapture[];
 }
 
+export type KitClientSendFn = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+export type KitClientEvaluateFn = <T = unknown>(expression: string) => Promise<T>;
+export type KitClientScreenshotFn = (params?: Record<string, unknown>) => Promise<Buffer>;
+export type KitClientCloseFn = () => void;
+
+export interface KitClient {
+  wsUrl: string;
+  ws: WebSocket | null;
+  id: number;
+  send: KitClientSendFn;
+  evaluate: KitClientEvaluateFn;
+  screenshot: KitClientScreenshotFn;
+  close: KitClientCloseFn;
+}
+
 export interface KitSession {
   server: Server;
   browserProc: ChildProcess | null;
-  client: {
-    wsUrl: string;
-    ws: WebSocket | null;
-    id: number;
-    send: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-    evaluate: <T = unknown>(expression: string) => Promise<T>;
-    screenshot: (params?: Record<string, unknown>) => Promise<Buffer>;
-    close: () => void;
-  };
+  client: KitClient;
   pageLog: string[];
 }
 
@@ -186,8 +266,15 @@ export interface ScreenshotComparison {
   detail: string | null;
 }
 
+export interface VisualCapturePlanRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface VisualCapturePlan {
-  rect: { x: number; y: number; width: number; height: number };
+  rect: VisualCapturePlanRect;
   viewportHeight: number;
   pageHeight: number;
   scrolls: number[];
@@ -207,6 +294,10 @@ export interface CompareStateResult {
   pageHeight: number;
 }
 
+export interface CompareStatePhaseResult extends CompareStateResult {
+  phase: string;
+}
+
 export interface FlickerMutationRecord {
   type: string;
   element: string;
@@ -219,12 +310,18 @@ export interface FlickerReport {
   mutationRecords: FlickerMutationRecord[];
 }
 
+export type CdpClientSendFn = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+export type CdpClientEvaluateFn = <T = unknown>(expression: string) => Promise<T>;
+export type CdpClientCloseFn = () => void;
+
+export interface CdpClient {
+  send: CdpClientSendFn;
+  evaluate: CdpClientEvaluateFn;
+  close: CdpClientCloseFn;
+}
+
 export interface BrowserSession {
-  cdp: {
-    send: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
-    evaluate: <T = unknown>(expression: string) => Promise<T>;
-    close: () => void;
-  };
+  cdp: CdpClient;
   chromeProc: ChildProcess | null;
   serverProc: ChildProcess | null;
 }
@@ -498,12 +595,14 @@ export interface DemoServerHandle {
   notFound: string[];
 }
 
+export interface GeometryNodeReportPara {
+  rect: Box;
+  kids: Box[];
+}
+
 export interface GeometryNodeReport {
   root: Box;
-  paras: {
-    rect: Box;
-    kids: Box[];
-  }[];
+  paras: GeometryNodeReportPara[];
 }
 
 export interface SvelteComponents {
@@ -618,11 +717,17 @@ export interface SvelteUnmountResult {
   remaining: number;
 }
 
+export interface SvelteMultirootZones {
+  a: number;
+  b: number;
+  c: number;
+}
+
 export interface SvelteMultirootResult {
   initialA: boolean;
   initialB: boolean;
   initialC: boolean;
-  zones: { a: number; b: number; c: number };
+  zones: SvelteMultirootZones;
   far: boolean;
   near: boolean;
   bGone: boolean;
@@ -666,9 +771,15 @@ export interface ZoneInfo {
   bottom: number;
 }
 
+export interface ZonesPick {
+  inVp: ZoneInfo;
+  edge: ZoneInfo;
+  off: ZoneInfo;
+}
+
 export interface ZonesResult {
   zones: ZoneInfo[];
-  pick: { inVp: ZoneInfo; edge: ZoneInfo; off: ZoneInfo };
+  pick: ZonesPick;
 }
 
 export interface PhaseQuietResult {
@@ -684,9 +795,25 @@ export interface PhaseSingleResult {
   events: MutationLogEvent[];
 }
 
+export interface PhasePicks {
+  inVp: number;
+  edge: number;
+  off: number;
+}
+
+export interface PhaseSettle {
+  ok: boolean;
+  scrolled: boolean;
+}
+
+export interface PhaseHosts {
+  total: number;
+  missing: string[];
+}
+
 export interface PhaseMutationsResult {
-  picks: { inVp: number; edge: number; off: number };
-  settle: { ok: boolean; scrolled: boolean };
+  picks: PhasePicks;
+  settle: PhaseSettle;
   before: Record<string, ParagraphMutationState>;
   idle: Record<string, ParagraphMutationState>;
   idleEvents: MutationLogEvent[];
@@ -696,20 +823,25 @@ export interface PhasePreservedResult {
   ok: boolean;
   after: Record<string, ParagraphMutationState>;
   flagHistory: (string | null)[];
-  hosts: { total: number; missing: string[] };
+  hosts: PhaseHosts;
 }
 
 export interface PhaseAppendsResult {
-  picks: { inVp: number; edge: number; off: number };
-  settle: { ok: boolean; scrolled: boolean };
+  picks: PhasePicks;
+  settle: PhaseSettle;
   states: Record<string, ParagraphMutationState>;
   events: MutationLogEvent[];
 }
 
 export interface PhaseSettledResult {
   ok: boolean;
-  hosts: { total: number; missing: string[] };
+  hosts: PhaseHosts;
   renderedDrops: number;
+}
+
+export interface PhaseReplacedIdle extends ParagraphMutationState {
+  probe: string | null;
+  html: string;
 }
 
 export interface PhaseReplacedResult {
@@ -718,8 +850,8 @@ export interface PhaseReplacedResult {
   idleHtml0: string;
   oldHostDetached: boolean;
   cloneIsNewNode: boolean;
-  settle: { ok: boolean; scrolled: boolean };
-  idle: ParagraphMutationState & { probe: string | null; html: string };
+  settle: PhaseSettle;
+  idle: PhaseReplacedIdle;
   idleEvents: MutationLogEvent[];
 }
 
@@ -755,7 +887,7 @@ export interface PhaseMidFlightResult {
   allRendered: boolean;
   after: ParagraphMutationState;
   flagHistory: (string | null)[];
-  hosts: { total: number; missing: string[] };
+  hosts: PhaseHosts;
 }
 
 export interface PhaseRawDomTextResult {

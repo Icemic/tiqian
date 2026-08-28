@@ -7,6 +7,7 @@ import type {
   CdpPendingCallback,
   CdpTarget,
   FlickerReport,
+  CdpWsMessage,
 } from "./types.js";
 
 const webDemoDir: string = fileURLToPath(new URL("..", import.meta.url));
@@ -22,12 +23,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -43,7 +44,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     });
@@ -88,7 +89,7 @@ async function ensureServerRunning(): Promise<ChildProcess | null> {
       const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+    await new Promise<void>((r) => setTimeout(r, 200));
   }
 
   serverProc.kill();
@@ -119,7 +120,7 @@ async function getOrLaunchBrowser(): Promise<LaunchedBrowserSession> {
         const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (res.ok) break;
       } catch {}
-      await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+      await new Promise<void>((r) => setTimeout(r, 200));
     }
   }
 

@@ -10,6 +10,7 @@ import type {
   TransientFailuresSummary,
   TransientFrameSample,
   TransientReproReport,
+  CdpWsMessage,
 } from "./types.js";
 
 // ResizeDestroyTransient: a non-snapshot <tiqian-prose> that has already
@@ -40,12 +41,12 @@ class CdpClient {
   }
 
   async connect(): Promise<void> {
-    return new Promise((resolve: () => void, reject: (err: unknown) => void) => {
+    return new Promise<void>((resolve, reject) => {
       this.ws = new WebSocket(this.wsUrl);
       this.ws.onopen = (): void => resolve();
       this.ws.onerror = (err: Event): void => reject(err);
       this.ws.onmessage = (event: MessageEvent): void => {
-        const msg = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string }; result?: unknown };
+        const msg = JSON.parse(String(event.data)) as CdpWsMessage;
         if (msg.id && this.pending.has(msg.id)) {
           const { resolve: res, reject: rej } = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
@@ -61,7 +62,7 @@ class CdpClient {
 
   async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = ++this.id;
-    return new Promise((resolve: (val: unknown) => void, reject: (err: unknown) => void) => {
+    return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ id, method, params }));
     });
@@ -106,7 +107,7 @@ async function ensureServerRunning(): Promise<ChildProcess | null> {
       const res: Response = await fetch("http://localhost:8888/", { method: "HEAD" });
       if (res.ok) return serverProc;
     } catch {}
-    await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+    await new Promise<void>((r) => setTimeout(r, 200));
   }
 
   serverProc.kill();
@@ -137,7 +138,7 @@ async function getOrLaunchBrowser(): Promise<TransientBrowserSession> {
         const res: Response = await fetch(`http://127.0.0.1:${port}/json/version`);
         if (res.ok) break;
       } catch {}
-      await new Promise((r: (val: void) => void) => setTimeout(r, 200));
+      await new Promise<void>((r) => setTimeout(r, 200));
     }
   }
 
@@ -290,7 +291,7 @@ async function waitFor(cdp: CdpClient, expression: string, timeoutMs: number = 1
   const start: number = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (await cdp.evaluate<boolean>(expression)) return;
-    await new Promise((r: (val: void) => void) => setTimeout(r, 50));
+    await new Promise<void>((r) => setTimeout(r, 50));
   }
   throw new Error(`Timed out waiting for ${label}`);
 }
@@ -302,7 +303,7 @@ async function collectReport(cdp: CdpClient, _settleTimeoutMs: number = 15000): 
     5000,
     "sampler start",
   );
-  await new Promise((r: (val: void) => void) => setTimeout(r, 2500));
+  await new Promise<void>((r) => setTimeout(r, 2500));
   return cdp.evaluate<TransientReproReport>(`(() => {
     const r = window.__tqRepro;
     r.stop();
@@ -333,7 +334,7 @@ async function prepareProse(cdp: CdpClient, id: string, hostStyle: string, parag
   await waitFor(cdp, settledExpression(id), 15000, `initial enhancement of ${id}`);
   // DemoWebSettleFontWave: a legal relayout wave can still land within ~1s
   // after the settle gate; let it pass before arming the instrumentation.
-  await new Promise((r: (val: void) => void) => setTimeout(r, 1200));
+  await new Promise<void>((r) => setTimeout(r, 1200));
   await waitFor(cdp, settledExpression(id), 5000, `re-settle of ${id} after font wave`);
   await cdp.evaluate(armInstrumentationExpression(id));
 }
@@ -441,7 +442,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t: TestContext
         document.getElementById(${JSON.stringify(id + "-host")}).style.width = "360px";
       })()
     `);
-    await new Promise((r: (val: void) => void) => setTimeout(r, 1500));
+    await new Promise<void>((r) => setTimeout(r, 1500));
     await cdp.evaluate(`
       (() => {
         const host = document.getElementById(${JSON.stringify(id + "-host")});
@@ -617,7 +618,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t: TestContext
         return true;
       })()
     `);
-    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
+    await new Promise<void>((r) => setTimeout(r, 300));
     await cdp.evaluate(`
       (() => {
         window.__tqRepro.resizeMarker();
@@ -656,7 +657,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t: TestContext
         return true;
       })()
     `);
-    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
+    await new Promise<void>((r) => setTimeout(r, 300));
     await cdp.evaluate(`window.__tqRepro.resizeMarker()`);
     await cdp.send("Emulation.setDeviceMetricsOverride", {
       width: 400,
@@ -664,7 +665,7 @@ test("Tiqian Resize Destroy Transient Reproduction Suite", async (t: TestContext
       deviceScaleFactor: 1,
       mobile: false,
     });
-    await new Promise((r: (val: void) => void) => setTimeout(r, 300));
+    await new Promise<void>((r) => setTimeout(r, 300));
     await cdp.evaluate(`
       document.getElementById(${JSON.stringify(id + "-host")}).style.display = ""
     `);
