@@ -1,0 +1,41 @@
+{
+  "a": {
+    "file": ".agent-specs/oneshot-bisect-evidence/de926c85/chain-p0.json",
+    "commit": "de926c85",
+    "era": "A2e-probe-bootstrap",
+    "counts": {
+      "lineMarks": 172,
+      "runEls": 1106,
+      "textNodes": 303
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "b": {
+    "file": ".agent-specs/oneshot-bisect-evidence/6ff37b45/chain-p0.json",
+    "commit": "6ff37b45",
+    "era": "A2c-lineflow-fix",
+    "counts": {
+      "lineMarks": 187,
+      "runEls": 1318,
+      "textNodes": 369
+    },
+    "pageHeight": 4926,
+    "selfEqual": true
+  },
+  "equal": false,
+  "boxesCompared": 1634,
+  "divergentBoxes": 539,
+  "examples": [
+    "p0:0 childCount 47 vs 51",
+    "p0:0.kids[16](e) [41,337.92,560.14,51.8] vs [41,337.92,560.16,51.8]",
+    "p0:0.kids[29](t) [41,397.52,560.02,19] vs [41,397.52,240.02,19]",
+    "p0:0.kids[30](e) [601.02,412.52,0,0] vs [281.02,397.52,16,19]",
+    "p0:0.kids[31] kind e vs t",
+    "p0:0.kids[31](e) [601.02,397.52,0,19] vs [297.02,397.52,32.02,19]",
+    "p0:0.kids[32](e) [41,422.91,0,28.8] vs [329.03,397.52,16,19]",
+    "p0:0.kids[33](t) [41,426.31,256.02,19] vs [345.03,397.52,256.02,19]",
+    "p0:0.kids[34](e) [297.02,426.31,2.56,19] vs [601.05,412.52,0,0]",
+    "p0:0.kids[35](e) [299.58,424.31,130.92,23] vs [601.05,397.52,0,19]"
+  ]
+}
