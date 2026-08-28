@@ -19,10 +19,10 @@ import { inflateSync } from "node:zlib";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const kitDir = fileURLToPath(new URL(".", import.meta.url));
-const DEMO_PORT = 8996;
-const CDP_PORT = 9902;
-const VIEWPORT_WIDTH = 900;
-const VIEWPORT_HEIGHT = 800;
+export const DEMO_PORT = 8996;
+export const CDP_PORT = 9902;
+export const VIEWPORT_WIDTH = 900;
+export const VIEWPORT_HEIGHT = 800;
 
 // ---------------------------------------------------------------------------
 // Verbatim from demo/web/tests/helpers/deep-geometry.mjs (frozen).
@@ -131,7 +131,7 @@ export function deepGeometryCounts(report) {
 // End of verbatim section.
 // ---------------------------------------------------------------------------
 
-class CdpClient {
+export class CdpClient {
   constructor(wsUrl) {
     this.wsUrl = wsUrl;
     this.ws = null;
@@ -301,7 +301,7 @@ const MIME = {
   ".woff2": "font/woff2",
 };
 
-function startKitServer(era) {
+export function startKitServer(era) {
   const indexTemplate = readFileSync(path.join(kitDir, "index.html"), "utf8");
   const indexHtml = indexTemplate.replace(
     /(<script type="importmap" id="era-importmap">)[\s\S]*?(<\/script>)/,
@@ -347,7 +347,7 @@ function startKitServer(era) {
   return new Promise((resolve) => server.listen(DEMO_PORT, "127.0.0.1", () => resolve(server)));
 }
 
-async function waitForCdpEndpoint(port, timeoutMs = 20000) {
+export async function waitForCdpEndpoint(port, timeoutMs = 20000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
@@ -512,7 +512,16 @@ async function runOnce(client, era, commit, runIndex, pageLog) {
   }
   await client.evaluate(DEEP_GEOMETRY_HELPERS);
 
-  const coordinated = await captureSide(client, "coordinated");
+  let coordinated;
+  try {
+    coordinated = await captureSide(client, "coordinated");
+  } catch (error) {
+    return {
+      commit, run: runIndex, era: era.label, valid: false,
+      reason: `coordinated capture failed: ${error.message}`,
+      pageLog: pageLog.slice(0, 40),
+    };
+  }
 
   await client.evaluate("globalThis.__historyOneShot()");
   await new Promise((resolve) => setTimeout(resolve, 800));
@@ -527,7 +536,17 @@ async function runOnce(client, era, commit, runIndex, pageLog) {
     };
   }
 
-  const oneshot = await captureSide(client, "one-shot");
+  let oneshot;
+  try {
+    oneshot = await captureSide(client, "one-shot");
+  } catch (error) {
+    return {
+      commit, run: runIndex, era: era.label, valid: false,
+      reason: `one-shot capture failed: ${error.message}`,
+      pageHeightCoordinated: coordinated.endHeight,
+      pageLog: pageLog.slice(0, 40),
+    };
+  }
 
   const offsets = [];
   let divergent = false;
@@ -599,7 +618,7 @@ async function runOnce(client, era, commit, runIndex, pageLog) {
   };
 }
 
-async function chainCapture(client, era, commit, pageLog) {
+export async function chainCapture(client, era, commit, pageLog) {
   pageLog.length = 0;
   await client.send("Page.navigate", { url: "about:blank" });
   await client.evaluate("0");
@@ -743,7 +762,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

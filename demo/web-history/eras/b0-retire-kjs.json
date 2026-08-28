@@ -1,7 +1,7 @@
 {
-  "label": "E2a-tsport",
-  "commit": "73449b70",
-  "range": "73449b70 (TS runtime install, first renderable commit after the TS host port) .. before 4ca49e71 core rename",
+  "label": "B0-retire-kjs",
+  "commit": "2aafd7f1",
+  "range": "2aafd7f1 (retire the frontend/web Kotlin/JS target) .. before 4818b3f3 workspace consolidation",
   "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core TS modules; engine installed by ts-runtime.js from @tiqian/ffi (Kotlin bundle retired in the 3-commit window e8752ae4..11067981, browser-unrenderable)",
   "adapter": "adapters/api-verbs.js",
   "stylesheet": "frontend/web/npm-core/styles.css",

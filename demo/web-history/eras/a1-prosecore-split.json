@@ -1,0 +1,24 @@
+{
+  "label": "A1-prosecore-split",
+  "commit": "bf506b34",
+  "range": "bf506b34 (prose-core package split) .. before e8752ae4 port completion",
+  "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core modules; Kotlin/JS engine bundle",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "frontend/web/npm/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/prose-core/": "/corepkg/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "frontend/web/npm",
+    "/corepkg": "frontend/web/npm-core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :frontend:web:assembleNpmPackage"
+  ],
+  "engineNote": "Kotlin/JS engine via Gradle jsBrowserProductionWebpack into frontend/web/npm/runtime/tiqian-web.js; core JS modules split into frontend/web/npm-core at this commit"
+}

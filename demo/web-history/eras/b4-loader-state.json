@@ -1,7 +1,7 @@
 {
-  "label": "E2a-tsport",
-  "commit": "73449b70",
-  "range": "73449b70 (TS runtime install, first renderable commit after the TS host port) .. before 4ca49e71 core rename",
+  "label": "B4-loader-state",
+  "commit": "5c9d0a30",
+  "range": "5c9d0a30 (replace the engine global slots with loader state and options) .. window B probe",
   "entry": "@tiqian/prose api.js verbs over @tiqian/prose-core TS modules; engine installed by ts-runtime.js from @tiqian/ffi (Kotlin bundle retired in the 3-commit window e8752ae4..11067981, browser-unrenderable)",
   "adapter": "adapters/api-verbs.js",
   "stylesheet": "frontend/web/npm-core/styles.css",

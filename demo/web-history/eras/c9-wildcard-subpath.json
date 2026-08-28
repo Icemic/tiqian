@@ -1,0 +1,26 @@
+{
+  "label": "C9-wildcard-subpath",
+  "commit": "cd08a2c7",
+  "range": "cd08a2c7 (import snapshot tables through the wildcard subpath) .. window C probe",
+  "entry": "@tiqian/prose api.ts verbs over @tiqian/core TS modules, root npm workspace",
+  "adapter": "adapters/api-verbs.js",
+  "stylesheet": "frontend/web/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose": "/pkg/api.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/pkg": "frontend/web/npm",
+    "/core": "frontend/web/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "npm install --no-audit --no-fund",
+    "cd frontend/web/core && npx tsc",
+    "npx tsc -b frontend/web/npm"
+  ],
+  "engineNote": "Compiled core .js is gitignored from 4818b3f3 on; the era build compiles core (tsc) and the prose package (tsc -b) inside the workspace"
+}
