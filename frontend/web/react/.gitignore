@@ -1,0 +1,7 @@
+/node_modules/
+/*.tgz
+# Build products emitted next to the .ts sources (G1 in-place build). Never
+# tracked: the package scripts regenerate them (pretest runs tsc).
+*.js
+*.d.ts
+*.tsbuildinfo
