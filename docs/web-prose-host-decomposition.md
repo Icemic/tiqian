@@ -368,7 +368,7 @@ core、web-component、ffi 三个包的全部 TS 代码适用同一制度，无�
 | digest.js | — | 删除（无生产消费者，ADR 0053 UnusedExportCleanup） | 删除 |
 | font-contract.js | — | 同上 | 删除 |
 | snapshot-manifest.js 等 5 件 | — | 原位 | 暂缓（ADR 0052 批次） |
-| build-runtime.mjs、verify-package.mjs、verify-release.mjs、prepare-release.mjs | — | npm 根 | 保留，更新路径引用 |
+| build-runtime.ts、verify-package.ts、verify-release.ts、prepare-release.ts | — | npm 根 | 保留，更新路径引用 |
 | api.d.ts、element.d.ts、snapshot-client.d.ts | — | 随同名 JS 归位，根路径重导出保留 | 移动 |
 | styles.css | — | npm 根 | 不移动（第 11 节发布约束） |
 | package.json | — | exports 与 files 保持根路径重导出 | 兼容转发 |
