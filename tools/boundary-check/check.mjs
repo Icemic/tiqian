@@ -151,7 +151,7 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm/tests/runtime-host.mjs",
+    file: "frontend/web/npm/tests/runtime-host.ts",
     reason: "Split/join over the untyped worker payload records and fields; replaced by declared DTOs.",
   },
   {

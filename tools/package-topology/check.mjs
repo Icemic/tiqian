@@ -31,7 +31,7 @@
 // under the
 // three package directories, ignoring node_modules/, runtime/, build/,
 // .gradle/, .b2-tmp/, target/ and demo/, plus the task-level exclusions
-// *.test.mjs and lock files (lock files are never matched anyway because only
+// *.test.js and lock files (lock files are never matched anyway because only
 // js/mjs/d.ts files are read).
 //
 // Relative escapes that leave the three-package topology entirely (for example
@@ -90,7 +90,7 @@ const IGNORED_DIR_NAMES = new Set([
 const STRICT_OUTSIDE_ESCAPES = process.env.TIQIAN_TOPOLOGY_STRICT === "1";
 
 function isScannedSourceFile(fileName) {
-  if (fileName.endsWith(".test.mjs")) return false;
+  if (fileName.endsWith(".test.js")) return false;
   return (
     fileName.endsWith(".d.ts") ||
     fileName.endsWith(".js") ||
