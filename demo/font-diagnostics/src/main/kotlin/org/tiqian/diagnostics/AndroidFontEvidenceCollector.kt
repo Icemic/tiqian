@@ -162,6 +162,8 @@ object AndroidFontEvidenceCollector {
         "/vendor/etc/fonts_customization.xml",
         "/system_ext/etc/fonts_customization.xml",
         "/data/system/theme/fonts.xml",
+        "/data/themes/0/fonts/fonts.xml",
+        "/data/skin/fonts/fonts.xml",
     )
 
     private val fontDirectories = listOf(
@@ -171,6 +173,11 @@ object AndroidFontEvidenceCollector {
         "/system_ext/fonts",
         "/system/font",
         "/data/system/theme/fonts",
+        "/data/themes/0/fonts",
+        "/data/themes/fonts",
+        "/data/skin/fonts",
+        "/data/fonts",
+        "/data/fonts/files",
     )
 
     @Synchronized
