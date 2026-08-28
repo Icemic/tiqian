@@ -216,7 +216,10 @@ function compareScreenshots(a, b) {
 // side also maps "@tiqian/core/" to the core working tree, from
 // which the dev layout worker loads. The stylesheet link
 // "../../frontend/web/npm/styles.css" resolves from the page root to the same
-// directory, so published CSS pairs with published JS.
+// directory, so published CSS pairs with published JS. The prefix entry alone
+// maps "@tiqian/prose/auto" onto the extensionless URL /frontend/web/npm/auto,
+// which the file server below cannot answer, so the auto entry carries its
+// own exact mapping.
 function startDemoServer(port, pkgDir) {
   const notFound = [];
   const server = createServer(async (req, res) => {
@@ -225,7 +228,7 @@ function startDemoServer(port, pkgDir) {
       if (path === "/") {
         const html = (await readFile(join(webDemoDir, "index.html"), "utf8")).replace(
           "</head>",
-          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js","@tiqian/core/":"/frontend/web/core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
+          `<script type="importmap">{"imports":{"@tiqian/prose/element":"/frontend/web/npm/element.js","@tiqian/prose/auto":"/frontend/web/npm/auto.js","@tiqian/prose/":"/frontend/web/npm/","@tiqian/prose":"/frontend/web/npm/element.js","@tiqian/core/":"/frontend/web/core/","@tiqian/ffi":"/ffi/Tiqian-tiqian-ffi-js.mjs"}}</script></head>`,
         );
         res.setHeader("content-type", "text/html; charset=utf-8");
         res.end(html);
