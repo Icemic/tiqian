@@ -36,10 +36,10 @@
     "build": "tsc -b",
     "pretest": "npm run build",
     "test": "node --test tests/*.test.js",
-    "verify:package": "node ./scripts/verify-package.mjs",
+    "verify:package": "node ./scripts/verify-package.ts",
     "preverify:package": "npm run build",
-    "verify:release": "npm run prepack && node ./scripts/verify-release.mjs",
-    "release:prepare": "node ./scripts/prepare-release.mjs",
+    "verify:release": "npm run prepack && node ./scripts/verify-release.ts",
+    "release:prepare": "node ./scripts/prepare-release.ts",
     "prepack": "npm test && npm run verify:package"
   },
   "files": [

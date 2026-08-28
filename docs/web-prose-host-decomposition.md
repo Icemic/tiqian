@@ -158,12 +158,12 @@ plan JSON 往返。
 
 ### 首测结果（2026-08-22）
 
-bench 与语料已入库：`frontend/web/npm/bench/worker-necessity.mjs`（测量）与
-`bench/worker-necessity-corpus.mjs`（语料生成，取 sveltekit 站点 oh-my-2019 页 55 段
+bench 与语料已入库：`frontend/web/npm/bench/worker-necessity.ts`（测量）与
+`bench/worker-necessity-corpus.ts`（语料生成，取 sveltekit 站点 oh-my-2019 页 55 段
 4684 字符；5 段 emoji/颜文字因 producer 冻结 firstLineIndentIc 剔除，清单在
 `bench/fixtures/corpus/meta.json`）。复现：先运行语料生成脚本刷新
 `bench/fixtures/corpus/`，再在仓库根执行 `nix develop -c node
-bench/worker-necessity.mjs`。
+bench/worker-necessity.ts`。
 
 node 22（V8，JIT 开启）数字，30 个计量 pass、每形态 1650 样本：
 

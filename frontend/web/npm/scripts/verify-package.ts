@@ -1,13 +1,28 @@
 #!/usr/bin/env node
 
 import { readFile, stat } from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { normalizeReleaseVersion } from "./prepare-release.mjs";
+import { normalizeReleaseVersion } from "./prepare-release.js";
 
-const EXPECTED_NAME = "@tiqian/prose";
-const REQUIRED_FILES = [
+export interface VerifiedArtifact {
+  readonly path: string;
+  readonly size: number;
+}
+
+interface PackageManifest {
+  readonly name: string;
+  readonly version: string;
+  readonly license?: string;
+  readonly files: readonly string[];
+  readonly dependencies?: Readonly<Record<string, string>>;
+  readonly exports?: Readonly<Record<string, unknown>>;
+}
+
+const EXPECTED_NAME: string = "@tiqian/prose";
+const REQUIRED_FILES: readonly string[] = [
   "LICENSE",
   "README.md",
   "auto.d.ts",
@@ -19,19 +34,19 @@ const REQUIRED_FILES = [
   "snapshot-client.d.ts",
   "snapshot-client.js",
 ];
-const FORBIDDEN_FILES = [
+const FORBIDDEN_FILES: readonly string[] = [
   "core/",
   "runtime/",
   "layout-worker.js",
   "worker-layout.js",
 ];
 
-function fail(message) {
+function fail(message: string): never {
   throw new Error(`PackageVerificationFailed: ${message}`);
 }
 
-export async function verifyPackage(packageRoot = new URL("../", import.meta.url)) {
-  const manifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));
+export async function verifyPackage(packageRoot: URL = new URL("../", import.meta.url)): Promise<VerifiedArtifact[]> {
+  const manifest: PackageManifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8")) as PackageManifest;
   if (manifest.name !== EXPECTED_NAME) fail(`expected ${EXPECTED_NAME}, found ${manifest.name}`);
   try {
     normalizeReleaseVersion(manifest.version);
@@ -58,17 +73,17 @@ export async function verifyPackage(packageRoot = new URL("../", import.meta.url
   }
   // The stylesheet is the single source of truth in @tiqian/core; verify it exists.
   {
-    const coreStyles = await stat(new URL("../core/styles.css", packageRoot));
+    const coreStyles: Stats = await stat(new URL("../core/styles.css", packageRoot));
     if (!coreStyles.isFile() || coreStyles.size === 0) fail("@tiqian/core/styles.css is missing or empty");
   }
 
   for (const required of REQUIRED_FILES) {
-    const metadata = await stat(new URL(required, packageRoot));
+    const metadata: Stats = await stat(new URL(required, packageRoot));
     if (!metadata.isFile() || metadata.size === 0) fail(`${required} is missing or empty`);
     if (!manifest.files.includes(required)) fail(`${required} is absent from files`);
   }
 
-  const [license, readme] = await Promise.all([
+  const [license, readme]: readonly [string, string] = await Promise.all([
     readFile(new URL("LICENSE", packageRoot), "utf8"),
     readFile(new URL("README.md", packageRoot), "utf8"),
   ]);
@@ -77,9 +92,9 @@ export async function verifyPackage(packageRoot = new URL("../", import.meta.url
   }
   if (!readme.includes(EXPECTED_NAME)) fail(`README.md does not name ${EXPECTED_NAME}`);
 
-  const verified = [];
+  const verified: VerifiedArtifact[] = [];
   for (const file of manifest.files) {
-    const metadata = await stat(new URL(file, packageRoot));
+    const metadata: Stats = await stat(new URL(file, packageRoot));
     if (metadata.isFile()) {
       verified.push({ path: file, size: metadata.size });
     }
@@ -87,9 +102,9 @@ export async function verifyPackage(packageRoot = new URL("../", import.meta.url
   return verified;
 }
 
-const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
+const invokedPath: string | null = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : null;
 if (invokedPath === import.meta.url) {
-  const artifacts = await verifyPackage();
+  const artifacts: readonly VerifiedArtifact[] = await verifyPackage();
   for (const artifact of artifacts) {
     console.log(`verified ${artifact.path} (${artifact.size} bytes)`);
   }

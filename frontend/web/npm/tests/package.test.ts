@@ -56,11 +56,11 @@ test("published package ships the TS runtime modules and no repository-only bin"
   );
   assert.equal(
     manifest.scripts["verify:release"],
-    "npm run prepack && node ./scripts/verify-release.mjs",
+    "npm run prepack && node ./scripts/verify-release.ts",
   );
-  assert.equal(manifest.scripts["release:prepare"], "node ./scripts/prepare-release.mjs");
-  assert.equal(manifest.files.includes("verify-release.mjs"), false);
-  assert.equal(manifest.files.includes("prepare-release.mjs"), false);
+  assert.equal(manifest.scripts["release:prepare"], "node ./scripts/prepare-release.ts");
+  assert.equal(manifest.files.includes("verify-release.ts"), false);
+  assert.equal(manifest.files.includes("prepare-release.ts"), false);
 
   const coreManifest = JSON.parse(await readFile(new URL("../../core/package.json", import.meta.url), "utf8"));
   assert.equal(coreManifest.name, "@tiqian/core");
@@ -73,7 +73,7 @@ test("published package ships the TS runtime modules and no repository-only bin"
 
 test("the release helper derives the repository tag and commit subject from one version", async () => {
   const { normalizeReleaseVersion, releaseCommitSubject, releaseTag } = await import(
-    "../scripts/prepare-release.mjs"
+    "../scripts/prepare-release.js"
   );
 
   assert.equal(normalizeReleaseVersion("0.1.0-alpha.3"), "0.1.0-alpha.3");
@@ -116,7 +116,7 @@ test("the release workflow publishes one verified artifact and synchronizes both
 });
 
 test("the release verifier accepts the verified package files", async () => {
-  const { verifyPackage } = await import("../scripts/verify-package.mjs");
+  const { verifyPackage } = await import("../scripts/verify-package.js");
   const artifacts = await verifyPackage(new URL("../", import.meta.url));
 
   assert.ok(artifacts.length > 0);
