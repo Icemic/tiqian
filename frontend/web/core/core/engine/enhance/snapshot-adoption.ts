@@ -57,8 +57,14 @@ export function activeSnapshotSessionDescriptor(options: EnhanceOptions): Snapsh
   return snapshotSessionCallbacks(sessionId);
 }
 
+/** Callback run before the progressive dispatch starts its work. */
+export type BeforeDispatchCallback = () => void;
+
+/** Live currency probe consulted before an adoption commit. */
+export type SnapshotIsCurrentProbe = () => boolean;
+
 export interface EnhanceDispatchOptions {
-  beforeDispatch?: (() => void) | null;
+  beforeDispatch?: BeforeDispatchCallback | null;
   paragraphSelector?: string | null;
   revalidateSnapshotFont?: boolean;
 }
@@ -67,7 +73,9 @@ export interface SnapshotInvalidateOptions {
   restoreBeforeLoad?: boolean;
 }
 
-export interface SnapshotRelayoutReadyDetail {
+// A type alias on purpose: object literal types carry the implicit index
+// signature that flows this detail into the event channel's Record param.
+export type SnapshotRelayoutReadyDetail = {
   enhancedCount: number;
   issueCount: number;
   durationMs: number;
@@ -90,7 +98,7 @@ export interface SnapshotAdoptionHooks {
   /** Composition root: the context-bound loaded-snapshot helpers. */
   restoreLoadedSnapshot(): boolean;
   adoptRequestedSnapshot(
-    isCurrent: () => boolean,
+    isCurrent: SnapshotIsCurrentProbe,
     anchors: SnapshotAdoptAnchors,
   ): Promise<SnapshotAdoptionOutcome>;
   /** Lifecycle: the progressive enhance dispatch. */

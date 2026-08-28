@@ -41,6 +41,9 @@ export interface CompletionEventView {
 
 export type CompletionEventHandler = (event: CompletionEventView) => void;
 
+/** Root DOM listener installed while the completion listeners are attached. */
+export type DomCompletionListener = (event: Event) => void;
+
 // Synthesizes and dispatches one completion CustomEvent on the root. The
 // web component shell installs the synthesis; the returned value is unused.
 export type CompletionEventDispatcher = (
@@ -80,6 +83,15 @@ export interface EventChannel {
 // web component shell's dispatcher slot, which performs the same synthesis.
 export const INTERNAL_DISPATCH_MARKER = "__tiqianCompletionDispatched";
 
+// A completion CustomEvent carrying the self-dispatch marker. The channel
+// and the element shell both write the marker; the DOM listeners read it to
+// skip the events this runtime dispatched itself. A single assertion widens
+// a CustomEvent to this view, so the marker stays a named contract instead
+// of a double cast through Record.
+export type MarkedCompletionEvent = CustomEvent<Record<string, unknown>> & {
+  [INTERNAL_DISPATCH_MARKER]?: boolean;
+};
+
 type CompletionResolver = () => void;
 
 function createEventChannel(root: HTMLElement): EventChannel {
@@ -87,7 +99,7 @@ function createEventChannel(root: HTMLElement): EventChannel {
   let lastDiagnostics: EnhancementDiagnostics = {};
   let internalHandler: CompletionEventHandler | null = null;
   let dispatcher: CompletionEventDispatcher | null = null;
-  let domListener: ((event: Event) => void) | null = null;
+  let domListener: DomCompletionListener | null = null;
   let completionPromise: Promise<void> = Promise.resolve();
   let completionResolve: CompletionResolver | null = null;
 
@@ -112,7 +124,7 @@ function createEventChannel(root: HTMLElement): EventChannel {
     // Baseline core synthesis for hosts without a shell dispatcher.
     if (!root || typeof root.dispatchEvent !== "function") return;
     const event = new CustomEvent(kind, { bubbles: true, composed: true, detail: detail });
-    (event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER] = true;
+    (event as MarkedCompletionEvent)[INTERNAL_DISPATCH_MARKER] = true;
     root.dispatchEvent(event);
   }
 
@@ -128,8 +140,9 @@ function createEventChannel(root: HTMLElement): EventChannel {
   function attachCompletionListeners(): void {
     if (domListener) return;
     domListener = (event: Event) => {
-      if ((event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER]) return;
-      runFunnel(event as unknown as CompletionEventView);
+      const completion = event as MarkedCompletionEvent;
+      if (completion[INTERNAL_DISPATCH_MARKER]) return;
+      runFunnel(completion);
     };
     root.addEventListener("tiqian:ready", domListener);
     root.addEventListener("tiqian:relayout-ready", domListener);

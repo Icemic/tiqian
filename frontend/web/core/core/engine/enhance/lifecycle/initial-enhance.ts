@@ -14,7 +14,7 @@ import { releaseNativeScrollAnchoring } from "../../coordination/viewport-anchor
 import { snapshotCompletionSelector } from "../../../sampler/snapshot/snapshot-completion.js";
 import { globalServices } from "../../../services/global-services.js";
 import { SNAPSHOT_RENDER_FONT_ATTRIBUTE } from "../snapshot-adoption.js";
-import type { SnapshotAdoptionOutcome } from "../snapshot-adoption.js";
+import type { SnapshotAdoptionOutcome, SnapshotIsCurrentProbe } from "../snapshot-adoption.js";
 import type { EnhancementStateMachine } from "../state-machine.js";
 import type { ContextState } from "../context-state.js";
 import type { SnapshotAdoption } from "../snapshot-adoption.js";
@@ -33,7 +33,7 @@ export interface InitialEnhanceEnv {
   scheduler: SchedulerRegistration;
   progressiveDispatch: ProgressiveDispatch;
   /** Context-bound snapshot adoption wired by the composition root. */
-  adoptRequestedSnapshot(isCurrent: () => boolean): Promise<SnapshotAdoptionOutcome>;
+  adoptRequestedSnapshot(isCurrent: SnapshotIsCurrentProbe): Promise<SnapshotAdoptionOutcome>;
   /** ResponsiveManager retarget-frame cleanup, shared with the failure path. */
   clearResponsiveRetarget(): void;
 }

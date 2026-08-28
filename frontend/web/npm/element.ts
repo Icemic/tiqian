@@ -20,6 +20,7 @@
 import { createEnhanceContext } from "@tiqian/core/core/engine/context/enhance-context.js";
 import { OBSERVED_ATTRIBUTES } from "@tiqian/core/core/engine/enhance/options-ledger.js";
 import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
+import type { MarkedCompletionEvent } from "@tiqian/core/core/engine/enhance/event-channel.js";
 import { globalServices, initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
 import { prefetchSnapshotTables } from "@tiqian/core/core/sampler/snapshot/snapshot-tables.js";
 import { CoordinationService } from "@tiqian/core/core/engine/coordination/coordination-service.js";
@@ -46,7 +47,7 @@ class TiqianProseElement extends HTMLElementBase {
     // second time.
     this.#context.eventChannel.setDispatcher((kind, detail) => {
       const event = new CustomEvent(kind, { bubbles: true, composed: true, detail });
-      (event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER] = true;
+      (event as MarkedCompletionEvent)[INTERNAL_DISPATCH_MARKER] = true;
       this.dispatchEvent(event);
     });
   }

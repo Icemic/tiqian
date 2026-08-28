@@ -14,6 +14,7 @@ import {
   belongsToRootScope,
 } from "../../sampler/observers.js";
 import type { ContentInvalidationSource } from "../../sampler/observers.js";
+import type { ContentReconcileResult } from "../content-reconcile.js";
 import { paragraphWidthSignature } from "../../sampler/signatures.js";
 import type { RawDomParagraphRecord } from "../context/enhance-context.js";
 import type { FrameTaskCallback } from "../coordination/coordination-service.js";
@@ -36,7 +37,7 @@ export interface EffectSyncHooks {
   /** Composition root: the read-only drift probe with context. */
   probeRootContentDrift(): ContentDriftReport | null;
   /** Composition root: the reconcile driver with context and pool. */
-  reconcileRoot(paragraphs: Element[]): { outcome: string } | null;
+  reconcileRoot(paragraphs: Element[]): ContentReconcileResult | null;
   /** ContextState: paragraph candidate enumeration for the runtime options. */
   paragraphCandidates(): Element[];
   /** ContextState: the tracked paragraphs' source elements. */

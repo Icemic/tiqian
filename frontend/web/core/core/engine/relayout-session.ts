@@ -25,7 +25,6 @@ import {
   rawDomRestoreParagraph,
   rawDomRollback,
 } from "./raw-dom.js";
-import type { CapabilityIssueRecord } from "./lifecycle.js";
 import { reportIssue } from "./lifecycle.js";
 import {
   preparedCjkStrongSemanticsJson,
@@ -76,7 +75,7 @@ export function openRelayoutSession(context: EnhancedElementContext): RelayoutSe
       }
       if (preparation.kind === 'unsupported') {
         snapshots.set(paragraph, rawDomCaptureLive(context, paragraph.source, paragraph.lastMeasure));
-        unsupported.push([paragraph, preparation as unknown as DiagnosisIssueRecord]);
+        unsupported.push([paragraph, preparation]);
         rawDomRestoreParagraph(context, paragraph.source);
         return;
       }
@@ -98,7 +97,7 @@ export function openRelayoutSession(context: EnhancedElementContext): RelayoutSe
           paragraph.lastMeasure = result.measure;
           successful.push([paragraph, result.measure]);
         } else {
-          unsupported.push([paragraph, result as unknown as DiagnosisIssueRecord]);
+          unsupported.push([paragraph, result]);
           rawDomRestoreParagraph(context, paragraph.source);
         }
       }
@@ -141,7 +140,7 @@ export function openRelayoutSession(context: EnhancedElementContext): RelayoutSe
           issue.reportToConsole = true;
         }
         stateIssues.push(issue);
-        reportIssue(issue as unknown as CapabilityIssueRecord);
+        reportIssue(issue);
       }
     }
 

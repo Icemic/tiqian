@@ -51,8 +51,10 @@ interface CapabilityGateIssue {
   markerCaptured: boolean;
 }
 
-// Summary event detail payloads dispatched on the root element.
-interface RelayoutReadyDetail {
+// Summary event detail payloads dispatched on the root element. Type aliases
+// on purpose: object literal types carry the implicit index signature that
+// flows these details into the event channel's Record param.
+type RelayoutReadyDetail = {
   enhancedCount: number;
   runtimeEnhancedCount: number;
   snapshotCount: number;
@@ -65,7 +67,7 @@ interface RelayoutReadyDetail {
   stale: boolean;
 }
 
-interface EnhanceReadyDetail {
+type EnhanceReadyDetail = {
   enhancedCount: number;
   runtimeEnhancedCount: number;
   snapshotCount: number;
@@ -75,7 +77,7 @@ interface EnhanceReadyDetail {
   stale: boolean;
 }
 
-interface ProgressiveErrorDetail {
+type ProgressiveErrorDetail = {
   kind: string;
   error: string;
   durationMs: number;
@@ -271,7 +273,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         error: error,
         stale: stale,
       };
-      context.eventChannel.notify("tiqian:relayout-ready", detail as unknown as Record<string, unknown>);
+      context.eventChannel.notify("tiqian:relayout-ready", detail);
     } else {
       detail = {
         enhancedCount: enhancedCount,
@@ -282,7 +284,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
         maxSliceMs: maxSliceMs,
         stale: stale,
       };
-      context.eventChannel.notify("tiqian:ready", detail as unknown as Record<string, unknown>);
+      context.eventChannel.notify("tiqian:ready", detail);
     }
   }
 
@@ -298,7 +300,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
       durationMs: durationMs,
       maxSliceMs: maxSliceMs,
     };
-    context.eventChannel.dispatch(eventName, eventDetail as unknown as Record<string, unknown>);
+    context.eventChannel.dispatch(eventName, eventDetail);
   }
 
   // ---------------------------------------------------------------------------
@@ -590,7 +592,7 @@ const WIDTH_DEPENDENT_CAPABILITY_ISSUES: string[] = ["InlineCloneDecorationBreak
     if (targetDocument) globalServices().clipboard.install(targetDocument);
     destroyRoot(context, root as HTMLElement);
     const resolved: ResolvedEnhanceOptions = fromCanonical
-      ? context.optionsLedger.resolveEngineOptionsFromCanonical(root, optionsBag as unknown as EnhanceOptions)
+      ? context.optionsLedger.resolveEngineOptionsFromCanonical(root, optionsBag as EnhanceOptions)
       : context.optionsLedger.resolveEngineOptions(root, optionsBag as Record<string, unknown>);
     context.contextState.setRuntimeOptions(resolved);
     context.typography.establishRuntime(root, resolved);

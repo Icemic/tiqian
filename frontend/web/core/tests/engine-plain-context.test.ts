@@ -252,9 +252,16 @@ interface PlainRuntime {
 
 // The drivers reach the pool through the coordination service, so the fake
 // pool is swapped in there for the duration of one test. The coordination
-// service types the slot readonly; the swap rides one boundary cast.
-function swapLayoutJobPool(pool: LayoutJobPool): () => void {
-  const coordination = globalServices().coordination as unknown as { layoutJobPool: LayoutJobPool };
+// service types the slot readonly; the swap rides one boundary cast into
+// the writable view below.
+type PoolSwapRestorer = () => void;
+
+interface WritableCoordinationSlot {
+  layoutJobPool: LayoutJobPool;
+}
+
+function swapLayoutJobPool(pool: LayoutJobPool): PoolSwapRestorer {
+  const coordination = globalServices().coordination as WritableCoordinationSlot;
   const previous = coordination.layoutJobPool;
   coordination.layoutJobPool = pool;
   return () => {

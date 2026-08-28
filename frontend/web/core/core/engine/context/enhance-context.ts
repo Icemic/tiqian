@@ -71,11 +71,8 @@ import { createDomWriteLayer } from "../enhance/dom-write-layer.js";
 import type { DomWriteLayer } from "../enhance/dom-write-layer.js";
 import { createForeignGuard } from "../enhance/lifecycle/foreign-guard.js";
 import { createProgressiveDispatch } from "../enhance/lifecycle/progressive-dispatch.js";
-import type { ProgressiveDispatch } from "../enhance/lifecycle/progressive-dispatch.js";
 import { createInitialEnhance } from "../enhance/lifecycle/initial-enhance.js";
-import type { InitialEnhance } from "../enhance/lifecycle/initial-enhance.js";
 import { createMount } from "../enhance/lifecycle/mount.js";
-import type { Mount } from "../enhance/lifecycle/mount.js";
 
 export interface RawDomParagraphRecord {
   fragment: DocumentFragment | null;  // detached original children
@@ -102,7 +99,10 @@ export interface RawDomParagraphRecord {
   hostFontSizeApplied: string | null;
 }
 
-interface EnhancedElementContext {
+// Base shape the construction literal builds. The composition part surface
+// and the host verbs are attached after the wiring through
+// Object.defineProperties, so the literal alone cannot carry them.
+interface ContextCoreBase {
   readonly element: Element;
   readonly generation: number;
   // Scoped-style identity owned by this context. Prepared-dom rules mint one
@@ -115,7 +115,9 @@ interface EnhancedElementContext {
   preparedStyle: PreparedStyleState | null;
   update(): number;
   destroy(): void;
+}
 
+interface EnhancedElementContext extends ContextCoreBase {
   // Composition-root part surface: engine modules receive the context and
   // reach their dependencies through these accessors.
   readonly stateMachine: EnhancementStateMachine;
@@ -170,7 +172,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
   const scheduler = createSchedulerRegistration();
   const eventChannel = createEventChannel(root);
 
-  const context = {
+  const contextBase: ContextCoreBase = {
     element,
     get generation() {
       return generation;
@@ -196,21 +198,15 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
       }
       diagnosis.dispose();
     },
-  } as unknown as EnhancedElementContext;
+  };
+  // One widening to the full surface: the wiring below hands the parts a
+  // context whose part fields are attached by defineProperties before any
+  // part reads them.
+  const context = contextBase as EnhancedElementContext;
 
-  // Part bindings: the hook records close over these, so parts may
-  // reference siblings constructed after them; every hook runs after the
-  // full wiring below.
-  let contextState: ContextState;
-  let snapshotAdoption: SnapshotAdoption;
-  let typography: TypographyManager;
-  let responsive: ResponsiveManager;
-  let effectSync: EffectSync;
-  let visibility: VisibilityManager;
-  let domWriteLayer: DomWriteLayer;
-  let progressiveDispatch: ProgressiveDispatch;
-  let initialEnhance: InitialEnhance;
-  let mountLifecycle: Mount;
+  // Part bindings are const at their construction sites below. The hook
+  // records close over those bindings, so parts may reference siblings
+  // constructed after them; every hook runs after the full wiring.
 
   const failureReaction = (message: string, error: unknown): void => {
     context.diagnosis.set("tiqianCapabilityIssue", "FontCapabilityPreparationFailed");
@@ -270,7 +266,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
 
   const optionsLedger = createOptionsLedger(root, optionsChangedReaction);
 
-  contextState = createContextState(root, stateMachine, scheduler, {
+  const contextState = createContextState(root, stateMachine, scheduler, {
     currentGeneration: () => context.generation,
     clearResponsiveRetarget: () => responsive.clearResponsiveRetarget(),
     paragraphMeasureSignature: () => responsive.paragraphMeasureSignature(),
@@ -304,7 +300,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     runRelayoutDriver: () => relayout(context, root),
   });
 
-  snapshotAdoption = createSnapshotAdoption(root, stateMachine, diagnosis, {
+  const snapshotAdoption = createSnapshotAdoption(root, stateMachine, diagnosis, {
     currentGeneration: () => context.generation,
     beginLayoutWork: (workOptions) => contextState.beginLayoutWork(workOptions),
     finishLayoutWorkAndObserve: () => contextState.finishLayoutWorkAndObserve(),
@@ -316,11 +312,11 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     dispatchProgressiveEnhance: (generationValue, dispatchOptions) =>
       progressiveDispatch.dispatchProgressiveEnhance(generationValue, dispatchOptions),
     notifySnapshotRelayoutReady: (detail) =>
-      eventChannel.notify("tiqian:relayout-ready", detail as unknown as Record<string, unknown>),
+      eventChannel.notify("tiqian:relayout-ready", detail),
     reportMissRecoveryFailure: failureReaction,
   });
 
-  typography = createTypographyManager(root, stateMachine, snapshotAdoption, diagnosis, scheduler, {
+  const typography = createTypographyManager(root, stateMachine, snapshotAdoption, diagnosis, scheduler, {
     currentGeneration: () => context.generation,
     restartConnectedLifecycle: () => mountLifecycle.restartConnectedLifecycle(),
     refreshRuntimeFromSource: () => contextState.refreshRuntimeFromSource(),
@@ -331,7 +327,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     setCommittedMeasureLedger: (value) => responsive.setCommittedMeasureLedger(value),
   });
 
-  responsive = createResponsiveManager(root, stateMachine, scheduler, {
+  const responsive = createResponsiveManager(root, stateMachine, scheduler, {
     currentGeneration: () => context.generation,
     snapshotFontSessionActive: () => snapshotAdoption.snapshotFontSessionActive(),
     observeTypography: () => typography.observeTypography(),
@@ -356,7 +352,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     reportRefreshFailure: failureReaction,
   });
 
-  effectSync = createEffectSync(root, stateMachine, scheduler, {
+  const effectSync = createEffectSync(root, stateMachine, scheduler, {
     renderedRawDomParagraphs: () => renderedRawDomParagraphs(context, root),
     probeRootContentDrift: () => probeRootContentDrift(context, root),
     reconcileRoot: (paragraphs) => reconcileRoot(context, root, paragraphs),
@@ -376,18 +372,18 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     setLastParagraphWidths: (value) => responsive.setLastParagraphWidths(value),
   });
 
-  visibility = createVisibilityManager(root, stateMachine, scheduler, {
+  const visibility = createVisibilityManager(root, stateMachine, scheduler, {
     scheduleResponsiveGeometryCommit: () => responsive.scheduleResponsiveGeometryCommit(),
   });
 
-  domWriteLayer = createDomWriteLayer(root, rawDomParagraphs, {
+  const domWriteLayer = createDomWriteLayer(root, rawDomParagraphs, {
     setRuntimeEstablished: (value) => contextState.setRuntimeEstablished(value),
     renderedRawDomParagraphs: () => renderedRawDomParagraphs(context, root),
   });
 
   const foreignGuard = createForeignGuard(root, stateMachine, contextState);
 
-  progressiveDispatch = createProgressiveDispatch(root, context, {
+  const progressiveDispatch = createProgressiveDispatch(root, context, {
     stateMachine,
     contextState,
     optionsLedger,
@@ -395,7 +391,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     scheduler,
   });
 
-  initialEnhance = createInitialEnhance(root, context, {
+  const initialEnhance = createInitialEnhance(root, context, {
     stateMachine,
     contextState,
     snapshotAdoption,
@@ -408,7 +404,7 @@ function createEnhanceContext(element: Element, options?: EnhancementOptions): E
     clearResponsiveRetarget: () => responsive.clearResponsiveRetarget(),
   });
 
-  mountLifecycle = createMount(root, context, {
+  const mountLifecycle = createMount(root, context, {
     stateMachine,
     contextState,
     optionsLedger,

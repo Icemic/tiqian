@@ -23,7 +23,7 @@ import type { TypographyManager } from "../typography.js";
 import type { VisibilityManager } from "../visibility.js";
 import type { ResponsiveManager } from "../responsive.js";
 import type { EffectSync } from "../effect-sync.js";
-import type { EventChannel, CompletionEventView, EnhancementDiagnostics, EnhancementEvent } from "../event-channel.js";
+import type { EventChannel, CompletionEventHandler, EnhancementDiagnostics, EnhancementEvent } from "../event-channel.js";
 import type { SchedulerRegistration } from "../scheduler-registration.js";
 import type { ForeignGuard } from "./foreign-guard.js";
 import type { InitialEnhance } from "./initial-enhance.js";
@@ -108,7 +108,7 @@ function createMount(
   // Per-mount completion funnel: classifies each completion event before the
   // callback subscribers are notified. Ported from the former session's
   // ready listener body.
-  function buildFunnel(generation: number, loadStartedAt: number): (event: CompletionEventView) => void {
+  function buildFunnel(generation: number, loadStartedAt: number): CompletionEventHandler {
     let initialReadyReported = false;
     let pendingLoadMs: number | null = null;
     return (event) => {

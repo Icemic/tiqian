@@ -41,6 +41,14 @@ import type { FrameTaskCallback } from "../coordination/coordination-service.js"
 import { InvalidationReason } from "./state.js";
 import type { EnhancementStateMachine } from "./state-machine.js";
 import type { SchedulerRegistration } from "./scheduler-registration.js";
+import type { SourceRefreshOptions } from "./context-state.js";
+import type {
+  EnhanceDispatchOptions,
+  SnapshotInvalidateOptions,
+} from "./snapshot-adoption.js";
+
+/** Synchronous commit body run while the root size observation is paused. */
+type RootObservationCommit = () => void;
 
 export interface ResponsiveHooks {
   currentGeneration(): number;
@@ -60,13 +68,13 @@ export interface ResponsiveHooks {
   cancelCapturedLayoutForLatestGeometry(): void;
   dispatchRelayout(observedMeasures: string | null): void;
   finishLayoutWorkAndObserve(): boolean;
-  refreshRuntimeFromSource(options?: { revalidateSnapshotFont?: boolean }): void;
+  refreshRuntimeFromSource(options?: SourceRefreshOptions): void;
   /** TypographyManager: captured-job typography cancellation. */
   cancelCapturedLayoutForTypographyChange(): void;
   /** Lifecycle: the progressive enhance dispatch (completion restart). */
-  dispatchProgressiveEnhance(generation: number, options?: { paragraphSelector?: string | null }): Promise<boolean>;
+  dispatchProgressiveEnhance(generation: number, options?: EnhanceDispatchOptions): Promise<boolean>;
   /** SnapshotAdoption: invalidation and maximum-measure re-adoption. */
-  snapshotInvalidateAndEnhance(options?: { restoreBeforeLoad?: boolean }): void;
+  snapshotInvalidateAndEnhance(options?: SnapshotInvalidateOptions): void;
   tryReadoptSnapshotAtMaximumMeasure(): void;
   /** DiagnosisManager + console path for a failed completion restart. */
   reportRefreshFailure(message: string, error: unknown): void;
@@ -317,7 +325,7 @@ function createResponsiveManager(
   // unobserved around the synchronous commit so its own height change
   // cannot queue a same-depth observation for the browser's ResizeObserver
   // loop guard to report, then re-observed with the original box option.
-  function withRootObservationPaused(commit: () => void): boolean {
+  function withRootObservationPaused(commit: RootObservationCommit): boolean {
     sizeObservation?.unobserve(root);
     try {
       commit();
