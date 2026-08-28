@@ -145,12 +145,6 @@ const EXEMPTIONS = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/core/core/engine/prose-host-session.ts",
-    reason: "Separator join in signature building over the untyped payload; replaced by declared DTOs.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
     file: "frontend/web/npm/tests/runtime-host.mjs",
     reason: "Split/join over the untyped worker payload records and fields; replaced by declared DTOs.",
   },

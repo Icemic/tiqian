@@ -22,7 +22,6 @@ import {
 import { destroyRoot, detachRoot, optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
 import { probeRootContentDrift, reconcileRoot } from "@tiqian/core/core/engine/content-reconcile.js";
 import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
-import { createRootState } from "@tiqian/core/core/engine/root-state.js";
 
 export class FakeDOMRect {
   constructor(x = 0, y = 0, width = 0, height = 0) {
@@ -2704,8 +2703,10 @@ export function eventDetailInt(event, name) {
 
 // ADR 0053 C1: the internal document event channel is retired; these host
 // helpers keep their export names but drive the dissolved engine surface
-// (named functions over the shared root state and job pool) directly. The
-// raw-DOM context is per root; the harness owns one context per root element.
+// (context-first named functions over the shared layout job pool) directly.
+// The RootState registry is gone: the harness owns one EnhancedElementContext
+// per root element, and the only surviving shared service is the layout job
+// pool from globalServices().coordination.layoutJobPool.
 let runtimeServices = null;
 const contextsByRoot = new WeakMap();
 
@@ -2724,23 +2725,23 @@ function requireRuntimeServices() {
 }
 
 export function dispatchRelayout(root) {
-  const runtime = requireRuntimeServices();
-  relayout(runtime.rootState, runtime.layoutJobPool, contextForRoot(root), root);
+  requireRuntimeServices();
+  relayout(contextForRoot(root), root);
 }
 
 export function probeContentDrift(root) {
-  const runtime = requireRuntimeServices();
-  return probeRootContentDrift(contextForRoot(root), runtime.rootState, root);
+  requireRuntimeServices();
+  return probeRootContentDrift(contextForRoot(root), root);
 }
 
 export function reconcileContent(root, paragraphs = []) {
-  const runtime = requireRuntimeServices();
-  return reconcileRoot(contextForRoot(root), runtime.rootState, runtime.layoutJobPool, root, paragraphs);
+  requireRuntimeServices();
+  return reconcileRoot(contextForRoot(root), root, paragraphs);
 }
 
 export function detachViaChannel(root) {
-  const runtime = requireRuntimeServices();
-  detachRoot(runtime.layoutJobPool, root, contextForRoot(root));
+  requireRuntimeServices();
+  detachRoot(contextForRoot(root), root);
 }
 
 export function testGrantController(root, generation, deadlineMs, quota) {
@@ -3053,19 +3054,20 @@ export function snapshotTestOptions() {
 let runtimePromise;
 
 // Build the test-host TiqianWeb object from the dissolved engine surface
-// (R10): named functions over the plain runtime graph replace the former
-// TiqianEngine facade. enhance keeps its counting wrapper so
-// tests can assert per-root paragraph counts; the worker-prefixed bridge
-// names bind directly to the graph's LayoutJobPool.
+// (R10, core-neutral): context-first named functions replace the former
+// TiqianEngine facade, and the per-root RootState registry is gone. The
+// harness owns one EnhancedElementContext per root (contextForRoot); the
+// layout job pool comes from the global services. enhance keeps its
+// counting wrapper so tests can assert per-root paragraph counts; the
+// worker-prefixed bridge names bind directly to the shared LayoutJobPool.
 export function loadHostRuntime() {
   buildWorld();
   initializeGlobalServices();
   runtimePromise ??= Promise.resolve().then(() => {
-    // The runtime graph is now empty; the session owns its own rootState.
-    // Create rootState and other services separately.
-    const rootState = createRootState();
+    // The runtime graph is now empty; the harness-owned context carries the
+    // per-root state. Only the shared layout job pool survives as a service.
     const layoutJobPool = globalServices().coordination.layoutJobPool;
-    runtimeServices = { rootState, layoutJobPool };
+    runtimeServices = { layoutJobPool };
 
     const bridge = {
       // TiqianWeb.install() in the Kotlin runtime attached the clipboard
@@ -3078,29 +3080,28 @@ export function loadHostRuntime() {
         if (globalThis.document) globalServices().clipboard.install(globalThis.document);
       },
       enhance(root, options) {
-        enhance(rootState, layoutJobPool, contextForRoot(root), root, options);
-        const count = root.getAttribute("data-tiqian-enhanced-count");
-        return count != null ? Number(count) : 0;
+        return enhance(contextForRoot(root), root, options ?? null, false);
       },
       enhanceProgressively(root, options) {
-        enhanceProgressively(rootState, layoutJobPool, contextForRoot(root), root, options);
+        enhanceProgressively(contextForRoot(root), root, options ?? null);
       },
       destroy(root) {
-        destroyRoot(rootState, layoutJobPool, contextForRoot(root), root);
+        destroyRoot(contextForRoot(root), root);
       },
       detach(root) {
-        detachRoot(layoutJobPool, root, contextForRoot(root));
+        detachRoot(contextForRoot(root), root);
       },
       relayout(root) {
-        relayout(rootState, layoutJobPool, contextForRoot(root), root);
+        relayout(contextForRoot(root), root);
       },
       refresh(root, progressively = true) {
-        const state = rootState.getState(root);
-        if (state) {
+        const context = contextForRoot(root);
+        const canonicalOptions = context.contextState.runtimeOptions;
+        if (context.contextState.runtimeEstablished && canonicalOptions) {
           if (progressively) {
-            enhanceProgressivelyFromCanonical(rootState, layoutJobPool, contextForRoot(root), root, state.options);
+            enhanceProgressivelyFromCanonical(context, root, canonicalOptions);
           } else {
-            enhance(rootState, layoutJobPool, contextForRoot(root), root, state.options, true);
+            enhance(context, root, canonicalOptions, true);
           }
         }
         return root || globalThis.document.body;
@@ -3109,10 +3110,10 @@ export function loadHostRuntime() {
         layoutJobPool.cancelJob(root);
       },
       probeContentDrift(root) {
-        return probeRootContentDrift(contextForRoot(root), rootState, root);
+        return probeRootContentDrift(contextForRoot(root), root);
       },
       reconcileContent(root, paragraphs) {
-        return reconcileRoot(contextForRoot(root), rootState, layoutJobPool, root, paragraphs);
+        return reconcileRoot(contextForRoot(root), root, paragraphs);
       },
       workerLayoutRequest(root, paragraph, options) {
         const request = workerLayoutRequestForRoot(root, paragraph, optionsFromJs(options ?? {}));

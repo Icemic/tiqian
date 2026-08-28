@@ -16,7 +16,8 @@ initializeGlobalServices();
 // The relayout session runs for real against the real raw-DOM lifecycle and
 // the real prepared-DOM renderer. The former injectable rawDom collaborator
 // and renderer/validator globals are dissolved; every observation now reads
-// the live element, record, and state consequences.
+// the live element, record, and the context's live paragraph and issue
+// arrays.
 
 function withDocument(fn) {
   const saved = {
@@ -24,6 +25,8 @@ function withDocument(fn) {
     documentValue: globalThis.document,
     nodeOwn: Object.prototype.hasOwnProperty.call(globalThis, "Node"),
     nodeValue: globalThis.Node,
+    computedOwn: Object.prototype.hasOwnProperty.call(globalThis, "getComputedStyle"),
+    computedValue: globalThis.getComputedStyle,
   };
   globalThis.document = {
     createDocumentFragment: () => new FakeFragment(),
@@ -31,6 +34,10 @@ function withDocument(fn) {
   // The rawDom commit forwarding captures Node.prototype's mutation methods
   // as its native layer; the fake node class plays that role.
   globalThis.Node = FakeNode;
+  // The options ledger's withRootDefaults resolves the inherited font-family
+  // through getComputedStyle while seeding the runtime options; answer an
+  // empty declaration so resolution falls back to the family defaults.
+  globalThis.getComputedStyle = () => ({ getPropertyValue: () => "" });
   try {
     return fn();
   } finally {
@@ -38,6 +45,8 @@ function withDocument(fn) {
     else delete globalThis.document;
     if (saved.nodeOwn) globalThis.Node = saved.nodeValue;
     else delete globalThis.Node;
+    if (saved.computedOwn) globalThis.getComputedStyle = saved.computedValue;
+    else delete globalThis.getComputedStyle;
   }
 }
 
@@ -90,17 +99,23 @@ function simulateRendered(source, text) {
   source.setAttribute("data-tq-rendered", "true");
 }
 
-function makeState(overrides = {}) {
-  return {
-    options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
-    preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    snapshotSession: overrides.snapshotSession ?? { sessionId: "session-1" },
-    browserFallback: overrides.browserFallback ?? null,
-    onIssue: overrides.onIssue ?? ((issue) => {}),
-    onParagraphCommitted: overrides.onParagraphCommitted ?? ((item) => {}),
-    paragraphs: overrides.paragraphs ?? [],
-    issues: overrides.issues ?? [],
-  };
+// Standard core-neutral seeding: one EnhancedElementContext for the element,
+// the resolved engine options on the context state (the relayout session
+// reads them there), and an established typography runtime, exactly the
+// driver order. The seeded paragraphs and issues are the context's own live
+// arrays the session splices and pushes by reference.
+function seedContext(element, overrides = {}) {
+  const context = createEnhanceContext(element);
+  const resolved = context.optionsLedger.resolveEngineOptions(element, overrides.options ?? { fontSize: 19 });
+  context.contextState.setRuntimeOptions(resolved);
+  context.typography.establishRuntime(element, resolved);
+  for (const paragraph of overrides.paragraphs ?? []) {
+    context.contextState.paragraphs.push(paragraph);
+  }
+  for (const issue of overrides.issues ?? []) {
+    context.diagnosis.issues.push(issue);
+  }
+  return context;
 }
 
 // The minimal schema-conforming plan: the real renderer accepts it and
@@ -115,22 +130,21 @@ const EMPTY_PLAN_JSON = JSON.stringify({
 test("1. unchanged verdict: no rawDom consequence, no state change", () => {
   withDocument(() => {
     const p1 = makeParagraph({ lastMeasure: 100 });
-    const context = createEnhanceContext(p1.source);
+    const context = seedContext(p1.source, { paragraphs: [p1] });
     registerParagraph(context, p1.source);
     // The unchanged verdict must leave the element exactly as registration
     // left it; capture the baseline after take/commit.
     const originalText = p1.source.textContent;
-    const state = makeState({ paragraphs: [p1] });
-    const active = openRelayoutSession(context, { paragraphs: [p1], state });
+    const active = openRelayoutSession(context);
 
     active.processItem(0, { kind: "unchanged" });
     active.finish();
 
     assert.equal(p1.source.textContent, originalText);
     assert.equal(p1.source.getAttribute("data-tq-rendered"), null);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.paragraphs[0], p1);
-    assert.equal(state.issues.length, 0);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.contextState.paragraphs[0], p1);
+    assert.equal(context.diagnosis.issues.length, 0);
     assert.equal(p1.lastMeasure, 100);
   });
 });
@@ -138,12 +152,11 @@ test("1. unchanged verdict: no rawDom consequence, no state change", () => {
 test("2. unsupported verdict: live content captured and restored, finish() removes the paragraph from state.paragraphs, pushes the issue, reports it", () => {
   withDocument(() => {
     const p1 = makeParagraph({ lastMeasure: 120 });
-    const context = createEnhanceContext(p1.source);
     const originalText = p1.source.textContent;
+    const context = seedContext(p1.source, { paragraphs: [p1] });
     registerParagraph(context, p1.source);
 
-    const state = makeState({ paragraphs: [p1] });
-    const active = openRelayoutSession(context, { paragraphs: [p1], state });
+    const active = openRelayoutSession(context);
 
     const unsupportedVerdict = {
       kind: "unsupported",
@@ -159,9 +172,9 @@ test("2. unsupported verdict: live content captured and restored, finish() remov
 
     active.finish();
 
-    assert.equal(state.paragraphs.length, 0);
-    assert.equal(state.issues.length, 1);
-    const issue = state.issues[0];
+    assert.equal(context.contextState.paragraphs.length, 0);
+    assert.equal(context.diagnosis.issues.length, 1);
+    const issue = context.diagnosis.issues[0];
     assert.equal(issue.name, "UnsupportedStyle");
     assert.equal(issue.detail, "font size too large");
     assert.equal(issue.element, p1.source);
@@ -175,11 +188,10 @@ test("2. unsupported verdict: live content captured and restored, finish() remov
 test("3. ready + commit success: lastMeasure copies preparation.measure, the paragraph is stamped rendered, item stays in state.paragraphs", () => {
   withDocument(() => {
     const p1 = makeParagraph({ lastMeasure: 100 });
-    const context = createEnhanceContext(p1.source);
+    const context = seedContext(p1.source, { paragraphs: [p1] });
     registerParagraph(context, p1.source);
 
-    const state = makeState({ paragraphs: [p1] });
-    const active = openRelayoutSession(context, { paragraphs: [p1], state });
+    const active = openRelayoutSession(context);
 
     const preparation = { kind: "ready", planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 };
     active.processItem(0, preparation);
@@ -196,21 +208,20 @@ test("3. ready + commit success: lastMeasure copies preparation.measure, the par
     active.finish();
 
     assert.equal(p1.lastMeasure, preparation.measure);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.paragraphs[0], p1);
-    assert.equal(state.issues.length, 0);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.contextState.paragraphs[0], p1);
+    assert.equal(context.diagnosis.issues.length, 0);
   });
 });
 
 test("4. ready + commit failure: capture precedes the render, the failure propagates, rollback restores the captured live state", () => {
   withDocument(() => {
     const p1 = makeParagraph({ lastMeasure: 110 });
-    const context = createEnhanceContext(p1.source);
+    const context = seedContext(p1.source, { paragraphs: [p1] });
     registerParagraph(context, p1.source);
     simulateRendered(p1.source, "rendered v1");
 
-    const state = makeState({ paragraphs: [p1] });
-    const active = openRelayoutSession(context, { paragraphs: [p1], state });
+    const active = openRelayoutSession(context);
 
     // A plan without the schema envelope makes the real renderer throw; the
     // session catches nothing, so the driver-level failure contract applies.
@@ -229,8 +240,8 @@ test("4. ready + commit failure: capture precedes the render, the failure propag
     // Rollback restored the live content captured at session time.
     assert.equal(p1.source.textContent, "rendered v1");
     assert.equal(p1.source.getAttribute("data-tq-rendered"), "true");
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.issues.length, 0);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.diagnosis.issues.length, 0);
   });
 });
 
@@ -238,34 +249,32 @@ test("6. rollback(): state lists restored to before, captured snapshots rolled b
   withDocument(() => {
     const p1 = makeParagraph({ lastMeasure: 100 });
     const p2 = makeParagraph({ lastMeasure: 200 });
-    const context = createEnhanceContext(p1.source);
+    const initialIssue = { name: "InitialIssue" };
+    const context = seedContext(p1.source, {
+      paragraphs: [p1, p2],
+      issues: [initialIssue],
+    });
     registerParagraph(context, p1.source);
     registerParagraph(context, p2.source);
     simulateRendered(p1.source, "rendered v1");
     simulateRendered(p2.source, "rendered v2");
 
-    const initialIssue = { name: "InitialIssue" };
-    const state = makeState({
-      paragraphs: [p1, p2],
-      issues: [initialIssue],
-    });
-
-    const active = openRelayoutSession(context, { paragraphs: [p1, p2], state });
+    const active = openRelayoutSession(context);
 
     active.processItem(0, { kind: "unsupported", name: "Unsupported", detail: "no" });
     active.processItem(1, { kind: "ready", planJson: EMPTY_PLAN_JSON, measure: 250, width: 300 });
 
-    // Mutate state lists to simulate mid-session modifications
-    state.paragraphs.length = 0;
-    state.issues.push({ name: "AnotherIssue" });
+    // Mutate the context's live lists to simulate mid-session modifications.
+    context.contextState.paragraphs.length = 0;
+    context.diagnosis.issues.push({ name: "AnotherIssue" });
 
     active.rollback();
 
-    assert.equal(state.paragraphs.length, 2);
-    assert.equal(state.paragraphs[0], p1);
-    assert.equal(state.paragraphs[1], p2);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0], initialIssue);
+    assert.equal(context.contextState.paragraphs.length, 2);
+    assert.equal(context.contextState.paragraphs[0], p1);
+    assert.equal(context.contextState.paragraphs[1], p2);
+    assert.equal(context.diagnosis.issues.length, 1);
+    assert.equal(context.diagnosis.issues[0], initialIssue);
 
     // Both paragraphs carry the live content captured at session start; the
     // unsupported path's restoreParagraph and the commit's fresh render are
@@ -284,12 +293,13 @@ test("6. rollback(): state lists restored to before, captured snapshots rolled b
 });
 
 test("8. stale starts false and is assignable", () => {
-  const p1 = makeParagraph();
-  const state = makeState({ paragraphs: [p1] });
-  const context = createEnhanceContext(p1.source);
-  const active = openRelayoutSession(context, { paragraphs: [p1], state });
+  withDocument(() => {
+    const p1 = makeParagraph();
+    const context = seedContext(p1.source, { paragraphs: [p1] });
+    const active = openRelayoutSession(context);
 
-  assert.equal(active.stale, false);
-  active.stale = true;
-  assert.equal(active.stale, true);
+    assert.equal(active.stale, false);
+    active.stale = true;
+    assert.equal(active.stale, true);
+  });
 });

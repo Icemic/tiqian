@@ -4,20 +4,23 @@ import test from "node:test";
 import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 import { processParagraph } from "../core/engine/process-paragraph.js";
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { optionsFromJs } from "../core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
-import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
+import { installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
 import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
 initializeGlobalServices();
 
 // The pipeline runs for real: eligibility, markdown lowering, the lifecycle
 // helpers, the worker request serializer, the prepared-metadata builders, the
 // direct prepare step and both commit functions (including the real
-// prepared-DOM renderer). The first parameter is the per-element
-// EnhancedElementContext; the raw-DOM record it carries is the observation
-// point for begin/take/commit/restore. The fake world supplies the document
-// (fragment factory, style head, lowering probes) and the Node prototype the
-// raw-DOM commit forwarding captures.
+// prepared-DOM renderer). The unit under test receives the per-element
+// EnhancedElementContext; its contextState.paragraphs and diagnosis.issues
+// live arrays are the commit/issue observation points, and the raw-DOM
+// record it carries is the observation point for begin/take/commit/restore.
+// The fake world supplies the document (fragment factory, style head,
+// lowering probes, canvas for the browser-fallback bridge) and the Node
+// prototype the raw-DOM commit forwarding captures.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -65,13 +68,52 @@ function computedStyle(values = {}) {
   return style;
 }
 
+// Canvas double for the browser-fallback bridge: measureText answers one
+// fontSize advance per code point parsed out of the current font shorthand,
+// and the TextMetrics fields carry the fixture box proportions, so the real
+// canvas shaper and metrics resolver produce a complete layout envelope.
+function scriptedCanvasContext() {
+  const context = {
+    font: "16px sans-serif",
+    canvas: { width: 0, height: 0 },
+    measureText(text) {
+      const match = /(\d+(?:\.\d+)?)px/.exec(String(context.font));
+      const fontSize = match ? Number(match[1]) : 16;
+      const width = Array.from(String(text)).length * fontSize;
+      return {
+        width,
+        actualBoundingBoxLeft: 0,
+        actualBoundingBoxAscent: fontSize * 0.88,
+        actualBoundingBoxRight: width,
+        actualBoundingBoxDescent: fontSize * 0.12,
+        fontBoundingBoxAscent: fontSize * 0.88,
+        fontBoundingBoxDescent: fontSize * 0.12,
+        ideographicBaseline: -fontSize * 0.12,
+      };
+    },
+    setTransform() {},
+    clearRect() {},
+    fillText() {},
+    getImageData: (sx, sy, sw, sh) => ({ data: new Uint8ClampedArray(Math.max(sw, 0) * Math.max(sh, 0) * 4) }),
+  };
+  return context;
+}
+
 // The fake document supplies the fragment factory the raw-DOM takeover uses,
 // a style-carrying head for the prepared-value style state, lowering probes
-// whose baseline answers probeBottom, and an inert Range for the inline-edge
-// measurement.
+// whose baseline answers probeBottom, an inert Range for the inline-edge
+// measurement, a body the canvas shaper's hidden-DOM probe attaches to, and
+// a canvas whose 2d context is the scripted double above.
 function makeFakeDocument(probeBottom = 0) {
   const documentObject = {
     createElement: (tagName) => {
+      if (String(tagName || "").toLowerCase() === "canvas") {
+        return {
+          width: 0,
+          height: 0,
+          getContext: () => scriptedCanvasContext(),
+        };
+      }
       const probe = new FakeElement(tagName || "span");
       probe.top = probeBottom;
       return probe;
@@ -83,12 +125,11 @@ function makeFakeDocument(probeBottom = 0) {
     }),
   };
   documentObject.head = new FakeElement("head");
+  documentObject.body = new FakeElement("body");
   return documentObject;
 }
 
-// Runs fn with the environment globals the real pipeline reads. The fixture
-// font backend is installed by default so the real prepare step can shape;
-// a test that must not reach ffi passes fontBackend: false.
+// Runs fn with the environment globals the real pipeline reads.
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals([
     "getComputedStyle",
@@ -96,58 +137,54 @@ function withEnv(fn, overrides = {}) {
     "Node",
   ]);
   const savedLayoutWorker = globalServices().coordination.layoutWorker;
-  const backend = overrides.fontBackend === false ? null : installFixtureFontBackend();
   try {
     globalThis.document = overrides.document ?? makeFakeDocument();
     globalThis.Node = FakeNode;
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
     }
-    if (overrides.throwComputedStyle) {
-      globalThis.getComputedStyle = () => {
-        throw overrides.throwComputedStyle;
-      };
-    } else {
-      globalThis.getComputedStyle = (target, pseudo) =>
-        target && target._computedValues
-          ? computedStyle(target._computedValues)
-          : computedStyle();
-    }
+    globalThis.getComputedStyle = (target, pseudo) =>
+      target && target._computedValues
+        ? computedStyle(target._computedValues)
+        : computedStyle();
     return fn();
   } finally {
-    if (backend) backend.uninstall();
     globalServices().coordination.layoutWorker = savedLayoutWorker;
     restoreGlobals(saved);
   }
 }
 
-// The snapshot-session descriptor carries the shaping callbacks ffi takes as
-// call parameters; the fixture backend supplies a working pair.
-function snapshotSessionCallbacksOf(backend) {
-  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
+// The snapshot-session descriptor is derived inside the pipeline from the
+// runtime options' snapshotFontSession id through the coordination replay
+// registry; tests seed that registry slot directly. An empty table makes the
+// session's callbacks report MissingServerShapingReplay, which the exact
+// path treats as a font capability failure and retries through the browser
+// fallback bridge.
+function registerReplaySession(sessionId, record) {
+  const registry = globalServices().coordination.fonts.replayRegistry;
+  registry.sessions.set(sessionId, record);
+  return () => registry.sessions.delete(sessionId);
 }
 
-function fixtureSnapshotSession() {
-  return snapshotSessionCallbacksOf(installFixtureFontBackend());
+function registerEmptyReplaySession(sessionId) {
+  return registerReplaySession(sessionId, { shapes: new Map(), metrics: new Map(), probe: null });
 }
 
-function makeState(overrides = {}) {
-  const issues = [];
-  const paragraphs = [];
-  return {
-    options: overrides.options !== undefined ? overrides.options : { fontSize: 19 },
-    preparedDomEnabled: overrides.preparedDomEnabled ?? true,
-    snapshotSession: overrides.snapshotSession ?? fixtureSnapshotSession(),
-    browserFallback: overrides.browserFallback ?? null,
-    onIssue: (issue) => {
-      issues.push(issue);
-    },
-    onParagraphCommitted: (item) => {
-      paragraphs.push(item);
-    },
-    issues,
-    paragraphs,
-  };
+// Standard core-neutral seeding: one EnhancedElementContext for the element,
+// resolved engine options on the context state, and an established runtime
+// for the browser-fallback descriptor, exactly the driver order. The ledger
+// resolver applies the snapshot gate (configured typography lowers the
+// snapshot font session), so tests that need configured typography AND a
+// conforming session together enter through the canonical re-entry verb,
+// which skips the gate.
+function seedContext(paragraph, optionsBag, { canonical = false } = {}) {
+  const context = createEnhanceContext(paragraph);
+  const resolved = canonical
+    ? context.optionsLedger.resolveEngineOptionsFromCanonical(paragraph, optionsFromJs(optionsBag))
+    : context.optionsLedger.resolveEngineOptions(paragraph, optionsBag);
+  context.contextState.setRuntimeOptions(resolved);
+  context.typography.establishRuntime(paragraph, resolved);
+  return context;
 }
 
 // Paragraph host element on the fixture fake-DOM base: a measurable P whose
@@ -218,10 +255,9 @@ test("1. Direct happy path: lowering ok, rawDom record captures the original she
     paragraph.style.setProperty("inline-size", "300px");
     paragraph.style.setProperty("font-size", "19px");
 
-    const context = createEnhanceContext(paragraph);
-    const state = makeState();
+    const context = seedContext(paragraph, { fontSize: 19 });
 
-    processParagraph(context, { paragraph, state });
+    processParagraph(context, paragraph);
 
     // The raw-DOM record captured the original shell values begin received.
     const record = context.rawDomParagraphs.get(paragraph);
@@ -242,13 +278,13 @@ test("1. Direct happy path: lowering ok, rawDom record captures the original she
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
     assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
 
-    assert.equal(state.paragraphs.length, 1);
-    const item = state.paragraphs[0];
+    assert.equal(context.contextState.paragraphs.length, 1);
+    const item = context.contextState.paragraphs[0];
     assert.equal(item.source, paragraph);
     // The real direct commit records the effective line measure, not a canned
     // 300.
     assert.equal(item.lastMeasure, effectiveLineMeasure(320, 19));
-    assert.equal(state.issues.length, 0);
+    assert.equal(context.diagnosis.issues.length, 0);
   });
 });
 
@@ -271,16 +307,15 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     });
     paragraph._computedValues = { "font-weight": "normal" };
 
-    const context = createEnhanceContext(paragraph);
-    const state = makeState({
-      options: {
-        fontSize: 19,
-        strongAsEmphasisMarks: true,
-        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
-      },
-    });
+    // Configured typography and the conforming session coexist through the
+    // canonical re-entry verb, which skips the snapshot gate.
+    const context = seedContext(paragraph, {
+      fontSize: 19,
+      strongAsEmphasisMarks: true,
+      snapshotFontSession: { status: "conforming", sessionId: "session-1" },
+    }, { canonical: true });
 
-    processParagraph(context, { paragraph, state });
+    processParagraph(context, paragraph);
 
     // The worker request was built from the lowered paragraph and sent with
     // the conforming session key; the opaque inline object lowers to the
@@ -296,9 +331,9 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
 
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.paragraphs[0].lastMeasure, effectiveLineMeasure(320, 19));
-    assert.equal(state.issues.length, 0);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.contextState.paragraphs[0].lastMeasure, effectiveLineMeasure(320, 19));
+    assert.equal(context.diagnosis.issues.length, 0);
   }, { layoutWorker, document: makeFakeDocument(30) });
 });
 
@@ -306,19 +341,23 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (r
   const throwError = new Error("lowering syntax error");
   withEnv(() => {
     const paragraph = makeParagraphElement();
-    const context = createEnhanceContext(paragraph);
-    const state = makeState();
-    processParagraph(context, { paragraph, state });
+    const context = seedContext(paragraph, { fontSize: 19 });
+    // Seeding resolved its options through the normal computed style; the
+    // lowering probe is the first consumer that must see the throw.
+    globalThis.getComputedStyle = () => {
+      throw throwError;
+    };
+    processParagraph(context, paragraph);
 
     assert.equal(context.rawDomParagraphs.has(paragraph), false);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "DomLoweringFailure");
-    assert.equal(state.issues[0].detail, "lowering syntax error");
-    assert.equal(state.issues[0].element, paragraph);
-    assert.equal(state.issues[0].reportToConsole, true);
+    assert.equal(context.diagnosis.issues.length, 1);
+    assert.equal(context.diagnosis.issues[0].name, "DomLoweringFailure");
+    assert.equal(context.diagnosis.issues[0].detail, "lowering syntax error");
+    assert.equal(context.diagnosis.issues[0].element, paragraph);
+    assert.equal(context.diagnosis.issues[0].reportToConsole, true);
     // The lifecycle marker was written onto the paragraph element.
     assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "DomLoweringFailure");
-  }, { throwComputedStyle: throwError });
+  });
 });
 
 test("4. Lowering ok false with an issue -> that issue reported", () => {
@@ -326,16 +365,15 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
     const paragraph = makeParagraphElement({
       childNodes: [blockChild("div", "blocked")],
     });
-    const context = createEnhanceContext(paragraph);
-    const state = makeState();
-    processParagraph(context, { paragraph, state });
+    const context = seedContext(paragraph, { fontSize: 19 });
+    processParagraph(context, paragraph);
 
     assert.equal(context.rawDomParagraphs.has(paragraph), false);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "UnsupportedInlineFormattingContext");
-    assert.equal(state.issues[0].detail, "div:block");
-    assert.equal(state.issues[0].element, paragraph);
-    assert.equal(state.issues[0].reportToConsole, true);
+    assert.equal(context.diagnosis.issues.length, 1);
+    assert.equal(context.diagnosis.issues[0].name, "UnsupportedInlineFormattingContext");
+    assert.equal(context.diagnosis.issues[0].detail, "div:block");
+    assert.equal(context.diagnosis.issues[0].element, paragraph);
+    assert.equal(context.diagnosis.issues[0].reportToConsole, true);
     // The lifecycle marker was written onto the paragraph element.
     assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "UnsupportedInlineFormattingContext");
   });
@@ -350,25 +388,22 @@ test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, plan null, rich
     const paragraph = makeParagraphElement({
       attributes: { style: "margin: 10px;" },
     });
-    const context = createEnhanceContext(paragraph);
-    const state = makeState({
-      options: {
-        requireSnapshotLayoutWorker: true,
-        snapshotFontSession: { status: "conforming", sessionId: "session-1" },
-      },
+    const context = seedContext(paragraph, {
+      requireSnapshotLayoutWorker: true,
+      snapshotFontSession: { status: "conforming", sessionId: "session-1" },
     });
-    processParagraph(context, { paragraph, state });
+    processParagraph(context, paragraph);
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
     // Begin recorded the shell but the gate tripped before the takeover.
     const record = context.rawDomParagraphs.get(paragraph);
     assert.ok(record);
     assert.equal(record.originalContent, null);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "SnapshotLayoutWorkerPlanUnavailable");
-    assert.equal(state.issues[0].detail, "No worker available in this context");
-    assert.equal(state.issues[0].element, paragraph);
-    assert.equal(state.issues[0].reportToConsole, true);
+    assert.equal(context.diagnosis.issues.length, 1);
+    assert.equal(context.diagnosis.issues[0].name, "SnapshotLayoutWorkerPlanUnavailable");
+    assert.equal(context.diagnosis.issues[0].detail, "No worker available in this context");
+    assert.equal(context.diagnosis.issues[0].element, paragraph);
+    assert.equal(context.diagnosis.issues[0].reportToConsole, true);
     // The lifecycle marker was written onto the paragraph element.
     assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "SnapshotLayoutWorkerPlanUnavailable");
   }, { layoutWorker });
@@ -379,94 +414,121 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
     take: () => null,
     issue: () => "MissingServerShapingReplay for CodeFont",
   };
-  withEnv(() => {
-    // The opaque inline object makes the lowered paragraph rich without
-    // adding live semantic sources, so the direct commit stays on the
-    // inline-object branch.
-    const paragraph = makeParagraphElement({
-      childNodes: [new FakeText("hello "), inlineObjectSpan(42, 20)],
-    });
-    const context = createEnhanceContext(paragraph);
-    const state = makeState({
-      options: {
+  // The registered replay session stays empty, so the exact snapshot-session
+  // layout misses its shaping supply and retries through the browser
+  // fallback bridge.
+  const unregister = registerEmptyReplaySession("session-1");
+  try {
+    withEnv(() => {
+      // The opaque inline object makes the lowered paragraph rich without
+      // adding live semantic sources, so the direct commit stays on the
+      // inline-object branch.
+      const paragraph = makeParagraphElement({
+        childNodes: [new FakeText("hello "), inlineObjectSpan(42, 20)],
+      });
+      const context = seedContext(paragraph, {
         requireSnapshotLayoutWorker: true,
         snapshotFontSession: { status: "conforming", sessionId: "session-1" },
-      },
-    });
+      });
 
-    processParagraph(context, { paragraph, state });
+      processParagraph(context, paragraph);
 
-    // The rich fallback bypassed the worker gate: the takeover ran and the
-    // direct path committed.
-    const record = context.rawDomParagraphs.get(paragraph);
-    assert.ok(record);
-    assert.ok(record.originalContent);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.issues.length, 0);
-  }, { layoutWorker, document: makeFakeDocument(30) });
+      // The rich fallback bypassed the worker gate: the takeover ran and the
+      // direct path committed.
+      const record = context.rawDomParagraphs.get(paragraph);
+      assert.ok(record);
+      assert.ok(record.originalContent);
+      assert.equal(context.contextState.paragraphs.length, 1);
+      assert.equal(context.diagnosis.issues.length, 0);
+    }, { layoutWorker, document: makeFakeDocument(30) });
+  } finally {
+    unregister();
+  }
 });
 
 test("9. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   const backend = installThrowingFontBackend(new Error("unexpected engine crash"));
+  // The throwing backend answers the registered session's shaping lookups,
+  // so the snapshot-session descriptor derived from the runtime options
+  // throws exactly like the old injected session did.
+  const unregister = registerReplaySession("session-throw", {
+    shapes: { get: () => backend.shapeJson("") },
+    metrics: { get: () => backend.metricsJson("") },
+    probe: null,
+  });
   try {
     withEnv(() => {
       const paragraph = makeParagraphElement();
-      const context = createEnhanceContext(paragraph);
-      const state = makeState({ snapshotSession: snapshotSessionCallbacksOf(backend) });
+      const context = seedContext(paragraph, {
+        fontSize: 19,
+        snapshotFontSession: { status: "conforming", sessionId: "session-throw" },
+      }, { canonical: true });
 
-      processParagraph(context, { paragraph, state });
+      processParagraph(context, paragraph);
 
       // The restore returned the original children and shell to the host.
       assert.equal(paragraph.textContent, "hello world");
       assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
-      assert.equal(state.paragraphs.length, 0);
-      assert.equal(state.issues.length, 1);
-      assert.equal(state.issues[0].name, "WebEnhancementFailure");
-      assert.equal(state.issues[0].detail, "unexpected engine crash");
+      assert.equal(context.contextState.paragraphs.length, 0);
+      assert.equal(context.diagnosis.issues.length, 1);
+      assert.equal(context.diagnosis.issues[0].name, "WebEnhancementFailure");
+      assert.equal(context.diagnosis.issues[0].detail, "unexpected engine crash");
       // The lifecycle marker was written onto the paragraph element.
       assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), "WebEnhancementFailure");
-    }, { fontBackend: false });
+    });
   } finally {
     backend.uninstall();
+    unregister();
   }
 });
 
-test("10. preparedDomEnabled false -> the snapshot font session option is dropped and the direct path proceeds", () => {
+test("10. preparedDomEnabled gate dissolved (2026-08-27 core-neutral wave): without a snapshotFontSession option the worker channel is skipped and the direct path commits", () => {
+  const takeCalls = [];
+  const layoutWorker = {
+    take: (element, sessionKey, request) => {
+      takeCalls.push({ element, sessionKey, request });
+      return null;
+    },
+    issue: () => null,
+  };
   withEnv(() => {
     const paragraph = makeParagraphElement();
-    const context = createEnhanceContext(paragraph);
-    const rawOptions = { fontSize: 19, snapshotFontSession: { status: "conforming", sessionId: "sess-abc" } };
-    const state = makeState({
-      options: rawOptions,
-      preparedDomEnabled: false,
-    });
+    const context = seedContext(paragraph, { fontSize: 19 });
 
-    processParagraph(context, { paragraph, state });
+    processParagraph(context, paragraph);
 
-    // With the snapshot font session dropped from the active options the
-    // worker channel is skipped and the direct path committed.
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.issues.length, 0);
-  });
+    // The preparedDomEnabled flag was dissolved: the snapshotFontSession
+    // option's presence alone gates the worker channel. Runtime options
+    // without one never reach an installed worker, and the direct path
+    // commits.
+    assert.equal(takeCalls.length, 0);
+    assert.equal(context.contextState.paragraphs.length, 1);
+    assert.equal(context.diagnosis.issues.length, 0);
+  }, { layoutWorker });
 });
 
 test("11. absent layout worker channel reads as no reusable plan and the direct path proceeds", () => {
-  withEnv(() => {
-    const paragraph = makeParagraphElement();
-    const context = createEnhanceContext(paragraph);
-    const state = makeState({
-      options: {
+  // The registered replay session stays empty, so after the absent worker
+  // channel reads as no plan the snapshot-session layout misses its shaping
+  // supply and completes through the browser fallback retry.
+  const unregister = registerEmptyReplaySession("session-1");
+  try {
+    withEnv(() => {
+      const paragraph = makeParagraphElement();
+      const context = seedContext(paragraph, {
         fontSize: 19,
         snapshotFontSession: { status: "conforming", sessionId: "session-1" },
-      },
+      }, { canonical: true });
+
+      processParagraph(context, paragraph);
+
+      // No layout worker channel is installed, so the direct path ran the
+      // real prepare and commit.
+      assert.ok(!globalServices().coordination.layoutWorker);
+      assert.equal(context.contextState.paragraphs.length, 1);
+      assert.equal(context.diagnosis.issues.length, 0);
     });
-
-    processParagraph(context, { paragraph, state });
-
-    // No layout worker channel is installed, so the direct snapshot-session
-    // path ran the real prepare and commit.
-    assert.ok(!globalServices().coordination.layoutWorker);
-    assert.equal(state.paragraphs.length, 1);
-    assert.equal(state.issues.length, 0);
-  });
+  } finally {
+    unregister();
+  }
 });

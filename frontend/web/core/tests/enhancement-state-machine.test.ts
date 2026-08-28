@@ -1,17 +1,20 @@
-// Hierarchical prose host state machine transitions (spec wc-s4a item 4,
-// ruling R8 TS-ifies new tests). The machine is a pure state holder: these
-// tests drive it through the three lifecycle paths the host element runs
-// and assert every observable state change, including the structured
+// Hierarchical enhancement state machine transitions (port of the dissolved
+// prose-host-state-machine.test.ts in the core-neutral wave; spec wc-s4a
+// item 4, ruling R8). createProseHostStateMachine was renamed to
+// createEnhancementStateMachine and the state model moved to
+// core/engine/enhance/state.ts. The machine is a pure state holder: these
+// tests drive it through the three lifecycle paths the enhanced element
+// runs and assert every observable state change, including the structured
 // transition log that forms the debug channel.
 
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createProseHostStateMachine } from "../core/engine/prose-host-state-machine.js";
-import { InvalidationReason, invalidationReasons } from "../core/engine/prose-host-state.js";
-import type { ProseLayoutWorkInputs } from "../core/engine/prose-host-state.js";
+import { createEnhancementStateMachine } from "../core/engine/enhance/state-machine.js";
+import { InvalidationReason, invalidationReasons } from "../core/engine/enhance/state.js";
+import type { LayoutWorkInputs } from "../core/engine/enhance/state.js";
 
-function workInputs(): ProseLayoutWorkInputs {
+function workInputs(): LayoutWorkInputs {
   return {
     usesCapturedMeasure: true,
     signaturesCaptured: true,
@@ -24,7 +27,7 @@ function workInputs(): ProseLayoutWorkInputs {
 }
 
 test("connected and disconnected lifecycle settles every facet", () => {
-  const machine = createProseHostStateMachine();
+  const machine = createEnhancementStateMachine();
   assert.equal(machine.hostState, "disconnected");
   assert.equal(machine.connected, false);
   assert.equal(machine.pipelineStage, "idle");
@@ -86,7 +89,7 @@ test("connected and disconnected lifecycle settles every facet", () => {
 });
 
 test("raw-dom-move reconnection adopts inside the deferred window", () => {
-  const machine = createProseHostStateMachine();
+  const machine = createEnhancementStateMachine();
   machine.connect(false);
   machine.runtimeActive = true;
   machine.claimEnhanceRequest();
@@ -126,7 +129,7 @@ test("raw-dom-move reconnection adopts inside the deferred window", () => {
 });
 
 test("disable crossing an in-flight typography pass restarts the lifecycle", () => {
-  const machine = createProseHostStateMachine();
+  const machine = createEnhancementStateMachine();
   machine.connect(false);
   machine.runtimeActive = true;
   machine.claimEnhanceRequest();

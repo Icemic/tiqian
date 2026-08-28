@@ -7,12 +7,14 @@ import type { MetricsJsonFn, ShapeJsonFn } from "../measurement/browser-font-rep
 // lowering, snapshot layout Worker queries with rich fallback detection,
 // direct prepare/commit dispatch, and capability issue reporting.
 //
-// Stateless module: processParagraph(rawDom, argument) is a named function
-// that receives the raw-DOM collaborator as an explicit first parameter. The
-// engine bootstrap passes the shared raw-DOM instance; tests pass a fake.
-// The stateless worker-request, prepare-paragraph-layout, lifecycle,
-// eligibility, markdown-lowering, prepared-metadata and
-// commit-prepared-paragraph helpers are imported directly.
+// Stateless module: processParagraph(context, paragraph) is a named function
+// that receives the EnhancedElementContext as its first parameter; runtime
+// options, the browser fallback descriptor, the snapshot session view, the
+// tracked-paragraph accumulation and the issue ledger all come off the
+// context's part surface. The stateless worker-request,
+// prepare-paragraph-layout, lifecycle, eligibility, markdown-lowering,
+// prepared-metadata and commit-prepared-paragraph helpers are imported
+// directly.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw string,
 // so the source must contain no dollar sign and no triple double-quote
@@ -20,14 +22,13 @@ import type { MetricsJsonFn, ShapeJsonFn } from "../measurement/browser-font-rep
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { LoweredParagraph } from "./lowered-paragraph.js";
-import type { CapabilityIssueRecord, EnhanceOptions } from "./lifecycle.js";
+import type { CapabilityIssueRecord, EnhanceOptions, ResolvedEnhanceOptions } from "./lifecycle.js";
 import {
   applyConfiguredHostFontSize,
   captureSourceInlineSize,
   conformingSnapshotFontSessionId,
   reportIssue,
   stabilizeContentSizedItemInlineSize,
-  withoutSnapshotFontSession,
 } from "./lifecycle.js";
 import {
   classifyFontRole,
@@ -35,11 +36,13 @@ import {
   unsupportedInlineShapingProperties,
 } from "@tiqian/ffi";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
+import type { DiagnosisIssueRecord } from "./context/diagnosis-manager.js";
+import type { TrackedParagraph } from "./enhance/context-state.js";
+import { activeSnapshotSessionDescriptor } from "./enhance/snapshot-adoption.js";
 import {
   rawDomBegin,
   rawDomTake,
   rawDomCommit,
-  rawDomStampRendered,
   rawDomRestoreParagraph,
 } from "./raw-dom.js";
 import { shouldTryParagraph } from "./eligibility.js";
@@ -55,34 +58,6 @@ import {
   commitPreparedParagraph,
   commitWorkerPreparedParagraph,
 } from "./commit-prepared-paragraph.js";
-
-interface ProcessParagraphTarget {
-  source: Element;
-  lowered: LoweredParagraph;
-  lastMeasure: number | null;
-}
-
-interface ProcessSnapshotSessionDescriptor {
-  shapeJson: ShapeJsonFn;
-  metricsJson: MetricsJsonFn;
-}
-
-type ProcessIssueHandler = (issue: Record<string, unknown>) => void;
-type ProcessParagraphCommittedHandler = (item: ProcessParagraphTarget) => void;
-
-interface ProcessParagraphState {
-  onIssue: ProcessIssueHandler;
-  onParagraphCommitted: ProcessParagraphCommittedHandler;
-  preparedDomEnabled: boolean;
-  options: EnhanceOptions;
-  snapshotSession: ProcessSnapshotSessionDescriptor | null;
-  browserFallback: Record<string, unknown> | null;
-}
-
-interface ProcessParagraphInvocation {
-  paragraph: Element;
-  state: ProcessParagraphState;
-}
 
 interface ProcessInlineShapingDecisionResult {
   name: string;
@@ -146,15 +121,13 @@ interface ProcessInlineShapingDecisionResult {
    * Process a single paragraph element through markdown lowering, rawDom
    * takeover, layout preparation, and commit.
    *
-   * @param {Object} rawDomContext
-   * @param {Object} argument
+   * @param {Object} context
+   * @param {Element} paragraph
    */
-  export function processParagraph(rawDomContext: EnhancedElementContext, argument: ProcessParagraphInvocation): void {
-    const paragraph = argument.paragraph;
-    const state = argument.state;
-    // Prepared metadata builders shared across orchestrators.
-
+  export function processParagraph(context: EnhancedElementContext, paragraph: Element): void {
     if (!shouldTryParagraph(paragraph)) return;
+
+    const options = context.contextState.runtimeOptions as ResolvedEnhanceOptions;
 
     // Capture host-owned inline typography before any computed-style probe.
     // CSSStyleDeclaration can leave an empty style attribute after a
@@ -165,7 +138,7 @@ interface ProcessInlineShapingDecisionResult {
     try {
       const loweringResult = lowerMarkdown(
         paragraph,
-        state.options,
+        options,
         loweringHelpers()
       );
       if (loweringResult && loweringResult.ok === true) {
@@ -180,7 +153,7 @@ interface ProcessInlineShapingDecisionResult {
         if (issue.element == null) issue.element = paragraph;
         if (issue.reportToConsole == null) issue.reportToConsole = true;
         reportIssue(issue);
-        state.onIssue(issue);
+        context.diagnosis.issues.push(issue as DiagnosisIssueRecord);
         return;
       }
     } catch (error) {
@@ -191,13 +164,13 @@ interface ProcessInlineShapingDecisionResult {
         reportToConsole: true,
       };
       reportIssue(loweringIssue);
-      state.onIssue(loweringIssue);
+      context.diagnosis.issues.push(loweringIssue as DiagnosisIssueRecord);
       return;
     }
 
     const paragraphStyle = (paragraph as HTMLElement).style;
     rawDomBegin(
-      rawDomContext,
+      context,
       paragraph,
       paragraph.getAttribute('data-tq-rendered'),
       paragraph.getAttribute('data-tq-canonical-plain'),
@@ -216,13 +189,15 @@ interface ProcessInlineShapingDecisionResult {
 
     const hostFontSizeApplied = applyConfiguredHostFontSize(
       paragraph as HTMLElement,
-      state.options ? (state.options.fontSize as number | undefined) : undefined
+      options ? (options.fontSize as number | undefined) : undefined
     );
     const sourceInlineSize = captureSourceInlineSize(paragraph);
 
-    const activeOptions = state.preparedDomEnabled
-      ? state.options
-      : withoutSnapshotFontSession(state.options);
+    // PreparedDomLane: the prepared-DOM flag dissolved from root-state.ts
+    // never had a write path in the shipped runtime, so the active options
+    // are the runtime options unchanged (the former withoutSnapshotFontSession
+    // branch is unreachable).
+    const activeOptions: EnhanceOptions = options;
 
     const workerRequestDto = workerLayoutRequest(
       paragraph,
@@ -269,11 +244,11 @@ interface ProcessInlineShapingDecisionResult {
         reportToConsole: true,
       };
       reportIssue(snapshotWorkerIssue);
-      state.onIssue(snapshotWorkerIssue);
+      context.diagnosis.issues.push(snapshotWorkerIssue as DiagnosisIssueRecord);
       return;
     }
 
-    rawDomTake(rawDomContext, paragraph, hostFontSizeApplied);
+    rawDomTake(context, paragraph, hostFontSizeApplied);
     const hostInlineSizeApplied = stabilizeContentSizedItemInlineSize(
       paragraph as HTMLElement,
       sourceInlineSize
@@ -282,19 +257,19 @@ interface ProcessInlineShapingDecisionResult {
     paragraph.setAttribute('data-tq-rendered', 'true');
     paragraph.setAttribute(RUNTIME_RENDER_FONT_ATTRIBUTE, 'true');
 
-    const item: ProcessParagraphTarget = {
+    const item: TrackedParagraph = {
       source: paragraph,
       lowered: lowered,
       lastMeasure: null,
     };
 
-    rawDomCommit(rawDomContext, paragraph, hostInlineSizeApplied);
+    rawDomCommit(context, paragraph, hostInlineSizeApplied);
 
     let layoutIssue = null;
     try {
       if (workerPlan != null) {
         layoutIssue = commitWorkerPreparedParagraph(
-          rawDomContext,
+          context,
           {
             paragraph: item,
             workerPlan: workerPlan,
@@ -307,8 +282,8 @@ interface ProcessInlineShapingDecisionResult {
           {
             paragraph: item,
             options: activeOptions,
-            snapshotSession: state.snapshotSession,
-            browserFallback: state.browserFallback,
+            snapshotSession: activeSnapshotSessionDescriptor(activeOptions),
+            browserFallback: context.typography.browserFallback,
           }
         );
         if (preparation.kind === 'unchanged') {
@@ -317,12 +292,12 @@ interface ProcessInlineShapingDecisionResult {
           layoutIssue = preparation;
         } else if (preparation.kind === 'ready') {
           const commitResult = commitPreparedParagraph(
-            rawDomContext,
+            context,
             {
               paragraph: item,
               preparation: preparation,
               options: activeOptions,
-              browserFallback: state.browserFallback,
+              browserFallback: context.typography.browserFallback,
                 semanticReplayJson: preparedSemanticReplayJson(lowered),
               inlineObjectMetaJson: preparedInlineObjectMetaJson(lowered),
               cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(lowered),
@@ -346,9 +321,9 @@ interface ProcessInlineShapingDecisionResult {
     }
 
     if (layoutIssue == null) {
-      state.onParagraphCommitted(item);
+      context.contextState.pushParagraph(item);
     } else {
-      rawDomRestoreParagraph(rawDomContext, paragraph);
+      rawDomRestoreParagraph(context, paragraph);
       if (layoutIssue.element == null) {
         layoutIssue.element = paragraph;
       }
@@ -356,6 +331,6 @@ interface ProcessInlineShapingDecisionResult {
         layoutIssue.reportToConsole = true;
       }
       reportIssue(layoutIssue as CapabilityIssueRecord);
-      state.onIssue(layoutIssue);
+      context.diagnosis.issues.push(layoutIssue as DiagnosisIssueRecord);
     }
   }

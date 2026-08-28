@@ -12,16 +12,18 @@ import { createEnhanceContext } from "../core/engine/context/enhance-context.js"
 import { rawDomBegin, rawDomCommit, rawDomTake } from "../core/engine/raw-dom.js";
 import { installFixtureFontBackend } from "../test-support/fixture-font-backend.mjs";
 import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
-import { initializeGlobalServices } from "../core/services/global-services.js";
+import { globalServices, initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
 
-
-// The drivers functions take fake rootState/layoutJobPool deps; the third
-// parameter is the per-element EnhancedElementContext. Tests that only
-// observe the job spec pass a bare object there; tests that drive the
-// processItem paths run the real processParagraph, prepareParagraphLayout,
-// relayout session and prepared-DOM renderer, and observe the consequences
-// on the context's raw-DOM records, the live elements and the state.
+// The driver functions take the per-element EnhancedElementContext as their
+// first parameter; the layout job pool comes from
+// globalServices().coordination.layoutJobPool, which withEnv swaps for a fake
+// per test. Tests that only observe the job spec wrap the context's option
+// resolvers, candidate enumeration, stranded enumeration and publishState
+// projection; tests that drive the processItem paths run the real
+// processParagraph, prepareParagraphLayout, relayout session and prepared-DOM
+// renderer, and observe the consequences on the context's raw-DOM records,
+// the live elements and the context state.
 
 function saveGlobals(names) {
   return names.map((name) => ({
@@ -66,8 +68,43 @@ function makeComputedStyle(values = {}) {
   return style;
 }
 
+function makeFakeLayoutJobPool(overrides = {}) {
+  const startJobCalls = [];
+  const cancelJobCalls = [];
+  return {
+    _calls: { startJob: startJobCalls, cancelJob: cancelJobCalls },
+    startJob: function (spec) {
+      startJobCalls.push(spec);
+      if (overrides.startJob) overrides.startJob(spec);
+    },
+    cancelJob: function (root) {
+      cancelJobCalls.push(root);
+      if (overrides.cancelJob) overrides.cancelJob(root);
+    },
+    jobKind: function (root) {
+      return overrides.jobKind ? overrides.jobKind(root) : null;
+    },
+    isAttached: function () {
+      return false;
+    },
+  };
+}
+
+// The drivers reach the pool through the coordination service, so the fake
+// pool is installed there for the duration of one test.
+function installFakePool(pool) {
+  const coordination = globalServices().coordination;
+  const previous = coordination.layoutJobPool;
+  coordination.layoutJobPool = pool;
+  return function () {
+    coordination.layoutJobPool = previous;
+  };
+}
+
 function withEnv(fn, overrides = {}) {
   const saved = saveGlobals(["window", "document", "getComputedStyle", "CustomEvent", "Node"]);
+  const pool = overrides.layoutJobPool ?? makeFakeLayoutJobPool(overrides);
+  const restorePool = installFakePool(pool);
   try {
     const values = overrides.computedStyleValues ?? { "--tq-styles-ready": "1" };
     const computed = (el, pseudo) => makeComputedStyle(values);
@@ -84,10 +121,9 @@ function withEnv(fn, overrides = {}) {
       this.composed = init && init.composed;
       this.detail = init && init.detail;
     };
-    // Tests now use the real prepared-dom renderer directly.
-    // Validator injection removed per spec.
-    return fn();
+    return fn(pool);
   } finally {
+    restorePool();
     restoreGlobals(saved);
   }
 }
@@ -185,13 +221,6 @@ function registerParagraph(context, source) {
   rawDomCommit(context, source, null);
 }
 
-// The fixture font backend's synchronous callbacks are the snapshot-session
-// descriptor the real prepare step shapes with.
-function fixtureSnapshotSession() {
-  const backend = installFixtureFontBackend();
-  return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
-}
-
 function makeParagraph(overrides = {}) {
   overrides = overrides || {};
   const source = overrides.source || makeElement();
@@ -222,195 +251,105 @@ function makeParagraph(overrides = {}) {
   };
 }
 
-function makeState(overrides = {}, root, optionsOverride) {
-  return {
-    root: root,
-    options: optionsOverride ||
-      overrides.stateOptions || {
-        paragraphSelector: "p",
-        fontSize: 19,
-      },
-    paragraphs: overrides.paragraphs || [],
-    issues: overrides.issues || [],
-    preparedDomEnabled: true,
-    snapshotSession: overrides.snapshotSession || null,
-    browserFallback: overrides.browserFallback || null,
-    onIssue: overrides.onIssue || function () {},
-    onParagraphCommitted: overrides.onParagraphCommitted || function () {},
-    onDisableSnapshotPreparedDom: overrides.onDisableSnapshotPreparedDom || function () {},
-  };
-}
-
-function makeFakeRootState(overrides = {}) {
+// A real EnhancedElementContext whose driver-observable part surface is
+// wrapped with recording spies: the two option resolvers dissolved from
+// root-state's createRootState/createRootStateFromCanonical, the candidate
+// and stranded enumerations, and the publishState projection. The wrappers
+// delegate to the real implementations, so seeded steady states and driven
+// processItem paths run the genuine pipeline.
+function makeObservedContext(root, overrides = {}) {
+  const context = createEnhanceContext(root);
   const calls = {
-    createRootState: [],
-    createRootStateFromCanonical: [],
-    getState: [],
-    setState: [],
-    deleteState: [],
-    publishState: [],
-    processParagraphArgument: [],
-    sessionArgument: [],
-    prepareArgument: [],
+    resolveEngineOptions: [],
+    resolveEngineOptionsFromCanonical: [],
     paragraphCandidates: [],
     strandedSourceParagraphs: [],
+    publishState: [],
   };
-  return {
-    _calls: calls,
-    createRootState: function (root, optionsBag) {
-      calls.createRootState.push({ root: root, optionsBag: optionsBag });
-      return makeState(overrides, root);
-    },
-    createRootStateFromCanonical: function (root, options) {
-      calls.createRootStateFromCanonical.push({ root: root, options: options });
-      return makeState(overrides, root, options);
-    },
-    getState: function (root) {
-      calls.getState.push(root);
-      return overrides.getStateValue !== undefined ? overrides.getStateValue : null;
-    },
-    setState: function (root, state) {
-      calls.setState.push({ root: root, state: state });
-    },
-    deleteState: function (root) {
-      calls.deleteState.push(root);
-    },
-    publishState: function (state, keepEmpty) {
-      calls.publishState.push({ state: state, keepEmpty: keepEmpty });
-    },
-    processParagraphArgument: function (state, paragraph) {
-      calls.processParagraphArgument.push({ state: state, paragraph: paragraph });
-      return {
-        paragraph: paragraph,
-        state: state,
-      };
-    },
-    sessionArgument: function (state) {
-      calls.sessionArgument.push({ state: state });
-      return { paragraphs: state.paragraphs, state: state };
-    },
-    prepareArgument: function (state, paragraph, widthOverride) {
-      calls.prepareArgument.push({
-        state: state,
-        paragraph: paragraph,
-        widthOverride: widthOverride,
-      });
-      return {
-        paragraph: paragraph,
-        options: state.options || {},
-        snapshotSession: state.snapshotSession || null,
-        browserFallback: state.browserFallback || null,
-        widthOverride: widthOverride,
-      };
-    },
-    paragraphCandidates: function (root, selector) {
-      calls.paragraphCandidates.push({ root: root, selector: selector });
-      return overrides.candidates || [];
-    },
-    strandedSourceParagraphs: function (root, state) {
-      calls.strandedSourceParagraphs.push({ root: root, state: state });
-      return overrides.stranded || [];
-    },
+
+  const ledger = context.optionsLedger;
+  const realResolve = ledger.resolveEngineOptions;
+  const realResolveCanonical = ledger.resolveEngineOptionsFromCanonical;
+  ledger.resolveEngineOptions = function (rootElement, optionsBag) {
+    calls.resolveEngineOptions.push({ root: rootElement, optionsBag: optionsBag });
+    return realResolve(rootElement, optionsBag);
   };
+  ledger.resolveEngineOptionsFromCanonical = function (rootElement, options) {
+    calls.resolveEngineOptionsFromCanonical.push({ root: rootElement, options: options });
+    return realResolveCanonical(rootElement, options);
+  };
+
+  const state = context.contextState;
+  const realCandidates = state.paragraphCandidates;
+  state.paragraphCandidates = function (rootElement, selector) {
+    calls.paragraphCandidates.push({ root: rootElement, selector: selector });
+    return overrides.candidates ?? realCandidates(rootElement, selector);
+  };
+
+  const sync = context.effectSync;
+  const realStranded = sync.strandedSourceParagraphs;
+  sync.strandedSourceParagraphs = function () {
+    calls.strandedSourceParagraphs.push({});
+    return overrides.stranded ?? realStranded();
+  };
+
+  const write = context.domWriteLayer;
+  const realPublish = write.publishState;
+  write.publishState = function (paragraphCount, issueCount, keepEmpty) {
+    calls.publishState.push({
+      paragraphCount: paragraphCount,
+      issueCount: issueCount,
+      keepEmpty: keepEmpty,
+    });
+    return realPublish(paragraphCount, issueCount, keepEmpty);
+  };
+
+  return { context: context, calls: calls, realResolve: realResolve };
 }
 
-function makeFakeRawDom() {
-  const calls = {
-    begin: [],
-    take: [],
-    commit: [],
-    restoreParagraph: [],
-    captureLive: [],
-    rollback: [],
-    stampRendered: [],
-    restoreShell: [],
-  };
-  return {
-    _calls: calls,
-    begin: function (...args) {
-      calls.begin.push(args);
-    },
-    take: function (el, applied) {
-      calls.take.push({ el: el, applied: applied });
-    },
-    commit: function (el, applied) {
-      calls.commit.push({ el: el, applied: applied });
-    },
-    restoreParagraph: function (el) {
-      calls.restoreParagraph.push(el);
-    },
-    captureLive: function (source, lastMeasure) {
-      calls.captureLive.push({ source: source, lastMeasure: lastMeasure });
-      return { source: source, lastMeasure: lastMeasure, snapshot: true };
-    },
-    rollback: function (snapshots) {
-      calls.rollback.push(snapshots);
-      return [];
-    },
-    stampRendered: function (el) {
-      calls.stampRendered.push(el);
-    },
-    restoreShell: function (el) {
-      calls.restoreShell.push(el);
-    },
-  };
+// Seeds the enhanced steady state the former getState(root) branch read: the
+// resolved runtime options on the context state, an established typography
+// runtime, and the runtime-established flag. Uses the unwrapped resolver so
+// seeding never pollutes the recorded calls.
+function seedEstablishedRuntime(observed, root, optionsBag) {
+  const resolved = observed.realResolve(root, optionsBag);
+  observed.context.contextState.setRuntimeOptions(resolved);
+  observed.context.typography.establishRuntime(root, resolved);
+  observed.context.contextState.setRuntimeEstablished(true);
+  return resolved;
 }
 
-function makeFakeLayoutJobPool(overrides = {}) {
-  const startJobCalls = [];
-  const cancelJobCalls = [];
-  return {
-    _calls: { startJob: startJobCalls, cancelJob: cancelJobCalls },
-    startJob: function (spec) {
-      startJobCalls.push(spec);
-      if (overrides.startJob) overrides.startJob(spec);
+// The fixture font backend's synchronous callbacks are the shaping bridge the
+// prepare step consumes through the typography browser-fallback descriptor.
+// The descriptor lives behind a getter on the typography part, so the fixture
+// override redefines the accessor.
+function installFixtureBrowserFallback(context) {
+  const backend = installFixtureFontBackend();
+  Object.defineProperty(context.typography, "browserFallback", {
+    configurable: true,
+    get: function () {
+      return { bridge: backend };
     },
-    cancelJob: function (root) {
-      cancelJobCalls.push(root);
-      if (overrides.cancelJob) overrides.cancelJob(root);
-    },
-    jobKind: function (root) {
-      return overrides.jobKind ? overrides.jobKind(root) : null;
-    },
-    isAttached: function () {
-      return false;
-    },
-  };
-}
-
-function makeDrivers(overrides = {}) {
-  const rawDom = overrides.rawDom || makeFakeRawDom();
-  const rootState = overrides.rootState || makeFakeRootState(overrides);
-  const layoutJobPool = overrides.layoutJobPool || makeFakeLayoutJobPool(overrides);
-  return {
-    rootState: rootState,
-    layoutJobPool: layoutJobPool,
-    rawDom: rawDom,
-  };
-}
-
-// Collaborator argument list for the driver entry functions in the unit-test
-// world: the three runtime-graph products, in the public signature order.
-function driverArgs(ctx) {
-  return [ctx.rootState, ctx.layoutJobPool, ctx.rawDom];
+  });
+  return backend;
 }
 
 // ---------------------------------------------------------------------------
 // 1. enhanceProgressively
 // ---------------------------------------------------------------------------
 
-test("1a. cancelJob is called before createRootState", function () {
-  withEnv(() => {
-    const ctx = makeDrivers();
+test("1a. cancelJob is called before resolveEngineOptions", function () {
+  withEnv((pool) => {
     const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, { fontSize: 20 });
+    const observed = makeObservedContext(root);
+    enhanceProgressively(observed.context, root, { fontSize: 20 });
 
-    assert.equal(ctx.layoutJobPool._calls.cancelJob.length, 1);
-    assert.equal(ctx.layoutJobPool._calls.cancelJob[0], root);
-    assert.equal(ctx.rootState._calls.createRootState.length, 1);
-    assert.equal(ctx.rootState._calls.createRootState[0].optionsBag.fontSize, 20);
-    // cancelJob happens before createRootState
-    assert.ok(ctx.layoutJobPool._calls.cancelJob.length > 0);
+    assert.equal(pool._calls.cancelJob.length, 1);
+    assert.equal(pool._calls.cancelJob[0], root);
+    assert.equal(observed.calls.resolveEngineOptions.length, 1);
+    assert.equal(observed.calls.resolveEngineOptions[0].optionsBag.fontSize, 20);
+    // cancelJob happens before the options resolution
+    assert.ok(pool._calls.cancelJob.length > 0);
   });
 });
 
@@ -425,15 +364,13 @@ test("1b. work order sorted by (distance, index) ascending", function () {
   const p3 = makeElement();
   p3._rect = { top: 900, bottom: 1000, width: 300 };
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      candidates: [p1, p2, p3],
-    });
+  withEnv((pool) => {
     const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    const observed = makeObservedContext(root, { candidates: [p1, p2, p3] });
+    enhanceProgressively(observed.context, root, {});
 
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    assert.equal(pool._calls.startJob.length, 1);
+    const spec = pool._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 3);
     // p2 (distance 0, index 1) first, then the distance-100 tie p1 (index 0)
@@ -446,15 +383,15 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
   const p1 = makeParagraph();
   const p2 = makeParagraph();
 
-  withEnv(() => {
-    const ctx = makeDrivers({
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeObservedContext(root, {
       candidates: [p1.source, p2.source],
     });
-    const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    enhanceProgressively(observed.context, root, {});
 
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    assert.equal(pool._calls.startJob.length, 1);
+    const spec = pool._calls.startJob[0];
     assert.equal(spec.kind, "Enhance");
     assert.equal(spec.itemCount, 2);
     // itemTierIndex should be [0, 1] for two elements at distance 0
@@ -466,31 +403,31 @@ test("1c. itemTierIndex and paragraphsByDoc passed to startJob", function () {
   });
 });
 
-test("1d. processItem calls processParagraphArgument and processParagraph for non-stale items", function () {
+test("1d. processItem runs the real processParagraph for non-stale items", function () {
   const p1 = makeParagraph({ source: makeFixtureParagraphElement() });
   const p2 = makeParagraph({ source: makeFixtureParagraphElement() });
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      candidates: [p1.source, p2.source],
-      snapshotSession: fixtureSnapshotSession(),
-    });
+  withEnv((pool) => {
     const root = makeElement();
-    const context = createEnhanceContext(root);
-    enhanceProgressively(ctx.rootState, ctx.layoutJobPool, context, root, {});
+    const observed = makeObservedContext(root, {
+      candidates: [p1.source, p2.source],
+    });
+    installFixtureBrowserFallback(observed.context);
+    enhanceProgressively(observed.context, root, {});
 
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.processItem);
 
     // Call processItem for index 0: live measure matches captured => the real
     // processParagraph runs and registers its raw-DOM record on the enhance
-    // context.
+    // context. The dissolved processParagraphArgument facade is observable
+    // through that outcome: the tracked paragraph lands on the context state.
     spec.processItem(0);
-    assert.equal(ctx.rootState._calls.processParagraphArgument.length, 1);
-    assert.equal(ctx.rootState._calls.processParagraphArgument[0].paragraph, p1.source);
-    const record = context.rawDomParagraphs.get(p1.source);
+    const record = observed.context.rawDomParagraphs.get(p1.source);
     assert.ok(record);
     assert.equal(record.originalContent.textContent, "hello world");
+    assert.equal(observed.context.contextState.paragraphs.length, 1);
+    assert.equal(observed.context.contextState.paragraphs[0].source, p1.source);
   }, { document: makePipelineDocument(), node: FakeNode });
 });
 
@@ -498,14 +435,14 @@ test("1e. processItem sets stale when measure drifts and does not process", func
   const p1 = makeParagraph();
   const p2 = makeParagraph();
 
-  withEnv(() => {
-    const ctx = makeDrivers({
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeObservedContext(root, {
       candidates: [p1.source, p2.source],
     });
-    const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    enhanceProgressively(observed.context, root, {});
 
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     const isStaleFn = spec.isStale;
     assert.ok(spec.processItem);
 
@@ -514,7 +451,8 @@ test("1e. processItem sets stale when measure drifts and does not process", func
     // paragraph is processed.
     p1.source._rect.width = 600;
     spec.processItem(0);
-    assert.equal(ctx.rawDom._calls.begin.length, 0);
+    assert.equal(observed.context.rawDomParagraphs.size, 0);
+    assert.equal(observed.context.contextState.paragraphs.length, 0);
     assert.equal(isStaleFn(), true);
   });
 });
@@ -523,14 +461,14 @@ test("1f. onItemsFinished aggregates stale across all items", function () {
   const p1 = makeParagraph();
   const p2 = makeParagraph();
 
-  withEnv(() => {
-    const ctx = makeDrivers({
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeObservedContext(root, {
       candidates: [p1.source, p2.source],
     });
-    const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    enhanceProgressively(observed.context, root, {});
 
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
     // p2's live re-measure drifts from its captured measure, so the finish
     // pass reports the job stale.
@@ -541,21 +479,18 @@ test("1f. onItemsFinished aggregates stale across all items", function () {
 });
 
 test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports MissingSharedRuntimeStyles and does not startJob", function () {
-  const reportedIssues = [];
   const p1 = makeParagraph();
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      candidates: [p1.source],
-      issues: reportedIssues,
-    });
+  withEnv((pool) => {
     const root = makeElement();
-    enhanceProgressively(...driverArgs(ctx), root, {});
+    const observed = makeObservedContext(root, { candidates: [p1.source] });
+    enhanceProgressively(observed.context, root, {});
 
     // Should not start a job
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 0);
-    // The gate issue is pushed into state.issues (the reportedIssues array)
-    // before the lifecycle marker is written.
+    assert.equal(pool._calls.startJob.length, 0);
+    // The gate issue is pushed into the context's diagnosis issues before the
+    // lifecycle marker is written.
+    const reportedIssues = observed.context.diagnosis.issues;
     assert.ok(reportedIssues.length > 0);
     assert.equal(reportedIssues[0].name, "MissingSharedRuntimeStyles");
     assert.equal(reportedIssues[0].detail, "Load @tiqian/core/styles.css before TiqianWeb.enhance");
@@ -568,32 +503,28 @@ test("1g. SharedRuntimeStylesCapabilityGate: --tq-styles-ready != 1 reports Miss
 // ---------------------------------------------------------------------------
 
 test("2. relayout branch 1: Enhance running with state => restart with canonical options (kind Enhance)", function () {
-  const runningState = {
-    options: { fontSize: 22, paragraphSelector: "p" },
-    paragraphs: [],
-    issues: [],
-  };
-
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: runningState,
-      candidates: [makeParagraph().source],
-      layoutJobPool: makeFakeLayoutJobPool({ jobKind: () => "Enhance" }),
-    });
+  withEnv((pool) => {
     const root = makeElement();
-    relayout(...driverArgs(ctx), root);
+    const observed = makeObservedContext(root, {
+      candidates: [makeParagraph().source],
+    });
+    const runningOptions = seedEstablishedRuntime(observed, root, {
+      fontSize: 22,
+      paragraphSelector: "p",
+    });
+    relayout(observed.context, root);
 
     // Should restart with the running state's canonical options. Kotlin's
     // two-arg overload restarts the interrupted enhance, so the kind stays
     // Enhance and the finish event stays tiqian:ready. Canonical options
-    // must go through createRootStateFromCanonical; feeding them to
-    // createRootState would re-resolve them through optionsFromJs.
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Enhance");
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, runningState.options);
-    assert.equal(ctx.rootState._calls.createRootState.length, 0);
-  });
+    // must go through resolveEngineOptionsFromCanonical; feeding them to
+    // resolveEngineOptions would re-resolve them through optionsFromJs.
+    assert.equal(pool._calls.startJob.length, 1);
+    assert.equal(pool._calls.startJob[0].kind, "Enhance");
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical.length, 1);
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical[0].options, runningOptions);
+    assert.equal(observed.calls.resolveEngineOptions.length, 0);
+  }, { jobKind: () => "Enhance" });
 });
 
 // ---------------------------------------------------------------------------
@@ -601,19 +532,18 @@ test("2. relayout branch 1: Enhance running with state => restart with canonical
 // ---------------------------------------------------------------------------
 
 test("3. relayout branch 2: no state => cold-start Relayout with bag null", function () {
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: null,
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeObservedContext(root, {
       candidates: [makeParagraph().source],
     });
-    const root = makeElement();
-    relayout(...driverArgs(ctx), root);
+    relayout(observed.context, root);
 
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Relayout");
-    // createRootState was called with bag null
-    assert.equal(ctx.rootState._calls.createRootState.length, 1);
-    assert.equal(ctx.rootState._calls.createRootState[0].optionsBag, null);
+    assert.equal(pool._calls.startJob.length, 1);
+    assert.equal(pool._calls.startJob[0].kind, "Relayout");
+    // resolveEngineOptions was called with bag null
+    assert.equal(observed.calls.resolveEngineOptions.length, 1);
+    assert.equal(observed.calls.resolveEngineOptions[0].optionsBag, null);
   });
 });
 
@@ -622,31 +552,24 @@ test("3. relayout branch 2: no state => cold-start Relayout with bag null", func
 // ---------------------------------------------------------------------------
 
 test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhance path", function () {
-  const root = makeElement();
-
-  const stateWithIssue = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [{ name: "InlineCloneDecorationBreakUnsupported" }],
-  };
-
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: stateWithIssue,
+  withEnv((pool) => {
+    const root = makeElement();
+    const observed = makeObservedContext(root, {
       candidates: [makeParagraph().source],
     });
-    relayout(...driverArgs(ctx), root);
+    const runningOptions = seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    observed.context.diagnosis.issues.push({ name: "InlineCloneDecorationBreakUnsupported" });
+    relayout(observed.context, root);
 
     // cancelJob ran twice: branch 3 cancels explicitly, then the restart's
-    // engine-less fallback (unit world) cancels again. Both are idempotent;
-    // hosted worlds see the same double through engine.destroy.
-    assert.equal(ctx.layoutJobPool._calls.cancelJob.length, 2);
+    // destroyRoot cancels again. Both are idempotent; hosted worlds see the
+    // same double through engine.destroy.
+    assert.equal(pool._calls.cancelJob.length, 2);
     // Then restarts with enhance path using the state's canonical options
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Relayout");
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, stateWithIssue.options);
+    assert.equal(pool._calls.startJob.length, 1);
+    assert.equal(pool._calls.startJob[0].kind, "Relayout");
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical.length, 1);
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical[0].options, runningOptions);
   });
 });
 
@@ -654,45 +577,33 @@ test("4. relayout branch 3: InlineCloneDecorationBreakUnsupported issue => enhan
 // 5. relayout main path: session, processItem, stale threshold, rollback, finish
 // ---------------------------------------------------------------------------
 
-test("5a. relayout main path: sessionArgument creates session, processItem dispatches stranded and rendered", function () {
+test("5a. relayout main path: openRelayoutSession dispatches stranded and rendered through processItem", function () {
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
   const renderedP = makeParagraph({ source: makeFixtureParagraphElement() });
   const strandedSource = makeFixtureParagraphElement();
-  const state = {
-    root: root,
-    options: { fontSize: 19, paragraphSelector: "p" },
-    paragraphs: [renderedP],
-    issues: [],
-    snapshotSession: fixtureSnapshotSession(),
-    browserFallback: null,
-    onIssue: function () {},
-    onParagraphCommitted: function () {},
-    onDisableSnapshotPreparedDom: function () {},
-  };
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, {
       stranded: [strandedSource],
       candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
     });
-    const context = createEnhanceContext(root);
+    seedEstablishedRuntime(observed, root, { fontSize: 19, paragraphSelector: "p" });
+    installFixtureBrowserFallback(observed.context);
     // The rendered paragraph already carries its enhance-time raw-DOM record.
-    registerParagraph(context, renderedP.source);
-    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
+    registerParagraph(observed.context, renderedP.source);
+    observed.context.contextState.paragraphs.push(renderedP);
+    relayout(observed.context, root);
 
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    assert.equal(pool._calls.startJob.length, 1);
+    const spec = pool._calls.startJob[0];
     assert.equal(spec.kind, "Relayout");
     // count = rendered(1) + stranded(1) = 2
     assert.equal(spec.itemCount, 2);
 
     // Process rendered item (mixIndex 0): the real prepare succeeds on the
-    // fixture session, and the session commits through the real renderer.
+    // fixture bridge, and the session commits through the real renderer.
     spec.processItem(0);
     assert.equal(renderedP.source.getAttribute("data-tq-canonical-source"), "true");
     assert.equal(typeof renderedP.lastMeasure, "number");
@@ -700,77 +611,55 @@ test("5a. relayout main path: sessionArgument creates session, processItem dispa
     // Process stranded item (mixIndex 1): the real processParagraph runs and
     // registers its raw-DOM record on the context.
     spec.processItem(1);
-    const strandedRecord = context.rawDomParagraphs.get(strandedSource);
+    const strandedRecord = observed.context.rawDomParagraphs.get(strandedSource);
     assert.ok(strandedRecord);
     assert.equal(strandedRecord.originalContent.textContent, "hello world");
   }, { document: makePipelineDocument(), node: FakeNode });
 });
 
-test("5b. relayout main path: prepareArgument includes widths", function () {
+test("5b. relayout main path: preparation carries the measured source width", function () {
   const root = makeElement();
 
   const renderedSource = makeFixtureParagraphElement();
   renderedSource.width = 250;
   const renderedP = makeParagraph({ source: renderedSource });
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [renderedP],
-    issues: [],
-    snapshotSession: fixtureSnapshotSession(),
-    browserFallback: null,
-  };
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    installFixtureBrowserFallback(observed.context);
+    registerParagraph(observed.context, renderedSource);
+    observed.context.contextState.paragraphs.push(renderedP);
 
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    const context = createEnhanceContext(root);
-    registerParagraph(context, renderedSource);
+    relayout(observed.context, root);
 
-    const prepareArgCalls = [];
-    const origPrepareArg = ctx.rootState.prepareArgument;
-    ctx.rootState.prepareArgument = function (st, paragraph, widthOverride) {
-      prepareArgCalls.push({ paragraph: paragraph, widthOverride: widthOverride });
-      return origPrepareArg(st, paragraph, widthOverride);
-    };
-
-    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     spec.processItem(0);
 
-    assert.equal(prepareArgCalls.length, 1);
-    assert.equal(prepareArgCalls[0].paragraph, renderedP);
-    // width should come from the measured source element
-    assert.equal(prepareArgCalls[0].widthOverride, 250);
+    // The dissolved prepareArgument facade surfaced the width override; the
+    // surviving observable is the committed measure the session copies from
+    // the preparation built at the measured source width.
+    assert.equal(observed.context.contextState.paragraphs[0], renderedP);
+    assert.equal(renderedP.lastMeasure, effectiveLineMeasureOf(250, 19));
   }, { document: makePipelineDocument(), node: FakeNode });
 });
+
+// effectiveLineMeasure twin (responsive-measure.js): the measure the fixture
+// shaping produces for a width at the configured font size.
+function effectiveLineMeasureOf(width, fontSize) {
+  return Math.min(Math.max(1, Math.floor(width / fontSize)) * fontSize, width);
+}
 
 test("5c. relayout main path: stale when root width drifts >= 0.5", function () {
   const root = makeElement();
   root._rect = { top: 0, bottom: 100, width: 300 };
 
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [],
-  };
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    relayout(observed.context, root);
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    relayout(...driverArgs(ctx), root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     const staleFn = spec.isStale;
 
     // Initially root width matches (300) => not stale from width drift
@@ -788,30 +677,19 @@ test("5d. relayout main path: onFailure calls rollback", function () {
 
   const renderedSource = makeFixtureParagraphElement();
   const renderedP = makeParagraph({ source: renderedSource });
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [renderedP],
-    issues: [],
-    snapshotSession: fixtureSnapshotSession(),
-    browserFallback: null,
-  };
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    const context = createEnhanceContext(root);
-    registerParagraph(context, renderedSource);
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    installFixtureBrowserFallback(observed.context);
+    registerParagraph(observed.context, renderedSource);
+    observed.context.contextState.paragraphs.push(renderedP);
     // Enhanced steady state: the renderer wrote the prepared DOM through
     // innerHTML before the relayout session opens.
     renderedSource.innerHTML = "rendered v1";
-    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
+    relayout(observed.context, root);
 
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
 
     // The successful item captured the live content before its commit
     // replaced it.
@@ -825,7 +703,7 @@ test("5d. relayout main path: onFailure calls rollback", function () {
     spec.onFailure();
     assert.equal(renderedSource.textContent, "rendered v1");
     assert.equal(renderedP.lastMeasure, null);
-    assert.equal(state.paragraphs.length, 1);
+    assert.equal(observed.context.contextState.paragraphs.length, 1);
   }, { document: makePipelineDocument(), node: FakeNode });
 });
 
@@ -858,35 +736,24 @@ test("5e. relayout main path: onItemsFinished calls finish which ejects unsuppor
       lineBreakSpans: [],
     },
   });
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [renderedP],
-    issues: [],
-    snapshotSession: null,
-    browserFallback: null,
-  };
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    installFixtureBrowserFallback(observed.context);
+    registerParagraph(observed.context, renderedSource);
+    observed.context.contextState.paragraphs.push(renderedP);
+    relayout(observed.context, root);
 
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    const context = createEnhanceContext(root);
-    registerParagraph(context, renderedSource);
-    relayout(ctx.rootState, ctx.layoutJobPool, context, root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.onItemsFinished);
     // The session marks the unsupported paragraph and finish ejects it from
-    // state.paragraphs and reports the issue.
+    // the context's paragraphs and reports the issue.
     spec.processItem(0);
     spec.onItemsFinished();
-    assert.equal(state.paragraphs.length, 0);
-    assert.equal(state.issues.length, 1);
-    assert.equal(state.issues[0].name, "SpanLocaleMismatchUnsupported");
+    assert.equal(observed.context.contextState.paragraphs.length, 0);
+    assert.equal(observed.context.diagnosis.issues.length, 1);
+    assert.equal(observed.context.diagnosis.issues[0].name, "SpanLocaleMismatchUnsupported");
   }, { document: makePipelineDocument(), node: FakeNode });
 });
 
@@ -898,18 +765,13 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
   // Snapshot count attribute
   const root = makeElement({ "data-tiqian-snapshot-count": "5" });
 
-  withEnv(() => {
-    const ctx = makeDrivers({
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, {
       candidates: [makeParagraph().source],
     });
-    const publishCalls = [];
-    ctx.rootState.publishState = function (state, keepEmpty) {
-      publishCalls.push({ state: state, keepEmpty: keepEmpty });
-    };
+    enhanceProgressively(observed.context, root, {});
 
-    enhanceProgressively(...driverArgs(ctx), root, {});
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.onFinished);
     spec.onFinished({
       kind: "Enhance",
@@ -941,25 +803,12 @@ test("6a. finish: dispatches tiqian:ready with correct detail fields", function 
 test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true", function () {
   const root = makeElement({ "data-tiqian-snapshot-count": "3" });
 
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [],
-  };
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    relayout(observed.context, root);
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    ctx.rootState.publishState = function () {};
-
-    relayout(...driverArgs(ctx), root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.onFinished);
     spec.onFinished({
       kind: "Relayout",
@@ -983,25 +832,12 @@ test("6b. relayout finish: dispatches tiqian:relayout-ready with relayout: true"
 test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and summary events", function () {
   const root = makeElement();
 
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [],
-  };
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    relayout(observed.context, root);
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    ctx.rootState.publishState = function () {};
-
-    relayout(...driverArgs(ctx), root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     assert.ok(spec.onFailed);
     spec.onFailed({
       kind: "Relayout",
@@ -1034,25 +870,12 @@ test("6c. fail: sets data-tiqian-relayout-error attribute, dispatches error and 
 test("6d. fail: detail truncated to 512 chars", function () {
   const root = makeElement();
 
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [],
-  };
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    relayout(observed.context, root);
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    ctx.rootState.publishState = function () {};
-
-    relayout(...driverArgs(ctx), root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     const longDetail = "X".repeat(1024);
     spec.onFailed({
       kind: "Enhance",
@@ -1076,25 +899,12 @@ test("6d. fail: detail truncated to 512 chars", function () {
 test("6e. fail for Enhance kind dispatches tiqian:error (not tiqian:relayout-error)", function () {
   const root = makeElement();
 
-  const state = {
-    root: root,
-    options: { fontSize: 19 },
-    paragraphs: [],
-    issues: [],
-  };
+  withEnv((pool) => {
+    const observed = makeObservedContext(root, { candidates: [] });
+    seedEstablishedRuntime(observed, root, { fontSize: 19 });
+    relayout(observed.context, root);
 
-  withEnv(() => {
-    const ctx = makeDrivers({
-      getStateValue: state,
-      candidates: [],
-
-      layoutJobPool: makeFakeLayoutJobPool(),
-    });
-    ctx.rootState.publishState = function () {};
-
-    relayout(...driverArgs(ctx), root);
-
-    const spec = ctx.layoutJobPool._calls.startJob[0];
+    const spec = pool._calls.startJob[0];
     spec.onFailed({
       kind: "Enhance",
       detail: "test error",
@@ -1125,26 +935,24 @@ test("7a. named functions are exposed on the module surface", function () {
   assert.equal(typeof rejectMissingSharedRuntimeStyles, "function");
 });
 
-test("7b. startLayoutJob has the 11-arg rootState+layoutJobPool-first signature", function () {
+test("7b. startLayoutJob has the 9-arg context-first signature", function () {
   assert.equal(typeof startLayoutJob, "function");
-  assert.equal(startLayoutJob.length, 11);
+  assert.equal(startLayoutJob.length, 9);
 });
 
-test("7c. enhanceProgressivelyFromCanonical calls enhanceProgressively with kind Enhance and fromCanonical true", function () {
-  withEnv(() => {
-    const ctx = makeDrivers({
-      candidates: [],
-    });
+test("7c. enhanceProgressivelyFromCanonical resolves through the canonical resolver with kind Enhance", function () {
+  withEnv((pool) => {
     const root = makeElement();
+    const observed = makeObservedContext(root, { candidates: [] });
     const canonicalOpts = { fontSize: 22 };
-    enhanceProgressivelyFromCanonical(...driverArgs(ctx), root, canonicalOpts);
-    // Should use createRootStateFromCanonical (not createRootState) because
-    // fromCanonical is true.
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical.length, 1);
-    assert.equal(ctx.rootState._calls.createRootStateFromCanonical[0].options, canonicalOpts);
-    assert.equal(ctx.rootState._calls.createRootState.length, 0);
+    enhanceProgressivelyFromCanonical(observed.context, root, canonicalOpts);
+    // Should use resolveEngineOptionsFromCanonical (not resolveEngineOptions)
+    // because fromCanonical is true.
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical.length, 1);
+    assert.equal(observed.calls.resolveEngineOptionsFromCanonical[0].options, canonicalOpts);
+    assert.equal(observed.calls.resolveEngineOptions.length, 0);
     // Should start a job with kind Enhance (not Relayout)
-    assert.equal(ctx.layoutJobPool._calls.startJob.length, 1);
-    assert.equal(ctx.layoutJobPool._calls.startJob[0].kind, "Enhance");
+    assert.equal(pool._calls.startJob.length, 1);
+    assert.equal(pool._calls.startJob[0].kind, "Enhance");
   });
 });

@@ -4,24 +4,21 @@
 // tracking live raw-DOM backup snapshots for transactional rollback, updating
 // lastMeasure on success, and reporting/ejecting unsupported paragraphs.
 //
-// Stateless module: openRelayoutSession(rawDom, argument) is a named
-// function that receives the raw-DOM collaborator as an explicit first
-// parameter and returns a fresh session object for one run; the per-run Map
-// and arrays live on that session, never on module state. The engine
-// bootstrap passes the shared raw-DOM instance; tests pass a fake. The
-// stateless lifecycle and commit-prepared-paragraph helpers are imported
-// directly.
+// Stateless module: openRelayoutSession(context) is a named function that
+// receives the EnhancedElementContext and returns a fresh session object for
+// one run; the per-run Map and arrays live on that session, never on module
+// state. The live paragraph and issue lists are the context's own arrays,
+// spliced and pushed by reference. The stateless lifecycle and
+// commit-prepared-paragraph helpers are imported directly.
 
 // Ambient global declarations pulled in via import type from owner modules.
 import type { PrepareLayoutResult } from "./prepare-paragraph-layout.js";
 import type { CommitResult } from "./commit-prepared-paragraph.js";
 import { commitPreparedParagraph } from "./commit-prepared-paragraph.js";
-import type {
-  TrackedParagraph,
-  SessionArgument,
-  RootStateIssueRecord,
-} from "./root-state.js";
+import type { TrackedParagraph } from "./enhance/context-state.js";
+import type { DiagnosisIssueRecord } from "./context/diagnosis-manager.js";
 import type { EnhancedElementContext } from "./context/enhance-context.js";
+import type { ResolvedEnhanceOptions } from "./lifecycle.js";
 import type { RawDomSnapshot } from "./raw-dom.js";
 import {
   rawDomCaptureLive,
@@ -56,20 +53,18 @@ export type RelayoutSession = {
 /**
  * Open a relayout session for one run.
  *
- * @param {Object} rawDomContext
- * @param {Object} argument
- * @param {Array} argument.paragraphs
- * @param {Object} argument.state
+ * @param {Object} context
  * @returns {Object}
  */
-export function openRelayoutSession(rawDomContext: EnhancedElementContext, argument: SessionArgument): RelayoutSession {
-    const paragraphs = argument.paragraphs.slice();
-    const state = argument.state;
+export function openRelayoutSession(context: EnhancedElementContext): RelayoutSession {
+    const paragraphs = context.contextState.paragraphs.slice();
+    const options = context.contextState.runtimeOptions as ResolvedEnhanceOptions;
+    const browserFallback = context.typography.browserFallback;
     const snapshots = new Map<TrackedParagraph, RawDomSnapshot>();
     const successful: Array<[TrackedParagraph, number]> = [];
-    const unsupported: Array<[TrackedParagraph, RootStateIssueRecord]> = [];
-    const stateParagraphsBefore = state.paragraphs.slice();
-    const stateIssuesBefore = state.issues.slice();
+    const unsupported: Array<[TrackedParagraph, DiagnosisIssueRecord]> = [];
+    const stateParagraphsBefore = context.contextState.paragraphs.slice();
+    const stateIssuesBefore = context.diagnosis.issues.slice();
 
     // ProcessItem: dispatches layout preparation for a single paragraph item.
     // Unchanged preparations are no-ops. Unsupported and ready preparations
@@ -80,20 +75,20 @@ export function openRelayoutSession(rawDomContext: EnhancedElementContext, argum
         return;
       }
       if (preparation.kind === 'unsupported') {
-        snapshots.set(paragraph, rawDomCaptureLive(rawDomContext, paragraph.source, paragraph.lastMeasure));
-        unsupported.push([paragraph, preparation]);
-        rawDomRestoreParagraph(rawDomContext, paragraph.source);
+        snapshots.set(paragraph, rawDomCaptureLive(context, paragraph.source, paragraph.lastMeasure));
+        unsupported.push([paragraph, preparation as unknown as DiagnosisIssueRecord]);
+        rawDomRestoreParagraph(context, paragraph.source);
         return;
       }
       if (preparation.kind === 'ready') {
-        snapshots.set(paragraph, rawDomCaptureLive(rawDomContext, paragraph.source, paragraph.lastMeasure));
+        snapshots.set(paragraph, rawDomCaptureLive(context, paragraph.source, paragraph.lastMeasure));
         const result: CommitResult = commitPreparedParagraph(
-          rawDomContext,
+          context,
           {
             paragraph: paragraph,
             preparation: preparation,
-            options: state.options,
-            browserFallback: state.browserFallback,
+            options: options,
+            browserFallback: browserFallback,
             semanticReplayJson: preparedSemanticReplayJson(paragraph.lowered),
             inlineObjectMetaJson: preparedInlineObjectMetaJson(paragraph.lowered),
             cjkStrongSemanticsJson: preparedCjkStrongSemanticsJson(paragraph.lowered),
@@ -103,16 +98,16 @@ export function openRelayoutSession(rawDomContext: EnhancedElementContext, argum
           paragraph.lastMeasure = result.measure;
           successful.push([paragraph, result.measure]);
         } else {
-          unsupported.push([paragraph, result]);
-          rawDomRestoreParagraph(rawDomContext, paragraph.source);
+          unsupported.push([paragraph, result as unknown as DiagnosisIssueRecord]);
+          rawDomRestoreParagraph(context, paragraph.source);
         }
       }
     }
 
     // Finish: finalizes the session upon completion of all items. Paragraphs
     // that succeeded without subsequent failure keep their lastMeasure.
-    // Unsupported paragraphs are removed from state.paragraphs, normalized,
-    // and reported to lifecycle.
+    // Unsupported paragraphs are removed from the context's tracked
+    // paragraphs, normalized, and reported to lifecycle.
     function finish(): void {
       for (let s = 0; s < successful.length; s += 1) {
         const successPair = successful[s];
@@ -129,13 +124,15 @@ export function openRelayoutSession(rawDomContext: EnhancedElementContext, argum
           successParagraph.lastMeasure = measure;
         }
       }
+      const stateParagraphs = context.contextState.paragraphs;
+      const stateIssues = context.diagnosis.issues;
       for (let i = 0; i < unsupported.length; i += 1) {
         const unsupportedPair = unsupported[i];
         const unsuppParagraph = unsupportedPair[0];
         const issue = unsupportedPair[1];
-        const indexInState = state.paragraphs.indexOf(unsuppParagraph);
+        const indexInState = stateParagraphs.indexOf(unsuppParagraph);
         if (indexInState !== -1) {
-          state.paragraphs.splice(indexInState, 1);
+          stateParagraphs.splice(indexInState, 1);
         }
         if (issue.element == null) {
           issue.element = unsuppParagraph.source;
@@ -143,25 +140,28 @@ export function openRelayoutSession(rawDomContext: EnhancedElementContext, argum
         if (issue.reportToConsole == null) {
           issue.reportToConsole = true;
         }
-        state.issues.push(issue);
-        reportIssue(issue as CapabilityIssueRecord);
+        stateIssues.push(issue);
+        reportIssue(issue as unknown as CapabilityIssueRecord);
       }
     }
 
-    // Rollback: reverts state.paragraphs and state.issues to their initial
-    // arrays, restores live DOM snapshots via rawDom.rollback in insertion
-    // order, and updates paragraph lastMeasure by source element identity.
+    // Rollback: reverts the context's tracked paragraphs and issue ledger to
+    // their initial arrays, restores live DOM snapshots via rawDom.rollback
+    // in insertion order, and updates paragraph lastMeasure by source element
+    // identity.
     function rollback(): void {
-      state.paragraphs.length = 0;
+      const stateParagraphs = context.contextState.paragraphs;
+      const stateIssues = context.diagnosis.issues;
+      stateParagraphs.length = 0;
       for (let p = 0; p < stateParagraphsBefore.length; p += 1) {
-        state.paragraphs.push(stateParagraphsBefore[p]);
+        stateParagraphs.push(stateParagraphsBefore[p]);
       }
-      state.issues.length = 0;
+      stateIssues.length = 0;
       for (let is = 0; is < stateIssuesBefore.length; is += 1) {
-        state.issues.push(stateIssuesBefore[is]);
+        stateIssues.push(stateIssuesBefore[is]);
       }
       const snapshotsArray = Array.from(snapshots.values());
-      const results = rawDomRollback(rawDomContext, snapshotsArray);
+      const results = rawDomRollback(context, snapshotsArray);
       const paragraphBySource = new Map<Element, TrackedParagraph>();
       for (let j = 0; j < paragraphs.length; j += 1) {
         paragraphBySource.set(paragraphs[j].source, paragraphs[j]);

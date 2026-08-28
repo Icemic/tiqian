@@ -1,15 +1,14 @@
 // HostContentReconcile: classification, DOM preparation, and the root-level
 // reconcile orchestration for live-DOM content changes on an enhanced root.
 //
-// Stateless module: probeContentDrift(rawDom, ...), classifyReconcile(
-// rawDom, ...), prepareTrackedParagraphForRelowering(rawDom, ...) and
-// stripEngineMarkupFromStrandedParagraph(rawDom, ...) are named functions
-// that receive the raw-DOM collaborator as an explicit first parameter. The
-// root-level entry points probeRootContentDrift and reconcileRoot receive the
-// raw-DOM, root-state and layout-job-pool collaborators explicitly; they
-// dissolve the former engine-instance facade methods probeContentDrift and
-// reconcileContent (R10) and answer plain result objects instead of JSON
-// strings.
+// Stateless module: probeContentDrift(context, ...), classifyReconcile(
+// context, ...), prepareTrackedParagraphForRelowering(context, ...) and
+// stripEngineMarkupFromStrandedParagraph(context, ...) are named functions
+// that receive the EnhancedElementContext as their first parameter. The
+// root-level entry points probeRootContentDrift and reconcileRoot receive
+// the context explicitly; they dissolve the former engine-instance facade
+// methods probeContentDrift and reconcileContent (R10) and answer plain
+// result objects instead of JSON strings.
 //
 // Embedding constraint: the generator wraps this file in a Kotlin raw
 // string, so the source must contain no dollar sign and no triple
@@ -28,8 +27,8 @@ import {
   rawDomRestoreShell,
   rawDomStampRendered,
 } from "./raw-dom.js";
-import type { RootState, RootStateApi } from "./root-state.js";
-import type { LayoutJobPool } from "./layout-job-pool.js";
+import type { TrackedParagraph } from "./enhance/context-state.js";
+import type { ResolvedEnhanceOptions } from "./lifecycle.js";
 import { processParagraph } from "./process-paragraph.js";
 import { startLayoutJob } from "./progressive-drivers.js";
 import { computeCjkDashOutcome, needsCjkDashShaping } from "./loaders/cjk-dash.js";
@@ -86,7 +85,7 @@ function releasePreparedStyles(element: Element, context: EnhancedElementContext
 // Read-only drift probe for captured in-flight jobs: answers the same
 // per-paragraph classification question as classifyReconcile without
 // touching the DOM, so element.js cancels only on real drift.
-export function probeContentDrift(rawDomContext: EnhancedElementContext, trackedSources: Element[]): ContentDriftProbeResult {
+export function probeContentDrift(context: EnhancedElementContext, trackedSources: Element[]): ContentDriftProbeResult {
   let drifted = 0;
   let dead = 0;
   let rawDomCount = 0;
@@ -94,9 +93,9 @@ export function probeContentDrift(rawDomContext: EnhancedElementContext, tracked
     const source = trackedSources[index];
     if (!source.isConnected) {
       dead += 1;
-    } else if (!rawDomRenderedMatches(rawDomContext, source)) {
+    } else if (!rawDomRenderedMatches(context, source)) {
       drifted += 1;
-    } else if (!rawDomMatches(rawDomContext, source)) {
+    } else if (!rawDomMatches(context, source)) {
       rawDomCount += 1;
     }
   }
@@ -110,7 +109,7 @@ export function probeContentDrift(rawDomContext: EnhancedElementContext, tracked
 // inside a root, tracked, and not already classified as drifted. A
 // stranded candidate is skipped when it already failed lowering with a
 // capability marker and was never rendered (StrandedCapabilityNoRetry).
-export function classifyReconcile(rawDomContext: EnhancedElementContext, spec: ReconcileSpec): ReconcileResult {
+export function classifyReconcile(context: EnhancedElementContext, spec: ReconcileSpec): ReconcileResult {
   const trackedSources = spec.trackedSources;
   const drifted: Element[] = [];
   const rawDomDrifted: Element[] = [];
@@ -121,9 +120,9 @@ export function classifyReconcile(rawDomContext: EnhancedElementContext, spec: R
     trackedSet.add(trackedSource);
     if (!trackedSource.isConnected) {
       dead += 1;
-    } else if (!rawDomRenderedMatches(rawDomContext, trackedSource)) {
+    } else if (!rawDomRenderedMatches(context, trackedSource)) {
       drifted.push(trackedSource);
-    } else if (!rawDomMatches(rawDomContext, trackedSource)) {
+    } else if (!rawDomMatches(context, trackedSource)) {
       rawDomDrifted.push(trackedSource);
     }
   }
@@ -170,10 +169,10 @@ export function classifyReconcile(rawDomContext: EnhancedElementContext, spec: R
 // rendered paragraph. Release prepared styles, restore the engine-owned
 // shell, stamp the rendered marker, and let the caller re-lower the
 // surviving live content as the new raw-DOM backup source.
-export function prepareTrackedParagraphForRelowering(rawDomContext: EnhancedElementContext, element: HTMLElement): void {
-  releasePreparedStyles(element, rawDomContext);
-  rawDomRestoreShell(rawDomContext, element);
-  rawDomStampRendered(rawDomContext, element);
+export function prepareTrackedParagraphForRelowering(context: EnhancedElementContext, element: HTMLElement): void {
+  releasePreparedStyles(element, context);
+  rawDomRestoreShell(context, element);
+  rawDomStampRendered(context, element);
 }
 
 // CloneDescaffoldEngineMarkup: innerHTML re-projection hands the runtime a
@@ -182,8 +181,8 @@ export function prepareTrackedParagraphForRelowering(rawDomContext: EnhancedElem
 // takeover attributes. Remove exactly those engine-authored artifacts so
 // the clone lowers as ordinary host content. Host elements and host
 // inline styles survive untouched.
-export function stripEngineMarkupFromStrandedParagraph(rawDomContext: EnhancedElementContext, paragraph: HTMLElement): void {
-  releasePreparedStyles(paragraph, rawDomContext);
+export function stripEngineMarkupFromStrandedParagraph(context: EnhancedElementContext, paragraph: HTMLElement): void {
+  releasePreparedStyles(paragraph, context);
   // The hidden data-tq-hard-break span is the only place a cloned hard
   // break keeps its source form. Restore a bare br before removing
   // engine elements: a newline text node would be folded into a space by
@@ -248,22 +247,23 @@ export function stripEngineMarkupFromStrandedParagraph(rawDomContext: EnhancedEl
 // Root-level entry points (dissolved engine facade, R10)
 // ---------------------------------------------------------------------------
 
-// sourcesOf: maps state.paragraphs entries to their source elements
+// sourcesOf: maps the context's tracked paragraphs to their source elements
 // (Kotlin sourcesToArray() equivalent, see WebEnhancerTsHost.kt:315).
-function sourcesOf(state: RootState): HTMLElement[] {
+function sourcesOf(paragraphs: TrackedParagraph[]): HTMLElement[] {
   const result: HTMLElement[] = [];
-  for (let i = 0; i < state.paragraphs.length; i += 1) {
-    result.push(state.paragraphs[i].source as HTMLElement);
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    result.push(paragraphs[i].source as HTMLElement);
   }
   return result;
 }
 
 // removeEntryFor: in-place splice to remove the paragraph entry whose source
-// === element from state.paragraphs (Kotlin removeAllMatching equivalent).
-function removeEntryFor(state: RootState, element: HTMLElement): void {
-  for (let i = state.paragraphs.length - 1; i >= 0; i -= 1) {
-    if (state.paragraphs[i].source === element) {
-      state.paragraphs.splice(i, 1);
+// === element from the context's tracked paragraphs (Kotlin
+// removeAllMatching equivalent).
+function removeEntryFor(paragraphs: TrackedParagraph[], element: HTMLElement): void {
+  for (let i = paragraphs.length - 1; i >= 0; i -= 1) {
+    if (paragraphs[i].source === element) {
+      paragraphs.splice(i, 1);
       return;
     }
   }
@@ -292,35 +292,32 @@ function paragraphViewportDistance(element: Element | null): number {
   return rect.bottom < 0 ? -rect.bottom : rect.top - viewportHeight;
 }
 
-// Root-level drift probe: a root without runtime state answers the unknown
-// bucket (the former facade's '{"unknown":1,...}' answer), otherwise the
-// tracked sources classify through the read-only probe.
-export function probeRootContentDrift(rawDomContext: EnhancedElementContext, rootState: RootStateApi, root: Element): ContentDriftProbeResult {
-  const state = rootState.getState(root);
-  if (!state) return { unknown: 1, drifted: 0, dead: 0, rawDom: 0 };
-  return probeContentDrift(rawDomContext, sourcesOf(state));
+// Root-level drift probe: a root without an established runtime answers the
+// unknown bucket (the former facade's '{"unknown":1,...}' answer), otherwise
+// the tracked sources classify through the read-only probe.
+export function probeRootContentDrift(context: EnhancedElementContext, root: Element): ContentDriftProbeResult {
+  if (!context.contextState.runtimeEstablished) return { unknown: 1, drifted: 0, dead: 0, rawDom: 0 };
+  return probeContentDrift(context, sourcesOf(context.contextState.paragraphs));
 }
 
 // Root-level reconcile orchestration (aligns WebEnhancerContentReconcile.kt
-// 22-95). Answers null when the root carries no runtime state; otherwise
-// classifies, refreshes the CJK dash capability evidence when needed, and
-// schedules one layout job for every affected paragraph.
+// 22-95). Answers null when the root carries no established runtime;
+// otherwise classifies, refreshes the CJK dash capability evidence when
+// needed, and schedules one layout job for every affected paragraph.
 export function reconcileRoot(
-  rawDomContext: EnhancedElementContext,
-  rootState: RootStateApi,
-  layoutJobPool: LayoutJobPool,
+  context: EnhancedElementContext,
   root: HTMLElement,
   tainted: Element[],
 ): ContentReconcileResult | null {
-  const state = rootState.getState(root);
-  if (!state) return null;
+  if (!context.contextState.runtimeEstablished) return null;
+  const paragraphs = context.contextState.paragraphs;
   const spec: ReconcileSpec = {
-    trackedSources: sourcesOf(state),
+    trackedSources: sourcesOf(paragraphs),
     tainted: tainted,
-    strandedCandidates: rootState.strandedSourceParagraphs(root, state),
+    strandedCandidates: context.effectSync.strandedSourceParagraphs(),
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
-  const verdict = classifyReconcile(rawDomContext, spec);
+  const verdict = classifyReconcile(context, spec);
   const result: ContentReconcileResult = {
     outcome: verdict.outcome,
     drifted: verdict.drifted.length,
@@ -333,9 +330,9 @@ export function reconcileRoot(
   // DeadTrackedParagraphDrop: innerHTML re-projection orphans the runtime
   // onto detached originals. Drop them so re-projected clones are adopted as
   // fresh candidates.
-  for (let d = state.paragraphs.length - 1; d >= 0; d -= 1) {
-    if (!state.paragraphs[d].source.isConnected) {
-      state.paragraphs.splice(d, 1);
+  for (let d = paragraphs.length - 1; d >= 0; d -= 1) {
+    if (!paragraphs[d].source.isConnected) {
+      paragraphs.splice(d, 1);
     }
   }
 
@@ -343,7 +340,7 @@ export function reconcileRoot(
 
   // Refresh CJK dash capability evidence if any affected paragraph needs it.
   // The coordinated channel captures cjkDashCapability once at initial enhance
-  // (element.ts) and bakes it into the root state's browserFallback. When the
+  // (element.ts) and bakes it into the runtime options' browser fallback. When the
   // DOM gains dash content after initial enhance, we must recompute against
   // the current root.textContent so the coordinated channel agrees with the
   // one-shot channel (which recomputes on every call via api.ts).
@@ -356,12 +353,13 @@ export function reconcileRoot(
     }
   }
   if (needsDashRefresh) {
+    const runtimeOptions = context.contextState.runtimeOptions as ResolvedEnhanceOptions;
     const freshOutcome = computeCjkDashOutcome(root, {
-      snapshotFontSession: state.options.snapshotFontSession,
+      snapshotFontSession: runtimeOptions.snapshotFontSession,
     });
-    if (state.cjkDashCapability.status !== freshOutcome.status ||
-        state.cjkDashCapability.detail !== freshOutcome.detail) {
-      rootState.updateCjkDashCapability(state, freshOutcome);
+    const updatedOptions = context.typography.updateCjkDashCapability(runtimeOptions, freshOutcome);
+    if (updatedOptions !== runtimeOptions) {
+      context.contextState.setRuntimeOptions(updatedOptions);
     }
   }
 
@@ -374,9 +372,9 @@ export function reconcileRoot(
       actions.push({
         element: element,
         run: function () {
-          removeEntryFor(state, element);
-          prepareTrackedParagraphForRelowering(rawDomContext, element);
-          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
+          removeEntryFor(paragraphs, element);
+          prepareTrackedParagraphForRelowering(context, element);
+          processParagraph(context, element);
         },
       });
     })(verdict.drifted[vi] as HTMLElement);
@@ -390,9 +388,9 @@ export function reconcileRoot(
       actions.push({
         element: element,
         run: function () {
-          removeEntryFor(state, element);
-          rawDomRestoreParagraph(rawDomContext, element);
-          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
+          removeEntryFor(paragraphs, element);
+          rawDomRestoreParagraph(context, element);
+          processParagraph(context, element);
         },
       });
     })(verdict.rawDom[vi] as HTMLElement);
@@ -406,9 +404,9 @@ export function reconcileRoot(
       actions.push({
         element: element,
         run: function () {
-          removeEntryFor(state, element);
-          rawDomRestoreParagraph(rawDomContext, element);
-          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
+          removeEntryFor(paragraphs, element);
+          rawDomRestoreParagraph(context, element);
+          processParagraph(context, element);
         },
       });
     })(verdict.tainted[vi] as HTMLElement);
@@ -418,8 +416,8 @@ export function reconcileRoot(
       actions.push({
         element: element,
         run: function () {
-          stripEngineMarkupFromStrandedParagraph(rawDomContext, element);
-          processParagraph(rawDomContext, rootState.processParagraphArgument(state, element));
+          stripEngineMarkupFromStrandedParagraph(context, element);
+          processParagraph(context, element);
         },
       });
     })(verdict.stranded[vi] as HTMLElement);
@@ -442,9 +440,7 @@ export function reconcileRoot(
   });
   const rootWidth = elementFragmentBorderBoxInlineSize(root);
   startLayoutJob(
-    rootState,
-    layoutJobPool,
-    state,
+    context,
     "Relayout",
     actions.length,
     function (index: number) { actions[itemTierIndex[index]].run(); },
