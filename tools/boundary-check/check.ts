@@ -170,12 +170,6 @@ const EXEMPTIONS: readonly Exemption[] = [
   {
     task: "#106",
     rules: ["R4-separator-literal"],
-    file: "frontend/web/npm/bench/worker-necessity-corpus.mjs",
-    reason: "Separator constant copy of the untyped worker payload; disappears when payloads cross as declared DTOs.",
-  },
-  {
-    task: "#106",
-    rules: ["R4-separator-literal"],
     file: "frontend/web/core/core/engine/enhance/context-state.ts",
     reason: "Separator join in signature building over the untyped payload (moved from prose-host-session.ts in the core-neutral collapse); replaced by declared DTOs.",
   },
