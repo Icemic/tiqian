@@ -71,6 +71,12 @@
 // Fixture: fixtures/oneshot-geometry-history.json = the HEAD (1ad320ce)
 // chain capture geometry, evidence .agent-specs/oneshot-bisect-evidence/
 // 1ad320ce/chain-p0.json.
+//
+// Post-study extension (2026-08-27, central verification): a fresh chain
+// capture at 72e95777 equals this frozen baseline (pair-30, 0/1927
+// divergent), so S2 persists through 672f14bc and 72e95777 and the
+// baseline remains the current-tree anchor on main. Evidence archives:
+// demo/web-history/evidence/.
 
 import test from "node:test";
 import assert from "node:assert/strict";
