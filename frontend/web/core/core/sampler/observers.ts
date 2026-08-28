@@ -6,6 +6,7 @@
 
 import { DEFAULT_PARAGRAPH_SELECTOR, fragmentedBorderBoxInlineSize } from "./signatures.js";
 import { onDeclaredFacesChanged } from "./snapshot/declared-faces.js";
+import { documentViewportInlineSizeDegenerate } from "../engine/responsive-measure.js";
 import type { RawDomParagraphRecord } from "../engine/context/enhance-context.js";
 
 type EmptyCallback = () => void;
@@ -366,6 +367,14 @@ export function createRootSizeObservation(options: RootSizeObservationOptions): 
     get widths() { return widths; },
     start(targets) {
       observer = new ResizeObserver((entries) => {
+        // DegenerateViewportWidthRejection: entries delivered while the
+        // document viewport is collapsed (a beyond-viewport screenshot
+        // capture window) carry zero inline sizes for every target.
+        // Recording them would overwrite the healthy baselines below and
+        // dispatch responsive work at the fallback width. Skip the whole
+        // delivery; the post-restore delivery compares against the kept
+        // baselines, so only a real width change dispatches.
+        if (documentViewportInlineSizeDegenerate()) return;
         let changed = false;
         for (let i = 0; i < entries.length; i++) {
           const entry = entries[i];

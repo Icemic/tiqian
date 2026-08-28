@@ -203,6 +203,18 @@ function createMount(
   // surface through the capability-issue markers, so hosts and custom-element
   // callbacks can await it without handling rejections.
   function mount(): Promise<void> {
+    // ForeignEnhancedRootMountNoOp: one context owns one root's lifecycle. A
+    // fresh context mounting over a root a foreign context already drove to
+    // the terminal state would re-lower the rendered DOM (producing invalid
+    // inline-object geometry markers) while the owning context's
+    // identity-based drift reconcile restores its own records back, and the
+    // two contexts rewrite the root forever. Stay inert instead: no ledger
+    // sync, no page-global registration, no intersection observation. The
+    // owning context keeps observing the root, and its attribute reflection
+    // answers option changes written onto the root.
+    if (foreignGuard.rootIsForeignEnhanced()) {
+      return Promise.resolve();
+    }
     // AppliedLedgerMountSync: attribute changes made through property setters
     // or present before construction never passed through updateOptions; sync
     // the ledger from the live attributes so the next reflection diffs
@@ -210,15 +222,6 @@ function createMount(
     optionsLedger.syncFromAttributes();
     scheduler.register();
     visibility.observeIntersection();
-    // ForeignEnhancedRootMountNoOp: one context owns one root's lifecycle. A
-    // fresh context mounting over a root a foreign context already drove to
-    // the terminal state would re-lower the rendered DOM (producing invalid
-    // inline-object geometry markers) while the owning context's
-    // identity-based drift reconcile restores its own records back, and the
-    // two contexts rewrite the root forever. Stay inert instead; the owning
-    // context keeps observing the root, and its attribute reflection answers
-    // option changes written onto the root.
-    if (foreignGuard.rootIsForeignEnhanced()) return Promise.resolve();
     if (canAdoptRawDomMoveReconnection()) {
       adoptRawDomMoveReconnection();
       return Promise.resolve();

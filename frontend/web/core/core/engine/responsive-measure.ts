@@ -54,6 +54,20 @@ export function sourceParagraphWidth(paragraph: Element): number {
   return 320;
 }
 
+// DegenerateViewportWidthRejection: Chromium's beyond-viewport screenshot
+// capture and comparable widget-level manipulations collapse the document
+// viewport to a 1px inline size for the capture window. Responsive work
+// that runs inside that window (ResizeObserver deliveries, scheduled
+// responsive commits) measures every element at zero width and would
+// commit a fallback-width layout over correct geometry. The smallest real
+// layout viewport is wider than 1px, so a document element at or below
+// that size is a collapsed widget, not a host width signal.
+export function documentViewportInlineSizeDegenerate(): boolean {
+  const doc = globalThis.document;
+  if (!doc || !doc.documentElement) return false;
+  return doc.documentElement.clientWidth <= 1;
+}
+
 export function isCurrentResponsiveMeasure(preparedWidth: number, currentWidth: number, fontSize: number): boolean {
   return effectiveLineMeasure(preparedWidth, fontSize) ===
     effectiveLineMeasure(currentWidth, fontSize);

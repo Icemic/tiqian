@@ -22,7 +22,7 @@ import {
   seedParagraphGridMetrics,
   paragraphMeasureSignatureFromObserved,
 } from "../../sampler/grid-metrics.js";
-import { hasHostInlineSizeParagraph } from "../responsive-measure.js";
+import { hasHostInlineSizeParagraph, documentViewportInlineSizeDegenerate } from "../responsive-measure.js";
 import {
   isLoadedSnapshotAdopted,
   loadedSnapshotMaximumMeasureMatches,
@@ -295,6 +295,11 @@ function createResponsiveManager(
   // guarantees. Verified by demo/web/tests/resize-prepaint-commit.test.mjs.
   function commitResponsiveGeometryPrePaint(): boolean {
     if (!root.isConnected || !stateMachine.inViewport) return false;
+    // DegenerateViewportWidthRejection: pre-paint admission reads live
+    // widths, which a collapsed capture window reports as zero. Fall
+    // through to the scheduled commit, which re-arms until the viewport
+    // is restored.
+    if (documentViewportInlineSizeDegenerate()) return false;
     if (!stateMachine.runtimeActive || !stateMachine.dispatched) return false;
     if (hooks.contentProbeFramePending()) return false;
     if (stateMachine.snapshotAdopted || isLoadedSnapshotAdopted(root)) return false;
@@ -338,6 +343,15 @@ function createResponsiveManager(
 
   function commitResponsiveGeometryChange(): void {
     if (!root.isConnected) return;
+    // DegenerateViewportWidthRejection: a commit running inside a
+    // collapsed capture window reads live widths at zero and dispatches a
+    // fallback-width relayout over correct geometry. Keep every
+    // invalidation bit set and re-arm on the next frame, which lands after
+    // the transient window closes; no observer signal is required.
+    if (documentViewportInlineSizeDegenerate()) {
+      scheduler.requestFrame(boundResponsiveCommit);
+      return;
+    }
     if (stateMachine.workInFlight) {
       stateMachine.invalidate(InvalidationReason.ResponsiveCommit);
       return;
