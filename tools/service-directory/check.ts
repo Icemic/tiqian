@@ -116,6 +116,9 @@ function walk(dir: string): string[] {
     const filePath: string = join(dir, entry);
     const st: Stats = statSync(filePath);
     if (st.isDirectory()) {
+      // ServiceDirectoryRule governs runtime sources; test batteries and their
+      // support files sit in tests/ directories outside the rule's scope.
+      if (entry === "tests") continue;
       out.push(...walk(filePath));
     } else if (entry.endsWith(".ts") && !entry.endsWith(".d.ts") && !entry.includes(".test.")) {
       out.push(filePath);

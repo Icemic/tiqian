@@ -42,7 +42,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
-      # tools/package-topology/check.mjs uses node: builtins only, so there is
+      # tools/package-topology/check.ts uses node: builtins only, so there is
       # deliberately no npm install step.
       - name: Run package topology check
         run: node tools/package-topology/check.ts

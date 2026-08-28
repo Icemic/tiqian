@@ -26,7 +26,7 @@
 // violation; packages must reference each other through declared package
 // names, never repo-relative paths.
 //
-// The scanned source set mirrors tools/ts-discipline/eslint.config.mjs so both
+// The scanned source set mirrors tools/ts-discipline/eslint.config.ts so both
 // checks share one scope definition: **/*.js, **/*.mjs, **/*.ts and **/*.d.ts
 // under the
 // three package directories, ignoring node_modules/, runtime/, build/,
@@ -97,7 +97,7 @@ const DEPENDENCY_FIELDS: readonly string[] = [
 ];
 
 // Directory names never scanned, mirroring the ignores in
-// tools/ts-discipline/eslint.config.mjs restricted to what can occur inside
+// tools/ts-discipline/eslint.config.ts restricted to what can occur inside
 // the three package directories.
 const IGNORED_DIR_NAMES: ReadonlySet<string> = new Set([
   "node_modules",

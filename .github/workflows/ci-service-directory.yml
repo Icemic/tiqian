@@ -2,7 +2,7 @@ name: Service directory CI
 
 # ADR 0053 (Web prose host consolidation) `ServiceDirectoryRule`: page-single
 # runtime state lives in core/services/ or carries an exemption naming the
-# disposition that will delete it. tools/service-directory/check.mjs turns
+# disposition that will delete it. tools/service-directory/check.ts turns
 # the rule into a mechanical gate after the 2026-08-25 S-wave audit found
 # adjudicated registry moves that were never executed; the gate also fails
 # on stale exemptions so a sweeping wave must shrink the table in the same

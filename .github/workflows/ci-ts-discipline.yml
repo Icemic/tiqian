@@ -39,7 +39,7 @@ jobs:
         working-directory: tools/ts-discipline
         run: npm ci
       - name: Run ESLint across packages
-        run: npx --prefix tools/ts-discipline eslint --config tools/ts-discipline/eslint.config.mjs .
+        run: npx --prefix tools/ts-discipline eslint --config tools/ts-discipline/eslint.config.ts .
       - name: Verify zero eslint-disable directives
         run: |
           ! grep -rn "eslint-disable" frontend/web/npm frontend/web/core ffi/js/npm \
