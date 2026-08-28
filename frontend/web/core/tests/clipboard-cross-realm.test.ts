@@ -9,37 +9,85 @@ import test from "node:test";
 
 import { ClipboardManager } from "../core/services/clipboard-manager.js";
 
+interface FakeRange {
+  readonly startContainer: FakeNode;
+  readonly endContainer: FakeNode;
+  readonly commonAncestorContainer: FakeElement;
+  cloneContents(): FakeFragment;
+  intersectsNode(node: FakeNode): boolean;
+}
+
+interface FakeSelection {
+  readonly isCollapsed: boolean;
+  readonly rangeCount: number;
+  getRangeAt(index: number): FakeRange;
+}
+
+interface FakeNode {
+  readonly nodeType: number;
+  readonly parentElement: null;
+}
+
+interface FakeElement extends FakeNode {
+  matches(selector: string): boolean;
+  querySelectorAll(selector: string): FakeElement[];
+}
+
+interface FakeFragment {
+  readonly childNodes: FakeNode[];
+}
+
+interface FakeWindow {
+  getSelection(): FakeSelection;
+}
+
+interface FakeListener {
+  readonly type: string;
+  readonly listener: () => void;
+}
+
+interface FakeDocument {
+  readonly defaultView: FakeWindow | null;
+  addEventListener(type: string, listener: () => void): void;
+}
+
+interface FakeDocumentResult {
+  readonly document: FakeDocument;
+  readonly realmWindow: FakeWindow;
+  readonly listeners: FakeListener[];
+}
+
 // Minimal fake document + window that simulates a cross-realm installation.
 // The key property is that document.defaultView returns a different window
 // object than globalThis, and that window carries its own getSelection().
-function createFakeDocumentWithRealm() {
-  const listeners = [];
-  const realmSelection = {
+function createFakeDocumentWithRealm(): FakeDocumentResult {
+  const listeners: FakeListener[] = [];
+  const realmSelection: FakeSelection = {
     isCollapsed: false,
     rangeCount: 1,
-    getRangeAt(_index) {
+    getRangeAt(_index: number): FakeRange {
       return {
         startContainer: { nodeType: 3, parentElement: null },
         endContainer: { nodeType: 3, parentElement: null },
         commonAncestorContainer: {
           nodeType: 1,
           parentElement: null,
-          matches(_selector) { return false; },
-          querySelectorAll(_selector) { return []; },
+          matches(_selector: string): boolean { return false; },
+          querySelectorAll(_selector: string): FakeElement[] { return []; },
         },
-        cloneContents() {
+        cloneContents(): FakeFragment {
           return { childNodes: [] };
         },
-        intersectsNode(_node) { return false; },
+        intersectsNode(_node: FakeNode): boolean { return false; },
       };
     },
   };
-  const realmWindow = {
-    getSelection() { return realmSelection; },
+  const realmWindow: FakeWindow = {
+    getSelection(): FakeSelection { return realmSelection; },
   };
-  const document = {
+  const document: FakeDocument = {
     defaultView: realmWindow,
-    addEventListener(type, listener) {
+    addEventListener: (type: string, listener: () => void) => {
       listeners.push({ type, listener });
     },
   };
@@ -50,7 +98,7 @@ test("ClipboardManager reads selection from the installed document's defaultView
   const manager = new ClipboardManager();
   const { document, realmWindow, listeners } = createFakeDocumentWithRealm();
 
-  manager.install(document);
+  manager.install(document as FakeDocument & Document);
 
   assert.equal(listeners.length, 1, "one copy listener installed");
   assert.equal(listeners[0].type, "copy", "listener is for the copy event");
@@ -67,9 +115,9 @@ test("ClipboardManager install is idempotent per document", () => {
   const manager = new ClipboardManager();
   const { document, listeners } = createFakeDocumentWithRealm();
 
-  manager.install(document);
-  manager.install(document);
-  manager.install(document);
+  manager.install(document as FakeDocument & Document);
+  manager.install(document as FakeDocument & Document);
+  manager.install(document as FakeDocument & Document);
 
   assert.equal(listeners.length, 1, "only one listener installed despite three calls");
 });
@@ -79,12 +127,12 @@ test("ClipboardManager install skips documents without addEventListener", () => 
   const fakeDocument = { defaultView: null };
 
   // Should not throw
-  manager.install(fakeDocument);
+  manager.install(fakeDocument as FakeDocument & Document);
 });
 
 test("ClipboardManager install skips null documents", () => {
   const manager = new ClipboardManager();
 
   // Should not throw
-  manager.install(null);
+  manager.install(null as unknown as Document);
 });

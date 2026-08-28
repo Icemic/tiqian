@@ -20,7 +20,7 @@ import {
   restoreGlobals,
   installFakeClock,
   CLOCK_GLOBALS,
-} from "./test-clock.mjs";
+} from "./test-clock.js";
 import {
   digest,
   faceEvidence,

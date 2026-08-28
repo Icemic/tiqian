@@ -8,7 +8,7 @@ import {
   restoreGlobals,
   installFakeClock,
   CLOCK_GLOBALS as globalNames,
-} from "./test-clock.mjs";
+} from "./test-clock.js";
 
 async function importCoordinator() {
   const module = await import(`../element.js?coordinator=${Math.random()}`);

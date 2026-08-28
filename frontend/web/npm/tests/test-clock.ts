@@ -5,7 +5,9 @@
 // duration statistics read Date.now. Tests that record timing goldens depend
 // on both readings moving together under advance().
 
-export const CLOCK_GLOBALS = [
+import type { GlobalEntry, FakeClock } from "./types.js";
+
+export const CLOCK_GLOBALS: readonly string[] = [
   "performance",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -14,58 +16,75 @@ export const CLOCK_GLOBALS = [
   "Date",
 ];
 
-export function preserveGlobals(names) {
-  return names.map((name) => ({
+interface SavedGlobal {
+  readonly name: string;
+  readonly own: boolean;
+  readonly value: unknown;
+}
+
+interface TimerEntry {
+  readonly callback: () => void;
+  readonly dueAt: number;
+}
+
+type RafCallback = (time: number) => void;
+
+export function preserveGlobals(names: readonly string[]): SavedGlobal[] {
+  return names.map((name: string) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
+    value: (globalThis as Record<string, unknown>)[name],
   }));
 }
 
-export function restoreGlobals(entries) {
+export function restoreGlobals(entries: readonly SavedGlobal[]): void {
   for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
+    if (own) (globalThis as Record<string, unknown>)[name] = value;
+    else delete (globalThis as Record<string, unknown>)[name];
   }
 }
 
-export function installFakeClock() {
+export function installFakeClock(): FakeClock {
   let now = 0;
   let rafId = 0;
   let timerId = 0;
-  const rafQueue = new Map();
-  const timers = new Map();
+  const rafQueue = new Map<number, RafCallback>();
+  const timers = new Map<number, TimerEntry>();
   const RealDate = Date;
 
-  globalThis.performance = { now: () => now };
+  (globalThis as Record<string, unknown>).performance = { now: (): number => now };
   // Coarse counters (debounce due times, duration stats) read Date.now, so the
   // fake timeline drives them too.
-  globalThis.Date = class FakeDate extends RealDate {
-    static now() {
+  (globalThis as Record<string, unknown>).Date = class FakeDate extends RealDate {
+    static now(): number {
       return now;
     }
   };
-  globalThis.requestAnimationFrame = (callback) => {
+  (globalThis as Record<string, unknown>).requestAnimationFrame = (callback: RafCallback): number => {
     const id = ++rafId;
     rafQueue.set(id, callback);
     return id;
   };
-  globalThis.cancelAnimationFrame = (id) => rafQueue.delete(id);
-  globalThis.setTimeout = (callback, delay = 0) => {
+  (globalThis as Record<string, unknown>).cancelAnimationFrame = (id: number): void => {
+    rafQueue.delete(id);
+  };
+  (globalThis as Record<string, unknown>).setTimeout = (callback: () => void, delay: number = 0): number => {
     const id = ++timerId;
     timers.set(id, { callback, dueAt: now + delay });
     return id;
   };
-  globalThis.clearTimeout = (id) => timers.delete(id);
+  (globalThis as Record<string, unknown>).clearTimeout = (id: number): void => {
+    timers.delete(id);
+  };
 
   return {
     // Pending timer count: lets tests observe whether the coordination
     // service still holds a worker wake timer (see the worker-slot
     // weak-reference tests).
-    pendingTimerCount() {
+    pendingTimerCount(): number {
       return timers.size;
     },
-    advance(ms) {
+    advance(ms: number): void {
       const target = now + ms;
       for (;;) {
         const dueTimer = [...timers.entries()].filter(([, t]) => t.dueAt <= target)
