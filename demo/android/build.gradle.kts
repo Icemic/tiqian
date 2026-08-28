@@ -13,6 +13,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // 单 ABI 外发包：-PtiqianDemoAbi=arm64-v8a；不传则保持全 ABI。
+        providers.gradleProperty("tiqianDemoAbi").orNull?.let { abi ->
+            ndk.abiFilters += abi.split(",")
+        }
     }
 
     buildTypes {
