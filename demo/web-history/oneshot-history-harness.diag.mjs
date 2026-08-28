@@ -364,7 +364,7 @@ export async function waitForCdpEndpoint(port, timeoutMs = 20000) {
 // Settle gate: terminal flag plus a stable rendered-subtree fingerprint
 // (three consecutive 350ms checks), the same quiescence protocol the HEAD
 // test uses before every capture.
-const SETTLE_HELPERS = `
+export const SETTLE_HELPERS = `
   (() => {
     if (globalThis.__historyFingerprint) return;
     const styleOf = (el) => {
