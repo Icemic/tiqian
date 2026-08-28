@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const isWindows = process.platform === "win32";
-const gradleWrapper = fileURLToPath(new URL(
+const repositoryRoot: string = fileURLToPath(new URL("../../..", import.meta.url));
+const isWindows: boolean = process.platform === "win32";
+const gradleWrapper: string = fileURLToPath(new URL(
   isWindows ? "../../../gradlew.bat" : "../../../gradlew",
   import.meta.url,
 ));
-const gradleArguments = [
+const gradleArguments: readonly string[] = [
   ":ffi:js:clean",
   ":ffi:js:assembleNpmPackage",
   "--no-build-cache",
@@ -17,13 +17,13 @@ const gradleArguments = [
 // WindowsBatchWrapperViaComSpec: .bat files are cmd scripts rather than native
 // executables. Invoke the wrapper through ComSpec while keeping Unix on the
 // directly executable Gradle wrapper.
-const command = isWindows
-  ? process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe"
+const command: string = isWindows
+  ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe")
   : gradleWrapper;
-const commandArguments = isWindows
+const commandArguments: readonly string[] = isWindows
   ? ["/d", "/c", "call", gradleWrapper, ...gradleArguments]
   : gradleArguments;
-const result = spawnSync(command, commandArguments, {
+const result: SpawnSyncReturns<Buffer> = spawnSync(command, commandArguments, {
   cwd: repositoryRoot,
   stdio: "inherit",
 });

@@ -35,12 +35,12 @@
     "tag": "alpha"
   },
   "scripts": {
-    "build:runtime": "node ./build-runtime.mjs",
+    "build:runtime": "node ./build-runtime.ts",
     "pretest": "tsc -b",
     "test": "node --test *.test.mjs",
-    "verify:package": "node ./verify-package.mjs",
-    "verify:release": "npm run prepack && node ./verify-release.mjs",
-    "release:prepare": "node ./prepare-release.mjs",
+    "verify:package": "node ./verify-package.ts",
+    "verify:release": "npm run prepack && node ./verify-release.ts",
+    "release:prepare": "node ./prepare-release.ts",
     "prepack": "npm run build:runtime && npm test && npm run verify:package"
   },
   "devDependencies": {
