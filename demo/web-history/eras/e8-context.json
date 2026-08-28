@@ -1,0 +1,26 @@
+{
+  "label": "E8-context",
+  "commit": "672f14bc",
+  "range": "672f14bc (host session collapsed into the enhanced element context) .. HEAD",
+  "entry": "@tiqian/prose/element (registerTiqianProse) + @tiqian/core createEnhanceContext",
+  "adapter": "adapters/enhance-context.js",
+  "stylesheet": "frontend/web/core/styles.css",
+  "importMap": {
+    "imports": {
+      "@tiqian/prose/element": "/prose/element.js",
+      "@tiqian/prose/auto": "/prose/auto.js",
+      "@tiqian/core/": "/core/",
+      "@tiqian/ffi": "/ffi/runtime/Tiqian-tiqian-ffi-js.mjs"
+    }
+  },
+  "static": {
+    "/prose": "frontend/web/npm",
+    "/core": "frontend/web/core",
+    "/ffi": "ffi/js/npm"
+  },
+  "build": [
+    "./gradlew :ffi:js:assembleNpmPackage",
+    "npx tsc -b frontend/web/npm"
+  ],
+  "engineNote": "Kotlin/JS engine via :ffi:js:assembleNpmPackage into ffi/js/npm/runtime/; core compiled in place with npx tsc in frontend/web/core"
+}

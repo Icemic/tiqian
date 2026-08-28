@@ -104,7 +104,7 @@ test("OneShotGeometryHistory: current tree capture equals the frozen b649841..HE
   assert.ok(!portBusy, `Port ${DEMO_PORT} must be free before the test starts`);
 
   const era = JSON.parse(readFileSync(
-    path.join(repoRoot, "demo/web-history/eras/head.json"), "utf8"));
+    path.join(repoRoot, "demo/web-history/eras/e8-context.json"), "utf8"));
   const baseline = JSON.parse(readFileSync(
     path.join(repoRoot, "demo/web/tests/fixtures/oneshot-geometry-history.json"), "utf8"));
 
