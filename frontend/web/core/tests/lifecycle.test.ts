@@ -17,6 +17,7 @@ import {
   withRootDefaults,
 } from "../core/engine/lifecycle.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
+import type { EnhanceOptions, SourceInlineSizeCapture, CapabilityIssueRecord } from "../core/engine/lifecycle.js";
 
 const DEFAULT_CJK_FONT_FAMILY = '"MiSans VF", "PingFang SC", "Noto Sans CJK SC", sans-serif';
 const DEFAULT_LATIN_FONT_FAMILY = '"InterVariable", "Inter", "MiSans VF", sans-serif';
@@ -25,18 +26,50 @@ const DEFAULT_MONOSPACE_FONT_FAMILY =
 const DEFAULT_CJK_SERIF_FONT_FAMILY = '"MetroSungPlus-SC", "Songti SC", serif';
 const DEFAULT_LATIN_SERIF_FONT_FAMILY = 'Georgia, "Times New Roman", serif';
 
-function preserveGlobals(names) {
+interface SavedGlobal {
+  name: string;
+  own: boolean;
+  value: unknown;
+}
+
+interface StylePropertyValue {
+  value: string;
+  priority: string;
+}
+
+interface FakeStyle {
+  getPropertyValue: (name: string) => string;
+  getPropertyPriority: (name: string) => string;
+  setProperty: (name: string, value: string, priority?: string) => void;
+  removeProperty: (name: string) => void;
+}
+
+interface FakeElement {
+  getAttribute: (name: string) => string | null;
+  setAttribute: (name: string, value: string) => void;
+  removeAttribute: (name: string) => void;
+  style: FakeStyle;
+  styleProperties: Map<string, StylePropertyValue>;
+  getBoundingClientRect: () => { width: number };
+  getClientRects: () => [];
+  parentElement: null;
+}
+
+type FakeElementAsElement = FakeElement & Element;
+type FakeElementAsHTMLElement = FakeElement & HTMLElement;
+
+function preserveGlobals(names: string[]): SavedGlobal[] {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
+    value: globalThis[name as keyof typeof globalThis],
   }));
 }
 
-function restoreGlobals(entries) {
+function restoreGlobals(entries: SavedGlobal[]): void {
   for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
+    if (own) (globalThis as Record<string, unknown>)[name] = value;
+    else delete (globalThis as Record<string, unknown>)[name];
   }
 }
 
@@ -44,7 +77,7 @@ const globalNames = ["getComputedStyle", "console"];
 
 // Full plain-object EnhanceOptions shape, matching the module's optionsFromJs
 // output. fontFamilies is deep-merged so a partial override keeps the nulls.
-function fullOptions(overrides = {}) {
+function fullOptions(overrides: Partial<EnhanceOptions> = {}): EnhanceOptions {
   const { fontFamilies, ...rest } = overrides;
   return {
     fontFamilies: {
@@ -71,37 +104,37 @@ function fullOptions(overrides = {}) {
 // Minimal fake element: attributes and style declarations back a Map. The
 // geometry surface the responsive-measure module reads (getBoundingClientRect,
 // getClientRects) defaults to a zero rect and is overridden per test.
-function makeElement(initialAttributes = {}) {
+function makeElement(initialAttributes: Record<string, string> = {}): FakeElement {
   const attributes = new Map(Object.entries(initialAttributes));
-  const styleProperties = new Map();
-  const style = {
-    getPropertyValue: (name) => styleProperties.get(name)?.value ?? "",
-    getPropertyPriority: (name) => styleProperties.get(name)?.priority ?? "",
-    setProperty(name, value, priority = "") {
+  const styleProperties = new Map<string, StylePropertyValue>();
+  const style: FakeStyle = {
+    getPropertyValue: (name: string): string => styleProperties.get(name)?.value ?? "",
+    getPropertyPriority: (name: string): string => styleProperties.get(name)?.priority ?? "",
+    setProperty(name: string, value: string, priority: string = ""): void {
       styleProperties.set(name, { value, priority });
     },
-    removeProperty(name) {
+    removeProperty(name: string): void {
       styleProperties.delete(name);
     },
   };
   return {
-    getAttribute: (name) => attributes.get(name) ?? null,
-    setAttribute: (name, value) => attributes.set(name, String(value)),
-    removeAttribute: (name) => attributes.delete(name),
+    getAttribute: (name: string): string | null => attributes.get(name) ?? null,
+    setAttribute: (name: string, value: string): void => { attributes.set(name, String(value)); },
+    removeAttribute: (name: string): void => { attributes.delete(name); },
     style,
     styleProperties,
-    getBoundingClientRect: () => ({ width: 0 }),
-    getClientRects: () => [],
+    getBoundingClientRect: (): { width: number } => ({ width: 0 }),
+    getClientRects: (): [] => [],
     parentElement: null,
   };
 }
 
-const computedStyles = new Map();
+const computedStyles = new Map<Element, Map<string, string>>();
 
-function installFakeComputedStyle() {
-  globalThis.getComputedStyle = (element) => {
+function installFakeComputedStyle(): void {
+  globalThis.getComputedStyle = (element: Element): CSSStyleDeclaration => {
     const styles = computedStyles.get(element);
-    const get = (property) => styles?.get(property) ?? "";
+    const get = (property: string): string => styles?.get(property) ?? "";
     return {
       getPropertyValue: get,
       get paddingLeft() {
@@ -116,11 +149,11 @@ function installFakeComputedStyle() {
       get borderRightWidth() {
         return get("border-right-width");
       },
-    };
+    } as CSSStyleDeclaration;
   };
 }
 
-function setComputedStyle(element, property, value) {
+function setComputedStyle(element: Element, property: string, value: string): void {
   let styles = computedStyles.get(element);
   if (!styles) {
     styles = new Map();
@@ -168,7 +201,7 @@ test("optionsFromJs decodes the full options object", () => {
 
 test("optionsFromJs defaults every field for empty or null input", () => {
   for (const input of [undefined, null, {}]) {
-    assert.deepEqual(optionsFromJs(input), fullOptions());
+    assert.deepEqual(optionsFromJs(input as Record<string, unknown>), fullOptions());
   }
 });
 
@@ -192,10 +225,10 @@ test("optionsFromJs decodes capability objects with unavailable as the default s
     cjkDashCapability: { status: "available" },
     snapshotFontSession: { status: "conforming" },
   });
-  assert.equal(withStatus.cjkDashCapability.status, "available");
-  assert.equal(withStatus.cjkDashCapability.detail, null);
-  assert.equal(withStatus.snapshotFontSession.status, "conforming");
-  assert.equal(withStatus.snapshotFontSession.sessionId, null);
+  assert.equal(withStatus.cjkDashCapability!.status, "available");
+  assert.equal(withStatus.cjkDashCapability!.detail, null);
+  assert.equal(withStatus.snapshotFontSession!.status, "conforming");
+  assert.equal(withStatus.snapshotFontSession!.sessionId, null);
 
   assert.equal(optionsFromJs({}).cjkDashCapability, null);
   assert.equal(optionsFromJs({}).snapshotFontSession, null);
@@ -207,32 +240,32 @@ test("optionFloat returns a finite number and null otherwise", () => {
   assert.equal(optionFloat({ size: Infinity }, "size"), null);
   assert.equal(optionFloat({ size: "abc" }, "size"), null);
   assert.equal(optionFloat({}, "size"), null);
-  assert.equal(optionFloat(null, "size"), null);
+  assert.equal(optionFloat(null as any, "size"), null);
 });
 
 test("conformingSnapshotFontSessionId returns only a conforming, non-blank session id", () => {
   assert.equal(
-    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "s-1" } }),
+    conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "s-1", detail: null } })),
     "s-1",
   );
   assert.equal(
-    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "  " } }),
+    conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "  ", detail: null } })),
     null,
   );
   assert.equal(
-    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: "" } }),
+    conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "", detail: null } })),
     null,
   );
   assert.equal(
-    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "conforming", sessionId: null } }),
+    conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: { status: "conforming", sessionId: null, detail: null } })),
     null,
   );
   assert.equal(
-    conformingSnapshotFontSessionId({ snapshotFontSession: { status: "mismatch", sessionId: "s-1" } }),
+    conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: { status: "mismatch", sessionId: "s-1", detail: null } })),
     null,
   );
-  assert.equal(conformingSnapshotFontSessionId({}), null);
-  assert.equal(conformingSnapshotFontSessionId(null), null);
+  assert.equal(conformingSnapshotFontSessionId(fullOptions()), null);
+  assert.equal(conformingSnapshotFontSessionId(fullOptions({ snapshotFontSession: null })), null);
 });
 
 test("allowsSnapshotLayout is true only for the all-null snapshot shape", () => {
@@ -240,16 +273,16 @@ test("allowsSnapshotLayout is true only for the all-null snapshot shape", () => 
   assert.equal(allowsSnapshotLayout(fullOptions({ fontSize: 16 })), false);
   assert.equal(allowsSnapshotLayout(fullOptions({ lineHeight: 1.5 })), false);
   assert.equal(allowsSnapshotLayout(fullOptions({ firstLineIndentIc: 2 })), false);
-  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { cjk: "CJK" } })), false);
-  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { latinSerif: "Serif" } })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { cjk: "CJK" } as any })), false);
+  assert.equal(allowsSnapshotLayout(fullOptions({ fontFamilies: { latinSerif: "Serif" } as any })), false);
 });
 
 test("withoutSnapshotFontSession nulls the session on a shallow copy", () => {
-  const options = fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "s-1" } });
+  const options = fullOptions({ snapshotFontSession: { status: "conforming", sessionId: "s-1", detail: null } });
   const copy = withoutSnapshotFontSession(options);
   assert.notEqual(copy, options);
   assert.equal(copy.snapshotFontSession, null);
-  assert.equal(options.snapshotFontSession.sessionId, "s-1");
+  assert.equal(options.snapshotFontSession!.sessionId, "s-1");
   assert.equal(copy.fontFamilies, options.fontFamilies);
   assert.equal(copy.fontSize, options.fontSize);
 });
@@ -257,7 +290,7 @@ test("withoutSnapshotFontSession nulls the session on a shallow copy", () => {
 test("withRootDefaults uses the inherited font-family when an option family is null", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  const root = {};
+  const root: any = {};
   setComputedStyle(root, "font-family", "Inherited, sans-serif");
   try {
     const resolved = withRootDefaults(fullOptions(), root);
@@ -274,7 +307,7 @@ test("withRootDefaults uses the inherited font-family when an option family is n
 test("withRootDefaults falls back to the default families when nothing is inherited", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  const root = {};
+  const root: any = {};
   setComputedStyle(root, "font-family", "   ");
   try {
     const resolved = withRootDefaults(fullOptions(), root);
@@ -291,10 +324,10 @@ test("withRootDefaults falls back to the default families when nothing is inheri
 test("withRootDefaults lets an explicit option family win over the inherited one", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  const root = {};
+  const root: any = {};
   setComputedStyle(root, "font-family", "Inherited, sans-serif");
   try {
-    const options = fullOptions({ fontFamilies: { cjk: "Option CJK", latin: "Option Latin" } });
+    const options = fullOptions({ fontFamilies: { cjk: "Option CJK", latin: "Option Latin" } as any });
     const resolved = withRootDefaults(options, root);
     assert.equal(resolved.fontFamilies.cjk, "Option CJK");
     assert.equal(resolved.fontFamilies.latin, "Option Latin");
@@ -309,7 +342,7 @@ test("withRootDefaults lets an explicit option family win over the inherited one
 test("withRootDefaults rejects a non-positive or non-finite fontSize", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  const root = {};
+  const root: any = {};
   try {
     for (const fontSize of [0, -3, Number.NaN]) {
       assert.throws(() => withRootDefaults(fullOptions({ fontSize }), root), /InvalidFontSize/);
@@ -324,7 +357,7 @@ test("withRootDefaults rejects a non-positive or non-finite fontSize", () => {
 test("withRootDefaults returns a copy and never mutates the input", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  const root = {};
+  const root: any = {};
   setComputedStyle(root, "font-family", "Inherited, sans-serif");
   try {
     const options = fullOptions();
@@ -345,25 +378,25 @@ test("reportIssue truncates the detail marker to 512 chars and clearIssue restor
     "data-tiqian-capability-issue": "pre-name",
     "data-tiqian-capability-detail": "pre-detail",
   });
-  const warns = [];
-  globalThis.console.warn = (message) => warns.push(message);
+  const warns: string[] = [];
+  globalThis.console.warn = (message: string): void => { warns.push(message); };
   try {
     const detail = "x".repeat(600);
-    const issue = { name: "NoSnapshotFontFace", detail, element, reportToConsole: true };
+    const issue: CapabilityIssueRecord = { name: "NoSnapshotFontFace", detail, element: element as unknown as Element, reportToConsole: true };
     reportIssue(issue);
     reportIssue(issue);
     assert.equal(issue.markerCaptured, true);
     assert.equal(issue.originalNameAttribute, "pre-name");
     assert.equal(issue.originalDetailAttribute, "pre-detail");
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "NoSnapshotFontFace");
-    assert.equal(element.getAttribute("data-tiqian-capability-detail"), "x".repeat(512));
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-issue"), "NoSnapshotFontFace");
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-detail"), "x".repeat(512));
     assert.equal(warns.length, 2);
     assert.equal(warns[0], "TiqianWeb skipped paragraph: NoSnapshotFontFace (" + detail + ")");
 
     clearIssue(issue);
     assert.equal(issue.markerCaptured, false);
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "pre-name");
-    assert.equal(element.getAttribute("data-tiqian-capability-detail"), "pre-detail");
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-issue"), "pre-name");
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-detail"), "pre-detail");
   } finally {
     restoreGlobals(globals);
   }
@@ -372,12 +405,12 @@ test("reportIssue truncates the detail marker to 512 chars and clearIssue restor
 test("reportIssue keeps the console silent when reportToConsole is false", () => {
   const globals = preserveGlobals(globalNames);
   const element = makeElement();
-  const warns = [];
-  globalThis.console.warn = (message) => warns.push(message);
+  const warns: string[] = [];
+  globalThis.console.warn = (message: string): void => { warns.push(message); };
   try {
-    const issue = { name: "MissingGlyph", detail: "d", element, reportToConsole: false };
+    const issue: CapabilityIssueRecord = { name: "MissingGlyph", detail: "d", element: element as unknown as Element, reportToConsole: false };
     reportIssue(issue);
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "MissingGlyph");
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-issue"), "MissingGlyph");
     assert.equal(warns.length, 0);
   } finally {
     restoreGlobals(globals);
@@ -388,9 +421,9 @@ test("clearIssue is a no-op when no marker was captured", () => {
   const globals = preserveGlobals(globalNames);
   const element = makeElement({ "data-tiqian-capability-issue": "keep" });
   try {
-    const issue = { name: "X", detail: "y", element, reportToConsole: false };
+    const issue: CapabilityIssueRecord = { name: "X", detail: "y", element: element as unknown as Element, reportToConsole: false };
     clearIssue(issue);
-    assert.equal(element.getAttribute("data-tiqian-capability-issue"), "keep");
+    assert.equal((element as unknown as Element).getAttribute("data-tiqian-capability-issue"), "keep");
   } finally {
     restoreGlobals(globals);
   }
@@ -398,16 +431,16 @@ test("clearIssue is a no-op when no marker was captured", () => {
 
 test("restoreAttribute removes for null and sets for a string", () => {
   const element = makeElement({ "data-x": "1" });
-  restoreAttribute(element, "data-x", null);
-  assert.equal(element.getAttribute("data-x"), null);
-  restoreAttribute(element, "data-x", "2");
-  assert.equal(element.getAttribute("data-x"), "2");
+  restoreAttribute(element as unknown as Element, "data-x", null);
+  assert.equal((element as unknown as Element).getAttribute("data-x"), null);
+  restoreAttribute(element as unknown as Element, "data-x", "2");
+  assert.equal((element as unknown as Element).getAttribute("data-x"), "2");
 });
 
 test("applyConfiguredHostFontSize passes null through and returns the set value", () => {
   const element = makeElement();
-  assert.equal(applyConfiguredHostFontSize(element, null), null);
-  const returned = applyConfiguredHostFontSize(element, 17.5);
+  assert.equal(applyConfiguredHostFontSize(element as unknown as HTMLElement, null), null);
+  const returned = applyConfiguredHostFontSize(element as unknown as HTMLElement, 17.5);
   assert.equal(returned, "17.5px");
   assert.equal(element.style.getPropertyValue("font-size"), "17.5px");
   assert.equal(element.style.getPropertyPriority("font-size"), "important");
@@ -416,18 +449,18 @@ test("applyConfiguredHostFontSize passes null through and returns the set value"
 test("responsiveSourceMeasure restores the style attribute even when the measure throws", () => {
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
-  globalThis.getComputedStyle = () => {
+  globalThis.getComputedStyle = (): CSSStyleDeclaration => {
     throw new Error("measure boom");
   };
   try {
     const absent = makeElement();
-    assert.throws(() => responsiveSourceMeasure(absent, 16), /measure boom/);
-    assert.equal(absent.getAttribute("style"), null);
+    assert.throws(() => responsiveSourceMeasure(absent as unknown as HTMLElement, 16), /measure boom/);
+    assert.equal((absent as unknown as Element).getAttribute("style"), null);
 
     const present = makeElement();
-    present.setAttribute("style", "color: red");
-    assert.throws(() => responsiveSourceMeasure(present, 16), /measure boom/);
-    assert.equal(present.getAttribute("style"), "color: red");
+    (present as unknown as Element).setAttribute("style", "color: red");
+    assert.throws(() => responsiveSourceMeasure(present as unknown as HTMLElement, 16), /measure boom/);
+    assert.equal((present as unknown as Element).getAttribute("style"), "color: red");
   } finally {
     restoreGlobals(globals);
   }
@@ -438,13 +471,13 @@ test("responsiveSourceMeasure reads the computed font-size with a 19px default",
   installFakeComputedStyle();
   try {
     const element = makeElement();
-    element.getBoundingClientRect = () => ({ width: 320 });
+    (element as any).getBoundingClientRect = (): { width: number } => ({ width: 320 });
     // A parsed "16px" font-size is used directly; a non-px value ("2em")
     // falls back to the DEFAULT_FONT_SIZE of 19.
-    setComputedStyle(element, "font-size", "16px");
-    const parsed = responsiveSourceMeasure(element, null);
-    setComputedStyle(element, "font-size", "2em");
-    const defaulted = responsiveSourceMeasure(element, null);
+    setComputedStyle(element as FakeElementAsElement, "font-size", "16px");
+    const parsed = responsiveSourceMeasure(element as unknown as HTMLElement, null);
+    setComputedStyle(element as FakeElementAsElement, "font-size", "2em");
+    const defaulted = responsiveSourceMeasure(element as unknown as HTMLElement, null);
     assert.equal(parsed, effectiveLineMeasure(320, 16));
     assert.equal(defaulted, effectiveLineMeasure(320, 19));
     assert.notEqual(parsed, defaulted);
@@ -457,11 +490,11 @@ test("stabilizeContentSizedItemInlineSize leaves a stable auto-sized item alone"
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 300 });
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 300 });
   try {
-    const source = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
-    assert.equal(stabilizeContentSizedItemInlineSize(paragraph, source), null);
-    assert.equal(paragraph.getAttribute("data-tq-host-inline-size"), null);
+    const source: SourceInlineSizeCapture = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
+    assert.equal(stabilizeContentSizedItemInlineSize(paragraph as unknown as HTMLElement, source), null);
+    assert.equal((paragraph as unknown as Element).getAttribute("data-tq-host-inline-size"), null);
   } finally {
     restoreGlobals(globals);
   }
@@ -471,13 +504,13 @@ test("stabilizeContentSizedItemInlineSize pins the host inline size when rawDom 
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 260 });
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 260 });
   try {
-    const source = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
-    assert.equal(stabilizeContentSizedItemInlineSize(paragraph, source), "300px");
+    const source: SourceInlineSizeCapture = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
+    assert.equal(stabilizeContentSizedItemInlineSize(paragraph as unknown as HTMLElement, source), "300px");
     assert.equal(paragraph.style.getPropertyValue("inline-size"), "300px");
     assert.equal(paragraph.style.getPropertyPriority("inline-size"), "important");
-    assert.equal(paragraph.getAttribute("data-tq-host-inline-size"), "true");
+    assert.equal((paragraph as unknown as Element).getAttribute("data-tq-host-inline-size"), "true");
   } finally {
     restoreGlobals(globals);
   }
@@ -487,10 +520,10 @@ test("stabilizeContentSizedItemInlineSize selects the content-box width for cont
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 260 });
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 260 });
   try {
-    const source = { borderBoxSizing: false, borderBoxWidth: 300, contentBoxWidth: 280 };
-    assert.equal(stabilizeContentSizedItemInlineSize(paragraph, source), "280px");
+    const source: SourceInlineSizeCapture = { borderBoxSizing: false, borderBoxWidth: 300, contentBoxWidth: 280 };
+    assert.equal(stabilizeContentSizedItemInlineSize(paragraph as unknown as HTMLElement, source), "280px");
   } finally {
     restoreGlobals(globals);
   }
@@ -500,17 +533,17 @@ test("stabilizeContentSizedItemInlineSize declines non-finite or non-positive si
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 260 });
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 260 });
   try {
-    const nonFinite = { borderBoxSizing: true, borderBoxWidth: Number.NaN, contentBoxWidth: 0 };
-    assert.equal(stabilizeContentSizedItemInlineSize(paragraph, nonFinite), null);
-    const nonPositive = { borderBoxSizing: true, borderBoxWidth: 0, contentBoxWidth: 0 };
-    assert.equal(stabilizeContentSizedItemInlineSize(paragraph, nonPositive), null);
+    const nonFinite: SourceInlineSizeCapture = { borderBoxSizing: true, borderBoxWidth: Number.NaN, contentBoxWidth: 0 };
+    assert.equal(stabilizeContentSizedItemInlineSize(paragraph as unknown as HTMLElement, nonFinite), null);
+    const nonPositive: SourceInlineSizeCapture = { borderBoxSizing: true, borderBoxWidth: 0, contentBoxWidth: 0 };
+    assert.equal(stabilizeContentSizedItemInlineSize(paragraph as unknown as HTMLElement, nonPositive), null);
 
     const broken = makeElement();
-    broken.getBoundingClientRect = () => ({ width: Number.NaN });
-    const source = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
-    assert.equal(stabilizeContentSizedItemInlineSize(broken, source), null);
+    (broken as any).getBoundingClientRect = (): { width: number } => ({ width: Number.NaN });
+    const source: SourceInlineSizeCapture = { borderBoxSizing: true, borderBoxWidth: 300, contentBoxWidth: 280 };
+    assert.equal(stabilizeContentSizedItemInlineSize(broken as unknown as HTMLElement, source), null);
   } finally {
     restoreGlobals(globals);
   }
@@ -520,16 +553,16 @@ test("captureSourceInlineSize reports the border-box sizing flag from computed s
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 300 });
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 300 });
   try {
-    setComputedStyle(paragraph, "box-sizing", "border-box");
-    const size = captureSourceInlineSize(paragraph);
+    setComputedStyle(paragraph as FakeElementAsElement, "box-sizing", "border-box");
+    const size = captureSourceInlineSize(paragraph as unknown as Element);
     assert.equal(size.borderBoxWidth, 300);
     assert.equal(size.contentBoxWidth, 300);
     assert.equal(size.borderBoxSizing, true);
 
-    setComputedStyle(paragraph, "box-sizing", "content-box");
-    assert.equal(captureSourceInlineSize(paragraph).borderBoxSizing, false);
+    setComputedStyle(paragraph as FakeElementAsElement, "box-sizing", "content-box");
+    assert.equal(captureSourceInlineSize(paragraph as unknown as Element).borderBoxSizing, false);
   } finally {
     restoreGlobals(globals);
   }
@@ -539,13 +572,13 @@ test("captureSourceInlineSize falls back to computed paddings without the measur
   const globals = preserveGlobals(globalNames);
   installFakeComputedStyle();
   const paragraph = makeElement();
-  paragraph.getBoundingClientRect = () => ({ width: 300 });
-  setComputedStyle(paragraph, "padding-left", "10px");
-  setComputedStyle(paragraph, "padding-right", "10px");
-  setComputedStyle(paragraph, "border-left-width", "1px");
-  setComputedStyle(paragraph, "border-right-width", "1px");
+  (paragraph as any).getBoundingClientRect = (): { width: number } => ({ width: 300 });
+  setComputedStyle(paragraph as FakeElementAsElement, "padding-left", "10px");
+  setComputedStyle(paragraph as FakeElementAsElement, "padding-right", "10px");
+  setComputedStyle(paragraph as FakeElementAsElement, "border-left-width", "1px");
+  setComputedStyle(paragraph as FakeElementAsElement, "border-right-width", "1px");
   try {
-    const size = captureSourceInlineSize(paragraph);
+    const size = captureSourceInlineSize(paragraph as unknown as Element);
     assert.equal(size.contentBoxWidth, 278);
   } finally {
     restoreGlobals(globals);

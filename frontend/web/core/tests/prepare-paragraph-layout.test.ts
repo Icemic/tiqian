@@ -1,71 +1,227 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { prepareParagraphLayout } from "../core/engine/prepare-paragraph-layout.js";
-import { wireArguments } from "../core/engine/prepare-paragraph-layout.js";
+import { prepareParagraphLayout, wireArguments } from "../core/engine/prepare-paragraph-layout.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { installFixtureFontBackend, installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
+import type { LoweredParagraph, TextStyle, TextSpan, InlineBoxSpan, LineBreakSpan, InlineObjectSpan, DecorationSpan, DomSourceSpan, DomInlineBoxStyle } from "../core/engine/lowered-paragraph.js";
+import type { PrepareLayoutResult, PrepareReadyResult } from "../core/engine/prepare-paragraph-layout.js";
 
-// The responsive measure helpers are real: sourceParagraphWidth reads element
-// geometry through globalThis.getComputedStyle and effectiveLineMeasure is
-// imported above. The prepared-dom bridge is a static import, so no renderer
-// global stays fake.
-//
-// The wire byte lock (rule c) now asserts the DTO shape produced by wireArguments
-// and the real direct ffi call consumes the DTO. The verdict/gating and
-// throw-path tests (rules a/d) run the real @tiqian/ffi over the planted
-// fixture or throwing font backend.
+interface SavedGlobal {
+  name: string;
+  own: boolean;
+  value: unknown;
+}
 
-function saveGlobals(names) {
+interface ComputedStyleValues {
+  paddingLeft?: string;
+  paddingRight?: string;
+  borderLeftWidth?: string;
+  borderRightWidth?: string;
+  [key: string]: string | undefined;
+}
+
+interface FakeComputedProps extends ComputedStyleValues {
+  paddingLeft: string;
+  paddingRight: string;
+  borderLeftWidth: string;
+  borderRightWidth: string;
+}
+
+interface FakeComputedStyle {
+  [key: string]: string | ((name: string) => string);
+  getPropertyValue: (name: string) => string;
+}
+
+interface SpanOverrides {
+  start?: number;
+  end?: number;
+  style?: Partial<TextStyle>;
+}
+
+interface InlineBoxStyleOverrides {
+  inlineStart?: number;
+  inlineEnd?: number;
+  marginRight?: number;
+  letterSpacing?: number;
+  boxDecorationBreak?: string;
+}
+
+interface SourceSpanOverrides {
+  start?: number;
+  end?: number;
+  element?: { tagName: string; attributes: Array<[string, string]> };
+  depth?: number;
+  cjkStrongBaseWeight?: number | null;
+  computedColor?: string | null;
+  inlineBoxStyle?: InlineBoxStyleOverrides;
+}
+
+interface ParagraphOverrides {
+  text?: string;
+  textStyle?: Partial<TextStyle>;
+  lineHeight?: number;
+  spans?: TextSpan[];
+  decorations?: DecorationSpan[];
+  inlineBoxes?: InlineBoxSpan[];
+  inlineObjects?: InlineObjectSpan[];
+  domInlineObjects?: unknown[];
+  sourceSpans?: DomSourceSpan[];
+  sourceBoundaries?: number[];
+  lineBreakSpans?: LineBreakSpan[];
+}
+
+interface ElementOverrides {
+  width?: number;
+}
+
+interface FakeElement {
+  tagName: string;
+  getBoundingClientRect: () => { width: number };
+  getClientRects: () => DOMRectList;
+  parentElement: Element | null;
+  _computedValues?: ComputedStyleValues;
+}
+
+interface BridgeShapeRequest {
+  text: string;
+  range: { start: number; end: number };
+  style: { fontSize: number };
+  displayText: string;
+}
+
+interface BridgeGlyph {
+  id: number;
+  clusterRange: { start: number; end: number };
+  advance: number;
+  x: number;
+  y: number;
+  bounds: { left: number; top: number; right: number; bottom: number };
+}
+
+interface BridgeCluster {
+  range: { start: number; end: number };
+  text: string;
+  displayText: string;
+  fontKey: string;
+  advance: number;
+  baselineShift: number;
+}
+
+interface BridgeGlyphRun {
+  range: { start: number; end: number };
+  fontKey: string;
+  glyphs: BridgeGlyph[];
+  advance: number;
+  openTypeFeatures: unknown[];
+}
+
+interface BridgeDecision {
+  range: { start: number; end: number };
+  sourceText: string;
+  displayText: string;
+  fontKey: string;
+  glyphCount: number;
+  advance: number;
+  source: string;
+  reason: string;
+  capabilityIssue?: string;
+}
+
+interface BridgeShapeResponse {
+  clusters: BridgeCluster[];
+  glyphRuns: BridgeGlyphRun[];
+  decisions: BridgeDecision[];
+}
+
+interface BridgeMetricsResponse {
+  ascent: number;
+  descent: number;
+  leading: number;
+  source: string;
+  typoAscent: number;
+  typoDescent: number;
+}
+
+interface BrowserFallbackBridge {
+  shapeJson: (req: string) => string;
+  metricsJson: () => string;
+}
+
+interface PrepareSnapshotSessionDescriptor {
+  shapeJson: (req: string) => string;
+  metricsJson: (req: string) => string;
+}
+
+interface SnapshotArgumentOverrides {
+  paragraph?: {
+    source: FakeElement;
+    lowered: LoweredParagraph;
+    lastMeasure: number | null;
+  };
+  options?: { firstLineIndentIc: number; emphasisDotGapEm: number | null };
+  snapshotSession?: PrepareSnapshotSessionDescriptor | null;
+  browserFallback?: { bridge: BrowserFallbackBridge } | null;
+  widthOverride?: number | null;
+  ignoreUnchangedMeasure?: boolean;
+}
+
+function saveGlobals(names: string[]): SavedGlobal[] {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
+    value: globalThis[name as keyof typeof globalThis],
   }));
 }
 
-function restoreGlobals(entries) {
+function restoreGlobals(entries: SavedGlobal[]): void {
   for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
+    if (own) {
+      (globalThis as Record<string, unknown>)[name] = value;
+    } else {
+      delete (globalThis as Record<string, unknown>)[name];
+    }
   }
 }
 
-function computedStyle(values = {}) {
-  const props = {
+function computedStyle(values: ComputedStyleValues = {}): FakeComputedStyle {
+  const props: FakeComputedProps = {
     paddingLeft: "0px",
     paddingRight: "0px",
     borderLeftWidth: "0px",
     borderRightWidth: "0px",
     ...values,
   };
-  const style = {};
-  for (const key of Object.keys(props)) style[key] = props[key];
-  style.getPropertyValue = (name) => {
-    const key = String(name).toLowerCase();
-    return Object.prototype.hasOwnProperty.call(props, key)
-      ? String(props[key])
-      : "";
+  const style: Record<string, string> = {};
+  for (const key of Object.keys(props)) {
+    style[key] = props[key as keyof FakeComputedProps]!;
+  }
+  const result: FakeComputedStyle = {
+    ...style,
+    getPropertyValue: (name: string): string => {
+      const key = String(name).toLowerCase();
+      return Object.prototype.hasOwnProperty.call(props, key)
+        ? String(props[key])
+        : "";
+    },
   };
-  return style;
+  return result;
 }
 
-function withEnv(fn, overrides = {}) {
+function withEnv<T>(fn: () => T, overrides: Record<string, never> = {}): T {
   const saved = saveGlobals(["getComputedStyle"]);
   try {
-    // Tests now use the real prepared-dom renderer directly.
-    // Validator injection removed per spec.
-    globalThis.getComputedStyle = (target, pseudo) =>
-      target && target._computedValues
-        ? computedStyle(target._computedValues)
-        : computedStyle();
+    globalThis.getComputedStyle = ((target: Element | null, pseudo?: string | null): FakeComputedStyle =>
+      target && (target as FakeElement)._computedValues
+        ? computedStyle((target as FakeElement)._computedValues)
+        : computedStyle()) as any;
     return fn();
   } finally {
     restoreGlobals(saved);
   }
 }
 
-function textStyle(overrides = {}) {
+function textStyle(overrides: Partial<TextStyle> = {}): TextStyle {
   return {
     fontFamilies: ["Noto Serif CJK SC"],
     fontSize: 19,
@@ -74,19 +230,19 @@ function textStyle(overrides = {}) {
     baselineShift: 0,
     locale: "zh-Hans",
     ...overrides,
-  };
+  } as TextStyle;
 }
 
-function span(overrides = {}) {
+function span(overrides: SpanOverrides = {}): TextSpan {
   return {
     start: 0,
     end: 2,
     style: textStyle(),
     ...overrides,
-  };
+  } as TextSpan;
 }
 
-function inlineBoxStyle(overrides = {}) {
+function inlineBoxStyle(overrides: InlineBoxStyleOverrides = {}): DomInlineBoxStyle {
   return {
     inlineStart: 0,
     inlineEnd: 0,
@@ -94,10 +250,10 @@ function inlineBoxStyle(overrides = {}) {
     letterSpacing: 0,
     boxDecorationBreak: "slice",
     ...overrides,
-  };
+  } as DomInlineBoxStyle;
 }
 
-function sourceSpan(overrides = {}) {
+function sourceSpan(overrides: SourceSpanOverrides = {}): DomSourceSpan {
   return {
     start: 0,
     end: 2,
@@ -107,10 +263,10 @@ function sourceSpan(overrides = {}) {
     computedColor: null,
     inlineBoxStyle: inlineBoxStyle(),
     ...overrides,
-  };
+  } as unknown as DomSourceSpan;
 }
 
-function paragraph(overrides = {}) {
+function paragraph(overrides: ParagraphOverrides = {}): LoweredParagraph {
   return {
     text: "ab",
     textStyle: textStyle(),
@@ -124,25 +280,20 @@ function paragraph(overrides = {}) {
     sourceBoundaries: [],
     lineBreakSpans: [],
     ...overrides,
-  };
+  } as LoweredParagraph;
 }
 
-// Measurable fake element: sourceParagraphWidth reads its bounding box and
-// client rects through elementContentWidth.
-function element(tagName = "P", overrides = {}) {
+function element(tagName: string = "P", overrides: ElementOverrides = {}): FakeElement {
   return {
     tagName,
-    getBoundingClientRect: () => ({ width: overrides.width ?? 320 }),
-    getClientRects: () => [],
+    getBoundingClientRect: (): { width: number } => ({ width: overrides.width ?? 320 }),
+    getClientRects: (): DOMRectList => [] as unknown as DOMRectList,
     parentElement: null,
     ...overrides,
-  };
+  } as FakeElement;
 }
 
-// Fixture exercising every wire field: two spans (second has a baselineShift),
-// one inline box, one line-break span, one inline object, two decorations, and
-// duplicate source boundaries [0,2,2,5].
-const RICH_LOWERED = paragraph({
+const RICH_LOWERED: LoweredParagraph = paragraph({
   text: "abcde",
   textStyle: textStyle({ fontFamilies: ["Serif A", "Serif B"] }),
   sourceBoundaries: [0, 2, 2, 5],
@@ -179,20 +330,18 @@ const RICH_LOWERED = paragraph({
   ],
 });
 
-const RICH_ELEMENT = element("P");
+const RICH_ELEMENT: FakeElement = element("P");
 
-// A browserFallback whose bridge callbacks answer every shape/metrics request
-// with a valid, full-coverage cluster response on the real wire.
-function makeBridge() {
+function makeBridge(): BrowserFallbackBridge {
   return {
-    shapeJson(req) {
-      const parsed = JSON.parse(req);
+    shapeJson(req: string): string {
+      const parsed: BridgeShapeRequest = JSON.parse(req);
       const text = parsed.text;
       const start = parsed.range.start;
       const end = parsed.range.end;
       const size = parsed.style.fontSize;
-      const clusters = [];
-      const glyphs = [];
+      const clusters: BridgeCluster[] = [];
+      const glyphs: BridgeGlyph[] = [];
       let x = 0;
       for (let i = start; i < end; i += 1) {
         const ch = text[i];
@@ -214,38 +363,43 @@ function makeBridge() {
         });
         x += size;
       }
-      return JSON.stringify({
+      const response: BridgeShapeResponse = {
         clusters,
         glyphRuns: [{ range: { start, end }, fontKey: "cjk-primary", glyphs, advance: x, openTypeFeatures: [] }],
         decisions: [{ range: { start, end }, sourceText: text.substring(start, end), displayText: parsed.displayText, fontKey: "cjk-primary", glyphCount: end - start, advance: x, source: "Harness", reason: "harness" }],
-      });
+      };
+      return JSON.stringify(response);
     },
-    metricsJson() {
-      return JSON.stringify({ ascent: 21.2, descent: 5.3, leading: 0, source: "RawTables", typoAscent: 16.7, typoDescent: 2.3 });
+    metricsJson(): string {
+      const response: BridgeMetricsResponse = { ascent: 21.2, descent: 5.3, leading: 0, source: "RawTables", typoAscent: 16.7, typoDescent: 2.3 };
+      return JSON.stringify(response);
     },
   };
 }
 
 const RICH_BROWSER_FALLBACK = { bridge: makeBridge() };
 
-// The snapshot-session descriptor carries the shaping callbacks ffi takes as
-// call parameters; the fixture backend supplies the same pair the old global
-// installation shaped through.
-function snapshotSessionCallbacksOf(backend) {
+type BackendWithCallbacks = {
+  uninstall: () => void;
+  shapeJson: (req: string) => string;
+  metricsJson: (req: string) => string;
+};
+
+function snapshotSessionCallbacksOf(backend: BackendWithCallbacks): PrepareSnapshotSessionDescriptor {
   return { shapeJson: backend.shapeJson, metricsJson: backend.metricsJson };
 }
 
-function fixtureSnapshotSession() {
-  return snapshotSessionCallbacksOf(installFixtureFontBackend());
+function fixtureSnapshotSession(): PrepareSnapshotSessionDescriptor {
+  return snapshotSessionCallbacksOf(installFixtureFontBackend() as BackendWithCallbacks);
 }
 
-function snapshotArgument(overrides = {}) {
+function snapshotArgument(overrides: SnapshotArgumentOverrides = {}): any {
   const { snapshotSession = fixtureSnapshotSession(), ...rest } = overrides;
   return {
-    paragraph: { source: RICH_ELEMENT, lowered: RICH_LOWERED, lastMeasure: null },
+    paragraph: { source: RICH_ELEMENT as any, lowered: RICH_LOWERED, lastMeasure: null },
     options: { firstLineIndentIc: 2, emphasisDotGapEm: null },
     snapshotSession,
-    browserFallback: RICH_BROWSER_FALLBACK,
+    browserFallback: RICH_BROWSER_FALLBACK as any,
     widthOverride: null,
     ignoreUnchangedMeasure: false,
     ...rest,
@@ -264,7 +418,7 @@ test("returns unchanged when lastMeasure matches the effective measure", () => {
 });
 
 test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({
@@ -279,7 +433,7 @@ test("ignoreUnchangedMeasure proceeds despite a matching lastMeasure", () => {
 });
 
 test("widthOverride wins and ready.width is raw while ffi receives the measure", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const expectedMeasure = effectiveLineMeasure(200, 19);
@@ -287,14 +441,8 @@ test("widthOverride wins and ready.width is raw while ffi receives the measure",
       assert.equal(result.kind, "ready");
       assert.equal(result.width, 200);
       assert.equal(result.measure, expectedMeasure);
-      // The snapshot-session wire consumed the measure as maxWidthPx and the
-      // rich lowered text as the source. wireArguments returns a DTO with
-      // placeholder maxWidthPx (0) and firstLineIndentIc (0); prepareParagraphLayout
-      // overwrites them before calling the ffi.
       const wire = wireArguments(RICH_LOWERED);
       assert.equal(wire.text, "abcde");
-      // The actual DTO sent to ffi has the correct measure; we verify this
-      // indirectly via the ready result's measure field.
     });
   } finally {
     backend.uninstall();
@@ -330,7 +478,7 @@ test("wire byte lock: wireArguments DTO carries the full structured argument", (
     assert.equal(wire.locale, "zh-Hans");
     assert.equal(wire.fontWeight, 400);
     assert.equal(wire.italic, false);
-    assert.equal(wire.firstLineIndentIc, 0); // Will be set by caller
+    assert.equal(wire.firstLineIndentIc, 0);
     assert.equal(wire.lineLengthGridEnabled, true);
     assert.deepEqual(wire.sourceBoundaries, [0, 2, 5]);
     assert.equal(wire.textSpans.length, 2);
@@ -371,13 +519,10 @@ test("wire byte lock: wireArguments DTO carries the full structured argument", (
     assert.equal(wire.decorations[1].start, 3);
     assert.equal(wire.decorations[1].end, 5);
     assert.equal(wire.decorations[1].kind, "Mourning");
-    assert.equal(wire.emphasisDotGapEm, null); // Will be set by caller
-    assert.equal(wire.renderEvidenceOverride, null); // Will be set by caller
+    assert.equal(wire.emphasisDotGapEm, null);
+    assert.equal(wire.renderEvidenceOverride, null);
 
-    // The wire byte lock is not a dead computation: the real snapshot-session
-    // ffi call is a one-line consumer of the same DTO, observable as the
-    // ready result the tuple would produce.
-    const backend = installFixtureFontBackend();
+    const backend = installFixtureFontBackend() as BackendWithCallbacks;
     try {
       const result = prepareParagraphLayout(snapshotArgument());
       assert.equal(result.kind, "ready");
@@ -389,7 +534,7 @@ test("wire byte lock: wireArguments DTO carries the full structured argument", (
 });
 
 test("render evidence override carries the six-collection verdict", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const linkOnly = paragraph({
@@ -399,14 +544,8 @@ test("render evidence override carries the six-collection verdict", () => {
       const plain = paragraph({ text: "abcde" });
       const linkWire = wireArguments(linkOnly);
       const plainWire = wireArguments(plain);
-      // sourceSpans-only lowered has wire-empty collections but carries true
-      // render evidence; a plain paragraph carries false.
-      assert.equal(linkWire.renderEvidenceOverride, null); // Will be set by caller based on hasRenderEvidence
-      assert.equal(plainWire.renderEvidenceOverride, null); // Will be set by caller based on hasRenderEvidence
-
-      // The DTO shape for renderEvidenceOverride is set by prepareParagraphLayout
-      // based on hasRenderEvidence(lowered). The wireArguments function returns
-      // null for renderEvidenceOverride, which the caller then overwrites.
+      assert.equal(linkWire.renderEvidenceOverride, null);
+      assert.equal(plainWire.renderEvidenceOverride, null);
     });
   } finally {
     backend.uninstall();
@@ -414,7 +553,7 @@ test("render evidence override carries the six-collection verdict", () => {
 });
 
 test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const li = prepareParagraphLayout(snapshotArgument({
@@ -434,12 +573,12 @@ test("firstLineIndentIc is zero for LI and the option value otherwise", () => {
 });
 
 test("capabilityIssues[0] produces an unsupported verdict with name and reason", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss")) as BackendWithCallbacks;
   const bridge = makeBridge();
   const originalShapeJson = bridge.shapeJson;
-  bridge.shapeJson = function (req) {
-    const parsed = JSON.parse(req);
-    const inner = JSON.parse(originalShapeJson(req));
+  bridge.shapeJson = function (req: string): string {
+    const parsed: BridgeShapeRequest = JSON.parse(req);
+    const inner: BridgeShapeResponse = JSON.parse(originalShapeJson(req));
     inner.decisions = [{
       range: { start: parsed.range.start, end: parsed.range.end },
       sourceText: parsed.text.substring(parsed.range.start, parsed.range.end),
@@ -471,9 +610,9 @@ test("capabilityIssues[0] produces an unsupported verdict with name and reason",
 test("advance suspects skip empty and newline display text, then the first real suspect wins", () => {
   const bridge = makeBridge();
   const originalShapeJson = bridge.shapeJson;
-  bridge.shapeJson = function (req) {
-    const parsed = JSON.parse(req);
-    const inner = JSON.parse(originalShapeJson(req));
+  bridge.shapeJson = function (req: string): string {
+    const parsed: BridgeShapeRequest = JSON.parse(req);
+    const inner: BridgeShapeResponse = JSON.parse(originalShapeJson(req));
     const start = parsed.range.start;
     const end = parsed.range.end;
     const ch = parsed.text.substring(start, end);
@@ -524,7 +663,7 @@ test("advance suspects skip empty and newline display text, then the first real 
 });
 
 test("clone decoration crossed by two plan lines is unsupported with the lowercased tag", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -533,12 +672,11 @@ test("clone decoration crossed by two plan lines is unsupported with the lowerca
           sourceSpan({
             start: 1,
             end: 3,
-            element: { tagName: "SPAN" },
+            element: { tagName: "SPAN", attributes: [] },
             inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
           }),
         ],
       });
-      // A width that forces a two-line plan crossing the clone span.
       const result = prepareParagraphLayout(snapshotArgument({
         paragraph: { source: RICH_ELEMENT, lowered, lastMeasure: null },
         widthOverride: 64,
@@ -556,7 +694,7 @@ test("clone decoration crossed by two plan lines is unsupported with the lowerca
 });
 
 test("clone decoration on a single line does not trigger", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -565,7 +703,7 @@ test("clone decoration on a single line does not trigger", () => {
           sourceSpan({
             start: 1,
             end: 3,
-            element: { tagName: "SPAN" },
+            element: { tagName: "SPAN", attributes: [] },
             inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "clone", inlineStart: 5 }),
           }),
         ],
@@ -581,7 +719,7 @@ test("clone decoration on a single line does not trigger", () => {
 });
 
 test("a non-clone span with edges never triggers the clone verdict", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const lowered = paragraph({
@@ -590,7 +728,7 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
           sourceSpan({
             start: 1,
             end: 3,
-            element: { tagName: "SPAN" },
+            element: { tagName: "SPAN", attributes: [] },
             inlineBoxStyle: inlineBoxStyle({ boxDecorationBreak: "slice", inlineStart: 5 }),
           }),
         ],
@@ -606,7 +744,7 @@ test("a non-clone span with edges never triggers the clone verdict", () => {
 });
 
 test("a capability-failure throws retry through the browser metrics call", () => {
-  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss"));
+  const backend = installThrowingFontBackend(new Error("NoSnapshotFontFace: session miss")) as BackendWithCallbacks;
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
@@ -619,7 +757,7 @@ test("a capability-failure throws retry through the browser metrics call", () =>
 });
 
 test("another capability-failure name triggers the retry", () => {
-  const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay"));
+  const backend = installThrowingFontBackend(new Error("MissingServerShapingReplay: no replay")) as BackendWithCallbacks;
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) }));
@@ -632,7 +770,7 @@ test("another capability-failure name triggers the retry", () => {
 });
 
 test("a non-matching error rethrows", () => {
-  const backend = installThrowingFontBackend(new Error("some unrelated failure"));
+  const backend = installThrowingFontBackend(new Error("some unrelated failure")) as BackendWithCallbacks;
   try {
     withEnv(() => {
       assert.throws(() => prepareParagraphLayout(snapshotArgument({ snapshotSession: snapshotSessionCallbacksOf(backend) })), /some unrelated failure/);
@@ -663,7 +801,7 @@ test("snapshotSession == null with a missing browserFallback throws", () => {
 });
 
 test("ready shape carries the envelope pieces on the happy exact path", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const result = prepareParagraphLayout(snapshotArgument({
@@ -673,7 +811,6 @@ test("ready shape carries the envelope pieces on the happy exact path", () => {
       assert.equal(result.snapshotFontSessionUsed, true);
       assert.equal(result.width, 320);
       assert.equal(result.measure, DEFAULT_MEASURE);
-      // The real plan covers the full rich text range on one line.
       assert.equal(result.plan.lines[0].rangeStart, 0);
       assert.equal(result.plan.lines[result.plan.lines.length - 1].rangeEnd, 5);
       assert.deepEqual(result.diagnostics, { capabilityIssues: [], advanceSuspects: [] });
@@ -686,13 +823,11 @@ test("ready shape carries the envelope pieces on the happy exact path", () => {
 });
 
 test("emphasisDotGapEm passes through to the DTO", () => {
-  const backend = installFixtureFontBackend();
+  const backend = installFixtureFontBackend() as BackendWithCallbacks;
   try {
     withEnv(() => {
       const wire = wireArguments(RICH_LOWERED);
-      // wireArguments returns null for emphasisDotGapEm, caller sets it
       assert.equal(wire.emphasisDotGapEm, null);
-      // The DTO will have the value set by prepareParagraphLayout
     });
   } finally {
     backend.uninstall();

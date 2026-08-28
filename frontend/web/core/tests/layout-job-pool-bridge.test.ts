@@ -5,6 +5,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createLayoutJobPool } from "../core/engine/layout-job-pool.js";
+import type { LayoutJobPool, LayoutJobSpec, LayoutJobFinishReport, LayoutJobFailureReport } from "../core/engine/layout-job-pool.js";
+
+interface TestRoot {
+  id: string;
+}
+
+interface ProcessedTracker {
+  processed: number[];
+  finished: boolean;
+  finishReport: LayoutJobFinishReport | null;
+  failurePayload: LayoutJobFailureReport | null;
+  events: string[];
+  progressCount: number;
+}
 
 test("layoutJobPoolBridge_installedByScriptImport", () => {
   const engine = createLayoutJobPool();
@@ -24,13 +38,13 @@ test("layoutJobPoolBridge_installedByScriptImport", () => {
     "detach",
     "isAttached",
   ]) {
-    assert.equal(typeof engine[name], "function", "missing bridge method: " + name);
+    assert.equal(typeof engine[name as keyof LayoutJobPool], "function", "missing bridge method: " + name);
   }
 });
 
 test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-1" };
+  const root = { id: "root-1" } as unknown as Element;
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
   assert.equal(engine.jobKind(root), null);
@@ -40,9 +54,9 @@ test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
     root,
     kind: "Enhance",
     itemCount: 5,
-    processItem: () => {},
-    onFinished: () => {},
-    onFailed: () => {},
+    processItem: (): void => {},
+    onFinished: (): void => {},
+    onFailed: (): void => {},
     startedAt: 1000,
     coordinated: true,
   });
@@ -56,27 +70,28 @@ test("layoutJobPoolBridge_startJobRegistrationAndCancel", () => {
   assert.equal(engine.hasJob(root), false);
   assert.equal(engine.jobGeneration(root), 0);
   assert.equal(engine.jobKind(root), null);
-  assert.equal(engine.runSlice({ root, generation: gen, shouldStop: () => false }, 3), 0);
+  const rootAsHt = root as unknown as HTMLElement;
+  assert.equal(engine.runSlice({ root: rootAsHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant", deadline: Date.now(), quota: 16 }, 3), 0);
   engine.detach(root);
 });
 
 test("layoutJobPoolBridge_zeroItemCountFinishesImmediately", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-zero" };
-  const events = [];
-  let finishReport = null;
+  const root = { id: "root-zero" } as unknown as Element;
+  const events: string[] = [];
+  let finishReport: LayoutJobFinishReport | null = null;
 
   engine.startJob({
     root,
     kind: "Relayout",
     itemCount: 0,
-    processItem: () => { events.push("process"); },
-    onItemsFinished: () => { events.push("onItemsFinished"); },
-    onFinished: (report) => {
+    processItem: (): void => { events.push("process"); },
+    onItemsFinished: (): void => { events.push("onItemsFinished"); },
+    onFinished: (report: LayoutJobFinishReport): void => {
       events.push("onFinished");
       finishReport = report;
     },
-    onFailed: () => { events.push("onFailed"); },
+    onFailed: (): void => { events.push("onFailed"); },
     startedAt: 2000,
     coordinated: false,
   });
@@ -84,45 +99,50 @@ test("layoutJobPoolBridge_zeroItemCountFinishesImmediately", () => {
   assert.deepEqual(events, ["onItemsFinished", "onFinished"]);
   assert.equal(engine.hasJob(root), false);
   assert.ok(finishReport);
-  assert.equal(finishReport.kind, "Relayout");
-  assert.equal(finishReport.startedAt, 2000);
-  assert.equal(finishReport.stale, false);
+  const report = finishReport as LayoutJobFinishReport;
+  assert.equal(report.kind, "Relayout");
+  assert.equal(report.startedAt, 2000);
+  assert.equal(report.stale, false);
 });
 
 test("layoutJobPoolBridge_uncoordinatedJobRunsToCompletionSynchronously", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-uncoordinated" };
-  const processed = [];
-  let progressCount = 0;
-  let finished = false;
-  let finishReport = null;
+  const root = { id: "root-uncoordinated" } as unknown as Element;
+  const tracker: ProcessedTracker = {
+    processed: [],
+    finished: false,
+    finishReport: null,
+    failurePayload: null,
+    events: [],
+    progressCount: 0,
+  };
 
   engine.startJob({
     root,
     kind: "Enhance",
     itemCount: 3,
-    processItem: (i) => { processed.push(i); },
-    onProgress: () => { progressCount++; },
-    onFinished: (report) => {
-      finished = true;
-      finishReport = report;
+    processItem: (i: number): void => { tracker.processed.push(i); },
+    onProgress: (): void => { tracker.progressCount++; },
+    onFinished: (report: LayoutJobFinishReport): void => {
+      tracker.finished = true;
+      tracker.finishReport = report;
     },
-    onFailed: () => {},
+    onFailed: (): void => {},
     startedAt: 3000,
     coordinated: false,
   });
 
-  assert.deepEqual(processed, [0, 1, 2]);
-  assert.ok(progressCount >= 1);
-  assert.equal(finished, true);
-  assert.equal(finishReport.stale, false);
+  assert.deepEqual(tracker.processed, [0, 1, 2]);
+  assert.ok(tracker.progressCount >= 1);
+  assert.equal(tracker.finished, true);
+  assert.equal(tracker.finishReport!.stale, false);
   assert.equal(engine.hasJob(root), false);
 });
 
 test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-coord" };
-  const processed = [];
+  const root = { id: "root-coord" } as unknown as Element;
+  const processed: number[] = [];
   let finished = false;
 
   engine.attach(root);
@@ -132,9 +152,9 @@ test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
     root,
     kind: "Enhance",
     itemCount: 4,
-    processItem: (i) => { processed.push(i); },
-    onFinished: () => { finished = true; },
-    onFailed: () => {},
+    processItem: (i: number): void => { processed.push(i); },
+    onFinished: (): void => { finished = true; },
+    onFailed: (): void => {},
     startedAt: 4000,
     coordinated: true,
   });
@@ -148,17 +168,18 @@ test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
 
   // Mismatched generation returns 0
   const gen = engine.jobGeneration(root);
-  assert.equal(engine.runSlice({ root, generation: gen + 999, shouldStop: () => false }, 3), 0);
+  const rootHt = root as unknown as HTMLElement;
+  assert.equal(engine.runSlice({ root: rootHt, generation: gen + 999, shouldStop: (): boolean => false, admissionClass: "grant", deadline: Date.now(), quota: 16 }, 3), 0);
 
   // shouldStop always true: processes exactly 1 item per slice
-  const controller = { root, generation: gen, shouldStop: () => true };
+  const controller = { root: rootHt, generation: gen, shouldStop: (): boolean => true, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 };
   const count1 = engine.runSlice(controller, 3);
   assert.equal(count1, 1);
   assert.deepEqual(processed, [0]);
   assert.equal(finished, false);
 
   // Run remaining slices with shouldStop false
-  const runAllController = { root, generation: gen, shouldStop: () => false };
+  const runAllController = { root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 };
   const count2 = engine.runSlice(runAllController, 3);
   assert.equal(count2, 3);
   assert.deepEqual(processed, [0, 1, 2, 3]);
@@ -170,22 +191,26 @@ test("layoutJobPoolBridge_coordinatedJobSlicesAndGenerationGuard", () => {
 
 test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-tier" };
-  const processed = [];
+  const root = { id: "root-tier" } as unknown as Element;
+  const processed: number[] = [];
   let finished = false;
   // 3 items in work order; itemTierIndex maps item index to doc-order index:
   // item 0 -> doc 2, item 1 -> doc 0, item 2 -> doc 1
-  const itemTierIndex = [2, 0, 1];
-  const paragraphsByDoc = [{ id: "p0" }, { id: "p1" }, { id: "p2" }];
+  const itemTierIndex: number[] = [2, 0, 1];
+  const paragraphsByDoc: Element[] = [
+    { id: "p0" } as unknown as Element,
+    { id: "p1" } as unknown as Element,
+    { id: "p2" } as unknown as Element,
+  ];
 
   engine.attach(root);
   engine.startJob({
     root,
     kind: "Relayout",
     itemCount: 3,
-    processItem: (i) => { processed.push(i); },
-    onFinished: () => { finished = true; },
-    onFailed: () => {},
+    processItem: (i: number): void => { processed.push(i); },
+    onFinished: (): void => { finished = true; },
+    onFailed: (): void => {},
     startedAt: 5000,
     itemTierIndex,
     paragraphsByDoc,
@@ -210,8 +235,9 @@ test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
   assert.equal(engine.pendingInTier(root, 3), 0);
 
   const gen = engine.jobGeneration(root);
+  const rootHt = root as unknown as HTMLElement;
   // minTier = 1 slice: should skip item 0 (doc 2, tier 2) and process item 1 and 2 (doc 0 and 1, tier 1)
-  const count1 = engine.runSlice({ root, generation: gen, shouldStop: () => false }, 1);
+  const count1 = engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 1);
   assert.equal(count1, 2);
   assert.deepEqual(processed, [1, 2]);
   assert.equal(finished, false);
@@ -221,7 +247,7 @@ test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
   assert.equal(engine.pendingInTier(root, 2), 1);
 
   // Run minTier = 2 slice: processes remaining item 0
-  const count2 = engine.runSlice({ root, generation: gen, shouldStop: () => false }, 2);
+  const count2 = engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 2);
   assert.equal(count2, 1);
   assert.deepEqual(processed, [1, 2, 0]);
   assert.equal(finished, true);
@@ -232,10 +258,10 @@ test("layoutJobPoolBridge_tierGatingAndPendingCounts", () => {
 
 test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-stale" };
-  const processed = [];
+  const root = { id: "root-stale" } as unknown as Element;
+  const processed: number[] = [];
   let finished = false;
-  let finishReport = null;
+  let finishReport: LayoutJobFinishReport | null = null;
   let isStale = false;
 
   engine.attach(root);
@@ -243,31 +269,32 @@ test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
     root,
     kind: "Relayout",
     itemCount: 4,
-    processItem: (i) => { processed.push(i); },
-    onFinished: (report) => {
+    processItem: (i: number): void => { processed.push(i); },
+    onFinished: (report: LayoutJobFinishReport): void => {
       finished = true;
       finishReport = report;
     },
-    onFailed: () => {},
-    isStale: () => isStale,
+    onFailed: (): void => {},
+    isStale: (): boolean => isStale,
     startedAt: 6000,
     coordinated: true,
   });
 
   const gen = engine.jobGeneration(root);
+  const rootHt = root as unknown as HTMLElement;
   // Process 1 item in slice 1
-  engine.runSlice({ root, generation: gen, shouldStop: () => true }, 3);
+  engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => true, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
   assert.deepEqual(processed, [0]);
   assert.equal(finished, false);
 
   // Mark stale before slice 2
   isStale = true;
-  engine.runSlice({ root, generation: gen, shouldStop: () => false }, 3);
+  engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
 
   // Remaining items skipped, processItem not called for 1, 2, 3
   assert.deepEqual(processed, [0]);
   assert.equal(finished, true);
-  assert.equal(finishReport.stale, true);
+  assert.equal(finishReport!.stale, true);
   assert.equal(engine.hasJob(root), false);
 
   engine.detach(root);
@@ -275,21 +302,21 @@ test("layoutJobPoolBridge_staleMeasureGuardSkipsRemaining", () => {
 
 test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-error" };
-  const events = [];
-  let failurePayload = null;
+  const root = { id: "root-error" } as unknown as Element;
+  const events: string[] = [];
+  let failurePayload: LayoutJobFailureReport | null = null;
 
   engine.attach(root);
   engine.startJob({
     root,
     kind: "Enhance",
     itemCount: 3,
-    processItem: (i) => {
+    processItem: (i: number): void => {
       if (i === 1) throw new Error("Item boom");
     },
-    onFailure: () => { events.push("onFailure"); },
-    onFinished: () => { events.push("onFinished"); },
-    onFailed: (failure) => {
+    onFailure: (): void => { events.push("onFailure"); },
+    onFinished: (): void => { events.push("onFinished"); },
+    onFailed: (failure: LayoutJobFailureReport): void => {
       events.push("onFailed");
       failurePayload = failure;
     },
@@ -298,14 +325,16 @@ test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
   });
 
   const gen = engine.jobGeneration(root);
-  const processed = engine.runSlice({ root, generation: gen, shouldStop: () => false }, 3);
+  const rootHt = root as unknown as HTMLElement;
+  const processed = engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => false, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
 
   assert.equal(processed, 1); // 1 item succeeded before error on item 1
   assert.deepEqual(events, ["onFailure", "onFailed"]);
   assert.ok(failurePayload);
-  assert.equal(failurePayload.kind, "Enhance");
-  assert.equal(failurePayload.detail, "Item boom");
-  assert.equal(failurePayload.startedAt, 7000);
+  const failure = failurePayload as LayoutJobFailureReport;
+  assert.equal(failure.kind, "Enhance");
+  assert.equal(failure.detail, "Item boom");
+  assert.equal(failure.startedAt, 7000);
   assert.equal(engine.hasJob(root), false);
 
   engine.detach(root);
@@ -313,8 +342,8 @@ test("layoutJobPoolBridge_processItemErrorTriggersOnFailureAndOnFailed", () => {
 
 test("layoutJobPoolBridge_attachAndDetachStateTransitions", () => {
   const engine = createLayoutJobPool();
-  const root = { id: "root-detach" };
-  const processed = [];
+  const root = { id: "root-detach" } as unknown as Element;
+  const processed: number[] = [];
   let finished = false;
 
   engine.attach(root);
@@ -322,16 +351,17 @@ test("layoutJobPoolBridge_attachAndDetachStateTransitions", () => {
     root,
     kind: "Enhance",
     itemCount: 3,
-    processItem: (i) => { processed.push(i); },
-    onFinished: () => { finished = true; },
-    onFailed: () => {},
+    processItem: (i: number): void => { processed.push(i); },
+    onFinished: (): void => { finished = true; },
+    onFailed: (): void => {},
     startedAt: 8000,
     coordinated: true,
   });
 
   const gen = engine.jobGeneration(root);
+  const rootHt = root as unknown as HTMLElement;
   // Run 1 item
-  engine.runSlice({ root, generation: gen, shouldStop: () => true }, 3);
+  engine.runSlice({ root: rootHt, generation: gen, shouldStop: (): boolean => true, admissionClass: "grant" as const, deadline: Date.now(), quota: 16 }, 3);
   assert.deepEqual(processed, [0]);
   assert.equal(finished, false);
 

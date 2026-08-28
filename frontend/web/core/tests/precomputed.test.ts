@@ -5,6 +5,7 @@ import {
   FakeElement,
   FakeFragment,
   FakeText,
+  FakeNode,
   canonicalFixtureNode,
   fixtureComputedStyle,
   matchesSelector,
@@ -27,25 +28,159 @@ import {
 import { FONT_REPLAY_REVISION, stableStringify } from "../core/sampler/snapshot/snapshot-schema.js";
 import { snapshotTablesForRoot } from "../core/sampler/snapshot/snapshot-tables.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
-import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
+import { createEnhanceContext, type EnhancedElementContext } from "../core/engine/context/enhance-context.js";
 import { initializeGlobalServices } from "../core/services/global-services.js";
+import type { TextStyle } from "../core/engine/lowered-paragraph.js";
+
 initializeGlobalServices();
+
+type FakeElementAsHTMLElement = FakeElement & HTMLElement;
+type FakeElementAsElement = FakeElement & Element;
 
 /**
  * The adoption/restore/detach entry points take an EnhancedElementContext as
  * their second argument. One context per fake root, cached so adopt and the
  * later restore/detach in the same test share the same context value.
  */
-const enhanceContexts = new WeakMap();
-function contextFor(root) {
+const enhanceContexts = new WeakMap<FakeElement, EnhancedElementContext>();
+function contextFor(root: FakeElement): EnhancedElementContext {
   let context = enhanceContexts.get(root);
   if (!context) {
-    context = createEnhanceContext(root);
+    context = createEnhanceContext(root as FakeElementAsElement);
     enhanceContexts.set(root, context);
   }
   return context;
 }
 
+interface Typography {
+  fontFamilies: string[];
+  fontSizePx: number;
+  lineHeightPx: number;
+  locale: string;
+  fontWeight: number;
+  italic: boolean;
+  firstLineIndentIc: number;
+  lineLengthGridEnabled: boolean;
+  letterSpacingPx: number;
+  fontFeatureSettings: string;
+  fontVariationSettings: string;
+  fontVariantNumeric: string;
+}
+
+interface Probe {
+  text: string;
+  advancePx: number;
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  script: string;
+  language: string;
+  features?: string[];
+}
+
+interface FaceEvidence {
+  family: string;
+  style: string;
+  weight: [number, number];
+  unicodeRange: string;
+  publicUrl: string;
+  sourceSha256: string;
+  sfntSha256: string;
+  faceIndex: number;
+  sourceOrder: number;
+  axes: Record<string, never>;
+  localNames: string[];
+  coverageText: string;
+  probe: Probe;
+}
+
+interface ManifestEntry {
+  key: string;
+  sourceSha256: string;
+  typographyRef: number;
+  maxWidthPx: number;
+  fontFaceEvidence: Array<{
+    faceRef: number;
+    coverageText: string;
+    probeRef: number;
+  }>;
+  renderArtifactSha256: string;
+}
+
+interface Manifest {
+  schema: number;
+  tables: { snapshot: string };
+  layoutRevision: string;
+  renderRevision: string;
+  fontSourcePolicy: string;
+  entrySource?: string;
+  renderFontFamilies: string[];
+  paragraphSelector: string;
+  fontReplay: { revision: string; encoding: string; shapes: unknown[] };
+  entries: ManifestEntry[];
+}
+
+interface FixtureDocument {
+  baseURI: string;
+  elements: Map<string, FakeElement>;
+  styleSheets: Array<{
+    href: string;
+    cssRules: Array<{
+      type: number;
+      style: { getPropertyValue: (name: string) => string };
+      parentStyleSheet: { href: string };
+    }>;
+  }>;
+  fonts: { load: (descriptor: string) => Promise<Record<string, never>[]> };
+  createDocumentFragment: () => FakeFragment;
+  createElement: (tagName: string) => FakeElement;
+  createRange: () => {
+    selectNodeContents: (node: Node) => void;
+    getBoundingClientRect: () => { width: number };
+  };
+  getElementById: (id: string) => FakeElement | null;
+  body: FakeElement;
+}
+
+interface FixtureOptions {
+  localSource?: boolean;
+  localName?: string;
+  unsafeSibling?: boolean;
+  typographyDigest?: string | null;
+  probeWidth?: number;
+  segmentWidth?: number;
+  segmentLeft?: number;
+  lineEnd?: number;
+  lineTop?: number;
+  lineBottom?: number;
+  lineBaseline?: number;
+  sentinelTop?: number;
+  paragraphHeight?: number;
+  probeFeatures?: string[] | undefined;
+  fontVariantNumeric?: string;
+  boundaryFeatureSignature?: string | null;
+  shapingBoundary?: boolean;
+  semanticGeometry?: boolean;
+  renderFontProjection?: boolean;
+  nativeText?: boolean;
+  fontDisplay?: string;
+  entrySource?: string | undefined;
+  snapshotTablesSha?: string | null;
+  entryCount?: number;
+  paragraphTag?: string;
+  paragraphSelector?: string;
+  paragraphWidth?: number;
+  maximumWidth?: number;
+}
+
+interface FixtureResult {
+  documentObject: FixtureDocument;
+  root: FakeElement;
+  paragraph: FakeElement;
+  originalText: FakeText;
+  entry: FakeElement;
+  measuredProbeStyles: string[];
+}
 
 /**
  * Snapshot tables of the fixtures. Each fixture registers its own bytes under
@@ -53,79 +188,83 @@ function contextFor(root) {
  * the path a host page uses.
  */
 let tableCounter = 0;
-const tableBytesByUrl = new Map();
+const tableBytesByUrl = new Map<string, Uint8Array>();
 const chainFetch = globalThis.fetch;
-globalThis.fetch = async (url, init) => {
-  const bytes = tableBytesByUrl.get(String(url));
-  if (bytes != null) return { ok: true, arrayBuffer: async () => bytes };
+globalThis.fetch = async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const urlStr = String(url);
+  const bytes = tableBytesByUrl.get(urlStr);
+  if (bytes != null) return { ok: true, arrayBuffer: async () => bytes } as unknown as Response;
   return chainFetch(url, init);
 };
 
-function fixture({
-  localSource = false,
-  localName = "Fixture CJK",
-  unsafeSibling = false,
-  typographyDigest = null,
-  probeWidth = 36,
-  segmentWidth = 36,
-  segmentLeft = 0,
-  lineEnd = segmentWidth,
-  lineTop = 0,
-  lineBottom = 27,
-  lineBaseline = 20,
-  sentinelTop = lineBaseline,
-  paragraphHeight = lineBottom,
-  probeFeatures = undefined,
-  fontVariantNumeric = "normal",
-  boundaryFeatureSignature = null,
-  shapingBoundary = true,
-  semanticGeometry = false,
-  renderFontProjection = false,
-  nativeText = false,
-  fontDisplay = "block",
-  entrySource = undefined,
-  snapshotTablesSha = null,
-  entryCount = 1,
-  paragraphTag = "p",
-  paragraphSelector = "p[data-tq-snapshot-key]",
-  paragraphWidth = 360,
-  maximumWidth = 360,
-} = {}) {
-  const measuredProbeStyles = [];
-  const documentObject = {
+function fixture(options: FixtureOptions = {}): FixtureResult {
+  const {
+    localSource = false,
+    localName = "Fixture CJK",
+    unsafeSibling = false,
+    typographyDigest = null,
+    probeWidth = 36,
+    segmentWidth = 36,
+    segmentLeft = 0,
+    lineEnd = segmentWidth,
+    lineTop = 0,
+    lineBottom = 27,
+    lineBaseline = 20,
+    sentinelTop = lineBaseline,
+    paragraphHeight = lineBottom,
+    probeFeatures = undefined,
+    fontVariantNumeric = "normal",
+    boundaryFeatureSignature = null,
+    shapingBoundary = true,
+    semanticGeometry = false,
+    renderFontProjection = false,
+    nativeText = false,
+    fontDisplay = "block",
+    entrySource = undefined,
+    snapshotTablesSha = null,
+    entryCount = 1,
+    paragraphTag = "p",
+    paragraphSelector = "p[data-tq-snapshot-key]",
+    paragraphWidth = 360,
+    maximumWidth = 360,
+  } = options;
+
+  const measuredProbeStyles: string[] = [];
+  const documentObject: Partial<FixtureDocument> = {
     baseURI: "https://example.test/post/",
     elements: new Map(),
     styleSheets: [],
-    fonts: { load: async () => [{}] },
-    createDocumentFragment: () => new FakeFragment(),
-    createElement(tagName) {
+    fonts: { load: async (): Promise<Record<string, never>[]> => [{}] },
+    createDocumentFragment: (): FakeFragment => new FakeFragment(),
+    createElement(tagName: string): FakeElement {
       const element = new FakeElement(tagName);
-      element.ownerDocument = documentObject;
+      element.ownerDocument = documentObject as unknown as Document;
       element._fixtureProbeWidth = probeWidth;
-      element._onFixtureProbeMeasure = (style) => measuredProbeStyles.push(style);
+      element._onFixtureProbeMeasure = (style: string): void => { measuredProbeStyles.push(style); };
       return element;
     },
     createRange() {
-      let selectedNode = null;
+      let selectedNode: Node | null = null;
       return {
-        selectNodeContents(node) {
+        selectNodeContents(node: Node): void {
           selectedNode = node;
         },
-        getBoundingClientRect() {
-          if (selectedNode?.style?.cssText) measuredProbeStyles.push(selectedNode.style.cssText);
+        getBoundingClientRect(): { width: number } {
+          const element = selectedNode as FakeElement | null;
+          if (element?.style?.cssText) measuredProbeStyles.push(element.style.cssText);
           return { width: probeWidth };
         },
       };
     },
-    getElementById(id) {
-      return documentObject.elements.get(id) ?? null;
+    getElementById(id: string): FakeElement | null {
+      return documentObject.elements?.get(id) ?? null;
     },
   };
-  documentObject.body = documentObject.createElement("body");
+  documentObject.body = documentObject.createElement!("body");
 
-  const root = documentObject.createElement("tiqian-prose");
+  const root = documentObject.createElement!("tiqian-prose");
   root.setAttribute("snapshot-ref", "tq-page");
-  const paragraph = documentObject.createElement(paragraphTag);
+  const paragraph = documentObject.createElement!(paragraphTag);
   paragraph.setAttribute("data-tq-snapshot-key", "p-1");
   paragraph.width = paragraphWidth;
   paragraph.height = paragraphHeight;
@@ -134,7 +273,7 @@ function fixture({
   paragraph.appendChild(originalText);
   root.appendChild(paragraph);
 
-  const typography = {
+  const typography: Typography = {
     fontFamilies: ["Fixture CJK"],
     fontSizePx: 18,
     lineHeightPx: 27,
@@ -148,7 +287,7 @@ function fixture({
     fontVariationSettings: "normal",
     fontVariantNumeric,
   };
-  const evidence = {
+  const evidence: FaceEvidence = {
     family: "Fixture CJK",
     style: "normal",
     weight: [400, 400],
@@ -172,11 +311,11 @@ function fixture({
       ...(probeFeatures === undefined ? {} : { features: probeFeatures }),
     },
   };
-  const template = documentObject.createElement("template");
+  const template = documentObject.createElement!("template");
   template.content = new FakeFragment();
-  const entry = documentObject.createElement("div");
+  const entry = documentObject.createElement!("div");
   entry.setAttribute("data-tq-entry", "p-1");
-  const marker = documentObject.createElement("span");
+  const marker = documentObject.createElement!("span");
   marker.setAttribute("data-tq-geometry", "true");
   marker.setAttribute("data-tq-line-flow-width", "36");
   marker.setAttribute("data-tq-line-width", "36");
@@ -187,27 +326,28 @@ function fixture({
   marker.left = 0;
   marker.top = lineTop;
   marker.height = lineBottom - lineTop;
-  const rendered = nativeText ? new FakeText("中国") : documentObject.createElement("span");
+  const rendered = nativeText ? new FakeText("中国") : documentObject.createElement!("span");
   if (!nativeText) {
-    rendered.setAttribute("data-tq-advance", "36");
-    rendered.setAttribute("data-tq-geometry", "true");
-    if (renderFontProjection) rendered.setAttribute("data-tq-render-font-projection", "true");
-    if (shapingBoundary) rendered.setAttribute("data-tq-shaping-boundary", "current-segment");
+    const renderedElement = rendered as FakeElement;
+    renderedElement.setAttribute("data-tq-advance", "36");
+    renderedElement.setAttribute("data-tq-geometry", "true");
+    if (renderFontProjection) renderedElement.setAttribute("data-tq-render-font-projection", "true");
+    if (shapingBoundary) renderedElement.setAttribute("data-tq-shaping-boundary", "current-segment");
     if (boundaryFeatureSignature != null) {
-      rendered.setAttribute("data-tq-open-type-features", boundaryFeatureSignature);
+      renderedElement.setAttribute("data-tq-open-type-features", boundaryFeatureSignature);
     }
-    rendered.setAttribute("data-tq-x", "0");
-    rendered.width = segmentWidth;
-    rendered.left = segmentLeft;
-    rendered.textContent = "中国";
+    renderedElement.setAttribute("data-tq-x", "0");
+    renderedElement.width = segmentWidth;
+    renderedElement.left = segmentLeft;
+    renderedElement.textContent = "中国";
   }
-  const sentinel = documentObject.createElement("span");
+  const sentinel = documentObject.createElement!("span");
   sentinel.setAttribute("data-tq-geometry", "true");
   sentinel.setAttribute("data-tq-line-end-sentinel", "0");
   sentinel.left = lineEnd;
   sentinel.top = sentinelTop;
   const renderedParent = semanticGeometry
-    ? documentObject.createElement("strong")
+    ? documentObject.createElement!("strong")
     : null;
   if (renderedParent) {
     renderedParent.setAttribute("data-tq-source-semantic", "true");
@@ -219,8 +359,8 @@ function fixture({
   // file serves the bytes, so every fixture walks the transport a host page
   // uses. Beyond the first entry, per-entry probes cover distinct text so
   // article-sized evidence loads exercise every row.
-  const probes = [];
-  const manifestEntries = [];
+  const probes: Probe[] = [];
+  const manifestEntries: ManifestEntry[] = [];
   for (let index = 0; index < entryCount; index += 1) {
     const coverageText = index === 0
       ? evidence.coverageText
@@ -242,7 +382,7 @@ function fixture({
   const tableBytes = writeBinaryTable({
     replayStrings: [],
     metrics: [],
-    probes,
+    probes: probes as import("../core/sampler/snapshot/snapshot-table-binary.js").SnapshotProbe[],
     typographies: [{
       sha256: typographyDigest ?? sha256(stableStringify(typography)),
       value: typography,
@@ -261,7 +401,7 @@ function fixture({
   const tableUrl = `https://tables.test/precomputed-${tableCounter += 1}.tiqtbl`;
   tableBytesByUrl.set(tableUrl, tableBytes);
   root.setAttribute("tq-tables", tableUrl);
-  const manifest = {
+  const manifest: Manifest = {
     schema: 2,
     tables: { snapshot: snapshotTablesSha ?? sha256(tableBytes) },
     layoutRevision: "tiqian-layout-v2",
@@ -273,11 +413,11 @@ function fixture({
     fontReplay: { revision: FONT_REPLAY_REVISION, encoding: "shared-strings-v1", shapes: [] },
     entries: manifestEntries,
   };
-  const script = documentObject.createElement("script");
+  const script = documentObject.createElement!("script");
   script.setAttribute("data-tq-snapshot-manifest", "");
   script.textContent = JSON.stringify(manifest);
   template.content.append(script, entry);
-  documentObject.elements.set("tq-page", template);
+  documentObject.elements!.set("tq-page", template);
 
   const source = `${localSource ? `local("${localName}"),` : ""}url("/assets/fixture-deadbeef.woff2")`;
   const fontFaceStyle = styleDeclaration({
@@ -303,15 +443,15 @@ function fixture({
       parentStyleSheet: sheet,
     });
   }
-  documentObject.styleSheets.push({
+  documentObject.styleSheets!.push({
     href: sheet.href,
     cssRules,
   });
 
-  return { documentObject, root, paragraph, originalText, entry, measuredProbeStyles };
+  return { documentObject: documentObject as FixtureDocument, root, paragraph, originalText, entry, measuredProbeStyles };
 }
 
-function attachServerSource(documentObject, text = "中国") {
+function attachServerSource(documentObject: FixtureDocument, text: string = "中国"): void {
   const template = documentObject.createElement("template");
   template.content = new FakeFragment();
   const source = documentObject.createElement("div");
@@ -323,12 +463,12 @@ function attachServerSource(documentObject, text = "中国") {
 
 test("exact runtime fallback accepts a width miss only while every live input still matches", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph } = fixture();
     paragraph.width = 240;
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -336,17 +476,17 @@ test("exact runtime fallback accepts a width miss only while every live input st
     });
 
     paragraph.innerText = "中国—";
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: false,
       reason: "SnapshotSourceMismatch",
     });
-    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -360,7 +500,7 @@ test("exact runtime fallback accepts a width miss only while every live input st
       "unicode-range": "U+4E00-9FFF",
       src: 'url("/assets/changed-feedface.woff2")',
     });
-    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root as FakeElementAsHTMLElement), {
       matches: false,
       reason: "FontFaceContractChangedDuringFontPreparation",
     });
@@ -371,16 +511,16 @@ test("exact runtime fallback accepts a width miss only while every live input st
 
 test("runtime font replay validates the same host CSS contract as snapshots", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture();
-    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontReplayContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root), {
+    assert.deepEqual(validatePrecomputedSnapshotFontReplayLiveContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
@@ -393,20 +533,20 @@ test("runtime font replay validates the same host CSS contract as snapshots", as
 
 test("snapshot list items preserve their native marker display contract", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph } = fixture({
       paragraphTag: "li",
       paragraphSelector: ":is(p, li)[data-tq-snapshot-key]",
     });
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: ":is(p, li)[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: true,
       count: 1,
     });
@@ -420,19 +560,19 @@ test("exact runtime font evidence remains valid across responsive size and line-
   const previousGetComputedStyle = globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+    globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
       element,
       pseudo,
       element === paragraph ? { fontSize: "15.75px", lineHeight: "28px" } : {},
-    );
+    ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotTypographyMismatch",
     });
@@ -444,15 +584,15 @@ test("exact runtime font evidence remains valid across responsive size and line-
 
 test("exact font validation rechecks live source after asynchronous font probes", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph } = fixture();
-    documentObject.fonts.load = async () => {
+    documentObject.fonts.load = async (): Promise<Record<string, never>[]> => {
       paragraph.innerText = "异步改写";
       return [{}];
     };
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: false,
       reason: "SnapshotSourceChangedDuringValidation",
     });
@@ -463,14 +603,14 @@ test("exact font validation rechecks live source after asynchronous font probes"
 
 test("proportional quote evidence and prepared boundaries replay the same feature contract", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, measuredProbeStyles } = fixture({
       probeFeatures: ["pwid", "palt"],
       boundaryFeatureSignature: "pwid,palt",
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: true,
       count: 1,
     });
@@ -485,11 +625,11 @@ test("proportional quote evidence and prepared boundaries replay the same featur
 
 test("unknown font probe features fail before snapshot adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ probeFeatures: ["calt"] });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "FontProbeFeaturesUnsupported",
     });
@@ -501,17 +641,17 @@ test("unknown font probe features fail before snapshot adoption", async () => {
 
 test("an unreadable stylesheet makes the exact font source contract unverifiable", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root } = fixture();
     documentObject.styleSheets.push({
       href: "https://cross-origin.example/fonts.css",
-      get cssRules() {
+      get cssRules(): never {
         throw new DOMException("Blocked", "SecurityError");
       },
-    });
+    } as unknown as { href: string; cssRules: Array<{ type: number; style: { getPropertyValue: (name: string) => string }; parentStyleSheet: { href: string } }> });
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: false,
       reason: "FontFaceCssomUnverifiable",
     });
@@ -522,23 +662,22 @@ test("an unreadable stylesheet makes the exact font source contract unverifiable
 
 test("a compact client font contract enables the exact runtime without claiming snapshot layout", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root } = fixture();
-    const template = documentObject.elements.get("tq-page");
-    const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
-    manifestScript.textContent = JSON.stringify({
-      ...JSON.parse(manifestScript.textContent),
-      entrySource: "font-contract-v1",
-    });
+    const template = documentObject.elements.get("tq-page")!;
+    const manifestScript = template.content!.querySelector("[data-tq-snapshot-manifest]");
+    const manifest = JSON.parse(manifestScript!.textContent!);
+    manifest.entrySource = "font-contract-v1";
+    manifestScript!.textContent = JSON.stringify(manifest);
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p[data-tq-snapshot-key]",
       compatibleLocalDeclared: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotLayoutArtifactUnavailable",
     });
@@ -549,7 +688,7 @@ test("a compact client font contract enables the exact runtime without claiming 
 
 test("article-sized exact font evidence loads by face and shares one layout snapshot", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, measuredProbeStyles } = fixture({
       entrySource: "font-contract-v1",
@@ -558,16 +697,16 @@ test("article-sized exact font evidence loads by face and shares one layout snap
     });
 
     let fontLoads = 0;
-    documentObject.fonts.load = async () => {
+    documentObject.fonts.load = async (): Promise<Record<string, never>[]> => {
       fontLoads += 1;
       return [{}];
     };
     let maximumAttachedProbes = 0;
     const createElement = documentObject.createElement;
-    documentObject.createElement = (tagName) => {
+    documentObject.createElement = (tagName: string): FakeElement => {
       const element = createElement(tagName);
       const getBoundingClientRect = element.getBoundingClientRect.bind(element);
-      element.getBoundingClientRect = () => {
+      element.getBoundingClientRect = (): { width: number; left: number; right: number; top: number; bottom: number; height: number } => {
         maximumAttachedProbes = Math.max(
           maximumAttachedProbes,
           documentObject.body.childNodes.length,
@@ -577,7 +716,7 @@ test("article-sized exact font evidence loads by face and shares one layout snap
       return element;
     };
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p",
@@ -602,7 +741,7 @@ test("one host typography variant cannot poison a sibling runtime font replay", 
     const halfWidthParagraph = documentObject.createElement("p");
     halfWidthParagraph.textContent = "使用半宽字形的宿主段落";
     root.appendChild(halfWidthParagraph);
-    globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+    globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
       element,
       pseudo,
       element === halfWidthParagraph
@@ -611,16 +750,16 @@ test("one host typography variant cannot poison a sibling runtime font replay", 
             fontVariantEastAsian: "proportional-width",
           }
         : {},
-    );
+    ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
 
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: true,
       reason: null,
       paragraphSelector: "p",
       compatibleLocalDeclared: false,
     });
     assert.equal(root.getAttribute("data-tiqian-snapshot-typography-issue"), null);
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotLayoutArtifactUnavailable",
     });
@@ -631,14 +770,14 @@ test("one host typography variant cannot poison a sibling runtime font replay", 
 
 test("shared prepared DOM validator reports the same vertical gate used for SSR adoption", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture({ sentinelTop: 20.1 });
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
     assert.equal(
-      renderedPreparedParagraphIssue(paragraph, 360),
+      renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360),
       "RenderedPreparedParagraphLineVerticalMismatch:0",
     );
   } finally {
@@ -648,15 +787,15 @@ test("shared prepared DOM validator reports the same vertical gate used for SSR 
 
 test("shared prepared DOM validator accepts the isolated engine hyphen contract", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture();
     const rendered = entry.querySelector("[data-tq-advance]");
-    rendered.setAttribute("data-tq-advance", "18");
-    rendered.width = 18;
+    rendered!.setAttribute("data-tq-advance", "18");
+    (rendered as FakeElement).width = 18;
     const sentinel = entry.querySelector("[data-tq-line-end-sentinel]");
-    entry.removeChild(sentinel);
-    const hyphen = paragraph.ownerDocument.createElement("span");
+    entry.removeChild(sentinel!);
+    const hyphen = paragraph.ownerDocument!.createElement("span") as unknown as FakeElement;
     hyphen.setAttribute("data-tq-advance", "18");
     hyphen.setAttribute("data-tq-geometry", "true");
     hyphen.setAttribute("data-tq-engine-hyphen", "true");
@@ -665,11 +804,11 @@ test("shared prepared DOM validator accepts the isolated engine hyphen contract"
     hyphen.left = 18;
     hyphen.top = 8;
     hyphen.width = 18;
-    entry.append(hyphen, sentinel);
+    entry.append(hyphen, sentinel!);
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
-    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+    assert.equal(renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360), null);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -677,29 +816,29 @@ test("shared prepared DOM validator accepts the isolated engine hyphen contract"
 
 test("shared prepared DOM validator verifies dash-face font family against computed style", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => {
     const base = fixtureComputedStyle(element, pseudo);
     if (element?.hasAttribute?.("data-tq-dash-strategy")) {
       return {
         ...base,
         fontFamily: "'fixture cjk', sans-serif",
-      };
+      } as unknown as CSSStyleDeclaration;
     }
-    return base;
-  };
+    return base as unknown as CSSStyleDeclaration;
+  }) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture({ renderFontProjection: true });
     const rendered = entry.querySelector("[data-tq-advance]");
-    rendered.setAttribute("data-tq-dash-strategy", "Compose");
-    rendered.setAttribute("data-tq-dash-font-family", "Fixture CJK");
+    rendered!.setAttribute("data-tq-dash-strategy", "Compose");
+    rendered!.setAttribute("data-tq-dash-font-family", "Fixture CJK");
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
-    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+    assert.equal(renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360), null);
 
     const dashElement = paragraph.querySelector("[data-tq-dash-font-family]");
-    dashElement.setAttribute("data-tq-dash-font-family", "Other CJK");
-    const issue = renderedPreparedParagraphIssue(paragraph, 360);
+    dashElement!.setAttribute("data-tq-dash-font-family", "Other CJK");
+    const issue = renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360);
     assert.ok(
       issue?.startsWith("RenderedPreparedParagraphDashFaceMismatch:0;expected="),
       `unexpected issue: ${issue}`,
@@ -711,16 +850,16 @@ test("shared prepared DOM validator verifies dash-face font family against compu
 
 test("shared prepared DOM validator compares vertical geometry across inline fragments", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture({ shapingBoundary: true });
     const boundary = entry.querySelector("[data-tq-shaping-boundary]");
-    boundary.top = 0;
-    boundary.setAttribute("data-tq-advance", "18");
-    boundary.width = 18;
+    (boundary as FakeElement).top = 0;
+    boundary!.setAttribute("data-tq-advance", "18");
+    (boundary as FakeElement).width = 18;
     const sentinel = entry.querySelector("[data-tq-line-end-sentinel]");
-    entry.removeChild(sentinel);
-    const firstInline = paragraph.ownerDocument.createElement("span");
+    entry.removeChild(sentinel!);
+    const firstInline = paragraph.ownerDocument!.createElement("span") as unknown as FakeElement;
     firstInline.setAttribute("data-tq-advance", "9");
     firstInline.setAttribute("data-tq-geometry", "true");
     firstInline.setAttribute("data-tq-x", "18");
@@ -728,7 +867,7 @@ test("shared prepared DOM validator compares vertical geometry across inline fra
     firstInline.left = 18;
     firstInline.top = 0;
     firstInline.width = 9;
-    const secondInline = paragraph.ownerDocument.createElement("span");
+    const secondInline = paragraph.ownerDocument!.createElement("span") as unknown as FakeElement;
     secondInline.setAttribute("data-tq-advance", "9");
     secondInline.setAttribute("data-tq-geometry", "true");
     secondInline.setAttribute("data-tq-x", "27");
@@ -736,15 +875,15 @@ test("shared prepared DOM validator compares vertical geometry across inline fra
     secondInline.left = 27;
     secondInline.top = 0;
     secondInline.width = 9;
-    entry.append(firstInline, secondInline, sentinel);
+    entry.append(firstInline, secondInline, sentinel!);
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
-    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+    assert.equal(renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360), null);
 
-    paragraph.querySelectorAll("[data-tq-advance]")[2].top = 2;
+    (paragraph.querySelectorAll("[data-tq-advance]")[2] as FakeElement).top = 2;
     assert.match(
-      renderedPreparedParagraphIssue(paragraph, 360),
+      renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360)!,
       /^RenderedPreparedParagraphLineAdvanceMismatch:0;contributor-top;/u,
     );
   } finally {
@@ -754,16 +893,16 @@ test("shared prepared DOM validator compares vertical geometry across inline fra
 
 test("shaping boundaries may carry engine-owned letter spacing when their advance matches", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
     element,
     pseudo,
-    element.hasAttribute?.("data-tq-shaping-boundary")
+    element?.hasAttribute?.("data-tq-shaping-boundary")
       ? { letterSpacing: "0.75px" }
       : {},
-  );
+  ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture({ shapingBoundary: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -771,13 +910,13 @@ test("shaping boundaries may carry engine-owned letter spacing when their advanc
 
 test("shared prepared DOM validator tolerates compatible-local subpixel segment drift", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture({ segmentWidth: 36.6 });
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
-    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+    assert.equal(renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360), null);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -785,7 +924,7 @@ test("shared prepared DOM validator tolerates compatible-local subpixel segment 
 
 test("shared prepared DOM validator allows one browser quantization step beyond the probe tolerance", () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { paragraph, entry } = fixture({
       localSource: true,
@@ -793,9 +932,9 @@ test("shared prepared DOM validator allows one browser quantization step beyond 
       lineEnd: 36.765625,
     });
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-canonical-plain", "true");
-    assert.equal(renderedPreparedParagraphIssue(paragraph, 360), null);
+    assert.equal(renderedPreparedParagraphIssue(paragraph as FakeElementAsElement, 360), null);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -803,12 +942,12 @@ test("shared prepared DOM validator allows one browser quantization step beyond 
 
 test("strict snapshot adoption preserves and restores the original SSR node identity", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
-    assert.equal(isPrecomputedSnapshotAdopted(root), true);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), true);
     assert.equal(root.dataset.tiqianSnapshotFontPolicy, "url-only");
     assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
     assert.equal(root.getAttribute("data-tiqian-snapshot-count"), "1");
@@ -818,12 +957,12 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
     assert.notStrictEqual(paragraph.firstChild, originalText);
 
     const preparedNode = paragraph.firstChild;
-    assert.equal(detachPrecomputedSnapshot(root, contextFor(root)), true);
-    assert.equal(isPrecomputedSnapshotAdopted(root), true);
+    assert.equal(detachPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root)), true);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), true);
     assert.strictEqual(paragraph.firstChild, preparedNode);
 
-    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
-    assert.equal(isPrecomputedSnapshotAdopted(root), false);
+    assert.equal(restorePrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root)), true);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), false);
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
@@ -837,42 +976,40 @@ test("strict snapshot adoption preserves and restores the original SSR node iden
 
 test("server-rendered compact snapshot adopts without replacing its first-paint DOM", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, entry } = fixture();
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-rendered", "true");
     paragraph.setAttribute("data-tq-canonical-plain", "true");
     paragraph.setAttribute("data-tq-canonical-source", "true");
     root.setAttribute("data-tq-ssr-snapshot", "tq-page");
     root.setAttribute("data-tiqian-snapshot-render-font", "true");
     attachServerSource(documentObject);
-    const template = documentObject.elements.get("tq-page");
-    const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
-    manifestScript.textContent = JSON.stringify({
-      ...JSON.parse(manifestScript.textContent),
-      entrySource: "server-dom-v1",
-    });
-    template.content.removeChild(entry);
+    const template = documentObject.elements.get("tq-page")!;
+    const manifestScript = template.content!.querySelector("[data-tq-snapshot-manifest]");
+    const manifest = JSON.parse(manifestScript!.textContent!);
+    manifest.entrySource = "server-dom-v1";
+    manifestScript!.textContent = JSON.stringify(manifest);
+    template.content!.removeChild(entry);
     const firstPaintNode = paragraph.firstChild;
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
     assert.strictEqual(paragraph.firstChild, firstPaintNode);
     assert.equal(root.dataset.tiqianSnapshot, "maximum-measure");
 
-    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
+    assert.equal(restorePrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root)), true);
     assert.equal(paragraph.textContent, "中国");
-    assert.equal(paragraph.firstChild.nodeType, 3);
+    assert.equal(paragraph.firstChild!.nodeType, 3);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
     assert.equal(root.getAttribute("data-tq-ssr-snapshot"), null);
     assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
-    assert.equal(paragraph.firstChild.nodeType, 1);
-    assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
+    assert.equal(paragraph.firstChild!.nodeType, 1);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -880,30 +1017,29 @@ test("server-rendered compact snapshot adopts without replacing its first-paint 
 
 test("a direct SSR width miss restores native source before runtime fallback", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, entry } = fixture();
     while (paragraph.firstChild) paragraph.removeChild(paragraph.firstChild);
-    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true));
+    for (const child of entry.childNodes) paragraph.appendChild(child.cloneNode(true) as FakeNode);
     paragraph.setAttribute("data-tq-rendered", "true");
     paragraph.setAttribute("data-tq-canonical-source", "true");
     paragraph.width = 240;
     root.setAttribute("data-tq-ssr-snapshot", "tq-page");
     root.setAttribute("data-tiqian-snapshot-render-font", "true");
     attachServerSource(documentObject);
-    const template = documentObject.elements.get("tq-page");
-    const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
-    manifestScript.textContent = JSON.stringify({
-      ...JSON.parse(manifestScript.textContent),
-      entrySource: "server-dom-v1",
-    });
-    template.content.removeChild(entry);
+    const template = documentObject.elements.get("tq-page")!;
+    const manifestScript = template.content!.querySelector("[data-tq-snapshot-manifest]");
+    const manifest = JSON.parse(manifestScript!.textContent!);
+    manifest.entrySource = "server-dom-v1";
+    manifestScript!.textContent = JSON.stringify(manifest);
+    template.content!.removeChild(entry);
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotWidthMismatch",
     });
-    assert.equal(paragraph.firstChild.nodeType, 3);
+    assert.equal(paragraph.firstChild!.nodeType, 3);
     assert.equal(paragraph.textContent, "中国");
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
     assert.equal(paragraph.getAttribute("data-tq-canonical-source"), null);
@@ -911,8 +1047,8 @@ test("a direct SSR width miss restores native source before runtime fallback", a
     assert.equal(root.getAttribute("data-tiqian-snapshot-render-font"), null);
 
     paragraph.width = 360;
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
-    assert.equal(paragraph.firstChild.nodeType, 1);
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
+    assert.equal(paragraph.firstChild!.nodeType, 1);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -926,13 +1062,13 @@ test("translation-only ancestor matrices preserve the exact snapshot geometry co
       "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 12.5, -8, 0, 1)",
     ]) {
       const { root, paragraph, originalText } = fixture();
-      globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+      globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
         element,
         pseudo,
         element === root ? { transform } : {},
-      );
+      ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
 
-      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
       assert.notStrictEqual(paragraph.firstChild, originalText);
     }
   } finally {
@@ -952,15 +1088,15 @@ test("non-translation ancestor transforms remain outside the exact snapshot cont
       { transform: "translateY(0px)" },
       { transform: "matrix(1, 0, 0, 1, NaN, 0)" },
       { scale: "1.1" },
-    ]) {
+    ] as Array<Record<string, string>>) {
       const { root, paragraph, originalText } = fixture();
-      globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+      globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
         element,
         pseudo,
         element === root ? ancestorStyle : {},
-      );
+      ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
 
-      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+      assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
         adopted: false,
         reason: "SnapshotTypographyMismatch",
       });
@@ -975,13 +1111,13 @@ test("a translation on the paragraph itself remains outside the exact snapshot c
   const previousGetComputedStyle = globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+    globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
       element,
       pseudo,
       element === paragraph ? { transform: "matrix(1, 0, 0, 1, 12, 8)" } : {},
-    );
+    ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotTypographyMismatch",
     });
@@ -993,7 +1129,7 @@ test("a translation on the paragraph itself remains outside the exact snapshot c
 
 test("duplicate manifest keys cannot corrupt source restoration", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, originalText } = fixture();
     const secondParagraph = documentObject.createElement("p");
@@ -1005,23 +1141,23 @@ test("duplicate manifest keys cannot corrupt source restoration", async () => {
     root.appendChild(secondParagraph);
 
     const template = documentObject.getElementById("tq-page");
-    const manifestScript = template.content.querySelector("[data-tq-snapshot-manifest]");
-    const manifest = JSON.parse(manifestScript.textContent);
+    const manifestScript = template!.content!.querySelector("[data-tq-snapshot-manifest]");
+    const manifest = JSON.parse(manifestScript!.textContent!);
     manifest.entries.push({ ...manifest.entries[0] });
-    manifestScript.textContent = JSON.stringify(manifest);
+    manifestScript!.textContent = JSON.stringify(manifest);
 
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
-    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root), {
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), false);
+    assert.deepEqual(await validatePrecomputedSnapshotFontContract(root as FakeElementAsHTMLElement), {
       matches: false,
       reason: "SnapshotManifestEntryKeyInvalid",
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotManifestEntryKeyInvalid",
     });
     assert.strictEqual(paragraph.firstChild, originalText);
     assert.strictEqual(secondParagraph.firstChild, secondText);
-    assert.equal(isPrecomputedSnapshotAdopted(root), false);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), false);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1029,25 +1165,25 @@ test("duplicate manifest keys cannot corrupt source restoration", async () => {
 
 test("maximum-measure preflight is non-destructive and follows live paragraph width", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
     // The preflight answers from the transport's verified cache, so the
     // fixture's table loads once before the synchronous reads.
-    assert.notEqual(await snapshotTablesForRoot(root), null);
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), true);
+    assert.notEqual(await snapshotTablesForRoot(root as FakeElementAsElement), null);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), true);
     assert.strictEqual(paragraph.firstChild, originalText);
 
     paragraph.width = 368;
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), true);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), true);
     assert.strictEqual(paragraph.firstChild, originalText);
 
     paragraph.width = 378;
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), false);
     assert.strictEqual(paragraph.firstChild, originalText);
 
     paragraph.width = 240;
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), false);
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
@@ -1056,30 +1192,30 @@ test("maximum-measure preflight is non-destructive and follows live paragraph wi
 
 test("snapshots adopt through the snapshot table reference", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph } = fixture();
 
     // The table is not in the sync cache yet, so the preflight reads a miss
     // without touching the DOM.
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), false);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), false);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
     // After adoption the verified table sits in the transport cache and the
     // synchronous preflight answers from it.
-    assert.equal(precomputedSnapshotMaximumMeasureMatches(root), true);
+    assert.equal(precomputedSnapshotMaximumMeasureMatches(root as FakeElementAsHTMLElement), true);
 
     // A manifest pinning a different digest reads the cached reference as a
     // mismatch and misses without adopting anything.
     const mismatch = fixture({ snapshotTablesSha: "0".repeat(64) });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(mismatch.root, contextFor(mismatch.root), mismatch.root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(mismatch.root as FakeElementAsHTMLElement, contextFor(mismatch.root), mismatch.root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotTablesMissing",
     });
-    assert.equal(isPrecomputedSnapshotAdopted(mismatch.root), false);
+    assert.equal(isPrecomputedSnapshotAdopted(mismatch.root as FakeElementAsHTMLElement), false);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1087,17 +1223,17 @@ test("snapshots adopt through the snapshot table reference", async () => {
 
 test("snapshot adoption accepts a wider container in the same line-length grid cell", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph } = fixture();
     paragraph.width = 368;
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
     assert.equal(root.dataset.tiqianSnapshot, "maximum-measure");
-    assert.equal(await adoptedPrecomputedSnapshotLiveIssue(root), null);
+    assert.equal(await adoptedPrecomputedSnapshotLiveIssue(root as FakeElementAsHTMLElement), null);
 
     paragraph.width = 378;
-    assert.equal(await adoptedPrecomputedSnapshotLiveIssue(root), "SnapshotWidthMismatch");
+    assert.equal(await adoptedPrecomputedSnapshotLiveIssue(root as FakeElementAsHTMLElement), "SnapshotWidthMismatch");
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1105,10 +1241,10 @@ test("snapshot adoption accepts a wider container in the same line-length grid c
 
 test("snapshot adoption preserves native Text nodes for ordinary prepared prose", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph } = fixture({ nativeText: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
 
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.equal(paragraph.childNodes[1].nodeType, 3);
@@ -1120,10 +1256,10 @@ test("snapshot adoption preserves native Text nodes for ordinary prepared prose"
 
 test("snapshot adoption accepts sparse inline geometry without an atomic shaping boundary", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture({ shapingBoundary: false });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1131,14 +1267,14 @@ test("snapshot adoption accepts sparse inline geometry without an atomic shaping
 
 test("prepared geometry inherits shaping styles from its nearest semantic source wrapper", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
     element,
     pseudo,
-    element.closest?.("[data-tq-source-semantic]") ? { fontWeight: "700" } : {},
-  );
+    element?.closest?.("[data-tq-source-semantic]") ? { fontWeight: "700" } : {},
+  ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture({ semanticGeometry: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1146,18 +1282,18 @@ test("prepared geometry inherits shaping styles from its nearest semantic source
 
 test("prepared geometry may carry an artifact-owned exact render-font projection", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
     element,
     pseudo,
-    element.hasAttribute?.("data-tq-render-font-projection")
+    element?.hasAttribute?.("data-tq-render-font-projection")
       ? { fontFamily: '"Tiqian Exact Inline"' }
-      : element.closest?.("[data-tq-source-semantic]")
+      : element?.closest?.("[data-tq-source-semantic]")
         ? { fontFamily: '"Host Inline"' }
         : {},
-  );
+  ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture({ semanticGeometry: true, renderFontProjection: true });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1165,21 +1301,21 @@ test("prepared geometry may carry an artifact-owned exact render-font projection
 
 test("prepared geometry still rejects shaping styles that differ from its semantic source wrapper", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
     element,
     pseudo,
-    element.hasAttribute?.("data-tq-advance")
+    element?.hasAttribute?.("data-tq-advance")
       ? { fontWeight: "600" }
-      : element.closest?.("[data-tq-source-semantic]")
+      : element?.closest?.("[data-tq-source-semantic]")
         ? { fontWeight: "700" }
         : {},
-  );
+  ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({
       semanticGeometry: true,
       shapingBoundary: false,
     });
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotGeometryMismatch:Geometry:fontWeight",
     });
@@ -1191,16 +1327,16 @@ test("prepared geometry still rejects shaping styles that differ from its semant
 
 test("snapshot adoption requires the engine-owned punctuation feature lock", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(
     element,
     pseudo,
-    element.closest?.("[data-tq-canonical-source]")
+    element?.closest?.("[data-tq-canonical-source]")
       ? { fontFeatureSettings: "normal" }
       : {},
-  );
+  ) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotHostContractMismatch",
     });
@@ -1212,7 +1348,7 @@ test("snapshot adoption requires the engine-owned punctuation feature lock", asy
 
 test("maximum-measure snapshot atomically replaces and restores canonical runtime DOM", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, originalText } = fixture();
     paragraph.removeChild(originalText);
@@ -1227,12 +1363,12 @@ test("maximum-measure snapshot atomically replaces and restores canonical runtim
     runtimeRun.textContent = "中国";
     paragraph.append(runtimeMarker, runtimeRun);
 
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, runtimeMarker);
     assert.equal(originalText.parentNode, null, "re-adoption must not expose retained SSR source");
 
-    assert.equal(restorePrecomputedSnapshot(root, contextFor(root)), true);
+    assert.equal(restorePrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root)), true);
     assert.strictEqual(paragraph.firstChild, runtimeMarker);
     assert.strictEqual(paragraph.childNodes[1], runtimeRun);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -1245,13 +1381,13 @@ test("maximum-measure snapshot atomically replaces and restores canonical runtim
 
 test("a same-face local() source can satisfy the compatible-local contract", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
-    assert.equal(isPrecomputedSnapshotAdopted(root), true);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), true);
     assert.equal(root.dataset.tiqianSnapshotFontPolicy, "compatible-local");
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
@@ -1260,10 +1396,10 @@ test("a same-face local() source can satisfy the compatible-local contract", asy
 
 test("a local() token outside the build face name table is rejected", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, localName: "Arial" });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1273,10 +1409,10 @@ test("a local() token outside the build face name table is rejected", async () =
 
 test("a compatible local face with a different probe advance is rejected", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, probeWidth: 40 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "FontAdvanceProbeMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1286,37 +1422,37 @@ test("a compatible local face with a different probe advance is rejected", async
 
 test("an optional render face cannot promise exact direct first paint", async () => {
   const setup = fixture({ fontDisplay: "optional", entrySource: "server-dom-v1" });
-  globalThis.document = setup.documentObject;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo);
+  globalThis.document = setup.documentObject as unknown as Document;
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, contextFor(setup.root), setup.root.ownerDocument), {
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root as FakeElementAsHTMLElement, contextFor(setup.root), setup.root.ownerDocument!), {
       adopted: false,
       reason: "FontFaceContractMismatch",
     });
   } finally {
-    delete globalThis.document;
-    delete globalThis.getComputedStyle;
+    delete (globalThis as Record<string, unknown>).document;
+    delete (globalThis as Record<string, unknown>).getComputedStyle;
   }
 });
 
 test("an inert snapshot may adopt a swap face only after its exact probe loads", async () => {
   const setup = fixture({ fontDisplay: "swap" });
-  globalThis.document = setup.documentObject;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo);
+  globalThis.document = setup.documentObject as unknown as Document;
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root, contextFor(setup.root), setup.root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(setup.root as FakeElementAsHTMLElement, contextFor(setup.root), setup.root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
-    delete globalThis.document;
-    delete globalThis.getComputedStyle;
+    delete (globalThis as Record<string, unknown>).document;
+    delete (globalThis as Record<string, unknown>).getComputedStyle;
   }
 });
 
 test("post-adoption segment advance mismatch restores the original paragraph", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, segmentWidth: 38 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotSegmentAdvanceMismatch:0;expected=36;actual=38;text=\"中国\";letterSpacing=normal;features=none;source=same",
@@ -1329,10 +1465,10 @@ test("post-adoption segment advance mismatch restores the original paragraph", a
 
 test("post-adoption line pen mismatch restores the original paragraph", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ localSource: true, lineEnd: 38 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineAdvanceMismatch:0;sentinel;expectedFlow=36;expectedCore=36;actual=38;contentWidth=360",
@@ -1345,7 +1481,7 @@ test("post-adoption line pen mismatch restores the original paragraph", async ()
 
 test("an exact engine-owned line pen may protrude beyond the raw content box", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root } = fixture({
       lineEnd: 36.015625,
@@ -1353,7 +1489,7 @@ test("an exact engine-owned line pen may protrude beyond the raw content box", a
       maximumWidth: 35,
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1361,10 +1497,10 @@ test("an exact engine-owned line pen may protrude beyond the raw content box", a
 
 test("post-adoption baseline drift restores the original paragraph", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ sentinelTop: 20.1 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineVerticalMismatch:0",
@@ -1377,10 +1513,10 @@ test("post-adoption baseline drift restores the original paragraph", async () =>
 
 test("post-adoption paragraph height drift restores the original paragraph", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ paragraphHeight: 28 });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineVerticalMismatch:paragraph",
@@ -1393,14 +1529,14 @@ test("post-adoption paragraph height drift restores the original paragraph", asy
 
 test("post-adoption prefix position drift cannot cancel out at the line end", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({
       localSource: true,
       segmentLeft: 1,
       lineEnd: 36,
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, {
       adopted: false,
       reason: "SnapshotAdoptionFailed:RenderedSnapshotLineAdvanceMismatch:0;position;expected=0;actual=1",
@@ -1413,10 +1549,10 @@ test("post-adoption prefix position drift cannot cancel out at the line end", as
 
 test("an ambiguous sibling face prevents exact-source adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture({ unsafeSibling: true });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1426,7 +1562,7 @@ test("an ambiguous sibling face prevents exact-source adoption", async () => {
 
 test("an overlapping unicode-range sibling prevents exact-source adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, originalText } = fixture();
     const sheet = documentObject.styleSheets[0];
@@ -1441,7 +1577,7 @@ test("an overlapping unicode-range sibling prevents exact-source adoption", asyn
       }),
       parentStyleSheet: { href: sheet.href },
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1451,7 +1587,7 @@ test("an overlapping unicode-range sibling prevents exact-source adoption", asyn
 
 test("font-face metric override descriptors cannot satisfy exact evidence", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, originalText } = fixture();
     const rule = documentObject.styleSheets[0].cssRules[0];
@@ -1464,7 +1600,7 @@ test("font-face metric override descriptors cannot satisfy exact evidence", asyn
       src: originalStyle.getPropertyValue("src"),
       "size-adjust": "110%",
     });
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "FontFaceContractMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1474,13 +1610,13 @@ test("font-face metric override descriptors cannot satisfy exact evidence", asyn
 
 test("non-default shaping CSS misses before DOM adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
     wordSpacing: "2px",
     fontVariantLigatures: "none",
-  });
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1490,16 +1626,16 @@ test("non-default shaping CSS misses before DOM adoption", async () => {
 
 test("lining numeric typography validates the matching lnum font probe", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
     fontVariantNumeric: "lining-nums",
-  });
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText, measuredProbeStyles } = fixture({
       fontVariantNumeric: "lining-nums",
       probeFeatures: ["lnum"],
     });
 
-    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument), { adopted: true, count: 1 });
+    assert.deepEqual(await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!), { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
     assert.ok(measuredProbeStyles.some((style) =>
       style.includes("font-variant-numeric:lining-nums!important")));
@@ -1510,12 +1646,12 @@ test("lining numeric typography validates the matching lnum font probe", async (
 
 test("generated pseudo content is outside the plain-text snapshot contract", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
     content: pseudo === "::before" ? '"※"' : "none",
-  });
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1525,15 +1661,15 @@ test("generated pseudo content is outside the plain-text snapshot contract", asy
 
 test("prepared pseudo isolation avoids per-node pseudo probes after adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
-    content: element.hasAttribute?.("data-tq-geometry") && pseudo === "::before" ? '"※"' : "none",
-  });
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
+    content: element?.hasAttribute?.("data-tq-geometry") && pseudo === "::before" ? '"※"' : "none",
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: true, count: 1 });
     assert.notStrictEqual(paragraph.firstChild, originalText);
-    assert.equal(isPrecomputedSnapshotAdopted(root), true);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), true);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1541,16 +1677,16 @@ test("prepared pseudo isolation avoids per-node pseudo probes after adoption", a
 
 test("horizontal padding cannot masquerade as the prepared content width", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
     paddingLeft: "20px",
     paddingRight: "20px",
     borderLeftWidth: "0px",
     borderRightWidth: "0px",
-  });
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
     paragraph.width = 400;
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1560,28 +1696,31 @@ test("horizontal padding cannot masquerade as the prepared content width", async
 
 test("typography manifest tampering misses before DOM adoption", async () => {
   const { root, paragraph, originalText } = fixture({ typographyDigest: "c".repeat(64) });
-  const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+  const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
   assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyDigestMismatch" });
   assert.strictEqual(paragraph.firstChild, originalText);
 });
 
 test("rendered snapshot artifact tampering misses before DOM adoption", async () => {
   const { documentObject, root, paragraph, originalText } = fixture();
-  documentObject.getElementById("tq-page").content
-    .querySelector("[data-tq-entry]").firstChild.textContent = "错误";
-  const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+  const templateElement = documentObject.getElementById("tq-page");
+  assert.ok(templateElement != null);
+  const entryElement = templateElement.content!.querySelector("[data-tq-entry]");
+  assert.ok(entryElement != null);
+  entryElement.textContent = "错误";
+  const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
   assert.deepEqual(adopted, { adopted: false, reason: "SnapshotArtifactDigestMismatch" });
   assert.strictEqual(paragraph.firstChild, originalText);
 });
 
 test("host text alignment outside the v1 contract misses before DOM adoption", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (element, pseudo) => fixtureComputedStyle(element, pseudo, {
+  globalThis.getComputedStyle = ((element: FakeElement | null, pseudo?: string | null): CSSStyleDeclaration => fixtureComputedStyle(element, pseudo, {
     textAlign: "center",
-  });
+  }) as unknown as CSSStyleDeclaration) as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!);
     assert.deepEqual(adopted, { adopted: false, reason: "SnapshotTypographyMismatch" });
     assert.strictEqual(paragraph.firstChild, originalText);
   } finally {
@@ -1591,18 +1730,18 @@ test("host text alignment outside the v1 contract misses before DOM adoption", a
 
 test("a superseded async validation never mutates the live paragraph", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { documentObject, root, paragraph, originalText } = fixture();
     let current = true;
-    documentObject.fonts.load = async () => {
+    documentObject.fonts.load = async (): Promise<Record<string, never>[]> => {
       current = false;
       return [{}];
     };
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument, () => current);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!, () => current);
     assert.deepEqual(adopted, { adopted: false, reason: "superseded" });
     assert.strictEqual(paragraph.firstChild, originalText);
-    assert.equal(isPrecomputedSnapshotAdopted(root), false);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), false);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
   }
@@ -1611,36 +1750,56 @@ test("a superseded async validation never mutates the live paragraph", async () 
 test("a superseded post-adoption proof rolls back only its provisional DOM", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
   const previousPerformance = globalThis.performance;
-  const previousScheduler = globalThis.scheduler;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  const previousScheduler = (globalThis as Record<string, unknown>).scheduler;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     const { root, paragraph, originalText } = fixture();
     let current = true;
     let clock = 0;
     Object.defineProperty(globalThis, "performance", {
       configurable: true,
-      value: { now: () => (clock += 10) },
+      value: { now: (): number => (clock += 10) },
     });
-    globalThis.scheduler = {
-      async yield() {
+    (globalThis as Record<string, unknown>).scheduler = {
+      async yield(): Promise<void> {
         if (paragraph.firstChild !== originalText) current = false;
       },
     };
 
-    const adopted = await tryAdoptPrecomputedSnapshot(root, contextFor(root), root.ownerDocument, () => current);
+    const adopted = await tryAdoptPrecomputedSnapshot(root as FakeElementAsHTMLElement, contextFor(root), root.ownerDocument!, () => current);
     assert.deepEqual(adopted, { adopted: false, reason: "superseded" });
     assert.strictEqual(paragraph.firstChild, originalText);
-    assert.equal(isPrecomputedSnapshotAdopted(root), false);
+    assert.equal(isPrecomputedSnapshotAdopted(root as FakeElementAsHTMLElement), false);
   } finally {
     globalThis.getComputedStyle = previousGetComputedStyle;
     Object.defineProperty(globalThis, "performance", {
       configurable: true,
       value: previousPerformance,
     });
-    if (previousScheduler === undefined) delete globalThis.scheduler;
-    else globalThis.scheduler = previousScheduler;
+    if (previousScheduler === undefined) delete (globalThis as Record<string, unknown>).scheduler;
+    else (globalThis as Record<string, unknown>).scheduler = previousScheduler;
   }
 });
+
+interface CssCandidateFace {
+  family: string;
+  style: string;
+  weight: string;
+  stretch: string;
+  unicodeRanges: Array<[number, number]>;
+  urls: string[];
+  hasLocalSource: boolean;
+  localNames: string[];
+  sizeAdjust?: string;
+  ascentOverride?: string;
+  descentOverride?: string;
+  lineGapOverride?: string;
+  featureSettings?: string;
+  variationSettings?: string;
+  languageOverride?: string;
+  namedInstance?: string;
+  display?: string;
+}
 
 test("cssFaceContract produces EmptyCandidateSet when no candidate faces exist", () => {
   const evidence = {
@@ -1650,8 +1809,9 @@ test("cssFaceContract produces EmptyCandidateSet when no candidate faces exist",
     unicodeRange: "U+4E00-9FFF",
     publicUrl: "/assets/fixture-deadbeef.woff2",
     probe: { text: "中国", italic: false, fontWeight: 400, fontSizePx: 18 },
-  };
-  const result = cssFaceContract(evidence, [], { baseURI: "https://example.test/" });
+  } as unknown as import("../core/sampler/snapshot/snapshot-manifest.js").SnapshotManifestFace;
+  const doc = { baseURI: "https://example.test/" } as unknown as Document;
+  const result = cssFaceContract(evidence, [], doc);
   assert.equal(result.matches, false);
   assert.deepEqual(result.detail, { kind: "EmptyCandidateSet" });
 });
@@ -1664,11 +1824,11 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     unicodeRange: "U+4E00-9FFF",
     publicUrl: "/assets/fixture-deadbeef.woff2",
     probe: { text: "中国", italic: false, fontWeight: 400, fontSizePx: 18 },
-  };
-  const doc = { baseURI: "https://example.test/" };
+  } as unknown as import("../core/sampler/snapshot/snapshot-manifest.js").SnapshotManifestFace;
+  const doc = { baseURI: "https://example.test/" } as unknown as Document;
 
   // 1. Family mismatch
-  const familyMismatchFace = {
+  const familyMismatchFace: CssCandidateFace = {
     family: "Other Font",
     style: "normal",
     weight: "400",
@@ -1678,7 +1838,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     hasLocalSource: false,
     localNames: [],
   };
-  const familyResult = cssFaceContract(evidence, [familyMismatchFace], doc);
+  const familyResult = cssFaceContract(evidence, [familyMismatchFace as unknown as { family: string; style: string; weight: string; stretch: string; unicodeRanges: Array<[number, number]>; urls: string[]; hasLocalSource: boolean; localNames: string[]; sizeAdjust: string; ascentOverride: string; descentOverride: string; lineGapOverride: string; featureSettings: string; variationSettings: string; languageOverride: string; namedInstance: string; display: string }], doc);
   assert.equal(familyResult.matches, false);
   assert.deepEqual(familyResult.detail, {
     kind: "FieldMismatch",
@@ -1688,7 +1848,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
   });
 
   // 2. Family matches but style mismatches (proves ordering before weight/unicode/src)
-  const styleMismatchFace = {
+  const styleMismatchFace: CssCandidateFace = {
     family: "Fixture CJK",
     style: "italic",
     weight: "400",
@@ -1698,7 +1858,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     hasLocalSource: false,
     localNames: [],
   };
-  const styleResult = cssFaceContract(evidence, [styleMismatchFace], doc);
+  const styleResult = cssFaceContract(evidence, [styleMismatchFace as unknown as { family: string; style: string; weight: string; stretch: string; unicodeRanges: Array<[number, number]>; urls: string[]; hasLocalSource: boolean; localNames: string[]; sizeAdjust: string; ascentOverride: string; descentOverride: string; lineGapOverride: string; featureSettings: string; variationSettings: string; languageOverride: string; namedInstance: string; display: string }], doc);
   assert.equal(styleResult.matches, false);
   assert.deepEqual(styleResult.detail, {
     kind: "FieldMismatch",
@@ -1708,7 +1868,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
   });
 
   // 3. Family and style match, weight mismatches
-  const weightMismatchFace = {
+  const weightMismatchFace: CssCandidateFace = {
     family: "Fixture CJK",
     style: "normal",
     weight: "700",
@@ -1718,7 +1878,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     hasLocalSource: false,
     localNames: [],
   };
-  const weightResult = cssFaceContract(evidence, [weightMismatchFace], doc);
+  const weightResult = cssFaceContract(evidence, [weightMismatchFace as unknown as { family: string; style: string; weight: string; stretch: string; unicodeRanges: Array<[number, number]>; urls: string[]; hasLocalSource: boolean; localNames: string[]; sizeAdjust: string; ascentOverride: string; descentOverride: string; lineGapOverride: string; featureSettings: string; variationSettings: string; languageOverride: string; namedInstance: string; display: string }], doc);
   assert.equal(weightResult.matches, false);
   assert.deepEqual(weightResult.detail, {
     kind: "FieldMismatch",
@@ -1728,7 +1888,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
   });
 
   // 4. Family, style, weight match, unicode-range mismatches
-  const unicodeMismatchFace = {
+  const unicodeMismatchFace: CssCandidateFace = {
     family: "Fixture CJK",
     style: "normal",
     weight: "400",
@@ -1738,7 +1898,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     hasLocalSource: false,
     localNames: [],
   };
-  const unicodeResult = cssFaceContract(evidence, [unicodeMismatchFace], doc);
+  const unicodeResult = cssFaceContract(evidence, [unicodeMismatchFace as unknown as { family: string; style: string; weight: string; stretch: string; unicodeRanges: Array<[number, number]>; urls: string[]; hasLocalSource: boolean; localNames: string[]; sizeAdjust: string; ascentOverride: string; descentOverride: string; lineGapOverride: string; featureSettings: string; variationSettings: string; languageOverride: string; namedInstance: string; display: string }], doc);
   assert.equal(unicodeResult.matches, false);
   assert.deepEqual(unicodeResult.detail, {
     kind: "FieldMismatch",
@@ -1748,7 +1908,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
   });
 
   // 5. Family, style, weight, unicode-range match, src mismatches
-  const srcMismatchFace = {
+  const srcMismatchFace: CssCandidateFace = {
     family: "Fixture CJK",
     style: "normal",
     weight: "400",
@@ -1758,7 +1918,7 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
     hasLocalSource: false,
     localNames: [],
   };
-  const srcResult = cssFaceContract(evidence, [srcMismatchFace], doc);
+  const srcResult = cssFaceContract(evidence, [srcMismatchFace as unknown as { family: string; style: string; weight: string; stretch: string; unicodeRanges: Array<[number, number]>; urls: string[]; hasLocalSource: boolean; localNames: string[]; sizeAdjust: string; ascentOverride: string; descentOverride: string; lineGapOverride: string; featureSettings: string; variationSettings: string; languageOverride: string; namedInstance: string; display: string }], doc);
   assert.equal(srcResult.matches, false);
   assert.deepEqual(srcResult.detail, {
     kind: "FieldMismatch",
@@ -1770,12 +1930,12 @@ test("cssFaceContract produces FieldMismatch with ordered firstField (family -> 
 
 test("snapshot exact font validation carries EmptyCandidateSet and FieldMismatch structured details", async () => {
   const previousGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = fixtureComputedStyle;
+  globalThis.getComputedStyle = fixtureComputedStyle as unknown as typeof globalThis.getComputedStyle;
   try {
     // EmptyCandidateSet: stylesheet has no rules
     const emptySetup = fixture();
     emptySetup.documentObject.styleSheets[0].cssRules = [];
-    const emptyResult = await validatePrecomputedSnapshotFontContract(emptySetup.root);
+    const emptyResult = await validatePrecomputedSnapshotFontContract(emptySetup.root as FakeElementAsHTMLElement);
     assert.deepEqual(emptyResult, {
       matches: false,
       reason: "FontFaceContractMismatch",
@@ -1792,7 +1952,7 @@ test("snapshot exact font validation carries EmptyCandidateSet and FieldMismatch
       "unicode-range": "U+4E00-9FFF",
       src: "url(\"/assets/fixture-deadbeef.woff2\")",
     });
-    const fieldResult = await validatePrecomputedSnapshotFontContract(fieldSetup.root);
+    const fieldResult = await validatePrecomputedSnapshotFontContract(fieldSetup.root as FakeElementAsHTMLElement);
     assert.deepEqual(fieldResult, {
       matches: false,
       reason: "FontFaceContractMismatch",

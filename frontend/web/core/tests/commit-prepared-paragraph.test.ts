@@ -5,6 +5,8 @@ import { commitPreparedParagraph, commitWorkerPreparedParagraph } from "../core/
 import { createEnhanceContext } from "../core/engine/context/enhance-context.js";
 import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
+import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
+import type { LoweredParagraph } from "../core/engine/lowered-paragraph.js";
 
 // The commit functions run for real, including the real prepared-DOM
 // renderer. The former injected validator and its mismatch/fallback/retry
@@ -12,48 +14,133 @@ import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snaps
 // errors (UnsupportedPreparedLayoutRevision, InvalidPreparedParagraphHost)
 // that the commit functions propagate to the caller.
 
-function saveGlobals(names) {
+interface SavedGlobal {
+  name: string;
+  own: boolean;
+  value: unknown;
+}
+
+interface FakeStyle {
+  setProperty: () => void;
+}
+
+interface FakeElementOptions {
+  tagName?: string;
+  width?: number;
+}
+
+interface ComputedStyleValues {
+  [key: string]: string;
+}
+
+interface FakeElement {
+  tagName: string;
+  innerHTML: string;
+  style: FakeStyle;
+  getAttribute: (name: string) => string | null;
+  setAttribute: (name: string, value: string) => void;
+  removeAttribute: (name: string) => void;
+  attributes: Map<string, string>;
+  setAttributes: Array<{ name: string; value: string }>;
+  removedAttributes: string[];
+  getBoundingClientRect: () => { width: number };
+  getClientRects: () => [];
+  parentElement: null;
+  closest: () => null;
+  querySelectorAll: () => [];
+  cloneNode: () => FakeElement;
+  _computedValues?: ComputedStyleValues;
+}
+
+type FakeElementWithDom = FakeElement & Element;
+
+interface TextStyleOverrides {
+  fontFamilies?: string[];
+  fontSize?: number;
+  fontWeight?: number;
+  italic?: boolean;
+  baselineShift?: number;
+  locale?: string;
+}
+
+interface TextStyle {
+  fontFamilies: string[];
+  fontSize: number;
+  fontWeight: number;
+  italic: boolean;
+  baselineShift: number;
+  locale: string;
+}
+
+interface LoweredParagraphOverrides {
+  text?: string;
+  textStyle?: TextStyle;
+  lineHeight?: number;
+  spans?: unknown[];
+  decorations?: unknown[];
+  inlineBoxes?: unknown[];
+  inlineObjects?: unknown[];
+  domInlineObjects?: Array<{ element: FakeElement }>;
+  sourceSpans?: Array<{ element: FakeElement }>;
+  sourceBoundaries?: unknown[];
+  lineBreakSpans?: unknown[];
+}
+
+interface ParagraphOverrides {
+  source?: FakeElement;
+  lowered?: LoweredParagraphOverrides;
+  lastMeasure?: number | null;
+}
+
+interface CommitParagraphTarget {
+  source: FakeElementWithDom;
+  lowered: LoweredParagraph;
+  lastMeasure: number | null;
+}
+
+function saveGlobals(names: string[]): SavedGlobal[] {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
+    value: globalThis[name as keyof typeof globalThis],
   }));
 }
 
-function restoreGlobals(entries) {
+function restoreGlobals(entries: SavedGlobal[]): void {
   for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
+    if (own) (globalThis as Record<string, unknown>)[name] = value;
+    else delete (globalThis as Record<string, unknown>)[name];
   }
 }
 
-function computedStyle(values = {}) {
-  const props = {
+function computedStyle(values: ComputedStyleValues = {}): CSSStyleDeclaration & { getPropertyValue: (name: string) => string } {
+  const props: ComputedStyleValues = {
     paddingLeft: "0px",
     paddingRight: "0px",
     borderLeftWidth: "0px",
     borderRightWidth: "0px",
     ...values,
   };
-  const style = {};
-  for (const key of Object.keys(props)) style[key] = props[key];
-  style.getPropertyValue = (name) => {
-    const key = String(name).toLowerCase();
-    return Object.prototype.hasOwnProperty.call(props, key)
-      ? String(props[key])
-      : "";
+  const style: Record<string, unknown> & { getPropertyValue: (name: string) => string } = {
+    getPropertyValue: (name: string): string => {
+      const key = String(name).toLowerCase();
+      return Object.prototype.hasOwnProperty.call(props, key)
+        ? String(props[key])
+        : "";
+    },
   };
-  return style;
+  for (const key of Object.keys(props)) style[key] = props[key];
+  return style as unknown as CSSStyleDeclaration & { getPropertyValue: (name: string) => string };
 }
 
-function withEnv(fn) {
+function withEnv<T>(fn: () => T): T {
   const saved = saveGlobals([
     "getComputedStyle",
   ]);
   try {
-    globalThis.getComputedStyle = (target, pseudo) =>
-      target && target._computedValues
-        ? computedStyle(target._computedValues)
+    globalThis.getComputedStyle = (target: Element | null, pseudo?: string | null): CSSStyleDeclaration =>
+      target && (target as FakeElement & Element)._computedValues
+        ? computedStyle((target as FakeElement & Element)._computedValues)
         : computedStyle();
     return fn();
   } finally {
@@ -61,40 +148,40 @@ function withEnv(fn) {
   }
 }
 
-function makeElement(initialAttributes = {}, options = {}) {
+function makeElement(initialAttributes: Record<string, string> = {}, options: FakeElementOptions = {}): FakeElementWithDom {
   const attributes = new Map(Object.entries(initialAttributes));
-  const removedAttributes = [];
-  const setAttributes = [];
-  const element = {
+  const removedAttributes: string[] = [];
+  const setAttributes: Array<{ name: string; value: string }> = [];
+  const element: FakeElement = {
     tagName: options.tagName ?? "P",
     innerHTML: "",
     style: { setProperty: () => {} },
-    getAttribute: (name) => attributes.get(name) ?? null,
-    setAttribute: (name, value) => {
+    getAttribute: (name: string): string | null => attributes.get(name) ?? null,
+    setAttribute: (name: string, value: string): void => {
       const strVal = String(value);
       attributes.set(name, strVal);
       setAttributes.push({ name, value: strVal });
     },
-    removeAttribute: (name) => {
+    removeAttribute: (name: string): void => {
       attributes.delete(name);
       removedAttributes.push(name);
     },
     attributes,
     setAttributes,
     removedAttributes,
-    getBoundingClientRect: () => ({ width: options.width ?? 320 }),
-    getClientRects: () => [],
+    getBoundingClientRect: (): { width: number } => ({ width: options.width ?? 320 }),
+    getClientRects: (): [] => [],
     parentElement: null,
-    closest: () => null,
+    closest: (): null => null,
     // An empty-lines plan renders no markup, so the renderer's marker and
     // placeholder queries all answer empty.
-    querySelectorAll: () => [],
-    cloneNode: () => makeElement({}, options),
+    querySelectorAll: (): [] => [],
+    cloneNode: (): FakeElement => makeElement({}, options),
   };
-  return element;
+  return element as FakeElementWithDom;
 }
 
-function textStyle(overrides = {}) {
+function textStyle(overrides: TextStyleOverrides = {}): TextStyle {
   return {
     fontFamilies: ["Noto Serif CJK SC"],
     fontSize: 19,
@@ -106,9 +193,9 @@ function textStyle(overrides = {}) {
   };
 }
 
-function makeParagraph(overrides = {}) {
-  const source = overrides.source ?? makeElement();
-  const lowered = {
+function makeParagraph(overrides: ParagraphOverrides = {}): CommitParagraphTarget {
+  const source = (overrides.source ?? makeElement()) as FakeElementWithDom;
+  const lowered: LoweredParagraphOverrides = {
     text: "hello",
     textStyle: textStyle(),
     lineHeight: 28,
@@ -124,12 +211,12 @@ function makeParagraph(overrides = {}) {
   };
   return {
     source,
-    lowered,
+    lowered: lowered as unknown as LoweredParagraph,
     lastMeasure: overrides.lastMeasure ?? null,
   };
 }
 
-function createTestContext(source) {
+function createTestContext(source: FakeElementWithDom): EnhancedElementContext {
   return createEnhanceContext(source);
 }
 
@@ -153,7 +240,7 @@ test("worker happy path: sets four attributes, renders the plan, sets lastMeasur
       lowered: {
         text: "hello world",
         textStyle: textStyle({ locale: "zh-Hans", fontSize: 19 }),
-        domInlineObjects: [{ element: domObjElement }],
+        domInlineObjects: [{ element: domObjElement as unknown as FakeElement }],
       },
     });
 
@@ -239,7 +326,11 @@ test("direct happy path, no live sources: sets canonical-plain and canonical-sou
     const context = createTestContext(paragraph.source);
 
     const preparation = {
+      kind: "ready" as const,
+      rawEnvelope: EMPTY_PLAN_JSON,
       planJson: EMPTY_PLAN_JSON,
+      plan: { lines: [] },
+      diagnostics: { capabilityIssues: [], advanceSuspects: [] },
       width: 320,
       measure: 339,
       snapshotFontSessionUsed: false,
@@ -281,7 +372,11 @@ test("direct rich path with sourceSpans elements: renders without canonical-plai
     const context = createTestContext(paragraph.source);
 
     const preparation = {
+      kind: "ready" as const,
+      rawEnvelope: EMPTY_PLAN_JSON,
       planJson: EMPTY_PLAN_JSON,
+      plan: { lines: [] },
+      diagnostics: { capabilityIssues: [], advanceSuspects: [] },
       width: 320,
       measure: 339,
       snapshotFontSessionUsed: false,
@@ -317,7 +412,11 @@ test("direct commit propagates the renderer layout-revision rejection", () => {
     const context = createTestContext(paragraph.source);
 
     const preparation = {
+      kind: "ready" as const,
+      rawEnvelope: '{"lines":[]}',
       planJson: '{"lines":[]}',
+      plan: { lines: [] },
+      diagnostics: { capabilityIssues: [], advanceSuspects: [] },
       width: 320,
       measure: 339,
       snapshotFontSessionUsed: false,
@@ -331,6 +430,9 @@ test("direct commit propagates the renderer layout-revision rejection", () => {
         preparation,
         options: {},
         browserFallback: { bridge: {} },
+        semanticReplayJson: "[]",
+        inlineObjectMetaJson: "[]",
+        cjkStrongSemanticsJson: "[]",
       }),
       { message: "UnsupportedPreparedLayoutRevision" },
     );

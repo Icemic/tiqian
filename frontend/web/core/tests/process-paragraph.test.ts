@@ -9,7 +9,18 @@ import { effectiveLineMeasure } from "../core/engine/responsive-measure.js";
 import { LAYOUT_REVISION, SNAPSHOT_SCHEMA } from "../core/sampler/snapshot/snapshot-schema.js";
 import { installThrowingFontBackend } from "../test-support/fixture-font-backend.mjs";
 import { FakeElement, FakeFragment, FakeNode, FakeText } from "./snapshot-dom-fixtures.mjs";
+import type { EnhancedElementContext } from "../core/engine/context/enhance-context.js";
+import type { TiqianLayoutWorkerInstance } from "../core/engine/coordination/coordination-service.js";
 initializeGlobalServices();
+
+// Type helper to cast FakeElement (and other fake DOM objects) to real DOM types
+function asElement(el: FakeElement): Element {
+  return el as unknown as Element;
+}
+
+function asNode(node: FakeNode | FakeText): Node {
+  return node as unknown as Node;
+}
 
 // The pipeline runs for real: eligibility, markdown lowering, the lifecycle
 // helpers, the worker request serializer, the prepared-metadata builders, the
@@ -22,26 +33,75 @@ initializeGlobalServices();
 // lowering probes, canvas for the browser-fallback bridge) and the Node
 // prototype the raw-DOM commit forwarding captures.
 
-function saveGlobals(names) {
+interface SavedGlobal {
+  name: string;
+  own: boolean;
+  value: unknown;
+}
+
+interface ComputedStyleValues {
+  [key: string]: string;
+}
+
+interface CanvasContext {
+  font: string;
+  canvas: { width: number; height: number };
+  measureText: (text: string) => {
+    width: number;
+    actualBoundingBoxLeft: number;
+    actualBoundingBoxAscent: number;
+    actualBoundingBoxRight: number;
+    actualBoundingBoxDescent: number;
+    fontBoundingBoxAscent: number;
+    fontBoundingBoxDescent: number;
+    ideographicBaseline: number;
+  };
+  setTransform: () => void;
+  clearRect: () => void;
+  fillText: () => void;
+  getImageData: (sx: number, sy: number, sw: number, sh: number) => { data: Uint8ClampedArray };
+}
+
+interface FakeDocument {
+  createElement: (tagName: string) => FakeElement | { width: number; height: number; getContext: () => CanvasContext };
+  createDocumentFragment: () => FakeFragment;
+  createRange: () => { selectNodeContents: () => void; getClientRects: () => [] };
+  head: FakeElement;
+  body: FakeElement;
+}
+
+interface MakeParagraphOptions {
+  width?: number;
+  attributes?: Record<string, string>;
+  childNodes?: Array<FakeText | FakeElement>;
+}
+
+interface WorkerTakeCall {
+  element: FakeElement;
+  sessionKey: string;
+  request: string;
+}
+
+function saveGlobals(names: string[]): SavedGlobal[] {
   return names.map((name) => ({
     name,
     own: Object.prototype.hasOwnProperty.call(globalThis, name),
-    value: globalThis[name],
+    value: globalThis[name as keyof typeof globalThis],
   }));
 }
 
-function restoreGlobals(entries) {
+function restoreGlobals(entries: SavedGlobal[]): void {
   for (const { name, own, value } of entries) {
-    if (own) globalThis[name] = value;
-    else delete globalThis[name];
+    if (own) Object.defineProperty(globalThis, name, { value, writable: true, configurable: true });
+    else delete (globalThis as Record<string, unknown>)[name];
   }
 }
 
 // Computed style double: property accessors feed elementContentWidth and the
 // opaque-inline-object geometry probe; getPropertyValue feeds the lowerer and
 // the inline edge measurements.
-function computedStyle(values = {}) {
-  const props = {
+function computedStyle(values: ComputedStyleValues = {}): CSSStyleDeclaration & { getPropertyValue: (name: string) => string } {
+  const props: ComputedStyleValues = {
     paddingLeft: "0px",
     paddingRight: "0px",
     borderLeftWidth: "0px",
@@ -57,26 +117,26 @@ function computedStyle(values = {}) {
     "font-family": "Fixture CJK",
     ...values,
   };
-  const style = {};
-  for (const key of Object.keys(props)) style[key] = props[key];
-  style.getPropertyValue = (name) => {
+  const style: Partial<CSSStyleDeclaration> & { getPropertyValue: (name: string) => string } = {} as Partial<CSSStyleDeclaration> & { getPropertyValue: (name: string) => string };
+  for (const key of Object.keys(props)) (style as Record<string, unknown>)[key] = props[key];
+  style.getPropertyValue = (name: string): string => {
     const key = String(name).toLowerCase();
     return Object.prototype.hasOwnProperty.call(props, key)
       ? String(props[key])
       : "";
   };
-  return style;
+  return style as CSSStyleDeclaration & { getPropertyValue: (name: string) => string };
 }
 
 // Canvas double for the browser-fallback bridge: measureText answers one
 // fontSize advance per code point parsed out of the current font shorthand,
 // and the TextMetrics fields carry the fixture box proportions, so the real
 // canvas shaper and metrics resolver produce a complete layout envelope.
-function scriptedCanvasContext() {
-  const context = {
+function scriptedCanvasContext(): CanvasContext {
+  const context: CanvasContext = {
     font: "16px sans-serif",
     canvas: { width: 0, height: 0 },
-    measureText(text) {
+    measureText(text: string) {
       const match = /(\d+(?:\.\d+)?)px/.exec(String(context.font));
       const fontSize = match ? Number(match[1]) : 16;
       const width = Array.from(String(text)).length * fontSize;
@@ -94,7 +154,7 @@ function scriptedCanvasContext() {
     setTransform() {},
     clearRect() {},
     fillText() {},
-    getImageData: (sx, sy, sw, sh) => ({ data: new Uint8ClampedArray(Math.max(sw, 0) * Math.max(sh, 0) * 4) }),
+    getImageData: (_sx: number, _sy: number, sw: number, sh: number) => ({ data: new Uint8ClampedArray(Math.max(sw, 0) * Math.max(sh, 0) * 4) }),
   };
   return context;
 }
@@ -104,52 +164,61 @@ function scriptedCanvasContext() {
 // whose baseline answers probeBottom, an inert Range for the inline-edge
 // measurement, a body the canvas shaper's hidden-DOM probe attaches to, and
 // a canvas whose 2d context is the scripted double above.
-function makeFakeDocument(probeBottom = 0) {
-  const documentObject = {
-    createElement: (tagName) => {
+function makeFakeDocument(probeBottom: number = 0): FakeDocument {
+  const documentObject: FakeDocument = {
+    createElement: (tagName: string): FakeElement | { width: number; height: number; getContext: () => CanvasContext } => {
       if (String(tagName || "").toLowerCase() === "canvas") {
         return {
           width: 0,
           height: 0,
-          getContext: () => scriptedCanvasContext(),
+          getContext: (): CanvasContext => scriptedCanvasContext(),
         };
       }
       const probe = new FakeElement(tagName || "span");
-      probe.top = probeBottom;
+      (probe as any).top = probeBottom;
       return probe;
     },
-    createDocumentFragment: () => new FakeFragment(),
-    createRange: () => ({
+    createDocumentFragment: (): FakeFragment => new FakeFragment(),
+    createRange: (): { selectNodeContents: () => void; getClientRects: () => [] } => ({
       selectNodeContents() {},
-      getClientRects: () => [],
+      getClientRects: (): [] => [],
     }),
+    head: new FakeElement("head"),
+    body: new FakeElement("body"),
   };
-  documentObject.head = new FakeElement("head");
-  documentObject.body = new FakeElement("body");
   return documentObject;
 }
 
+interface WithEnvOverrides {
+  document?: FakeDocument;
+  layoutWorker?: TiqianLayoutWorkerInstance;
+}
+
 // Runs fn with the environment globals the real pipeline reads.
-function withEnv(fn, overrides = {}) {
+function withEnv<T>(fn: () => T, overrides: WithEnvOverrides = {}): T {
   const saved = saveGlobals([
     "getComputedStyle",
     "document",
     "Node",
   ]);
-  const savedLayoutWorker = globalServices().coordination.layoutWorker;
+  const savedTiqianLayoutWorkerInstance = globalServices().coordination.layoutWorker;
   try {
-    globalThis.document = overrides.document ?? makeFakeDocument();
-    globalThis.Node = FakeNode;
+    Object.defineProperty(globalThis, "document", { value: (overrides.document ?? makeFakeDocument()) as unknown as Document, writable: true, configurable: true });
+    Object.defineProperty(globalThis, "Node", { value: FakeNode as unknown as typeof Node, writable: true, configurable: true });
     if (overrides.layoutWorker !== undefined) {
       globalServices().coordination.layoutWorker = overrides.layoutWorker;
     }
-    globalThis.getComputedStyle = (target, pseudo) =>
-      target && target._computedValues
-        ? computedStyle(target._computedValues)
-        : computedStyle();
+    Object.defineProperty(globalThis, "getComputedStyle", {
+      value: (target: Element, _pseudo?: string | null): CSSStyleDeclaration =>
+        target && (target as unknown as FakeElement & { _computedValues?: ComputedStyleValues })._computedValues
+          ? computedStyle((target as unknown as FakeElement & { _computedValues?: ComputedStyleValues })._computedValues)
+          : computedStyle(),
+      writable: true,
+      configurable: true,
+    });
     return fn();
   } finally {
-    globalServices().coordination.layoutWorker = savedLayoutWorker;
+    globalServices().coordination.layoutWorker = savedTiqianLayoutWorkerInstance;
     restoreGlobals(saved);
   }
 }
@@ -160,13 +229,13 @@ function withEnv(fn, overrides = {}) {
 // session's callbacks report MissingServerShapingReplay, which the exact
 // path treats as a font capability failure and retries through the browser
 // fallback bridge.
-function registerReplaySession(sessionId, record) {
+function registerReplaySession(sessionId: string, record: { shapes: Map<string, unknown>; metrics: Map<string, unknown>; probe: null }): () => void {
   const registry = globalServices().coordination.fonts.replayRegistry;
-  registry.sessions.set(sessionId, record);
-  return () => registry.sessions.delete(sessionId);
+  registry.sessions.set(sessionId, record as any);
+  return (): void => { registry.sessions.delete(sessionId); };
 }
 
-function registerEmptyReplaySession(sessionId) {
+function registerEmptyReplaySession(sessionId: string): () => void {
   return registerReplaySession(sessionId, { shapes: new Map(), metrics: new Map(), probe: null });
 }
 
@@ -177,23 +246,23 @@ function registerEmptyReplaySession(sessionId) {
 // snapshot font session), so tests that need configured typography AND a
 // conforming session together enter through the canonical re-entry verb,
 // which skips the gate.
-function seedContext(paragraph, optionsBag, { canonical = false } = {}) {
-  const context = createEnhanceContext(paragraph);
+function seedContext(paragraph: FakeElement, optionsBag: Record<string, unknown>, { canonical = false }: { canonical?: boolean } = {}): EnhancedElementContext {
+  const context = createEnhanceContext(paragraph as unknown as Element);
   const resolved = canonical
-    ? context.optionsLedger.resolveEngineOptionsFromCanonical(paragraph, optionsFromJs(optionsBag))
-    : context.optionsLedger.resolveEngineOptions(paragraph, optionsBag);
+    ? context.optionsLedger.resolveEngineOptionsFromCanonical(paragraph as unknown as Element, optionsFromJs(optionsBag))
+    : context.optionsLedger.resolveEngineOptions(paragraph as unknown as Element, optionsBag);
   context.contextState.setRuntimeOptions(resolved);
-  context.typography.establishRuntime(paragraph, resolved);
+  context.typography.establishRuntime(paragraph as unknown as Element, resolved);
   return context;
 }
 
 // Paragraph host element on the fixture fake-DOM base: a measurable P whose
 // children survive the raw-DOM takeover and whose innerHTML carries the
 // renderer output.
-function makeParagraphElement(options = {}) {
+function makeParagraphElement(options: MakeParagraphOptions = {}): FakeElement {
   const element = new FakeElement("p");
-  element.width = options.width ?? 320;
-  element.ownerDocument = globalThis.document;
+  (element as any).width = options.width ?? 320;
+  (element as any).ownerDocument = globalThis.document;
   for (const [name, value] of Object.entries(options.attributes ?? {})) {
     element.setAttribute(name, value);
   }
@@ -205,31 +274,31 @@ function makeParagraphElement(options = {}) {
 
 // A latin STRONG with strongAsEmphasisMarks lowers into a sourceSpan carrying
 // a non-null cjkStrongBaseWeight and no Emphasis decoration.
-function strongChild(text) {
+function strongChild(text: string): FakeElement {
   const element = new FakeElement("strong");
   element.appendChild(new FakeText(text));
-  element._computedValues = { display: "inline", "font-weight": "normal" };
+  (element as any)._computedValues = { display: "inline", "font-weight": "normal" };
   return element;
 }
 
 // A block-level child fails lowering with UnsupportedInlineFormattingContext.
-function blockChild(tagName, text) {
+function blockChild(tagName: string, text: string): FakeElement {
   const element = new FakeElement(tagName);
   element.appendChild(new FakeText(text));
-  element._computedValues = { display: "block" };
+  (element as any)._computedValues = { display: "block" };
   return element;
 }
 
 // A static inline object child: the geometry probe measures it against the
 // fake document's probe baseline.
-function inlineObjectSpan(width, height) {
+function inlineObjectSpan(width: number, height: number): FakeElement {
   const element = new FakeElement("span");
   element.setAttribute("data-tiqian-static-inline-object", "");
   element.appendChild(new FakeText("obj"));
-  element.width = width;
-  element.height = height;
-  element.top = 10;
-  element._computedValues = { display: "inline-block" };
+  (element as any).width = width;
+  (element as any).height = height;
+  (element as any).top = 10;
+  (element as any)._computedValues = { display: "inline-block" };
   return element;
 }
 
@@ -257,10 +326,10 @@ test("1. Direct happy path: lowering ok, rawDom record captures the original she
 
     const context = seedContext(paragraph, { fontSize: 19 });
 
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
     // The raw-DOM record captured the original shell values begin received.
-    const record = context.rawDomParagraphs.get(paragraph);
+    const record = context.rawDomParagraphs.get(paragraph as unknown as Element);
     assert.ok(record);
     assert.equal(record.originalRenderedAttribute, "false");
     assert.equal(record.originalStyleAttribute, "color: blue;");
@@ -272,8 +341,8 @@ test("1. Direct happy path: lowering ok, rawDom record captures the original she
     // published it; the host now carries the rendered replay.
     assert.ok(record.originalContent);
     assert.ok(record.fragment);
-    assert.equal(record.originalContent.textContent, "hello world");
-    assert.ok(paragraph.textContent.includes("hello world"));
+    assert.equal(record.originalContent!.textContent, "hello world");
+    assert.ok(paragraph.textContent!.includes("hello world"));
 
     assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
     assert.equal(paragraph.getAttribute("data-tq-runtime-render-font"), "true");
@@ -289,13 +358,16 @@ test("1. Direct happy path: lowering ok, rawDom record captures the original she
 });
 
 test("2. Worker happy path: worker request built, layout worker take returns a plan, worker commit commits it", () => {
-  const takeCalls = [];
-  const layoutWorker = {
-    take: (element, sessionKey, request) => {
-      takeCalls.push({ element, sessionKey, request });
+  const takeCalls: WorkerTakeCall[] = [];
+  const layoutWorker: TiqianLayoutWorkerInstance = {
+    version: 1,
+    semanticReplayRevision: 1,
+    take: (element: Element | null | undefined, sessionKey: string, requestText: string): string | null => {
+      takeCalls.push({ element: element as unknown as FakeElement, sessionKey, request: requestText });
       return JSON.stringify({ plan: EMPTY_PLAN_JSON });
     },
-    issue: () => null,
+    issue: (): string | null => null,
+    release: (_sessionKey?: string): boolean => true,
   };
   withEnv(() => {
     const objSpan = inlineObjectSpan(42, 20);
@@ -305,7 +377,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
     const paragraph = makeParagraphElement({
       childNodes: [strongChild("hello"), new FakeText(" "), objSpan],
     });
-    paragraph._computedValues = { "font-weight": "normal" };
+    (paragraph as any)._computedValues = { "font-weight": "normal" };
 
     // Configured typography and the conforming session coexist through the
     // canonical re-entry verb, which skips the snapshot gate.
@@ -315,7 +387,7 @@ test("2. Worker happy path: worker request built, layout worker take returns a p
       snapshotFontSession: { status: "conforming", sessionId: "session-1" },
     }, { canonical: true });
 
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
     // The worker request was built from the lowered paragraph and sent with
     // the conforming session key; the opaque inline object lowers to the
@@ -344,12 +416,12 @@ test("3. Lowering throw -> DomLoweringFailure reported, nothing after it runs (r
     const context = seedContext(paragraph, { fontSize: 19 });
     // Seeding resolved its options through the normal computed style; the
     // lowering probe is the first consumer that must see the throw.
-    globalThis.getComputedStyle = () => {
+    globalThis.getComputedStyle = (): CSSStyleDeclaration => {
       throw throwError;
     };
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
-    assert.equal(context.rawDomParagraphs.has(paragraph), false);
+    assert.equal(context.rawDomParagraphs.has(paragraph as unknown as Element), false);
     assert.equal(context.diagnosis.issues.length, 1);
     assert.equal(context.diagnosis.issues[0].name, "DomLoweringFailure");
     assert.equal(context.diagnosis.issues[0].detail, "lowering syntax error");
@@ -366,9 +438,9 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
       childNodes: [blockChild("div", "blocked")],
     });
     const context = seedContext(paragraph, { fontSize: 19 });
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
-    assert.equal(context.rawDomParagraphs.has(paragraph), false);
+    assert.equal(context.rawDomParagraphs.has(paragraph as unknown as Element), false);
     assert.equal(context.diagnosis.issues.length, 1);
     assert.equal(context.diagnosis.issues[0].name, "UnsupportedInlineFormattingContext");
     assert.equal(context.diagnosis.issues[0].detail, "div:block");
@@ -380,9 +452,12 @@ test("4. Lowering ok false with an issue -> that issue reported", () => {
 });
 
 test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, plan null, rich fallback not applicable -> style attribute restored, SnapshotLayoutWorkerPlanUnavailable", () => {
-  const layoutWorker = {
-    take: () => null,
-    issue: () => "No worker available in this context",
+  const layoutWorker: TiqianLayoutWorkerInstance = {
+    version: 1,
+    semanticReplayRevision: 1,
+    take: (): null => null,
+    issue: (): string => "No worker available in this context",
+    release: (_sessionKey?: string): boolean => true,
   };
   withEnv(() => {
     const paragraph = makeParagraphElement({
@@ -392,11 +467,11 @@ test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, plan null, rich
       requireSnapshotLayoutWorker: true,
       snapshotFontSession: { status: "conforming", sessionId: "session-1" },
     });
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
     assert.equal(paragraph.getAttribute("style"), "margin: 10px;");
     // Begin recorded the shell but the gate tripped before the takeover.
-    const record = context.rawDomParagraphs.get(paragraph);
+    const record = context.rawDomParagraphs.get(paragraph as unknown as Element);
     assert.ok(record);
     assert.equal(record.originalContent, null);
     assert.equal(context.diagnosis.issues.length, 1);
@@ -410,9 +485,12 @@ test("6. Snapshot worker gate: requireSnapshotLayoutWorker true, plan null, rich
 });
 
 test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worker issue -> gate NOT taken, processing continues", () => {
-  const layoutWorker = {
-    take: () => null,
-    issue: () => "MissingServerShapingReplay for CodeFont",
+  const layoutWorker: TiqianLayoutWorkerInstance = {
+    version: 1,
+    semanticReplayRevision: 1,
+    take: (): null => null,
+    issue: (): string => "MissingServerShapingReplay for CodeFont",
+    release: (_sessionKey?: string): boolean => true,
   };
   // The registered replay session stays empty, so the exact snapshot-session
   // layout misses its shaping supply and retries through the browser
@@ -431,11 +509,11 @@ test("7. canUseRichBrowserFallback: rich lowered plus a capability-failure worke
         snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       });
 
-      processParagraph(context, paragraph);
+      processParagraph(context, paragraph as unknown as Element);
 
       // The rich fallback bypassed the worker gate: the takeover ran and the
       // direct path committed.
-      const record = context.rawDomParagraphs.get(paragraph);
+      const record = context.rawDomParagraphs.get(paragraph as unknown as Element);
       assert.ok(record);
       assert.ok(record.originalContent);
       assert.equal(context.contextState.paragraphs.length, 1);
@@ -452,8 +530,8 @@ test("9. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
   // so the snapshot-session descriptor derived from the runtime options
   // throws exactly like the old injected session did.
   const unregister = registerReplaySession("session-throw", {
-    shapes: { get: () => backend.shapeJson("") },
-    metrics: { get: () => backend.metricsJson("") },
+    shapes: { get: () => backend.shapeJson("") } as unknown as Map<string, unknown>,
+    metrics: { get: () => backend.metricsJson("") } as unknown as Map<string, unknown>,
     probe: null,
   });
   try {
@@ -464,7 +542,7 @@ test("9. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
         snapshotFontSession: { status: "conforming", sessionId: "session-throw" },
       }, { canonical: true });
 
-      processParagraph(context, paragraph);
+      processParagraph(context, paragraph as unknown as Element);
 
       // The restore returned the original children and shell to the host.
       assert.equal(paragraph.textContent, "hello world");
@@ -483,19 +561,22 @@ test("9. Dispatch throw -> WebEnhancementFailure, rawDom restored", () => {
 });
 
 test("10. preparedDomEnabled gate dissolved (2026-08-27 core-neutral wave): without a snapshotFontSession option the worker channel is skipped and the direct path commits", () => {
-  const takeCalls = [];
-  const layoutWorker = {
-    take: (element, sessionKey, request) => {
-      takeCalls.push({ element, sessionKey, request });
+  const takeCalls: WorkerTakeCall[] = [];
+  const layoutWorker: TiqianLayoutWorkerInstance = {
+    version: 1,
+    semanticReplayRevision: 1,
+    take: (element: Element | null | undefined, sessionKey: string, requestText: string): null => {
+      takeCalls.push({ element: element as unknown as FakeElement, sessionKey, request: requestText });
       return null;
     },
-    issue: () => null,
+    issue: (): null => null,
+    release: (_sessionKey?: string): boolean => true,
   };
   withEnv(() => {
     const paragraph = makeParagraphElement();
     const context = seedContext(paragraph, { fontSize: 19 });
 
-    processParagraph(context, paragraph);
+    processParagraph(context, paragraph as unknown as Element);
 
     // The preparedDomEnabled flag was dissolved: the snapshotFontSession
     // option's presence alone gates the worker channel. Runtime options
@@ -520,7 +601,7 @@ test("11. absent layout worker channel reads as no reusable plan and the direct 
         snapshotFontSession: { status: "conforming", sessionId: "session-1" },
       }, { canonical: true });
 
-      processParagraph(context, paragraph);
+      processParagraph(context, paragraph as unknown as Element);
 
       // No layout worker channel is installed, so the direct path ran the
       // real prepare and commit.

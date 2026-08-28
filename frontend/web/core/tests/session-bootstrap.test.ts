@@ -6,22 +6,110 @@ import {
   createManifestFontSession,
   createProbeBootstrapFontSession,
 } from "../core/engine/web-worker/session-bootstrap.js";
+import type { ProbeBootstrapOptions } from "../core/engine/web-worker/session-bootstrap.js";
 import { createServerReplayFontSession } from "../core/measurement/browser-font-replay.js";
+import type { ServerReplayFontSession, ReplayProbe } from "../core/measurement/browser-font-replay.js";
 import { FONT_REPLAY_REVISION } from "../core/sampler/snapshot/snapshot-schema.js";
 import { writeBinaryTable } from "../core/sampler/snapshot/table-binary-writer.mjs";
 import { initializeGlobalServices } from "../core/services/global-services.js";
 initializeGlobalServices();
 
 
-function recordingMeasureAdapter(calls) {
-  return (cssFont, text) => {
+interface MeasureCall {
+  cssFont: string;
+  text: string;
+}
+
+interface MeasureResult {
+  width: number;
+  fontBoundingBoxAscent: number;
+  fontBoundingBoxDescent: number;
+}
+
+type ProbeMeasureAdapter = (cssFont: string, text: string) => MeasureResult;
+
+function recordingMeasureAdapter(calls: MeasureCall[]): ProbeMeasureAdapter {
+  return (cssFont: string, text: string): MeasureResult => {
     calls.push({ cssFont, text });
     return { width: 18, fontBoundingBoxAscent: 30, fontBoundingBoxDescent: 10 };
   };
 }
 
+interface SnapshotTablesFixture {
+  replayStrings: string[];
+  typographies: Array<{
+    sha256: string;
+    value: {
+      fontFamilies: string[];
+      fontSizePx: number;
+      lineHeightPx: number;
+      locale: string;
+    };
+  }>;
+  faces: Array<{
+    family: string;
+    style: string;
+    weight: [number, number];
+    unicodeRange: string;
+    publicUrl: string;
+    sourceSha256: string;
+    sfntSha256: string;
+    faceIndex: number;
+    sourceOrder: number;
+    axes: Record<string, never>;
+    localNames: string[];
+  }>;
+  metrics: Array<{
+    serializedFamilies: string;
+    fontWeight: number;
+    italic: boolean;
+    role: string;
+    faceSelectionText: string;
+    valuesEm: [number, number, number, null, null];
+  }>;
+  probes: Array<{
+    text: string;
+    advancePx: number;
+    fontSizePx: number;
+    fontWeight: number;
+    italic: boolean;
+    script: string;
+    language: string;
+    features: never[];
+  }>;
+  valueStyles: string[];
+  fontPreloads: string[];
+  revisions: {
+    backendRevision: string;
+    harfbuzzVersion: string;
+  };
+}
+
+interface TablesManifestFixture {
+  schema: number;
+  tables: { snapshot: string };
+  layoutRevision: string;
+  renderRevision: string;
+  fontSourcePolicy: string;
+  paragraphSelector: string;
+  renderFontFamilies: string[];
+  fontReplay: {
+    revision: string;
+    encoding: string;
+    shapes: unknown[];
+  };
+  entries: Array<{
+    key: string;
+    sourceSha256: string;
+    typographyRef: number;
+    maxWidthPx: number;
+    fontFaceEvidence: Array<{ faceRef: number; probeRef: number }>;
+    renderArtifactSha256: string;
+  }>;
+}
+
 test("empty tables with a probe create an unbaked session", async () => {
-  const calls = [];
+  const calls: MeasureCall[] = [];
   const session = await createServerReplayFontSession([], {
     sessionPrefix: "tq-test-nobake",
     replay: { revision: FONT_REPLAY_REVISION, shapes: [], metrics: [] },
@@ -51,7 +139,7 @@ test("empty tables without a probe still fail closed", async () => {
 });
 
 test("probe bootstrap backfills a miss and serves the same key from the table", async () => {
-  const calls = [];
+  const calls: MeasureCall[] = [];
   const session = await createProbeBootstrapFontSession("bootstrap-test", {
     measureAdapter: recordingMeasureAdapter(calls),
   });
@@ -80,12 +168,12 @@ test("probe bootstrap backfills a miss and serves the same key from the table", 
 
 test("a missing measure adapter names LayoutWorkerProbeUnavailable", () => {
   assert.throws(
-    () => createProbeBootstrapFontSession("no-adapter", { measureAdapter: null }),
+    () => createProbeBootstrapFontSession("no-adapter", { measureAdapter: null as unknown as ProbeMeasureAdapter }),
     /LayoutWorkerProbeUnavailable/u,
   );
 });
 
-function snapshotTablesFixture() {
+function snapshotTablesFixture(): SnapshotTablesFixture {
   return {
     replayStrings: ["a", "Fixture CJK", "zh-Hans", "CjkText", "fixture-face", "fixture-instance", "Hani"],
     typographies: [{
@@ -128,7 +216,7 @@ function snapshotTablesFixture() {
   };
 }
 
-function tablesManifestFixture() {
+function tablesManifestFixture(): TablesManifestFixture {
   return {
     schema: 2,
     tables: { snapshot: "0".repeat(64) },
@@ -168,7 +256,7 @@ test("manifest sessions keep the baked contract path", async () => {
   }
 
   const broken = tablesManifestFixture();
-  delete broken.fontReplay;
+  delete (broken as Partial<TablesManifestFixture>).fontReplay;
   assert.throws(
     () => createManifestFontSession(JSON.stringify(broken), tablesBytes, "manifest-broken"),
     /LayoutWorkerFontContractInvalid/u,

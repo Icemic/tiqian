@@ -588,6 +588,7 @@ function fixtureComputedStyle(element, _pseudo, overrides = {}) {
 export {
   FakeElement,
   FakeFragment,
+  FakeInlineStyle,
   FakeNode,
   FakeText,
   canonicalFixtureNode,
