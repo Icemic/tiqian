@@ -24,6 +24,7 @@ import {
   mount,
   pendingTestAnimationFrameCount,
   preparedValueStyleProperty,
+  probe,
   relayoutEventIsStale,
   renderedLineSignature,
   runWorkerJobToCompletion,
@@ -48,12 +49,12 @@ test("responsiveMeasure_preservesWidthDerivedThroughShrinkToFitAncestor", async 
   const paragraph = root.querySelector("p")!;
   const sourceWidth = elementWidth(paragraph);
   let stale = false;
-  (root as unknown as { addEventListener(type: string, listener: (e: FakeEvent) => void): void }).addEventListener("tiqian:ready", (event) => {
+  root.addEventListener("tiqian:ready", (event: FakeEvent) => {
     stale = relayoutEventIsStale(event);
   });
   installTestAnimationFrames();
 
-  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
+  TiqianWeb.enhanceProgressively(probe<Element>(root), testOptions());
   flushAllTestAnimationFrames();
 
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -61,7 +62,7 @@ test("responsiveMeasure_preservesWidthDerivedThroughShrinkToFitAncestor", async 
   assert.ok(Math.abs(elementWidth(paragraph) - sourceWidth) < 0.5);
   assert.equal(stale, false);
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
   assert.equal(paragraph.getAttribute("data-tq-host-inline-size"), null);
   assert.ok(Math.abs(elementWidth(paragraph) - sourceWidth) < 0.5);
 });
@@ -80,7 +81,7 @@ test("responsiveMeasure_multiColumnFragmentsUseOneFragmentainerAsLineMeasure", a
 
   assert.ok(fragmentWidths.length > 1, "fixture must fragment across CSS columns");
   assert.ok(elementWidth(paragraph) > Math.max(...fragmentWidths));
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const firstLine = paragraph.querySelector(":scope > .tq-line")!;
   const lineMeasure = Number(firstLine.getAttribute("data-tq-line-width"));
@@ -101,13 +102,13 @@ test("responsiveMeasure_listItemPaddingExcludedFromLineMeasure", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const item = root.querySelector("#padded")!;
   const line = item.querySelector(":scope > [data-tq-line-width]")!;
   const lineMeasure = Number(line.getAttribute("data-tq-line-width"));
   const contentWidth =
-    (item as unknown as HostElement).clientWidth -
+    item.clientWidth -
     cssPx(computedStyleValue(item, "padding-left")) -
     cssPx(computedStyleValue(item, "padding-right"));
   assert.ok(lineMeasure <= contentWidth + 0.5);
@@ -127,7 +128,7 @@ test("responsiveMeasure_typographyRefreshRelowersCurrentHostMetrics", async (t) 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, undefined), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), undefined), 1);
   let paragraph = root.querySelector("p")!;
   assert.equal(
     cssPx(preparedValueStyleProperty(paragraph.querySelector(".tq-line")!, "--tq-line-height")),
@@ -137,7 +138,7 @@ test("responsiveMeasure_typographyRefreshRelowersCurrentHostMetrics", async (t) 
   paragraph.style.setProperty("font-size", "18px");
   paragraph.style.setProperty("line-height", "32px");
   paragraph.style.setProperty("font-weight", "460");
-  TiqianWeb.refresh(root as unknown as Element, false);
+  TiqianWeb.refresh(probe<Element>(root), false);
 
   paragraph = root.querySelector("p")!;
   const line = paragraph.querySelector(".tq-line")!;
@@ -180,7 +181,7 @@ test("responsiveMeasure_configuredFontSizeMeasuresAndPaintsConsistently", async 
   const paragraph = root.querySelector("p")!;
 
   assert.equal(
-    TiqianWeb.enhance(root as unknown as Element, testOptions({ fontSize: 19, lineHeight: 33.25 })),
+    TiqianWeb.enhance(probe<Element>(root), testOptions({ fontSize: 19, lineHeight: 33.25 })),
     1,
   );
 
@@ -191,7 +192,7 @@ test("responsiveMeasure_configuredFontSizeMeasuresAndPaintsConsistently", async 
   assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 33.25);
   assert.ok(Math.abs(Number(line.getAttribute("data-tq-line-width")) - 342) <= 0.5);
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
   assert.equal(computedStyleValue(paragraph, "font-size"), "16px");
   assert.ok(paragraph.querySelector("a[href='/more']"));
 });
@@ -205,9 +206,9 @@ test("responsiveMeasure_staleMeasureGuardSkipsOneCellDrift", async (t) => {
   const intermediateRoot = mount(`<div data-tiqian-root='true' style='width: 180px'>${markup}</div>`);
   const finalRoot = mount(`<div data-tiqian-root='true' style='width: 162px'>${markup}</div>`);
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
-  assert.equal(TiqianWeb.enhance(intermediateRoot as unknown as Element, testOptions()), 10);
-  assert.equal(TiqianWeb.enhance(finalRoot as unknown as Element, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(intermediateRoot), testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(finalRoot), testOptions()), 10);
   const paragraphs = Array.from(root.querySelectorAll("p"));
   const initialChildren = paragraphs.map((paragraph) => {
     assert.ok(paragraph.firstChild);
@@ -220,7 +221,7 @@ test("responsiveMeasure_staleMeasureGuardSkipsOneCellDrift", async (t) => {
   assert.notEqual(intermediate, final);
   let readyCount = 0;
   let staleCount = 0;
-  (root as unknown as { addEventListener(type: string, listener: (e: FakeEvent) => void): void }).addEventListener("tiqian:relayout-ready", (event) => {
+  root.addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
     readyCount += 1;
     if (relayoutEventIsStale(event)) staleCount += 1;
   });
@@ -263,8 +264,8 @@ test("responsiveMeasure_multiCellDriftDiscardsPreparedMeasure", async (t) => {
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
   const intermediateRoot = mount(`<div data-tiqian-root='true' style='width: 180px'>${markup}</div>`);
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
-  assert.equal(TiqianWeb.enhance(intermediateRoot as unknown as Element, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(intermediateRoot), testOptions()), 10);
   const paragraphs = Array.from(root.querySelectorAll("p"));
   const initialChildren = paragraphs.map((paragraph) => {
     assert.ok(paragraph.firstChild);
@@ -275,7 +276,7 @@ test("responsiveMeasure_multiCellDriftDiscardsPreparedMeasure", async (t) => {
   assert.notEqual(initial, intermediate);
   let readyCount = 0;
   let staleCount = 0;
-  (root as unknown as { addEventListener(type: string, listener: (e: FakeEvent) => void): void }).addEventListener("tiqian:relayout-ready", (event) => {
+  root.addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
     readyCount += 1;
     if (relayoutEventIsStale(event)) staleCount += 1;
   });
@@ -312,7 +313,7 @@ test("responsiveMeasure_overshootOrReversalDiscardsPreparedMeasure", async (t) =
   const assertStaleAt = (currentWidth: string, reason: string) => {
     const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
     t.after(() => cleanupMounted());
-    assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
+    assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 10);
     const paragraphs = Array.from(root.querySelectorAll("p"));
     const initialChildren = paragraphs.map((paragraph) => {
       assert.ok(paragraph.firstChild);
@@ -321,7 +322,7 @@ test("responsiveMeasure_overshootOrReversalDiscardsPreparedMeasure", async (t) =
     const initial = renderedLineSignature(paragraphs[0]);
     let readyCount = 0;
     let staleCount = 0;
-    (root as unknown as { addEventListener(type: string, listener: (e: FakeEvent) => void): void }).addEventListener("tiqian:relayout-ready", (event) => {
+    root.addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
       readyCount += 1;
       if (relayoutEventIsStale(event)) staleCount += 1;
     });
@@ -357,7 +358,7 @@ test("responsiveMeasure_fractionalWidthCrossingGridBoundaryRelayouts", async (t)
   const root = mount(`<div data-tiqian-root='true' style='width: 305.98px'><p>${source}</p></div>`);
   const options = testOptions({ fontSize: 15.3, lineHeight: 22.95 });
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), options), 1);
   const paragraph = root.querySelector("p")!;
   const nineteenCells = renderedLineSignature(paragraph);
 
@@ -388,7 +389,7 @@ test("responsiveMeasure_stableIssueParagraphUntouchedDuringRelayout", async (t) 
   assert.ok(issueSourceChild);
   TiqianWeb.install();
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, undefined), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), undefined), 1);
   assert.equal(
     issueParagraph.getAttribute("data-tiqian-capability-issue"),
     "WebEnhancementFailure",
@@ -397,7 +398,7 @@ test("responsiveMeasure_stableIssueParagraphUntouchedDuringRelayout", async (t) 
   assert.ok(renderedChild);
   const initial = renderedLineSignature(plainParagraph);
   let relayoutReadyCount = 0;
-  (root as unknown as { addEventListener(type: string, listener: () => void): void }).addEventListener("tiqian:relayout-ready", () => {
+  root.addEventListener("tiqian:relayout-ready", () => {
     relayoutReadyCount += 1;
   });
 

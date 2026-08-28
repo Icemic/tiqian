@@ -15,14 +15,19 @@ import {
   loadHostRuntime,
   mount,
   probeContentDrift,
+  probe,
   reconcileContent,
   relayoutEventIsStale,
   renderedLineSignature,
   runWorkerJobToCompletion,
   testOptions,
+  type FakeEvent,
 } from "./runtime-host.js";
-import type { FakeEvent } from "./runtime-host.js";
 import type { FakeNode } from "./snapshot-dom-fixtures.js";
+
+interface NodeWithData {
+  data: string;
+}
 
 test("contentReconcile_idleWhenNoHostChangeHappened", async (t) => {
   t.after(cleanupMounted);
@@ -32,7 +37,7 @@ test("contentReconcile_idleWhenNoHostChangeHappened", async (t) => {
       <p style="font-size: 18px; line-height: 30px">宿主未做任何改动。</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   assert.deepEqual(reconcileContent(root), {
     outcome: "idle",
@@ -70,7 +75,7 @@ test("contentReconcile_probeClassifiesDriftWithoutMutating", async (t) => {
       <p style="font-size: 18px; line-height: 30px">分类探针不得改动文档。</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   const renderedChild = paragraph.firstChild;
   assert.ok(renderedChild);
@@ -95,10 +100,10 @@ test("contentReconcile_probeClassifiesDriftWithoutMutating", async (t) => {
       <p style="font-size: 18px; line-height: 30px">宿主经转发写入托管。</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(rawDomRoot as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(rawDomRoot), testOptions()), 1);
   const rawDomParagraph = rawDomRoot.querySelector("p")!;
   rawDomParagraph.appendChild(
-    globalThis.document.createTextNode("托管内新增") as unknown as FakeNode,
+    probe<FakeNode>(globalThis.document.createTextNode("托管内新增")),
   );
 
   assert.deepEqual(probeContentDrift(rawDomRoot), {
@@ -118,12 +123,12 @@ test("contentReconcile_hostEditReLowersSurvivingLiveContent", async (t) => {
       <p style="font-size: 18px; line-height: 30px">${source}</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   installTestAnimationFrames();
 
   paragraph.insertBefore(
-    globalThis.document.createTextNode("宿主补充") as unknown as FakeNode,
+    probe<FakeNode>(globalThis.document.createTextNode("宿主补充")),
     paragraph.firstChild,
   );
 
@@ -153,11 +158,11 @@ test("contentReconcile_rawDomEditRestoresAndRelowersFromRawDom", async (t) => {
       <p style="font-size: 18px; line-height: 30px">${source}</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   installTestAnimationFrames();
 
-  paragraph.appendChild(globalThis.document.createTextNode("托管内新增") as unknown as FakeNode);
+  paragraph.appendChild(probe<FakeNode>(globalThis.document.createTextNode("托管内新增")));
 
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
@@ -184,7 +189,7 @@ test("contentReconcile_taintedEngineEditRerendersFromRawDom", async (t) => {
       <p style="font-size: 18px; line-height: 30px">${source}</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   const engineText = (function findText(node: FakeNode): FakeNode | null {
     for (const child of node.childNodes) {
@@ -197,7 +202,7 @@ test("contentReconcile_taintedEngineEditRerendersFromRawDom", async (t) => {
   assert.ok(engineText, "rendered output must contain a text node");
   installTestAnimationFrames();
 
-  (engineText as unknown as { data: string }).data = "被改坏的文本";
+  probe<NodeWithData>(engineText).data = "被改坏的文本";
 
   assert.deepEqual(reconcileContent(root, [paragraph]), {
     outcome: "work",
@@ -222,12 +227,12 @@ test("contentReconcile_deadParagraphDroppedAndFreshCloneAdopted", async (t) => {
       <p style="font-size: 18px; line-height: 30px">${source}</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const original = root.querySelector("p")!;
   installTestAnimationFrames();
 
   root.innerHTML = `<p style="font-size: 18px; line-height: 30px">${source}</p>`;
-  assert.equal((original as unknown as Record<string, unknown>).isConnected, false);
+  assert.equal(original.isConnected, false);
 
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
@@ -254,7 +259,7 @@ test("contentReconcile_reprojectedCloneKeepsHardBreakThroughDescaffold", async (
       <p style="font-size: 18px; line-height: 30px">上半句<br>下半句</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   const hardBreak = paragraph.querySelector("[data-tq-hard-break]")!;
   assert.ok(hardBreak, "rendered output marks hard breaks");
@@ -286,13 +291,13 @@ test("contentReconcile_strandedCapabilityIssueIsNotRetried", async (t) => {
       <p style="font-size: 18px; line-height: 30px">已渲染段落照常工作。</p>
     </div>
   `);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   installTestAnimationFrames();
 
   const strandedIssue = globalThis.document.createElement("p");
   strandedIssue.setAttribute("data-tiqian-capability-issue", "InvalidWebShapingAdvance");
   strandedIssue.textContent = "带能力标记的段落不重试。";
-  root.appendChild(strandedIssue as unknown as FakeNode);
+  root.appendChild(probe<FakeNode>(strandedIssue));
 
   assert.deepEqual(reconcileContent(root), {
     outcome: "idle",
@@ -313,7 +318,7 @@ test("contentReconcile_strandedCapabilityIssueIsNotRetried", async (t) => {
   strandedRendered.setAttribute("data-tq-rendered", "true");
   strandedRendered.setAttribute("data-tiqian-capability-issue", "InvalidWebShapingAdvance");
   strandedRendered.textContent = "带渲染标记的克隆仍要收养。";
-  root.appendChild(strandedRendered as unknown as FakeNode);
+  root.appendChild(probe<FakeNode>(strandedRendered));
 
   assert.deepEqual(reconcileContent(root), {
     outcome: "work",
@@ -338,14 +343,14 @@ test("contentReconcile_widthSnapshotStaleGuardAbortsReconcileJob", async (t) => 
     () => `<p style="font-size: 18px; line-height: 30px">重排任务中途宽度变化要作废。</p>`,
   ).join("");
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'>${markup}</div>`);
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 10);
   const paragraphs = Array.from(root.querySelectorAll("p"));
   for (const paragraph of paragraphs) {
     paragraph.removeChild(paragraph.firstChild!);
   }
   let readyCount = 0;
   let staleCount = 0;
-  (root as unknown as { addEventListener(type: string, listener: (e: FakeEvent) => void): void }).addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
+  root.addEventListener("tiqian:relayout-ready", (event: FakeEvent) => {
     readyCount += 1;
     if (relayoutEventIsStale(event)) staleCount += 1;
   });
@@ -371,7 +376,7 @@ test("contentReconcile_widthSnapshotStaleGuardAbortsReconcileJob", async (t) => 
     `<div data-tiqian-root='true' style='width: 180px'><p style="font-size: 18px; line-height: 30px">重排任务中途宽度变化要作废。</p></div>`,
   );
   t.after(cleanupMounted);
-  TiqianWeb.enhance(finalRoot as unknown as Element, testOptions());
+  TiqianWeb.enhance(probe<Element>(finalRoot), testOptions());
   const finalSignature = renderedLineSignature(finalRoot.querySelector("p")!);
   assert.notEqual(initial, finalSignature);
 

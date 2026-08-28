@@ -5,22 +5,47 @@
 
 import { createHash } from "node:crypto";
 
-import { createBrowserFontSessionLoader, type BrowserFontSessionLoaderOptions } from "@tiqian/core/core/measurement/browser-fonts.js";
+import {
+  createBrowserFontSessionLoader,
+  type BrowserFontSessionLoaderOptions,
+  type FontSessionCreator,
+  type BrowserFontSessionCreateOptions,
+} from "@tiqian/core/core/measurement/browser-fonts.js";
+import type { ServerReplayFontSession } from "@tiqian/core/core/measurement/browser-font-replay.js";
 import {
   FONT_BACKEND_REVISION,
   FONT_REPLAY_REVISION,
 } from "@tiqian/core/snapshot-schema.js";
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
+import { probe } from "./runtime-host.js";
+
+type FetchFn = (url: string | URL, init?: RequestInit) => Promise<Response>;
+type AsyncSha256Fn = (value: string | Uint8Array) => Promise<string>;
+type CreateRenderFontFaceFn = (family: string, source: string, descriptors: Record<string, unknown>) => Promise<Record<string, unknown>>;
+type FontSourceReleaseFn = () => boolean;
+
+interface RenderFontSource {
+  source: string;
+  release: FontSourceReleaseFn;
+}
+
+type CreateRenderFontSourceFn = (source: string) => RenderFontSource;
 
 interface FixtureBrowserFontSessionLoaderOptions extends BrowserFontSessionLoaderOptions {
-  fetch: (url: string | URL, init?: RequestInit) => Promise<Response>;
-  sha256: (value: string | Uint8Array) => Promise<string>;
-  createRenderFontFace: (family: string, source: string, descriptors: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  createRenderFontSource: (source: string) => { source: string; release: () => boolean };
+  fetch: FetchFn;
+  sha256: AsyncSha256Fn;
+  createRenderFontFace: CreateRenderFontFaceFn;
+  createRenderFontSource: CreateRenderFontSourceFn;
 }
 
 export function digest(bytes: Uint8Array | string): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+export interface CurrentTableInfo {
+  url: string;
+  bytes: Uint8Array;
+  sha256: string;
 }
 
 /**
@@ -29,7 +54,7 @@ export function digest(bytes: Uint8Array | string): string {
  * walks the same path a host page uses.
  */
 let tableCounter = 0;
-let currentTable: { url: string; bytes: Uint8Array; sha256: string } | null = null;
+let currentTable: CurrentTableInfo | null = null;
 const tableBytesByUrl = new Map<string, Uint8Array>();
 const chainFetch = globalThis.fetch;
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -42,7 +67,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return chainFetch(input, init);
 };
 
-export function getCurrentTable(): { url: string; bytes: Uint8Array; sha256: string } | null {
+export function getCurrentTable(): CurrentTableInfo | null {
   return currentTable;
 }
 
@@ -82,14 +107,37 @@ export function faceEvidence(sourceSha256: string, overrides: FaceEvidenceOverri
   };
 }
 
+interface ReplayShapeEntry {
+  key: string;
+  result: Record<string, unknown>;
+}
+
+interface ReplayMetricEntry {
+  key: string;
+  valuesEm: Record<string, unknown>;
+}
+
+interface ManifestExtras {
+  replayShapes?: ReplayShapeEntry[];
+  replayMetrics?: ReplayMetricEntry[];
+  backendRevision?: string;
+}
+
 interface ManifestWithFacesOptions {
   versions?: string[];
   typography?: Record<string, unknown>;
-  extras?: {
-    replayShapes?: Array<{ key: string; result: Record<string, unknown> }>;
-    replayMetrics?: Array<{ key: string; valuesEm: Record<string, unknown> }>;
-    backendRevision?: string;
-  };
+  extras?: ManifestExtras;
+}
+
+interface ProbeEntry {
+  text: string;
+  advancePx: number;
+  fontSizePx: number;
+  fontWeight: number;
+  italic: boolean;
+  script: string;
+  language: string;
+  features: string[];
 }
 
 export function manifestWithFaces(
@@ -99,16 +147,8 @@ export function manifestWithFaces(
   const { versions, typography = {}, extras = {} } = options;
   const descriptorIndexes = new Map<string, number>();
   const descriptors: Record<string, unknown>[] = [];
-  const probes: Array<{
-    text: string;
-    advancePx: number;
-    fontSizePx: number;
-    fontWeight: number;
-    italic: boolean;
-    script: string;
-    language: string;
-    features: string[];
-  }> = [];
+  const probes: ProbeEntry[] = [];
+  const defaultFeatures: string[] = [];
   const fontFaceEvidence = facesByEntry.map((faces) =>
     faces.map((face) => {
       const descriptor = Object.fromEntries(
@@ -121,24 +161,16 @@ export function manifestWithFaces(
         descriptors.push(descriptor);
         descriptorIndexes.set(signature, faceRef);
       }
-      const probe = {
-        features: [] as string[],
-        ...(face.probe as {
-          text: string;
-          advancePx: number;
-          fontSizePx: number;
-          fontWeight: number;
-          italic: boolean;
-          script: string;
-          language: string;
-          features?: string[];
-        }),
-      };
-      const probeSignature = JSON.stringify(probe);
+      const rawProbe = face.probe as Record<string, unknown>;
+      const probeEntry: ProbeEntry = probe<ProbeEntry>({
+        features: defaultFeatures,
+        ...rawProbe,
+      });
+      const probeSignature = JSON.stringify(probeEntry);
       let probeRef = probes.findIndex((existing) => JSON.stringify(existing) === probeSignature);
       if (probeRef < 0) {
         probeRef = probes.length;
-        probes.push(probe);
+        probes.push(probeEntry);
       }
       return { faceRef, coverageText: face.coverageText, probeRef };
     })
@@ -196,13 +228,15 @@ export function manifestWithFaces(
       role,
       faceSelectionText,
     ] = JSON.parse(metric.key) as [string, number, number, string, string];
+    const rawValues: unknown[] = Array.isArray(metric.valuesEm) ? metric.valuesEm : Object.values(metric.valuesEm);
+    const valuesEm: (number | null)[] = rawValues.map((v) => (typeof v === "number" || v === null ? v : null));
     return {
       serializedFamilies,
       fontWeight,
       italic: italic !== 0,
       role,
       faceSelectionText,
-      valuesEm: Array.isArray(metric.valuesEm) ? metric.valuesEm : Object.values(metric.valuesEm) as (number | null)[],
+      valuesEm,
     };
   });
 
@@ -251,34 +285,57 @@ export function manifestWithFaces(
   };
 }
 
-interface SnapshotRootOptions {
-  documentOverrides?: Record<string, unknown> & {
-    fonts?: {
-      load(descriptor: unknown, text: string): Promise<unknown[]>;
-    };
-  };
+export interface FontsOverride {
+  load(descriptor: unknown, text: string): Promise<unknown[]>;
+}
+
+export interface SnapshotRootDocumentOverrides extends Record<string, unknown> {
+  fonts?: FontsOverride;
+}
+
+export interface SnapshotRootOptions {
+  documentOverrides?: SnapshotRootDocumentOverrides;
+  fonts?: FontsOverride;
+  [key: string]: unknown;
+}
+
+export interface ScriptElement {
+  textContent: string;
+}
+
+export interface TemplateContent {
+  querySelector(selector: string): ScriptElement | null;
+}
+
+export interface TemplateElement {
+  content: TemplateContent;
+}
+
+export interface SnapshotOwnerDocument {
+  baseURI: string;
+  getElementById(id: string): TemplateElement | null;
+  [key: string]: unknown;
+}
+
+export interface SnapshotRoot {
+  ownerDocument: SnapshotOwnerDocument;
+  getAttribute(name: string): string | null;
 }
 
 export function snapshotRoot(
   manifest: Record<string, unknown>,
   options: SnapshotRootOptions = {}
-): {
-  ownerDocument: {
-    baseURI: string;
-    getElementById(id: string): { content: { querySelector(selector: string): { textContent: string } | null } } | null;
-  };
-  getAttribute(name: string): string | null;
-} {
+): SnapshotRoot {
   const { documentOverrides = {} } = options;
-  const script = { textContent: JSON.stringify(manifest) };
-  const template = {
+  const script: ScriptElement = { textContent: JSON.stringify(manifest) };
+  const template: TemplateElement = {
     content: {
       querySelector(selector: string) {
         return selector === "[data-tq-snapshot-manifest]" ? script : null;
       },
     },
   };
-  const documentObject = {
+  const documentObject: SnapshotOwnerDocument = {
     baseURI: "https://example.test/blog/post/",
     getElementById(id: string) {
       return id === "tq-page" ? template : null;
@@ -295,89 +352,117 @@ export function snapshotRoot(
   };
 }
 
-interface HarnessOptions {
+export type MutateSessionFn = (session: Record<string, unknown>) => void;
+
+export interface ContractResult {
+  matches: boolean;
+  reason: string | null;
+}
+
+interface ExtendedBrowserFontSessionLoaderOptions extends BrowserFontSessionLoaderOptions {
+  fetch: FetchFn;
+  sha256: AsyncSha256Fn;
+  createRenderFontFace: CreateRenderFontFaceFn;
+  createRenderFontSource: CreateRenderFontSourceFn;
+}
+
+export interface HarnessOptions {
   bytes?: Uint8Array;
   fetchError?: Error;
   fetchErrors?: Error[];
   responseOk?: boolean;
   responseStatus?: number;
   createError?: Error;
-  mutateSession?: (session: Record<string, unknown>) => void;
-  documentOverrides?: {
-    fonts?: {
-      load(descriptor: unknown, text: string): Promise<unknown[]>;
-    };
-  };
+  mutateSession?: MutateSessionFn;
+  documentOverrides?: SnapshotRootDocumentOverrides;
   renderFaceCreateError?: Error;
   renderFaceLoadError?: Error;
-  createRenderFontFace?: (family: string, source: string, descriptors: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  createRenderFontSource?: (source: string) => { source: string; release: () => boolean };
-  contractResults?: Array<{ matches: boolean; reason: string | null }>;
-  preparedContractResults?: Array<{ matches: boolean; reason: string | null }>;
+  createRenderFontFace?: CreateRenderFontFaceFn;
+  createRenderFontSource?: CreateRenderFontSourceFn;
+  contractResults?: ContractResult[];
+  preparedContractResults?: ContractResult[];
   useDefaultSession?: boolean;
   backendRevision?: string;
   harfbuzzVersion?: string;
 }
 
+export interface HarnessRequest {
+  url: string | URL;
+  init?: RequestInit;
+}
+
+export interface HarnessCreateCall {
+  specs: unknown;
+  options: unknown;
+}
+
+export interface HarnessFontLoad {
+  descriptor: unknown;
+  text: string;
+}
+
+export type CloseCountFn = () => number;
+
+export interface HarnessResult {
+  loader: ReturnType<typeof createBrowserFontSessionLoader>;
+  root: SnapshotRoot;
+  requests: HarnessRequest[];
+  createCalls: HarnessCreateCall[];
+  sessions: Record<string, unknown>[];
+  contractCalls: unknown[];
+  preparedContractCalls: unknown[];
+  renderFaceCreates: Record<string, unknown>[];
+  renderFaceAdds: unknown[];
+  renderFaceDeletes: unknown[];
+  renderFontSourceCreates: string[];
+  renderFontSourceReleases: string[];
+  fontLoads: HarnessFontLoad[];
+  closeCount: CloseCountFn;
+}
+
 export function harness(
   manifest: Record<string, unknown>,
   options: HarnessOptions = {}
-): {
-  loader: ReturnType<typeof createBrowserFontSessionLoader>;
-  root: ReturnType<typeof snapshotRoot>;
-  requests: Array<{ url: string | URL; init?: RequestInit }>;
-  createCalls: Array<{ specs: unknown; options: unknown }>;
-  sessions: Array<Record<string, unknown>>;
-  contractCalls: Array<unknown>;
-  preparedContractCalls: Array<unknown>;
-  renderFaceCreates: Array<Record<string, unknown>>;
-  renderFaceAdds: Array<unknown>;
-  renderFaceDeletes: Array<unknown>;
-  renderFontSourceCreates: Array<string>;
-  renderFontSourceReleases: Array<string>;
-  fontLoads: Array<{ descriptor: unknown; text: string }>;
-  closeCount: () => number;
-} {
+): HarnessResult {
   const bytes = options.bytes ?? new TextEncoder().encode("fixture-font-source");
-  const requests: Array<{ url: string | URL; init?: RequestInit }> = [];
-  const createCalls: Array<{ specs: unknown; options: unknown }> = [];
-  const sessions: Array<Record<string, unknown>> = [];
-  const contractCalls: Array<unknown> = [];
-  const preparedContractCalls: Array<unknown> = [];
-  const renderFaceCreates: Array<Record<string, unknown>> = [];
-  const renderFaceAdds: Array<unknown> = [];
-  const renderFaceDeletes: Array<unknown> = [];
-  const renderFontSourceCreates: Array<string> = [];
-  const renderFontSourceReleases: Array<string> = [];
-  const fontLoads: Array<{ descriptor: unknown; text: string }> = [];
+  const requests: HarnessRequest[] = [];
+  const createCalls: HarnessCreateCall[] = [];
+  const sessions: Record<string, unknown>[] = [];
+  const contractCalls: unknown[] = [];
+  const preparedContractCalls: unknown[] = [];
+  const renderFaceCreates: Record<string, unknown>[] = [];
+  const renderFaceAdds: unknown[] = [];
+  const renderFaceDeletes: unknown[] = [];
+  const renderFontSourceCreates: string[] = [];
+  const renderFontSourceReleases: string[] = [];
+  const fontLoads: HarnessFontLoad[] = [];
   let closeCount = 0;
 
-  const fetch = async (url: string | URL, init?: RequestInit) => {
+  const fetch: FetchFn = async (url: string | URL, init?: RequestInit) => {
     requests.push({ url, init });
     const sequencedError = options.fetchErrors?.shift?.();
     if (sequencedError) throw sequencedError;
     if (options.fetchError) throw options.fetchError;
-    return {
-      ok: options.responseOk ?? true,
-      status: options.responseStatus ?? 200,
-      async arrayBuffer() {
-        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-      },
-    };
+    const status = options.responseStatus ?? (options.responseOk === false ? 500 : 200);
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    return new Response(new Blob([new Uint8Array(arrayBuffer)]), {
+      status,
+      statusText: status === 200 ? "OK" : "Error",
+    });
   };
 
-  const createFontSession = async (specs: unknown, createOptions: Record<string, unknown>) => {
+  const createFontSession = async (specs: unknown, createOptions: BrowserFontSessionCreateOptions): Promise<ServerReplayFontSession> => {
     createCalls.push({ specs, options: createOptions });
     if (options.createError) throw options.createError;
     const session = {
       id: `browser-session-${createCalls.length}`,
       backendRevision: options.backendRevision ?? FONT_BACKEND_REVISION,
       harfbuzzVersion: options.harfbuzzVersion ?? "fixture-hb",
-      faces: (createOptions.faceMetadata as Array<Record<string, unknown>>).map((face) => ({
+      faces: probe<Array<Record<string, unknown>>>(createOptions.faceMetadata || []).map((face) => ({
         ...face,
-        weight: [...(face.weight as number[])],
+        weight: [...((face.weight || []) as number[])],
         axisTags: Object.keys(face.axes ?? {}).sort(),
-        localNames: [...(face.localNames as string[])],
+        localNames: [...((face.localNames || []) as string[])],
       })),
       close() {
         closeCount += 1;
@@ -385,17 +470,17 @@ export function harness(
     };
     options.mutateSession?.(session);
     sessions.push(session);
-    return session;
+    return probe<ServerReplayFontSession>(session);
   };
 
-  const fontSet = options.documentOverrides?.fonts ?? {
+  const fontSet: FontsOverride = options.documentOverrides?.fonts ?? {
     async load(descriptor: unknown, text: string) {
       fontLoads.push({ descriptor, text });
       return [{}];
     },
   };
 
-  const createRenderFontFace = options.createRenderFontFace ?? ((family: string, source: string, descriptors: Record<string, unknown>) => {
+  const createRenderFontFace: CreateRenderFontFaceFn = options.createRenderFontFace ?? (async (family: string, source: string, descriptors: Record<string, unknown>) => {
     if (options.renderFaceCreateError) throw options.renderFaceCreateError;
     const face = {
       family,
@@ -412,11 +497,11 @@ export function harness(
     return face;
   });
 
-  const createRenderFontSource = options.createRenderFontSource ?? ((source: string) => {
+  const createRenderFontSource: CreateRenderFontSourceFn = options.createRenderFontSource ?? ((source: string) => {
     renderFontSourceCreates.push(source);
     const url = `blob:fixture-font-${renderFontSourceCreates.length}`;
     let released = false;
-    return {
+    const fontSource: RenderFontSource = {
       source: `url("${url}")`,
       release() {
         if (released) return false;
@@ -425,9 +510,10 @@ export function harness(
         return true;
       },
     };
+    return fontSource;
   });
 
-  const loader = createBrowserFontSessionLoader({
+  const rawLoaderOptions: ExtendedBrowserFontSessionLoaderOptions = {
     ...(options.useDefaultSession ? {} : { createFontSession }),
     fetch,
     sha256: async (value: string | Uint8Array) => digest(value),
@@ -446,11 +532,17 @@ export function harness(
           },
         }
       : {}),
-  } as FixtureBrowserFontSessionLoaderOptions);
+  };
+  const loader = createBrowserFontSessionLoader(rawLoaderOptions);
+
+  const rootOptions: SnapshotRootOptions = {
+    ...options.documentOverrides,
+    fonts: fontSet,
+  };
 
   return {
     loader,
-    root: snapshotRoot(manifest, { ...options.documentOverrides, fonts: fontSet } as SnapshotRootOptions),
+    root: snapshotRoot(manifest, rootOptions),
     requests,
     createCalls,
     sessions,

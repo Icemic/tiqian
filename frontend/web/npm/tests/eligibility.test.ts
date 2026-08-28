@@ -16,8 +16,10 @@ import {
   installTestAnimationFrames,
   loadHostRuntime,
   mount,
+  probe,
   relayoutEventIsStale,
   testOptions,
+  type FakeEvent,
 } from "./runtime-host.js";
 import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
@@ -33,7 +35,7 @@ test("eligibility_enhancesLeafListItemsWithoutReplacingListContainers", async (t
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as FakeElement & Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 2);
   const outer = root.querySelector("#outer")!;
@@ -71,12 +73,12 @@ test("eligibility_progressiveEnhancementSkipsAutoSizedListContainers", async (t)
     const child = root.querySelector("#child")!;
     const sourceWidth = elementWidth(child);
     let stale = false;
-    (root as unknown as { addEventListener(type: string, listener: (event: unknown) => void): void }).addEventListener("tiqian:ready", (event) => {
-      stale = relayoutEventIsStale(event as Parameters<typeof relayoutEventIsStale>[0]);
+    root.addEventListener("tiqian:ready", (event: FakeEvent) => {
+      stale = relayoutEventIsStale(event);
     });
     installTestAnimationFrames();
 
-    TiqianWeb.enhanceProgressively(root as FakeElement & Element, testOptions());
+    TiqianWeb.enhanceProgressively(probe<Element>(root), testOptions());
     flushAllTestAnimationFrames();
 
     assert.equal(outer.getAttribute("data-tq-rendered"), null);
@@ -86,7 +88,7 @@ test("eligibility_progressiveEnhancementSkipsAutoSizedListContainers", async (t)
     assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
     assert.equal(stale, false);
 
-    TiqianWeb.destroy(root as FakeElement & Element);
+    TiqianWeb.destroy(probe<Element>(root));
     assert.equal(child.getAttribute("data-tq-host-inline-size"), null);
     assert.ok(Math.abs(elementWidth(child) - sourceWidth) < 0.5);
   }
@@ -102,7 +104,7 @@ test("eligibility_missingSharedStylesKeepsSourceNativeWithIssue", async (t) => {
   const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -124,13 +126,13 @@ test("eligibility_nestedRootsOwnOnlyDirectParagraphScope", async (t) => {
 
   const innerRoot = root.querySelector("[data-tiqian-root]")!;
   assert.ok(innerRoot);
-  TiqianWeb.enhance(innerRoot as FakeElement & Element, testOptions());
-  TiqianWeb.enhance(root as FakeElement & Element, testOptions());
+  TiqianWeb.enhance(probe<Element>(innerRoot), testOptions());
+  TiqianWeb.enhance(probe<Element>(root), testOptions());
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(innerRoot.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.equal(root.querySelectorAll("p.outer[data-tq-rendered='true']").length, 1);
   assert.equal(root.querySelectorAll("p.inner[data-tq-rendered='true']").length, 1);
-  TiqianWeb.destroy(innerRoot as FakeElement & Element);
+  TiqianWeb.destroy(probe<Element>(innerRoot));
 });
 
 test("eligibility_statefulInlineObjectKeepsParagraphOriginal", async (t) => {
@@ -143,7 +145,7 @@ test("eligibility_statefulInlineObjectKeepsParagraphOriginal", async (t) => {
   `);
   const original = root.querySelector("p")!.innerHTML;
 
-  const count = TiqianWeb.enhance(root as FakeElement & Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 0);
   const paragraph = root.querySelector("p")!;
@@ -165,7 +167,7 @@ test("eligibility_blockImageOnlyParagraphIgnoredQuietly", async (t) => {
   const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
@@ -185,7 +187,7 @@ test("eligibility_textWithBlockImageFallsBackAtomically", async (t) => {
   const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(
@@ -207,7 +209,7 @@ test("eligibility_zeroAdvanceGlyphsKeepParagraphNative", async (t) => {
   const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  const count = TiqianWeb.enhance(root as FakeElement & Element);
+  const count = TiqianWeb.enhance(probe<Element>(root));
 
   // Since the Slice 4d-2b host switchover (ADR 0053) the wire face rejects a
   // computed font size of zero up front with InvalidFontSize; the paragraph
@@ -234,7 +236,7 @@ test("eligibility_unmodelableInlineFeatureStaysParagraphNative", async (t) => {
   const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
   assert.equal(

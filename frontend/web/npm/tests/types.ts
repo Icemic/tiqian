@@ -53,6 +53,13 @@ export interface FakeText extends FakeNodeBase {
   cloneNode(): FakeText;
 }
 
+export type FixtureProbeMeasureFn = (cssText: string) => void;
+
+export interface FakeAttributeEntry {
+  readonly name: string;
+  readonly value: string;
+}
+
 export interface FakeElement extends FakeNodeBase {
   readonly nodeType: 1;
   readonly tagName: string;
@@ -74,7 +81,7 @@ export interface FakeElement extends FakeNodeBase {
   closest(selector: string): FakeElement | null;
   _innerText: string | null;
   _fixtureProbeWidth?: number;
-  _onFixtureProbeMeasure?: (cssText: string) => void;
+  _onFixtureProbeMeasure?: FixtureProbeMeasureFn;
 }
 
 export interface FakeFragment extends FakeNodeBase {
@@ -82,9 +89,11 @@ export interface FakeFragment extends FakeNodeBase {
   cloneNode(deep?: boolean): FakeFragment;
 }
 
+export type FakeAttributeTuple = [string, string] & FakeAttributeEntry;
+
 export interface FakeAttributesMap extends Map<string, string> {
-  [Symbol.iterator](): IterableIterator<[string, string] & { name: string; value: string }>;
-  entries(): IterableIterator<[string, string] & { name: string; value: string }>;
+  [Symbol.iterator](): IterableIterator<FakeAttributeTuple>;
+  entries(): IterableIterator<FakeAttributeTuple>;
 }
 
 export interface FakeInlineStyle {
@@ -97,22 +106,33 @@ export interface FakeInlineStyle {
   cssText: string;
 }
 
+export type FakeFontLoadFn = (descriptor: unknown, text: string) => Promise<unknown[]>;
+export type FakeFontEventListenerFn = () => void;
+
+export interface FakeFonts {
+  readonly load: FakeFontLoadFn;
+  readonly addEventListener: FakeFontEventListenerFn;
+  readonly removeEventListener: FakeFontEventListenerFn;
+}
+
+export interface FakeRangeRect {
+  readonly width: number;
+}
+
+export interface FakeRange {
+  selectNodeContents(node: FakeNode): void;
+  getBoundingClientRect(): FakeRangeRect;
+}
+
 export interface FakeDocument {
   readonly baseURI: string;
   readonly elements: Map<string, unknown>;
   readonly styleSheets: unknown[];
   readonly listeners: Map<string, unknown>;
-  readonly fonts: {
-    load: (descriptor: unknown, text: string) => Promise<unknown[]>;
-    addEventListener: () => void;
-    removeEventListener: () => void;
-  };
+  readonly fonts: FakeFonts;
   createDocumentFragment(): FakeFragment;
   createElement(tagName: string): FakeElement;
-  createRange(): {
-    selectNodeContents(node: FakeNode): void;
-    getBoundingClientRect(): { width: number };
-  };
+  createRange(): FakeRange;
   getElementById(id: string): FakeElement | null;
   querySelector(selector: string): FakeElement | null;
   querySelectorAll(selector: string): FakeElement[];
@@ -155,6 +175,17 @@ export interface FakeSelection {
   toString(): string;
 }
 
+export interface FakeDOMRectJSON {
+  readonly x: number;
+  readonly y: number;
+  readonly top: number;
+  readonly left: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface FakeDOMRect {
   readonly x: number;
   readonly y: number;
@@ -164,16 +195,7 @@ export interface FakeDOMRect {
   readonly left: number;
   readonly right: number;
   readonly bottom: number;
-  toJSON(): {
-    x: number;
-    y: number;
-    top: number;
-    left: number;
-    right: number;
-    bottom: number;
-    width: number;
-    height: number;
-  };
+  toJSON(): FakeDOMRectJSON;
 }
 
 // ---- snapshot-dom-fixtures exports ----
@@ -190,8 +212,12 @@ export interface Sha256Fn {
   (value: string): string;
 }
 
+export interface FakeStyleDeclaration {
+  getPropertyValue(name: string): string;
+}
+
 export interface StyleDeclarationFn {
-  (values: Record<string, string>): { getPropertyValue(name: string): string };
+  (values: Record<string, string>): FakeStyleDeclaration;
 }
 
 // ---- browser-fonts-fixtures exports ----
@@ -213,34 +239,46 @@ export interface SnapshotRootFn {
   (manifest: Record<string, unknown>, documentOverrides?: Record<string, unknown>): Record<string, unknown>;
 }
 
+export type VoidCountFn = () => number;
+
+export interface HarnessResult {
+  readonly loader: unknown;
+  readonly root: Record<string, unknown>;
+  readonly requests: unknown[];
+  readonly createCalls: unknown[];
+  readonly sessions: unknown[];
+  readonly contractCalls: unknown[];
+  readonly preparedContractCalls: unknown[];
+  readonly renderFaceCreates: unknown[];
+  readonly renderFaceAdds: unknown[];
+  readonly renderFaceDeletes: unknown[];
+  readonly renderFontSourceCreates: unknown[];
+  readonly renderFontSourceReleases: unknown[];
+  readonly fontLoads: unknown[];
+  readonly closeCount: VoidCountFn;
+}
+
 export interface HarnessFn {
-  (manifest: Record<string, unknown>, options?: Record<string, unknown>): {
-    loader: unknown;
-    root: Record<string, unknown>;
-    requests: unknown[];
-    createCalls: unknown[];
-    sessions: unknown[];
-    contractCalls: unknown[];
-    preparedContractCalls: unknown[];
-    renderFaceCreates: unknown[];
-    renderFaceAdds: unknown[];
-    renderFaceDeletes: unknown[];
-    renderFontSourceCreates: unknown[];
-    renderFontSourceReleases: unknown[];
-    fontLoads: unknown[];
-    closeCount: () => number;
-  };
+  (manifest: Record<string, unknown>, options?: Record<string, unknown>): HarnessResult;
+}
+
+export interface CurrentTableInfo {
+  readonly url: string;
+  readonly bytes: Uint8Array;
+  readonly sha256: string;
 }
 
 export interface GetCurrentTableFn {
-  (): { url: string; bytes: Uint8Array; sha256: string } | null;
+  (): CurrentTableInfo | null;
 }
 
 // ---- runtime-host exports ----
 
+export type VoidFn = () => void;
+
 export interface MountResult {
   readonly root: FakeElement;
-  readonly cleanup: () => void;
+  readonly cleanup: VoidFn;
 }
 
 export interface CleanupMountedFn {
@@ -259,8 +297,14 @@ export interface InstallTestAnimationFramesFn {
   (): void;
 }
 
+export type HostEnhanceFn = (root: Element, options?: unknown) => number;
+
+export interface HostRuntime {
+  readonly enhance: HostEnhanceFn;
+}
+
 export interface LoadHostRuntimeFn {
-  (): Promise<{ enhance: (root: Element, options?: unknown) => number }>;
+  (): Promise<HostRuntime>;
 }
 
 export interface DrainMicrotasksFn {
@@ -288,14 +332,48 @@ export interface DriveDeclaredFaceWakeTimelineFn {
 
 // ---- Timing golden record shape ----
 
+export interface TimingElementEvent {
+  readonly phase: string;
+  readonly type: string;
+  readonly detail: Record<string, unknown>;
+}
+
+export interface TimingDocumentEvent {
+  readonly phase: string;
+  readonly type: string;
+}
+
+export interface TimingDatasetWrite {
+  readonly phase: string;
+  readonly op: string;
+  readonly key: string;
+  readonly value: string | null;
+}
+
+export interface TimingAttributeWrite {
+  readonly phase: string;
+  readonly name: string;
+  readonly value: string | null;
+}
+
+export interface TimingObserverOp {
+  readonly op: string;
+  readonly target: string;
+}
+
+export interface TimingObserverActivity {
+  readonly id: number;
+  readonly ops: TimingObserverOp[];
+}
+
 export interface TimingGoldenRecord {
   readonly engineCalls: unknown[];
-  readonly elementEvents: Array<{ phase: string; type: string; detail: Record<string, unknown> }>;
-  readonly documentEvents: Array<{ phase: string; type: string }>;
-  readonly datasetWrites: Array<{ phase: string; op: string; key: string; value: string | null }>;
-  readonly attributeWrites: Array<{ phase: string; name: string; value: string | null }>;
+  readonly elementEvents: TimingElementEvent[];
+  readonly documentEvents: TimingDocumentEvent[];
+  readonly datasetWrites: TimingDatasetWrite[];
+  readonly attributeWrites: TimingAttributeWrite[];
   readonly fetchCalls: string[];
-  readonly observerActivity: Array<{ id: number; ops: Array<{ op: string; target: string }> }>;
+  readonly observerActivity: TimingObserverActivity[];
   readonly frameAdvanceCounts: Record<string, number>;
   readonly paragraphStates: Record<string, Record<string, unknown>>;
   readonly declaredWake?: Record<string, unknown>;

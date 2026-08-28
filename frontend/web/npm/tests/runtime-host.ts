@@ -5,15 +5,213 @@ import type { EnhancedElementContext } from "@tiqian/core/core/engine/context/en
 import type { ReplayMetricItem, ReplayShapeItem } from "@tiqian/core/core/measurement/replay-entry-codec.js";
 import type { GrantController, TiqianLayoutWorkerInstance } from "@tiqian/core/core/engine/coordination/coordination-service.js";
 
+export function probe<T>(value: unknown): T {
+  return value as T;
+}
+
 // Type definitions for test environment
 type FrameRequestCallback = (time: number) => void;
+type TimeRemainingFn = () => number;
 
 interface IdleCallbackArg {
   didTimeout: boolean;
-  timeRemaining: () => number;
+  timeRemaining: TimeRemainingFn;
 }
 
-type IdleRequestCallback = (callback: (arg: IdleCallbackArg) => number) => number;
+type IdleCallback = (arg: IdleCallbackArg) => number;
+type IdleRequestCallback = (callback: IdleCallback) => number;
+
+interface DOMRectJSON {
+  x: number;
+  y: number;
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+}
+
+interface EventInitOptions {
+  bubbles?: boolean;
+  cancelable?: boolean;
+  detail?: unknown;
+}
+
+interface ClipboardEventInitOptions extends EventInitOptions {
+  clipboardData?: unknown;
+}
+
+interface StylePropertyView {
+  columns?: string;
+  display?: string;
+  inlineSize?: string;
+  width?: string;
+  height?: string;
+  paddingLeft?: string;
+  paddingRight?: string;
+}
+
+type GetComputedStyleFn = (element: Element, pseudo?: string | null) => CSSStyleDeclaration;
+
+interface GlobalWithGetComputedStyle {
+  getComputedStyle?: GetComputedStyleFn;
+}
+
+interface GlobalWithDocument {
+  document?: FakeDocument;
+}
+
+type NowFn = () => number;
+
+interface PerformanceDouble {
+  now: NowFn;
+}
+
+interface GlobalWithPerformance {
+  performance: PerformanceDouble;
+}
+
+type GetSelectionFn = () => FakeSelection;
+
+interface GlobalWithSelection {
+  getSelection?: GetSelectionFn;
+}
+
+interface MultiColumnAncestor {
+  ancestor: FakeElement;
+  colWidth: number;
+  colGap: number;
+  colHeight: number;
+}
+
+interface HorizontalPadding {
+  left: number;
+  right: number;
+}
+
+export interface AttributeTupleEntry {
+  name: string;
+  value: string;
+}
+
+export type AttributeTuple = [string, string] & AttributeTupleEntry;
+
+type VoidCallback = () => void;
+type TimeCallback = (time: number) => void;
+type TimeoutCallback = (callback: VoidCallback, delay?: number) => number;
+type CancelIdleCallback = (id: number) => void;
+
+type RequestFrameFn = (callback: FrameRequestCallback) => number;
+type CancelFrameFn = (id: number) => void;
+type ClearTimeoutFn = (id: number) => void;
+
+interface TestAnimationFramesState {
+  originalRequest: RequestFrameFn;
+  originalCancel: CancelFrameFn;
+  originalRequestIdle?: IdleRequestCallback;
+  originalCancelIdle?: CancelIdleCallback;
+  originalSetTimeout: TimeoutCallback;
+  originalClearTimeout: ClearTimeoutFn;
+  callbacks: Map<number, TimeCallback | VoidCallback>;
+  nextId: number;
+  cancelled: number;
+  idleScheduled: number;
+  idleBudget: number;
+}
+
+type ArrayItemFn = (index: number) => unknown;
+
+interface ArrayWithItem {
+  item?: ArrayItemFn;
+}
+
+type ContainsFn = (other: FakeNode) => boolean;
+
+interface FakeNodeWithContains {
+  contains: ContainsFn;
+}
+
+type MatchesFn = (selector: string) => boolean;
+
+interface FakeNodeWithMatches {
+  matches: MatchesFn;
+}
+
+type ReplaceChildrenFn = (...nodes: FakeNode[]) => void;
+type ReplaceWithFn = (...nodes: FakeNode[]) => void;
+
+interface FakeNodePrototypeMethods {
+  replaceChildren: ReplaceChildrenFn;
+  replaceWith: ReplaceWithFn;
+}
+
+interface PreparedLivePlanCell {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  naturalWidth: number;
+  leadingLayoutAdvance: number;
+}
+
+type NodeContainsFn = (node: FakeNode | null) => boolean;
+interface NodeWithOptionalContains extends FakeNode {
+  contains?: NodeContainsFn;
+}
+
+type ObserverCallback = (records: unknown[]) => void;
+
+interface RuntimeServices {
+  layoutJobPool: unknown;
+}
+
+export interface GrantControllerDouble {
+  root: FakeElement;
+  generation: number;
+  deadline: number;
+  quota: number;
+  shouldStop(processed: number): boolean;
+}
+
+export interface SnapshotFontSessionFixtureOptions {
+  failShaping?: boolean;
+  failFamily?: string | null;
+  failText?: string | null;
+  varyFaceByText?: boolean;
+  corruptShapeError?: string | null;
+}
+
+interface FixtureGlyph {
+  id: number;
+  advanceEm: number;
+  xEm: number;
+  yEm: number;
+  boundsEm: number[];
+}
+
+interface LivePlanCell {
+  rangeStart: number;
+  rangeEnd: number;
+  source: string;
+  display: string;
+  drawX: number;
+  drawY: number;
+  width: number;
+  height: number;
+  ascender: number;
+  descender: number;
+  isEngineBreak: boolean;
+  isSpace: boolean;
+  line: number;
+  script: string;
+  style: number;
+}
+
+export interface MountOptions {
+  sharedStylesReady?: boolean;
+}
 
 // Read/write view of data-* attributes exposed through HostElement.dataset.
 interface DatasetView {
@@ -36,6 +234,7 @@ import assert from "node:assert/strict";
 import {
   FakeDocument,
   FakeElement,
+  type FakeElementClassList,
   FakeFragment,
   FakeInlineStyle,
   FakeNode,
@@ -73,16 +272,7 @@ export class FakeDOMRect {
     this.bottom = y + height;
   }
 
-  toJSON(): {
-    x: number;
-    y: number;
-    top: number;
-    left: number;
-    right: number;
-    bottom: number;
-    width: number;
-    height: number;
-  } {
+  toJSON(): DOMRectJSON {
     return {
       x: this.x,
       y: this.y,
@@ -105,7 +295,7 @@ export class FakeEvent {
   target: FakeNode | null;
   currentTarget: FakeNode | null;
 
-  constructor(type: string, init: { bubbles?: boolean; cancelable?: boolean; detail?: unknown } = {}) {
+  constructor(type: string, init: EventInitOptions = {}) {
     this.type = type;
     this.bubbles = init.bubbles ?? false;
     this.cancelable = init.cancelable ?? false;
@@ -121,7 +311,7 @@ export class FakeEvent {
 }
 
 export class FakeCustomEvent extends FakeEvent {
-  constructor(type: string, init: { bubbles?: boolean; cancelable?: boolean; detail?: unknown } = {}) {
+  constructor(type: string, init: EventInitOptions = {}) {
     super(type, init);
     this.detail = init.detail ?? null;
   }
@@ -130,7 +320,7 @@ export class FakeCustomEvent extends FakeEvent {
 export class FakeClipboardEvent extends FakeEvent {
   readonly clipboardData: unknown;
 
-  constructor(type: string, init: { bubbles?: boolean; cancelable?: boolean; detail?: unknown; clipboardData?: unknown } = {}) {
+  constructor(type: string, init: ClipboardEventInitOptions = {}) {
     super(type, init);
     this.clipboardData = init.clipboardData ?? null;
   }
@@ -183,7 +373,7 @@ export class FakeSelection {
 
   toString(): string {
     if (this._ranges.length === 0) return "";
-    return this._ranges.map((r) => (r as { toString: () => string }).toString()).join("");
+    return this._ranges.map((r) => String(r)).join("");
   }
 }
 
@@ -509,6 +699,10 @@ function parseStyleDeclarations(text: string, map: Map<string, string>, prioriti
 // style strings round-trip byte-identical until code mutates .style.
 const STYLE_ATTR_STALE = Symbol("styleAttrStale");
 
+interface StaleStyleMarker {
+  [STYLE_ATTR_STALE]?: VoidCallback;
+}
+
 function createStyleObject(element: FakeElement): CSSStyleDeclaration {
   const map = new Map<string, string>();
   const priorities = new Map<string, string>();
@@ -521,8 +715,8 @@ function createStyleObject(element: FakeElement): CSSStyleDeclaration {
       parseStyleDeclarations(attr, map, priorities);
     }
   };
-  return new Proxy({}, {
-    get(target: object, prop: string | symbol): unknown {
+  return probe<CSSStyleDeclaration>(new Proxy({}, {
+    get(target: Record<string | symbol, unknown>, prop: string | symbol): unknown {
       if (prop === STYLE_ATTR_STALE) {
         return () => { syncedFromAttr = false; };
       }
@@ -606,7 +800,7 @@ function createStyleObject(element: FakeElement): CSSStyleDeclaration {
       }
       return Reflect.get(target, prop);
     },
-    set(_target: object, prop: string | symbol, value: unknown): boolean {
+    set(_target: Record<string | symbol, unknown>, prop: string | symbol, value: unknown): boolean {
       if (prop === "cssText") {
         parseStyleDeclarations(String(value), map, priorities);
         updateStyleAttr();
@@ -628,14 +822,14 @@ function createStyleObject(element: FakeElement): CSSStyleDeclaration {
       }
       return Reflect.set(_target, prop, value);
     },
-    has(_target: object, prop: string | symbol): boolean {
+    has(_target: Record<string | symbol, unknown>, prop: string | symbol): boolean {
       if (typeof prop === "string") {
         const kebab = prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
         return map.has(kebab) || map.has(prop) || prop in _target;
       }
       return Reflect.has(_target, prop);
     },
-  }) as CSSStyleDeclaration;
+  }));
 
   function updateStyleAttr(): void {
     syncedFromAttr = true;
@@ -651,23 +845,42 @@ function createStyleObject(element: FakeElement): CSSStyleDeclaration {
   }
 }
 
-const stylesheetRules = new Map<string, Map<string, string>>();
-const parsedStylesheetRules: Array<{
+interface RuleDeclaration {
+  value: string;
+  important: boolean;
+}
+
+interface ParsedStylesheetRule {
   selector: string;
   specificity: number[];
   index: number;
-  declarations: Map<string, { value: string; important: boolean }>;
-}> = [];
-const parsedPseudoRules: Array<{
+  declarations: Map<string, RuleDeclaration>;
+}
+
+interface ParsedPseudoRule {
   selector: string;
   pseudo: string;
   specificity: number[];
   index: number;
-  declarations: Map<string, { value: string; important: boolean }>;
-}> = [];
+  declarations: Map<string, RuleDeclaration>;
+}
 
-function parseDeclarationBlock(declBlock: string): Map<string, { value: string; important: boolean }> {
-  const map = new Map<string, { value: string; important: boolean }>();
+interface BestRuleMatch<R = ParsedStylesheetRule> {
+  rule: R;
+  decl: RuleDeclaration;
+}
+
+interface SpecificityRule {
+  specificity: number[];
+  index: number;
+}
+
+const stylesheetRules = new Map<string, Map<string, string>>();
+const parsedStylesheetRules: ParsedStylesheetRule[] = [];
+const parsedPseudoRules: ParsedPseudoRule[] = [];
+
+function parseDeclarationBlock(declBlock: string): Map<string, RuleDeclaration> {
+  const map = new Map<string, RuleDeclaration>();
   const decls = declBlock.split(";");
   for (const decl of decls) {
     const colonIdx = decl.indexOf(":");
@@ -849,7 +1062,7 @@ function getStyleAttrProperty(element: FakeElement | null, name: string): string
     const idx = decl.indexOf(":");
     if (idx > 0) {
       const k = decl.slice(0, idx).trim().toLowerCase();
-      let v = decl.slice(idx + 1).trim();
+      const v = decl.slice(idx + 1).trim();
       if (!k || !v) continue;
       if (k === kebab) {
         result = v;
@@ -878,8 +1091,8 @@ function getStyleAttrProperty(element: FakeElement | null, name: string): string
 }
 
 function getStylesheetProperty(element: FakeElement, kebab: string): string {
-  let bestImportant: { rule: typeof parsedStylesheetRules[0]; decl: { value: string; important: boolean } } | null = null;
-  let bestNormal: { rule: typeof parsedStylesheetRules[0]; decl: { value: string; important: boolean } } | null = null;
+  let bestImportant: BestRuleMatch<ParsedStylesheetRule> | null = null;
+  let bestNormal: BestRuleMatch<ParsedStylesheetRule> | null = null;
 
   for (const rule of parsedStylesheetRules) {
     if (rule.declarations.has(kebab) || rule.declarations.has("all")) {
@@ -912,7 +1125,7 @@ function getStylesheetProperty(element: FakeElement, kebab: string): string {
 // The `all` shorthand competes for every property. Only the CSS-wide reset
 // keywords make sense on it in host stylesheets; other values (e.g. a font
 // shorthand) do not expand per-property here and are ignored.
-function allShorthandDecl(rule: typeof parsedStylesheetRules[0]): { value: string; important: boolean } | null {
+function allShorthandDecl(rule: ParsedStylesheetRule): RuleDeclaration | null {
   const decl = rule.declarations.get("all");
   if (!decl) return null;
   const value = String(decl.value).trim().toLowerCase();
@@ -932,8 +1145,8 @@ function allResetKeyword(value: string): string | null {
 }
 
 function getPseudoStylesheetProperty(element: FakeElement, kebab: string, pseudoKey: string): string {
-  let bestImportant: { rule: typeof parsedPseudoRules[0]; decl: { value: string; important: boolean } } | null = null;
-  let bestNormal: { rule: typeof parsedPseudoRules[0]; decl: { value: string; important: boolean } } | null = null;
+  let bestImportant: BestRuleMatch<ParsedPseudoRule> | null = null;
+  let bestNormal: BestRuleMatch<ParsedPseudoRule> | null = null;
 
   for (const rule of parsedPseudoRules) {
     if (rule.pseudo === pseudoKey && rule.declarations.has(kebab)) {
@@ -967,10 +1180,10 @@ function getPseudoStylesheetProperty(element: FakeElement, kebab: string, pseudo
 // rule wins the host cascade.
 function getPreparedValueStyleProperty(element: FakeElement, kebab: string): string {
   if (!element || element.nodeType !== 1) return "";
-  const doc = element.ownerDocument ?? (globalThis as unknown as { document?: FakeDocument }).document;
+  const doc = element.ownerDocument ?? probe<GlobalWithDocument>(globalThis).document;
   if (!doc) return "";
-  let bestImportant: { rule: { specificity: number[]; index: number }; decl: { value: string; important: boolean } } | null = null;
-  let bestNormal: { rule: { specificity: number[]; index: number }; decl: { value: string; important: boolean } } | null = null;
+  let bestImportant: BestRuleMatch<SpecificityRule> | null = null;
+  let bestNormal: BestRuleMatch<SpecificityRule> | null = null;
   let ruleIndex = 0;
   for (const parent of [doc.head, doc.body, doc.documentElement].filter(Boolean)) {
     for (const node of parent.childNodes ?? []) {
@@ -1104,9 +1317,9 @@ function resolveElementProperty(element: FakeElement, property: string, base: Re
   );
 }
 
-function getHorizontalPadding(element: FakeElement): { left: number; right: number } {
+function getHorizontalPadding(element: FakeElement): HorizontalPadding {
   if (!element || element.nodeType !== 1) return { left: 0, right: 0 };
-  const cs = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(element as unknown as Element);
+  const cs = probe<GlobalWithGetComputedStyle>(globalThis).getComputedStyle?.(probe<Element>(element));
   if (cs) {
     const pl = cs.getPropertyValue("padding-left") || cs.getPropertyValue("padding-inline-start");
     const pr = cs.getPropertyValue("padding-right") || cs.getPropertyValue("padding-inline-end");
@@ -1126,8 +1339,8 @@ function getHorizontalPadding(element: FakeElement): { left: number; right: numb
       }
     }
   } else if (element.style) {
-    const pl = (element.style.getPropertyValue?.("padding-left") || (element.style as unknown as { paddingLeft?: string }).paddingLeft) ?? "";
-    const pr = (element.style.getPropertyValue?.("padding-right") || (element.style as unknown as { paddingRight?: string }).paddingRight) ?? "";
+    const pl = (element.style.getPropertyValue?.("padding-left") || probe<StylePropertyView>(element.style).paddingLeft) ?? "";
+    const pr = (element.style.getPropertyValue?.("padding-right") || probe<StylePropertyView>(element.style).paddingRight) ?? "";
     if (pl || pr) {
       return { left: Number.parseFloat(pl) || 0, right: Number.parseFloat(pr) || 0 };
     }
@@ -1137,12 +1350,12 @@ function getHorizontalPadding(element: FakeElement): { left: number; right: numb
 
 function getElementExplicitWidth(element: FakeElement): number | null {
   if (!element || element.nodeType !== 1) return null;
-  const inlineSize = element.style?.getPropertyValue?.("inline-size") || (element.style as unknown as { inlineSize?: string }).inlineSize;
+  const inlineSize = element.style?.getPropertyValue?.("inline-size") || probe<StylePropertyView>(element.style).inlineSize;
   if (inlineSize) {
     const parsed = Number.parseFloat(inlineSize);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
   }
-  const styleWidth = element.style?.getPropertyValue?.("width") || (element.style as unknown as { width?: string }).width;
+  const styleWidth = element.style?.getPropertyValue?.("width") || probe<StylePropertyView>(element.style).width;
   if (styleWidth) {
     const parsed = Number.parseFloat(styleWidth);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
@@ -1168,7 +1381,7 @@ function getElementExplicitWidth(element: FakeElement): number | null {
 
 function readExplicitHeight(element: FakeElement): number | null {
   if (!element || element.nodeType !== 1) return null;
-  const styleHeight = element.style?.getPropertyValue?.("height") || (element.style as unknown as { height?: string }).height;
+  const styleHeight = element.style?.getPropertyValue?.("height") || probe<StylePropertyView>(element.style).height;
   if (styleHeight) {
     const parsed = Number.parseFloat(styleHeight);
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
@@ -1194,7 +1407,7 @@ function readExplicitHeight(element: FakeElement): number | null {
 function getBlockWidth(element: FakeElement): number {
   const selfExplicit = getElementExplicitWidth(element);
   if (selfExplicit != null) {
-    const cs = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(element as unknown as Element);
+    const cs = probe<GlobalWithGetComputedStyle>(globalThis).getComputedStyle?.(probe<Element>(element));
     const boxSizing = cs?.getPropertyValue?.("box-sizing") || "content-box";
     if (boxSizing === "border-box") {
       return selfExplicit;
@@ -1226,15 +1439,10 @@ function getBlockWidth(element: FakeElement): number {
   return Math.max(0, available);
 }
 
-function findMultiColumnAncestor(element: FakeElement): {
-  ancestor: FakeElement;
-  colWidth: number;
-  colGap: number;
-  colHeight: number;
-} | null {
+function findMultiColumnAncestor(element: FakeElement): MultiColumnAncestor | null {
   for (let curr = element.parentElement; curr; curr = curr.parentElement) {
     const styleAttr = curr.getAttribute?.("style") || "";
-    const inlineCol = curr.style?.getPropertyValue?.("columns") || (curr.style as unknown as { columns?: string }).columns;
+    const inlineCol = curr.style?.getPropertyValue?.("columns") || probe<StylePropertyView>(curr.style).columns;
     const combined = `${styleAttr}; columns: ${inlineCol || ""}`;
     const colMatch = /columns\s*:\s*(\d+(?:\.\d+)?)px(?:\s+auto)?/i.exec(combined);
     if (colMatch) {
@@ -1264,7 +1472,7 @@ function findMultiColumnAncestor(element: FakeElement): {
 
 function findContentSizedAncestor(element: FakeElement): FakeElement | null {
   for (let curr: FakeElement | null = element; curr; curr = curr.parentElement) {
-    const display = curr.style?.getPropertyValue?.("display") || (curr.style as unknown as { display?: string }).display || "";
+    const display = curr.style?.getPropertyValue?.("display") || probe<StylePropertyView>(curr.style).display || "";
     if (["inline-block", "inline-flex", "inline-grid", "flex", "grid"].includes(display) || curr.tagName === "FIGURE") {
       return curr;
     }
@@ -1352,16 +1560,15 @@ function inlineStartOffset(node: FakeNode): number {
 }
 
 export class FakeAttributesMap extends Map<string, string> {
-  override *[Symbol.iterator](): IterableIterator<[string, string] & { name: string; value: string }> {
+  override *[Symbol.iterator](): IterableIterator<AttributeTuple> {
     for (const [k, v] of super[Symbol.iterator]()) {
-      const item = [k, v] as [string, string] & { name: string; value: string };
-      item.name = k;
-      item.value = v;
+      const tuple: [string, string] = [k, v];
+      const item: AttributeTuple = Object.assign(tuple, { name: k, value: v });
       yield item;
     }
   }
 
-  override entries(): IterableIterator<[string, string] & { name: string; value: string }> {
+  override entries(): IterableIterator<AttributeTuple> {
     return this[Symbol.iterator]();
   }
 }
@@ -1380,21 +1587,21 @@ export class HostElement extends FakeElement {
   constructor(tagName: string) {
     super(tagName);
     this.attributes = new FakeAttributesMap();
-    this.ownerDocument = (globalThis as unknown as { document?: FakeDocument }).document ?? null;
+    this.ownerDocument = probe<GlobalWithDocument>(globalThis).document ?? null;
     this.style = createStyleObject(this) as CSSStyleDeclaration & FakeInlineStyle;
     this.listeners = new Map();
   }
 
-  get firstElementChild(): FakeElement | null {
-    return this.childNodes.find((n) => n.nodeType === 1) as FakeElement | null ?? null;
+  get firstElementChild(): HostElement | null {
+    return (this.childNodes.find((n) => n.nodeType === 1) as HostElement | null) ?? null;
   }
 
-  get lastElementChild(): FakeElement | null {
-    return (this.childNodes.filter((n) => n.nodeType === 1).pop() as FakeElement | null) ?? null;
+  get lastElementChild(): HostElement | null {
+    return (this.childNodes.filter((n) => n.nodeType === 1).pop() as HostElement | null) ?? null;
   }
 
-  get children(): FakeElement[] {
-    return this.childNodes.filter((n) => n.nodeType === 1) as FakeElement[];
+  get children(): HostElement[] {
+    return this.childNodes.filter((n): n is HostElement => n.nodeType === 1);
   }
 
   get clientWidth(): number {
@@ -1468,11 +1675,7 @@ export class HostElement extends FakeElement {
     }
   }
 
-  get classList(): {
-    contains: (cls: string) => boolean;
-    add: (...cls: string[]) => void;
-    remove: (...cls: string[]) => void;
-  } {
+  get classList(): FakeElementClassList {
     const getClasses = () => (this.getAttribute("class") || "").trim().split(/\s+/).filter(Boolean);
     return {
       contains: (cls: string) => getClasses().includes(cls),
@@ -1494,7 +1697,7 @@ export class HostElement extends FakeElement {
     if (name === "style") {
       // Wholesale attribute write: keep the string verbatim and mark the
       // declaration mirror stale; the next .style access reparses it.
-      (this.style as unknown as { [STYLE_ATTR_STALE]?: () => void })[STYLE_ATTR_STALE]?.();
+      probe<StaleStyleMarker>(this.style)[STYLE_ATTR_STALE]?.();
     }
   }
 
@@ -1518,10 +1721,10 @@ export class HostElement extends FakeElement {
 
   dispatchEvent(event: FakeEvent): boolean {
     event.target = this;
-    let curr: FakeElement | null = this as unknown as FakeElement;
+    let curr: FakeElement | null = this;
     while (curr) {
       event.currentTarget = curr;
-      const he = curr as unknown as HostElement;
+      const he = curr as HostElement;
       const set = he.listeners?.get(event.type);
       if (set) {
         for (const listener of Array.from(set)) {
@@ -1532,8 +1735,8 @@ export class HostElement extends FakeElement {
       curr = curr.parentElement;
     }
     if (event.bubbles && this.ownerDocument) {
-      event.currentTarget = this.ownerDocument as unknown as FakeNode;
-      const he = this.ownerDocument as unknown as HostElement;
+      event.currentTarget = probe<FakeNode>(this.ownerDocument);
+      const he = probe<HostElement>(this.ownerDocument);
       const docSet = he.listeners?.get(event.type);
       if (docSet) {
         for (const listener of Array.from(docSet)) {
@@ -1545,11 +1748,11 @@ export class HostElement extends FakeElement {
   }
 
   matches(selector: string): boolean {
-    return matchesHostSelector(this as unknown as FakeElement, selector);
+    return matchesHostSelector(this, selector);
   }
 
   override closest(selector: string): FakeElement | null {
-    let node: FakeElement | null = this as unknown as FakeElement;
+    let node: FakeElement | null = this;
     while (node) {
       if (node.nodeType === 1 && matchesHostSelector(node, selector)) return node;
       node = node.parentElement;
@@ -1573,7 +1776,7 @@ export class HostElement extends FakeElement {
     if (index < 0) throw new Error("NotFoundError");
     this.childNodes.splice(index, 0, newNode);
     newNode.parentNode = this;
-    newNode.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+    newNode.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
     return newNode;
   }
 
@@ -1582,18 +1785,11 @@ export class HostElement extends FakeElement {
     return this.removeChild(oldChild);
   }
 
-  override getBoundingClientRect(): {
-    width: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    height: number;
-  } {
-    const self = this as unknown as FakeElement;
+  override getBoundingClientRect(): DOMRect {
+    const self: FakeElement = this;
     let w = this.width;
     if (!w) {
-      const inlineSize = this.style?.getPropertyValue?.("inline-size") || (this.style as unknown as { inlineSize?: string }).inlineSize;
+      const inlineSize = this.style?.getPropertyValue?.("inline-size") || probe<StylePropertyView>(this.style).inlineSize;
       if (inlineSize) {
         const parsed = Number.parseFloat(inlineSize);
         if (!Number.isNaN(parsed) && parsed > 0) {
@@ -1645,7 +1841,7 @@ export class HostElement extends FakeElement {
                 }
               }
             }
-            const sw = curr.style?.getPropertyValue?.("width") || (curr.style as unknown as { width?: string }).width;
+            const sw = curr.style?.getPropertyValue?.("width") || probe<StylePropertyView>(curr.style).width;
             if (sw) {
               const p = Number.parseFloat(sw);
               if (!Number.isNaN(p) && p > 0) {
@@ -1657,7 +1853,7 @@ export class HostElement extends FakeElement {
           if (textLen === 0) {
             w = 0;
           } else {
-            const cs = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(this as unknown as Element);
+            const cs = probe<GlobalWithGetComputedStyle>(globalThis).getComputedStyle?.(probe<Element>(this));
             const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
             w = Math.min(availableWidth, pad.left + textLen * fontSize + pad.right);
           }
@@ -1668,7 +1864,7 @@ export class HostElement extends FakeElement {
     }
     if (w == null || (w === 0 && (this.textContent || "").length > 0)) w = 360;
     const explicitHeight = readExplicitHeight(self);
-    const cs = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(this as unknown as Element);
+    const cs = probe<GlobalWithGetComputedStyle>(globalThis).getComputedStyle?.(probe<Element>(this));
     const marginLeft = cs ? cssPx(cs.getPropertyValue("margin-left")) : 0;
     const isInline = [
       "STRONG", "SPAN", "EM", "A", "B", "I", "U", "MARK", "SMALL",
@@ -1679,21 +1875,14 @@ export class HostElement extends FakeElement {
     return new FakeDOMRect(left, this.top ?? 0, w, explicitHeight != null ? explicitHeight : (this.height || 30));
   }
 
-  override getClientRects(): Array<{
-    width: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    height: number;
-  }> {
-    const self = this as unknown as FakeElement;
+  override getClientRects(): DOMRect[] {
+    const self: FakeElement = this;
     const multiCol = findMultiColumnAncestor(self);
     if (multiCol) {
       const W = multiCol.colWidth;
       const G = multiCol.colGap;
       const H = multiCol.colHeight;
-      const cs = (globalThis as unknown as { getComputedStyle?: (element: Element, pseudo?: string | null) => CSSStyleDeclaration }).getComputedStyle?.(this as unknown as Element);
+      const cs = probe<GlobalWithGetComputedStyle>(globalThis).getComputedStyle?.(probe<Element>(this));
       const fontSize = (cs ? cssPx(cs.getPropertyValue("font-size")) : 18) || 18;
       const lineHeight = (cs ? cssPx(cs.getPropertyValue("line-height")) : 30) || 30;
       const linesPerCol = Math.max(1, Math.floor(H / lineHeight));
@@ -1701,14 +1890,7 @@ export class HostElement extends FakeElement {
       const capacityPerCol = linesPerCol * charsPerLine;
       const totalChars = (this.textContent || "").length;
       const numCols = Math.max(1, Math.ceil(totalChars / capacityPerCol));
-      const rects: Array<{
-        width: number;
-        left: number;
-        right: number;
-        top: number;
-        bottom: number;
-        height: number;
-      }> = [];
+      const rects: DOMRect[] = [];
       for (let i = 0; i < numCols; i++) {
         rects.push(new FakeDOMRect(i * (W + G), 0, W, H));
       }
@@ -1734,7 +1916,7 @@ export class HostElement extends FakeElement {
     const result: FakeElement[] = [];
     const visit = (node: FakeNode): void => {
       for (const child of node.childNodes) {
-        if (child.nodeType === 1 && matchesHostSelector(child as FakeElement, selector, this as unknown as FakeElement)) {
+        if (child.nodeType === 1 && matchesHostSelector(child as FakeElement, selector, this)) {
           result.push(child as FakeElement);
         }
         visit(child);
@@ -1798,7 +1980,7 @@ function parseHtmlNodes(html: string, doc: FakeDocument | null = defaultParserDo
 
   let match: RegExpExecArray | null;
   while ((match = tagRegex.exec(html)) !== null) {
-    const [full, tagName, attrStr, text] = match as unknown as [string, string | undefined, string | undefined, string | undefined];
+    const [full, tagName, attrStr, text] = match;
     if (text !== undefined) {
       if (text.length > 0) {
         const parent = stack[stack.length - 1];
@@ -1868,8 +2050,7 @@ function widestInlineSegment(container: FakeElement): number {
       current = 0;
       return;
     }
-    const classList = (element as FakeElement & { classList?: { contains(name: string): boolean } | null }).classList;
-    const isLineMarker = Boolean(classList && classList.contains("tq-line"));
+    const isLineMarker = Boolean(element.classList?.contains("tq-line"));
     if (isLineMarker) {
       max = Math.max(max, current);
       current = 0;
@@ -2088,14 +2269,14 @@ export function installTestAnimationFrames(): void {
     originalCancelIdle: (globalThis as Record<string, unknown>).cancelIdleCallback,
     originalSetTimeout: (globalThis as Record<string, unknown>).setTimeout,
     originalClearTimeout: (globalThis as Record<string, unknown>).clearTimeout,
-    callbacks: new Map<number, () => void>(),
+    callbacks: new Map<number, TimeCallback | VoidCallback>(),
     nextId: 1,
     cancelled: 0,
     idleScheduled: 0,
     idleBudget: 50,
   };
   (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames = tqInstallFrameState;
-  (globalThis as Record<string, unknown>).requestAnimationFrame = (callback: () => void): number => {
+  (globalThis as Record<string, unknown>).requestAnimationFrame = (callback: FrameRequestCallback): number => {
     const tqFrameId = tqInstallFrameState.nextId++;
     tqInstallFrameState.callbacks.set(tqFrameId, callback);
     return tqFrameId;
@@ -2103,7 +2284,7 @@ export function installTestAnimationFrames(): void {
   (globalThis as Record<string, unknown>).cancelAnimationFrame = (tqFrameId: number): void => {
     if (tqInstallFrameState.callbacks.delete(tqFrameId)) tqInstallFrameState.cancelled += 1;
   };
-  (globalThis as Record<string, unknown>).requestIdleCallback = (callback: (arg: { didTimeout: boolean; timeRemaining: () => number }) => void): number => {
+  (globalThis as Record<string, unknown>).requestIdleCallback = (callback: IdleCallback): number => {
     const tqIdleId = tqInstallFrameState.nextId++;
     tqInstallFrameState.idleScheduled += 1;
     tqInstallFrameState.callbacks.set(tqIdleId, () => callback({
@@ -2115,7 +2296,7 @@ export function installTestAnimationFrames(): void {
   (globalThis as Record<string, unknown>).cancelIdleCallback = (tqIdleId: number): void => {
     if (tqInstallFrameState.callbacks.delete(tqIdleId)) tqInstallFrameState.cancelled += 1;
   };
-  (globalThis as Record<string, unknown>).setTimeout = (callback: () => void): number => {
+  (globalThis as Record<string, unknown>).setTimeout = (callback: VoidCallback): number => {
     const tqTimerId = tqInstallFrameState.nextId++;
     tqInstallFrameState.callbacks.set(tqTimerId, callback);
     return tqTimerId;
@@ -2134,50 +2315,43 @@ export function installTestAnimationFrames(): void {
 }
 
 export function flushOneTestAnimationFrame(): number {
-  const tqFlushOneState = (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames;
+  const tqFlushOneState = probe<TestAnimationFramesState | undefined>((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames);
   if (!tqFlushOneState) return 0;
-  const tqFlushOneCallbacks = Array.from((tqFlushOneState as { callbacks: Map<number, (time: number) => void> }).callbacks.values());
-  (tqFlushOneState as { callbacks: Map<number, (time: number) => void> }).callbacks.clear();
-  for (const tqFlushOneCallback of tqFlushOneCallbacks) tqFlushOneCallback((globalThis as unknown as { performance: { now: () => number } }).performance.now());
+  const tqFlushOneCallbacks = [...tqFlushOneState.callbacks.values()];
+  tqFlushOneState.callbacks.clear();
+  const perf = probe<GlobalWithPerformance>(globalThis).performance;
+  for (const tqFlushOneCallback of tqFlushOneCallbacks) (tqFlushOneCallback as TimeCallback)(perf.now());
   return tqFlushOneCallbacks.length;
 }
 
 export function flushAllTestAnimationFrames(): number {
-  const tqFlushAllState = (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames;
+  const tqFlushAllState = probe<TestAnimationFramesState | undefined>((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames);
   if (!tqFlushAllState) return 0;
   let tqFlushAllSlices = 0;
-  while ((tqFlushAllState as { callbacks: Map<number, (time: number) => void> }).callbacks.size > 0) {
+  const perf = probe<GlobalWithPerformance>(globalThis).performance;
+  while (tqFlushAllState.callbacks.size > 0) {
     if (tqFlushAllSlices++ > 1000) throw new Error("animation frame test queue did not settle");
-    const tqFlushAllCallbacks = Array.from((tqFlushAllState as { callbacks: Map<number, (time: number) => void> }).callbacks.values());
-    (tqFlushAllState as { callbacks: Map<number, (time: number) => void> }).callbacks.clear();
-    for (const tqFlushAllCallback of tqFlushAllCallbacks) tqFlushAllCallback((globalThis as unknown as { performance: { now: () => number } }).performance.now());
+    const tqFlushAllCallbacks = [...tqFlushAllState.callbacks.values()];
+    tqFlushAllState.callbacks.clear();
+    for (const tqFlushAllCallback of tqFlushAllCallbacks) (tqFlushAllCallback as TimeCallback)(perf.now());
   }
   return tqFlushAllSlices;
 }
 
 export function pendingTestAnimationFrameCount(): number {
-  return (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames
-    ? ((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames as { callbacks: Map<number, () => void> }).callbacks.size
-    : 0;
+  const state = probe<TestAnimationFramesState | undefined>((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames);
+  return state ? state.callbacks.size : 0;
 }
 
 export function cancelledTestAnimationFrameCount(): number {
-  return (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames
-    ? ((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames as { cancelled: number }).cancelled
-    : 0;
+  const state = probe<TestAnimationFramesState | undefined>((globalThis as Record<string, unknown>).__TiqianTestAnimationFrames);
+  return state ? state.cancelled : 0;
 }
 
 export function restoreTestAnimationFrames(): void {
   const tqRestoreFrameState = (globalThis as Record<string, unknown>).__TiqianTestAnimationFrames;
   if (!tqRestoreFrameState) return;
-  const state = tqRestoreFrameState as {
-    originalRequest: (callback: FrameRequestCallback) => number;
-    originalCancel: (id: number) => void;
-    originalRequestIdle: (IdleRequestCallback | undefined);
-    originalCancelIdle: ((id: number) => void | undefined);
-    originalSetTimeout: (callback: () => void, delay?: number) => number;
-    originalClearTimeout: (id: number) => void;
-  };
+  const state = tqRestoreFrameState as TestAnimationFramesState;
   (globalThis as Record<string, unknown>).requestAnimationFrame = state.originalRequest;
   (globalThis as Record<string, unknown>).cancelAnimationFrame = state.originalCancel;
   if (state.originalRequestIdle === undefined) {
@@ -2204,7 +2378,7 @@ export function restoreTestAnimationFrames(): void {
 }
 
 // Ensure Array.prototype.item exists for NodeList compatibility with Kotlin/JS DOM.
-if (!(Array.prototype as object & { item?: unknown }).item) {
+if (!probe<ArrayWithItem>(Array.prototype).item) {
   Object.defineProperty(Array.prototype, "item", {
     value: function (this: unknown[], index: number) {
       return this[index] ?? null;
@@ -2214,7 +2388,7 @@ if (!(Array.prototype as object & { item?: unknown }).item) {
   });
 }
 
-(FakeNode.prototype as unknown as { contains: (other: FakeNode) => boolean }).contains = function contains(this: FakeNode, other: FakeNode): boolean {
+probe<FakeNodeWithContains>(FakeNode.prototype).contains = function contains(this: FakeNode, other: FakeNode): boolean {
   for (let node: FakeNode | null = other; node; node = node.parentNode) {
     if (node === this) return true;
   }
@@ -2239,7 +2413,7 @@ FakeNode.prototype.querySelector = function (selector: string): FakeElement | nu
   return this.querySelectorAll(selector)[0] ?? null;
 };
 
-(FakeNode.prototype as unknown as { matches: (selector: string) => boolean }).matches = function matches(this: FakeNode, selector: string): boolean {
+probe<FakeNodeWithMatches>(FakeNode.prototype).matches = function matches(this: FakeNode, selector: string): boolean {
   return matchesHostSelector(this as FakeElement, selector);
 };
 
@@ -2251,13 +2425,13 @@ export class HostNode extends FakeNode {
     return false;
   }
 }
-const HostNodeStatics = HostNode as unknown as Record<string, number>;
+const HostNodeStatics = probe<Record<string, number>>(HostNode);
 HostNodeStatics.TEXT_NODE = 3;
 HostNodeStatics.ELEMENT_NODE = 1;
 HostNodeStatics.DOCUMENT_FRAGMENT_NODE = 11;
 
 // Constructor statics are enrichment the fixtures class never declares.
-const FakeNodeStatics = FakeNode as unknown as Record<string, number>;
+const FakeNodeStatics = probe<Record<string, number>>(FakeNode);
 FakeNodeStatics.TEXT_NODE = 3;
 FakeNodeStatics.ELEMENT_NODE = 1;
 FakeNodeStatics.DOCUMENT_FRAGMENT_NODE = 11;
@@ -2307,11 +2481,16 @@ Object.defineProperty(FakeNode.prototype, "lastChild", {
 Object.defineProperty(FakeNode.prototype, "isConnected", {
   get() {
     let curr: FakeNode | null = this;
+    const doc = (globalThis as Record<string, unknown>).document as FakeNode | undefined;
     while (curr) {
-      if (curr === ((globalThis as Record<string, unknown>).document as FakeNode | undefined)) return true;
+      if (curr._isConnected !== undefined) return curr._isConnected;
+      if (curr.nodeType === 9 || (doc && curr === doc)) return true;
       curr = curr.parentNode;
     }
     return false;
+  },
+  set(value: boolean) {
+    this._isConnected = value;
   },
   configurable: true,
 });
@@ -2323,14 +2502,14 @@ FakeNode.prototype.appendChild = function appendChild(node: FakeNode): FakeNode 
       node.childNodes.shift();
       this.childNodes.push(child);
       child.parentNode = this;
-      child.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+      child.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
     }
     return node;
   }
   if (node.parentNode) node.parentNode.removeChild(node);
   this.childNodes.push(node);
   node.parentNode = this;
-  node.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+  node.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
   return node;
 };
 
@@ -2354,7 +2533,7 @@ FakeNode.prototype.insertBefore = function insertBefore(newNode: FakeNode, refer
   if (index < 0) throw new Error("NotFoundError");
   this.childNodes.splice(index, 0, newNode);
   newNode.parentNode = this;
-  newNode.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+  newNode.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
   return newNode;
 };
 
@@ -2365,10 +2544,7 @@ FakeNode.prototype.replaceChild = function replaceChild(newChild: FakeNode, oldC
 
 // replaceChildren/replaceWith are enrichment the fixtures never declare, so
 // the installs go through the same seam the runtime defines them on.
-const FakeNodePrototype = FakeNode.prototype as unknown as {
-  replaceChildren: (...nodes: FakeNode[]) => void;
-  replaceWith: (...nodes: FakeNode[]) => void;
-};
+const FakeNodePrototype = probe<FakeNodePrototypeMethods>(FakeNode.prototype);
 
 FakeNodePrototype.replaceChildren = function replaceChildren(this: FakeNode, ...nodes: FakeNode[]): void {
   while (this.firstChild) {
@@ -2384,13 +2560,13 @@ FakeNodePrototype.replaceChildren = function replaceChildren(this: FakeNode, ...
         node.childNodes.shift();
         this.childNodes.push(child);
         child.parentNode = this;
-        child.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+        child.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
       }
     } else {
       if (node.parentNode) node.parentNode.removeChild(node);
       this.childNodes.push(node);
       node.parentNode = this;
-      node.parentElement = this.nodeType === 1 ? (this as unknown as FakeElement) : null;
+      node.parentElement = this.nodeType === 1 ? (this as FakeElement) : null;
     }
   }
 };
@@ -2491,8 +2667,8 @@ export class FakeRange {
   intersectsNode(node: FakeNode): boolean {
     if (!node) return false;
     if (node === this.startContainer || node === this.endContainer) return true;
-    const startContainer = this.startContainer as (FakeNode & { contains?: (node: FakeNode | null) => boolean }) | null;
-    const nodeWithContains = node as FakeNode & { contains?: (node: FakeNode | null) => boolean };
+    const startContainer = this.startContainer as NodeWithOptionalContains | null;
+    const nodeWithContains = node as NodeWithOptionalContains;
     if (startContainer?.contains?.(node) || nodeWithContains.contains?.(startContainer)) return true;
     return false;
   }
@@ -2579,7 +2755,7 @@ export class FakeRange {
     return new FakeDOMRect(left, 0, width, 30);
   }
 
-  getClientRects(): Array<{ width: number; left: number; right: number; top: number; bottom: number; height: number }> {
+  getClientRects(): DOMRect[] {
     return [this.getBoundingClientRect()];
   }
 }
@@ -2614,7 +2790,7 @@ function createDocumentDouble(): FakeDocument {
       return globalThis.window ?? globalThis;
     },
     fonts: {
-      load: async () => [{}] as unknown[],
+      load: async () => [{}],
       check: () => true,
       addEventListener() {},
       removeEventListener() {},
@@ -2799,24 +2975,24 @@ export function buildWorld(): void {
   };
 
   (globalThis as Record<string, unknown>).MutationObserver = class {
-    constructor(callback: (mutations: unknown[]) => void) { this.callback = callback; }
-    callback: (mutations: unknown[]) => void;
+    constructor(callback: ObserverCallback) { this.callback = callback; }
+    callback: ObserverCallback;
     observe() {}
     disconnect() {}
     takeRecords() { return []; }
   };
 
   (globalThis as Record<string, unknown>).ResizeObserver = class {
-    constructor(callback: (entries: unknown[]) => void) { this.callback = callback; }
-    callback: (entries: unknown[]) => void;
+    constructor(callback: ObserverCallback) { this.callback = callback; }
+    callback: ObserverCallback;
     observe() {}
     unobserve() {}
     disconnect() {}
   };
 
   (globalThis as Record<string, unknown>).IntersectionObserver = class {
-    constructor(callback: (entries: unknown[]) => void) { this.callback = callback; }
-    callback: (entries: unknown[]) => void;
+    constructor(callback: ObserverCallback) { this.callback = callback; }
+    callback: ObserverCallback;
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -2834,8 +3010,8 @@ export function buildWorld(): void {
       windowListeners.get(type)?.delete(listener);
     };
     (globalThis as Record<string, unknown>).dispatchEvent = (event: FakeEvent) => {
-      event.target ??= globalThis as unknown as FakeNode;
-      event.currentTarget = globalThis as unknown as FakeNode;
+      event.target ??= probe<FakeNode>(globalThis);
+      event.currentTarget = probe<FakeNode>(globalThis);
       const set = windowListeners.get(event.type);
       if (set) {
         for (const listener of Array.from(set)) (listener as (event: FakeEvent) => void)(event);
@@ -2861,7 +3037,7 @@ export function cleanupWorld(): void {
   if (currentSelection) {
     currentSelection.removeAllRanges();
   }
-  const gtdoc = (globalThis as unknown as { document?: FakeDocument }).document;
+  const gtdoc = probe<GlobalWithDocument>(globalThis).document;
   if (gtdoc?.body) {
     while (gtdoc.body.firstChild) {
       gtdoc.body.removeChild(gtdoc.body.firstChild);
@@ -2881,7 +3057,7 @@ export function eventDetailInt(event: FakeEvent, name: string): number {
   return Number(event?.detail && (event.detail as Record<string, unknown>)[name]);
 }
 
-let runtimeServices: { layoutJobPool: unknown } | null = null;
+let runtimeServices: RuntimeServices | null = null;
 const contextsByRoot = new WeakMap<FakeElement, EnhancedElementContext>();
 
 export function contextForRoot(root: FakeElement): EnhancedElementContext {
@@ -2893,7 +3069,7 @@ export function contextForRoot(root: FakeElement): EnhancedElementContext {
   return context;
 }
 
-function requireRuntimeServices(): { layoutJobPool: unknown } {
+function requireRuntimeServices(): RuntimeServices {
   if (!runtimeServices) throw new Error("host runtime not loaded; call loadHostRuntime() first");
   return runtimeServices;
 }
@@ -2918,13 +3094,7 @@ export function detachViaChannel(root: FakeElement): void {
   detachRoot(contextForRoot(root), root as FakeElement & HTMLElement);
 }
 
-export function testGrantController(root: FakeElement, generation: number, deadlineMs: number, quota: number): {
-  root: FakeElement;
-  generation: number;
-  deadline: number;
-  quota: number;
-  shouldStop(processed: number): boolean;
-} {
+export function testGrantController(root: FakeElement, generation: number, deadlineMs: number, quota: number): GrantControllerDouble {
   return {
     root,
     generation,
@@ -2936,13 +3106,7 @@ export function testGrantController(root: FakeElement, generation: number, deadl
   };
 }
 
-export function installSnapshotFontSessionFixture(options: {
-  failShaping?: boolean;
-  failFamily?: string | null;
-  failText?: string | null;
-  varyFaceByText?: boolean;
-  corruptShapeError?: string | null;
-} = {}): void {
+export function installSnapshotFontSessionFixture(options: SnapshotFontSessionFixtureOptions = {}): void {
   const { failShaping = false, failFamily = null, failText = null, varyFaceByText = false, corruptShapeError = null } = options;
   (globalThis as Record<string, unknown>).__TiqianSnapshotFixtureActive = true;
   (globalThis as Record<string, unknown>).__TiqianSnapshotFontShapeCount = 0;
@@ -2965,7 +3129,7 @@ export function installSnapshotFontSessionFixture(options: {
         throw new Error("NoSnapshotFontFace:test");
       }
       (globalThis as Record<string, unknown>).__TiqianSnapshotFontShapeCount = ((globalThis as Record<string, unknown>).__TiqianSnapshotFontShapeCount as number) + 1;
-      const glyphs: Array<{ id: number; advanceEm: number; xEm: number; yEm: number; boundsEm: number[] }> = [];
+      const glyphs: FixtureGlyph[] = [];
       let glyphIndex = 0;
       for (const _point of displayText) {
         glyphs.push({
@@ -2977,7 +3141,8 @@ export function installSnapshotFontSessionFixture(options: {
         });
         glyphIndex++;
       }
-      const role = (JSON.parse(key) as unknown[])[5] as string;
+      const parsedKey: unknown = JSON.parse(key);
+      const role = Array.isArray(parsedKey) ? String(parsedKey[5]) : "";
       const features = role === "LatinText" && /[‘’“”]/u.test(displayText)
         ? ["pwid", "palt"]
         : [];
@@ -3032,10 +3197,10 @@ export function snapshotFontFallbackCount(): number {
 export function installPreparedWorkerIssue(detail: unknown): void {
   // The .mjs stub never carries version/semanticReplayRevision/release; the
   // assertion keeps the installed shape identical to the frozen host.
-  globalServices().coordination.layoutWorker = {
+  globalServices().coordination.layoutWorker = probe<TiqianLayoutWorkerInstance>({
     take: () => null,
     issue: () => detail as string | null,
-  } as unknown as TiqianLayoutWorkerInstance;
+  });
 }
 
 // One semantic entry of a serialized live-plan worker request.
@@ -3056,7 +3221,7 @@ interface LivePlanSemanticEntry {
 }
 
 export function installPreparedWorkerLivePlan(): void {
-  globalServices().coordination.layoutWorker = {
+  globalServices().coordination.layoutWorker = probe<TiqianLayoutWorkerInstance>({
     take(_element: unknown, _sessionKey: string, requestText: string): string {
       const request = JSON.parse(requestText) as Record<string, unknown>;
       const semantics: LivePlanSemanticEntry[] = Array.from(
@@ -3092,15 +3257,7 @@ export function installPreparedWorkerLivePlan(): void {
         const fields = record.split("\u001d");
         inlineGeometry[fields[0] + "-" + fields[1]] = Number(fields[2]) || charWidth;
       }
-      const cells: Array<{
-        rangeStart: number;
-        rangeEnd: number;
-        source: string;
-        display: string;
-        drawX: number;
-        naturalWidth: number;
-        leadingLayoutAdvance: number;
-      }> = [];
+      const cells: PreparedLivePlanCell[] = [];
       let drawX = indent;
       let index = 0;
       while (index < text.length) {
@@ -3147,7 +3304,7 @@ export function installPreparedWorkerLivePlan(): void {
       });
     },
     issue: () => null,
-  } as unknown as TiqianLayoutWorkerInstance;
+  });
 }
 
 export const enginePunctuationFeatureStyle = `
@@ -3258,13 +3415,13 @@ let runtimePromise: Promise<unknown> | undefined;
 // Typed accessors for the doubles this host installs on globalThis; call
 // sites never property-access an unknown-typed global directly.
 type GlobalDataTransferCtor = new () => FakeDataTransfer;
-type GlobalClipboardEventCtor = new (type: string, init: { bubbles?: boolean; cancelable?: boolean; clipboardData?: FakeDataTransfer }) => FakeClipboardEvent;
+type GlobalClipboardEventCtor = new (type: string, init: ClipboardEventInitOptions) => FakeClipboardEvent;
 
 function globalDataTransfer(): FakeDataTransfer {
   return new ((globalThis as Record<string, unknown>).DataTransfer as GlobalDataTransferCtor)();
 }
 
-function globalClipboardEvent(type: string, init: { bubbles?: boolean; cancelable?: boolean; clipboardData?: FakeDataTransfer }): FakeClipboardEvent {
+function globalClipboardEvent(type: string, init: ClipboardEventInitOptions): FakeClipboardEvent {
   return new ((globalThis as Record<string, unknown>).ClipboardEvent as GlobalClipboardEventCtor)(type, init);
 }
 
@@ -3502,13 +3659,13 @@ export function copyWasIntercepted(element: FakeElement): boolean {
 export const copySelectionWasIntercepted = copyWasIntercepted;
 
 export function clearSelection(): void {
-  const selection = (globalThis as unknown as { getSelection?: () => FakeSelection }).getSelection?.() as FakeSelection;
+  const selection = probe<GlobalWithSelection>(globalThis).getSelection?.();
   if (selection) selection.removeAllRanges();
 }
 
-const mounted: FakeElement[] = [];
+const mounted: HostElement[] = [];
 
-export function mount(html: string, { sharedStylesReady = true }: { sharedStylesReady?: boolean } = {}): FakeElement {
+export function mount(html: string, { sharedStylesReady = true }: MountOptions = {}): HostElement {
   buildWorld();
   const wrapper = new HostElement("div");
   wrapper.ownerDocument = (globalThis as Record<string, unknown>).document as FakeDocument;
@@ -3527,10 +3684,10 @@ export async function cleanupMounted(): Promise<void> {
   const bridge = tiqianWeb();
   for (const root of mounted) {
     try {
-      bridge?.destroy?.(root as FakeElement & Element);
+      bridge?.destroy?.(probe<Element>(root));
     } catch {}
     try {
-      bridge?.workerDetach?.(root as FakeElement & Element);
+      bridge?.workerDetach?.(probe<Element>(root));
     } catch {}
     root.parentNode?.removeChild?.(root);
   }

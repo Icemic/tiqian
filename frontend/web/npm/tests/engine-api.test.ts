@@ -12,6 +12,7 @@ import {
   loadHostRuntime,
   mount,
   preparedValueStyleProperty,
+  probe,
 } from "./runtime-host.js";
 import type { FakeElement } from "./snapshot-dom-fixtures.js";
 
@@ -24,7 +25,7 @@ test("engineApi_jsOptionsMapStrongToEmphasisMarks", async (t) => {
     </div>
   `);
 
-  TiqianWeb.enhance(root as FakeElement & Element, { strongAsEmphasisMarks: true });
+  TiqianWeb.enhance(probe<Element>(root), { strongAsEmphasisMarks: true });
 
   const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.querySelector("strong[data-tq-cjk-emphasis]"));
@@ -40,7 +41,7 @@ test("engineApi_enhanceWithoutOptionsUsesComputedMetrics", async (t) => {
     </div>
   `);
 
-  TiqianWeb.enhance(root as FakeElement & Element, {});
+  TiqianWeb.enhance(probe<Element>(root), {});
 
   const paragraph = root.querySelector("p")!;
   const line = paragraph.querySelector(".tq-line");
@@ -58,7 +59,7 @@ test("engineApi_enhanceFindsCustomElementRoots", async (t) => {
     </tiqian-prose>
   `);
 
-  TiqianWeb.enhance(root as FakeElement & Element, {});
+  TiqianWeb.enhance(probe<Element>(root), {});
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "1");
   assert.ok(root.querySelector(".tq-line"));
 });

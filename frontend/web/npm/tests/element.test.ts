@@ -77,16 +77,28 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     "window",
     "TiqianWeb",
   ];
+  type UnknownListener = (...args: unknown[]) => void;
+  type FontLoadResolve = (value: unknown) => void;
+  type TimeCallback = (time: number) => void;
+  type VoidCallback = () => void;
+
+  interface FakeParagraph {
+    textContent: string;
+    hasAttribute(): boolean;
+    getAttribute(): null;
+    querySelectorAll(): never[];
+  }
+
   const globals = preserveGlobals(globalNames);
   const documentListeners = new Map();
   const fontListeners = new Map();
-  const fontLoads: Array<(value: unknown) => void> = [];
+  const fontLoads: Array<FontLoadResolve> = [];
   const timers = new Set();
   let nextTimer = 1;
 
   class FakeMutationObserver {
-    callback: (...args: unknown[]) => void;
-    constructor(callback: (...args: unknown[]) => void) {
+    callback: UnknownListener;
+    constructor(callback: UnknownListener) {
       this.callback = callback;
     }
     observe() {}
@@ -98,13 +110,8 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     dataset: Record<string, string | undefined>;
     isConnected: boolean;
     parentElement: null;
-    listeners: Map<string, (...args: unknown[]) => void>;
-    paragraph: {
-      textContent: string;
-      hasAttribute(): boolean;
-      getAttribute(): null;
-      querySelectorAll(): never[];
-    };
+    listeners: Map<string, UnknownListener>;
+    paragraph: FakeParagraph;
     constructor() {
       this.attributes = new Map();
       this.dataset = {};
@@ -124,10 +131,10 @@ test("disabled is reversible and cancels stale initial font work", async () => {
         },
       };
     }
-    addEventListener(name: string, listener: (...args: unknown[]) => void) {
+    addEventListener(name: string, listener: UnknownListener) {
       this.listeners.set(name, listener);
     }
-    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
+    removeEventListener(name: string, listener: UnknownListener) {
       if (this.listeners.get(name) === listener) this.listeners.delete(name);
     }
     getAttribute(name: string) {
@@ -162,19 +169,19 @@ test("disabled is reversible and cancels stale initial font work", async () => {
     load() {
       return new Promise((resolve) => fontLoads.push(resolve));
     },
-    addEventListener(name: string, listener: (...args: unknown[]) => void) {
+    addEventListener(name: string, listener: UnknownListener) {
       fontListeners.set(name, listener);
     },
-    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
+    removeEventListener(name: string, listener: UnknownListener) {
       if (fontListeners.get(name) === listener) fontListeners.delete(name);
     },
   };
   const documentObject = {
     fonts,
-    addEventListener(name: string, listener: (...args: unknown[]) => void) {
+    addEventListener(name: string, listener: UnknownListener) {
       documentListeners.set(name, listener);
     },
-    removeEventListener(name: string, listener: (...args: unknown[]) => void) {
+    removeEventListener(name: string, listener: UnknownListener) {
       if (documentListeners.get(name) === listener) documentListeners.delete(name);
     },
     dispatchEvent() {},
@@ -211,12 +218,12 @@ test("disabled is reversible and cancels stale initial font work", async () => {
       },
     });
     (globalThis as Record<string, unknown>)["MutationObserver"] = FakeMutationObserver;
-    (globalThis as Record<string, unknown>)["requestAnimationFrame"] = (callback: (time: number) => void) => {
+    (globalThis as Record<string, unknown>)["requestAnimationFrame"] = (callback: TimeCallback) => {
       queueMicrotask(() => callback(0));
       return 1;
     };
     (globalThis as Record<string, unknown>)["cancelAnimationFrame"] = () => {};
-    (globalThis as Record<string, unknown>)["setTimeout"] = (callback: () => void) => {
+    (globalThis as Record<string, unknown>)["setTimeout"] = (callback: VoidCallback) => {
       const id = nextTimer++;
       queueMicrotask(() => {
         if (!timers.has(id)) callback();

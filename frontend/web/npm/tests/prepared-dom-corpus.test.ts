@@ -16,11 +16,14 @@ const fixture = JSON.parse(
   readFileSync(new URL("./prepared-dom-corpus.fixture.json", import.meta.url), "utf8"),
 );
 
-const STYLE_CLASS_MODES: Record<string, (declaration: string) => string> = {
+type StyleClassForFn = (declaration: string) => string;
+type EmphasisDotColorFn = () => string;
+
+const STYLE_CLASS_MODES: Record<string, StyleClassForFn> = {
   "declaration-length": (declaration: string) => `tqc-${declaration.length}`,
 };
 
-const EMPHASIS_DOT_COLOR_MODES: Record<string, () => string> = {
+const EMPHASIS_DOT_COLOR_MODES: Record<string, EmphasisDotColorFn> = {
   "fixed-color": () => "rgb(17, 34, 51)",
 };
 

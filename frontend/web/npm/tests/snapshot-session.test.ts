@@ -26,6 +26,7 @@ import {
   loadHostRuntime,
   mount,
   preparedValueStyleProperty,
+  probe,
   testOptions,
 } from "./runtime-host.js";
 
@@ -55,7 +56,7 @@ test("snapshotSession_canonicalPreparedParagraphFallsBackIntoRuntimeCleanly", as
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
@@ -78,7 +79,7 @@ test("snapshotSession_canonicalFallbackSamplesHostLineHeightBeforeLowering", asy
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root)), 1);
 
   const paragraph = root.querySelector("#prepared-fallback")!;
   const line = paragraph.querySelector(":scope > .tq-line")!;
@@ -98,7 +99,7 @@ test("snapshotSession_conformingSessionShapesViaSharedBackendAndPreparedDomBridg
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -124,7 +125,7 @@ test("snapshotSession_semanticParagraphShapedBeforeRuntimeDomReplay", async (t) 
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -148,7 +149,7 @@ test("snapshotSession_faceEvidenceDoesNotFragmentOrdinaryDomText", async (t) => 
   `);
   const options = { ...snapshotTestOptions(), paragraphSelector: "p" };
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), options), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(
@@ -172,7 +173,7 @@ test("snapshotSession_unsupportedFontRunFallsBackPerRunNotPerParagraph", async (
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontShapeCount() > 0);
@@ -196,7 +197,7 @@ test("snapshotSession_workerReplayMissFallsBackOnlyForRichRun", async (t) => {
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root as unknown as Element, { ...snapshotTestOptions(), requireSnapshotLayoutWorker: true }),
+    TiqianWeb.enhance(probe<Element>(root), { ...snapshotTestOptions(), requireSnapshotLayoutWorker: true }),
     1,
   );
 
@@ -221,7 +222,7 @@ test("snapshotSession_workerPlanReplaysLiveSemanticsFromSourceElements", async (
   `);
   const paragraph = root.querySelector("p")!;
   const enhanced = TiqianWeb.enhance(
-    root as unknown as Element,
+    probe<Element>(root),
     {
       ...snapshotTestOptions(),
       paragraphSelector: "p:not([data-tq-snapshot-key])",
@@ -270,7 +271,7 @@ test("snapshotSession_unkeyedCompletionFailsClosedWhenDashNonConforming", async 
   // whose snapshot session fails one run retries the whole paragraph with
   // browser metrics; the dash run then fails closed when the dash capability
   // is non-conforming, and the paragraph stays native.
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), options), 0);
 
   const paragraph = root.querySelector("p")!;
   assert.ok(snapshotFontFallbackCount() > 0);
@@ -296,7 +297,7 @@ test("snapshotSession_fallbackParagraphUsesBrowserLineMetrics", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 2);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions()), 2);
 
   const paragraphs = root.querySelectorAll("p");
   const snapshotParagraph = paragraphs[0];
@@ -331,7 +332,7 @@ test("snapshotSession_browserFallbackCarriesLatinQuoteFeaturesIntoPlan", async (
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -356,7 +357,7 @@ test("snapshotSession_browserFallbackMeasuresAndReplaysLatinCurlyQuoteFeatures",
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const featureRuns = paragraph.querySelectorAll(
@@ -392,7 +393,7 @@ test("snapshotSession_quoteContextMatrixReplaysOnlyLatinQuoteFeatures", async (t
   );
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), cases.length);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), cases.length);
 
   const assertCases = () => {
     const paragraphs = root.querySelectorAll("p");
@@ -429,7 +430,7 @@ test("snapshotSession_unavailableFaceFallsBackToBrowserPipeline", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -450,7 +451,7 @@ test("snapshotSession_layoutOptionOverrideCannotReuseSnapshotSession", async (t)
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, { ...snapshotTestOptions(), fontSize: 24 });
+  const count = TiqianWeb.enhance(probe<Element>(root), { ...snapshotTestOptions(), fontSize: 24 });
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -468,7 +469,7 @@ test("snapshotSession_dashParagraphNativeWithoutVerifiableFontSource", async (t)
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
 
   const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.textContent.includes("中文——中文。"));
@@ -495,7 +496,7 @@ test("snapshotSession_conformingDashEvidenceWithoutSnapshotSessionReportsMissing
     },
   };
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), options), 0);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(

@@ -11,6 +11,9 @@ import { initializeGlobalServices } from "@tiqian/core/core/services/global-serv
 initializeGlobalServices();
 
 
+type ClassifyRoleFn = (text: string, start: number, end: number) => string;
+type ActionFn<T> = () => T;
+
 // Controllable role stub: CJK ideographs are cjk-text, full-width punctuation
 // is cjk-punctuation, everything else is a latin run. The engine only treats
 // the first two as CJK.
@@ -21,7 +24,7 @@ function cjkRoleStub(text: string, start: number, end: number) {
   return "latin";
 }
 
-function lowerParagraph(html: string, options: Record<string, unknown> = {}, roleStub: (text: string, start: number, end: number) => string = cjkRoleStub) {
+function lowerParagraph(html: string, options: Record<string, unknown> = {}, roleStub: ClassifyRoleFn = cjkRoleStub) {
   const root = mount(`<div data-tiqian-root="true">${html}</div>`);
   const paragraph = root.querySelector("p");
   assert.ok(paragraph, "mount must produce a <p>");
@@ -92,13 +95,13 @@ function lowerParagraphWithShapingDecision(html: string, options: Record<string,
 // overrides map for the given lowercase property names; everything else keeps
 // the host computed style. Mirrors the withGetComputedStyle precedent in
 // responsive-measure-bridge.test.ts.
-function withComputedStyleOverride(overrides: Record<string, string>, fn: () => any) {
+function withComputedStyleOverride<T>(overrides: Record<string, string>, fn: ActionFn<T>): T {
   return withComputedStyleOverrideFor(null, overrides, fn);
 }
 
 // Element-scoped variant: the overrides apply to one element only, so a
 // paragraph and a styled child can carry different computed values.
-function withComputedStyleOverrideFor(element: Element | null, overrides: Record<string, string>, fn: () => any) {
+function withComputedStyleOverrideFor<T>(element: Element | null, overrides: Record<string, string>, fn: ActionFn<T>): T {
   const real = globalThis.getComputedStyle;
   globalThis.getComputedStyle = (target, pseudo) => {
     const style = real(target, pseudo);

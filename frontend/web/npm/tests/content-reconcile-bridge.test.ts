@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanupMounted, mount } from "./runtime-host.js";
+import { cleanupMounted, mount, probe } from "./runtime-host.js";
 import type { FakeElement, FakeNode } from "./snapshot-dom-fixtures.js";
 import {
   classifyReconcile,
@@ -26,14 +26,19 @@ import { initializeGlobalServices } from "@tiqian/core/core/services/global-serv
 initializeGlobalServices();
 
 
+type AfterHookFn = () => void;
+interface TestContextLike {
+  after(fn: AfterHookFn): void;
+}
+
 // Move a mounted paragraph into the enhanced state on the given context: take
 // the host children into the raw-DOM backup, publish the fragment, write one
 // engine-owned rendered child (through the engine-write suspension), and
 // stamp the rendered output. The rawDom records live on the context, so the
 // caller must reuse this same context for probes and preparation.
-function enhanceParagraph(context: ReturnType<typeof createEnhanceContext>, paragraph: FakeElement, t: { after: (fn: () => void) => void }) {
+function enhanceParagraph(context: ReturnType<typeof createEnhanceContext>, paragraph: FakeElement, t: TestContextLike) {
   t.after(cleanupMounted);
-  const source = paragraph as unknown as Element;
+  const source = probe<Element>(paragraph);
   rawDomBegin(
     context,
     source,
@@ -57,7 +62,7 @@ function enhanceParagraph(context: ReturnType<typeof createEnhanceContext>, para
   rawDomSuspendEngineWrites(context, source, () => {
     rendered = globalThis.document.createElement("span");
     rendered.textContent = "rendered";
-    paragraph.appendChild(rendered as unknown as FakeNode);
+    paragraph.appendChild(probe<FakeNode>(rendered));
   });
   rawDomStampRendered(context, source);
   return rendered;
@@ -80,7 +85,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
       <p style="font-size: 18px; line-height: 30px">enhanced drift probe</p>
     </div>
   `);
-  const context = createEnhanceContext((root.querySelector("p") || globalThis.document.createElement("p")) as FakeElement & Element);
+  const context = createEnhanceContext(probe<Element>(root.querySelector("p") || globalThis.document.createElement("p")));
   assert.deepEqual(
     probeContentDrift(context, []),
     { unknown: 0, drifted: 0, dead: 0, rawDom: 0 },
@@ -91,7 +96,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
   assert.ok(rendered);
   paragraph.removeChild(rendered);
 
-  assert.deepEqual(probeContentDrift(context, [paragraph as unknown as Element]), {
+  assert.deepEqual(probeContentDrift(context, [probe<Element>(paragraph)]), {
     unknown: 0,
     drifted: 1,
     dead: 0,
@@ -103,7 +108,7 @@ test("contentReconcileProbe_countsDeadDriftAndRawDom", (t) => {
     <div data-tiqian-root="true"><p>detached paragraph</p></div>
   `).querySelector("p")!;
   detached.remove();
-  assert.deepEqual(probeContentDrift(context, [detached as unknown as Element]), {
+  assert.deepEqual(probeContentDrift(context, [probe<Element>(detached)]), {
     unknown: 0,
     drifted: 0,
     dead: 1,
@@ -118,11 +123,11 @@ test("contentReconcileProbe_staysReadOnly", (t) => {
     </div>
   `);
   const paragraph = root.querySelector("p")!;
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   enhanceParagraph(context, paragraph, t);
   const beforeNodes = Array.from(paragraph.childNodes);
 
-  probeContentDrift(context, [paragraph as unknown as Element]);
+  probeContentDrift(context, [probe<Element>(paragraph)]);
 
   const afterNodes = Array.from(paragraph.childNodes);
   assert.equal(afterNodes.length, beforeNodes.length);
@@ -161,7 +166,7 @@ test("contentReconcileClassify_verdicts", (t) => {
   const spec = {
     trackedSources: [],
     tainted: [],
-    strandedCandidates: [pStranded as unknown as Element, pSkipped as unknown as Element],
+    strandedCandidates: [probe<Element>(pStranded), probe<Element>(pSkipped)],
     rootSelector: "tiqian-prose, [data-tiqian-root]",
   };
   const verdict = classifyReconcile(context, spec);
@@ -169,7 +174,7 @@ test("contentReconcileClassify_verdicts", (t) => {
   assert.deepEqual(verdict.drifted, []);
   assert.deepEqual(verdict.rawDom, []);
   assert.deepEqual(verdict.tainted, []);
-  assert.deepEqual(verdict.stranded, [pStranded as unknown as Element]);
+  assert.deepEqual(verdict.stranded, [probe<Element>(pStranded)]);
   assert.equal(verdict.dead, 0);
 });
 
@@ -180,16 +185,16 @@ test("contentReconcilePrepare_restoresShellAndStamps", (t) => {
     </div>
   `);
   const paragraph = root.querySelector("p")!;
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   const rendered = enhanceParagraph(context, paragraph, t);
 
   assert.ok(paragraph.firstChild);
-  paragraph.removeChild(rendered as unknown as FakeNode);
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), false);
+  paragraph.removeChild(probe<FakeNode>(rendered));
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), false);
 
-  prepareTrackedParagraphForRelowering(context, paragraph as unknown as HTMLElement);
+  prepareTrackedParagraphForRelowering(context, probe<HTMLElement>(paragraph));
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), true);
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), true);
 });
 
 test("contentReconcileStrip_removesEngineMarkup", (t) => {
@@ -208,8 +213,8 @@ test("contentReconcileStrip_removesEngineMarkup", (t) => {
   const clonedParagraph = root.querySelector("p")!;
   assert.ok(clonedParagraph);
 
-  const context = createEnhanceContext(clonedParagraph as unknown as Element);
-  stripEngineMarkupFromStrandedParagraph(context, clonedParagraph as unknown as HTMLElement);
+  const context = createEnhanceContext(probe<Element>(clonedParagraph));
+  stripEngineMarkupFromStrandedParagraph(context, probe<HTMLElement>(clonedParagraph));
 
   assert.equal(clonedParagraph.querySelectorAll("[data-tq-hard-break]").length, 0);
   assert.ok(clonedParagraph.querySelector("br"), "bare br must exist");

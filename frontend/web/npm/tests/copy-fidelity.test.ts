@@ -16,6 +16,7 @@ import {
   copyWasIntercepted,
   loadHostRuntime,
   mount,
+  probe,
   testOptions,
 } from "./runtime-host.js";
 import type { FakeElement } from "./snapshot-dom-fixtures.js";
@@ -82,7 +83,7 @@ test("copyFidelity_crossParagraphClipboardKeepsOnlySourceBoundaries", async (t) 
       "<p>第二段也会折行，<a class='host-link' href='/target/'>链接仍然保留</a>。</p>" +
       "</div>",
   );
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 2);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 2);
 
   assert.equal(
     copiedData(root, "text/plain"),
@@ -131,7 +132,7 @@ test("copyFidelity_hardBreakCopiedSoftWrapsOmitted", async (t) => {
       `<p>${source}<br>显式换行之后。</p>` +
       "</div>",
   );
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 2);
 
@@ -157,7 +158,7 @@ test("copyFidelity_engineHyphenGlyphsOmittedFromCopy", async (t) => {
   const root = mount(
     "<div data-tiqian-root='true' style='width: 64px'><p>" + source + "</p></div>",
   );
-  assert.equal(TiqianWeb.enhance(root as FakeElement & Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   // The prepared renderer marks engine hyphens explicitly; the line-end

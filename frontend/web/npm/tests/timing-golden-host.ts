@@ -54,6 +54,7 @@
 import {
   FakeDocument,
   FakeElement,
+  FakeEvent,
   FakeFragment,
   FakeNode,
   FakeText,
@@ -69,27 +70,31 @@ import { FONT_REPLAY_REVISION, stableStringify } from "@tiqian/core/snapshot-sch
 import { writeBinaryTable } from "@tiqian/core/table-binary-writer.mjs";
 import { INTERNAL_DISPATCH_MARKER } from "@tiqian/core/core/engine/enhance/event-channel.js";
 
-interface FakeEvent {
-  readonly type: string;
-  readonly detail: unknown;
-  readonly bubbles?: boolean;
-  readonly composed?: boolean;
-}
+import { probe } from "./runtime-host.js";
 
 let activeEnginePhase = "";
 
 const CONTEXT_DESCRIPTOR_MARKERS = ["contextState", "optionsLedger", "typography", "domWriteLayer"];
 
+type ConstructFn<T> = () => T;
+type FlushPendingFn = () => void;
+type TeardownFn = () => void;
+type RestoreFn = () => void;
+type EventChannelSend = (kind: string, detail: unknown) => unknown;
+type EventChannelWrapper = (original: EventChannelSend) => EventChannelSend;
+type LifecycleCallback = () => void;
+type FakeDispatchEvent = (event: FakeEvent) => boolean;
+
 interface RecordingEngine {
-  captureContextDuring: <T>(construct: () => T) => T;
-  flushPending: () => void;
-  teardown: () => void;
+  captureContextDuring<T>(construct: ConstructFn<T>): T;
+  flushPending: FlushPendingFn;
+  teardown: TeardownFn;
 }
 
 function installRecordingEngine(record: TimingGoldenRecord, initialPhase: string): RecordingEngine {
   activeEnginePhase = initialPhase;
 
-  const restores: Array<() => void> = [];
+  const restores: RestoreFn[] = [];
   const recordEvent = (type: string, detail: unknown): void => {
     record.elementEvents.push({
       phase: activeEnginePhase,
@@ -100,8 +105,7 @@ function installRecordingEngine(record: TimingGoldenRecord, initialPhase: string
 
   // ---- Context part-method shims (installed once the context is captured) -
   const wrapCapturedContext = (context: Record<string, unknown>): void => {
-    type EventChannelSend = (kind: string, detail: unknown) => unknown;
-    const wrapPart = (partName: string, key: string, wrapper: (original: EventChannelSend) => EventChannelSend): void => {
+    const wrapPart = (partName: string, key: string, wrapper: EventChannelWrapper): void => {
       const part = context[partName] as Record<string, unknown> | undefined;
       if (!part) return;
       const original = part[key] as EventChannelSend | undefined;
@@ -130,17 +134,18 @@ function installRecordingEngine(record: TimingGoldenRecord, initialPhase: string
   // descriptor map and captures the context. The private #context field that
   // holds it is otherwise unreachable.
   const realDefineProperties = Object.defineProperties;
-  const captureContextDuring = <T>(construct: () => T): T => {
+  const captureContextDuring = <T>(construct: ConstructFn<T>): T => {
     let captured: Record<string, unknown> | null = null;
-    Object.defineProperties = function (target: object, properties: PropertyDescriptorMap): object {
-      const result = realDefineProperties.call(Object, target, properties) as object;
+    const definePropertiesShim: typeof Object.defineProperties = function <TargetType>(target: TargetType, properties: PropertyDescriptorMap & ThisType<unknown>): TargetType {
+      const result = realDefineProperties.call(Object, probe<Record<string, unknown>>(target), properties);
       if (captured === null && properties &&
           CONTEXT_DESCRIPTOR_MARKERS.every((key) =>
             Object.prototype.hasOwnProperty.call(properties, key))) {
-        captured = target as unknown as Record<string, unknown>;
+        captured = probe<Record<string, unknown>>(target);
       }
-      return result;
-    } as typeof Object.defineProperties;
+      return probe<TargetType>(result);
+    };
+    Object.defineProperties = definePropertiesShim;
     try {
       return construct();
     } finally {
@@ -185,7 +190,8 @@ const typography = {
   fontVariationSettings: "normal",
   fontVariantNumeric: "normal",
 };
-const probe = {
+const probeFeatures: string[] = [];
+const probeEvidence = {
   text: "中国",
   advancePx: 36,
   fontSizePx: 18,
@@ -193,43 +199,45 @@ const probe = {
   italic: false,
   script: "Hani",
   language: "zh-Hans",
-  features: [] as string[],
+  features: probeFeatures,
 };
+const weightRange: [number, number] = [400, 400];
+const emptyAxes: Record<string, unknown> = {};
 const evidence = {
   family: "Fixture CJK",
   style: "normal",
-  weight: [400, 400] as [number, number],
+  weight: weightRange,
   unicodeRange: "U+4E00-9FFF",
   publicUrl: "/assets/fixture-deadbeef.woff2",
   sourceSha256: "a".repeat(64),
   sfntSha256: "b".repeat(64),
   faceIndex: 0,
   sourceOrder: 0,
-  axes: {} as Record<string, unknown>,
+  axes: emptyAxes,
   localNames: ["Fixture CJK", "FixtureCJK"],
   coverageText: "中国",
 };
 
-function buildWorld(): {
-  documentObject: FakeDocument & {
-    body: FakeElement;
-    head: FakeElement;
-    documentElement: FakeElement;
-    dispatchEvent: (event: FakeEvent) => boolean;
-    listeners: Map<string, unknown>;
-  };
+interface WorldBuildResult {
+  documentObject: FakeDocument;
   tableBytesByUrl: Map<string, Uint8Array>;
   fetchCalls: string[];
-} {
+}
+
+function buildWorld(): WorldBuildResult {
   const tableBytesByUrl = new Map<string, Uint8Array>();
   const fetchCalls: string[] = [];
-  const documentObject = {
+  const bodyEl = new FakeElement("body");
+  const headEl = new FakeElement("head");
+  const docEl = new FakeElement("html");
+  const emptyFonts: unknown[] = [{}];
+  const rawDoc = {
     baseURI: "https://example.test/post/",
     elements: new Map(),
     styleSheets: [],
     listeners: new Map(),
     fonts: {
-      load: async () => [{}] as unknown[],
+      load: async () => emptyFonts,
       addEventListener() {},
       removeEventListener() {},
     },
@@ -254,32 +262,27 @@ function buildWorld(): {
     removeEventListener() {},
     dispatchEvent(event: FakeEvent) {
       const listener = documentObject.listeners.get(event.type);
-      if (listener) (listener as unknown as (event: FakeEvent) => void)(event);
+      if (listener) probe<(event: FakeEvent) => void>(listener)(event);
       return true;
     },
-    body: null as unknown as FakeElement,
-    head: null as unknown as FakeElement,
-    documentElement: null as unknown as FakeElement,
-  } as unknown as FakeDocument & {
-    body: FakeElement;
-    head: FakeElement;
-    documentElement: FakeElement;
-    dispatchEvent: (event: FakeEvent) => boolean;
-    listeners: Map<string, unknown>;
+    body: bodyEl,
+    head: headEl,
+    documentElement: docEl,
   };
-  documentObject.body = documentObject.createElement("body");
-  documentObject.head = documentObject.createElement("head");
-  // The real drivers read the viewport height off window.innerHeight or the
-  // document element while sorting work by viewport distance; the drive world
-  // must answer both so a live relayout/enhance does not crash.
-  documentObject.documentElement = documentObject.createElement("html");
-  (documentObject.documentElement as unknown as { clientHeight?: number }).clientHeight = 800;
+  const documentObject: FakeDocument = probe<FakeDocument>(rawDoc);
+  bodyEl.ownerDocument = documentObject;
+  headEl.ownerDocument = documentObject;
+  docEl.ownerDocument = documentObject;
+  docEl.width = 1200;
+  docEl.height = 800;
+  docEl.clientWidth = 1200;
+  docEl.clientHeight = 800;
 
   const realFetch = globalThis.fetch;
   (globalThis as { fetch: typeof globalThis.fetch }).fetch = async function (url: string | URL, init?: RequestInit) {
     fetchCalls.push(String(url));
     const bytes = tableBytesByUrl.get(String(url));
-    if (bytes != null) return { ok: true, arrayBuffer: async () => bytes } as unknown as Response;
+    if (bytes != null) return probe<Response>({ ok: true, arrayBuffer: async () => bytes });
     return realFetch.call(globalThis, url, init);
   } as typeof globalThis.fetch;
 
@@ -291,10 +294,16 @@ interface BuildSnapshotOptions {
   fontFaceSrc?: string;
 }
 
+interface BuildSnapshotResult {
+  root: FakeElement;
+  paragraph: FakeElement;
+  originalText: FakeText;
+}
+
 function buildSnapshot(
-  world: ReturnType<typeof buildWorld>,
+  world: WorldBuildResult,
   options: BuildSnapshotOptions = {}
-): { root: FakeElement; paragraph: FakeElement; originalText: FakeText } {
+): BuildSnapshotResult {
   const { documentObject, tableBytesByUrl } = world;
   const { fontFaceFamily = "\"Fixture CJK\"", fontFaceSrc = "url(\"/assets/fixture-deadbeef.woff2\")" } = options;
   const root = documentObject.createElement("tiqian-prose");
@@ -309,7 +318,7 @@ function buildSnapshot(
   root.appendChild(paragraph);
 
   const template = documentObject.createElement("template");
-  (template as unknown as { content: FakeFragment }).content = new FakeFragment();
+  probe<{ content: FakeFragment }>(template).content = new FakeFragment();
   const entry = documentObject.createElement("div");
   entry.setAttribute("data-tq-entry", "p-1");
   const marker = documentObject.createElement("span");
@@ -341,7 +350,7 @@ function buildSnapshot(
   const tableBytes = writeBinaryTable({
     replayStrings: [],
     metrics: [],
-    probes: [probe],
+    probes: [probeEvidence],
     typographies: [{
       sha256: sha256(stableStringify(typography)),
       value: typography,
@@ -378,7 +387,7 @@ function buildSnapshot(
   const script = documentObject.createElement("script");
   script.setAttribute("data-tq-snapshot-manifest", "");
   script.textContent = JSON.stringify(manifest);
-  (template as unknown as { content: FakeFragment }).content.append(script, entry);
+  probe<{ content: FakeFragment }>(template).content.append(script, entry);
   documentObject.elements.set("tq-page", template);
 
   const fontFaceStyle = styleDeclaration({
@@ -414,13 +423,19 @@ function stableDetail(detail: Record<string, unknown> | undefined): Record<strin
   return out;
 }
 
+interface CustomEventInitLike {
+  detail?: unknown;
+  bubbles?: boolean;
+  composed?: boolean;
+}
+
 class FakeCustomEventClass {
   readonly type: string;
   readonly detail: unknown;
   readonly bubbles: boolean | undefined;
   readonly composed: boolean | undefined;
 
-  constructor(type: string, init: { detail?: unknown; bubbles?: boolean; composed?: boolean } = {}) {
+  constructor(type: string, init: CustomEventInitLike = {}) {
     this.type = type;
     this.detail = init.detail;
     this.bubbles = init.bubbles;
@@ -433,20 +448,35 @@ class FakeCustomEventClass {
 // registry is reset at each drive start so a journey records only its own
 // observer activity.
 let nextObserverId = 0;
-const observerInstances: Array<{
+interface ObserverContentRect {
+  width: number;
+  height: number;
+}
+interface ObserverEntry {
+  target: Element;
+  contentRect: ObserverContentRect;
+}
+type ObserverCallback = (entries: ObserverEntry[]) => void;
+interface ObserverLogEntry {
+  op: string;
+  target?: Element;
+}
+interface ObserverInstanceHolder {
   id: number;
-  callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void;
-  log: Array<{ op: string; target?: Element }>;
+  callback: ObserverCallback;
+  log: ObserverLogEntry[];
   observed: Set<Element>;
-}> = [];
+}
+
+const observerInstances: ObserverInstanceHolder[] = [];
 
 class FakeResizeObserver {
   readonly id: number;
-  readonly callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void;
-  readonly log: Array<{ op: string; target?: Element }>;
+  readonly callback: ObserverCallback;
+  readonly log: ObserverLogEntry[];
   readonly observed: Set<Element>;
 
-  constructor(callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void) {
+  constructor(callback: ObserverCallback) {
     this.id = ++nextObserverId;
     this.callback = callback;
     this.log = [];
@@ -472,6 +502,46 @@ class FakeResizeObserver {
   }
 }
 
+type SetPhaseFn = (phase: string) => void;
+type PumpPredicateFn = () => boolean;
+type PumpUntilFn = (predicate: PumpPredicateFn, cap?: number) => Promise<number>;
+type PumpQuiescentFn = (cap?: number) => Promise<number>;
+type WidthObserverFn = () => ObserverInstanceHolder | null;
+type ParagraphStateFn = () => Record<string, unknown>;
+
+interface ElementDriveResult {
+  world: WorldBuildResult;
+  record: TimingGoldenRecord;
+  element: Element;
+  paragraph: FakeElement;
+  setPhase: SetPhaseFn;
+  pumpUntil: PumpUntilFn;
+  pumpQuiescent: PumpQuiescentFn;
+  widthObserver: WidthObserverFn;
+  paragraphState: ParagraphStateFn;
+  engineTeardown: RecordingEngine;
+}
+
+type CustomElementsDefineFn = () => void;
+type CustomElementsGetFn = () => undefined;
+
+interface FakeCustomElementsRegistry {
+  define: CustomElementsDefineFn;
+  get: CustomElementsGetFn;
+}
+
+type GetComputedStyleFn = (element: Element, pseudo: string | null) => CSSStyleDeclaration;
+type RequestAnimationFrameFn = (callback: FrameRequestCallback) => number;
+type CancelAnimationFrameFn = (id: number) => void;
+type FakeWindowEventListener = () => void;
+
+interface FakeWindowLike {
+  addEventListener: FakeWindowEventListener;
+  removeEventListener: FakeWindowEventListener;
+  innerHeight: number;
+  getComputedStyle: GetComputedStyleFn;
+}
+
 // Drive the full S1-S4 element timeline and return the complete record:
 // S1 connect + initial snapshot adoption, S2 width shrink past the snapshot
 // table's only width, S3 mid-flight disconnect while the adoption chain is
@@ -485,18 +555,7 @@ async function startElementDrive(
   clock: FakeClock,
   journeyKey: string,
   options: Record<string, unknown> = {}
-): Promise<{
-  world: ReturnType<typeof buildWorld>;
-  record: TimingGoldenRecord;
-  element: Element;
-  paragraph: FakeElement;
-  setPhase: (phase: string) => void;
-  pumpUntil: (predicate: () => boolean, cap?: number) => Promise<number>;
-  pumpQuiescent: (cap?: number) => Promise<number>;
-  widthObserver: () => { id: number; observed: Set<Element>; log: Array<{ op: string; target?: Element }>; callback: (entries: Array<{ target: Element; contentRect: { width: number; height: number } }>) => void } | null;
-  paragraphState: () => Record<string, unknown>;
-  engineTeardown: RecordingEngine;
-}> {
+): Promise<ElementDriveResult> {
   nextObserverId = 0;
   observerInstances.length = 0;
 
@@ -519,37 +578,38 @@ async function startElementDrive(
   class FakeHostElementClass extends FakeElement {
     constructor() { super("tiqian-prose"); }
   }
-  (globalThis as unknown as { HTMLElement: typeof FakeElement }).HTMLElement = FakeHostElementClass;
-  (globalThis as unknown as { Node: typeof FakeNode }).Node = FakeNode;
-  (globalThis as unknown as { customElements: { define: () => void; get: () => undefined } }).customElements = { define() {}, get() { return undefined; } };
-  (globalThis as unknown as { document: FakeDocument }).document = world.documentObject;
+  probe<{ HTMLElement: typeof FakeElement }>(globalThis).HTMLElement = FakeHostElementClass;
+  probe<{ Node: typeof FakeNode }>(globalThis).Node = FakeNode;
+  probe<{ customElements: FakeCustomElementsRegistry }>(globalThis).customElements = { define() {}, get() { return undefined; } };
+  probe<{ document: FakeDocument }>(globalThis).document = world.documentObject;
   let hostElement: Element | null = null;
-  (globalThis as unknown as { getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration }).getComputedStyle = (element: Element, pseudo: string | null) => {
+  probe<{ getComputedStyle: GetComputedStyleFn }>(globalThis).getComputedStyle = (element: Element, pseudo: string | null) => {
     const values = fixtureComputedStyle(asFakeElement(element), pseudo,
       element === hostElement ? { "--tq-styles-ready": "1" } : {});
-    return { ...values, getPropertyValue: (name: string) => values[name] ?? "" } as CSSStyleDeclaration;
+    const styleObj: CSSStyleDeclaration = probe<CSSStyleDeclaration>({ ...values, getPropertyValue: (name: string) => values[name] ?? "" });
+    return styleObj;
   };
-  (globalThis as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver = class {
+  probe<{ MutationObserver: typeof MutationObserver }>(globalThis).MutationObserver = probe<typeof MutationObserver>(class {
     observe() {}
     disconnect() {}
     takeRecords() { return []; }
-  } as unknown as typeof MutationObserver;
-  (globalThis as unknown as { CustomEvent: typeof FakeCustomEventClass }).CustomEvent = FakeCustomEventClass;
-  (globalThis as unknown as { ResizeObserver: typeof FakeResizeObserver }).ResizeObserver = FakeResizeObserver;
-  (globalThis as unknown as { window: { addEventListener: () => void; removeEventListener: () => void; innerHeight: number; getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration } }).window = {
+  });
+  probe<{ CustomEvent: typeof FakeCustomEventClass }>(globalThis).CustomEvent = FakeCustomEventClass;
+  probe<{ ResizeObserver: typeof FakeResizeObserver }>(globalThis).ResizeObserver = FakeResizeObserver;
+  probe<{ window: FakeWindowLike }>(globalThis).window = {
     addEventListener() {},
     removeEventListener() {},
     innerHeight: 800,
-    getComputedStyle: (element: Element, pseudo: string | null) => (globalThis as unknown as { getComputedStyle: (element: Element, pseudo: string | null) => CSSStyleDeclaration }).getComputedStyle(element, pseudo),
+    getComputedStyle: (element: Element, pseudo: string | null) => probe<{ getComputedStyle: GetComputedStyleFn }>(globalThis).getComputedStyle(element, pseudo),
   };
   delete (globalThis as Record<string, unknown>).TiqianWeb;
   delete (globalThis as Record<string, unknown>).IntersectionObserver;
 
   // rAF accounting wrapper so we can detect frame-loop quiescence.
-  const origRaf = (globalThis as unknown as { requestAnimationFrame: (callback: FrameRequestCallback) => number }).requestAnimationFrame;
-  const origCancel = (globalThis as unknown as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame;
+  const origRaf = probe<{ requestAnimationFrame: RequestAnimationFrameFn }>(globalThis).requestAnimationFrame;
+  const origCancel = probe<{ cancelAnimationFrame: CancelAnimationFrameFn }>(globalThis).cancelAnimationFrame;
   const activeFrames = new Set<number>();
-  (globalThis as unknown as { requestAnimationFrame: (callback: FrameRequestCallback) => number }).requestAnimationFrame = (callback: FrameRequestCallback) => {
+  probe<{ requestAnimationFrame: RequestAnimationFrameFn }>(globalThis).requestAnimationFrame = (callback: FrameRequestCallback) => {
     const id = origRaf((now: number) => {
       activeFrames.delete(id);
       callback(now);
@@ -557,7 +617,7 @@ async function startElementDrive(
     activeFrames.add(id);
     return id;
   };
-  (globalThis as unknown as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = (id: number) => {
+  probe<{ cancelAnimationFrame: CancelAnimationFrameFn }>(globalThis).cancelAnimationFrame = (id: number) => {
     activeFrames.delete(id);
     origCancel(id);
   };
@@ -573,18 +633,18 @@ async function startElementDrive(
   asFakeElement(element).attributes = root.attributes;
   asFakeElement(element).childNodes = root.childNodes;
   asFakeElement(element).ownerDocument = world.documentObject;
-  asFakeNode(paragraph as unknown as Node).parentNode = asFakeNode(element);
-  asFakeElement(paragraph as unknown as Element).parentElement = asFakeElement(element);
+  asFakeNode(probe<Node>(paragraph)).parentNode = asFakeNode(element);
+  asFakeElement(probe<Element>(paragraph)).parentElement = asFakeElement(element);
   asFakeElement(element).width = 360;
   asFakeElement(element).height = 27;
-  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = true;
+  probe<FakeElement & { isConnected?: boolean }>(asFakeElement(element)).isConnected = true;
 
   // Comma-aware querySelectorAll on the instance: the single-selector path
   // keeps FakeElement semantics, the multi-selector path walks the graft.
   const singleQuerySelectorAll = FakeElement.prototype.querySelectorAll;
   asFakeElement(element).querySelectorAll = (selector: string) => {
     const parts = String(selector).split(",").map((part) => part.trim());
-    if (parts.length === 1) return singleQuerySelectorAll.call(asFakeNode(element as unknown as Node), selector);
+    if (parts.length === 1) return singleQuerySelectorAll.call(asFakeNode(probe<Node>(element)), selector);
     const out: FakeElement[] = [];
     const visit = (node: FakeNode): void => {
       for (const child of node.childNodes) {
@@ -601,14 +661,19 @@ async function startElementDrive(
   };
 
   const listeners = new Map<string, (event: FakeEvent) => void>();
-  type FakeElementWithEvents = FakeElement & {
-    addEventListener: (name: string, listener: (event: FakeEvent) => void) => void;
-    removeEventListener: (name: string, listener: (event: FakeEvent) => void) => void;
-    dispatchEvent: (event: FakeEvent) => boolean;
-  };
-  const el = asFakeElement(element) as FakeElementWithEvents;
-  el.addEventListener = (name: string, listener: (event: FakeEvent) => void) => { listeners.set(name, listener); };
-  el.removeEventListener = (name: string, listener: (event: FakeEvent) => void) => {
+  type FakeEventListener = (event: FakeEvent) => void;
+  type FakeDispatchEvent = (event: FakeEvent) => boolean;
+  type AddEventListenerFn = (name: string, listener: FakeEventListener) => void;
+  type RemoveEventListenerFn = (name: string, listener: FakeEventListener) => void;
+
+  interface FakeElementWithEvents extends FakeElement {
+    addEventListener: AddEventListenerFn;
+    removeEventListener: RemoveEventListenerFn;
+    dispatchEvent: FakeDispatchEvent;
+  }
+  const el = probe<FakeElementWithEvents>(asFakeElement(element));
+  el.addEventListener = (name: string, listener: FakeEventListener) => { listeners.set(name, listener); };
+  el.removeEventListener = (name: string, listener: FakeEventListener) => {
     if (listeners.get(name) === listener) listeners.delete(name);
   };
   el.dispatchEvent = (event: FakeEvent) => {
@@ -616,7 +681,7 @@ async function startElementDrive(
     // recorded at the pre-funnel notify/dispatch point; record only the
     // externally dispatched events here, like the baseline recorded every
     // dispatch that reached the element.
-    if (!(event as unknown as Record<string, unknown>)[INTERNAL_DISPATCH_MARKER as unknown as string]) {
+    if (!probe<Record<string, unknown>>(event)[probe<string>(INTERNAL_DISPATCH_MARKER)]) {
       record.elementEvents.push({
         phase: currentPhase,
         type: event.type,
@@ -676,15 +741,19 @@ async function startElementDrive(
     firstChildText: paragraph.firstChild?.textContent ?? null,
   });
 
+  const nextTick = async (): Promise<void> => new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
   // The pump cap only guards against a hung drive; frame counts are excluded
   // from every golden projection, and node:test runs sibling files in
   // parallel, so a lazy-import compile can easily need more loop turns than
   // sixty setImmediate yields while the process is under load. A cap of a
   // few thousand turns keeps the hang guard without starving the import.
-  const pumpUntil = async (predicate: () => boolean, cap = 2000): Promise<number> => {
+  const pumpUntil = async (predicate: PumpPredicateFn, cap = 2000): Promise<number> => {
     let frames = 0;
     while (frames < cap) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await nextTick();
       clock.advance(FRAME_STEP_MS);
       frames += 1;
       if (predicate()) break;
@@ -696,7 +765,7 @@ async function startElementDrive(
     let frames = 0;
     let quietStreak = 0;
     while (frames < cap) {
-      await new Promise((resolve) => setImmediate(resolve));
+      await nextTick();
       clock.advance(FRAME_STEP_MS);
       frames += 1;
       quietStreak = activeFrames.size === 0 ? quietStreak + 1 : 0;
@@ -721,7 +790,7 @@ async function startElementDrive(
   // fake-clock window, so any module top-level captures see the same doubles.
   await import("@tiqian/core/core/engine/web-worker/worker-channel.js");
   await import("@tiqian/core/core/measurement/browser-fonts.js");
-  (asFakeElement(element) as FakeElement & { connectedCallback: () => void }).connectedCallback();
+  probe<FakeElement & { connectedCallback: LifecycleCallback }>(asFakeElement(element)).connectedCallback();
   record.frameAdvanceCounts.s1 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s1-adopt"),
   );
@@ -747,14 +816,53 @@ async function startElementDrive(
   };
 }
 
+export interface TimingEngineCall {
+  phase: string;
+  method: string;
+}
+
+export interface TimingElementEvent {
+  phase: string;
+  type: string;
+  detail: Record<string, string | number | boolean>;
+}
+
+export interface TimingDocumentEvent {
+  phase: string;
+  type: string;
+}
+
+export interface TimingDatasetWrite {
+  phase: string;
+  op: string;
+  key: string;
+  value?: string | null;
+}
+
+export interface TimingAttributeWrite {
+  phase: string;
+  name: string;
+  value: string | null;
+}
+
+export interface TimingObserverOp {
+  op: string;
+  target: string;
+}
+
+export interface TimingObserverActivity {
+  id: number;
+  ops: TimingObserverOp[];
+}
+
 export interface TimingGoldenRecord {
-  readonly engineCalls: Array<{ phase: string; method: string }>;
-  readonly elementEvents: Array<{ phase: string; type: string; detail: Record<string, string | number | boolean> }>;
-  readonly documentEvents: Array<{ phase: string; type: string }>;
-  readonly datasetWrites: Array<{ phase: string; op: string; key: string; value?: string | null }>;
-  readonly attributeWrites: Array<{ phase: string; name: string; value: string | null }>;
+  readonly engineCalls: TimingEngineCall[];
+  readonly elementEvents: TimingElementEvent[];
+  readonly documentEvents: TimingDocumentEvent[];
+  readonly datasetWrites: TimingDatasetWrite[];
+  readonly attributeWrites: TimingAttributeWrite[];
   readonly fetchCalls: string[];
-  readonly observerActivity: Array<{ id: number; ops: Array<{ op: string; target: string }> }>;
+  readonly observerActivity: TimingObserverActivity[];
   readonly frameAdvanceCounts: Record<string, number>;
   readonly paragraphStates: Record<string, Record<string, unknown>>;
   readonly declaredWake?: Record<string, unknown>;
@@ -801,10 +909,10 @@ export async function driveElementTimeline(
       { target: asElement(paragraph), contentRect: { width: 320, height: 27 } },
     ]);
   }
-  await new Promise((resolve) => setImmediate(resolve));
-  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = false;
-  (asFakeElement(element) as FakeElement & { disconnectedCallback: () => void }).disconnectedCallback();
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => { setImmediate(resolve); });
+  probe<FakeElement & { isConnected?: boolean }>(asFakeElement(element)).isConnected = false;
+  probe<FakeElement & { disconnectedCallback: LifecycleCallback }>(asFakeElement(element)).disconnectedCallback();
+  await new Promise<void>((resolve) => { setImmediate(resolve); });
   record.frameAdvanceCounts.s3 = await pumpQuiescent();
   record.paragraphStates.s3 = paragraphState();
 
@@ -812,8 +920,8 @@ export async function driveElementTimeline(
   setPhase("s4-reconnect");
   asFakeElement(element).width = 360;
   paragraph.width = 360;
-  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = true;
-  (asFakeElement(element) as FakeElement & { connectedCallback: () => void }).connectedCallback();
+  probe<FakeElement & { isConnected?: boolean }>(asFakeElement(element)).isConnected = true;
+  probe<FakeElement & { connectedCallback: LifecycleCallback }>(asFakeElement(element)).connectedCallback();
   record.frameAdvanceCounts.s4 = await pumpUntil(
     () => record.elementEvents.some((e) => e.type === "tiqian:ready" && e.phase === "s4-reconnect"),
   );
@@ -823,15 +931,16 @@ export async function driveElementTimeline(
   record.paragraphStates.s4 = paragraphState();
 
   // Observer activity projection (targets serialized by identity kind).
-  (record as { observerActivity: typeof record["observerActivity"] }).observerActivity = observerInstances.map((instance) => ({
+  const mappedObserverActivity: TimingObserverActivity[] = observerInstances.map((instance) => ({
     id: instance.id,
     ops: instance.log.map((entry) => ({
       op: entry.op,
       target: entry.target != null && entry.target === element ? "root" : entry.target === asElement(paragraph) ? "paragraph" : "other",
     })),
   }));
+  probe<{ observerActivity: TimingObserverActivity[] }>(record).observerActivity = mappedObserverActivity;
 
-  (record as { fetchCalls: typeof record["fetchCalls"] }).fetchCalls = drive.world.fetchCalls;
+  probe<{ fetchCalls: string[] }>(record).fetchCalls = drive.world.fetchCalls;
   drive.engineTeardown.teardown();
 
   return record;
@@ -854,7 +963,7 @@ export async function driveDeclaredFaceWakeTimeline(
   const { record, element, setPhase, pumpQuiescent } = drive;
 
   const revalidateCallsIn = (phase: string) =>
-    record.engineCalls.filter((call) => (call as { phase?: string }).phase === phase);
+    record.engineCalls.filter((call) => call.phase === phase);
 
   // Executed-check observable: every typography-check signature read walks
   // root "p, li". Counting those queries per phase shows whether a wake
@@ -890,7 +999,7 @@ export async function driveDeclaredFaceWakeTimeline(
     { baseUrl: "https://declared.test/wake-b.css" },
   );
   record.frameAdvanceCounts.w1 = await pumpQuiescent();
-  (record as { declaredWake: Record<string, unknown> }).declaredWake = { w1RevalidateCalls: revalidateCallsIn("w1-declared-merge").length };
+  probe<{ declaredWake?: Record<string, unknown> }>(record).declaredWake = { w1RevalidateCalls: revalidateCallsIn("w1-declared-merge").length };
 
   // ---- W2: a later declaration revalidates again ----
   // The W1 wake opened a layout job; typography observation pauses until the
@@ -901,11 +1010,11 @@ export async function driveDeclaredFaceWakeTimeline(
   // then meets an idle, observed root, exactly like a later declaration in
   // production.
   setWakePhase("w2-job-complete");
-  (asFakeElement(element) as FakeElement & { dispatchEvent: (event: FakeEvent) => boolean }).dispatchEvent(new FakeCustomEventClass("tiqian:relayout-ready", {
+  probe<FakeElement & { dispatchEvent: FakeDispatchEvent }>(asFakeElement(element)).dispatchEvent(probe<FakeEvent>(new FakeCustomEventClass("tiqian:relayout-ready", {
     bubbles: true,
     composed: true,
     detail: { enhancedCount: 1, issueCount: 0 },
-  }));
+  })));
   record.frameAdvanceCounts.w2JobComplete = await pumpQuiescent();
 
   setWakePhase("w2-declared-later");
@@ -919,7 +1028,8 @@ export async function driveDeclaredFaceWakeTimeline(
   // ---- W3: a disabled element unsubscribes and stops waking ----
   setWakePhase("w3-disabled");
   asFakeElement(element).setAttribute("disabled", "");
-  (asFakeElement(element) as FakeElement & { attributeChangedCallback: (name: string, oldValue: string | null, newValue: string) => void }).attributeChangedCallback("disabled", null, "");
+  type AttributeChangedCallbackFn = (name: string, oldValue: string | null, newValue: string) => void;
+  probe<FakeElement & { attributeChangedCallback: AttributeChangedCallbackFn }>(asFakeElement(element)).attributeChangedCallback("disabled", null, "");
   await pumpQuiescent();
   // Disabling itself reaches the engine (destroy, detach); snapshot the
   // record length after that settles so only wake-driven calls count.
@@ -936,11 +1046,11 @@ export async function driveDeclaredFaceWakeTimeline(
   unregisterB();
   unregisterC();
   unregisterD();
-  (asFakeElement(element) as FakeElement & { isConnected?: boolean }).isConnected = false;
-  (asFakeElement(element) as FakeElement & { disconnectedCallback: () => void }).disconnectedCallback();
-  await new Promise((resolve) => setImmediate(resolve));
+  probe<FakeElement & { isConnected?: boolean }>(asFakeElement(element)).isConnected = false;
+  probe<FakeElement & { disconnectedCallback: LifecycleCallback }>(asFakeElement(element)).disconnectedCallback();
+  await new Promise<void>((resolve) => { setImmediate(resolve); });
 
-  (record as { fetchCalls: typeof record["fetchCalls"] }).fetchCalls = drive.world.fetchCalls;
+  probe<{ fetchCalls: string[] }>(record).fetchCalls = drive.world.fetchCalls;
   drive.engineTeardown.teardown();
 
   return record;

@@ -40,8 +40,8 @@ test("eligibilityBridge_leafListItemAdmittedNestedListItemRejected", (t) => {
     </div>
   `);
   t.after(cleanupMounted);
-  const nestedLi = root.querySelector("#nested-li") as unknown as Element | null;
-  const plainLi = root.querySelector("#plain-li") as unknown as Element | null;
+  const nestedLi = root.querySelector("#nested-li") as Element | null;
+  const plainLi = root.querySelector("#plain-li") as Element | null;
   assert.equal(shouldTryParagraph(nestedLi), false);
   assert.equal(shouldTryParagraph(plainLi), true);
 });
@@ -54,8 +54,8 @@ test("eligibilityBridge_pureBlockImageParagraphRejectedInlineAdmitted", (t) => {
     </div>
   `);
   t.after(cleanupMounted);
-  const blockImgP = root.querySelector("#block-img-p") as unknown as Element | null;
-  const inlineImgP = root.querySelector("#inline-img-p") as unknown as Element | null;
+  const blockImgP = root.querySelector("#block-img-p") as Element | null;
+  const inlineImgP = root.querySelector("#inline-img-p") as Element | null;
   assert.equal(isPureBlockImageParagraph(blockImgP), true);
   assert.equal(shouldTryParagraph(blockImgP), false);
   assert.equal(isPureBlockImageParagraph(inlineImgP), false);
@@ -70,8 +70,8 @@ test("eligibilityBridge_blankParagraphRejectedUnlessOpaqueCandidate", (t) => {
     </div>
   `);
   t.after(cleanupMounted);
-  const blankP = root.querySelector("#blank-p") as unknown as Element | null;
-  const opaqueP = root.querySelector("#opaque-p") as unknown as Element | null;
+  const blankP = root.querySelector("#blank-p") as Element | null;
+  const opaqueP = root.querySelector("#opaque-p") as Element | null;
   assert.equal(hasOpaqueInlineCandidate(blankP), false);
   assert.equal(shouldTryParagraph(blankP), false);
   assert.equal(hasOpaqueInlineCandidate(opaqueP), true);
@@ -87,9 +87,9 @@ test("eligibilityBridge_skippedAncestorsAndDataAttributeRejected", (t) => {
     </div>
   `);
   t.after(cleanupMounted);
-  const notProseP = root.querySelector("#not-prose-p") as unknown as Element | null;
-  const skipAttrP = root.querySelector("#skip-attr-p") as unknown as Element | null;
-  const normalP = root.querySelector("#normal-p") as unknown as Element | null;
+  const notProseP = root.querySelector("#not-prose-p") as Element | null;
+  const skipAttrP = root.querySelector("#skip-attr-p") as Element | null;
+  const normalP = root.querySelector("#normal-p") as Element | null;
   assert.equal(shouldTryParagraph(notProseP), false);
   assert.equal(shouldTryParagraph(skipAttrP), false);
   assert.equal(shouldTryParagraph(normalP), true);

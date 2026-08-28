@@ -25,7 +25,14 @@ import { initializeGlobalServices } from "@tiqian/core/core/services/global-serv
 initializeGlobalServices();
 
 
-function rawDomParagraph(t: { after: (fn: () => void) => void }, markup: string) {
+import { probe } from "./runtime-host.js";
+
+type CleanupFn = () => void;
+type TestContextLike = {
+  after(fn: CleanupFn): void;
+};
+
+function rawDomParagraph(t: TestContextLike, markup: string) {
   const root = mount(markup);
   t.after(cleanupMounted);
   return root.querySelector("p")!;
@@ -74,102 +81,102 @@ test("rawDomBridge_exportsFullApiSurface", () => {
 
 test("rawDomBridge_takeMovesSourceIntoRawDomAndCommitPublishes", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>语义正文先托管。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   const child = paragraph.firstChild;
   assert.ok(child);
 
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
 
   assert.equal(paragraph.firstChild, null);
-  assert.equal(rawDomMatches(context, paragraph as unknown as Element), false);
-  assert.equal(context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment, null);
+  assert.equal(rawDomMatches(context, probe<Element>(paragraph)), false);
+  assert.equal(context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment, null);
 
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
-  const fragment = context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment;
+  const fragment = context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment;
   assert.ok(fragment);
   assert.equal(fragment.firstChild, child);
-  assert.equal(rawDomMatches(context, paragraph as unknown as Element), true);
-  assert.equal(context.rawDomParagraphs.get(paragraph as unknown as Element)?.forwarding, true);
+  assert.equal(rawDomMatches(context, probe<Element>(paragraph)), true);
+  assert.equal(context.rawDomParagraphs.get(probe<Element>(paragraph))?.forwarding, true);
 });
 
 test("rawDomBridge_hostCommitsRouteIntoRawDom", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>宿主提交要进入托管。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  const context = createEnhanceContext(probe<Element>(paragraph));
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
   const node = globalThis.document.createTextNode("宿主新增");
-  paragraph.appendChild(node as unknown as FakeNode);
-  assert.equal(node.parentNode, context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment);
-  assert.equal(rawDomMatches(context, paragraph as unknown as Element), false);
+  paragraph.appendChild(probe<FakeNode>(node));
+  assert.equal(node.parentNode, context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment);
+  assert.equal(rawDomMatches(context, probe<Element>(paragraph)), false);
 
-  paragraph.removeChild(node as unknown as FakeNode);
+  paragraph.removeChild(probe<FakeNode>(node));
   assert.equal(node.parentNode, null);
-  assert.equal(rawDomMatches(context, paragraph as unknown as Element), true);
+  assert.equal(rawDomMatches(context, probe<Element>(paragraph)), true);
 });
 
 test("rawDomBridge_engineWritesBypassForwarding", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>引擎写入走原生。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  const context = createEnhanceContext(probe<Element>(paragraph));
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
     const node = globalThis.document.createTextNode("引擎输出");
-    paragraph.appendChild(node as unknown as FakeNode);
+    paragraph.appendChild(probe<FakeNode>(node));
     assert.equal(node.parentNode, paragraph);
   });
 
   const hostNode = globalThis.document.createTextNode("宿主输出");
-  paragraph.appendChild(hostNode as unknown as FakeNode);
-  assert.equal(hostNode.parentNode, context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment);
+  paragraph.appendChild(probe<FakeNode>(hostNode));
+  assert.equal(hostNode.parentNode, context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment);
 });
 
 test("rawDomBridge_renderedDriftDetection", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>渲染漂移要能被发现。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  const context = createEnhanceContext(probe<Element>(paragraph));
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
   let rendered!: FakeNode;
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
-    rendered = globalThis.document.createElement("span") as unknown as FakeNode;
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
+    rendered = probe<FakeNode>(globalThis.document.createElement("span"));
     paragraph.appendChild(rendered);
   });
-  rawDomStampRendered(context, paragraph as unknown as Element);
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), true);
+  rawDomStampRendered(context, probe<Element>(paragraph));
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), true);
 
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
     paragraph.removeChild(rendered);
   });
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), false);
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), false);
 
-  rawDomStampRendered(context, paragraph as unknown as Element);
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), true);
+  rawDomStampRendered(context, probe<Element>(paragraph));
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), true);
 });
 
 test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>回滚要复现快照内容。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  const context = createEnhanceContext(probe<Element>(paragraph));
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
   let rendered!: FakeNode;
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
-    rendered = globalThis.document.createElement("span") as unknown as FakeNode;
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
+    rendered = probe<FakeNode>(globalThis.document.createElement("span"));
     paragraph.appendChild(rendered);
     paragraph.setAttribute("data-tq-rendered", "true");
     paragraph.setAttribute("lang", "zh-Hans");
   });
-  rawDomStampRendered(context, paragraph as unknown as Element);
+  rawDomStampRendered(context, probe<Element>(paragraph));
 
-  const snapshot = rawDomCaptureLive(context, paragraph as unknown as Element, 3.5);
+  const snapshot = rawDomCaptureLive(context, probe<Element>(paragraph), 3.5);
   assert.equal(paragraph.firstChild, null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.lastMeasure, 3.5);
@@ -177,51 +184,51 @@ test("rawDomBridge_captureLiveRollbackRoundTrip", (t) => {
   assert.equal(snapshot.renderedAttribute, "true");
   assert.equal(snapshot.langAttribute, "zh-Hans");
 
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
     const newer = globalThis.document.createElement("div");
-    paragraph.appendChild(newer as unknown as FakeNode);
+    paragraph.appendChild(probe<FakeNode>(newer));
     paragraph.setAttribute("lang", "ja");
   });
 
   const results = rawDomRollback(context, [snapshot]);
   assert.equal(results.length, 1);
-  assert.equal(results[0].source, paragraph as unknown as Element);
+  assert.equal(results[0].source, probe<Element>(paragraph));
   assert.equal(results[0].lastMeasure, 3.5);
   assert.equal(paragraph.firstChild, rendered);
   assert.equal(paragraph.getAttribute("lang"), "zh-Hans");
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), true);
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), true);
 });
 
 test("rawDomBridge_rollbackReadoptsRawDomAfterRestore", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>恢复后再回滚要重新收养。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   const originalChild = paragraph.firstChild;
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, null);
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), null);
 
   let rendered!: FakeNode;
-  rawDomSuspendEngineWrites(context, paragraph as unknown as Element, () => {
-    rendered = globalThis.document.createElement("span") as unknown as FakeNode;
+  rawDomSuspendEngineWrites(context, probe<Element>(paragraph), () => {
+    rendered = probe<FakeNode>(globalThis.document.createElement("span"));
     paragraph.appendChild(rendered);
   });
-  rawDomStampRendered(context, paragraph as unknown as Element);
+  rawDomStampRendered(context, probe<Element>(paragraph));
 
-  const snapshot = rawDomCaptureLive(context, paragraph as unknown as Element, null);
+  const snapshot = rawDomCaptureLive(context, probe<Element>(paragraph), null);
   assert.equal(snapshot.content.firstChild, rendered);
   assert.equal(snapshot.originalContentHadChildren, true);
 
-  rawDomRestoreParagraph(context, paragraph as unknown as Element);
+  rawDomRestoreParagraph(context, probe<Element>(paragraph));
   assert.equal(paragraph.firstChild, originalChild);
-  assert.equal(context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment?.firstChild, null);
+  assert.equal(context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment?.firstChild, null);
 
   const results = rawDomRollback(context, [snapshot]);
   assert.equal(results.length, 1);
   assert.equal(paragraph.firstChild, rendered);
-  assert.equal(context.rawDomParagraphs.get(paragraph as unknown as Element)?.fragment?.firstChild, originalChild);
-  assert.equal(rawDomMatches(context, paragraph as unknown as Element), true);
-  assert.equal(rawDomRenderedMatches(context, paragraph as unknown as Element), true);
+  assert.equal(context.rawDomParagraphs.get(probe<Element>(paragraph))?.fragment?.firstChild, originalChild);
+  assert.equal(rawDomMatches(context, probe<Element>(paragraph)), true);
+  assert.equal(rawDomRenderedMatches(context, probe<Element>(paragraph)), true);
 });
 
 test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
@@ -233,10 +240,10 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
   // so initialize the host-owned declaration through the proxy itself.
   paragraph.style.setProperty("width", "10px");
   const originalChild = paragraph.firstChild;
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   rawDomBegin(
     context,
-    paragraph as unknown as Element,
+    probe<Element>(paragraph),
     null,
     null,
     null,
@@ -251,15 +258,15 @@ test("rawDomBridge_restoreParagraphRestoresShell", (t) => {
     "",
     null,
   );
-  rawDomTake(context, paragraph as unknown as Element, "18px");
+  rawDomTake(context, probe<Element>(paragraph), "18px");
   paragraph.style.setProperty("font-size", "18px", "important");
-  rawDomCommit(context, paragraph as unknown as Element, "123px");
+  rawDomCommit(context, probe<Element>(paragraph), "123px");
   paragraph.setAttribute("data-tq-rendered", "true");
   paragraph.setAttribute("data-tq-runtime-render-font", "true");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  rawDomRestoreParagraph(context, paragraph as unknown as Element);
+  rawDomRestoreParagraph(context, probe<Element>(paragraph));
 
   assert.equal(paragraph.firstChild, originalChild);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -276,10 +283,10 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "<div data-tiqian-root='true'><p>原始 inline-size 要写回。</p></div>",
   );
   paragraph.style.setProperty("inline-size", "55px");
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   rawDomBegin(
     context,
-    paragraph as unknown as Element,
+    probe<Element>(paragraph),
     null,
     null,
     null,
@@ -294,12 +301,12 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
     "",
     null,
   );
-  rawDomTake(context, paragraph as unknown as Element, null);
-  rawDomCommit(context, paragraph as unknown as Element, "123px");
+  rawDomTake(context, probe<Element>(paragraph), null);
+  rawDomCommit(context, probe<Element>(paragraph), "123px");
   paragraph.style.setProperty("inline-size", "123px", "important");
   paragraph.setAttribute("data-tq-host-inline-size", "true");
 
-  rawDomRestoreShell(context, paragraph as unknown as HTMLElement);
+  rawDomRestoreShell(context, probe<HTMLElement>(paragraph));
 
   assert.equal(paragraph.style.getPropertyValue("inline-size"), "55px");
   assert.equal(paragraph.style.getPropertyPriority("inline-size"), "");
@@ -307,30 +314,32 @@ test("rawDomBridge_restoreShellKeepsOriginalInlineSize", (t) => {
 
 test("rawDomBridge_ensureContainingBlockAppliesAndRestores", (t) => {
   const paragraph = rawDomParagraph(t, "<div data-tiqian-root='true'><p>生成包含块。</p></div>");
-  const context = createEnhanceContext(paragraph as unknown as Element);
+  const context = createEnhanceContext(probe<Element>(paragraph));
   const realGetComputedStyle = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = ((element: Element, pseudo: string | null | undefined) => {
+  type MockGetComputedStyleFn = (element: Element, pseudo?: string | null) => CSSStyleDeclaration;
+  const mockGetComputedStyle: MockGetComputedStyleFn = (element: Element, pseudo?: string | null) => {
     const style = realGetComputedStyle(element, pseudo);
-    return {
+    return probe<CSSStyleDeclaration>({
       getPropertyValue(name: string) {
         if (name === "position") return "static";
         return style.getPropertyValue(name);
       },
-    };
-  }) as typeof globalThis.getComputedStyle;
+    });
+  };
+  globalThis.getComputedStyle = probe<typeof globalThis.getComputedStyle>(mockGetComputedStyle);
   t.after(() => {
     globalThis.getComputedStyle = realGetComputedStyle;
   });
 
-  beginDefaults(context, paragraph as unknown as Element);
-  rawDomEnsureContainingBlock(context, paragraph as unknown as HTMLElement);
+  beginDefaults(context, probe<Element>(paragraph));
+  rawDomEnsureContainingBlock(context, probe<HTMLElement>(paragraph));
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
   assert.equal(paragraph.style.getPropertyPriority("position"), "important");
 
-  rawDomEnsureContainingBlock(context, paragraph as unknown as HTMLElement);
+  rawDomEnsureContainingBlock(context, probe<HTMLElement>(paragraph));
   assert.equal(paragraph.style.getPropertyValue("position"), "relative");
 
-  rawDomRestoreShell(context, paragraph as unknown as HTMLElement);
+  rawDomRestoreShell(context, probe<HTMLElement>(paragraph));
   assert.equal(paragraph.style.getPropertyValue("position"), "");
   assert.equal(paragraph.getAttribute("style"), null);
   // restoreShell only touches attributes and inline style; the live children

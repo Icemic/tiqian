@@ -18,6 +18,7 @@ import {
   loadHostRuntime,
   mount,
   preparedValueStyleProperty,
+  probe,
   renderedLineSignature,
   selectionCoversElement,
   testOptions,
@@ -30,7 +31,7 @@ test("rendererOutput_plainFlowUsesTextNodesUntilGeometryNeedsSpan", async (t) =>
   const source = "很长时间没写";
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'><p>${source}</p></div>`);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(directTextContent(paragraph), source, paragraph.innerHTML);
@@ -64,7 +65,7 @@ test("rendererOutput_longInlineCodeTokenUsesEmergencyBreaksWithoutOverflow", asy
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -76,8 +77,8 @@ test("rendererOutput_longInlineCodeTokenUsesEmergencyBreaksWithoutOverflow", asy
   assert.equal(code.getAttribute("data-tq-inline-open-end"), null);
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1, "Expected more than 1 tq-line");
   assert.ok(
-    (paragraph as unknown as Element).scrollWidth <= (paragraph as unknown as Element).clientWidth + 1,
-    `scrollWidth ${(paragraph as unknown as Element).scrollWidth} should be <= clientWidth ${(paragraph as unknown as Element).clientWidth} + 1`,
+    paragraph.scrollWidth <= paragraph.clientWidth + 1,
+    `scrollWidth ${paragraph.scrollWidth} should be <= clientWidth ${paragraph.clientWidth} + 1`,
   );
   assert.ok(
     paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
@@ -98,13 +99,13 @@ test("rendererOutput_longLinkTokenSharesCleanEmergencyBreakPolicy", async (t) =>
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.ok(paragraph.querySelector("a"));
   assert.ok(paragraph.querySelectorAll(".tq-line").length > 1);
-  assert.ok((paragraph as unknown as Element).scrollWidth <= (paragraph as unknown as Element).clientWidth + 1);
+  assert.ok(paragraph.scrollWidth <= paragraph.clientWidth + 1);
   assert.ok(
     paragraph.querySelector("span[data-tq-copy-ignore][aria-hidden='true']:not(.tq-line)")
       ?.textContent !== "-",
@@ -130,7 +131,7 @@ test("rendererOutput_orderedListKeepsNativeMarkersOnTwoIcBodyIndent", async (t) 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 4);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 4);
 
   const list = root.querySelector("ol")!;
   const body = root.querySelector("#body")!;
@@ -157,14 +158,14 @@ test("rendererOutput_orderedListKeepsNativeMarkersOnTwoIcBodyIndent", async (t) 
   const wideLines = renderedLineSignature(tenth);
   TiqianWeb.install();
   installTestAnimationFrames();
-  (root.style as unknown as { width: string }).width = "176px";
+  root.style.setProperty("width", "176px");
   dispatchRelayout(root);
   flushAllTestAnimationFrames();
   assert.notEqual(wideLines, renderedLineSignature(tenth));
   assert.equal(tenth.querySelector(":scope > [data-tq-list-marker]"), null);
   assert.equal(copySelection(tenth), tenthSource);
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
   assert.equal(list.getAttribute("data-tq-list-layout"), null);
   assert.equal(list.getAttribute("data-tq-list-gutter-ic"), null);
   assert.equal(list.getAttribute("role"), null);
@@ -187,7 +188,7 @@ test("rendererOutput_unorderedListUsesNativeMarkerColumnWithoutParagraphIndent",
   `);
   const options = { fontSize: 18, lineHeight: 30, firstLineIndentIc: 2 };
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, options), 2);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), options), 2);
 
   const list = root.querySelector("ul")!;
   const paragraph = root.querySelector("p")!;
@@ -219,7 +220,7 @@ test("rendererOutput_strongStaysBoldByDefault", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const strong = paragraph.querySelector("strong")!;
@@ -240,7 +241,7 @@ test("rendererOutput_onlyCjkContentInStrongGetsEmphasisMarks", async (t) => {
   `);
 
   assert.equal(
-    TiqianWeb.enhance(root as unknown as Element, { ...testOptions(), strongAsEmphasisMarks: true }),
+    TiqianWeb.enhance(probe<Element>(root), { ...testOptions(), strongAsEmphasisMarks: true }),
     1,
   );
 
@@ -286,7 +287,7 @@ test("rendererOutput_emphasisDotGapShiftsDotCenterByConfiguredEm", async (t) => 
     `);
     assert.equal(
       TiqianWeb.enhance(
-        root as unknown as Element,
+        probe<Element>(root),
         { ...testOptions(), emphasisDotGapEm: gap, strongAsEmphasisMarks: true },
       ),
       1,
@@ -308,7 +309,7 @@ test("rendererOutput_positiveGapUsesSelectableZeroHeightCarrier", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const link = root.querySelector("p a")!;
   assert.ok(link);
@@ -337,7 +338,7 @@ test("rendererOutput_positiveGapUsesSelectableZeroHeightCarrier", async (t) => {
   assert.equal(cssPx(computedStyleValue(spacingFragment!, "padding-right")), 0);
   assert.ok(
     selectionCoversElement(spacingFragment!, carrier),
-    `engine spacing must remain inside the native Range selection: ${(spacingFragment! as unknown as { outerHTML: string }).outerHTML}`,
+    `engine spacing must remain inside the native Range selection: ${spacingFragment!.outerHTML}`,
   );
   assert.equal(copySelection(link), "bug");
 });
@@ -348,7 +349,7 @@ test("rendererOutput_plainBodyTextRendersSparseRuns", async (t) => {
   const text = "中文排版需要保留语义与宿主样式，同时由引擎负责断行和标点几何。".repeat(8);
   const root = mount(`<div data-tiqian-root='true' style='width: 320px'><p>${text}</p></div>`);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const renderedNodes = paragraph.querySelectorAll("*").length;
@@ -366,7 +367,7 @@ test("rendererOutput_negativeGapResolvesToOverlapCarrier", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   // A multi-character run keeps a negative trailing gap as a negative
   // margin-right overlap instead of dropping it or using letter-spacing.

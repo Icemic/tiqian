@@ -10,23 +10,33 @@ import {
   sourceParagraphWidth,
   isCurrentResponsiveMeasure,
 } from "@tiqian/core/core/engine/responsive-measure.js";
+import { probe } from "./runtime-host.js";
+
+interface RectLike {
+  width: number;
+}
+
+type GetClientRectsFn = () => RectLike[];
+type GetBoundingClientRectFn = () => RectLike;
 
 interface StubElement {
-  getClientRects: () => Array<{ width: number }>;
-  getBoundingClientRect: () => { width: number };
+  getClientRects: GetClientRectsFn;
+  getBoundingClientRect: GetBoundingClientRectFn;
   parentElement: StubElement | null;
 }
 
-function rect(width: number) {
+function rect(width: number): RectLike {
   return { width };
 }
 
+interface StubElementOptions {
+  rects?: RectLike[];
+  fallbackWidth?: number;
+  parentElement?: StubElement | null;
+}
+
 function stubElement(
-  { rects = [], fallbackWidth = 0, parentElement = null }: {
-    rects?: Array<{ width: number }>;
-    fallbackWidth?: number;
-    parentElement?: StubElement | null;
-  } = {},
+  { rects = [], fallbackWidth = 0, parentElement = null }: StubElementOptions = {},
 ): StubElement {
   return {
     getClientRects: () => rects,
@@ -35,21 +45,27 @@ function stubElement(
   };
 }
 
-function styleStub(values: Record<string, string> = {}) {
-  return {
+function styleStub(values: Record<string, string> = {}): CSSStyleDeclaration {
+  const styles: Record<string, string> = {
     paddingLeft: values.paddingLeft ?? "0px",
     paddingRight: values.paddingRight ?? "0px",
     borderLeftWidth: values.borderLeftWidth ?? "0px",
     borderRightWidth: values.borderRightWidth ?? "0px",
-    getPropertyValue(name: string): string {
-      return (this as unknown as Record<string, string>)[name] ?? "";
-    },
   };
+  return probe<CSSStyleDeclaration>({
+    ...styles,
+    getPropertyValue(name: string): string {
+      return styles[name] ?? "";
+    },
+  });
 }
 
-function withGetComputedStyle<T>(styleFactory: () => object, fn: () => T): T {
+type ActionFn<T> = () => T;
+type StyleFactoryFn = () => CSSStyleDeclaration;
+
+function withGetComputedStyle<T>(styleFactory: StyleFactoryFn, fn: ActionFn<T>): T {
   const real = globalThis.getComputedStyle;
-  globalThis.getComputedStyle = (() => styleFactory()) as unknown as typeof getComputedStyle;
+  globalThis.getComputedStyle = (() => styleFactory()) as typeof getComputedStyle;
   try {
     return fn();
   } finally {
@@ -99,7 +115,7 @@ test("responsiveMeasureBridge_elementContentWidthTakesWidestFragmentMinusChrome"
       borderLeftWidth: "1px",
       borderRightWidth: "2px",
     }),
-    () => elementContentWidth(element as unknown as Element),
+    () => elementContentWidth(probe<Element>(element)),
   );
   assert.equal(result, 277);
 });
@@ -108,7 +124,7 @@ test("responsiveMeasureBridge_elementContentWidthEmptyRectsFallBackToBoundingBox
   const element = stubElement({ rects: [], fallbackWidth: 400 });
   const result = withGetComputedStyle(
     () => styleStub(),
-    () => elementContentWidth(element as unknown as Element),
+    () => elementContentWidth(probe<Element>(element)),
   );
   assert.equal(result, 400);
   assert.equal(elementContentWidth(null), 0);
@@ -118,14 +134,14 @@ test("responsiveMeasureBridge_sourceParagraphWidthThreeLevelFallback", () => {
   // Level one: the paragraph's own content width is positive.
   const own = stubElement({ rects: [rect(320)], fallbackWidth: 320 });
   assert.equal(
-    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(own as unknown as Element)),
+    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(probe<Element>(own))),
     320,
   );
   // Level two: the paragraph measures zero, so its parent's width wins.
   const parent = stubElement({ rects: [rect(200)], fallbackWidth: 200 });
   const child = stubElement({ rects: [], fallbackWidth: 0, parentElement: parent });
   assert.equal(
-    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(child as unknown as Element)),
+    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(probe<Element>(child))),
     200,
   );
   // Level three: paragraph and parent both measure zero, so 320 applies.
@@ -135,7 +151,7 @@ test("responsiveMeasureBridge_sourceParagraphWidthThreeLevelFallback", () => {
     parentElement: stubElement({ rects: [], fallbackWidth: 0 }),
   });
   assert.equal(
-    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(orphan as unknown as Element)),
+    withGetComputedStyle(() => styleStub(), () => sourceParagraphWidth(probe<Element>(orphan))),
     320,
   );
 });

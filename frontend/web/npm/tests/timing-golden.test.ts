@@ -34,6 +34,7 @@ import {
   FRAME_STEP_MS,
   TimingGoldenRecord,
 } from "./timing-golden-host.js";
+import { probe } from "./runtime-host.js";
 import { workerLayoutRequestForRoot } from "@tiqian/core/core/engine/worker-request.js";
 import { optionsFromJs } from "@tiqian/core/core/engine/lifecycle.js";
 import { initializeGlobalServices } from "@tiqian/core/core/services/global-services.js";
@@ -184,6 +185,8 @@ function deriveTransitions(full: TimingGoldenRecord) {
   ];
 }
 
+// Token-transitions scope: state-machine verdicts derived from the dataset and
+// event streams.
 function projectTokenTransitions(full: TimingGoldenRecord) {
   return { transitions: deriveTransitions(full) };
 }
@@ -204,7 +207,9 @@ function projectCacheInvalidation(full: TimingGoldenRecord) {
   };
 }
 
-const ELEMENT_JOURNEYS: Record<string, (full: TimingGoldenRecord) => Record<string, unknown>> = {
+type JourneyProjector = (full: TimingGoldenRecord) => Record<string, unknown>;
+
+const ELEMENT_JOURNEYS: Record<string, JourneyProjector> = {
   "event-dispatch": projectEventDispatch,
   "dataset-first-writes": projectDatasetFirstWrites,
   "token-transitions": projectTokenTransitions,
@@ -241,13 +246,24 @@ async function recordElementJourney(journeyKey: string) {
 // formula (quota reached OR Date-domain deadline passed) is part of the
 // frozen contract even though the fake clock never trips the deadline inside
 // a single frame. Every voucher also carries the admission class that issued it ("grant" for polled grants).
+type ShouldStopFn = (n: number) => boolean;
+
+interface SliceController {
+  root: unknown;
+  quota: number;
+  admissionClass: string;
+  generation: number;
+  deadline: unknown;
+  shouldStop: ShouldStopFn;
+}
+
 function recordingRuntime(pendingByRoot: Map<unknown, number[]>, grants: unknown[]) {
   return {
     hasJob: (root: unknown) => pendingByRoot.has(root),
     jobGeneration: (root: unknown) => (pendingByRoot.has(root) ? 1 : 0),
-    pendingInTier: (root: unknown, tier: number) => (pendingByRoot.get(root) as number[])[tier - 1],
-    runSlice: (controller: { root: unknown; quota: number; admissionClass: string; generation: number; deadline: unknown; shouldStop: (n: number) => boolean }, minTier: number) => {
-      const tiers = pendingByRoot.get(controller.root) as number[];
+    pendingInTier: (root: unknown, tier: number) => (pendingByRoot.get(root) ?? [])[tier - 1],
+    runSlice: (controller: SliceController, minTier: number) => {
+      const tiers = pendingByRoot.get(controller.root) ?? [];
       const pendingBefore = [...tiers];
       let processed = 0;
       for (let tier = 1; tier <= minTier && processed < controller.quota; tier += 1) {
@@ -308,6 +324,12 @@ const GRANT_SCHEDULE = [
   [2, FRAME_STEP_MS],
 ];
 
+type RegisterWorkerWithRuntimeFn = (
+  session: number,
+  element: HTMLElement,
+  runtime: unknown,
+) => void;
+
 async function runGrantRoundsJourney(clock: FakeClock) {
   // The query string only busts the module cache so the journey gets a
   // pristine coordinator; the runtime shape is the element.js re-export of
@@ -333,13 +355,9 @@ async function runGrantRoundsJourney(clock: FakeClock) {
   // layoutJobPool, so the frozen golden records an empty grants stream on
   // purpose and the runtime is kept alive only for its pending map. The
   // method is bound because it reads private fields through this.
-  const registerWorkerWithRuntime: (
-    session: number,
-    element: HTMLElement,
-    runtime: unknown,
-  ) => void = coordinator.registerWorker.bind(coordinator);
-  registerWorkerWithRuntime(alphaSession, alpha as unknown as HTMLElement, runtime);
-  registerWorkerWithRuntime(betaSession, beta as unknown as HTMLElement, runtime);
+  const registerWorkerWithRuntime: RegisterWorkerWithRuntimeFn = probe<RegisterWorkerWithRuntimeFn>(coordinator.registerWorker.bind(coordinator));
+  registerWorkerWithRuntime(alphaSession, probe<HTMLElement>(alpha), runtime);
+  registerWorkerWithRuntime(betaSession, probe<HTMLElement>(beta), runtime);
   coordinator.setWorkerActive(alphaSession, true);
   coordinator.setWorkerActive(betaSession, true);
 
@@ -384,6 +402,16 @@ async function recordGrantRounds() {
 // take/issue/release against the plan cache)
 // ---------------------------------------------------------------------------
 
+interface WorkerLayoutMessageRequest {
+  text: string;
+}
+
+interface WorkerLayoutMessage {
+  type: string;
+  request?: WorkerLayoutMessageRequest;
+  id: unknown;
+}
+
 // A Worker double that answers like layout-worker.js (canned plan keyed by the
 // request text, error for the failure text) while recording every posted
 // message in order. The reply rides a microtask, matching the real Worker's
@@ -396,7 +424,7 @@ function recordingWorker(messages: unknown[]) {
       this.listeners.set(type, listener);
     }
 
-    postMessage(message: { type: string; request?: { text: string }; id: unknown }) {
+    postMessage(message: WorkerLayoutMessage) {
       messages.push(
         message.type === "layout"
           ? { type: message.type, text: message.request?.text }
@@ -443,7 +471,8 @@ function journeyComputedStyle(values?: Record<string, string>): CSSStyleDeclarat
       ? String(values?.[key] ?? "")
       : "";
   };
-  return { ...base, getPropertyValue } as CSSStyleDeclaration;
+  const styleDeclarationObj: CSSStyleDeclaration = probe<CSSStyleDeclaration>({ ...base, getPropertyValue });
+  return styleDeclarationObj;
 }
 
 // One root with three lowerable candidate paragraphs drives the full
@@ -455,13 +484,15 @@ function journeyComputedStyle(values?: Record<string, string>): CSSStyleDeclarat
 // candidate is a lowerable paragraph double (text-only children lower into
 // a plain paragraph) and the take/issue ops reuse that candidate's
 // serialized build; request text and geometry derive from the candidate.
+type QuerySelectorAllElementsFn = () => Element[];
+
 async function runWorkerMessagesJourney() {
   const bytes = new TextEncoder().encode("fixture-font-source");
   const state = harness(manifestWithFaces([[faceEvidence(digest(bytes))]]), { bytes });
-  const handle = await state.loader.prepare(state.root as unknown as HTMLElement);
+  const handle = await state.loader.prepare(probe<HTMLElement>(state.root));
 
   const ROOT_SELECTOR = "tiqian-prose, [data-tiqian-root]";
-  const lowerableParagraph = (text: string): Element => ({
+  const lowerableParagraph = (text: string): Element => probe<Element>({
     tagName: "P",
     textContent: text,
     childNodes: [{ nodeType: 3, textContent: text }],
@@ -480,14 +511,14 @@ async function runWorkerMessagesJourney() {
     getBoundingClientRect: () => ({ width: 323, top: 0, bottom: 24 }),
     getClientRects: () => [],
     parentElement: null,
-  } as unknown as Element);
+  });
   const candidates = {
     first: lowerableParagraph("first"),
     second: lowerableParagraph("second"),
     failure: lowerableParagraph("failure"),
   };
   let activeElement: Element = candidates.first;
-  (state.root as unknown as { querySelectorAll: () => Element[] }).querySelectorAll = () => [activeElement];
+  probe<{ querySelectorAll: QuerySelectorAllElementsFn }>(state.root).querySelectorAll = () => [activeElement];
 
   const prepareOptions = {
     paragraphSelector: ":is(p, li):not([data-tq-snapshot-key])",
@@ -499,7 +530,7 @@ async function runWorkerMessagesJourney() {
   };
   const canonicalOptions = optionsFromJs(prepareOptions);
   const requestJson = () => {
-    const built = workerLayoutRequestForRoot(state.root as unknown as Element, activeElement, canonicalOptions);
+    const built = workerLayoutRequestForRoot(probe<Element>(state.root), activeElement, canonicalOptions);
     return JSON.stringify({ ...built, semantics: [], renderInlineBoxes: [] });
   };
 
@@ -509,7 +540,7 @@ async function runWorkerMessagesJourney() {
   const savedInnerHeight = globalThis.innerHeight;
   const savedBridge = globalServices().coordination.layoutWorker;
   const coordinatorKey = Symbol.for("@tiqian/prose.layout-worker-coordinator.v1");
-  const savedCoordinator = (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
+  const savedCoordinator = probe<Record<symbol, unknown>>(globalThis)[coordinatorKey];
   const savedComputedStyle = globalThis.getComputedStyle;
   const compactTake = (resultText: string | null) => {
     if (resultText === null) return null;
@@ -523,9 +554,9 @@ async function runWorkerMessagesJourney() {
   };
 
   try {
-    delete (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
-    delete (globalServices().coordination as unknown as Record<string, unknown>).layoutWorker;
-    globalThis.Worker = recordingWorker(messages) as unknown as typeof Worker;
+    delete probe<Record<symbol, unknown>>(globalThis)[coordinatorKey];
+    delete probe<Record<string, unknown>>(globalServices().coordination).layoutWorker;
+    globalThis.Worker = probe<typeof Worker>(recordingWorker(messages));
     globalThis.innerHeight = 800;
     globalThis.getComputedStyle = (target: unknown): CSSStyleDeclaration =>
       journeyComputedStyle((target as ComputedStyleSource | null | undefined)?._computedValues);
@@ -538,7 +569,7 @@ async function runWorkerMessagesJourney() {
     const bridge = globalServices().coordination.layoutWorker!;
     const prepare = async () => {
       const job = await module.createPrepareJob(
-        state.root as unknown as HTMLElement,
+        probe<HTMLElement>(state.root),
         handle,
         prepareOptions,
         () => true,
@@ -602,12 +633,12 @@ async function runWorkerMessagesJourney() {
     else (globalThis as Record<string, unknown>).getComputedStyle = savedComputedStyle;
     if (savedBridge === undefined) {
       const coord = globalServices().coordination;
-      delete (coord as unknown as Record<string, unknown>).layoutWorker;
+      delete probe<Record<string, unknown>>(coord).layoutWorker;
     } else {
-      (globalServices().coordination as unknown as Record<string, unknown>).layoutWorker = savedBridge;
+      probe<Record<string, unknown>>(globalServices().coordination).layoutWorker = savedBridge;
     }
-    if (savedCoordinator === undefined) delete (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey];
-    else (globalThis as unknown as Record<symbol, unknown>)[coordinatorKey] = savedCoordinator;
+    if (savedCoordinator === undefined) delete probe<Record<symbol, unknown>>(globalThis)[coordinatorKey];
+    else probe<Record<symbol, unknown>>(globalThis)[coordinatorKey] = savedCoordinator;
     state.loader.release(handle);
   }
 }
@@ -626,7 +657,9 @@ async function recordWorkerMessages() {
 // Suite
 // ---------------------------------------------------------------------------
 
-const JOURNEYS: Record<string, () => Promise<Record<string, unknown>>> = {
+type JourneyRunner = () => Promise<Record<string, unknown>>;
+
+const JOURNEYS: Record<string, JourneyRunner> = {
   "grant-rounds": recordGrantRounds,
   "worker-messages": recordWorkerMessages,
   "event-dispatch": () => recordElementJourney("event-dispatch"),

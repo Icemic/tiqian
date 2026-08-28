@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { FakeElement } from "./snapshot-dom-fixtures.js";
 import {
   cleanupMounted,
   computedStyleValue,
@@ -21,14 +22,19 @@ import {
   nativeInnerText,
   pendingTestAnimationFrameCount,
   preparedValueStyleProperty,
+  probe,
   renderedLineSignature,
   testOptions,
 } from "./runtime-host.js";
 
 type CSSStyleView = { fontFamily: string; fontSize: string; fontWeight: string; width: string; [key: string]: string };
 
-function cssStyle(el: { style: unknown }): CSSStyleView {
-  return el.style as unknown as CSSStyleView;
+interface StyleBearer {
+  style: unknown;
+}
+
+function cssStyle(el: StyleBearer): CSSStyleView {
+  return probe<CSSStyleView>(el.style);
 }
 
 test("sourceFidelity_variationSelectorStaysWithItsVisibleBase", async (t) => {
@@ -39,7 +45,7 @@ test("sourceFidelity_variationSelectorStaysWithItsVisibleBase", async (t) => {
     `<div data-tiqian-root='true' style='width: 220px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   assert.equal(copySelection(paragraph), source);
@@ -55,16 +61,16 @@ test("sourceFidelity_shapingBoundariesStayInNativeSelectionFlow", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const boundaries = paragraph.querySelectorAll("[data-tq-shaping-boundary]");
   assert.ok(boundaries.length > 0, paragraph.innerHTML);
   for (const boundary of boundaries) {
     assert.equal(
-      computedStyleValue(boundary as unknown as import("./snapshot-dom-fixtures.js").FakeElement, "display"),
+      computedStyleValue(boundary, "display"),
       "inline",
-      `a shaping run must not become an atomic selection island: ${(boundary as unknown as import("./snapshot-dom-fixtures.js").FakeElement).innerHTML}`,
+      `a shaping run must not become an atomic selection island: ${boundary.innerHTML}`,
     );
   }
   assert.equal(copySelection(paragraph), source);
@@ -78,7 +84,7 @@ test("sourceFidelity_combiningMarksShapedWithTheirBases", async (t) => {
     `<div data-tiqian-root='true' style='width: 320px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -95,7 +101,7 @@ test("sourceFidelity_unverifiedEllipsisKeepsSourceCodepoint", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -117,7 +123,7 @@ test("sourceFidelity_whitespaceCollapseProjectionMatchesInnerText", async (t) =>
   assert.equal(nativeInnerText(paragraph), expected);
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   assert.equal(copySelection(paragraph), expected);
   assert.equal(paragraph.querySelectorAll("[data-tq-hard-break]").length, 1);
   assert.equal(emptyRenderedLineCount(paragraph), 0);
@@ -154,7 +160,7 @@ test("sourceFidelity_preservedCrLfNormalizesToOneBreak", async (t) => {
   const paragraph = root.querySelector("p")!;
   paragraph.textContent = "前\r\n后";
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   assert.equal(copySelection(paragraph), "前\n后");
   assert.equal(paragraph.querySelectorAll("[data-tq-hard-break]").length, 1);
@@ -169,7 +175,7 @@ test("sourceFidelity_zeroWidthSpaceCopiesFaithfully", async (t) => {
     `<div data-tiqian-root='true' style='width: 120px'><p>${source}</p></div>`,
   );
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -187,7 +193,7 @@ test("sourceFidelity_hostFontFamiliesDriveMeasureAndPaint", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, {
+  const count = TiqianWeb.enhance(probe<Element>(root), {
     fontFamilies: {
       cjk: "ConfiguredCjk, sans-serif",
       latin: "ConfiguredLatin, sans-serif",
@@ -204,7 +210,7 @@ test("sourceFidelity_hostFontFamiliesDriveMeasureAndPaint", async (t) => {
   assert.ok(line);
   assert.equal(cssPx(preparedValueStyleProperty(line, "--tq-line-height")), 33);
   assert.equal(
-    computedStyleValue(paragraph as unknown as import("./snapshot-dom-fixtures.js").FakeElement, "font-family"),
+    computedStyleValue(paragraph, "font-family"),
     computedStyleValue(line, "font-family"),
   );
   assert.equal(computedStyleValue(line, "font-size"), "21px");
@@ -231,7 +237,7 @@ test("sourceFidelity_hostInlineRenderStylesPreservedOnStrong", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 1);
   const strong = root.querySelector("p strong.host-strong")!;

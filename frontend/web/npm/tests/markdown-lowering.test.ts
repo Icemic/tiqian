@@ -15,6 +15,7 @@ import {
   loadHostRuntime,
   mount,
   preparedValueStyleProperty,
+  probe,
   testOptions,
 } from "./runtime-host.js";
 
@@ -27,7 +28,7 @@ test("markdownLowering_enhancesSupportedMarkdownInlineParagraphInPlace", async (
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -52,7 +53,7 @@ test("markdownLowering_enhancesInlineCodeParagraphWithBrowserResolvedMonospaceFo
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, { fontSize: 18, lineHeight: 30 });
+  const count = TiqianWeb.enhance(probe<Element>(root), { fontSize: 18, lineHeight: 30 });
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -71,7 +72,7 @@ test("markdownLowering_measurableUnknownInlineElementsBecomeOpaqueObjects", asyn
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.querySelectorAll("[data-tq-inline-object]").length, 3);
@@ -96,7 +97,7 @@ test("markdownLowering_paragraphOfOnlyInlineObjectEnhances", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -113,7 +114,7 @@ test("markdownLowering_loweringDecidesByTextualFormattingContext", async (t) => 
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -141,7 +142,7 @@ test("markdownLowering_generatedContentOnSemanticsUsesMeasuredBox", async (t) =>
   `);
   const paragraph = root.querySelector("p.generated")!;
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 3);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 3);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
   assert.equal(paragraph.getAttribute("data-tiqian-capability-issue"), null);
   const footnote = paragraph.querySelector("a.generated-footnote")!;
@@ -176,7 +177,7 @@ test("markdownLowering_rootGeneratedContentKeepsParagraphNative", async (t) => {
   const paragraph = root.querySelector("p")!;
   const original = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 0);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 0);
 
   assert.equal(paragraph.innerHTML, original);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -198,7 +199,7 @@ test("markdownLowering_hostInlineBoxEdgesMeasuredIntoLayout", async (t) => {
     </div>
   `);
 
-  const count = TiqianWeb.enhance(root as unknown as Element, testOptions());
+  const count = TiqianWeb.enhance(probe<Element>(root), testOptions());
 
   assert.equal(count, 1);
   const paragraph = root.querySelector("p")!;
@@ -218,7 +219,7 @@ test("markdownLowering_superscriptAndSubscriptParticipateInEnhancement", async (
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
@@ -242,7 +243,7 @@ test("markdownLowering_superscriptGeneratedContentKeepsUniqueId", async (t) => {
     </div>
   `);
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const sup = paragraph.querySelector("sup");

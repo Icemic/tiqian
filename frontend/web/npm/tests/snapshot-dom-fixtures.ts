@@ -5,6 +5,41 @@
 
 import { createHash } from "node:crypto";
 
+type FixtureProbeMeasureFn = (cssText: string) => void;
+type FontCheckFn = (descriptor: unknown, text: string) => boolean;
+type FakeFontLoadFn = (descriptor: unknown, text: string) => Promise<unknown[]>;
+type FakeFontEventListenerFn = () => void;
+
+interface FakeClientRect {
+  width: number;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  height: number;
+}
+
+interface FakeRangeRect {
+  width: number;
+}
+
+interface FakeRange {
+  selectNodeContents(node: FakeNode): void;
+  getBoundingClientRect(): FakeRangeRect;
+}
+
+interface FakeDocumentFonts {
+  load: FakeFontLoadFn;
+  check: FontCheckFn;
+  addEventListener: FakeFontEventListenerFn;
+  removeEventListener: FakeFontEventListenerFn;
+  ready?: Promise<void>;
+}
+
+interface FakeStyleDeclaration {
+  getPropertyValue(name: string): string;
+}
+
 function matchesSelector(element: FakeElement, selector: string): boolean {
   if (selector === "*") return element.nodeType === 1;
   if (selector === ":is(p, li)[data-tq-snapshot-key]") {
@@ -36,6 +71,23 @@ class FakeNode {
 
   get firstChild(): FakeNode | null {
     return this.childNodes[0] ?? null;
+  }
+
+  _isConnected?: boolean;
+
+  get isConnected(): boolean {
+    let curr: FakeNode | null = this;
+    const doc = (globalThis as Record<string, unknown>).document as FakeNode | undefined;
+    while (curr) {
+      if (curr._isConnected !== undefined) return curr._isConnected;
+      if (curr.nodeType === 9 || (doc && curr === doc)) return true;
+      curr = curr.parentNode;
+    }
+    return false;
+  }
+
+  set isConnected(value: boolean) {
+    this._isConnected = value;
   }
 
   get nextSibling(): FakeNode | null {
@@ -294,6 +346,12 @@ class FakeInlineStyle {
   }
 }
 
+export interface FakeElementClassList {
+  contains(name: string): boolean;
+  add(...cls: string[]): void;
+  remove(...cls: string[]): void;
+}
+
 class FakeElement extends FakeNode {
   tagName: string;
   attributes: Map<string, string>;
@@ -311,7 +369,7 @@ class FakeElement extends FakeNode {
   protected declare _innerHTMLValue: string | undefined;
   _innerText: string | null = null;
   _fixtureProbeWidth?: number;
-  _onFixtureProbeMeasure?: (cssText: string) => void;
+  _onFixtureProbeMeasure?: FixtureProbeMeasureFn;
 
   constructor(tagName: string) {
     super(1);
@@ -324,6 +382,63 @@ class FakeElement extends FakeNode {
     this.height = 0;
     this.left = 0;
     this.top = 0;
+  }
+
+  get children(): FakeElement[] {
+    return this.childNodes.filter((n): n is FakeElement => n.nodeType === 1);
+  }
+
+  get classList(): FakeElementClassList {
+    const getClasses = () => (this.getAttribute("class") || "").trim().split(/\s+/).filter(Boolean);
+    return {
+      contains: (cls: string) => getClasses().includes(cls),
+      add: (...cls: string[]) => {
+        const set = new Set(getClasses());
+        for (const c of cls) set.add(c);
+        this.setAttribute("class", Array.from(set).join(" "));
+      },
+      remove: (...cls: string[]) => {
+        const set = new Set(getClasses());
+        for (const c of cls) set.delete(c);
+        this.setAttribute("class", Array.from(set).join(" "));
+      },
+    };
+  }
+
+  get outerHTML(): string {
+    return this.innerHTML ?? "";
+  }
+
+  get clientWidth(): number {
+    return this.width;
+  }
+
+  set clientWidth(value: number) {
+    this.width = Number(value);
+  }
+
+  get clientHeight(): number {
+    return this.height;
+  }
+
+  set clientHeight(value: number) {
+    this.height = Number(value);
+  }
+
+  get scrollWidth(): number {
+    return this.width;
+  }
+
+  set scrollWidth(value: number) {
+    this.width = Number(value);
+  }
+
+  get scrollHeight(): number {
+    return this.height;
+  }
+
+  set scrollHeight(value: number) {
+    this.height = Number(value);
   }
 
   get dataset(): Record<string, string | undefined> {
@@ -368,14 +483,7 @@ class FakeElement extends FakeNode {
     this._innerText = String(value);
   }
 
-  getBoundingClientRect(): {
-    width: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    height: number;
-  } {
+  getBoundingClientRect(): FakeClientRect {
     if (this._fixtureProbeWidth != null && this.style.cssText.includes("position:absolute!important")) {
       this._onFixtureProbeMeasure?.(this.style.cssText);
       return {
@@ -397,14 +505,7 @@ class FakeElement extends FakeNode {
     };
   }
 
-  getClientRects(): Array<{
-    width: number;
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-    height: number;
-  }> {
+  getClientRects(): FakeClientRect[] {
     return [this.getBoundingClientRect()];
   }
 
@@ -462,23 +563,14 @@ interface FakeDocument {
   baseURI: string;
   elements: Map<string, unknown>;
   styleSheets: unknown[];
-  fonts: {
-    load: (descriptor: unknown, text: string) => Promise<unknown[]>;
-    check: (descriptor: unknown, text: string) => boolean;
-    addEventListener: () => void;
-    removeEventListener: () => void;
-    ready?: Promise<void>;
-  };
+  fonts: FakeDocumentFonts;
   createDocumentFragment(): FakeFragment;
   createElement(tagName: string): FakeElement;
   createElementNS(ns: string | null, tagName: string): FakeElement;
   createTextNode(data: string): FakeText;
   getSelection(): unknown;
   contains(node: FakeNode): boolean;
-  createRange(): {
-    selectNodeContents(node: FakeNode): void;
-    getBoundingClientRect(): { width: number };
-  };
+  createRange(): FakeRange;
   getElementById(id: string): FakeElement | null;
   querySelector(selector: string): FakeElement | null;
   querySelectorAll(selector: string): FakeElement[];
@@ -501,7 +593,7 @@ interface FakeEvent {
   preventDefault(): void;
 }
 
-function styleDeclaration(values: Record<string, string>): { getPropertyValue(name: string): string } {
+function styleDeclaration(values: Record<string, string>): FakeStyleDeclaration {
   return {
     getPropertyValue(name: string): string {
       return values[name] ?? "";
@@ -646,6 +738,7 @@ function asDocument(doc: FakeDocument): Document {
 export {
   FakeDocument,
   FakeElement,
+  FakeEvent,
   FakeFragment,
   FakeInlineStyle,
   FakeNode,

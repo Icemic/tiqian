@@ -17,6 +17,7 @@ import {
   loadHostRuntime,
   mount,
   pendingTestAnimationFrameCount,
+  probe,
   runWorkerJobToCompletion,
   setElementRect,
   testOptions,
@@ -31,11 +32,11 @@ test("rawDom_destroyRestoresOriginalChildrenAndHostAttributes", async (t) => {
   const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   assert.equal(paragraph.getAttribute("data-tq-copy-ignore"), "host-owned");
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-copy-ignore"), "host-owned");
@@ -55,10 +56,10 @@ test("rawDom_destroyCancelsPendingWorkBeforeTouchingContent", async (t) => {
   const originalHtml = paragraph.innerHTML;
 
   attachWorker(root);
-  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
+  TiqianWeb.enhanceProgressively(probe<Element>(root), testOptions());
   assert.equal(root.getAttribute("data-tiqian-enhanced-count"), "0");
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(root.getAttribute("data-tiqian-enhanced"), null);
@@ -75,7 +76,7 @@ test("rawDom_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   const paragraph = root.querySelector("p")!;
   const originalHtml = paragraph.innerHTML;
 
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 1);
   const renderedHtml = paragraph.innerHTML;
   assert.notEqual(paragraph.innerHTML, originalHtml);
 
@@ -84,7 +85,7 @@ test("rawDom_detachKeepsRenderedDomUntilDestroyRestoresSource", async (t) => {
   assert.equal(paragraph.innerHTML, renderedHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), "true");
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
 
   assert.equal(paragraph.innerHTML, originalHtml);
   assert.equal(paragraph.getAttribute("data-tq-rendered"), null);
@@ -103,11 +104,11 @@ test("rawDom_destroyCancelsScheduledTailBeforeTouchingParagraphs", async (t) => 
   }
 
   attachWorker(root);
-  TiqianWeb.enhanceProgressively(root as unknown as Element, testOptions());
+  TiqianWeb.enhanceProgressively(probe<Element>(root), testOptions());
   grantWorkerSlice(root);
   assert.ok(root.querySelectorAll("p[data-tq-rendered='true']").length < 2);
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
   runWorkerJobToCompletion(root);
 
   paragraphs.forEach((paragraph, index) => {
@@ -125,7 +126,7 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
     "<div data-tiqian-root='true' style='width: 220px'><p data-tq-snapshot-key='plain' style=\"font-family: 'Fixture CJK'; font-size: 18px; line-height: 30px\">原节点必须在异常后原样回来。</p></div>",
   );
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, snapshotTestOptions()), 1);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), snapshotTestOptions()), 1);
 
   const paragraph = root.querySelector("p")!;
   const renderedChild = paragraph.firstChild;
@@ -135,10 +136,10 @@ test("rawDom_commitFailureRollsBackNodesAndCompletesJob", async (t) => {
 
   let errorCount = 0;
   let readyCount = 0;
-  (root as unknown as { addEventListener(type: string, listener: () => void): void }).addEventListener("tiqian:relayout-error", () => {
+  root.addEventListener("tiqian:relayout-error", () => {
     errorCount += 1;
   });
-  (root as unknown as { addEventListener(type: string, listener: () => void): void }).addEventListener("tiqian:relayout-ready", () => {
+  root.addEventListener("tiqian:relayout-ready", () => {
     readyCount += 1;
   });
 
@@ -188,18 +189,18 @@ test("rawDom_destroyCancelsInFlightRelayoutAndRollsBack", async (t) => {
   const originalHtmls = paragraphs.map((paragraph) => paragraph.innerHTML);
 
   TiqianWeb.install();
-  assert.equal(TiqianWeb.enhance(root as unknown as Element, testOptions()), 10);
+  assert.equal(TiqianWeb.enhance(probe<Element>(root), testOptions()), 10);
 
   attachWorker(root);
   root.style.setProperty("width", "100px");
   dispatchRelayout(root);
   grantWorkerSlice(root);
 
-  assert.equal(TiqianWeb.workerHasJob(root as unknown as Element), true);
+  assert.equal(TiqianWeb.workerHasJob(probe<Element>(root)), true);
 
-  TiqianWeb.destroy(root as unknown as Element);
+  TiqianWeb.destroy(probe<Element>(root));
 
-  assert.equal(TiqianWeb.workerHasJob(root as unknown as Element), false);
+  assert.equal(TiqianWeb.workerHasJob(probe<Element>(root)), false);
   paragraphs.forEach((paragraph, index) => {
     assert.equal(paragraph.innerHTML, originalHtmls[index]);
     assert.equal(paragraph.getAttribute("data-tq-rendered"), null);

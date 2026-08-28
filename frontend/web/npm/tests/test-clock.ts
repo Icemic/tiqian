@@ -22,8 +22,10 @@ interface SavedGlobal {
   readonly value: unknown;
 }
 
+type TimerCallback = () => void;
+
 interface TimerEntry {
-  readonly callback: () => void;
+  readonly callback: TimerCallback;
   readonly dueAt: number;
 }
 
@@ -68,7 +70,7 @@ export function installFakeClock(): FakeClock {
   (globalThis as Record<string, unknown>).cancelAnimationFrame = (id: number): void => {
     rafQueue.delete(id);
   };
-  (globalThis as Record<string, unknown>).setTimeout = (callback: () => void, delay: number = 0): number => {
+  (globalThis as Record<string, unknown>).setTimeout = (callback: TimerCallback, delay: number = 0): number => {
     const id = ++timerId;
     timers.set(id, { callback, dueAt: now + delay });
     return id;
